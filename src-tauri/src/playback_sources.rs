@@ -870,6 +870,8 @@ pub(crate) async fn resolve_candidate_fresh_until(
                         duration_seconds: audio.duration_seconds,
                         content_length: audio.expected_content_length,
                         has_video: audio.selected_format_has_video,
+                        decode_policy: crate::native_output::AudioSourceDecodePolicy::Automatic,
+                        decoder_fingerprint: None,
                     }),
 
                     cenc: None,
@@ -1057,7 +1059,23 @@ async fn resolve_inner(
     let automatic_source = !explicit_source && selected.is_none();
     resolve_after_local_preflight(store, track, explicit_source, |prepared_track| {
         Box::pin(async move {
-            let bandcamp_track = prepared_track.clone();
+            let mut prepared_track = prepared_track;
+            if selected.is_none() && prepared_track.local_path.is_none()
+                && crate::bandcamp::playback_enabled()
+                && !overrides_import_url(&prepared_track, &settings)
+                && matches!(prepared_track.provider.as_str(), "import" | "bandcamp")
+                && crate::bandcamp::validate_album_page_url(&prepared_track.source_url).is_ok()
+            {
+                let started = Instant::now();
+                let album = tokio::select! {
+                    biased;
+                    _ = wait_for_cancellation(cancel.clone()) => return Err("Cancelled".into()),
+                    result = tokio::time::timeout(deadline.remaining().min(Duration::from_secs(6)), crate::collection_sources::import_bandcamp(&prepared_track.source_url)) => result.ok().and_then(Result::ok),
+                };
+                let resolved = album.as_ref().and_then(|album| imported_bandcamp_album_track(&prepared_track, &album.entries));
+                trace.event("bandcamp_reference_verification_end", "bandcamp", json!({"durationMs":started.elapsed().as_millis(),"accepted":resolved.is_some(),"hasResults":album.is_some()}));
+                if let Some(resolved) = resolved { prepared_track = resolved; }
+            }
             let mut effective_track = prepared_track;
             let excerpt_request_track = effective_track.clone();
             crate::recording_identity::hydrate_identifiers(&mut effective_track);
@@ -1124,54 +1142,23 @@ async fn resolve_inner(
                 }
                 trace.event("catalog_duration_lookup_end", "other", json!({"catalogProvider":"spotify","accepted":effective_trace.catalog_duration_enriched,"durationMs":started.elapsed().as_millis()}));
             }
-            let bandcamp_allowed = crate::bandcamp_fallback::eligible(
-                &effective_track, &settings,
-                source_resolution_is_pinned(&effective_track, selected.is_some(), &settings, true),
-                attempt_limit,
-            );
-            if !bandcamp_allowed {
-                let background_allowed = automatic_source
-                    && !*cancel.borrow()
-                    && !trace.native_operation_id.as_deref().is_some_and(|id| id.starts_with("preparation:"));
-                let result = resolve_inner_prepared(store, acquisition, &effective_track, selected, cancel,
-                    settings.clone(), &effective_trace, failed, deadline, attempt_limit).await;
-                if result.is_err() && background_allowed {
-                    crate::compilation_excerpt::schedule(
-                        std::sync::Arc::new(acquisition.clone()), effective_track, settings,
-                    );
-                }
-                return result;
+            let background_allowed = automatic_source
+                && !*cancel.borrow()
+                && !trace.native_operation_id.as_deref().is_some_and(|id| id.starts_with("preparation:"));
+            let result = resolve_inner_prepared(store, acquisition, &effective_track, selected, cancel.clone(),
+                settings.clone(), &effective_trace, failed, deadline, attempt_limit).await;
+            if result.is_err() && !*cancel.borrow()
+                && settings.streaming_fallback_sources.iter().any(|provider| provider == "bandcamp")
+                && settings.bandcamp_fallback_enabled
+                && settings.streaming_fallback_enabled
+                && !trace.native_operation_id.as_deref().is_some_and(|id| id.starts_with("preparation:"))
+            {
+                crate::bandcamp_fallback::schedule_verification(acquisition, &effective_track, &settings);
             }
-            let (stop, child) = watch::channel(false);
-            let _stop = CancelSourceChildren(stop);
-            let normal = resolve_inner_prepared(store, acquisition, &effective_track, selected,
-                child.clone(), settings.clone(), &effective_trace, failed, deadline, attempt_limit);
-            let fallback = async {
-                // Start the additional provider only after the ordinary sources
-                // have had a chance to finish. Every stage shares the original
-                // deadline; no extra timeout budget is granted.
-                tokio::time::sleep(Duration::from_millis(settings.streaming_fallback_delay_ms.max(1500).into())).await;
-                effective_trace.event("bandcamp_fallback_start", "bandcamp", json!({}));
-                let started = Instant::now();
-                let result = crate::bandcamp_fallback::resolve(store, acquisition, &bandcamp_track,
-                    &settings, child, effective_trace.clone(), deadline, failed, false).await;
-                effective_trace.event("bandcamp_fallback_end", "bandcamp",
-                    json!({"accepted":result.is_ok(),"elapsedMs":started.elapsed().as_millis()}));
-                result
-            };
-            let result = tokio::select! {
-                biased;
-                _ = wait_for_cancellation(cancel.clone()) => Err("Cancelled".into()),
-                result = prefer_with_grace(Box::pin(normal), Box::pin(fallback),
-                    Duration::from_millis(settings.streaming_fallback_delay_ms.max(1500).into())) => result,
-            };
-            if result.is_err() && !*cancel.borrow() && !trace.native_operation_id.as_deref().is_some_and(|id| id.starts_with("preparation:")) {
-                crate::bandcamp_fallback::schedule_verification(acquisition, &bandcamp_track, &settings);
-                if automatic_source {
-                    crate::compilation_excerpt::schedule(
-                        std::sync::Arc::new(acquisition.clone()), effective_track, settings.clone(),
-                    );
-                }
+            if result.is_err() && background_allowed {
+                crate::compilation_excerpt::schedule(
+                    std::sync::Arc::new(acquisition.clone()), effective_track, settings,
+                );
             }
             result
         })
@@ -1416,7 +1403,9 @@ fn start_canonical_warmup(
     let settings = settings.clone();
     let trace = trace.clone();
     let provider = match settings.preferred_streaming_source.as_str() {
-        "youtube" | "soundcloud" | "monochrome" => settings.preferred_streaming_source.clone(),
+        "youtube" | "soundcloud" | "monochrome" | "bandcamp" => {
+            settings.preferred_streaming_source.clone()
+        }
         _ => "youtube".to_owned(),
     };
     AbortCanonicalWarmup(tokio::spawn(async move {
@@ -1478,6 +1467,7 @@ async fn resolve_inner_prepared(
     let mut pass = AliasResolutionPass::default();
     let pinned = source_resolution_is_pinned(track, selected.is_some(), &settings, true);
     let prepare_aliases = !trace.catalog_duration_enriched
+        && settings.preferred_streaming_source != "bandcamp"
         && deadline.remaining() > Duration::from_secs(8)
         && needs_catalog_alias_preparation(store, track, &settings, pinned);
     let _canonical_warmup = prepare_aliases.then(|| {
@@ -1620,7 +1610,7 @@ async fn resolve_inner_prepared_ordinary(
 ) -> Result<ResolvedSource, String> {
     let pinned = source_resolution_is_pinned(track, selected.is_some(), &settings, true);
     let primary = match settings.preferred_streaming_source.as_str() {
-        "monochrome" | "soundcloud" => settings.preferred_streaming_source.as_str(),
+        "monochrome" | "soundcloud" | "bandcamp" => settings.preferred_streaming_source.as_str(),
         _ => "youtube",
     };
     let fallbacks = crate::source_fallback::provider_order(
@@ -1662,6 +1652,79 @@ async fn resolve_inner_prepared_ordinary(
             alias_pass,
         )
         .await;
+    }
+    if fallbacks
+        .first()
+        .is_some_and(|provider| provider == "bandcamp")
+    {
+        let mut primary_settings = settings.clone();
+        primary_settings.streaming_fallback_enabled = false;
+        let primary_result = resolve_serial(
+            store,
+            acquisition,
+            track,
+            None,
+            cancel.clone(),
+            primary_settings,
+            trace,
+            failed,
+            deadline,
+            attempt_limit,
+            alias_pass,
+        )
+        .await;
+        if primary_result.is_ok() || *cancel.borrow() {
+            return primary_result;
+        }
+
+        let mut bandcamp_settings = settings.clone();
+        bandcamp_settings.preferred_streaming_source = "bandcamp".into();
+        bandcamp_settings.streaming_fallback_enabled = false;
+        let bandcamp_result = resolve_serial(
+            store,
+            acquisition,
+            track,
+            None,
+            cancel.clone(),
+            bandcamp_settings,
+            trace,
+            failed,
+            deadline,
+            attempt_limit,
+            alias_pass,
+        )
+        .await;
+        if bandcamp_result.is_ok() {
+            return bandcamp_result;
+        }
+        if *cancel.borrow() {
+            return Err("Cancelled".into());
+        }
+        let prior = merge_resolution_errors(
+            primary_result.err().unwrap_or_default(),
+            bandcamp_result.err().unwrap_or_default(),
+        );
+        if fallbacks.len() == 1 {
+            return Err(prior);
+        }
+        let mut remaining = settings;
+        remaining.preferred_streaming_source = fallbacks[1].clone();
+        remaining.streaming_fallback_sources = fallbacks[2..].to_vec();
+        return resolve_serial(
+            store,
+            acquisition,
+            track,
+            None,
+            cancel,
+            remaining,
+            trace,
+            failed,
+            deadline,
+            attempt_limit,
+            alias_pass,
+        )
+        .await
+        .map_err(|error| merge_resolution_errors(prior, error));
     }
     let mut fallback = preferred.clone();
     fallback.preferred_streaming_source = fallbacks[0].clone();
@@ -1712,7 +1775,8 @@ pub(crate) fn source_resolution_is_pinned(
         || (local_path_pins && track.local_path.is_some())
         || track.provider == "radio"
         || track.playback_range.is_some()
-        || matches!(track.provider.as_str(), "youtube" | "soundcloud")
+        || (matches!(track.provider.as_str(), "youtube" | "soundcloud")
+            && track.provenance["playbackMode"].as_str() != Some("lookup"))
         || (!overrides_import_url(track, settings)
             && (linked_candidate(track).is_some()
                 || track.provenance["sourceKind"].as_str() == Some("audioSearch")))
@@ -1757,7 +1821,7 @@ fn direct_youtube_policy(value: Option<&str>) -> bool {
     value.is_none_or(|value| value == "1")
 }
 
-fn direct_youtube_explicit_id<'a>(
+pub(crate) fn direct_youtube_explicit_id<'a>(
     track: &Track,
     candidate: &'a Candidate,
     attempt_limit: usize,
@@ -2433,7 +2497,8 @@ async fn resolve_serial(
     };
     let pinned = selected.is_some()
         || track.playback_range.is_some()
-        || matches!(track.provider.as_str(), "youtube" | "soundcloud")
+        || (matches!(track.provider.as_str(), "youtube" | "soundcloud")
+            && track.provenance["playbackMode"].as_str() != Some("lookup"))
         || (track.provenance["sourceKind"].as_str() == Some("audioSearch")
             && !overrides_import_url(track, &settings))
         || linked.is_some();
@@ -2451,12 +2516,15 @@ async fn resolve_serial(
     trace.event("alias_cache_lookup_end", &track.provider, json!({"durationMs":cache_started.elapsed().as_secs_f64()*1000.0,"aliases":verified_artist_aliases.tracks().len(),"verifiedCreditSets":verified_artist_aliases.has_verified_credit_sets()}));
     let alternate_search_artists = verified_artist_aliases.search_artist_candidates();
     let mut candidates = Vec::new();
+    let selected_candidate_present = selected.is_some();
     if let Some(candidate) = selected.or(linked) {
         candidates.push(candidate);
     }
 
     let primary = match settings.preferred_streaming_source.as_str() {
-        "youtube" | "soundcloud" | "monochrome" => settings.preferred_streaming_source.as_str(),
+        "youtube" | "soundcloud" | "monochrome" | "bandcamp" => {
+            settings.preferred_streaming_source.as_str()
+        }
         _ => "youtube",
     };
     let mut providers = if pinned {
@@ -2505,6 +2573,51 @@ async fn resolve_serial(
             break;
         }
         trace.event("provider_start", &provider, json!({"pinned":pinned}));
+        if provider == "bandcamp" {
+            let eligible = !selected_candidate_present
+                && crate::bandcamp_fallback::eligible_in_order(
+                    track,
+                    &settings,
+                    pinned,
+                    attempt_limit,
+                );
+            if !eligible {
+                trace.event(
+                    "provider_skipped",
+                    "bandcamp",
+                    json!({"reason":"ordered_fallback_ineligible"}),
+                );
+                continue;
+            }
+            let started = Instant::now();
+            let result = crate::bandcamp_fallback::resolve(
+                store,
+                acquisition,
+                track,
+                &settings,
+                cancel.clone(),
+                trace.clone(),
+                deadline,
+                failed,
+                false,
+            )
+            .await;
+            trace.event(
+                "bandcamp_fallback_end",
+                "bandcamp",
+                json!({"accepted":result.is_ok(),"elapsedMs":started.elapsed().as_millis()}),
+            );
+            match result {
+                Ok(source) => return Ok(source),
+                Err(error) if error == "Cancelled" || *cancel.borrow() => {
+                    return Err("Cancelled".into())
+                }
+                Err(error) => {
+                    failures.record(error);
+                    continue;
+                }
+            }
+        }
         // The lossless resolver path is opt-in through an injected service and
         // runs only for the user's preferred Monochrome source. It never
         // replaces a selected/pinned candidate or consumes extra fallback
@@ -2836,6 +2949,8 @@ async fn resolve_serial(
                                                 duration_seconds: audio.duration_seconds,
                                                 content_length: audio.expected_content_length,
                                                 has_video: audio.selected_format_has_video,
+                                                decode_policy: crate::native_output::AudioSourceDecodePolicy::Automatic,
+                                                decoder_fingerprint: None,
                                             }),
 
                                             cenc: None,
@@ -3038,22 +3153,41 @@ async fn resolve_serial(
             let mut gate_filtered = found
                 .into_iter()
                 .filter_map(|candidate| {
-                    let path = policy_matching::evaluate(
-                        track,
-                        verified_artist_aliases.tracks(),
-                        verified_artist_aliases.isrc_enriched(),
-                        verified_artist_aliases.verified_recording_isrc(),
-                        &candidate,
-                        settings.matching_level,
-                        store,
-                    );
-                    if let Some(evidence) = gate_evidence.as_mut() {
+                    let (path, shared_diagnostic) = if gate_evidence.is_some() {
+                        let (path, diagnostic) = policy_matching::evaluate_with_diagnostics(
+                            track,
+                            verified_artist_aliases.tracks(),
+                            verified_artist_aliases.isrc_enriched(),
+                            verified_artist_aliases.verified_recording_isrc(),
+                            &candidate,
+                            settings.matching_level,
+                            store,
+                        );
+                        (path, Some(diagnostic))
+                    } else {
+                        (
+                            policy_matching::evaluate(
+                                track,
+                                verified_artist_aliases.tracks(),
+                                verified_artist_aliases.isrc_enriched(),
+                                verified_artist_aliases.verified_recording_isrc(),
+                                &candidate,
+                                settings.matching_level,
+                                store,
+                            ),
+                            None,
+                        )
+                    };
+                    if let (Some(evidence), Some(diagnostic)) =
+                        (gate_evidence.as_mut(), shared_diagnostic.as_ref())
+                    {
                         evidence.observe_with_proofs(
                             track,
                             verified_artist_aliases.tracks(),
                             verified_artist_aliases.isrc_enriched(),
                             &candidate,
                             path.path,
+                            Some(diagnostic),
                         );
                     }
                     if !path.accepted() && plausible_artist_alias_block(track, &candidate) {
@@ -3169,6 +3303,9 @@ async fn resolve_serial(
                                 duration_seconds: audio.duration_seconds,
                                 content_length: audio.expected_content_length,
                                 has_video: audio.selected_format_has_video,
+                                decode_policy:
+                                    crate::native_output::AudioSourceDecodePolicy::Automatic,
+                                decoder_fingerprint: None,
                             }),
 
                             cenc: None,
@@ -3254,6 +3391,9 @@ async fn resolve_serial(
                                 duration_seconds: audio.duration_seconds,
                                 content_length: audio.expected_content_length,
                                 has_video: audio.selected_format_has_video,
+                                decode_policy:
+                                    crate::native_output::AudioSourceDecodePolicy::Automatic,
+                                decoder_fingerprint: None,
                             }),
 
                             cenc: None,
@@ -3363,6 +3503,9 @@ async fn resolve_serial(
                                 duration_seconds: audio.duration_seconds,
                                 content_length: audio.expected_content_length,
                                 has_video: audio.selected_format_has_video,
+                                decode_policy:
+                                    crate::native_output::AudioSourceDecodePolicy::Automatic,
+                                decoder_fingerprint: None,
                             }),
 
                             cenc: None,
@@ -3473,6 +3616,9 @@ async fn resolve_serial(
                                         duration_seconds: audio.duration_seconds,
                                         content_length: audio.expected_content_length,
                                         has_video: audio.selected_format_has_video,
+                                        decode_policy:
+                                            crate::native_output::AudioSourceDecodePolicy::Automatic,
+                                        decoder_fingerprint: None,
                                     }),
 
                                     cenc: None,
@@ -3975,6 +4121,18 @@ fn evaluate_candidate_gate_with_proofs(
 const MAX_CANDIDATE_GATE_ROWS: usize = 200;
 const MAX_CANDIDATE_GATE_ROWS_PER_EVENT: usize = 12;
 
+fn diagnostic_requested_version(track: &Track) -> String {
+    let parsed = crate::recording_identity::parse_title(&track.title);
+    crate::matching::normalize_version_for_title(
+        &track.title,
+        track
+            .version
+            .as_deref()
+            .or(parsed.version.as_deref())
+            .unwrap_or(""),
+    )
+}
+
 #[derive(Default)]
 struct CandidateGateEvidence {
     counts: std::collections::BTreeMap<&'static str, u64>,
@@ -3997,7 +4155,7 @@ impl CandidateGateEvidence {
         candidate: &Candidate,
         path: CandidateGatePath,
     ) {
-        self.observe_with_proofs(track, aliases, &[], candidate, path);
+        self.observe_with_proofs(track, aliases, &[], candidate, path, None);
     }
 
     fn observe_with_proofs(
@@ -4007,6 +4165,7 @@ impl CandidateGateEvidence {
         isrc_enriched_aliases: &[Track],
         candidate: &Candidate,
         path: CandidateGatePath,
+        shared_diagnostic: Option<&policy_matching::SharedGateDiagnostic>,
     ) {
         self.increment("candidatesEvaluatedBeforeForegroundCap");
         self.increment(path.counter());
@@ -4030,8 +4189,7 @@ impl CandidateGateEvidence {
                 "allowed" | "unrestricted" => "allowed",
                 _ => "other",
             };
-            let requested_version =
-                crate::matching::normalize_version(track.version.as_deref().unwrap_or(""));
+            let requested_version = diagnostic_requested_version(track);
             let candidate_title = crate::matching::normalize(&candidate.title);
             let requested_title = crate::matching::normalize(&track.title);
             let requested_title_phrase_present = !requested_title.is_empty()
@@ -4102,7 +4260,7 @@ impl CandidateGateEvidence {
                 .any(|variant| {
                     crate::source_fallback::is_provisional_playback_candidate(variant, candidate)
                 });
-            self.candidate_rows.push(json!({
+            let mut row = json!({
                 "ordinal": ordinal,
                 "providerClass": provider_class,
                 "confidenceClass": confidence_class,
@@ -4123,7 +4281,14 @@ impl CandidateGateEvidence {
                 "requestedVersionPresent": version_present,
                 "descriptiveVersionTextPresentOrNotRequired": version_matches,
                 "versionConflictFlag": version_conflict_flag,
-            }));
+            });
+            if let Some(shared) = shared_diagnostic {
+                row["sharedAction"] = json!(shared.action);
+                row["sharedRelationship"] = json!(shared.relationship);
+                row["sharedReasons"] = json!(shared.reasons);
+                row["sharedDimensions"] = json!(shared.dimensions);
+            }
+            self.candidate_rows.push(row);
         }
         if candidate.permission == "restricted" {
             self.increment("permissionRestricted");
@@ -4138,8 +4303,7 @@ impl CandidateGateEvidence {
         {
             self.increment("versionConflictReasonFlagAsciiCaseInsensitive");
         }
-        let expected_version =
-            crate::matching::normalize_version(track.version.as_deref().unwrap_or(""));
+        let expected_version = diagnostic_requested_version(track);
         if !expected_version.is_empty() {
             self.increment("requestedVersionPresent");
         }
@@ -5108,7 +5272,7 @@ pub(crate) fn recognition_request_fingerprint(
     policy_matching::request_fingerprint(track, level)
 }
 
-fn recording_identity_fingerprint(track: &Track) -> Option<String> {
+pub(crate) fn recording_identity_fingerprint(track: &Track) -> Option<String> {
     let normalize = |value: Option<&str>| {
         value
             .unwrap_or_default()
@@ -5402,6 +5566,8 @@ async fn try_verified_candidate(
                 duration_seconds: audio.duration_seconds,
                 content_length: audio.expected_content_length,
                 has_video: audio.selected_format_has_video,
+                decode_policy: crate::native_output::AudioSourceDecodePolicy::Automatic,
+                decoder_fingerprint: None,
             }),
 
             cenc: None,
@@ -5413,9 +5579,63 @@ async fn try_verified_candidate(
     })
 }
 
+// Discovery captures can link every album row to the album page and omit its
+// runtime. Resolve one exact row from that same public album, without changing
+// saved metadata or substituting another performance found through search.
+fn imported_bandcamp_album_track(
+    track: &Track,
+    entries: &[crate::browser_bridge::BrowserEntry],
+) -> Option<Track> {
+    let album_url = crate::bandcamp::validate_album_page_url(&track.source_url).ok()?;
+    let normalize = crate::matching::normalize_single_artist_name;
+    if normalize(&track.title).is_empty() || normalize(&track.artist).is_empty() {
+        return None;
+    }
+    let mut matching = entries.iter().filter(|row| {
+        normalize(&row.title) == normalize(&track.title)
+            && normalize(&row.artist) == normalize(&track.artist)
+            && track
+                .album
+                .as_deref()
+                .filter(|a| !a.trim().is_empty())
+                .is_none_or(|album| {
+                    row.album
+                        .as_deref()
+                        .is_some_and(|actual| normalize(actual) == normalize(album))
+                })
+            && row.version == track.version
+    });
+    let row = matching.next()?;
+    if matching.next().is_some() {
+        return None;
+    }
+    let page = crate::bandcamp::validate_track_page_url(row.source_url.as_deref()?).ok()?;
+    if page.host_str() != album_url.host_str() {
+        return None;
+    }
+    let duration = row
+        .duration_seconds
+        .filter(|d| d.is_finite() && *d >= 1. && *d <= 21600.)?;
+    if track
+        .duration_seconds
+        .is_some_and(|saved| !saved.is_finite() || (saved - duration).abs() > 2.)
+    {
+        return None;
+    }
+    let mut prepared = track.clone();
+    prepared.source_url = page.to_string();
+    if prepared.duration_seconds.is_none() {
+        prepared.duration_seconds = Some(duration);
+    }
+    Some(prepared)
+}
+
 fn overrides_import_url(track: &Track, settings: &Settings) -> bool {
-    settings.override_playlist_track_urls
-        && track.provider == "import"
+    if track.provenance["playbackMode"].as_str() == Some("source") {
+        return false;
+    }
+    (track.provenance["playbackMode"].as_str() == Some("lookup")
+        || (settings.override_playlist_track_urls && track.provider == "import"))
         && track.playback_range.is_none()
         && track.provenance["sourceKind"].as_str() != Some("youtubeRadio")
 }
@@ -5669,6 +5889,8 @@ async fn recover_inner(
                 duration_seconds: audio.duration_seconds,
                 content_length: audio.expected_content_length,
                 has_video: audio.selected_format_has_video,
+                decode_policy: crate::native_output::AudioSourceDecodePolicy::Automatic,
+                decoder_fingerprint: None,
             }),
 
             cenc: None,
@@ -7457,6 +7679,87 @@ mod tests {
     }
 
     #[test]
+    fn diagnostic_gate_reports_title_version_and_safe_shared_rejection_reason() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("library.sqlite")).unwrap();
+        let track = Track {
+            id: "spotify:kylie-extended-fixture".into(),
+            provider: "spotify".into(),
+            provider_id: "kylie-extended-fixture".into(),
+            artist: "Kylie Minogue".into(),
+            title: "Can't Get You out of My Head - Extended Mix".into(),
+            duration_seconds: Some(359.0),
+            version: None,
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            id: "youtube:private-fixture-id".into(),
+            provider: "youtube".into(),
+            url: "https://www.youtube.com/watch?v=private-fixture-id".into(),
+            title: "Kylie Minogue - Can't Get You out of My Head (Radio Edit)".into(),
+            duration_seconds: Some(359.0),
+            source_metadata: Some(json!({
+                "artists":["Kylie Minogue"],
+                "version":"Radio Edit"
+            })),
+            ..Candidate::default()
+        };
+        let (gate, shared) = policy_matching::evaluate_with_diagnostics(
+            &track,
+            &[],
+            &[],
+            None,
+            &candidate,
+            crate::recording_match::MatchLevel::Balanced,
+            &store,
+        );
+        let mut evidence = CandidateGateEvidence::default();
+        evidence.observe_with_proofs(&track, &[], &[], &candidate, gate.path, Some(&shared));
+
+        let row = &evidence.candidate_rows[0];
+        assert_eq!(row["requestedVersionPresent"], true);
+        assert_eq!(row["descriptiveVersionTextPresentOrNotRequired"], false);
+        assert_eq!(row["sharedAction"], "reject");
+        assert_eq!(row["sharedDimensions"]["version"], "conflict");
+        assert!(row["sharedReasons"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|reason| reason == "versionConflict"));
+
+        let mut matching_candidate = candidate.clone();
+        matching_candidate.title =
+            "Kylie Minogue - Can't Get You out of My Head (Extended Mix)".into();
+        matching_candidate.source_metadata = Some(json!({
+            "artists":["Kylie Minogue"],
+            "version":"Extended Mix"
+        }));
+        let (matching_gate, matching_shared) = policy_matching::evaluate_with_diagnostics(
+            &track,
+            &[],
+            &[],
+            None,
+            &matching_candidate,
+            crate::recording_match::MatchLevel::Balanced,
+            &store,
+        );
+        assert_eq!(
+            matching_shared.dimensions.version,
+            crate::recording_match::Comparison::Agree
+        );
+        assert_ne!(
+            matching_shared.action,
+            crate::recording_match::MatchAction::Reject
+        );
+        assert!(matching_gate.path.accepted());
+
+        let serialized = serde_json::to_string(&evidence.candidate_rows).unwrap();
+        assert!(!serialized.contains("private-fixture-id"));
+        assert!(!serialized.contains("Can't Get You out of My Head"));
+        assert!(!serialized.contains("youtube.com"));
+    }
+
+    #[test]
     fn diagnostic_gate_evidence_preserves_existing_alias_decision_and_redacts_values() {
         let track = Track {
             artist: "Le Mystère Des Voix Bulgares".into(),
@@ -8811,6 +9114,25 @@ mod tests {
     }
 
     #[test]
+    fn imported_recording_playback_mode_is_explicit_and_chapters_stay_pinned() {
+        let mut settings = Settings::default();
+        let mut track = Track {
+            provider: "youtube".into(),
+            source_url: "https://music.youtube.com/watch?v=abcdefghijk".into(),
+            provenance: json!({"playbackMode":"lookup"}),
+            ..Track::default()
+        };
+        assert!(overrides_import_url(&track, &settings));
+        assert!(!source_resolution_is_pinned(&track, false, &settings, true));
+        assert!(source_resolution_is_pinned(&track, true, &settings, true));
+        track.provenance["playbackMode"] = json!("source");
+        assert!(source_resolution_is_pinned(&track, false, &settings, true));
+        track.provider = "import".into();
+        settings.override_playlist_track_urls = true;
+        assert!(!overrides_import_url(&track, &settings));
+    }
+
+    #[test]
     fn playlist_url_override_uses_preferred_source_but_preserves_explicit_sources() {
         let mut settings = Settings::default();
         let mut track = Track {
@@ -8892,6 +9214,42 @@ mod tests {
         .unwrap();
         assert_eq!(candidate.id, "youtube:4-XSYttqtls");
         assert_eq!(candidate.url, "https://www.youtube.com/watch?v=4-XSYttqtls");
+    }
+
+    #[test]
+    fn imported_album_only_bandcamp_row_needs_unique_full_identity_and_runtime() {
+        let track = Track {
+            id: "saved-import".into(),
+            provider: "import".into(),
+            title: "Reflecting The Prostrate Shadows".into(),
+            artist: "raison d’être".into(),
+            album: Some("Descending Into Abyss Approaching Inferno".into()),
+            source_url:
+                "https://raisondetre.bandcamp.com/album/descending-into-abyss-approaching-inferno"
+                    .into(),
+            ..Track::default()
+        };
+        let row: crate::browser_bridge::BrowserEntry = serde_json::from_value(json!({"artist":track.artist,"title":track.title,"album":track.album,"position":1,"sourceUrl":"https://raisondetre.bandcamp.com/track/reflecting-the-prostrate-shadows","durationSeconds":360.})).unwrap();
+        let prepared = imported_bandcamp_album_track(&track, &[row.clone()]).unwrap();
+        assert_eq!(prepared.id, track.id);
+        assert_eq!(prepared.duration_seconds, Some(360.));
+        assert!(prepared.source_url.contains("/track/"));
+        assert!(track.duration_seconds.is_none());
+        assert!(track.source_url.contains("/album/"));
+        assert!(imported_bandcamp_album_track(&track, &[row.clone(), row.clone()]).is_none());
+        for field in ["artist", "title", "album", "sourceUrl", "durationSeconds"] {
+            let mut bad = serde_json::to_value(&row).unwrap();
+            bad[field] = match field {
+                "sourceUrl" => json!("https://other.bandcamp.com/track/same"),
+                "durationSeconds" => Value::Null,
+                _ => json!("Different identity"),
+            };
+            let bad = serde_json::from_value(bad).unwrap();
+            assert!(
+                imported_bandcamp_album_track(&track, &[bad]).is_none(),
+                "{field}"
+            );
+        }
     }
 
     #[test]

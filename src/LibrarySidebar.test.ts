@@ -70,6 +70,85 @@ describe("LibrarySidebar provider presets", () => {
     expect(target.textContent).toContain("Imported Mix");
   });
 
+  it("keeps Downloads in the playlist list, removes its duplicate footer shortcut, and places Settings at the scroll end", async () => {
+    const onPlaylist = vi.fn();
+    const onDownloads = vi.fn();
+    const target = render({ collections: [{ id: "00000000-0000-4000-8000-000000000001", name: "Downloads", trackCount: 5 }], onPlaylist, onDownloads, activeJobs: 2 });
+    await settle();
+    expect(target.querySelector(".library-footer")).toBeNull();
+    expect(target.querySelector(".sidebar-scroll-end button[aria-label='Settings']")).not.toBeNull();
+    expect(target.querySelector(".library-scroll")?.contains(target.querySelector(".sidebar-scroll-end"))).toBe(true);
+    const downloads = [...target.querySelectorAll<HTMLButtonElement>(".built-in-playlists .playlist-card")]
+      .find((button) => button.textContent?.includes("Downloads"))!;
+    expect(downloads).toBeDefined();
+    expect(downloads.querySelector(".jobs-count")?.textContent).toBe("2");
+    expect(downloads.querySelector(".jobs-count")?.getAttribute("aria-label")).toBe("2 active download jobs");
+    downloads.click();
+    expect(onPlaylist).toHaveBeenCalledWith("00000000-0000-4000-8000-000000000001");
+    expect(onDownloads).not.toHaveBeenCalled();
+  });
+
+  it("highlights Downloads while viewing the full jobs page even when no collection is selected", async () => {
+    const target = render({
+      view: "downloads",
+      activeCollectionId: "",
+      activeJobs: 1,
+      collections: [{ id: "00000000-0000-4000-8000-000000000001", name: "Downloads", trackCount: 3 }],
+    });
+    await settle();
+    const downloads = [...target.querySelectorAll<HTMLButtonElement>(".built-in-playlists .playlist-card")]
+      .find((button) => button.querySelector("strong")?.textContent === "Downloads");
+    expect(downloads?.classList.contains("active")).toBe(true);
+    expect(downloads?.querySelector(".jobs-count")?.textContent).toBe("1");
+  });
+
+  it("keeps History, the bound Favorites playlist, and Downloads above ordinary playlists without duplicates", async () => {
+    const onPlaylist = vi.fn();
+    const target = render({
+      favoritesPlaylistId: "favorites-bound",
+      playlistNames: { "favorites-bound": "My Liked Collection" },
+      collections: [
+        { id: "ordinary", name: "Road Mix", trackCount: 4 },
+        { id: "favorites-bound", name: "Old favorites name", trackCount: 9, sourceProvider: "spotify" },
+        { id: "00000000-0000-4000-8000-000000000001", name: "Downloads", trackCount: 2 },
+      ],
+      browserImports: [
+        { id: "fav-import", provider: "spotify", title: "Remote Favorite Alias", collectionId: "favorites-bound", sourceUrl: "https://example.test/favorites" },
+      ],
+      sections: [{ id: "sets", name: "Sets" }],
+      assignments: { "favorites-bound": "sets" },
+      onPlaylist,
+    });
+    await settle();
+
+    const cards = [...target.querySelectorAll<HTMLButtonElement>(".built-in-playlists .playlist-card")];
+    const names = cards.map((button) => button.querySelector("strong")?.textContent?.trim());
+    expect(names).toEqual(["History", "My Liked Collection", "Downloads", "Road Mix"]);
+    expect([...target.querySelectorAll<HTMLButtonElement>(".playlist-card")]
+      .filter((button) => button.textContent?.includes("My Liked Collection"))).toHaveLength(1);
+    expect(target.querySelectorAll(".playlist-sections .collection-card")).toHaveLength(0);
+    expect(target.querySelectorAll(".source-groups .imported-card")).toHaveLength(0);
+
+    cards[1]!.click();
+    expect(onPlaylist).toHaveBeenCalledWith("favorites-bound");
+  });
+
+  it("opens the sidebar filter from its dropdown directly below main navigation", async () => {
+    const target = render({ collections: [{ id: "mix", name: "Night Drive", trackCount: 4 }] });
+    await settle();
+    const dropdown = target.querySelector<HTMLDetailsElement>(".sidebar-filter-dropdown")!;
+    expect(dropdown.open).toBe(false);
+    dropdown.querySelector("summary")!.click();
+    await settle();
+    expect(dropdown.open).toBe(true);
+    const filter = dropdown.querySelector<HTMLInputElement>('[aria-label="Filter playlists by name or owner"]')!;
+    filter.value = "night";
+    filter.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+    expect(target.querySelector(".built-in-playlists")?.textContent).toContain("Night Drive");
+    expect(target.querySelector(".sidebar-filter-dropdown > summary")?.textContent).toContain("Active");
+  });
+
   it("shows permanent Shazam, Last.fm, and Bandcamp groups with the right browse actions", async () => {
     const onSource = vi.fn();
     const target = render({ onSource });
@@ -138,6 +217,8 @@ describe("LibrarySidebar provider presets", () => {
       ], nextCursor: "spotify-next" })),
     });
     await settle();
+    target.querySelector<HTMLElement>(".sidebar-filter-dropdown summary")!.click();
+    await settle();
     const filter = target.querySelector<HTMLInputElement>('[aria-label="Filter playlists by name or owner"]')!;
     filter.value = "north";
     filter.dispatchEvent(new Event("input", { bubbles: true }));
@@ -158,6 +239,8 @@ describe("LibrarySidebar provider presets", () => {
       ],
       sections:[{id:"sets",name:"Sets"}], assignments:{"section-owned":"sets"},
     });
+    await settle();
+    target.querySelector<HTMLElement>(".sidebar-filter-dropdown summary")!.click();
     await settle();
     const filter=target.querySelector<HTMLInputElement>('[aria-label="Filter playlists by name or owner"]')!;
     for (const query of ["DJ NORTH", "north-id"]) {
@@ -187,6 +270,8 @@ describe("LibrarySidebar provider presets", () => {
         { id: "import-miss", provider: "spotify", title: "Morning Playlist", collectionId: "spotify-other", sourceUrl: "https://open.spotify.com/playlist/morning" },
       ],
     });
+    await settle();
+    target.querySelector<HTMLElement>(".sidebar-filter-dropdown summary")!.click();
     await settle();
     const filter = target.querySelector<HTMLInputElement>('[aria-label="Filter playlists by name or owner"]')!;
     filter.value = "after dark";

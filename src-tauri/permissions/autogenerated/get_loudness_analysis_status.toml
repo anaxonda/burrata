@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-loudness-analysis-status"
+description = "Enables the get_loudness_analysis_status command without any pre-configured scope."
+commands.allow = ["get_loudness_analysis_status"]
+
+[[permission]]
+identifier = "deny-get-loudness-analysis-status"
+description = "Denies the get_loudness_analysis_status command without any pre-configured scope."
+commands.deny = ["get_loudness_analysis_status"]

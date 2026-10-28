@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-cancel-loudness-analysis"
+description = "Enables the cancel_loudness_analysis command without any pre-configured scope."
+commands.allow = ["cancel_loudness_analysis"]
+
+[[permission]]
+identifier = "deny-cancel-loudness-analysis"
+description = "Denies the cancel_loudness_analysis command without any pre-configured scope."
+commands.deny = ["cancel_loudness_analysis"]

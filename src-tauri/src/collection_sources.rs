@@ -237,11 +237,14 @@ fn parse_shazam_csv(body: &str) -> Result<Vec<BrowserEntry>, String> {
     let artist_i = col(&["artist", "artist name"]);
     let album_i = col(&["album", "release"]);
     let url_i = col(&["url", "track url", "shazam url"]);
+    let artwork_i = col(&["artwork", "artwork url", "image", "coverart", "cover art"]);
+    let isrc_i = col(&["isrc"]);
+    let artist_url_i = col(&["artist url"]);
     let (Some(title_i), Some(artist_i)) = (title_i, artist_i) else {
         return Err("Shazam CSV format changed; open the chart in the browser instead.".into());
     };
     let mut entries = Vec::new();
-    for (ix, row) in reader.records().enumerate() {
+    for row in reader.records() {
         if entries.len() >= MAX_ENTRIES {
             break;
         }
@@ -254,8 +257,7 @@ fn parse_shazam_csv(body: &str) -> Result<Vec<BrowserEntry>, String> {
         let rank = rank_i
             .and_then(|i| row.get(i))
             .and_then(|s| s.parse::<u32>().ok())
-            .filter(|n| *n > 0)
-            .unwrap_or((ix + 1) as u32);
+            .filter(|n| *n > 0);
         let entry_url = url_i
             .and_then(|i| row.get(i))
             .filter(|s| {
@@ -263,13 +265,14 @@ fn parse_shazam_csv(body: &str) -> Result<Vec<BrowserEntry>, String> {
             })
             .map(str::to_owned);
         let entry = BrowserEntry {
+            metadata: serde_json::json!({"artistUrl":artist_url_i.and_then(|i|row.get(i)).and_then(|s|crate::import_metadata::public_url(s).ok())}),
             provider_id: None,
             source_url: entry_url,
             artist: artist.into(),
             title: title.into(),
             version: None,
             position: (entries.len() + 1) as u32,
-            rank: Some(rank),
+            rank,
             duration_seconds: None,
             bpm: None,
             key: None,
@@ -280,8 +283,12 @@ fn parse_shazam_csv(body: &str) -> Result<Vec<BrowserEntry>, String> {
             label: None,
             genre: None,
             release_date: None,
-            artwork_url: None,
-            isrc: None,
+            artwork_url: artwork_i
+                .and_then(|i| row.get(i))
+                .and_then(|s| crate::import_metadata::public_url(s).ok()),
+            isrc: isrc_i
+                .and_then(|i| row.get(i))
+                .and_then(crate::recording_identity::normalize_isrc),
             catalog_number: None,
         };
         entries.push(entry);
@@ -451,6 +458,7 @@ async fn import_lastfm(
                 .filter(|n| *n > 0.0);
             let track_url = value_str(&row["url"]).and_then(|s| normalize_lastfm_track_url(&s));
             entries.push(BrowserEntry {
+                metadata: serde_json::json!({"musicbrainzId":value_str(&row["mbid"]),"artistUrl":value_str(&row["artist"]["url"]),"plays":value_str(&row["playcount"]).and_then(|v|v.parse::<u64>().ok()),"listeners":value_str(&row["listeners"]).and_then(|v|v.parse::<u64>().ok())}),
                 provider_id: value_str(&row["mbid"]).filter(|s| !s.is_empty()),
                 source_url: track_url,
                 artist,
@@ -465,7 +473,7 @@ async fn import_lastfm(
                 label: None,
                 genre: None,
                 release_date: None,
-                artwork_url: None,
+                artwork_url: row["image"].as_array().and_then(|images|images.iter().rev().find_map(|image|value_str(&image["#text"]).filter(|s|s.starts_with("https://")))),
                 isrc: None,
                 catalog_number: None,
             });
@@ -685,13 +693,14 @@ fn parse_lastfm_public_chart(html: &str) -> Option<BrowserSnapshot> {
             .map(|u| u.to_string());
         let position = (entries.len() + 1) as u32;
         entries.push(BrowserEntry {
+            metadata: serde_json::json!({"artistUrl":row.select(&artist_selector).next().and_then(|n|n.value().attr("href")).and_then(|s|Url::parse("https://www.last.fm").ok()?.join(s).ok()).map(|u|u.to_string())}),
             provider_id: None,
             source_url: track_url,
             artist,
             title,
             version: None,
             position,
-            rank: Some(position),
+            rank: scraper::Selector::parse(".chartlist-index,.chartlist-rank").ok().and_then(|selector|row.select(&selector).next().and_then(|n|n.text().collect::<String>().trim().parse::<u32>().ok())).filter(|n|*n>0),
             duration_seconds: None,
             bpm: None,
             key: None,
@@ -699,7 +708,7 @@ fn parse_lastfm_public_chart(html: &str) -> Option<BrowserSnapshot> {
             label: None,
             genre: None,
             release_date: None,
-            artwork_url: None,
+            artwork_url: scraper::Selector::parse("img").ok().and_then(|selector|row.select(&selector).next().and_then(|n|n.value().attr("src")).and_then(|s|crate::import_metadata::public_url(s).ok())),
             isrc: None,
             catalog_number: None,
         });
@@ -742,23 +751,10 @@ fn normalize_lastfm_track_url(s: &str) -> Option<String> {
     Some(url.to_string())
 }
 
-async fn import_bandcamp(input: &str) -> Result<BrowserSnapshot, String> {
-    let url = Url::parse(input).map_err(|_| "Invalid Bandcamp URL")?;
+pub(crate) async fn import_bandcamp(input: &str) -> Result<BrowserSnapshot, String> {
+    let source = validate_bandcamp_album_url(input)?;
+    let url = Url::parse(&source).map_err(|_| "Invalid Bandcamp URL")?;
     let host = url.host_str().ok_or("Invalid Bandcamp host")?;
-    if !host.ends_with(".bandcamp.com")
-        || host == "bandcamp.com"
-        || !host.split('.').all(valid_slug)
-    {
-        return Err("Use an artist-hosted Bandcamp album URL".into());
-    }
-    let segments: Vec<_> = url
-        .path_segments()
-        .map(|s| s.filter(|p| !p.is_empty()).collect())
-        .unwrap_or_default();
-    if segments.len() != 2 || segments[0] != "album" || !valid_slug(segments[1]) {
-        return Err("Direct Bandcamp import supports artist-hosted album pages. Discover pages and artist pages use browser import.".into());
-    }
-    let source = format!("https://{host}/album/{}", segments[1]);
     let client = http_client()?;
     let (_, html) = get_text(&client, Url::parse(&source).unwrap(), &[host]).await?;
     let data = extract_tralbum_data(&html).ok_or(
@@ -785,6 +781,7 @@ async fn import_bandcamp(input: &str) -> Result<BrowserSnapshot, String> {
         return Err("Bandcamp album is missing artist or album title".into());
     }
     let mut entries = Vec::new();
+    let details = crate::import_metadata::bandcamp_page(&data, &html, &url);
     for row in tracks.iter().take(MAX_ENTRIES) {
         let title = row
             .get("title")
@@ -806,13 +803,20 @@ async fn import_bandcamp(input: &str) -> Result<BrowserSnapshot, String> {
             .filter(|u| u.scheme() == "https" && u.host_str() == Some(host))
             .map(|u| u.to_string());
         entries.push(BrowserEntry {
-            provider_id: None,
+            metadata: {
+                let mut m = details["metadata"].clone();
+                m["trackNumber"] = serde_json::json!(row["track_num"]
+                    .as_u64()
+                    .unwrap_or(entries.len() as u64 + 1));
+                m
+            },
+            provider_id: row["track_id"].as_u64().map(|id| id.to_string()),
             source_url: track_url,
             artist: artist.to_owned(),
             title: title.to_owned(),
             version: None,
             position: (entries.len() + 1) as u32,
-            rank: Some(n),
+            rank: None,
             duration_seconds: row
                 .get("duration")
                 .and_then(Value::as_f64)
@@ -822,8 +826,8 @@ async fn import_bandcamp(input: &str) -> Result<BrowserSnapshot, String> {
             album: Some(album.to_owned()),
             label: None,
             genre: None,
-            release_date: None,
-            artwork_url: None,
+            release_date: details["releaseDate"].as_str().map(str::to_owned),
+            artwork_url: details["artworkUrl"].as_str().map(str::to_owned),
             isrc: None,
             catalog_number: None,
         });
@@ -912,7 +916,15 @@ fn validate_bandcamp_discover_url(input: &str) -> Result<String, String> {
     if segments.len() != 2 || segments[0] != "discover" || !valid_slug(segments[1]) {
         return Err("Use a public Bandcamp /discover/{tag} page".into());
     }
+    let sort = url
+        .query_pairs()
+        .find(|(key, _)| key == "sort")
+        .map(|(_, v)| v.into_owned())
+        .filter(|v| matches!(v.as_str(), "top" | "new" | "rec" | "date"));
     url.set_query(None);
+    if let Some(sort) = sort {
+        url.query_pairs_mut().append_pair("sort", &sort);
+    }
     url.set_fragment(None);
     Ok(url.to_string())
 }
@@ -934,7 +946,15 @@ fn validate_bandcamp_album_url(input: &str) -> Result<String, String> {
         .path_segments()
         .map(|segments| segments.filter(|segment| !segment.is_empty()).collect())
         .unwrap_or_default();
-    if segments.len() != 2 || segments[0] != "album" || !valid_slug(segments[1]) {
+    // Album slugs derive from release titles and can exceed the short slug
+    // limit used for provider IDs and host labels.
+    if segments.len() != 2
+        || segments[0] != "album"
+        || segments[1].len() > 2048
+        || !segments[1]
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+    {
         return Err("Bandcamp Discover cards must link to artist-hosted album pages".into());
     }
     url.set_query(None);
@@ -950,13 +970,18 @@ fn combine_bandcamp_album_snapshots(
 ) -> BrowserSnapshot {
     fetched.sort_by_key(|(index, _, _)| *index);
     let requested = fetched.len();
+    let album_urls = fetched
+        .iter()
+        .map(|(_, url, _)| url.clone())
+        .collect::<Vec<_>>();
     let mut entries = Vec::new();
     let mut warnings = vec![
         "Bandcamp Discover lists releases, not a song chart; only explicit album tracklists were imported. The result is a partial collection of the rendered cards.".to_owned(),
     ];
+    let mut failed_sources = Vec::new();
     let mut imported_albums = 0usize;
     let mut truncated = false;
-    for (_, album_url, result) in fetched {
+    for (album_index, album_url, result) in fetched {
         match result {
             Ok(album) if album.provider == "bandcamp" && album.kind == "album" => {
                 imported_albums += 1;
@@ -965,6 +990,10 @@ fn combine_bandcamp_album_snapshots(
                         truncated = true;
                         break;
                     }
+                    if !entry.metadata.is_object() {
+                        entry.metadata = serde_json::json!({});
+                    }
+                    entry.metadata["albumOrder"] = serde_json::json!(album_index + 1);
                     entry.rank = None;
                     entry.position = entries.len() as u32 + 1;
                     if entry.source_url.is_none() {
@@ -977,6 +1006,7 @@ fn combine_bandcamp_album_snapshots(
                 "A Bandcamp album page returned an unexpected result and was skipped.".into(),
             ),
             Err(_) => {
+                failed_sources.push(album_url.clone());
                 let route = Url::parse(&album_url)
                     .ok()
                     .map(|url| format!("{}{}", url.host_str().unwrap_or("Bandcamp"), url.path()))
@@ -1003,7 +1033,7 @@ fn combine_bandcamp_album_snapshots(
     if entries.len() >= MAX_ENTRIES {
         entries.truncate(MAX_ENTRIES);
     }
-    snapshot(
+    let mut result = snapshot(
         "bandcamp",
         "collection",
         normalize_bandcamp_discover_title(title, source),
@@ -1013,7 +1043,10 @@ fn combine_bandcamp_album_snapshots(
         false,
         warnings,
     )
-    .with_raw_page_title(raw_page_title)
+    .with_raw_page_title(raw_page_title);
+    result.failed_sources = failed_sources;
+    result.album_urls = album_urls;
+    result
 }
 
 fn normalize_bandcamp_discover_title(raw: &str, source: &str) -> String {
@@ -1176,6 +1209,8 @@ fn snapshot(
     warnings: Vec<String>,
 ) -> BrowserSnapshot {
     BrowserSnapshot {
+        failed_sources: vec![],
+        album_urls: vec![],
         schema_version: 1,
         provider: provider.into(),
         kind: kind.into(),
@@ -1218,6 +1253,28 @@ mod tests {
             "https://u:p@artist.bandcamp.com/album/x",
         ] {
             assert!(validate_bandcamp_album_url(invalid).is_err(), "{invalid}");
+        }
+    }
+
+    #[test]
+    fn bandcamp_album_urls_accept_long_release_titles_with_bounded_paths() {
+        let slug = "a-long-alternative-release-title-".repeat(8);
+        assert!(slug.len() > 100);
+        let canonical = format!("https://artist.bandcamp.com/album/{slug}");
+        assert_eq!(
+            validate_bandcamp_album_url(&format!("{canonical}?from=discover_page#tracks")).unwrap(),
+            canonical
+        );
+        assert!(validate_bandcamp_album_url(&format!(
+            "https://artist.bandcamp.com/album/{}",
+            "a".repeat(2048)
+        ))
+        .is_ok());
+        for path in ["a".repeat(2049), "bad%2Fslug".into(), "bad/slug".into()] {
+            assert!(validate_bandcamp_album_url(&format!(
+                "https://artist.bandcamp.com/album/{path}"
+            ))
+            .is_err());
         }
     }
 

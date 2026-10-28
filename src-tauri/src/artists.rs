@@ -809,6 +809,134 @@ impl ArtistService {
         portrait["imageUrl"].as_str().and_then(secure_url)
     }
 
+    /// Search thumbnails must not wait for biography, top tracks or discography.
+    /// Resolve only artwork attached to the exact provider identity.
+    pub async fn get_artist_artwork(
+        &self,
+        artist: &ArtistRef,
+        credentials: &ArtistCredentials,
+    ) -> Result<Option<String>, String> {
+        validate_artist_ref(artist)?;
+        if artist.provider == "musicbrainz" {
+            if let Some(image) = self.cached_musicbrainz_artist_image(&artist.id) {
+                return Ok(Some(image));
+            }
+        }
+        let mut wikidata = None;
+        let discogs = if artist.provider == "musicbrainz" {
+            let data = self
+                .musicbrainz_json(
+                    &format!("artist/{}", artist.id),
+                    &[("inc", "aliases+genres+tags+artist-rels+url-rels".into())],
+                    "artists.profile.musicbrainz",
+                    &artist.id,
+                    PROFILE_TTL,
+                )
+                .await?;
+            let links = data["relations"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|row| row["url"]["resource"].as_str())
+                .collect::<Vec<_>>();
+            wikidata = links.iter().find_map(|url| wikidata_item_id(url));
+            links.iter().find_map(|url| discogs_artist_id(url))
+        } else {
+            Some(artist.id.clone())
+        };
+        let mut image = None;
+        if let Some(id) = discogs {
+            let cached = self
+                .store
+                .get_provider_cache("artists.profile.discogs", &id)
+                .ok()
+                .flatten();
+            let data = if cached.is_some() {
+                cached
+            } else if let Some(token) = credentials
+                .discogs_token
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+            {
+                tokio::time::timeout(
+                    Duration::from_secs(3),
+                    self.discogs_json(
+                        &format!("artists/{id}"),
+                        &[],
+                        "artists.profile.discogs",
+                        &id,
+                        PROFILE_TTL,
+                        token,
+                    ),
+                )
+                .await
+                .ok()
+                .and_then(Result::ok)
+            } else {
+                None
+            };
+            image = data.and_then(|data| {
+                data["images"].as_array().and_then(|items| {
+                    items
+                        .iter()
+                        .find_map(|item| item["uri"].as_str().and_then(secure_url))
+                })
+            });
+        }
+        if image.is_none() {
+            if let Some(qid) = wikidata {
+                image = tokio::time::timeout(Duration::from_secs(3), self.wikidata_portrait(&qid))
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|(image, _)| image);
+            }
+        }
+        if image.is_none() && artist.provider == "musicbrainz" {
+            let cached = self
+                .store
+                .get_provider_cache("artists.profile.lastfm", &artist.id)
+                .ok()
+                .flatten();
+            let data = if cached.is_some() {
+                cached
+            } else if let Some(key) = credentials
+                .lastfm_api_key
+                .as_deref()
+                .filter(|key| !key.trim().is_empty())
+            {
+                tokio::time::timeout(
+                    Duration::from_secs(3),
+                    self.lastfm_artist_info(artist, "", key),
+                )
+                .await
+                .ok()
+                .and_then(Result::ok)
+            } else {
+                None
+            };
+            image = data.and_then(|data| {
+                data["artist"]["image"].as_array().and_then(|items| {
+                    items
+                        .iter()
+                        .rev()
+                        .find_map(|item| item["#text"].as_str().and_then(secure_url))
+                })
+            });
+        }
+        if artist.provider == "musicbrainz" {
+            if let Some(image) = image.as_ref() {
+                let _ = self.store.set_provider_cache(
+                    "artists.portrait.artist.v1",
+                    &artist.id,
+                    &json!({"imageUrl":image}),
+                    PROFILE_TTL,
+                );
+            }
+        }
+        Ok(image)
+    }
+
     pub async fn get_artist_profile(
         &self,
         artist: &ArtistRef,
@@ -3866,6 +3994,45 @@ mod tests {
             Some("https://commons.wikimedia.org/fixture.jpg")
         );
         server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn artist_artwork_only_uses_exact_linked_cached_portrait_without_discography() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&directory.path().join("artwork-only.sqlite")).unwrap());
+        let id = "00000000-0000-4000-8000-000000000111";
+        store.set_provider_cache("artists.profile.musicbrainz",id,&json!({"id":id,"relations":[{"url":{"resource":"https://www.discogs.com/artist/1234"}}]}),3600).unwrap();
+        store
+            .set_provider_cache(
+                "artists.profile.discogs",
+                "1234",
+                &json!({"images":[{"uri":"https://images.test/exact-artist.jpg"}]}),
+                3600,
+            )
+            .unwrap();
+        let mut service = ArtistService::new(store.clone()).unwrap();
+        service.endpoints.musicbrainz = "http://127.0.0.1:1/ws/2".into();
+        service.endpoints.discogs = "http://127.0.0.1:1".into();
+        let artist = ArtistRef {
+            provider: "musicbrainz".into(),
+            id: id.into(),
+        };
+        let image = tokio::time::timeout(
+            Duration::from_secs(1),
+            service.get_artist_artwork(&artist, &ArtistCredentials::default()),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            image.as_deref(),
+            Some("https://images.test/exact-artist.jpg")
+        );
+        assert_eq!(service.cached_musicbrainz_artist_image(id), image);
+        assert!(store
+            .get_provider_cache("artists.release-groups.musicbrainz", id)
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]

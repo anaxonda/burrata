@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-render-portable-playlist-export"
+description = "Enables the render_portable_playlist_export command without any pre-configured scope."
+commands.allow = ["render_portable_playlist_export"]
+
+[[permission]]
+identifier = "deny-render-portable-playlist-export"
+description = "Denies the render_portable_playlist_export command without any pre-configured scope."
+commands.deny = ["render_portable_playlist_export"]

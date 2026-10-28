@@ -1,12 +1,14 @@
 <script lang="ts">
   type Collection = { id: string; name: string; trackCount: number };
   type Preferences = { favoritesPlaylistId: string; shortcuts: (string | null)[]; shortcutBindings?: string[] };
-  let { preferences, collections, call, onchange, oncollections }: {
+  let { preferences, collections, call, onchange, oncollections, includeYtdlpSearchDefault = false, onYtdlpSearchDefaultChange = () => {} }: {
     preferences: Preferences;
     collections: Collection[];
     call: <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
     onchange: (value: Preferences) => void;
     oncollections?: () => void | Promise<void>;
+    includeYtdlpSearchDefault?: boolean;
+    onYtdlpSearchDefaultChange?: (enabled: boolean) => void;
   } = $props();
   let newName = $state("");
   let bindings = $state<string[]>([]);
@@ -86,6 +88,15 @@
     <h3>Playlist shortcuts</h3>
     <p>Assign playlists to number keys 1–9. Empty slots stay unassigned.</p>
   </header>
+  <header>
+    <h3>Playlist exports</h3>
+    <p>Choose whether optional search links are included by default. Each export can override this.</p>
+  </header>
+  <label class="export-search-default">
+    <input type="checkbox" aria-label="Include search links by default" checked={includeYtdlpSearchDefault}
+      onchange={event => onYtdlpSearchDefaultChange(event.currentTarget.checked)} />
+    <span>Include search links by default</span>
+  </label>
   <div class="slots">
     {#each Array.from({ length: 9 }, (_, index) => index) as slot}
       <div class="slot-card">

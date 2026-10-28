@@ -44,6 +44,10 @@ pub struct BrowserSnapshot {
     #[serde(default)]
     pub warnings: Vec<String>,
     pub entries: Vec<BrowserEntry>,
+    #[serde(default)]
+    pub failed_sources: Vec<String>,
+    #[serde(default)]
+    pub album_urls: Vec<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -65,6 +69,8 @@ pub struct BrowserEntry {
     pub artwork_url: Option<String>,
     pub isrc: Option<String>,
     pub catalog_number: Option<String>,
+    #[serde(default)]
+    pub metadata: Value,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -81,6 +87,12 @@ pub struct BrowserImportResult {
     pub expected_total: Option<usize>,
     pub complete: bool,
     pub warnings: Vec<String>,
+    #[serde(default)]
+    pub failed_sources: Vec<String>,
+    #[serde(default)]
+    pub album_urls: Vec<String>,
+    #[serde(default)]
+    pub changes: Value,
 }
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -105,6 +117,8 @@ enum NativeRequest {
         #[serde(rename = "requestId")]
         request_id: Option<String>,
         snapshot: BrowserSnapshot,
+        #[serde(default)]
+        preview: bool,
     },
     #[serde(rename = "importAlbumCollection")]
     ImportAlbumCollection {
@@ -115,6 +129,13 @@ enum NativeRequest {
         title: String,
         #[serde(rename = "albumUrls")]
         album_urls: Vec<String>,
+        #[serde(default)]
+        preview: bool,
+    },
+    #[serde(rename = "applyImportPreview")]
+    ApplyImportPreview {
+        #[serde(rename = "previewId")]
+        preview_id: String,
     },
     Heartbeat {
         #[serde(default, rename = "providerProtocolVersion")]
@@ -244,6 +265,13 @@ fn provider_url(value: &str, provider: &str) -> Result<url::Url, String> {
             .collect::<Vec<_>>();
         pairs.sort();
         pairs
+    } else if provider == "bandcamp" && u.path().starts_with("/discover/") {
+        u.query_pairs()
+            .filter(|(key, value)| {
+                key == "sort" && matches!(value.as_ref(), "top" | "new" | "rec" | "date")
+            })
+            .map(|(key, value)| (key.into_owned(), value.into_owned()))
+            .collect::<Vec<_>>()
     } else if provider == "youtube" {
         u.query_pairs()
             .filter(|(key, _)| matches!(key.as_ref(), "list" | "v"))
@@ -365,6 +393,15 @@ pub fn validate_snapshot(s: &BrowserSnapshot) -> Result<Chart, String> {
         return Err("Invalid snapshot kind".into());
     }
     let source = provider_url(&s.source_url, &s.provider)?;
+    if s.failed_sources.len() > 20 || s.album_urls.len() > 20 {
+        return Err("Album import receipts are limited to 20 pages".into());
+    }
+    for raw in s.failed_sources.iter().chain(&s.album_urls) {
+        let page = provider_url(raw, &s.provider)?;
+        if s.provider != "bandcamp" || !page.path().starts_with("/album/") {
+            return Err("Failed sources must be Bandcamp album pages".into());
+        }
+    }
     if s.provider == "spotify" {
         let valid_path = ["playlist", "album"].iter().any(|kind| {
             source
@@ -401,6 +438,7 @@ pub fn validate_snapshot(s: &BrowserSnapshot) -> Result<Chart, String> {
     entries.sort_by_key(|entry| entry.position);
     let mut positions = HashSet::new();
     for e in entries {
+        crate::import_metadata::validate(&e.metadata)?;
         if !positions.insert(e.position) {
             return Err("Capture contains duplicate occurrence positions".into());
         }
@@ -481,7 +519,7 @@ pub fn validate_snapshot(s: &BrowserSnapshot) -> Result<Chart, String> {
         } else {
             entry_url.map(|u| u.to_string()).unwrap_or_default()
         };
-        tracks.push(Track { id, provider, provider_id, source_url: canonical_source, artist:e.artist.trim().into(), title:e.title.trim().into(), version:e.version.clone(), album:e.album.clone(), label:e.label.clone(), genre:e.genre.clone(), duration_seconds:e.duration_seconds, bpm:e.bpm, key:e.key.clone(), release_date:e.release_date.clone(), artwork_url:e.artwork_url.clone(), isrc:e.isrc.clone(), catalog_number:e.catalog_number.clone(), rank:if s.kind == "chart" { e.rank } else { None }, provenance:json!({"sourceKind":s.kind,"browserImport":true,"captureProvider":s.provider,"sourceUrl":source.as_str(),"rawPageTitle":s.raw_page_title,"position":e.position,"playlistPosition":if matches!(s.kind.as_str(),"playlist"|"collection") {Some(e.position)} else {None},"albumPosition":if s.kind=="album" {Some(e.position)} else {None},"occurrencePositions":[e.position],"rawCaptures":[e],"capturedAt":s.captured_at,"identity":"unverified browser capture"}), ..Track::default() });
+        tracks.push(Track { id, provider, provider_id, source_url: canonical_source, artist:e.artist.trim().into(), title:e.title.trim().into(), version:e.version.clone(), album:e.album.clone(), label:e.label.clone(), genre:e.genre.clone(), duration_seconds:e.duration_seconds, bpm:e.bpm, key:e.key.clone(), release_date:e.release_date.clone(), artwork_url:e.artwork_url.clone(), isrc:e.isrc.clone(), catalog_number:e.catalog_number.clone(), album_artist:e.metadata["albumArtist"].as_str().map(str::to_owned), track_number:e.metadata["trackNumber"].as_u64().map(|n|n as u32), disc_number:e.metadata["discNumber"].as_u64().map(|n|n as u32), remixers:e.metadata["remixers"].as_array().map(|v|v.iter().filter_map(|v|v.as_str().map(str::to_owned)).collect()), rank:if s.kind == "chart" { e.rank } else { None }, provenance:json!({"sourceKind":s.kind,"browserImport":true,"captureProvider":s.provider,"sourceUrl":source.as_str(),"rawPageTitle":s.raw_page_title,"position":e.position,"playlistPosition":if matches!(s.kind.as_str(),"playlist"|"collection") {Some(e.position)} else {None},"albumPosition":if s.kind=="album" {Some(e.position)} else {None},"occurrencePositions":[e.position],"rawCaptures":[e],"capturedAt":s.captured_at,"identity":"unverified browser capture","importMetadata":e.metadata,"fieldSources":crate::import_metadata::field_sources(e,&s.provider,&s.captured_at,source.as_str()),"sourceContext":crate::import_metadata::source_context(&s.provider,&source.to_string(),&s.kind,&s.captured_at),"playbackMode":if s.provider=="youtube" {"source"} else {"lookup"}}), ..Track::default() });
     }
     let mut chart = Chart {
         id: uuid::Uuid::new_v4().to_string(),
@@ -990,16 +1028,30 @@ async fn import_route(
         return (StatusCode::UNAUTHORIZED, error("Unauthorized"));
     }
     b.seen();
-    let (request_id, snapshot) = match r {
+    let r = match r {
+        NativeRequest::ApplyImportPreview { preview_id } => {
+            return match crate::collection_imports::apply(&b.store, &preview_id) {
+                Ok(result) => {
+                    let _ = b.app.emit("browser-imported", &result);
+                    (StatusCode::OK, Json(json!({"ok":true,"result":result})))
+                }
+                Err(message) => (StatusCode::BAD_REQUEST, error(message)),
+            };
+        }
+        other => other,
+    };
+    let (request_id, snapshot, preview) = match r {
         NativeRequest::Import {
             request_id,
             snapshot,
-        } => (request_id, snapshot),
+            preview,
+        } => (request_id, snapshot, preview),
         NativeRequest::ImportAlbumCollection {
             request_id,
             source_url,
             title,
             album_urls,
+            preview,
         } => {
             if let Some(id) = &request_id {
                 let pending = b.inner.lock().unwrap().active.get(id).cloned();
@@ -1021,7 +1073,7 @@ async fn import_route(
             )
             .await
             {
-                Ok(snapshot) => (request_id, snapshot),
+                Ok(snapshot) => (request_id, snapshot, preview),
                 Err(message) => return (StatusCode::BAD_REQUEST, error(message)),
             }
         }
@@ -1039,6 +1091,12 @@ async fn import_route(
             }
             _ => {}
         }
+    }
+    if preview {
+        return match crate::collection_imports::preview(&b.store, snapshot) {
+            Ok(result) => (StatusCode::OK, Json(json!({"ok":true,"result":result}))),
+            Err(message) => (StatusCode::BAD_REQUEST, error(message)),
+        };
     }
     let chart = match validate_snapshot(&snapshot) {
         Ok(c) => c,
@@ -1835,9 +1893,9 @@ async fn forward_native(client: &reqwest::Client, d: &Discovery, r: &NativeReque
         return forward_youtube_handoff(client, r).await;
     }
     let route = match r {
-        NativeRequest::Import { .. } | NativeRequest::ImportAlbumCollection { .. } => {
-            "browser/import"
-        }
+        NativeRequest::Import { .. }
+        | NativeRequest::ImportAlbumCollection { .. }
+        | NativeRequest::ApplyImportPreview { .. } => "browser/import",
         NativeRequest::Heartbeat { .. } => "browser/heartbeat",
         NativeRequest::Poll { .. } => "browser/poll",
         NativeRequest::Status { .. } => "browser/status",

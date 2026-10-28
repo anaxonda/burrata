@@ -1,5 +1,10 @@
 //! Serial local analysis and recoverable tag refreshes for registered assets.
-use crate::{media, models::LocalAsset, Store};
+use crate::{
+    media,
+    models::LocalAsset,
+    restore_work_policy::{self, AutomaticWorkKind},
+    Store,
+};
 use serde_json::{json, Value};
 use std::{
     collections::HashSet,
@@ -44,6 +49,30 @@ impl AnalysisManager {
                     );
                 }
                 if let Some(asset) = asset {
+                    // Legacy analysis can embed tags, including when forced.
+                    // The restore review controls this work category before
+                    // any legacy queue item is allowed to run.
+                    if !automatic_analysis_allowed(&worker_store) {
+                        let _ = app.emit(
+                            "analysis-progress",
+                            json!({"assetId":id,"status":"paused","message":"Automatic analysis is paused pending restore review."}),
+                        );
+                        if let Ok(mut pending) = worker_pending.lock() {
+                            pending.remove(&id);
+                        }
+                        continue;
+                    }
+                    // Hold the per-profile lease across analysis and any
+                    // embedded tag write so backup restore cannot race it.
+                    let _library_write = match worker_store.try_library_write() {
+                        Ok(permit) => permit,
+                        Err(_) => {
+                            if let Ok(mut pending) = worker_pending.lock() {
+                                pending.remove(&id);
+                            }
+                            continue;
+                        }
+                    };
                     let input_hash = asset.hash.clone();
                     let _ = worker_store.save_analysis_record(
                         &id,
@@ -121,6 +150,9 @@ impl AnalysisManager {
     }
 
     pub fn queue(&self, asset_ids: Option<Vec<String>>, force: bool) -> Result<usize, String> {
+        if !automatic_analysis_allowed(&self.store) {
+            return Ok(0);
+        }
         let perf_trace = std::env::var_os("BURRATA_PERF_TRACE").is_some();
         let queue_started = std::time::Instant::now();
         let assets_started = std::time::Instant::now();
@@ -227,4 +259,32 @@ impl AnalysisManager {
 
 fn analysis_payload(asset: &LocalAsset) -> Value {
     json!({"bpm":asset.track.bpm,"key":asset.track.key,"bpmAnalysis":asset.track.provenance.get("bpmAnalysis"),"keyAnalysis":asset.track.provenance.get("keyAnalysis")})
+}
+
+fn automatic_analysis_allowed(store: &Store) -> bool {
+    !restore_work_policy::is_paused(store, AutomaticWorkKind::MetadataRetagAnalysis)
+}
+
+#[cfg(test)]
+mod restore_policy_tests {
+    use super::*;
+
+    #[test]
+    fn legacy_analysis_queue_and_worker_are_paused_until_review() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("burrata.sqlite")).unwrap();
+        crate::restore_work_policy::pause_all_after_restore(&store, "snapshot-restore-review")
+            .unwrap();
+        assert!(!automatic_analysis_allowed(&store));
+
+        crate::restore_work_policy::review(
+            &store,
+            crate::restore_work_policy::ResumeAutomaticWork {
+                metadata_retag_analysis: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(automatic_analysis_allowed(&store));
+    }
 }

@@ -28,10 +28,12 @@ use tokio::sync::OwnedMutexGuard;
 
 const BPM_SAMPLE_RATE: u32 = 8_000;
 const BPM_FRAME_SAMPLES: usize = 80;
+const BPM_HIGHPASS_ALPHA: f64 = 0.5334880910911033; // exp(-2π * 800 Hz / 8 kHz)
 const KEY_SAMPLE_RATE: u32 = 22_050;
 const KEY_MAX_SECONDS: usize = 15 * 60;
 const KEY_WINDOW_SECONDS: usize = 30;
 const KEY_MIN_WINDOW_SECONDS: usize = 8;
+const KEY_MIN_TRACK_SECONDS: usize = 20;
 // LibKeyFinder's cosine fit is typically around .25-.4 for ordinary music.
 // A high fit threshold rejects clean tonal fixtures; the runner-up margin and
 // cross-section agreement provide the useful ambiguity guards.
@@ -175,7 +177,18 @@ async fn detect_bpm_with_diagnostics(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
-        .args(["-nostdin", "-v", "error", "-i"])
+        .args([
+            "-nostdin",
+            "-v",
+            "error",
+            "-threads",
+            "1",
+            "-filter_threads",
+            "1",
+            "-protocol_whitelist",
+            "file,pipe",
+            "-i",
+        ])
         .arg(path)
         .args([
             "-map",
@@ -197,11 +210,7 @@ async fn detect_bpm_with_diagnostics(
         .take()
         .ok_or("FFmpeg BPM analysis has no audio output")?;
     let decoded = tokio::time::timeout(Duration::from_secs(600), async {
-        let mut envelope = Vec::new();
-        let mut frame_energy = 0.0;
-        let mut frame_count = 0usize;
-        let mut previous_level = 0.0;
-        let mut frame_samples = 0usize;
+        let mut envelope = BpmEnvelopeAccumulator::default();
         let mut bytes = [0u8; 8192];
         let mut pending_byte = None;
         loop {
@@ -215,40 +224,19 @@ async fn detect_bpm_with_diagnostics(
             let mut offset = 0;
             if let Some(first) = pending_byte.take() {
                 let sample = i16::from_le_bytes([first, bytes[0]]);
-                add_bpm_sample(
-                    sample,
-                    &mut frame_energy,
-                    &mut frame_count,
-                    &mut frame_samples,
-                    &mut previous_level,
-                    &mut envelope,
-                );
+                envelope.push(f64::from(sample) / f64::from(i16::MAX));
                 offset = 1;
             }
             while offset + 1 < count {
                 let sample = i16::from_le_bytes([bytes[offset], bytes[offset + 1]]);
-                add_bpm_sample(
-                    sample,
-                    &mut frame_energy,
-                    &mut frame_count,
-                    &mut frame_samples,
-                    &mut previous_level,
-                    &mut envelope,
-                );
+                envelope.push(f64::from(sample) / f64::from(i16::MAX));
                 offset += 2;
             }
             if offset < count {
                 pending_byte = Some(bytes[offset]);
             }
         }
-        if frame_count > 0 {
-            finish_bpm_frame(
-                frame_energy,
-                frame_count,
-                &mut previous_level,
-                &mut envelope,
-            );
-        }
+        envelope.finish_frame();
         let status = child
             .wait()
             .await
@@ -256,13 +244,15 @@ async fn detect_bpm_with_diagnostics(
         if !status.success() {
             return Err("FFmpeg could not decode audio for BPM analysis".into());
         }
-        Ok::<_, String>(envelope)
+        Ok::<_, String>(envelope.into_envelopes())
     })
     .await
     .map_err(|_| "BPM analysis timed out after 10 minutes".to_string())??;
-    tokio::task::spawn_blocking(move || estimate_bpm_with_diagnostics(&decoded))
-        .await
-        .map_err(|e| format!("BPM analysis worker failed: {e}"))
+    tokio::task::spawn_blocking(move || {
+        estimate_bpm_envelopes_with_diagnostics(&decoded.0, &decoded.1)
+    })
+    .await
+    .map_err(|e| format!("BPM analysis worker failed: {e}"))
 }
 
 /// Estimate a global key only when the full-track classifier agrees with at
@@ -284,7 +274,18 @@ async fn detect_key_with_diagnostics(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
-        .args(["-nostdin", "-v", "error", "-i"])
+        .args([
+            "-nostdin",
+            "-v",
+            "error",
+            "-threads",
+            "1",
+            "-filter_threads",
+            "1",
+            "-protocol_whitelist",
+            "file,pipe",
+            "-i",
+        ])
         .arg(path)
         .args([
             "-map",
@@ -381,6 +382,46 @@ fn estimate_key(samples: &[f32]) -> Option<KeyAnalysis> {
     estimate_key_with_diagnostics(samples).0
 }
 
+/// One qualified LibKeyFinder profile for a short recent playback window.
+/// Unlike `estimate_key`, this does not claim full-recording consensus.
+pub(crate) fn classify_live_key_window(samples: &[f32]) -> Option<(String, f64, f64)> {
+    let minimum_samples = KEY_SAMPLE_RATE as usize * KEY_MIN_WINDOW_SECONDS;
+    let maximum_samples = KEY_SAMPLE_RATE as usize * 12;
+    if samples.len() < minimum_samples || samples.len() > maximum_samples {
+        return None;
+    }
+    let (key, profile_fit, profile_margin) = keyfinder_analyze(samples)?;
+    (profile_fit.is_finite()
+        && profile_margin.is_finite()
+        && profile_fit >= KEY_MIN_PROFILE_FIT
+        && profile_margin >= KEY_MIN_PROFILE_MARGIN)
+        .then(|| (key.to_owned(), profile_fit, profile_margin))
+}
+
+/// Run the existing full-track estimators over mono PCM that has already been
+/// bounded and resampled by the caller. BPM input is 8 kHz; key input is
+/// 22.05 kHz. This helper does not persist or retag either result.
+pub(crate) fn analyze_resampled_mono_pcm(
+    bpm_samples: &[f32],
+    key_samples: &[f32],
+) -> (Option<BpmAnalysis>, Option<KeyAnalysis>) {
+    let mut accumulator = BpmEnvelopeAccumulator::default();
+    for sample in bpm_samples {
+        let bounded = if sample.is_finite() {
+            sample.clamp(-1.0, 1.0)
+        } else {
+            0.0
+        };
+        accumulator.push(f64::from(bounded));
+    }
+    accumulator.finish_frame();
+    let envelopes = accumulator.into_envelopes();
+    (
+        estimate_bpm_envelopes_with_diagnostics(&envelopes.0, &envelopes.1).0,
+        estimate_key(key_samples),
+    )
+}
+
 fn key_profile_diagnostic(result: Option<(&str, f64, f64)>) -> KeyProfileDiagnostic {
     match result {
         Some((key, fit, margin)) => KeyProfileDiagnostic {
@@ -399,7 +440,8 @@ fn key_profile_diagnostic(result: Option<(&str, f64, f64)>) -> KeyProfileDiagnos
 }
 
 fn estimate_key_with_diagnostics(samples: &[f32]) -> (Option<KeyAnalysis>, KeyDiagnostics) {
-    let minimum = KEY_SAMPLE_RATE as usize * KEY_MIN_WINDOW_SECONDS;
+    let minimum_window = KEY_SAMPLE_RATE as usize * KEY_MIN_WINDOW_SECONDS;
+    let minimum_track = KEY_SAMPLE_RATE as usize * KEY_MIN_TRACK_SECONDS;
     let mut diagnostics = KeyDiagnostics {
         duration_seconds: samples.len() as f64 / KEY_SAMPLE_RATE as f64,
         whole_track: None,
@@ -408,15 +450,22 @@ fn estimate_key_with_diagnostics(samples: &[f32]) -> (Option<KeyAnalysis>, KeyDi
         consensus_votes: 0,
         rejection_reason: None,
     };
-    if samples.len() < minimum {
+    if samples.len() < minimum_track {
         diagnostics.rejection_reason = Some("minimum_duration");
         return (None, diagnostics);
     }
     let whole = keyfinder_analyze(samples);
     diagnostics.whole_track = Some(key_profile_diagnostic(whole));
     let whole_track_key = whole.map(|(key, _, _)| key.to_string());
-    let window_len = (samples.len() / 5).min(KEY_SAMPLE_RATE as usize * KEY_WINDOW_SECONDS);
-    if window_len < minimum {
+    // Preserve five evenly distributed votes for short-but-usable tracks by
+    // allowing the windows to overlap. A 20s song supplies five 8s excerpts;
+    // the previous non-overlapping split made each excerpt 4s and rejected the
+    // entire track despite meeting the documented minimum duration.
+    let window_len = (samples.len() / 5)
+        .max(minimum_window)
+        .min(KEY_SAMPLE_RATE as usize * KEY_WINDOW_SECONDS)
+        .min(samples.len());
+    if window_len < minimum_window {
         diagnostics.rejection_reason = if whole.is_none() {
             Some("whole_classifier_no_key")
         } else if whole.is_some_and(|(_, fit, _)| fit < KEY_MIN_PROFILE_FIT) {
@@ -495,30 +544,109 @@ fn estimate_key_with_diagnostics(samples: &[f32]) -> (Option<KeyAnalysis>, KeyDi
     )
 }
 
-fn add_bpm_sample(
-    sample: i16,
-    frame_energy: &mut f64,
-    frame_count: &mut usize,
-    frame_samples: &mut usize,
-    previous_level: &mut f64,
-    envelope: &mut Vec<f64>,
-) {
-    let sample = f64::from(sample) / f64::from(i16::MAX);
-    *frame_energy += sample * sample;
-    *frame_count += 1;
-    *frame_samples += 1;
-    if *frame_samples == BPM_FRAME_SAMPLES {
-        finish_bpm_frame(*frame_energy, *frame_count, previous_level, envelope);
-        *frame_energy = 0.0;
-        *frame_count = 0;
-        *frame_samples = 0;
+/// Streaming onset accumulator. The ordinary RMS rise catches bass/percussive
+/// beats; the high-passed lane emphasizes short broadband attacks when sustained
+/// chord beating aliases into the ordinary onset envelope. Both lanes stay at
+/// 100 frames/second and require no full decoded PCM buffer.
+#[derive(Default)]
+struct BpmEnvelopeAccumulator {
+    frame_energy: f64,
+    high_pass_frame_energy: f64,
+    frame_samples: usize,
+    previous_level: f64,
+    previous_high_pass_level: f64,
+    previous_sample: f64,
+    high_pass_state: f64,
+    envelope: Vec<f64>,
+    high_pass_envelope: Vec<f64>,
+}
+
+impl BpmEnvelopeAccumulator {
+    fn push(&mut self, sample: f64) {
+        let sample = if sample.is_finite() {
+            sample.clamp(-1.0, 1.0)
+        } else {
+            0.0
+        };
+        let high_pass = BPM_HIGHPASS_ALPHA * (self.high_pass_state + sample - self.previous_sample);
+        self.previous_sample = sample;
+        self.high_pass_state = high_pass;
+        self.frame_energy += sample * sample;
+        self.high_pass_frame_energy += high_pass * high_pass;
+        self.frame_samples += 1;
+        if self.frame_samples == BPM_FRAME_SAMPLES {
+            self.finish_frame();
+        }
+    }
+
+    fn finish_frame(&mut self) {
+        if self.frame_samples == 0 {
+            return;
+        }
+        let level = (self.frame_energy / self.frame_samples as f64).sqrt();
+        let high_pass_level = (self.high_pass_frame_energy / self.frame_samples as f64).sqrt();
+        self.envelope.push((level - self.previous_level).max(0.0));
+        self.high_pass_envelope
+            .push((high_pass_level - self.previous_high_pass_level).max(0.0));
+        self.previous_level = level;
+        self.previous_high_pass_level = high_pass_level;
+        self.frame_energy = 0.0;
+        self.high_pass_frame_energy = 0.0;
+        self.frame_samples = 0;
+    }
+
+    fn into_envelopes(self) -> (Vec<f64>, Vec<f64>) {
+        (self.envelope, self.high_pass_envelope)
     }
 }
 
-fn finish_bpm_frame(energy: f64, count: usize, previous_level: &mut f64, envelope: &mut Vec<f64>) {
-    let level = (energy / count as f64).sqrt();
-    envelope.push((level - *previous_level).max(0.0));
-    *previous_level = level;
+fn estimate_bpm_envelopes_with_diagnostics(
+    envelope: &[f64],
+    high_pass_envelope: &[f64],
+) -> (Option<BpmAnalysis>, BpmDiagnostics) {
+    let (standard, standard_diagnostics) = estimate_bpm_with_diagnostics(envelope);
+    let (high_pass, high_pass_diagnostics) = estimate_bpm_with_diagnostics(high_pass_envelope);
+    let standard_kurtosis = onset_kurtosis(envelope);
+    let high_pass_kurtosis = onset_kurtosis(high_pass_envelope);
+
+    // Broadband or impulsive beats can be more reliable in the high-pass lane
+    // than the RMS lane. Do not allow steady tonal beating or unstructured noise
+    // to create a BPM by themselves: at least one lane must contain attack-like
+    // energy, and a high-pass result must pass both periodicity and attack tests.
+    if high_pass_kurtosis >= 8.0
+        && high_pass
+            .as_ref()
+            .is_some_and(|analysis| analysis.confidence >= 0.45)
+    {
+        return (high_pass, high_pass_diagnostics);
+    }
+    if standard_kurtosis >= 5.0 {
+        return (standard, standard_diagnostics);
+    }
+    let mut diagnostics = standard_diagnostics;
+    diagnostics.rejection_reason = Some("no_confident_transient_pattern");
+    (None, diagnostics)
+}
+
+fn onset_kurtosis(envelope: &[f64]) -> f64 {
+    if envelope.len() < 16 {
+        return 0.0;
+    }
+    let mean = envelope.iter().sum::<f64>() / envelope.len() as f64;
+    let variance = envelope
+        .iter()
+        .map(|value| (value - mean).powi(2))
+        .sum::<f64>()
+        / envelope.len() as f64;
+    if variance <= f64::EPSILON {
+        return 0.0;
+    }
+    envelope
+        .iter()
+        .map(|value| (value - mean).powi(4))
+        .sum::<f64>()
+        / envelope.len() as f64
+        / variance.powi(2)
 }
 
 pub(crate) fn estimate_bpm(envelope: &[f64]) -> Option<BpmAnalysis> {
@@ -3159,7 +3287,7 @@ pub async fn verify_asset(asset: &LocalAsset) -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
-pub const ANALYSIS_VERSION: &str = "burrata-media-analysis-v1-keyfinder-2.2.8-bpm-v3";
+pub const ANALYSIS_VERSION: &str = "burrata-media-analysis-v1-keyfinder-2.2.8-bpm-v4";
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct RetagJournal {
@@ -5306,6 +5434,127 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(inspected.bpm, Some(analysis.bpm));
+    }
+
+    #[test]
+    fn mixed_chords_and_transient_pulses_produce_tempo_and_tonal_stationarity_does_not() {
+        let analyze = |duration: usize,
+                       bpm: f64,
+                       chord: [f64; 3],
+                       transient_hz: f64,
+                       transient_seconds: f64| {
+            let mut accumulator = BpmEnvelopeAccumulator::default();
+            for index in 0..BPM_SAMPLE_RATE as usize * duration {
+                let time = index as f64 / f64::from(BPM_SAMPLE_RATE);
+                let beat_phase = time % (60.0 / bpm);
+                let chord_sample = chord
+                    .iter()
+                    .map(|frequency| (std::f64::consts::TAU * frequency * time).sin())
+                    .sum::<f64>()
+                    * 0.18;
+                let transient = if beat_phase < transient_seconds {
+                    (std::f64::consts::TAU * transient_hz * beat_phase).sin()
+                        * (-beat_phase * if transient_hz > 500.0 { 260.0 } else { 25.0 }).exp()
+                        * if transient_hz > 500.0 { 0.55 } else { 0.8 }
+                } else {
+                    0.0
+                };
+                accumulator.push(chord_sample + transient);
+            }
+            accumulator.finish_frame();
+            let (rms, high_pass) = accumulator.into_envelopes();
+            estimate_bpm_envelopes_with_diagnostics(&rms, &high_pass)
+        };
+
+        // This reproduces the mixed A-minor chord and short 1.2kHz onset used
+        // by the isolated qualification profile; the ordinary RMS lane alone
+        // aliases chord beating to a faster false candidate.
+        let (high_click, _) = analyze(20, 120.0, [220.0, 261.63, 329.63], 1_200.0, 0.012);
+        let high_click = high_click.expect("broadband 120 BPM click should be detected");
+        assert!((high_click.bpm - 120.0).abs() <= 1.0, "{high_click:?}");
+
+        // A different chord and tempo verify the selected source doesn't
+        // simply return the fixture's nominal 120 BPM.
+        let (different_tempo, _) = analyze(24, 90.0, [130.81, 164.81, 196.0], 1_200.0, 0.012);
+        let different_tempo = different_tempo.expect("90 BPM C-major click should be detected");
+        assert!(
+            (different_tempo.bpm - 90.0).abs() <= 1.0,
+            "{different_tempo:?}"
+        );
+
+        // A bass-only pulse exercises the ordinary energy lane and guards
+        // against requiring bright percussion for every valid rhythm.
+        let (low_kick, _) = analyze(24, 90.0, [0.0, 0.0, 0.0], 80.0, 0.08);
+        let low_kick = low_kick.expect("90 BPM low kick should be detected");
+        assert!((low_kick.bpm - 90.0).abs() <= 1.0, "{low_kick:?}");
+
+        let (steady_chord, diagnostics) = analyze(20, 120.0, [220.0, 261.63, 329.63], 0.0, 0.0);
+        assert!(
+            steady_chord.is_none(),
+            "stationary chord was labeled rhythmic"
+        );
+        assert_eq!(
+            diagnostics.rejection_reason,
+            Some("no_confident_transient_pattern")
+        );
+    }
+
+    #[test]
+    fn silence_and_deterministic_noise_do_not_receive_tempo_confidence() {
+        let mut silence = BpmEnvelopeAccumulator::default();
+        let mut noise = BpmEnvelopeAccumulator::default();
+        let mut state = 0x1f2e_3d4cu32;
+        for _ in 0..BPM_SAMPLE_RATE as usize * 24 {
+            silence.push(0.0);
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            let sample = (state as i32 as f64 / i32::MAX as f64) * 0.2;
+            noise.push(sample);
+        }
+        silence.finish_frame();
+        noise.finish_frame();
+        let silence_envelopes = silence.into_envelopes();
+        let noise_envelopes = noise.into_envelopes();
+        assert!(estimate_bpm_envelopes_with_diagnostics(
+            &silence_envelopes.0,
+            &silence_envelopes.1
+        )
+        .0
+        .is_none());
+        assert!(
+            estimate_bpm_envelopes_with_diagnostics(&noise_envelopes.0, &noise_envelopes.1)
+                .0
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn overlapping_key_windows_support_twenty_second_tonal_tracks() {
+        let sample_rate = KEY_SAMPLE_RATE as usize;
+        let samples = (0..sample_rate * 20)
+            .map(|index| {
+                let time = index as f64 / sample_rate as f64;
+                ([220.0, 261.6256, 329.6276]
+                    .iter()
+                    .map(|frequency| (std::f64::consts::TAU * frequency * time).sin())
+                    .sum::<f64>()
+                    / 3.0) as f32
+            })
+            .collect::<Vec<_>>();
+        let (analysis, diagnostics) = estimate_key_with_diagnostics(&samples);
+        let analysis =
+            analysis.expect("20s sustained A minor exceeds the minimum analysis duration");
+        assert_eq!(analysis.key, "Am");
+        assert_eq!(analysis.window_keys.len(), 5);
+        assert_eq!(diagnostics.rejection_reason, None);
+        let (short, short_diagnostics) =
+            estimate_key_with_diagnostics(&samples[..sample_rate * 10]);
+        assert!(
+            short.is_none(),
+            "short track must not get five duplicate key votes"
+        );
+        assert_eq!(short_diagnostics.rejection_reason, Some("minimum_duration"));
     }
 
     #[test]

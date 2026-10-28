@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-apply-selected-stream-analysis"
+description = "Enables the apply_selected_stream_analysis command without any pre-configured scope."
+commands.allow = ["apply_selected_stream_analysis"]
+
+[[permission]]
+identifier = "deny-apply-selected-stream-analysis"
+description = "Denies the apply_selected_stream_analysis command without any pre-configured scope."
+commands.deny = ["apply_selected_stream_analysis"]

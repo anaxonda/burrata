@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-begin-webview-stream-analysis"
+description = "Enables the begin_webview_stream_analysis command without any pre-configured scope."
+commands.allow = ["begin_webview_stream_analysis"]
+
+[[permission]]
+identifier = "deny-begin-webview-stream-analysis"
+description = "Denies the begin_webview_stream_analysis command without any pre-configured scope."
+commands.deny = ["begin_webview_stream_analysis"]

@@ -1,5 +1,10 @@
 //! Subprocess acquisition stays in Rust; only explicit queue requests download media.
-use crate::{connections::ConnectionManager, matching, media, models::*, Store};
+use crate::{
+    connections::ConnectionManager,
+    matching, media,
+    models::*,
+    storage::{LibraryWritePermit, Store},
+};
 use chrono::Utc;
 use serde::Serialize;
 use serde_json::Value;
@@ -2805,12 +2810,32 @@ fn search_query_for_artist(track: &Track, artist: &str, include_version: bool) -
 struct CachedCandidates {
     cached_at: Instant,
     candidates: Vec<Candidate>,
+    estimated_bytes: usize,
 }
 
 #[derive(Clone)]
 struct CachedProviderQueryRows {
     cached_at: Instant,
     response: ProviderQueryResponse,
+    estimated_bytes: usize,
+}
+
+// Candidate pages may contain unusually large extractor fields (notably long
+// chapter lists). Entry-count limits alone could retain many megabytes per
+// entry across a long session. JSON size is a cheap upper-level proxy for the
+// strings and values held by these models; the multiplier accounts for Rust
+// collection/value overhead and allocations.
+const CANDIDATE_CACHE_MAX_ESTIMATED_BYTES: usize = 32 * 1024 * 1024;
+const CANDIDATE_CACHE_ESTIMATE_MULTIPLIER: usize = 8;
+
+fn estimate_candidate_cache_bytes(candidates: &[Candidate]) -> usize {
+    serde_json::to_vec(candidates)
+        .map(|serialized| {
+            serialized
+                .len()
+                .saturating_mul(CANDIDATE_CACHE_ESTIMATE_MULTIPLIER)
+        })
+        .unwrap_or(usize::MAX)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -3753,24 +3778,40 @@ impl CandidateSearchCache {
             return Err("Cancelled".into());
         }
         if response.completeness.cacheable() {
-            if let Ok(mut entries) = self.provider_query_entries.lock() {
-                entries.retain(|_, row| row.cached_at.elapsed() < PROVIDER_QUERY_TTL);
-                if entries.len() >= MAX_PROVIDER_QUERY_ENTRIES {
-                    if let Some(oldest) = entries
-                        .iter()
-                        .min_by_key(|(_, row)| row.cached_at)
-                        .map(|(key, _)| key.clone())
+            let estimated_bytes = estimate_candidate_cache_bytes(&response.candidates);
+            if estimated_bytes <= CANDIDATE_CACHE_MAX_ESTIMATED_BYTES {
+                if let Ok(mut entries) = self.provider_query_entries.lock() {
+                    entries.retain(|_, row| row.cached_at.elapsed() < PROVIDER_QUERY_TTL);
+                    entries.remove(&key);
+                    let mut estimated_total = entries
+                        .values()
+                        .map(|row| row.estimated_bytes)
+                        .sum::<usize>();
+                    while entries.len() >= MAX_PROVIDER_QUERY_ENTRIES
+                        || estimated_total.saturating_add(estimated_bytes)
+                            > CANDIDATE_CACHE_MAX_ESTIMATED_BYTES
                     {
-                        entries.remove(&oldest);
+                        let Some(oldest) = entries
+                            .iter()
+                            .min_by_key(|(_, row)| row.cached_at)
+                            .map(|(key, _)| key.clone())
+                        else {
+                            break;
+                        };
+                        if let Some(removed) = entries.remove(&oldest) {
+                            estimated_total =
+                                estimated_total.saturating_sub(removed.estimated_bytes);
+                        }
                     }
+                    entries.insert(
+                        key.clone(),
+                        CachedProviderQueryRows {
+                            cached_at: Instant::now(),
+                            response: response.clone(),
+                            estimated_bytes,
+                        },
+                    );
                 }
-                entries.insert(
-                    key.clone(),
-                    CachedProviderQueryRows {
-                        cached_at: Instant::now(),
-                        response: response.clone(),
-                    },
-                );
             }
         }
         drop(guard);
@@ -3945,24 +3986,40 @@ impl CandidateSearchCache {
             }
         };
         if cacheable {
-            if let Ok(mut entries) = self.entries.lock() {
-                entries.retain(|_, v| v.cached_at.elapsed() < SEARCH_CACHE_TTL);
-                if entries.len() >= SEARCH_CACHE_MAX {
-                    if let Some(oldest) = entries
-                        .iter()
-                        .min_by_key(|(_, v)| v.cached_at)
-                        .map(|(k, _)| k.clone())
+            let estimated_bytes = estimate_candidate_cache_bytes(&candidates);
+            if estimated_bytes <= CANDIDATE_CACHE_MAX_ESTIMATED_BYTES {
+                if let Ok(mut entries) = self.entries.lock() {
+                    entries.retain(|_, v| v.cached_at.elapsed() < SEARCH_CACHE_TTL);
+                    entries.remove(&key);
+                    let mut estimated_total = entries
+                        .values()
+                        .map(|entry| entry.estimated_bytes)
+                        .sum::<usize>();
+                    while entries.len() >= SEARCH_CACHE_MAX
+                        || estimated_total.saturating_add(estimated_bytes)
+                            > CANDIDATE_CACHE_MAX_ESTIMATED_BYTES
                     {
-                        entries.remove(&oldest);
+                        let Some(oldest) = entries
+                            .iter()
+                            .min_by_key(|(_, v)| v.cached_at)
+                            .map(|(k, _)| k.clone())
+                        else {
+                            break;
+                        };
+                        if let Some(removed) = entries.remove(&oldest) {
+                            estimated_total =
+                                estimated_total.saturating_sub(removed.estimated_bytes);
+                        }
                     }
+                    entries.insert(
+                        key.clone(),
+                        CachedCandidates {
+                            cached_at: Instant::now(),
+                            candidates: candidates.clone(),
+                            estimated_bytes,
+                        },
+                    );
                 }
-                entries.insert(
-                    key.clone(),
-                    CachedCandidates {
-                        cached_at: Instant::now(),
-                        candidates: candidates.clone(),
-                    },
-                );
             }
         }
         drop(guard);
@@ -4735,6 +4792,7 @@ async fn resolve_bandcamp_preview_audio(
             "uploader": resolved.artist.clone(),
             "albumUrl": resolved.album_url.as_ref().map(|url| url.as_str()),
             "albumId": resolved.album_id,
+            "pageMetadata": resolved.page_metadata,
         })),
         // The shared strict matcher expects provider titles to include the
         // credited artist. Keep the parsed artist separately as well so the
@@ -6196,6 +6254,7 @@ impl AcquisitionManager {
         }
     }
     pub async fn resume_interrupted_soulseek(&self, settings: Settings) -> Result<usize, String> {
+        let _library_write = self.inner.store.try_library_write()?;
         if !settings.music_directory.trim().is_empty() {
             let music = PathBuf::from(&settings.music_directory);
             let inner = self.inner.clone();
@@ -7080,6 +7139,26 @@ impl AcquisitionManager {
             .await
     }
 
+    /// Search providers without reusing the preview cache. This is used when a
+    /// caller must revalidate a reviewed stable provider ID before binding it.
+    pub async fn find_fresh_preview_candidates_cancelled(
+        &self,
+        track: &Track,
+        provider_ids: &[String],
+        settings: &Settings,
+        cancel: watch::Receiver<bool>,
+    ) -> Result<Vec<Candidate>, String> {
+        find_candidates_with_cancel(
+            track,
+            provider_ids,
+            settings,
+            cancel,
+            3,
+            PREVIEW_SEARCH_TIMEOUT,
+        )
+        .await
+    }
+
     pub async fn prefetch_playback_candidates_cancelled(
         &self,
         track: &Track,
@@ -7833,6 +7912,10 @@ impl AcquisitionManager {
         mut request: DownloadRequest,
         settings: Settings,
     ) -> Result<DownloadJob, String> {
+        // Reserve the profile before validation or queue writes. The owned
+        // lease moves to the worker and covers resolver, transfer, temp stage,
+        // publication, tagging/artwork, Store commit, and journal ack.
+        let library_write = self.inner.store.try_library_write()?;
         if !matches!(
             request.disposition,
             crate::models::ReplacementDisposition::Keep
@@ -8014,9 +8097,14 @@ impl AcquisitionManager {
             download_layout: settings.download_layout,
             playlist_context,
         };
-        self.start(job, settings).await
+        self.start(job, settings, library_write).await
     }
-    async fn start(&self, job: DownloadJob, settings: Settings) -> Result<DownloadJob, String> {
+    async fn start(
+        &self,
+        job: DownloadJob,
+        settings: Settings,
+        library_write: LibraryWritePermit,
+    ) -> Result<DownloadJob, String> {
         let (tx, rx) = idle_cancel();
         {
             let mut active = self
@@ -8047,7 +8135,7 @@ impl AcquisitionManager {
         let manager = self.clone();
         let work = job.clone();
         tokio::spawn(async move {
-            manager.work(work, settings, rx).await;
+            manager.work(work, settings, rx, library_write).await;
         });
         Ok(job)
     }
@@ -8077,6 +8165,7 @@ impl AcquisitionManager {
             .map_err(|_| "Job has already stopped".to_string())
     }
     pub async fn retry(&self, job_id: &str, settings: Settings) -> Result<DownloadJob, String> {
+        let library_write = self.inner.store.try_library_write()?;
         let mut job = self.inner.store.get_job(job_id)?;
         if !can_retry(&job.state) {
             return Err("Only failed, cancelled or interrupted jobs can be retried".into());
@@ -8132,9 +8221,15 @@ impl AcquisitionManager {
         job.progress = 0.0;
         job.error = None;
         job.output_path = None;
-        self.start(job, settings).await
+        self.start(job, settings, library_write).await
     }
-    async fn work(&self, mut job: DownloadJob, settings: Settings, rx: watch::Receiver<bool>) {
+    async fn work(
+        &self,
+        mut job: DownloadJob,
+        settings: Settings,
+        rx: watch::Receiver<bool>,
+        _library_write: LibraryWritePermit,
+    ) {
         let result = self
             .acquire_with_fallback(&mut job, &settings, rx.clone())
             .await
@@ -8395,6 +8490,9 @@ impl AcquisitionManager {
         settings: &Settings,
         mut rx: watch::Receiver<bool>,
     ) -> Result<LocalAsset, String> {
+        // Keep the internal entrypoint safe for local diagnostics/tests that
+        // invoke it without the normal queued worker lease.
+        let _library_write = self.inner.store.try_library_write()?;
         if *rx.borrow() {
             return Err("Cancelled".into());
         }
@@ -10219,6 +10317,33 @@ async fn download_direct(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn restore_barrier_rejects_download_admission_without_persisting_a_job() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&directory.path().join("library.sqlite")).unwrap());
+        let connections = Arc::new(ConnectionManager::new(store.clone()));
+        let manager = AcquisitionManager::new_for_playback_test(store.clone(), connections);
+        let restore = store.try_restore_permit().unwrap();
+        let error = manager
+            .enqueue(
+                DownloadRequest {
+                    track: Track::default(),
+                    candidate: Candidate::default(),
+                    format_id: None,
+                    output_profile: "source".into(),
+                    disposition: ReplacementDisposition::Keep,
+                    chapter_ids: None,
+                    playlist_context: None,
+                },
+                Settings::default(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error, "Library restore is in progress");
+        assert!(store.list_jobs().unwrap().is_empty());
+        drop(restore);
+    }
 
     fn slskd_poll_fixture(id: &str) -> SlskdSearchPoll {
         SlskdSearchPoll {
@@ -13164,6 +13289,78 @@ mod tests {
             permissive.action,
             crate::recording_match::MatchAction::Accept
         );
+    }
+
+    #[tokio::test]
+    async fn candidate_caches_bound_estimated_bytes_and_skip_oversized_rows() {
+        let cache = CandidateSearchCache::default();
+        let (_tx, cancel) = idle_cancel();
+        let oversized = Candidate {
+            id: "youtube:oversized".into(),
+            title: "x".repeat(5 * 1024 * 1024),
+            ..Candidate::default()
+        };
+        let oversized_result = cache
+            .get_or_search_cancelled_observed_decided_with_completeness(
+                "oversized-candidate-page".into(),
+                cancel.clone(),
+                None,
+                || async { Ok((vec![oversized.clone()], true)) },
+            )
+            .await
+            .unwrap();
+        assert_eq!(oversized_result.0.len(), 1);
+        assert!(cache.entries.lock().unwrap().is_empty());
+
+        let oversized_provider = cache
+            .get_or_search_provider_query(
+                "oversized-provider-page".into(),
+                cancel.clone(),
+                || async {
+                    Ok(ProviderQueryResponse {
+                        candidates: vec![oversized.clone()],
+                        completeness: ProviderQueryCompleteness::ReturnedPage {
+                            row_count: 1,
+                            reached_limit: false,
+                        },
+                    })
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(oversized_provider.candidates.len(), 1);
+        assert!(cache.provider_query_entries.lock().unwrap().is_empty());
+
+        let large_but_cacheable = Candidate {
+            id: "youtube:large-but-cacheable".into(),
+            title: "y".repeat(1536 * 1024),
+            ..Candidate::default()
+        };
+        for index in 0..3 {
+            let row = Candidate {
+                id: format!("youtube:{index}"),
+                ..large_but_cacheable.clone()
+            };
+            cache
+                .get_or_search_cancelled_observed_decided_with_completeness(
+                    format!("large-entry-{index}"),
+                    cancel.clone(),
+                    None,
+                    || async { Ok((vec![row], true)) },
+                )
+                .await
+                .unwrap();
+        }
+        let entries = cache.entries.lock().unwrap();
+        assert!(
+            entries
+                .values()
+                .map(|entry| entry.estimated_bytes)
+                .sum::<usize>()
+                <= CANDIDATE_CACHE_MAX_ESTIMATED_BYTES
+        );
+        assert_eq!(entries.len(), 2);
+        assert!(entries.contains_key("large-entry-2"));
     }
 
     #[test]
@@ -18477,6 +18674,7 @@ echo "$result"
                     id: "youtube:stale-fixture".into(),
                     ..Candidate::default()
                 }],
+                estimated_bytes: 64,
             },
         );
 

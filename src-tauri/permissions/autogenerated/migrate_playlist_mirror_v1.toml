@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-migrate-playlist-mirror-v1"
+description = "Enables the migrate_playlist_mirror_v1 command without any pre-configured scope."
+commands.allow = ["migrate_playlist_mirror_v1"]
+
+[[permission]]
+identifier = "deny-migrate-playlist-mirror-v1"
+description = "Denies the migrate_playlist_mirror_v1 command without any pre-configured scope."
+commands.deny = ["migrate_playlist_mirror_v1"]

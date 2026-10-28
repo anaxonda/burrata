@@ -20,6 +20,7 @@ fn has_explicit_port(raw: &str) -> bool {
 #[derive(Debug)]
 pub(crate) struct TrackAudio {
     pub provider_id: String,
+    pub page_metadata: Value,
     pub title: String,
     pub artist: String,
     pub album_url: Option<Url>,
@@ -291,6 +292,7 @@ pub(crate) async fn resolve_track_page_audio(
     )
     .await?;
     Ok(TrackAudio {
+        page_metadata: crate::import_metadata::bandcamp_page(&data, &html, &page),
         provider_id,
         title,
         artist,

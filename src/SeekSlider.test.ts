@@ -22,6 +22,17 @@ it("commits only the final pointer target", async () => {
   input.dispatchEvent(new Event("pointerup", {bubbles:true}));
   expect(onSeek).toHaveBeenCalledExactlyOnceWith(30);
 });
+it("shows the hovered time without changing playback", async () => {
+  const {input,onSeek} = render();
+  vi.spyOn(input, "getBoundingClientRect").mockReturnValue({left:10,width:200} as DOMRect);
+  input.dispatchEvent(new MouseEvent("pointermove", {bubbles:true,clientX:160}));
+  await tick();
+  expect(document.querySelector(".seek-hover-time")?.textContent).toBe("1:15");
+  expect(onSeek).not.toHaveBeenCalled();
+  input.dispatchEvent(new MouseEvent("pointerleave", {bubbles:true}));
+  await tick();
+  expect(document.querySelector(".seek-hover-time")).toBeNull();
+});
 it("commits the current drag target if pointer capture is unexpectedly lost", async () => {
   const {input,onSeek} = render();
   input.dispatchEvent(new Event("pointerdown", {bubbles:true}));

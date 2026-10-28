@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-review-restored-automatic-work"
+description = "Enables the review_restored_automatic_work command without any pre-configured scope."
+commands.allow = ["review_restored_automatic_work"]
+
+[[permission]]
+identifier = "deny-review-restored-automatic-work"
+description = "Denies the review_restored_automatic_work command without any pre-configured scope."
+commands.deny = ["review_restored_automatic_work"]

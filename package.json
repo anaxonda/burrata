@@ -1,6 +1,6 @@
 {
   "name": "burrata",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "private": true,
   "type": "module",
   "license": "GPL-3.0-or-later",
@@ -10,6 +10,8 @@
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "tauri": "tauri",
     "test": "vitest run --configLoader runner",
+    "test:watch": "bash scripts/dev/test-frontend-watch.sh",
+    "test:native:exact": "bash scripts/dev/test-native-exact.sh",
     "test:extension": "node --test extension/tests/*.test.mjs",
     "test:mcp": "node --test mcp/*.test.js",
     "mcp:start": "node mcp/server.js",

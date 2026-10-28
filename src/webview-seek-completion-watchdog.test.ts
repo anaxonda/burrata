@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { WebviewSeekCompletionWatchdog, type WebviewSeekCompletionOwner } from "./webview-seek-completion-watchdog";
+import { WebviewSeekCompletionWatchdog, hasWebviewSeekLanded, type WebviewSeekCompletionOwner } from "./webview-seek-completion-watchdog";
 
 describe("WebView seek completion watchdog", () => {
   afterEach(() => vi.useRealTimers());
@@ -67,5 +67,30 @@ describe("WebView seek completion watchdog", () => {
     setCurrent(false);
     vi.advanceTimersByTime(1);
     expect(expired).not.toHaveBeenCalled();
+  });
+});
+
+describe("seek landing after queued media events", () => {
+  const input = { target: 80, currentTime: 80.805442176, duration: 155.364716553, elapsedMs: 900, playing: true, playbackRate: 1 };
+  it("accepts the observed successful landing after playback advanced past fixed tolerance", () => {
+    expect(hasWebviewSeekLanded(input)).toBe(true);
+    expect(hasWebviewSeekLanded({ ...input, currentTime: 81.6, playbackRate: 2 })).toBe(true);
+  });
+  it("accepts the observed coarse browser acknowledgment without inventing elapsed playback", () => {
+    const actual = { ...input, currentTime: 81.037641723, elapsedMs: 5 };
+    expect(hasWebviewSeekLanded(actual)).toBe(false);
+    expect(hasWebviewSeekLanded({ ...actual, browserAcknowledged: true })).toBe(true);
+    expect(hasWebviewSeekLanded({ ...actual, currentTime: 83, browserAcknowledged: true })).toBe(false);
+    expect(hasWebviewSeekLanded({ ...actual, currentTime: 30, browserAcknowledged: true })).toBe(false);
+  });
+  it("does not forgive a wrong location merely because a seek event arrived", () => {
+    expect(hasWebviewSeekLanded({ ...input, currentTime: 30 })).toBe(false);
+    expect(hasWebviewSeekLanded({ ...input, currentTime: 90 })).toBe(false);
+    expect(hasWebviewSeekLanded({ ...input, elapsedMs: 0 })).toBe(false);
+    expect(hasWebviewSeekLanded({ ...input, elapsedMs: Number.NaN })).toBe(false);
+  });
+  it("keeps a paused seek bounded to its target without elapsed playback credit", () => {
+    expect(hasWebviewSeekLanded({ ...input, elapsedMs: 10_000, playing: false })).toBe(false);
+    expect(hasWebviewSeekLanded({ ...input, currentTime: 80.2, playing: false })).toBe(true);
   });
 });

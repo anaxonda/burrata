@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-resolve-portable-playback-candidate"
+description = "Enables the resolve_portable_playback_candidate command without any pre-configured scope."
+commands.allow = ["resolve_portable_playback_candidate"]
+
+[[permission]]
+identifier = "deny-resolve-portable-playback-candidate"
+description = "Denies the resolve_portable_playback_candidate command without any pre-configured scope."
+commands.deny = ["resolve_portable_playback_candidate"]

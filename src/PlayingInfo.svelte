@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getContext } from "svelte";
   import { SOURCE_OPENER, type SourceOpener } from "./lib/source-opening";
+  import { liveBpmLabel } from "./lib/live-bpm";
   import { metadataCount } from "./lib/provider-counts";
   import SourceLink from "./SourceLink.svelte";
   import { call } from "./lib/api";
@@ -10,8 +11,12 @@
   import type {RecordingInformationResult, RecordingReleaseInfo} from "./lib/recording-information";
   import type {ArtistProfile, ArtistRef} from "./lib/artist-types";
   import TrackFiles from "./TrackFiles.svelte";
+  import PlayingTrackDetections from "./PlayingTrackDetections.svelte";
+  import type { PlayingTrackDetectionView } from "./lib/playing-track-detection";
   import StationInfo from "./StationInfo.svelte";
-  import type { Track, Candidate, LocalAsset, LiveBpmEstimate } from "./lib/types";
+  import type { Track, Candidate, LocalAsset, LiveBpmEstimate, LiveKeyEstimate } from "./lib/types";
+  import type { TrackLibrarySummary } from "./lib/track-library-summary";
+  import { loudnessMeasurementSourceLabel, type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus } from "./lib/loudness-normalization";
 
   function estimateNote(track: Track, field: "bpm" | "key"): string {
     const provenance = (track.provenance ?? {}) as Record<string, unknown>;
@@ -58,7 +63,16 @@
     onPanelWidthChange,
     stationName = "",
     liveBpm = null,
+    liveKey = null,
     liveBpmStatus,
+    liveBpmStatusReason = null,
+    analysisEstimate = null,
+    analysisStatus = "",
+    loudnessStatus = null, loudnessMode = null, loudnessAnalysisJob = null, pendingLoudnessAnalysisCount = 0, loudnessAnalysisMessage = "",
+    trackLibrarySummary = null, trackLibrarySummaryLoading = false, trackLibrarySummaryRequested = false,
+    trackDetectionView = null, trackDetectionStatus = "", trackDetectionDisabledReason = "",
+    trackDetectionAvailable = false, onTrackDetectionToggle, onTrackDetectionSeek,
+    onAnalyzeLoudness, onCancelLoudnessAnalysis, onRetryLoudnessAnalysis,
   }: {
     track: Track;
     candidate?: Candidate | null;
@@ -92,10 +106,56 @@
     onPanelWidthChange?: (width: number) => void;
     stationName?: string;
     liveBpm?: LiveBpmEstimate | null;
-    liveBpmStatus?: "disabled" | "unsupported" | "paused" | "warming" | "insufficient" | "unavailable";
+    liveKey?: LiveKeyEstimate | null;
+    liveBpmStatus?: "disabled" | "unsupported" | "paused" | "warming" | "estimating" | "insufficient" | "unavailable" | "waiting";
+    liveBpmStatusReason?: string | null;
+    analysisEstimate?: { bpm?: { bpm: number } | null; key?: { key: string } | null } | null;
+    analysisStatus?: string;
+    loudnessStatus?: LoudnessPlaybackStatus | null;
+    loudnessMode?: "off" | "track" | "album" | null;
+    loudnessAnalysisJob?: LoudnessAnalysisJobStatus | null;
+    pendingLoudnessAnalysisCount?: number;
+    loudnessAnalysisMessage?: string;
+    trackLibrarySummary?: TrackLibrarySummary | null;
+    trackLibrarySummaryLoading?: boolean;
+    trackLibrarySummaryRequested?: boolean;
+    trackDetectionView?: PlayingTrackDetectionView | null;
+    trackDetectionStatus?: string;
+    trackDetectionDisabledReason?: string;
+    trackDetectionAvailable?: boolean;
+    onTrackDetectionToggle?: (enabled: boolean) => void;
+    onTrackDetectionSeek?: (seconds: number) => void;
+    onAnalyzeLoudness?: () => void;
+    onCancelLoudnessAnalysis?: () => void;
+    onRetryLoudnessAnalysis?: () => void;
   } = $props();
 
+  function loudnessStatusText(): string {
+    if (!loudnessStatus) return "Playback status is unavailable for this recording.";
+    if (loudnessStatus.mode === "off" || loudnessStatus.status === "off") return "Off · playback levels are unchanged.";
+    if (loudnessStatus.status === "unavailable") return loudnessStatus.reason || "No trusted loudness measurement is available.";
+    const source = loudnessMeasurementSourceLabel(loudnessStatus.measurementSource);
+    const gain = Number.isFinite(loudnessStatus.appliedGainDb) ? `${loudnessStatus.appliedGainDb > 0 ? "+" : ""}${loudnessStatus.appliedGainDb.toFixed(1)} dB` : "0.0 dB";
+    return `${loudnessStatus.status === "album_fallback_track" ? "Track fallback" : "Applied"} · ${gain} · ${source}${loudnessStatus.reason ? ` · ${loudnessStatus.reason}` : ""}`;
+  }
+
+  function analysisStatusText(): string {
+    const status = analysisStatus.trim().toLowerCase();
+    if (!status) return "";
+    if (/failed|error|unavailable|unsupported|could not/.test(status)) return "Audio analysis is unavailable for this source.";
+    if (/\b(?:queued|running|analyzing|analysing|starting|checking)\b/.test(status)) return "Analyzing this audio for BPM and key…";
+    if (/complete|finished|cached|done/.test(status)) return "No estimate was detected for this audio.";
+    if (/paused|disabled|background analysis is off/.test(status)) return "Not analyzed.";
+    return "Audio analysis status: " + analysisStatus.trim().slice(0, 120);
+  }
+
   const sourceOpener = getContext<SourceOpener | undefined>(SOURCE_OPENER);
+  const visibleTrackDetections = $derived.by(() => {
+    const observations = trackDetectionView?.observations ?? [];
+    const range = track.playbackRange;
+    return range ? observations.filter(item => item.detectedAtSeconds >= range.startTime && item.detectedAtSeconds < range.endTime) : observations;
+  });
+
   const catalogProvider = $derived.by(() => {
     if (track.provider !== "catalog") return track.provider;
     const provenance = (track.provenance ?? {}) as Record<string, unknown>;
@@ -140,6 +200,33 @@
   const views = $derived(metadataCount(track,candidate,["views", "viewCount", "view_count"]));
   const plays = $derived(metadataCount(track,candidate,["plays", "playCount", "play_count", "playcount"]));
   const formatCount = (value: number) => new Intl.NumberFormat().format(value);
+  const currentLiveBpm = $derived(liveBpm?.trackId === track.id ? liveBpm : null);
+  const currentLiveKey = $derived(liveKey?.trackId === track.id ? liveKey : null);
+  const currentLiveStatus = $derived(
+    liveBpmStatus && (!liveBpm || liveBpm.trackId === track.id) && (!liveKey || liveKey.trackId === track.id)
+      ? liveBpmStatus
+      : undefined,
+  );
+  function liveKeyStatusText(): string {
+    if (!currentLiveStatus || currentLiveStatus === "disabled") return "";
+    if (currentLiveBpm && !currentLiveKey) return "No confident key estimate yet";
+    return ({
+      unsupported: "Live key is unavailable for this audio route",
+      paused: "Paused",
+      warming: "Listening for audio…",
+      estimating: "Estimating key…",
+      insufficient: "No confident key estimate yet",
+      unavailable: "Live key estimate temporarily unavailable",
+      waiting: "Waiting for enough audio…",
+    } as const)[currentLiveStatus] ?? "";
+  }
+  const librarySummary = $derived(trackLibrarySummary?.trackId === track.id ? trackLibrarySummary : null);
+  const playedAtLabel = (value: string) => {
+    const date = new Date(value);
+    return Number.isFinite(date.getTime())
+      ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date)
+      : value;
+  };
   $effect(() => {
     if (imageUrl !== coverUrl) {
       imageUrl = coverUrl;
@@ -200,12 +287,70 @@
       </div>
     </div>
 
-    {#if track.localAvailability === "available" || (!track.localAvailability && track.localPath)}
+    {#if librarySummary}
+      <section class="track-library-summary" aria-label="Library and listening activity">
+        <dl>
+          {#if librarySummary.inLibrary}<div><dt>Library</dt><dd>In library</dd></div>{/if}
+          {#if librarySummary.downloaded}<div><dt>Downloaded</dt><dd>Available on this device</dd></div>{/if}
+        </dl>
+        <div class="plays-disclosure-row">
+          <details class="plays-disclosure">
+            <summary><span>Plays</span><strong>{formatCount(librarySummary.playCount)}</strong><span class="plays-chevron" aria-hidden="true">⌄</span></summary>
+            <div class="played-history-body">
+              <p class="track-history-hint">Successful starts recorded in playback history; restored history may include other devices.</p>
+              {#if librarySummary.playedAt.length}
+                {#if librarySummary.playedAtHasMore}
+                  <p class="played-dates-note">Showing the {formatCount(librarySummary.playedAt.length)} most recent of {formatCount(librarySummary.playCount)} recorded plays, newest first.</p>
+                {:else}
+                  <p class="played-dates-note">Dates are shown newest first.</p>
+                {/if}
+                <ol class="played-dates">
+                  {#each librarySummary.playedAt as playedAt, index (`${track.id}:${playedAt}:${index}`)}
+                    <li><time datetime={playedAt}>{playedAtLabel(playedAt)}</time></li>
+                  {/each}
+                </ol>
+              {:else}
+                <p class="played-dates-note">No play dates are available.</p>
+              {/if}
+            </div>
+          </details>
+        </div>
+        {#if librarySummary.playlists.length}
+          <div class="playlist-membership">
+            <strong>In playlists</strong>
+            <ul>{#each librarySummary.playlists as playlist (playlist.id)}<li>{playlist.name}</li>{/each}</ul>
+          </div>
+        {/if}
+      </section>
+    {:else if trackLibrarySummaryLoading}
+      <p class="track-library-loading" role="status">Loading listening and library details…</p>
+    {:else if !trackLibrarySummaryRequested && (track.localAvailability === "available" || (!track.localAvailability && track.localPath))}
       <p class="downloaded-badge" aria-label="Downloaded and available on this device"><span aria-hidden="true">✓</span> Downloaded</p>
+    {/if}
+
+    {#if trackDetectionAvailable || visibleTrackDetections.length}
+      <PlayingTrackDetections
+        enabled={trackDetectionView?.enabled ?? false}
+        observations={visibleTrackDetections}
+        status={trackDetectionStatus}
+        disabledReason={trackDetectionDisabledReason}
+        onToggle={(enabled) => onTrackDetectionToggle?.(enabled)}
+        onSeek={(seconds) => onTrackDetectionSeek?.(seconds)}
+      />
     {/if}
 
     <PlaybackQuality {track} {asset} {streamQuality} />
     {#if availableFiles.length}<TrackFiles assets={availableFiles} {preferredAssetId} onPreferred={onPreferredFile} compact />{/if}
+    {#if loudnessMode !== "off" && loudnessStatus?.mode !== "off" && loudnessStatus?.status !== "off"}<section class="loudness-details" aria-label="Loudness normalization playback details">
+      <strong>Loudness normalization</strong>
+      <p>{loudnessStatusText()}</p>
+      {#if onAnalyzeLoudness}<button type="button" onclick={onAnalyzeLoudness}>Analyze this local track</button>{/if}
+      {#if loudnessAnalysisJob}<p>{loudnessAnalysisJob.status === "running" || loudnessAnalysisJob.status === "queued" ? "Analyzing " + loudnessAnalysisJob.completed + " of " + loudnessAnalysisJob.total + " selected tracks" : loudnessAnalysisJob.status === "failed" ? "Analysis failed: " + (loudnessAnalysisJob.error ?? "unknown error") : "Analysis " + loudnessAnalysisJob.status}</p>{#if loudnessAnalysisJob.status === "running" || loudnessAnalysisJob.status === "queued"}<progress max={loudnessAnalysisJob.total || 1} value={loudnessAnalysisJob.completed}></progress>{/if}{/if}
+      {#if pendingLoudnessAnalysisCount}<p>{pendingLoudnessAnalysisCount} selected track(s) waiting for idle playback.</p>{/if}
+      {#if loudnessAnalysisMessage}<p>{loudnessAnalysisMessage}</p>{/if}
+      {#if onCancelLoudnessAnalysis && (loudnessAnalysisJob?.status === "running" || loudnessAnalysisJob?.status === "queued" || pendingLoudnessAnalysisCount)}<button type="button" onclick={onCancelLoudnessAnalysis}>Cancel loudness analysis</button>{/if}
+      {#if onRetryLoudnessAnalysis && pendingLoudnessAnalysisCount && (!loudnessAnalysisJob || loudnessAnalysisJob.status === "failed" || loudnessAnalysisJob.status === "cancelled")}<button type="button" onclick={onRetryLoudnessAnalysis}>Retry selected analysis</button>{/if}
+    </section>{/if}
 
     {#if radioLinks.isRadio && (radioLinks.stationUrl || radioLinks.streamUrl)}
       <StationInfo {track} stationName={displayedStationName} stationUrl={radioLinks.stationUrl} streamUrl={radioLinks.streamUrl} />
@@ -213,14 +358,15 @@
 
     <dl>
       {#if views !== null}<div><dt>Views</dt><dd>{formatCount(views)}</dd></div>{/if}
-      {#if plays !== null}<div><dt>Plays</dt><dd>{formatCount(plays)}</dd></div>{/if}
+      {#if plays !== null}<div><dt>Source plays</dt><dd>{formatCount(plays)}</dd></div>{/if}
       {#if catalogProvider && catalogProvider !== "catalog"}<div><dt>Metadata source</dt><dd>{providerLabel(catalogProvider)}</dd></div>{/if}
       {#if candidate?.provider}<div><dt>Audio provider</dt><dd>{providerLabel(candidate.provider)}</dd></div>{/if}
       {#if candidate?.title}<div><dt>Audio source</dt><dd>{candidate.title}</dd></div>{/if}
       {#if candidate?.uploader}<div><dt>Uploader</dt><dd>{candidate.uploader}</dd></div>{/if}
-      {#if track.bpm}<div><dt>Tempo</dt><dd>{track.bpm} BPM{estimateNote(track, "bpm")}</dd></div>{/if}
-      {#if liveBpm}<div class="live-bpm" title={`Approximate tempo estimated from ${liveBpm.windowSeconds.toFixed(1)} seconds of current playback`}><dt>Live BPM</dt><dd>{liveBpm.bpm.toFixed(1)} BPM <small>approx. · {Math.round(liveBpm.confidence * 100)}% rhythm strength · half/double-time readings can vary{#if liveBpm.relatedTempoAlternativeBpm} · related {liveBpm.relatedTempoAlternativeBpm.toFixed(1)} BPM{/if}</small></dd></div>{:else if liveBpmStatus}<div class="live-bpm"><dt>Live BPM</dt><dd>{{disabled:"Disabled · enable in Settings → Playback",unsupported:"Requires Native audio in Settings → Playback",paused:"Paused",warming:"Listening · collecting a ten-second audio window",insufficient:"No confident rhythm estimate",unavailable:"Estimate temporarily unavailable"}[liveBpmStatus]}</dd></div>{/if}
-      {#if track.key}<div><dt>Key</dt><dd>{track.key}{estimateNote(track, "key")}</dd></div>{/if}
+      {#if track.bpm}<div><dt>Tempo</dt><dd>{track.bpm} BPM{estimateNote(track, "bpm")}</dd></div>{:else if analysisEstimate?.bpm && Number.isFinite(analysisEstimate.bpm.bpm) && analysisEstimate.bpm.bpm > 0}<div><dt>Tempo</dt><dd>{analysisEstimate.bpm.bpm} BPM · estimated from audio</dd></div>{:else if analysisStatus}<div><dt>Tempo</dt><dd>{analysisStatusText()}</dd></div>{/if}
+      {#if currentLiveBpm}<div class="live-bpm" title={`Approximate tempo estimated from ${currentLiveBpm.windowSeconds.toFixed(1)} seconds of current playback`}><dt>Live BPM</dt><dd>{liveBpmLabel(currentLiveBpm)}</dd></div>{:else if currentLiveStatus}<div class="live-bpm" title={liveBpmStatusReason ?? undefined}><dt>Live BPM</dt><dd>{liveBpmStatusReason ? liveBpmStatusReason.slice(0, 160) : {disabled:"Disabled · enable in Settings → Playback",unsupported:"This source has no supported Web Audio PCM route",paused:"Paused",warming:"Listening for audio…",estimating:"Estimating BPM…",insufficient:"No live BPM reading yet",waiting:"Waiting for the current playback buffer…",unavailable:"Estimate temporarily unavailable"}[currentLiveStatus]}</dd></div>{/if}
+      {#if currentLiveKey}<div class="live-bpm" title={`Provisional key profile from ${currentLiveKey.windowSeconds.toFixed(1)} seconds of current playback. This does not change saved track metadata.`}><dt>Live key</dt><dd>{currentLiveKey.key} · recent window</dd></div>{:else if liveKeyStatusText()}<div class="live-bpm live-key-status"><dt>Live key</dt><dd>{liveKeyStatusText()}</dd></div>{/if}
+      {#if track.key}<div><dt>Key</dt><dd>{track.key}{estimateNote(track, "key")}</dd></div>{:else if analysisEstimate?.key?.key}<div><dt>Key</dt><dd>{analysisEstimate.key.key} · estimated from audio</dd></div>{:else}<div><dt>Key</dt><dd>{analysisStatus ? analysisStatusText() : "Not analyzed"}</dd></div>{/if}
       {#if track.label}<div><dt>Label</dt><dd>{track.label}</dd></div>{/if}
       {#if track.releaseDate}<div><dt>Released</dt><dd>{track.releaseDate}</dd></div>{/if}
       {#if track.durationSeconds}<div><dt>Duration</dt><dd>{Math.floor(track.durationSeconds / 60)}:{String(Math.floor(track.durationSeconds % 60)).padStart(2, "0")}</dd></div>{/if}
@@ -275,6 +421,27 @@
   .album { margin: 5px 0 0; overflow-wrap: anywhere; color: var(--muted); font-size: 12px; }
   .downloaded-badge { display:flex;align-items:center;gap:6px;align-self:flex-start;margin:14px 0 0;padding:5px 9px;border:1px solid color-mix(in srgb,var(--accent) 55%,var(--line));border-radius:999px;color:var(--accent);font-size:11px;font-weight:650; }
   .downloaded-badge span { display:grid;place-items:center;width:16px;height:16px;border-radius:50%;background:color-mix(in srgb,var(--accent) 20%,transparent);font-size:11px; }
+  .track-library-summary{display:grid;gap:8px;margin:12px 0 0;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--raised)}
+  .track-library-summary dl{display:grid;grid-template-columns:minmax(0,1fr);gap:0;margin:0}
+  .track-library-summary dl>div{align-items:baseline;padding:5px 0}
+  .track-library-summary dt,.track-library-summary dd{font-size:11px}
+  .plays-disclosure-row{padding:0 0 5px;border-bottom:1px solid var(--line)}
+  .plays-disclosure{width:100%}
+  .plays-disclosure summary{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:9px;min-height:32px;cursor:pointer;list-style:none;color:var(--text);font-size:11px}
+  .plays-disclosure summary::-webkit-details-marker{display:none}
+  .plays-disclosure summary strong{font-size:11px;font-weight:650}
+  .plays-chevron{display:inline-block;color:var(--muted);font-size:15px;line-height:1;transition:transform .15s ease}
+  .plays-disclosure[open] .plays-chevron{transform:rotate(180deg)}
+  .played-history-body{display:grid;gap:5px;margin:2px 0 6px}
+  .track-history-hint{margin:0;color:var(--muted);font-size:10px;line-height:1.4}
+  .played-dates-note{margin:3px 0 0;color:var(--muted);font-size:10px}
+  .played-dates,.playlist-membership ul{display:grid;gap:5px;margin:4px 0 0;padding-left:20px;color:var(--text);font-size:11px}
+  .played-dates{max-height:150px;overflow:auto}
+  .played-dates time{color:var(--muted)}
+  .playlist-membership strong{font-size:11px}
+  .playlist-membership ul{padding-left:16px;overflow-wrap:anywhere}
+  .track-library-loading{margin:12px 0 0;color:var(--muted);font-size:11px}
+  .loudness-details{display:grid;gap:5px;margin-top:12px;padding:9px;border:1px solid var(--line);border-radius:8px}.loudness-details strong{font-size:12px}.loudness-details p{margin:0;color:var(--muted);font-size:11px;line-height:1.4}.loudness-details progress{width:100%}.loudness-details button{justify-self:start}
   dl { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; margin: 18px 0 0; }
   dl > div { display: flex; justify-content: space-between; gap: 10px; min-width: 0; padding: 8px 0; border-bottom: 1px solid var(--line); }
   dt { flex: 0 0 auto; color: var(--muted); font-size: 11px; }

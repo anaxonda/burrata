@@ -1,13 +1,14 @@
 /* Persistent three-zone player. Keep these selectors specific enough to follow app-wide CSS. */
 footer.player {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(240px, 1.2fr) minmax(180px, auto);
-  grid-template-rows: minmax(58px, auto);
+  grid-template-columns: minmax(220px, 0.9fr) minmax(280px, 1.1fr) minmax(320px, 1.2fr);
+  grid-template-rows: minmax(44px, auto) 32px auto;
   align-items: center;
-  gap: 20px;
+  column-gap: 20px;
+  row-gap: 0;
   min-width: 0;
   min-height: 84px;
-  padding: 10px 20px;
+  padding: 4px 20px;
   flex-wrap: unset;
 }
 
@@ -23,7 +24,7 @@ footer.player > .now-playing {
   gap: 11px;
   width: 100%;
   min-width: 0;
-  min-height: 56px;
+  min-height: 42px;
   margin: 0;
   padding: 5px;
   overflow: visible;
@@ -52,9 +53,9 @@ footer.player > .now-playing > .station-info {
 }
 
 footer.player .mini-art {
-  flex: 0 0 48px;
-  width: 48px;
-  height: 48px;
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
   overflow: hidden;
   border-radius: 7px;
   box-shadow: 0 5px 16px #0004;
@@ -130,7 +131,7 @@ footer.player .player-status {
 footer.player .player-error {
   display: flex;
   grid-column: 1 / -1;
-  grid-row: 2;
+  grid-row: 3;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -175,17 +176,13 @@ footer.player .player-error-actions button:first-child {
 }
 
 footer.player .player-center {
-  display: grid;
-  grid-column: 2;
-  grid-row: 1;
-  grid-template-rows: 34px 17px;
-  align-content: center;
-  gap: 5px;
-  min-width: 0;
+  display: contents;
 }
 
 footer.player .player-transport {
   display: flex;
+  grid-column: 2;
+  grid-row: 1;
   align-items: center;
   justify-content: center;
   gap: 11px;
@@ -227,6 +224,8 @@ footer.player .player-transport .play-button {
 
 footer.player .player-scrubber {
   display: flex;
+  grid-column: 1 / -1;
+  grid-row: 2;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -241,7 +240,22 @@ footer.player .player-scrubber .time {
   text-align: center;
 }
 
+footer.player .player-scrubber .radio-live-label {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 footer.player .seek {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 40px;
+  max-width: none;
+}
+
+footer.player .player-scrubber > .waveform-seek-frame {
   flex: 1 1 auto;
   width: 100%;
   min-width: 40px;
@@ -250,12 +264,55 @@ footer.player .seek {
 
 footer.player .player-right {
   display: flex;
+  flex-wrap: wrap;
   grid-column: 3;
   grid-row: 1;
   align-items: center;
+  align-content: center;
   justify-content: flex-end;
-  gap: 10px;
+  gap: 3px 6px;
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
+}
+
+footer.player .player-right > .player-analysis-status {
+  flex: 0 1 clamp(64px, 8vw, 112px);
+  min-width: 0;
+}
+
+footer.player .player-right > .stream-analysis-action {
+  flex: 0 0 32px;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  padding: 6px;
+  color: var(--accent);
+}
+
+footer.player .player-right > .stream-analysis-action svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+
+footer.player .player-right > .stream-analysis-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+footer.player .player-right > .stream-analysis-action:disabled {
+  cursor: progress;
+  opacity: 0.8;
+}
+
+footer.player .stream-analysis-spinner {
+  animation: stream-analysis-spin 1s linear infinite;
+}
+
+@keyframes stream-analysis-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  footer.player .stream-analysis-spinner { animation: none; }
 }
 
 footer.player .player-right > button[aria-label="Show playback queue and chapters"] {
@@ -282,10 +339,11 @@ footer.player .player-volume-control .volume {
 
 footer.player .player-right > .queue-toggle { display:flex; gap:6px; width:auto; min-width:36px; padding:6px; font-size:12px; }
 footer.player .queue-toggle[aria-pressed="true"] { color:var(--accent); background:var(--raised); }
-footer.player .play-button.buffering { position:relative; }
-footer.player .play-button.buffering::after { content:""; position:absolute; inset:0; border:2px solid color-mix(in srgb,var(--accent) 25%,transparent); border-top-color:var(--text); border-radius:50%; animation:playback-loading 900ms linear infinite; pointer-events:none; }
+footer.player .player-transport .play-button.buffering { position:relative; isolation:isolate; overflow:visible; }
+footer.player .play-button-icon { position:relative; z-index:1; display:grid; place-items:center; width:100%; height:100%; }
+footer.player .play-button-loading-ring { position:absolute; z-index:2; inset:-2px; box-sizing:border-box; border:3px solid color-mix(in srgb,var(--base) 45%,var(--accent)); border-top-color:var(--text); border-right-color:color-mix(in srgb,var(--text) 82%,var(--accent)); border-radius:50%; box-shadow:0 0 0 1px var(--base); animation:playback-loading 850ms linear infinite; pointer-events:none; }
 @keyframes playback-loading { to { transform:rotate(360deg); } }
-@media(prefers-reduced-motion:reduce) { footer.player .play-button.buffering::after { animation:none; border-style:dashed; } }
+@media(prefers-reduced-motion:reduce) { footer.player .play-button-loading-ring { animation:none; border-style:dashed; border-top-color:var(--base); } }
 @media(max-width:1100px) { footer.player .queue-toggle span { display:none; } }
 
 footer.player .player-right > button:disabled {
@@ -310,18 +368,19 @@ footer.player .player-heart[aria-pressed="true"] { color:#f1768d; }
 @media(max-width:600px) { .history-page { padding:10px; }.history-filters { flex-wrap:wrap; }.history-filters .history-search { flex:1 1 100%; }.history-advanced-fields { left:0;right:auto;width:min(620px,calc(100vw - 100px)); } }
 @media(max-height:600px) { .history-page { padding:8px 12px; }.history-filters { margin-bottom:6px;gap:5px; }.history-filters input,.history-filters select,.history-search-submit,.history-advanced-filters > summary { min-height:32px;padding-top:4px;padding-bottom:4px; } }
 .compact-track-actions .row-heart[aria-pressed="true"] { color:#f1768d; }
-.row-play.buffering { opacity:1!important; border:2px dashed var(--accent)!important; border-radius:50%; }
+.row-play.buffering { display:grid;place-items:center;box-sizing:border-box;opacity:1!important;border:0!important;border-radius:50%;padding:0; }
 
-@media (min-width: 650px) and (max-width: 1000px) {
+@media (min-width: 720px) and (max-width: 1000px) {
   footer.player {
-    grid-template-columns: minmax(0, 1fr) minmax(205px, 1.2fr) minmax(150px, auto);
-    gap: 8px;
-    padding: 8px 12px;
+    grid-template-columns: minmax(180px, 0.9fr) minmax(240px, 1fr) minmax(260px, 1.25fr);
+    column-gap: 8px;
+    row-gap: 0;
+    padding: 4px 12px;
   }
   footer.player .mini-art {
-    flex-basis: 42px;
-    width: 42px;
-    height: 42px;
+    flex-basis: 40px;
+    width: 40px;
+    height: 40px;
   }
   footer.player > .now-playing { gap: 8px; }
   footer.player > .now-playing > .station-info { max-width:calc(100% - 59px);margin-left:59px;font-size:9px; }
@@ -336,13 +395,13 @@ footer.player .player-heart[aria-pressed="true"] { color:#f1768d; }
   footer.player .player-right > .queue-toggle { min-width: 32px; width: 32px; padding: 0; }
 }
 
-@media (max-width: 649px) {
+@media (max-width: 719px) {
   footer.player {
     grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-rows: minmax(54px, auto) 26px;
-    gap: 5px 7px;
+    grid-template-rows: minmax(40px, auto) 32px 32px;
+    gap: 3px 7px;
     min-height: 88px;
-    padding: 7px 9px calc(7px + env(safe-area-inset-bottom));
+    padding: 4px 9px calc(4px + env(safe-area-inset-bottom));
   }
   footer.player > .now-playing {
     grid-column: 1;
@@ -363,7 +422,7 @@ footer.player .player-heart[aria-pressed="true"] { color:#f1768d; }
   footer.player .player-status { display: none; }
   footer.player .player-error {
     grid-column: 1 / -1;
-    grid-row: 3;
+    grid-row: 4;
     align-items: stretch;
     flex-direction: column;
     gap: 7px;
@@ -391,7 +450,7 @@ footer.player .player-heart[aria-pressed="true"] { color:#f1768d; }
     height: 36px;
   }
   footer.player .player-scrubber {
-    grid-column: 1;
+    grid-column: 1 / -1;
     grid-row: 2;
     gap: 4px;
   }
@@ -402,18 +461,30 @@ footer.player .player-heart[aria-pressed="true"] { color:#f1768d; }
   }
   footer.player .seek { min-width: 20px; height: 4px; }
   footer.player .player-right {
-    grid-column: 2;
-    grid-row: 2;
+    grid-column: 1 / -1;
+    grid-row: 3;
+    flex-wrap: nowrap;
     justify-content: flex-end;
     gap: 2px;
   }
+  footer.player .player-right > .player-analysis-status {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+  footer.player .player-right > .queue-toggle { min-width: 32px; width: 32px; padding: 0; }
   footer.player .player-right > button[aria-label="Show playback queue and chapters"] { font-size: 16px; }
   footer.player .player-volume-control > span { display: none; }
   footer.player .player-volume-control .volume { width: 48px; min-width: 40px; }
 }
 
 @media (max-width: 360px) {
-  footer.player { padding-right: 6px; padding-left: 6px; gap: 4px; }
+  footer.player { padding: 3px 6px calc(3px + env(safe-area-inset-bottom)); column-gap: 6px; row-gap: 3px; }
   footer.player .mini-art { flex-basis: 32px; width: 32px; height: 32px; }
   footer.player .player-right { gap: 0; }
   footer.player .player-volume-control .volume { width: 40px; min-width: 36px; }
@@ -426,12 +497,12 @@ footer.player .player-transport .play-button { font-size:16px; }
 /* Radio is a toggle, not a second text label inside its 32px transport slot. */
 footer.player .player-transport button[aria-label="Autoplay radio after queue"] { font-size:0; }
 footer.player .player-transport button[aria-label="Autoplay radio after queue"]::before { content:"∞";font-size:18px;line-height:1; }
-@media(max-width:649px) {
+@media(max-width:767px) {
   footer.player .player-transport button,
   footer.player .player-right > button { font-size:16px; }
   footer.player .player-transport .play-button { font-size:16px; }
 }
-@media (min-width:650px) and (max-width:1000px) {
+@media (min-width:768px) and (max-width:1000px) {
   footer.player .player-transport { gap:2px; }
   footer.player .player-transport button[aria-label="Autoplay radio after queue"] { flex-basis:30px;width:30px; }
 }
@@ -469,3 +540,220 @@ footer.player .player-transport .repeat-one-badge {
 
 /* Keep the quality icon intact and truncate the concise summary as one unit. */
 footer.player .playback-quality .quality-icon { flex: 0 0 auto; }
+
+/* Compact playback keeps every player action available while dropping
+   secondary source and quality detail. */
+footer.player.compact {
+  grid-template-rows: minmax(38px, auto) 32px auto;
+  min-height: 0;
+  padding: 3px 14px;
+  column-gap: 12px;
+  row-gap: 1px;
+}
+
+footer.player.compact > .now-playing {
+  min-height: 36px;
+  padding: 1px 3px;
+}
+
+footer.player.compact > .now-playing > .now-playing-open {
+  gap: 8px;
+  padding: 0 2px;
+}
+
+footer.player.compact .mini-art {
+  flex-basis: 34px;
+  width: 34px;
+  height: 34px;
+}
+
+footer.player.compact .player-track-copy {
+  gap: 1px;
+}
+
+footer.player.compact .player-track-title {
+  font-size: 11px;
+  line-height: 1.15;
+}
+
+footer.player.compact .player-track-artist {
+  font-size: 9px;
+  line-height: 1.1;
+}
+
+footer.player.compact .player-status {
+  min-height: 9px;
+  font-size: 8px;
+  line-height: 1.1;
+}
+
+footer.player.compact .player-source,
+footer.player.compact .playback-quality,
+footer.player.compact > .now-playing > .station-info {
+  display: none;
+}
+
+footer.player.compact .player-transport {
+  gap: 4px;
+}
+
+footer.player.compact .player-right {
+  flex-wrap: wrap;
+  gap: 2px;
+  width: auto;
+}
+
+footer.player.compact .player-right > .queue-toggle {
+  flex: 0 0 32px;
+  min-width: 32px;
+  width: 32px;
+  padding: 0;
+}
+
+footer.player.compact .player-right > .queue-toggle span {
+  display: none;
+}
+
+footer.player.compact .player-volume-control {
+  flex: 0 1 92px;
+}
+
+footer.player.compact .player-volume-control > span {
+  display: none;
+}
+
+footer.player.compact .player-volume-control .volume {
+  width: 82px;
+  min-width: 54px;
+}
+
+@media (min-width: 720px) and (max-width: 1000px) {
+  footer.player.compact {
+    grid-template-columns: minmax(150px, 0.8fr) minmax(220px, 1.1fr) minmax(210px, 1fr);
+    column-gap: 8px;
+    padding-inline: 10px;
+  }
+
+  footer.player.compact .player-transport {
+    gap: 2px;
+  }
+
+  footer.player.compact .player-right {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  footer.player.compact .player-volume-control {
+    flex-basis: 60px;
+  }
+
+  footer.player.compact .player-volume-control .volume {
+    width: 56px;
+    min-width: 48px;
+  }
+}
+
+@media (max-width: 719px) {
+  footer.player.compact {
+    grid-template-rows: minmax(36px, auto) 30px 32px auto;
+    gap: 2px 6px;
+    min-height: 0;
+    padding: 3px 8px calc(3px + env(safe-area-inset-bottom));
+  }
+
+  footer.player.compact > .now-playing {
+    min-height: 36px;
+    padding: 0 2px;
+  }
+
+  footer.player.compact > .now-playing > .now-playing-open {
+    min-height: 36px;
+    gap: 7px;
+  }
+
+  footer.player.compact .mini-art {
+    flex-basis: 32px;
+    width: 32px;
+    height: 32px;
+  }
+
+  footer.player.compact .player-track-title {
+    font-size: 10px;
+  }
+
+  footer.player.compact .player-track-artist {
+    font-size: 8px;
+  }
+
+  footer.player.compact .player-status {
+    display: block;
+    font-size: 8px;
+  }
+
+  footer.player.compact .player-transport {
+    gap: 1px;
+  }
+
+  footer.player.compact .player-transport button,
+  footer.player.compact .player-right > button {
+    min-width: 32px;
+    width: 32px;
+    height: 32px;
+  }
+
+  footer.player.compact .player-transport .play-button {
+    min-width: 36px;
+    width: 36px;
+    height: 36px;
+  }
+
+  footer.player.compact .player-scrubber {
+    grid-row: 2;
+    min-height: 30px;
+  }
+
+  footer.player.compact .player-scrubber .time {
+    flex-basis: 28px;
+    width: 28px;
+  }
+
+  footer.player.compact .player-right {
+    grid-row: 3;
+    flex-wrap: nowrap;
+    gap: 2px;
+  }
+
+  footer.player.compact .player-volume-control {
+    flex-basis: 52px;
+  }
+
+  footer.player.compact .player-volume-control .volume {
+    width: 48px;
+    min-width: 42px;
+  }
+
+  footer.player.compact .player-error {
+    grid-row: 4;
+  }
+}
+
+@media (max-width: 360px) {
+  footer.player.compact {
+    padding-inline: 6px;
+    column-gap: 4px;
+  }
+
+  footer.player.compact .player-transport button {
+    min-width: 32px;
+    width: 32px;
+  }
+
+  footer.player.compact .player-volume-control {
+    flex-basis: 42px;
+  }
+
+  footer.player.compact .player-volume-control .volume {
+    width: 40px;
+    min-width: 36px;
+  }
+}

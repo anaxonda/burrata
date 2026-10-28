@@ -46,6 +46,7 @@ struct RegisteredSource {
     generation: u64,
     track_id: String,
     source: AudioSource,
+    resource_identity: Option<crate::playing_track_detections::SourceIdentity>,
     live: bool,
     bounds: Option<(f64, f64)>,
 }
@@ -104,12 +105,70 @@ impl WebViewIdentification {
             .is_some_and(|host| host == "googlevideo.com" || host.ends_with(".googlevideo.com"))
     }
 
+    /// True only for a server-registered finite source owned by this exact
+    /// playback generation. Live radio is excluded; bounded excerpts retain
+    /// their source identity so detections can be stored on the parent source
+    /// clock when the extractor reports an absolute position.
+    pub fn matches_registered_finite_source(&self, generation: u64, track_id: &str) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .source
+            .as_ref()
+            .is_some_and(|source| {
+                source.generation == generation
+                    && source.track_id == track_id
+                    && !source.live
+                    && source.bounds.is_none_or(|(start, end)| {
+                        start.is_finite() && end.is_finite() && start >= 0.0 && end > start
+                    })
+            })
+    }
+
+    pub fn registered_resource_identity(
+        &self,
+        generation: u64,
+        track_id: &str,
+    ) -> Option<crate::playing_track_detections::SourceIdentity> {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .source
+            .as_ref()
+            .filter(|source| {
+                source.generation == generation
+                    && source.track_id == track_id
+                    && !source.live
+                    && source.bounds.is_none_or(|(start, end)| {
+                        start.is_finite() && end.is_finite() && start >= 0.0 && end > start
+                    })
+            })
+            .and_then(|source| source.resource_identity.clone())
+    }
+
+    pub fn registered_finite_source_epoch(&self, generation: u64, track_id: &str) -> Option<u64> {
+        let inner = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        inner
+            .source
+            .as_ref()
+            .filter(|source| {
+                source.generation == generation
+                    && source.track_id == track_id
+                    && !source.live
+                    && source.bounds.is_none_or(|(start, end)| {
+                        start.is_finite() && end.is_finite() && start >= 0.0 && end > start
+                    })
+            })
+            .map(|_| inner.epoch)
+    }
+
     /// Call only after the resolver has validated this source and the request is current.
     pub fn register(
         &self,
         generation: u64,
         track_id: String,
         source: AudioSource,
+        resource_identity: Option<crate::playing_track_detections::SourceIdentity>,
         live: bool,
         bounds: Option<(f64, f64)>,
     ) {
@@ -120,10 +179,11 @@ impl WebViewIdentification {
             generation,
             track_id,
             source,
+            resource_identity,
             live,
-            bounds: bounds.filter(|(start, end)| {
-                start.is_finite() && end.is_finite() && *start >= 0.0 && *end > *start
-            }),
+            // Preserve invalid bounds as invalid. Filtering them to `None`
+            // would incorrectly promote a malformed excerpt to a full source.
+            bounds,
         });
     }
 
@@ -240,7 +300,18 @@ impl WebViewIdentification {
         track_id: &str,
         position_seconds: f64,
     ) -> Result<PlayingTrackIdentification, String> {
-        let (registered, epoch, job_id, mut cancelled) = {
+        self.identify_with_capture(generation, track_id, position_seconds, None)
+            .await
+    }
+
+    pub async fn identify_with_capture(
+        &self,
+        generation: u64,
+        track_id: &str,
+        position_seconds: f64,
+        capture_id: Option<String>,
+    ) -> Result<PlayingTrackIdentification, String> {
+        let (registered, epoch, job_id, mut cancelled, capture_id) = {
             let mut inner = self.0.lock().unwrap_or_else(|e| e.into_inner());
             if inner.closed {
                 return Err("Audio identification is shutting down".into());
@@ -253,16 +324,30 @@ impl WebViewIdentification {
                 .clone()
                 .filter(|r| r.generation == generation && r.track_id == track_id)
                 .ok_or("Playback source is unavailable for identification")?;
+            if let Some(capture_id) = capture_id.as_deref() {
+                if capture_id.is_empty() || capture_id.len() > 128 {
+                    return Err("Audio capture identity is invalid".into());
+                }
+                if inner.cancelled_pcm_capture_ids.contains(capture_id) {
+                    return Err("Audio capture was cancelled before recognition began".into());
+                }
+                if inner.pcm_capture_ids.contains_key(capture_id) {
+                    return Err("Audio capture identity is already active".into());
+                }
+            }
             let epoch = inner.epoch;
             inner.next_job = inner.next_job.wrapping_add(1);
             let job_id = inner.next_job;
             let (tx, rx) = watch::channel(false);
             inner.jobs.insert(job_id, tx);
+            if let Some(capture_id) = capture_id.as_ref() {
+                inner.pcm_capture_ids.insert(capture_id.clone(), job_id);
+            }
             let active = inner.jobs.len();
             inner.active_jobs.send_replace(active);
-            (registered, epoch, job_id, rx)
+            (registered, epoch, job_id, rx, capture_id)
         };
-        let _job = IdentificationJob(self.0.clone(), job_id);
+        let _job = IdentificationJob(self.0.clone(), job_id, capture_id);
         if !position_seconds.is_finite() || position_seconds < 0.0 {
             return Err("Current playback position is unavailable".into());
         }
@@ -291,10 +376,12 @@ impl WebViewIdentification {
         let cleanup = TemporaryPcmFile(path.clone());
         let capture_path = path.clone();
         let recognition = Box::pin(async {
-            crate::radio::recognize_played_sample_with_capture(&station, true, || async move {
-                extract_wav(source, start, seconds, capture_path).await
-            })
-            .await
+            let recognized =
+                crate::radio::recognize_played_sample_with_capture(&station, true, || async move {
+                    extract_wav(source, start, seconds, capture_path).await
+                })
+                .await?;
+            Ok::<_, String>((recognized, (start, seconds)))
         });
         let recognized = tokio::select! {
             _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => return Err("Track identification exceeded 60 seconds".into()),
@@ -313,9 +400,10 @@ impl WebViewIdentification {
         if !still_current {
             return Err("Playback changed during identification".into());
         }
-        let (identified, note) = recognized;
+        let ((identified, note), captured_audio_interval) = recognized;
         let result_title = identified.as_ref().map(|m| m.title.clone());
         let artwork_url = identified.as_ref().and_then(|m| m.artwork_url.clone());
+        let detection_metadata = identified.clone();
         let result_artist = identified.map(|m| m.artist);
         let note = note.unwrap_or_else(|| {
             if result_title.is_some() {
@@ -331,6 +419,10 @@ impl WebViewIdentification {
             artwork_url,
             note,
             timing_anchor: None,
+            detection_metadata,
+            captured_audio_interval: Some(captured_audio_interval),
+            detection_source_identity: registered.resource_identity,
+            detection_source_epoch: Some(epoch),
         })
     }
 }
@@ -443,11 +535,16 @@ impl Drop for PcmCaptureJob {
     }
 }
 
-struct IdentificationJob(Arc<Mutex<Inner>>, u64);
+struct IdentificationJob(Arc<Mutex<Inner>>, u64, Option<String>);
 impl Drop for IdentificationJob {
     fn drop(&mut self) {
         let mut inner = self.0.lock().unwrap_or_else(|e| e.into_inner());
         inner.jobs.remove(&self.1);
+        if let Some(capture_id) = self.2.as_deref() {
+            if inner.pcm_capture_ids.get(capture_id) == Some(&self.1) {
+                inner.pcm_capture_ids.remove(capture_id);
+            }
+        }
         let active = inner.jobs.len();
         inner.active_jobs.send_replace(active);
     }
@@ -478,17 +575,85 @@ mod tests {
     async fn requires_registered_current_generation_and_track() {
         let state = WebViewIdentification::default();
         assert!(state.identify(4, "track", 12.0).await.is_err());
-        state.register(5, "track".into(), source(), false, None);
+        state.register(5, "track".into(), source(), None, false, None);
         assert!(state.identify(4, "track", 12.0).await.is_err());
         assert!(state.identify(5, "other", 12.0).await.is_err());
         state.clear();
         assert!(state.identify(5, "track", 12.0).await.is_err());
     }
 
+    #[test]
+    fn source_identity_is_available_for_current_finite_full_and_bounded_resources() {
+        let state = WebViewIdentification::default();
+        let identity =
+            crate::playing_track_detections::SourceIdentity::new("youtube", "video-a").unwrap();
+        state.register(
+            5,
+            "track".into(),
+            source(),
+            Some(identity.clone()),
+            false,
+            None,
+        );
+        assert!(state.matches_registered_finite_source(5, "track"));
+        assert_eq!(
+            state.registered_resource_identity(5, "track"),
+            Some(identity.clone())
+        );
+        assert!(state.registered_resource_identity(4, "track").is_none());
+        assert!(state.registered_resource_identity(5, "other").is_none());
+        let captured_epoch = state.registered_finite_source_epoch(5, "track").unwrap();
+        let replacement =
+            crate::playing_track_detections::SourceIdentity::new("bandcamp", "track-b").unwrap();
+        state.register(
+            5,
+            "track".into(),
+            source(),
+            Some(replacement.clone()),
+            false,
+            None,
+        );
+        assert_ne!(
+            state.registered_finite_source_epoch(5, "track"),
+            Some(captured_epoch)
+        );
+        assert_eq!(
+            state.registered_resource_identity(5, "track"),
+            Some(replacement.clone())
+        );
+
+        state.register(
+            7,
+            "chapter-track".into(),
+            source(),
+            Some(identity.clone()),
+            false,
+            Some((60.0, 90.0)),
+        );
+        assert!(state.matches_registered_finite_source(7, "chapter-track"));
+        assert_eq!(
+            state.registered_resource_identity(7, "chapter-track"),
+            Some(identity)
+        );
+        state.register(
+            8,
+            "bad-bounds".into(),
+            source(),
+            Some(replacement),
+            false,
+            Some((90.0, 60.0)),
+        );
+        assert!(!state.matches_registered_finite_source(8, "bad-bounds"));
+
+        state.register(6, "track".into(), source(), None, true, None);
+        assert!(!state.matches_registered_finite_source(6, "track"));
+        assert!(state.registered_resource_identity(6, "track").is_none());
+    }
+
     #[tokio::test]
     async fn cancel_capture_keeps_source_and_cancels_jobs() {
         let state = WebViewIdentification::default();
-        state.register(5, "track".into(), source(), false, None);
+        state.register(5, "track".into(), source(), None, false, None);
         let (tx, mut rx) = watch::channel(false);
         {
             let mut inner = state.0.lock().unwrap();
@@ -501,6 +666,26 @@ mod tests {
             .source
             .as_ref()
             .is_some_and(|source| source.track_id == "track"));
+    }
+
+    #[test]
+    fn explicit_capture_id_cancels_and_releases_a_finite_source_identification_job() {
+        let state = WebViewIdentification::default();
+        let capture_id = "playing-detection-capture".to_owned();
+        let (sender, mut cancelled) = watch::channel(false);
+        let job_id = 41;
+        {
+            let mut inner = state.0.lock().unwrap();
+            inner.jobs.insert(job_id, sender);
+            inner.pcm_capture_ids.insert(capture_id.clone(), job_id);
+        }
+        let guard = IdentificationJob(state.0.clone(), job_id, Some(capture_id.clone()));
+        assert!(state.cancel_pcm_capture(&capture_id));
+        assert!(*cancelled.borrow_and_update());
+        drop(guard);
+        let inner = state.0.lock().unwrap();
+        assert!(!inner.jobs.contains_key(&job_id));
+        assert!(!inner.pcm_capture_ids.contains_key(&capture_id));
     }
 
     #[tokio::test]
@@ -649,7 +834,7 @@ mod tests {
 
             cenc: None,
         };
-        registry.register(7, "youtube:video12345".into(), source, false, None);
+        registry.register(7, "youtube:video12345".into(), source, None, false, None);
         assert!(registry.matches_registered_youtube_source(7, "youtube:video12345"));
         assert!(!registry.matches_registered_youtube_source(8, "youtube:video12345"));
         assert!(!registry.matches_registered_youtube_source(7, "youtube:other"));
@@ -662,7 +847,7 @@ mod tests {
 
             cenc: None,
         };
-        registry.register(9, "youtube:video12345".into(), radio, true, None);
+        registry.register(9, "youtube:video12345".into(), radio, None, true, None);
         assert!(!registry.matches_registered_youtube_source(9, "youtube:video12345"));
     }
 

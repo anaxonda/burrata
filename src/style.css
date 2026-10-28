@@ -78,6 +78,7 @@ textarea:focus {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 button:focus-visible,
+summary:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
@@ -875,6 +876,47 @@ audio {
   background: color-mix(in srgb, #050806 76%, transparent);
   backdrop-filter: blur(5px);
 }
+.portable-playlist-dialog {
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+}
+.import-dialog {
+  width: min(820px, calc(100vw - 32px));
+  max-height: min(88vh, 900px);
+  padding: 28px;
+}
+.import-dialog::backdrop {
+  background: color-mix(in srgb, #050806 76%, transparent);
+  backdrop-filter: blur(5px);
+}
+.import-dialog > .import-dialog-close {
+  position: sticky;
+  z-index: 1;
+  float: right;
+  top: 0;
+  width: 34px;
+  height: 34px;
+  margin: -12px -12px 0 8px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+.import-dialog > .import-dialog-close:hover,
+.import-dialog > .import-dialog-close:focus-visible { border-color: var(--accent); color: var(--accent); }
+.import-dialog .import-panel {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.import-dialog .import-panel > * { min-width: 0; }
 .download-dialog h2 {
   margin: 0 30px 7px 0;
   font-size: 18px;
@@ -1069,6 +1111,119 @@ audio {
 }
 .download-dialog footer .primary {
   min-width: 132px;
+}
+.analysis-review {
+  width: min(760px, 100%);
+}
+.analysis-review::backdrop {
+  background: color-mix(in srgb, #050806 76%, transparent);
+  backdrop-filter: blur(5px);
+}
+.analysis-review .analysis-close { float: right; margin-left: 12px; }
+.analysis-review > header {
+  display: block;
+}
+.analysis-review > [role="status"] {
+  margin: 0 0 8px;
+  color: var(--text);
+  font-weight: 550;
+}
+.analysis-review > progress {
+  width: 100%;
+  margin: 0 0 8px;
+}
+.analysis-review-controls {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.65fr) minmax(300px, 1.35fr);
+  gap: 10px;
+  margin: 12px 0;
+}
+.analysis-review-controls fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.analysis-review-controls legend {
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+.analysis-apply-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: start;
+  align-items: center;
+  gap: 5px 16px;
+}
+.analysis-review .analysis-review-controls label {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: start;
+  justify-content: start;
+  gap: 8px;
+  width: auto;
+  margin: 5px 0;
+  text-align: left;
+  line-height: 1.4;
+}
+.analysis-review .analysis-review-controls input[type="checkbox"] {
+  width: 16px;
+  min-height: 16px;
+  margin: 1px 0 0;
+}
+.analysis-review .analysis-apply-options label {
+  grid-template-columns: 16px auto;
+  width: max-content;
+}
+.analysis-replace-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 14px;
+  align-items: start;
+}
+.analysis-replace-options p {
+  grid-column: 1 / -1;
+  margin: 6px 0 0;
+  font-size: 11px;
+}
+.analysis-review-list {
+  display: grid;
+  gap: 8px;
+  max-height: 42vh;
+  overflow: auto;
+  padding: 2px 1px;
+}
+.analysis-review-row {
+  display: grid;
+  gap: 5px;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface) 85%, var(--accent) 15%);
+}
+.analysis-review-row > small,
+.analysis-review-row div small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.analysis-review-row div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+@media (max-width: 640px) {
+  .analysis-review-controls {
+    grid-template-columns: 1fr;
+  }
+  .analysis-replace-options {
+    grid-template-columns: 1fr;
+  }
+  .analysis-replace-options p {
+    grid-column: auto;
+  }
 }
 .settings {
   padding: 5px 28px 30px;
@@ -2263,3 +2418,18 @@ body .shared-track-list .more-menu a:focus-visible {
   body .shared-track-list .more-menu button,
   body .shared-track-list .more-menu a { min-height:32px; }
 }
+
+.backup-hydration-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-content: center;
+  gap: 12px;
+  padding: 24px;
+  background: rgba(12, 14, 18, 0.96);
+  color: var(--text, #f5f7fa);
+  text-align: center;
+}
+.backup-hydration-gate p { max-width: 36rem; margin: 0; }
+.backup-hydration-gate button { justify-self: center; }

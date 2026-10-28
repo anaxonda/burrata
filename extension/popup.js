@@ -5,7 +5,17 @@ function showView(view){const settings=view==='settings';settingsView.hidden=!se
 settingsButton.onclick=()=>showView('settings');
 showImportButton.onclick=()=>showView('import');
 send({type:'status'}).then(r=>{enabled=r.enabled;enable.textContent=enabled?'Disable browser-assisted access':'Enable browser-assisted access';status.textContent=r.error||(r.connected?(enabled?'Companion ready · Browser-assisted access on.':'Companion ready · Browser-assisted access off.'):'Companion unavailable. Open Burrata and install the browser host.');}).catch(show);
-importButton.onclick=async()=>{importButton.disabled=true;status.textContent='Collecting visible track metadata…';try{const r=await send({type:'importCurrent'});status.textContent=`Imported ${r.result.importedCount} tracks.\n${(r.result.warnings||[]).join('\n')}`;}catch(e){show(e);}finally{importButton.disabled=false;}};
+importButton.onclick=async()=>{importButton.disabled=true;status.textContent='Collecting visible track metadata…';try{const r=await send({type:'importCurrent'});status.textContent=`Imported ${r.result.capturedCount} entries (${r.result.importedCount} unique recordings)${r.result.expectedTotal!=null?` of ${r.result.expectedTotal} expected`:""} · ${r.result.complete?"complete":"partial"}.\n${r.result.changes?`${r.result.changes.added} added · ${r.result.changes.removed} removed · ${r.result.changes.moved} moved\n`:""}${r.result.failedSources?.length?`${r.result.failedSources.length} album pages failed; retry from Burrata.\n`:""}${(r.result.warnings||[]).join('\n')}`;}catch(e){show(e);}finally{importButton.disabled=false;}};
+let importPreviewId=null;
+const previewImportButton=document.querySelector('#preview-import'),applyImportButton=document.querySelector('#apply-import');
+previewImportButton.onclick=async()=>{
+  previewImportButton.disabled=true;importButton.disabled=true;applyImportButton.hidden=true;importPreviewId=null;status.textContent='Preparing import preview…';
+  try {const {result}=await send({type:'previewCurrent'});importPreviewId=result.previewId;status.textContent=`${result.title}\n${result.capturedCount} entries · ${result.uniqueRecordings} unique recordings · ${result.complete?'complete':'partial'}\n${result.changes.added} added · ${result.changes.removed} removed · ${result.changes.moved} moved\n${result.warnings.join('\n')}`;applyImportButton.hidden=false;}catch(error){show(error);}finally{previewImportButton.disabled=false;importButton.disabled=false;}
+};
+applyImportButton.onclick=async()=>{
+  if(!importPreviewId)return;applyImportButton.disabled=true;
+  try {const {result}=await send({type:'applyImportPreview',previewId:importPreviewId});status.textContent=`Imported ${result.capturedCount} entries · ${result.complete?'complete':'partial'}.\n${result.warnings.join('\n')}`;applyImportButton.hidden=true;importPreviewId=null;}catch(error){show(error);}finally{applyImportButton.disabled=false;}
+};
 enable.onclick=async()=>{
   try{
     const next=!enabled;

@@ -30,3 +30,13 @@ it("requires choosing an uncertain catalog suggestion before exposing its album"
  expect(document.body.textContent).toContain("Catalog suggestion");
  expect(document.querySelector(".release")?.textContent).toContain("Keep the Faith");
 });
+it("shows imported page links and public credits without treating them as catalog proof",async()=>{
+ const imported:Track={...track,provider:"bandcamp",sourceUrl:"https://artist.bandcamp.com/track/song",provenance:{playbackMode:"lookup",importMetadata:{albumUrl:"https://artist.bandcamp.com/album/release",artistUrl:"https://artist.bandcamp.com/",credits:"Recorded by Artist",tags:["alternative"]}}};
+ instance=mount(RecordingInformation,{target:document.body,props:{track:imported,loadRecording:async()=>({resolution:"unresolved",recording:null,candidates:[]})}});
+ await tick();await tick();
+ expect(document.querySelector('a[href="https://artist.bandcamp.com/album/release"]')?.textContent).toContain("Album page");
+ expect(document.body.textContent).toContain("Recorded by Artist");
+ expect(document.body.textContent).toContain("Source tags: alternative");
+ expect((document.querySelector('[aria-label="Playback source preference"]') as HTMLSelectElement).value).toBe("lookup");
+ expect(document.querySelector('.release')).toBeNull();
+});

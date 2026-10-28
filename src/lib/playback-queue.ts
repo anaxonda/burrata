@@ -1,4 +1,5 @@
 import type { Track } from "./types";
+import type { LoudnessResourceIdentity } from "./loudness-normalization";
 import { sortTracks, type SortDirection, type TrackSortField } from "./track-sort";
 
 export type RepeatMode = "off" | "all" | "one";
@@ -14,6 +15,8 @@ export interface PlaybackQueueSnapshot {
   entryIds?: string[];
   currentIndex: number;
   repeat: RepeatMode;
+  /** Exact album programme bound to each queue occurrence, when available. */
+  queueLoudnessContexts?: Record<string, LoudnessResourceIdentity>;
 }
 
 let fallbackEntrySequence = 0;
@@ -30,6 +33,29 @@ function validEntryIds(value: unknown, length: number): value is string[] {
   if (!Array.isArray(value) || value.length !== length) return false;
   const ids = value as unknown[];
   return ids.every(validEntryId) && new Set(ids).size === length;
+}
+
+function validAlbumResource(value: unknown): value is LoudnessResourceIdentity {
+  if (!value || typeof value !== "object") return false;
+  const resource = value as LoudnessResourceIdentity;
+  return resource.scope === "album"
+    && /^[a-f0-9]{64}$/i.test(resource.resourceKey)
+    && Array.isArray(resource.members) && resource.members.length >= 2 && resource.members.length <= 200
+    && Array.isArray(resource.interTrackGapsSeconds) && resource.interTrackGapsSeconds.length + 1 === resource.members.length
+    && resource.interTrackGapsSeconds.every(gap => Number.isFinite(gap) && gap === 0)
+    && resource.members.every(member => typeof member.assetId === "string" && member.assetId.length > 0
+      && /^[a-f0-9]{64}$/i.test(member.fileHash)
+      && Number.isFinite(member.range.startSeconds) && member.range.startSeconds >= 0
+      && (member.range.endSeconds === null || Number.isFinite(member.range.endSeconds) && member.range.endSeconds > member.range.startSeconds));
+}
+
+function trackMatchesAlbumMember(track: Track, resource: LoudnessResourceIdentity, memberIndex: number): boolean {
+  const member = resource.members[memberIndex];
+  if (!member || track.assetId !== member.assetId) return false;
+  const expected = track.playbackRange
+    ? { startSeconds: track.playbackRange.startTime, endSeconds: track.playbackRange.endTime }
+    : { startSeconds: 0, endSeconds: null };
+  return expected.startSeconds === member.range.startSeconds && expected.endSeconds === member.range.endSeconds;
 }
 
 function newEntryId(used: Set<string>): string {
@@ -60,6 +86,7 @@ export class PlaybackQueue {
   private items: PlaybackQueueEntry[] = [];
   private index = -1;
   private repeatMode: RepeatMode = "off";
+  private loudnessContexts = new Map<string, LoudnessResourceIdentity>();
 
   get entries(): readonly PlaybackQueueEntry[] { return this.items; }
   get entryIds(): readonly string[] { return this.items.map((entry) => entry.entryId); }
@@ -73,6 +100,7 @@ export class PlaybackQueue {
   /** Replace the queue with displayed occurrences and optionally select its starting row. */
   setTracks(tracks: readonly Track[], currentIndex = tracks.length ? 0 : -1, entryIds?: readonly string[]): Track | null {
     this.items = makeEntries(tracks, entryIds);
+    this.loudnessContexts.clear();
     const requested = Number.isFinite(currentIndex) ? Math.trunc(currentIndex) : 0;
     this.index = this.items.length ? Math.max(0, Math.min(requested, this.items.length - 1)) : -1;
     return this.current;
@@ -86,6 +114,26 @@ export class PlaybackQueue {
   }
 
   setRepeat(mode: RepeatMode): void { this.repeatMode = mode; }
+
+  setLoudnessContext(entryIds: readonly string[], resource: LoudnessResourceIdentity | null): void {
+    if (resource === null) {
+      for (const entryId of entryIds) this.loudnessContexts.delete(entryId);
+      return;
+    }
+    if (!validAlbumResource(resource) || entryIds.length !== resource.members.length) {
+      throw new Error("Album loudness identity does not match its queue occurrences.");
+    }
+    const entriesById = new Map(this.items.map(entry => [entry.entryId, entry.track]));
+    if (entryIds.some((entryId, index) => {
+      const track = entriesById.get(entryId);
+      return !track || !trackMatchesAlbumMember(track, resource, index);
+    })) throw new Error("Album loudness identity does not match its ordered queue tracks.");
+    for (const entryId of entryIds) this.loudnessContexts.set(entryId, resource);
+  }
+
+  loudnessContextFor(entryId: string | null | undefined): LoudnessResourceIdentity | null {
+    return entryId ? this.loudnessContexts.get(entryId) ?? null : null;
+  }
 
   appendTracks(tracks: readonly Track[]): readonly PlaybackQueueEntry[] {
     if (!tracks.length) return [];
@@ -117,6 +165,7 @@ export class PlaybackQueue {
   removeAt(at: number): Track | null {
     if (!Number.isInteger(at) || at < 0 || at >= this.items.length) return null;
     const [removed] = this.items.splice(at, 1);
+    if (removed) this.loudnessContexts.delete(removed.entryId);
     if (!this.items.length) this.index = -1;
     else if (at < this.index) this.index--;
     else if (at === this.index) this.index = Math.min(at, this.items.length - 1);
@@ -181,12 +230,31 @@ export class PlaybackQueue {
   }
 
   snapshot(): PlaybackQueueSnapshot {
-    return { tracks: this.items.map((entry) => entry.track), entryIds: this.items.map((entry) => entry.entryId), currentIndex: this.index, repeat: this.repeatMode };
+    const entryIds = this.items.map((entry) => entry.entryId);
+    const queueLoudnessContexts = Object.fromEntries(entryIds.flatMap(entryId => {
+      const resource = this.loudnessContexts.get(entryId);
+      return resource ? [[entryId, resource]] : [];
+    }));
+    return {
+      tracks: this.items.map((entry) => entry.track), entryIds, currentIndex: this.index, repeat: this.repeatMode,
+      ...(Object.keys(queueLoudnessContexts).length ? { queueLoudnessContexts } : {}),
+    };
   }
 
   restore(snapshot: PlaybackQueueSnapshot): Track | null {
     this.repeatMode = ["off", "all", "one"].includes(snapshot.repeat) ? snapshot.repeat : "off";
-    return this.setTracks(Array.isArray(snapshot.tracks) ? snapshot.tracks : [], snapshot.currentIndex, snapshot.entryIds);
+    const current = this.setTracks(Array.isArray(snapshot.tracks) ? snapshot.tracks : [], snapshot.currentIndex, snapshot.entryIds);
+    const contexts = snapshot.queueLoudnessContexts;
+    if (contexts && typeof contexts === "object" && !Array.isArray(contexts)) {
+      for (const [entryId, resource] of Object.entries(contexts)) {
+        const index = this.items.findIndex(entry => entry.entryId === entryId);
+        if (index < 0 || !validAlbumResource(resource)) continue;
+        if (resource.members.some((_member, memberIndex) => trackMatchesAlbumMember(this.items[index]!.track, resource, memberIndex))) {
+          this.loudnessContexts.set(entryId, resource);
+        }
+      }
+    }
+    return current;
   }
 }
 
@@ -202,7 +270,7 @@ export function savePlaybackQueue(queue: PlaybackQueue, storage?: Storage): bool
   } catch { return false; }
 }
 
-export function loadPlaybackQueue(storage?: Storage): PlaybackQueue | null {
+export function loadPlaybackQueue(storage?: Pick<Storage, "getItem">): PlaybackQueue | null {
   try {
     const target = storage ?? (typeof localStorage === "undefined" ? undefined : localStorage);
     const raw = target?.getItem(STORAGE_KEY);

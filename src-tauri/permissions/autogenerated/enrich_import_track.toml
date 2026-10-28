@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-enrich-import-track"
+description = "Enables the enrich_import_track command without any pre-configured scope."
+commands.allow = ["enrich_import_track"]
+
+[[permission]]
+identifier = "deny-enrich-import-track"
+description = "Denies the enrich_import_track command without any pre-configured scope."
+commands.deny = ["enrich_import_track"]

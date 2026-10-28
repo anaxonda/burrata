@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-choose-backup-restore-root"
+description = "Enables the choose_backup_restore_root command without any pre-configured scope."
+commands.allow = ["choose_backup_restore_root"]
+
+[[permission]]
+identifier = "deny-choose-backup-restore-root"
+description = "Denies the choose_backup_restore_root command without any pre-configured scope."
+commands.deny = ["choose_backup_restore_root"]

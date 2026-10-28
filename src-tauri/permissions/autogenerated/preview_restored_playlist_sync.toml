@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-preview-restored-playlist-sync"
+description = "Enables the preview_restored_playlist_sync command without any pre-configured scope."
+commands.allow = ["preview_restored_playlist_sync"]
+
+[[permission]]
+identifier = "deny-preview-restored-playlist-sync"
+description = "Denies the preview_restored_playlist_sync command without any pre-configured scope."
+commands.deny = ["preview_restored_playlist_sync"]

@@ -60,6 +60,7 @@ impl PlaylistWatcher {
 
         let settings = store.settings()?;
         let initial_roots = effective_watch_roots(&settings);
+        let mirroring_enabled = settings.playlist_mirroring_enabled;
         let mirror_directories = mirror_directories_for_settings(&settings);
         let mut watched = HashSet::new();
         let mut warnings = Vec::new();
@@ -78,6 +79,7 @@ impl PlaylistWatcher {
                     watched,
                     warnings,
                     mirror_directories,
+                    mirroring_enabled,
                     thread_stop,
                 );
             })
@@ -107,27 +109,39 @@ fn worker_loop(
     mut watched: HashSet<PathBuf>,
     mut watcher_warnings: Vec<String>,
     mut mirror_directories: Vec<PathBuf>,
+    mut mirroring_enabled: bool,
     stop: Arc<AtomicBool>,
 ) {
     let mut last_settings_refresh = Instant::now();
 
     let mut pending_event: Option<Instant> = None;
 
-    // Always reconcile once at startup.
+    // Reconcile once only when automatic mirroring is enabled.
     let mut last_sync_payload = None;
-    emit_sync(&app, &store, &watcher_warnings, &mut last_sync_payload);
+    if mirroring_enabled {
+        emit_sync(&app, &store, &watcher_warnings, &mut last_sync_payload);
+    }
     let mut last_fallback_sync = Instant::now();
 
     while !stop.load(Ordering::Acquire) {
         let now = Instant::now();
         if now.duration_since(last_settings_refresh) >= SETTINGS_REFRESH {
-            refresh_roots(
+            if let Some(enabled) = refresh_roots(
                 &store,
                 &mut watcher,
                 &mut watched,
                 &mut mirror_directories,
                 &mut watcher_warnings,
-            );
+            ) {
+                let reenabled = !mirroring_enabled && enabled;
+                mirroring_enabled = enabled;
+                if !enabled {
+                    pending_event = None;
+                } else if reenabled {
+                    emit_sync(&app, &store, &watcher_warnings, &mut last_sync_payload);
+                    last_fallback_sync = Instant::now();
+                }
+            }
             last_settings_refresh = now;
         }
 
@@ -137,11 +151,14 @@ fn worker_loop(
         }
         timeout =
             timeout.min(SETTINGS_REFRESH.saturating_sub(now.duration_since(last_settings_refresh)));
-        timeout = timeout.min(FALLBACK_SYNC.saturating_sub(now.duration_since(last_fallback_sync)));
+        if mirroring_enabled {
+            timeout =
+                timeout.min(FALLBACK_SYNC.saturating_sub(now.duration_since(last_fallback_sync)));
+        }
 
         match rx.recv_timeout(timeout.max(Duration::from_millis(1))) {
             Ok(Ok(event)) => {
-                if is_relevant_event(&event, &mirror_directories) {
+                if mirroring_enabled && is_relevant_event(&event, &mirror_directories) {
                     pending_event = Some(Instant::now());
                 }
             }
@@ -156,7 +173,7 @@ fn worker_loop(
         for _ in 0..MAX_DRAINED_EVENTS {
             match rx.try_recv() {
                 Ok(Ok(event)) => {
-                    if is_relevant_event(&event, &mirror_directories) {
+                    if mirroring_enabled && is_relevant_event(&event, &mirror_directories) {
                         pending_event = Some(Instant::now());
                     }
                 }
@@ -168,9 +185,10 @@ fn worker_loop(
         }
 
         let now = Instant::now();
-        let should_sync_for_event =
-            pending_event.is_some_and(|last| now.duration_since(last) >= DEBOUNCE);
-        let should_fallback_sync = now.duration_since(last_fallback_sync) >= FALLBACK_SYNC;
+        let should_sync_for_event = mirroring_enabled
+            && pending_event.is_some_and(|last| now.duration_since(last) >= DEBOUNCE);
+        let should_fallback_sync =
+            mirroring_enabled && now.duration_since(last_fallback_sync) >= FALLBACK_SYNC;
         if should_sync_for_event || should_fallback_sync {
             emit_sync(&app, &store, &watcher_warnings, &mut last_sync_payload);
             pending_event = None;
@@ -186,7 +204,7 @@ fn refresh_roots(
     watched: &mut HashSet<PathBuf>,
     mirror_directories: &mut Vec<PathBuf>,
     warnings: &mut Vec<String>,
-) {
+) -> Option<bool> {
     let settings = match store.settings() {
         Ok(settings) => settings,
         Err(error) => {
@@ -194,7 +212,7 @@ fn refresh_roots(
                 warnings,
                 format!("Could not refresh playlist watch settings: {error}"),
             );
-            return;
+            return None;
         }
     };
     let roots = effective_watch_roots(&settings);
@@ -205,6 +223,7 @@ fn refresh_roots(
         watched.remove(&root);
     }
     watch_roots(watcher, &roots, watched, warnings);
+    Some(settings.playlist_mirroring_enabled)
 }
 
 fn watch_roots(
@@ -266,6 +285,9 @@ fn emit_sync(
 }
 
 fn mirror_directories_for_settings(settings: &Settings) -> Vec<PathBuf> {
+    if !settings.playlist_mirroring_enabled {
+        return Vec::new();
+    }
     let music = settings.music_directory.trim();
     (!music.is_empty())
         .then(|| PathBuf::from(music).join("Playlists"))
@@ -289,6 +311,9 @@ fn push_warning(warnings: &mut Vec<String>, warning: String) {
 /// Watch exactly the same validated roots that the playlist scanner reads.
 /// Canonical aliases and nested roots collapse to one recursive watcher.
 fn effective_watch_roots(settings: &Settings) -> Vec<PathBuf> {
+    if !settings.playlist_mirroring_enabled {
+        return Vec::new();
+    }
     deduplicate_roots(crate::playlist_files::effective_directories(settings))
 }
 
@@ -433,6 +458,18 @@ mod tests {
         ));
         assert_eq!(FALLBACK_SYNC, Duration::from_secs(60));
         assert_eq!(MAX_DRAINED_EVENTS, 512);
+    }
+
+    #[test]
+    fn disabled_mirroring_installs_no_playlist_or_managed_mirror_watch_roots() {
+        let settings = Settings {
+            music_directory: "/music".into(),
+            playlist_directories: vec!["/external".into()],
+            playlist_mirroring_enabled: false,
+            ..Settings::default()
+        };
+        assert!(effective_watch_roots(&settings).is_empty());
+        assert!(mirror_directories_for_settings(&settings).is_empty());
     }
 
     #[test]

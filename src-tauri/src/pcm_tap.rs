@@ -5,7 +5,7 @@
 //! SongRec never run on the callback thread.
 
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     fs::File,
     io::Write,
     path::Path,
@@ -25,6 +25,13 @@ const CHUNK_SAMPLES: usize = 256;
 // stereo), rather than dropping audio halfway through an ordinary callback.
 // Overload still drops batches instead of blocking the audio callback.
 const CHANNEL_BATCHES: usize = 256;
+const SUBSCRIBER_QUEUE_MAX: usize = 1024;
+const MAX_PCM_SUBSCRIBERS: usize = 4;
+const WAVEFORM_BINS_PER_SECOND: usize = 10;
+const MAX_WAVEFORM_BINS: usize = 4 * 60 * 60 * WAVEFORM_BINS_PER_SECOND;
+const MAX_WAVEFORM_SNAPSHOT_BINS: usize = 4096;
+const WORKER_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+const VERIFIED_END_DELIVERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
 struct SampleBatch {
     generation: u64,
@@ -47,6 +54,135 @@ struct CaptureSnapshot {
     playback_end_position_seconds: Option<f64>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TapGapReason {
+    /// A missing/overlapping playback timeline may be a seek or a dropped
+    /// sample batch. Consumers must not treat the surrounding audio as
+    /// continuous.
+    TimelineDiscontinuity,
+    /// A subscriber did not drain its bounded channel quickly enough.
+    SubscriberBackpressure,
+    /// PCM reached the output tap without a trustworthy source position.
+    UnpositionedAudio,
+}
+
+#[derive(Debug, Clone)]
+pub enum PcmTapEvent {
+    Samples {
+        generation: u64,
+        sample_rate: u32,
+        channels: u16,
+        start_position_seconds: Option<f64>,
+        end_position_seconds: Option<f64>,
+        samples: Arc<[f32]>,
+    },
+    Gap {
+        generation: u64,
+        start_position_seconds: Option<f64>,
+        end_position_seconds: Option<f64>,
+        reason: TapGapReason,
+    },
+    Superseded {
+        generation: u64,
+    },
+    VerifiedEnd {
+        generation: u64,
+        duration_seconds: f64,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WaveformPeak {
+    pub min: f32,
+    pub max: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ObservedWaveform {
+    pub generation: u64,
+    pub duration_seconds: f64,
+    pub bins: Vec<Option<WaveformPeak>>,
+    pub observed_fraction: f64,
+    pub continuous_from_zero: bool,
+    pub observed_end_seconds: Option<f64>,
+    /// True only after an explicit verified-end signal and gap-free coverage
+    /// from zero through the complete resource duration.
+    pub complete: bool,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct WaveformBin {
+    min: f32,
+    max: f32,
+}
+
+#[derive(Default)]
+struct WaveformState {
+    generation: Option<u64>,
+    sample_rate: u32,
+    channels: u16,
+    bins: Vec<Option<WaveformBin>>,
+    first_position_seconds: Option<f64>,
+    last_position_seconds: Option<f64>,
+    observed_end_seconds: Option<f64>,
+    continuous_from_zero: bool,
+    has_gap: bool,
+    truncated: bool,
+    verified_end_seconds: Option<f64>,
+}
+
+struct TapSubscriber {
+    generation: u64,
+    sender: mpsc::Sender<PcmTapEvent>,
+    pending_gap: Option<PcmTapEvent>,
+    retain_until_verified_end: bool,
+    superseded: bool,
+}
+
+/// A bounded local consumer of PCM batches. Dropping it unregisters the
+/// receiver and releases queued sample buffers.
+pub struct PcmTapSubscription {
+    id: u64,
+    subscribers: Arc<Mutex<HashMap<u64, TapSubscriber>>>,
+    receiver: mpsc::Receiver<PcmTapEvent>,
+}
+
+impl PcmTapSubscription {
+    pub async fn recv(&mut self) -> Option<PcmTapEvent> {
+        self.receiver.recv().await
+    }
+    pub fn try_recv(&mut self) -> Result<PcmTapEvent, mpsc::error::TryRecvError> {
+        self.receiver.try_recv()
+    }
+}
+
+impl Drop for PcmTapSubscription {
+    fn drop(&mut self) {
+        self.subscribers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.id);
+    }
+}
+
+enum WorkerRequest {
+    Snapshot {
+        generation: u64,
+        start_seconds: f64,
+        duration_seconds: f64,
+        bin_count: usize,
+        response: std_mpsc::SyncSender<Result<ObservedWaveform, String>>,
+    },
+    VerifiedEnd {
+        generation: u64,
+        duration_seconds: f64,
+        response: std_mpsc::SyncSender<Result<(), String>>,
+    },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PcmCaptureTiming {
     pub start_position_seconds: Option<f64>,
@@ -60,19 +196,27 @@ pub struct PcmCaptureTiming {
 pub struct PcmTap {
     samples: mpsc::Sender<SampleBatch>,
     captures: mpsc::UnboundedSender<CaptureRequest>,
+    worker_requests: mpsc::UnboundedSender<WorkerRequest>,
     current_generation: Arc<AtomicU64>,
     available: Arc<Mutex<(u64, f64)>>,
+    subscribers: Arc<Mutex<HashMap<u64, TapSubscriber>>>,
+    next_subscriber: AtomicU64,
 }
 
 impl PcmTap {
     pub fn new() -> Arc<Self> {
         let (sample_tx, mut sample_rx) = mpsc::channel::<SampleBatch>(CHANNEL_BATCHES);
         let (capture_tx, mut capture_rx) = mpsc::unbounded_channel::<CaptureRequest>();
+        let (request_tx, mut request_rx) = mpsc::unbounded_channel::<WorkerRequest>();
+        let subscribers = Arc::new(Mutex::new(HashMap::<u64, TapSubscriber>::new()));
         let tap = Arc::new(Self {
             samples: sample_tx,
             captures: capture_tx,
+            worker_requests: request_tx,
             current_generation: Arc::new(AtomicU64::new(0)),
             available: Arc::new(Mutex::new((u64::MAX, 0.0))),
+            subscribers: subscribers.clone(),
+            next_subscriber: AtomicU64::new(1),
         });
 
         let available = tap.available.clone();
@@ -82,16 +226,13 @@ impl PcmTap {
             let mut channels = 0u16;
             let mut ring = VecDeque::<f32>::new();
             let mut playback_end_position_seconds = None;
+            let mut waveform = WaveformState::default();
             loop {
                 tokio::select! {
                     batch = sample_rx.recv() => match batch {
-                        Some(batch) => append_batch(
-                            &mut generation,
-                            &mut sample_rate,
-                            &mut channels,
-                            &mut ring,
-                            &mut playback_end_position_seconds,
-                            batch,
+                        Some(batch) => process_batch(
+                            &mut generation, &mut sample_rate, &mut channels, &mut ring,
+                            &mut playback_end_position_seconds, &mut waveform, &subscribers, batch,
                         ),
                         None if capture_rx.is_closed() => break,
                         None => {},
@@ -102,13 +243,9 @@ impl PcmTap {
                             // snapshot, so the sample batch boundary does not
                             // make recognition trail behind audible output.
                             while let Ok(batch) = sample_rx.try_recv() {
-                                append_batch(
-                                    &mut generation,
-                                    &mut sample_rate,
-                                    &mut channels,
-                                    &mut ring,
-                                    &mut playback_end_position_seconds,
-                                    batch,
+                                process_batch(
+                                    &mut generation, &mut sample_rate, &mut channels, &mut ring,
+                                    &mut playback_end_position_seconds, &mut waveform, &subscribers, batch,
                                 );
                             }
                             let result = if request.generation != generation.unwrap_or(u64::MAX) {
@@ -127,6 +264,43 @@ impl PcmTap {
                         None if sample_rx.is_closed() => break,
                         None => {},
                     },
+                    request = request_rx.recv() => match request {
+                        Some(WorkerRequest::Snapshot { generation: requested, start_seconds, duration_seconds, bin_count, response }) => {
+                            while let Ok(batch) = sample_rx.try_recv() {
+                                process_batch(
+                                    &mut generation, &mut sample_rate, &mut channels, &mut ring,
+                                    &mut playback_end_position_seconds, &mut waveform, &subscribers, batch,
+                                );
+                            }
+                            let result = snapshot_waveform(&waveform, requested, start_seconds, duration_seconds, bin_count);
+                            let _ = response.send(result);
+                        }
+                        Some(WorkerRequest::VerifiedEnd { generation: requested, duration_seconds, response }) => {
+                            // Natural-end confirmation is ordered after every sample
+                            // batch already accepted from the output callback.
+                            while let Ok(batch) = sample_rx.try_recv() {
+                                process_batch(
+                                    &mut generation, &mut sample_rate, &mut channels, &mut ring,
+                                    &mut playback_end_position_seconds, &mut waveform, &subscribers, batch,
+                                );
+                            }
+                            if !duration_seconds.is_finite() || duration_seconds <= 0.0 || duration_seconds > MAX_WAVEFORM_BINS as f64 / WAVEFORM_BINS_PER_SECOND as f64 {
+                                let _ = response.send(Err("Verified waveform duration is outside the supported range".into()));
+                            } else {
+                                let has_waveform = waveform.generation == Some(requested);
+                                let has_subscriber = subscribers.lock().unwrap_or_else(|e| e.into_inner()).values().any(|item| item.generation == requested);
+                                if !has_waveform && !has_subscriber {
+                                    let _ = response.send(Err("No playback analysis is waiting for this generation".into()));
+                                } else {
+                                    if has_waveform { waveform.verified_end_seconds = Some(duration_seconds); }
+                                    let result = publish_verified_end(&subscribers, requested, duration_seconds).await;
+                                    let _ = response.send(result);
+                                }
+                            }
+                        }
+                        None if sample_rx.is_closed() && capture_rx.is_closed() => break,
+                        None => {},
+                    },
                 }
                 let seconds = if sample_rate > 0 && channels > 0 {
                     ring.len() as f64 / sample_rate as f64 / channels as f64
@@ -136,6 +310,10 @@ impl PcmTap {
                 *available.lock().unwrap_or_else(|e| e.into_inner()) =
                     (generation.unwrap_or(u64::MAX), seconds);
             }
+            subscribers
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clear();
         });
         tap
     }
@@ -144,13 +322,17 @@ impl PcmTap {
     /// rate and channel count must describe the interleaved values passed to
     /// `push`, not the source file before resampling.
     pub fn writer(&self, generation: u64, sample_rate: u32, channels: u16) -> PcmTapWriter {
+        let channels = channels.max(1);
+        let channel_count = channels as usize;
+        let batch_capacity =
+            CHUNK_SAMPLES + (channel_count - CHUNK_SAMPLES % channel_count) % channel_count;
         PcmTapWriter {
             sender: self.samples.clone(),
             current_generation: self.current_generation.clone(),
             generation,
             sample_rate: sample_rate.max(1),
-            channels: channels.max(1),
-            pending: Vec::with_capacity(CHUNK_SAMPLES),
+            channels,
+            pending: Vec::with_capacity(batch_capacity),
             pending_playback_end_position_seconds: None,
         }
     }
@@ -165,6 +347,182 @@ impl PcmTap {
         } else {
             0.0
         }
+    }
+
+    /// Subscribe to local PCM consumed by a specific output generation. A
+    /// bounded queue protects playback when analysis is slow; overload is
+    /// reported as a coalesced gap event rather than blocking output.
+    pub fn subscribe(
+        &self,
+        generation: u64,
+        capacity_batches: usize,
+    ) -> Result<PcmTapSubscription, String> {
+        self.subscribe_with_finalize(generation, capacity_batches, false)
+    }
+
+    /// Subscribe before a speculative output generation starts. A later
+    /// generation sends Superseded but keeps this subscriber available for the
+    /// actual natural-end verification, which may arrive after that switch.
+    pub fn subscribe_until_verified_end(
+        &self,
+        generation: u64,
+        capacity_batches: usize,
+    ) -> Result<PcmTapSubscription, String> {
+        self.subscribe_with_finalize(generation, capacity_batches, true)
+    }
+
+    fn subscribe_with_finalize(
+        &self,
+        generation: u64,
+        capacity_batches: usize,
+        retain_until_verified_end: bool,
+    ) -> Result<PcmTapSubscription, String> {
+        if capacity_batches == 0 || capacity_batches > SUBSCRIBER_QUEUE_MAX {
+            return Err(format!(
+                "PCM subscriber capacity must be from 1 to {SUBSCRIBER_QUEUE_MAX}"
+            ));
+        }
+        if self.current_generation.load(Ordering::Acquire) > generation {
+            return Err("PCM subscription generation has already been superseded".into());
+        }
+        let mut subscribers = self.subscribers.lock().unwrap_or_else(|e| e.into_inner());
+        if subscribers
+            .values()
+            .filter(|item| item.generation == generation)
+            .count()
+            >= MAX_PCM_SUBSCRIBERS
+        {
+            return Err("Too many PCM subscribers are active for this generation".into());
+        }
+        let id = self.next_subscriber.fetch_add(1, Ordering::Relaxed);
+        if id == u64::MAX {
+            return Err("PCM subscriber capacity is exhausted".into());
+        }
+        let (sender, receiver) = mpsc::channel(capacity_batches);
+        subscribers.insert(
+            id,
+            TapSubscriber {
+                generation,
+                sender,
+                pending_gap: None,
+                retain_until_verified_end,
+                superseded: false,
+            },
+        );
+        Ok(PcmTapSubscription {
+            id,
+            subscribers: self.subscribers.clone(),
+            receiver,
+        })
+    }
+
+    /// Close subscribers that belong to an older playback generation. Playback
+    /// owners should call this as soon as a new generation is accepted, even
+    /// if the new source never reaches its first decoded sample.
+    pub fn supersede_older_subscribers(&self, generation: u64) -> usize {
+        let mut subscribers = self.subscribers.lock().unwrap_or_else(|e| e.into_inner());
+        let older = subscribers
+            .iter()
+            .filter_map(|(id, item)| (item.generation < generation).then_some(*id))
+            .collect::<Vec<_>>();
+        for id in &older {
+            if let Some(item) = subscribers.get_mut(id) {
+                let mut delivered = true;
+                if !item.superseded {
+                    delivered = item
+                        .sender
+                        .try_send(PcmTapEvent::Superseded {
+                            generation: item.generation,
+                        })
+                        .is_ok();
+                    item.superseded = true;
+                }
+                let remove = !item.retain_until_verified_end || !delivered;
+                if remove {
+                    subscribers.remove(id);
+                }
+            }
+        }
+        older.len()
+    }
+
+    /// Return only bounded amplitude summaries for a generation. The worker
+    /// downsamples its fixed-resolution observations; raw PCM never leaves the
+    /// tap. A gap or seek keeps `complete` false even if the user later visits
+    /// every visible bin.
+    pub fn waveform_snapshot(
+        &self,
+        generation: u64,
+        duration_seconds: f64,
+        bin_count: usize,
+    ) -> Result<ObservedWaveform, String> {
+        self.waveform_snapshot_range(generation, 0.0, duration_seconds, bin_count)
+    }
+
+    /// Summarize one source-time interval on a zero-based playback-range axis.
+    /// The stored tap bins and recognition timestamps remain on absolute source
+    /// time; only this returned view is cropped and rebased.
+    pub fn waveform_snapshot_range(
+        &self,
+        generation: u64,
+        start_seconds: f64,
+        duration_seconds: f64,
+        bin_count: usize,
+    ) -> Result<ObservedWaveform, String> {
+        if !duration_seconds.is_finite()
+            || duration_seconds <= 0.0
+            || duration_seconds > MAX_WAVEFORM_BINS as f64 / WAVEFORM_BINS_PER_SECOND as f64
+            || !start_seconds.is_finite()
+            || start_seconds < 0.0
+            || start_seconds + duration_seconds
+                > MAX_WAVEFORM_BINS as f64 / WAVEFORM_BINS_PER_SECOND as f64
+        {
+            return Err("Waveform range must be nonnegative and no more than four hours".into());
+        }
+        if bin_count == 0 || bin_count > MAX_WAVEFORM_SNAPSHOT_BINS {
+            return Err(format!(
+                "Waveform bin count must be from 1 to {MAX_WAVEFORM_SNAPSHOT_BINS}"
+            ));
+        }
+        let (response_tx, response_rx) = std_mpsc::sync_channel(1);
+        self.worker_requests
+            .send(WorkerRequest::Snapshot {
+                generation,
+                start_seconds,
+                duration_seconds,
+                bin_count,
+                response: response_tx,
+            })
+            .map_err(|_| "PCM tap worker has stopped".to_owned())?;
+        response_rx
+            .recv_timeout(WORKER_RESPONSE_TIMEOUT)
+            .map_err(|error| match error {
+                std_mpsc::RecvTimeoutError::Timeout => "PCM waveform snapshot timed out".to_owned(),
+                std_mpsc::RecvTimeoutError::Disconnected => {
+                    "PCM tap worker stopped before waveform snapshot completed".to_owned()
+                }
+            })?
+    }
+
+    /// Mark an actual, verified natural end. Callers must not use this for
+    /// seeks, chapter ranges, incomplete streams, or metadata-only durations.
+    pub fn mark_verified_end(&self, generation: u64, duration_seconds: f64) -> Result<(), String> {
+        let (response_tx, response_rx) = std_mpsc::sync_channel(1);
+        self.worker_requests
+            .send(WorkerRequest::VerifiedEnd {
+                generation,
+                duration_seconds,
+                response: response_tx,
+            })
+            .map_err(|_| "PCM tap worker has stopped".to_owned())?;
+        response_rx
+            .recv_timeout(WORKER_RESPONSE_TIMEOUT)
+            .map_err(|error| match error {
+                std_mpsc::RecvTimeoutError::Timeout => "PCM end verification timed out".to_owned(),
+                std_mpsc::RecvTimeoutError::Disconnected => {
+                    "PCM tap worker stopped before end verification completed".to_owned()
+                }
+            })?
     }
 
     /// Copy the most recent requested PCM samples for background analysis.
@@ -231,8 +589,13 @@ impl PcmTap {
             })
             .map_err(|_| "PCM tap worker has stopped".to_owned())?;
         let snapshot = response_rx
-            .recv()
-            .map_err(|_| "PCM tap worker stopped before capture completed".to_owned())??;
+            .recv_timeout(WORKER_RESPONSE_TIMEOUT)
+            .map_err(|error| match error {
+                std_mpsc::RecvTimeoutError::Timeout => "PCM capture timed out".to_owned(),
+                std_mpsc::RecvTimeoutError::Disconnected => {
+                    "PCM tap worker stopped before capture completed".to_owned()
+                }
+            })??;
         Ok(snapshot)
     }
 }
@@ -259,7 +622,7 @@ impl PcmTapWriter {
             .push(if sample.is_finite() { sample } else { 0.0 });
         self.pending_playback_end_position_seconds = playback_end_position_seconds
             .filter(|position| position.is_finite() && *position >= 0.0);
-        if self.pending.len() == CHUNK_SAMPLES {
+        if self.pending.len() >= CHUNK_SAMPLES && self.pending.len() % self.channels as usize == 0 {
             self.flush();
         }
     }
@@ -341,6 +704,424 @@ fn append_batch(
     *playback_end_position_seconds = batch.playback_end_position_seconds;
 }
 
+fn process_batch(
+    generation: &mut Option<u64>,
+    sample_rate: &mut u32,
+    channels: &mut u16,
+    ring: &mut VecDeque<f32>,
+    playback_end_position_seconds: &mut Option<f64>,
+    waveform: &mut WaveformState,
+    subscribers: &Arc<Mutex<HashMap<u64, TapSubscriber>>>,
+    batch: SampleBatch,
+) {
+    let (gap, start, end) = observe_waveform_batch(waveform, &batch);
+    publish_subscriber_batch(subscribers, &batch, start, end, gap);
+    append_batch(
+        generation,
+        sample_rate,
+        channels,
+        ring,
+        playback_end_position_seconds,
+        batch,
+    );
+}
+
+fn observe_waveform_batch(
+    state: &mut WaveformState,
+    batch: &SampleBatch,
+) -> (Option<PcmTapEvent>, Option<f64>, Option<f64>) {
+    if state
+        .generation
+        .is_some_and(|active| batch.generation < active)
+    {
+        return (None, None, None);
+    }
+    if state.generation != Some(batch.generation) {
+        *state = WaveformState {
+            generation: Some(batch.generation),
+            sample_rate: batch.sample_rate,
+            channels: batch.channels,
+            continuous_from_zero: true,
+            ..WaveformState::default()
+        };
+    }
+    let format_changed = state.sample_rate != batch.sample_rate || state.channels != batch.channels;
+    if format_changed {
+        state.sample_rate = batch.sample_rate;
+        state.channels = batch.channels;
+        state.has_gap = true;
+        state.continuous_from_zero = false;
+    }
+    let Some(end) = batch
+        .playback_end_position_seconds
+        .filter(|value| value.is_finite() && *value >= 0.0)
+    else {
+        state.has_gap = true;
+        state.continuous_from_zero = false;
+        return (
+            Some(PcmTapEvent::Gap {
+                generation: batch.generation,
+                start_position_seconds: None,
+                end_position_seconds: None,
+                reason: TapGapReason::UnpositionedAudio,
+            }),
+            None,
+            None,
+        );
+    };
+    let duration =
+        batch.samples.len() as f64 / batch.sample_rate.max(1) as f64 / batch.channels.max(1) as f64;
+    let start = end - duration;
+    if !duration.is_finite() || duration <= 0.0 || !start.is_finite() || start < 0.0 {
+        state.has_gap = true;
+        state.continuous_from_zero = false;
+        return (
+            Some(PcmTapEvent::Gap {
+                generation: batch.generation,
+                start_position_seconds: None,
+                end_position_seconds: Some(end),
+                reason: TapGapReason::UnpositionedAudio,
+            }),
+            None,
+            Some(end),
+        );
+    }
+    let tolerance = 2.0 / batch.sample_rate.max(1) as f64;
+    let format_gap = format_changed;
+    let time_gap = match state.last_position_seconds {
+        Some(previous_end) => (start - previous_end).abs() > tolerance,
+        None => start > tolerance,
+    };
+    let gap = if format_gap || time_gap {
+        state.has_gap = true;
+        state.continuous_from_zero = false;
+        Some(PcmTapEvent::Gap {
+            generation: batch.generation,
+            start_position_seconds: state.last_position_seconds.or(Some(0.0)),
+            end_position_seconds: Some(start),
+            reason: TapGapReason::TimelineDiscontinuity,
+        })
+    } else {
+        None
+    };
+
+    if state.first_position_seconds.is_none() {
+        state.first_position_seconds = Some(start);
+        state.continuous_from_zero = start <= tolerance && !format_gap;
+    }
+    if start < 0.0 {
+        state.continuous_from_zero = false;
+    }
+    let frames = batch.samples.len() / batch.channels.max(1) as usize;
+    for frame in 0..frames {
+        let position = start + frame as f64 / batch.sample_rate.max(1) as f64;
+        if position < 0.0 {
+            continue;
+        }
+        let index = (position * WAVEFORM_BINS_PER_SECOND as f64).floor() as usize;
+        if index >= MAX_WAVEFORM_BINS {
+            state.truncated = true;
+            continue;
+        }
+        if state.bins.len() <= index {
+            state.bins.resize(index + 1, None);
+        }
+        let frame_start = frame * batch.channels.max(1) as usize;
+        let frame_end = (frame_start + batch.channels.max(1) as usize).min(batch.samples.len());
+        let mut min = f32::INFINITY;
+        let mut max = f32::NEG_INFINITY;
+        for sample in &batch.samples[frame_start..frame_end] {
+            if sample.is_finite() {
+                min = min.min(*sample);
+                max = max.max(*sample);
+            }
+        }
+        if min.is_finite() && max.is_finite() {
+            let bin = &mut state.bins[index];
+            if let Some(previous) = bin {
+                previous.min = previous.min.min(min.max(-1.0));
+                previous.max = previous.max.max(max.min(1.0));
+            } else {
+                *bin = Some(WaveformBin {
+                    min: min.max(-1.0),
+                    max: max.min(1.0),
+                });
+            }
+        }
+    }
+    state.last_position_seconds = Some(end);
+    state.observed_end_seconds = Some(
+        state
+            .observed_end_seconds
+            .map_or(end, |observed| observed.max(end)),
+    );
+    (gap, Some(start), Some(end))
+}
+
+fn publish_subscriber_batch(
+    subscribers: &Arc<Mutex<HashMap<u64, TapSubscriber>>>,
+    batch: &SampleBatch,
+    start: Option<f64>,
+    end: Option<f64>,
+    gap: Option<PcmTapEvent>,
+) {
+    let mut registry = subscribers.lock().unwrap_or_else(|e| e.into_inner());
+    let older = registry
+        .iter()
+        .filter_map(|(id, item)| (item.generation < batch.generation).then_some(*id))
+        .collect::<Vec<_>>();
+    for id in older {
+        if let Some(item) = registry.get_mut(&id) {
+            let mut delivered = true;
+            if !item.superseded {
+                delivered = item
+                    .sender
+                    .try_send(PcmTapEvent::Superseded {
+                        generation: item.generation,
+                    })
+                    .is_ok();
+                item.superseded = true;
+            }
+            let remove = !item.retain_until_verified_end || !delivered;
+            if remove {
+                registry.remove(&id);
+            }
+        }
+    }
+    let has_receivers = registry
+        .values()
+        .any(|item| item.generation == batch.generation);
+    if !has_receivers {
+        return;
+    }
+    let samples: Arc<[f32]> = Arc::from(batch.samples.clone());
+    let event = PcmTapEvent::Samples {
+        generation: batch.generation,
+        sample_rate: batch.sample_rate,
+        channels: batch.channels,
+        start_position_seconds: start,
+        end_position_seconds: end,
+        samples,
+    };
+    let mut closed = Vec::new();
+    for (id, subscriber) in registry
+        .iter_mut()
+        .filter(|(_, item)| item.generation == batch.generation && !item.superseded)
+    {
+        if let Some(pending) = subscriber.pending_gap.take() {
+            match subscriber.sender.try_send(pending.clone()) {
+                Ok(()) => {}
+                Err(mpsc::error::TrySendError::Full(_)) => {
+                    subscriber.pending_gap = Some(merge_gap(pending, &event));
+                    continue;
+                }
+                Err(mpsc::error::TrySendError::Closed(_)) => {
+                    closed.push(*id);
+                    continue;
+                }
+            }
+        }
+        if let Some(discontinuity) = gap.as_ref() {
+            match subscriber.sender.try_send(discontinuity.clone()) {
+                Ok(()) => {}
+                Err(mpsc::error::TrySendError::Full(_)) => {
+                    subscriber.pending_gap = Some(merge_gap(discontinuity.clone(), &event));
+                    continue;
+                }
+                Err(mpsc::error::TrySendError::Closed(_)) => {
+                    closed.push(*id);
+                    continue;
+                }
+            }
+        }
+        if let Err(error) = subscriber.sender.try_send(event.clone()) {
+            match error {
+                mpsc::error::TrySendError::Full(event) => {
+                    subscriber.pending_gap = Some(merge_gap(
+                        PcmTapEvent::Gap {
+                            generation: batch.generation,
+                            start_position_seconds: start,
+                            end_position_seconds: end,
+                            reason: TapGapReason::SubscriberBackpressure,
+                        },
+                        &event,
+                    ))
+                }
+                mpsc::error::TrySendError::Closed(_) => closed.push(*id),
+            }
+        }
+    }
+    for id in closed {
+        registry.remove(&id);
+    }
+}
+
+/// Deliver verified completion only after all preceding batch/gap events have
+/// been queued. A subscriber that cannot accept the terminal event promptly
+/// is detached rather than allowed to stall the audio consumer indefinitely.
+async fn publish_verified_end(
+    subscribers: &Arc<Mutex<HashMap<u64, TapSubscriber>>>,
+    generation: u64,
+    duration_seconds: f64,
+) -> Result<(), String> {
+    let pending = {
+        let mut registry = subscribers.lock().unwrap_or_else(|e| e.into_inner());
+        registry
+            .iter_mut()
+            .filter(|(_, item)| item.generation == generation)
+            .map(|(id, item)| (*id, item.sender.clone(), item.pending_gap.take()))
+            .collect::<Vec<_>>()
+    };
+    let terminal = PcmTapEvent::VerifiedEnd {
+        generation,
+        duration_seconds,
+    };
+    let delivery_deadline = tokio::time::Instant::now() + VERIFIED_END_DELIVERY_TIMEOUT;
+    let mut detach = Vec::new();
+    for (id, sender, pending_gap) in pending {
+        let mut delivered = true;
+        if let Some(gap) = pending_gap {
+            delivered = matches!(
+                tokio::time::timeout_at(delivery_deadline, sender.send(gap)).await,
+                Ok(Ok(()))
+            );
+        }
+        if delivered {
+            delivered = matches!(
+                tokio::time::timeout_at(delivery_deadline, sender.send(terminal.clone())).await,
+                Ok(Ok(()))
+            );
+        }
+        if !delivered {
+            detach.push(id);
+        }
+    }
+    if !detach.is_empty() {
+        let mut registry = subscribers.lock().unwrap_or_else(|e| e.into_inner());
+        for id in detach {
+            registry.remove(&id);
+        }
+    }
+    Ok(())
+}
+
+fn merge_gap(previous: PcmTapEvent, dropped: &PcmTapEvent) -> PcmTapEvent {
+    fn interval(event: &PcmTapEvent) -> (u64, Option<f64>, Option<f64>) {
+        match event {
+            PcmTapEvent::Samples {
+                generation,
+                start_position_seconds,
+                end_position_seconds,
+                ..
+            }
+            | PcmTapEvent::Gap {
+                generation,
+                start_position_seconds,
+                end_position_seconds,
+                ..
+            } => (*generation, *start_position_seconds, *end_position_seconds),
+            PcmTapEvent::Superseded { generation }
+            | PcmTapEvent::VerifiedEnd { generation, .. } => (*generation, None, None),
+        }
+    }
+    let (generation, old_start, old_end) = interval(&previous);
+    let (_, new_start, new_end) = interval(dropped);
+    PcmTapEvent::Gap {
+        generation,
+        start_position_seconds: match (old_start, new_start) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        },
+        end_position_seconds: match (old_end, new_end) {
+            (Some(a), Some(b)) => Some(a.max(b)),
+            (a, b) => a.or(b),
+        },
+        reason: TapGapReason::SubscriberBackpressure,
+    }
+}
+
+fn snapshot_waveform(
+    state: &WaveformState,
+    generation: u64,
+    start_seconds: f64,
+    duration_seconds: f64,
+    bin_count: usize,
+) -> Result<ObservedWaveform, String> {
+    if state.generation != Some(generation) {
+        return Err("No waveform data is available for this playback generation".into());
+    }
+    // `scale` is seconds per output bin. Convert each interval endpoint into
+    // the tap's fixed 10 Hz source-bin coordinates only below.
+    let scale = duration_seconds / bin_count as f64;
+    let mut bins = Vec::with_capacity(bin_count);
+    for target in 0..bin_count {
+        let start = ((start_seconds + target as f64 * scale) * WAVEFORM_BINS_PER_SECOND as f64)
+            .floor() as usize;
+        let end =
+            (((start_seconds + (target + 1) as f64 * scale) * WAVEFORM_BINS_PER_SECOND as f64)
+                .ceil() as usize)
+                .max(start + 1);
+        let mut min = f32::INFINITY;
+        let mut max = f32::NEG_INFINITY;
+        for source in state
+            .bins
+            .get(start..end.min(state.bins.len()))
+            .unwrap_or_default()
+            .iter()
+            .flatten()
+        {
+            min = min.min(source.min);
+            max = max.max(source.max);
+        }
+        bins.push((min.is_finite() && max.is_finite()).then_some(WaveformPeak { min, max }));
+    }
+    let observed = bins.iter().filter(|item| item.is_some()).count();
+    let fraction = observed as f64 / bin_count as f64;
+    let tolerance = 0.25;
+    let complete = start_seconds <= 0.025
+        && !state.truncated
+        && !state.has_gap
+        && state.continuous_from_zero
+        && state
+            .first_position_seconds
+            .is_some_and(|start| start <= 0.025)
+        && state
+            .verified_end_seconds
+            .is_some_and(|verified| (verified - duration_seconds).abs() <= tolerance)
+        && state
+            .observed_end_seconds
+            .is_some_and(|end| end + tolerance >= duration_seconds)
+        && observed == bin_count;
+    let reason = if complete {
+        None
+    } else if start_seconds > 0.025 {
+        Some(
+            "This view covers a selected playback range; whole-track completeness is not asserted."
+                .into(),
+        )
+    } else if state.verified_end_seconds.is_none() {
+        Some("Playback has not reported a verified natural end.".into())
+    } else if state.truncated {
+        Some("Waveform observation exceeded the bounded capture duration.".into())
+    } else if state.has_gap || !state.continuous_from_zero {
+        Some("Playback contained a seek, gap, unpositioned audio, or output format change.".into())
+    } else {
+        Some("The entire audio duration has not been observed.".into())
+    };
+    Ok(ObservedWaveform {
+        generation,
+        duration_seconds,
+        bins,
+        observed_fraction: fraction,
+        continuous_from_zero: state.continuous_from_zero,
+        observed_end_seconds: state
+            .observed_end_seconds
+            .map(|end| (end - start_seconds).clamp(0.0, duration_seconds)),
+        complete,
+        reason,
+    })
+}
+
 fn capture_snapshot(
     seconds: f64,
     sample_rate: u32,
@@ -406,6 +1187,181 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
+    fn positioned_batch(
+        generation: u64,
+        start: f64,
+        duration: f64,
+        sample_rate: u32,
+    ) -> SampleBatch {
+        let frames = (duration * f64::from(sample_rate)).round() as usize;
+        SampleBatch {
+            generation,
+            sample_rate,
+            channels: 1,
+            samples: vec![0.25; frames],
+            playback_end_position_seconds: Some(start + duration),
+        }
+    }
+
+    #[test]
+    fn observed_waveform_is_partial_until_gap_free_verified_natural_end() {
+        let mut state = WaveformState::default();
+        let batch = positioned_batch(5, 0.0, 1.0, 100);
+        let (gap, start, end) = observe_waveform_batch(&mut state, &batch);
+        assert!(gap.is_none());
+        assert_eq!(start, Some(0.0));
+        assert_eq!(end, Some(1.0));
+        let partial = snapshot_waveform(&state, 5, 0.0, 1.0, 10).unwrap();
+        assert_eq!(partial.observed_fraction, 1.0);
+        assert!(
+            !partial.complete,
+            "full-looking observed bins are still partial before verified Ended"
+        );
+        state.verified_end_seconds = Some(1.0);
+        assert!(snapshot_waveform(&state, 5, 0.0, 1.0, 10).unwrap().complete);
+
+        let seek = positioned_batch(5, 2.0, 1.0, 100);
+        let (gap, _, _) = observe_waveform_batch(&mut state, &seek);
+        assert!(matches!(
+            gap,
+            Some(PcmTapEvent::Gap {
+                reason: TapGapReason::TimelineDiscontinuity,
+                ..
+            })
+        ));
+        state.verified_end_seconds = Some(3.0);
+        let after_seek = snapshot_waveform(&state, 5, 0.0, 3.0, 30).unwrap();
+        assert!(!after_seek.complete);
+        assert_eq!(after_seek.bins[15], None);
+    }
+
+    #[test]
+    fn range_snapshot_rebases_absolute_chapter_time_and_never_claims_whole_track() {
+        let mut state = WaveformState::default();
+        let batch = positioned_batch(12, 300.0, 10.0, 100);
+        observe_waveform_batch(&mut state, &batch);
+        state.verified_end_seconds = Some(310.0);
+
+        let chapter = snapshot_waveform(&state, 12, 300.0, 10.0, 100).unwrap();
+        assert_eq!(chapter.bins.len(), 100);
+        assert!(chapter.bins.iter().all(Option::is_some));
+        assert!(chapter.bins[0].unwrap().min > 0.24);
+        assert!((chapter.observed_end_seconds.unwrap() - 10.0).abs() < 0.01);
+        assert!(!chapter.complete);
+        assert!(chapter
+            .reason
+            .as_deref()
+            .unwrap()
+            .contains("playback range"));
+    }
+
+    #[test]
+    fn subscriber_backpressure_is_bounded_and_reported_as_a_gap() {
+        let (sender, mut receiver) = mpsc::channel(1);
+        let subscribers = Arc::new(Mutex::new(HashMap::from([(
+            1,
+            TapSubscriber {
+                generation: 7,
+                sender,
+                pending_gap: None,
+                retain_until_verified_end: false,
+                superseded: false,
+            },
+        )])));
+        let first = positioned_batch(7, 0.0, 1.0, 100);
+        publish_subscriber_batch(&subscribers, &first, Some(0.0), Some(1.0), None);
+        let second = positioned_batch(7, 1.0, 1.0, 100);
+        publish_subscriber_batch(&subscribers, &second, Some(1.0), Some(2.0), None);
+        let PcmTapEvent::Samples {
+            start_position_seconds,
+            ..
+        } = receiver.try_recv().unwrap()
+        else {
+            panic!("expected first sample batch");
+        };
+        assert_eq!(start_position_seconds, Some(0.0));
+        let third = positioned_batch(7, 2.0, 1.0, 100);
+        publish_subscriber_batch(&subscribers, &third, Some(2.0), Some(3.0), None);
+        assert!(matches!(
+            receiver.try_recv().unwrap(),
+            PcmTapEvent::Gap {
+                reason: TapGapReason::SubscriberBackpressure,
+                start_position_seconds: Some(1.0),
+                end_position_seconds: Some(2.0),
+                ..
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn preload_subscriber_survives_generation_switch_until_verified_end() {
+        let (sender, mut receiver) = mpsc::channel(8);
+        let subscribers = Arc::new(Mutex::new(HashMap::from([(
+            41,
+            TapSubscriber {
+                generation: 40,
+                sender,
+                pending_gap: None,
+                retain_until_verified_end: true,
+                superseded: false,
+            },
+        )])));
+        let old_audio = positioned_batch(40, 0.0, 1.0, 100);
+        publish_subscriber_batch(&subscribers, &old_audio, Some(0.0), Some(1.0), None);
+        let new_audio = positioned_batch(41, 0.0, 1.0, 100);
+        publish_subscriber_batch(&subscribers, &new_audio, Some(0.0), Some(1.0), None);
+        assert!(subscribers.lock().unwrap().contains_key(&41));
+        assert!(matches!(
+            receiver.try_recv(),
+            Ok(PcmTapEvent::Samples { generation: 40, .. })
+        ));
+        assert!(matches!(
+            receiver.try_recv(),
+            Ok(PcmTapEvent::Superseded { generation: 40 })
+        ));
+        assert!(
+            receiver.try_recv().is_err(),
+            "supersession alone must not finalize capture"
+        );
+
+        publish_verified_end(&subscribers, 40, 1.0).await.unwrap();
+        assert!(matches!(
+            receiver.recv().await,
+            Some(PcmTapEvent::VerifiedEnd {
+                generation: 40,
+                duration_seconds: 1.0
+            })
+        ));
+        assert!(subscribers.lock().unwrap().contains_key(&41));
+    }
+
+    #[test]
+    fn nonretained_subscribers_are_closed_on_supersession() {
+        let (sender, mut receiver) = mpsc::channel(8);
+        let subscribers = Arc::new(Mutex::new(HashMap::from([(
+            8,
+            TapSubscriber {
+                generation: 7,
+                sender,
+                pending_gap: None,
+                retain_until_verified_end: false,
+                superseded: false,
+            },
+        )])));
+        publish_subscriber_batch(
+            &subscribers,
+            &positioned_batch(8, 0.0, 1.0, 100),
+            Some(0.0),
+            Some(1.0),
+            None,
+        );
+        assert!(!subscribers.lock().unwrap().contains_key(&8));
+        assert!(matches!(
+            receiver.try_recv(),
+            Ok(PcmTapEvent::Superseded { generation: 7 })
+        ));
+    }
+
     #[test]
     fn a_single_stereo_output_callback_fits_without_waiting_for_the_worker() {
         // The mixer can consume a full device buffer before the async worker
@@ -433,6 +1389,27 @@ mod tests {
             captured, samples,
             "ordinary output bursts must not starve the continuous capture window"
         );
+    }
+
+    #[test]
+    fn tap_batches_keep_multichannel_frames_intact() {
+        let (sender, mut receiver) = mpsc::channel(CHANNEL_BATCHES);
+        let mut writer = PcmTapWriter {
+            sender,
+            current_generation: Arc::new(AtomicU64::new(0)),
+            generation: 1,
+            sample_rate: 48_000,
+            channels: 6,
+            pending: Vec::with_capacity(CHUNK_SAMPLES + 2),
+            pending_playback_end_position_seconds: None,
+        };
+        for index in 0..1_200 {
+            writer.push_with_position(0.25, Some((index + 1) as f64 / 288_000.0));
+        }
+        drop(writer);
+        while let Ok(batch) = receiver.try_recv() {
+            assert_eq!(batch.samples.len() % batch.channels as usize, 0);
+        }
     }
 
     #[tokio::test]

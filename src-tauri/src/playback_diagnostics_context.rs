@@ -233,6 +233,10 @@ fn project_startup_failure(value: Option<&Value>) -> Option<Value> {
             "streamKind",
             &["direct", "native-hls", "mse-hls", "unknown"][..],
         ),
+        (
+            "sourceTransport",
+            &["direct", "loopback-relay", "loopback-transcode", "unknown"][..],
+        ),
     ] {
         if let Some(value) = enum_value(startup.get(key), values) {
             safe.insert(key.into(), json!(value));
@@ -248,6 +252,20 @@ fn project_startup_failure(value: Option<&Value>) -> Option<Value> {
     ] {
         if let Some(value) = bounded_u64(startup.get(key), max) {
             safe.insert(key.into(), json!(value));
+        }
+    }
+    for key in ["currentTime", "duration", "requestedSeekPosition"] {
+        if let Some(value) = bounded_float(startup.get(key), 86_400.0) {
+            safe.insert(key.into(), json!(value));
+        }
+    }
+    if let Some(value) = startup.get("seeking").and_then(Value::as_bool) {
+        safe.insert("seeking".into(), json!(value));
+    }
+    for key in ["bufferedRanges", "seekableRanges"] {
+        let ranges = project_ranges(startup.get(key));
+        if !ranges.is_empty() {
+            safe.insert(key.into(), json!(ranges));
         }
     }
     if let Some(value) = bounded_u64(startup.get("elapsedMs"), MAX_TIMING_MS) {
@@ -382,7 +400,7 @@ mod tests {
             "engine":"native", "status":"playing", "currentTime":52.5,"duration":400,"requestedSeekPosition":53,
             "bufferedRanges":[[0,20],[10,5],[-1,4],[0,86401]],"seekableRanges":[[0,300]],
             "trackTitle":"PRIVATE TITLE", "url":"https://private.invalid/?token=secret", "userAgent":"secret ua",
-            "startupFailure":{"phase":"play","mimeFamily":"audio/mpeg","canPlayType":"probably","streamKind":"direct","resumeRequested":true,"readyState":0,"networkState":3,"mediaErrorCode":4,"elapsedMs":90000,"message":"private error"},
+            "startupFailure":{"phase":"play","mimeFamily":"audio/mpeg","canPlayType":"probably","streamKind":"direct","sourceTransport":"loopback-relay","resumeRequested":true,"readyState":0,"networkState":3,"mediaErrorCode":4,"elapsedMs":90000,"currentTime":349.4,"duration":7202.1,"seeking":true,"requestedSeekPosition":349.437,"bufferedRanges":[[340,360],[0,90000],[10,5]],"seekableRanges":[[0,7202]],"message":"private error"},
             "sourceFormat":{"codec":"opus","mimeType":"audio/ogg","formatId":"251","hasVideo":false,"expectedContentLength":1000,"url":"https://secret"},
             "mediaEvents":[{"type":"waiting","attempt":2,"readyState":1,"networkState":2,"paused":false,"atMs":42,"currentTime":99,"buffered":[{"start":0,"end":5},{"start":8,"end":4}],"trackId":"private"},{"type":"bad https://secret"}]
         });
@@ -393,7 +411,7 @@ mod tests {
                 "engine":"webview",
                 "status":"playing",
                 "currentTime":52.5,"duration":400.0,"requestedSeekPosition":53.0,"bufferedRanges":[[0.0,20.0]],"seekableRanges":[[0.0,300.0]],
-                "startupFailure":{"phase":"play","mimeFamily":"audio/mpeg","canPlayType":"probably","streamKind":"direct","resumeRequested":true,"readyState":0,"networkState":3,"mediaErrorCode":4,"elapsedMs":90000},
+                "startupFailure":{"phase":"play","mimeFamily":"audio/mpeg","canPlayType":"probably","streamKind":"direct","sourceTransport":"loopback-relay","resumeRequested":true,"readyState":0,"networkState":3,"mediaErrorCode":4,"elapsedMs":90000,"currentTime":349.4,"duration":7202.1,"seeking":true,"requestedSeekPosition":349.437,"bufferedRanges":[[340.0,360.0]],"seekableRanges":[[0.0,7202.0]]},
                 "sourceFormat":{"codec":"opus","mimeType":"audio/ogg","formatId":"251","hasVideo":false,"expectedContentLength":1000},
                 "mediaEvents":[{"type":"waiting","attempt":2,"readyState":1,"networkState":2,"paused":false,"atMs":42,"currentTime":99.0,"bufferedRanges":[[0.0,5.0]]}]
             })

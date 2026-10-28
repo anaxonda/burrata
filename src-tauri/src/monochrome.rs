@@ -78,7 +78,7 @@ impl Client {
             .map_err(|_| "Monochrome rate-limit state unavailable")?
             .is_some_and(|until| until > Instant::now())
         {
-            return Err("Monochrome is temporarily rate limited (HTTP 429); trying eligible fallback sources".into());
+            return Err("Monochrome is temporarily rate limited (HTTP 429)".into());
         }
         Ok(())
     }
@@ -816,12 +816,12 @@ mod tests {
             .unwrap()
             .saturating_duration_since(Instant::now());
         assert!(remaining > Duration::from_secs(119) && remaining <= Duration::from_secs(120));
-        assert!(client
-            .clone()
-            .search("artist title")
-            .await
-            .unwrap_err()
-            .contains("rate limited"));
+        let cooldown_error = client.clone().search("artist title").await.unwrap_err();
+        assert_eq!(
+            cooldown_error,
+            "Monochrome is temporarily rate limited (HTTP 429)"
+        );
+        assert!(!cooldown_error.contains("trying eligible fallback sources"));
         assert_eq!(requests.load(Ordering::SeqCst), 1);
         *client.cooldown.lock().unwrap() = Some(Instant::now() - Duration::from_secs(1));
         assert!(client

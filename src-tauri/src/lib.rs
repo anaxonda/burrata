@@ -10,6 +10,8 @@ extern "C" {}
 pub mod acquisition;
 mod album_excerpt_audio;
 pub mod analysis;
+pub mod analysis_selection;
+pub mod analysis_stream_selection;
 mod artist_alias_discovery;
 mod artist_alias_lookup;
 mod artist_credit_aliases;
@@ -19,10 +21,18 @@ mod artwork_protocol_trace;
 mod artwork_resource_probe;
 pub mod automation;
 pub mod autotag;
+pub mod backup;
+pub mod backup_archive;
+pub mod backup_auxiliary;
+pub(crate) mod backup_frontend_preferences;
+pub mod backup_manager;
+pub mod backup_staging;
+pub mod backup_state;
 pub mod bandcamp;
 mod bandcamp_fallback;
 pub mod browser_bridge;
 pub mod candidate_preview;
+mod collection_imports;
 pub mod collection_sources;
 mod compilation_excerpt;
 pub mod connections;
@@ -31,13 +41,20 @@ mod directory_browser;
 pub mod discovery;
 mod download_verification;
 pub mod external_player;
+mod import_drop;
+mod import_metadata;
 pub mod imports;
 pub mod install_integration;
 #[cfg(target_os = "linux")]
 pub mod linux_webview_output;
+pub(crate) mod live_analysis_gate;
 pub mod live_bpm;
+pub mod live_key;
 pub mod local_audio;
 mod local_lyrics;
+pub mod loudness;
+pub mod loudness_analysis;
+pub mod loudness_manager;
 pub mod lyrics;
 mod lyrics_aliases;
 mod lyrics_discovery;
@@ -56,6 +73,8 @@ pub mod monochrome_resolver;
 #[cfg(target_os = "linux")]
 pub mod mpris;
 pub mod native_output;
+pub mod observed_analysis;
+mod opus_decoder_capability;
 #[cfg(feature = "experimental-opus")]
 mod opus_experiment;
 pub mod pcm_tap;
@@ -67,11 +86,15 @@ pub mod playback_failure;
 pub mod playback_history;
 pub mod playback_radio;
 pub mod playback_sources;
+pub mod playing_track_detections;
 mod playing_track_identification;
 pub mod playlist_files;
+pub mod playlist_hierarchy;
+pub mod playlist_mirror_options;
 pub mod playlist_preferences;
 pub mod playlist_sync;
 pub mod playlist_watch;
+pub mod portable_playlist;
 pub mod provider_read_requests;
 pub mod providers;
 mod queued_playback;
@@ -85,6 +108,7 @@ mod recording_match_context;
 #[cfg(test)]
 mod recording_match_corpus;
 pub mod remote_playlists;
+pub mod restore_work_policy;
 mod shutdown_signal;
 pub mod sidebar_layout;
 pub mod slskd;
@@ -93,14 +117,17 @@ mod source_preparation;
 mod spotify_mb_crosswalk;
 mod staged_recognition;
 pub mod storage;
+pub mod stream_analysis;
 pub mod system_media;
 pub mod tools;
 pub mod track_sort_sql;
 pub mod track_sort_text;
 mod verification_staging;
+pub mod waveform_analysis;
 mod webview_audio_transcode;
 mod webview_audio_transport;
 pub mod webview_identification;
+pub mod webview_live_bpm;
 pub mod webview_radio_pcm;
 mod youtube_direct_experiment;
 mod youtube_download_recovery;
@@ -377,6 +404,7 @@ async fn resolve_radio_station_playback_url(
     request_generation: Option<u64>,
     webview_capabilities: Option<webview_audio_transcode::WebviewAudioCapabilities>,
     detailed: Option<bool>,
+    normalization_route_required: Option<bool>,
 ) -> Result<serde_json::Value> {
     let settings = state.store.settings()?;
     let deadline = playback_sources::PlaybackDeadline::after(settings.playback_startup_timeout());
@@ -422,6 +450,8 @@ async fn resolve_radio_station_playback_url(
                     duration_seconds: None,
                     content_length: None,
                     has_video: false,
+                    decode_policy: crate::native_output::AudioSourceDecodePolicy::Automatic,
+                    decoder_fingerprint: None,
                 }),
 
                 cenc: None,
@@ -431,7 +461,12 @@ async fn resolve_radio_station_playback_url(
                 codec.as_deref(),
                 webview_capabilities.as_ref(),
             );
-            if convert || webview_audio_transport::needs_relay(&source) {
+            if convert
+                || webview_audio_transport::needs_relay_for_normalization(
+                    &source,
+                    normalization_route_required.unwrap_or(false),
+                )
+            {
                 url = state
                     .webview_audio_transport
                     .register(
@@ -460,13 +495,14 @@ async fn resolve_radio_station_playback_url(
                 *generation,
                 format!("radio:{station_id}"),
                 source,
+                None,
                 true,
                 None,
             );
         }
         if detailed.unwrap_or(false) {
             Ok(
-                serde_json::json!({"url":url,"audioMimeType":mime,"audioCodec":codec,"sourceTransport":transport}),
+                serde_json::json!({"url":url,"audioMimeType":mime,"audioCodec":codec,"sourceTransport":transport,"normalizationRoute":webview_audio_transport::normalization_route_capability(transport!="direct")}),
             )
         } else {
             Ok(serde_json::Value::String(url))
@@ -586,6 +622,399 @@ async fn get_radio_metadata(station_id: String) -> Result<radio::RadioMetadata> 
 #[tauri::command]
 fn get_sidebar_layout(state: State<'_, AppState>) -> Result<sidebar_layout::SidebarLayout> {
     sidebar_layout::load(&state.store)
+}
+
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct CreateBackupOptions {
+    include_media: bool,
+}
+
+#[tauri::command]
+async fn inspect_backup(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Option<backup_manager::BackupPreview>> {
+    use tauri_plugin_dialog::DialogExt;
+    let picker = app.clone();
+    let selected = tauri::async_runtime::spawn_blocking(move || {
+        picker
+            .dialog()
+            .file()
+            .add_filter("Burrata backup", &["burrata-backup"])
+            .blocking_pick_file()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let Some(selected) = selected else {
+        return Ok(None);
+    };
+    let path = selected.into_path().map_err(|e| e.to_string())?;
+    let manager = state.backup_manager.clone();
+    tauri::async_runtime::spawn_blocking(move || manager.inspect_path(&path))
+        .await
+        .map_err(|e| e.to_string())?
+        .map(Some)
+}
+
+#[tauri::command]
+async fn consume_import_drop(
+    state: State<'_, AppState>,
+    token: String,
+) -> Result<import_drop::ConsumedImportDrop> {
+    let claim = state.import_drops.consume(&token)?;
+    match claim {
+        import_drop::ImportDropClaim::Multiple(count) => Err(format!(
+            "Drop one supported file at a time; {count} files were dropped."
+        )),
+        import_drop::ImportDropClaim::Empty => {
+            Err("Drop one supported playlist or Burrata backup file.".into())
+        }
+        import_drop::ImportDropClaim::One(path) => match import_drop::classify_path(&path)? {
+            import_drop::ImportDropKind::Playlist => {
+                let (name, text) = tauri::async_runtime::spawn_blocking(move || {
+                    import_drop::read_playlist_file(&path)
+                })
+                .await
+                .map_err(|error| error.to_string())??;
+                Ok(import_drop::ConsumedImportDrop::Playlist { name, text })
+            }
+            import_drop::ImportDropKind::Backup => {
+                let manager = state.backup_manager.clone();
+                let preview = tauri::async_runtime::spawn_blocking(move || {
+                    let canonical = import_drop::prepare_backup_path(&path)?;
+                    manager.inspect_path(&canonical)
+                })
+                .await
+                .map_err(|error| error.to_string())??;
+                Ok(import_drop::ConsumedImportDrop::Backup { preview })
+            }
+        },
+    }
+}
+
+#[tauri::command]
+async fn create_backup(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    options: CreateBackupOptions,
+) -> Result<serde_json::Value> {
+    use tauri_plugin_dialog::DialogExt;
+    let picker = app.clone();
+    let selected = tauri::async_runtime::spawn_blocking(move || {
+        picker
+            .dialog()
+            .file()
+            .add_filter("Burrata backup", &["burrata-backup"])
+            .set_file_name("Burrata-backup.burrata-backup")
+            .blocking_save_file()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let Some(selected) = selected else {
+        return Ok(serde_json::json!({"jobId":null}));
+    };
+    let mut destination = selected.into_path().map_err(|e| e.to_string())?;
+    if destination.extension().and_then(|v| v.to_str()) != Some("burrata-backup") {
+        let mut name = destination.file_name().unwrap_or_default().to_os_string();
+        name.push(".burrata-backup");
+        destination.set_file_name(name);
+    }
+    let job_id =
+        state
+            .backup_manager
+            .start_create(app, destination, options.include_media, false)?;
+    Ok(serde_json::json!({"jobId":job_id}))
+}
+
+#[tauri::command]
+fn submit_backup_checkpoint(
+    state: State<'_, AppState>,
+    response: backup_manager::FrontendCheckpointResponse,
+) -> Result<()> {
+    state.backup_manager.submit_frontend_checkpoint(response)
+}
+
+#[tauri::command]
+async fn estimate_backup(
+    state: State<'_, AppState>,
+    include_media: bool,
+) -> Result<backup_manager::BackupEstimate> {
+    let manager = state.backup_manager.clone();
+    tauri::async_runtime::spawn_blocking(move || manager.estimate(include_media))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn get_backup_job(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<backup_manager::BackupJobStatus> {
+    state.backup_manager.status(&job_id)
+}
+
+#[tauri::command]
+fn get_active_backup_job(
+    state: State<'_, AppState>,
+) -> Result<Option<backup_manager::BackupJobStatus>> {
+    state.backup_manager.active_job_status()
+}
+
+#[tauri::command]
+fn cancel_backup_job(state: State<'_, AppState>, job_id: String) -> Result<()> {
+    state.backup_manager.cancel(&job_id)
+}
+
+#[tauri::command]
+fn restore_backup(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    preview_id: String,
+    options: backup_manager::RestoreRequest,
+) -> Result<serde_json::Value> {
+    let job_id = state
+        .backup_manager
+        .start_restore(app, preview_id, options)?;
+    Ok(serde_json::json!({"jobId":job_id}))
+}
+
+#[tauri::command]
+fn get_restore_work_policy(
+    state: State<'_, AppState>,
+) -> Result<restore_work_policy::RestoreWorkPolicyState> {
+    restore_work_policy::state(&state.store)
+}
+
+#[tauri::command]
+async fn review_restored_automatic_work(
+    state: State<'_, AppState>,
+    resume: restore_work_policy::ResumeAutomaticWork,
+) -> Result<restore_work_policy::RestoreWorkPolicyState> {
+    let store = state.store.clone();
+    let analysis = state.analysis.clone();
+    let autotag = state.autotag.clone();
+    let acquisition = state.acquisition.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let reviewed = restore_work_policy::review(&store, resume.clone())?;
+        if resume.metadata_retag_analysis {
+            analysis.queue(None, false)?;
+        }
+        if resume.asset_autotag {
+            autotag.resume_restored_work()?;
+        }
+        if resume.background_source_preparation {
+            source_preparation::schedule_saved(acquisition);
+        }
+        Ok(reviewed)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+fn preview_backup_restore(
+    state: State<'_, AppState>,
+    preview_id: String,
+    options: backup_manager::RestorePreviewOptions,
+) -> Result<backup_state::RestoreStateSummary> {
+    state
+        .backup_manager
+        .preview_restore_selection(&preview_id, options)
+}
+
+#[tauri::command]
+async fn choose_backup_restore_root(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    preview_id: String,
+    root_key: String,
+) -> Result<Option<backup_manager::BackupMediaRootPreview>> {
+    use tauri_plugin_dialog::DialogExt;
+    let picker = app.clone();
+    let selected = tauri::async_runtime::spawn_blocking(move || {
+        picker
+            .dialog()
+            .file()
+            .set_title("Choose audio restore folder")
+            .blocking_pick_folder()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let Some(selected) = selected else {
+        return Ok(None);
+    };
+    let destination = selected.into_path().map_err(|e| e.to_string())?;
+    state
+        .backup_manager
+        .register_restore_root(&preview_id, &root_key, &destination)
+        .map(Some)
+}
+
+#[tauri::command]
+fn get_backup_schedule(state: State<'_, AppState>) -> Result<backup_manager::BackupSchedule> {
+    state.backup_manager.get_schedule()
+}
+
+#[tauri::command]
+fn set_backup_schedule(
+    state: State<'_, AppState>,
+    schedule: backup_manager::BackupSchedule,
+) -> Result<backup_manager::BackupSchedule> {
+    state.backup_manager.set_schedule(schedule)
+}
+
+#[tauri::command]
+async fn choose_backup_schedule_destination(app: tauri::AppHandle) -> Result<Option<PathBuf>> {
+    use tauri_plugin_dialog::DialogExt;
+    let picker = app.clone();
+    let selected = tauri::async_runtime::spawn_blocking(move || {
+        picker
+            .dialog()
+            .file()
+            .set_title("Choose automatic backup folder")
+            .blocking_pick_folder()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    selected
+        .map(|path| path.into_path().map_err(|e| e.to_string()))
+        .transpose()
+}
+
+#[tauri::command]
+async fn export_backup_settings(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<bool> {
+    use tauri_plugin_dialog::DialogExt;
+    let picker = app.clone();
+    let selected = tauri::async_runtime::spawn_blocking(move || {
+        picker
+            .dialog()
+            .file()
+            .add_filter("Burrata settings", &["json"])
+            .set_file_name("Burrata-settings.json")
+            .blocking_save_file()
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    let Some(selected) = selected else {
+        return Ok(false);
+    };
+    let mut destination = selected.into_path().map_err(|error| error.to_string())?;
+    if destination
+        .extension()
+        .and_then(|extension| extension.to_str())
+        != Some("json")
+    {
+        destination.set_extension("json");
+    }
+    let manager = state.backup_manager.clone();
+    let checkpoint_app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        manager.export_settings(&checkpoint_app, &destination)
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    Ok(true)
+}
+
+#[tauri::command]
+async fn inspect_backup_settings(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Option<backup_state::SettingsImportPreview>> {
+    use tauri_plugin_dialog::DialogExt;
+    let picker = app.clone();
+    let selected = tauri::async_runtime::spawn_blocking(move || {
+        picker
+            .dialog()
+            .file()
+            .add_filter("Burrata settings", &["json"])
+            .blocking_pick_file()
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    let Some(selected) = selected else {
+        return Ok(None);
+    };
+    let path = selected.into_path().map_err(|error| error.to_string())?;
+    let manager = state.backup_manager.clone();
+    tauri::async_runtime::spawn_blocking(move || manager.inspect_settings_path(&path))
+        .await
+        .map_err(|error| error.to_string())?
+        .map(Some)
+}
+
+#[tauri::command]
+fn apply_backup_settings(
+    state: State<'_, AppState>,
+    preview_id: String,
+    selection: backup_state::SettingsImportSelection,
+) -> Result<backup_manager::SettingsImportResult> {
+    state
+        .backup_manager
+        .apply_settings_import(&preview_id, selection)
+}
+
+#[tauri::command]
+fn get_backup_frontend_preferences(
+    state: State<'_, AppState>,
+) -> Result<Option<backup_frontend_preferences::ReadResponse>> {
+    backup_frontend_preferences::read_or_migrate(
+        &state.store,
+        &state.backup_frontend_preference_session_id,
+    )
+}
+
+#[tauri::command]
+fn ack_backup_frontend_preferences(
+    state: State<'_, AppState>,
+    nonce: String,
+    receipt_session_id: String,
+) -> Result<backup_frontend_preferences::AckResult> {
+    backup_frontend_preferences::acknowledge(
+        &state.store,
+        &state.backup_frontend_preference_session_id,
+        &nonce,
+        &receipt_session_id,
+    )
+}
+
+#[tauri::command]
+fn get_backup_playback_restore(state: State<'_, AppState>) -> Result<Option<serde_json::Value>> {
+    let Some(mut value) = state
+        .store
+        .get_json_preference(backup_state::BACKUP_PLAYBACK_HANDOFF_KEY)?
+    else {
+        return Ok(None);
+    };
+    let Some(object) = value.as_object_mut() else {
+        return Ok(None);
+    };
+    if object.is_empty() {
+        return Ok(None);
+    }
+    // The backend session is process-local. It augments the legacy v1 payload
+    // at read time and is never written to the handoff or portable archive.
+    object.insert(
+        "currentSessionId".into(),
+        serde_json::Value::String(state.backup_frontend_preference_session_id.clone()),
+    );
+    Ok(Some(value))
+}
+
+#[tauri::command]
+fn ack_backup_playback_restore(
+    state: State<'_, AppState>,
+    nonce: String,
+    receipt_session_id: String,
+) -> Result<backup_frontend_preferences::AckResult> {
+    backup_frontend_preferences::acknowledge_key(
+        &state.store,
+        &state.backup_frontend_preference_session_id,
+        backup_state::BACKUP_PLAYBACK_HANDOFF_KEY,
+        &nonce,
+        &receipt_session_id,
+    )
 }
 #[tauri::command]
 fn save_sidebar_layout(
@@ -840,9 +1269,12 @@ fn playlist_watcher_running(state: State<'_, AppState>) -> bool {
 #[tauri::command]
 async fn sync_playlists(state: State<'_, AppState>) -> Result<playlist_sync::PlaylistSyncStatus> {
     let store = state.store.clone();
-    tokio::task::spawn_blocking(move || playlist_sync::sync_playlists(&store, &store.settings()?))
-        .await
-        .map_err(|e| e.to_string())?
+    let history = state.history.clone();
+    tokio::task::spawn_blocking(move || {
+        playlist_sync::sync_playlists_with_history(&store, &store.settings()?, &history)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 #[tauri::command]
 async fn import_local_playlist(
@@ -851,6 +1283,7 @@ async fn import_local_playlist(
     path: String,
     refresh: Option<bool>,
 ) -> Result<playlist_files::LocalPlaylistImport> {
+    let _library_write = state.store.try_library_write()?;
     let settings = state.store.settings()?;
     let existing = state
         .store
@@ -944,6 +1377,21 @@ fn set_playlist_shortcut_binding(
     playlist_preferences::set_shortcut_binding(&state.store, slot, &binding)
 }
 #[tauri::command]
+fn get_playlist_mirror_options(
+    state: State<'_, AppState>,
+    collection_id: String,
+) -> Result<playlist_mirror_options::PlaylistMirrorOptionsView> {
+    playlist_mirror_options::get_playlist_mirror_options(&state.store, &collection_id)
+}
+#[tauri::command]
+fn set_playlist_mirror_options(
+    state: State<'_, AppState>,
+    collection_id: String,
+    options: playlist_mirror_options::PlaylistMirrorOptions,
+) -> Result<playlist_mirror_options::PlaylistMirrorOptionsView> {
+    playlist_mirror_options::set_playlist_mirror_options(&state.store, &collection_id, options)
+}
+#[tauri::command]
 fn get_radio_song_track(
     state: State<'_, AppState>,
     station_id: String,
@@ -1035,6 +1483,13 @@ fn search_playback_history(
     options: playback_history::PlaybackHistorySearchOptions,
 ) -> Result<playback_history::PlaybackHistoryPage> {
     state.history.search(&state.store, options)
+}
+#[tauri::command]
+fn get_track_library_summary(
+    state: State<'_, AppState>,
+    track_id: String,
+) -> Result<playback_history::TrackLibrarySummary> {
+    state.history.track_library_summary(&state.store, &track_id)
 }
 #[tauri::command]
 fn clear_playback_history(state: State<'_, AppState>) -> Result<()> {
@@ -1453,6 +1908,20 @@ async fn search_albums(
         .await
 }
 #[tauri::command]
+async fn get_artist_artwork(
+    state: State<'_, AppState>,
+    artist: artists::ArtistRef,
+) -> Result<serde_json::Value> {
+    let image = state
+        .artists
+        .get_artist_artwork(
+            &artist,
+            &artist_credentials(state.connections.clone()).await?,
+        )
+        .await?;
+    Ok(serde_json::json!({"imageUrl":image}))
+}
+#[tauri::command]
 async fn get_artist_profile(
     state: State<'_, AppState>,
     artist: artists::ArtistRef,
@@ -1584,10 +2053,175 @@ fn get_analysis_status(state: State<'_, AppState>) -> Result<Vec<serde_json::Val
     state.analysis.status()
 }
 
+#[tauri::command]
+fn start_selected_asset_analysis(
+    state: State<'_, AppState>,
+    asset_ids: Vec<String>,
+    fields: std::collections::BTreeSet<stream_analysis::AnalysisMetric>,
+) -> Result<analysis_selection::SelectedAssetAnalysisJob> {
+    state
+        .analysis_selection_jobs
+        .start(state.store.clone(), asset_ids, fields)
+}
+
+#[tauri::command]
+fn get_selected_asset_analysis(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<analysis_selection::SelectedAssetAnalysisJob> {
+    state.analysis_selection_jobs.get(&job_id)
+}
+
+#[tauri::command]
+fn cancel_selected_asset_analysis(state: State<'_, AppState>, job_id: String) -> Result<()> {
+    state.analysis_selection_jobs.cancel(&job_id)
+}
+
+#[tauri::command]
+async fn apply_selected_asset_analysis(
+    state: State<'_, AppState>,
+    job_id: String,
+    asset_id: String,
+    selection: stream_analysis::ApplyAnalysisSelection,
+) -> Result<Track> {
+    let _writer_lease = state.store.try_library_write()?;
+    state
+        .analysis_selection_jobs
+        .apply(&state.store, &job_id, &asset_id, &selection)
+        .await
+}
+
+#[tauri::command]
+fn start_selected_stream_analysis(
+    state: State<'_, AppState>,
+    track_ids: Vec<String>,
+    fields: std::collections::BTreeSet<stream_analysis::AnalysisMetric>,
+) -> Result<analysis_stream_selection::SelectedStreamAnalysisJob> {
+    state.stream_analysis_selection_jobs.start(
+        state.store.clone(),
+        state.acquisition.clone(),
+        state.playback.observed_analysis_manager(),
+        track_ids,
+        fields,
+    )
+}
+
+#[tauri::command]
+fn start_stream_media_analysis(
+    state: State<'_, AppState>,
+    track: analysis_stream_selection::StreamMediaTrackContext,
+    provider: String,
+    source_id: String,
+    duration_seconds: f64,
+    audio_variant: Option<stream_analysis::StreamAudioVariant>,
+    automatic: Option<bool>,
+    webview_generation: Option<u64>,
+) -> Result<analysis_stream_selection::SelectedStreamAnalysisJob> {
+    restore_work_policy::ensure_stream_media_analysis_allowed(
+        &state.store,
+        automatic.unwrap_or(false),
+    )?;
+    let selected_candidate = if let Some(generation) = webview_generation {
+        let gate = state
+            .playback_resolution
+            .lock()
+            .map_err(|_| "Playback resolver unavailable")?;
+        active_stream_candidate_for_context(
+            &gate,
+            generation,
+            &track,
+            duration_seconds,
+            &provider,
+            &source_id,
+        )?
+    } else {
+        None
+    };
+    state.stream_analysis_selection_jobs.start_media_analysis(
+        state.store.clone(),
+        state.acquisition.clone(),
+        state.playback.observed_analysis_manager(),
+        analysis_stream_selection::SelectedStreamMediaAnalysisRequest {
+            track,
+            provider,
+            source_id,
+            duration_seconds,
+            audio_variant,
+            webview_generation,
+        },
+        selected_candidate,
+    )
+}
+
+#[tauri::command]
+fn get_cached_stream_media_analysis(
+    state: State<'_, AppState>,
+    track: analysis_stream_selection::StreamMediaTrackContext,
+    provider: String,
+    source_id: String,
+    duration_seconds: f64,
+    audio_variant: Option<stream_analysis::StreamAudioVariant>,
+) -> Result<Option<stream_analysis::WholeTrackAnalysis>> {
+    let track = {
+        let gate = state
+            .playback_resolution
+            .lock()
+            .map_err(|_| "Playback resolver unavailable")?;
+        stream_media_cache_lookup_track(&gate, &track, duration_seconds, &provider, &source_id)?
+    };
+    Ok(state
+        .playback
+        .observed_analysis_manager()
+        .cached_stream_media(
+            &track,
+            &provider,
+            &source_id,
+            duration_seconds,
+            audio_variant.as_ref(),
+        ))
+}
+
+#[tauri::command]
+fn get_selected_stream_analysis(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<analysis_stream_selection::SelectedStreamAnalysisJob> {
+    state.stream_analysis_selection_jobs.get(&job_id)
+}
+
+#[tauri::command]
+fn cancel_selected_stream_analysis(state: State<'_, AppState>, job_id: String) -> Result<()> {
+    state.stream_analysis_selection_jobs.cancel(&job_id)
+}
+
+#[tauri::command]
+async fn apply_selected_stream_analysis(
+    state: State<'_, AppState>,
+    job_id: String,
+    track_id: String,
+    selection: stream_analysis::ApplyAnalysisSelection,
+) -> Result<Track> {
+    let _writer_lease = state.store.try_library_write()?;
+    state
+        .stream_analysis_selection_jobs
+        .apply(&state.store, &job_id, &track_id, &selection)
+        .await
+}
+
 #[derive(Default)]
 struct PlaybackResolutionGate {
     generation: u64,
     active: Option<(u64, tokio::sync::watch::Sender<bool>)>,
+    resolved_stream_source: Option<ResolvedStreamSourceBinding>,
+    stream_source_cancelled: bool,
+}
+
+#[derive(Clone)]
+struct ResolvedStreamSourceBinding {
+    generation: u64,
+    track_id: String,
+    recording_identity: String,
+    candidate: crate::models::Candidate,
 }
 
 impl PlaybackResolutionGate {
@@ -1604,6 +2238,8 @@ impl PlaybackResolutionGate {
         if let Some((_, previous)) = self.active.take() {
             previous.send_replace(true);
         }
+        self.resolved_stream_source = None;
+        self.stream_source_cancelled = false;
         self.generation = generation;
         let (sender, receiver) = tokio::sync::watch::channel(false);
         self.active = Some((generation, sender.clone()));
@@ -1611,10 +2247,12 @@ impl PlaybackResolutionGate {
     }
 
     fn cancel_older_than(&mut self, generation: u64) {
-        if generation < self.generation {
+        if generation <= self.generation {
             return;
         }
         self.generation = generation;
+        self.resolved_stream_source = None;
+        self.stream_source_cancelled = true;
         if self
             .active
             .as_ref()
@@ -1630,12 +2268,64 @@ impl PlaybackResolutionGate {
         if let Some((_, stop)) = self.active.take() {
             stop.send_replace(true);
         }
+        self.resolved_stream_source = None;
+        self.stream_source_cancelled = true;
         // Return the relay fence without consuming the frontend's next request.
         self.generation.saturating_add(1)
     }
 
     fn has_current_resolution(&self) -> bool {
         self.active.is_some()
+    }
+
+    fn stream_candidate_for(
+        &self,
+        generation: u64,
+        track_id: &str,
+        recording_identity: Option<&str>,
+        provider: &str,
+        source_id: &str,
+    ) -> Option<crate::models::Candidate> {
+        let binding = self.resolved_stream_source.as_ref()?;
+        (!self.stream_source_cancelled
+            && binding.generation == generation
+            && binding.track_id == track_id
+            && recording_identity == Some(binding.recording_identity.as_str())
+            && binding.candidate.provider == provider
+            && binding.candidate.id == source_id)
+            .then(|| binding.candidate.clone())
+    }
+
+    fn stream_candidate_rejection_reason(
+        &self,
+        generation: u64,
+        track_id: &str,
+        recording_identity: Option<&str>,
+        provider: &str,
+        source_id: &str,
+    ) -> &'static str {
+        if self.stream_source_cancelled {
+            return "active YouTube source lease was cancelled";
+        }
+        let Some(binding) = self.resolved_stream_source.as_ref() else {
+            return "no active YouTube source binding";
+        };
+        if binding.generation != generation || self.generation != generation {
+            return "active YouTube source generation does not match";
+        }
+        if binding.track_id != track_id {
+            return "active YouTube source track ID does not match";
+        }
+        if recording_identity != Some(binding.recording_identity.as_str()) {
+            return "active YouTube recording context does not match";
+        }
+        if binding.candidate.provider != provider {
+            return "active YouTube source provider does not match";
+        }
+        if binding.candidate.id != source_id {
+            return "active YouTube source ID does not match";
+        }
+        "active YouTube source binding is unavailable"
     }
 
     fn finish(&mut self, generation: u64, sender: &tokio::sync::watch::Sender<bool>) {
@@ -1910,6 +2600,9 @@ pub(crate) struct AppState {
     discovery: Arc<discovery::DiscoveryService>,
     autotag: Arc<autotag::AutoTagger>,
     store: Arc<Store>,
+    _profile_lock: backup_manager::ProfileLock,
+    backup_manager: Arc<backup_manager::BackupManager>,
+    import_drops: Arc<import_drop::ImportDropRegistry>,
     directory_browser: directory_browser::DirectoryBrowser,
     automation: Arc<automation::AutomationService>,
     playback: Arc<playback::PlaybackService>,
@@ -1933,10 +2626,15 @@ pub(crate) struct AppState {
     connections: Arc<connections::ConnectionManager>,
     artists: Arc<artists::ArtistService>,
     analysis: Arc<analysis::AnalysisManager>,
+    analysis_selection_jobs: Arc<analysis_selection::AnalysisSelectionJobs>,
+    stream_analysis_selection_jobs: Arc<analysis_stream_selection::SelectedStreamAnalysisJobs>,
+    loudness_analysis_jobs: Arc<loudness_manager::LoudnessAnalysisJobs>,
+    waveform_analysis_jobs: Arc<waveform_analysis::WaveformAnalysisJobs>,
     history: Arc<playback_history::PlaybackHistory>,
     playlist_watcher: std::sync::Mutex<Option<playlist_watch::PlaylistWatcher>>,
     provider_reads: Arc<provider_read_requests::ProviderReadRequests>,
     sort_availability_backfill: Arc<SortAvailabilityBackfill>,
+    backup_frontend_preference_session_id: String,
 }
 
 #[cfg(test)]
@@ -2581,6 +3279,30 @@ fn automation_layout_complete(
 }
 
 #[tauri::command]
+fn automation_stereo_diagnostic_complete(
+    state: State<'_, AppState>,
+    request_id: String,
+    track_id: String,
+    session_id: String,
+    source_generation: u64,
+    seek_serial: u64,
+    current_index: i64,
+    queue_total: u64,
+    entry_id: String,
+    queue_track_id: String,
+    capture: serde_json::Value,
+) -> Result<()> {
+    state.automation.complete_stereo_diagnostic_request(
+        &request_id,
+        serde_json::json!({
+            "trackId":track_id,"sessionId":session_id,"sourceGeneration":source_generation,
+            "seekSerial":seek_serial,"currentIndex":current_index,"queueTotal":queue_total,
+            "entryId":entry_id,"queueTrackId":queue_track_id,"capture":capture
+        }),
+    )
+}
+
+#[tauri::command]
 fn automation_player_panel_complete(
     state: State<'_, AppState>,
     request_id: String,
@@ -2870,11 +3592,10 @@ fn create_youtube_handoff_pairing_code(
 fn request_browser_import(state: State<'_, AppState>, url: String) -> Result<String> {
     state.browser.request_import(&url)
 }
-#[tauri::command]
-async fn import_collection_url(
-    state: State<'_, AppState>,
-    url: String,
-) -> Result<browser_bridge::BrowserImportResult> {
+pub(crate) async fn read_collection_snapshot(
+    url: &str,
+    connections: &connections::ConnectionManager,
+) -> Result<browser_bridge::BrowserSnapshot> {
     let provider = browser_bridge::provider_from_url(&url)?;
     let snapshot = if matches!(provider, "beatport" | "traxsource") {
         let source = providers::provider(provider)?.get_chart(&url).await?;
@@ -2883,6 +3604,7 @@ async fn import_collection_url(
             .into_iter()
             .enumerate()
             .map(|(index, t)| browser_bridge::BrowserEntry {
+                metadata: serde_json::json!({"remixers":t.remixers.clone().map(serde_json::to_value).and_then(std::result::Result::ok).unwrap_or_else(||t.provenance["remixers"].clone())}),
                 provider_id: Some(t.provider_id),
                 source_url: Some(t.source_url),
                 artist: t.artist,
@@ -2904,6 +3626,8 @@ async fn import_collection_url(
             .collect::<Vec<_>>();
         let top100 = url.ends_with("/top-100") || url.ends_with("/top");
         browser_bridge::BrowserSnapshot {
+            failed_sources: vec![],
+            album_urls: vec![],
             schema_version: 1,
             provider: provider.into(),
             kind: "chart".into(),
@@ -2924,8 +3648,17 @@ async fn import_collection_url(
             entries,
         }
     } else {
-        collection_sources::import_source(&url, &state.connections).await?
+        collection_sources::import_source(&url, connections).await?
     };
+    Ok(snapshot)
+}
+
+#[tauri::command]
+async fn import_collection_url(
+    state: State<'_, AppState>,
+    url: String,
+) -> Result<browser_bridge::BrowserImportResult> {
+    let snapshot = read_collection_snapshot(&url, &state.connections).await?;
     let mut chart = browser_bridge::validate_snapshot(&snapshot)?;
     for track in &mut chart.tracks {
         track.provenance["browserImport"] = serde_json::json!(false);
@@ -2934,6 +3667,76 @@ async fn import_collection_url(
     }
     state.store.import_browser_chart(&chart, &snapshot)
 }
+#[tauri::command]
+async fn preview_collection_import(
+    state: State<'_, AppState>,
+    url: String,
+) -> Result<serde_json::Value> {
+    let snapshot = read_collection_snapshot(&url, &state.connections).await?;
+    collection_imports::preview(&state.store, snapshot)
+}
+#[tauri::command]
+fn apply_collection_import(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    preview_id: String,
+    destination_collection_id: Option<String>,
+    duplicate_policy: Option<String>,
+    folder_path: Option<String>,
+    section_name: Option<String>,
+) -> Result<browser_bridge::BrowserImportResult> {
+    let result = collection_imports::apply_with_destination(
+        &state.store,
+        &preview_id,
+        destination_collection_id.as_deref(),
+        duplicate_policy.as_deref(),
+        folder_path.as_deref(),
+        section_name.as_deref(),
+    )?;
+    let _ = app.emit("browser-imported", &result);
+    Ok(result)
+}
+#[tauri::command]
+async fn retry_import_failures(
+    state: State<'_, AppState>,
+    import_id: String,
+) -> Result<serde_json::Value> {
+    collection_imports::retry(&state.store, &import_id).await
+}
+#[tauri::command]
+async fn enrich_import_track(
+    state: State<'_, AppState>,
+    track_id: String,
+) -> Result<serde_json::Value> {
+    collection_imports::enrich(&state.store, &track_id).await
+}
+#[tauri::command]
+fn set_import_playback_mode(
+    state: State<'_, AppState>,
+    track_id: String,
+    mode: String,
+) -> Result<Track> {
+    if !matches!(mode.as_str(), "source" | "lookup") {
+        return Err("Choose source or lookup".into());
+    }
+    let mut track = state
+        .store
+        .get_track(&track_id)?
+        .ok_or("Saved track not found")?;
+    if track.playback_range.is_some() || track.provider == "radio" {
+        return Err("Chapters and radio keep their exact source".into());
+    }
+    if !track.provenance.is_object() {
+        track.provenance = serde_json::json!({});
+    }
+    track.provenance["playbackMode"] = serde_json::json!(mode);
+    if !track.provenance["manualFields"].is_object() {
+        track.provenance["manualFields"] = serde_json::json!({});
+    }
+    track.provenance["manualFields"]["playbackMode"] = serde_json::json!(true);
+    state.store.cache_track(&track)
+}
+
 #[tauri::command]
 fn list_browser_imports(
     state: State<'_, AppState>,
@@ -3071,6 +3874,7 @@ async fn resolve_preview(
     request_generation: Option<u64>,
 ) -> Result<serde_json::Value> {
     let mut approximate_excerpt = None;
+    let mut local_asset_id = None;
     let preview = if let Some(path) = &track.local_path {
         if let Some(asset) = state.store.get_asset_by_path(path)? {
             let settings = state.store.settings()?;
@@ -3082,6 +3886,7 @@ async fn resolve_preview(
             {
                 metadata_preview(&track)
             } else {
+                local_asset_id = Some(asset.id.clone());
                 if asset.track.provenance["automaticExcerpt"].is_object() {
                     let proof = &asset.track.provenance["automaticExcerpt"];
                     approximate_excerpt = Some(serde_json::json!({
@@ -3112,6 +3917,22 @@ async fn resolve_preview(
             object.insert("approximateExcerpt".into(), marker);
         }
     }
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "assetId".into(),
+            local_asset_id
+                .as_ref()
+                .map_or(serde_json::Value::Null, |asset_id| {
+                    serde_json::json!(asset_id)
+                }),
+        );
+        object.insert(
+            "normalizationRoute".into(),
+            serde_json::json!(webview_audio_transport::normalization_route_capability(
+                preview.kind == "local"
+            )),
+        );
+    }
     if let Some(generation) = request_generation {
         let (stop, cancel) = {
             let mut gate = state
@@ -3123,10 +3944,10 @@ async fn resolve_preview(
             started
         };
         let source = if preview.kind == "local" {
-            if let Some(path) = track.local_path.as_deref() {
+            if let Some(asset_id) = local_asset_id.as_deref() {
                 let asset = state
                     .store
-                    .get_asset_by_path(path)?
+                    .get_asset_by_id(asset_id)?
                     .ok_or("Local audio is not registered in the library")?;
                 let settings = state.store.settings()?;
                 Some(crate::native_output::AudioSource {
@@ -3175,6 +3996,19 @@ async fn resolve_preview(
                     generation,
                     track.id.clone(),
                     source,
+                    if preview.kind == "audio" {
+                        playing_track_detections::SourceIdentity::from_validated_url(
+                            "preview",
+                            &preview.url,
+                            None,
+                        )
+                    } else if preview.kind == "local" {
+                        local_asset_id.as_deref().and_then(|asset_id| {
+                            playing_track_detections::SourceIdentity::new("local", asset_id)
+                        })
+                    } else {
+                        None
+                    },
                     false,
                     bounds,
                 );
@@ -3302,6 +4136,30 @@ fn should_relay_seek_recovery_source(
         .is_some_and(|host| host == "googlevideo.com" || host.ends_with(".googlevideo.com"))
 }
 
+fn playback_normalization_route(
+    local_source: bool,
+    relay_registered: bool,
+    transcode_registered: bool,
+) -> &'static str {
+    webview_audio_transport::normalization_route_capability(
+        local_source || relay_registered || transcode_registered,
+    )
+}
+
+fn playback_relay_required(
+    source: &crate::native_output::AudioSource,
+    transcode_required: bool,
+    seek_recovery_relay: bool,
+    normalization_route_required: bool,
+) -> bool {
+    transcode_required
+        || seek_recovery_relay
+        || webview_audio_transport::needs_relay_for_normalization(
+            source,
+            normalization_route_required,
+        )
+}
+
 #[tauri::command]
 async fn resolve_playback_track(
     state: State<'_, AppState>,
@@ -3315,6 +4173,7 @@ async fn resolve_playback_track(
     seek_recovery: Option<bool>,
     attempt_limit: Option<usize>,
     webview_capabilities: Option<webview_audio_transcode::WebviewAudioCapabilities>,
+    normalization_route_required: Option<bool>,
 ) -> Result<serde_json::Value> {
     cancel_preview_warmup(&state.preview_warmup_cancel);
     let failed_candidates = failed_candidates.unwrap_or_default();
@@ -3356,6 +4215,18 @@ async fn resolve_playback_track(
             .await
         } else {
             let limit = playback_sources::validate_candidate_attempt_limit(attempt_limit)?;
+            let selected_candidate = if selected_candidate.is_some() {
+                selected_candidate
+            } else {
+                playlist_sync::resolve_portable_playback_candidate(
+                    &state.store,
+                    &state.acquisition,
+                    &track,
+                    &settings,
+                    cancel.clone(),
+                )
+                .await?
+            };
             playback_sources::resolve_with_trace_context_excluding_until_attempt_limit(
                 &state.store,
                 &state.acquisition,
@@ -3381,7 +4252,8 @@ async fn resolve_playback_track(
             .lock()
             .map_err(|_| "Playback resolver unavailable")?;
         gate.finish(request_generation, &stop);
-        if gate.generation != request_generation || *cancel.borrow() {
+        if gate.generation != request_generation || gate.stream_source_cancelled || *cancel.borrow()
+        {
             return Err("Playback resolution was superseded".into());
         }
         // Retain the encrypted input and its lease entirely in Rust. The
@@ -3411,6 +4283,8 @@ async fn resolve_playback_track(
             duration_seconds: None,
             content_length: None,
             has_video: false,
+            decode_policy: crate::native_output::AudioSourceDecodePolicy::Automatic,
+            decoder_fingerprint: None,
         });
         resolved.quality["mimeType"] = serde_json::json!(transport.mime_type);
         resolved.quality["codec"] = serde_json::json!(transport.codec);
@@ -3465,6 +4339,13 @@ async fn resolve_playback_track(
                 request_generation,
                 track.id.clone(),
                 source,
+                resolved.candidate.as_ref().and_then(|candidate| {
+                    playing_track_detections::SourceIdentity::new(
+                        &candidate.provider,
+                        &candidate.id,
+                    )
+                    .map(|identity| identity.with_duration_seconds(candidate.duration_seconds))
+                }),
                 resolved.station.is_some(),
                 bounds,
             );
@@ -3525,10 +4406,12 @@ async fn resolve_playback_track(
             return Err("Verified excerpt asset changed after proof validation".into());
         }
         state.local_audio.url_for(&asset.id)?
-    } else if convert
-        || seek_recovery_relay
-        || webview_audio_transport::needs_relay(&resolved.source)
-    {
+    } else if playback_relay_required(
+        &resolved.source,
+        convert,
+        seek_recovery_relay,
+        normalization_route_required.unwrap_or(false),
+    ) {
         relayed = true;
         state
             .webview_audio_transport
@@ -3598,9 +4481,38 @@ async fn resolve_playback_track(
         "audioExpectedContentLength": resolved.quality.get("expectedContentLength").and_then(serde_json::Value::as_u64),
         "sourceHeaderPolicy": webview_header_policy(&resolved.source.headers),
         "sourceTransport": if convert { "loopback-transcode" } else if relayed { "loopback-relay" } else { "direct" },
+        "normalizationRoute": playback_normalization_route(local_source, relayed, convert),
         "seekRecoveryRelay": seek_recovery_relay,
         "sourceGeneration": request_generation
     });
+    {
+        let mut gate = state
+            .playback_resolution
+            .lock()
+            .map_err(|_| "Playback resolver unavailable")?;
+        if gate.generation != request_generation || gate.stream_source_cancelled || *cancel.borrow()
+        {
+            return Err("Playback resolution was superseded".into());
+        }
+        gate.resolved_stream_source = if resolved.source.cenc.is_none()
+            && resolved.station.is_none()
+            && track.playback_range.is_none()
+            && track.local_path.is_none()
+        {
+            resolved.candidate.as_ref().and_then(|candidate| {
+                let recording_identity =
+                    analysis_stream_selection::stream_media_identity_fingerprint(&track)?;
+                Some(ResolvedStreamSourceBinding {
+                    generation: request_generation,
+                    track_id: track.id.clone(),
+                    recording_identity,
+                    candidate: candidate.clone(),
+                })
+            })
+        } else {
+            None
+        };
+    }
     Ok(serde_json::json!({
         "preview": preview,
         "candidate": resolved.candidate,
@@ -3680,6 +4592,685 @@ mod playback_metadata_tests {
             "late same-generation cancel cannot cancel current work"
         );
         gate.finish(2, &second);
+    }
+
+    #[test]
+    fn delayed_same_generation_fence_keeps_new_source_lease() {
+        let mut gate = PlaybackResolutionGate::default();
+        let (second, second_rx) = gate.begin(2).unwrap();
+        let candidate = crate::models::Candidate {
+            id: "youtube:lSmAz2rIBnE".into(),
+            provider: "youtube".into(),
+            url: "https://www.youtube.com/watch?v=lSmAz2rIBnE".into(),
+            title: "Tengo tengo".into(),
+            ..crate::models::Candidate::default()
+        };
+        gate.resolved_stream_source = Some(ResolvedStreamSourceBinding {
+            generation: 2,
+            track_id: "search:recording-1".into(),
+            recording_identity: "identity".into(),
+            candidate: candidate.clone(),
+        });
+        gate.cancel_older_than(2);
+        assert!(!*second_rx.borrow());
+        assert_eq!(
+            gate.stream_candidate_for(
+                2,
+                "search:recording-1",
+                Some("identity"),
+                "youtube",
+                "youtube:lSmAz2rIBnE",
+            )
+            .map(|value| value.id),
+            Some(candidate.id)
+        );
+        gate.cancel_older_than(3);
+        assert!(gate.resolved_stream_source.is_none());
+        assert!(gate.stream_source_cancelled);
+        assert!(*second_rx.borrow());
+    }
+
+    #[test]
+    fn main_playback_normalization_route_matches_registered_transport() {
+        let direct_source = crate::native_output::AudioSource {
+            input: "https://cdn.example/audio.mp3".into(),
+            ffmpeg: std::path::PathBuf::from("ffmpeg"),
+            headers: vec![],
+            decoder_hint: None,
+            cenc: None,
+        };
+        assert!(!playback_relay_required(
+            &direct_source,
+            false,
+            false,
+            false,
+        ));
+        assert_eq!(
+            playback_normalization_route(false, false, false),
+            "unsupported",
+            "the direct source is never advertised as Web Audio capable"
+        );
+        assert!(playback_relay_required(&direct_source, false, false, true,));
+        assert_eq!(
+            playback_normalization_route(false, true, false),
+            "same-origin-relay",
+            "a registered loopback relay is exposed as the capable source"
+        );
+        assert_eq!(
+            playback_normalization_route(true, false, false),
+            "same-origin-relay",
+            "registered local audio is also an app-owned CORS route"
+        );
+        assert_eq!(
+            playback_normalization_route(false, false, true),
+            "same-origin-relay",
+            "the registered transcode route is app-owned"
+        );
+    }
+
+    #[test]
+    fn active_candidate_lease_binds_unsaved_catalog_recording_and_exact_source() {
+        let context = analysis_stream_selection::StreamMediaTrackContext {
+            id: "search:musicbrainz-123".into(),
+            provider: "catalog".into(),
+            provider_id: "musicbrainz-123".into(),
+            has_playback_range: false,
+            artist: "Chico and The Gypsies".into(),
+            title: "Tengo tengo".into(),
+            source_page_url: None,
+            version: None,
+            album: None,
+            album_artist: None,
+            duration_seconds: Some(155.0),
+            isrc: None,
+            catalog_number: None,
+            release_date: None,
+            recording_date: None,
+        };
+        let analysis_track = context
+            .clone()
+            .into_sanitized_track(155.364_716_553, "youtube", "youtube:lSmAz2rIBnE")
+            .unwrap();
+        let mut playback_track = analysis_track.clone();
+        playback_track.duration_seconds = Some(155.0);
+        let recording_identity =
+            analysis_stream_selection::stream_media_identity_fingerprint(&playback_track).unwrap();
+        let candidate = crate::models::Candidate {
+            id: "youtube:lSmAz2rIBnE".into(),
+            provider: "youtube".into(),
+            url: "https://www.youtube.com/watch?v=lSmAz2rIBnE".into(),
+            title: "Tengo tengo".into(),
+            ..crate::models::Candidate::default()
+        };
+        let mut gate = PlaybackResolutionGate::default();
+        let _ = gate.begin(41).unwrap();
+        gate.resolved_stream_source = Some(ResolvedStreamSourceBinding {
+            generation: 41,
+            track_id: analysis_track.id.clone(),
+            recording_identity: recording_identity.clone(),
+            candidate: candidate.clone(),
+        });
+        assert_eq!(
+            gate.stream_candidate_for(
+                41,
+                &analysis_track.id,
+                analysis_stream_selection::stream_media_identity_fingerprint(&analysis_track)
+                    .as_deref(),
+                "youtube",
+                "youtube:lSmAz2rIBnE",
+            )
+            .map(|candidate| candidate.id),
+            Some(candidate.id.clone()),
+            "the same unsigned catalog context can use the resolver-created active source"
+        );
+        assert!(gate
+            .stream_candidate_for(
+                41,
+                &analysis_track.id,
+                Some("foreign-recording-fingerprint"),
+                "youtube",
+                "youtube:lSmAz2rIBnE",
+            )
+            .is_none());
+        assert_eq!(
+            gate.stream_candidate_rejection_reason(
+                41,
+                &analysis_track.id,
+                Some("foreign-recording-fingerprint"),
+                "youtube",
+                "youtube:lSmAz2rIBnE",
+            ),
+            "active YouTube recording context does not match"
+        );
+        assert!(gate
+            .stream_candidate_for(
+                40,
+                &analysis_track.id,
+                Some(&recording_identity),
+                "youtube",
+                "youtube:lSmAz2rIBnE",
+            )
+            .is_none());
+        assert!(gate
+            .stream_candidate_for(
+                41,
+                &analysis_track.id,
+                Some(&recording_identity),
+                "youtube",
+                "youtube:aaaaaaaaaaa",
+            )
+            .is_none());
+        let mut changed_track = analysis_track;
+        changed_track.title.push_str(" live");
+        assert!(gate
+            .stream_candidate_for(
+                41,
+                &changed_track.id,
+                analysis_stream_selection::stream_media_identity_fingerprint(&changed_track)
+                    .as_deref(),
+                "youtube",
+                "youtube:lSmAz2rIBnE",
+            )
+            .is_none());
+        gate.cancel_older_than(42);
+        assert!(gate.resolved_stream_source.is_none());
+        assert_eq!(
+            gate.stream_candidate_rejection_reason(
+                41,
+                "search:recording-1",
+                Some("identity"),
+                "youtube",
+                "youtube:lSmAz2rIBnE",
+            ),
+            "active YouTube source lease was cancelled"
+        );
+    }
+
+    #[test]
+    fn explicit_youtube_audio_handoff_needs_exact_track_and_extractor_id() {
+        let context = analysis_stream_selection::StreamMediaTrackContext {
+            id: "search:musicbrainz-123".into(),
+            provider: "catalog".into(),
+            provider_id: "musicbrainz-123".into(),
+            has_playback_range: false,
+            artist: String::new(),
+            title: "Tengo tengo".into(),
+            source_page_url: None,
+            version: None,
+            album: None,
+            album_artist: None,
+            duration_seconds: Some(155.0),
+            isrc: None,
+            catalog_number: None,
+            release_date: None,
+            recording_date: None,
+        };
+        let candidate = crate::models::Candidate {
+            id: "youtube:lSmAz2rIBnE".into(),
+            provider: "youtube".into(),
+            url: "https://attacker.invalid/untrusted".into(),
+            title: "client supplied title".into(),
+            ..crate::models::Candidate::default()
+        };
+        let audio = crate::acquisition::PreviewAudio {
+            provider_session: None,
+            url: "https://signed.invalid/private?token=secret".into(),
+            mime_type: "audio/mp4".into(),
+            codec: Some("aac".into()),
+            bitrate_kbps: Some(128.0),
+            duration_seconds: Some(155.364_716_553),
+            selected_format_id: None,
+            selected_format_has_video: false,
+            source_metadata: None,
+            resolved_title: Some("Tengo tengo".into()),
+            resolved_provider_id: Some("lSmAz2rIBnE".into()),
+            chapters: Some(vec![]),
+            expected_content_length: None,
+            headers: vec![],
+        };
+        let binding = candidate_audio_stream_binding(
+            52,
+            "search:musicbrainz-123",
+            Some(&context),
+            &candidate,
+            &audio,
+        )
+        .expect("a validated exact-source handoff may lease an unsaved catalog track");
+        assert_eq!(binding.generation, 52);
+        assert_eq!(binding.track_id, context.id);
+        assert_eq!(binding.candidate.id, "youtube:lSmAz2rIBnE");
+        assert_eq!(binding.candidate.title, "Tengo tengo");
+        assert_eq!(
+            binding.candidate.url,
+            "https://www.youtube.com/watch?v=lSmAz2rIBnE"
+        );
+        let projected = context
+            .clone()
+            .into_active_youtube_handoff_track(155.364_716_553, "youtube:lSmAz2rIBnE")
+            .unwrap();
+        let fingerprint = analysis_stream_selection::stream_media_identity_fingerprint(&projected);
+        let mut gate = PlaybackResolutionGate::default();
+        gate.generation = 52;
+        gate.resolved_stream_source = Some(binding.clone());
+        assert!(
+            stream_media_cache_lookup_track(
+                &gate,
+                &context,
+                155.364_716_553,
+                "youtube",
+                "youtube:lSmAz2rIBnE",
+            )
+            .is_ok(),
+            "artistless cache lookup uses the exact current source lease"
+        );
+        assert!(
+            stream_media_cache_lookup_track(
+                &PlaybackResolutionGate::default(),
+                &context,
+                155.364_716_553,
+                "youtube",
+                "youtube:lSmAz2rIBnE",
+            )
+            .is_err(),
+            "artistless lookup without a lease remains rejected"
+        );
+        assert!(stream_media_cache_lookup_track(
+            &gate,
+            &context,
+            155.364_716_553,
+            "youtube",
+            "youtube:aaaaaaaaaaa",
+        )
+        .is_err());
+        assert!(stream_media_cache_lookup_track(
+            &gate,
+            &context,
+            155.364_716_553,
+            "soundcloud",
+            "youtube:lSmAz2rIBnE",
+        )
+        .is_err());
+        let changed_cache_context = analysis_stream_selection::StreamMediaTrackContext {
+            title: "Changed title".into(),
+            ..context.clone()
+        };
+        assert!(
+            stream_media_cache_lookup_track(
+                &gate,
+                &changed_cache_context,
+                155.364_716_553,
+                "youtube",
+                "youtube:lSmAz2rIBnE",
+            )
+            .is_err(),
+            "recording identity changes cannot read the leased cache entry"
+        );
+        assert!(
+            active_stream_candidate_for_context(
+                &gate,
+                52,
+                &context,
+                155.364_716_553,
+                "youtube",
+                "youtube:lSmAz2rIBnE",
+            )
+            .unwrap()
+            .is_some(),
+            "blank artist is admitted only through a matching active lease"
+        );
+        assert!(
+            active_stream_candidate_for_context(
+                &PlaybackResolutionGate::default(),
+                52,
+                &context,
+                155.364_716_553,
+                "youtube",
+                "youtube:lSmAz2rIBnE",
+            )
+            .is_err(),
+            "no lease keeps the strict missing-artist rejection"
+        );
+        assert_eq!(
+            PlaybackResolutionGate::default().stream_candidate_rejection_reason(
+                52,
+                &context.id,
+                None,
+                "youtube",
+                "youtube:lSmAz2rIBnE",
+            ),
+            "no active YouTube source binding"
+        );
+        assert!(
+            active_stream_candidate_for_context(
+                &gate,
+                52,
+                &context,
+                155.364_716_553,
+                "youtube",
+                "youtube:aaaaaaaaaaa",
+            )
+            .is_err(),
+            "a foreign source ID cannot use the active lease"
+        );
+        assert!(
+            context
+                .clone()
+                .into_sanitized_track(155.364_716_553, "youtube", "youtube:lSmAz2rIBnE")
+                .is_err(),
+            "requests without generation lease stay on the strict projection"
+        );
+        assert!(
+            gate.stream_candidate_for(
+                52,
+                &context.id,
+                fingerprint.as_deref(),
+                "youtube",
+                "youtube:lSmAz2rIBnE",
+            )
+            .is_some(),
+            "only the exact request projection should retrieve the active source lease"
+        );
+        assert!(gate
+            .stream_candidate_for(
+                51,
+                &context.id,
+                fingerprint.as_deref(),
+                "youtube",
+                "youtube:lSmAz2rIBnE",
+            )
+            .is_none());
+        assert!(gate
+            .stream_candidate_for(
+                52,
+                &context.id,
+                fingerprint.as_deref(),
+                "youtube",
+                "youtube:aaaaaaaaaaa",
+            )
+            .is_none());
+        assert_eq!(
+            gate.stream_candidate_rejection_reason(
+                52,
+                &context.id,
+                fingerprint.as_deref(),
+                "youtube",
+                "youtube:aaaaaaaaaaa",
+            ),
+            "active YouTube source ID does not match"
+        );
+        let changed = analysis_stream_selection::StreamMediaTrackContext {
+            title: "A different catalog title".into(),
+            ..context.clone()
+        }
+        .into_active_youtube_handoff_track(155.364_716_553, "youtube:lSmAz2rIBnE")
+        .unwrap();
+        assert!(gate
+            .stream_candidate_for(
+                52,
+                &context.id,
+                analysis_stream_selection::stream_media_identity_fingerprint(&changed).as_deref(),
+                "youtube",
+                "youtube:lSmAz2rIBnE",
+            )
+            .is_none());
+        gate.cancel_older_than(53);
+        assert!(
+            gate.stream_candidate_for(
+                52,
+                &context.id,
+                fingerprint.as_deref(),
+                "youtube",
+                "youtube:lSmAz2rIBnE",
+            )
+            .is_none(),
+            "a cancelled/stale source lease cannot authorize analysis"
+        );
+        assert!(
+            stream_media_cache_lookup_track(
+                &gate,
+                &context,
+                155.364_716_553,
+                "youtube",
+                "youtube:lSmAz2rIBnE",
+            )
+            .is_err(),
+            "stale generation cannot authorize artistless cache lookup"
+        );
+        assert!(candidate_audio_stream_binding(
+            52,
+            "search:other-track",
+            Some(&context),
+            &candidate,
+            &audio,
+        )
+        .is_none());
+        let mut malformed_candidate = candidate.clone();
+        malformed_candidate.id = "youtube:aaaaaaaaaaa".into();
+        assert!(candidate_audio_stream_binding(
+            52,
+            "search:musicbrainz-123",
+            Some(&context),
+            &malformed_candidate,
+            &audio,
+        )
+        .is_none());
+        let mut wrong_audio = audio.clone();
+        wrong_audio.resolved_provider_id = Some("aaaaaaaaaaa".into());
+        assert!(candidate_audio_stream_binding(
+            52,
+            "search:musicbrainz-123",
+            Some(&context),
+            &candidate,
+            &wrong_audio,
+        )
+        .is_none());
+        let mut missing_resolved_duration = audio.clone();
+        missing_resolved_duration.duration_seconds = None;
+        assert!(candidate_audio_stream_binding(
+            52,
+            "search:musicbrainz-123",
+            Some(&context),
+            &candidate,
+            &missing_resolved_duration,
+        )
+        .is_none());
+        let mut malformed_resolved_title = audio.clone();
+        malformed_resolved_title.resolved_title = Some("Tengo\ntengo".into());
+        assert!(candidate_audio_stream_binding(
+            52,
+            "search:musicbrainz-123",
+            Some(&context),
+            &candidate,
+            &malformed_resolved_title,
+        )
+        .is_none());
+        let excerpt = analysis_stream_selection::StreamMediaTrackContext {
+            has_playback_range: true,
+            ..context.clone()
+        };
+        assert!(candidate_audio_stream_binding(
+            52,
+            "search:musicbrainz-123",
+            Some(&excerpt),
+            &candidate,
+            &audio,
+        )
+        .is_none());
+        let wrong_page = analysis_stream_selection::StreamMediaTrackContext {
+            source_page_url: Some("https://www.youtube.com/watch?v=foreignvideo1".into()),
+            ..context.clone()
+        };
+        assert!(candidate_audio_stream_binding(
+            52,
+            "search:musicbrainz-123",
+            Some(&wrong_page),
+            &candidate,
+            &audio,
+        )
+        .is_none());
+        let current_gate = PlaybackResolutionGate {
+            generation: 52,
+            resolved_stream_source: Some(binding),
+            ..PlaybackResolutionGate::default()
+        };
+        assert!(stream_media_cache_lookup_track(
+            &current_gate,
+            &wrong_page,
+            155.364_716_553,
+            "youtube",
+            "youtube:lSmAz2rIBnE",
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn active_monochrome_audio_handoff_binds_only_exact_finite_canonical_resource() {
+        let context = analysis_stream_selection::StreamMediaTrackContext {
+            id: "catalog:recording-42".into(),
+            provider: "catalog".into(),
+            provider_id: "recording-42".into(),
+            has_playback_range: false,
+            artist: "Example Artist".into(),
+            title: "Example Recording".into(),
+            source_page_url: None,
+            version: None,
+            album: Some("Example Album".into()),
+            album_artist: None,
+            duration_seconds: Some(180.0),
+            isrc: None,
+            catalog_number: None,
+            release_date: None,
+            recording_date: None,
+        };
+        let candidate = crate::models::Candidate {
+            id: "monochrome:154030613014253568".into(),
+            provider: "monochrome".into(),
+            url: "https://tracks.monochrome.st/track/154030613014253568".into(),
+            title: "Untrusted display label".into(),
+            ..crate::models::Candidate::default()
+        };
+        let audio = crate::acquisition::PreviewAudio {
+            provider_session: None,
+            url: candidate.url.clone(),
+            mime_type: "audio/flac".into(),
+            codec: Some("flac".into()),
+            bitrate_kbps: Some(900.0),
+            duration_seconds: Some(180.0),
+            selected_format_id: None,
+            selected_format_has_video: false,
+            source_metadata: None,
+            resolved_title: None,
+            resolved_provider_id: None,
+            chapters: Some(vec![]),
+            expected_content_length: None,
+            headers: vec![],
+        };
+        let binding =
+            candidate_audio_stream_binding(93, &context.id, Some(&context), &candidate, &audio)
+                .expect("the exact finite Monochrome URL was accepted for current playback");
+        assert_eq!(binding.generation, 93);
+        assert_eq!(binding.track_id, context.id);
+        assert_eq!(binding.candidate.provider, "monochrome");
+        assert_eq!(binding.candidate.id, candidate.id);
+        assert_eq!(binding.candidate.url, candidate.url);
+        assert_eq!(binding.candidate.title, context.title);
+        let fingerprinted_track = context
+            .clone()
+            .into_sanitized_track(180.0, "monochrome", &candidate.id)
+            .unwrap();
+        let fingerprint =
+            analysis_stream_selection::stream_media_identity_fingerprint(&fingerprinted_track);
+        let gate = PlaybackResolutionGate {
+            generation: 93,
+            resolved_stream_source: Some(binding),
+            ..PlaybackResolutionGate::default()
+        };
+        assert!(gate
+            .stream_candidate_for(
+                93,
+                &context.id,
+                fingerprint.as_deref(),
+                "monochrome",
+                &candidate.id,
+            )
+            .is_some());
+        assert!(gate
+            .stream_candidate_for(
+                92,
+                &context.id,
+                fingerprint.as_deref(),
+                "monochrome",
+                &candidate.id,
+            )
+            .is_none());
+        assert!(gate
+            .stream_candidate_for(
+                93,
+                &context.id,
+                fingerprint.as_deref(),
+                "monochrome",
+                "monochrome:154030613014253569",
+            )
+            .is_none());
+
+        let mut mismatched_audio = audio.clone();
+        mismatched_audio.url = "https://tracks.monochrome.st/track/154030613014253569".into();
+        assert!(candidate_audio_stream_binding(
+            93,
+            &context.id,
+            Some(&context),
+            &candidate,
+            &mismatched_audio,
+        )
+        .is_none());
+        let mut malformed_url = candidate.clone();
+        malformed_url.url = "https://attacker.invalid/track/154030613014253568".into();
+        assert!(candidate_audio_stream_binding(
+            93,
+            &context.id,
+            Some(&context),
+            &malformed_url,
+            &audio,
+        )
+        .is_none());
+        let mut malformed_id = candidate.clone();
+        malformed_id.id = "monochrome:154030613014253569".into();
+        assert!(candidate_audio_stream_binding(
+            93,
+            &context.id,
+            Some(&context),
+            &malformed_id,
+            &audio,
+        )
+        .is_none());
+        let mut excerpt = context.clone();
+        excerpt.has_playback_range = true;
+        assert!(candidate_audio_stream_binding(
+            93,
+            &context.id,
+            Some(&excerpt),
+            &candidate,
+            &audio,
+        )
+        .is_none());
+        let mut unknown_duration = audio.clone();
+        unknown_duration.duration_seconds = None;
+        assert!(candidate_audio_stream_binding(
+            93,
+            &context.id,
+            Some(&context),
+            &candidate,
+            &unknown_duration,
+        )
+        .is_none());
+        assert!(candidate_audio_stream_binding(
+            93,
+            "another-track",
+            Some(&context),
+            &candidate,
+            &audio,
+        )
+        .is_none());
     }
 
     #[tokio::test]
@@ -4051,7 +5642,7 @@ async fn identify_playing_track(
             .as_f64()
             .or_else(|| snapshot["position"].as_f64())
             .ok_or("Current playback position is unavailable")?;
-        identify_webview_track_for(&*state, generation, track_id, position).await
+        identify_webview_track_for(&*state, generation, track_id, position, None, None, None).await
     }
 }
 
@@ -4069,7 +5660,16 @@ async fn identify_webview_track(
     track_id: String,
     position_seconds: f64,
 ) -> Result<playback::PlayingTrackIdentification> {
-    identify_webview_track_for(&*state, generation, &track_id, position_seconds).await
+    identify_webview_track_for(
+        &*state,
+        generation,
+        &track_id,
+        position_seconds,
+        None,
+        None,
+        None,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -4195,6 +5795,10 @@ async fn identify_webview_playing_pcm(
                 .and_then(|item| item.artwork_url.clone()),
             note,
             timing_anchor: None,
+            detection_metadata: None,
+            captured_audio_interval: None,
+            detection_source_identity: None,
+            detection_source_epoch: None,
         })
         .map_err(|error| error.to_string())?)
     }
@@ -4330,6 +5934,7 @@ async fn identify_webview_playing_output(
     seek_serial: u64,
     chapter_id: Option<String>,
     capture_seconds: Option<usize>,
+    web_audio_graph_expected: Option<bool>,
 ) -> Result<serde_json::Value> {
     if track_id.is_empty()
         || track_id.len() > 512
@@ -4409,6 +6014,7 @@ async fn identify_webview_playing_output(
         status,
         matches,
         cancelled.clone(),
+        web_audio_graph_expected.unwrap_or(false),
     )
     .await;
     let _ = stop_tx.send(());
@@ -4486,6 +6092,10 @@ async fn identify_webview_playing_output(
             artwork_url: identified.as_ref().and_then(|m| m.artwork_url.clone()),
             note: note.into(),
             timing_anchor: None,
+            detection_metadata: None,
+            captured_audio_interval: None,
+            detection_source_identity: None,
+            detection_source_epoch: None,
         })
         .map_err(|e| e.to_string())?)
     }
@@ -4558,6 +6168,7 @@ async fn identify_webview_playing_output(
     generation: u64,
     seek_serial: u64,
     chapter_id: Option<String>,
+    web_audio_graph_expected: Option<bool>,
 ) -> Result<serde_json::Value> {
     let _ = (
         app,
@@ -4569,6 +6180,7 @@ async fn identify_webview_playing_output(
         generation,
         seek_serial,
         chapter_id,
+        web_audio_graph_expected,
     );
     Err("System output capture for WebView audio is available only on Linux".into())
 }
@@ -4583,6 +6195,9 @@ async fn identify_webview_track_for(
     generation: u64,
     track_id: &str,
     position_seconds: f64,
+    expected_seek_serial: Option<u64>,
+    expected_resource: Option<&playing_track_detections::DetectionResourceKey>,
+    capture_id: Option<String>,
 ) -> Result<playback::PlayingTrackIdentification> {
     let current_snapshot = || {
         let native_enabled = state.playback.native_enabled();
@@ -4615,9 +6230,43 @@ async fn identify_webview_track_for(
     let seek_serial = snapshot["seekSerial"]
         .as_u64()
         .ok_or("Playback seek state is unavailable")?;
+    if expected_seek_serial.is_some_and(|expected| expected != seek_serial) {
+        return Err("Playback changed before track detection started".into());
+    }
+    let initial_source_identity = state
+        .webview_identification
+        .registered_resource_identity(generation, track_id);
+    let initial_source_epoch = expected_resource.map(|_| {
+        state
+            .webview_identification
+            .registered_finite_source_epoch(generation, track_id)
+    });
+    if matches!(initial_source_epoch, Some(None)) {
+        return Err("The current finite audio source is not registered".into());
+    }
+    if let Some(expected_resource) = expected_resource {
+        let track = detection_resource_track_from_snapshot(
+            track_id,
+            &snapshot,
+            initial_source_identity.as_ref(),
+            None,
+        )
+        .ok_or("The registered WebView source has no stable resource identity")?;
+        let current_resource = detection_resource_key_blocking(
+            state.store.clone(),
+            track,
+            initial_source_identity.clone(),
+            None,
+        )
+        .await?
+        .ok_or("The current source has no stable identity for track detection")?;
+        if &current_resource != expected_resource {
+            return Err("Playback source changed before track detection started".into());
+        }
+    }
     let result = state
         .webview_identification
-        .identify(generation, track_id, absolute_position)
+        .identify_with_capture(generation, track_id, absolute_position, capture_id)
         .await?;
     let (snapshot_after, native_after) = current_snapshot();
     if !webview_identification::snapshot_matches_playback(
@@ -4630,7 +6279,580 @@ async fn identify_webview_track_for(
     ) {
         return Err("Playback changed during identification".into());
     }
+    if result.detection_source_identity != initial_source_identity
+        || initial_source_epoch.is_some_and(|expected| {
+            result.detection_source_epoch != expected
+                || state
+                    .webview_identification
+                    .registered_finite_source_epoch(generation, track_id)
+                    != expected
+        })
+    {
+        return Err("Playback source changed during track detection".into());
+    }
+    if let (Some(metadata), Some((start, duration)), Some(_)) = (
+        result.detection_metadata.as_ref(),
+        result.captured_audio_interval,
+        snapshot_after.get("track"),
+    ) {
+        if state
+            .webview_identification
+            .matches_registered_finite_source(generation, track_id)
+        {
+            if let Some(track) = detection_resource_track_from_snapshot(
+                track_id,
+                &snapshot_after,
+                result.detection_source_identity.as_ref(),
+                None,
+            ) {
+                let current_source_identity = state
+                    .webview_identification
+                    .registered_resource_identity(generation, track_id);
+                let source_owner_matches = current_source_identity
+                    == result.detection_source_identity
+                    && result.detection_source_epoch
+                        == state
+                            .webview_identification
+                            .registered_finite_source_epoch(generation, track_id);
+                if let Some(resource) = detection_resource_key_blocking(
+                    state.store.clone(),
+                    track,
+                    result.detection_source_identity.clone(),
+                    None,
+                )
+                .await?
+                {
+                    if source_owner_matches
+                        && expected_resource.is_none_or(|expected| expected == &resource)
+                    {
+                        let _ = playing_track_detections::record_if_enabled(
+                            &state.store,
+                            &resource,
+                            metadata,
+                            start,
+                            duration,
+                        );
+                    }
+                }
+            }
+        }
+    }
     Ok(result)
+}
+
+fn detection_resource_key(
+    store: &Store,
+    track: &models::Track,
+    source_identity: Option<&playing_track_detections::SourceIdentity>,
+    active_asset_id: Option<&str>,
+) -> Option<playing_track_detections::DetectionResourceKey> {
+    let local_hash = playing_track_detections::requires_verified_local_hash(
+        track,
+        source_identity,
+        active_asset_id.is_some(),
+    )
+    .then(|| {
+        playing_track_detections::local_asset_id_for_source(track, source_identity, active_asset_id)
+            .and_then(|asset_id| {
+                playing_track_detections::verified_local_asset_hash(store, asset_id)
+            })
+    })
+    .flatten();
+    playing_track_detections::DetectionResourceKey::for_playback_source(
+        track,
+        source_identity,
+        local_hash.as_deref(),
+    )
+}
+
+/// Construct only the track fields required for a resource key from the
+/// playback owner and a source identity registered by the server. WebView
+/// playback snapshots intentionally expose a thin track DTO, not a full
+/// library Track.
+fn detection_resource_track_from_snapshot(
+    track_id: &str,
+    snapshot: &serde_json::Value,
+    source_identity: Option<&playing_track_detections::SourceIdentity>,
+    active_asset_id: Option<&str>,
+) -> Option<models::Track> {
+    let thin = snapshot.get("track")?;
+    if thin["id"]
+        .as_str()
+        .is_some_and(|snapshot_track_id| snapshot_track_id != track_id)
+    {
+        return None;
+    }
+    let identity = source_identity.map(|source| source.provider_source_id());
+    let asset_identity = active_asset_id.or_else(|| {
+        identity
+            .filter(|(provider, _)| *provider == "local")
+            .map(|(_, source_id)| source_id)
+    });
+    let provider = identity
+        .map(|(provider, _)| provider.to_owned())
+        .or_else(|| asset_identity.map(|_| "local".to_owned()))?;
+    let provider_id = identity
+        .map(|(_, source_id)| source_id.to_owned())
+        .or_else(|| asset_identity.map(str::to_owned))?;
+    Some(models::Track {
+        id: track_id.to_owned(),
+        provider,
+        provider_id,
+        title: thin["title"].as_str().unwrap_or_default().to_owned(),
+        artist: thin["artist"].as_str().unwrap_or_default().to_owned(),
+        duration_seconds: thin["durationSeconds"].as_f64(),
+        asset_id: asset_identity.map(str::to_owned),
+        ..models::Track::default()
+    })
+}
+
+fn playback_snapshot_is_live_radio(snapshot: &serde_json::Value) -> bool {
+    let track = &snapshot["track"];
+    let source_kind = snapshot["sourceKind"]
+        .as_str()
+        .or_else(|| snapshot["quality"]["sourceKind"].as_str())
+        .or_else(|| track["sourceKind"].as_str())
+        .or_else(|| track["provenance"]["sourceKind"].as_str());
+    let radio_provider = track["provenance"]["radioProvider"]
+        .as_str()
+        .or_else(|| track["radioProvider"].as_str())
+        .or_else(|| snapshot["radioProvider"].as_str())
+        .or_else(|| track["provider"].as_str())
+        .or_else(|| snapshot["provider"].as_str())
+        .or_else(|| snapshot["candidate"]["provider"].as_str())
+        .map(|provider| provider.to_ascii_lowercase().replace('_', "-"));
+    snapshot
+        .get("radioNowPlaying")
+        .is_some_and(|value| !value.is_null())
+        || snapshot["isLive"].as_bool() == Some(true)
+        || track["isLive"].as_bool() == Some(true)
+        || source_kind == Some("radio")
+        || radio_provider.is_some_and(|provider| {
+            matches!(
+                provider.as_str(),
+                "internet-radio" | "radioparadise" | "radio-paradise"
+            )
+        })
+}
+
+#[cfg(test)]
+mod detection_snapshot_tests {
+    use super::*;
+
+    #[test]
+    fn thin_webview_track_uses_registered_local_or_remote_resource_identity() {
+        let snapshot = serde_json::json!({
+            "trackId":"musicbrainz:recording-a",
+            "track":{
+                "id":"musicbrainz:recording-a",
+                "artist":"Artist",
+                "title":"Long Mix",
+                "album":"Album",
+                "artworkUrl":"https://art.example/image",
+                "durationSeconds":1200.0,
+                "sourceUrl":"https://example.invalid/mix",
+                "localPath":"/private/library/mix.flac"
+            }
+        });
+        assert!(serde_json::from_value::<models::Track>(snapshot["track"].clone()).is_err());
+
+        let local =
+            playing_track_detections::SourceIdentity::new("local", "asset:resolved-a").unwrap();
+        let local_before = detection_resource_track_from_snapshot(
+            "musicbrainz:recording-a",
+            &snapshot,
+            Some(&local),
+            None,
+        )
+        .unwrap();
+        let local_after = detection_resource_track_from_snapshot(
+            "musicbrainz:recording-a",
+            &snapshot,
+            Some(&local),
+            None,
+        )
+        .unwrap();
+        assert_eq!(local_before.asset_id.as_deref(), Some("asset:resolved-a"));
+        let verified_hash = "a".repeat(64);
+        assert_eq!(
+            playing_track_detections::DetectionResourceKey::for_playback_source(
+                &local_before,
+                Some(&local),
+                Some(&verified_hash),
+            ),
+            playing_track_detections::DetectionResourceKey::for_playback_source(
+                &local_after,
+                Some(&local),
+                Some(&verified_hash),
+            )
+        );
+
+        let remote =
+            playing_track_detections::SourceIdentity::new("youtube", "unsaved-video").unwrap();
+        let mut remote_snapshot = snapshot.clone();
+        remote_snapshot["trackId"] = serde_json::json!("musicbrainz:uninserted-recording");
+        remote_snapshot["track"]["id"] = serde_json::json!("musicbrainz:uninserted-recording");
+        let remote_before = detection_resource_track_from_snapshot(
+            "musicbrainz:uninserted-recording",
+            &remote_snapshot,
+            Some(&remote),
+            None,
+        )
+        .unwrap();
+        let remote_after = detection_resource_track_from_snapshot(
+            "musicbrainz:uninserted-recording",
+            &remote_snapshot,
+            Some(&remote),
+            None,
+        )
+        .unwrap();
+        let before_key = playing_track_detections::DetectionResourceKey::for_playback_source(
+            &remote_before,
+            Some(&remote),
+            None,
+        );
+        let after_key = playing_track_detections::DetectionResourceKey::for_playback_source(
+            &remote_after,
+            Some(&remote),
+            None,
+        );
+        assert!(before_key.is_some());
+        assert_eq!(before_key, after_key);
+        assert!(detection_resource_track_from_snapshot(
+            "musicbrainz:recording-a",
+            &snapshot,
+            None,
+            None,
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn native_sanitized_track_uses_active_asset_or_candidate_not_stripped_url() {
+        let mut snapshot = serde_json::json!({
+            "trackId":"musicbrainz:recording-a",
+            "track":{
+                "id":"musicbrainz:recording-a",
+                "provider":"musicbrainz",
+                "providerId":"recording-a",
+                "sourceUrl":"local:/private/audio.flac",
+                "localPath":"/private/audio.flac",
+                "artist":"Artist",
+                "title":"Mix",
+                "durationSeconds":900.0,
+                "favorite":false,
+                "provenance":{"sourceKind":"library"}
+            },
+            "quality":{"sourceKind":"localAsset","assetId":"asset:active"},
+            "candidate":{"provider":"youtube","id":"candidate-that-is-not-active"}
+        });
+        snapshot["track"]
+            .as_object_mut()
+            .unwrap()
+            .remove("sourceUrl");
+        snapshot["track"]
+            .as_object_mut()
+            .unwrap()
+            .remove("localPath");
+        assert!(serde_json::from_value::<models::Track>(snapshot["track"].clone()).is_err());
+
+        let active_local =
+            playing_track_detections::SourceIdentity::new("local", "asset:active").unwrap();
+        let local_before = detection_resource_track_from_snapshot(
+            "musicbrainz:recording-a",
+            &snapshot,
+            Some(&active_local),
+            Some("asset:active"),
+        )
+        .unwrap();
+        let verified_hash = "d".repeat(64);
+        let local_key_before = playing_track_detections::DetectionResourceKey::for_playback_source(
+            &local_before,
+            Some(&active_local),
+            Some(&verified_hash),
+        );
+        let local_after = detection_resource_track_from_snapshot(
+            "musicbrainz:recording-a",
+            &snapshot,
+            Some(&active_local),
+            Some("asset:active"),
+        )
+        .unwrap();
+        assert_eq!(
+            local_key_before,
+            playing_track_detections::DetectionResourceKey::for_playback_source(
+                &local_after,
+                Some(&active_local),
+                Some(&verified_hash),
+            )
+        );
+        assert!(local_key_before.is_some());
+
+        snapshot["quality"] = serde_json::Value::Null;
+        let remote =
+            playing_track_detections::SourceIdentity::new("youtube", "candidate-that-is-active")
+                .unwrap();
+        let remote_track = detection_resource_track_from_snapshot(
+            "musicbrainz:recording-a",
+            &snapshot,
+            Some(&remote),
+            None,
+        )
+        .unwrap();
+        assert!(
+            playing_track_detections::DetectionResourceKey::for_playback_source(
+                &remote_track,
+                Some(&remote),
+                None,
+            )
+            .is_some()
+        );
+    }
+
+    #[test]
+    fn radio_source_filter_keeps_finite_radio_song_and_rejects_stations() {
+        assert!(!playback_snapshot_is_live_radio(&serde_json::json!({
+            "track":{"provider":"radio","provenance":{"sourceKind":"radioSong"}}
+        })));
+        assert!(playback_snapshot_is_live_radio(&serde_json::json!({
+            "track":{"provenance":{"sourceKind":"radio"}}
+        })));
+        assert!(playback_snapshot_is_live_radio(&serde_json::json!({
+            "track":{"provenance":{"radioProvider":"radio_paradise"}}
+        })));
+    }
+}
+
+async fn detection_resource_key_blocking(
+    store: Arc<Store>,
+    track: models::Track,
+    source_identity: Option<playing_track_detections::SourceIdentity>,
+    active_asset_id: Option<String>,
+) -> Result<Option<playing_track_detections::DetectionResourceKey>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        detection_resource_key(
+            &store,
+            &track,
+            source_identity.as_ref(),
+            active_asset_id.as_deref(),
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())
+}
+
+fn current_detection_resource_key(
+    state: &AppState,
+    generation: u64,
+    seek_serial: u64,
+    track_id: &str,
+) -> Result<playing_track_detections::DetectionResourceKey> {
+    let snapshot = state.automation.playback_tracking_snapshot();
+    if !matches!(snapshot["status"].as_str(), Some("playing" | "paused"))
+        || snapshot["trackId"].as_str() != Some(track_id)
+    {
+        return Err("Play the current finite recording before changing detection options".into());
+    }
+    let native = state.playback.native_enabled();
+    let current_generation = if native {
+        snapshot["generation"].as_u64()
+    } else {
+        snapshot["sourceGeneration"].as_u64()
+    };
+    if current_generation != Some(generation) {
+        return Err("Playback changed before detection options were read".into());
+    }
+    if snapshot["seekSerial"].as_u64() != Some(seek_serial) {
+        return Err("Playback position changed before detection options were read".into());
+    }
+    if !native
+        && !state
+            .webview_identification
+            .matches_registered_finite_source(generation, track_id)
+    {
+        return Err("The current finite audio source is not registered".into());
+    }
+    if playback_snapshot_is_live_radio(&snapshot) {
+        return Err("Track detection is available for finite recordings, not live radio".into());
+    }
+    let local_asset_source =
+        native && snapshot["quality"]["sourceKind"].as_str() == Some("localAsset");
+    let active_asset_id = local_asset_source
+        .then(|| snapshot["quality"]["assetId"].as_str())
+        .flatten();
+    let source_identity = if local_asset_source {
+        active_asset_id
+            .and_then(|asset_id| playing_track_detections::SourceIdentity::new("local", asset_id))
+    } else if native {
+        snapshot["candidate"]["provider"]
+            .as_str()
+            .zip(snapshot["candidate"]["id"].as_str())
+            .and_then(|(provider, source_id)| {
+                playing_track_detections::SourceIdentity::new(provider, source_id).map(|identity| {
+                    identity
+                        .with_duration_seconds(snapshot["candidate"]["durationSeconds"].as_f64())
+                })
+            })
+    } else {
+        state
+            .webview_identification
+            .registered_resource_identity(generation, track_id)
+    };
+    let track = detection_resource_track_from_snapshot(
+        track_id,
+        &snapshot,
+        source_identity.as_ref(),
+        active_asset_id,
+    )
+    .ok_or("The active playback source has no stable resource identity")?;
+    if track.id != track_id {
+        return Err("Playback track identity changed".into());
+    }
+    detection_resource_key(
+        &state.store,
+        &track,
+        source_identity.as_ref(),
+        active_asset_id,
+    )
+    .ok_or_else(|| "The current source has no stable identity for track detection".into())
+}
+
+async fn current_detection_resource_key_blocking(
+    app: tauri::AppHandle,
+    generation: u64,
+    seek_serial: u64,
+    track_id: String,
+) -> Result<playing_track_detections::DetectionResourceKey> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        current_detection_resource_key(&state, generation, seek_serial, &track_id)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn get_playing_track_detections(
+    app: tauri::AppHandle,
+    track_id: String,
+    generation: u64,
+    seek_serial: u64,
+) -> Result<playing_track_detections::DetectionResourceView> {
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let key = current_detection_resource_key(&state, generation, seek_serial, &track_id)?;
+        let view = playing_track_detections::read(&state.store, &key)?;
+        if current_detection_resource_key(&state, generation, seek_serial, &track_id)? != key {
+            return Err("Playback source changed while detection options were read".into());
+        }
+        Ok(view)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn set_playing_track_detection_enabled(
+    app: tauri::AppHandle,
+    track_id: String,
+    generation: u64,
+    seek_serial: u64,
+    enabled: bool,
+) -> Result<playing_track_detections::DetectionResourceView> {
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let key = current_detection_resource_key(&state, generation, seek_serial, &track_id)?;
+        if current_detection_resource_key(&state, generation, seek_serial, &track_id)? != key {
+            return Err("Playback source changed while detection options were updated".into());
+        }
+        let view = playing_track_detections::set_enabled(&state.store, &key, enabled)?;
+        if current_detection_resource_key(&state, generation, seek_serial, &track_id)? != key {
+            return Err("Playback source changed while detection options were updated".into());
+        }
+        Ok(view)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn detect_playing_track_segment(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    track_id: String,
+    generation: u64,
+    seek_serial: u64,
+    capture_id: String,
+) -> Result<playing_track_detections::DetectionResourceView> {
+    let current = state.automation.playback_tracking_snapshot();
+    if current["status"].as_str() != Some("playing") {
+        return Err("Resume this recording to detect tracks in it".into());
+    }
+    let key = current_detection_resource_key_blocking(
+        app.clone(),
+        generation,
+        seek_serial,
+        track_id.clone(),
+    )
+    .await?;
+    if !playing_track_detections::read(&state.store, &key)
+        .map_err(|error| error.to_string())?
+        .enabled
+    {
+        return Err("Track detection is turned off for this recording".into());
+    }
+    if state.playback.native_enabled() {
+        let owner_snapshot = state.automation.playback_tracking_snapshot();
+        let candidate_identity = owner_snapshot["candidate"]["provider"]
+            .as_str()
+            .zip(owner_snapshot["candidate"]["id"].as_str());
+        if current_detection_resource_key_blocking(
+            app.clone(),
+            generation,
+            seek_serial,
+            track_id.clone(),
+        )
+        .await?
+            != key
+        {
+            return Err("Playback source changed before track detection started".into());
+        }
+        state
+            .playback
+            .identify_playing_track_for_owner(
+                Some(capture_id.clone()),
+                &track_id,
+                generation,
+                seek_serial,
+                candidate_identity,
+            )
+            .await?;
+    } else {
+        let snapshot = state.automation.playback_tracking_snapshot();
+        let position = snapshot["absolutePosition"]
+            .as_f64()
+            .or_else(|| snapshot["position"].as_f64())
+            .ok_or("Current playback position is unavailable")?;
+        identify_webview_track_for(
+            &*state,
+            generation,
+            &track_id,
+            position,
+            Some(seek_serial),
+            Some(&key),
+            Some(capture_id),
+        )
+        .await?;
+    }
+    if current_detection_resource_key_blocking(app, generation, seek_serial, track_id.clone())
+        .await?
+        != key
+    {
+        return Err("Playback source changed during track detection".into());
+    }
+    playing_track_detections::read(&state.store, &key).map_err(Into::into)
 }
 #[tauri::command]
 fn set_favorite(state: State<'_, AppState>, track: Track, value: bool) -> Result<()> {
@@ -4693,14 +6915,17 @@ fn list_deleted_collections(state: State<'_, AppState>) -> Result<Vec<Collection
 }
 #[tauri::command]
 fn delete_collection(state: State<'_, AppState>, collection_id: String) -> Result<Collection> {
+    let _library_write = state.store.try_library_write()?;
     state.store.delete_collection(&collection_id)
 }
 #[tauri::command]
 fn restore_collection(state: State<'_, AppState>, collection_id: String) -> Result<Collection> {
+    let _library_write = state.store.try_library_write()?;
     state.store.restore_collection(&collection_id)
 }
 #[tauri::command]
 fn create_collection(state: State<'_, AppState>, name: String) -> Result<Collection> {
+    let _library_write = state.store.try_library_write()?;
     state.store.create_collection(&name)
 }
 #[tauri::command]
@@ -4709,6 +6934,7 @@ fn rename_collection(
     collection_id: String,
     name: String,
 ) -> Result<Collection> {
+    let _library_write = state.store.try_library_write()?;
     state.store.rename_collection(
         &playlist_sync::ensure_editable_collection(&state.store, &collection_id)?,
         &name,
@@ -4720,6 +6946,7 @@ fn remove_from_collection(
     collection_id: String,
     track_ids: Vec<String>,
 ) -> Result<String> {
+    let _library_write = state.store.try_library_write()?;
     let target_id = playlist_sync::ensure_editable_collection(&state.store, &collection_id)?;
     state.store.remove_from_collection(&target_id, &track_ids)?;
     playlist_preferences::resync_favorite_flags_after_collection_change(&state.store, &target_id)?;
@@ -4731,6 +6958,7 @@ fn add_to_collection(
     collection_id: String,
     tracks: Vec<Track>,
 ) -> Result<()> {
+    let _library_write = state.store.try_library_write()?;
     let target_id = playlist_sync::ensure_editable_collection(&state.store, &collection_id)?;
     state.store.add_to_collection(&target_id, &tracks)?;
     playlist_preferences::resync_favorite_flags_after_collection_change(&state.store, &target_id)
@@ -4743,6 +6971,7 @@ async fn append_playlist_entries(
 ) -> Result<()> {
     let store = state.store.clone();
     tokio::task::spawn_blocking(move || {
+        let _library_write = store.try_library_write()?;
         let target_id = playlist_sync::ensure_editable_collection(&store, &collection_id)?;
         store.append_playlist_entries(&target_id, &tracks)
     })
@@ -4763,6 +6992,203 @@ fn import_tracks(state: State<'_, AppState>, text: String, kind: String) -> Resu
         .into_iter()
         .map(|t| state.store.save_track(&t))
         .collect()
+}
+#[tauri::command]
+fn preview_import_tracks(text: String, kind: String) -> Result<Vec<Track>> {
+    imports::parse(&text, &kind)
+}
+#[tauri::command]
+async fn pick_import_audio_sources(
+    app: tauri::AppHandle,
+    source_kind: String,
+) -> Result<Vec<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    if !matches!(source_kind.as_str(), "files" | "folder") {
+        return Err("Choose files or a folder".into());
+    }
+    let choose_folder = source_kind == "folder";
+    let picker = app.clone();
+    let selected = tauri::async_runtime::spawn_blocking(move || {
+        let dialog = picker.dialog().file().set_title("Choose local audio");
+        if choose_folder {
+            dialog.blocking_pick_folder().map(|path| vec![path])
+        } else {
+            dialog
+                .add_filter(
+                    "Audio files",
+                    &[
+                        "mp3", "flac", "wav", "m4a", "aac", "ogg", "opus", "aiff", "wma",
+                    ],
+                )
+                .blocking_pick_files()
+        }
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    let Some(selected) = selected else {
+        return Ok(Vec::new());
+    };
+    let paths = selected
+        .into_iter()
+        .map(|file| file.into_path().map_err(|error| error.to_string()))
+        .collect::<Result<Vec<_>>>()?;
+    let mut files = Vec::new();
+    for path in paths {
+        if !choose_folder {
+            if path.is_file() && is_supported_import_audio(&path) {
+                files.push(std::fs::canonicalize(path).map_err(|error| error.to_string())?);
+            }
+        } else {
+            collect_import_audio_files(&path, 0, &mut files)?;
+        }
+        if files.len() > 1000 {
+            return Err("A single import is limited to 1,000 audio files".into());
+        }
+    }
+    files.sort();
+    files.dedup();
+    Ok(files
+        .into_iter()
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect())
+}
+fn is_supported_import_audio(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "mp3" | "flac" | "wav" | "m4a" | "aac" | "ogg" | "opus" | "aiff" | "wma"
+            )
+        })
+}
+fn collect_import_audio_files(
+    directory: &std::path::Path,
+    depth: usize,
+    files: &mut Vec<std::path::PathBuf>,
+) -> Result<()> {
+    if depth > 8 {
+        return Ok(());
+    }
+    let entries = std::fs::read_dir(directory).map_err(|error| error.to_string())?;
+    for entry in entries {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let kind = entry.file_type().map_err(|error| error.to_string())?;
+        if kind.is_symlink() {
+            continue;
+        }
+        if kind.is_dir() {
+            collect_import_audio_files(&entry.path(), depth + 1, files)?;
+        } else if kind.is_file() && is_supported_import_audio(&entry.path()) {
+            files.push(std::fs::canonicalize(entry.path()).map_err(|error| error.to_string())?);
+            if files.len() > 1000 {
+                return Err("A single import is limited to 1,000 audio files".into());
+            }
+        }
+    }
+    Ok(())
+}
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct LocalAudioFileSeal {
+    path: String,
+    size_bytes: String,
+    modified_ns: Option<String>,
+    file_identity: String,
+}
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalAudioImportPreview {
+    tracks: Vec<Track>,
+    seals: Vec<LocalAudioFileSeal>,
+}
+fn local_audio_file_seal(path: &std::path::Path) -> Result<LocalAudioFileSeal> {
+    let canonical = std::fs::canonicalize(path).map_err(|error| error.to_string())?;
+    let metadata = std::fs::metadata(&canonical).map_err(|error| error.to_string())?;
+    if !metadata.is_file() {
+        return Err("Choose an audio file".into());
+    }
+    let modified_ns = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_nanos().to_string());
+    #[cfg(unix)]
+    let file_identity = {
+        use std::os::unix::fs::MetadataExt;
+        format!(
+            "{}:{}:{}:{}",
+            metadata.dev(),
+            metadata.ino(),
+            metadata.ctime(),
+            metadata.ctime_nsec()
+        )
+    };
+    #[cfg(not(unix))]
+    let file_identity = canonical.to_string_lossy().into_owned();
+    Ok(LocalAudioFileSeal {
+        path: canonical.to_string_lossy().into_owned(),
+        size_bytes: metadata.len().to_string(),
+        modified_ns,
+        file_identity,
+    })
+}
+#[tauri::command]
+async fn preview_local_audio_import(
+    paths: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<LocalAudioImportPreview> {
+    if paths.is_empty() || paths.len() > 1000 {
+        return Err("Select between 1 and 1,000 audio files".into());
+    }
+    let settings = state.store.settings()?;
+    let mut tracks = Vec::with_capacity(paths.len());
+    let mut seals = Vec::with_capacity(paths.len());
+    let mut seen = std::collections::HashSet::new();
+    for selected in paths {
+        let seal = local_audio_file_seal(std::path::Path::new(&selected))?;
+        let path = std::path::PathBuf::from(&seal.path);
+        if !is_supported_import_audio(&path) {
+            continue;
+        }
+        let path_identity = format!(
+            "{:x}",
+            <sha2::Sha256 as sha2::Digest>::digest(seal.path.as_bytes())
+        );
+        if !seen.insert(path_identity.clone()) {
+            continue;
+        }
+        let mut track = media::inspect_local_file(&path, &settings).await?;
+        track.provider = "local".into();
+        track.provider_id = path_identity.clone();
+        track.id = format!("local-preview:{path_identity}");
+        track.local_path = Some(path.to_string_lossy().into_owned());
+        track.source_url.clear();
+        tracks.push(track);
+        seals.push(seal);
+    }
+    Ok(LocalAudioImportPreview { tracks, seals })
+}
+#[tauri::command]
+async fn apply_local_audio_import(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    seals: Vec<LocalAudioFileSeal>,
+) -> Result<Vec<Track>> {
+    if seals.is_empty() || seals.len() > 1000 {
+        return Err("Select between 1 and 1,000 audio files".into());
+    }
+    for seal in &seals {
+        let current = local_audio_file_seal(std::path::Path::new(&seal.path))?;
+        if current != *seal {
+            return Err("A selected audio file changed after preview. Choose it again and review a fresh preview.".into());
+        }
+    }
+    let mut tracks = Vec::with_capacity(seals.len());
+    for seal in &seals {
+        tracks.push(import_local_file_inner(&app, &state, &seal.path, Some(seal)).await?);
+    }
+    Ok(tracks)
 }
 #[tauri::command]
 async fn search_tracks(
@@ -4955,7 +7381,9 @@ async fn resolve_candidate_audio(
     candidate: Candidate,
     request_generation: Option<u64>,
     track_id: Option<String>,
+    track_context: Option<analysis_stream_selection::StreamMediaTrackContext>,
     budget_ms: Option<u64>,
+    normalization_route_required: Option<bool>,
 ) -> Result<serde_json::Value> {
     let settings = state.store.settings()?;
     let transport_deadline =
@@ -5000,8 +7428,36 @@ async fn resolve_candidate_audio(
             return Err(error);
         }
     };
+    let verified_candidate_binding =
+        registration
+            .as_ref()
+            .and_then(|(generation, track_id, _, _)| {
+                candidate_audio_stream_binding(
+                    *generation,
+                    track_id,
+                    track_context.as_ref(),
+                    &candidate,
+                    &audio,
+                )
+            });
+    let detection_source_identity = verified_candidate_binding
+        .as_ref()
+        .and_then(|binding| {
+            playing_track_detections::SourceIdentity::new(
+                &binding.candidate.provider,
+                &binding.candidate.id,
+            )
+            .map(|identity| identity.with_duration_seconds(binding.candidate.duration_seconds))
+        })
+        .or_else(|| {
+            audio.resolved_provider_id.as_deref().and_then(|source_id| {
+                playing_track_detections::SourceIdentity::new(&candidate.provider, source_id)
+                    .map(|identity| identity.with_duration_seconds(audio.duration_seconds))
+            })
+        });
     let mut renderer_url = audio.url.clone();
     let mut hls_transport = false;
+    let mut normalization_relay = false;
     if let Some((generation, track_id, _, cancel)) = registration.as_ref() {
         let source = native_output::AudioSource {
             input: audio.url.clone(),
@@ -5013,12 +7469,18 @@ async fn resolve_candidate_audio(
                 duration_seconds: audio.duration_seconds,
                 content_length: audio.expected_content_length,
                 has_video: audio.selected_format_has_video,
+                decode_policy: crate::native_output::AudioSourceDecodePolicy::Automatic,
+                decoder_fingerprint: None,
             }),
 
             cenc: None,
         };
         hls_transport = webview_audio_transport::is_hls(&source);
-        if webview_audio_transport::needs_relay(&source) {
+        if webview_audio_transport::needs_relay_for_normalization(
+            &source,
+            normalization_route_required.unwrap_or(false),
+        ) {
+            normalization_relay = true;
             renderer_url = match state
                 .webview_audio_transport
                 .register(
@@ -5046,7 +7508,8 @@ async fn resolve_candidate_audio(
     let mut result = serde_json::json!({
         "kind": "audio", "url": renderer_url, "canSeek": true, "canVolume": true,
         "canAutoplay": true, "isExcerpt": false, "provider": candidate.provider,
-        "title": candidate.title, "durationSeconds": audio.duration_seconds, "audioMimeType":if hls_transport { "application/vnd.apple.mpegurl".to_owned() } else { audio.mime_type }, "audioCodec":audio.codec,"audioBitrateKbps":audio.bitrate_kbps
+        "title": candidate.title, "durationSeconds": audio.duration_seconds, "audioMimeType":if hls_transport { "application/vnd.apple.mpegurl".to_owned() } else { audio.mime_type }, "audioCodec":audio.codec,"audioBitrateKbps":audio.bitrate_kbps,
+        "normalizationRoute":webview_audio_transport::normalization_route_capability(normalization_relay)
     });
     if let Some((generation, track_id, stop, cancel)) = registration {
         let mut gate = state
@@ -5054,7 +7517,8 @@ async fn resolve_candidate_audio(
             .lock()
             .map_err(|_| "Playback resolver unavailable")?;
         gate.finish(generation, &stop);
-        if gate.generation == generation && !*cancel.borrow() {
+        if gate.generation == generation && !gate.stream_source_cancelled && !*cancel.borrow() {
+            gate.resolved_stream_source = verified_candidate_binding;
             state.webview_identification.register(
                 generation,
                 track_id,
@@ -5066,6 +7530,7 @@ async fn resolve_candidate_audio(
 
                     cenc: None,
                 },
+                detection_source_identity,
                 false,
                 None,
             );
@@ -5073,6 +7538,194 @@ async fn resolve_candidate_audio(
         }
     }
     Ok(result)
+}
+
+fn candidate_audio_stream_binding(
+    generation: u64,
+    track_id: &str,
+    track_context: Option<&analysis_stream_selection::StreamMediaTrackContext>,
+    candidate: &Candidate,
+    audio: &acquisition::PreviewAudio,
+) -> Option<ResolvedStreamSourceBinding> {
+    let context = track_context?;
+    if context.id != track_id || context.has_playback_range {
+        return None;
+    }
+    if candidate.provider == "monochrome" {
+        // Monochrome's public track URL is itself the stable source identity;
+        // its playback probe intentionally has no extractor session/title/id.
+        // Bind only the exact finite resource that was accepted for playback.
+        let source_id = candidate.id.strip_prefix("monochrome:")?;
+        if !(17..=20).contains(&source_id.len())
+            || !source_id.bytes().all(|byte| byte.is_ascii_digit())
+            || crate::monochrome::validate_url(&candidate.url).is_err()
+            || candidate.url != format!("https://tracks.monochrome.st/track/{source_id}")
+            || audio.url != candidate.url
+        {
+            return None;
+        }
+        let duration = audio
+            .duration_seconds
+            .filter(|duration| duration.is_finite() && (8.0..=900.0).contains(duration))?;
+        let track = context
+            .clone()
+            .into_sanitized_track(duration, "monochrome", &candidate.id)
+            .ok()?;
+        let recording_identity =
+            analysis_stream_selection::stream_media_identity_fingerprint(&track)?;
+        let candidate = Candidate {
+            id: format!("monochrome:{source_id}"),
+            provider: "monochrome".into(),
+            url: format!("https://tracks.monochrome.st/track/{source_id}"),
+            title: context.title.clone(),
+            duration_seconds: Some(duration),
+            permission: "unknown".into(),
+            confidence: "review".into(),
+            ..Candidate::default()
+        };
+        return Some(ResolvedStreamSourceBinding {
+            generation,
+            track_id: track_id.to_owned(),
+            recording_identity,
+            candidate,
+        });
+    }
+    if candidate.provider != "youtube" {
+        return None;
+    }
+    let video_id = candidate.id.strip_prefix("youtube:")?;
+    if video_id.len() != 11
+        || !video_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+        || audio.resolved_provider_id.as_deref() != Some(video_id)
+        || !audio.provider_session_current()
+    {
+        return None;
+    }
+    let title = audio.resolved_title.as_deref().filter(|title| {
+        !title.trim().is_empty() && title.len() <= 512 && !title.chars().any(char::is_control)
+    })?;
+    let duration = audio
+        .duration_seconds
+        .filter(|duration| duration.is_finite() && (8.0..=900.0).contains(duration))?;
+    let track = match context
+        .clone()
+        .into_sanitized_track(duration, "youtube", &candidate.id)
+    {
+        Ok(track) => track,
+        Err(_) if context.artist.is_empty() => context
+            .clone()
+            .into_active_youtube_handoff_track(duration, &candidate.id)
+            .ok()?,
+        Err(_) => return None,
+    };
+    let recording_identity = analysis_stream_selection::stream_media_identity_fingerprint(&track)?;
+    let candidate = Candidate {
+        id: format!("youtube:{video_id}"),
+        provider: "youtube".into(),
+        url: format!("https://www.youtube.com/watch?v={video_id}"),
+        title: title.to_owned(),
+        duration_seconds: Some(duration),
+        permission: "unknown".into(),
+        confidence: "review".into(),
+        ..Candidate::default()
+    };
+    Some(ResolvedStreamSourceBinding {
+        generation,
+        track_id: track_id.to_owned(),
+        recording_identity,
+        candidate,
+    })
+}
+
+fn active_stream_candidate_for_context(
+    gate: &PlaybackResolutionGate,
+    generation: u64,
+    track: &analysis_stream_selection::StreamMediaTrackContext,
+    duration_seconds: f64,
+    provider: &str,
+    source_id: &str,
+) -> Result<Option<Candidate>> {
+    match track
+        .clone()
+        .into_sanitized_track(duration_seconds, provider, source_id)
+    {
+        Ok(sanitized) => {
+            let identity = analysis_stream_selection::stream_media_identity_fingerprint(&sanitized);
+            Ok(gate.stream_candidate_for(
+                generation,
+                &sanitized.id,
+                identity.as_deref(),
+                provider,
+                source_id,
+            ))
+        }
+        Err(strict_error) if provider == "youtube" => {
+            let sanitized = track
+                .clone()
+                .into_active_youtube_handoff_track(duration_seconds, source_id)
+                .map_err(|handoff_error| {
+                    format!("Active YouTube handoff projection rejected: {handoff_error}")
+                })?;
+            let identity = analysis_stream_selection::stream_media_identity_fingerprint(&sanitized);
+            let candidate = gate.stream_candidate_for(
+                generation,
+                &sanitized.id,
+                identity.as_deref(),
+                provider,
+                source_id,
+            );
+            match candidate {
+                Some(candidate) => Ok(Some(candidate)),
+                None => Err(format!(
+                    "Active YouTube source rejected: {}",
+                    gate.stream_candidate_rejection_reason(
+                        generation,
+                        &sanitized.id,
+                        identity.as_deref(),
+                        provider,
+                        source_id,
+                    )
+                )),
+            }
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn stream_media_cache_lookup_track(
+    gate: &PlaybackResolutionGate,
+    context: &analysis_stream_selection::StreamMediaTrackContext,
+    duration_seconds: f64,
+    provider: &str,
+    source_id: &str,
+) -> Result<Track> {
+    match context
+        .clone()
+        .into_sanitized_track(duration_seconds, provider, source_id)
+    {
+        Ok(track) => Ok(track),
+        Err(strict_error) if provider == "youtube" && gate.generation > 0 => {
+            let leased_candidate = active_stream_candidate_for_context(
+                gate,
+                gate.generation,
+                context,
+                duration_seconds,
+                provider,
+                source_id,
+            )
+            .map_err(|_| strict_error.clone())?;
+            if leased_candidate.is_none() {
+                return Err(strict_error);
+            }
+            context
+                .clone()
+                .into_active_youtube_handoff_track(duration_seconds, source_id)
+                .map_err(|_| strict_error)
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 fn playback_candidate_search_needed(native_enabled: bool, track: &Track) -> bool {
@@ -5458,6 +8111,7 @@ async fn save_current_track_lyrics_to_file(
     let text =
         lyrics::embedding_text(&current.document).ok_or("No source lyrics available to embed")?;
     let settings = state.store.settings()?;
+    let _writer_lease = state.store.try_library_write()?;
     let updated=media::embed_lyrics(&asset,&settings,&text,serde_json::json!({"sourceHash":source_hash,"provider":current.document.provider,"credit":current.document.matched,"selectionNotice":current.selection_notice})).await?;
     state.store.save_lyric_asset(&updated, &asset.hash)?;
     if let Some(id) = updated.track.provenance["retagJournalId"].as_str() {
@@ -5471,6 +8125,9 @@ async fn translate_current_track_lyrics(
     source_hash: String,
     lines: Vec<lyrics::LyricsLine>,
     visible_track: Option<lyrics::LyricsRequestInput>,
+    line_start: Option<usize>,
+    line_end: Option<usize>,
+    use_fallback: Option<bool>,
 ) -> Result<lyrics_translation::LyricsTranslationResponse> {
     let snapshot = state.playback.snapshot_page(0, 1);
     let selected = lyrics_discovery::selected(&snapshot, visible_track.clone())
@@ -5489,18 +8146,40 @@ async fn translate_current_track_lyrics(
     if !matches!(current.status.as_str(), "synced" | "unsynced") {
         return Err("Current playback does not have available lyrics to translate".into());
     }
+    if !lyrics::displayed_document_matches(&current, &source_hash, &lines) {
+        return Err("Current lyrics changed; reload them before translating".into());
+    }
     let current_lines = current
         .lines
         .ok_or("Current playback does not have translatable lyrics")?;
-    if current.source_hash.as_deref() != Some(source_hash.as_str()) || current_lines != lines {
-        return Err("Current lyrics changed; reload them before translating".into());
-    }
     let manager = state.connections.clone();
-    let connection = tokio::task::spawn_blocking(move || manager.lyrics_translation())
-        .await
-        .map_err(|error| error.to_string())??
-        .ok_or("Lyrics translation is disabled in Connections")?;
-    lyrics_translation::translate_current_document(connection, source_hash, current_lines).await
+    let connection = tokio::task::spawn_blocking(move || {
+        if use_fallback.unwrap_or(false) {
+            manager.lyrics_translation_using_fallback()
+        } else {
+            manager.lyrics_translation()
+        }
+    })
+    .await
+    .map_err(|error| error.to_string())??
+    .ok_or("Lyrics translation is disabled in Connections")?;
+    match (line_start, line_end) {
+        (None, None) => {
+            lyrics_translation::translate_current_document(connection, source_hash, current_lines)
+                .await
+        }
+        (Some(start), Some(end)) => {
+            lyrics_translation::translate_current_chunk(
+                connection,
+                source_hash,
+                current_lines,
+                start,
+                end,
+            )
+            .await
+        }
+        _ => Err("Incomplete lyric translation batch".into()),
+    }
 }
 #[tauri::command]
 async fn export_playback_diagnostics(
@@ -5575,6 +8254,210 @@ async fn get_live_bpm(
     state: State<'_, AppState>,
 ) -> Result<Option<playback::LiveBpmPlaybackEstimate>> {
     state.playback.live_bpm().await
+}
+#[tauri::command]
+async fn get_live_playback_estimates(
+    state: State<'_, AppState>,
+) -> Result<Option<playback::LivePlaybackEstimates>> {
+    state.playback.live_playback_estimates().await
+}
+#[tauri::command]
+async fn estimate_webview_live_bpm(
+    state: State<'_, AppState>,
+    track_id: String,
+    generation: u64,
+    seek_serial: u64,
+    sample_rate: u32,
+    samples_base64: String,
+) -> Result<webview_live_bpm::Outcome> {
+    use webview_live_bpm::{matches_playing_owner, Outcome, OutcomeStatus, Owner};
+    let owner = Owner {
+        track_id,
+        generation,
+        seek_serial,
+    };
+    if owner.track_id.trim().is_empty() || owner.track_id.len() > 512 {
+        return Err("WebView live BPM track identity is invalid".into());
+    }
+    if !state.store.settings()?.live_bpm_enabled {
+        return Ok(Outcome::status(OutcomeStatus::Disabled));
+    }
+    if state.playback.native_enabled() {
+        return Ok(Outcome::status(OutcomeStatus::NativeActive));
+    }
+    let before = state.automation.playback_tracking_snapshot();
+    if !matches_playing_owner(&before, &owner) {
+        return Ok(Outcome::status(OutcomeStatus::OwnerMismatchBefore));
+    }
+    let samples = webview_live_bpm::decode_pcm16(sample_rate, &samples_base64)?;
+    let Some(worker_permit) = live_analysis_gate::try_acquire() else {
+        return Ok(Outcome::status(OutcomeStatus::NoEstimate));
+    };
+    let sample_window_seconds = samples.len() as f64 / sample_rate as f64;
+    let analysis_started = std::time::Instant::now();
+    let (estimate, key_estimate) = tauri::async_runtime::spawn_blocking(move || {
+        let _worker_permit = worker_permit;
+        (
+            live_bpm::estimate_interleaved_pcm(&samples, sample_rate, 1),
+            live_key::estimate_interleaved_pcm(&samples, sample_rate, 1),
+        )
+    })
+    .await
+    .map_err(|error| format!("WebView live BPM analysis worker stopped: {error}"))?;
+    let after = state.automation.playback_tracking_snapshot();
+    if state.playback.native_enabled()
+        || !state.store.settings()?.live_bpm_enabled
+        || !matches_playing_owner(&after, &owner)
+        || before.get("sessionId") != after.get("sessionId")
+    {
+        return Ok(Outcome::status(OutcomeStatus::OwnerChangedAfter));
+    }
+    let analysis_ms = analysis_started.elapsed().as_millis().min(u64::MAX as u128) as u64;
+    if estimate.is_none() && key_estimate.is_none() {
+        let mut outcome = Outcome::status(OutcomeStatus::NoEstimate);
+        outcome.sample_window_seconds = Some(sample_window_seconds);
+        outcome.analysis_ms = Some(analysis_ms);
+        return Ok(outcome);
+    }
+    Ok(Outcome {
+        status: OutcomeStatus::Success,
+        estimate: estimate.map(|estimate| {
+            serde_json::json!({
+                "trackId": owner.track_id.clone(),
+                "generation": owner.generation,
+                "seekSerial": owner.seek_serial,
+                "bpm": estimate.bpm,
+                "confidence": estimate.confidence,
+                "relatedTempoAlternativeBpm": estimate.related_tempo_alternative_bpm,
+                "windowSeconds": estimate.window_seconds,
+            })
+        }),
+        key_estimate: key_estimate.map(|estimate| {
+            serde_json::json!({
+                "trackId": owner.track_id.clone(),
+                "generation": owner.generation,
+                "seekSerial": owner.seek_serial,
+                "key": estimate.key,
+                "profileFit": estimate.profile_fit,
+                "profileMargin": estimate.profile_margin,
+                "windowSeconds": estimate.window_seconds,
+            })
+        }),
+        sample_window_seconds: Some(sample_window_seconds),
+        analysis_ms: Some(analysis_ms),
+    })
+}
+#[tauri::command]
+async fn get_playback_waveform(
+    state: State<'_, AppState>,
+    start_seconds: Option<f64>,
+    duration_seconds: Option<f64>,
+) -> Result<pcm_tap::ObservedWaveform> {
+    let playback = state.playback.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        playback.waveform_snapshot(
+            start_seconds.unwrap_or(0.0),
+            duration_seconds.unwrap_or(0.0),
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+#[tauri::command]
+fn get_cached_stream_analysis(
+    state: State<'_, AppState>,
+    track_id: String,
+    generation: u64,
+) -> Option<stream_analysis::WholeTrackAnalysis> {
+    state.playback.cached_stream_analysis(&track_id, generation)
+}
+
+#[tauri::command]
+fn begin_webview_stream_analysis(
+    state: State<'_, AppState>,
+    session_id: String,
+    generation: u64,
+    recording_id: String,
+    provider: String,
+    source_id: String,
+    duration_seconds: f64,
+    initial_position_seconds: f64,
+    audio_variant: Option<stream_analysis::StreamAudioVariant>,
+) -> Result<()> {
+    state
+        .playback
+        .observed_analysis_manager()
+        .begin_webview_capture(
+            &session_id,
+            generation,
+            &recording_id,
+            &provider,
+            &source_id,
+            duration_seconds,
+            initial_position_seconds,
+            audio_variant.as_ref(),
+        )
+}
+
+#[tauri::command]
+fn push_webview_stream_analysis(
+    state: State<'_, AppState>,
+    session_id: String,
+    generation: u64,
+    end_position_seconds: f64,
+    sample_rate: u32,
+    samples_base64: String,
+) -> Result<()> {
+    use base64::Engine as _;
+    if samples_base64.len() > ((stream_analysis::KEY_PCM_RATE as usize * 2 + 2) / 3) * 4 {
+        return Err("WebView analysis PCM chunk exceeds its transport bound".into());
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(samples_base64)
+        .map_err(|_| "WebView analysis PCM chunk is malformed")?;
+    if bytes.is_empty()
+        || bytes.len() % 2 != 0
+        || bytes.len() > stream_analysis::KEY_PCM_RATE as usize * 2
+    {
+        return Err("WebView analysis PCM chunk exceeds its format or size bound".into());
+    }
+    let samples = bytes
+        .chunks_exact(2)
+        .map(|sample| i16::from_le_bytes([sample[0], sample[1]]) as f32 / 32768.0)
+        .collect::<Vec<_>>();
+    state
+        .playback
+        .observed_analysis_manager()
+        .push_webview_capture(
+            &session_id,
+            generation,
+            end_position_seconds,
+            sample_rate,
+            samples,
+        )
+}
+
+#[tauri::command]
+async fn finish_webview_stream_analysis(
+    state: State<'_, AppState>,
+    session_id: String,
+    generation: u64,
+    natural_end_position_seconds: f64,
+) -> Result<stream_analysis::WholeTrackAnalysis> {
+    let manager = state.playback.observed_analysis_manager();
+    tauri::async_runtime::spawn_blocking(move || {
+        manager.finish_webview_capture(&session_id, generation, natural_end_position_seconds)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+fn cancel_webview_stream_analysis(state: State<'_, AppState>, session_id: String) {
+    state
+        .playback
+        .observed_analysis_manager()
+        .cancel_webview_capture(&session_id);
 }
 #[tauri::command]
 fn save_settings(
@@ -6127,18 +9010,261 @@ fn get_analysis_status_for_assets(
         .status_for_assets(&asset_ids)
         .map_err(Into::into)
 }
+
+#[tauri::command]
+fn get_loudness_settings(state: State<'_, AppState>) -> Result<loudness_manager::LoudnessSettings> {
+    state.playback.loudness_settings()
+}
+
+#[tauri::command]
+fn set_loudness_settings(
+    state: State<'_, AppState>,
+    settings: loudness_manager::LoudnessSettings,
+) -> Result<loudness_manager::LoudnessStatus> {
+    state.playback.set_loudness_settings(settings)
+}
+
+#[tauri::command]
+fn get_loudness_decision_for_asset(
+    state: State<'_, AppState>,
+    asset_id: String,
+    range: loudness::AudioRange,
+    album_resource: Option<loudness::LoudnessResourceIdentity>,
+) -> Result<loudness_manager::LoudnessStatus> {
+    state
+        .playback
+        .loudness_decision_for_registered_asset(&asset_id, range, album_resource)
+}
+
+#[tauri::command]
+fn set_loudness_album_context(
+    state: State<'_, AppState>,
+    resource: Option<loudness::LoudnessResourceIdentity>,
+) -> Result<()> {
+    state.playback.set_loudness_album_context(resource)
+}
+
+#[tauri::command]
+fn start_loudness_analysis(
+    state: State<'_, AppState>,
+    asset_ids: Vec<String>,
+    inter_track_gaps_seconds: Option<Vec<f64>>,
+) -> Result<String> {
+    let is_album = inter_track_gaps_seconds.is_some();
+    let valid_count = if is_album {
+        (2..=200).contains(&asset_ids.len())
+    } else {
+        (1..=50).contains(&asset_ids.len())
+    };
+    if !valid_count {
+        return Err(if is_album {
+            "Select 2–200 local tracks for an album programme analysis".into()
+        } else {
+            "Select 1–50 local tracks for loudness analysis".into()
+        });
+    }
+    if asset_ids
+        .iter()
+        .collect::<std::collections::HashSet<_>>()
+        .len()
+        != asset_ids.len()
+    {
+        return Err("Selected loudness assets must be unique".into());
+    }
+    if inter_track_gaps_seconds.as_ref().is_some_and(|gaps| {
+        gaps.len() + 1 != asset_ids.len() || gaps.iter().any(|gap| !gap.is_finite() || *gap != 0.0)
+    }) {
+        return Err("Album analysis currently requires zero-gap queue boundaries".into());
+    }
+    let store = state.store.clone();
+    let analysis_settings = store.settings()?;
+    let ffmpeg = tools::executable(&analysis_settings.ffmpeg_path, "ffmpeg");
+    let ffprobe = tools::executable(&analysis_settings.ffprobe_path, "ffprobe");
+    let job_id = uuid::Uuid::new_v4().to_string();
+    let (cancel, cancel_rx) = tokio::sync::watch::channel(false);
+    state.loudness_analysis_jobs.insert(
+        loudness_manager::LoudnessAnalysisJobStatus {
+            job_id: job_id.clone(),
+            status: "queued".into(),
+            total: asset_ids.len(),
+            completed: 0,
+            error: None,
+            resource: None,
+        },
+        cancel,
+    )?;
+    let jobs = state.loudness_analysis_jobs.clone();
+    let accepted_job_id = job_id.clone();
+    spawn_loudness_analysis_task(async move {
+        let _ = jobs.update(&job_id, |status| status.status = "running".into());
+        if let Some(gaps) = inter_track_gaps_seconds {
+            let result = loudness_manager::analyze_selected_album(
+                store,
+                asset_ids.clone(),
+                gaps,
+                ffmpeg,
+                ffprobe,
+                cancel_rx,
+            )
+            .await;
+            let _ = jobs.update(&job_id, |status| match result {
+                Ok(record) => {
+                    status.completed = status.total;
+                    status.resource = Some(record.resource);
+                    status.status = "completed".into();
+                }
+                Err(error) if error.contains("cancelled") => status.status = "cancelled".into(),
+                Err(error) => {
+                    status.status = "failed".into();
+                    status.error = Some(error);
+                }
+            });
+        } else {
+            for asset_id in asset_ids {
+                let was_cancelled = { *cancel_rx.borrow() };
+                if was_cancelled {
+                    let _ = jobs.update(&job_id, |status| status.status = "cancelled".into());
+                    return;
+                }
+                let result = loudness_manager::analyze_selected_assets(
+                    store.clone(),
+                    vec![asset_id],
+                    ffmpeg.clone(),
+                    ffprobe.clone(),
+                    cancel_rx.clone(),
+                )
+                .await;
+                match result {
+                    Ok(_) => {
+                        let _ = jobs.update(&job_id, |status| status.completed += 1);
+                    }
+                    Err(error) if error.contains("cancelled") => {
+                        let _ = jobs.update(&job_id, |status| status.status = "cancelled".into());
+                        return;
+                    }
+                    Err(error) => {
+                        let _ = jobs.update(&job_id, |status| {
+                            status.status = "failed".into();
+                            status.error = Some(error);
+                        });
+                        return;
+                    }
+                }
+            }
+            let _ = jobs.update(&job_id, |status| status.status = "completed".into());
+        }
+    });
+    Ok(accepted_job_id)
+}
+
+fn spawn_loudness_analysis_task(task: impl std::future::Future<Output = ()> + Send + 'static) {
+    // This command is synchronous and may run on a Tauri command thread without
+    // a Tokio thread-local context. Tauri owns the application runtime.
+    tauri::async_runtime::spawn(task);
+}
+
+#[cfg(test)]
+mod loudness_task_launcher_tests {
+    use super::spawn_loudness_analysis_task;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    #[test]
+    fn synchronous_command_launcher_works_without_tokio_context() {
+        let (finished, wait) = mpsc::channel();
+        std::thread::spawn(move || {
+            spawn_loudness_analysis_task(async move {
+                let _ = finished.send(());
+            });
+        })
+        .join()
+        .expect("synchronous launcher thread should not panic");
+
+        wait.recv_timeout(Duration::from_secs(5))
+            .expect("Tauri runtime should execute task without a Tokio caller context");
+    }
+}
+
+#[tauri::command]
+fn get_loudness_analysis_status(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<loudness_manager::LoudnessAnalysisJobStatus> {
+    state.loudness_analysis_jobs.status(&job_id)
+}
+
+#[tauri::command]
+fn cancel_loudness_analysis(state: State<'_, AppState>, job_id: String) -> Result<()> {
+    state.loudness_analysis_jobs.cancel(&job_id)
+}
+#[tauri::command]
+fn start_local_waveform_analysis(
+    state: State<'_, AppState>,
+    asset_id: String,
+    expected_hash: String,
+    bin_count: usize,
+) -> Result<String> {
+    let settings = state.store.settings()?;
+    state.waveform_analysis_jobs.start(
+        state.store.clone(),
+        asset_id,
+        expected_hash,
+        bin_count,
+        tools::executable(&settings.ffmpeg_path, "ffmpeg"),
+    )
+}
+#[tauri::command]
+fn get_local_waveform_analysis_status(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<waveform_analysis::WaveformJobStatus> {
+    state.waveform_analysis_jobs.status(&job_id)
+}
+#[tauri::command]
+fn cancel_local_waveform_analysis(state: State<'_, AppState>, job_id: String) -> Result<()> {
+    state.waveform_analysis_jobs.cancel(&job_id)
+}
+#[tauri::command]
+async fn get_local_waveform_analysis(
+    state: State<'_, AppState>,
+    asset_id: String,
+    expected_hash: String,
+    bin_count: usize,
+) -> Result<Option<waveform_analysis::LocalWaveform>> {
+    waveform_analysis::cached_waveform(state.store.clone(), asset_id, expected_hash, bin_count)
+        .await
+}
 #[tauri::command]
 async fn import_local_file(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
     path: String,
 ) -> Result<Track> {
-    let path = std::fs::canonicalize(path).map_err(|e| e.to_string())?;
-    if !path.is_file() {
-        return Err("Choose an audio file".into());
+    import_local_file_inner(&app, &state, &path, None).await
+}
+async fn import_local_file_inner(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    selected_path: &str,
+    expected_seal: Option<&LocalAudioFileSeal>,
+) -> Result<Track> {
+    let path = std::fs::canonicalize(selected_path).map_err(|e| e.to_string())?;
+    if !path.is_file() || !is_supported_import_audio(&path) {
+        return Err("Choose a supported audio file".into());
     }
-    let mut t = media::inspect_local_file(&path, &state.store.settings()?).await?;
+    if let Some(expected) = expected_seal {
+        if local_audio_file_seal(&path)? != *expected {
+            return Err("A selected audio file changed after preview. Choose it again and review a fresh preview.".into());
+        }
+    }
+    let settings = state.store.settings()?;
+    let mut t = media::inspect_local_file(&path, &settings).await?;
     let hash = hash_path(&path)?;
+    if let Some(expected) = expected_seal {
+        if local_audio_file_seal(&path)? != *expected {
+            return Err("A selected audio file changed while it was being imported. Review a fresh preview.".into());
+        }
+    }
     t.provider = "local".into();
     t.provider_id = hash.clone();
     t.id = format!("local:{hash}");
@@ -6180,10 +9306,198 @@ async fn export_mp3(state: State<'_, AppState>, asset_id: String) -> Result<Loca
         .store
         .get_asset_by_id(&asset_id)?
         .ok_or("Asset not found")?;
+    let _writer_lease = state.store.try_library_write()?;
     let a = media::export_mp3(&a, &state.store.settings()?).await?;
     state.store.save_asset(&a)?;
     media::acknowledge_publication(&state.store.settings()?, &a.id)?;
     Ok(a)
+}
+#[tauri::command]
+fn get_playlist_hierarchy(
+    state: State<'_, AppState>,
+) -> Result<playlist_hierarchy::PlaylistHierarchy> {
+    playlist_hierarchy::load(&state.store)
+}
+#[tauri::command]
+fn save_playlist_hierarchy(
+    state: State<'_, AppState>,
+    hierarchy: playlist_hierarchy::PlaylistHierarchy,
+) -> Result<playlist_hierarchy::PlaylistHierarchy> {
+    let _library_write = state.store.try_library_write()?;
+    playlist_hierarchy::save(&state.store, &hierarchy)
+}
+#[tauri::command]
+fn place_imported_playlist_items(
+    state: State<'_, AppState>,
+    collection_id: String,
+    folder_path: String,
+    section_name: String,
+    occurrence_count: usize,
+) -> Result<playlist_hierarchy::PlaylistHierarchy> {
+    let _library_write = state.store.try_library_write()?;
+    playlist_hierarchy::place_imported_items(
+        &state.store,
+        &collection_id,
+        &folder_path,
+        &section_name,
+        occurrence_count,
+    )
+}
+#[tauri::command]
+fn preview_portable_playlist_export(
+    state: State<'_, AppState>,
+    collection_id: String,
+    options: portable_playlist::PlaylistExportOptions,
+) -> Result<portable_playlist::PlaylistExportPreview> {
+    playlist_sync::preview_portable_playlist_export(&state.store, &collection_id, &options)
+}
+#[tauri::command]
+fn render_portable_playlist_export(
+    state: State<'_, AppState>,
+    collection_id: String,
+    options: portable_playlist::PlaylistExportOptions,
+) -> Result<String> {
+    playlist_sync::render_portable_playlist_export(&state.store, &collection_id, &options)
+}
+#[tauri::command]
+fn export_portable_playlist(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    collection_id: String,
+    options: portable_playlist::PlaylistExportOptions,
+) -> Result<String> {
+    let fallback_download_dir = (options.purpose == portable_playlist::PlaylistPurpose::Share)
+        .then(|| app.path().download_dir().ok())
+        .flatten();
+    playlist_sync::export_portable_playlist_path_with_fallback(
+        &state.store,
+        &collection_id,
+        &options,
+        fallback_download_dir.as_deref(),
+    )
+}
+#[tauri::command]
+async fn preview_portable_playlist_import(
+    state: State<'_, AppState>,
+    text: String,
+    options: playlist_sync::PortablePlaylistImportOptions,
+) -> Result<playlist_sync::PortablePlaylistImportPreview> {
+    let settings = state.store.settings()?;
+    playlist_sync::preview_portable_playlist_import_with_options(
+        &state.store,
+        &state.acquisition,
+        &settings,
+        &text,
+        options,
+    )
+    .await
+}
+#[tauri::command]
+async fn apply_portable_playlist_import(
+    state: State<'_, AppState>,
+    text: String,
+    preview_id: String,
+    expected_source_hash: String,
+    destination_name: Option<String>,
+    destination_folder_path: Option<String>,
+    provider_selections: Vec<playlist_sync::PortablePlaylistProviderSelection>,
+) -> Result<playlist_files::LocalPlaylistImport> {
+    let settings = state.store.settings()?;
+    playlist_sync::apply_portable_playlist_import_with_providers(
+        &state.store,
+        &state.acquisition,
+        &settings,
+        &text,
+        &preview_id,
+        &expected_source_hash,
+        destination_name.as_deref(),
+        destination_folder_path.as_deref(),
+        &provider_selections,
+    )
+    .await
+}
+#[tauri::command]
+async fn resolve_portable_playback_candidate(
+    state: State<'_, AppState>,
+    track: Track,
+) -> Result<Option<Candidate>> {
+    let settings = state.store.settings()?;
+    let (_cancel, receiver) = tokio::sync::watch::channel(false);
+    playlist_sync::resolve_portable_playback_candidate(
+        &state.store,
+        &state.acquisition,
+        &track,
+        &settings,
+        receiver,
+    )
+    .await
+}
+#[tauri::command]
+fn preview_playlist_mirror_migration(
+    state: State<'_, AppState>,
+    collection_id: String,
+) -> Result<playlist_sync::PlaylistMirrorMigrationPreview> {
+    playlist_sync::preview_playlist_mirror_migration(
+        &state.store,
+        &state.store.settings()?,
+        &collection_id,
+    )
+}
+#[tauri::command]
+fn migrate_playlist_mirror_v1(
+    state: State<'_, AppState>,
+    collection_id: String,
+    expected_source_hash: String,
+) -> Result<String> {
+    playlist_sync::migrate_playlist_mirror_v1(&state.store, &collection_id, &expected_source_hash)
+}
+#[tauri::command]
+fn preview_history_playlist_export(
+    state: State<'_, AppState>,
+    options: portable_playlist::PlaylistExportOptions,
+) -> Result<portable_playlist::PlaylistExportPreview> {
+    playlist_sync::preview_history_export(&state.history, &options)
+}
+#[tauri::command]
+fn render_history_playlist_export(
+    state: State<'_, AppState>,
+    options: portable_playlist::PlaylistExportOptions,
+) -> Result<String> {
+    playlist_sync::render_history_export(&state.history, &options)
+}
+#[tauri::command]
+fn get_history_mirror_options(
+    state: State<'_, AppState>,
+) -> Result<playlist_sync::HistoryMirrorOptions> {
+    playlist_sync::get_history_mirror_options(&state.store)
+}
+#[tauri::command]
+fn set_history_mirror_options(
+    state: State<'_, AppState>,
+    options: playlist_sync::HistoryMirrorOptions,
+) -> Result<playlist_sync::HistoryMirrorOptions> {
+    playlist_sync::set_history_mirror_options(&state.store, options)
+}
+#[tauri::command]
+fn preview_restored_playlist_sync(
+    state: State<'_, AppState>,
+) -> Result<playlist_sync::RestoredSyncResumePreview> {
+    playlist_sync::preview_restored_playlist_sync(&state.store, &state.store.settings()?)
+}
+#[tauri::command]
+fn resume_reviewed_restored_playlist_sync(
+    state: State<'_, AppState>,
+    review_token: String,
+) -> Result<()> {
+    playlist_sync::resume_reviewed_restored_playlist_sync(
+        &state.store,
+        &state.store.settings()?,
+        &review_token,
+    )
+}
+#[tauri::command]
+fn resume_history_playlist_mirror(state: State<'_, AppState>) -> Result<String> {
+    playlist_sync::resume_history_mirror(&state.store, &state.history, &state.store.settings()?)
 }
 #[tauri::command]
 fn export_playlist(state: State<'_, AppState>, collection_id: String) -> Result<String> {
@@ -6195,6 +9509,7 @@ fn resume_playlist_mirror(state: State<'_, AppState>, collection_id: String) -> 
 }
 #[tauri::command]
 fn copy_playlist(state: State<'_, AppState>, collection_id: String) -> Result<Collection> {
+    let _library_write = state.store.try_library_write()?;
     let id = playlist_sync::ensure_editable_collection(&state.store, &collection_id)?;
     state
         .store
@@ -6217,6 +9532,7 @@ fn move_playlist_entry(
     from: usize,
     to: usize,
 ) -> Result<String> {
+    let _library_write = state.store.try_library_write()?;
     let id = playlist_sync::ensure_editable_collection(&state.store, &collection_id)?;
     let mut tracks = state.store.list_tracks("collection", Some(&id))?;
     if from >= tracks.len() || to >= tracks.len() {
@@ -6301,10 +9617,22 @@ fn webview_media_event_trace_script() -> &'static str {
 pub fn run() {
     // Opt-in diagnostic; default builds install no logger and alter no protocol behavior.
     artwork_protocol_trace::initialize();
+    let mut context = tauri::generate_context!();
+    if let Some(main_window) = context
+        .config_mut()
+        .app
+        .windows
+        .iter_mut()
+        .find(|window| window.label == "main")
+    {
+        // Windows keeps native drag/drop disabled so HTML file reordering remains available.
+        main_window.drag_drop_enabled = !cfg!(target_os = "windows");
+    }
     tauri::Builder::default()
         .append_invoke_initialization_script(webview_media_event_trace_script())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            let backup_frontend_preference_session_id = uuid::Uuid::new_v4().to_string();
             let startup_trace = std::env::var("BURRATA_STARTUP_TRACE").is_ok_and(|value| value == "1");
             let startup_started = std::time::Instant::now();
             let startup_mark = |phase: &str| {
@@ -6313,12 +9641,49 @@ pub fn run() {
                 }
             };
             startup_mark("setup.begin");
+            let import_drops = Arc::new(import_drop::ImportDropRegistry::default());
+            if let Some(main_window) = app.get_webview_window("main") {
+                let registry = import_drops.clone();
+                let event_window = main_window.clone();
+                main_window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop {
+                        paths,
+                        position,
+                        ..
+                    }) = event
+                    {
+                        let token = registry.register(paths);
+                        let payload = import_drop::ImportFileDropEvent {
+                            token: token.clone(),
+                            kind: import_drop::event_kind_hint(paths),
+                            coordinate_space: import_drop::native_drop_coordinate_space(),
+                            position: import_drop::DropPoint {
+                                // The event declares whether native units are logical or physical.
+                                x: position.x,
+                                y: position.y,
+                            },
+                        };
+                        if event_window.emit("import-file-drop", payload).is_err() {
+                            registry.discard(&token);
+                        }
+                    }
+                });
+            }
             app.manage(shutdown_signal::install(app.handle().clone())?);
             let resources=release_resource_root(app.handle()).map_err(std::io::Error::other)?;
             tools::initialize(resources.clone());
 
             let dir = std::env::var_os("BURRATA_APP_DATA").map(PathBuf::from).unwrap_or(app.path().app_data_dir()?);
             std::fs::create_dir_all(&dir)?;
+            // Tauri restart starts its replacement process before this process
+            // exits. Keep the profile locked until process teardown so a
+            // restored database pair is never swapped under open writers.
+            let profile_lock = backup_manager::acquire_profile_lock(&dir)
+                .map_err(std::io::Error::other)?;
+            let backup_staging = backup_staging::BackupStaging::open(&dir)?;
+            backup_staging.cleanup_abandoned()?;
+            let restored_profile = backup_manager::apply_pending_restore_with_staging(&dir, &backup_staging)
+                .map_err(std::io::Error::other)?;
             // Asset protocol grants are process-local. Restored playback can already
             // contain asset:// artwork URLs and skip the HTTPS cache command, so
             // regrant only our own flat artwork cache before the frontend mounts.
@@ -6338,6 +9703,23 @@ pub fn run() {
             let store =
                 Arc::new(Store::open(&dir.join("burrata.sqlite")).map_err(std::io::Error::other)?);
             startup_mark("store.open.end");
+            // The staged database carries the authoritative restore marker.
+            // Repair older committed restores before any automatic workers
+            // are constructed below.
+            let restore_pause_incomplete = [
+                restore_work_policy::AutomaticWorkKind::MetadataRetagAnalysis,
+                restore_work_policy::AutomaticWorkKind::AssetAutotag,
+                restore_work_policy::AutomaticWorkKind::BackgroundSourcePreparation,
+            ]
+            .into_iter()
+            .any(|kind| !restore_work_policy::is_paused(&store, kind));
+            if restored_profile && restore_pause_incomplete {
+                restore_work_policy::pause_all_after_restore(
+                    &store,
+                    "startup-recovered-restore",
+                )
+                .map_err(std::io::Error::other)?;
+            }
             let directory_browser = directory_browser::DirectoryBrowser::new(store.clone());
             startup_mark("store.downloads_backfill.begin");
             store.ensure_downloads_collection().map_err(std::io::Error::other)?;
@@ -6349,8 +9731,14 @@ pub fn run() {
             }
             let settings = store.settings().map_err(std::io::Error::other)?;
             playback_diagnostics::set_enabled(settings.playback_diagnostics_enabled);
-            let history = Arc::new(playback_history::PlaybackHistory::open(&dir.join("playback-history.sqlite")).map_err(std::io::Error::other)?);
+            let history = Arc::new(playback_history::PlaybackHistory::open_with_barrier(
+                &dir.join("playback-history.sqlite"),
+                store.library_write_barrier(),
+            ).map_err(std::io::Error::other)?);
             let mut diagnostics=Vec::new();
+            if let Err(error) = backup_manager::finalize_pending_restore(&dir) {
+                diagnostics.push(format!("Restore cleanup needs review: {error}"));
+            }
             startup_mark("store.recovery.begin");
             match media::recover_publications(&settings) {
                 Ok(recovered)=>for (job_id,asset) in recovered {
@@ -6462,6 +9850,14 @@ pub fn run() {
             let automation = automation::AutomationService::new(app.handle().clone(), store.clone(), acquisition.clone(), artists.clone(), connections.clone(), analysis.clone(), history.clone(), dir.clone());
             automation.set_autotag_manager(autotag.clone());
             let playback = playback::PlaybackService::new(app.handle().clone(), store.clone(), acquisition.clone(), history.clone()).map_err(std::io::Error::other)?;
+            let backup_manager = Arc::new(backup_manager::BackupManager::with_playback_and_staging(
+                dir.clone(),
+                store.clone(),
+                history.clone(),
+                playback.clone(),
+                backup_staging,
+            ));
+            backup_manager.start_scheduler(app.handle().clone());
             automation.set_playback_service(playback.clone());
             let system_media = match system_media::SystemMediaService::start(app.handle().clone(), playback.clone()) { Ok(service)=>Some(service),Err(error)=>{diagnostics.push(format!("System media controls unavailable: {error}"));None} };
             let local_audio = local_audio::LocalAudioManager::new(store.clone());
@@ -6565,25 +9961,25 @@ pub fn run() {
             webview_audio_transport.set_base_url(browser.base_url());
             webview_audio_transcoder.set_base_url(browser.base_url());
             let playlist_watcher = match playlist_watch::PlaylistWatcher::start(app.handle().clone(), store.clone()) { Ok(watcher) => Some(watcher), Err(error) => { diagnostics.push(error); None } };
-            let startup_analysis = analysis.clone();
+            // Opening the app must not enqueue a bulk file-retag pass. Current
+            // playback analysis uses resource-bound caches; explicit tagging
+            // and newly acquired-file processing keep their separate actions.
             let startup_diagnostics = Arc::new(std::sync::Mutex::new(diagnostics));
-            let analysis_diagnostics = startup_diagnostics.clone();
-            tauri::async_runtime::spawn_blocking(move || {
-                if let Err(error) = startup_analysis.queue(None, false) {
-                    if let Ok(mut diagnostics) = analysis_diagnostics.lock() {
-                        diagnostics.push(format!("Analysis preparation failed: {error}"));
-                    }
-                }
-            });
             let playback_resolution = Arc::new(std::sync::Mutex::new(PlaybackResolutionGate::default()));
             let sort_availability_backfill = Arc::new(SortAvailabilityBackfill::new(store.clone(), playback.clone(), playback_resolution.clone(), app.handle().clone()));
             let playback_provider_session_status = std::sync::Mutex::new(managed_provider_session.status());
             source_preparation::schedule_saved(acquisition.clone());
-            app.manage(AppState { discovery, autotag, store, directory_browser, automation, playback, _system_media: system_media, #[cfg(target_os = "linux")] _mpris: mpris, local_audio, webview_audio_transport, webview_audio_transcoder, acquisition, diagnostics: startup_diagnostics, browser, managed_provider_session, playback_provider_session_status, remote_playlists, candidate_preview, preview_warmup_cancel:std::sync::Mutex::new(None), playback_resolution, webview_identification: webview_identification::WebViewIdentification::default(), connections, artists, analysis, history, playlist_watcher: std::sync::Mutex::new(playlist_watcher), provider_reads: Arc::new(provider_read_requests::ProviderReadRequests::default()), sort_availability_backfill });
+            app.manage(AppState { discovery, autotag, store, _profile_lock: profile_lock, backup_manager, import_drops, directory_browser, automation, playback, _system_media: system_media, #[cfg(target_os = "linux")] _mpris: mpris, local_audio, webview_audio_transport, webview_audio_transcoder, acquisition, diagnostics: startup_diagnostics, browser, managed_provider_session, playback_provider_session_status, remote_playlists, candidate_preview, preview_warmup_cancel:std::sync::Mutex::new(None), playback_resolution, webview_identification: webview_identification::WebViewIdentification::default(), connections, artists, analysis, analysis_selection_jobs: analysis_selection::AnalysisSelectionJobs::new(), stream_analysis_selection_jobs: analysis_stream_selection::SelectedStreamAnalysisJobs::new(), loudness_analysis_jobs: Arc::default(), waveform_analysis_jobs: Arc::default(), history, playlist_watcher: std::sync::Mutex::new(playlist_watcher), provider_reads: Arc::new(provider_read_requests::ProviderReadRequests::default()), sort_availability_backfill, backup_frontend_preference_session_id });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            export_backup_settings,
+            preview_backup_restore,
+            submit_backup_checkpoint,
+            inspect_backup_settings,
+            apply_backup_settings,
             list_track_files,set_preferred_track_file,set_remote_playlist_write_sync_enabled,remote_playlist_connection_status,connect_remote_playlist_provider,disconnect_remote_playlist_provider,list_remote_playlists,browse_remote_playlist,browse_remote_artist,browse_remote_artist_tracks,browse_remote_album_tracks,prepare_spotify_recording_crosswalk,search_remote_playlists,cancel_remote_read,repair_spotify_durations_public,cancel_public_spotify_duration_repair,public_spotify_duration_repair_running,list_remote_playlist_bindings,import_remote_playlists,get_remote_playlist_import_job,cancel_remote_playlist_import,refresh_remote_playlist_binding,get_remote_playlist_sync_preview,search_remote_playlist_writeback_candidates,apply_remote_playlist_sync_preview,get_managed_provider_session_status,start_managed_provider_login,start_managed_provider_background,stop_managed_provider_session,confirm_managed_provider_account,create_verification_playlist,create_youtube_handoff_pairing_code,
+            inspect_backup, consume_import_drop, create_backup, estimate_backup, get_backup_job, get_active_backup_job, cancel_backup_job, restore_backup, get_restore_work_policy, review_restored_automatic_work, choose_backup_restore_root, get_backup_schedule, set_backup_schedule, choose_backup_schedule_destination, get_backup_frontend_preferences, ack_backup_frontend_preferences, get_backup_playback_restore, ack_backup_playback_restore,
             get_release_setup, complete_release_setup, get_radio_recognition, set_radio_recognition, choose_music_directory,
             get_playback_engine_settings, restart_with_playback_engine, get_playback_snapshot, playback_command, handoff_webview_playback, handoff_resolved_playback_source,
             get_browser_install_status, register_browser_host, unregister_browser_host,
@@ -6594,9 +9990,14 @@ pub fn run() {
             get_sidebar_layout,
             save_sidebar_layout,
             list_search_sources, register_chapter_track, search_source, poll_search_source, inspect_youtube_source, enrich_search_result, get_autotag_jobs, get_autotag_settings, save_autotag_settings, retry_autotag, repair_download_source_tags, review_autotag_candidate, apply_autotag_review, apply_recognition_review,
-            get_browser_status, get_automation_status, set_automation_permissions, automation_playback_state, automation_playback_complete, automation_queued_playback_accept, automation_queued_playback_update, automation_queued_playback_status, automation_identify_complete, set_automation_frontend_ready, automation_layout_complete, automation_search_ui_complete, automation_search_controls_complete, automation_player_panel_complete, automation_ui_navigation_complete,
+            get_browser_status, get_automation_status, set_automation_permissions, automation_playback_state, automation_playback_complete, automation_queued_playback_accept, automation_queued_playback_update, automation_queued_playback_status, automation_identify_complete, set_automation_frontend_ready, automation_layout_complete, automation_stereo_diagnostic_complete, automation_search_ui_complete, automation_search_controls_complete, automation_player_panel_complete, automation_ui_navigation_complete,
             request_browser_import,
             import_collection_url,
+            preview_collection_import,
+            apply_collection_import,
+            retry_import_failures,
+            enrich_import_track,
+            set_import_playback_mode,
             list_browser_imports,
             load_browser_import,
             import_browser_snapshot,
@@ -6620,6 +10021,9 @@ pub fn run() {
             identify_playing_track,
             cancel_playing_track_identification,
             identify_webview_track,
+            get_playing_track_detections,
+            set_playing_track_detection_enabled,
+            detect_playing_track_segment,
             identify_webview_playing_pcm,
             identify_webview_playing_output,
             cancel_webview_identification,
@@ -6637,7 +10041,7 @@ pub fn run() {
             remove_from_collection,
             add_to_collection,
             append_playlist_entries,
-            import_tracks,
+            import_tracks, preview_import_tracks, pick_import_audio_sources, preview_local_audio_import,
         merge_recordings,
             search_tracks,
             search_audio_tracks,
@@ -6658,6 +10062,14 @@ pub fn run() {
             list_jobs,
             get_settings,
             get_live_bpm,
+            get_live_playback_estimates,
+            estimate_webview_live_bpm,
+            get_playback_waveform,
+            get_cached_stream_analysis,
+            begin_webview_stream_analysis,
+            push_webview_stream_analysis,
+            finish_webview_stream_analysis,
+            cancel_webview_stream_analysis,
             get_playback_diagnostics_status,
             set_playback_diagnostics_enabled,
             clear_playback_diagnostics,
@@ -6677,23 +10089,33 @@ pub fn run() {
             list_track_files_for_recordings,
             count_assets,
             get_analysis_status_for_assets,
-            import_local_file,
+            get_loudness_settings, set_loudness_settings, get_loudness_decision_for_asset,
+            set_loudness_album_context,
+            start_loudness_analysis, get_loudness_analysis_status, cancel_loudness_analysis,
+            start_local_waveform_analysis, get_local_waveform_analysis_status,
+            cancel_local_waveform_analysis, get_local_waveform_analysis,
+            import_local_file, apply_local_audio_import,
             export_mp3,
             export_playlist, export_mixxx_playlist, resume_playlist_mirror, copy_playlist, move_playlist_entry,
+            get_playlist_hierarchy, save_playlist_hierarchy, place_imported_playlist_items, preview_portable_playlist_export,
+            render_portable_playlist_export, export_portable_playlist, preview_portable_playlist_import,
+            apply_portable_playlist_import, resolve_portable_playback_candidate, preview_playlist_mirror_migration, migrate_playlist_mirror_v1,
+            preview_history_playlist_export, render_history_playlist_export, get_history_mirror_options, set_history_mirror_options, preview_restored_playlist_sync, resume_reviewed_restored_playlist_sync, resume_history_playlist_mirror,
+            get_playlist_mirror_options, set_playlist_mirror_options,
             open_in_file_manager,
             open_external_url
             ,get_connections, save_connections, test_connections, get_managed_slskd_download_settings, save_managed_slskd_download_settings, get_slskd_shares, rescan_slskd_shares, add_managed_slskd_share, remove_managed_slskd_share, translate_current_track_lyrics,
             start_slskd_search, get_slskd_search, cancel_slskd_search,
-            search_artists, search_albums, get_artist_profile, get_artist_releases, get_release_tracks, save_library_tracks,
+            search_artists, search_albums, get_artist_artwork, get_artist_profile, get_artist_releases, get_release_tracks, save_library_tracks,
             get_artist_tracks, get_artist_collaborations, resolve_recording_metadata,
             list_directory_browser_roots, list_directory_browser_children, choose_directory_browser_root, add_directory_browser_root, remove_directory_browser_root, browse_directory_browser, start_directory_browser_sort_availability, get_directory_browser_sort_availability, cancel_directory_browser_sort_availability, start_directory_browser_scan, get_directory_browser_scan, cancel_directory_browser_scan,
             import_onetagger_discogs, list_local_playlists, import_local_playlist,
-            analyze_local_assets, get_analysis_status, scan_local_playlists, sync_playlists, playlist_watcher_running,
+            analyze_local_assets, get_analysis_status, start_selected_asset_analysis, get_selected_asset_analysis, cancel_selected_asset_analysis, apply_selected_asset_analysis, start_selected_stream_analysis, start_stream_media_analysis, get_cached_stream_media_analysis, get_selected_stream_analysis, cancel_selected_stream_analysis, apply_selected_stream_analysis, scan_local_playlists, sync_playlists, playlist_watcher_running,
             get_radio_song_track,set_playlist_shortcut_binding,get_playlist_preferences,set_playlist_shortcut,set_favorites_playlist,set_favorite_membership,get_radio_history_setting,set_radio_history_setting,record_radio_history,
-            record_playback, list_playback_history, search_playback_history, clear_playback_history, inspect_chapters,
+            record_playback, list_playback_history, search_playback_history, get_track_library_summary, clear_playback_history, inspect_chapters,
             enrich_chapters, cache_artwork, cache_asset_artwork, artwork_display::read_cached_artwork_display, get_song_radio
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("Cannot start Burrata")
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::Exit) {

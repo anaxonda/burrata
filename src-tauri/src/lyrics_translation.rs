@@ -2,6 +2,9 @@
 //! The adapter receives only lyric text and stable line IDs; credentials are
 //! supplied by ConnectionManager and never persisted with this module.
 
+#[path = "google_lyrics.rs"]
+mod google;
+
 use crate::{
     connections::{LyricsTranslationConnection, LyricsTranslationProvider},
     lyrics,
@@ -79,7 +82,7 @@ fn endpoint(base_url: &str) -> Result<Url, String> {
 
 fn cache_key(connection: &LyricsTranslationConnection, source_hash: &str) -> String {
     let mut hash = Sha256::new();
-    hash.update(b"burrata-lyrics-translation-cache-v2\0");
+    hash.update(b"burrata-lyrics-translation-cache-v3\0");
     hash.update(match connection.provider {
         LyricsTranslationProvider::OpenaiCompatible => b"openai".as_slice(),
         LyricsTranslationProvider::GoogleFree => b"google-free".as_slice(),
@@ -123,18 +126,63 @@ async fn free_first_translation(
     fallback: impl std::future::Future<Output = Result<Vec<TranslatedLine>, String>>,
     key_available: bool,
 ) -> Result<(Vec<TranslatedLine>, bool), String> {
-    match tokio::time::timeout(Duration::from_secs(10),free).await {
+    match tokio::time::timeout(Duration::from_secs(if key_available {3} else {10}),free).await {
         Ok(Ok(lines)) => Ok((lines,false)),
         _ if key_available => Ok((fallback.await?,true)),
         _ => Err("Free translation is unavailable. Configure an API key in Connections to use automatic fallback".into()),
     }
 }
+fn free_cooldown() -> &'static Mutex<Option<Instant>> {
+    static COOLDOWN: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
+    COOLDOWN.get_or_init(|| Mutex::new(None))
+}
+
 pub async fn translate_current_document(
     connection: LyricsTranslationConnection,
     source_hash: String,
     lines: Vec<lyrics::LyricsLine>,
 ) -> Result<LyricsTranslationResponse, String> {
     validate_source(&source_hash, &lines)?;
+    translate_validated_document(connection, source_hash, lines).await
+}
+
+pub(crate) async fn translate_current_chunk(
+    connection: LyricsTranslationConnection,
+    source_hash: String,
+    lines: Vec<lyrics::LyricsLine>,
+    start: usize,
+    end: usize,
+) -> Result<LyricsTranslationResponse, String> {
+    validate_source(&source_hash, &lines)?;
+    if start >= end || end > lines.len() || end - start > 16 {
+        return Err("Invalid lyric translation batch".into());
+    }
+    if connection.provider == LyricsTranslationProvider::GoogleFree {
+        // Detect language from the whole song, not a short chorus-sized UI batch.
+        // Serialize the shared cache fill so concurrent display batches send one document.
+        static GOOGLE_DOCUMENT: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+        let _guard = GOOGLE_DOCUMENT
+            .get_or_init(|| tokio::sync::Mutex::new(()))
+            .lock()
+            .await;
+        let mut result = translate_current_document(connection, source_hash, lines).await?;
+        result.lines = result.lines[start..end].to_vec();
+        return Ok(result);
+    }
+    let chunk = lines[start..end].to_vec();
+    // Stable IDs belong to the full document, including repeated-line ordinals.
+    // Validate that full document above, then retain those IDs inside each batch.
+    let key = lyrics::source_hash_for_lines(&chunk);
+    let mut result = translate_validated_document(connection, key, chunk).await?;
+    result.source_hash = source_hash;
+    Ok(result)
+}
+
+async fn translate_validated_document(
+    connection: LyricsTranslationConnection,
+    source_hash: String,
+    lines: Vec<lyrics::LyricsLine>,
+) -> Result<LyricsTranslationResponse, String> {
     if connection.provider == LyricsTranslationProvider::OpenaiCompatible
         && (connection.model.trim().is_empty()
             || connection.target_language.trim().is_empty()
@@ -156,14 +204,31 @@ pub async fn translate_current_document(
     let mut fallback_used = false;
     let translated = match connection.provider {
         LyricsTranslationProvider::Auto => {
+            let key_available = !connection.api_key.is_empty()
+                && !connection.base_url.trim().is_empty()
+                && !connection.model.trim().is_empty();
+            let cooling = key_available
+                && free_cooldown()
+                    .lock()
+                    .ok()
+                    .and_then(|value| *value)
+                    .is_some_and(|until| Instant::now() < until);
+            let free = async {
+                if cooling {
+                    Err("Free translation is cooling down".into())
+                } else {
+                    translate_google(&connection.target_language, &lines).await
+                }
+            };
             let (translated, used_fallback) = free_first_translation(
-                translate_google(&connection.target_language, &lines),
+                free,
                 translate_openai(&connection, &source_hash, &lines),
-                !connection.api_key.is_empty()
-                    && !connection.base_url.trim().is_empty()
-                    && !connection.model.trim().is_empty(),
+                key_available,
             )
             .await?;
+            if let Ok(mut cooldown) = free_cooldown().lock() {
+                *cooldown = used_fallback.then(|| Instant::now() + Duration::from_secs(60));
+            }
             used_api = used_fallback;
             fallback_used = used_fallback;
             translated
@@ -236,7 +301,7 @@ async fn translate_openai(
         "max_completion_tokens": 6000,
         "response_format": {"type":"json_object"},
         "messages": [
-            {"role":"system","content":format!("Translate each supplied lyric line into {}. Preserve line meaning and tone. Keep empty source lines empty. Return exactly one JSON object with a `lines` array. Each array item must contain exactly the original `id` and the translated `text`. Keep the same number and order of lines; do not add notes, stage directions, or extra line breaks.", connection.target_language)},
+            {"role":"system","content":format!("Translate each supplied lyric line into {}. Preserve line meaning and tone. The input may be romanized or transliterated; infer the underlying language and translate its meaning rather than copying phonetic spelling. Keep empty source lines empty. Return exactly one JSON object with a `lines` array. Each array item must contain exactly the original `id` and the translated `text`. Keep the same number and order of lines; do not add notes, stage directions, or extra line breaks.", connection.target_language)},
             {"role":"user","content":serde_json::to_string(&json!({"sourceHash":source_hash,"lines":source})).map_err(|_| "Could not prepare translation request")?}
         ]
     });
@@ -316,41 +381,45 @@ fn google_chunks<'a>(texts: &[&'a str]) -> Result<Vec<Vec<&'a str>>, String> {
     Ok(chunks)
 }
 
-fn parse_google_translation(html: &str, expected_lines: usize) -> Result<Vec<String>, String> {
-    let document = scraper::Html::parse_document(html);
-    let selector =
-        scraper::Selector::parse("div.result-container, div.t0").expect("fixed selector");
-    let mut results = document.select(&selector);
-    let result = results
-        .next()
-        .ok_or("Google Translate returned no translation; try again later")?;
-    if results.next().is_some() {
-        return Err("Google Translate returned an ambiguous response".into());
+fn parse_google_translation(value: &Value, source_lines: &[&str]) -> Result<Vec<String>, String> {
+    let segments = value
+        .get(0)
+        .and_then(Value::as_array)
+        .filter(|segments| !segments.is_empty())
+        .ok_or("Google Translate returned no translation")?;
+    let mut translated = String::new();
+    let mut source = String::new();
+    for segment in segments {
+        let text = segment
+            .get(0)
+            .and_then(Value::as_str)
+            .ok_or("Google Translate returned an invalid translation segment")?;
+        let original = segment
+            .get(1)
+            .and_then(Value::as_str)
+            .ok_or("Google Translate did not identify the translated source")?;
+        translated.push_str(text);
+        source.push_str(original);
     }
-    let mut text = String::new();
-    for node in result.descendants() {
-        match node.value() {
-            scraper::node::Node::Text(value) => text.push_str(value),
-            scraper::node::Node::Element(element) if element.name() == "br" => text.push('\n'),
-            _ => {}
-        }
+    // Google's response can split a sentence into several segments. Reassemble
+    // those segments before validating line boundaries against the echoed input.
+    if source != source_lines.join("\n") {
+        return Err("Google Translate returned a different source document".into());
     }
-    let text = text.replace("\r\n", "\n");
-    let lines = text
+    let translated = translated.replace("\r\n", "\n");
+    let lines = translated
         .trim_end_matches('\n')
         .split('\n')
         .map(str::to_owned)
         .collect::<Vec<_>>();
-    if lines.len() != expected_lines
+    if lines.len() != source_lines.len()
         || lines.iter().any(|line| {
             line.trim().is_empty()
                 || line.len() > MAX_TRANSLATED_LINE_BYTES
                 || line.chars().any(char::is_control)
         })
     {
-        return Err(
-            "Google Translate did not preserve lyric lines; try the AI provider instead".into(),
-        );
+        return Err("Google Translate did not preserve lyric line boundaries".into());
     }
     Ok(lines)
 }
@@ -359,9 +428,9 @@ async fn translate_google(
     language: &str,
     lines: &[lyrics::LyricsLine],
 ) -> Result<Vec<TranslatedLine>, String> {
-    // The public mobile page is the same keyless interface used by
-    // deep-translator. It can be rate limited; never retry it automatically or
-    // silently send the document to another provider.
+    // Public keyless JSON interface. It needs neither an account nor an API
+    // credential. A rate limit ends this attempt; no mobile-page scraping,
+    // account cookies, or endpoint rotation is used.
     let mut unique = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for line in lines.iter().filter(|line| !line.text.trim().is_empty()) {
@@ -373,44 +442,13 @@ async fn translate_google(
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(15))
         .redirect(reqwest::redirect::Policy::none())
-        .user_agent("Mozilla/5.0")
+        .user_agent(concat!("Burrata/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|_| "Could not initialize Google Translate")?;
     let mut translations = HashMap::new();
     for chunk in google_chunks(&unique)? {
-        let mut response = client
-            .get("https://translate.google.com/m")
-            .query(&[("sl", "auto"), ("tl", language), ("q", &chunk.join("\n"))])
-            .send()
-            .await
-            .map_err(|_| "Google Translate request failed; try again later")?;
-        if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
-            return Err("Google Translate is temporarily rate limited; try again later or select the AI provider".into());
-        }
-        if response.status() != reqwest::StatusCode::OK {
-            return Err(format!(
-                "Google Translate returned HTTP {}; try again later",
-                response.status().as_u16()
-            ));
-        }
-        const LIMIT: usize = 256 * 1024;
-        if response.content_length().is_some_and(|n| n > LIMIT as u64) {
-            return Err("Google Translate response exceeds the size limit".into());
-        }
-        let mut bytes = Vec::new();
-        while let Some(part) = response
-            .chunk()
-            .await
-            .map_err(|_| "Google Translate response was incomplete")?
-        {
-            if bytes.len().saturating_add(part.len()) > LIMIT {
-                return Err("Google Translate response exceeds the size limit".into());
-            }
-            bytes.extend_from_slice(&part);
-        }
-        let html =
-            std::str::from_utf8(&bytes).map_err(|_| "Google Translate returned invalid text")?;
-        let translated_lines = parse_google_translation(html, chunk.len())?;
+        let value = google::translate(&client, language, &chunk).await?;
+        let translated_lines = parse_google_translation(&value, &chunk)?;
         for (source, translated) in chunk.into_iter().zip(translated_lines) {
             translations.insert(source, translated);
         }
@@ -524,6 +562,60 @@ mod tests {
         (source_hash, lines)
     }
 
+    #[tokio::test]
+    async fn chunk_cache_preserves_full_document_repeated_line_ids() {
+        let lines: Vec<_> = (0..4)
+            .map(|ordinal| lyrics::LyricsLine {
+                id: lyrics::stable_line_id(None, "Repeated batch fixture", ordinal),
+                time_seconds: None,
+                text: "Repeated batch fixture".into(),
+            })
+            .collect();
+        let hash = lyrics::source_hash_for_lines(&lines);
+        assert!(lyrics::validate_source_document(&hash, &lines));
+        let connection = LyricsTranslationConnection {
+            provider: LyricsTranslationProvider::GoogleFree,
+            base_url: String::new(),
+            model: String::new(),
+            target_language: "fr".into(),
+            api_key: String::new(),
+        };
+        let chunk_hash = lyrics::source_hash_for_lines(&lines[2..]);
+        assert!(
+            !lyrics::validate_source_document(&chunk_hash, &lines[2..]),
+            "IDs retain whole-document duplicate ordinals"
+        );
+        let response = LyricsTranslationResponse {
+            source_hash: hash.clone(),
+            target_language: "fr".into(),
+            lines: lines
+                .iter()
+                .map(|line| TranslatedLine {
+                    id: line.id.clone(),
+                    text: "Répété".into(),
+                })
+                .collect(),
+            provider: "googleFree".into(),
+            model: None,
+            fallback_used: false,
+        };
+        cache().lock().unwrap().insert(
+            cache_key(&connection, &hash),
+            CacheEntry {
+                inserted: Instant::now(),
+                value: response,
+            },
+        );
+        let result = translate_current_chunk(connection.clone(), hash.clone(), lines.clone(), 2, 4)
+            .await
+            .unwrap();
+        assert_eq!(result.source_hash, hash);
+        assert_eq!(result.lines[0].id, lines[2].id);
+        assert!(translate_current_chunk(connection, hash, lines, 2, 5)
+            .await
+            .is_err());
+    }
+
     /// Explicit opt-in only; the caller supplies the authorized local .env path.
     #[tokio::test]
     #[ignore = "requires explicitly authorized OpenRouter credentials and a real provider request"]
@@ -592,36 +684,214 @@ mod tests {
     }
 
     #[test]
-    fn google_response_preserves_lines_and_rejects_wrong_or_collapsed_content() {
+    fn google_json_preserves_lines_and_rejects_wrong_or_collapsed_content() {
+        let response = json!([
+            [
+                ["Bonjour. ", "Hello. "],
+                ["Au revoir.\n", "Goodbye.\n"],
+                ["Les étoiles brillent.", "The stars shine."]
+            ],
+            null,
+            "en"
+        ]);
         assert_eq!(
-            parse_google_translation(
-                "<div class='result-container'>Hello<br>World &amp; stars</div>",
-                2
-            )
-            .unwrap(),
-            vec!["Hello", "World & stars"]
-        );
-
-        assert_eq!(
-            parse_google_translation(
-                "<div class='result-container'>Hello &amp; welcome.\nThe stars shine.</div>",
-                2
-            )
-            .unwrap(),
-            vec!["Hello & welcome.", "The stars shine."]
+            parse_google_translation(&response, &["Hello. Goodbye.", "The stars shine."]).unwrap(),
+            vec!["Bonjour. Au revoir.", "Les étoiles brillent."]
         );
         assert!(
-            parse_google_translation("<div class='result-container'>Merged lines.</div>", 2)
-                .is_err()
+            parse_google_translation(&response, &["Different source", "The stars shine."]).is_err()
         );
-        assert!(parse_google_translation("<div>Unrelated page</div>", 1).is_err());
+        assert!(parse_google_translation(
+            &json!([[["Merged translation", "First\nSecond"]]]),
+            &["First", "Second"]
+        )
+        .is_err());
         assert!(
-            parse_google_translation("<div class='t0'>One</div><div class='t0'>Two</div>", 2)
+            parse_google_translation(&json!({"error":"Unexpected response"}), &["First"]).is_err()
+        );
+        assert!(
+            parse_google_translation(&json!([[["Invalid\tcontrol", "First"]]]), &["First"])
                 .is_err()
         );
         let long = "é".repeat(2000);
         assert_eq!(google_chunks(&[&long, "short"]).unwrap().len(), 2);
         assert!(google_chunks(&[&"x".repeat(4001)]).is_err());
+    }
+
+    #[tokio::test]
+    #[ignore = "Explicit Google keyless translation check; no API key or paid fallback"]
+    async fn live_google_translates_romanized_bulgarian_with_source_and_line_identity_preserved() {
+        let texts = [
+            "Kalimanko, Denko mari, hubava,",
+            "do sega si mi bila, Denko mari, kalimana,",
+            "ot sega nasetne, Denko mari, parvo libe.",
+            "",
+            "Izgori me, Denko mari, popari me,",
+            "ta me stori, Denko mari, suho darvo,",
+            "suho darvo, Denko mari, orehovo",
+        ];
+        let lines = texts
+            .iter()
+            .map(|text| lyrics::LyricsLine {
+                id: lyrics::stable_line_id(None, text, 0),
+                time_seconds: None,
+                text: (*text).into(),
+            })
+            .collect::<Vec<_>>();
+        let original = lines.clone();
+        let hash = lyrics::source_hash_for_lines(&lines);
+        let started = Instant::now();
+        let response = translate_current_document(
+            LyricsTranslationConnection {
+                provider: LyricsTranslationProvider::GoogleFree,
+                base_url: String::new(),
+                model: String::new(),
+                target_language: "en".into(),
+                api_key: String::new(),
+            },
+            hash.clone(),
+            lines,
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.source_hash, hash);
+        assert_eq!(response.provider, "googleFree");
+        assert!(!response.fallback_used);
+        assert_eq!(response.lines.len(), original.len());
+        for (source, result) in original.iter().zip(&response.lines) {
+            assert_eq!(source.id, result.id);
+            assert_eq!(source.text.is_empty(), result.text.is_empty());
+        }
+        let text = response
+            .lines
+            .iter()
+            .map(|line| line.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase();
+        assert!(
+            text.contains("beautiful"),
+            "Expected meaningful translation, not copied transliteration"
+        );
+        assert!(text.contains("wood") || text.contains("tree"));
+        assert!(text.contains("walnut"));
+        assert_eq!(
+            original
+                .iter()
+                .map(|line| line.text.as_str())
+                .collect::<Vec<_>>(),
+            texts
+        );
+        eprintln!("Google keyless romanized Bulgarian: {} lines in {} ms, IDs/source/blank lines preserved, no API key or fallback",response.lines.len(),started.elapsed().as_millis());
+    }
+
+    #[tokio::test]
+    #[ignore = "Explicit Google keyless translation check; no API key or paid fallback"]
+    async fn live_google_keyless_translates_unicode_blank_and_repeated_lines_without_a_key() {
+        for (target, texts) in [
+            (
+                "fr",
+                vec![
+                    "The quiet river shines.",
+                    "",
+                    "We are going home.",
+                    "The quiet river shines.",
+                    "The moon & stars are bright — tonight.",
+                ],
+            ),
+            ("en", vec!["Реката е тиха.", "Тази вечер се прибираме."]),
+        ] {
+            let mut ordinals = HashMap::new();
+            let lines: Vec<_> = texts
+                .iter()
+                .map(|text| {
+                    let ordinal = ordinals.entry(*text).or_insert(0);
+                    let line = lyrics::LyricsLine {
+                        id: lyrics::stable_line_id(None, text, *ordinal),
+                        time_seconds: None,
+                        text: (*text).into(),
+                    };
+                    *ordinal += 1;
+                    line
+                })
+                .collect();
+            let hash = lyrics::source_hash_for_lines(&lines);
+            let result = translate_current_document(
+                LyricsTranslationConnection {
+                    provider: LyricsTranslationProvider::GoogleFree,
+                    base_url: String::new(),
+                    model: String::new(),
+                    target_language: target.into(),
+                    api_key: String::new(),
+                },
+                hash.clone(),
+                lines.clone(),
+            )
+            .await
+            .unwrap();
+            assert_eq!(result.provider, "googleFree");
+            assert!(result.model.is_none());
+            assert!(!result.fallback_used);
+            assert_eq!(result.source_hash, hash);
+            assert_eq!(result.lines.len(), lines.len());
+            for (source, translated) in lines.iter().zip(&result.lines) {
+                assert_eq!(source.id, translated.id);
+                assert_eq!(
+                    source.text.trim().is_empty(),
+                    translated.text.trim().is_empty()
+                );
+                if !source.text.trim().is_empty() {
+                    assert_ne!(source.text, translated.text);
+                }
+            }
+            eprintln!("Google keyless translation passed: target={target}, lines={}, no API key or fallback",lines.len());
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "Explicit Google keyless timed-song translation check; public lyrics only, no API key"]
+    async fn live_google_keyless_translates_reported_timed_song_without_a_key() {
+        let doc = lyrics::get_current_track_lyrics(lyrics::LyricsRequest {
+            track_name: "I've Got a Tiger By the Tail".into(),
+            artist_name: "Buck Owens".into(),
+            album_name: None,
+            duration_seconds: 133.,
+        })
+        .await;
+        assert_eq!(doc.status, "synced");
+        let lines = doc.lines.unwrap();
+        let hash = doc.source_hash.unwrap();
+        let started = Instant::now();
+        let result = translate_current_document(
+            LyricsTranslationConnection {
+                provider: LyricsTranslationProvider::GoogleFree,
+                base_url: String::new(),
+                model: String::new(),
+                target_language: "fr".into(),
+                api_key: String::new(),
+            },
+            hash.clone(),
+            lines.clone(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.provider, "googleFree");
+        assert!(!result.fallback_used);
+        assert!(result.model.is_none());
+        assert_eq!(result.source_hash, hash);
+        assert_eq!(result.lines.len(), lines.len());
+        for (source, translated) in lines.iter().zip(&result.lines) {
+            assert_eq!(source.id, translated.id);
+            assert_eq!(
+                source.text.trim().is_empty(),
+                translated.text.trim().is_empty()
+            );
+        }
+        eprintln!(
+            "Google keyless timed lyrics: {} lines in {} ms, no key and no fallback",
+            lines.len(),
+            started.elapsed().as_millis()
+        );
     }
 
     #[test]

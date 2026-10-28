@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-detect-playing-track-segment"
+description = "Enables the detect_playing_track_segment command without any pre-configured scope."
+commands.allow = ["detect_playing_track_segment"]
+
+[[permission]]
+identifier = "deny-detect-playing-track-segment"
+description = "Denies the detect_playing_track_segment command without any pre-configured scope."
+commands.deny = ["detect_playing_track_segment"]

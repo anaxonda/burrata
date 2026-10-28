@@ -1,5 +1,5 @@
 export type WebviewStartupPhase = 'attach' | 'resume_seek' | 'play';
-export function captureWebviewStartupFailure(audio: HTMLAudioElement, phase: WebviewStartupPhase, mimeType: string | undefined, streamKind: string | undefined, resumeRequested: boolean, elapsedMs: number) {
+export function captureWebviewStartupFailure(audio: HTMLAudioElement, phase: WebviewStartupPhase, mimeType: string | undefined, streamKind: string | undefined, resumeRequested: boolean, elapsedMs: number, requestedSeekPosition: number, sourceTransport?: string) {
   const rawMime = (mimeType ?? '').split(';',1)[0]?.trim().toLowerCase();
   const mimeFamily = ['audio/mpeg','audio/mp4','audio/webm','audio/ogg','audio/flac','audio/wav','application/vnd.apple.mpegurl','application/x-mpegurl'].includes(rawMime) ? rawMime : rawMime ? 'other' : 'unknown';
   let canPlayType: 'probably'|'maybe'|'no'|'unknown' = 'unknown';
@@ -7,8 +7,17 @@ export function captureWebviewStartupFailure(audio: HTMLAudioElement, phase: Web
     try { const value=audio.canPlayType(mimeFamily);canPlayType=value==='probably'||value==='maybe'?value:'no'; }catch{}
   }
   const bounded=(value:number,maximum:number)=>Number.isInteger(value)&&value>=0&&value<=maximum?value:null;
-  return {phase,mimeFamily,canPlayType,streamKind:['direct','native-hls','mse-hls'].includes(streamKind??'')?streamKind:'unknown',resumeRequested,
+  const boundedSeconds=(value:number)=>Number.isFinite(value)&&value>=0&&value<=86400?Math.round(value*1000)/1000:null;
+  const ranges=(range:TimeRanges)=>{
+    const result:Array<[number,number]>=[];
+    try { for(let index=0;index<Math.min(range.length,8);index++){const start=boundedSeconds(range.start(index)),end=boundedSeconds(range.end(index));if(start!==null&&end!==null&&end>=start)result.push([start,end]);} } catch {}
+    return result;
+  };
+  return {phase,mimeFamily,canPlayType,streamKind:['direct','native-hls','mse-hls'].includes(streamKind??'')?streamKind:'unknown',
+    sourceTransport:['direct','loopback-relay','loopback-transcode'].includes(sourceTransport??'')?sourceTransport:'unknown',resumeRequested,
     readyState:bounded(audio.readyState,4),networkState:bounded(audio.networkState,3),mediaErrorCode:audio.error?bounded(audio.error.code,4):null,
+    currentTime:boundedSeconds(audio.currentTime),duration:Number.isFinite(audio.duration)?boundedSeconds(audio.duration):null,seeking:audio.seeking,
+    requestedSeekPosition:boundedSeconds(requestedSeekPosition),bufferedRanges:ranges(audio.buffered),seekableRanges:ranges(audio.seekable),
     elapsedMs:Number.isFinite(elapsedMs)?Math.min(60000,Math.max(0,Math.round(elapsedMs))):null};
 }
 export type WebviewStartupFailure = ReturnType<typeof captureWebviewStartupFailure>;

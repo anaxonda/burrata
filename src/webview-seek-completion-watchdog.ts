@@ -69,3 +69,24 @@ function sameOwner(a: WebviewSeekCompletionOwner, b: WebviewSeekCompletionOwner)
   return a.node === b.node && a.sourceGeneration === b.sourceGeneration &&
     a.seekSerial === b.seekSerial && a.queueOccurrenceId === b.queueOccurrenceId;
 }
+
+/** Media may already have advanced when a queued seeked/timeupdate event runs.
+ * Bound forward progress by the actual elapsed playback clock instead of
+ * comparing a moving playhead only with the original stationary target.
+ */
+export function hasWebviewSeekLanded(input: {
+  target: number; currentTime: number; duration: number; elapsedMs: number;
+  playing: boolean; playbackRate: number; browserAcknowledged?: boolean;
+}): boolean {
+  if (!Number.isFinite(input.target) || input.target < 0 || !Number.isFinite(input.currentTime) ||
+      !Number.isFinite(input.elapsedMs) || input.elapsedMs < 0) return false;
+  // A current seeked event acknowledges the browser's completed seek. WebKit
+  // AAC can land about a second beyond the target before playback advances;
+  // use the existing maximum two-second landing bound for that acknowledgment.
+  // Ordinary time updates keep the tighter bound and elapsed-playback check.
+  const tolerance = input.browserAcknowledged ? 2
+    : Math.max(0.75, Math.min(2, Number.isFinite(input.duration) ? input.duration * 0.005 : 0.75));
+  const advance = input.playing && Number.isFinite(input.playbackRate) && input.playbackRate > 0
+    ? input.elapsedMs / 1000 * input.playbackRate : 0;
+  return input.currentTime >= input.target - tolerance && input.currentTime <= input.target + tolerance + advance;
+}

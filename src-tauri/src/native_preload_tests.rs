@@ -50,6 +50,15 @@ fn preload(generation: u64, active: Arc<AtomicU64>) -> PreloadFixture {
             end: None,
             activation_tx,
             buffering: Arc::new(AtomicBool::new(false)),
+            normalization_gain_target: Arc::new(AtomicU32::new(1.0_f32.to_bits())),
+            normalization_ramp_ms: Arc::new(AtomicU32::new(80)),
+            normalization_plan: None,
+            replace_normalization_plan: false,
+            normalization_current_gain: 1.0,
+            normalization_seen_target: 1.0_f32.to_bits(),
+            normalization_ramp_start: 1.0,
+            normalization_ramp_total: 0,
+            normalization_ramp_remaining: 0,
             exhausted: false,
         },
         producer: Some(producer),
@@ -305,6 +314,9 @@ fn real_preload_producer_publishes_failure_before_disconnecting_its_pcm_channel(
         activation_tx,
         failed.clone(),
         Arc::new(AtomicBool::new(false)),
+        0.0,
+        None,
+        Arc::new(std::sync::Mutex::new(None)),
     );
     let deadline = Instant::now() + Duration::from_secs(3);
     while !player.empty() {

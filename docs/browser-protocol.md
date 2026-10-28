@@ -133,3 +133,23 @@ Routes: `POST /browser/import` accepts native import requests; `POST /browser/po
 native requests. Player routes
 are merged into this server by the desktop app and validate a separate player-only
 token. Provider scripts never receive the extension bridge token.
+
+
+## Optional import evidence and review (October 24, 2026)
+
+Schema version 1 remains compatible: entries may now include a bounded `metadata`
+object. Supported fields are albumUrl, artistUrl, artistUrls, channelUrl, labelUrl,
+albumArtist, trackNumber, discNumber, albumOrder, description, credits, lyrics,
+artistBio, location, tags, remixers, musicbrainzId, plays, listeners, channelName,
+videoTitle and availability. Unknown fields, invalid links/counts and oversized
+values are rejected. Metadata is retained as unverified source evidence.
+
+Snapshots and receipts may include `failedSources` and ordered `albumUrls` (at most
+20 Bandcamp album pages). Receipts include `changes` with added/removed/moved and
+retainedFromEarlierCapture counts. Older snapshots/receipts default these fields.
+
+Native `import` and `importAlbumCollection` requests accept optional `preview:true`.
+They return an expiring previewId and change summary without adding tracks.
+`{type:"applyImportPreview",previewId}` applies the reviewed capture. Repeating an
+apply returns its existing receipt; a changed base capture requires a new preview.
+Neither request carries browser cookies, form values or stream tokens.

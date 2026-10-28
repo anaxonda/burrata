@@ -109,6 +109,15 @@ access and consent.
 - Bandcamp album capture reads the album's explicit embedded tracklist. Collection pages
   are imported only when they render actual song rows; album cards are not converted into
   tracks. Bandcamp Discover imports up to 20 rendered album URLs and then reads each album’s explicit public tracklist; failed albums produce partial-import warnings.
+- **Preview changes** reads the current page without saving tracks and shows additions,
+  removals, moves and warnings. **Apply reviewed import** commits that exact preview;
+  changed sources require a fresh preview. **Import current page** remains available.
+- Bandcamp imports now retain artwork, page links and available public release
+  descriptions/credits/tags. Other parsers retain available artwork, source links,
+  separate remix credits, explicit availability and public counts. Missing values
+  remain missing; source evidence does not prove recording identity.
+- Import receipts distinguish captured occurrences from unique recordings. Failed
+  Bandcamp album pages can be retried separately from Burrata's import details.
 - Completeness requires an explicit provider total and every position from 1 through
   that total. A stopped scroll, absent total, or absent rows never proves completeness.
 - Parsers depend on public website structure and English count labels. Localized or

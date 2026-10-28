@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-playlist-hierarchy"
+description = "Enables the save_playlist_hierarchy command without any pre-configured scope."
+commands.allow = ["save_playlist_hierarchy"]
+
+[[permission]]
+identifier = "deny-save-playlist-hierarchy"
+description = "Denies the save_playlist_hierarchy command without any pre-configured scope."
+commands.deny = ["save_playlist_hierarchy"]

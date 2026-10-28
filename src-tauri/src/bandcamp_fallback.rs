@@ -26,6 +26,20 @@ const RATE: usize = 8000;
 fn fingerprint(track: &Track) -> String {
     format!("{:x}", Sha256::digest(json!({"id":track.id,"provider":track.provider,"providerId":track.provider_id,"sourceUrl":track.source_url,"title":track.title,"artist":track.artist,"album":track.album,"version":track.version,"duration":track.duration_seconds,"isrc":track.isrc}).to_string().as_bytes()))
 }
+fn ensure_recording_still_current(
+    store: &Store,
+    track: &Track,
+    had_stored_track: bool,
+) -> Result<(), String> {
+    match store.get_track(&track.id)? {
+        Some(saved) if fingerprint(&saved) != fingerprint(track) => {
+            Err("Saved recording changed during Bandcamp verification".into())
+        }
+        None if had_stored_track => Err("Saved recording no longer exists".into()),
+        _ => Ok(()),
+    }
+}
+
 fn compact(value: &str) -> String {
     crate::matching::normalize(value).replace(' ', "")
 }
@@ -50,6 +64,35 @@ pub(crate) fn eligible(track: &Track, settings: &Settings, pinned: bool, attempt
         attempts,
         crate::bandcamp::playback_enabled(),
     )
+}
+/// Eligibility when Bandcamp is reached as one explicitly ordered stage. The
+/// caller has already checked that streaming fallback is enabled and that this
+/// provider appears in the configured list; the remaining recording and pin
+/// safeguards are identical to the legacy fallback path.
+pub(crate) fn eligible_in_order(
+    track: &Track,
+    settings: &Settings,
+    pinned: bool,
+    attempts: usize,
+) -> bool {
+    eligible_in_order_with_policy(
+        track,
+        settings,
+        pinned,
+        attempts,
+        crate::bandcamp::playback_enabled(),
+    )
+}
+fn eligible_in_order_with_policy(
+    track: &Track,
+    settings: &Settings,
+    pinned: bool,
+    attempts: usize,
+    enabled: bool,
+) -> bool {
+    let mut ordered_settings = settings.clone();
+    ordered_settings.streaming_fallback_enabled = true;
+    eligible_with_policy(track, &ordered_settings, pinned, attempts, enabled)
 }
 fn eligible_with_policy(
     track: &Track,
@@ -566,33 +609,7 @@ fn recording_policy_artists(track: &Track, credit: &str) -> Vec<String> {
     // A verified catalog can credit a group whose name contains '&'. Keep
     // those explicit identities when the complete source credit is identical.
     if same_credit(&track.artist, credit) {
-        let names = track.provenance["artistCredits"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|row| row["name"].as_str().or_else(|| row["creditedAs"].as_str()))
-            .filter(|name| !name.trim().is_empty())
-            .map(str::to_owned)
-            .collect::<Vec<_>>();
-        let joined = track.provenance["artistCredits"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|row| {
-                format!(
-                    "{}{}",
-                    row["name"]
-                        .as_str()
-                        .or_else(|| row["creditedAs"].as_str())
-                        .unwrap_or_default(),
-                    row["joinPhrase"]
-                        .as_str()
-                        .or_else(|| row["joinphrase"].as_str())
-                        .unwrap_or_default()
-                )
-            })
-            .collect::<String>();
-        if !names.is_empty() && names.len() <= 32 && same_credit(credit, &joined) {
+        if let Some(names) = crate::recording_identity::declared_credit_names(track) {
             return names;
         }
     }
@@ -699,6 +716,7 @@ pub(crate) async fn resolve(
     reference_verification: bool,
 ) -> Result<ResolvedSource, String> {
     let key = fingerprint(track);
+    let had_stored_track = store.get_track(&track.id)?.is_some();
     let cached = store.get_provider_cache(CACHE, &key)?;
     let mut candidates = vec![];
     let mut linked_proof = None;
@@ -918,6 +936,18 @@ pub(crate) async fn resolve(
             // policy must also accept the resolved recording identity.
             continue;
         };
+        ensure_recording_still_current(store, track, had_stored_track)?;
+        if !reference_verification {
+            if let Some(details) = audio
+                .source_metadata
+                .as_ref()
+                .and_then(|m| m.get("pageMetadata"))
+            {
+                let _ =
+                    crate::import_metadata::fill_bandcamp(store, track, details, &candidate.url);
+                candidate.artwork_url = details["artworkUrl"].as_str().map(str::to_owned);
+            }
+        }
         candidate.duration_seconds = audio.duration_seconds;
         candidate.title = policy_title.clone();
         candidate.confidence = "high".into();
@@ -949,13 +979,6 @@ pub(crate) async fn resolve(
         proof["recordingMatch"] = json!(assessment);
         proof["candidate"] = json!(candidate);
         // Identity evidence survives ordinary cache refreshes; never retain signed URLs.
-        if let Some(saved) = store.get_track(&track.id)? {
-            if fingerprint(&saved) != key {
-                return Err("Saved recording changed during Bandcamp verification".into());
-            }
-        } else {
-            return Err("Saved recording no longer exists".into());
-        }
         store.set_provider_cache(CACHE, &key, &proof, 315_576_000)?;
         return Ok(ResolvedSource {
             origin: ResolvedSourceOrigin::Existing,
@@ -969,6 +992,8 @@ pub(crate) async fn resolve(
                     duration_seconds: audio.duration_seconds,
                     content_length: audio.expected_content_length,
                     has_video: false,
+                    decode_policy: crate::native_output::AudioSourceDecodePolicy::Automatic,
+                    decoder_fingerprint: None,
                 }),
 
                 cenc: None,
@@ -1104,6 +1129,95 @@ mod tests {
             ..Default::default()
         }
     }
+    #[tokio::test]
+    #[ignore = "Explicit reported unsaved Spotify/Bandcamp playback check; fetches public stream only"]
+    async fn live_reported_unsaved_spotify_fallback_resolves_without_library_insertion() {
+        let track: Track = serde_json::from_slice(
+            &std::fs::read(
+                std::env::var("BURRATA_UNSAVED_SPOTIFY_FIXTURE")
+                    .expect("Explicit reported track fixture required"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(track.provider, "spotify");
+        assert_eq!(track.title, "When Jesus Calls All His Children In");
+        let root = tempfile::tempdir().unwrap();
+        let store = std::sync::Arc::new(Store::open(&root.path().join("store.sqlite")).unwrap());
+        let connections =
+            std::sync::Arc::new(crate::connections::ConnectionManager::new(store.clone()));
+        let acquisition = AcquisitionManager::new_for_diagnostics(store.clone(), connections);
+        let (_stop, cancel) = watch::channel(false);
+        let source = resolve(
+            &store,
+            &acquisition,
+            &track,
+            &Settings::default(),
+            cancel.clone(),
+            SourceTrace::new(None, None, None),
+            PlaybackDeadline::after(Duration::from_secs(20)),
+            &[],
+            false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(source.candidate.as_ref().unwrap().provider, "bandcamp");
+        assert!((source.duration.unwrap() - 137.).abs() < 2.);
+        assert!(
+            store.get_track(&track.id).unwrap().is_none(),
+            "playback must never publish an unsaved selection"
+        );
+        let pcm = crate::native_output::direct_pcm_experiment::collect_until(
+            source.source,
+            0.,
+            3.,
+            std::time::Instant::now() + Duration::from_secs(15),
+            cancel,
+        )
+        .await;
+        let pcm = serde_json::to_value(pcm).unwrap();
+        assert_eq!(pcm["ok"], true, "native decode failed");
+        assert!(store.get_track(&track.id).unwrap().is_none());
+        eprintln!("Unsaved Spotify selection resolved to verified Bandcamp audio and decoded; no library entry created");
+    }
+
+    #[test]
+    fn verified_unsaved_spotify_playback_does_not_require_or_publish_a_library_record() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(&root.path().join("fixture.sqlite")).unwrap();
+        let incoming = Track {
+            id: "spotify:unsaved-fixture".into(),
+            provider: "spotify".into(),
+            provider_id: "unsaved-fixture".into(),
+            title: "Synthetic selected recording".into(),
+            artist: "Synthetic performer".into(),
+            duration_seconds: Some(137.),
+            ..Default::default()
+        };
+        assert!(store.get_track(&incoming.id).unwrap().is_none());
+        ensure_recording_still_current(&store, &incoming, false).unwrap();
+        assert!(
+            store.get_track(&incoming.id).unwrap().is_none(),
+            "playback must not insert or promote a track"
+        );
+        store.cache_track(&incoming).unwrap();
+        ensure_recording_still_current(&store, &incoming, true).unwrap();
+        let mut edited = incoming.clone();
+        edited.title = "Changed recording".into();
+        store.cache_track(&edited).unwrap();
+        assert!(ensure_recording_still_current(&store, &incoming, true)
+            .unwrap_err()
+            .contains("changed"));
+        rusqlite::Connection::open(root.path().join("fixture.sqlite"))
+            .unwrap()
+            .execute("DELETE FROM catalog_listings WHERE id=?1", [&incoming.id])
+            .unwrap();
+        assert!(ensure_recording_still_current(&store, &incoming, true)
+            .unwrap_err()
+            .contains("no longer exists"));
+        ensure_recording_still_current(&store, &incoming, false).unwrap();
+    }
+
     #[test]
     fn discovery_does_not_treat_spelling_or_partial_credits_as_proof() {
         let raw = json!({"auto":{"results":[
@@ -1158,6 +1272,25 @@ mod tests {
             ..settings
         };
         assert!(!eligible_with_policy(&original, &disabled, false, 2, true));
+        let ordered_only = Settings {
+            streaming_fallback_enabled: false,
+            ..Settings::default()
+        };
+        assert!(!eligible(&original, &ordered_only, false, 2));
+        assert!(eligible_in_order_with_policy(
+            &original,
+            &ordered_only,
+            false,
+            2,
+            true
+        ));
+        assert!(!eligible_in_order_with_policy(
+            &original,
+            &ordered_only,
+            false,
+            2,
+            false
+        ));
         for changed in [
             Track {
                 local_path: Some("local.mp3".into()),

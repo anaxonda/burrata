@@ -3,15 +3,17 @@ use crate::browser_bridge::{
 };
 use crate::models::*;
 use icu_normalizer::ComposingNormalizerBorrowed;
-use rusqlite::{functions::FunctionFlags, params, Connection, OptionalExtension};
+use rusqlite::{functions::FunctionFlags, params, Connection, OptionalExtension, Transaction};
 use std::{
+    collections::HashMap,
     path::Path,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Mutex, MutexGuard,
+        Arc, Mutex, MutexGuard,
     },
     time::Instant,
 };
+use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 
 /// A dedicated retained cache for stable source locators, never stream URLs.
 pub(crate) const PLAYBACK_LOCATOR_CACHE_NAMESPACE: &str = "playback.matching-locators.v2";
@@ -22,6 +24,14 @@ pub struct TrackPrefixEntry {
     pub listing_id: String,
     #[serde(rename = "playlistPosition")]
     pub playlist_position: Option<i64>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct OrderedPlaylistOccurrence {
+    pub occurrence_id: String,
+    pub listing_id: String,
+    pub position: i64,
 }
 
 /// A reviewable Library entry with no independent favorite, collection, or
@@ -85,8 +95,49 @@ struct TrackPageRow {
 
 pub struct Store {
     connection: Mutex<Connection>,
+    library_barrier: LibraryWriteBarrier,
     connection_metrics_enabled: bool,
     connection_wait_metrics: ConnectionWaitMetrics,
+}
+
+/// Per-profile barrier shared by the library and playback-history connections.
+/// It is created by each Store instance, so isolated Stores never block one
+/// another in tests or preview staging.
+pub type LibraryWriteBarrier = Arc<RwLock<()>>;
+pub type LibraryWritePermit = OwnedRwLockReadGuard<()>;
+
+/// Exclusive restore lease. The private barrier identity prevents using a
+/// permit from another Store/profile to bypass this Store's gate.
+pub struct RestorePermit {
+    barrier: LibraryWriteBarrier,
+    _guard: OwnedRwLockWriteGuard<()>,
+}
+impl RestorePermit {
+    pub(crate) fn belongs_to(&self, barrier: &LibraryWriteBarrier) -> bool {
+        Arc::ptr_eq(&self.barrier, barrier)
+    }
+}
+
+/// Restores the connection to writable mode if restore staging fails or is
+/// canceled. Successful restore explicitly disarms this guard and keeps the
+/// connection frozen until process exit.
+pub struct StoreRestoreFreeze {
+    store: Arc<Store>,
+    armed: bool,
+}
+impl StoreRestoreFreeze {
+    pub fn keep_frozen(&mut self) {
+        self.armed = false;
+    }
+}
+impl Drop for StoreRestoreFreeze {
+    fn drop(&mut self) {
+        if self.armed {
+            if let Ok(connection) = self.store.connection.lock() {
+                let _ = connection.execute_batch("PRAGMA query_only=OFF;");
+            }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -165,6 +216,36 @@ fn encode<T: serde::Serialize>(value: &T) -> Result<String> {
 }
 fn decode<T: serde::de::DeserializeOwned>(value: String) -> Result<T> {
     serde_json::from_str(&value).map_err(err)
+}
+fn normalize_streaming_fallback_policy(settings: &mut Settings) -> Result<()> {
+    match settings.streaming_fallback_policy_version {
+        0 => {
+            // Before the ordered list, Bandcamp had a separate switch. Migrate
+            // its effective choice once, after the previously configured
+            // providers, and mark the list authoritative from then on.
+            if !settings.streaming_fallback_enabled && settings.bandcamp_fallback_enabled {
+                // The legacy Bandcamp switch represented a Bandcamp-only
+                // fallback mode even when the ordinary provider chain was off.
+                settings.streaming_fallback_sources = vec!["bandcamp".into()];
+                settings.streaming_fallback_enabled = true;
+            } else if settings.bandcamp_fallback_enabled
+                && !settings
+                    .streaming_fallback_sources
+                    .iter()
+                    .any(|provider| provider == "bandcamp")
+            {
+                settings.streaming_fallback_sources.push("bandcamp".into());
+            }
+            settings.streaming_fallback_policy_version = 1;
+        }
+        1 => {}
+        _ => return Err("Unsupported streaming fallback policy version".into()),
+    }
+    settings.bandcamp_fallback_enabled = settings
+        .streaming_fallback_sources
+        .iter()
+        .any(|provider| provider == "bandcamp");
+    Ok(())
 }
 fn normalize_artist_name(value: &str) -> String {
     let normalized = ComposingNormalizerBorrowed::new_nfkc().normalize(value);
@@ -467,6 +548,59 @@ fn stable_provider_id(provider: &str, provider_id: &str) -> bool {
     }
 }
 
+/// Hashes the stable verified-source mapping for one provider. Expiry and
+/// refresh timestamps are intentionally omitted; provider identity, permanent
+/// resource URL, and verification proof fence a reviewed analysis.
+fn verified_source_mapping_fingerprint_tx(
+    tx: &rusqlite::Transaction<'_>,
+    recording_id: &str,
+    fingerprint: &str,
+    provider: &str,
+) -> Result<Option<String>> {
+    use sha2::{Digest, Sha256};
+
+    let row: Option<(String, String, Option<String>)> = tx
+        .query_row(
+            "SELECT provider_id,permanent_url,verification_proof FROM verified_playback_sources
+             WHERE recording_id=?1 AND fingerprint=?2 AND provider=?3",
+            params![recording_id, fingerprint.to_ascii_lowercase(), provider],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(err)?;
+    let Some((provider_id, permanent_url, proof_raw)) = row else {
+        return Ok(None);
+    };
+    // Parse and re-encode valid proofs so JSON object key order is immaterial.
+    // For a malformed legacy proof, hash its exact bytes so edits still fence
+    // review without returning the proof or URL to the caller.
+    let proof = match proof_raw {
+        Some(raw) => match serde_json::from_str::<serde_json::Value>(&raw) {
+            Ok(value) => serde_json::to_vec(&value).map_err(err)?,
+            Err(_) => {
+                let mut digest = Sha256::new();
+                digest.update(b"invalid-proof\0");
+                digest.update(raw.as_bytes());
+                digest.finalize().to_vec()
+            }
+        },
+        None => Vec::new(),
+    };
+    let fields = [
+        provider.as_bytes(),
+        provider_id.as_bytes(),
+        permanent_url.as_bytes(),
+        &proof,
+    ];
+    let mut digest = Sha256::new();
+    digest.update(b"verified-playback-source-mapping-v1\0");
+    for field in fields {
+        digest.update((field.len() as u64).to_be_bytes());
+        digest.update(field);
+    }
+    Ok(Some(format!("{:x}", digest.finalize())))
+}
+
 impl Store {
     /// Recompute a bounded batch of cached sort-field masks for listings that
     /// have no local assets or exactly one local asset. Asset-free rows cache
@@ -593,7 +727,7 @@ impl Store {
         let version: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .map_err(err)?;
-        if version > 10 {
+        if version > 11 {
             return Err("Database was created by a newer Burrata version".into());
         }
         if version == 0 {
@@ -724,6 +858,52 @@ impl Store {
             } else {
                 conn.execute_batch("PRAGMA user_version=10;").map_err(err)?;
             }
+        }
+        if version < 11 {
+            conn.execute_batch("BEGIN IMMEDIATE;").map_err(err)?;
+            let has_occurrence_id: bool = conn
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM pragma_table_info('playlist_ordered_entries') WHERE name='occurrence_id')",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(err)?;
+            if !has_occurrence_id {
+                conn.execute_batch("ALTER TABLE playlist_ordered_entries ADD COLUMN occurrence_id TEXT NOT NULL DEFAULT '';")
+                    .map_err(err)?;
+            }
+            let empty_ids = {
+                let mut statement = conn.prepare(
+                    "SELECT collection_id,position FROM playlist_ordered_entries WHERE occurrence_id='' ORDER BY collection_id,position",
+                ).map_err(err)?;
+                let rows = statement
+                    .query_map([], |row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                    })
+                    .map_err(err)?
+                    .collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(err)?;
+                rows
+            };
+            for (collection_id, position) in empty_ids {
+                conn.execute(
+                    "UPDATE playlist_ordered_entries SET occurrence_id=?1 WHERE collection_id=?2 AND position=?3",
+                    params![uuid::Uuid::new_v4().to_string(), collection_id, position],
+                ).map_err(err)?;
+            }
+            conn.execute_batch(
+                "CREATE UNIQUE INDEX IF NOT EXISTS playlist_occurrence_id ON playlist_ordered_entries(occurrence_id);
+                 CREATE TRIGGER IF NOT EXISTS playlist_occurrence_id_insert AFTER INSERT ON playlist_ordered_entries
+                 WHEN NEW.occurrence_id='' BEGIN
+                   UPDATE playlist_ordered_entries SET occurrence_id=
+                     lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' ||
+                     substr(lower(hex(randomblob(2))),2) || '-' ||
+                     substr('89ab',(random() & 3)+1,1) || substr(lower(hex(randomblob(2))),2) || '-' ||
+                     lower(hex(randomblob(6)))
+                   WHERE collection_id=NEW.collection_id AND position=NEW.position;
+                 END;
+                 PRAGMA user_version=11; COMMIT;",
+            ).map_err(err)?;
         }
         // Version 9 was not shipped; keep this guard so prototype v9 stores made
         // before the projection column was introduced can still be opened.
@@ -863,6 +1043,7 @@ impl Store {
         .map_err(err)?;
         let store = Self {
             connection: Mutex::new(conn),
+            library_barrier: Arc::new(RwLock::new(())),
             connection_metrics_enabled: db_wait_metrics_enabled(),
             connection_wait_metrics: ConnectionWaitMetrics::default(),
         };
@@ -886,6 +1067,65 @@ impl Store {
             }
         }
         Ok(store)
+    }
+    pub fn library_write_barrier(&self) -> LibraryWriteBarrier {
+        self.library_barrier.clone()
+    }
+    /// Hold this lease for the complete lifetime of a library-writing job,
+    /// including any external file publication it owns. Restore fails rather
+    /// than racing such a job.
+    pub fn try_library_write(&self) -> Result<LibraryWritePermit> {
+        self.library_barrier
+            .clone()
+            .try_read_owned()
+            .map_err(|_| "Library restore is in progress".to_owned())
+    }
+    /// Acquire exclusive profile access. This is deliberately nonblocking so
+    /// a restore cannot queue ahead of new work while existing jobs wind down.
+    pub fn try_restore_permit(&self) -> Result<RestorePermit> {
+        let barrier = self.library_barrier.clone();
+        let guard = barrier.clone().try_write_owned().map_err(|_| {
+            "Library writers are active; wait for them to finish before restoring".to_owned()
+        })?;
+        Ok(RestorePermit {
+            barrier,
+            _guard: guard,
+        })
+    }
+    pub(crate) fn with_restore_connection<T>(
+        &self,
+        permit: &RestorePermit,
+        operation: impl FnOnce(&Connection) -> Result<T>,
+    ) -> Result<T> {
+        if !Arc::ptr_eq(&self.library_barrier, &permit.barrier) {
+            return Err("Restore permit belongs to another library profile".into());
+        }
+        let connection = self.connection.lock().map_err(err)?;
+        operation(&connection)
+    }
+    pub(crate) fn freeze_for_restore(
+        self: &Arc<Self>,
+        permit: &RestorePermit,
+        expected_change_count: u64,
+    ) -> Result<StoreRestoreFreeze> {
+        self.with_restore_connection(permit, |connection| {
+            let current: u64 = connection.query_row("SELECT total_changes()", [], |row| row.get(0)).map_err(err)?;
+            if current != expected_change_count {
+                return Err("Library changed after the restore recovery snapshot; inspect and retry restore".into());
+            }
+            connection.execute_batch("PRAGMA query_only=ON;").map_err(err)
+        })?;
+        Ok(StoreRestoreFreeze {
+            store: self.clone(),
+            armed: true,
+        })
+    }
+    pub(crate) fn change_count_for_restore(&self, permit: &RestorePermit) -> Result<u64> {
+        self.with_restore_connection(permit, |connection| {
+            connection
+                .query_row("SELECT total_changes()", [], |row| row.get(0))
+                .map_err(err)
+        })
     }
     fn lock_connection(&self) -> Result<MutexGuard<'_, Connection>> {
         self.lock_connection_inner(None)
@@ -913,6 +1153,17 @@ impl Store {
         self.connection_wait_metrics.record(wait_ns);
         result.map_err(err)
     }
+
+    /// Run a read-only snapshot operation while holding the library connection
+    /// mutex. Backup coordination always acquires this guard before the
+    /// playback-history guard.
+    pub(crate) fn with_backup_connection<T>(
+        &self,
+        operation: impl FnOnce(&Connection) -> Result<T>,
+    ) -> Result<T> {
+        let connection = self.lock_connection()?;
+        operation(&connection)
+    }
     /// Opt-in diagnostic for the single global Store connection mutex. This
     /// intentionally does not claim to measure SQLite engine busy-handler waits.
     pub fn connection_wait_metrics(&self) -> Option<serde_json::Value> {
@@ -933,13 +1184,19 @@ impl Store {
             .map_err(err)?;
         let mut rows = s.query([]).map_err(err)?;
         match rows.next().map_err(err)? {
-            Some(row) => decode(row.get(0).map_err(err)?),
+            Some(row) => {
+                let mut settings: Settings = decode(row.get(0).map_err(err)?)?;
+                normalize_streaming_fallback_policy(&mut settings)?;
+                Ok(settings)
+            }
             None => Ok(Settings::default()),
         }
     }
     pub fn save_settings(&self, settings: &Settings) -> Result<()> {
         settings.validate_playback_startup_timeout()?;
-        self.lock_connection()?.execute("INSERT INTO settings(key,value) VALUES('application',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [encode(settings)?]).map_err(err)?;
+        let mut settings = settings.clone();
+        normalize_streaming_fallback_policy(&mut settings)?;
+        self.lock_connection()?.execute("INSERT INTO settings(key,value) VALUES('application',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [encode(&settings)?]).map_err(err)?;
         Ok(())
     }
     pub fn get_json_preference(&self, key: &str) -> Result<Option<serde_json::Value>> {
@@ -965,6 +1222,40 @@ impl Store {
             )
             .map_err(err)?;
         Ok(())
+    }
+
+    /// Clear a durable one-time restore handoff only if the nonce still matches.
+    /// Comparison and update share the connection mutex so a newer staged restore
+    /// cannot be accidentally acknowledged by an older WebView request.
+    pub fn clear_json_preference_if_field_matches(
+        &self,
+        key: &str,
+        field: &str,
+        expected: &str,
+    ) -> Result<bool> {
+        let mut connection = self.connection.lock().map_err(err)?;
+        let raw: Option<String> = connection
+            .query_row("SELECT value FROM settings WHERE key=?1", [key], |row| {
+                row.get(0)
+            })
+            .optional()
+            .map_err(err)?;
+        let Some(raw) = raw else {
+            return Ok(false);
+        };
+        let value: serde_json::Value = decode(raw.clone())?;
+        if value.get(field).and_then(serde_json::Value::as_str) != Some(expected) {
+            return Ok(false);
+        }
+        // The SQL predicate is the cross-connection/process compare-and-swap;
+        // the Store mutex alone would not protect a concurrent SQLite writer.
+        let changed = connection
+            .execute(
+                "UPDATE settings SET value='{}' WHERE key=?1 AND value=?2",
+                params![key, raw],
+            )
+            .map_err(err)?;
+        Ok(changed == 1)
     }
     /// Commit queue occurrence identity and its session position together. Omitted
     /// components retain the last committed value, matching incremental callers.
@@ -1656,6 +1947,37 @@ impl Store {
             // A malformed or legacy proof is unverified, not a broken library.
             verification_proof: verification_proof.and_then(|proof| decode(proof).ok()),
         }))
+    }
+
+    /// Returns a private digest of the verified mapping, regardless of its
+    /// expiry. Refreshing `expires_at` or `updated_at` does not change it.
+    pub(crate) fn verified_playback_source_mapping_fingerprint(
+        &self,
+        track_id: &str,
+        fingerprint: &str,
+        provider: &str,
+    ) -> Result<Option<String>> {
+        let mut connection = self.lock_connection()?;
+        let transaction = connection.transaction().map_err(err)?;
+        let recording_id: Option<String> = transaction
+            .query_row(
+                "SELECT recording_id FROM catalog_listings WHERE id=?1 AND recording_id=?1 AND in_library=1",
+                [track_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(err)?;
+        let Some(recording_id) = recording_id else {
+            return Ok(None);
+        };
+        let digest = verified_source_mapping_fingerprint_tx(
+            &transaction,
+            &recording_id,
+            fingerprint,
+            provider,
+        )?;
+        transaction.commit().map_err(err)?;
+        Ok(digest)
     }
 
     pub fn invalidate_verified_playback_source(
@@ -3448,6 +3770,7 @@ impl Store {
     pub fn add_to_collection(&self, collection_id: &str, tracks: &[Track]) -> Result<()> {
         let mut conn = self.lock_connection()?;
         let tx = conn.transaction().map_err(err)?;
+        let mut ordered_changed = false;
         let active: bool = tx
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM collections WHERE id=?1 AND deleted_at IS NULL)",
@@ -3465,18 +3788,34 @@ impl Store {
             if inserted > 0 {
                 let ordered: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM playlist_ordered_collections WHERE collection_id=?1)", [collection_id], |r| r.get(0)).map_err(err)?;
                 if ordered {
-                    tx.execute("INSERT INTO playlist_ordered_entries(collection_id,position,listing_id) VALUES(?1,(SELECT COALESCE(MAX(position),-1)+1 FROM playlist_ordered_entries WHERE collection_id=?1),?2)", params![collection_id, track.id]).map_err(err)?;
+                    tx.execute("INSERT INTO playlist_ordered_entries(collection_id,position,listing_id,occurrence_id) VALUES(?1,(SELECT COALESCE(MAX(position),-1)+1 FROM playlist_ordered_entries WHERE collection_id=?1),?2,?3)", params![collection_id, track.id, uuid::Uuid::new_v4().to_string()]).map_err(err)?;
+                    ordered_changed = true;
                 }
             }
+        }
+        if ordered_changed {
+            let rows = ordered_occurrence_rows(&tx, collection_id)?;
+            sync_hierarchy_occurrences(&tx, collection_id, &rows)?;
         }
         tx.commit().map_err(err)
     }
     /// Append explicit playlist occurrences while retaining set membership for legacy readers.
     /// Favorites and Downloads continue to use the idempotent membership operation.
     pub fn append_playlist_entries(&self, collection_id: &str, tracks: &[Track]) -> Result<()> {
+        self.append_playlist_entries_with_portable_sources(collection_id, tracks, &HashMap::new())
+    }
+
+    /// Append occurrences and their explicitly reviewed portable source bindings atomically.
+    pub fn append_playlist_entries_with_portable_sources(
+        &self,
+        collection_id: &str,
+        tracks: &[Track],
+        reviewed_sources: &HashMap<usize, serde_json::Value>,
+    ) -> Result<()> {
         if tracks.len() > 100_000 {
             return Err("A playlist append is limited to 100000 occurrences".into());
         }
+        validate_reviewed_portable_sources(tracks, reviewed_sources)?;
         let mut conn = self.lock_connection()?;
         let tx = conn.transaction().map_err(err)?;
         let active: bool = tx
@@ -3515,6 +3854,7 @@ impl Store {
             ensure_track(&tx, track)?;
             promote_track(&tx, &track.id)?;
         }
+        apply_reviewed_portable_sources(&tx, tracks, reviewed_sources)?;
         let initialized = tx
             .execute(
                 "INSERT OR IGNORE INTO playlist_ordered_collections(collection_id) VALUES(?1)",
@@ -3539,13 +3879,74 @@ impl Store {
             position = position
                 .checked_add(1)
                 .ok_or("Playlist position exceeded the safe limit")?;
-            tx.execute("INSERT INTO playlist_ordered_entries(collection_id,position,listing_id) VALUES(?1,?2,?3)", params![collection_id,position,track.id]).map_err(err)?;
+            tx.execute("INSERT INTO playlist_ordered_entries(collection_id,position,listing_id,occurrence_id) VALUES(?1,?2,?3,?4)", params![collection_id,position,track.id,uuid::Uuid::new_v4().to_string()]).map_err(err)?;
             tx.execute(
                 "INSERT OR IGNORE INTO collection_members(collection_id,recording_id,position)
                 SELECT ?1,recording_id,?2 FROM catalog_listings WHERE id=?3",
                 params![collection_id, position, track.id],
             )
             .map_err(err)?;
+        }
+        let occurrences = ordered_occurrence_rows(&tx, collection_id)?;
+        sync_hierarchy_occurrences(&tx, collection_id, &occurrences)?;
+        tx.commit().map_err(err)
+    }
+
+    /// Read occurrence IDs and listing identities in their canonical playlist order.
+    pub fn list_playlist_occurrences(
+        &self,
+        collection_id: &str,
+    ) -> Result<Vec<OrderedPlaylistOccurrence>> {
+        let conn = self.lock_connection()?;
+        let mut statement = conn.prepare(
+            "SELECT occurrence_id,listing_id,position FROM playlist_ordered_entries WHERE collection_id=?1 ORDER BY position",
+        ).map_err(err)?;
+        let rows = statement
+            .query_map([collection_id], |row| {
+                Ok(OrderedPlaylistOccurrence {
+                    occurrence_id: row.get(0)?,
+                    listing_id: row.get(1)?,
+                    position: row.get(2)?,
+                })
+            })
+            .map_err(err)?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(err)?;
+        Ok(rows)
+    }
+
+    /// Establish occurrence identities for an existing membership-only playlist.
+    /// Its initial ordering exactly matches legacy membership order.
+    pub fn ensure_playlist_occurrence_ids(&self, collection_id: &str) -> Result<()> {
+        let mut conn = self.lock_connection()?;
+        let tx = conn.transaction().map_err(err)?;
+        let active: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM collections WHERE id=?1 AND deleted_at IS NULL)",
+                [collection_id],
+                |row| row.get(0),
+            )
+            .map_err(err)?;
+        if !active {
+            return Err("Playlist not found".into());
+        }
+        let inserted = tx
+            .execute(
+                "INSERT OR IGNORE INTO playlist_ordered_collections(collection_id) VALUES(?1)",
+                [collection_id],
+            )
+            .map_err(err)?;
+        if inserted > 0 {
+            tx.execute(
+                "INSERT INTO playlist_ordered_entries(collection_id,position,listing_id)
+                 SELECT ?1,ROW_NUMBER() OVER (ORDER BY m.position,l.rowid)-1,l.id
+                 FROM collection_members m JOIN catalog_listings l ON l.recording_id=m.recording_id
+                 WHERE m.collection_id=?1 AND l.id=l.recording_id",
+                [collection_id],
+            )
+            .map_err(err)?;
+            let rows = ordered_occurrence_rows(&tx, collection_id)?;
+            sync_hierarchy_occurrences(&tx, collection_id, &rows)?;
         }
         tx.commit().map_err(err)
     }
@@ -3698,6 +4099,31 @@ impl Store {
     /// Replace ordered playlist entries, preserving duplicates in the sidecar while keeping
     /// legacy collection membership populated for older queries.
     pub fn replace_playlist_entries(&self, collection_id: &str, tracks: &[Track]) -> Result<()> {
+        self.replace_playlist_entries_with_portable_sources(collection_id, tracks, &HashMap::new())
+    }
+
+    /// Validate reviewed sources against existing rows before an import changes collection state.
+    pub fn validate_portable_sources_for_import(
+        &self,
+        tracks: &[Track],
+        reviewed_sources: &HashMap<usize, serde_json::Value>,
+    ) -> Result<()> {
+        validate_reviewed_portable_sources(tracks, reviewed_sources)?;
+        let conn = self.lock_connection()?;
+        validate_portable_source_targets(&conn, tracks, reviewed_sources)
+    }
+
+    /// Replace ordered entries and persist only explicitly reviewed portable playback bindings.
+    /// Bindings are applied in the same transaction as the entry replacement. Existing import
+    /// placeholders may change their source-owned binding after a fresh review; all other track
+    /// metadata remains untouched.
+    pub fn replace_playlist_entries_with_portable_sources(
+        &self,
+        collection_id: &str,
+        tracks: &[Track],
+        reviewed_sources: &HashMap<usize, serde_json::Value>,
+    ) -> Result<()> {
+        validate_reviewed_portable_sources(tracks, reviewed_sources)?;
         let mut conn = self.lock_connection()?;
         let tx = conn.transaction().map_err(err)?;
         let exists: bool = tx
@@ -3714,6 +4140,12 @@ impl Store {
             ensure_track(&tx, track)?;
             promote_track(&tx, &track.id)?;
         }
+        apply_reviewed_portable_sources(&tx, tracks, reviewed_sources)?;
+        let occurrence_ids = reused_occurrence_ids(
+            &tx,
+            collection_id,
+            tracks.iter().map(|track| track.id.as_str()),
+        )?;
         tx.execute(
             "INSERT OR IGNORE INTO playlist_ordered_collections(collection_id) VALUES(?1)",
             [collection_id],
@@ -3729,10 +4161,152 @@ impl Store {
             [collection_id],
         )
         .map_err(err)?;
-        for (position, track) in tracks.iter().enumerate() {
-            tx.execute("INSERT INTO playlist_ordered_entries(collection_id,position,listing_id) VALUES(?1,?2,?3)", params![collection_id,position as i64,track.id]).map_err(err)?;
+        for (position, (track, occurrence_id)) in tracks.iter().zip(&occurrence_ids).enumerate() {
+            tx.execute("INSERT INTO playlist_ordered_entries(collection_id,position,listing_id,occurrence_id) VALUES(?1,?2,?3,?4)", params![collection_id,position as i64,track.id,occurrence_id]).map_err(err)?;
             tx.execute("INSERT OR IGNORE INTO collection_members(collection_id,recording_id,position) SELECT ?1,recording_id,?2 FROM catalog_listings WHERE id=?3", params![collection_id,position as i64,track.id]).map_err(err)?;
         }
+        let occurrences = ordered_occurrence_rows(&tx, collection_id)?;
+        sync_hierarchy_occurrences(&tx, collection_id, &occurrences)?;
+        tx.commit().map_err(err)
+    }
+    /// Replace ordered entries and apply reviewed portable section names/assignments in the
+    /// same transaction. Portable IDs are sN tokens; they are never accepted as local UUIDs.
+    pub fn replace_playlist_entries_with_portable_sections(
+        &self,
+        collection_id: &str,
+        tracks: &[Track],
+        sections: &[crate::portable_playlist::NamedItem],
+        assignments: &[Option<String>],
+    ) -> Result<()> {
+        const MAX_SECTIONS: usize = 256;
+        if sections.len() > MAX_SECTIONS
+            || assignments.len() != tracks.len()
+            || sections.iter().any(|section| {
+                portable_section_index(&section.id).is_none()
+                    || section.name.trim().is_empty()
+                    || section.name.len() > 512
+                    || section.name.chars().any(char::is_control)
+            })
+        {
+            return Err(
+                "Portable playlist section metadata is invalid; the mirror was kept for review"
+                    .into(),
+            );
+        }
+        let mut incoming_tokens = std::collections::HashSet::new();
+        if sections
+            .iter()
+            .any(|section| !incoming_tokens.insert(section.id.as_str()))
+        {
+            return Err(
+                "Portable playlist section IDs are duplicated; the mirror was kept for review"
+                    .into(),
+            );
+        }
+        if assignments
+            .iter()
+            .flatten()
+            .any(|id| !incoming_tokens.contains(id.as_str()))
+        {
+            return Err("Portable playlist entry references an unknown section; the mirror was kept for review".into());
+        }
+
+        let mut conn = self.lock_connection()?;
+        let tx = conn.transaction().map_err(err)?;
+        let exists: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM collections WHERE id=?1 AND deleted_at IS NULL)",
+                [collection_id],
+                |row| row.get(0),
+            )
+            .map_err(err)?;
+        if !exists {
+            return Err("Collection not found".into());
+        }
+        for track in tracks {
+            ensure_track(&tx, track)?;
+            promote_track(&tx, &track.id)?;
+        }
+        let occurrence_ids = reused_occurrence_ids(
+            &tx,
+            collection_id,
+            tracks.iter().map(|track| track.id.as_str()),
+        )?;
+        tx.execute(
+            "INSERT OR IGNORE INTO playlist_ordered_collections(collection_id) VALUES(?1)",
+            [collection_id],
+        )
+        .map_err(err)?;
+        tx.execute(
+            "DELETE FROM playlist_ordered_entries WHERE collection_id=?1",
+            [collection_id],
+        )
+        .map_err(err)?;
+        tx.execute(
+            "DELETE FROM collection_members WHERE collection_id=?1",
+            [collection_id],
+        )
+        .map_err(err)?;
+        for (position, (track, occurrence_id)) in tracks.iter().zip(&occurrence_ids).enumerate() {
+            tx.execute("INSERT INTO playlist_ordered_entries(collection_id,position,listing_id,occurrence_id) VALUES(?1,?2,?3,?4)", params![collection_id,position as i64,track.id,occurrence_id]).map_err(err)?;
+            tx.execute("INSERT OR IGNORE INTO collection_members(collection_id,recording_id,position) SELECT ?1,recording_id,?2 FROM catalog_listings WHERE id=?3", params![collection_id,position as i64,track.id]).map_err(err)?;
+        }
+        let occurrences = ordered_occurrence_rows(&tx, collection_id)?;
+        sync_hierarchy_occurrences(&tx, collection_id, &occurrences)?;
+
+        let raw: String = tx
+            .query_row(
+                "SELECT value FROM settings WHERE key='playlistHierarchy.v1'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(err)?;
+        let mut hierarchy: crate::playlist_hierarchy::PlaylistHierarchy =
+            serde_json::from_str(&raw).map_err(err)?;
+        let placement = hierarchy
+            .playlists
+            .iter_mut()
+            .find(|playlist| playlist.collection_id == collection_id)
+            .ok_or("Playlist hierarchy placement is missing")?;
+        let mut old_sections = placement.sections.clone();
+        old_sections.sort_by_key(|section| section.position);
+        let mut token_to_local = std::collections::HashMap::new();
+        let mut updated_sections = Vec::with_capacity(sections.len());
+        for (position, section) in sections.iter().enumerate() {
+            let index =
+                portable_section_index(&section.id).ok_or("Invalid portable section token")?;
+            let id = old_sections
+                .get(index.saturating_sub(1))
+                .map(|section| section.id.clone())
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+            token_to_local.insert(section.id.as_str(), id.clone());
+            updated_sections.push(crate::playlist_hierarchy::PlaylistSection {
+                id,
+                name: section.name.clone(),
+                position: position as u32,
+            });
+        }
+        if occurrences.len() != assignments.len() {
+            return Err("Playlist occurrences changed while applying mirror metadata".into());
+        }
+        placement.sections = updated_sections;
+        for (occurrence, section_token) in placement.occurrences.iter_mut().zip(assignments) {
+            occurrence.section_id = section_token
+                .as_deref()
+                .map(|token| {
+                    token_to_local
+                        .get(token)
+                        .cloned()
+                        .ok_or("Portable playlist entry references an unknown section")
+                })
+                .transpose()?;
+        }
+        crate::playlist_hierarchy::validate(&hierarchy)?;
+        let encoded = serde_json::to_string(&hierarchy).map_err(err)?;
+        tx.execute(
+            "INSERT INTO settings(key,value) VALUES('playlistHierarchy.v1',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            [encoded],
+        ).map_err(err)?;
         tx.commit().map_err(err)
     }
     /// Remove selected recordings from one collection while preserving their catalog entries
@@ -3765,6 +4339,8 @@ impl Store {
             .map_err(err)?;
             tx.execute("DELETE FROM playlist_ordered_entries WHERE collection_id=?1 AND listing_id IN (SELECT id FROM catalog_listings WHERE recording_id=?2)", params![collection_id, recording_id]).map_err(err)?;
         }
+        let occurrences = ordered_occurrence_rows(&tx, collection_id)?;
+        sync_hierarchy_occurrences(&tx, collection_id, &occurrences)?;
         tx.commit().map_err(err)
     }
     /// Explicit user verification is required; names alone never invoke this operation.
@@ -3865,10 +4441,34 @@ impl Store {
         chart: &Chart,
         snapshot: &BrowserSnapshot,
     ) -> Result<BrowserImportResult> {
+        self.import_browser_chart_reviewed(chart, snapshot, None)
+    }
+    pub fn import_browser_chart_reviewed(
+        &self,
+        chart: &Chart,
+        snapshot: &BrowserSnapshot,
+        expected_base: Option<Option<&str>>,
+    ) -> Result<BrowserImportResult> {
         let mut conn = self.lock_connection()?;
         let tx = conn.transaction().map_err(err)?;
+        if let Some(raw) = tx
+            .query_row(
+                "SELECT payload FROM browser_imports WHERE snapshot_id=?1",
+                [&chart.id],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(err)?
+        {
+            return decode(raw);
+        }
         let mut saved = chart.clone();
-        saved.id = uuid::Uuid::new_v4().to_string();
+        let old = tx.query_row("SELECT s.payload FROM browser_sources b JOIN chart_snapshots s ON s.id=b.latest_snapshot_id WHERE b.source_url=?1", [&saved.source_url], |r|r.get::<_,String>(0)).optional().map_err(err)?.map(decode::<Chart>).transpose()?;
+        if expected_base.is_some_and(|expected| old.as_ref().map(|c| c.id.as_str()) != expected) {
+            return Err("The source changed after this preview; prepare a fresh preview".into());
+        }
+        let changes =
+            crate::collection_imports::changes(old.as_ref(), &saved, snapshot_complete(snapshot));
         let collection_id: Option<String> = tx
             .query_row(
                 "SELECT collection_id FROM browser_sources WHERE source_url=?1",
@@ -3938,6 +4538,9 @@ impl Store {
             expected_total: snapshot.expected_total,
             complete,
             warnings: snapshot_warnings(snapshot, &saved),
+            failed_sources: snapshot.failed_sources.clone(),
+            album_urls: snapshot.album_urls.clone(),
+            changes,
         };
         tx.execute(
             "INSERT INTO browser_imports(snapshot_id,payload) VALUES(?1,?2)",
@@ -3950,6 +4553,22 @@ impl Store {
             params![saved.source_url,saved.provider,snapshot.kind,collection_id,saved.id]).map_err(err)?;
         tx.commit().map_err(err)?;
         Ok(result)
+    }
+    pub fn browser_import_by_id(&self, id: &str) -> Result<Option<BrowserImportResult>> {
+        let conn = self.lock_connection()?;
+        conn.query_row(
+            "SELECT payload FROM browser_imports WHERE snapshot_id=?1",
+            [id],
+            |r| r.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(err)?
+        .map(decode)
+        .transpose()
+    }
+    pub fn latest_browser_import(&self, source: &str) -> Result<Option<BrowserImportResult>> {
+        let conn = self.lock_connection()?;
+        conn.query_row("SELECT i.payload FROM browser_sources s JOIN browser_imports i ON i.snapshot_id=s.latest_snapshot_id WHERE s.source_url=?1",[source],|r|r.get::<_,String>(0)).optional().map_err(err)?.map(decode).transpose()
     }
     pub fn list_browser_imports(&self) -> Result<Vec<BrowserImportResult>> {
         let conn = self.lock_connection()?;
@@ -4390,6 +5009,276 @@ impl Store {
         ).map_err(err)?;
         Ok(())
     }
+    /// Apply reviewed BPM/key measurements without classifying FillMissing
+    /// values as manual overrides. Replace is recorded in `manual_metadata`
+    /// only for the explicitly selected fields.
+    pub fn apply_analyzed_track(
+        &self,
+        asset_id: &str,
+        expected_hash: &str,
+        analysis: &crate::stream_analysis::WholeTrackAnalysis,
+        selection: &crate::stream_analysis::ApplyAnalysisSelection,
+    ) -> Result<Track> {
+        use crate::stream_analysis::{AnalysisMetric, AnalysisResource, FieldPolicy};
+
+        if selection.fields.is_empty() {
+            return Err("Choose at least one analyzed field to apply".into());
+        }
+        let mut conn = self.lock_connection()?;
+        let tx = conn.transaction().map_err(err)?;
+        let current_asset: Option<(String, String)> = tx
+            .query_row(
+                "SELECT recording_id,hash FROM local_assets WHERE id=?1",
+                [asset_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(err)?;
+        let Some((recording_id, current_hash)) = current_asset else {
+            return Err("Local asset not found".into());
+        };
+        if current_hash != expected_hash {
+            return Err("Local asset changed after analysis".into());
+        }
+        match &analysis.resource {
+            AnalysisResource::RegisteredAsset {
+                asset_id: result_asset_id,
+                recording_id: result_recording_id,
+                file_hash,
+            } if result_asset_id == asset_id
+                && result_recording_id == &recording_id
+                && file_hash == expected_hash => {}
+            _ => return Err("Analysis no longer matches this registered asset".into()),
+        }
+        let listing_raw: String = tx
+            .query_row(
+                "SELECT metadata FROM catalog_listings WHERE id=?1 AND recording_id=?2",
+                params![recording_id, recording_id],
+                |row| row.get(0),
+            )
+            .map_err(err)?;
+        let listing_track: Track = decode(listing_raw.clone())?;
+        let current_track = hydrate(&tx, listing_track)?;
+        if current_track.id != analysis.resource.recording_id() {
+            return Err("Analysis recording identity changed".into());
+        }
+        let updated = crate::stream_analysis::apply_analysis(&current_track, analysis, selection)
+            .map_err(|error| error.to_string())?;
+        let mut metadata: serde_json::Value = decode(listing_raw)?;
+        let mut provenance = metadata
+            .get("provenance")
+            .filter(|value| value.is_object())
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
+        let updated_provenance = serde_json::to_value(&updated.provenance).map_err(err)?;
+        for key in [
+            "bpmAnalysis",
+            "keyAnalysis",
+            "manualFields",
+            "analysisReplacements",
+        ] {
+            if let Some(value) = updated_provenance.get(key) {
+                provenance[key] = value.clone();
+            } else if let Some(object) = provenance.as_object_mut() {
+                object.remove(key);
+            }
+        }
+        let mut manual: serde_json::Value = tx
+            .query_row(
+                "SELECT manual_metadata FROM recordings WHERE id=?1",
+                [&recording_id],
+                |row| row.get(0),
+            )
+            .map_err(err)
+            .and_then(decode)?;
+        if !manual.is_object() {
+            manual = serde_json::json!({});
+        }
+        for metric in &selection.fields {
+            let (field, value, has_measurement) = match metric {
+                AnalysisMetric::Bpm => (
+                    "bpm",
+                    serde_json::to_value(&updated.bpm).map_err(err)?,
+                    analysis.bpm.is_some(),
+                ),
+                AnalysisMetric::Key => (
+                    "key",
+                    serde_json::to_value(&updated.key).map_err(err)?,
+                    analysis.key.is_some(),
+                ),
+            };
+            if !has_measurement {
+                continue;
+            }
+            metadata[field] = value.clone();
+            if selection
+                .policies
+                .get(metric)
+                .copied()
+                .unwrap_or(FieldPolicy::FillMissing)
+                == FieldPolicy::Replace
+            {
+                manual[field] = value;
+            }
+        }
+        metadata["provenance"] = provenance;
+        tx.execute(
+            "UPDATE catalog_listings SET metadata=?1,updated_at=?2 WHERE id=?3",
+            params![
+                encode(&metadata)?,
+                chrono::Utc::now().to_rfc3339(),
+                current_track.id
+            ],
+        )
+        .map_err(err)?;
+        tx.execute(
+            "UPDATE recordings SET manual_metadata=?1 WHERE id=?2",
+            params![encode(&manual)?, recording_id],
+        )
+        .map_err(err)?;
+        let saved = hydrate(&tx, serde_json::from_value(metadata).map_err(err)?)?;
+        tx.commit().map_err(err)?;
+        Ok(saved)
+    }
+
+    /// Apply a reviewed stream measurement only to the canonical saved
+    /// recording that the selected-analysis job resolved. Stream identity is
+    /// provider plus hashed source ID, never a caller-supplied URL.
+    pub fn apply_stream_analyzed_track(
+        &self,
+        track_id: &str,
+        expected_track_identity: &str,
+        source_provider: &str,
+        expected_mapping_fingerprint: Option<&str>,
+        analysis: &crate::stream_analysis::WholeTrackAnalysis,
+        selection: &crate::stream_analysis::ApplyAnalysisSelection,
+    ) -> Result<Track> {
+        use crate::stream_analysis::{AnalysisMetric, AnalysisResource, FieldPolicy};
+
+        if selection.fields.is_empty() {
+            return Err("Choose at least one analyzed field to apply".into());
+        }
+        analysis.validate().map_err(|error| error.to_string())?;
+        match &analysis.resource {
+            AnalysisResource::Stream {
+                recording_id,
+                provider,
+                ..
+            } if recording_id == track_id && provider == source_provider => {}
+            _ => return Err("Analysis no longer matches a verified stream recording".into()),
+        }
+        let mut conn = self.lock_connection()?;
+        let tx = conn.transaction().map_err(err)?;
+        let listing_raw: String = tx
+            .query_row(
+                "SELECT metadata FROM catalog_listings WHERE id=?1 AND recording_id=?1 AND in_library=1",
+                [track_id],
+                |row| row.get(0),
+            )
+            .map_err(err)?;
+        let listed: Track = decode(listing_raw.clone())?;
+        let current = hydrate(&tx, listed)?;
+        if current.id != track_id || current.playback_range.is_some() {
+            return Err("Saved recording identity changed".into());
+        }
+        let current_identity = crate::analysis_stream_selection::canonical_analysis_identity(
+            &current,
+            &analysis.resource,
+        )
+        .map_err(|_| "Saved recording or resolved source changed after analysis")?;
+        if current_identity != expected_track_identity {
+            return Err("Saved recording or resolved source changed after analysis".into());
+        }
+        let mapping_fingerprint = crate::playback_sources::recording_identity_fingerprint(&current)
+            .ok_or("Could not verify the resolved source mapping")?;
+        let current_mapping_fingerprint = verified_source_mapping_fingerprint_tx(
+            &tx,
+            track_id,
+            &mapping_fingerprint,
+            source_provider,
+        )?;
+        if current_mapping_fingerprint.as_deref() != expected_mapping_fingerprint {
+            return Err("Verified playback source mapping changed after analysis".into());
+        }
+        let updated = crate::stream_analysis::apply_analysis(&current, analysis, selection)
+            .map_err(|error| error.to_string())?;
+        let mut metadata: serde_json::Value = decode(listing_raw)?;
+        let mut provenance = metadata
+            .get("provenance")
+            .filter(|value| value.is_object())
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
+        let updated_provenance = serde_json::to_value(&updated.provenance).map_err(err)?;
+        for key in [
+            "bpmAnalysis",
+            "keyAnalysis",
+            "manualFields",
+            "analysisReplacements",
+        ] {
+            if let Some(value) = updated_provenance.get(key) {
+                provenance[key] = value.clone();
+            } else if let Some(object) = provenance.as_object_mut() {
+                object.remove(key);
+            }
+        }
+        let mut manual: serde_json::Value = tx
+            .query_row(
+                "SELECT manual_metadata FROM recordings WHERE id=?1",
+                [track_id],
+                |row| row.get(0),
+            )
+            .map_err(err)
+            .and_then(decode)?;
+        if !manual.is_object() {
+            manual = serde_json::json!({});
+        }
+        for metric in &selection.fields {
+            let (field, value, has_measurement) = match metric {
+                AnalysisMetric::Bpm => (
+                    "bpm",
+                    serde_json::to_value(&updated.bpm).map_err(err)?,
+                    analysis.bpm.is_some(),
+                ),
+                AnalysisMetric::Key => (
+                    "key",
+                    serde_json::to_value(&updated.key).map_err(err)?,
+                    analysis.key.is_some(),
+                ),
+            };
+            if !has_measurement {
+                continue;
+            }
+            metadata[field] = value.clone();
+            if selection
+                .policies
+                .get(metric)
+                .copied()
+                .unwrap_or(FieldPolicy::FillMissing)
+                == FieldPolicy::Replace
+            {
+                manual[field] = value;
+            }
+        }
+        metadata["provenance"] = provenance;
+        tx.execute(
+            "UPDATE catalog_listings SET metadata=?1,updated_at=?2 WHERE id=?3 AND recording_id=?3 AND in_library=1",
+            params![
+                encode(&metadata)?,
+                chrono::Utc::now().to_rfc3339(),
+                track_id
+            ],
+        )
+        .map_err(err)?;
+        tx.execute(
+            "UPDATE recordings SET manual_metadata=?1 WHERE id=?2",
+            params![encode(&manual)?, track_id],
+        )
+        .map_err(err)?;
+        let saved = hydrate(&tx, serde_json::from_value(metadata).map_err(err)?)?;
+        tx.commit().map_err(err)?;
+        Ok(saved)
+    }
+
     pub fn list_analysis_records(&self) -> Result<Vec<serde_json::Value>> {
         let conn = self.lock_connection()?;
         let mut stmt = conn.prepare("SELECT asset_id,file_hash,version,status,payload FROM asset_analyses ORDER BY updated_at DESC").map_err(err)?;
@@ -5053,6 +5942,34 @@ impl Store {
             .collect()
     }
 
+    /// Return active named collections that actually contain this listing's recording.
+    /// The system Downloads collection is exposed separately as local-file availability.
+    pub fn track_collection_memberships(&self, track_id: &str) -> Result<Vec<(String, String)>> {
+        let conn = self.lock_connection()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT c.id,c.name FROM collections c
+                 WHERE c.deleted_at IS NULL AND c.id!=?1 AND EXISTS(
+                   SELECT 1 FROM catalog_listings target
+                   WHERE target.id=?2 AND (
+                     EXISTS(SELECT 1 FROM collection_members m
+                            WHERE m.collection_id=c.id AND m.recording_id=target.recording_id)
+                     OR EXISTS(SELECT 1 FROM playlist_ordered_entries e
+                               JOIN catalog_listings member ON member.id=e.listing_id
+                               WHERE e.collection_id=c.id AND member.recording_id=target.recording_id)
+                   )
+                 ) ORDER BY c.name COLLATE NOCASE,c.id",
+            )
+            .map_err(err)?;
+        let rows = stmt
+            .query_map(params![DOWNLOADS_COLLECTION_ID, track_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(err)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(err)
+    }
+
     /// Select a bounded batch of older assets that have not had technical facts recorded.
     pub fn list_assets_needing_quality_facts(&self, limit: usize) -> Result<Vec<LocalAsset>> {
         let conn = self.lock_connection()?;
@@ -5359,6 +6276,269 @@ fn db_wait_metrics_enabled() -> bool {
         || std::env::var("BURRATA_PLAYBACK_TRACE").is_ok_and(|value| value == "1")
 }
 
+fn ordered_occurrence_rows(
+    conn: &Connection,
+    collection_id: &str,
+) -> Result<Vec<OrderedPlaylistOccurrence>> {
+    let mut statement = conn.prepare(
+        "SELECT occurrence_id,listing_id,position FROM playlist_ordered_entries WHERE collection_id=?1 ORDER BY position",
+    ).map_err(err)?;
+    let rows = statement
+        .query_map([collection_id], |row| {
+            Ok(OrderedPlaylistOccurrence {
+                occurrence_id: row.get(0)?,
+                listing_id: row.get(1)?,
+                position: row.get(2)?,
+            })
+        })
+        .map_err(err)?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(err)?;
+    Ok(rows)
+}
+
+/// Retain occurrence identity across reorder/replace operations by reusing IDs
+/// for each listing's prior occurrences in stable left-to-right order.
+fn reused_occurrence_ids<'a>(
+    conn: &Connection,
+    collection_id: &str,
+    new_listing_ids: impl Iterator<Item = &'a str>,
+) -> Result<Vec<String>> {
+    let mut by_listing: HashMap<String, std::collections::VecDeque<String>> = HashMap::new();
+    for row in ordered_occurrence_rows(conn, collection_id)? {
+        by_listing
+            .entry(row.listing_id)
+            .or_default()
+            .push_back(row.occurrence_id);
+    }
+    Ok(new_listing_ids
+        .map(|listing_id| {
+            by_listing
+                .get_mut(listing_id)
+                .and_then(|ids| ids.pop_front())
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
+        })
+        .collect())
+}
+
+fn portable_section_index(token: &str) -> Option<usize> {
+    let number = token.strip_prefix('s')?.parse::<usize>().ok()?;
+    (number > 0 && number <= 256 && token == format!("s{number}")).then_some(number)
+}
+
+/// Reconcile the annotation overlay inside the same SQLite transaction as an
+/// ordered-entry edit. SQL remains the source of occurrence IDs/order/listings.
+fn sync_hierarchy_occurrences(
+    tx: &Transaction<'_>,
+    collection_id: &str,
+    rows: &[OrderedPlaylistOccurrence],
+) -> Result<()> {
+    let raw: Option<String> = tx
+        .query_row(
+            "SELECT value FROM settings WHERE key='playlistHierarchy.v1'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(err)?;
+    let mut hierarchy = match raw {
+        Some(raw) => decode::<serde_json::Value>(raw)?,
+        None => serde_json::json!({"schemaVersion":1,"folders":[],"playlists":[]}),
+    };
+    if hierarchy
+        .get("schemaVersion")
+        .and_then(serde_json::Value::as_u64)
+        .is_some_and(|version| version != 1)
+    {
+        return Err("Unsupported playlist hierarchy version".into());
+    }
+    if hierarchy
+        .get("folders")
+        .and_then(serde_json::Value::as_array)
+        .is_none()
+        || hierarchy
+            .get("playlists")
+            .and_then(serde_json::Value::as_array)
+            .is_none()
+    {
+        return Err("Saved playlist hierarchy is invalid".into());
+    }
+    let playlists = hierarchy["playlists"]
+        .as_array_mut()
+        .ok_or("Saved playlist hierarchy is invalid")?;
+    let index = playlists.iter().position(|playlist| {
+        playlist
+            .get("collectionId")
+            .and_then(serde_json::Value::as_str)
+            == Some(collection_id)
+    });
+    let index = if let Some(index) = index {
+        index
+    } else {
+        let position = playlists.len() as u64;
+        playlists.push(serde_json::json!({"collectionId":collection_id,"folderId":null,"position":position,"sections":[],"occurrences":[]}));
+        playlists.len() - 1
+    };
+    let playlist = &mut playlists[index];
+    if !playlist
+        .get("sections")
+        .is_some_and(serde_json::Value::is_array)
+        || !playlist
+            .get("occurrences")
+            .is_some_and(serde_json::Value::is_array)
+    {
+        return Err("Saved playlist hierarchy entry is invalid".into());
+    }
+    let mut old = playlist["occurrences"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|value| {
+            let id = value
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)?;
+            Some((id, value))
+        })
+        .collect::<HashMap<_, _>>();
+    let mut updated = Vec::with_capacity(rows.len());
+    for row in rows {
+        let mut value = old.remove(&row.occurrence_id).unwrap_or_else(|| serde_json::json!({"id":row.occurrence_id,"sectionId":null,"note":null,"cuePoints":[],"playbackRange":null}));
+        value["id"] = serde_json::Value::String(row.occurrence_id.clone());
+        updated.push(value);
+    }
+    playlist["occurrences"] = serde_json::Value::Array(updated);
+    let encoded = serde_json::to_string(&hierarchy).map_err(err)?;
+    tx.execute(
+        "INSERT INTO settings(key,value) VALUES('playlistHierarchy.v1',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        [encoded],
+    ).map_err(err)?;
+    Ok(())
+}
+
+fn validate_reviewed_portable_sources(
+    tracks: &[Track],
+    reviewed_sources: &HashMap<usize, serde_json::Value>,
+) -> Result<()> {
+    if reviewed_sources.keys().any(|index| *index >= tracks.len()) {
+        return Err("Reviewed portable source entry is outside the playlist".into());
+    }
+    let mut bindings_by_id = HashMap::<&str, &serde_json::Value>::new();
+    for (index, binding) in reviewed_sources {
+        let track = &tracks[*index];
+        if track.provider != "import"
+            || !matches!(
+                binding.get("provider").and_then(serde_json::Value::as_str),
+                Some("youtube" | "spotify" | "bandcamp")
+            )
+            || binding
+                .get("sourceId")
+                .and_then(serde_json::Value::as_str)
+                .is_none_or(str::is_empty)
+            || binding
+                .get("sourceHash")
+                .and_then(serde_json::Value::as_str)
+                .is_none_or(str::is_empty)
+            || binding.get("matchingLevel").is_none()
+        {
+            return Err("Reviewed portable source is invalid for this playlist entry".into());
+        }
+        if let Some(previous) = bindings_by_id.insert(&track.id, binding) {
+            if previous != binding {
+                return Err("Repeated playlist entries have conflicting reviewed sources".into());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn apply_reviewed_portable_sources(
+    conn: &Connection,
+    tracks: &[Track],
+    reviewed_sources: &HashMap<usize, serde_json::Value>,
+) -> Result<()> {
+    let mut bindings_by_id = HashMap::<&str, &serde_json::Value>::new();
+    for (index, binding) in reviewed_sources {
+        bindings_by_id.insert(&tracks[*index].id, binding);
+    }
+    for (id, binding) in bindings_by_id {
+        let encoded = serde_json::to_string(binding).map_err(err)?;
+        let changed = conn.execute(
+            "UPDATE catalog_listings
+             SET metadata=json_set(
+                 metadata,
+                 '$.provenance',
+                 json(json_set(
+                     json(CASE WHEN json_type(metadata,'$.provenance')='object'
+                               THEN json_extract(metadata,'$.provenance') ELSE '{}' END),
+                     '$.portablePlaybackSource',json(?1)
+                 ))
+             )
+             WHERE id=?2 AND provider='import' AND provider_id=substr(id,8)
+               AND COALESCE(source_url,'')=''
+               AND json_valid(metadata)=1 AND json_type(metadata)='object'
+               AND json_type(metadata,'$.provider')='text'
+               AND json_extract(metadata,'$.provider')='import'
+               AND (json_type(metadata,'$.provenance') IS NULL OR json_type(metadata,'$.provenance')='object')",
+            params![encoded, id],
+        ).map_err(err)?;
+        if changed != 1 {
+            return Err(
+                "Reviewed portable source no longer targets a valid import placeholder".into(),
+            );
+        }
+    }
+    Ok(())
+}
+
+fn validate_portable_source_targets(
+    conn: &Connection,
+    tracks: &[Track],
+    reviewed_sources: &HashMap<usize, serde_json::Value>,
+) -> Result<()> {
+    let mut seen = std::collections::HashSet::new();
+    for index in reviewed_sources.keys() {
+        let track = &tracks[*index];
+        if !seen.insert(track.id.as_str()) {
+            continue;
+        }
+        let row = conn
+            .query_row(
+                "SELECT provider,provider_id,source_url,metadata FROM catalog_listings WHERE id=?1",
+                [&track.id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(err)?;
+        let Some((provider, provider_id, source_url, metadata)) = row else {
+            continue;
+        };
+        let valid_placeholder = provider == "import"
+            && provider_id == track.provider_id
+            && source_url.as_deref().unwrap_or_default().is_empty()
+            && serde_json::from_str::<serde_json::Value>(&metadata)
+                .ok()
+                .is_some_and(|value| {
+                    value.get("provider").and_then(serde_json::Value::as_str) == Some("import")
+                        && value
+                            .get("provenance")
+                            .is_none_or(serde_json::Value::is_object)
+                });
+        if !valid_placeholder {
+            return Err("Reviewed portable source targets malformed or non-import metadata".into());
+        }
+    }
+    Ok(())
+}
+
 fn ensure_track(conn: &Connection, track: &Track) -> Result<()> {
     if track.id != format!("{}:{}", track.provider, track.provider_id) {
         return Err("Invalid track identity".into());
@@ -5449,6 +6629,7 @@ fn upsert_track(conn: &Connection, track: &Track, promote: bool) -> Result<()> {
     let now = chrono::Utc::now().to_rfc3339();
     if let Some(old) = old {
         let old: serde_json::Value = decode(old)?;
+        crate::import_metadata::merge_evidence(&old, &mut metadata);
         if let (Some(new), Some(old)) = (metadata.as_object_mut(), old.as_object()) {
             if old.get("dateAdded").is_some_and(|v| !v.is_null()) {
                 new.insert("dateAdded".into(), old["dateAdded"].clone());
@@ -6141,6 +7322,64 @@ fn copy_provenance_value(target: &mut Track, key: &str, value: serde_json::Value
 mod tests {
     use super::*;
     use crate::models::Candidate;
+    #[test]
+    fn legacy_bandcamp_switch_migrates_once_to_ordered_fallbacks() {
+        let mut settings = Settings::default();
+        settings.streaming_fallback_policy_version = 0;
+        settings.streaming_fallback_sources = vec!["soundcloud".into()];
+        settings.bandcamp_fallback_enabled = true;
+        normalize_streaming_fallback_policy(&mut settings).unwrap();
+        assert_eq!(
+            settings.streaming_fallback_sources,
+            ["soundcloud", "bandcamp"]
+        );
+        assert_eq!(settings.streaming_fallback_policy_version, 1);
+
+        // A later user edit removes Bandcamp despite the legacy boolean being
+        // stale; version 1 makes the ordered list authoritative.
+        settings.streaming_fallback_sources = vec!["youtube".into()];
+        settings.bandcamp_fallback_enabled = true;
+        normalize_streaming_fallback_policy(&mut settings).unwrap();
+        assert!(!settings.bandcamp_fallback_enabled);
+        assert_eq!(settings.streaming_fallback_sources, ["youtube"]);
+    }
+
+    #[test]
+    fn legacy_bandcamp_only_mode_does_not_enable_other_providers() {
+        let mut settings = Settings::default();
+        settings.streaming_fallback_policy_version = 0;
+        settings.streaming_fallback_enabled = false;
+        settings.streaming_fallback_sources = vec!["youtube".into(), "soundcloud".into()];
+        settings.bandcamp_fallback_enabled = true;
+        normalize_streaming_fallback_policy(&mut settings).unwrap();
+        assert_eq!(settings.streaming_fallback_sources, ["bandcamp"]);
+        assert!(settings.streaming_fallback_enabled);
+        assert!(settings.bandcamp_fallback_enabled);
+    }
+
+    #[test]
+    fn legacy_serde_defaults_do_not_reenable_an_explicitly_disabled_bandcamp_switch() {
+        let mut legacy = serde_json::to_value(Settings::default()).unwrap();
+        let object = legacy.as_object_mut().unwrap();
+        object.remove("streamingFallbackPolicyVersion");
+        object.remove("streamingFallbackSources");
+        object.insert(
+            "bandcampFallbackEnabled".into(),
+            serde_json::Value::Bool(false),
+        );
+        let mut settings: Settings = serde_json::from_value(legacy).unwrap();
+        assert_eq!(
+            settings.streaming_fallback_sources,
+            ["youtube", "soundcloud"]
+        );
+        normalize_streaming_fallback_policy(&mut settings).unwrap();
+        assert!(!settings.bandcamp_fallback_enabled);
+        assert_eq!(
+            settings.streaming_fallback_sources,
+            ["youtube", "soundcloud"]
+        );
+    }
+
     fn track(id: &str, version: &str) -> Track {
         Track {
             id: format!("fixture:{id}"),
@@ -6156,6 +7395,78 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let s = Store::open(&d.path().join("library.sqlite")).unwrap();
         (d, s)
+    }
+
+    #[test]
+    fn restore_barrier_rejects_active_and_new_writers_and_freeze_is_reversible() {
+        let (directory, store) = db();
+        let store = std::sync::Arc::new(store);
+        let permit = store.try_library_write().unwrap();
+        assert!(store.try_restore_permit().is_err());
+        let independent = Store::open(&directory.path().join("independent.sqlite")).unwrap();
+        assert!(independent.try_restore_permit().is_ok());
+        drop(permit);
+
+        let snapshot_changes = store
+            .with_backup_connection(|connection| {
+                connection
+                    .query_row("SELECT total_changes()", [], |row| row.get(0))
+                    .map_err(err)
+            })
+            .unwrap();
+        let restore = store.try_restore_permit().unwrap();
+        let frozen = store
+            .freeze_for_restore(&restore, snapshot_changes)
+            .unwrap();
+        assert!(store.try_library_write().is_err());
+        assert!(store
+            .set_json_preference("restore-freeze-test", &serde_json::json!(true))
+            .is_err());
+        assert_eq!(
+            store.get_json_preference("restore-freeze-test").unwrap(),
+            None
+        );
+
+        // Staging uses an independent Store connection and remains writable.
+        let staged = Store::open(&directory.path().join("staged.sqlite")).unwrap();
+        staged
+            .set_json_preference("restore-freeze-test", &serde_json::json!(true))
+            .unwrap();
+        assert_eq!(
+            staged.get_json_preference("restore-freeze-test").unwrap(),
+            Some(serde_json::json!(true))
+        );
+
+        // Dropping an uncommitted freeze restores ordinary writes.
+        drop(frozen);
+        drop(restore);
+        store
+            .set_json_preference("restore-freeze-test", &serde_json::json!(false))
+            .unwrap();
+    }
+
+    #[test]
+    fn restore_freeze_rejects_database_edits_since_the_snapshot() {
+        let (_directory, store) = db();
+        let store = std::sync::Arc::new(store);
+        let snapshot_changes = store
+            .with_backup_connection(|connection| {
+                connection
+                    .query_row("SELECT total_changes()", [], |row| row.get(0))
+                    .map_err(err)
+            })
+            .unwrap();
+        store
+            .set_json_preference("restore-stale-test", &serde_json::json!(1))
+            .unwrap();
+        let restore = store.try_restore_permit().unwrap();
+        assert!(store
+            .freeze_for_restore(&restore, snapshot_changes)
+            .is_err());
+        drop(restore);
+        store
+            .set_json_preference("restore-stale-test", &serde_json::json!(2))
+            .unwrap();
     }
     fn cleanup_selection(store: &Store, id: &str) -> LibraryEntrySelection {
         let connection = store.connection.lock().unwrap();
@@ -6991,6 +8302,134 @@ mod tests {
             assert_eq!(row.duration_seconds, Some(15.0));
         }
     }
+    #[test]
+    fn portable_section_replace_rolls_back_entries_and_annotations_on_hierarchy_write_failure() {
+        let (_dir, store) = db();
+        let first = track("section-rollback-first", "");
+        let second = track("section-rollback-second", "");
+        let collection = store.create_collection("Section rollback").unwrap();
+        store
+            .append_playlist_entries(&collection.id, &[first.clone(), first.clone()])
+            .unwrap();
+        let rows_before = store.list_playlist_occurrences(&collection.id).unwrap();
+        let section_id = uuid::Uuid::new_v4().to_string();
+        let hierarchy = serde_json::json!({
+            "schemaVersion":1,"folders":[],"playlists":[{"collectionId":collection.id,"folderId":null,"position":0,
+                "sections":[{"id":section_id,"name":"Original","position":0}],"occurrences":[
+                    {"id":rows_before[0].occurrence_id,"sectionId":section_id,"note":"private first","cuePoints":[1.25],"playbackRange":{"startSeconds":1.0,"endSeconds":4.0}},
+                    {"id":rows_before[1].occurrence_id,"sectionId":section_id,"note":"private second","cuePoints":[2.25],"playbackRange":{"startSeconds":2.0,"endSeconds":5.0}}
+                ]
+            }]
+        });
+        store
+            .set_json_preference("playlistHierarchy.v1", &hierarchy)
+            .unwrap();
+        let tracks_before = store
+            .list_tracks("collection", Some(&collection.id))
+            .unwrap();
+        let hierarchy_before = store
+            .get_json_preference("playlistHierarchy.v1")
+            .unwrap()
+            .unwrap();
+        {
+            let connection = store.lock_connection().unwrap();
+            connection.execute_batch("CREATE TRIGGER fail_hierarchy_update BEFORE UPDATE OF value ON settings WHEN OLD.key='playlistHierarchy.v1' AND NEW.key='playlistHierarchy.v1' BEGIN SELECT RAISE(ABORT, 'injected hierarchy write failure'); END;").unwrap();
+        }
+        let sections = [crate::portable_playlist::NamedItem {
+            id: "s1".into(),
+            name: "Edited".into(),
+            ..Default::default()
+        }];
+        let error = store
+            .replace_playlist_entries_with_portable_sections(
+                &collection.id,
+                &[second.clone()],
+                &sections,
+                &[Some("s1".into())],
+            )
+            .unwrap_err();
+        assert!(error.contains("injected hierarchy write failure"));
+        {
+            let connection = store.lock_connection().unwrap();
+            connection
+                .execute_batch("DROP TRIGGER fail_hierarchy_update;")
+                .unwrap();
+        }
+        assert_eq!(
+            store
+                .list_tracks("collection", Some(&collection.id))
+                .unwrap(),
+            tracks_before
+        );
+        assert_eq!(
+            store.list_playlist_occurrences(&collection.id).unwrap(),
+            rows_before
+        );
+        assert!(store.get_track(&second.id).unwrap().is_none());
+        assert_eq!(
+            store
+                .get_json_preference("playlistHierarchy.v1")
+                .unwrap()
+                .unwrap(),
+            hierarchy_before
+        );
+    }
+
+    #[test]
+    fn occurrence_ids_follow_reordered_duplicates_and_annotations_prune_in_same_transaction() {
+        let (_directory, store) = db();
+        let collection = store.create_collection("Occurrence identities").unwrap();
+        let a = track("occurrence-a", "");
+        let b = track("occurrence-b", "");
+        store
+            .append_playlist_entries(&collection.id, &[a.clone(), b.clone(), a.clone()])
+            .unwrap();
+        let before = store.list_playlist_occurrences(&collection.id).unwrap();
+        assert_eq!(before.len(), 3);
+        assert!(before
+            .iter()
+            .all(|row| uuid::Uuid::parse_str(&row.occurrence_id).is_ok()));
+        let hierarchy = serde_json::json!({
+            "schemaVersion":1,"folders":[],"playlists":[{"collectionId":collection.id,"folderId":null,"position":0,"sections":[],"occurrences":[
+                {"id":before[0].occurrence_id,"sectionId":null,"note":"first A","cuePoints":[],"playbackRange":null},
+                {"id":before[1].occurrence_id,"sectionId":null,"note":"B","cuePoints":[],"playbackRange":null},
+                {"id":before[2].occurrence_id,"sectionId":null,"note":"second A","cuePoints":[],"playbackRange":null}
+            ]}]
+        });
+        store
+            .set_json_preference("playlistHierarchy.v1", &hierarchy)
+            .unwrap();
+        store
+            .replace_playlist_entries(&collection.id, &[a.clone(), a.clone(), b.clone()])
+            .unwrap();
+        let after = store.list_playlist_occurrences(&collection.id).unwrap();
+        assert_eq!(after[0].occurrence_id, before[0].occurrence_id);
+        assert_eq!(after[1].occurrence_id, before[2].occurrence_id);
+        assert_eq!(after[2].occurrence_id, before[1].occurrence_id);
+        let persisted = store
+            .get_json_preference("playlistHierarchy.v1")
+            .unwrap()
+            .unwrap();
+        let occurrences = persisted["playlists"][0]["occurrences"].as_array().unwrap();
+        assert_eq!(occurrences.len(), 3);
+        assert_eq!(occurrences[1]["note"], "second A");
+
+        store
+            .replace_playlist_entries(&collection.id, &[a.clone(), b])
+            .unwrap();
+        let pruned = store
+            .get_json_preference("playlistHierarchy.v1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            pruned["playlists"][0]["occurrences"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+
     #[test]
     fn append_playlist_entries_keeps_legacy_representative_and_alternate_occurrences() {
         let (_dir, store) = db();
@@ -13123,8 +14562,24 @@ mod tests {
         assert_eq!(
             c.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
                 .unwrap(),
-            10
+            11
         );
+        let occurrence_column: bool = c.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('playlist_ordered_entries') WHERE name='occurrence_id')",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        let occurrence_index: bool = c.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='index' AND name='playlist_occurrence_id')",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        let occurrence_trigger: bool = c.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='playlist_occurrence_id_insert')",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert!(occurrence_column && occurrence_index && occurrence_trigger);
     }
     #[test]
     fn fresh_schema_has_saved_membership_default_and_v7_rows_migrate_as_saved() {
@@ -13174,6 +14629,11 @@ mod tests {
         }
         store.save_track(&track("legacy-v7-one", "")).unwrap();
         store.save_track(&track("legacy-v7-two", "")).unwrap();
+        let legacy_entries = [track("legacy-v7-one", ""), track("legacy-v7-two", "")];
+        let legacy_collection = store.create_collection("Legacy ordered playlist").unwrap();
+        store
+            .replace_playlist_entries(&legacy_collection.id, &legacy_entries)
+            .unwrap();
         drop(store);
 
         let path = directory.path().join("library.sqlite");
@@ -13195,7 +14655,11 @@ mod tests {
         }
         legacy
             .execute_batch(
-                "ALTER TABLE catalog_listings DROP COLUMN in_library; PRAGMA user_version=7;",
+                "DROP TRIGGER IF EXISTS playlist_occurrence_id_insert;
+                 DROP INDEX IF EXISTS playlist_occurrence_id;
+                 ALTER TABLE playlist_ordered_entries DROP COLUMN occurrence_id;
+                 ALTER TABLE catalog_listings DROP COLUMN in_library;
+                 PRAGMA user_version=7;",
             )
             .unwrap();
         drop(legacy);
@@ -13207,8 +14671,22 @@ mod tests {
             connection
                 .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
                 .unwrap(),
-            10
+            11
         );
+        drop(connection);
+        let migrated_occurrences = migrated
+            .list_playlist_occurrences(&legacy_collection.id)
+            .unwrap();
+        assert_eq!(migrated_occurrences.len(), 2);
+        let migrated_ids = migrated_occurrences
+            .iter()
+            .map(|entry| entry.occurrence_id.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(migrated_ids.len(), 2);
+        assert!(migrated_ids
+            .iter()
+            .all(|id| uuid::Uuid::parse_str(id).is_ok()));
+        let connection = migrated.connection.lock().unwrap();
         let unsaved_default: i64 = connection
             .query_row(
                 "SELECT in_library FROM catalog_listings WHERE id='fixture:legacy-v7-one'",
@@ -14945,5 +16423,37 @@ mod persisted_text_sort_index_proposal {
                 );
             }
         }
+    }
+
+    #[test]
+    fn restore_handoff_ack_is_nonce_fenced_and_retryable() {
+        let directory = tempfile::tempdir().unwrap();
+        let db_path = directory.path().join("burrata.sqlite");
+        let store = crate::storage::Store::open(&db_path).unwrap();
+        let key = "backupPlaybackHydration.v1";
+        store
+            .set_json_preference(key, &serde_json::json!({"nonce":"first"}))
+            .unwrap();
+        let other_connection = Connection::open(&db_path).unwrap();
+        other_connection
+            .execute(
+                "UPDATE settings SET value=?1 WHERE key=?2",
+                params![serde_json::json!({"nonce":"newer"}).to_string(), key],
+            )
+            .unwrap();
+        assert!(!store
+            .clear_json_preference_if_field_matches(key, "nonce", "first")
+            .unwrap());
+        assert_eq!(
+            store.get_json_preference(key).unwrap().unwrap()["nonce"],
+            "newer"
+        );
+        assert!(store
+            .clear_json_preference_if_field_matches(key, "nonce", "newer")
+            .unwrap());
+        assert_eq!(
+            store.get_json_preference(key).unwrap().unwrap(),
+            serde_json::json!({})
+        );
     }
 }

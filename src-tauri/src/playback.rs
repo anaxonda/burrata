@@ -453,6 +453,14 @@ pub struct PlayingTrackIdentification {
     pub artwork_url: Option<String>,
     pub note: String,
     pub timing_anchor: Option<RecognitionTimingAnchor>,
+    #[serde(skip)]
+    pub(crate) detection_metadata: Option<crate::radio::RadioTrackMetadata>,
+    #[serde(skip)]
+    pub(crate) captured_audio_interval: Option<(f64, f64)>,
+    #[serde(skip)]
+    pub(crate) detection_source_identity: Option<crate::playing_track_detections::SourceIdentity>,
+    #[serde(skip)]
+    pub(crate) detection_source_epoch: Option<u64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq)]
@@ -491,6 +499,9 @@ struct Preloaded {
     steady_http_stream: bool,
     offset: f64,
     end: Option<f64>,
+    loudness_status: crate::loudness_manager::LoudnessStatus,
+    loudness_album_context: Option<crate::loudness::LoudnessResourceIdentity>,
+    opus_decoder_capability: Option<ActiveOpusDecoderCapability>,
 }
 
 /// Identity of one speculative preparation. Queue position and generation alone
@@ -539,6 +550,15 @@ fn cancel_preload_state(state: &mut State) {
     state.preload = None;
 }
 
+fn fence_unresolved_preload_for_settings_change(state: &mut State, settings_changed: bool) -> bool {
+    if settings_changed && state.preload.is_none() && state.preload_cancel.is_some() {
+        cancel_preload_state(state);
+        true
+    } else {
+        false
+    }
+}
+
 fn apply_device_lost(state: &mut State, generation: u64, position: f64, reason: &str) -> bool {
     if state.generation != generation {
         return false;
@@ -576,6 +596,7 @@ struct State {
     natural_queue_end: bool,
     queue: Vec<Track>,
     entries: Vec<String>,
+    loudness_queue_contexts: HashMap<String, crate::loudness::LoudnessResourceIdentity>,
     queue_revision: u64,
     published_queue_revision: Option<u64>,
     persisted_queue_revision: Option<u64>,
@@ -590,6 +611,10 @@ struct State {
     candidate: Option<Candidate>,
     explicit_source: bool,
     quality: Value,
+    loudness_status: crate::loudness_manager::LoudnessStatus,
+    /// Exact configured decoder bytes/path authorized for this active source.
+    /// Refresh/adoption can reuse it without falling back to mutable PATH.
+    opus_decoder_capability: Option<ActiveOpusDecoderCapability>,
     decoder_diagnostics: Option<DecoderDiagnostics>,
     last_buffering: Option<Value>,
     last_recovery: Option<Value>,
@@ -656,6 +681,7 @@ impl Default for State {
             natural_queue_end: false,
             queue: vec![],
             entries: vec![],
+            loudness_queue_contexts: HashMap::new(),
             queue_revision: 0,
             published_queue_revision: None,
             persisted_queue_revision: None,
@@ -670,6 +696,8 @@ impl Default for State {
             candidate: None,
             explicit_source: false,
             quality: json!({}),
+            loudness_status: crate::loudness_manager::LoudnessStatus::off(),
+            opus_decoder_capability: None,
             decoder_diagnostics: None,
             last_buffering: None,
             last_recovery: None,
@@ -761,7 +789,7 @@ impl State {
         .into_iter()
         .flatten()
         .collect::<Vec<_>>();
-        let mut value = json!({"engine":if native{"native"}else{"webview"},"revision":self.revision,"queueRevision":self.queue_revision,"queuedOperationId":self.queued_operation_id,"generation":self.generation,"status":self.status,"trackId":self.track().map(|t|&t.id),"track":self.track(),"entryId":self.entries.get(self.index),"candidate":self.candidate,"currentIndex":if self.queue.is_empty(){-1}else{self.index as i64},"position":self.position,"duration":self.duration,"volume":self.volume,"repeat":self.repeat,"shuffle":self.shuffle,"paused":self.status!="playing","canSeek":self.station.is_none()&&self.duration>0.,"canVolume":true,"playerMessage":self.message,"quality":self.quality,"chapter":self.chapter(),"radioNowPlaying":self.radio_now,"radioHistory":self.radio_history,"seekSerial":self.seek_serial,"previewKind":"native","diagnostics":{"firstAudioMs":self.first_audio_ms,"sourceReadyMs":self.source_ready_ms,"seekFirstAudioMs":self.seek_first_audio_ms,"operationId":self.operation_id,"operationKind":self.operation_kind,"operationTrace":operation_trace,"clientStartedAtMs":self.operation_client_started_at_ms,"clickToIpcMs":self.operation_click_to_ipc_ms,"commandSerializedBytes":self.operation_command_bytes,"seekOperationId":self.seek_operation_id,"seekTrace":seek_trace,"seekClientStartedAtMs":self.seek_client_started_at_ms,"seekClickToIpcMs":self.seek_click_to_ipc_ms,"seekCommandSerializedBytes":self.seek_command_bytes,"seekOperationFirstAudioMs":self.seek_operation_first_audio_ms,"recoveryCount":self.recovery,"bufferingCount":self.buffering_count,"decoder":self.decoder_diagnostics,"lastBuffering":self.last_buffering,"lastRecovery":self.last_recovery,"lastLocalStorageFailure":self.last_local_storage_failure,"lastSourceFailure":self.last_source_failure,"lastSkippedTrackFailure":self.last_skipped_track_failure}});
+        let mut value = json!({"engine":if native{"native"}else{"webview"},"revision":self.revision,"queueRevision":self.queue_revision,"queuedOperationId":self.queued_operation_id,"generation":self.generation,"status":self.status,"trackId":self.track().map(|t|&t.id),"track":self.track(),"entryId":self.entries.get(self.index),"candidate":self.candidate,"currentIndex":if self.queue.is_empty(){-1}else{self.index as i64},"position":self.position,"duration":self.duration,"volume":self.volume,"repeat":self.repeat,"shuffle":self.shuffle,"paused":self.status!="playing","canSeek":self.station.is_none()&&self.duration>0.,"canVolume":true,"playerMessage":self.message,"quality":self.quality,"loudnessNormalization":self.loudness_status,"chapter":self.chapter(),"radioNowPlaying":self.radio_now,"radioHistory":self.radio_history,"seekSerial":self.seek_serial,"previewKind":"native","diagnostics":{"firstAudioMs":self.first_audio_ms,"sourceReadyMs":self.source_ready_ms,"seekFirstAudioMs":self.seek_first_audio_ms,"operationId":self.operation_id,"operationKind":self.operation_kind,"operationTrace":operation_trace,"clientStartedAtMs":self.operation_client_started_at_ms,"clickToIpcMs":self.operation_click_to_ipc_ms,"commandSerializedBytes":self.operation_command_bytes,"seekOperationId":self.seek_operation_id,"seekTrace":seek_trace,"seekClientStartedAtMs":self.seek_client_started_at_ms,"seekClickToIpcMs":self.seek_click_to_ipc_ms,"seekCommandSerializedBytes":self.seek_command_bytes,"seekOperationFirstAudioMs":self.seek_operation_first_audio_ms,"recoveryCount":self.recovery,"bufferingCount":self.buffering_count,"decoder":self.decoder_diagnostics,"lastBuffering":self.last_buffering,"lastRecovery":self.last_recovery,"lastLocalStorageFailure":self.last_local_storage_failure,"lastSourceFailure":self.last_source_failure,"lastSkippedTrackFailure":self.last_skipped_track_failure}});
         value["handoffId"] = self
             .handoff_id
             .as_ref()
@@ -804,8 +832,29 @@ impl State {
         if queue {
             value["queue"] = json!(self.queue);
             value["queueEntryIds"] = json!(self.entries);
+            value["queueLoudnessContexts"] = json!(self.loudness_queue_contexts);
         }
         value
+    }
+
+    fn backup_checkpoint_values(&self) -> (Value, Value) {
+        let queue = json!({
+            "tracks": self.queue,
+            "entryIds": self.entries,
+            "queueRevision": self.queue_revision,
+            "queueLoudnessContexts": self.loudness_queue_contexts,
+        });
+        let session = json!({
+            "index": self.index,
+            "currentEntryId": self.entries.get(self.index),
+            "queueRevision": self.queue_revision,
+            "position": self.position,
+            "volume": self.volume,
+            "repeat": self.repeat,
+            "shuffle": self.shuffle,
+            "finished": self.status == "ended",
+        });
+        (queue, session)
     }
     /// Explicit status/MCP queries include the bounded history. Routine snapshots
     /// never construct it, so emit/watch/control pulses cannot clone or serialize it.
@@ -821,6 +870,17 @@ impl State {
         let mut value = self.snapshot_with_failure_history(native, false);
         value["queue"] = json!(self.queue[start..end]);
         value["queueEntryIds"] = json!(self.entries[start..end]);
+        let page_entries: HashSet<&str> = self.entries[start..end]
+            .iter()
+            .map(String::as_str)
+            .collect();
+        let page_contexts: HashMap<&str, &crate::loudness::LoudnessResourceIdentity> = self
+            .loudness_queue_contexts
+            .iter()
+            .filter(|(entry_id, _)| page_entries.contains(entry_id.as_str()))
+            .map(|(entry_id, resource)| (entry_id.as_str(), resource))
+            .collect();
+        value["queueLoudnessContexts"] = json!(page_contexts);
         value["queueTotal"] = json!(self.queue.len());
         value["queueOffset"] = json!(start);
         value["queueLimit"] = json!(limit);
@@ -901,8 +961,139 @@ fn remove_queue_occurrences(
 
 fn mark_queue_changed(state: &mut State) {
     state.queue_revision = state.queue_revision.wrapping_add(1);
+    let entries: HashSet<&str> = state.entries.iter().map(String::as_str).collect();
+    state
+        .loudness_queue_contexts
+        .retain(|entry_id, _| entries.contains(entry_id.as_str()));
     state.recent_track_failures.clear();
     state.failed_occurrence_ids.clear();
+}
+
+fn validate_loudness_album_queue_binding(
+    resource: &crate::loudness::LoudnessResourceIdentity,
+    tracks: &[Track],
+) -> Result<(), String> {
+    resource
+        .validate()
+        .map_err(|_| "Album loudness queue identity is invalid".to_owned())?;
+    if resource.scope != crate::loudness::ResourceScope::Album
+        || resource.members.len() != tracks.len()
+        || tracks
+            .iter()
+            .zip(&resource.members)
+            .any(|(track, member)| !loudness_album_resource_matches_track(resource, track, member))
+    {
+        return Err("Album loudness identity must match every queued occurrence in order".into());
+    }
+    Ok(())
+}
+
+fn validate_loudness_album_resource_member(
+    resource: &crate::loudness::LoudnessResourceIdentity,
+    asset_id: &str,
+    file_hash: &str,
+    range: crate::loudness::AudioRange,
+) -> Result<(), String> {
+    resource
+        .validate()
+        .map_err(|_| "Album loudness resource identity is invalid".to_owned())?;
+    if resource.scope != crate::loudness::ResourceScope::Album
+        || resource
+            .inter_track_gaps_seconds
+            .iter()
+            .any(|gap| *gap != 0.0)
+    {
+        return Err("Album loudness resource does not match gapless playback".into());
+    }
+    let mut member_ids = HashSet::with_capacity(resource.members.len());
+    if resource
+        .members
+        .iter()
+        .any(|member| !member_ids.insert(member.asset_id.as_str()))
+    {
+        return Err("Album loudness resource contains duplicate assets".into());
+    }
+    if resource
+        .members
+        .iter()
+        .filter(|member| {
+            member.asset_id == asset_id && member.file_hash == file_hash && member.range == range
+        })
+        .count()
+        != 1
+    {
+        return Err("Album loudness resource does not match this exact asset and range".into());
+    }
+    Ok(())
+}
+
+fn loudness_album_resource_matches_track(
+    resource: &crate::loudness::LoudnessResourceIdentity,
+    track: &Track,
+    member: &crate::loudness::LoudnessAssetIdentity,
+) -> bool {
+    if resource.scope != crate::loudness::ResourceScope::Album
+        || resource
+            .inter_track_gaps_seconds
+            .iter()
+            .any(|gap| *gap != 0.0)
+        || track.asset_id.as_deref() != Some(member.asset_id.as_str())
+    {
+        return false;
+    }
+    let expected =
+        track
+            .playback_range
+            .as_ref()
+            .map_or(crate::loudness::AudioRange::WHOLE_FILE, |range| {
+                crate::loudness::AudioRange {
+                    start_seconds: range.start_time,
+                    end_seconds: Some(range.end_time),
+                }
+            });
+    member.range == expected
+}
+
+fn bind_loudness_context_to_queue_range(
+    state: &mut State,
+    start: usize,
+    count: usize,
+    resource: Option<&crate::loudness::LoudnessResourceIdentity>,
+) {
+    if let Some(resource) = resource {
+        for entry_id in state.entries.iter().skip(start).take(count) {
+            state
+                .loudness_queue_contexts
+                .insert(entry_id.clone(), resource.clone());
+        }
+    }
+}
+
+fn bind_loudness_context_to_matching_queue(
+    state: &mut State,
+    resource: &crate::loudness::LoudnessResourceIdentity,
+) -> Result<(), String> {
+    resource
+        .validate()
+        .map_err(|_| "Album loudness queue identity is invalid".to_owned())?;
+    if resource.scope != crate::loudness::ResourceScope::Album
+        || resource.members.len() > state.queue.len()
+    {
+        return Err("Album loudness identity does not match the current queue".into());
+    }
+    let start = state
+        .queue
+        .windows(resource.members.len())
+        .position(|tracks| {
+            tracks.iter().zip(&resource.members).all(|(track, member)| {
+                loudness_album_resource_matches_track(resource, track, member)
+            })
+        });
+    let Some(start) = start else {
+        return Err("Album loudness identity does not match an ordered queue occurrence".into());
+    };
+    bind_loudness_context_to_queue_range(state, start, resource.members.len(), Some(resource));
+    Ok(())
 }
 
 // Terminal local failure: no source-cache invalidation, recovery, or queue advancement.
@@ -939,6 +1130,26 @@ fn apply_local_storage_failure(
     }.into();
     state.revision += 1;
     true
+}
+
+fn apply_normalization_selection(
+    state: &mut State,
+    generation: u64,
+    status: crate::loudness_manager::LoudnessStatus,
+) -> bool {
+    if state.generation == generation {
+        state.loudness_status = status;
+        state.revision = state.revision.wrapping_add(1);
+        return true;
+    }
+    let preload_matches = state.preload.as_ref().is_some_and(|preload| {
+        preload.generation == generation && state.entries.get(preload.index) == Some(&preload.entry)
+    });
+    if preload_matches {
+        state.preload.as_mut().unwrap().loudness_status = status;
+        return true;
+    }
+    false
 }
 
 fn apply_buffering_event(
@@ -1045,7 +1256,7 @@ fn persist_playback_state<E>(
     let (queue_revision, queue, session_key, session) = {
         let s = state.lock().unwrap_or_else(|e| e.into_inner());
         let queue = (s.persisted_queue_revision != Some(s.queue_revision)).then(
-            || json!({"tracks":s.queue,"entryIds":s.entries,"queueRevision":s.queue_revision}),
+            || json!({"tracks":s.queue,"entryIds":s.entries,"queueRevision":s.queue_revision,"queueLoudnessContexts":s.loudness_queue_contexts}),
         );
         let key = persisted_session_key(&s);
         let session = (s.persisted_session.as_ref() != Some(&key)).then(|| {
@@ -1080,6 +1291,9 @@ struct Inner {
     commands: tokio::sync::Mutex<()>,
     native: AtomicBool,
     output: NativeOutput,
+    observed_analysis: Arc<crate::observed_analysis::ObservedAnalysis>,
+    loudness_verification: Arc<crate::loudness_manager::LocalVerificationMemo>,
+    loudness_album_context: Mutex<Option<crate::loudness::LoudnessResourceIdentity>>,
     updates: watch::Sender<Value>,
     audible: watch::Sender<bool>,
     playing_track_identifications: PlayingTrackIdentifications,
@@ -1090,6 +1304,20 @@ pub struct PlaybackService {
     inner: Arc<Inner>,
 }
 
+/// Full native playback state captured for a backup checkpoint. Routine
+/// playback snapshots are paginated; backup callers must use this seam instead.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaybackBackupCheckpoint {
+    pub engine: String,
+    pub revision: u64,
+    pub queue_revision: u64,
+    /// Present only when native playback is the active engine.
+    pub queue: Option<Value>,
+    /// Present only when native playback is the active engine.
+    pub session: Option<Value>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LiveBpmPlaybackEstimate {
@@ -1098,6 +1326,23 @@ pub struct LiveBpmPlaybackEstimate {
     pub track_id: String,
     #[serde(flatten)]
     pub estimate: crate::live_bpm::LiveBpmEstimate,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveKeyPlaybackEstimate {
+    pub generation: u64,
+    pub seek_serial: u64,
+    pub track_id: String,
+    #[serde(flatten)]
+    pub estimate: crate::live_key::LiveKeyEstimate,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LivePlaybackEstimates {
+    pub bpm: Option<LiveBpmPlaybackEstimate>,
+    pub key: Option<LiveKeyPlaybackEstimate>,
 }
 type QueuedPlaybackCommit = Box<dyn FnOnce(Value) -> Result<(), String> + Send>;
 
@@ -1112,6 +1357,342 @@ fn commit_queued_playback(
         commit(snapshot())?;
     }
     Ok(())
+}
+
+fn opus_r128_album_identity_matches(
+    tags: &crate::loudness_analysis::LocalTagMeasurements,
+    track: &Track,
+) -> bool {
+    let Some(tag_album) = tags
+        .album
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return false;
+    };
+    let Some(expected_album) = track
+        .album
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return false;
+    };
+    let Some(tag_artist) = tags
+        .album_artist
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return false;
+    };
+    let Some(expected_artist) = track
+        .album_artist
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return false;
+    };
+    tag_album.eq_ignore_ascii_case(expected_album)
+        && tag_artist.eq_ignore_ascii_case(expected_artist)
+}
+
+fn opus_r128_album_context_matches(
+    tags: &crate::loudness_analysis::LocalTagMeasurements,
+    track: &Track,
+    context: Option<&crate::loudness::LoudnessResourceIdentity>,
+    asset_id: &str,
+    file_hash: &str,
+    range: crate::loudness::AudioRange,
+) -> bool {
+    context.is_some_and(|context| {
+        context.scope == crate::loudness::ResourceScope::Album
+            && context.members.iter().any(|member| {
+                member.asset_id == asset_id
+                    && member.file_hash == file_hash
+                    && member.range == range
+            })
+    }) && opus_r128_album_identity_matches(tags, track)
+}
+
+fn local_track_normalization_decision(
+    tags: Option<&crate::loudness_analysis::LocalTagMeasurements>,
+    is_opus: bool,
+    range: crate::loudness::AudioRange,
+    exact_true_peak: Option<f64>,
+    header_gain_applied_once: bool,
+    record: Option<&crate::loudness::LoudnessRecord>,
+    policy: crate::loudness::GainPolicy,
+    mode: crate::loudness::NormalizationMode,
+    web_audio_stereo_route: bool,
+) -> Option<(f64, crate::loudness::MeasurementProvenance)> {
+    let mixed_opus_tags =
+        is_opus && tags.is_some_and(crate::loudness_analysis::opus_comment_schemes_are_mixed);
+    if !mixed_opus_tags {
+        if is_opus && tags.is_some_and(|tags| tags.opus_r128_track_tag_present) {
+            if let Some(tags) = tags {
+                if let crate::loudness::GainDecision::ApplyDb(gain) =
+                    crate::loudness_analysis::decide_verified_opus_r128_tag(
+                        tags,
+                        false,
+                        true,
+                        range,
+                        exact_true_peak,
+                        header_gain_applied_once,
+                        policy,
+                        mode,
+                    )
+                {
+                    return Some((gain, crate::loudness::MeasurementProvenance::OpusR128Track));
+                }
+            }
+        }
+        if let Some(tag) = tags.and_then(|tags| tags.track_replaygain) {
+            if let crate::loudness::GainDecision::ApplyDb(gain) =
+                tag.decide_gain_with_output_peak_bound(policy, mode, exact_true_peak)
+            {
+                return Some((
+                    gain,
+                    crate::loudness::MeasurementProvenance::ReplayGainTrack,
+                ));
+            }
+        }
+    }
+    // Malformed/duplicate/mixed comments never authorize tag gain. A current
+    // resource-bound LUFS/peak analysis is independent evidence and remains usable.
+    record.and_then(|record| {
+        let integrated = record.playback_integrated_lufs_for_route(web_audio_stereo_route)?;
+        match (crate::loudness::LoudnessMeasurement {
+            integrated_lufs: integrated,
+            true_peak_dbtp: None,
+        })
+        .decide_gain_with_output_peak_bound(
+            record.playback_true_peak_bound_dbtp(web_audio_stereo_route),
+            policy,
+            mode,
+        ) {
+            crate::loudness::GainDecision::ApplyDb(gain) => Some((gain, record.provenance)),
+            _ => None,
+        }
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ActiveOpusDecoderCapability {
+    executable_path: std::path::PathBuf,
+    executable_sha256: String,
+}
+
+fn active_opus_decoder_capability(
+    source: &crate::native_output::AudioSource,
+) -> Option<ActiveOpusDecoderCapability> {
+    let hint = source.decoder_hint.as_ref()?;
+    let fingerprint = hint.decoder_fingerprint.as_deref()?;
+    if hint.decode_policy != crate::native_output::AudioSourceDecodePolicy::FfmpegOggOpusHeadGain
+        || hint.mime_type.as_deref() != Some("audio/ogg")
+        || !hint
+            .codec
+            .as_deref()
+            .is_some_and(|codec| codec.eq_ignore_ascii_case("opus"))
+        || !source.ffmpeg.is_absolute()
+        || fingerprint.len() != 64
+        || !fingerprint.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return None;
+    }
+    Some(ActiveOpusDecoderCapability {
+        executable_path: source.ffmpeg.clone(),
+        executable_sha256: fingerprint.to_ascii_lowercase(),
+    })
+}
+
+fn attach_active_opus_decoder_capability(
+    source: &mut crate::native_output::AudioSource,
+    capability: Option<&ActiveOpusDecoderCapability>,
+) {
+    let Some(capability) = capability else {
+        return;
+    };
+    source.ffmpeg = capability.executable_path.clone();
+    source.decoder_hint = Some(crate::native_output::AudioSourceDecoderHint {
+        mime_type: Some("audio/ogg".into()),
+        codec: Some("opus".into()),
+        duration_seconds: None,
+        content_length: None,
+        has_video: false,
+        decode_policy: crate::native_output::AudioSourceDecodePolicy::FfmpegOggOpusHeadGain,
+        decoder_fingerprint: Some(capability.executable_sha256.clone()),
+    });
+}
+
+fn registered_source_with_opus_capability(
+    input: &str,
+    capability: Option<&ActiveOpusDecoderCapability>,
+) -> crate::native_output::AudioSource {
+    let mut source = crate::native_output::AudioSource {
+        input: input.to_owned(),
+        ffmpeg: "ffmpeg".into(),
+        headers: vec![],
+        decoder_hint: None,
+        cenc: None,
+    };
+    attach_active_opus_decoder_capability(&mut source, capability);
+    source
+}
+
+fn adopt_preloaded_opus_capability(state: &mut State, preload: &Preloaded) {
+    state.opus_decoder_capability = preload.opus_decoder_capability.clone();
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CurrentPlayableCodec {
+    codec: String,
+    container: String,
+}
+
+fn current_file_is_ogg_opus(
+    asset: &crate::models::LocalAsset,
+    probed: &CurrentPlayableCodec,
+) -> bool {
+    asset.final_codec.eq_ignore_ascii_case("opus")
+        && probed.codec.eq_ignore_ascii_case("opus")
+        && probed
+            .container
+            .split(',')
+            .any(|container| container.eq_ignore_ascii_case("ogg"))
+}
+
+fn native_opus_decode_preprobe_eligible(
+    source: &crate::native_output::AudioSource,
+    asset: &crate::models::LocalAsset,
+    mode: crate::loudness::NormalizationMode,
+    range: crate::loudness::AudioRange,
+) -> bool {
+    mode != crate::loudness::NormalizationMode::Off
+        && range == crate::loudness::AudioRange::WHOLE_FILE
+        && source.cenc.is_none()
+        && !source.input.starts_with("http://")
+        && !source.input.starts_with("https://")
+        && !source.input.starts_with("ytdl://")
+        && source.input == asset.path
+        && asset.final_codec.eq_ignore_ascii_case("opus")
+}
+
+fn native_opus_decode_policy_eligible(
+    source: &crate::native_output::AudioSource,
+    asset: &crate::models::LocalAsset,
+    probed: &CurrentPlayableCodec,
+    mode: crate::loudness::NormalizationMode,
+    range: crate::loudness::AudioRange,
+) -> bool {
+    native_opus_decode_preprobe_eligible(source, asset, mode, range)
+        && current_file_is_ogg_opus(asset, probed)
+}
+
+fn apply_native_opus_decode_policy(
+    source: &mut crate::native_output::AudioSource,
+    asset: &crate::models::LocalAsset,
+    decoder_fingerprint: String,
+) {
+    let codec = asset.final_codec.clone();
+    source.decoder_hint = Some(crate::native_output::AudioSourceDecoderHint {
+        mime_type: Some("audio/ogg".into()),
+        codec: Some(codec),
+        duration_seconds: None,
+        content_length: None,
+        has_video: false,
+        decode_policy: crate::native_output::AudioSourceDecodePolicy::FfmpegOggOpusHeadGain,
+        decoder_fingerprint: Some(decoder_fingerprint),
+    });
+}
+
+async fn probe_current_playable_codec(
+    store: &crate::storage::Store,
+    asset: &crate::models::LocalAsset,
+) -> Option<CurrentPlayableCodec> {
+    let current = store.get_asset_by_id(&asset.id).ok().flatten()?;
+    if current.path != asset.path || current.hash != asset.hash {
+        return None;
+    }
+    let settings = store.settings().ok()?;
+    let mut command =
+        tokio::process::Command::new(crate::tools::executable(&settings.ffprobe_path, "ffprobe"));
+    command
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "stream=codec_name:format=format_name",
+            "-of",
+            "json",
+        ])
+        .arg(&asset.path);
+    crate::tools::configure_no_console_tokio(&mut command);
+    let output = crate::opus_decoder_capability::bounded_command_output(
+        &mut command,
+        4096,
+        4096,
+        std::time::Duration::from_secs(2),
+    )
+    .await?;
+    if !output.status.success() {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
+    let codec = value["streams"]
+        .as_array()?
+        .first()?
+        .get("codec_name")?
+        .as_str()?
+        .to_owned();
+    let container = value["format"].get("format_name")?.as_str()?.to_owned();
+    Some(CurrentPlayableCodec { codec, container })
+}
+
+async fn set_registered_native_opus_decode_policy(
+    store: &crate::storage::Store,
+    source: &mut crate::native_output::AudioSource,
+    mode: crate::loudness::NormalizationMode,
+    range: crate::loudness::AudioRange,
+) -> bool {
+    if mode == crate::loudness::NormalizationMode::Off
+        || range != crate::loudness::AudioRange::WHOLE_FILE
+        || source.cenc.is_some()
+        || source.input.starts_with("http://")
+        || source.input.starts_with("https://")
+        || source.input.starts_with("ytdl://")
+    {
+        return false;
+    }
+    let Ok(Some(asset)) = store.get_asset_by_path(&source.input) else {
+        return false;
+    };
+    if !native_opus_decode_preprobe_eligible(source, &asset, mode, range) {
+        return false;
+    }
+    let Some(probed) = probe_current_playable_codec(store, &asset).await else {
+        return false;
+    };
+    if !native_opus_decode_policy_eligible(source, &asset, &probed, mode, range) {
+        return false;
+    }
+    // Capability is cached only after a selected local source has triggered a
+    // bounded self-test of this exact configured FFmpeg executable. The first
+    // play remains unnormalized; only a later play can consume a passed result.
+    let Some(confirmed_ffmpeg) =
+        crate::opus_decoder_capability::confirmed_executable(&source.ffmpeg).await
+    else {
+        return false;
+    };
+    // Bind playback to the exact canonical executable whose identity passed,
+    // rather than resolving a mutable PATH name again in the decoder worker.
+    source.ffmpeg = confirmed_ffmpeg.executable_path;
+    apply_native_opus_decode_policy(source, &asset, confirmed_ffmpeg.executable_sha256);
+    true
 }
 
 impl PlaybackService {
@@ -1159,6 +1740,7 @@ impl PlaybackService {
         let service = Arc::new(Self {
             inner: Arc::new(Inner {
                 app,
+                observed_analysis: crate::observed_analysis::ObservedAnalysis::new(store.clone()),
                 store,
                 acquisition,
                 history,
@@ -1168,6 +1750,10 @@ impl PlaybackService {
                 commands: tokio::sync::Mutex::new(()),
                 native: AtomicBool::new(native),
                 output,
+                loudness_verification: Arc::new(
+                    crate::loudness_manager::LocalVerificationMemo::default(),
+                ),
+                loudness_album_context: Mutex::new(None),
                 updates,
                 audible,
                 playing_track_identifications: PlayingTrackIdentifications::default(),
@@ -1193,6 +1779,1010 @@ impl PlaybackService {
     }
     pub fn native_enabled(&self) -> bool {
         self.inner.native.load(Ordering::Acquire)
+    }
+
+    pub fn loudness_settings(&self) -> Result<crate::loudness_manager::LoudnessSettings, String> {
+        crate::loudness_manager::load_settings(&self.inner.store)
+    }
+
+    pub fn set_loudness_album_context(
+        &self,
+        resource: Option<crate::loudness::LoudnessResourceIdentity>,
+    ) -> Result<(), String> {
+        if let Some(resource) = resource.as_ref() {
+            resource
+                .validate()
+                .map_err(|_| "Album loudness resource identity is invalid".to_owned())?;
+            if resource.scope != crate::loudness::ResourceScope::Album {
+                return Err("Album context must identify an ordered album programme".into());
+            }
+            if resource
+                .inter_track_gaps_seconds
+                .iter()
+                .any(|gap| *gap != 0.0)
+            {
+                return Err("Album loudness context must match gapless queue playback".into());
+            }
+        }
+        *self
+            .inner
+            .loudness_album_context
+            .lock()
+            .map_err(|_| "Album loudness context is unavailable")? = resource;
+        Ok(())
+    }
+
+    /// Return the shared normalization decision for one exact registered local
+    /// asset. WebView callers use the same trusted tags, cache and verification
+    /// policy as native output; caller supplied paths and metadata are ignored.
+    pub fn loudness_decision_for_registered_asset(
+        &self,
+        asset_id: &str,
+        range: crate::loudness::AudioRange,
+        album_resource: Option<crate::loudness::LoudnessResourceIdentity>,
+    ) -> Result<crate::loudness_manager::LoudnessStatus, String> {
+        let settings = crate::loudness_manager::load_settings(&self.inner.store)?;
+        if settings.mode == crate::loudness::NormalizationMode::Off {
+            return Ok(crate::loudness_manager::LoudnessStatus::off());
+        }
+        range
+            .validate()
+            .map_err(|_| "Loudness playback range is invalid".to_owned())?;
+        let asset = self
+            .inner
+            .store
+            .get_asset_by_id(asset_id)
+            .map_err(|error| error.to_string())?
+            .ok_or("Selected local audio asset is no longer registered")?;
+        let effective_range = if is_cropped_chapter_asset(&asset.track, &asset) {
+            crate::loudness::AudioRange::WHOLE_FILE
+        } else {
+            range
+        };
+        if let Some(resource) = album_resource.as_ref() {
+            validate_loudness_album_resource_member(
+                resource,
+                &asset.id,
+                &asset.hash,
+                effective_range,
+            )?;
+            for member in &resource.members {
+                let registered = self
+                    .inner
+                    .store
+                    .get_asset_by_id(&member.asset_id)
+                    .map_err(|error| error.to_string())?
+                    .ok_or("Album loudness member is no longer registered")?;
+                if registered.hash != member.file_hash {
+                    return Err("Album loudness member changed since programme selection".into());
+                }
+            }
+        }
+        let source = crate::native_output::AudioSource {
+            input: asset.path.clone(),
+            ffmpeg: self
+                .inner
+                .store
+                .settings()
+                .map(|settings| crate::tools::executable(&settings.ffmpeg_path, "ffmpeg"))
+                .unwrap_or_else(|_| "ffmpeg".into()),
+            headers: vec![],
+            decoder_hint: None,
+            cenc: None,
+        };
+        let (_, status) = self.resolved_source_loudness_with_album_context(
+            &settings,
+            &source,
+            &asset.track,
+            None,
+            None,
+            range,
+            album_resource,
+            false,
+            true,
+            true,
+        );
+        Ok(status)
+    }
+
+    pub fn set_loudness_settings(
+        &self,
+        settings: crate::loudness_manager::LoudnessSettings,
+    ) -> Result<crate::loudness_manager::LoudnessStatus, String> {
+        let previous =
+            crate::loudness_manager::load_settings(&self.inner.store).unwrap_or_default();
+        let settings_changed = previous != settings;
+        crate::loudness_manager::save_settings(&self.inner.store, &settings)?;
+        self.refresh_normalization_with_settings(settings, settings_changed)
+    }
+
+    pub fn refresh_normalization(&self) -> Result<crate::loudness_manager::LoudnessStatus, String> {
+        let settings = crate::loudness_manager::load_settings(&self.inner.store)?;
+        self.refresh_normalization_with_settings(settings, false)
+    }
+
+    fn refresh_normalization_with_settings(
+        &self,
+        settings: crate::loudness_manager::LoudnessSettings,
+        settings_changed: bool,
+    ) -> Result<crate::loudness_manager::LoudnessStatus, String> {
+        let (
+            generation,
+            track,
+            candidate,
+            station,
+            cancel,
+            active_opus_decoder_capability,
+            queued_preload,
+            unresolved_preload,
+        ) = {
+            let mut state = self
+                .inner
+                .state
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            // Fence resolver-only work while holding the same state lock it
+            // must acquire to publish its resolved source and queued PCM.
+            let unresolved_preload =
+                fence_unresolved_preload_for_settings_change(&mut state, settings_changed);
+            let queued_preload = state.preload.as_ref().and_then(|preload| {
+                Some((
+                    preload.generation,
+                    preload.index,
+                    preload.entry.clone(),
+                    state.queue.get(preload.index)?.clone(),
+                    preload.candidate.is_some(),
+                    crate::loudness::AudioRange {
+                        start_seconds: preload.offset,
+                        end_seconds: preload.end,
+                    },
+                    preload.loudness_album_context.clone(),
+                    preload.opus_decoder_capability.clone(),
+                    state
+                        .preload_cancel
+                        .as_ref()
+                        .map(|sender| sender.subscribe()),
+                ))
+            });
+            (
+                state.generation,
+                state.track().cloned(),
+                state.candidate.clone(),
+                state.station.clone(),
+                state.cancel.as_ref().map(|sender| sender.subscribe()),
+                state.opus_decoder_capability.clone(),
+                queued_preload,
+                unresolved_preload,
+            )
+        };
+        let plan = if settings.mode == crate::loudness::NormalizationMode::Off {
+            crate::loudness_manager::NativeNormalizationGainPlan::fixed(
+                crate::loudness_manager::LoudnessStatus::off(),
+            )
+        } else if !self.native_enabled() {
+            crate::loudness_manager::NativeNormalizationGainPlan::fixed(
+                crate::loudness_manager::LoudnessStatus::unavailable(
+                    settings.mode,
+                    "The active WebView audio route has not reported normalization capability",
+                    None,
+                ),
+            )
+        } else if station.is_some() || candidate.is_some() {
+            crate::loudness_manager::NativeNormalizationGainPlan::fixed(
+                crate::loudness_manager::LoudnessStatus::unavailable(
+                    settings.mode,
+                    "This remote or live audio source has no trusted resource-bound measurement",
+                    None,
+                ),
+            )
+        } else if let Some(track) = track.as_ref() {
+            self.native_loudness_plan_for_registered_track(
+                &settings,
+                track,
+                cancel,
+                active_opus_decoder_capability,
+            )
+        } else {
+            crate::loudness_manager::NativeNormalizationGainPlan::fixed(
+                crate::loudness_manager::LoudnessStatus::unavailable(
+                    settings.mode,
+                    "No active audio resource is selected",
+                    None,
+                ),
+            )
+        };
+        let queued_plan = queued_preload.as_ref().map(
+            |(
+                queued_generation,
+                _index,
+                _entry,
+                queued_track,
+                queued_has_candidate,
+                queued_range,
+                queued_album_context,
+                queued_opus_decoder_capability,
+                queued_cancel,
+            )| {
+                let plan = if settings.mode == crate::loudness::NormalizationMode::Off {
+                    crate::loudness_manager::NativeNormalizationGainPlan::fixed(
+                        crate::loudness_manager::LoudnessStatus::off(),
+                    )
+                } else if !self.native_enabled() {
+                    crate::loudness_manager::NativeNormalizationGainPlan::fixed(
+                        crate::loudness_manager::LoudnessStatus::unavailable(
+                            settings.mode,
+                            "The active WebView audio route has not reported normalization capability",
+                            None,
+                        ),
+                    )
+                } else if *queued_has_candidate || queued_track.local_path.is_none() {
+                    crate::loudness_manager::NativeNormalizationGainPlan::fixed(
+                        crate::loudness_manager::LoudnessStatus::unavailable(
+                            settings.mode,
+                            "This remote or live audio source has no trusted resource-bound measurement",
+                            None,
+                        ),
+                    )
+                } else {
+                    let queued_source = registered_source_with_opus_capability(
+                        queued_track.local_path.as_deref().unwrap_or_default(),
+                        queued_opus_decoder_capability.as_ref(),
+                    );
+                    self.resolved_native_loudness_plan(
+                        &settings,
+                        &queued_source,
+                        queued_track,
+                        None,
+                        queued_cancel.clone(),
+                        *queued_range,
+                        queued_album_context.clone(),
+                        false,
+                    )
+                };
+                (*queued_generation, plan)
+            },
+        );
+        let status = plan.pending_status();
+        {
+            let mut state = self
+                .inner
+                .state
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if state.generation == generation {
+                state.loudness_status = status.clone();
+                state.revision += 1;
+            }
+            if let (
+                Some((queued_generation, queued_plan)),
+                Some((_, queued_index, queued_entry, _, _, _, _, _, _)),
+            ) = (queued_plan.as_ref(), queued_preload.as_ref())
+            {
+                let occurrence_matches = state.entries.get(*queued_index) == Some(queued_entry);
+                if occurrence_matches {
+                    if let Some(preload) = state.preload.as_mut().filter(|preload| {
+                        preload.generation == *queued_generation
+                            && preload.index == *queued_index
+                            && preload.entry == *queued_entry
+                    }) {
+                        preload.loudness_status = queued_plan.pending_status();
+                    }
+                }
+            }
+        }
+        self.publish();
+        let active_update = if self.native_enabled() && generation > 0 {
+            self.inner
+                .output
+                .send(OutputCommand::NormalizationGainPlan {
+                    generation,
+                    plan,
+                    ramp_ms: 80,
+                })
+        } else {
+            Ok(())
+        };
+        let queued_update = if self.native_enabled() {
+            if let Some((queued_generation, queued_plan)) = queued_plan {
+                self.inner
+                    .output
+                    .send(OutputCommand::NormalizationGainPlan {
+                        generation: queued_generation,
+                        plan: queued_plan,
+                        ramp_ms: 80,
+                    })
+            } else {
+                Ok(())
+            }
+        } else {
+            Ok(())
+        };
+        if unresolved_preload {
+            // No queued PCM existed at the locked fence; the canceled owner
+            // cannot enqueue after it. A fresh prepare may already own the slot.
+            self.prepare_next();
+        }
+        active_update?;
+        queued_update?;
+        if settings_changed {
+            let current_generation = self
+                .inner
+                .state
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .generation;
+            if current_generation != generation {
+                let current_settings =
+                    crate::loudness_manager::load_settings(&self.inner.store).unwrap_or(settings);
+                return self.refresh_normalization_with_settings(current_settings, false);
+            }
+        }
+        Ok(status)
+    }
+
+    fn native_loudness_plan_for_registered_track(
+        &self,
+        settings: &crate::loudness_manager::LoudnessSettings,
+        track: &Track,
+        cancel: Option<watch::Receiver<bool>>,
+        opus_decoder_capability: Option<ActiveOpusDecoderCapability>,
+    ) -> crate::loudness_manager::NativeNormalizationGainPlan {
+        let album_context = self
+            .inner
+            .loudness_album_context
+            .lock()
+            .ok()
+            .and_then(|context| context.clone());
+        self.native_loudness_plan_for_track_context(
+            settings,
+            track,
+            cancel,
+            album_context,
+            true,
+            opus_decoder_capability,
+        )
+    }
+
+    fn native_loudness_plan_for_track_context(
+        &self,
+        settings: &crate::loudness_manager::LoudnessSettings,
+        track: &Track,
+        cancel: Option<watch::Receiver<bool>>,
+        album_context: Option<crate::loudness::LoudnessResourceIdentity>,
+        clear_active_context_on_mismatch: bool,
+        opus_decoder_capability: Option<ActiveOpusDecoderCapability>,
+    ) -> crate::loudness_manager::NativeNormalizationGainPlan {
+        let Some(path) = track.local_path.as_deref() else {
+            return crate::loudness_manager::NativeNormalizationGainPlan::fixed(
+                crate::loudness_manager::LoudnessStatus::unavailable(
+                    settings.mode,
+                    "The active audio resource is not a registered local asset",
+                    None,
+                ),
+            );
+        };
+        let (start_seconds, end_seconds) = self.source_bounds(track);
+        let source = registered_source_with_opus_capability(path, opus_decoder_capability.as_ref());
+        self.resolved_native_loudness_plan(
+            settings,
+            &source,
+            track,
+            None,
+            cancel,
+            crate::loudness::AudioRange {
+                start_seconds,
+                end_seconds,
+            },
+            album_context,
+            clear_active_context_on_mismatch,
+        )
+    }
+
+    fn schedule_local_tag_verification(
+        &self,
+        resource: crate::loudness::LoudnessResourceIdentity,
+        cancel: Option<watch::Receiver<bool>>,
+    ) {
+        let store = self.inner.store.clone();
+        let memo = self.inner.loudness_verification.clone();
+        if !memo
+            .begin_tag_verification(&store, &resource)
+            .unwrap_or(false)
+        {
+            return;
+        }
+        tauri::async_runtime::spawn(async move {
+            let _ = memo
+                .prepare_local_tags(store, resource.clone(), cancel)
+                .await;
+            memo.finish_tag_verification(&resource);
+        });
+    }
+
+    fn schedule_local_resource_verification(
+        &self,
+        resource: crate::loudness::LoudnessResourceIdentity,
+        cancel: Option<watch::Receiver<bool>>,
+    ) {
+        let store = self.inner.store.clone();
+        let memo = self.inner.loudness_verification.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = memo.verify_and_remember(store, resource, cancel).await;
+        });
+    }
+
+    fn resolved_source_loudness(
+        &self,
+        settings: &crate::loudness_manager::LoudnessSettings,
+        source: &crate::native_output::AudioSource,
+        track: &Track,
+        station: Option<&RadioStation>,
+        cancel: Option<watch::Receiver<bool>>,
+        range: crate::loudness::AudioRange,
+    ) -> (f32, crate::loudness_manager::LoudnessStatus) {
+        let album_context = self
+            .inner
+            .loudness_album_context
+            .lock()
+            .ok()
+            .and_then(|context| context.clone());
+        self.resolved_source_loudness_with_album_context(
+            settings,
+            source,
+            track,
+            station,
+            cancel,
+            range,
+            album_context,
+            true,
+            false,
+            true,
+        )
+    }
+
+    fn resolved_native_loudness_plan(
+        &self,
+        settings: &crate::loudness_manager::LoudnessSettings,
+        source: &crate::native_output::AudioSource,
+        track: &Track,
+        station: Option<&RadioStation>,
+        cancel: Option<watch::Receiver<bool>>,
+        range: crate::loudness::AudioRange,
+        album_context: Option<crate::loudness::LoudnessResourceIdentity>,
+        clear_active_context_on_mismatch: bool,
+    ) -> crate::loudness_manager::NativeNormalizationGainPlan {
+        let source_route = self.resolved_source_loudness_with_album_context(
+            settings,
+            source,
+            track,
+            station,
+            cancel.clone(),
+            range,
+            album_context.clone(),
+            clear_active_context_on_mismatch,
+            false,
+            true,
+        );
+        if settings.mode == crate::loudness::NormalizationMode::Off {
+            return crate::loudness_manager::NativeNormalizationGainPlan::fixed(source_route.1);
+        }
+        let registered_mono = self
+            .inner
+            .store
+            .get_asset_by_path(&source.input)
+            .ok()
+            .flatten()
+            .filter(|asset| asset.path == source.input && asset.channels == Some(1))
+            .is_some_and(|asset| {
+                let resource =
+                    crate::loudness::LoudnessResourceIdentity::track(&asset.id, &asset.hash, range);
+                crate::loudness_manager::cached_record(&self.inner.store, &resource, None)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|record| record.channels == 1)
+            });
+        if !registered_mono {
+            return crate::loudness_manager::NativeNormalizationGainPlan::fixed(source_route.1);
+        }
+        let stereo_route = self.resolved_source_loudness_with_album_context(
+            settings,
+            source,
+            track,
+            station,
+            cancel,
+            range,
+            album_context,
+            false,
+            true,
+            false,
+        );
+        crate::loudness_manager::NativeNormalizationGainPlan::mono(
+            source_route.1,
+            Some(stereo_route.1),
+        )
+    }
+
+    fn resolved_source_loudness_with_album_context(
+        &self,
+        settings: &crate::loudness_manager::LoudnessSettings,
+        source: &crate::native_output::AudioSource,
+        track: &Track,
+        station: Option<&RadioStation>,
+        cancel: Option<watch::Receiver<bool>>,
+        range: crate::loudness::AudioRange,
+        album_context: Option<crate::loudness::LoudnessResourceIdentity>,
+        clear_active_context_on_mismatch: bool,
+        web_audio_stereo_route: bool,
+        schedule_verification: bool,
+    ) -> (f32, crate::loudness_manager::LoudnessStatus) {
+        use crate::loudness::{GainDecision, MeasurementProvenance, NormalizationMode};
+        use crate::loudness_manager::{LoudnessStatus, LoudnessStatusKind};
+
+        let input = source.input.as_str();
+        if station.is_some()
+            || input.starts_with("http://")
+            || input.starts_with("https://")
+            || input.starts_with("ytdl://")
+        {
+            if clear_active_context_on_mismatch {
+                if let Ok(mut context) = self.inner.loudness_album_context.lock() {
+                    *context = None;
+                }
+            }
+            return if settings.mode == NormalizationMode::Off {
+                (0.0, LoudnessStatus::off())
+            } else {
+                (
+                    0.0,
+                    LoudnessStatus::unavailable(
+                        settings.mode,
+                        "This remote or live audio source has no resource-bound measurement",
+                        None,
+                    ),
+                )
+            };
+        }
+        let asset = match self.inner.store.get_asset_by_path(input) {
+            Ok(Some(asset)) if asset.path == input => asset,
+            _ => {
+                if clear_active_context_on_mismatch {
+                    if let Ok(mut context) = self.inner.loudness_album_context.lock() {
+                        *context = None;
+                    }
+                }
+                return if settings.mode == NormalizationMode::Off {
+                    (0.0, LoudnessStatus::off())
+                } else {
+                    (
+                        0.0,
+                        LoudnessStatus::unavailable(
+                            settings.mode,
+                            "This audio source is not a registered local asset",
+                            None,
+                        ),
+                    )
+                };
+            }
+        };
+        let range = if is_cropped_chapter_asset(track, &asset) {
+            crate::loudness::AudioRange::WHOLE_FILE
+        } else {
+            range
+        };
+        let resource = crate::loudness::LoudnessResourceIdentity::track(
+            asset.id.clone(),
+            asset.hash.clone(),
+            range,
+        );
+        let resource_key = Some(resource.resource_key.clone());
+        let is_opus = asset.final_codec.eq_ignore_ascii_case("opus")
+            || std::path::Path::new(input)
+                .extension()
+                .and_then(|value| value.to_str())
+                .is_some_and(|value| {
+                    matches!(value.to_ascii_lowercase().as_str(), "opus" | "webm")
+                });
+        // Cache lookup compares the full typed resource (including range), so
+        // a future range analyzer can authorize only its exact measured cut.
+        let cached = crate::loudness_manager::cached_record(&self.inner.store, &resource, None)
+            .ok()
+            .flatten();
+        let album_resource = album_context.clone().filter(|context| {
+            context.scope == crate::loudness::ResourceScope::Album
+                && context.members.iter().any(|member| {
+                    member.asset_id == asset.id
+                        && member.file_hash == asset.hash
+                        && member.range == range
+                })
+        });
+        if clear_active_context_on_mismatch && album_context.is_some() && album_resource.is_none() {
+            if let Ok(mut context) = self.inner.loudness_album_context.lock() {
+                if context.as_ref().is_some_and(|current| {
+                    Some(current.resource_key.as_str())
+                        == album_context
+                            .as_ref()
+                            .map(|value| value.resource_key.as_str())
+                }) {
+                    *context = None;
+                }
+            }
+        }
+        if settings.mode == NormalizationMode::Off {
+            return (0.0, LoudnessStatus::off());
+        }
+        let album_cached = album_resource.as_ref().and_then(|album_resource| {
+            crate::loudness_manager::cached_record(&self.inner.store, album_resource, None)
+                .ok()
+                .flatten()
+        });
+        let album_verified = album_resource.as_ref().is_some_and(|album_resource| {
+            self.inner
+                .loudness_verification
+                .is_currently_verified(&self.inner.store, album_resource, album_cached.as_ref())
+                .unwrap_or(false)
+        });
+        if schedule_verification && album_cached.is_some() && !album_verified {
+            self.schedule_local_resource_verification(
+                album_resource.clone().unwrap(),
+                cancel.clone(),
+            );
+        }
+        let track_verified = self
+            .inner
+            .loudness_verification
+            .is_currently_verified(&self.inner.store, &resource, cached.as_ref())
+            .unwrap_or(false);
+        // A complete programme seal authenticates every member. Album mode
+        // can use that analysis on the first start even before a separate
+        // per-track tag-verification memo has been populated.
+        let verified = track_verified || album_verified;
+        if !verified {
+            if schedule_verification {
+                if cached.is_some() {
+                    self.schedule_local_resource_verification(resource.clone(), cancel);
+                } else if range == crate::loudness::AudioRange::WHOLE_FILE {
+                    self.schedule_local_tag_verification(resource.clone(), cancel);
+                }
+            }
+            return (
+                0.0,
+                LoudnessStatus::unavailable(
+                    settings.mode,
+                    if range == crate::loudness::AudioRange::WHOLE_FILE {
+                        "Local audio hash has not been verified in this session; normalization is available on the next play"
+                    } else if cached.is_some() {
+                        "The exact excerpt measurement is awaiting local file verification"
+                    } else {
+                        "No trusted measurement covers this exact playback range"
+                    },
+                    resource_key,
+                ),
+            );
+        }
+        let decoder_fingerprint = source
+            .decoder_hint
+            .as_ref()
+            .and_then(|hint| hint.decoder_fingerprint.as_deref())
+            .filter(|value| {
+                value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+            });
+        let opus_header_gain_decoder = source.cenc.is_none()
+            && !source.input.starts_with("http://")
+            && !source.input.starts_with("https://")
+            && !source.input.starts_with("ytdl://")
+            && source.input == asset.path
+            && decoder_fingerprint.is_some()
+            && source.decoder_hint.as_ref().is_some_and(|hint| {
+                hint.decode_policy
+                    == crate::native_output::AudioSourceDecodePolicy::FfmpegOggOpusHeadGain
+                    && hint.mime_type.as_deref() == Some("audio/ogg")
+                    && hint
+                        .codec
+                        .as_deref()
+                        .is_some_and(|codec| codec.eq_ignore_ascii_case("opus"))
+            });
+        let track_opus_proof = is_opus
+            && decoder_fingerprint.is_some_and(|fingerprint| {
+                cached.as_ref().is_some_and(|record| {
+                    record
+                        .opus_decoder_proofs
+                        .iter()
+                        .any(|proof| proof.validates_for(&asset.id, &asset.hash, fingerprint))
+                })
+            });
+        let album_opus_proof = is_opus
+            && decoder_fingerprint.is_some_and(|fingerprint| {
+                album_cached.as_ref().is_some_and(|record| {
+                    record
+                        .opus_decoder_proofs
+                        .iter()
+                        .any(|proof| proof.validates_for(&asset.id, &asset.hash, fingerprint))
+                })
+            });
+        if is_opus && (!opus_header_gain_decoder || (!track_opus_proof && !album_opus_proof)) {
+            return (
+                0.0,
+                LoudnessStatus::unavailable(
+                    settings.mode,
+                    if range != crate::loudness::AudioRange::WHOLE_FILE {
+                        "Opus normalization requires a verified whole-file measurement"
+                    } else if !opus_header_gain_decoder {
+                        "This playback started without a verified Opus decoder. After successful analysis, replay the track to enable normalization."
+                    } else {
+                        "This Opus measurement lacks proof for the active decoder; analyze the local track again"
+                    },
+                    resource_key,
+                ),
+            );
+        }
+        // A current analysis proof is per resource and decoder. Never use an
+        // older Opus track/album LUFS or peak simply because another resource
+        // (or another member in the programme) was analyzed by this decoder.
+        let cached = if is_opus && !track_opus_proof {
+            None
+        } else {
+            cached
+        };
+        let album_cached = if is_opus && !album_opus_proof {
+            None
+        } else {
+            album_cached
+        };
+        let album_verified = album_verified && (!is_opus || album_opus_proof);
+        let tags = self
+            .inner
+            .loudness_verification
+            .cached_tags(&self.inner.store, &resource)
+            .ok()
+            .flatten()
+            .filter(|tags| tags.applies_to_range(range));
+        if tags.is_none()
+            && range == crate::loudness::AudioRange::WHOLE_FILE
+            && schedule_verification
+        {
+            // A verified analysis can be used immediately, while a bounded
+            // tag read prepares valid ReplayGain/R128 metadata for the next
+            // play. This never changes the active gain mid-track.
+            self.schedule_local_tag_verification(resource.clone(), cancel.clone());
+        }
+        let policy = match settings.gain_policy() {
+            Ok(policy) => policy,
+            Err(_) => {
+                return (
+                    0.0,
+                    LoudnessStatus::unavailable(
+                        settings.mode,
+                        "Loudness settings are invalid",
+                        resource_key,
+                    ),
+                )
+            }
+        };
+        let exact_true_peak = cached
+            .as_ref()
+            .and_then(|record| record.playback_true_peak_bound_dbtp(web_audio_stereo_route))
+            .or_else(|| {
+                album_verified
+                    .then_some(album_cached.as_ref())
+                    .flatten()
+                    .and_then(|record| record.playback_true_peak_bound_dbtp(web_audio_stereo_route))
+            });
+        let track_tag = tags.as_ref().and_then(|tags| tags.track_replaygain);
+        let album_tag = tags.as_ref().and_then(|tags| {
+            tags.album_identity_matches(track.album.as_deref(), track.album_artist.as_deref())
+                .then_some(tags.album_replaygain)
+                .flatten()
+        });
+
+        let track_decision = || {
+            local_track_normalization_decision(
+                tags.as_ref(),
+                is_opus,
+                range,
+                exact_true_peak,
+                opus_header_gain_decoder,
+                cached.as_ref(),
+                policy,
+                NormalizationMode::Track,
+                web_audio_stereo_route,
+            )
+        };
+        let selected = match settings.mode {
+            NormalizationMode::Off => None,
+            NormalizationMode::Track => {
+                track_decision().map(|(gain, source)| (gain, source, LoudnessStatusKind::Applied))
+            }
+            NormalizationMode::Album => {
+                if album_verified {
+                    album_cached.as_ref().and_then(|record| {
+                        let integrated = if web_audio_stereo_route {
+                            record.playback_integrated_lufs_for_route(true)?
+                        } else {
+                            record.playback_integrated_lufs_for_route(false)?
+                        };
+                        match (crate::loudness::LoudnessMeasurement {
+                            integrated_lufs: integrated,
+                            true_peak_dbtp: None,
+                        })
+                        .decide_gain_with_output_peak_bound(
+                            record.playback_true_peak_bound_dbtp(web_audio_stereo_route),
+                            policy,
+                            NormalizationMode::Album,
+                        ) {
+                            GainDecision::ApplyDb(gain) => {
+                                Some((gain, record.provenance, LoudnessStatusKind::Applied))
+                            }
+                            _ => None,
+                        }
+                    })
+                } else if is_opus
+                    && tags
+                        .as_ref()
+                        .is_some_and(crate::loudness_analysis::opus_comment_schemes_are_mixed)
+                {
+                    if settings.album_track_fallback {
+                        track_decision().map(|(gain, source)| {
+                            (gain, source, LoudnessStatusKind::AlbumFallbackTrack)
+                        })
+                    } else {
+                        None
+                    }
+                } else if is_opus
+                    && tags
+                        .as_ref()
+                        .is_some_and(|tags| tags.opus_r128_album_tag_present)
+                {
+                    let opus_tags = tags.as_ref().expect("presence checked above");
+                    if !opus_r128_album_context_matches(
+                        opus_tags,
+                        track,
+                        album_resource.as_ref(),
+                        &asset.id,
+                        &asset.hash,
+                        range,
+                    ) {
+                        None
+                    } else {
+                        match crate::loudness_analysis::decide_verified_opus_r128_tag(
+                            opus_tags,
+                            true,
+                            true,
+                            range,
+                            exact_true_peak,
+                            opus_header_gain_decoder,
+                            policy,
+                            NormalizationMode::Album,
+                        ) {
+                            GainDecision::ApplyDb(gain) => Some((
+                                gain,
+                                MeasurementProvenance::OpusR128Album,
+                                LoudnessStatusKind::Applied,
+                            )),
+                            _ => None,
+                        }
+                    }
+                } else if let Some(tags) = album_tag {
+                    match tags.decide_gain_with_true_peak(policy, NormalizationMode::Album, None) {
+                        GainDecision::ApplyDb(gain) => Some((
+                            gain,
+                            MeasurementProvenance::ReplayGainAlbum,
+                            LoudnessStatusKind::Applied,
+                        )),
+                        _ => None,
+                    }
+                } else if settings.album_track_fallback {
+                    track_decision().map(|(gain, source)| {
+                        (gain, source, LoudnessStatusKind::AlbumFallbackTrack)
+                    })
+                } else {
+                    None
+                }
+            }
+        };
+        if let Some((gain, source, status)) = selected {
+            let safety_record = if settings.mode == NormalizationMode::Album
+                && status == LoudnessStatusKind::Applied
+                && album_verified
+            {
+                album_cached.as_ref()
+            } else {
+                cached.as_ref()
+            };
+            let requested_gain = match source {
+                MeasurementProvenance::ReplayGainTrack => {
+                    track_tag.map(|tag| tag.gain_db + policy.target_lufs + 18.0)
+                }
+                MeasurementProvenance::ReplayGainAlbum => None,
+                MeasurementProvenance::OpusR128Track => tags
+                    .as_ref()
+                    .and_then(|tags| tags.opus_r128_track_gain_db)
+                    .map(|gain| gain + policy.target_lufs + 23.0),
+                MeasurementProvenance::OpusR128Album => tags
+                    .as_ref()
+                    .and_then(|tags| tags.opus_r128_album_gain_db)
+                    .map(|gain| gain + policy.target_lufs + 23.0),
+                _ => safety_record
+                    .and_then(|record| record.integrated_lufs)
+                    .map(|integrated| policy.target_lufs - integrated),
+            };
+            let channel_safety_limited = safety_record.is_some_and(|record| {
+                let Some(bound) = record.playback_true_peak_bound_dbtp(web_audio_stereo_route)
+                else {
+                    return false;
+                };
+                let cap = policy.ceiling_dbtp - bound;
+                record.uses_conservative_channel_sum_bound(web_audio_stereo_route)
+                    && requested_gain.is_some_and(|requested| requested > cap + 0.01)
+                    && (gain - cap).abs() <= 0.01
+            });
+            let selected_resource_key = if settings.mode == NormalizationMode::Album
+                && status == LoudnessStatusKind::Applied
+                && album_verified
+            {
+                album_resource
+                    .as_ref()
+                    .map(|album_resource| album_resource.resource_key.clone())
+                    .unwrap_or_else(|| resource.resource_key.clone())
+            } else {
+                resource.resource_key.clone()
+            };
+            return (
+                gain as f32,
+                LoudnessStatus {
+                    mode: settings.mode,
+                    status,
+                    applied_gain_db: gain,
+                    measurement_source: Some(source),
+                    reason: match (
+                        status == LoudnessStatusKind::AlbumFallbackTrack,
+                        channel_safety_limited,
+                    ) {
+                        (true, true) => Some("Album measurement unavailable; using track measurement. Gain was limited to prevent overload when mixing channels".to_owned()),
+                        (true, false) => Some("Album measurement unavailable; using track measurement".to_owned()),
+                        (false, true) => Some("Gain was limited to prevent overload when mixing channels".to_owned()),
+                        (false, false) => None,
+                    },
+                    source_resource_key: Some(selected_resource_key),
+                },
+            );
+        }
+        let mono_stereo_analysis_missing = web_audio_stereo_route
+            && match settings.mode {
+                NormalizationMode::Off => false,
+                NormalizationMode::Track => {
+                    track_tag.is_none()
+                        && cached.as_ref().is_some_and(|record| {
+                            record.channels == 1 && record.stereo_mix_integrated_lufs.is_none()
+                        })
+                }
+                NormalizationMode::Album if album_verified => {
+                    album_tag.is_none()
+                        && album_cached.as_ref().is_some_and(|record| {
+                            record.channels == 1 && record.stereo_mix_integrated_lufs.is_none()
+                        })
+                }
+                NormalizationMode::Album if settings.album_track_fallback => {
+                    track_tag.is_none()
+                        && cached.as_ref().is_some_and(|record| {
+                            record.channels == 1 && record.stereo_mix_integrated_lufs.is_none()
+                        })
+                }
+                NormalizationMode::Album => false,
+            };
+        (
+            0.0,
+            LoudnessStatus::unavailable(
+                settings.mode,
+                if mono_stereo_analysis_missing {
+                    "Analyze this mono track again for stereo playback"
+                } else if settings.mode == NormalizationMode::Album {
+                    "No trusted album measurement is available"
+                } else {
+                    "No trusted measurement is available for this audio resource"
+                },
+                resource_key,
+            ),
+        )
     }
 
     /// Release unresolved CENC source leases owned by superseded requests.
@@ -1245,6 +2835,11 @@ impl PlaybackService {
                 || current.status == "resolving"
                 || current.status == "buffering"
                 || saved["entryIds"] != json!(current.entries)
+                || saved
+                    .get("queueLoudnessContexts")
+                    .cloned()
+                    .unwrap_or_else(|| json!({}))
+                    != json!(current.loudness_queue_contexts)
                 || saved["currentEntryId"] != json!(current.entries.get(current.index))
                 || saved["queueRevision"].as_u64() != Some(current.queue_revision)
                 || (saved["position"].as_f64().unwrap_or(-1.) - current.position).abs() > 0.05
@@ -1269,9 +2864,69 @@ impl PlaybackService {
             .snapshot_with_failure_history(self.native_enabled(), true)
     }
 
-    /// Estimate BPM only from the current native playback generation. This is
-    /// opt-in, ephemeral playback data and never updates the Track or tags.
-    pub async fn live_bpm(&self) -> Result<Option<LiveBpmPlaybackEstimate>, String> {
+    /// Persist and return an authoritative, unpaged native playback checkpoint.
+    /// WebView queue collection belongs to the frontend; when WebView is active,
+    /// this reports that engine and revisions without exporting the native
+    /// service's stale or partial queue as a replacement.
+    pub fn checkpoint_for_backup(&self) -> Result<PlaybackBackupCheckpoint, String> {
+        let _persistence = self
+            .inner
+            .persistence
+            .lock()
+            .map_err(|_| "Playback persistence unavailable")?;
+        let native = self.native_enabled();
+        let (revision, queue_revision, queue, session, session_key) = {
+            let state = self
+                .inner
+                .state
+                .lock()
+                .map_err(|_| "Playback state unavailable")?;
+            if !native {
+                return Ok(PlaybackBackupCheckpoint {
+                    engine: "webview".into(),
+                    revision: state.revision,
+                    queue_revision: state.queue_revision,
+                    queue: None,
+                    session: None,
+                });
+            }
+            let (queue, session) = state.backup_checkpoint_values();
+            (
+                state.revision,
+                state.queue_revision,
+                queue,
+                session,
+                persisted_session_key(&state),
+            )
+        };
+        self.inner.store.save_playback_checkpoint_and_engine(
+            Some(&queue),
+            Some(&session),
+            Some(&json!("native")),
+        )?;
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| "Playback state unavailable")?;
+        if state.queue_revision == queue_revision {
+            state.persisted_queue_revision = Some(queue_revision);
+        }
+        if persisted_session_key(&state) == session_key {
+            state.persisted_session = Some(session_key);
+        }
+        Ok(PlaybackBackupCheckpoint {
+            engine: "native".into(),
+            revision,
+            queue_revision,
+            queue: Some(queue),
+            session: Some(session),
+        })
+    }
+
+    /// Estimate BPM and provisional key only from the current native playback
+    /// generation. These are ephemeral display values, never Track metadata.
+    pub async fn live_playback_estimates(&self) -> Result<Option<LivePlaybackEstimates>, String> {
         if !self.native_enabled() || !self.inner.store.settings()?.live_bpm_enabled {
             return Ok(None);
         }
@@ -1289,21 +2944,30 @@ impl PlaybackService {
         if tap.available_seconds(generation) < crate::live_bpm::LIVE_BPM_WINDOW_SECONDS as f64 {
             return Ok(None);
         }
+        let Some(worker_permit) = crate::live_analysis_gate::try_acquire() else {
+            return Ok(None);
+        };
 
         let analyzed = tokio::task::spawn_blocking(move || {
+            let _worker_permit = worker_permit;
             if tap.available_seconds(generation) < crate::live_bpm::LIVE_BPM_WINDOW_SECONDS as f64 {
                 return None;
             }
             let (sample_rate, channels, samples) = tap
                 .capture_pcm(generation, crate::live_bpm::LIVE_BPM_WINDOW_SECONDS as f64)
                 .ok()?;
-            crate::live_bpm::estimate_interleaved_pcm(&samples, sample_rate, channels)
+            let bpm = crate::live_bpm::estimate_interleaved_pcm(&samples, sample_rate, channels);
+            let key = crate::live_key::estimate_interleaved_pcm(&samples, sample_rate, channels);
+            Some((bpm, key))
         })
         .await
         .map_err(|error| format!("Live BPM analysis worker failed: {error}"))?;
-        let Some(estimate) = analyzed else {
+        let Some((bpm, key)) = analyzed else {
             return Ok(None);
         };
+        if bpm.is_none() && key.is_none() {
+            return Ok(None);
+        }
 
         if !self.native_enabled() || !self.inner.store.settings()?.live_bpm_enabled {
             return Ok(None);
@@ -1316,13 +2980,76 @@ impl PlaybackService {
         {
             return Ok(None);
         }
-        Ok(Some(LiveBpmPlaybackEstimate {
-            generation,
-            seek_serial,
-            track_id,
-            estimate,
+        Ok(Some(LivePlaybackEstimates {
+            bpm: bpm.map(|estimate| LiveBpmPlaybackEstimate {
+                generation,
+                seek_serial,
+                track_id: track_id.clone(),
+                estimate,
+            }),
+            key: key.map(|estimate| LiveKeyPlaybackEstimate {
+                generation,
+                seek_serial,
+                track_id,
+                estimate,
+            }),
         }))
     }
+
+    /// Compatibility getter for clients that still request only live BPM.
+    pub async fn live_bpm(&self) -> Result<Option<LiveBpmPlaybackEstimate>, String> {
+        Ok(self
+            .live_playback_estimates()
+            .await?
+            .and_then(|estimates| estimates.bpm))
+    }
+    pub fn cached_stream_analysis(
+        &self,
+        track_id: &str,
+        generation: u64,
+    ) -> Option<crate::stream_analysis::WholeTrackAnalysis> {
+        let state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.generation != generation || state.track()?.id != track_id {
+            return None;
+        }
+        self.inner
+            .observed_analysis
+            .cached(state.track()?, state.candidate.as_ref())
+            .or_else(|| {
+                if state.station.is_some() {
+                    return None;
+                }
+                self.inner.observed_analysis.session_cached(
+                    generation,
+                    state.track()?,
+                    state.candidate.as_ref(),
+                )
+            })
+    }
+
+    pub(crate) fn observed_analysis_manager(
+        &self,
+    ) -> Arc<crate::observed_analysis::ObservedAnalysis> {
+        self.inner.observed_analysis.clone()
+    }
+
+    /// Return bounded summaries; raw audio stays in the native tap worker.
+    pub fn waveform_snapshot(
+        &self,
+        start_seconds: f64,
+        duration_seconds: f64,
+    ) -> Result<crate::pcm_tap::ObservedWaveform, String> {
+        let state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+        let generation = state.generation;
+        drop(state);
+        self.inner.output.tap().waveform_snapshot_range(
+            generation,
+            start_seconds,
+            duration_seconds,
+            1200,
+        )
+    }
+
     fn snapshot_without_queue(&self) -> Value {
         self.inner
             .state
@@ -1659,6 +3386,7 @@ impl PlaybackService {
         s.generation_counter += 1;
         s.generation = s.generation_counter;
         s.output_ready = false;
+        s.opus_decoder_capability = None;
         s.pending_seek_generation = None;
         s.steady_http_stream = false;
         s.seek_watchdog_epoch = s.seek_watchdog_epoch.wrapping_add(1);
@@ -1697,6 +3425,7 @@ impl PlaybackService {
         }
         state.preload = None;
         state.output_ready = false;
+        state.opus_decoder_capability = None;
         state.pending_seek_generation = None;
         state.steady_http_stream = false;
         state.seek_watchdog_epoch = state.seek_watchdog_epoch.wrapping_add(1);
@@ -1873,6 +3602,19 @@ impl PlaybackService {
                 let tracks: Vec<Track> = serde_json::from_value(command["tracks"].clone())
                     .map_err(|_| "Invalid playback tracks")?;
                 self.validate_tracks(&tracks)?;
+                let album_context = command
+                    .get("loudnessAlbumResource")
+                    .filter(|value| !value.is_null())
+                    .map(|value| {
+                        serde_json::from_value::<crate::loudness::LoudnessResourceIdentity>(
+                            value.clone(),
+                        )
+                        .map_err(|_| "Invalid album loudness queue identity")
+                    })
+                    .transpose()?;
+                if let Some(resource) = album_context.as_ref() {
+                    validate_loudness_album_queue_binding(resource, &tracks)?;
+                }
                 let index = command["index"].as_u64().unwrap_or(0) as usize;
                 if index >= tracks.len() {
                     return Err("Queue position is out of range".into());
@@ -1899,15 +3641,11 @@ impl PlaybackService {
                     );
                     s.queued_intent_epoch = s.queued_intent_epoch.wrapping_add(1);
                     s.queued_operation_id = queued_operation_id.clone();
-                    s.queue = tracks;
+                    replace_play_queue(s, tracks, index);
+                    s.loudness_queue_contexts.clear();
+                    let queue_count = s.queue.len();
+                    bind_loudness_context_to_queue_range(s, 0, queue_count, album_context.as_ref());
                     clear_playback_failures(s);
-                    s.entries = s
-                        .queue
-                        .iter()
-                        .map(|_| uuid::Uuid::new_v4().to_string())
-                        .collect();
-                    mark_queue_changed(s);
-                    s.index = index;
                     s.position = position;
                     s.recovery = 0;
                     s.failed_occurrence_ids.clear();
@@ -1918,6 +3656,20 @@ impl PlaybackService {
                 let tracks: Vec<Track> = serde_json::from_value(command["tracks"].clone())
                     .map_err(|_| "Invalid queue tracks")?;
                 self.validate_tracks(&tracks)?;
+                let album_context = command
+                    .get("loudnessAlbumResource")
+                    .filter(|value| !value.is_null())
+                    .map(|value| {
+                        serde_json::from_value::<crate::loudness::LoudnessResourceIdentity>(
+                            value.clone(),
+                        )
+                        .map_err(|_| "Invalid album loudness queue identity")
+                    })
+                    .transpose()?;
+                if let Some(resource) = album_context.as_ref() {
+                    validate_loudness_album_queue_binding(resource, &tracks)?;
+                }
+                let track_count = tracks.len();
                 let mode = command["mode"].as_str().unwrap_or("append");
                 if !["append", "replace", "next"].contains(&mode) {
                     return Err("Unknown queue mode".into());
@@ -1962,18 +3714,43 @@ impl PlaybackService {
                     } else {
                         s.queue.len()
                     };
+                    if mode == "replace" {
+                        s.loudness_queue_contexts.clear();
+                    }
                     for (offset, track) in tracks.into_iter().enumerate() {
                         s.queue.insert(at + offset, track);
                         s.entries
                             .insert(at + offset, uuid::Uuid::new_v4().to_string());
                     }
+                    bind_loudness_context_to_queue_range(
+                        s,
+                        at,
+                        track_count,
+                        album_context.as_ref(),
+                    );
                     mark_queue_changed(s);
                 });
             }
             "select" => {
                 let index = command["index"].as_u64().ok_or("Queue position missing")? as usize;
+                let album_context = command
+                    .get("loudnessAlbumResource")
+                    .filter(|value| !value.is_null())
+                    .map(|value| {
+                        serde_json::from_value::<crate::loudness::LoudnessResourceIdentity>(
+                            value.clone(),
+                        )
+                        .map_err(|_| "Invalid album loudness queue identity")
+                    })
+                    .transpose()?;
                 if index >= self.inner.state.lock().unwrap().queue.len() {
                     return Err("Queue position is out of range".into());
+                }
+                if let Some(resource) = album_context.as_ref() {
+                    bind_loudness_context_to_matching_queue(
+                        &mut self.inner.state.lock().unwrap(),
+                        resource,
+                    )?;
                 }
                 self.cancel();
                 self.change(|s| {
@@ -2420,7 +4197,7 @@ impl PlaybackService {
         };
         self.cancel();
         let (tx, rx) = watch::channel(false);
-        let (g, track, session, recovery, startup_deadline) = {
+        let (g, track, session, recovery, startup_deadline, album_context) = {
             let mut s = self.inner.state.lock().unwrap();
             let Some(track) = s.track().cloned() else {
                 return;
@@ -2476,8 +4253,16 @@ impl PlaybackService {
                 s.session.clone(),
                 s.recovery,
                 restart_deadline(&s),
+                s.entries
+                    .get(s.index)
+                    .and_then(|entry_id| s.loudness_queue_contexts.get(entry_id))
+                    .cloned(),
             )
         };
+        if let Ok(mut context) = self.inner.loudness_album_context.lock() {
+            *context = album_context;
+        }
+        self.inner.output.tap().supersede_older_subscribers(g);
         let track = self.track_with_registered_chapter_asset(&track);
         self.publish();
         // This deadline includes reader/decoder readiness after URL resolution.
@@ -2580,7 +4365,7 @@ impl PlaybackService {
             match result {
                 Ok(resolved) => {
                     let crate::playback_sources::ResolvedSource {
-                        source,
+                        mut source,
                         candidate,
                         quality,
                         station,
@@ -2598,6 +4383,67 @@ impl PlaybackService {
                     let steady_http_stream =
                         steady_http_stream(&source.input, station.is_some(), known_duration);
                     let (offset, end) = service.source_bounds(&track);
+                    let loudness_settings =
+                        crate::loudness_manager::load_settings(&service.inner.store)
+                            .unwrap_or_default();
+                    if service.native_enabled()
+                        && loudness_settings.mode != crate::loudness::NormalizationMode::Off
+                        && offset == 0.0
+                        && end.is_none()
+                    {
+                        set_registered_native_opus_decode_policy(
+                            &service.inner.store,
+                            &mut source,
+                            loudness_settings.mode,
+                            crate::loudness::AudioRange {
+                                start_seconds: offset,
+                                end_seconds: end,
+                            },
+                        )
+                        .await;
+                    }
+                    let (loudness_plan, loudness_status) = if service.native_enabled() {
+                        let plan = service.resolved_native_loudness_plan(
+                            &loudness_settings,
+                            &source,
+                            &track,
+                            station.as_ref(),
+                            Some(rx.clone()),
+                            crate::loudness::AudioRange {
+                                start_seconds: offset,
+                                end_seconds: end,
+                            },
+                            service
+                                .inner
+                                .loudness_album_context
+                                .lock()
+                                .ok()
+                                .and_then(|context| context.clone()),
+                            true,
+                        );
+                        let pending = plan.pending_status();
+                        (plan, pending)
+                    } else if loudness_settings.mode == crate::loudness::NormalizationMode::Off {
+                        let status = crate::loudness_manager::LoudnessStatus::off();
+                        (
+                            crate::loudness_manager::NativeNormalizationGainPlan::fixed(
+                                status.clone(),
+                            ),
+                            status,
+                        )
+                    } else {
+                        let status = crate::loudness_manager::LoudnessStatus::unavailable(
+                                loudness_settings.mode,
+                                "The active WebView audio route has not reported normalization capability",
+                                None,
+                            );
+                        (
+                            crate::loudness_manager::NativeNormalizationGainPlan::fixed(
+                                status.clone(),
+                            ),
+                            status,
+                        )
+                    };
                     let volume = {
                         let s = service.inner.state.lock().unwrap();
                         if s.pause_when_ready {
@@ -2634,12 +4480,24 @@ impl PlaybackService {
                         s.operation_source_ready_ms = s
                             .operation_received_at
                             .map(|at| at.elapsed().as_millis() as u64);
+                        if station.is_none() && offset == 0.0 && end.is_none() {
+                            service.inner.observed_analysis.begin(
+                                service.inner.output.tap(),
+                                g,
+                                &track,
+                                candidate.as_ref(),
+                                known_duration.unwrap_or(0.0),
+                                position,
+                            );
+                        }
                         s.candidate = candidate;
                         s.quality = quality;
                         s.buffering_count += 1;
                         s.status = "buffering".into();
                         s.message = "Buffering audio…".into();
                         s.station = station.clone();
+                        s.loudness_status = loudness_status;
+                        s.opus_decoder_capability = active_opus_decoder_capability(&source);
                         s.steady_http_stream = steady_http_stream;
                         s.offset = offset;
                         s.end = end;
@@ -2656,18 +4514,25 @@ impl PlaybackService {
                         if let Some(context) = decoder_diagnostic.as_ref() {
                             record_native_decoder_diagnostic(context, "decoder_start", None, None);
                         }
-                        if let Err(message) = service.inner.output.send(OutputCommand::Load {
-                            generation: g,
-                            startup_deadline,
-                            allow_startup_reserve: !resume
-                                && offset == 0.
-                                && end.is_none()
-                                && station.is_none(),
-                            source,
-                            position: position + offset,
-                            end,
-                        }) {
+                        if let Err(message) =
+                            service
+                                .inner
+                                .output
+                                .send(OutputCommand::LoadWithNormalizationPlan {
+                                    generation: g,
+                                    startup_deadline,
+                                    allow_startup_reserve: !resume
+                                        && offset == 0.
+                                        && end.is_none()
+                                        && station.is_none(),
+                                    source,
+                                    position: position + offset,
+                                    end,
+                                    plan: loudness_plan,
+                                })
+                        {
                             s.status = "failed".into();
+                            s.opus_decoder_capability = None;
                             s.message = message;
                             if let Some(context) = s.native_decoder_diagnostic.take() {
                                 record_native_decoder_diagnostic(
@@ -2748,6 +4613,19 @@ impl PlaybackService {
             }
         };
         let deadline = restart_deadline(&self.inner.state.lock().unwrap());
+        let selected = if selected.is_some() {
+            selected
+        } else {
+            let settings = self.inner.store.settings()?;
+            crate::playlist_sync::resolve_portable_playback_candidate(
+                &self.inner.store,
+                &self.inner.acquisition,
+                track,
+                &settings,
+                cancel.clone(),
+            )
+            .await?
+        };
         crate::playback_sources::resolve_with_trace_context_excluding_until(
             &self.inner.store,
             &self.inner.acquisition,
@@ -2930,6 +4808,7 @@ impl PlaybackService {
         // newer load, and failed status cannot coexist with queued audible PCM.
         let _ = self.inner.output.send(OutputCommand::Stop);
         s.output_ready = false;
+        s.opus_decoder_capability = None;
         s.pending_seek_generation = None;
         s.steady_http_stream = false;
         s.seek_watchdog_epoch = s.seek_watchdog_epoch.wrapping_add(1);
@@ -2944,6 +4823,24 @@ impl PlaybackService {
     async fn output_event(&self, event: OutputEvent) {
         let _command = self.inner.commands.lock().await;
         match event {
+            OutputEvent::NormalizationSelected {
+                generation,
+                output_channels: _,
+                status,
+            } => {
+                let mut state = self
+                    .inner
+                    .state
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                if apply_normalization_selection(&mut state, generation, status) {
+                    let publish = state.generation == generation;
+                    drop(state);
+                    if publish {
+                        self.publish();
+                    }
+                }
+            }
             OutputEvent::Started {
                 generation,
                 duration,
@@ -3128,6 +5025,23 @@ impl PlaybackService {
                             RecoveryTrigger::PrematureEnded,
                         );
                     } else {
+                        let duration = {
+                            let state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+                            // A chapter/range end and a radio disconnect do not
+                            // establish whole-track coverage.
+                            (state.offset == 0.0 && state.end.is_none() && state.station.is_none())
+                                .then_some(state.duration)
+                        };
+                        if let Some(duration) = duration {
+                            let tap = self.inner.output.tap();
+                            let _ = tauri::async_runtime::spawn_blocking(move || {
+                                tap.mark_verified_end(generation, duration)
+                            })
+                            .await;
+                        }
+                        if !self.current(generation) {
+                            return;
+                        }
                         self.advance(1, true);
                     }
                 }
@@ -3204,9 +5118,15 @@ impl PlaybackService {
     }
     fn clear_preload(&self) {
         let mut s = self.inner.state.lock().unwrap();
+        let abandoned_generation = s.preload.as_ref().map(|preload| preload.generation);
+        let active_generation = s.generation;
         cancel_preload_state(&mut s);
+        drop(s);
+        if let Some(generation) = abandoned_generation {
+            self.inner.observed_analysis.cancel_generation(generation);
+        }
         let _ = self.inner.output.send(OutputCommand::ClearPreload {
-            generation: s.generation,
+            generation: active_generation,
         });
     }
     fn watch_preload_startup(&self, generation: u64, deadline: Instant) {
@@ -3338,7 +5258,7 @@ impl PlaybackService {
                 }
             }
             trace.event("next_preparation_resolve_start", "other", json!({}));
-            let resolved = crate::playback_sources::resolve_with_trace_context(
+            let mut resolved = crate::playback_sources::resolve_with_trace_context(
                 &service.inner.store,
                 &service.inner.acquisition,
                 &track,
@@ -3355,6 +5275,39 @@ impl PlaybackService {
                 "other",
                 json!({"ok":resolved_ok}),
             );
+            let (offset, end) = service.source_bounds(&track);
+            let loudness_settings =
+                crate::loudness_manager::load_settings(&service.inner.store).unwrap_or_default();
+            // Never await codec probing under PlaybackService::state. Check the
+            // preparation owner first, do the bounded probe outside the lock,
+            // then revalidate through finish_preload_resolution before commit.
+            let owner_current = {
+                let state = service
+                    .inner
+                    .state
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                preload_preparation_is_current(&state, &owner)
+            };
+            if owner_current
+                && service.native_enabled()
+                && loudness_settings.mode != crate::loudness::NormalizationMode::Off
+                && offset == 0.0
+                && end.is_none()
+            {
+                if let Ok(resolved_source) = resolved.as_mut() {
+                    set_registered_native_opus_decode_policy(
+                        &service.inner.store,
+                        &mut resolved_source.source,
+                        loudness_settings.mode,
+                        crate::loudness::AudioRange {
+                            start_seconds: offset,
+                            end_seconds: end,
+                        },
+                    )
+                    .await;
+                }
+            }
             let mut s = service.inner.state.lock().unwrap();
             let Some(resolved) = finish_preload_resolution(&mut s, &owner, resolved) else {
                 span.finish(if *cancel.borrow() {
@@ -3366,7 +5319,30 @@ impl PlaybackService {
                 });
                 return;
             };
-            let (offset, end) = service.source_bounds(&track);
+            let queue_album_context = s.loudness_queue_contexts.get(&owner.entry).cloned();
+            let (loudness_plan, loudness_status) = if service.native_enabled() {
+                let plan = service.resolved_native_loudness_plan(
+                    &loudness_settings,
+                    &resolved.source,
+                    &track,
+                    resolved.station.as_ref(),
+                    Some(cancel.clone()),
+                    crate::loudness::AudioRange {
+                        start_seconds: offset,
+                        end_seconds: end,
+                    },
+                    queue_album_context.clone(),
+                    false,
+                );
+                let pending = plan.pending_status();
+                (plan, pending)
+            } else {
+                let status = crate::loudness_manager::LoudnessStatus::off();
+                (
+                    crate::loudness_manager::NativeNormalizationGainPlan::fixed(status.clone()),
+                    status,
+                )
+            };
             let known_duration = resolved
                 .duration
                 .or_else(|| {
@@ -3383,6 +5359,17 @@ impl PlaybackService {
             );
             s.generation_counter += 1;
             let generation = s.generation_counter;
+            if resolved.station.is_none() && offset == 0.0 && end.is_none() {
+                service.inner.observed_analysis.begin_preload(
+                    service.inner.output.tap(),
+                    generation,
+                    &track,
+                    resolved.candidate.as_ref(),
+                    known_duration.unwrap_or(0.0),
+                    offset,
+                );
+            }
+            let opus_decoder_capability = active_opus_decoder_capability(&resolved.source);
             s.preload = Some(Preloaded {
                 preparation_trace: Some(trace.clone()),
                 generation,
@@ -3394,14 +5381,33 @@ impl PlaybackService {
                 steady_http_stream,
                 offset,
                 end,
+                loudness_status,
+                loudness_album_context: queue_album_context,
+                opus_decoder_capability,
             });
-            let queued = service.inner.output.send(OutputCommand::Preload {
-                generation: owner.generation,
-                next_generation: generation,
-                source: resolved.source,
-                position: offset,
-                end,
-            });
+            let queued = service
+                .inner
+                .output
+                .send(OutputCommand::PreloadWithNormalizationPlan {
+                    generation: owner.generation,
+                    next_generation: generation,
+                    source: resolved.source,
+                    position: offset,
+                    end,
+                    plan: loudness_plan,
+                });
+            if queued.is_err() {
+                service
+                    .inner
+                    .observed_analysis
+                    .cancel_generation(generation);
+                if s.preload
+                    .as_ref()
+                    .is_some_and(|preload| preload.generation == generation)
+                {
+                    s.preload = None;
+                }
+            }
             trace.event(
                 "next_preparation_queued",
                 "other",
@@ -3424,6 +5430,7 @@ impl PlaybackService {
             return false;
         }
         let p = s.preload.take().unwrap();
+        adopt_preloaded_opus_capability(&mut s, &p);
         if let Some(trace) = p.preparation_trace.as_ref() {
             trace.event(
                 "next_preparation_adopted",
@@ -3452,6 +5459,8 @@ impl PlaybackService {
         s.recovery_deadline = None;
         s.recovered_audio_since = None;
         s.quality = p.quality;
+        s.loudness_status = p.loudness_status;
+        let active_album_context = p.loudness_album_context;
         s.steady_http_stream = p.steady_http_stream;
         s.session = uuid::Uuid::new_v4().to_string();
         s.recorded = false;
@@ -3459,6 +5468,10 @@ impl PlaybackService {
         begin_operation(&mut s, None, "transition", Instant::now(), None, None, None);
         s.output_ready = true;
         s.revision += 1;
+        drop(s);
+        if let Ok(mut context) = self.inner.loudness_album_context.lock() {
+            *context = active_album_context;
+        }
         true
     }
     fn cache_current_artwork(&self, generation: u64) {
@@ -3778,6 +5791,34 @@ impl PlaybackService {
         &self,
         caller_id: Option<String>,
     ) -> Result<PlayingTrackIdentification, String> {
+        self.identify_playing_track_inner(caller_id, None).await
+    }
+
+    pub async fn identify_playing_track_for_owner(
+        &self,
+        caller_id: Option<String>,
+        expected_track_id: &str,
+        expected_generation: u64,
+        expected_seek_serial: u64,
+        expected_candidate: Option<(&str, &str)>,
+    ) -> Result<PlayingTrackIdentification, String> {
+        self.identify_playing_track_inner(
+            caller_id,
+            Some((
+                expected_track_id,
+                expected_generation,
+                expected_seek_serial,
+                expected_candidate,
+            )),
+        )
+        .await
+    }
+
+    async fn identify_playing_track_inner(
+        &self,
+        caller_id: Option<String>,
+        expected_owner: Option<(&str, u64, u64, Option<(&str, &str)>)>,
+    ) -> Result<PlayingTrackIdentification, String> {
         if !self.native_enabled() {
             return Err("Native playback identification is unavailable".into());
         }
@@ -3791,10 +5832,12 @@ impl PlaybackService {
             track_id,
             entry_id,
             requested_track,
+            active_candidate,
             seek_serial,
             chapter,
             capture_seconds,
             timing_anchor_eligible,
+            active_local_asset_id,
         ) = {
             let state = self
                 .inner
@@ -3805,6 +5848,19 @@ impl PlaybackService {
                 return Err("Play audio before identifying the current track".into());
             }
             let track = state.track().ok_or("There is no current playback track")?;
+            if expected_owner.is_some_and(
+                |(expected_track_id, generation, seek_serial, expected_candidate)| {
+                    track.id != expected_track_id
+                        || state.generation != generation
+                        || state.seek_serial != seek_serial
+                        || !same_detection_candidate_identity(
+                            state.candidate.as_ref(),
+                            expected_candidate,
+                        )
+                },
+            ) {
+                return Err("Playback changed before identification started".into());
+            }
             let chapter = state.chapter();
             let capture_seconds = native_identification_capture_seconds(
                 track.playback_range.is_some(),
@@ -3812,15 +5868,22 @@ impl PlaybackService {
                 state.position,
             )?;
             let timing_anchor_eligible = track.playback_range.is_none() && chapter.is_null();
+            let active_local_asset_id = (state.quality["sourceKind"].as_str()
+                == Some("localAsset"))
+            .then(|| state.quality["assetId"].as_str())
+            .flatten()
+            .map(str::to_owned);
             (
                 state.generation,
                 track.id.clone(),
                 state.entries.get(state.index).cloned().unwrap_or_default(),
                 track.clone(),
+                state.candidate.clone(),
                 state.seek_serial,
                 chapter,
                 capture_seconds,
                 timing_anchor_eligible,
+                active_local_asset_id,
             )
         };
         let station = RadioStation {
@@ -3841,6 +5904,41 @@ impl PlaybackService {
             language: None,
             is_custom: true,
         };
+        let active_source_identity = native_detection_source_identity(
+            active_local_asset_id.as_deref(),
+            active_candidate.as_ref(),
+        );
+        let detection_store = self.inner.store.clone();
+        let detection_track = requested_track.clone();
+        let detection_identity = active_source_identity.clone();
+        let detection_asset_id = active_local_asset_id.clone();
+        let detection_resource = tokio::task::spawn_blocking(move || {
+            let verified_local_hash =
+                if crate::playing_track_detections::requires_verified_local_hash(
+                    &detection_track,
+                    detection_identity.as_ref(),
+                    detection_asset_id.is_some(),
+                ) {
+                    detection_asset_id
+                        .as_deref()
+                        .or(detection_track.asset_id.as_deref())
+                        .and_then(|asset_id| {
+                            crate::playing_track_detections::verified_local_asset_hash(
+                                detection_store.as_ref(),
+                                asset_id,
+                            )
+                        })
+                } else {
+                    None
+                };
+            crate::playing_track_detections::DetectionResourceKey::for_playback_source(
+                &detection_track,
+                detection_identity.as_ref(),
+                verified_local_hash.as_deref(),
+            )
+        })
+        .await
+        .map_err(|error| error.to_string())?;
         let path =
             std::env::temp_dir().join(format!("burrata-recognition-{}.wav", uuid::Uuid::new_v4()));
         let cleanup = Arc::new(TemporaryPcmFile(path.clone()));
@@ -4013,6 +6111,50 @@ impl PlaybackService {
                     }
                 },
             );
+        let captured_audio_interval = capture_timing
+            .and_then(|timing| {
+                timing
+                    .start_position_seconds
+                    .map(|start| (start, timing.duration_seconds))
+            })
+            .filter(|(start, duration)| {
+                start.is_finite() && *start >= 0.0 && duration.is_finite() && *duration > 0.0
+            });
+        if let (Some(resource), Some(metadata), Some((start, duration))) = (
+            detection_resource.as_ref(),
+            recognized.as_ref().map(|result| &result.metadata),
+            captured_audio_interval,
+        ) {
+            // The same owner fence used for the returned identification also
+            // protects this optional cache write. Disabled resources are no-op.
+            let candidate_still_current = {
+                let state = self
+                    .inner
+                    .state
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                state.generation == generation
+                    && same_detection_candidate(state.candidate.as_ref(), active_candidate.as_ref())
+            };
+            if candidate_still_current
+                && native_identification_matches(
+                    &self.snapshot_without_queue(),
+                    &track_id,
+                    &entry_id,
+                    generation,
+                    seek_serial,
+                    &chapter,
+                )
+            {
+                let _ = crate::playing_track_detections::record_if_enabled(
+                    self.inner.store.as_ref(),
+                    resource,
+                    metadata,
+                    start,
+                    duration,
+                );
+            }
+        }
         let note = if title.is_some() {
             "SongRec identified the current audio; catalog identity is unverified.".into()
         } else {
@@ -4025,6 +6167,10 @@ impl PlaybackService {
             artwork_url,
             note,
             timing_anchor,
+            detection_metadata: recognized.map(|result| result.metadata),
+            captured_audio_interval,
+            detection_source_identity: active_source_identity,
+            detection_source_epoch: None,
         })
     }
 
@@ -4192,6 +6338,40 @@ fn native_identification_matches(
         && snapshot["chapter"] == *chapter
 }
 
+fn same_detection_candidate(current: Option<&Candidate>, expected: Option<&Candidate>) -> bool {
+    match (current, expected) {
+        (Some(current), Some(expected)) => {
+            current.provider == expected.provider && current.id == expected.id
+        }
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+fn native_detection_source_identity(
+    active_local_asset_id: Option<&str>,
+    candidate: Option<&Candidate>,
+) -> Option<crate::playing_track_detections::SourceIdentity> {
+    if let Some(asset_id) = active_local_asset_id {
+        return crate::playing_track_detections::SourceIdentity::new("local", asset_id);
+    }
+    candidate.and_then(|candidate| {
+        crate::playing_track_detections::SourceIdentity::new(&candidate.provider, &candidate.id)
+            .map(|identity| identity.with_duration_seconds(candidate.duration_seconds))
+    })
+}
+
+fn same_detection_candidate_identity(
+    current: Option<&Candidate>,
+    expected: Option<(&str, &str)>,
+) -> bool {
+    match (current, expected) {
+        (Some(current), Some((provider, id))) => current.provider == provider && current.id == id,
+        (None, None) => true,
+        _ => false,
+    }
+}
+
 /// Choose the largest safe excerpt supported by the tap. For ordinary tracks,
 /// chapter elapsed time comes from the playback snapshot and may trail the live
 /// PCM edge slightly; this bounds the requested excerpt but is not a sample-
@@ -4332,6 +6512,9 @@ fn merge_persisted_queue(saved: &mut Value, queue: &Value) -> Result<(), String>
         saved["entryIds"] = queue["entryIds"].clone();
     }
     saved["tracks"] = queue["tracks"].clone();
+    if let Some(contexts) = queue.get("queueLoudnessContexts") {
+        saved["queueLoudnessContexts"] = contexts.clone();
+    }
     Ok(())
 }
 
@@ -4363,7 +6546,7 @@ fn engine_switch_checkpoint(saved: &Value) -> Result<(Value, Value), String> {
     }
     let mut restored = State::default();
     restore_state(&mut restored, saved)?;
-    let queue = json!({"tracks":restored.queue,"entryIds":restored.entries,"queueRevision":restored.queue_revision});
+    let queue = json!({"tracks":restored.queue,"entryIds":restored.entries,"queueRevision":restored.queue_revision,"queueLoudnessContexts":restored.loudness_queue_contexts});
     let session = json!({"index":restored.index,"currentEntryId":restored.entries.get(restored.index),"queueRevision":restored.queue_revision,"position":restored.position,"volume":restored.volume,"repeat":restored.repeat,"shuffle":restored.shuffle,"finished":false});
     Ok((queue, session))
 }
@@ -4413,11 +6596,31 @@ fn restore_state(state: &mut State, saved: &Value) -> Result<(), String> {
             (saved["index"].as_u64().unwrap_or(0) as usize).min(tracks.len().saturating_sub(1));
         (entries, None, index)
     };
+    let mut loudness_queue_contexts = saved
+        .get("queueLoudnessContexts")
+        .map(|value| {
+            serde_json::from_value::<HashMap<String, crate::loudness::LoudnessResourceIdentity>>(
+                value.clone(),
+            )
+            .map_err(|_| "Saved album loudness queue contexts are invalid")
+        })
+        .transpose()?
+        .unwrap_or_default();
+    loudness_queue_contexts.retain(|entry_id, resource| {
+        let Some(index) = entries.iter().position(|entry| entry == entry_id) else {
+            return false;
+        };
+        resource.validate().is_ok()
+            && resource.members.iter().any(|member| {
+                loudness_album_resource_matches_track(resource, &tracks[index], member)
+            })
+    });
     // Validate fallible fields before changing the live queue.
     let position = positive(saved.get("position"), 0.)?;
     let volume = positive(saved.get("volume"), 0.8)?.min(1.);
     state.queue = tracks;
     state.entries = entries;
+    state.loudness_queue_contexts = loudness_queue_contexts;
     mark_queue_changed(state);
     if let Some(revision) = queue_revision {
         state.queue_revision = revision;
@@ -5096,6 +7299,22 @@ fn source_bounds_for_track(track: &Track, cropped_excerpt: bool) -> (f64, Option
     }
 }
 
+// A new play request must honor the existing shuffle preference, just as the
+// WebView engine does. Keep the selected occurrence and its preceding history.
+fn replace_play_queue(state: &mut State, tracks: Vec<Track>, index: usize) {
+    state.queue = tracks;
+    state.entries = state
+        .queue
+        .iter()
+        .map(|_| uuid::Uuid::new_v4().to_string())
+        .collect();
+    state.index = index;
+    if state.shuffle {
+        shuffle_upcoming(state);
+    }
+    mark_queue_changed(state);
+}
+
 fn shuffle_upcoming(state: &mut State) {
     let start = state.index + 1;
     for i in (start + 1..state.queue.len()).rev() {
@@ -5110,6 +7329,730 @@ fn shuffle_upcoming(state: &mut State) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn active_local_asset_identity_precedes_remote_candidate_for_detection() {
+        let candidate = Candidate {
+            id: "remote-candidate".into(),
+            provider: "youtube".into(),
+            ..Candidate::default()
+        };
+        let local =
+            native_detection_source_identity(Some("asset:active"), Some(&candidate)).unwrap();
+        assert_eq!(local.provider_source_id(), ("local", "asset:active"));
+
+        let remote = native_detection_source_identity(None, Some(&candidate)).unwrap();
+        assert_eq!(remote.provider_source_id(), ("youtube", "remote-candidate"));
+        let catalog_track = Track {
+            id: "musicbrainz:recording-a".into(),
+            provider: "musicbrainz".into(),
+            provider_id: "recording-a".into(),
+            asset_id: Some("unselected-downloaded-copy".into()),
+            ..Track::default()
+        };
+        assert!(
+            !crate::playing_track_detections::requires_verified_local_hash(
+                &catalog_track,
+                Some(&remote),
+                false,
+            )
+        );
+        assert!(
+            crate::playing_track_detections::requires_verified_local_hash(
+                &catalog_track,
+                Some(&local),
+                true,
+            )
+        );
+    }
+
+    #[test]
+    fn detection_owner_rejects_a_different_active_candidate_even_when_track_is_same() {
+        let candidate = Candidate {
+            id: "video-A".into(),
+            provider: "youtube".into(),
+            ..Candidate::default()
+        };
+        assert!(same_detection_candidate_identity(
+            Some(&candidate),
+            Some(("youtube", "video-A"))
+        ));
+        assert!(!same_detection_candidate_identity(
+            Some(&candidate),
+            Some(("youtube", "video-B"))
+        ));
+        assert!(!same_detection_candidate_identity(Some(&candidate), None));
+        assert!(same_detection_candidate_identity(None, None));
+    }
+
+    fn opus_decode_policy_fixture() -> (crate::native_output::AudioSource, crate::models::LocalAsset)
+    {
+        let track = Track {
+            id: "track-opus".into(),
+            ..Track::default()
+        };
+        let asset = crate::models::LocalAsset {
+            id: "asset-opus".into(),
+            recording_id: track.id.clone(),
+            path: "/music/test.opus".into(),
+            hash: "content-hash".into(),
+            source_codec: "opus".into(),
+            final_codec: "opus".into(),
+            source_bitrate: None,
+            final_bitrate: None,
+            sample_rate: Some(48_000),
+            channels: Some(2),
+            bit_depth: None,
+            duration_seconds: Some(20.0),
+            size_bytes: Some(1024),
+            bitrate_origin: None,
+            processing: "original".into(),
+            track,
+        };
+        let source = crate::native_output::AudioSource {
+            input: asset.path.clone(),
+            ffmpeg: "ffmpeg".into(),
+            headers: vec![],
+            decoder_hint: None,
+            cenc: None,
+        };
+        (source, asset)
+    }
+
+    #[test]
+    fn invalid_opus_tags_fall_back_only_to_independent_verified_analysis() {
+        let tags = crate::loudness_analysis::LocalTagMeasurements {
+            album: None,
+            album_artist: None,
+            track_replaygain: None,
+            album_replaygain: None,
+            replaygain_comment_present: true,
+            opus_r128_track_gain_db: None,
+            opus_r128_album_gain_db: None,
+            opus_r128_track_tag_present: true,
+            opus_r128_album_tag_present: false,
+            opus_output_gain_tag_db: None,
+            file_seal: None,
+        };
+        let resource = crate::loudness::LoudnessResourceIdentity::track(
+            "asset-opus",
+            "a".repeat(64),
+            crate::loudness::AudioRange::WHOLE_FILE,
+        );
+        let mut record = crate::loudness::LoudnessRecord {
+            schema_version: crate::loudness::LOUDNESS_SCHEMA_VERSION,
+            resource,
+            analyzer_version: "fixture".into(),
+            provenance: crate::loudness::MeasurementProvenance::FfmpegAnalysis,
+            integrated_lufs: Some(-24.0),
+            true_peak_dbtp: Some(-3.0),
+            sample_rate: Some(48_000),
+            channels: 2,
+            measured_at: "2026-10-27T00:00:00Z".into(),
+            stereo_mix_true_peak_dbtp: Some(-3.0),
+            stereo_mix_integrated_lufs: Some(-24.0),
+            stereo_mix_matrix: Some("web-audio-stereo-identity-v1".into()),
+            stereo_mix_layout: Some("stereo".into()),
+            maximum_member_safe_true_peak_dbtp: None,
+            maximum_member_native_safe_true_peak_dbtp: None,
+            conservative_channel_sum_bound: false,
+            local_file_seals: vec![],
+            opus_decoder_proofs: vec![],
+        };
+        assert!(record.validate().is_ok());
+        let selected = local_track_normalization_decision(
+            Some(&tags),
+            true,
+            crate::loudness::AudioRange::WHOLE_FILE,
+            Some(-3.0),
+            true,
+            Some(&record),
+            crate::loudness::GainPolicy::default(),
+            crate::loudness::NormalizationMode::Track,
+            true,
+        );
+        assert_eq!(
+            selected,
+            Some((2.0, crate::loudness::MeasurementProvenance::FfmpegAnalysis))
+        );
+        assert_eq!(
+            local_track_normalization_decision(
+                Some(&tags),
+                true,
+                crate::loudness::AudioRange::WHOLE_FILE,
+                Some(-3.0),
+                true,
+                None,
+                crate::loudness::GainPolicy::default(),
+                crate::loudness::NormalizationMode::Track,
+                true,
+            ),
+            None,
+        );
+        record.integrated_lufs = None;
+        record.stereo_mix_integrated_lufs = None;
+        assert_eq!(
+            local_track_normalization_decision(
+                Some(&tags),
+                true,
+                crate::loudness::AudioRange::WHOLE_FILE,
+                Some(-3.0),
+                true,
+                Some(&record),
+                crate::loudness::GainPolicy::default(),
+                crate::loudness::NormalizationMode::Track,
+                true,
+            ),
+            None,
+        );
+    }
+
+    #[test]
+    fn refresh_and_preload_adoption_preserve_the_exact_qualified_opus_decoder() {
+        let capability = ActiveOpusDecoderCapability {
+            executable_path: std::path::PathBuf::from("/qualified/ffmpeg"),
+            executable_sha256: "a".repeat(64),
+        };
+        let refreshed =
+            registered_source_with_opus_capability("/music/track.ogg", Some(&capability));
+        assert_eq!(refreshed.ffmpeg, capability.executable_path);
+        assert_eq!(
+            active_opus_decoder_capability(&refreshed),
+            Some(capability.clone()),
+        );
+        let mut state = State::default();
+        state.opus_decoder_capability = Some(capability.clone());
+        let active_refresh = registered_source_with_opus_capability(
+            "/music/track.ogg",
+            state.opus_decoder_capability.as_ref(),
+        );
+        assert_eq!(
+            active_opus_decoder_capability(&active_refresh),
+            Some(capability.clone())
+        );
+
+        let preload = Preloaded {
+            preparation_trace: None,
+            generation: 8,
+            index: 0,
+            entry: "entry".into(),
+            candidate: None,
+            quality: json!({}),
+            duration: Some(20.0),
+            steady_http_stream: false,
+            offset: 0.0,
+            end: None,
+            loudness_status: crate::loudness_manager::LoudnessStatus::off(),
+            loudness_album_context: None,
+            opus_decoder_capability: Some(capability.clone()),
+        };
+        state.opus_decoder_capability = None;
+        adopt_preloaded_opus_capability(&mut state, &preload);
+        let adopted = registered_source_with_opus_capability(
+            "/music/track.ogg",
+            state.opus_decoder_capability.as_ref(),
+        );
+        assert_eq!(adopted.ffmpeg, capability.executable_path);
+        assert_eq!(active_opus_decoder_capability(&adopted), Some(capability));
+    }
+
+    #[test]
+    fn opus_decoder_proof_is_bound_to_current_asset_hash_and_decoder_bytes() {
+        let proof = crate::loudness::OpusDecoderProof {
+            asset_id: "asset-a".into(),
+            file_hash: "a".repeat(64),
+            decoder_sha256: "b".repeat(64),
+            probe_schema_version: 1,
+        };
+        assert!(proof.validates_for("asset-a", &"a".repeat(64), &"b".repeat(64)));
+        assert!(!proof.validates_for("asset-b", &"a".repeat(64), &"b".repeat(64)));
+        assert!(!proof.validates_for("asset-a", &"c".repeat(64), &"b".repeat(64)));
+        assert!(!proof.validates_for("asset-a", &"a".repeat(64), &"d".repeat(64)));
+    }
+
+    #[test]
+    fn opus_r128_album_identity_requires_exact_album_and_artist_metadata() {
+        let mut track = Track {
+            album: Some("Night Drive".into()),
+            album_artist: Some("The Example Band".into()),
+            ..Track::default()
+        };
+        let tags = crate::loudness_analysis::LocalTagMeasurements {
+            album: Some("night drive".into()),
+            album_artist: Some("the example band".into()),
+            track_replaygain: None,
+            album_replaygain: None,
+            replaygain_comment_present: false,
+            opus_r128_track_gain_db: None,
+            opus_r128_album_gain_db: Some(-2.0),
+            opus_r128_track_tag_present: false,
+            opus_r128_album_tag_present: true,
+            opus_output_gain_tag_db: None,
+            file_seal: None,
+        };
+        assert!(opus_r128_album_identity_matches(&tags, &track));
+        track.album = Some("Night Drive (Deluxe)".into());
+        assert!(!opus_r128_album_identity_matches(&tags, &track));
+        track.album = Some("Night Drive".into());
+        track.album_artist = Some("Different Artist".into());
+        assert!(!opus_r128_album_identity_matches(&tags, &track));
+        track.album_artist = Some("The Example Band".into());
+        let mut missing_artist = tags.clone();
+        missing_artist.album_artist = None;
+        assert!(!opus_r128_album_identity_matches(&missing_artist, &track));
+        let mut no_album = tags.clone();
+        no_album.album = None;
+        track.album = None;
+        assert!(!opus_r128_album_identity_matches(&no_album, &track));
+        track.album = Some("Night Drive".into());
+        let mut no_artist = tags.clone();
+        no_artist.album_artist = None;
+        track.album_artist = None;
+        assert!(!opus_r128_album_identity_matches(&no_artist, &track));
+        let mut no_track_album = track.clone();
+        no_track_album.album = None;
+        let mut no_track_artist = track.clone();
+        no_track_artist.album_artist = None;
+        assert!(!opus_r128_album_identity_matches(&tags, &no_track_album));
+        assert!(!opus_r128_album_identity_matches(&tags, &no_track_artist));
+        let both_unidentified = crate::loudness_analysis::LocalTagMeasurements {
+            album: None,
+            album_artist: None,
+            ..tags.clone()
+        };
+        let both_track_unidentified = Track::default();
+        assert!(!opus_r128_album_identity_matches(
+            &both_unidentified,
+            &both_track_unidentified
+        ));
+        track.album_artist = Some("The Example Band".into());
+        let exact_context = crate::loudness::LoudnessResourceIdentity::album(
+            vec![crate::loudness::LoudnessAssetIdentity {
+                asset_id: "opus-asset".into(),
+                file_hash: "opus-hash".into(),
+                range: crate::loudness::AudioRange::WHOLE_FILE,
+            }],
+            vec![],
+        );
+        assert!(opus_r128_album_context_matches(
+            &tags,
+            &track,
+            Some(&exact_context),
+            "opus-asset",
+            "opus-hash",
+            crate::loudness::AudioRange::WHOLE_FILE,
+        ));
+        assert!(!opus_r128_album_context_matches(
+            &tags,
+            &track,
+            Some(&exact_context),
+            "different-asset",
+            "opus-hash",
+            crate::loudness::AudioRange::WHOLE_FILE,
+        ));
+        assert!(!opus_r128_album_context_matches(
+            &tags,
+            &track,
+            Some(&exact_context),
+            "opus-asset",
+            "other-hash",
+            crate::loudness::AudioRange::WHOLE_FILE,
+        ));
+        assert!(!opus_r128_album_context_matches(
+            &tags,
+            &track,
+            None,
+            "opus-asset",
+            "opus-hash",
+            crate::loudness::AudioRange::WHOLE_FILE,
+        ));
+        assert!(!opus_r128_album_context_matches(
+            &tags,
+            &track,
+            Some(&exact_context),
+            "opus-asset",
+            "opus-hash",
+            crate::loudness::AudioRange {
+                start_seconds: 8.0,
+                end_seconds: None
+            },
+        ));
+    }
+
+    #[test]
+    fn native_opus_decode_policy_requires_exact_registered_whole_local_resource() {
+        let (source, asset) = opus_decode_policy_fixture();
+        let probed = CurrentPlayableCodec {
+            codec: "opus".into(),
+            container: "ogg".into(),
+        };
+        assert!(native_opus_decode_policy_eligible(
+            &source,
+            &asset,
+            &probed,
+            crate::loudness::NormalizationMode::Track,
+            crate::loudness::AudioRange::WHOLE_FILE,
+        ));
+        assert!(native_opus_decode_preprobe_eligible(
+            &source,
+            &asset,
+            crate::loudness::NormalizationMode::Track,
+            crate::loudness::AudioRange::WHOLE_FILE,
+        ));
+        assert!(!native_opus_decode_preprobe_eligible(
+            &source,
+            &asset,
+            crate::loudness::NormalizationMode::Off,
+            crate::loudness::AudioRange::WHOLE_FILE,
+        ));
+        assert!(!native_opus_decode_preprobe_eligible(
+            &source,
+            &asset,
+            crate::loudness::NormalizationMode::Track,
+            crate::loudness::AudioRange {
+                start_seconds: 2.0,
+                end_seconds: None
+            },
+        ));
+        let mut selected = source.clone();
+        apply_native_opus_decode_policy(&mut selected, &asset, "a".repeat(64));
+        assert_eq!(
+            selected.decoder_hint.as_ref().unwrap().decode_policy,
+            crate::native_output::AudioSourceDecodePolicy::FfmpegOggOpusHeadGain,
+        );
+        let mut transcoded = asset.clone();
+        transcoded.source_codec = "opus".into();
+        transcoded.final_codec = "mp3".into();
+        assert!(!current_file_is_ogg_opus(&transcoded, &probed));
+        assert!(!native_opus_decode_policy_eligible(
+            &source,
+            &transcoded,
+            &probed,
+            crate::loudness::NormalizationMode::Track,
+            crate::loudness::AudioRange::WHOLE_FILE,
+        ));
+        let mut mp3_playable = source.clone();
+        mp3_playable.input = "/music/test.mp3".into();
+        let mut mp3_asset = asset.clone();
+        mp3_asset.path = mp3_playable.input.clone();
+        mp3_asset.source_codec = "opus".into();
+        mp3_asset.final_codec = "mp3".into();
+        assert!(!native_opus_decode_policy_eligible(
+            &mp3_playable,
+            &mp3_asset,
+            &probed,
+            crate::loudness::NormalizationMode::Track,
+            crate::loudness::AudioRange::WHOLE_FILE,
+        ));
+        assert!(!current_file_is_ogg_opus(
+            &asset,
+            &CurrentPlayableCodec {
+                codec: "mp3".into(),
+                container: "ogg".into()
+            },
+        ));
+        assert!(!current_file_is_ogg_opus(
+            &asset,
+            &CurrentPlayableCodec {
+                codec: "opus".into(),
+                container: "matroska,webm".into()
+            },
+        ));
+        assert!(!native_opus_decode_policy_eligible(
+            &source,
+            &asset,
+            &probed,
+            crate::loudness::NormalizationMode::Off,
+            crate::loudness::AudioRange::WHOLE_FILE,
+        ));
+        assert!(!native_opus_decode_policy_eligible(
+            &source,
+            &asset,
+            &probed,
+            crate::loudness::NormalizationMode::Track,
+            crate::loudness::AudioRange {
+                start_seconds: 2.0,
+                end_seconds: None
+            },
+        ));
+        let mut other_path = source.clone();
+        other_path.input = "/music/other.opus".into();
+        assert!(!native_opus_decode_policy_eligible(
+            &other_path,
+            &asset,
+            &probed,
+            crate::loudness::NormalizationMode::Track,
+            crate::loudness::AudioRange::WHOLE_FILE,
+        ));
+        let mut remote = source.clone();
+        remote.input = "https://media.example/test.opus".into();
+        assert!(!native_opus_decode_policy_eligible(
+            &remote,
+            &asset,
+            &probed,
+            crate::loudness::NormalizationMode::Track,
+            crate::loudness::AudioRange::WHOLE_FILE,
+        ));
+        let mut cenc = source.clone();
+        cenc.cenc = Some(crate::native_output::EncryptedMp4Audio::new(
+            crate::native_output::CencDecryptionKey::from_hex("00112233445566778899aabbccddeeff")
+                .unwrap(),
+        ));
+        assert!(!native_opus_decode_policy_eligible(
+            &cenc,
+            &asset,
+            &probed,
+            crate::loudness::NormalizationMode::Track,
+            crate::loudness::AudioRange::WHOLE_FILE,
+        ));
+        let mut non_opus = asset.clone();
+        non_opus.source_codec = "flac".into();
+        non_opus.final_codec = "flac".into();
+        assert!(!native_opus_decode_policy_eligible(
+            &source,
+            &non_opus,
+            &probed,
+            crate::loudness::NormalizationMode::Track,
+            crate::loudness::AudioRange::WHOLE_FILE,
+        ));
+    }
+
+    #[test]
+    fn native_normalization_route_status_is_generation_bound() {
+        let unavailable = |reason: &str| {
+            crate::loudness_manager::LoudnessStatus::unavailable(
+                crate::loudness::NormalizationMode::Track,
+                reason,
+                Some("verified-resource".into()),
+            )
+        };
+        let mut state = State::default();
+        state.generation = 4;
+        assert!(!apply_normalization_selection(
+            &mut state,
+            3,
+            unavailable("stale")
+        ));
+        assert_eq!(
+            state.loudness_status,
+            crate::loudness_manager::LoudnessStatus::off()
+        );
+        assert!(apply_normalization_selection(
+            &mut state,
+            4,
+            unavailable("current")
+        ));
+        assert_eq!(state.loudness_status.reason.as_deref(), Some("current"));
+
+        state.entries.push("next-entry".into());
+        state.preload = Some(Preloaded {
+            preparation_trace: None,
+            generation: 9,
+            index: 0,
+            entry: "next-entry".into(),
+            candidate: None,
+            quality: json!({}),
+            duration: Some(20.0),
+            steady_http_stream: false,
+            offset: 0.0,
+            end: None,
+            loudness_status: crate::loudness_manager::LoudnessStatus::off(),
+            loudness_album_context: None,
+            opus_decoder_capability: None,
+        });
+        assert!(apply_normalization_selection(
+            &mut state,
+            9,
+            unavailable("preload")
+        ));
+        assert_eq!(
+            state
+                .preload
+                .as_ref()
+                .unwrap()
+                .loudness_status
+                .reason
+                .as_deref(),
+            Some("preload")
+        );
+        assert!(!apply_normalization_selection(
+            &mut state,
+            10,
+            unavailable("obsolete preload")
+        ));
+    }
+
+    #[test]
+    fn album_loudness_context_follows_queue_occurrence_ids_across_reorder_and_remove() {
+        let first = Track {
+            id: "same-recording".into(),
+            asset_id: Some("asset-first".into()),
+            ..Track::default()
+        };
+        let second = Track {
+            id: "same-recording".into(),
+            asset_id: Some("asset-second".into()),
+            ..Track::default()
+        };
+        let resource = crate::loudness::LoudnessResourceIdentity::album(
+            vec![
+                crate::loudness::LoudnessAssetIdentity {
+                    asset_id: "asset-first".into(),
+                    file_hash: "hash-first".into(),
+                    range: crate::loudness::AudioRange::WHOLE_FILE,
+                },
+                crate::loudness::LoudnessAssetIdentity {
+                    asset_id: "asset-second".into(),
+                    file_hash: "hash-second".into(),
+                    range: crate::loudness::AudioRange::WHOLE_FILE,
+                },
+            ],
+            vec![0.0],
+        );
+        let mut state = State::default();
+        state.queue = vec![first.clone(), second.clone(), Track::default()];
+        state.entries = vec!["same-1".into(), "same-2".into(), "other".into()];
+        validate_loudness_album_queue_binding(&resource, &state.queue[..2]).unwrap();
+        let measured_with_silence =
+            crate::loudness::LoudnessResourceIdentity::album(resource.members.clone(), vec![1.0]);
+        assert!(
+            validate_loudness_album_queue_binding(&measured_with_silence, &state.queue[..2])
+                .is_err()
+        );
+        bind_loudness_context_to_queue_range(&mut state, 0, 2, Some(&resource));
+
+        reorder_queue_state(&mut state, 0, 1, None).unwrap();
+        assert_eq!(
+            state.entries,
+            vec!["same-2".to_owned(), "same-1".to_owned(), "other".to_owned()]
+        );
+        assert_eq!(state.loudness_queue_contexts.get("same-1"), Some(&resource));
+        assert_eq!(state.loudness_queue_contexts.get("same-2"), Some(&resource));
+
+        remove_queue_occurrences(&mut state, &[0], None).unwrap();
+        assert!(!state.loudness_queue_contexts.contains_key("same-2"));
+        assert_eq!(state.loudness_queue_contexts.get("same-1"), Some(&resource));
+    }
+
+    #[test]
+    fn webview_album_context_requires_unique_exact_zero_gap_resource_members() {
+        use crate::loudness::{AudioRange, LoudnessAssetIdentity, LoudnessResourceIdentity};
+
+        let members = vec![
+            LoudnessAssetIdentity {
+                asset_id: "asset-a".into(),
+                file_hash: "a".repeat(64),
+                range: AudioRange::WHOLE_FILE,
+            },
+            LoudnessAssetIdentity {
+                asset_id: "asset-b".into(),
+                file_hash: "b".repeat(64),
+                range: AudioRange::WHOLE_FILE,
+            },
+        ];
+        let exact = LoudnessResourceIdentity::album(members.clone(), vec![0.0]);
+        assert!(validate_loudness_album_resource_member(
+            &exact,
+            "asset-a",
+            &"a".repeat(64),
+            AudioRange::WHOLE_FILE,
+        )
+        .is_ok());
+        assert!(validate_loudness_album_resource_member(
+            &exact,
+            "asset-a",
+            &"a".repeat(64),
+            AudioRange {
+                start_seconds: 10.0,
+                end_seconds: Some(20.0),
+            },
+        )
+        .is_err());
+
+        let duplicate = LoudnessResourceIdentity::album(
+            vec![members[0].clone(), members[0].clone()],
+            vec![0.0],
+        );
+        assert!(validate_loudness_album_resource_member(
+            &duplicate,
+            "asset-a",
+            &"a".repeat(64),
+            AudioRange::WHOLE_FILE,
+        )
+        .is_err());
+
+        let nonzero_gap = LoudnessResourceIdentity::album(members, vec![0.25]);
+        assert!(validate_loudness_album_resource_member(
+            &nonzero_gap,
+            "asset-a",
+            &"a".repeat(64),
+            AudioRange::WHOLE_FILE,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn new_play_queue_honors_enabled_shuffle_and_preserves_selected_occurrence() {
+        let tracks: Vec<_> = (0..64)
+            .map(|i| Track {
+                id: format!("track-{i}"),
+                ..Track::default()
+            })
+            .collect();
+        let mut state = State::default();
+        replace_play_queue(&mut state, tracks.clone(), 3);
+        assert_eq!(
+            state.queue.iter().map(|t| &t.id).collect::<Vec<_>>(),
+            tracks.iter().map(|t| &t.id).collect::<Vec<_>>()
+        );
+        assert_eq!(state.queue_revision, 1);
+        state.shuffle = true;
+        replace_play_queue(&mut state, tracks.clone(), 3);
+        assert_eq!(state.index, 3);
+        assert!(state.shuffle);
+        assert_eq!(state.queue_revision, 2);
+        assert_eq!(
+            state.queue[..4].iter().map(|t| &t.id).collect::<Vec<_>>(),
+            tracks[..4].iter().map(|t| &t.id).collect::<Vec<_>>()
+        );
+        assert_ne!(
+            state.queue[4..].iter().map(|t| &t.id).collect::<Vec<_>>(),
+            tracks[4..].iter().map(|t| &t.id).collect::<Vec<_>>()
+        );
+        let mut ids = state.queue.iter().map(|t| t.id.clone()).collect::<Vec<_>>();
+        ids.sort();
+        let mut expected = tracks.iter().map(|t| t.id.clone()).collect::<Vec<_>>();
+        expected.sort();
+        assert_eq!(ids, expected);
+        let mut entries = state.entries.clone();
+        entries.sort();
+        entries.dedup();
+        assert_eq!(entries.len(), tracks.len());
+    }
+
+    #[test]
+    fn shuffle_keeps_occurrence_ids_attached_to_tracks_and_leaves_history_untouched() {
+        let mut state = State::default();
+        state.queue = (0..64)
+            .map(|i| Track {
+                id: format!("track-{i}"),
+                ..Track::default()
+            })
+            .collect();
+        state.entries = state
+            .queue
+            .iter()
+            .map(|t| format!("occurrence-{}", t.id))
+            .collect();
+        state.index = 3;
+        shuffle_upcoming(&mut state);
+        for (track, entry) in state.queue.iter().zip(&state.entries) {
+            assert_eq!(entry, &format!("occurrence-{}", track.id));
+        }
+        assert_eq!(state.queue[3].id, "track-3");
+        assert_eq!(state.queue[0].id, "track-0");
+        assert_ne!(state.queue[4].id, state.queue[5].id);
+    }
 
     fn youtube_handoff_fixture() -> (Track, Candidate) {
         let track = Track {
@@ -5492,6 +8435,45 @@ mod tests {
     }
 
     #[test]
+    fn settings_change_fences_unresolved_preload_before_late_source_publication() {
+        let (mut unchanged, unchanged_owner, unchanged_receiver) = preparation_fixture();
+        assert!(!fence_unresolved_preload_for_settings_change(
+            &mut unchanged,
+            false
+        ));
+        assert!(!*unchanged_receiver.borrow());
+        assert!(preload_preparation_is_current(&unchanged, &unchanged_owner));
+
+        let (mut changed, old_owner, old_receiver) = preparation_fixture();
+        assert!(changed.preload.is_none());
+        // This executes the state-lock fence before the resolver can reacquire
+        // State to install its source or append the native PCM queue.
+        assert!(fence_unresolved_preload_for_settings_change(
+            &mut changed,
+            true
+        ));
+        assert!(*old_receiver.borrow());
+        assert!(!preload_preparation_is_current(&changed, &old_owner));
+        assert!(finish_preload_resolution(&mut changed, &old_owner, Ok("stale-source")).is_none());
+        assert!(changed.preload.is_none());
+        assert!(changed.preload_cancel.is_none());
+
+        let replacement = replace_preparation(&mut changed);
+        assert!(preload_preparation_is_current(&changed, &replacement));
+        assert!(finish_preload_resolution(
+            &mut changed,
+            &old_owner,
+            Err::<&str, _>("late old failure".into())
+        )
+        .is_none());
+        assert!(changed
+            .preload_cancel
+            .as_ref()
+            .unwrap()
+            .same_channel(&replacement.cancel));
+    }
+
+    #[test]
     fn preload_channel_identity_fences_an_abandoned_owner_even_without_a_cancel_signal() {
         let (mut state, old, receiver) = preparation_fixture();
         let replacement = replace_preparation(&mut state);
@@ -5548,6 +8530,9 @@ mod tests {
             steady_http_stream: false,
             offset: 0.,
             end: None,
+            loudness_status: crate::loudness_manager::LoudnessStatus::off(),
+            loudness_album_context: None,
+            opus_decoder_capability: None,
         });
         let event = OutputEvent::DeviceLost {
             generation: 41,
@@ -6861,6 +9846,57 @@ mod tests {
         assert_eq!(last["queue"].as_array().unwrap().len(), 1);
         assert_eq!(last["queue"][0]["id"], "track-499");
         assert_eq!(last["queueHasMore"], false);
+    }
+
+    #[test]
+    fn backup_checkpoint_values_capture_full_queue_and_occurrence_contexts() {
+        let mut state = State::default();
+        state.queue = (0..501)
+            .map(|index| Track {
+                id: format!("track-{index}"),
+                title: format!("Track {index}"),
+                ..Track::default()
+            })
+            .collect();
+        state.entries = (0..501).map(|index| format!("entry-{index}")).collect();
+        state.index = 320;
+        state.position = 12.75;
+        state.queue_revision = 9;
+        let album = crate::loudness::LoudnessResourceIdentity::album(
+            vec![crate::loudness::LoudnessAssetIdentity {
+                asset_id: "asset-320".into(),
+                file_hash: "a".repeat(64),
+                range: crate::loudness::AudioRange::WHOLE_FILE,
+            }],
+            vec![],
+        );
+        state
+            .loudness_queue_contexts
+            .insert("entry-320".into(), album.clone());
+
+        // The routine status snapshot deliberately omits queue materialization;
+        // the backup seam has to preserve every queue occurrence itself.
+        assert!(state.snapshot(true, false).get("queue").is_none());
+        let (queue, session) = state.backup_checkpoint_values();
+        assert_eq!(queue["tracks"].as_array().unwrap().len(), 501);
+        assert_eq!(queue["entryIds"].as_array().unwrap().len(), 501);
+        assert_eq!(queue["entryIds"][500], "entry-500");
+        assert_eq!(
+            queue["queueLoudnessContexts"]["entry-320"]["scope"],
+            "album"
+        );
+        assert_eq!(session["index"], 320);
+        assert_eq!(session["currentEntryId"], "entry-320");
+        assert_eq!(session["position"], 12.75);
+        assert_eq!(session["queueRevision"], 9);
+        assert_eq!(
+            serde_json::from_value::<HashMap<String, crate::loudness::LoudnessResourceIdentity>>(
+                queue["queueLoudnessContexts"].clone()
+            )
+            .unwrap()
+            .get("entry-320"),
+            Some(&album)
+        );
     }
 
     fn chapter_track() -> Track {

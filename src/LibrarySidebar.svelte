@@ -31,8 +31,7 @@
     onSource,
     onImport,
     onSettings,
-    onDownloads,
-    activeJobs,
+    activeJobs = 0,
     width = 200,
     compact = false,
     onWidthChange,
@@ -62,13 +61,12 @@
     onSource: (provider: string) => void;
     onImport: () => void;
     onSettings: () => void;
-    onDownloads: () => void;
-    activeJobs: number;
+    onDownloads?: () => void;
+    activeJobs?: number;
     width?: number;
     compact?: boolean;
     onWidthChange?: (width: number) => void;
   } = $props();
-
   let drawerOpen = $state(false);
   let playlistFilter = $state("");
   let resizing = $state(false);
@@ -107,11 +105,11 @@
     const additional = [...providerIds].filter((id) => !knownIds.has(id)).sort().map((id) => ({ id, label: sourceLabel(id), mark: sourceLabel(id).slice(0, 1).toUpperCase() }));
     const sources = [...knownSources, ...additional, { id: "local", label: "Local", mark: "▧" }];
     return sources.map((source) => {
-    const sourceImports = source.id === "local" ? [] : browserImports.filter((item) => normalizeProvider(item.provider) === source.id && !hasSection(item.collectionId));
+    const sourceImports = source.id === "local" ? [] : browserImports.filter((item) => normalizeProvider(item.provider) === source.id && !hasSection(item.collectionId) && !isTopPlaylist(item.collectionId));
     const importedIds = new Set(sourceImports.map((item) => item.collectionId));
     const sourceCollections = source.id === "local"
-      ? collections.filter((item) => localPlaylistIds.includes(item.id) && !hasSection(item.id))
-      : collections.filter((item) => normalizeProvider(item.sourceProvider ?? "") === source.id && !hasSection(item.id));
+      ? collections.filter((item) => localPlaylistIds.includes(item.id) && !hasSection(item.id) && !isTopPlaylist(item.id))
+      : collections.filter((item) => normalizeProvider(item.sourceProvider ?? "") === source.id && !hasSection(item.id) && !isTopPlaylist(item.id));
     return {
       ...source,
       imports: sourceImports,
@@ -124,7 +122,9 @@
     ...browserImports.map((item) => item.collectionId),
     ...localPlaylistIds,
   ]));
-  const personalCollections = $derived(collections.filter((item) => !importedCollectionIds.has(item.id) && !hasSection(item.id) && item.id!==downloadsId));
+  const favoritesId = $derived(favoritesPlaylistId || "favorites");
+  const favoritesCollection = $derived(collections.find((item) => item.id === favoritesPlaylistId));
+  const personalCollections = $derived(collections.filter((item) => !importedCollectionIds.has(item.id) && !hasSection(item.id) && !isTopPlaylist(item.id)));
   const filteredPersonalCollections = $derived(personalCollections.filter(item => matchesPlaylist(item.name, item.ownerName, item.ownerId)));
   function matchesImportedPlaylist(imported: BrowserImport) {
     const collection = collections.find(item => item.id === imported.collectionId);
@@ -141,6 +141,7 @@
     return !query || values.some(value => value?.toLocaleLowerCase().includes(query));
   }
   function hasSection(id:string){return sections.some(section=>section.id===assignments[id]);}
+  function isTopPlaylist(id:string){return id===downloadsId || id==="history" || id==="favorites" || Boolean(favoritesPlaylistId && id===favoritesPlaylistId);}
   function dragPlaylist(event:DragEvent,id:string){if(event.dataTransfer){event.dataTransfer.setData(PLAYLIST_SECTION_DRAG_TYPE,id);event.dataTransfer.effectAllowed="move";}}
   function normalizeProvider(provider: string) { return provider.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "-"); }
   function sourceLabel(id: string) {
@@ -172,6 +173,10 @@
   {#if drawerOpen}<button class="sidebar-scrim" aria-label="Close library menu" onclick={closeDrawer}></button>{/if}
   <div id="library-sidebar-content" class="library-scroll" aria-label="Playlists and sources">
     <div class="drawer-heading"><strong>Library navigation</strong><button aria-label="Close library menu" onclick={closeDrawer}>×</button></div>
+    <details class="sidebar-filter-dropdown">
+      <summary aria-label="Filter playlists and sources"><span aria-hidden="true">⌕</span><span>Filter playlists</span>{#if playlistFilter.trim()}<small>Active</small>{/if}<span class="disclosure" aria-hidden="true">⌄</span></summary>
+      <label class="playlist-filter-label">Filter by name or owner<input class="playlist-filter" type="search" bind:value={playlistFilter} placeholder="Name or owner" aria-label="Filter playlists by name or owner" /></label>
+    </details>
     <FolderTree {call} {selectedFolder} {rootsRevision} {onSelectFolder} {onRootsChanged} onOpenFolders={() => { onDirectoryBrowser(); closeDrawer(); }}/>
     <details class="source-group radio-section" open>
       <summary class="source-heading"><span class="source-mark" aria-hidden="true">◉</span><span class="source-name">Radio</span><small>{radioStations.length}</small><span class="disclosure" aria-hidden="true">⌄</span></summary>
@@ -189,17 +194,16 @@
         <span>Playlists</span>
         <button class="icon-button" aria-label="Create playlist" title="Create playlist" onclick={() => { onImport(); closeDrawer(); }}>＋</button>
       </div>
-      <label class="playlist-filter-label">Filter playlists<input class="playlist-filter" type="search" bind:value={playlistFilter} placeholder="Name or owner" aria-label="Filter playlists by name or owner" /></label>
       <div class="playlist-list built-in-playlists">
-        {#if matchesPlaylist(playlistNames[downloadsId], collections.find(item=>item.id===downloadsId)?.name, "Downloads")}<button class="playlist-card" class:active={activeCollectionId===downloadsId} onclick={()=>{onPlaylist(downloadsId);closeDrawer();}} oncontextmenu={(event)=>{event.preventDefault();onPlaylistContext?.(downloadsId,event);}}><span class="playlist-glyph" aria-hidden="true">↓</span><span class="playlist-copy"><strong>{playlistNames[downloadsId]??collections.find(item=>item.id===downloadsId)?.name??"Downloads"}</strong><small>{collections.find(item=>item.id===downloadsId)?.trackCount??0} tracks</small></span></button>{/if}
-        {#if !favoritesPlaylistId && matchesPlaylist(playlistNames.favorites, "Liked Songs", "Favorites")}<button class="playlist-card" class:active={view === "favorites"} onclick={() => { onPlaylist("favorites"); closeDrawer(); }} oncontextmenu={(event)=>{event.preventDefault();onPlaylistContext?.("favorites",event);}}>
-          <span class="playlist-glyph liked" aria-hidden="true">♥</span>
-          <span class="playlist-copy"><strong>{playlistNames.favorites??"Liked Songs"}</strong><small>Your favorites</small></span>
-        </button>{/if}
         {#if matchesPlaylist(playlistNames.history, "History", "Recently played")}<button class="playlist-card" onclick={() => { onPlaylist("history"); closeDrawer(); }} oncontextmenu={(event)=>{event.preventDefault();onPlaylistContext?.("history",event);}}>
           <span class="playlist-glyph history" aria-hidden="true">◷</span>
           <span class="playlist-copy"><strong>{playlistNames.history??"History"}</strong><small>Recently played</small></span>
         </button>{/if}
+        {#if matchesPlaylist(playlistNames[favoritesId], favoritesCollection?.name, playlistNames.favorites, "Liked Songs", "Favorites")}<button class="playlist-card" class:active={activeCollectionId===favoritesId || view === "favorites"} onclick={() => { onPlaylist(favoritesId); closeDrawer(); }} oncontextmenu={(event)=>{event.preventDefault();onPlaylistContext?.(favoritesId,event);}}>
+          <span class="playlist-glyph liked" aria-hidden="true">♥</span>
+          <span class="playlist-copy"><strong>{playlistNames[favoritesId]??favoritesCollection?.name??playlistNames.favorites??"Liked Songs"}</strong><small>{favoritesCollection ? `${favoritesCollection.trackCount} tracks` : "Your favorites"}</small></span>
+        </button>{/if}
+        {#if matchesPlaylist(playlistNames[downloadsId], collections.find(item=>item.id===downloadsId)?.name, "Downloads")}<button class="playlist-card" class:active={activeCollectionId===downloadsId || view === "downloads"} onclick={()=>{onPlaylist(downloadsId);closeDrawer();}} oncontextmenu={(event)=>{event.preventDefault();onPlaylistContext?.(downloadsId,event);}}><span class="playlist-glyph" aria-hidden="true">↓</span><span class="playlist-copy"><strong>{playlistNames[downloadsId]??collections.find(item=>item.id===downloadsId)?.name??"Downloads"}</strong><small>{collections.find(item=>item.id===downloadsId)?.trackCount??0} tracks</small></span>{#if activeJobs>0}<span class="jobs-count" aria-label={`${activeJobs} active download jobs`}>{activeJobs}</span>{/if}</button>{/if}
         {#each filteredPersonalCollections as collection (collection.id)}
           <button draggable="true" ondragstart={(event)=>dragPlaylist(event,collection.id)} class="playlist-card collection-card" class:active={activeCollectionId === collection.id} onclick={() => { onPlaylist(collection.id); closeDrawer(); }} oncontextmenu={(event) => { if (onPlaylistContext) { event.preventDefault(); onPlaylistContext(collection.id, event); closeDrawer(); } }}>
             <span class="playlist-glyph collection-glyph" class:liked={collection.id===favoritesPlaylistId} aria-hidden="true">{collection.id===favoritesPlaylistId?"♥":"▤"}</span>
@@ -207,7 +211,7 @@
           </button>
         {/each}
       </div>
-      <PlaylistSections showUnsorted={false} filterActive={Boolean(playlistFilter.trim())} {sections} {assignments} collections={collections.filter(item=>item.id!==downloadsId && matchesPlaylist(item.name, item.ownerName, item.ownerId))} {activeCollectionId} onPlaylist={(id)=>{onPlaylist(id);closeDrawer();}} onPlaylistContext={(id,event)=>onPlaylistContext?.(id,event)} {onCreateSection} {onRenameSection} {onDeleteSection} {onMovePlaylist} {onCreatePlaylist}/>
+      <PlaylistSections showUnsorted={false} filterActive={Boolean(playlistFilter.trim())} {sections} {assignments} collections={collections.filter(item=>!isTopPlaylist(item.id) && matchesPlaylist(item.name, item.ownerName, item.ownerId))} {activeCollectionId} onPlaylist={(id)=>{onPlaylist(id);closeDrawer();}} onPlaylistContext={(id,event)=>onPlaylistContext?.(id,event)} {onCreateSection} {onRenameSection} {onDeleteSection} {onMovePlaylist} {onCreatePlaylist}/>
       <div class="source-groups" aria-label="Imported playlists by source">
         {#each sourceGroups as source (source.id)}
           <details class="source-group" open={source.count > 0}>
@@ -239,17 +243,12 @@
         {/each}
       </div>
     </section>
+    <div class="sidebar-scroll-end">
+      <button class:active={view === "settings"} title="Settings" aria-label="Settings" onclick={() => { onSettings(); closeDrawer(); }}>
+        <span aria-hidden="true">⚙</span><span>Settings</span>
+      </button>
+    </div>
   </div>
-
-  <footer class="library-footer">
-    <button class:active={view === "downloads"} title="Downloads" aria-label="Downloads" onclick={() => { onDownloads(); closeDrawer(); }}>
-      <span aria-hidden="true">↓</span><span class="nav-label">Downloads</span>
-      {#if activeJobs > 0}<span class="jobs-count">{activeJobs}</span>{/if}
-    </button>
-    <button class:active={view === "settings"} title="Settings" aria-label="Settings" onclick={() => { onSettings(); closeDrawer(); }}>
-      <span aria-hidden="true">⚙</span><span class="nav-label">Settings</span>
-    </button>
-  </footer>
   <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions (Focusable window splitter provides keyboard resizing.) -->
   <div tabindex="0" class="sidebar-resize" role="separator" aria-label="Resize library sidebar" aria-orientation="vertical" aria-valuemin={minWidth} aria-valuemax={maxWidth} aria-valuenow={width} onpointerdown={startResize} onkeydown={(event) => { if (event.key === "ArrowLeft") { event.preventDefault(); setWidth(width - 10); } else if (event.key === "ArrowRight") { event.preventDefault(); setWidth(width + 10); } }}></div>
 </aside>
@@ -289,8 +288,7 @@
     border-radius: 7px;
   }
   .library-primary { display: grid; gap: 4px; }
-  .library-primary button,
-  .library-footer > button {
+  .library-primary button {
     display: flex;
     align-items: center;
     gap: 12px;
@@ -305,12 +303,22 @@
     font-size: 13px;
     font-weight: 570;
   }
-  .library-primary button:hover,
-  .library-footer > button:hover { background: var(--raised); color: var(--text); }
-  .library-primary button.active,
-  .library-footer > button.active { background: var(--raised); color: var(--accent); }
+  .library-primary button:hover { background: var(--raised); color: var(--text); }
+  .library-primary button.active { background: var(--raised); color: var(--accent); }
   .primary-icon { width: 20px; text-align: center; font-size: 20px; line-height: 1; }
   .library-scroll { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+  .sidebar-filter-dropdown { margin: 0 0 12px; }
+  .sidebar-filter-dropdown > summary { display:flex; align-items:center; gap:8px; min-height:34px; padding:4px 8px; border:1px solid var(--line); border-radius:7px; color:var(--muted); cursor:pointer; list-style:none; font-size:11px; }
+  .sidebar-filter-dropdown > summary::-webkit-details-marker { display:none; }
+  .sidebar-filter-dropdown > summary:hover,.sidebar-filter-dropdown[open] > summary { background:var(--raised); color:var(--text); }
+  .sidebar-filter-dropdown > summary span:nth-child(2) { flex:1; }
+  .sidebar-filter-dropdown > summary small { color:var(--accent); font-size:9px; }
+  .sidebar-filter-dropdown > .playlist-filter-label { margin:7px 0 0; padding:0 2px; }
+  .sidebar-scroll-end { margin-top:16px; padding:10px 0 4px; border-top:1px solid var(--line); }
+  .sidebar-scroll-end button { display:flex; align-items:center; gap:10px; width:100%; min-height:36px; padding:0 10px; border:0; border-radius:8px; background:transparent; color:var(--muted); text-align:left; font-size:12px; }
+  .sidebar-scroll-end button:hover { background:var(--raised); color:var(--text); }
+  .sidebar-scroll-end button.active { color:var(--accent); background:var(--raised); }
+  .sidebar-scroll-end button span:first-child { width:20px; text-align:center; font-size:17px; }
   .sidebar-section-title {
     display: flex;
     align-items: center;
@@ -357,9 +365,6 @@
   .playlist-copy { display: grid; min-width: 0; gap: 3px; }
   .playlist-copy strong { overflow: hidden; color: var(--text); font-size: 11px; font-weight: 590; text-overflow: ellipsis; white-space: nowrap; }
   .playlist-copy small { color: var(--muted); font-size: 10px; }
-  .library-footer { display: grid; gap: 3px; margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
-  .library-footer > button { min-height: 36px; font-size: 12px; }
-  .library-footer > button > span:first-child { width: 20px; text-align: center; font-size: 17px; }
   .jobs-count { display: grid; place-items: center; min-width: 19px; height: 19px; margin-left: auto; padding: 0 5px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 18%, var(--raised)); color: var(--accent); font-size: 10px; }
   .rail-toggle,.sidebar-scrim { display: none; }
   .drawer-heading { display:none; }
@@ -373,9 +378,6 @@
   .compact .library-primary button { justify-content:center;width:48px;min-height:44px;margin:auto;padding:0; }
   .compact .primary-icon { width:auto;font-size:22px; }
   .compact .library-scroll { display:none; }
-  .compact .library-footer { gap:5px;margin-top:auto;padding-top:8px; }
-  .compact .library-footer>button { justify-content:center;width:48px;min-height:42px;margin:auto;padding:0; }
-  .compact .library-footer>button>span:first-child { width:auto;font-size:18px; }
   .compact .jobs-count { position:absolute;min-width:16px;height:16px;margin:-29px 0 0 26px;padding:0 3px;font-size:9px; }
   .compact .sidebar-scrim { display:block;position:fixed;inset:0 0 var(--player-height,100px) 64px;z-index:1000;width:auto;height:auto;padding:0;border:0;background:rgb(0 0 0 / 48%); }
   .compact.drawer-open .library-scroll { display:block;position:fixed;z-index:1001;top:0;bottom:var(--player-height,100px);left:64px;width:min(300px,calc(100vw - 64px));max-height:none;padding:18px 14px 12px;overflow-y:auto;overscroll-behavior:contain;background:var(--surface);border-right:1px solid var(--line);box-shadow:14px 0 34px rgb(0 0 0 / 28%); }
@@ -391,7 +393,7 @@
     .library-brand { margin: 0 5px 18px; font-size: 18px; }
     .playlist-card { gap: 7px; padding: 5px 5px; }
     .playlist-glyph { flex-basis: 29px; width: 29px; height: 29px; }
-    .library-primary button,.library-footer > button { gap: 8px; padding: 0 8px; }
+    .library-primary button { gap: 8px; padding: 0 8px; }
     .source-heading { gap: 6px; padding-inline: 5px; }
     .source-playlists { padding-left: 4px; }
   }
@@ -406,12 +408,10 @@
     .library-primary button { justify-content: center; width: 48px; min-height: 44px; margin: auto; padding: 0; }
     .primary-icon { width: auto; font-size: 22px; }
     .library-scroll { display: none; }
-    .library-footer { gap: 5px; margin-top: auto; padding-top: 8px; }
-    .library-footer > button { justify-content: center; width: 48px; min-height: 42px; margin: auto; padding: 0; }
-    .library-footer > button > span:first-child { width: auto; font-size: 18px; }
     .jobs-count { position: absolute; min-width: 16px; height: 16px; margin: -29px 0 0 26px; padding: 0 3px; font-size: 9px; }
     .sidebar-scrim { display: block; position: fixed; inset: 0 0 var(--player-height, 100px) 64px; z-index: 1000; width: auto; height: auto; padding: 0; border: 0; background: rgb(0 0 0 / 48%); }
     .drawer-open .library-scroll { display: block; position: fixed; z-index: 1001; top: 0; bottom: var(--player-height, 100px); left: 64px; width: min(300px, calc(100vw - 64px)); max-height: none; padding: 18px 14px 12px; overflow-y: auto; overscroll-behavior: contain; background: var(--surface); border-right: 1px solid var(--line); box-shadow: 14px 0 34px rgb(0 0 0 / 28%); }
+    .drawer-open .jobs-count { position: static; min-width: 19px; height: 19px; margin-left: auto; padding: 0 5px; font-size: 10px; }
     .drawer-open .playlist-section { margin-top: 0; }
     .drawer-open .library-brand { display: none; }
     .drawer-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; color: var(--text); font-size: 13px; }

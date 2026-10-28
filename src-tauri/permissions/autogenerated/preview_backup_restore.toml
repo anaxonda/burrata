@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-preview-backup-restore"
+description = "Enables the preview_backup_restore command without any pre-configured scope."
+commands.allow = ["preview_backup_restore"]
+
+[[permission]]
+identifier = "deny-preview-backup-restore"
+description = "Denies the preview_backup_restore command without any pre-configured scope."
+commands.deny = ["preview_backup_restore"]

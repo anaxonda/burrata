@@ -1602,6 +1602,8 @@ mod tests {
                         duration_seconds: audio.duration_seconds,
                         content_length: audio.expected_content_length,
                         has_video: false,
+                        decode_policy: crate::native_output::AudioSourceDecodePolicy::Automatic,
+                        decoder_fingerprint: None,
                     }),
 
                     cenc: None,

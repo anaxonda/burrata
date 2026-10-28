@@ -22,6 +22,8 @@ pub(crate) struct Candidate {
     pub duration_seconds: f64,
     pub has_synced: bool,
     pub automatic_match: bool,
+    #[serde(default)]
+    pub plain_text_match: bool,
     pub explanation: String,
     pub source_url: String,
 }
@@ -59,15 +61,17 @@ pub(crate) fn context(
     let native = snapshot["engine"] == "native"
         && matches!(
             snapshot["status"].as_str(),
-            Some("playing" | "paused" | "buffering")
+            Some("playing" | "paused" | "buffering" | "ended")
         );
     let id = if native {
         snapshot["track"]["id"].as_str().map(str::to_owned)
     } else {
         visible.as_ref().and_then(|v| v.track_id.clone())
     };
-    let request = lyrics::request_for_current_track(snapshot, visible)?;
-    if !lyrics::valid_request(&request) {
+    let request = lyrics::request_for_current_track(snapshot, visible.clone())?;
+    if !lyrics::valid_request(&request)
+        && lyrics::radio_request(snapshot, visible.as_ref()).is_none()
+    {
         return None;
     }
     let key = format!(
@@ -384,9 +388,9 @@ pub(crate) async fn search(
     let mut candidates = records
         .iter()
         .map(|(id, record)| {
-            let automatic = requests
-                .iter()
-                .any(|request| lyrics::record_matches(request, record));
+            let automatic = requests.iter().any(|request| {
+                request.duration_seconds > 0. && lyrics::record_matches(request, record)
+            });
             Candidate {
                 id: id.clone(),
                 track_name: record.track_name.clone(),
@@ -398,8 +402,17 @@ pub(crate) async fn search(
                     .as_ref()
                     .is_some_and(|v| !v.trim().is_empty()),
                 automatic_match: automatic,
+                plain_text_match: !automatic
+                    && requests
+                        .iter()
+                        .any(|request| lyrics::plain_text_record_matches(request, record)),
                 explanation: if automatic {
                     "Recording metadata or verified artist alias matches"
+                } else if requests
+                    .iter()
+                    .any(|request| lyrics::plain_text_record_matches(request, record))
+                {
+                    "Same song and performer; displayed without timing for this version"
                 } else {
                     "Related lyrics; performance or artist credit requires your choice"
                 }
@@ -420,6 +433,7 @@ pub(crate) async fn search(
     candidates.sort_by(|a, b| {
         b.automatic_match
             .cmp(&a.automatic_match)
+            .then_with(|| b.plain_text_match.cmp(&a.plain_text_match))
             .then_with(|| album_matches(b).cmp(&album_matches(a)))
             .then_with(|| {
                 (a.duration_seconds - request.duration_seconds)
@@ -469,6 +483,7 @@ pub(crate) fn choose(
     scope: &str,
     id: &str,
 ) -> Result<Document, String> {
+    let radio = lyrics::radio_request(snapshot, visible.as_ref()).is_some();
     let (key, request, _) = context(snapshot, visible).ok_or("Current playback changed")?;
     if key != scope {
         return Err("Current playback changed; search lyrics again".into());
@@ -489,7 +504,7 @@ pub(crate) fn choose(
         .get(id)
         .cloned()
         .ok_or("Lyric candidate unavailable")?;
-    let document = if candidate.automatic_match {
+    let document = if candidate.automatic_match && !radio {
         let chosen = LyricsRequest {
             track_name: record.track_name.clone(),
             artist_name: record.artist_name.clone(),
@@ -498,35 +513,9 @@ pub(crate) fn choose(
         };
         lyrics::classify_record(&chosen, record)
     } else {
-        let plain = record
-            .plain_lyrics
-            .clone()
-            .filter(|v| !v.trim().is_empty())
-            .or_else(|| {
-                record.synced_lyrics.as_ref().map(|v| {
-                    lyrics::parse_lrc(v)
-                        .into_iter()
-                        .map(|line| line.text)
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                })
-            });
-        record.synced_lyrics = None;
-        record.plain_lyrics = plain;
-        let chosen = LyricsRequest {
-            track_name: record.track_name.clone(),
-            artist_name: record.artist_name.clone(),
-            album_name: record.album_name.clone(),
-            duration_seconds: record.duration,
-        };
-        let mut result = lyrics::classify_record(&chosen, record);
-        if let Some(matched) = result.matched.as_mut() {
-            matched.duration_delta_seconds =
-                (matched.duration_seconds - request.duration_seconds).abs();
-        }
-        result
+        lyrics::untimed_record(&request, record)
     };
-    let result=Document{document,scope_id:key,candidates:entry.page.candidates.clone(),selection_notice:(!candidate.automatic_match).then(||"You selected related lyrics. The exact performance is unverified; timing is disabled.".into())};
+    let result=Document{document,scope_id:key,candidates:entry.page.candidates.clone(),selection_notice:(!candidate.automatic_match).then(|| if candidate.plain_text_match { "Lyrics matched by song and performer. Timing is disabled for this version.".into() } else { "You selected related lyrics. The exact performance is unverified; timing is disabled.".into() })};
     entry.selected = Some(result.clone());
     Ok(result)
 }
@@ -574,17 +563,29 @@ pub(crate) async fn current(
         "synced" | "unsynced" | "instrumental"
     ) {
         return Document {
+            selection_notice: (primary.status == "unsynced"
+                && primary
+                    .matched
+                    .as_ref()
+                    .is_some_and(|matched| matched.duration_delta_seconds > 2.))
+            .then(|| {
+                if lyrics::radio_request(snapshot, visible.as_ref()).is_some() {
+                    "Lyrics for the identified radio song; displayed without timing.".into()
+                } else {
+                    "Lyrics matched by song and performer. Timing is disabled for this version."
+                        .into()
+                }
+            }),
             document: primary,
             scope_id: key,
             candidates: vec![],
-            selection_notice: None,
         };
     }
     let page = search(snapshot, visible.clone(), store, artists).await;
     if let Some(candidate) = page
         .candidates
         .iter()
-        .find(|candidate| candidate.automatic_match)
+        .find(|candidate| candidate.automatic_match || candidate.plain_text_match)
     {
         if let Ok(selected) = choose(snapshot, visible, &page.scope_id, &candidate.id) {
             return selected;
@@ -605,6 +606,58 @@ mod tests {
         serde_json::json!({"engine":"native","status":"paused","track":{"id":format!("catalog:lyrics:{}",uuid::Uuid::new_v4()),"title":"Synthetic Song","artist":"Synthetic Artist","durationSeconds":180.0}})
     }
     #[test]
+    fn same_performer_nearby_version_can_auto_select_text_but_never_its_timestamps() {
+        let snapshot = serde_json::json!({"engine":"native","status":"paused","track":{"id":"lyrics:auto-text-fixture","title":"Truck Drivin' Man","artist":"Buck Owens","durationSeconds":156.933}});
+        let (scope, request, _) = context(&snapshot, None).unwrap();
+        let mut record:ApiRecord=serde_json::from_value(serde_json::json!({"trackName":"Truck Drivin' Man","artistName":"Buck Owens","albumName":"Live version","duration":151.,"instrumental":false,"syncedLyrics":"[00:01]Synthetic first line\n[00:05]Synthetic next line","plainLyrics":null})).unwrap();
+        assert!(!lyrics::record_matches(&request, &record));
+        assert!(lyrics::plain_text_record_matches(&request, &record));
+        record.artist_name = "Red Steagall".into();
+        assert!(!lyrics::plain_text_record_matches(&request, &record));
+        record.artist_name = "Buck Owens".into();
+        record.duration = 120.;
+        assert!(!lyrics::plain_text_record_matches(&request, &record));
+        record.duration = 151.;
+        let candidate = Candidate {
+            id: "990031".into(),
+            track_name: record.track_name.clone(),
+            artist_name: record.artist_name.clone(),
+            album_name: record.album_name.clone(),
+            duration_seconds: 151.,
+            has_synced: true,
+            automatic_match: false,
+            plain_text_match: true,
+            explanation: "Same song and performer".into(),
+            source_url: "https://lrclib.net/api/get/990031".into(),
+        };
+        cache().lock().unwrap().insert(
+            scope.clone(),
+            Entry {
+                inserted: Instant::now(),
+                page: Page {
+                    scope_id: scope.clone(),
+                    status: "ok".into(),
+                    candidates: vec![candidate],
+                },
+                records: HashMap::from([("990031".into(), record)]),
+                selected: None,
+            },
+        );
+        let document = choose(&snapshot, None, &scope, "990031").unwrap();
+        assert_eq!(document.document.status, "unsynced");
+        assert!(document
+            .document
+            .lines
+            .unwrap()
+            .iter()
+            .all(|line| line.time_seconds.is_none()));
+        assert!(document
+            .selection_notice
+            .unwrap()
+            .contains("Timing is disabled"));
+    }
+
+    #[test]
     fn related_selection_drops_timestamps_and_is_bound_to_current_playback() {
         let snapshot = snapshot();
         let (scope, request, _) = context(&snapshot, None).unwrap();
@@ -618,6 +671,7 @@ mod tests {
             duration_seconds: 200.0,
             has_synced: true,
             automatic_match: false,
+            plain_text_match: false,
             explanation: "Related performance".into(),
             source_url: "https://lrclib.net/api/get/1".into(),
         };
@@ -768,5 +822,206 @@ mod tests {
             result.model,
             result.fallback_used
         );
+    }
+    #[tokio::test]
+    #[ignore = "Explicit live timed lyric translation using the authorized OS keyring; metadata and lyric text only"]
+    async fn live_timed_lyrics_json_roundtrip_translates_with_real_keyring() {
+        let doc = lyrics::get_current_track_lyrics(LyricsRequest {
+            track_name: "I've Got a Tiger By the Tail".into(),
+            artist_name: "Buck Owens".into(),
+            album_name: None,
+            duration_seconds: 133.,
+        })
+        .await;
+        assert_eq!(doc.status, "synced");
+        let lines = doc.lines.as_ref().unwrap();
+        let received: Vec<lyrics::LyricsLine> =
+            serde_json::from_str(&serde_json::to_string(lines).unwrap()).unwrap();
+        let hash = doc.source_hash.as_ref().unwrap();
+        assert!(lyrics::displayed_document_matches(&doc, hash, &received));
+        let root = tempfile::tempdir().unwrap();
+        let store = std::sync::Arc::new(Store::open(&root.path().join("test.sqlite")).unwrap());
+        store.set_json_preference("connections",&serde_json::json!({"slskd":{"enabled":false,"baseUrl":"http://localhost:5030","downloadsPath":""},"discogsEnabled":false,"lastfmEnabled":false,"lyricsTranslation":{"provider":"auto","enabled":true,"baseUrl":"https://openrouter.ai/api/v1","model":"openai/gpt-6-luna","targetLanguage":"fr"}})).unwrap();
+        let manager = crate::connections::ConnectionManager::new(store);
+        let connection = manager.lyrics_translation().unwrap().unwrap();
+        assert!(
+            !connection.api_key.is_empty(),
+            "The configured OS credential must be available"
+        );
+        // Translate the canonical server document after validating its UI copy,
+        // exactly as the desktop command does. No timestamps are rewritten.
+        let result = crate::lyrics_translation::translate_current_document(
+            connection,
+            hash.clone(),
+            lines.clone(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(&result.source_hash, hash);
+        assert_eq!(result.target_language, "fr");
+        assert_eq!(result.lines.len(), lines.len());
+        for (source, translated) in lines.iter().zip(&result.lines) {
+            assert_eq!(source.id, translated.id);
+            assert_eq!(
+                source.text.trim().is_empty(),
+                translated.text.trim().is_empty()
+            );
+        }
+        eprintln!(
+            "Verified {} timed lyric lines translated to French; provider={}, no lyric text logged",
+            result.lines.len(),
+            result.provider
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "Explicit live timed lyric translation using the authorized OS keyring; metadata and lyric text only"]
+    async fn live_chunked_timed_lyrics_preserve_full_source_and_line_ids() {
+        let doc = lyrics::get_current_track_lyrics(LyricsRequest {
+            track_name: "I've Got a Tiger By the Tail".into(),
+            artist_name: "Buck Owens".into(),
+            album_name: None,
+            duration_seconds: 133.,
+        })
+        .await;
+        assert_eq!(doc.status, "synced");
+        let lines = doc.lines.as_ref().unwrap();
+        let received: Vec<lyrics::LyricsLine> =
+            serde_json::from_str(&serde_json::to_string(lines).unwrap()).unwrap();
+        let hash = doc.source_hash.as_ref().unwrap();
+        assert!(lyrics::displayed_document_matches(&doc, hash, &received));
+        let root = tempfile::tempdir().unwrap();
+        let store = std::sync::Arc::new(Store::open(&root.path().join("test.sqlite")).unwrap());
+        store.set_json_preference("connections",&serde_json::json!({"slskd":{"enabled":false,"baseUrl":"http://localhost:5030","downloadsPath":""},"discogsEnabled":false,"lastfmEnabled":false,"lyricsTranslation":{"provider":"auto","enabled":true,"baseUrl":"https://openrouter.ai/api/v1","model":"openai/gpt-6-luna","targetLanguage":"fr"}})).unwrap();
+        let manager = crate::connections::ConnectionManager::new(store);
+        let connection = manager.lyrics_translation().unwrap().unwrap();
+        assert!(
+            !connection.api_key.is_empty(),
+            "The configured OS credential must be available"
+        );
+        // Translate the canonical server document after validating its UI copy,
+        // exactly as the desktop command does. No timestamps are rewritten.
+        let started = std::time::Instant::now();
+        let (first, second) = tokio::join!(
+            async {
+                let result = crate::lyrics_translation::translate_current_chunk(
+                    connection.clone(),
+                    hash.clone(),
+                    lines.clone(),
+                    0,
+                    4,
+                )
+                .await
+                .unwrap();
+                (result, started.elapsed().as_millis())
+            },
+            crate::lyrics_translation::translate_current_chunk(
+                connection.clone(),
+                hash.clone(),
+                lines.clone(),
+                4,
+                lines.len().min(16)
+            )
+        );
+        let (first, first_ms) = first;
+        let second = second.unwrap();
+        assert_eq!(&first.source_hash, hash);
+        assert_eq!(first.lines.len(), 4);
+        assert_eq!(&second.source_hash, hash);
+        let mut translated = first.lines;
+        translated.extend(second.lines);
+        for begin in (16..lines.len()).step_by(12) {
+            translated.extend(
+                crate::lyrics_translation::translate_current_chunk(
+                    connection.clone(),
+                    hash.clone(),
+                    lines.clone(),
+                    begin,
+                    (begin + 12).min(lines.len()),
+                )
+                .await
+                .unwrap()
+                .lines,
+            );
+        }
+        let result = crate::lyrics_translation::LyricsTranslationResponse {
+            source_hash: hash.clone(),
+            target_language: "fr".into(),
+            lines: translated,
+            provider: "chunk qualification".into(),
+            model: None,
+            fallback_used: false,
+        };
+        eprintln!(
+            "First four translated lines ready in {first_ms} ms; complete document in {} ms",
+            started.elapsed().as_millis()
+        );
+        assert_eq!(&result.source_hash, hash);
+        assert_eq!(result.target_language, "fr");
+        assert_eq!(result.lines.len(), lines.len());
+        for (source, translated) in lines.iter().zip(&result.lines) {
+            assert_eq!(source.id, translated.id);
+            assert_eq!(
+                source.text.trim().is_empty(),
+                translated.text.trim().is_empty()
+            );
+        }
+        eprintln!(
+            "Verified {} timed lyric lines translated to French; provider={}, no lyric text logged",
+            result.lines.len(),
+            result.provider
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "Explicit reported lyric text translation using the authorized OS keyring; no audio upload"]
+    async fn live_reported_self_immolate_uses_real_keyring_and_translates_to_french() {
+        let raw: Value = serde_json::from_slice(
+            &std::fs::read(
+                std::env::var("BURRATA_REPORTED_LYRIC_FIXTURE")
+                    .expect("Explicit private lyric fixture required"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let store = std::sync::Arc::new(Store::open(&root.path().join("test.sqlite")).unwrap());
+        for choice in raw["choices"].as_array().unwrap() {
+            store
+                .set_json_preference(choice["key"].as_str().unwrap(), &choice["value"])
+                .unwrap();
+        }
+        let doc = remembered(&store, &raw["snapshot"], None)
+            .expect("Actual manually selected document must restore in the same scope")
+            .document;
+        store.set_json_preference("connections",&serde_json::json!({"slskd":{"enabled":false,"baseUrl":"http://localhost:5030","downloadsPath":""},"discogsEnabled":false,"lastfmEnabled":false,"lyricsTranslation":{"provider":"auto","enabled":true,"baseUrl":"https://openrouter.ai/api/v1","model":"openai/gpt-6-luna","targetLanguage":"fr"}})).unwrap();
+        let manager = crate::connections::ConnectionManager::new(store);
+        let connection = manager.lyrics_translation().unwrap().unwrap();
+        assert!(
+            !connection.api_key.is_empty(),
+            "App OS credential must be configured"
+        );
+        let hash = doc.source_hash.unwrap();
+        let lines = doc.lines.unwrap();
+        let count = lines.len();
+        let result = crate::lyrics_translation::translate_current_document(
+            connection,
+            hash.clone(),
+            lines.clone(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.source_hash, hash);
+        assert_eq!(result.target_language, "fr");
+        assert_eq!(result.lines.len(), count);
+        for (a, b) in lines.iter().zip(&result.lines) {
+            assert_eq!(a.id, b.id);
+            assert_eq!(a.text.is_empty(), b.text.is_empty());
+        }
+        assert!(lines
+            .iter()
+            .zip(&result.lines)
+            .any(|(a, b)| a.text != b.text));
+        eprintln!("Reported Self-Immolate: {count} lines translated to French; IDs and blank paragraphs preserved; provider {}",result.provider);
     }
 }

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-backup-schedule"
+description = "Enables the set_backup_schedule command without any pre-configured scope."
+commands.allow = ["set_backup_schedule"]
+
+[[permission]]
+identifier = "deny-set-backup-schedule"
+description = "Denies the set_backup_schedule command without any pre-configured scope."
+commands.deny = ["set_backup_schedule"]

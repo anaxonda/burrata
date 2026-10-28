@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-cached-stream-media-analysis"
+description = "Enables the get_cached_stream_media_analysis command without any pre-configured scope."
+commands.allow = ["get_cached_stream_media_analysis"]
+
+[[permission]]
+identifier = "deny-get-cached-stream-media-analysis"
+description = "Denies the get_cached_stream_media_analysis command without any pre-configured scope."
+commands.deny = ["get_cached_stream_media_analysis"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-render-history-playlist-export"
+description = "Enables the render_history_playlist_export command without any pre-configured scope."
+commands.allow = ["render_history_playlist_export"]
+
+[[permission]]
+identifier = "deny-render-history-playlist-export"
+description = "Denies the render_history_playlist_export command without any pre-configured scope."
+commands.deny = ["render_history_playlist_export"]

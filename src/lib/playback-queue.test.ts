@@ -33,6 +33,30 @@ describe("PlaybackQueue", () => {
     expect(q.entries.filter((entry)=>entry.track===same).map((entry)=>entry.entryId)).toEqual([second,...next.map((entry)=>entry.entryId),first,...appended.map((entry)=>entry.entryId)]);
   });
 
+  it("keeps album normalization bound to exact duplicate queue occurrences and survives restore",()=>{
+    const sameRecordingA={...track("same"),assetId:"asset-a"} as Track;
+    const sameRecordingB={...track("same"),assetId:"asset-b"} as Track;
+    const resource={
+      scope:"album" as const,
+      members:["asset-a","asset-b"].map(assetId=>({assetId,fileHash:"a".repeat(64),range:{startSeconds:0,endSeconds:null}})),
+      interTrackGapsSeconds:[0],resourceKey:"b".repeat(64),
+    };
+    const q=new PlaybackQueue();q.setTracks([sameRecordingA,sameRecordingB,track("other")]);
+    const [first,second,other]=q.entryIds;
+    expect(()=>q.setLoudnessContext([first!,second!],{...resource,interTrackGapsSeconds:[0.5]})).toThrow();
+    q.setLoudnessContext([first!,second!],resource);
+    q.reorder(1,0);
+    expect(q.loudnessContextFor(first)).toBe(resource);
+    expect(q.loudnessContextFor(second)).toBe(resource);
+    expect(q.loudnessContextFor(other)).toBeNull();
+    const restored=new PlaybackQueue();restored.restore(q.snapshot());
+    expect(restored.loudnessContextFor(first)).toEqual(resource);
+    expect(restored.loudnessContextFor(second)).toEqual(resource);
+    restored.removeAt(restored.entryIds.indexOf(first!));
+    expect(restored.loudnessContextFor(first)).toBeNull();
+    expect(restored.loudnessContextFor(second)).toEqual(resource);
+  });
+
   it("sorts duplicate-reference occurrences by their own track values and keeps each ID stable",()=>{
     const current=track("current"),same=track("same");
     const zed={...track("zed"),title:"Zed"} as Track;

@@ -63,7 +63,7 @@ print('non-Linux discovery imports and skips safely')
         self.assertEqual(len(report['schedule']), 6)
 
     def test_isolated_seed_is_only_a_ninety_second_control_and_explicit_stable_video(self):
-        with tempfile.TemporaryDirectory(prefix='burrata-launch.', dir='/tmp') as directory:
+        with tempfile.TemporaryDirectory(prefix='burrata-launch.') as directory:
             profile = Path(directory)
             track = driver.select_track(driver.MANIFEST, 'matthew')
             manifest = driver.seed_attempt(profile, track)
@@ -292,10 +292,18 @@ print('non-Linux discovery imports and skips safely')
                             +"printf '%s\\n' 'https://private.example/?sig=secret'\nexit 1\n")
             profiles = []
             original_seed = driver.seed_attempt
+            original_mkdtemp = tempfile.mkdtemp
             def seeded(profile, track):
                 profiles.append(profile); return original_seed(profile, track)
+            # This test runs only a fake launcher. Keep its large WAV fixture
+            # under the test's configured temporary root rather than the real
+            # launcher's /tmp-only profile location.
+            def fixture_profile(*args, **kwargs):
+                kwargs['dir'] = base
+                return original_mkdtemp(*args, **kwargs)
             with patch.object(driver, 'active_gui_pids', return_value=[]), \
                     patch.object(driver, 'single_driver_lock', return_value=nullcontext()), \
+                    patch.object(driver.tempfile, 'mkdtemp', side_effect=fixture_profile), \
                     patch.object(driver.seed, 'LAUNCHER', fake), patch.object(driver, 'seed_attempt', side_effect=seeded):
                 result = driver.run(base/'result.json', binary, driver.select_track(driver.MANIFEST, 'matthew'), budget_seconds=10)
             self.assertEqual(result['status'], 'setup_failed')

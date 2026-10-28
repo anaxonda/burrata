@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-loudness-settings"
+description = "Enables the get_loudness_settings command without any pre-configured scope."
+commands.allow = ["get_loudness_settings"]
+
+[[permission]]
+identifier = "deny-get-loudness-settings"
+description = "Denies the get_loudness_settings command without any pre-configured scope."
+commands.deny = ["get_loudness_settings"]

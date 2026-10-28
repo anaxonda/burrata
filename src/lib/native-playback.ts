@@ -1,4 +1,5 @@
 import type { NativePlaybackSnapshot, Track, Candidate } from "./types";
+import type { LoudnessResourceIdentity } from "./loudness-normalization";
 import { classifyPlaybackFailure, type PlaybackFailure } from "./playback-failure";
 
 import type { TrackSortField, SortDirection } from "./track-sort";
@@ -15,10 +16,10 @@ export function playbackOperationTrace(): PlaybackOperationTrace {
 }
 export type NativeCommand = NativeCommandPayload & Partial<PlaybackOperationTrace>;
 type NativeCommandPayload =
-  | { action: "play"; tracks: Track[]; index: number; candidate?: Candidate; position?: number }
-  | { action: "queue"; tracks: Track[]; mode: "append" | "replace" | "next"; preserveCurrent?: boolean }
+  | { action: "play"; tracks: Track[]; index: number; candidate?: Candidate; position?: number; loudnessAlbumResource?: LoudnessResourceIdentity | null }
+  | { action: "queue"; tracks: Track[]; mode: "append" | "replace" | "next"; preserveCurrent?: boolean; loudnessAlbumResource?: LoudnessResourceIdentity | null }
   | { action: "next" | "previous" }
-  | { action: "select" | "remove"; index: number }
+  | { action: "select" | "remove"; index: number; loudnessAlbumResource?: LoudnessResourceIdentity | null }
   | { action: "sort_upcoming"; field: TrackSortField; direction: SortDirection }
   | { action: "remove_many"; indices: number[]; expectedQueueRevision?: number }
   | { action: "reorder"; from: number; to: number; expectedQueueRevision?: number }
@@ -27,7 +28,7 @@ type NativeCommandPayload =
   | { action: "volume"; volume: number }
   | { action: "shuffle"; enabled: boolean }
   | { action: "repeat"; mode: "off" | "all" | "one" }
-  | { action: "restore"; tracks: Track[]; index: number; position: number; volume: number; repeat: string; shuffle: boolean };
+  | { action: "restore"; tracks: Track[]; index: number; position: number; volume: number; repeat: string; shuffle: boolean; queueLoudnessContexts?: Record<string, LoudnessResourceIdentity> };
 
 export interface WebviewPlaybackHandoff {
   handoffId: string;

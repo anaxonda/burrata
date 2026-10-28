@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-consume-import-drop"
+description = "Enables the consume_import_drop command without any pre-configured scope."
+commands.allow = ["consume_import_drop"]
+
+[[permission]]
+identifier = "deny-consume-import-drop"
+description = "Denies the consume_import_drop command without any pre-configured scope."
+commands.deny = ["consume_import_drop"]

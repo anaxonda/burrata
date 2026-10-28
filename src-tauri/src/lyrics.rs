@@ -42,6 +42,8 @@ pub struct LyricsRequestInput {
     pub duration_seconds: f64,
     #[serde(default)]
     pub playback_range: Option<Value>,
+    #[serde(default)]
+    pub radio: bool,
 }
 
 impl From<LyricsRequestInput> for LyricsRequest {
@@ -325,7 +327,10 @@ pub async fn get_current_track_lyrics(request: LyricsRequest) -> LyricsResponse 
     url.query_pairs_mut()
         .append_pair("duration", &format!("{:.0}", request.duration_seconds));
 
-    let result = shazam_fallback(&request, lookup(&url, &request).await);
+    let primary = tokio::time::timeout(Duration::from_secs(14), lookup(&url, &request))
+        .await
+        .unwrap_or_else(|_| response("providerUnavailable"));
+    let result = shazam_fallback(&request, primary);
     if !matches!(
         result.status.as_str(),
         "providerUnavailable" | "invalidRequest" | "noCurrentTrack"
@@ -348,22 +353,155 @@ pub async fn get_current_track_lyrics(request: LyricsRequest) -> LyricsResponse 
     result
 }
 
+/// Radio identity is the identified song, never the station name or elapsed
+/// stream position. Zero runtime is deliberately confined to this plain-text path.
+pub(crate) fn radio_request(
+    snapshot: &Value,
+    visible: Option<&LyricsRequestInput>,
+) -> Option<LyricsRequest> {
+    let native = snapshot["engine"] == "native"
+        && matches!(
+            snapshot["status"].as_str(),
+            Some("playing" | "paused" | "buffering" | "ended")
+        );
+    let request = if native {
+        if !matches!(
+            snapshot["track"]["provider"].as_str(),
+            Some("radio" | "radioparadise" | "internet-radio")
+        ) {
+            return None;
+        }
+        let identified = &snapshot["radioNowPlaying"];
+        LyricsRequest {
+            track_name: identified["title"].as_str()?.to_owned(),
+            artist_name: identified["artist"].as_str()?.to_owned(),
+            album_name: identified["metadata"]["album"]
+                .as_str()
+                .filter(|v| !v.trim().is_empty())
+                .map(str::to_owned),
+            duration_seconds: 0.,
+        }
+    } else {
+        let input = visible.filter(|input| input.radio && input.playback_range.is_none())?;
+        LyricsRequest {
+            track_name: input.track_name.clone(),
+            artist_name: input.artist_name.clone(),
+            album_name: input.album_name.clone(),
+            duration_seconds: 0.,
+        }
+    };
+    (valid_text(&request.track_name)
+        && valid_text(&request.artist_name)
+        && request.album_name.as_deref().is_none_or(valid_text))
+    .then_some(request)
+}
+
+async fn get_radio_track_lyrics(request: LyricsRequest) -> LyricsResponse {
+    let key = format!("radio\0{}", request_key(&request));
+    if let Some(value) = cache().lock().ok().and_then(|entries| {
+        entries
+            .get(&key)
+            .filter(|entry| entry.inserted.elapsed() < CACHE_TTL)
+            .map(|entry| entry.value.clone())
+    }) {
+        return value;
+    }
+    let lookup = async {
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .connect_timeout(Duration::from_secs(3))
+            .redirect(reqwest::redirect::Policy::none())
+            .user_agent(concat!("Burrata/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .map_err(|_| ())?;
+        Ok::<_, ()>(search_fallback(&client, &Url::parse(SEARCH_ENDPOINT).unwrap(), &request).await)
+    };
+    let result = shazam_fallback(
+        &request,
+        lookup
+            .await
+            .unwrap_or_else(|_| response("providerUnavailable")),
+    );
+    if matches!(result.status.as_str(), "unsynced") {
+        if let Ok(mut entries) = cache().lock() {
+            if entries.len() >= CACHE_LIMIT {
+                if let Some(old) = entries.keys().next().cloned() {
+                    entries.remove(&old);
+                }
+            }
+            entries.insert(
+                key,
+                Cached {
+                    inserted: Instant::now(),
+                    value: result.clone(),
+                },
+            );
+        }
+    }
+    result
+}
+
+fn radio_record_matches(request: &LyricsRequest, record: &ApiRecord) -> bool {
+    !record.instrumental
+        && normalized(&request.track_name) == normalized(&record.track_name)
+        && complete_artist_credit_matches(&request.artist_name, &record.artist_name)
+        && record.duration.is_finite()
+        && record.duration > 0.
+        && record.duration <= 3600.
+        && (record
+            .plain_lyrics
+            .as_ref()
+            .is_some_and(|text| !text.trim().is_empty())
+            || record
+                .synced_lyrics
+                .as_ref()
+                .is_some_and(|text| !text.trim().is_empty()))
+}
+
 /// Build a request only from the authoritative currently loaded playback item.
 /// Chapter playback is skipped because its local time axis may be an excerpt.
 pub(crate) fn request_from_snapshot(snapshot: &Value) -> Option<LyricsRequest> {
     if !matches!(
         snapshot.get("status")?.as_str()?,
-        "playing" | "paused" | "buffering"
+        "playing" | "paused" | "buffering" | "ended"
     ) {
         return None;
     }
     let track = snapshot.get("track")?.as_object()?;
+    if matches!(
+        track.get("provider").and_then(Value::as_str),
+        Some("radio" | "radioparadise" | "internet-radio")
+    ) {
+        return None;
+    }
     if track
         .get("playbackRange")
         .is_some_and(|range| !range.is_null())
+        || track
+            .get("provenance")
+            .and_then(|p| p.get("approximateExcerpt"))
+            .is_some_and(|v| !v.is_null())
     {
         return None;
     }
+    let valid_duration = |duration: f64| duration.is_finite() && (1.0..=3600.0).contains(&duration);
+    // Imported rows can lack runtime even after the decoder has established it.
+    // Use only the authoritative current item's duration, never another visible
+    // track, and never persist this playback observation as catalog metadata.
+    let duration = track
+        .get("durationSeconds")
+        .and_then(Value::as_f64)
+        .filter(|d| valid_duration(*d))
+        .or_else(|| {
+            let id = track.get("id")?.as_str()?;
+            if snapshot.get("trackId")?.as_str()? != id {
+                return None;
+            }
+            snapshot
+                .get("duration")?
+                .as_f64()
+                .filter(|d| valid_duration(*d))
+        })?;
     Some(LyricsRequest {
         track_name: track.get("title")?.as_str()?.to_owned(),
         artist_name: track.get("artist")?.as_str()?.to_owned(),
@@ -371,7 +509,7 @@ pub(crate) fn request_from_snapshot(snapshot: &Value) -> Option<LyricsRequest> {
             .get("album")
             .and_then(Value::as_str)
             .map(str::to_owned),
-        duration_seconds: track.get("durationSeconds")?.as_f64()?,
+        duration_seconds: duration,
     })
 }
 
@@ -379,6 +517,9 @@ pub async fn get_current_track_lyrics_from_snapshot(
     snapshot: &Value,
     visible_track: Option<LyricsRequestInput>,
 ) -> LyricsResponse {
+    if let Some(request) = radio_request(snapshot, visible_track.as_ref()) {
+        return get_radio_track_lyrics(request).await;
+    }
     match request_for_current_track(snapshot, visible_track) {
         Some(request) => get_current_track_lyrics(request).await,
         None => response("noCurrentTrack"),
@@ -392,10 +533,13 @@ pub async fn get_current_track_lyrics_with_catalog(
     store: &crate::Store,
     artists: &crate::artists::ArtistService,
 ) -> LyricsResponse {
+    if let Some(request) = radio_request(snapshot, visible.as_ref()) {
+        return get_radio_track_lyrics(request).await;
+    }
     let native = snapshot["engine"] == "native"
         && matches!(
             snapshot["status"].as_str(),
-            Some("playing" | "paused" | "buffering")
+            Some("playing" | "paused" | "buffering" | "ended")
         );
     let track_id = if native {
         snapshot["track"]["id"].as_str().map(str::to_owned)
@@ -604,10 +748,13 @@ pub(crate) fn request_for_current_track(
     snapshot: &Value,
     visible_track: Option<LyricsRequestInput>,
 ) -> Option<LyricsRequest> {
+    if let Some(request) = radio_request(snapshot, visible_track.as_ref()) {
+        return Some(request);
+    }
     let native_active = snapshot.get("engine").and_then(Value::as_str) == Some("native")
         && matches!(
             snapshot.get("status").and_then(Value::as_str),
-            Some("playing" | "paused" | "buffering")
+            Some("playing" | "paused" | "buffering" | "ended")
         );
     if native_active {
         request_from_snapshot(snapshot)
@@ -627,6 +774,19 @@ pub(crate) fn request_for_current_track(
 }
 
 async fn lookup(url: &Url, request: &LyricsRequest) -> LyricsResponse {
+    lookup_with_search(
+        url,
+        &Url::parse(SEARCH_ENDPOINT).expect("static LRCLIB search endpoint"),
+        request,
+    )
+    .await
+}
+
+async fn lookup_with_search(
+    url: &Url,
+    search_url: &Url,
+    request: &LyricsRequest,
+) -> LyricsResponse {
     let client = match reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(3))
         .timeout(Duration::from_secs(8))
@@ -648,11 +808,13 @@ async fn lookup(url: &Url, request: &LyricsRequest) -> LyricsResponse {
                 error.is_builder(),
                 error.status().map(|status| status.as_u16())
             );
-            return response("providerUnavailable");
+            return search_fallback(&client, search_url, request).await;
         }
     };
-    if http_response.status() == reqwest::StatusCode::NOT_FOUND {
-        return search_fallback(&client, request).await;
+    if http_response.status() == reqwest::StatusCode::NOT_FOUND
+        || http_response.status().is_server_error()
+    {
+        return search_fallback(&client, search_url, request).await;
     }
     if http_response.status() != reqwest::StatusCode::OK
         || http_response
@@ -683,66 +845,116 @@ async fn lookup(url: &Url, request: &LyricsRequest) -> LyricsResponse {
     };
     let classified = classify_record(request, record);
     if classified.status == "unmatched" {
-        search_fallback(&client, request).await
+        search_fallback(&client, search_url, request).await
     } else {
         classified
     }
 }
 
-async fn search_fallback(client: &reqwest::Client, request: &LyricsRequest) -> LyricsResponse {
-    tokio::time::sleep(Duration::from_millis(250)).await;
-    let mut url = match Url::parse(SEARCH_ENDPOINT) {
-        Ok(url) => url,
-        Err(_) => return response("providerUnavailable"),
-    };
-    // Search title-only so provider credit spelling/guest-credit formatting
-    // cannot hide the record. Results are locally filtered by exact title,
-    // matching performers and duration. Album is a ranking preference: the
-    // same recording may have lyrics filed under a single or compilation.
-    url.query_pairs_mut()
-        .append_pair("track_name", request.track_name.trim());
-    let mut http_response = match client.get(url).send().await {
-        Ok(response) => response,
-        Err(_) => return response("providerUnavailable"),
-    };
-    if !http_response.status().is_success()
-        || http_response
-            .content_length()
-            .is_some_and(|length| length > MAX_RESPONSE_BYTES as u64)
-    {
-        return response("providerUnavailable");
+async fn search_fallback(
+    client: &reqwest::Client,
+    endpoint: &Url,
+    request: &LyricsRequest,
+) -> LyricsResponse {
+    let mut reachable = false;
+    let mut has_results = false;
+    for qualified in [true, false] {
+        let mut url = endpoint.clone();
+        url.query_pairs_mut()
+            .append_pair("track_name", request.track_name.trim());
+        if qualified {
+            url.query_pairs_mut()
+                .append_pair("artist_name", request.artist_name.trim());
+        }
+        let Ok(mut reply) = client.get(url).send().await else {
+            continue;
+        };
+        // A rate limit is not permission to immediately issue a broader query.
+        if reply.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            return response("providerUnavailable");
+        }
+        if !reply.status().is_success() {
+            continue;
+        }
+        // Search can return many legitimate lyric documents. Keep a separate
+        // bounded array budget instead of rejecting it at the single-item cap.
+        let Some(bytes) = read_bounded_body_limit(&mut reply, 1024 * 1024).await else {
+            continue;
+        };
+        let Ok(rows) = serde_json::from_slice::<Vec<Value>>(&bytes) else {
+            continue;
+        };
+        reachable = true;
+        has_results |= !rows.is_empty();
+        let records = rows
+            .into_iter()
+            .take(200)
+            .filter_map(|row| serde_json::from_value::<ApiRecord>(row).ok())
+            .collect::<Vec<_>>();
+        if request.duration_seconds == 0. {
+            let mut matches = records
+                .into_iter()
+                .filter(|record| radio_record_matches(request, record))
+                .collect::<Vec<_>>();
+            matches.sort_by_key(|record| {
+                !request
+                    .album_name
+                    .as_deref()
+                    .zip(record.album_name.as_deref())
+                    .is_some_and(|(a, b)| normalized(a) == normalized(b))
+            });
+            if let Some(record) = matches.into_iter().next() {
+                return untimed_record(request, record);
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            continue;
+        }
+        let mut candidates = records
+            .iter()
+            .filter(|record| record_matches(request, record))
+            .cloned()
+            .collect::<Vec<_>>();
+        candidates.sort_by(|a, b| record_score(request, a).total_cmp(&record_score(request, b)));
+        if let Some(record) = candidates.into_iter().next() {
+            return classify_record(request, record);
+        }
+        let mut plain = records
+            .into_iter()
+            .filter(|record| plain_text_record_matches(request, record))
+            .collect::<Vec<_>>();
+        plain.sort_by(|a, b| record_score(request, a).total_cmp(&record_score(request, b)));
+        if let Some(record) = plain.into_iter().next() {
+            return untimed_record(request, record);
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
     }
-    let bytes = match read_bounded_body(&mut http_response).await {
-        Some(bytes) => bytes,
-        None => return response("providerUnavailable"),
-    };
-    let records: Vec<ApiRecord> = match serde_json::from_slice(&bytes) {
-        Ok(records) => records,
-        Err(_) => return response("providerUnavailable"),
-    };
-    if records.is_empty() {
-        return response("notFound");
-    }
-    let mut candidates = records
-        .into_iter()
-        .filter(|record| record_matches(request, record))
-        .collect::<Vec<_>>();
-    candidates.sort_by(|left, right| {
-        let left_score = record_score(request, left);
-        let right_score = record_score(request, right);
-        left_score.total_cmp(&right_score)
-    });
-    match candidates.into_iter().next() {
-        Some(record) => classify_record(request, record),
-        None => response("unmatched"),
-    }
+    response(if has_results {
+        "unmatched"
+    } else if reachable {
+        "notFound"
+    } else {
+        "providerUnavailable"
+    })
 }
 
 async fn read_bounded_body(response: &mut reqwest::Response) -> Option<Vec<u8>> {
+    read_bounded_body_limit(response, MAX_RESPONSE_BYTES).await
+}
+
+async fn read_bounded_body_limit(
+    response: &mut reqwest::Response,
+    limit: usize,
+) -> Option<Vec<u8>> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > limit as u64)
+    {
+        return None;
+    }
     let mut bytes = Vec::new();
     loop {
         match response.chunk().await {
-            Ok(Some(chunk)) if bytes.len().saturating_add(chunk.len()) <= MAX_RESPONSE_BYTES => {
+            Ok(Some(chunk)) if bytes.len().saturating_add(chunk.len()) <= limit => {
                 bytes.extend_from_slice(&chunk)
             }
             Ok(Some(_)) | Err(_) => return None,
@@ -814,6 +1026,49 @@ pub(crate) fn record_matches(request: &LyricsRequest, record: &ApiRecord) -> boo
                     .as_deref()
                     .is_none_or(|returned| normalized(returned) == normalized(album))
             }))
+}
+
+/// Same song and full performer credit can supply text when a nearby version
+/// has a slightly different runtime. This never authorizes lyric timestamps.
+pub(crate) fn plain_text_record_matches(request: &LyricsRequest, record: &ApiRecord) -> bool {
+    request.duration_seconds >= 60.
+        && record.duration.is_finite()
+        && (record.duration - request.duration_seconds).abs() <= 8.
+        && (record.duration - request.duration_seconds).abs() / request.duration_seconds <= 0.06
+        && normalized(&record.track_name) == normalized(&request.track_name)
+        && complete_artist_credit_matches(&request.artist_name, &record.artist_name)
+        && !record.instrumental
+}
+
+/// Caller either verified a text-only same-performer match or obtained an
+/// explicit choice. Source timestamps never cross into another performance.
+pub(crate) fn untimed_record(request: &LyricsRequest, mut record: ApiRecord) -> LyricsResponse {
+    record.plain_lyrics = record
+        .plain_lyrics
+        .clone()
+        .filter(|text| !text.trim().is_empty())
+        .or_else(|| {
+            record.synced_lyrics.as_ref().map(|text| {
+                parse_lrc(text)
+                    .into_iter()
+                    .map(|line| line.text)
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+        });
+    record.synced_lyrics = None;
+    let chosen = LyricsRequest {
+        track_name: record.track_name.clone(),
+        artist_name: record.artist_name.clone(),
+        album_name: record.album_name.clone(),
+        duration_seconds: record.duration,
+    };
+    let mut result = classify_record(&chosen, record);
+    if let Some(matched) = result.matched.as_mut() {
+        matched.duration_delta_seconds =
+            (matched.duration_seconds - request.duration_seconds).abs();
+    }
+    result
 }
 
 fn record_score(request: &LyricsRequest, record: &ApiRecord) -> f64 {
@@ -1037,6 +1292,35 @@ pub(crate) fn source_hash_for_lines(lines: &[LyricsLine]) -> String {
     digest_hex(hash.finalize())
 }
 
+/// UI JSON transports can round a binary float by a few ulps. Accept only
+/// that timestamp noise, while binding the displayed text to the authoritative
+/// source hash, stable line identities, exact text, and exact ordering.
+pub(crate) fn displayed_document_matches(
+    current: &LyricsResponse,
+    source_hash: &str,
+    received: &[LyricsLine],
+) -> bool {
+    if current.source_hash.as_deref() != Some(source_hash)
+        || !matches!(current.status.as_str(), "synced" | "unsynced")
+    {
+        return false;
+    }
+    let Some(canonical) = current.lines.as_ref() else {
+        return false;
+    };
+    canonical.len() == received.len()
+        && validate_source_document(source_hash, canonical)
+        && canonical.iter().zip(received).all(|(a, b)| {
+            a.id == b.id
+                && a.text == b.text
+                && match (a.time_seconds, b.time_seconds) {
+                    (None, None) => true,
+                    (Some(a), Some(b)) => a.is_finite() && b.is_finite() && (a - b).abs() <= 1e-9,
+                    _ => false,
+                }
+        })
+}
+
 pub(crate) fn validate_source_document(source_hash: &str, lines: &[LyricsLine]) -> bool {
     if lines.is_empty() || lines.len() > MAX_LINES || source_hash.len() != 64 {
         return false;
@@ -1144,6 +1428,39 @@ mod tests {
 
     use super::*;
     #[test]
+    fn displayed_timed_lyrics_survive_json_rounding_without_accepting_a_changed_document() {
+        let record:ApiRecord=serde_json::from_value(serde_json::json!({"trackName":"Example Song","artistName":"Example Artist","albumName":"Example Album","duration":180,"instrumental":false,"syncedLyrics":"[01:30.21]Synthetic first line\n[01:31.29]Synthetic next line"})).unwrap();
+        let doc = classify_record(&request(), record);
+        let canonical = doc.lines.as_ref().unwrap();
+        let received: Vec<LyricsLine> =
+            serde_json::from_str(&serde_json::to_string(canonical).unwrap()).unwrap();
+        assert_ne!(
+            canonical, &received,
+            "fixture reproduces the real JSON float precision mismatch"
+        );
+        let hash = doc.source_hash.as_deref().unwrap();
+        assert!(displayed_document_matches(&doc, hash, &received));
+        let mut changed = received.clone();
+        changed[0].text.push('!');
+        assert!(!displayed_document_matches(&doc, hash, &changed));
+        let mut changed = received.clone();
+        changed[0].time_seconds = Some(changed[0].time_seconds.unwrap() + 0.01);
+        assert!(!displayed_document_matches(&doc, hash, &changed));
+        let mut changed = received.clone();
+        changed[0].id.push('x');
+        assert!(!displayed_document_matches(&doc, hash, &changed));
+        let mut changed = received.clone();
+        changed.reverse();
+        assert!(!displayed_document_matches(&doc, hash, &changed));
+        assert!(!displayed_document_matches(
+            &doc,
+            &"f".repeat(64),
+            &received
+        ));
+        assert!(validate_source_document(hash, canonical));
+    }
+
+    #[test]
     fn real_lrclib_response_can_include_both_name_and_track_name() {
         let record: ApiRecord = serde_json::from_value(serde_json::json!({
             "id":123, "name":"Provider display name", "trackName":"Example Song",
@@ -1154,6 +1471,85 @@ mod tests {
         assert_eq!(record.track_name, "Example Song");
         assert_eq!(classify_record(&request(), record).status, "synced");
     }
+    #[tokio::test]
+    async fn exact_endpoint_503_falls_back_to_qualified_search_and_ignores_a_bad_row() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            for index in 0..2 {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut bytes = [0u8; 4096];
+                let n = socket.read(&mut bytes).await.unwrap();
+                let incoming = String::from_utf8_lossy(&bytes[..n]);
+                let (status, body) = if index == 0 {
+                    assert!(incoming.starts_with("GET /get"));
+                    (
+                        "503 Service Unavailable",
+                        "temporary backend failure".to_string(),
+                    )
+                } else {
+                    assert!(incoming.contains("artist_name=Example+Artist"));
+                    ("200 OK",serde_json::json!([
+                    {"bad":"provider row without required fields"},
+                    {"trackName":"Example Song","artistName":"Wrong Artist","duration":180,"instrumental":false,"plainLyrics":"Wrong source"},
+                    {"trackName":"Example Song","artistName":"Example Artist","duration":180,"instrumental":false,"syncedLyrics":"[00:01.00] Synthetic matching line","plainLyrics":"Synthetic matching line"}
+                ]).to_string())
+                };
+                let reply=format!("HTTP/1.1 {status}\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{body}",body.len());
+                socket.write_all(reply.as_bytes()).await.unwrap();
+            }
+        });
+        let get = Url::parse(&format!("http://{address}/get")).unwrap();
+        let search = Url::parse(&format!("http://{address}/search")).unwrap();
+        let result = lookup_with_search(&get, &search, &request()).await;
+        assert_eq!(result.status, "synced");
+        assert_eq!(result.matched.unwrap().artist_name, "Example Artist");
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "Explicit live Buck Owens lyric lookup; sends metadata only"]
+    async fn live_buck_owens_automatically_returns_lyrics_with_safe_timing() {
+        let result = get_current_track_lyrics(LyricsRequest {
+            track_name: "Truck Drivin' Man".into(),
+            artist_name: "Buck Owens".into(),
+            album_name: None,
+            duration_seconds: 156.933,
+        })
+        .await;
+        assert!(
+            matches!(result.status.as_str(), "synced" | "unsynced"),
+            "{}",
+            result.status
+        );
+        let matched = result.matched.unwrap();
+        assert_eq!(matched.artist_name, "Buck Owens");
+        if matched.duration_delta_seconds > 2. {
+            assert_eq!(result.status, "unsynced");
+            assert!(result
+                .lines
+                .unwrap()
+                .iter()
+                .all(|line| line.time_seconds.is_none()));
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "Explicit live LRCLIB check for reported Paper Wings; never prints lyric text"]
+    async fn live_paper_wings_recovers_matching_timed_lyrics() {
+        let request = LyricsRequest {
+            track_name: "Paper Wings".into(),
+            artist_name: "Gillian Welch".into(),
+            album_name: None,
+            duration_seconds: 236.,
+        };
+        let result = get_current_track_lyrics(request).await;
+        assert_eq!(result.status, "synced");
+        assert_eq!(result.matched.unwrap().artist_name, "Gillian Welch");
+        assert!(result.lines.unwrap().len() > 5);
+    }
+
     #[tokio::test]
     #[ignore = "Explicit live LRCLIB availability check; does not print lyric text"]
     async fn live_reported_nunca_recording_returns_matching_synced_lyrics() {
@@ -1530,6 +1926,7 @@ mod tests {
             album_name: None,
             duration_seconds: 201.5,
             playback_range: None,
+            radio: false,
         }
     }
 
@@ -1546,6 +1943,86 @@ mod tests {
         });
         let request = request_for_current_track(&native, Some(visible_input())).unwrap();
         assert_eq!(request.track_name, "Native Song");
+    }
+
+    #[tokio::test]
+    #[ignore = "Explicit public metadata-only radio lyric lookup; no radio audio sent"]
+    async fn live_identified_radio_song_returns_plain_lyrics_without_duration() {
+        let snapshot = serde_json::json!({"engine":"native","status":"playing","duration":90000,"track":{"id":"radio:lyrics-live-fixture","provider":"radio","title":"Station","artist":"Station"},"radioNowPlaying":{"title":"Paper Wings","artist":"Gillian Welch","metadata":{}}});
+        let result = get_current_track_lyrics_from_snapshot(&snapshot, None).await;
+        assert_eq!(result.status, "unsynced");
+        assert!(result.lines.as_ref().unwrap().len() > 5);
+        assert!(result
+            .lines
+            .unwrap()
+            .iter()
+            .all(|line| line.time_seconds.is_none()));
+        assert_eq!(result.matched.unwrap().artist_name, "Gillian Welch");
+        let old = crate::lyrics_discovery::context(&snapshot, None).unwrap().0;
+        let mut next = snapshot.clone();
+        next["duration"] = serde_json::json!(100000);
+        assert_eq!(
+            crate::lyrics_discovery::context(&next, None).unwrap().0,
+            old
+        );
+        next["radioNowPlaying"]["title"] = serde_json::json!("The Way It Goes");
+        assert_ne!(
+            crate::lyrics_discovery::context(&next, None).unwrap().0,
+            old
+        );
+    }
+
+    #[test]
+    fn identified_radio_uses_song_metadata_and_never_stream_time_or_song_timestamps() {
+        let mut snapshot = serde_json::json!({"engine":"native","status":"playing","duration":99999,"track":{"id":"radio:station","provider":"radio","title":"Station name","artist":"Station","durationSeconds":null},"radioNowPlaying":{"title":"Synthetic radio song","artist":"Synthetic performer","metadata":{"album":"Synthetic album"}}});
+        let request = radio_request(&snapshot, None).unwrap();
+        assert_eq!(request.duration_seconds, 0.);
+        assert_eq!(request.track_name, "Synthetic radio song");
+        let record:ApiRecord=serde_json::from_value(serde_json::json!({"trackName":"Synthetic radio song","artistName":"Synthetic performer","duration":240,"instrumental":false,"syncedLyrics":"[00:01]Synthetic radio lyric"})).unwrap();
+        assert!(radio_record_matches(&request, &record));
+        let document = untimed_record(&request, record.clone());
+        assert_eq!(document.status, "unsynced");
+        assert!(document
+            .lines
+            .unwrap()
+            .iter()
+            .all(|line| line.time_seconds.is_none()));
+        let mut wrong = record;
+        wrong.artist_name = "Another performer".into();
+        assert!(!radio_record_matches(&request, &wrong));
+        snapshot["radioNowPlaying"] = Value::Null;
+        snapshot["duration"] = serde_json::json!(200);
+        assert!(radio_request(&snapshot, None).is_none());
+        assert!(request_for_current_track(&snapshot, None).is_none());
+        snapshot["track"]["provider"] = serde_json::json!("youtube");
+        snapshot["radioNowPlaying"] = serde_json::json!({"title":"Bogus","artist":"Bogus"});
+        assert!(radio_request(&snapshot, None).is_none());
+    }
+
+    #[test]
+    fn imported_full_track_lyrics_use_current_decoder_duration_without_editing_metadata() {
+        let mut snapshot = serde_json::json!({"engine":"native","status":"playing","trackId":"import:song","duration":241.92,"track":{"id":"import:song","title":"The Way It Goes","artist":"Gillian Welch","durationSeconds":null}});
+        let request = request_for_current_track(&snapshot, None).unwrap();
+        assert_eq!(request.duration_seconds, 241.92);
+        assert!(valid_request(&request));
+        assert!(snapshot["track"]["durationSeconds"].is_null());
+        snapshot["track"]["durationSeconds"] = serde_json::json!(242.);
+        assert_eq!(
+            request_for_current_track(&snapshot, None)
+                .unwrap()
+                .duration_seconds,
+            242.
+        );
+        snapshot["track"]["durationSeconds"] = Value::Null;
+        snapshot["trackId"] = serde_json::json!("different-item");
+        assert!(request_for_current_track(&snapshot, None).is_none());
+        snapshot["trackId"] = serde_json::json!("import:song");
+        snapshot["track"]["playbackRange"] = serde_json::json!({"startTime":10.,"endTime":30.});
+        assert!(request_for_current_track(&snapshot, None).is_none());
+        snapshot["track"]["playbackRange"] = Value::Null;
+        snapshot["track"]["provenance"] =
+            serde_json::json!({"approximateExcerpt":{"startSeconds":10,"endSeconds":30}});
+        assert!(request_for_current_track(&snapshot, None).is_none());
     }
 
     #[test]

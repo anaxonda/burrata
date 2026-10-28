@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-backup-playback-restore"
+description = "Enables the get_backup_playback_restore command without any pre-configured scope."
+commands.allow = ["get_backup_playback_restore"]
+
+[[permission]]
+identifier = "deny-get-backup-playback-restore"
+description = "Denies the get_backup_playback_restore command without any pre-configured scope."
+commands.deny = ["get_backup_playback_restore"]

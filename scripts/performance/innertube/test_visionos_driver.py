@@ -53,7 +53,8 @@ class VisionosDriverTests(unittest.TestCase):
             manifest.write_bytes(b'{"exact":"manifest bytes"}\n')
             with patch.object(hashlib, 'file_digest', create=True,
                               side_effect=AssertionError('file_digest requires Python 3.11')), \
-                    patch.object(driver, 'SOURCE_FILES', [source]):
+                    patch.object(driver, 'SOURCE_FILES', [source]), \
+                    patch.object(driver, 'ROOT', Path(scratch)):
                 self.assertEqual(driver.hashes(manifest), {
                     source.name: hashlib.sha256(payload).hexdigest(),
                     manifest.name: hashlib.sha256(manifest.read_bytes()).hexdigest(),

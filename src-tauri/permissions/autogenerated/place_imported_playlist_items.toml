@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-place-imported-playlist-items"
+description = "Enables the place_imported_playlist_items command without any pre-configured scope."
+commands.allow = ["place_imported_playlist_items"]
+
+[[permission]]
+identifier = "deny-place-imported-playlist-items"
+description = "Denies the place_imported_playlist_items command without any pre-configured scope."
+commands.deny = ["place_imported_playlist_items"]

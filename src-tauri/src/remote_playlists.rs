@@ -5254,6 +5254,8 @@ impl RemotePlaylistService {
             complete,
         };
         let browser_snapshot = BrowserSnapshot {
+            failed_sources: vec![],
+            album_urls: vec![],
             schema_version: 1,
             provider: provider.to_owned(),
             kind: "playlist".into(),
@@ -5273,6 +5275,7 @@ impl RemotePlaylistService {
                 .iter()
                 .enumerate()
                 .map(|(index, entry)| BrowserEntry {
+                    metadata: serde_json::json!({"availability":if entry.available {"available"} else {"unavailable"}}),
                     provider_id: entry.available.then(|| entry.track_id.clone()),
                     source_url: (!entry.url.is_empty()).then(|| entry.url.clone()),
                     artist: entry.artist.clone(),
@@ -9712,6 +9715,8 @@ mod tests {
             warning: None,
         };
         let browser_snapshot = BrowserSnapshot {
+            failed_sources: vec![],
+            album_urls: vec![],
             schema_version: 1,
             provider: "spotify".into(),
             kind: "playlist".into(),
@@ -9723,6 +9728,7 @@ mod tests {
             expected_total: Some(1),
             warnings: vec![],
             entries: vec![BrowserEntry {
+                metadata: serde_json::Value::Null,
                 provider_id: Some(track_id.into()),
                 source_url: Some(url.clone()),
                 artist: "Fixture artist".into(),

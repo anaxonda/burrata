@@ -38,6 +38,10 @@ const IDEMPOTENCY_KEY: &str = "automation.idempotency.v1";
 const MAX_PAGE: usize = 100;
 const AUTOMATION_REQUEST_BODY_LIMIT: usize =
     crate::discovery::MAX_DISCOVERY_CURSOR_LENGTH + 64 * 1024;
+const WEBVIEW_STEREO_DIAGNOSTIC_ENV: &str = "BURRATA_WEBVIEW_STEREO_DIAGNOSTIC";
+const WEBVIEW_STEREO_DIAGNOSTIC_MAX_SECONDS: u64 = 2;
+const PRIVATE_QUALIFICATION_PULSE_SERVER: &str =
+    "unix:/tmp/burrata-first-four-private-audio-v1/runtime/pulse/native";
 const DISCOVERY_SOURCE_IDS: &[&str] = &[
     "library",
     "musicbrainz",
@@ -1538,9 +1542,247 @@ fn sanitize_playback_layout(report: Value) -> Result<Value, ToolError> {
     }
     let artwork_diagnostics = sanitize_artwork_diagnostics(&report)?;
     let track_lists = sanitize_track_list_counts(&report)?;
-    Ok(
-        json!({"schemaVersion":1,"viewport":{"width":viewport_width,"height":viewport_height},"footerHeight":footer_height,"elements":elements,"findings":findings,"trackListsCounts":track_lists,"artworkDiagnostics":artwork_diagnostics}),
-    )
+    let waveform_diagnostics = report
+        .get("waveformDiagnostics")
+        .map(sanitize_waveform_diagnostics)
+        .transpose()?;
+    let mut sanitized = json!({"schemaVersion":1,"viewport":{"width":viewport_width,"height":viewport_height},"footerHeight":footer_height,"elements":elements,"findings":findings,"trackListsCounts":track_lists,"artworkDiagnostics":artwork_diagnostics});
+    if let Some(diagnostics) = waveform_diagnostics {
+        sanitized["waveformDiagnostics"] = diagnostics;
+    }
+    if let Some(diagnostics) = report
+        .get("liveBpmDiagnostics")
+        .filter(|value| !value.is_null())
+    {
+        sanitized["liveBpmDiagnostics"] = sanitize_live_bpm_diagnostics(diagnostics)?;
+    }
+    Ok(sanitized)
+}
+
+fn sanitize_live_bpm_diagnostics(raw: &Value) -> Result<Value, ToolError> {
+    let number = |key: &str, maximum: f64| -> Result<f64, ToolError> {
+        raw.get(key)
+            .and_then(Value::as_f64)
+            .filter(|value| value.is_finite() && *value >= 0.0 && *value <= maximum)
+            .ok_or_else(|| ToolError::bad("Invalid live BPM diagnostic number"))
+    };
+    let optional_number = |key: &str, maximum: f64| -> Result<Value, ToolError> {
+        if raw.get(key).is_none_or(Value::is_null) {
+            Ok(Value::Null)
+        } else {
+            Ok(json!(number(key, maximum)?))
+        }
+    };
+    let mut result = json!({
+        "tapAttached":raw.get("tapAttached").and_then(Value::as_bool).ok_or_else(|| ToolError::bad("Invalid live BPM tap status"))?,
+        "pcmSeconds":number("pcmSeconds",12.01)?,
+        "firstBatchElapsedMs":optional_number("firstBatchElapsedMs",86_400_000.0)?,
+        "lastResponseMs":optional_number("lastResponseMs",120_000.0)?
+    });
+    for key in [
+        "batchCount",
+        "attempts",
+        "nullResponses",
+        "ownerMismatchBefore",
+        "ownerChangedAfter",
+        "resetCount",
+    ] {
+        let value = raw
+            .get(key)
+            .and_then(Value::as_u64)
+            .filter(|value| *value <= 65_535)
+            .ok_or_else(|| ToolError::bad("Invalid live BPM diagnostic count"))?;
+        result[key] = json!(value);
+    }
+    for (key, allowed) in [
+        (
+            "lastOutcome",
+            &[
+                "success",
+                "no_estimate",
+                "owner_mismatch_before",
+                "owner_changed_after",
+                "disabled",
+                "native_active",
+                "error",
+            ][..],
+        ),
+        (
+            "lastResetReason",
+            &["owner_changed", "capture_gap", "invalid_batch", "disabled"][..],
+        ),
+    ] {
+        result[key] = match raw.get(key) {
+            None | Some(Value::Null) => Value::Null,
+            Some(Value::String(value)) if allowed.contains(&value.as_str()) => json!(value),
+            _ => return Err(ToolError::bad("Invalid live BPM diagnostic state")),
+        };
+    }
+    Ok(result)
+}
+
+#[cfg(test)]
+#[test]
+fn live_bpm_diagnostics_are_bounded_and_never_return_pcm_or_source_urls() {
+    let raw = json!({"tapAttached":true,"pcmSeconds":12.0,"batchCount":16,"firstBatchElapsedMs":1000,
+        "attempts":3,"nullResponses":2,"ownerMismatchBefore":0,"ownerChangedAfter":1,"lastOutcome":"no_estimate",
+        "lastResponseMs":25,"resetCount":1,"lastResetReason":"capture_gap","samples":[0.5],"sourceUrl":"https://private.invalid/token"});
+    let clean = sanitize_live_bpm_diagnostics(&raw).unwrap();
+    assert_eq!(clean["attempts"], 3);
+    assert!(clean.get("samples").is_none());
+    assert!(clean.get("sourceUrl").is_none());
+    let mut invalid = raw.clone();
+    invalid["pcmSeconds"] = json!(13.0);
+    assert!(sanitize_live_bpm_diagnostics(&invalid).is_err());
+    invalid = raw;
+    invalid["lastOutcome"] = json!("https://private.invalid/token");
+    assert!(sanitize_live_bpm_diagnostics(&invalid).is_err());
+}
+
+fn sanitize_waveform_diagnostics(raw: &Value) -> Result<Value, ToolError> {
+    let boolean = |key: &str| -> Result<bool, ToolError> {
+        raw.get(key)
+            .and_then(Value::as_bool)
+            .ok_or_else(|| ToolError::bad(format!("Invalid waveform diagnostic {key}")))
+    };
+    let bounded_count = |key: &str| -> Result<u64, ToolError> {
+        raw.get(key)
+            .and_then(Value::as_u64)
+            .filter(|value| *value <= 4096)
+            .ok_or_else(|| ToolError::bad(format!("Invalid waveform diagnostic {key}")))
+    };
+    let optional_fraction = |key: &str| -> Result<f64, ToolError> {
+        raw.get(key)
+            .and_then(Value::as_f64)
+            .filter(|value| value.is_finite() && (0.0..=1.0).contains(value))
+            .ok_or_else(|| ToolError::bad(format!("Invalid waveform diagnostic {key}")))
+    };
+    let nullable_string = |key: &str, allowed: &[&str]| -> Result<Value, ToolError> {
+        match raw.get(key) {
+            Some(Value::Null) => Ok(Value::Null),
+            Some(Value::String(value)) if allowed.contains(&value.as_str()) => Ok(json!(value)),
+            _ => Err(ToolError::bad(format!("Invalid waveform diagnostic {key}"))),
+        }
+    };
+    let nullable_unit_float = |key: &str| -> Result<Value, ToolError> {
+        match raw.get(key) {
+            Some(Value::Null) => Ok(Value::Null),
+            Some(Value::Number(value))
+                if value
+                    .as_f64()
+                    .is_some_and(|n| n.is_finite() && (0.0..=1.0).contains(&n)) =>
+            {
+                Ok(value.clone().into())
+            }
+            _ => Err(ToolError::bad(format!("Invalid waveform diagnostic {key}"))),
+        }
+    };
+    let bin_count = bounded_count("binCount")?;
+    let populated_bins = bounded_count("populatedBins")?;
+    if populated_bins > bin_count {
+        return Err(ToolError::bad("Invalid waveform diagnostic coverage"));
+    }
+    let coverage = optional_fraction("coverageFraction")?;
+    if (bin_count == 0 && coverage != 0.0)
+        || (bin_count > 0
+            && (coverage - populated_bins as f64 / bin_count as f64).abs() > 0.000_001)
+    {
+        return Err(ToolError::bad("Invalid waveform diagnostic coverage"));
+    }
+    let source = nullable_string(
+        "source",
+        &["observed-playback", "local-analysis", "stream-analysis"],
+    )?;
+    let route = nullable_string("route", &["same-origin-relay", "unsupported"])?;
+    let reason_code = nullable_string(
+        "reasonCode",
+        &[
+            "disabled",
+            "no-playback-source",
+            "unsupported-audio-route",
+            "no-waveform-snapshot",
+            "generation-mismatch",
+            "track-mismatch",
+            "duration-mismatch",
+            "resource-binding-mismatch",
+            "no-sampled-bins",
+            "waveform-ready",
+        ],
+    )?;
+    let analysis_state = nullable_string(
+        "fullStreamAnalysisState",
+        &[
+            "idle",
+            "starting",
+            "queued",
+            "running",
+            "cancelling",
+            "completed",
+            "failed",
+            "cancelled",
+        ],
+    )?;
+    let volume = nullable_unit_float("mediaVolume")?;
+    let graph_user_volume = nullable_unit_float("mediaGraphUserVolume")?;
+    let mut result = json!({
+        "enabled": boolean("enabled")?,
+        "backgroundAnalysisEnabled": boolean("backgroundAnalysisEnabled")?,
+        "fullStreamAnalysisEligible": boolean("fullStreamAnalysisEligible")?,
+        "fullStreamAnalysisState": analysis_state,
+        "reasonCode": reason_code,
+        "snapshotPresent": boolean("snapshotPresent")?,
+        "source": source,
+        "complete": boolean("complete")?,
+        "generationMatches": boolean("generationMatches")?,
+        "trackMatches": boolean("trackMatches")?,
+        "durationMatches": boolean("durationMatches")?,
+        "displayBindingMatches": boolean("displayBindingMatches")?,
+        "binCount": bin_count,
+        "populatedBins": populated_bins,
+        "coverageFraction": coverage,
+        "route": route,
+        "routeActive": boolean("routeActive")?,
+        "analyserAttached": boolean("analyserAttached")?,
+        "mediaGraphUserVolume": graph_user_volume,
+        "mediaVolume": volume,
+        "mediaMuted": match raw.get("mediaMuted") {
+            Some(Value::Bool(value)) => json!(value),
+            Some(Value::Null) => Value::Null,
+            _ => return Err(ToolError::bad("Invalid waveform diagnostic mediaMuted")),
+        },
+    });
+    if let Some(cache) = raw.get("observedCache") {
+        let mut sanitized = serde_json::Map::new();
+        for key in [
+            "resourceAvailable",
+            "bindingPrepared",
+            "persistable",
+            "trackMatches",
+            "generationMatches",
+        ] {
+            let value = cache
+                .get(key)
+                .and_then(Value::as_bool)
+                .ok_or_else(|| ToolError::bad(format!("Invalid observed waveform cache {key}")))?;
+            sanitized.insert(key.into(), json!(value));
+        }
+        let status = cache
+            .get("resourceStatus")
+            .and_then(Value::as_str)
+            .filter(|status| ["ready", "unavailable", "waiting"].contains(status))
+            .ok_or_else(|| ToolError::bad("Invalid observed waveform cache resourceStatus"))?;
+        sanitized.insert("resourceStatus".into(), json!(status));
+        for key in ["memoryEntries", "persistentEntries"] {
+            let value = cache
+                .get(key)
+                .and_then(Value::as_u64)
+                .filter(|count| *count <= 16)
+                .ok_or_else(|| ToolError::bad(format!("Invalid observed waveform cache {key}")))?;
+            sanitized.insert(key.into(), json!(value));
+        }
+        result["observedCache"] = Value::Object(sanitized);
+    }
+    Ok(result)
 }
 
 fn sanitize_webview_media_inspection(raw: Value) -> Result<Value, ToolError> {
@@ -1840,6 +2082,124 @@ fn sanitize_webview_media_inspection(raw: Value) -> Result<Value, ToolError> {
             }
             output["media"][key] = json!(safe);
         }
+    }
+    if let Some(value) = media.get("volume") {
+        match value {
+            Value::Number(number)
+                if number
+                    .as_f64()
+                    .is_some_and(|volume| volume.is_finite() && (0.0..=1.0).contains(&volume)) =>
+            {
+                output["media"]["volume"] = value.clone();
+            }
+            Value::Null => output["media"]["volume"] = Value::Null,
+            _ => return Err(ToolError::bad("Invalid media element volume")),
+        }
+    }
+    if let Some(value) = media.get("muted") {
+        if !value.is_boolean() && !value.is_null() {
+            return Err(ToolError::bad("Invalid media element muted state"));
+        }
+        output["media"]["muted"] = value.clone();
+    }
+    if let Some(value) = media.get("webAudioGainGraph") {
+        let graph = value
+            .as_object()
+            .ok_or_else(|| ToolError::bad("Invalid Web Audio gain graph inspection"))?;
+        let attached = graph
+            .get("attached")
+            .and_then(Value::as_bool)
+            .ok_or_else(|| ToolError::bad("Invalid Web Audio graph attachment state"))?;
+        let gain_linear = match graph.get("gainLinear") {
+            Some(Value::Number(number))
+                if number
+                    .as_f64()
+                    .is_some_and(|gain| gain.is_finite() && (0.0..=2.0).contains(&gain)) =>
+            {
+                json!(number.as_f64().unwrap())
+            }
+            Some(Value::Null) => Value::Null,
+            _ => return Err(ToolError::bad("Invalid Web Audio normalization gain")),
+        };
+        let user_volume_linear = match graph.get("userVolumeLinear") {
+            Some(Value::Number(number))
+                if number
+                    .as_f64()
+                    .is_some_and(|gain| gain.is_finite() && (0.0..=1.0).contains(&gain)) =>
+            {
+                json!(number.as_f64().unwrap())
+            }
+            Some(Value::Null) => Value::Null,
+            _ => return Err(ToolError::bad("Invalid Web Audio user volume")),
+        };
+        let context_state = match graph.get("contextState") {
+            Some(Value::String(state)) if state.len() <= 32 => json!(state),
+            Some(Value::Null) => Value::Null,
+            _ => return Err(ToolError::bad("Invalid Web Audio context state")),
+        };
+        let context_time = match graph.get("contextTimeSeconds") {
+            Some(Value::Number(number))
+                if number
+                    .as_f64()
+                    .is_some_and(|time| time.is_finite() && (0.0..=1.0e9).contains(&time)) =>
+            {
+                json!(number.as_f64().unwrap())
+            }
+            Some(Value::Null) => Value::Null,
+            _ => return Err(ToolError::bad("Invalid Web Audio context time")),
+        };
+        if !attached
+            && (!gain_linear.is_null()
+                || !user_volume_linear.is_null()
+                || !context_state.is_null()
+                || !context_time.is_null())
+        {
+            return Err(ToolError::bad(
+                "Unattached Web Audio graph contains live state",
+            ));
+        }
+        output["media"]["webAudioGainGraph"] = json!({
+            "attached": attached,
+            "gainLinear": gain_linear,
+            "userVolumeLinear": user_volume_linear,
+            "contextState": context_state,
+            "contextTimeSeconds": context_time,
+        });
+    }
+    if let Some(seek) = raw.get("seekCompletion").filter(|value| !value.is_null()) {
+        let mut safe = serde_json::Map::new();
+        for (key, maximum) in [
+            ("target", 1.0e9),
+            ("elapsedMs", 1.0e12),
+            ("playbackRate", 32.0),
+        ] {
+            let value = match seek.get(key) {
+                Some(Value::Number(value))
+                    if value
+                        .as_f64()
+                        .is_some_and(|n| n.is_finite() && n >= 0. && n <= maximum) =>
+                {
+                    json!(value.as_f64().unwrap())
+                }
+                Some(Value::Null) => Value::Null,
+                _ => return Err(ToolError::bad(format!("Invalid seek completion {key}"))),
+            };
+            safe.insert(key.into(), value);
+        }
+        for key in [
+            "mediaPaused",
+            "appPaused",
+            "ownerCurrent",
+            "hasError",
+            "withinWindow",
+        ] {
+            let value = seek
+                .get(key)
+                .and_then(Value::as_bool)
+                .ok_or_else(|| ToolError::bad(format!("Invalid seek completion {key}")))?;
+            safe.insert(key.into(), json!(value));
+        }
+        output["seekCompletion"] = Value::Object(safe);
     }
     if let Some(diagnostics) = diagnostics {
         output["diagnostics"] = diagnostics;
@@ -3434,6 +3794,71 @@ impl AutomationService {
         }
     }
 
+    pub(crate) fn complete_stereo_diagnostic_request(
+        &self,
+        id: &str,
+        raw: Value,
+    ) -> Result<(), String> {
+        if !id.starts_with("webview-stereo-diagnostic:") {
+            return Err("Invalid stereo diagnostic request identifier".into());
+        }
+        let track_id = raw
+            .get("trackId")
+            .and_then(Value::as_str)
+            .filter(|value| value.starts_with("local:") && value.len() <= 128)
+            .ok_or("Invalid stereo diagnostic track identity")?;
+        let session_id = raw
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty() && value.len() <= 128)
+            .ok_or("Invalid stereo diagnostic playback session")?;
+        let source_generation = raw
+            .get("sourceGeneration")
+            .and_then(Value::as_u64)
+            .ok_or("Invalid stereo diagnostic source generation")?;
+        let seek_serial = raw
+            .get("seekSerial")
+            .and_then(Value::as_u64)
+            .ok_or("Invalid stereo diagnostic seek serial")?;
+        let current_index = raw
+            .get("currentIndex")
+            .and_then(Value::as_i64)
+            .filter(|value| (0..500).contains(value))
+            .ok_or("Invalid stereo diagnostic queue index")?;
+        let queue_total = raw
+            .get("queueTotal")
+            .and_then(Value::as_u64)
+            .filter(|value| (1..=500).contains(value))
+            .ok_or("Invalid stereo diagnostic queue size")?;
+        let entry_id = raw
+            .get("entryId")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty() && value.len() <= 128)
+            .ok_or("Invalid stereo diagnostic queue entry")?;
+        let queue_track_id = raw
+            .get("queueTrackId")
+            .and_then(Value::as_str)
+            .filter(|value| *value == track_id)
+            .ok_or("Stereo diagnostic queue track did not match its active track")?;
+        let capture = sanitize_webview_stereo_diagnostic(
+            raw.get("capture")
+                .ok_or("Missing stereo diagnostic capture")?,
+        )?;
+        let sanitized = json!({
+            "trackId":track_id,"sessionId":session_id,"sourceGeneration":source_generation,
+            "seekSerial":seek_serial,"currentIndex":current_index,"queueTotal":queue_total,
+            "entryId":entry_id,"queueTrackId":queue_track_id,"capture":capture
+        });
+        let pending = self
+            .pending
+            .lock()
+            .map_err(|_| "Stereo diagnostic response registry is unavailable")?
+            .remove(id)
+            .ok_or("Stereo diagnostic request is no longer pending")?;
+        let _ = pending.send(Ok(sanitized));
+        Ok(())
+    }
+
     fn start_release_download(&self, arguments: &Value) -> Result<Value, ToolError> {
         let (id, request) = prepare_release_download_request(arguments)?;
         let mut operations = self
@@ -3637,6 +4062,171 @@ impl AutomationService {
         }
         Ok(raw)
     }
+
+    async fn capture_webview_stereo_diagnostic(&self) -> Result<Value, ToolError> {
+        if !webview_stereo_diagnostic_environment_enabled()
+            || !webview_stereo_diagnostic_fixture_profile(&self.data_dir)
+        {
+            return Err(ToolError::failed("The bounded stereo diagnostic is unavailable outside its explicitly enabled private synthetic fixture."));
+        }
+        if self
+            .playback
+            .get()
+            .is_some_and(|playback| playback.native_enabled())
+        {
+            return Err(ToolError::failed(
+                "The stereo diagnostic requires the fixture's WebView playback engine.",
+            ));
+        }
+        if !self.frontend_ready.load(Ordering::Acquire) {
+            return Err(ToolError {
+                code: "FRONTEND_NOT_READY",
+                message: "The player UI is not ready".into(),
+            });
+        }
+        let snapshot = self.playback_snapshot_page(0, 1);
+        let track_id = snapshot["trackId"]
+            .as_str()
+            .ok_or_else(|| ToolError::failed("No active fixture track is available"))?;
+        let track = self
+            .store
+            .get_track(track_id)
+            .map_err(ToolError::failed)?
+            .ok_or_else(|| ToolError::failed("The active fixture track is unavailable"))?;
+        if track.provider != "local"
+            || track.provenance["fixture"] != "burrata-local-qualification-v1"
+            || !webview_stereo_diagnostic_fixture_track(&self.data_dir, track_id)
+        {
+            return Err(ToolError::failed(
+                "The stereo diagnostic is limited to the marked synthetic local fixture.",
+            ));
+        }
+        if snapshot["paused"] != false
+            || snapshot["volume"].as_f64().map_or(true, |volume| {
+                !volume.is_finite() || volume <= 0.0 || volume > 1.0
+            })
+        {
+            return Err(ToolError::failed("Play the paused synthetic fixture at a nonzero player volume before capturing its output."));
+        }
+        let generation = snapshot["sourceGeneration"]
+            .as_u64()
+            .ok_or_else(|| ToolError::failed("The active WebView source has no generation"))?;
+        let session_id = snapshot["sessionId"]
+            .as_str()
+            .filter(|value| !value.is_empty() && value.len() <= 128)
+            .map(str::to_owned)
+            .ok_or_else(|| {
+                ToolError::failed("The active WebView playback session is unavailable")
+            })?;
+        let seek_serial = snapshot["seekSerial"].as_u64().unwrap_or(0);
+        let current_index = snapshot["currentIndex"].as_i64().unwrap_or(-1);
+        if current_index < 0 || current_index >= 500 {
+            return Err(ToolError::failed(
+                "The active synthetic queue occurrence is invalid.",
+            ));
+        }
+        let queue_total = snapshot["queueTotal"]
+            .as_u64()
+            .filter(|count| (1..=500).contains(count))
+            .ok_or_else(|| ToolError::failed("The active synthetic queue size is invalid"))?;
+        if current_index as u64 >= queue_total {
+            return Err(ToolError::failed(
+                "The active synthetic queue index is outside its queue.",
+            ));
+        }
+        let occurrence = self.playback_snapshot_page(current_index as usize, 1);
+        let queue_track_id = occurrence["queue"]
+            .as_array()
+            .and_then(|items| items.first())
+            .and_then(|item| item["id"].as_str())
+            .map(str::to_owned);
+        let entry_id = occurrence["queueEntryIds"]
+            .as_array()
+            .and_then(|items| items.first())
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        if queue_track_id.as_deref() != Some(track_id)
+            || entry_id
+                .as_deref()
+                .map_or(true, |value| value.is_empty() || value.len() > 128)
+        {
+            return Err(ToolError::failed(
+                "The active synthetic queue occurrence is not stable.",
+            ));
+        }
+
+        let id = format!("webview-stereo-diagnostic:{}", Uuid::new_v4());
+        let (tx, rx) = oneshot::channel();
+        self.pending
+            .lock()
+            .map_err(|_| ToolError::failed("Stereo diagnostic is unavailable"))?
+            .insert(id.clone(), tx);
+        let _pending_guard = PendingPlaybackGuard::new(self, id.clone());
+        let request = json!({
+            "requestId":id,"trackId":track_id,"sessionId":session_id,
+            "sourceGeneration":generation,"seekSerial":seek_serial,"currentIndex":current_index,
+            "queueTotal":queue_total,"entryId":entry_id,"queueTrackId":queue_track_id,
+            "durationSeconds":WEBVIEW_STEREO_DIAGNOSTIC_MAX_SECONDS
+        });
+        if let Err(error) = self
+            .app
+            .emit("automation-capture-webview-stereo-diagnostic", request)
+        {
+            self.remove_pending_playback(&id);
+            return Err(ToolError::failed(error.to_string()));
+        }
+        let raw = match tokio::time::timeout(Duration::from_secs(12), rx).await {
+            Ok(Ok(Ok(value))) => value,
+            Ok(Ok(Err(error))) => return Err(ToolError::failed(error)),
+            Ok(Err(_)) => {
+                return Err(ToolError::failed(
+                    "Stereo diagnostic response channel closed",
+                ))
+            }
+            Err(_) => {
+                self.remove_pending_playback(&id);
+                return Err(ToolError {
+                    code: "TIMEOUT",
+                    message: "The bounded stereo diagnostic timed out".into(),
+                });
+            }
+        };
+        let capture = raw
+            .get("capture")
+            .cloned()
+            .ok_or_else(|| ToolError::failed("Stereo diagnostic result was incomplete"))?;
+        if capture["status"] == "complete" {
+            let after = self.playback_snapshot_page(0, 1);
+            let after_entry = self.playback_snapshot_page(current_index as usize, 1)
+                ["queueEntryIds"]
+                .as_array()
+                .and_then(|items| items.first())
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            let after_queue_track_id = self.playback_snapshot_page(current_index as usize, 1)
+                ["queue"]
+                .as_array()
+                .and_then(|items| items.first())
+                .and_then(|item| item["id"].as_str())
+                .map(str::to_owned);
+            if !webview_media_identity_matches(
+                &snapshot,
+                &after,
+                &raw,
+                &json!(entry_id),
+                &json!(after_entry),
+            ) || raw["queueTrackId"] != json!(queue_track_id)
+                || after_queue_track_id != queue_track_id
+            {
+                return Err(ToolError {
+                    code: "STALE_MEDIA_SAMPLE",
+                    message: "Playback changed during the stereo diagnostic".into(),
+                });
+            }
+        }
+        Ok(json!({"queueIndex":current_index,"capture":capture}))
+    }
+
     pub(crate) fn complete_player_panel_request(&self, id: &str, panel: &str, status: &str) {
         let pending = self
             .player_panel_pending
@@ -4652,6 +5242,103 @@ impl AutomationService {
             });
         }
         let result = match name {
+            "list_browser_imports" => serde_json::to_value(
+                self.store
+                    .list_browser_imports()
+                    .map_err(ToolError::failed)?,
+            )
+            .map_err(|e| ToolError::failed(e.to_string()))?,
+            "request_browser_import" => {
+                let url = str_arg(&a, "url", 4096)?;
+                let state = self
+                    .app
+                    .try_state::<crate::AppState>()
+                    .ok_or_else(|| ToolError::failed("Browser companion unavailable"))?;
+                json!({"requestId":state.browser.request_import(&url).map_err(ToolError::failed)?,"status":"queued","browserStatus":state.browser.status()})
+            }
+            "preview_collection_import" => {
+                let url = str_arg(&a, "url", 4096)?;
+                let snapshot = if let Some(values) = a.get("albumUrls") {
+                    let urls: Vec<String> =
+                        serde_json::from_value(values.clone()).map_err(|_| {
+                            ToolError::bad(
+                                "albumUrls must be public album-page URLs captured from Discover",
+                            )
+                        })?;
+                    crate::collection_sources::import_bandcamp_album_collection(
+                        &url,
+                        "Bandcamp Discover",
+                        urls,
+                    )
+                    .await
+                    .map_err(ToolError::failed)?
+                } else {
+                    crate::read_collection_snapshot(&url, &self.connections)
+                        .await
+                        .map_err(ToolError::failed)?
+                };
+                crate::collection_imports::preview(&self.store, snapshot)
+                    .map_err(ToolError::failed)?
+            }
+            "preview_browser_snapshot" => {
+                let raw = a
+                    .get("snapshot")
+                    .ok_or_else(|| ToolError::bad("snapshot is required"))?;
+                if raw.to_string().len() > 1024 * 1024 {
+                    return Err(ToolError::bad("Snapshot exceeds 1 MB"));
+                }
+                let snapshot = serde_json::from_value(raw.clone())
+                    .map_err(|e| ToolError::bad(e.to_string()))?;
+                crate::collection_imports::preview(&self.store, snapshot)
+                    .map_err(ToolError::failed)?
+            }
+            "apply_collection_import" => {
+                let id = str_arg(&a, "previewId", 36)?;
+                let result = crate::collection_imports::apply(&self.store, &id)
+                    .map_err(ToolError::failed)?;
+                let _ = self.app.emit("browser-imported", &result);
+                serde_json::to_value(result).map_err(|e| ToolError::failed(e.to_string()))?
+            }
+            "retry_import_failures" => {
+                let id = str_arg(&a, "importId", 36)?;
+                crate::collection_imports::retry(&self.store, &id)
+                    .await
+                    .map_err(ToolError::failed)?
+            }
+            "enrich_import_track" => {
+                let id = str_arg(&a, "trackId", 256)?;
+                let result = crate::collection_imports::enrich(&self.store, &id)
+                    .await
+                    .map_err(ToolError::failed)?;
+                let _ = self
+                    .app
+                    .emit("automation-library-changed", json!({"trackId":id}));
+                result
+            }
+            "set_import_playback_mode" => {
+                let id = str_arg(&a, "trackId", 256)?;
+                let mode = str_arg(&a, "mode", 16)?;
+                if !matches!(mode.as_str(), "source" | "lookup") {
+                    return Err(ToolError::bad("mode must be source or lookup"));
+                }
+                let mut track = required_track(&self.store, &id)?;
+                if track.playback_range.is_some() || track.provider == "radio" {
+                    return Err(ToolError::bad(
+                        "Chapters and radio sources keep their exact source",
+                    ));
+                }
+                if !track.provenance.is_object() {
+                    track.provenance = json!({});
+                }
+                track.provenance["playbackMode"] = json!(mode);
+                if !track.provenance["manualFields"].is_object() {
+                    track.provenance["manualFields"] = json!({});
+                }
+                track.provenance["manualFields"]["playbackMode"] = json!(true);
+                self.store.cache_track(&track).map_err(ToolError::failed)?;
+                json!({"trackId":id,"mode":mode})
+            }
+
             "preview_verification_playlist_intent" => {
                 let request = parse_verification_intent_approval(&a, false)?;
                 self.app
@@ -6133,6 +6820,10 @@ impl AutomationService {
                 require_no_arguments(&a, name)?;
                 self.inspect_webview_media().await?
             }
+            "capture_webview_stereo_diagnostic" => {
+                require_no_arguments(&a, name)?;
+                self.capture_webview_stereo_diagnostic().await?
+            }
             "get_live_bpm" => {
                 require_no_arguments(&a, name)?;
                 match self.playback.get() {
@@ -6832,8 +7523,292 @@ fn playback_history_tool(name: &str) -> Option<PlaybackHistoryTool> {
     }
 }
 
+fn webview_stereo_diagnostic_environment_enabled() -> bool {
+    std::env::var(WEBVIEW_STEREO_DIAGNOSTIC_ENV).is_ok_and(|value| value == "1")
+        && std::env::var("PULSE_SERVER")
+            .is_ok_and(|value| value == PRIVATE_QUALIFICATION_PULSE_SERVER)
+        && std::env::var("PULSE_SINK").is_ok_and(|value| {
+            matches!(
+                value.as_str(),
+                "burrata_album_runtime19" | "burrata_private_qualification"
+            )
+        })
+}
+
+#[cfg(test)]
+#[test]
+fn stereo_diagnostic_sanitizer_bounds_pcm_and_drops_incomplete_samples() {
+    let complete = json!({
+        "status":"complete","sampleRate":8000,"channels":2,"frames":2,
+        "sourceGeneration":3,"firstFrame":4096,"firstContextTime":0.512,
+        "mediaTimeAtStart":4.0,"mediaTimeAtEnd":4.00025,"gainLinear":0.62,
+        "userVolumeLinear":0.36,"samplesFloat32LeBase64":"AAAAAAAAAAAAAAAAAAAAAA==",
+        "sourceUrl":"https://private.example/token"
+    });
+    let safe = sanitize_webview_stereo_diagnostic(&complete).unwrap();
+    assert_eq!(safe["sampleFormat"], "f32le-interleaved-lr");
+    assert!(safe.get("sourceUrl").is_none());
+    let mut oversized = complete.clone();
+    oversized["frames"] = json!(16_001);
+    assert!(sanitize_webview_stereo_diagnostic(&oversized).is_err());
+    let mut non_finite = complete.clone();
+    non_finite["samplesFloat32LeBase64"] = json!("AACAfwAAAAAAAAAAAAAAAA==");
+    assert!(sanitize_webview_stereo_diagnostic(&non_finite).is_err());
+    let incomplete = json!({"status":"unavailable","sampleRate":0,"channels":2,"frames":0,"sourceGeneration":3,"reason":"raw reason is not exposed"});
+    let incomplete_safe = sanitize_webview_stereo_diagnostic(&incomplete).unwrap();
+    assert_eq!(incomplete_safe["status"], "unavailable");
+    assert!(incomplete_safe.get("reason").is_none());
+    assert!(sanitize_webview_stereo_diagnostic(&json!({"status":"gap","sampleRate":0,"channels":2,"frames":1,"sourceGeneration":3,"samplesFloat32LeBase64":"AAAAAAAAAAA="})).is_err());
+}
+
+#[cfg(test)]
+#[test]
+fn stereo_diagnostic_tool_is_control_scoped_and_has_no_arguments() {
+    assert_eq!(
+        tool_scope("capture_webview_stereo_diagnostic"),
+        Some("control")
+    );
+    assert!(require_no_arguments(&json!({}), "capture_webview_stereo_diagnostic").is_ok());
+    assert!(require_no_arguments(
+        &json!({"durationSeconds":4}),
+        "capture_webview_stereo_diagnostic"
+    )
+    .is_err());
+    let tool = tool_definitions()
+        .into_iter()
+        .find(|tool| tool["name"] == "capture_webview_stereo_diagnostic");
+    if webview_stereo_diagnostic_environment_enabled() {
+        assert_eq!(tool.unwrap()["inputSchema"]["properties"], json!({}));
+    } else {
+        assert!(tool.is_none());
+    }
+}
+
+fn webview_stereo_diagnostic_fixture_profile(data_dir: &std::path::Path) -> bool {
+    let Some(profile) = data_dir.parent() else {
+        return false;
+    };
+    if !matches!(std::fs::read(profile.join(".burrata-qualification-profile")), Ok(marker) if marker == b"synthetic fixture only\n")
+    {
+        return false;
+    }
+    let Ok(inventory_bytes) = std::fs::read(profile.join("qualification-inventory.json")) else {
+        return false;
+    };
+    let Ok(inventory) = serde_json::from_slice::<Value>(&inventory_bytes) else {
+        return false;
+    };
+    inventory["syntheticOnly"] == true
+        && inventory["externalAudioUsed"] == false
+        && inventory["settings"]["credentialsIncluded"] == false
+        && inventory["audioFixtureGainsDb"] == json!([0.0, -12.0])
+        && inventory["tracks"].as_array().is_some_and(|tracks| {
+            tracks.len() == 2
+                && tracks.iter().all(|track| {
+                    track["title"]
+                        .as_str()
+                        .is_some_and(|title| title.starts_with("Synthetic "))
+                        && track["id"]
+                            .as_str()
+                            .is_some_and(|id| id.starts_with("local:") && id.len() <= 128)
+                        && track["sha256"].as_str().is_some_and(|hash| {
+                            hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+                        })
+                })
+        })
+}
+
+#[cfg(test)]
+#[test]
+fn stereo_diagnostic_fixture_gate_matches_the_qualification_inventory_schema() {
+    let root = std::env::temp_dir().join(format!("burrata-stereo-gate-{}", Uuid::new_v4()));
+    let profile = root.join("profile");
+    let data = profile.join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::write(
+        profile.join(".burrata-qualification-profile"),
+        b"synthetic fixture only\n",
+    )
+    .unwrap();
+    let inventory = json!({
+        "syntheticOnly":true,"externalAudioUsed":false,
+        "settings":{"credentialsIncluded":false},"audioFixtureGainsDb":[0.0,-12.0],
+        "tracks":[
+            {"id":"local:first","title":"Synthetic First","sha256":"a".repeat(64)},
+            {"id":"local:second","title":"Synthetic Second","sha256":"b".repeat(64)}
+        ]
+    });
+    std::fs::write(
+        profile.join("qualification-inventory.json"),
+        serde_json::to_vec(&inventory).unwrap(),
+    )
+    .unwrap();
+    assert!(webview_stereo_diagnostic_fixture_profile(&data));
+    assert!(webview_stereo_diagnostic_fixture_track(
+        &data,
+        "local:first"
+    ));
+    assert!(!webview_stereo_diagnostic_fixture_track(
+        &data,
+        "local:foreign"
+    ));
+    assert!(!webview_stereo_diagnostic_fixture_profile(
+        &root.join("unrelated/data")
+    ));
+
+    let mut credentials = inventory.clone();
+    credentials["settings"]["credentialsIncluded"] = json!(true);
+    std::fs::write(
+        profile.join("qualification-inventory.json"),
+        serde_json::to_vec(&credentials).unwrap(),
+    )
+    .unwrap();
+    assert!(!webview_stereo_diagnostic_fixture_profile(&data));
+    credentials["settings"]
+        .as_object_mut()
+        .unwrap()
+        .remove("credentialsIncluded");
+    std::fs::write(
+        profile.join("qualification-inventory.json"),
+        serde_json::to_vec(&credentials).unwrap(),
+    )
+    .unwrap();
+    assert!(!webview_stereo_diagnostic_fixture_profile(&data));
+    std::fs::write(
+        profile.join(".burrata-qualification-profile"),
+        b"wrong marker\n",
+    )
+    .unwrap();
+    std::fs::write(
+        profile.join("qualification-inventory.json"),
+        serde_json::to_vec(&inventory).unwrap(),
+    )
+    .unwrap();
+    assert!(!webview_stereo_diagnostic_fixture_profile(&data));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+fn webview_stereo_diagnostic_fixture_track(data_dir: &std::path::Path, track_id: &str) -> bool {
+    let Some(profile) = data_dir.parent() else {
+        return false;
+    };
+    let Ok(inventory_bytes) = std::fs::read(profile.join("qualification-inventory.json")) else {
+        return false;
+    };
+    let Ok(inventory) = serde_json::from_slice::<Value>(&inventory_bytes) else {
+        return false;
+    };
+    inventory["tracks"]
+        .as_array()
+        .is_some_and(|tracks| tracks.iter().any(|track| track["id"] == track_id))
+}
+
+fn diagnostic_finite_number(
+    value: &Value,
+    key: &str,
+    minimum: f64,
+    maximum: f64,
+) -> Result<f64, String> {
+    value
+        .get(key)
+        .and_then(Value::as_f64)
+        .filter(|number| number.is_finite() && *number >= minimum && *number <= maximum)
+        .ok_or_else(|| format!("Invalid stereo diagnostic {key}"))
+}
+
+fn sanitize_webview_stereo_diagnostic(raw: &Value) -> Result<Value, String> {
+    let status = raw
+        .get("status")
+        .and_then(Value::as_str)
+        .filter(|status| matches!(*status, "complete" | "gap" | "cancelled" | "unavailable"))
+        .ok_or("Invalid stereo diagnostic status")?;
+    let sample_rate = raw
+        .get("sampleRate")
+        .and_then(Value::as_u64)
+        .filter(|rate| (0..=192_000).contains(rate) && (*rate == 0 || *rate >= 8_000))
+        .ok_or("Invalid stereo diagnostic sample rate")?;
+    let channels = raw
+        .get("channels")
+        .and_then(Value::as_u64)
+        .filter(|channels| *channels == 2)
+        .ok_or("Invalid stereo diagnostic channel count")?;
+    let source_generation = raw
+        .get("sourceGeneration")
+        .and_then(Value::as_u64)
+        .ok_or("Invalid stereo diagnostic source generation")?;
+    let frames = raw
+        .get("frames")
+        .and_then(Value::as_u64)
+        .ok_or("Invalid stereo diagnostic frame count")?;
+    let max_frames = sample_rate.saturating_mul(WEBVIEW_STEREO_DIAGNOSTIC_MAX_SECONDS);
+    if status == "complete" {
+        if sample_rate == 0 {
+            return Err("Complete stereo capture has no sample rate".into());
+        }
+        let first_context_time =
+            diagnostic_finite_number(raw, "firstContextTime", 0.0, 1_000_000_000.0)?;
+        let media_time_start =
+            diagnostic_finite_number(raw, "mediaTimeAtStart", 0.0, 1_000_000_000.0)?;
+        let media_time_end =
+            diagnostic_finite_number(raw, "mediaTimeAtEnd", media_time_start, 1_000_000_000.0)?;
+        let gain_linear = diagnostic_finite_number(raw, "gainLinear", 0.0, 2.0)?;
+        let user_volume_linear = diagnostic_finite_number(raw, "userVolumeLinear", 0.0, 1.0)?;
+        let first_frame = raw
+            .get("firstFrame")
+            .and_then(Value::as_u64)
+            .ok_or("Invalid stereo diagnostic frame position")?;
+        if frames == 0 || frames > max_frames {
+            return Err("Stereo diagnostic frame count exceeded its bound".into());
+        }
+        let encoded = raw
+            .get("samplesFloat32LeBase64")
+            .and_then(Value::as_str)
+            .filter(|encoded| encoded.len() <= 4_200_000)
+            .ok_or("Missing or oversized stereo diagnostic samples")?;
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|_| "Invalid stereo diagnostic sample encoding")?;
+        let expected_bytes = usize::try_from(frames)
+            .map_err(|_| "Stereo sample count is too large")?
+            .checked_mul(2 * std::mem::size_of::<f32>())
+            .ok_or("Stereo sample byte count overflowed")?;
+        if bytes.len() != expected_bytes {
+            return Err("Stereo diagnostic sample length did not match its frame count".into());
+        }
+        for chunk in bytes.chunks_exact(4) {
+            let value = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+            if !value.is_finite() || !(-2.0..=2.0).contains(&value) {
+                return Err("Stereo diagnostic samples contain an invalid PCM value".into());
+            }
+        }
+        Ok(json!({
+            "status":status,"sampleRate":sample_rate,"channels":channels,"frames":frames,
+            "sourceGeneration":source_generation,"firstFrame":first_frame,"firstContextTime":first_context_time,
+            "mediaTimeAtStart":media_time_start,"mediaTimeAtEnd":media_time_end,
+            "gainLinear":gain_linear,"userVolumeLinear":user_volume_linear,
+            "sampleFormat":"f32le-interleaved-lr","samplesBase64":encoded
+        }))
+    } else {
+        if frames != 0 || raw.get("samplesFloat32LeBase64").is_some() {
+            return Err("Incomplete stereo diagnostic unexpectedly contains sample data".into());
+        }
+        Ok(
+            json!({"status":status,"sampleRate":sample_rate,"channels":channels,"frames":0,"sourceGeneration":source_generation}),
+        )
+    }
+}
+
 fn tool_scope(name: &str) -> Option<&'static str> {
     Some(match name {
+        "list_browser_imports" => "read",
+        "preview_collection_import"
+        | "preview_browser_snapshot"
+        | "request_browser_import"
+        | "retry_import_failures"
+        | "enrich_import_track"
+        | "set_import_playback_mode" => "control",
+        "apply_collection_import" => "manage",
         "search_library"
         | "list_tracks_page"
         | "get_track"
@@ -6901,6 +7876,7 @@ fn tool_scope(name: &str) -> Option<&'static str> {
         | "get_catalog_release_download_status"
         | "get_local_playlist_download_status" => "read",
         "play_tracks"
+        | "capture_webview_stereo_diagnostic"
         | "play_tracks_queued"
         | "get_playback_operation"
         | "cancel_playback_operation"
@@ -7885,6 +8861,14 @@ fn insert_automation_matching_level(status: &mut Value, settings: &Settings) {
 
 fn tool_definitions() -> Vec<Value> {
     [
+ ("list_browser_imports","List dated browser/direct import receipts, changes and failed album pages", "read"),
+ ("preview_collection_import","Read a supported public source and preview changes without importing. Bandcamp Discover requires up to 20 exact albumUrls captured from rendered cards. Use request_browser_import for browser-only pages.", "control"),
+ ("preview_browser_snapshot","Validate and preview a captured public metadata snapshot without importing", "control"),
+ ("apply_collection_import","Apply an unexpired reviewed import preview once; stale previews are rejected", "manage"),
+ ("request_browser_import","Queue a supported source for the connected browser companion; provider verification remains interactive", "control"),
+ ("retry_import_failures","Retry only failed Bandcamp album pages and return a new import preview", "control"),
+ ("enrich_import_track","Fill missing artwork and public album/artist metadata from a saved track's linked Bandcamp page; preserves edits", "control"),
+ ("set_import_playback_mode","Choose preferred-provider lookup or the exact linked source for a saved track", "control"),
  ("get_managed_provider_session_status","Get redacted provider session and credential-storage status", "read"),
  ("search_ui","Run a search in the visible app and return sanitized source counts", "control"),
  ("inspect_search_ui","Read bounded currently loaded playable rows from the visible search UI", "read"),
@@ -7903,7 +8887,7 @@ fn tool_definitions() -> Vec<Value> {
  ("return_youtube_login_to_music","After completing Google sign-in, return the owned YouTube window to Music; requires the Google sign-in origin and a valid YouTube authentication cookie", "control"),
  ("start_managed_provider_background","Enable the confirmed provider session without reopening login", "control"),
  ("stop_managed_provider_session","Stop provider jobs and close the owned login window", "control"),
- ("search_library","Search local library", "read"),("list_tracks_page","Read one filtered and sorted page from a saved library view", "read"),("get_track","Get a library track", "read"),("library_stats","Get library counts", "read"),("list_playlists","List playlists and browser snapshot versions", "read"),("get_playlist","Get playlist tracks and browser versions", "read"),("search_tracks","Search catalog providers", "read"),("search_artists","Search artists", "read"),("get_artist_discography","Get paginated artist discography", "read"),("get_release_tracks","Get ordered tracks for an artist release", "read"),("get_artist_tracks","Get paginated recordings for an artist", "read"),("get_artist_collaborations","Get paginated artist relationships", "read"),("get_artist_profile","Get public artist profile and saved top tracks", "read"),("get_app_status","Get application and playback status", "read"),("capture_main_ui","Capture only the main Burrata UI as a bounded PNG, without desktop capture or focus changes", "read"),("inspect_playback_layout","Inspect visible player UI geometry and report layout overlaps; read-only, returns no playback metadata", "read"),("inspect_webview_media","Read current WebView audio-element state; read-only and not a physical-audibility measurement", "read"),("get_live_bpm","Read the opt-in approximate tempo estimate from the latest native playback PCM window; returns null when disabled or unavailable and never edits track metadata", "read"),("resize_app_window","Resize the main application in logical pixels", "control"),("get_song_radio","Get bounded YouTube autoplay Mix recommendations for a track; does not alter playback", "read"),("search_playback_history","Search recent playback history", "read"),("list_playback_history","List recent playback history", "read"),("get_playback_history_entry","Get a playback history entry by session ID", "read"),
+ ("search_library","Search local library", "read"),("list_tracks_page","Read one filtered and sorted page from a saved library view", "read"),("get_track","Get a library track", "read"),("library_stats","Get library counts", "read"),("list_playlists","List playlists and browser snapshot versions", "read"),("get_playlist","Get playlist tracks and browser versions", "read"),("search_tracks","Search catalog providers", "read"),("search_artists","Search artists", "read"),("get_artist_discography","Get paginated artist discography", "read"),("get_release_tracks","Get ordered tracks for an artist release", "read"),("get_artist_tracks","Get paginated recordings for an artist", "read"),("get_artist_collaborations","Get paginated artist relationships", "read"),("get_artist_profile","Get public artist profile and saved top tracks", "read"),("get_app_status","Get application and playback status", "read"),("capture_main_ui","Capture only the main Burrata UI as a bounded PNG, without desktop capture or focus changes", "read"),("inspect_playback_layout","Inspect visible player UI geometry and report layout overlaps; read-only, returns no playback metadata", "read"),("inspect_webview_media","Read current WebView audio-element state; read-only and not a physical-audibility measurement", "read"),("capture_webview_stereo_diagnostic","Capture a bounded stereo tap from the explicitly marked synthetic WebView fixture on the private qualification audio endpoint", "control"),("get_live_bpm","Read the opt-in approximate tempo estimate from the latest native playback PCM window; returns null when disabled or unavailable and never edits track metadata", "read"),("resize_app_window","Resize the main application in logical pixels", "control"),("get_song_radio","Get bounded YouTube autoplay Mix recommendations for a track; does not alter playback", "read"),("search_playback_history","Search recent playback history", "read"),("list_playback_history","List recent playback history", "read"),("get_playback_history_entry","Get a playback history entry by session ID", "read"),
  ("discover_music","Search selected music sources with independent result pages", "read"),("poll_music_search","Poll a Soulseek discovery search", "read"),("inspect_source_chapters","Inspect source chapters and register stable chapter tracks", "read"),("get_autotag_status","Get paginated autotag review jobs", "read"),("retry_autotag","Retry an autotag job", "manage"),("repair_download_source_tags","Fill missing tags from the exact completed download source; local-only, no recognition or catalog lookup, identity remains unverified", "manage"),("review_autotag_candidate","Select a catalog candidate for autotag review", "manage"),("apply_autotag_review","Apply approved autotag fields", "manage"),("play_chapter","Play a registered chapter track", "control"),
  ("inspect_spotify_artist_page","Inspect fixed Spotify artist-list guard counts and enums without content or identifiers", "read"),
  ("inspect_spotify_profile_page","Inspect one bounded Spotify profile page or full-profile summary; returns ordered playlist-ID hashes and counts only", "read"),
@@ -7917,7 +8901,7 @@ fn tool_definitions() -> Vec<Value> {
  ("cancel_playing_track_identification","Cancel one native or WebView audio identification request by its captureId UUID", "control"),
  ("play_tracks_queued","Accept an exact playback queue without waiting for sound; caller UUID permits receipt recovery", "control"),("get_playback_operation","Get queued playback operation status by caller UUID", "control"),("cancel_playback_operation","Cancel only the named playback operation; supports pre-cancel", "control"),
  ("playback_state","Get player state", "control"),("play_tracks","Play specific track IDs", "control"),("pause_playback","Pause playback", "control"),("resume_playback","Resume playback", "control"),("queue_tracks","Queue specific track IDs", "control"),("seek_playback","Seek in seconds", "control"),("set_volume","Set volume from 0 to 1", "control"),("create_playlist","Create a playlist", "control"),("add_tracks_to_playlist","Append track IDs to a playlist", "control"),
- ("search_audio_sources","Search audio sources for a track or query", "read"),("inspect_audio_source","Inspect formats and chapters for an explicit source candidate", "read"),("assess_download_source","Assess an explicit source against a saved track using shared recording match policy; read-only", "read"),("browse_soulseek_directory","List exact audio files in a Soulseek peer directory; source-reported metadata", "read"),("get_playback_diagnostics_status","Read bounded playback diagnostic logging status", "read"),("get_playback_diagnostics_report","Read sanitized opt-in playback diagnostic events", "read"),("get_acquisition_preferences","Read only the live BPM toggle and download folder layout", "read"),("set_live_bpm_enabled","Set whether live BPM analysis is enabled", "manage"),("set_download_layout","Set the download folder layout", "manage"),("set_playback_diagnostics_enabled","Enable or disable opt-in playback diagnostic logging", "manage"),("clear_playback_diagnostics","Clear captured playback diagnostic events", "manage"),("start_slskd_search","Start a Soulseek search", "read"),("get_slskd_search","Poll a Soulseek search", "read"),("cancel_slskd_search","Cancel a Soulseek search", "read"),("download_candidate","Download one explicitly selected candidate", "manage"),("download_jobs","List download jobs", "read"),("retry_download","Retry a failed download", "manage"),("cancel_download","Cancel a download", "manage"),("analyze_library","Queue library analysis", "manage"),("analysis_status","Get analysis status", "read"),("export_mixxx_playlist","Export playlist for Mixxx", "manage")].into_iter().map(|(name,description,_scope)|{
+ ("search_audio_sources","Search audio sources for a track or query", "read"),("inspect_audio_source","Inspect formats and chapters for an explicit source candidate", "read"),("assess_download_source","Assess an explicit source against a saved track using shared recording match policy; read-only", "read"),("browse_soulseek_directory","List exact audio files in a Soulseek peer directory; source-reported metadata", "read"),("get_playback_diagnostics_status","Read bounded playback diagnostic logging status", "read"),("get_playback_diagnostics_report","Read sanitized opt-in playback diagnostic events", "read"),("get_acquisition_preferences","Read only the live BPM toggle and download folder layout", "read"),("set_live_bpm_enabled","Set whether live BPM analysis is enabled", "manage"),("set_download_layout","Set the download folder layout", "manage"),("set_playback_diagnostics_enabled","Enable or disable opt-in playback diagnostic logging", "manage"),("clear_playback_diagnostics","Clear captured playback diagnostic events", "manage"),("start_slskd_search","Start a Soulseek search", "read"),("get_slskd_search","Poll a Soulseek search", "read"),("cancel_slskd_search","Cancel a Soulseek search", "read"),("download_candidate","Download one explicitly selected candidate", "manage"),("download_jobs","List download jobs", "read"),("retry_download","Retry a failed download", "manage"),("cancel_download","Cancel a download", "manage"),("analyze_library","Queue library analysis", "manage"),("analysis_status","Get analysis status", "read"),("export_mixxx_playlist","Export playlist for Mixxx", "manage")].into_iter().filter(|(name,_,_)| *name != "capture_webview_stereo_diagnostic" || webview_stereo_diagnostic_environment_enabled()).map(|(name,description,_scope)|{
  let scope=tool_scope(name).unwrap_or("read");
  let (properties,required)=match name{
  "preview_verification_playlist_intent"=>(json!({"provider":{"type":"string","enum":["spotify","youtube"]}}),json!(["provider"])),
@@ -7927,6 +8911,14 @@ fn tool_definitions() -> Vec<Value> {
  "list_radio_playlist_targets"=>(json!({}),json!([])),
  "get_radio_playlist_option"=>(json!({"stationId":{"type":"string","minLength":1,"maxLength":120}}),json!(["stationId"])),
  "set_radio_playlist_option"=>(json!({"stationId":{"type":"string","minLength":1,"maxLength":120},"enabled":{"type":"boolean"},"collectionId":{"type":"string","maxLength":120,"description":"Optional local playlist ID; empty text explicitly creates a new station-named playlist when enabling. Omit to reuse the previous target, or create one on first enable."}}),json!(["stationId","enabled"])),
+ "list_browser_imports"=>(json!({}),json!([])),
+ "preview_collection_import"=>(json!({"url":{"type":"string","maxLength":4096},"albumUrls":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"string","maxLength":4096}}}),json!(["url"])),
+ "preview_browser_snapshot"=>(json!({"snapshot":{"type":"object"}}),json!(["snapshot"])),
+ "apply_collection_import"=>(json!({"previewId":{"type":"string","format":"uuid"}}),json!(["previewId"])),
+ "request_browser_import"=>(json!({"url":{"type":"string","maxLength":4096}}),json!(["url"])),
+ "retry_import_failures"=>(json!({"importId":{"type":"string","format":"uuid"}}),json!(["importId"])),
+ "enrich_import_track"=>(json!({"trackId":{"type":"string","maxLength":256}}),json!(["trackId"])),
+ "set_import_playback_mode"=>(json!({"trackId":{"type":"string","maxLength":256},"mode":{"type":"string","enum":["lookup","source"]}}),json!(["trackId","mode"])),
  "search_radio_stations"=>(json!({"query":{"type":"string","maxLength":120},"country":{"type":"string","maxLength":80},"tag":{"type":"string","maxLength":80},"limit":{"type":"integer","minimum":1,"maximum":50}}),json!([])),
  "get_station_details"|"play_radio_station"=>(json!({"stationId":{"type":"string","maxLength":120}}),json!(["stationId"])),
  "add_radio_station"=>(json!({"station":{"type":"object","description":"A structured Radio Browser station result returned by search_radio_stations"}}),json!(["station"])),
@@ -7977,7 +8969,7 @@ fn tool_definitions() -> Vec<Value> {
  "search_tracks"=>(json!({"query":{"type":"string"},"providers":{"type":"array","items":{"type":"string","enum":["library","musicbrainz","youtube","soundcloud","bandcamp","soulseek","monochrome"]}}}),json!(["query"])),
  "search_artists"=>(json!({"query":{"type":"string"},"page":{"type":"integer","minimum":1,"maximum":200}}),json!(["query"])),"get_artist_discography"|"get_artist_tracks"|"get_artist_collaborations"=>(json!({"artist":{"type":"object","properties":{"provider":{"type":"string","enum":["musicbrainz","discogs"]},"id":{"type":"string"}},"required":["provider","id"],"additionalProperties":false},"cursor":{"type":"string"}}),json!(["artist"])),"get_artist_profile"=>(json!({"artist":{"type":"object","properties":{"provider":{"type":"string","enum":["musicbrainz","discogs"]},"id":{"type":"string"}},"required":["provider","id"],"additionalProperties":false}}),json!(["artist"])),"get_release_tracks"=>(json!({"release":release_ref_schema(),"artist":artist_ref_schema()}),json!(["release","artist"])),
  "playback_state"=>(json!({"offset":{"type":"integer","minimum":0,"maximum":1000000},"limit":{"type":"integer","minimum":1,"maximum":200}}),json!([])),
- "inspect_webview_media"|"get_live_bpm"|"get_acquisition_preferences"=>(json!({}),json!([])),
+ "inspect_webview_media"|"capture_webview_stereo_diagnostic"|"get_live_bpm"|"get_acquisition_preferences"=>(json!({}),json!([])),
  "set_live_bpm_enabled"=>(json!({"enabled":{"type":"boolean"}}),json!(["enabled"])),
  "set_download_layout"=>(json!({"layout":{"type":"string","enum":["flat","artistAlbum","playlist"]}}),json!(["layout"])),
  "resize_app_window"=>(json!({"width":{"type":"integer","minimum":320,"maximum":7680},"height":{"type":"integer","minimum":240,"maximum":4320},"restoreMaximized":{"type":"boolean","description":"Whether to maximize the window after resizing; omitted preserves its prior maximized state."}}),json!(["width","height"])),
@@ -9606,9 +10598,30 @@ mod tests {
         let sample = sanitize_webview_media_inspection(json!({
             "engine":"webview","applicable":true,"trackId":"t","sessionId":"s","sourceGeneration":7,"seekSerial":2,
             "currentIndex":0,"queueTotal":1,"entryId":null,"queueTrackId":"t","previewKind":"audio","currentSrc":"https://private.invalid/?token=secret",
-                "media":{"present":true,"currentTime":10.25,"duration":131.0,"paused":false,"readyState":4,"networkState":2,"errorCode":null,"sourcePresent":true,"sourceStable":true}
+                "media":{"present":true,"currentTime":10.25,"duration":131.0,"paused":false,"readyState":4,"networkState":2,"volume":1.0,"muted":false,"webAudioGainGraph":{"attached":true,"gainLinear":0.441,"userVolumeLinear":0.36,"contextState":"running","contextTimeSeconds":12.5},"errorCode":null,"sourcePresent":true,"sourceStable":true}
         })).unwrap();
         assert_eq!(sample["media"]["currentTime"], 10.25);
+        assert_eq!(sample["media"]["volume"], 1.0);
+        assert_eq!(sample["media"]["muted"], false);
+        assert_eq!(sample["media"]["webAudioGainGraph"]["attached"], true);
+        assert_eq!(sample["media"]["webAudioGainGraph"]["gainLinear"], 0.441);
+        assert_eq!(
+            sample["media"]["webAudioGainGraph"]["userVolumeLinear"],
+            0.36
+        );
+        assert_eq!(
+            sample["media"]["webAudioGainGraph"]["contextState"],
+            "running"
+        );
+        let mut with_seek = sample.clone();
+        with_seek["seekCompletion"] = json!({"target":80.,"elapsedMs":900.,"playbackRate":1.,
+            "mediaPaused":false,"appPaused":false,"ownerCurrent":true,"hasError":false,"withinWindow":false,
+            "privateUrl":"https://private.invalid/?token=secret"});
+        let safe_seek = sanitize_webview_media_inspection(with_seek.clone()).unwrap();
+        assert_eq!(safe_seek["seekCompletion"]["elapsedMs"], 900.);
+        assert!(safe_seek["seekCompletion"].get("privateUrl").is_none());
+        with_seek["seekCompletion"]["playbackRate"] = json!(33.);
+        assert!(sanitize_webview_media_inspection(with_seek).is_err());
         let mut with_ranges = sample.clone();
         with_ranges["media"]["seeking"] = json!(true);
         with_ranges["media"]["buffered"] = json!([[0., 42.112]]);
@@ -9623,6 +10636,15 @@ mod tests {
         assert!(sample.get("currentSrc").is_none());
         assert!(!sample.to_string().contains("private.invalid"));
         assert!(!sample.to_string().contains("secret"));
+        let mut invalid_volume = sample.clone();
+        invalid_volume["media"]["volume"] = json!(1.01);
+        assert!(sanitize_webview_media_inspection(invalid_volume).is_err());
+        let mut invalid_graph = sample.clone();
+        invalid_graph["media"]["webAudioGainGraph"]["gainLinear"] = json!(3.0);
+        assert!(sanitize_webview_media_inspection(invalid_graph).is_err());
+        let mut invalid_user_volume = sample.clone();
+        invalid_user_volume["media"]["webAudioGainGraph"]["userVolumeLinear"] = json!(1.5);
+        assert!(sanitize_webview_media_inspection(invalid_user_volume).is_err());
         let before_metadata = sanitize_webview_media_inspection(json!({
             "engine":"webview","applicable":true,"trackId":"t","sessionId":"s","sourceGeneration":7,"seekSerial":2,
             "currentIndex":0,"queueTotal":1,"entryId":null,"queueTrackId":"t","previewKind":"audio",
@@ -9928,6 +10950,50 @@ mod tests {
         assert_eq!(tool["scope"], "read");
         assert_eq!(tool["inputSchema"]["required"], json!([]));
         assert_eq!(tool_scope("inspect_playback_layout"), Some("read"));
+    }
+    #[test]
+    fn waveform_layout_diagnostics_are_bounded_and_drop_unapproved_fields() {
+        let mut diagnostics = json!({
+            "enabled":true,"backgroundAnalysisEnabled":false,"fullStreamAnalysisEligible":true,
+            "fullStreamAnalysisState":"idle","reasonCode":"unsupported-audio-route",
+            "snapshotPresent":true,"source":"observed-playback","complete":false,
+            "generationMatches":true,"trackMatches":true,"durationMatches":true,
+            "displayBindingMatches":true,"binCount":1200,"populatedBins":0,"coverageFraction":0.0,
+            "route":"unsupported","routeActive":false,"analyserAttached":false,
+            "mediaVolume":1.0,"mediaMuted":false,"mediaGraphUserVolume":0.36,"sourceUrl":"https://private.invalid/token"
+        });
+        let sanitized = sanitize_waveform_diagnostics(&diagnostics).unwrap();
+        assert_eq!(sanitized["reasonCode"], "unsupported-audio-route");
+        assert_eq!(sanitized["mediaGraphUserVolume"], 0.36);
+        assert!(sanitized.get("sourceUrl").is_none());
+        diagnostics["observedCache"] = json!({
+            "resourceAvailable":true,"resourceStatus":"ready","bindingPrepared":true,
+            "persistable":true,"trackMatches":true,"generationMatches":true,
+            "memoryEntries":2,"persistentEntries":1,"sourceUrl":"https://private.invalid/token"
+        });
+        let sanitized = sanitize_waveform_diagnostics(&diagnostics).unwrap();
+        assert_eq!(sanitized["observedCache"]["persistentEntries"], 1);
+        assert!(sanitized["observedCache"].get("sourceUrl").is_none());
+        for (key, value) in [
+            ("persistentEntries", json!(17)),
+            ("memoryEntries", json!(-1)),
+            ("resourceStatus", json!("https://private.invalid")),
+            ("persistable", json!("true")),
+        ] {
+            let mut invalid = diagnostics.clone();
+            invalid["observedCache"][key] = value;
+            assert!(sanitize_waveform_diagnostics(&invalid).is_err());
+        }
+        diagnostics["mediaMuted"] = Value::Null;
+        assert!(sanitize_waveform_diagnostics(&diagnostics).unwrap()["mediaMuted"].is_null());
+        diagnostics["mediaMuted"] = json!("false");
+        assert!(sanitize_waveform_diagnostics(&diagnostics).is_err());
+        diagnostics["mediaMuted"] = json!(false);
+        diagnostics["coverageFraction"] = json!(0.75);
+        assert!(sanitize_waveform_diagnostics(&diagnostics).is_err());
+        diagnostics["coverageFraction"] = json!(0.0);
+        diagnostics["source"] = json!("https://private.invalid");
+        assert!(sanitize_waveform_diagnostics(&diagnostics).is_err());
     }
     #[test]
     fn expanded_player_layout_detects_footer_overlap_and_an_unreachable_close() {

@@ -7,6 +7,14 @@ use crate::recording_match::{
 };
 pub(super) const VERSION: &str = crate::recording_match::EVALUATOR_VERSION;
 
+#[derive(Debug, Clone)]
+pub(super) struct SharedGateDiagnostic {
+    pub(super) action: MatchAction,
+    pub(super) relationship: MatchRelationship,
+    pub(super) reasons: Vec<crate::recording_match::MatchReason>,
+    pub(super) dimensions: crate::recording_match::MatchDimensions,
+}
+
 pub(super) fn fingerprint(identity: &str, level: MatchLevel) -> String {
     format!(
         "{:x}",
@@ -151,6 +159,38 @@ pub(super) fn evaluate(
         level,
         MatchStage::Search,
     );
+    candidate_gate_result(&a)
+}
+
+pub(super) fn evaluate_with_diagnostics(
+    track: &Track,
+    aliases: &[Track],
+    isrc_aliases: &[Track],
+    known_isrc: Option<&str>,
+    candidate: &Candidate,
+    level: MatchLevel,
+    store: &Store,
+) -> (CandidateGateResult, SharedGateDiagnostic) {
+    let a = assessment(
+        store,
+        track,
+        aliases,
+        isrc_aliases,
+        known_isrc,
+        candidate,
+        level,
+        MatchStage::Search,
+    );
+    let diagnostic = SharedGateDiagnostic {
+        action: a.action,
+        relationship: a.relationship,
+        reasons: a.reasons.clone(),
+        dimensions: a.dimensions.clone(),
+    };
+    (candidate_gate_result(&a), diagnostic)
+}
+
+fn candidate_gate_result(a: &MatchAssessment) -> CandidateGateResult {
     let path = if !matches!(a.action, MatchAction::Inspect | MatchAction::Accept) {
         CandidateGatePath::Rejected
     } else {
@@ -166,7 +206,7 @@ pub(super) fn evaluate(
     };
     CandidateGateResult {
         path,
-        shared: SharedEvidenceRank::from_assessment(&a),
+        shared: SharedEvidenceRank::from_assessment(a),
     }
 }
 pub(super) fn priority(

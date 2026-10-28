@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-loudness-album-context"
+description = "Enables the set_loudness_album_context command without any pre-configured scope."
+commands.allow = ["set_loudness_album_context"]
+
+[[permission]]
+identifier = "deny-set-loudness-album-context"
+description = "Denies the set_loudness_album_context command without any pre-configured scope."
+commands.deny = ["set_loudness_album_context"]

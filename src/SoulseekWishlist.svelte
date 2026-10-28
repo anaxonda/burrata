@@ -3,13 +3,13 @@
   import { call, desktop } from "./lib/api";
   import { SoulseekWishlist, type WishlistEntry } from "./lib/soulseek-wishlist";
   import { searchWishlist } from "./lib/soulseek-wishlist-search";
-  let { visible=false, query="", onReview=(_query:string)=>{} }:{visible?:boolean;query?:string;onReview?:(query:string)=>void}=$props();
+  let { visible=false, query="", startupStorage, onReview=(_query:string)=>{} }:{visible?:boolean;query?:string;startupStorage?:Pick<Storage,"getItem"|"setItem">;onReview?:(query:string)=>void}=$props();
   let manager=$state.raw<SoulseekWishlist | null>(null);
   let entries=$state<WishlistEntry[]>([]), message=$state("");
   function act(action:()=>void) {try{action();message="";}catch{message="Could not save wishlist changes. Check available storage and try again.";}}
   onMount(()=>{
     if(!desktop())return;
-    try{manager=new SoulseekWishlist(localStorage,Date.now,()=>{entries=[...manager!.entries];});entries=[...manager.entries];}
+    try{manager=new SoulseekWishlist(startupStorage??localStorage,Date.now,()=>{entries=[...manager!.entries];});entries=[...manager.entries];}
     catch{message="Wishlist storage is unavailable.";return;}
     let stopped=false;
     const check=()=>{if(!stopped)void manager!.tick((value,signal)=>searchWishlist(call,value,signal)).catch(()=>{message="Could not save wishlist status. Searches are waiting for storage to become available.";});};

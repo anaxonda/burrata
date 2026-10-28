@@ -1,0 +1,63 @@
+{
+  "kind": "synthetic decoder capability fixtures",
+  "source_audio": "A generated 997 Hz sine wave, 48 kHz, stereo, 0.5 seconds; no music recording or user asset.",
+  "encoder_command": "ffmpeg -f lavfi -i sine=frequency=997:sample_rate=48000:duration=0.5 -ac 2 -c:a libopus -b:a 48k -application audio -f ogg",
+  "fixture_set": {
+    "opus-zero.ogg": {
+      "sha256": "7bcec9def1492f6791c0aec0b928b30e835cddaf372dc3f34b39070a204c5638",
+      "header_output_gain_q7_8": 0,
+      "comment": null,
+      "bytes": 2278
+    },
+    "opus-plus6.ogg": {
+      "sha256": "bc90a75fb4e706ab012bb2473ecb64b0bbc27889525326cd7ead2e0379e097db",
+      "header_output_gain_q7_8": 1536,
+      "comment": null,
+      "bytes": 2278
+    },
+    "opus-r128-comment.ogg": {
+      "sha256": "04e59134fde73c38f2284f693f1c1c89ecb1547a16d9c9a43ba834cb3f7e9439",
+      "header_output_gain_q7_8": 0,
+      "comment": "R128_TRACK_GAIN=1536",
+      "bytes": 2302
+    },
+    "opus-r128-single.ogg": {
+      "sha256": "c9c693f6e893916600a455ac58e2f574bacba819417a8844dec35f1450a45e25",
+      "comments": "one valid R128_TRACK_GAIN=1536",
+      "bytes": 2289,
+      "used_by": "read_local_tags actual Lofty parser duplicate/strict-value regression"
+    },
+    "opus-r128-duplicate-identical.ogg": {
+      "sha256": "c1649d16ff2f528bd8fe6ce7e0cbf5ec97a6d7dc021a57498fa6027e91d35b9d",
+      "comments": "two identical R128_TRACK_GAIN=1536 comments",
+      "bytes": 2313,
+      "used_by": "read_local_tags actual Lofty parser duplicate/strict-value regression"
+    },
+    "opus-r128-duplicate-conflicting.ogg": {
+      "sha256": "4103ede2244a78f50e55237926b9f05a8f1af18e79d25f817112f505d54f8f3c",
+      "comments": "R128_TRACK_GAIN=1536 plus R128_TRACK_GAIN=100",
+      "bytes": 2312,
+      "used_by": "read_local_tags actual Lofty parser duplicate/strict-value regression"
+    },
+    "opus-r128-invalid-whitespace.ogg": {
+      "sha256": "917b2c3a5f04898e21e1c43235ee6f832908dbd92e10d84a7329db6a1a50d4c0",
+      "comments": "R128_TRACK_GAIN= 1536",
+      "bytes": 2290,
+      "used_by": "read_local_tags actual Lofty parser duplicate/strict-value regression"
+    }
+  },
+  "fixture_mutations": "The +6 dB fixture changes only the signed OpusHead Q7.8 output-gain field and recomputes the first Ogg page CRC. The R128 fixture adds one OpusTags comment and recomputes that page CRC. The module validates all page CRCs, expected header/comment values, and equality of encoded audio pages before probing.",
+  "reference_decode": {
+    "ffmpeg_version_used_to_generate_reference": "n9.0.2",
+    "sample_format": "f32le, 48 kHz, 2 channels",
+    "steady_state_rms": {
+      "zero": 0.06163605294453309,
+      "plus6": 0.12298009059963344,
+      "r128_tag_only": 0.06163605294453309
+    },
+    "header_gain_ratio": 1.9953,
+    "r128_comment_ratio": 1.0,
+    "measurement": "RMS after excluding the first and last 10 percent of decoded frames. Runtime acceptance windows are 1.92..2.07 for the +6 dB header gain and 0.97..1.03 for the tag-only comparison."
+  },
+  "tag_reader_mutations": "Synthetic OpusTags packet fixtures use valid Ogg page framing and CRC; duplicate fixtures preserve the same generated Opus audio packet page."
+}

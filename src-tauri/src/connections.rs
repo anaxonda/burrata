@@ -391,7 +391,23 @@ impl ConnectionManager {
     }
 
     pub fn lyrics_translation(&self) -> Result<Option<LyricsTranslationConnection>, String> {
-        let settings = self.settings()?.lyrics_translation;
+        self.lyrics_translation_with_provider(None)
+    }
+
+    pub fn lyrics_translation_using_fallback(
+        &self,
+    ) -> Result<Option<LyricsTranslationConnection>, String> {
+        self.lyrics_translation_with_provider(Some(LyricsTranslationProvider::OpenaiCompatible))
+    }
+
+    fn lyrics_translation_with_provider(
+        &self,
+        provider: Option<LyricsTranslationProvider>,
+    ) -> Result<Option<LyricsTranslationConnection>, String> {
+        let mut settings = self.settings()?.lyrics_translation;
+        if let Some(provider) = provider {
+            settings.provider = provider;
+        }
         if !settings.enabled {
             return Ok(None);
         }
@@ -647,6 +663,47 @@ mod tests {
         assert!(free.validate().is_err());
         free.target_language = "pt-BR".into();
         assert!(free.validate().is_ok());
+    }
+
+    #[test]
+    fn explicit_translation_fallback_reads_saved_key_without_changing_free_provider() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&directory.path().join("fallback.sqlite")).unwrap());
+        let manager = ConnectionManager::with_keyring(store, Arc::new(MemoryKeyring::default()));
+        let mut settings = ConnectionSettings::default();
+        settings.lyrics_translation = LyricsTranslationSettings {
+            provider: LyricsTranslationProvider::GoogleFree,
+            enabled: true,
+            base_url: "https://api.example/v1".into(),
+            model: "configured-model".into(),
+            target_language: "en".into(),
+        };
+        manager
+            .update(ConnectionUpdate {
+                settings,
+                lyrics_translation_api_key: Some("saved-fallback-test-key".into()),
+                ..ConnectionUpdate::default()
+            })
+            .unwrap();
+        assert!(manager
+            .lyrics_translation()
+            .unwrap()
+            .unwrap()
+            .api_key
+            .is_empty());
+        let fallback = manager
+            .lyrics_translation_using_fallback()
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            fallback.provider,
+            LyricsTranslationProvider::OpenaiCompatible
+        );
+        assert_eq!(fallback.api_key, "saved-fallback-test-key");
+        assert_eq!(
+            manager.settings().unwrap().lyrics_translation.provider,
+            LyricsTranslationProvider::GoogleFree
+        );
     }
 
     #[test]

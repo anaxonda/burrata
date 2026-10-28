@@ -21,8 +21,21 @@ pub fn parse(text: &str, kind: &str) -> Result<Vec<Track>, String> {
 /// M3U entries can contain local paths and network URLs. Import only the
 /// human-readable EXTINF metadata; entry locations never become track fields.
 fn m3u_tracks(text: &str) -> Result<Vec<Track>, String> {
+    if crate::portable_playlist::is_portable_playlist(text) {
+        let parsed = crate::portable_playlist::parse(text).map_err(|error| error.to_string())?;
+        return Ok(parsed
+            .entries
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| {
+                let mut track = entry.track.to_track();
+                track.provenance["importFormat"] = serde_json::json!("burrata-m3u-v1");
+                track.provenance["playlistPosition"] = serde_json::json!(index + 1);
+                track
+            })
+            .collect());
+    }
     let mut tracks = Vec::new();
-    let mut ids = HashSet::new();
     let mut entry_number = 0usize;
     for (line_no, raw) in text.lines().enumerate() {
         let line = raw.trim().trim_start_matches('\u{feff}');
@@ -45,9 +58,7 @@ fn m3u_tracks(text: &str) -> Result<Vec<Track>, String> {
             .map_err(|e| format!("Line {}: {e}", line_no + 1))?;
         track.provenance["importFormat"] = serde_json::json!("m3u");
         track.provenance["playlistPosition"] = serde_json::json!(entry_number);
-        if ids.insert(track.id.clone()) {
-            tracks.push(track);
-        }
+        tracks.push(track);
         if tracks.len() > 10000 {
             return Err("Import is limited to 10,000 tracks".into());
         }
@@ -491,6 +502,18 @@ mod tests {
         assert_eq!(tracks.len(), 2);
         assert_eq!(tracks[1].provider, "import");
         assert!(tracks[1].source_url.is_empty());
+    }
+    #[test]
+    fn m3u_preserves_duplicate_occurrences_and_extinf_only_entries() {
+        let tracks = parse(
+            "#EXTM3U\n#EXTINF:180,Artist - Song\n#EXTINF:180,Artist - Song\n#EXTINF:-1,Guest — Unknown\n",
+            "m3u8",
+        )
+        .unwrap();
+        assert_eq!(tracks.len(), 3);
+        assert_eq!(tracks[0].id, tracks[1].id);
+        assert_eq!(tracks[2].artist, "Guest");
+        assert_eq!(tracks[2].title, "Unknown");
     }
     #[test]
     fn invalid_spotify_duration_fails_the_import() {

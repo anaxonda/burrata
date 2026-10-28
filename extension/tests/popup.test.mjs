@@ -7,7 +7,7 @@ const source=readFileSync(new URL('../popup.js',import.meta.url),'utf8');
 const markup=readFileSync(new URL('../popup.html',import.meta.url),'utf8');
 
 function popup(){
-  const ids=['status','enable','import','show-settings','show-import','import-view','settings-view','import-heading','settings-heading','youtube-pairing-code','youtube-consent','youtube-check-account','youtube-account','youtube-account-consent-label','youtube-account-consent','youtube-handoff','diagnostic'];
+  const ids=['preview-import','apply-import','status','enable','import','show-settings','show-import','import-view','settings-view','import-heading','settings-heading','youtube-pairing-code','youtube-consent','youtube-check-account','youtube-account','youtube-account-consent-label','youtube-account-consent','youtube-handoff','diagnostic'];
   const elements=Object.fromEntries(ids.map(id=>[id,{id,disabled:false,checked:false,hidden:false,value:'',textContent:'',onclick:null,oninput:null,onchange:null,focus(){this.focused=true;}}]));
   elements['settings-view'].hidden=true;
   const messages=[],permissionRequests=[];

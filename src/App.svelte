@@ -1,13 +1,25 @@
 <script lang="ts">
   import PlaybackDiagnosticsSettings from "./PlaybackDiagnosticsSettings.svelte";
   import LibraryCleanup from "./LibraryCleanup.svelte";
+  import BackupRestore, { type BackupInspection, type BackupMediaEstimate, type BackupMediaRootPreview, type BackupProgress, type BackupSchedule, type SettingsImportPreview, type SettingsImportSelection } from "./BackupRestore.svelte";
+  import RestoreWorkReview from "./RestoreWorkReview.svelte";
+  import ImportHub, { type ImportChoice } from "./ImportHub.svelte";
+  import ImportSources from "./ImportSources.svelte";
+  import {
+    applyBackupFrontendPreferences,
+    type BackupFrontendPreferenceAck,
+    type PendingBackupFrontendPreferences,
+  } from "./lib/backup-frontend-preferences";
+  import { respondToBackupCheckpoint, type BackupCheckpointRequest } from "./lib/backup-checkpoint";
+  import { startRestoreAndWaitForCompletion } from "./lib/restore-job";
   let showLibraryCleanup = $state(false);
   import { WebviewNextCandidatePrefetch } from "./lib/webview-next-candidate-prefetch";
   import {dispatchQueueUi,queueUiMoves,type QueueUiAction,type QueueUiResult} from './lib/queue-ui-automation';
   import { createWebviewMediaEventRecorder } from "./lib/webview-media-events";
   import { WebviewBufferingRecovery } from "./lib/webview-buffering-recovery";
   import { WebviewStallWatchdog, type WebviewStallOwner } from "./webview-stall-watchdog";
-  import { WebviewSeekCompletionWatchdog, type WebviewSeekCompletionOwner } from "./webview-seek-completion-watchdog";
+  import { WebviewSeekCompletionWatchdog, hasWebviewSeekLanded, type WebviewSeekCompletionOwner } from "./webview-seek-completion-watchdog";
+import { hasWebviewStartupResumeProgress, startupResumeBlocksHistory } from "./webview-startup-resume";
   import { sanitizeWebviewSourceFormatDiagnostics } from "./lib/webview-source-format-diagnostics";
   import { appendTrackFailure, classifyPlaybackFailure, FIXED_RESOLVER_FAILURES, shouldSkipFailedTrack, trackFailureCategory } from "./lib/playback-failure";
   import { allTrackSortFieldsAvailable, trackSortAvailability, trackSortOptionLabel, type TrackSortAvailability } from "./lib/track-sort-availability";
@@ -24,9 +36,18 @@
   import { metadataCount } from "./lib/provider-counts";
   import { savedLocalPlaylistContext } from "./lib/download-playlist-context";
   import type { LyricsTranslationResult, LyricsSourceLine } from "./lib/lyrics-translation";
-  import { visibleLyricsTrack as makeVisibleLyricsTrack } from "./lib/lyrics-request";
+  import { translateLyricsInChunks, type TranslationProgress } from "./lib/lyrics-translation-progress";
+  import { visibleLyricsTrack as makeVisibleLyricsTrack, lyricsTrackWithPlaybackDuration } from "./lib/lyrics-request";
   import { playbackOperationTrace, type PlaybackOperationTrace } from "./lib/native-playback";
-  import { isCurrentLiveBpmEstimate } from "./lib/live-bpm";
+import { isCurrentLiveBpmEstimate, isCurrentLiveKeyEstimate } from "./lib/live-bpm";
+import { PLAYING_TRACK_DETECTION_INTERVAL_MS, playingTrackDetectionOwnerKey, samePlayingTrackDetectionOwner, type PlayingTrackDetectionOwner, type PlayingTrackDetectionView } from "./lib/playing-track-detection";
+import { canRequestWebviewLiveBpm, parseWebviewLiveBpmResponse, supportsWebviewLiveBpmRoute, WebviewLiveBpmWindow, WEBVIEW_LIVE_BPM_SAMPLE_RATE, type WebviewLiveBpmDiagnostics } from "./lib/webview-live-bpm";
+  import type { WaveformSnapshot } from "./lib/waveform-data";
+  import * as waveformData from "./lib/waveform-data";
+  import { isFreshWebviewWaveformWindowAfterSeek, type WebviewWaveformSeekDrain } from "./lib/webview-waveform-seek";
+  import { claimAutomaticStreamMediaAnalysis, fullStreamAnalysisOutcome, isCompleteStreamMediaWaveform, streamMediaResourceKey, streamMediaTrackContext, verifiedStreamWaveform, type StreamMediaResource, type StreamAudioVariant } from "./lib/stream-media-analysis";
+  import { isStreamMediaAnalysisPaused } from "./lib/stream-analysis-policy";
+import { ObservedWaveformCache, prepareObservedWaveformBinding, type PreparedObservedWaveformBinding } from "./lib/observed-waveform-cache";
   import { QueueRadioController, queueRadioSeedKey } from "./lib/queue-radio";
   import { sameTrackIdentity } from "./lib/track-identity";
   import { PendingSortAvailabilityRefresh, sortAvailabilityIsPending } from "./lib/pending-sort-availability";
@@ -39,6 +60,9 @@
   import { runPeriodicPlaylistSyncFallback } from "./lib/playlist-sync-fallback";
   import RadioView, {type RadioStation,type RadioTrackMetadata} from "./RadioView.svelte";
   import PlaybackQuality from "./PlaybackQuality.svelte";
+  import LoudnessSettings from "./LoudnessSettings.svelte";
+  import WaveformSeek from "./WaveformSeek.svelte";
+  import StreamMediaAnalysisSettings from "./StreamMediaAnalysisSettings.svelte";
   import NowPlayingView from "./NowPlayingView.svelte";
   import { createTrackArtistInformationLoader } from "./lib/track-information";
   import { createRecordingInformationLoader, type RecordingReleaseInfo } from "./lib/recording-information";
@@ -50,6 +74,8 @@
   import DirectoryBrowser, { type DirectoryBrowserSnapshot } from "./DirectoryBrowser.svelte";
   import { normalizeSpotifyUserProfileUrl } from "./lib/spotify-profile-url";
   import PlaylistSync from "./PlaylistSync.svelte";
+  import PortablePlaylist from "./PortablePlaylist.svelte";
+  import PortableHistory from "./PortableHistory.svelte";
   import AccountPlaylistSettings from "./AccountPlaylistSettings.svelte";
   import type {PlaylistSection} from "./lib/playlist-sections";
   const DOWNLOADS_PLAYLIST_ID="00000000-0000-4000-8000-000000000001";
@@ -63,11 +89,16 @@
 
   import TrackMenu from "./TrackMenu.svelte";
   import PlaylistMenu from "./PlaylistMenu.svelte";
+  import PlaylistMirrorSettings from "./PlaylistMirrorSettings.svelte";
   let radioActions=$state<{station:RadioStation;anchor:{x:number;y:number}}|null>(null);
   let showReleaseSetup=$state(false);
   let renameTarget=$state<{kind:"playlist"|"radio";id:string;name:string}|null>(null);
   let sidebarRenameValue=$state("");
   let playlistActions = $state<{ collection: Collection; anchor: { x: number; y: number } } | null>(null);
+  let playlistMirrorSettingsTarget = $state<{ collectionId: string | null; name?: string } | null>(null);
+  let portablePlaylistTarget = $state<Collection | null>(null);
+  let portablePlaylistInitialMode = $state<"export" | "folder">("export");
+  let showPortableHistory = $state(false);
   let seekSerial = $state(0);
   let downloadSubmitting = $state(false);
   let downloadFiles = $state<LocalAsset[]>([]);
@@ -117,6 +148,7 @@
   let showTrackDetails = $state(false);
   let showCreatePlaylist = $state(false);
   import ReleaseView from "./ReleaseView.svelte";
+  import LocalAlbumLoudnessReview from "./LocalAlbumLoudnessReview.svelte";
   import {providerNavigationSnapshots} from "./lib/provider-navigation-snapshots";
   import { sortTracks, filterTracks, parseDurationBound, playableDuration, type TrackSortField, type SortDirection } from "./lib/track-sort";
   import SpotifyArtist from "./SpotifyArtist.svelte";
@@ -124,6 +156,7 @@
   import SoulseekWishlist from "./SoulseekWishlist.svelte";
   import LyricsPanel from "./LyricsPanel.svelte";
   import { queueForEngineMigration } from "./lib/playback-engine-migration";
+  import { createNativePositionBookmark, nativeBookmarkMatchesOccurrence, shouldPersistNativePositionBookmark, validNativePositionBookmark, type NativePositionBookmark, type NativePositionOwner } from "./lib/native-position-bookmark";
   import PlaybackEngineSettings from "./PlaybackEngineSettings.svelte";
   import TrackDownloadFilter from "./TrackDownloadFilter.svelte";
   import { isTrackDownloaded } from "./lib/track-sort";
@@ -137,6 +170,8 @@
   import ReleaseSetup from "./ReleaseSetup.svelte";
   import SettingsNavigation from "./SettingsNavigation.svelte";
   import PlaylistSettings from "./PlaylistSettings.svelte";
+  import HistoryMirrorSettings from "./HistoryMirrorSettings.svelte";
+  import RestoredPlaylistSyncSettings from "./RestoredPlaylistSyncSettings.svelte";
   import TrackList from "./TrackList.svelte";
   import ToolSetup from "./ToolSetup.svelte";
   import ConnectionsSetup from "./ConnectionsSetup.svelte";
@@ -156,6 +191,10 @@
   import { downloadStateLabel, downloadSourceLabel, downloadPeer, downloadTitle, downloadTransferDetail } from "./lib/download-display";
   import LibrarySidebar from "./LibrarySidebar.svelte";
   import { PlaybackQueue, savePlaybackQueue, loadPlaybackQueue } from "./lib/playback-queue";
+  import { applyPendingBackupPlaybackRestore, type BackupPlaybackRestoreAck, type PendingBackupPlaybackRestore } from "./lib/backup-playback-hydration";
+  import { consumeStartupPlaybackControls, persistPlaybackControlsWhenOwned } from "./lib/playback-controls";
+  import { lyricsTiming } from "./lib/lyrics-timing.svelte";
+  import { startAfterBackupHydration } from "./lib/backup-startup-gate";
   import { artistPlaybackTracks } from "./lib/artist-playback";
   import type { ArtistRef, ArtistSearchPage, ArtistProfile, ArtistReleasePage, ArtistReleaseRef, ArtistTrackPage, ArtistCollaborationPage, ArtistLocalAssetsPage, ArtistLocalAssetsPageRequest, AlbumSearchPage, MetadataReview as MetadataReviewData, MetadataFieldKey } from "./lib/artist-types";
   import { playbackAction } from "./lib/playback-action";
@@ -165,8 +204,29 @@
   import { choosePreviewCandidate, isLinkedAudioSearchCandidate, plausiblePreviewCandidate } from "./lib/preview-source";
   import { sourcePosition, playlistPosition } from "./lib/source-position";
   import { rowWindow } from "./lib/table";
+
+  // A WebKit write may pass immediate readback and later roll back an existing
+  // record. These values are used only for this startup's initial reads; all
+  // receipts, persistence, and subsequent reads still use real localStorage.
+  const backupStartupStorageOverrides = new Map<string, string>();
+  const backupStartupReadStorage = {
+    getItem(key: string) {
+      if (!backupStartupStorageOverrides.has(key)) return localStorage.getItem(key);
+      const value = backupStartupStorageOverrides.get(key)!;
+      backupStartupStorageOverrides.delete(key);
+      return value;
+    },
+    removeItem(key: string) { localStorage.removeItem(key); },
+  };
+  const backupStartupPersistence = {
+    getItem: (key: string) => backupStartupReadStorage.getItem(key),
+    setItem: (key: string, value: string) => localStorage.setItem(key, value),
+    removeItem: (key: string) => localStorage.removeItem(key),
+  };
   import { call, desktop, playable, listen } from "./lib/api";
 import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, type WebviewPlaybackHandoff, type ResolvedSourceHandoff } from "./lib/native-playback";
+import { hasWebAudioGainGraph, inspectWebAudioGainGraph, retireWebAudioGainGraph, setWebAudioUserVolume, startWebAudioStereoDiagnosticTap, type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type LoudnessResourceIdentity } from "./lib/loudness-normalization";
+import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } from "./lib/webview-stereo-diagnostic";
   import type {
     Track, Chapter,
     Genre,
@@ -179,8 +239,9 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     Dependency,
     LocalAsset,
     ChartMembership,
-    BrowserStatus, BrowserImportResult, CandidatePreviewStatus, NativePlaybackSnapshot, NativePlaybackFailure, PlaybackTrackFailure, LiveBpmEstimate,
+    BrowserStatus, BrowserImportResult, CollectionImportPreview, CandidatePreviewStatus, NativePlaybackSnapshot, NativePlaybackFailure, PlaybackTrackFailure, LiveBpmEstimate, LiveKeyEstimate, LivePlaybackEstimates,
   } from "./lib/types";
+  import type { TrackLibrarySummary } from "./lib/track-library-summary";
   type View =
     | "charts"
     | "source-browser"
@@ -275,6 +336,41 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     batchStatus = $state(""),
     analysisStatuses = $state<{ assetId: string; inputHash?: string; version?: number; status: string; bpm?: number | null; key?: string | null; error?: string; payload?: Record<string, unknown> | null }[]>([]),
     analysisBusy = $state(false);
+    type WholeTrackAnalysisDto = {
+    schemaVersion: number; analyzerVersion: string;
+    resource:
+      | { kind: "registeredAsset"; recordingId: string; assetId: string; fileHash: string }
+      | { kind: "stream"; recordingId: string; provider: string; sourceIdentitySha256: string; audioVariantSha256?: string | null };
+    durationSeconds: number; scope: "wholeTrack"; coverage: number; measuredAt: string;
+    bpm?: { bpm: number; confidence: number; relatedTempoAlternativeBpm?: number | null } | null;
+    key?: { key: string; confidence: number; wholeTrackKey: string; windowKeys: Array<string | null>; agreementCount: number } | null;
+    waveform?: { analyzerVersion: string; binCount: number; durationSeconds: number; bins: Array<{ min: number; max: number } | null>; scope: "wholeTrack"; complete: boolean; measuredAt: string } | null;
+  };
+  type SelectedAnalysisResult = { assetId: string; recordingId: string; status: string; analysis: WholeTrackAnalysisDto | null; error?: string | null; kind?: "asset" | "stream"; sourceProvider?: string | null; sourceId?: string | null };
+  type SelectedAnalysisJob = { jobId: string; state: string; total: number; completed: number; results: SelectedAnalysisResult[] };
+  let selectedAnalysisJob = $state<SelectedAnalysisJob | null>(null);
+  let selectedAnalysisKind = $state<"asset" | "stream">("asset");
+  let selectedAnalysisOpen = $state(false);
+  let selectedAnalysisBusy = $state(false);
+  let selectedAnalysisRequest = 0;
+  let selectedAnalysisTracks = $state<Record<string, Track>>({});
+  let selectedAnalysisApplied = $state<string[]>([]);
+  let applyAnalysisBpm = $state(true);
+  let applyAnalysisKey = $state(true);
+  let replaceAnalysisBpm = $state(false);
+  let replaceAnalysisKey = $state(false);
+  let loudnessAnalysisJob = $state<LoudnessAnalysisJobStatus | null>(null);
+  let loudnessAnalysisBusy = $state(false);
+  let loudnessAnalysisMessage = $state("");
+  let localAlbumLoudnessReview = $state<{ album: string; albumArtist: string; tracks: Track[]; canReorder: boolean } | null>(null);
+  let localAlbumLoudnessFocusReturn = $state<HTMLElement | null>(null);
+  let pendingLoudnessAssetIds = $state<string[]>([]);
+  let loudnessRetryRequired = $state(false);
+  let activeLoudnessAssetIds: string[] = [];
+  let activeLoudnessJobRequest = 0;
+  let activeLoudnessJobId = "";
+  let activeLoudnessJobIsQueued = false;
+  let loudnessLaunchScheduled = false;
   let batchCancelled = false;
   let activeBatchReadId: string | null = null;
   const scopedAssets = $derived.by(() => {
@@ -302,6 +398,11 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     importKind = $state("tracklist"),
     showImport = $state(false),
     localPath = $state("");
+  let importChoice = $state<ImportChoice | null>(null);
+  let droppedBackupPreview = $state<BackupInspection | null>(null);
+  let nativeBackupDropRequest = 0;
+  type NativeImportFileDrop = { token: string; kind: "backup" | "playlist" | "unsupported"; coordinateSpace: "logical" | "physical"; position: { x: number; y: number } };
+  type ConsumedImportDrop = { kind: "playlist"; name: string; text: string } | { kind: "backup"; preview: BackupInspection };
   type RemotePlaylistBinding = { bindingId: string; provider: string; canEdit: boolean; collectionId: string; sourceCollectionId?: string | null; url?: string; ownerId?: string | null; ownerName?: string | null; ownerUrl?: string | null };
   let remotePlaylistBindings = $state<RemotePlaylistBinding[]>([]);
   let remotePlaylistWriteSyncEnabled = $state<Record<"spotify" | "youtube", boolean>>({ spotify: false, youtube: false });
@@ -311,6 +412,8 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
   let browserUrl = $state(""), browserMessage = $state(""), browserRequest = $state(""),
     browserStatus = $state<BrowserStatus | null>(null), browserImports = $state<BrowserImportResult[]>([]),
     activeBrowserImport = $state<BrowserImportResult | null>(null),
+    collectionImportPreview = $state<CollectionImportPreview | null>(null),
+    urlImportDestinationId = $state(""), urlImportNewPlaylistName = $state(""), urlImportFolderPath = $state(""), urlImportSectionName = $state(""), urlImportDuplicatePolicy = $state<"keep" | "skip">("keep"),
     activeArtistTrack = $state<Track | null>(null),
     activeArtistName = $state(""),
     activeArtistRef = $state<ArtistRef | null>(null),
@@ -321,6 +424,83 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
   let playlistDestinationId = $state("");
   let playlistWriteBusy = $state(false);
   let playlistPickerGeneration = $state(0);
+  let waveformEnabled = $state(false);
+  let waveformPreferenceReady = $state(false);
+  let streamMediaAnalysisEnabled = $state(false);
+  let streamMediaAnalysisPreferenceReady = $state(false);
+  let streamMediaAnalysisRestorePolicyReady = $state(false);
+  let streamMediaAnalysisRestorePaused = $state(true);
+  let streamMediaAnalysisRestoreReviewRequired = $state(false);
+  let streamMediaAnalysisRestoreCategoryPaused = $state(false);
+  let streamMediaAnalysisStatus = $state("");
+  let streamMediaAnalysisResult = $state<WholeTrackAnalysisDto | null>(null);
+  let streamMediaAnalysisResultKey = $state("");
+  let streamMediaAnalysisJob = $state<{ jobId: string; resourceKey: string; state: string } | null>(null);
+  let streamMediaAnalysisStartingKey = $state("");
+  let streamMediaAnalysisRequest = 0;
+  let streamWaveformCacheLookupOwner = "";
+  const observedWaveformCache = new ObservedWaveformCache();
+  let observedWaveformBinding = $state<PreparedObservedWaveformBinding | null>(null);
+  let observedWaveformBindingOwner = "";
+  let observedWaveformBindingSequence = 0;
+  let observedWaveformSnapshotOwner = "";
+  const attemptedStreamMediaAnalysis = new Set<string>();
+  function updateStreamMediaAnalysisRestorePolicy(policy: { reviewRequired: boolean; categories: Array<{ kind: string; paused: boolean }> }): void {
+    const category = policy.categories.find((item) => item.kind === "background_stream_media_analysis");
+    const wasExplicitlyPaused = streamMediaAnalysisRestoreReviewRequired || streamMediaAnalysisRestoreCategoryPaused;
+    streamMediaAnalysisRestoreReviewRequired = policy.reviewRequired;
+    streamMediaAnalysisRestoreCategoryPaused = category?.paused === true;
+    // Restore review can concern other kinds of automatic work. Honor the
+    // stream-analysis category when present; only fail closed to the legacy
+    // profile-wide flag if the category is absent from an older policy DTO.
+    streamMediaAnalysisRestorePaused = isStreamMediaAnalysisPaused(policy);
+    streamMediaAnalysisRestorePolicyReady = true;
+    if (wasExplicitlyPaused && !streamMediaAnalysisRestorePaused) {
+      const resource = currentStreamMediaResource();
+      if (resource) attemptedStreamMediaAnalysis.delete(resource.key);
+      streamMediaAnalysisStatus = "Background stream analysis resumed after restore review.";
+    } else if (streamMediaAnalysisRestorePaused && streamMediaAnalysisEnabled) {
+      streamMediaAnalysisStatus = !category && policy.reviewRequired
+        ? "Background stream analysis is paused until restore review. You can start a one-time analysis manually."
+        : "Background stream analysis is paused for this restored profile. You can start a one-time analysis manually.";
+    }
+  }
+  async function refreshStreamMediaAnalysisRestorePolicy(): Promise<void> {
+    try {
+      const policy = await call<{ reviewRequired: boolean; categories: Array<{ kind: string; paused: boolean }> }>("get_restore_work_policy");
+      updateStreamMediaAnalysisRestorePolicy(policy);
+    } catch {
+      streamMediaAnalysisRestorePolicyReady = true;
+      streamMediaAnalysisRestorePaused = true;
+      streamMediaAnalysisStatus = "Background analysis is paused until restore work policy can be checked.";
+    }
+  }
+  let playbackWaveform = $state<WaveformSnapshot | null>(null);
+  let playbackWaveformReason = $state("");
+  let webviewWaveformSeekDrain: WebviewWaveformSeekDrain | null = null;
+  let waveformRouteUpgradeRequest = 0;
+  let waveformRouteUpgradeStatus = $state("");
+  let verifiedLocalWaveformBinding = $state<{ trackId: string; assetId: string; fileHash: string; fullTrack: boolean } | null>(null);
+  let currentLocalAnalysisResult = $state<WholeTrackAnalysisDto | null>(null);
+  let currentLocalAnalysisStatus = $state("");
+  let currentLocalAnalysisOwner = "";
+  let currentLocalAnalysisRequest = 0;
+  let currentLocalAnalysisJobId: string | null = null;
+  const currentPlaybackAnalysisEstimate = $derived.by(() => {
+    const local = currentLocalAnalysisResult;
+    if (local?.resource.kind === "registeredAsset" && local.resource.assetId === waveformLocalAssetId &&
+        local.resource.recordingId === playingTrack?.id) return local;
+    const stream = currentStreamMediaResource();
+    return stream && streamMediaAnalysisResultKey === stream.key ? streamMediaAnalysisResult : null;
+  });
+  let localWaveformCacheRebindRequest = 0;
+  let localWaveformCacheRebindOwnerKey = "";
+  let localWaveformAnalysisStatus = $state("");
+  let localWaveformAnalysisJobId = $state<string | null>(null);
+  let localWaveformAnalysisRequest = 0;
+  let localWaveformAnalysisOwnerKey = $state("");
+  let cachedStreamAnalysis = $state<WholeTrackAnalysisDto | null>(null);
+  let cachedStreamAnalysisOwnerKey = $state("");
   let pendingCreatedPlaylist = $state<{ collection: Collection; generation: number } | null>(null);
   let settings = $state<Settings>({
     musicDirectory: "",
@@ -336,12 +516,14 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     overridePlaylistTrackUrls: false,
     streamingFallbackEnabled: true,
     streamingFallbackDelayMs: 1500,
-    streamingFallbackSources: ["youtube", "soundcloud"],
+    streamingFallbackSources: ["youtube", "soundcloud", "bandcamp"],
     bandcampFallbackEnabled: true,
     backgroundSourcePreparation: true,
     downloadFallbackEnabled: false,
     downloadFallbackSources: ["monochrome", "slskd", "youtube", "soundcloud"],
     downloadFallbackAllowLossy: false,
+    playlistMirroringEnabled: true,
+    compactPlaybackBar: false,
     ytDlpPath: "yt-dlp",
     ffmpegPath: "ffmpeg",
     ffprobePath: "ffprobe",
@@ -351,9 +533,10 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
   async function changeLyricsTranslationLanguage(language:string) {const status=await call<{settings:Record<string,unknown>&{lyricsTranslation:Record<string,unknown>}}>("get_connections");await call("save_connections",{update:{settings:{...status.settings,lyricsTranslation:{...status.settings.lyricsTranslation,targetLanguage:language}}}});lyricsTranslationLanguage=language;}
   let lyricsTranslationEnabled = $state(false);
   let lyricsTranslationCredentialPresent = $state(false);
-  function currentVisibleLyricsTrack() { return makeVisibleLyricsTrack(playingTrack); }
-  async function translateCurrentTrackLyrics(sourceHash: string, lines: LyricsSourceLine[]): Promise<LyricsTranslationResult> {
-    return await call<LyricsTranslationResult>("translate_current_track_lyrics", { sourceHash, visibleTrack: currentVisibleLyricsTrack(), lines });
+  function currentVisibleLyricsTrack() { return makeVisibleLyricsTrack(currentLyricsTrack); }
+  async function translateCurrentTrackLyrics(sourceHash: string, lines: LyricsSourceLine[], progress?: TranslationProgress, signal?:AbortSignal, options?:{useFallback?:boolean}): Promise<LyricsTranslationResult> {
+    const visibleTrack=currentVisibleLyricsTrack();
+    return translateLyricsInChunks(sourceHash,lines,(lineStart,lineEnd)=>call<LyricsTranslationResult>("translate_current_track_lyrics",{sourceHash,visibleTrack,lines,lineStart,lineEnd,useFallback:options?.useFallback}),progress,signal);
   }
   let systemLight = $state(false);
   onMount(()=>{if(typeof window.matchMedia!=="function")return;const query=window.matchMedia("(prefers-color-scheme: light)");const update=()=>systemLight=query.matches;update();query.addEventListener("change",update);return()=>query.removeEventListener("change",update);});
@@ -386,6 +569,8 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
   let settingsCategory = $state<SettingsCategory>("general");
   type PlaylistPreferences = { favoritesPlaylistId: string; shortcuts: (string|null)[]; shortcutBindings?: string[] };
   let playlistPreferences = $state<PlaylistPreferences>({ favoritesPlaylistId:"", shortcuts:Array(9).fill(null) });
+  let includeYtdlpSearchDefault = $state(false);
+  let ytdlpSearchPreferenceReady = $state(false);
   let favoriteTrackIds = $state<string[]>([]);
   let shortcutSlot = $state<number|null>(null);
   let persistedMusicDirectory = $state("");
@@ -410,10 +595,30 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     const end=()=>{window.removeEventListener("pointermove",move);window.removeEventListener("pointerup",end);window.removeEventListener("pointercancel",end);};
     window.addEventListener("pointermove",move);window.addEventListener("pointerup",end,{once:true});window.addEventListener("pointercancel",end,{once:true});
   }
-  function updatePlaybackPosition(absolute:number) {
+  function updatePlaybackPosition(absolute:number, completeRangeBoundary=true) {
+    const resumeGate = webviewStartupResumeAudioGate;
+    if (resumeGate && resumeGate.node === audio && resumeGate.source === preview && resumeGate.trackId === playingTrack?.id && !resumeGate.verified) {
+      if (!hasWebviewStartupResumeProgress({
+        target: resumeGate.target, startPosition: resumeGate.target, currentTime: absolute,
+        duration: resumeGate.node.duration, elapsedMs: performance.now() - resumeGate.startedAtMs,
+        readyState: resumeGate.node.readyState, seeking: resumeGate.node.seeking,
+        paused: resumeGate.node.paused, playbackRate: resumeGate.node.playbackRate,
+      })) {
+        // Keep the saved resume clock stable while WebKit is still reporting the
+        // beginning of a stream after an optimistic currentTime assignment.
+        position = resumeGate.target;
+        persistPlaybackPosition(true);
+        return;
+      }
+      resumeGate.verified = true;
+      releaseWebviewStartupResumeGate(resumeGate.node, resumeGate.source, true, false);
+      void recordSuccessfulPlayback();
+    } else if (resumeGate && resumeGate.node === audio && resumeGate.source !== preview) {
+      releaseWebviewStartupResumeGate(resumeGate.node, resumeGate.source, false, false);
+    }
     position=absolute;
     const range=playingTrack?.playbackRange;
-    if (range && !paused && absolute>=range.endTime) completeWebviewQueueOccurrence(true);
+    if (completeRangeBoundary && range && !paused && absolute>=range.endTime) completeWebviewQueueOccurrence(true);
     persistPlaybackPosition(true);
   }
   function completeWebviewQueueOccurrence(chapterBoundary = false, node?: HTMLAudioElement) {
@@ -433,6 +638,14 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       const parentDuration = track.playbackRange.parentDurationSeconds ?? track.durationSeconds;
       return Number.isFinite(parentDuration) && Number(parentDuration) > 0 ? Number(parentDuration) : null;
     }
+    // A resolved WebView media element reports the actual finite resource
+    // duration (including fractional seconds). Provider metadata is often
+    // rounded to whole seconds and is too coarse for verified full-track
+    // analysis and waveform coverage checks.
+    const sourceGeneration = Number.isSafeInteger(source?.sourceGeneration) ? Number(source?.sourceGeneration) : null;
+    if (!source?.isExcerpt && !source?.approximateExcerpt && source && ["audio", "direct", "local"].includes(source.kind) && node &&
+        webviewLoadedMetadataOwner?.url === source.url && webviewLoadedMetadataOwner.sourceGeneration === sourceGeneration &&
+        Number.isFinite(node.duration) && node.duration > 0 && node.duration <= (source.kind === "local" ? 86_400 : 900)) return node.duration;
     const resolvedDuration = source?.durationSeconds;
     if (Number.isFinite(resolvedDuration) && Number(resolvedDuration) > 0) return Number(resolvedDuration);
     if (source?.isExcerpt) return node && Number.isFinite(node.duration) && node.duration > 0 ? node.duration : null;
@@ -464,6 +677,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     webviewSeekCompletionWatchdog.cancel();
     activeWebviewSeek = null;
     seekSerial++;
+    webviewWaveformSeekDrain = { node, sourceGeneration: preview?.sourceGeneration ?? null, seekSerial, targetPositionSeconds: target };
     node.currentTime = target;
     if (watchCompletion) beginWebviewSeekCompletionWatch(node, target);
     return true;
@@ -668,6 +882,13 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
   }
   let showPlayingInfo = $state(false);
   let infoTrack = $state<Track | null>(null);
+  let trackLibrarySummary = $state<TrackLibrarySummary | null>(null);
+  let trackLibrarySummaryTrackId = $state<string | null>(null);
+  let trackLibrarySummaryLoading = $state(false);
+  let trackLibrarySummaryRequest = 0;
+  let lastNativeHistorySummaryOwner = "";
+  let pendingNativeHistorySummaryOwner = "";
+  let nativeHistorySummaryTimer: ReturnType<typeof setTimeout> | null = null;
   let infoSearchTarget = $state<{ track: Track; candidate: Candidate | null; chapterTitle?: string } | null>(null);
   let catalogSearchRequest = $state(0);
   let catalogSearchSource = $state("musicbrainz");
@@ -708,6 +929,14 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
   let radioRecognizing = $state(false), radioIdentifyProgress = $state(0), mpvAvailable = $state(false);
   let radioIdentifyAbort: AbortController | null = null;
   let radioIdentifyCaptureId: string | null = null;
+  let playingTrackDetectionView = $state<PlayingTrackDetectionView | null>(null);
+  let playingTrackDetectionOwner = $state<PlayingTrackDetectionOwner | null>(null);
+  let playingTrackDetectionBusy = $state(false);
+  let playingTrackDetectionStatus = $state("");
+  let playingTrackDetectionDisabledReason = $state("");
+  let playingTrackDetectionCaptureId: string | null = null;
+  let lastPlayingTrackDetectionAt = 0;
+  let lastPlayingTrackDetectionReadAt = 0;
   let nativeIdentifyCaptureId: string | null = null;
   function cancelRadioIdentification(expectedCaptureId?:string) {
     const captureId=radioIdentifyCaptureId;
@@ -715,6 +944,122 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     radioIdentifyAbort?.abort();
     if(captureId && desktop()) void call(nativeIdentifyCaptureId === captureId ? "cancel_playing_track_identification" : "cancel_webview_identification",{captureId}).catch(()=>{});
   }
+  function currentPlayingTrackDetectionOwner():PlayingTrackDetectionOwner|null {
+    if (!playingTrack || playingRadioStation || currentRadioSong || isStationPlaybackTrack(playingTrack)
+      || (playingTrack.provenance as Record<string,unknown>|undefined)?.sourceKind==="radio") return null;
+    const generation=nativeActive()?nativeSnapshot?.generation:preview?.sourceGeneration;
+    if (!Number.isSafeInteger(generation) || generation == null || !Number.isSafeInteger(seekSerial)) return null;
+    return {trackId:playingTrack.id,generation,seekSerial:nativeActive()?(nativeSnapshot?.seekSerial??0):seekSerial};
+  }
+  function trackDetectionOwnerIsCurrent(owner:PlayingTrackDetectionOwner):boolean {
+    return samePlayingTrackDetectionOwner(owner,currentPlayingTrackDetectionOwner()) && !playingRadioStation;
+  }
+  function trackDetectionCanCapture():boolean {
+    return !paused&&!playbackLoading&&!bufferingAudio&&!resolvingPlayback;
+  }
+  function cancelPlayingTrackDetection() {
+    const captureId=playingTrackDetectionCaptureId;
+    if (!captureId) return;
+    if (radioIdentifyCaptureId===captureId) cancelRadioIdentification(captureId);
+    playingTrackDetectionCaptureId=null;
+  }
+  async function runPlayingTrackDetection(owner:PlayingTrackDetectionOwner) {
+    if (playingTrackDetectionBusy || radioRecognizing || !trackDetectionOwnerIsCurrent(owner) || !trackDetectionCanCapture() || !playingTrackDetectionView?.enabled) return;
+    const captureId=crypto.randomUUID();
+    const controller=new AbortController();
+    playingTrackDetectionBusy=true;
+    playingTrackDetectionCaptureId=captureId;
+    radioIdentifyCaptureId=captureId;
+    radioIdentifyAbort=controller;
+    if(nativeActive())nativeIdentifyCaptureId=captureId;
+    radioRecognizing=true;
+    radioIdentifyProgress=0;
+    lastPlayingTrackDetectionAt=Date.now();
+    playingTrackDetectionStatus="Listening for tracks in this recording…";
+    try {
+      const result=await call<PlayingTrackDetectionView>("detect_playing_track_segment",{trackId:owner.trackId,generation:owner.generation,seekSerial:owner.seekSerial,captureId});
+      if(!controller.signal.aborted&&trackDetectionOwnerIsCurrent(owner)){
+        playingTrackDetectionView=result;
+        playingTrackDetectionStatus=result.observations.length?"":"No tracks detected in that sample yet.";
+      }
+    } catch(failure) {
+      if(!controller.signal.aborted&&trackDetectionOwnerIsCurrent(owner)) {
+        const message=String(failure);
+        playingTrackDetectionStatus=/not enough audio|not enough.*identify/i.test(message)
+          ? "There was not enough audio at this position. Detection will try again later."
+          : /resume/i.test(message)
+            ? "Detection will continue when playback resumes."
+            : "Could not check this audio. Detection will try again later.";
+      }
+    } finally {
+      if(playingTrackDetectionCaptureId===captureId)playingTrackDetectionCaptureId=null;
+      if(radioIdentifyCaptureId===captureId)radioIdentifyCaptureId=null;
+      if(nativeIdentifyCaptureId===captureId)nativeIdentifyCaptureId=null;
+      if(radioIdentifyAbort===controller)radioIdentifyAbort=null;
+      if(playingTrackDetectionBusy&&playingTrackDetectionCaptureId==null)playingTrackDetectionBusy=false;
+      if(radioRecognizing&&radioIdentifyCaptureId==null)radioRecognizing=false;
+      // Keep the start timestamp: waiting another full interval after the
+      // capture/service delay would exceed the deduplication cadence.
+    }
+  }
+  async function refreshPlayingTrackDetection() {
+    const owner=currentPlayingTrackDetectionOwner();
+    const key=playingTrackDetectionOwnerKey(owner);
+    const oldKey=playingTrackDetectionOwnerKey(playingTrackDetectionOwner);
+    if(key!==oldKey) {
+      cancelPlayingTrackDetection();
+      playingTrackDetectionOwner=owner;
+      playingTrackDetectionView=null;
+      playingTrackDetectionStatus="";
+      playingTrackDetectionDisabledReason="";
+      lastPlayingTrackDetectionAt=0;
+      if(owner&&desktop()) {
+        lastPlayingTrackDetectionReadAt=Date.now();
+        try {
+          const result=await call<PlayingTrackDetectionView>("get_playing_track_detections",{...owner});
+          if(trackDetectionOwnerIsCurrent(owner))playingTrackDetectionView=result;
+        } catch {
+          if(trackDetectionOwnerIsCurrent(owner))playingTrackDetectionDisabledReason="Track detection needs a prepared audio source with a stable identity.";
+        }
+      }
+      return;
+    }
+    if(owner&&desktop()&&!playingTrackDetectionView&&playingTrackDetectionDisabledReason&&Date.now()-lastPlayingTrackDetectionReadAt>=5000) {
+      lastPlayingTrackDetectionReadAt=Date.now();
+      try {
+        const result=await call<PlayingTrackDetectionView>("get_playing_track_detections",{...owner});
+        if(trackDetectionOwnerIsCurrent(owner)){playingTrackDetectionView=result;playingTrackDetectionDisabledReason="";}
+      } catch { /* Keep the bounded unavailable status and retry later. */ }
+      return;
+    }
+    if(!owner||!desktop()||!playingTrackDetectionView?.enabled||!trackDetectionCanCapture()||radioRecognizing||playingTrackDetectionBusy) return;
+    if(Date.now()-lastPlayingTrackDetectionAt>=PLAYING_TRACK_DETECTION_INTERVAL_MS) await runPlayingTrackDetection(owner);
+  }
+  async function togglePlayingTrackDetection(enabled:boolean) {
+    const owner=currentPlayingTrackDetectionOwner();
+    if(!owner||!desktop())return;
+    if(!enabled)cancelPlayingTrackDetection();
+    try {
+      const result=await call<PlayingTrackDetectionView>("set_playing_track_detection_enabled",{...owner,enabled});
+      if(!trackDetectionOwnerIsCurrent(owner))return;
+      playingTrackDetectionView=result;
+      playingTrackDetectionDisabledReason="";
+      playingTrackDetectionStatus=enabled?(!trackDetectionCanCapture()?"Detection will start when playback is ready.":"Listening for tracks in this recording…"):"Detection is off. Saved detections are kept.";
+      if(enabled&&trackDetectionCanCapture()&&!radioRecognizing)await runPlayingTrackDetection(owner);
+    } catch {
+      if(trackDetectionOwnerIsCurrent(owner))playingTrackDetectionDisabledReason="Track detection needs a prepared audio source with a stable identity.";
+    }
+  }
+  onMount(()=>{
+    void refreshPlayingTrackDetection();
+    const timer=window.setInterval(()=>{void refreshPlayingTrackDetection();},1000);
+    return ()=>{window.clearInterval(timer);cancelPlayingTrackDetection();};
+  });
+  $effect(()=>{
+    const currentKey=playingTrackDetectionOwnerKey(currentPlayingTrackDetectionOwner());
+    const boundKey=playingTrackDetectionOwnerKey(playingTrackDetectionOwner);
+    if(currentKey!==boundKey)untrack(()=>{void refreshPlayingTrackDetection();});
+  });
   const previousRadioQueue = $derived(radioQueueHistory.filter((item,index)=>nativeActive() ? !currentRadioSong || index!==0 || item.track.id!==currentRadioSong.id : !currentRadioSong || item.id!==radioOccurrence?.key).map(item=>({...item,track:{...item.track,favorite:favoriteTrackIds.includes(item.track.id)}})));
   onMount(()=>{if(desktop())for(const provider of ["spotify","youtube"] as const)void call<{writeSyncEnabled?:boolean}>("remote_playlist_connection_status",{provider}).then(status=>remotePlaylistWriteSyncEnabled={...remotePlaylistWriteSyncEnabled,[provider]:status?.writeSyncEnabled===true}).catch(()=>{});});
   onMount(()=>{if(desktop())void call<{available:boolean}>("get_mpv_status").then(status=>mpvAvailable=status?.available===true).catch(()=>{});});
@@ -740,7 +1085,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
           if(request.signal.aborted)abortListener();else request.signal.addEventListener("abort",abortListener,{once:true});
         });
         try {
-          const command=linuxOutputCapture ? call("identify_webview_playing_output",{...identity,captureSeconds}) : call("identify_webview_playing_pcm",{...identity,wavBase64});
+          const command=linuxOutputCapture ? call("identify_webview_playing_output",{...identity,webAudioGraphExpected:hasWebAudioGainGraph(audio!),captureSeconds}) : call("identify_webview_playing_pcm",{...identity,wavBase64});
           const result=await Promise.race([command,cancelled]);
           return request.signal.aborted || !request.isCurrent() ? null : result;
         } finally {if(abortListener)request.signal.removeEventListener("abort",abortListener);}
@@ -935,12 +1280,29 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     const result=await call<{tracks:Track[]}>("get_song_radio",{track:canonicalSeed,candidate,limit:25,persist:false});
     return signal.aborted?[]:result.tracks;
   });
-  onMount(()=>{
-    try{autoQueueRadio=localStorage.getItem("burrata.queue-end-radio.v1")==="true";}catch{}
+  function hydrateStoredFrontendFlags() {
+    try { autoQueueRadio=backupStartupReadStorage.getItem("burrata.queue-end-radio.v1")==="true"; } catch {}
+    try { waveformEnabled=backupStartupReadStorage.getItem("burrata.waveform-enabled.v1")==="true"; } catch {}
+    try { streamMediaAnalysisEnabled=backupStartupReadStorage.getItem("burrata.stream-media-analysis-enabled.v1")==="true"; } catch {}
+    try { includeYtdlpSearchDefault=backupStartupReadStorage.getItem("burrata.playlist.include-ytdlp-search.v1")==="true"; } catch {}
+    ytdlpSearchPreferenceReady=true;
+    waveformPreferenceReady=true;
+    streamMediaAnalysisPreferenceReady=true;
     queueRadioPreferenceReady=true;
-    return ()=>queueRadio.cancel();
-  });
+  }
+  onMount(() => () => queueRadio.cancel());
+  function loadStreamMediaAnalysisRestorePolicy() {
+    if (!desktop()) {
+      streamMediaAnalysisRestorePolicyReady = true;
+      streamMediaAnalysisRestorePaused = false;
+      return;
+    }
+    void refreshStreamMediaAnalysisRestorePolicy();
+  }
   $effect(()=>{if(queueRadioPreferenceReady){try{localStorage.setItem("burrata.queue-end-radio.v1",String(autoQueueRadio));}catch{}}});
+  $effect(()=>{if(waveformPreferenceReady){try{localStorage.setItem("burrata.waveform-enabled.v1",String(waveformEnabled));}catch{}}});
+  $effect(()=>{if(streamMediaAnalysisPreferenceReady){try{localStorage.setItem("burrata.stream-media-analysis-enabled.v1",String(streamMediaAnalysisEnabled));}catch{}}});
+  $effect(()=>{if(ytdlpSearchPreferenceReady){try{localStorage.setItem("burrata.playlist.include-ytdlp-search.v1",String(includeYtdlpSearchDefault));}catch{}}});
   const radioQueueKey = $derived(JSON.stringify(queueTracks.map(queueRadioSeedKey)));
   $effect(()=>{
     const enabled=autoQueueRadio, seed=playingTrack, queue=queueTracks, index=queueIndex, repeat=repeatMode;
@@ -975,6 +1337,16 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
   const playbackQueue = new PlaybackQueue();
   let playbackSession = "", recordedSession = "";
   const PLAYBACK_POSITION_KEY = "burrata.playback-position.v1";
+  let lastNativeBookmarkOwner: NativePositionOwner | null = null;
+  let lastNativeQueueCheckpoint: {
+    revision: number | null;
+    index: number;
+    entryId: string | null;
+    repeat: string;
+    trackIds: string[];
+    entryIds: string[];
+    contextEntryIds: string[];
+  } | null = null;
   let recentTrackFailures = $state<PlaybackTrackFailure[]>([]);
   let failureHistoryQueueRevision = "", failureHistorySourceKey = "", failureHistoryRevision = 0;
   function resetTrackFailureHistoryForQueue(revision: string, sourceKey: string) {
@@ -1023,53 +1395,344 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     duration = $state(0),
     volume = $state(0.8),
     table = $state<HTMLDivElement>();
+  type WebviewLoudnessSettings = {
+    mode: "off" | "track" | "album";
+    targetLufs: number;
+    ceilingDbtp: number;
+    maximumBoostDb: number;
+    albumTrackFallback: boolean;
+    analyzeWhenIdle: boolean;
+  };
+  type WebviewNormalizationRoute = "same-origin-relay" | "unsupported";
+  type WebviewLoudnessDecision = {
+    mode: "off" | "track" | "album";
+    status: "off" | "applied" | "album_fallback_track" | "unavailable";
+    appliedGainDb: number;
+    measurementSource?: string | null;
+    reason?: string | null;
+    sourceResourceKey?: string | null;
+  };
+  type WebviewResolvedPreview = Preview & {
+    assetId?: string | null;
+    normalizationRoute?: WebviewNormalizationRoute;
+  };
+  let webviewLoudnessSettings = $state<WebviewLoudnessSettings>({
+    mode: "off", targetLufs: -18, ceilingDbtp: -1, maximumBoostDb: 6, albumTrackFallback: true, analyzeWhenIdle: false,
+  });
+  let webviewLoudnessSettingsLoaded = false;
+  let webviewLoudnessDecision = $state<WebviewLoudnessDecision>({ mode: "off", status: "off", appliedGainDb: 0 });
+  let activeWebviewLoudnessAlbumResource = $state<LoudnessResourceIdentity | null>(null);
+  let webviewNormalizationRouteStatus = $state<string | null>(null);
+  let webviewGainAdapter: import("./lib/loudness-normalization").WebAudioGainAdapter | null = null;
+  let webviewLoadedMetadataOwner: { url: string; sourceGeneration: number | null } | null = null;
+  type WebviewStartupResumeAudioGate = {node:HTMLAudioElement;source:Preview;trackId:string;target:number;startedAtMs:number;requestedVolume:number;verified:boolean};
+  let webviewStartupResumeAudioGate: WebviewStartupResumeAudioGate | null = null;
+  function applyWebviewOutputVolume(node: HTMLAudioElement | null | undefined, value: number): void {
+    if (!node || !Number.isFinite(value) || value < 0 || value > 1) return;
+    if (setWebAudioUserVolume(node, value)) {
+      if (node.volume !== 1) node.volume = 1;
+      return;
+    }
+    node.volume = value;
+  }
+  function releaseWebviewStartupResumeGate(node:HTMLAudioElement,source:Preview,restoreVolume:boolean,preserveTarget:boolean): void {
+    const gate=webviewStartupResumeAudioGate;
+    if(!gate||gate.node!==node||gate.source!==source)return;
+    webviewStartupResumeAudioGate=null;
+    if(restoreVolume)applyWebviewOutputVolume(node,gate.requestedVolume);
+    if(preserveTarget&&playingTrack?.id===gate.trackId&&preview===source){position=gate.target;persistPlaybackPosition(true);}
+  }
+  function setWebviewOutputVolume(node: HTMLAudioElement | null | undefined, value: number): void {
+    if (!node || !Number.isFinite(value) || value < 0 || value > 1) return;
+    const gate=webviewStartupResumeAudioGate;
+    if(gate?.node===node&&gate.source===preview){gate.requestedVolume=value;applyWebviewOutputVolume(node,0);return;}
+    if(gate?.node===node)releaseWebviewStartupResumeGate(node,gate.source,false,false);
+    applyWebviewOutputVolume(node,value);
+  }
+  function retireAudioGraphOnDestroy(node: HTMLAudioElement) {
+    return { destroy: () => retireWebAudioGainGraph(node) };
+  }
+  type WebviewObservedStreamCapture = {
+    sessionId: string; generation: number; trackId: string; node: HTMLAudioElement;
+    tap: import("./lib/loudness-normalization").WebAudioPcmTap; durationSeconds: number;
+    expectedPositionSeconds: number; nextSequence: number; started: boolean;
+    finishing?: boolean;
+  };
+  let webviewAnalysisArmTrackId = $state<string | null>(null);
+  let webviewAnalysisGeneration = 0;
+  let webviewObservedCapture = $state<WebviewObservedStreamCapture | null>(null);
+  let webviewObservedAnalysisStatus = $state<string | null>(null);
+  let webviewObservedAnalysis = $state<WholeTrackAnalysisDto | null>(null);
   let queueUiController = $state<AbortController|null>(null);
   let queueUiRequestId:string|null=null;
   let queueUiMove=$state<((from:number,to:number)=>Promise<void>)|null>(null);
   let nativeSnapshot = $state<NativePlaybackSnapshot | null>(null);
+  const currentLyricsTrack = $derived(lyricsTrackWithPlaybackDuration(playingTrack, nativeSnapshot));
   let liveBpmEstimate = $state<LiveBpmEstimate | null>(null);
+  let liveKeyEstimate = $state<LiveKeyEstimate | null>(null);
   let lastNativeQueue: Track[] | null = null;
   const nativeBridge = new NativePlaybackBridge(call, listen);
   type PendingWebviewHandoff = { handoffId: string; cancelled: boolean; isCurrent: () => boolean; settled: Promise<void> };
   let pendingWebviewHandoff: PendingWebviewHandoff | null = null;
+  type StartupNativeHandoffReceipt = {
+    handoffId: string;
+    request: number;
+    startupGeneration: number;
+    node: HTMLAudioElement;
+    source: Preview;
+    sourceGeneration: number;
+    sessionId: string;
+    trackId: string;
+    entryId: string;
+    queueEntryIds: string[];
+    index: number;
+    targetPosition: number;
+    candidateId: string;
+    committed: boolean;
+    consumed: boolean;
+  };
+  let startupNativeHandoffReceipt: StartupNativeHandoffReceipt | null = null;
   let playbackEngineReady = !desktop();
+  let playbackControlsOwned = $state(false);
   const nativeActive = () => nativeSnapshot?.engine === "native";
   const liveBpmTrackId = $derived(playingTrack?.id ?? null);
-  const liveBpmGeneration = $derived(nativeSnapshot?.generation ?? null);
+  const liveBpmGeneration = $derived(nativeSnapshot?.engine === "native" ? nativeSnapshot.generation : (preview as WebviewResolvedPreview | null)?.sourceGeneration ?? null);
+  const liveBpmNativeSeekSerial = $derived(nativeSnapshot?.seekSerial ?? 0);
   const liveBpmCanPoll = $derived(settings.liveBpmEnabled === true && nativeSnapshot?.engine === "native" && nativeSnapshot.status === "playing" && !paused && Boolean(liveBpmTrackId));
-  let liveBpmPollStatus = $state<"warming" | "insufficient" | "unavailable">("warming");
+  const waveformTrackId = $derived(playingTrack?.id ?? null);
+  const waveformGeneration = $derived(nativeSnapshot?.engine === "native" ? nativeSnapshot.generation : (preview as WebviewResolvedPreview | null)?.sourceGeneration ?? null);
+  const cachedStreamAnalysisTrackId = $derived(playingTrack?.id ?? null);
+  const cachedStreamAnalysisGeneration = $derived(nativeSnapshot?.engine === "native" ? nativeSnapshot.generation : null);
+  const cachedStreamAnalysisEligible = $derived.by(() => {
+    const track = playingTrack;
+    const provider = track?.provider;
+    const radioTrack = provider === "radioparadise" || provider === "internet-radio" ||
+      provider === "radio" && (track?.provenance as { sourceKind?: string } | undefined)?.sourceKind === "radio";
+    return nativeSnapshot?.engine === "native" &&
+      ["buffering", "playing", "paused", "ended"].includes(nativeSnapshot.status) &&
+      !radioTrack && !track?.playbackRange;
+  });
+  const waveformLocalAssetId = $derived.by(() => nativeSnapshot?.engine === "native"
+    ? nativeSnapshot.quality?.sourceKind === "localAsset" ? nativeSnapshot.quality.assetId ?? null : null
+    : (preview as WebviewResolvedPreview | null)?.kind === "local" && !preview?.isExcerpt
+      ? (preview as WebviewResolvedPreview).assetId ?? null : null);
+  const playbackWaveformForDisplay = $derived.by(() => {
+    if (playbackWaveform?.source === "local-analysis") {
+      const binding = verifiedLocalWaveformBinding;
+      if (!binding || binding.trackId !== waveformTrackId || binding.assetId !== waveformLocalAssetId) return null;
+    }
+    if (playbackWaveform?.source === "stream-analysis") {
+      const resource = currentStreamMediaResource();
+      const binding = playbackWaveform.resource;
+      if (!resource || !binding || resource.trackId !== waveformTrackId || resource.trackId !== playbackWaveform.trackId ||
+          resource.provider !== binding.provider || resource.sourceId !== binding.sourceId || binding.bindingKey !== resource.key) return null;
+    }
+    return playbackWaveform;
+  });
+  function currentStreamWaveformMatchesPlayback(): boolean {
+    const waveform = playbackWaveform;
+    const resource = currentStreamMediaResource();
+    return Boolean(waveform?.source === "stream-analysis" && waveform.complete && waveform.resource && resource &&
+      waveform.trackId === resource.trackId && waveform.resource.provider === resource.provider && waveform.resource.sourceId === resource.sourceId &&
+      waveform.resource.bindingKey === resource.key);
+  }
+  const completeStreamWaveformVisible = $derived.by(() => waveformEnabled && playbackWaveformForDisplay?.source === "stream-analysis" &&
+    playbackWaveformForDisplay.complete && currentStreamWaveformMatchesPlayback());
+  let liveBpmPollStatus = $state<"warming" | "estimating" | "insufficient" | "unavailable" | "unsupported" | "waiting">("warming");
+  let liveBpmPollReason = $state<string | null>(null);
+  let liveBpmObservation = $state<WebviewLiveBpmDiagnostics | null>(null);
   $effect(() => {
     const trackId = liveBpmTrackId;
     const generation = liveBpmGeneration;
     const serial = seekSerial;
+    const nativeSerial = liveBpmNativeSeekSerial;
     const shouldPoll = liveBpmCanPoll;
     if (!shouldPoll || generation === null || trackId === null) {
       liveBpmEstimate = null;
+      liveKeyEstimate = null;
       liveBpmPollStatus = "warming";
+      liveBpmPollReason = null;
       return;
     }
     let active = true;
     let inFlight = false;
     const startedAt = Date.now();
     liveBpmPollStatus = "warming";
+    liveBpmPollReason = null;
     const poll = async () => {
       if (!active || inFlight) return;
       inFlight = true;
       try {
-        const estimate = await call<LiveBpmEstimate | null>("get_live_bpm");
+        const estimates = await call<LivePlaybackEstimates | null>("get_live_playback_estimates");
         const latestTrackId = playingTrack?.id ?? null;
         const latestGeneration = nativeSnapshot?.generation ?? null;
-        const latestOwner = { generation: latestGeneration ?? -1, seekSerial, trackId: latestTrackId ?? "" };
-        if (!active || latestTrackId !== trackId || latestGeneration !== generation || seekSerial !== serial || paused || !nativeActive() || nativeSnapshot?.status !== "playing") return;
-        if (!isCurrentLiveBpmEstimate(estimate, latestOwner)) { liveBpmEstimate = null; liveBpmPollStatus = Date.now() - startedAt < 12000 ? "warming" : "insufficient"; return; }
-        liveBpmEstimate = estimate;
+        const latestOwner = { generation: latestGeneration ?? -1, seekSerial: nativeSnapshot?.seekSerial ?? 0, trackId: latestTrackId ?? "" };
+        if (!active || latestTrackId !== trackId || latestGeneration !== generation || seekSerial !== serial || (nativeSnapshot?.seekSerial ?? 0) !== nativeSerial || paused || !nativeActive() || nativeSnapshot?.status !== "playing") return;
+        const bpm = estimates?.bpm ?? null;
+        const key = estimates?.key ?? null;
+        const validBpm = isCurrentLiveBpmEstimate(bpm, latestOwner) ? bpm : null;
+        const validKey = isCurrentLiveKeyEstimate(key, latestOwner) ? key : null;
+        liveBpmEstimate = validBpm;
+        liveKeyEstimate = validKey;
+        if (!validBpm && !validKey) liveBpmPollStatus = Date.now() - startedAt < 15000 ? "warming" : "insufficient";
       } catch {
-        if (active) { liveBpmEstimate = null; liveBpmPollStatus = "unavailable"; }
+        if (active) { liveBpmEstimate = null; liveKeyEstimate = null; liveBpmPollStatus = "unavailable"; }
       } finally { inFlight = false; }
     };
     void poll();
     const timer = window.setInterval(() => void poll(), 3000);
-    return () => { active = false; window.clearInterval(timer); liveBpmEstimate = null; };
+    return () => { active = false; window.clearInterval(timer); liveBpmEstimate = null; liveKeyEstimate = null; };
+  });
+  $effect(() => {
+    const trackId = playingTrack?.id ?? null;
+    const source = preview as WebviewResolvedPreview | null;
+    const generation = source?.sourceGeneration ?? null;
+    const serial = seekSerial;
+    const node = audio;
+    const enabled = settings.liveBpmEnabled === true;
+    const eligible = enabled && !nativeActive() && !paused && Boolean(trackId) && generation !== null &&
+      supportsWebviewLiveBpmRoute(source?.kind, source?.normalizationRoute) && Boolean(node);
+    if (!eligible || !trackId || generation === null || !source || !node) {
+      if (!nativeActive()) {
+        liveBpmEstimate = null;
+        liveKeyEstimate = null;
+        liveBpmObservation = null;
+        if (enabled && !paused && trackId && supportsWebviewLiveBpmRoute(source?.kind, "same-origin-relay")) {
+          liveBpmPollStatus = "unsupported";
+          liveBpmPollReason = "The active Web Audio playback route is not ready to provide PCM samples.";
+        } else {
+          liveBpmPollStatus = "warming";
+          liveBpmPollReason = null;
+        }
+      }
+      return;
+    }
+    let active = true;
+    let inFlight = false;
+    let tap: import("./lib/loudness-normalization").WebAudioPcmTap | null = null;
+    let timer = 0;
+    const startedAt = Date.now();
+    const owner = { trackId, generation, seekSerial: serial };
+    const pcm = new WebviewLiveBpmWindow(owner);
+    const publishObservation = () => { if (isCurrent()) liveBpmObservation = pcm.diagnosticSnapshot; };
+    const isCurrent = () => active && audio === node && preview?.url === source.url && preview?.sourceGeneration === generation &&
+      playingTrack?.id === trackId && seekSerial === serial && !paused && !nativeActive() && node === audio;
+    const poll = async () => {
+      const playing = isCurrent() && !node.paused;
+      if (inFlight || !canRequestWebviewLiveBpm(enabled, playing, owner, playing ? owner : null, pcm.seconds)) return;
+      const samples = pcm.snapshot(playing, owner);
+      if (!samples) return;
+      inFlight = true;
+      pcm.recordAttempt();
+      liveBpmPollStatus = "estimating";
+      publishObservation();
+      const requestStartedAt = performance.now();
+      try {
+        const rawResponse = await call<unknown>("estimate_webview_live_bpm", {
+          trackId, generation, seekSerial: serial, sampleRate: WEBVIEW_LIVE_BPM_SAMPLE_RATE,
+          samplesBase64: (await import("./lib/loudness-normalization")).encodeWebAudioPcm16Base64(samples),
+        });
+        const response = parseWebviewLiveBpmResponse<LiveBpmEstimate>(rawResponse);
+        const owner = { trackId: playingTrack?.id ?? "", generation: preview?.sourceGeneration ?? -1, seekSerial };
+        if (!isCurrent()) return;
+        pcm.recordOutcome(response.status, performance.now() - requestStartedAt);
+        publishObservation();
+        if (response.status === "owner_mismatch_before" || response.status === "owner_changed_after") {
+          liveBpmEstimate = null;
+          liveKeyEstimate = null;
+          liveBpmPollStatus = "waiting";
+          liveBpmPollReason = null;
+          return;
+        }
+        if (response.status === "no_estimate" || response.status === "disabled" || response.status === "native_active") {
+          liveBpmEstimate = null;
+          liveKeyEstimate = null;
+          liveBpmPollStatus = Date.now() - startedAt < 15_000 ? "warming" : "insufficient";
+          liveBpmPollReason = null;
+          return;
+        }
+        const estimate = response.estimate ?? null;
+        const keyEstimate = response.keyEstimate ?? null;
+        const validBpm = isCurrentLiveBpmEstimate(estimate, owner) ? estimate : null;
+        const validKey = isCurrentLiveKeyEstimate(keyEstimate, owner) ? keyEstimate : null;
+        liveBpmEstimate = validBpm;
+        liveKeyEstimate = validKey;
+        liveBpmPollStatus = validBpm ? "warming" : Date.now() - startedAt < 15_000 ? "warming" : "insufficient";
+        liveBpmPollReason = null;
+      } catch {
+        if (isCurrent()) {
+          liveBpmEstimate = null;
+          liveKeyEstimate = null;
+          liveBpmPollStatus = "unavailable";
+          liveBpmPollReason = "The Web Audio live playback analysis request could not be completed.";
+        }
+      } finally { inFlight = false; }
+    };
+    liveBpmEstimate = null;
+    liveKeyEstimate = null;
+    liveBpmPollStatus = "warming";
+    liveBpmPollReason = null;
+    liveBpmObservation = pcm.diagnosticSnapshot;
+    void (async () => {
+      try {
+        if (!isCurrent() || !await ensureWebviewWaveformRoute() || !isCurrent()) {
+          if (isCurrent()) {
+            liveBpmPollStatus = "unsupported";
+            liveBpmPollReason = "The active Web Audio playback route could not provide PCM samples.";
+          }
+          return;
+        }
+        const module = await import("./lib/loudness-normalization");
+        if (!isCurrent()) return;
+        const attached = await module.attachWebAudioPcmTap(node, event => {
+          if (!isCurrent()) { pcm.reset(); return; }
+          if (event.kind === "gap") {
+            pcm.reset("capture_gap");
+            publishObservation();
+            liveBpmEstimate = null;
+            liveKeyEstimate = null;
+            liveBpmPollStatus = "warming";
+            liveBpmPollReason = event.reason.slice(0, 160);
+            return;
+          }
+          if (!pcm.append(event.batch.samples, owner)) {
+            liveBpmEstimate = null;
+            liveKeyEstimate = null;
+            liveBpmPollStatus = "unavailable";
+            liveBpmPollReason = "The PCM observation did not match the active playback window.";
+          }
+          publishObservation();
+        });
+        if (!attached.tap) {
+          if (isCurrent()) {
+            liveBpmPollStatus = "unsupported";
+            liveBpmPollReason = (attached.reason ?? "The Web Audio PCM observer is unavailable.").slice(0, 160);
+          }
+          return;
+        }
+        tap = attached.tap;
+        pcm.markTapAttached();
+        publishObservation();
+        timer = window.setInterval(() => void poll(), 3000);
+        void poll();
+      } catch {
+        if (isCurrent()) {
+          liveBpmPollStatus = "unavailable";
+          liveBpmPollReason = "The Web Audio PCM observer could not start.";
+        }
+      }
+    })();
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      tap?.stop();
+      pcm.bind(null);
+      pcm.reset();
+      if (liveBpmObservation) liveBpmObservation = null;
+      if (!nativeActive()) liveBpmEstimate = null;
+      if (!nativeActive()) liveKeyEstimate = null;
+      if (!nativeActive()) liveBpmPollReason = null;
+    };
   });
   let lastSourceFailureKey="";
   let lastSkippedTrackFailureKey="";
@@ -1089,6 +1752,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     return `Could not play ${artist} — ${title}: ${reason}`;
   }
   function applyNativeSnapshot(snapshot: NativePlaybackSnapshot) {
+    const previousNativeSnapshot = nativeSnapshot;
     const handoff = pendingWebviewHandoff;
     if (handoff && snapshot.handoffId === handoff.handoffId && handoff.cancelled) {
       handoff.cancelled = true;
@@ -1134,7 +1798,15 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       const favorites = new Set(favoriteTrackIds);
       queueTracks = snapshot.queue.map(track=>({...track,favorite:favorites.has(track.id)}));
     }
+    if (Array.isArray(snapshot.queueEntryIds) && snapshot.queueEntryIds.length === snapshot.queue.length) {
+      playbackQueue.restore({
+        tracks: snapshot.queue, entryIds: snapshot.queueEntryIds, currentIndex: snapshot.currentIndex,
+        repeat: snapshot.repeat === "all" || snapshot.repeat === "one" ? snapshot.repeat : "off",
+        ...(snapshot.queueLoudnessContexts ? { queueLoudnessContexts: snapshot.queueLoudnessContexts } : {}),
+      });
+    }
     queueIndex = snapshot.currentIndex;
+    persistNativeQueueCheckpoint(snapshot);
     paused = snapshot.paused; position = snapshot.position; duration = snapshot.duration;
     volume = snapshot.volume; repeatMode = (snapshot.repeat === "all" || snapshot.repeat === "one" ? snapshot.repeat : "off");
     shuffleEnabled = snapshot.shuffle;
@@ -1142,8 +1814,40 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     resolvingPlayback = snapshot.status === "resolving";
     previewStatus = failureMessage || snapshot.playerMessage || (snapshot.status === "paused" ? "Paused" : snapshot.status === "playing" ? "Playing" : "");
     preview = snapshot.track ? { kind: "native", url: snapshot.track.sourceUrl, canSeek: snapshot.canSeek, canVolume: snapshot.canVolume, canAutoplay: true, isExcerpt: Boolean(snapshot.track.playbackRange), provider: snapshot.candidate?.provider, audioCodec: snapshot.quality?.codec, audioBitrateKbps: snapshot.quality?.bitrateKbps } : null;
+    persistNativePositionBookmark(snapshot, previousNativeSnapshot);
     if (oldTrack !== snapshot.track?.id && snapshot.track?.artworkUrl) void cacheCover(snapshot.track);
     if (snapshotTrack) selected = snapshotTrack;
+    confirmStartupNativeHandoffSnapshot(snapshot);
+
+    // Native history is recorded by Rust at the first real output audio frame.
+    // Refresh once for this generation/queue occurrence, after the write has
+    // had a chance to finish; the delayed callback rechecks the same owner.
+    const firstAudioMs = snapshot.diagnostics?.firstAudioMs;
+    const trackId = snapshot.trackId;
+    const owner = snapshot.status === "playing" && !snapshot.paused && firstAudioMs != null && typeof trackId === "string"
+      ? JSON.stringify([snapshot.generation, snapshot.entryId, trackId, snapshot.diagnostics?.operationId])
+      : "";
+    if (pendingNativeHistorySummaryOwner && owner !== pendingNativeHistorySummaryOwner) {
+      if (nativeHistorySummaryTimer !== null) clearTimeout(nativeHistorySummaryTimer);
+      nativeHistorySummaryTimer = null;
+      pendingNativeHistorySummaryOwner = "";
+    }
+    if (owner && typeof trackId === "string" && owner !== lastNativeHistorySummaryOwner && owner !== pendingNativeHistorySummaryOwner) {
+      const generation = snapshot.generation, entryId = snapshot.entryId, ownedTrackId = trackId;
+      pendingNativeHistorySummaryOwner = owner;
+      nativeHistorySummaryTimer = setTimeout(() => {
+        nativeHistorySummaryTimer = null;
+        if (pendingNativeHistorySummaryOwner !== owner) return;
+        pendingNativeHistorySummaryOwner = "";
+        lastNativeHistorySummaryOwner = owner;
+        void refreshTrackLibrarySummaryFor(ownedTrackId, () => {
+          const current = nativeSnapshot;
+          return current?.engine === "native" &&
+            current.generation === generation && current.entryId === entryId && current.trackId === ownedTrackId &&
+            current.diagnostics?.firstAudioMs != null;
+        });
+      }, 200);
+    }
   }
   function applyNativePosition(event: NativePositionEvent) {
     if (nativeSnapshot) nativeSnapshot = {
@@ -1155,6 +1859,75 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     position = event.position;
     if (event.duration !== undefined) duration = event.duration;
     if (event.buffering !== undefined) bufferingAudio = event.buffering;
+    if (nativeSnapshot?.engine === "native" && nativeSnapshot.generation === event.generation) {
+      persistNativePositionBookmark({ ...nativeSnapshot, position: event.position, ...(event.duration !== undefined ? { duration: event.duration } : {}) });
+    }
+  }
+  function persistNativeQueueCheckpoint(snapshot: NativePlaybackSnapshot) {
+    if (snapshot.engine !== "native" ||
+        !Array.isArray(snapshot.queueEntryIds) || snapshot.queueEntryIds.length !== snapshot.queue.length ||
+        !Number.isInteger(snapshot.currentIndex) || (snapshot.queue.length > 0
+          ? snapshot.currentIndex < 0 || snapshot.currentIndex >= snapshot.queue.length
+          : snapshot.currentIndex !== -1 && snapshot.currentIndex !== 0)) return;
+    const isEmpty = snapshot.queue.length === 0;
+    // An initial empty native snapshot can be the handoff point for the
+    // legacy-WebView-to-native migration. Leave that browser queue intact
+    // until migration is decided; after ownership exists, empty is a real
+    // native queue change and must clear stale browser queue state.
+    if (isEmpty && !lastNativeQueueCheckpoint) {
+      let migrationAlreadyDecided = false;
+      try { migrationAlreadyDecided = localStorage.getItem("burrata.native-playback-migrated.v1") === "1"; } catch { /* Preserve the legacy queue if marker storage is unavailable. */ }
+      if (!migrationAlreadyDecided) return;
+    }
+    const currentEntryId = isEmpty ? null : snapshot.entryId ?? snapshot.queueEntryIds[snapshot.currentIndex];
+    if (!isEmpty && (!currentEntryId || snapshot.queueEntryIds[snapshot.currentIndex] !== currentEntryId)) return;
+    const revision = Number.isSafeInteger(snapshot.queueRevision) && Number(snapshot.queueRevision) >= 0
+      ? Number(snapshot.queueRevision) : null;
+    const repeat = snapshot.repeat === "all" || snapshot.repeat === "one" ? snapshot.repeat : "off";
+    const previous = lastNativeQueueCheckpoint;
+    const sameRevisionOwner = previous !== null && revision !== null && previous.revision === revision &&
+      previous.index === snapshot.currentIndex && previous.entryId === currentEntryId && previous.repeat === repeat;
+    if (sameRevisionOwner) return;
+    const contextEntryIds = Object.keys(snapshot.queueLoudnessContexts ?? {}).sort();
+    const sameLegacyOwner = previous !== null && revision === null && previous.revision === null &&
+      previous.index === snapshot.currentIndex && previous.entryId === currentEntryId && previous.repeat === repeat &&
+      previous.trackIds.length === snapshot.queue.length && previous.trackIds.every((id, index) => id === snapshot.queue[index]?.id) &&
+      previous.entryIds.length === snapshot.queueEntryIds.length && previous.entryIds.every((id, index) => id === snapshot.queueEntryIds?.[index]) &&
+      previous.contextEntryIds.length === contextEntryIds.length && previous.contextEntryIds.every((id, index) => id === contextEntryIds[index]);
+    if (sameLegacyOwner) return;
+    if (!savePlaybackQueue(playbackQueue)) return;
+    lastNativeQueueCheckpoint = {
+      revision, index: snapshot.currentIndex, entryId: currentEntryId, repeat,
+      trackIds: snapshot.queue.map(track => track.id), entryIds: [...snapshot.queueEntryIds], contextEntryIds,
+    };
+  }
+  function persistNativePositionBookmark(snapshot: NativePlaybackSnapshot, previous: NativePlaybackSnapshot | null = nativeSnapshot) {
+    if (snapshot.engine !== "native" || !snapshot.track || playingRadioStation || snapshot.radioNowPlaying ||
+        typeof snapshot.entryId !== "string" || !snapshot.entryId) return;
+    const track = snapshot.track;
+    // Native chapter positions are relative to their chapter; the WebView
+    // startup bookmark is absolute within the source recording.
+    const absolutePosition = chapterAbsolutePosition(track, snapshot.position);
+    const now = Date.now();
+    const nativeSeekSerial = Number.isSafeInteger(snapshot.seekSerial) && Number(snapshot.seekSerial) >= 0
+      ? Number(snapshot.seekSerial) : 0;
+    const checkpoint = {
+      trackId: track.id, entryId: snapshot.entryId, generation: snapshot.generation,
+      seekSerial: nativeSeekSerial, position: absolutePosition, now,
+      paused: snapshot.paused, radio: false,
+    };
+    const force = (snapshot.paused && previous?.paused !== true) ||
+      (previous?.seekSerial !== undefined && nativeSeekSerial !== previous.seekSerial) ||
+      (previous?.entryId !== undefined && snapshot.entryId !== previous.entryId);
+    if (!shouldPersistNativePositionBookmark(checkpoint, lastNativeBookmarkOwner, force)) return;
+    try {
+      localStorage.setItem(PLAYBACK_POSITION_KEY, JSON.stringify(createNativePositionBookmark(checkpoint)));
+      lastNativeBookmarkOwner = {
+        trackId: track.id, entryId: snapshot.entryId, generation: snapshot.generation,
+        seekSerial: nativeSeekSerial, savedAt: now, paused: snapshot.paused,
+      };
+      lastPersistedPlaybackPosition = { trackId: track.id, position: absolutePosition, savedAt: now };
+    } catch { /* Storage quota must not interrupt native playback. */ }
   }
   let engineSwitchBusy = $state(false);
   async function applyPlaybackEngineAndRestart(engine: "webview" | "native") {
@@ -1172,10 +1945,12 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       const persisted = new PlaybackQueue();
       persisted.restore(queue);
       if (!savePlaybackQueue(persisted)) throw new Error("Could not save the current queue");
-      localStorage.setItem(PLAYBACK_POSITION_KEY, JSON.stringify({trackId:track?.id ?? null,position:absolutePosition,savedAt:Date.now()}));
+      const entryId = queue.entryIds?.[queue.currentIndex];
+      localStorage.setItem(PLAYBACK_POSITION_KEY, JSON.stringify({trackId:track?.id ?? null,...(entryId ? {entryId} : {}),position:absolutePosition,savedAt:Date.now()}));
       localStorage.setItem("burrata.engine-switch-controls.v1", JSON.stringify({volume:snapshot?.volume ?? volume,shuffle:snapshot?.shuffle ?? shuffleEnabled}));
       await call("restart_with_playback_engine", {engine, checkpoint:{
         tracks:queue.tracks, entryIds:queue.entryIds, index:queue.currentIndex,
+        ...(queue.queueLoudnessContexts ? { queueLoudnessContexts: queue.queueLoudnessContexts } : {}),
         currentEntryId:queue.entryIds?.[queue.currentIndex] ?? null,
         queueRevision:snapshot?.queueRevision ?? 0, position:relativePosition,
         volume:snapshot?.volume ?? volume, repeat:queue.repeat, shuffle:snapshot?.shuffle ?? shuffleEnabled,
@@ -2114,6 +2889,14 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     const timer = setTimeout(() => { if (noticeState === current) setNotice(""); }, 5500);
     return () => clearTimeout(timer);
   });
+  $effect(() => {
+    const current = deletedPlaylist;
+    if (!current) return;
+    const timer = setTimeout(() => {
+      if (deletedPlaylist === current) deletedPlaylist = null;
+    }, 10000);
+    return () => clearTimeout(timer);
+  });
   async function run<T>(fn: () => Promise<T>): Promise<T | undefined> {
     busy++;
     error = "";
@@ -2242,7 +3025,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     await navigate("collections", false);
   }
   async function importPreset(url:string) {
-    browserUrl=url;showImport=false;
+    browserUrl=url;importChoice="import-url";closeImportDialog();
     await requestBrowserImport();
     if(view==="source-browser")setNotice(browserMessage);
   }
@@ -2331,9 +3114,10 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     await navigate("library", false);
   }
   async function syncMirrors() {
-    if (!desktop()) return;
+    if (!desktop() || settings.playlistMirroringEnabled === false) return;
     try {
       const result = await call<{ synchronized: number; repairedTrackMetadata?: number; warnings: string[]; mirrorsDirectory?: string; pausedMirrors?: string[]; sources?: {collectionId?: string | null}[] }>("sync_playlists");
+      if (untrack(() => settings.playlistMirroringEnabled === false)) return;
       mirrorStatus = result.warnings?.join(" · ") ?? "";
       pausedMirrors = result.pausedMirrors ?? []; localPlaylistIds = result.sources?.map((source) => source.collectionId).filter((id): id is string => Boolean(id)) ?? [];
       collections = await call<Collection[]>("list_collections");
@@ -2381,7 +3165,8 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     const unchanged = lastPersistedPlaybackPosition?.trackId === resumeTrackId && lastPersistedPlaybackPosition.position === resumePosition;
     if (routine && lastPersistedPlaybackPosition && unchanged && savedAt >= lastPersistedPlaybackPosition.savedAt && savedAt - lastPersistedPlaybackPosition.savedAt < 60_000) return;
     try {
-      localStorage.setItem(PLAYBACK_POSITION_KEY, JSON.stringify({ trackId: resumeTrackId, position: resumePosition, savedAt }));
+      const entryId = playbackQueue.current?.id === resumeTrackId ? playbackQueue.entryIds[queueIndex] : undefined;
+      localStorage.setItem(PLAYBACK_POSITION_KEY, JSON.stringify({ trackId: resumeTrackId, ...(entryId ? { entryId } : {}), position: resumePosition, savedAt }));
       lastPersistedPlaybackPosition = {trackId:resumeTrackId,position:resumePosition,savedAt};
     } catch {
       lastPersistedPlaybackPosition = null;
@@ -2391,12 +3176,12 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
   function restorePlaybackPosition() {
     if (typeof localStorage === "undefined") return;
     try {
-      const value = JSON.parse(localStorage.getItem(PLAYBACK_POSITION_KEY) ?? "null") as { trackId?: unknown; position?: unknown; savedAt?: unknown } | null;
-      if (!value || typeof value.trackId !== "string" || !Number.isFinite(value.position) || Number(value.position) <= 0 ||
-          !Number.isFinite(value.savedAt) || Date.now() - Number(value.savedAt) > 30 * 24 * 60 * 60 * 1000 ||
-          playbackQueue.current?.id !== value.trackId) return;
+      const value = JSON.parse(backupStartupReadStorage.getItem(PLAYBACK_POSITION_KEY) ?? "null") as NativePositionBookmark | null;
+      if (!validNativePositionBookmark(value) || value.position <= 0 ||
+          Date.now() - value.savedAt > 30 * 24 * 60 * 60 * 1000 ||
+          !nativeBookmarkMatchesOccurrence(value, playbackQueue.current?.id, playbackQueue.entryIds[queueIndex])) return;
       resumeTrackId = value.trackId;
-      resumePosition = Number(value.position);
+      resumePosition = value.position;
       position = resumePosition;
       previewStatus = `Ready to resume from ${time(resumePosition)}`;
     } catch { /* Ignore corrupt or inaccessible saved state. */ }
@@ -2442,18 +3227,28 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     }
   }
   async function recordSuccessfulPlayback() {
-    if (!playingTrack || !playbackSession || recordedSession === playbackSession) return;
+    const track = playingTrack, sessionId = playbackSession, candidate = playingCandidate;
+    if (!track || !sessionId || recordedSession === sessionId) return;
+    const startupResumeGate = webviewStartupResumeAudioGate;
+    if (startupResumeBlocksHistory(startupResumeGate, audio, preview, track.id)) return;
     if(playingRadioStation){
-      const metadata=(playingTrack.provenance as {radioMetadata?:RadioTrackMetadata})?.radioMetadata;
+      const metadata=(track.provenance as {radioMetadata?:RadioTrackMetadata})?.radioMetadata;
       if(metadata)void recordCurrentRadioSong(playingRadioStation,metadata);
       return;
     }
-    recordedSession = playbackSession;
-    if (playingCandidate) void rememberAudioSource(playingTrack, playingCandidate);
-    const chapter = playingCandidate?.chapters?.find((item) => position >= item.startTime && position < item.endTime);
-    await call("record_playback", { sessionId: playbackSession, provider: playingCandidate?.provider ?? preview?.provider ?? playingTrack.provider, track: playingTrack, chapter: chapter ?? null }).catch((failure) => { mirrorStatus = `History: ${String(failure)}`; recordedSession = ""; });
+    recordedSession = sessionId;
+    if (candidate) void rememberAudioSource(track, candidate);
+    const chapter = candidate?.chapters?.find((item) => position >= item.startTime && position < item.endTime);
+    try {
+      await call("record_playback", { sessionId, provider: candidate?.provider ?? preview?.provider ?? track.provider, track, chapter: chapter ?? null });
+      await refreshTrackLibrarySummaryFor(track.id);
+    } catch (failure) {
+      mirrorStatus = `History: ${String(failure)}`;
+      if (recordedSession === sessionId) recordedSession = "";
+    }
   }
   async function rememberAudioSource(track: Track, candidate: Candidate) {
+    if (portablePlaybackSource(track)) return;
     try {
       const updated = await call<Track>("save_audio_match", { track, candidate });
       const remembered = updated.provenance as Record<string, unknown>;
@@ -2547,6 +3342,11 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     } catch { /* Keep the placeholder when the source has no artwork. */ }
   }
   const playerPosition = $derived(nativeActive() ? position : playingTrack ? chapterRelativePosition(playingTrack, position) : position);
+  function isStationPlaybackTrack(track: Track | null | undefined): boolean {
+    return Boolean(track && (track.provider === "radioparadise" || track.provider === "internet-radio" ||
+      track.provider === "radio" && (track.provenance as { sourceKind?: string } | undefined)?.sourceKind === "radio"));
+  }
+  const liveRadioPlayback = $derived(isStationPlaybackTrack(playingTrack));
   const playerDuration = $derived.by(() => {
     const provenance = playingTrack?.provenance as { sourceKind?: string } | null | undefined;
     const liveRadio = playingTrack?.provider === "radioparadise" || playingTrack?.provider === "internet-radio"
@@ -2558,6 +3358,571 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     if (playingTrack?.playbackRange) return playableDuration(playingTrack) ?? duration;
     if (liveRadio || !playingTrack) return duration;
     return stableWebviewSourceDuration(playingTrack, preview, audio) ?? duration;
+  });
+  async function cancelLocalWaveformAnalysis(message = "Waveform analysis cancelled.") {
+    localWaveformAnalysisRequest++;
+    const jobId = localWaveformAnalysisJobId;
+    localWaveformAnalysisJobId = null;
+    localWaveformAnalysisOwnerKey = "";
+    if (jobId) await call("cancel_local_waveform_analysis", { jobId }).catch(() => {});
+    localWaveformAnalysisStatus = message;
+  }
+  async function analyzeCurrentLocalWaveform() {
+    const assetId = waveformLocalAssetId;
+    const trackId = waveformTrackId;
+    const generation = waveformGeneration;
+    if (!assetId || !trackId || generation === null || !waveformEnabled) return;
+    if (localWaveformAnalysisJobId) await cancelLocalWaveformAnalysis("Replacing previous waveform request…");
+    const request = ++localWaveformAnalysisRequest;
+    const isCurrent = () => request === localWaveformAnalysisRequest && waveformEnabled && waveformLocalAssetId === assetId && waveformTrackId === trackId && waveformGeneration === generation;
+    localWaveformAnalysisStatus = "Checking registered audio file…";
+    try {
+      const asset = await call<LocalAsset | null>("get_asset_by_id", { assetId });
+      if (!isCurrent()) return;
+      if (!asset || asset.id !== assetId || !/^[a-f0-9]{64}$/i.test(asset.hash)) {
+        localWaveformAnalysisStatus = "A complete waveform is unavailable for this file.";
+        return;
+      }
+      void analyzeCurrentLocalPlaybackDetails(asset);
+      const requestData = { assetId, expectedHash: asset.hash, binCount: 1200 };
+      const install = async (record: {
+        assetId: string; fileHash: string; analyzerVersion: string; durationSeconds: number;
+        bins: Array<{ min: number; max: number } | null>; complete: boolean; scope?: "wholeTrack" | "playbackRange";
+      }) => {
+        if (!isCurrent() || record.assetId !== assetId || record.fileHash !== asset.hash || record.analyzerVersion !== "ffmpeg-mono-peaks-8khz-v1" ||
+            record.bins.length !== 1200 || !Number.isFinite(record.durationSeconds) || record.durationSeconds <= 0) return false;
+        const waveform = waveformData;
+        const playbackRange = playingTrack?.playbackRange;
+        const nativeChapter = nativeActive() ? nativeSnapshot?.chapter : null;
+        const startSeconds = nativeChapter?.startSeconds ?? playbackRange?.startTime ?? 0;
+        const endSeconds = nativeChapter?.endSeconds ?? playbackRange?.endTime ?? record.durationSeconds;
+        const isPlaybackRange = startSeconds > 0.001 || endSeconds < record.durationSeconds - 0.001;
+        const bins = isPlaybackRange
+          ? waveform.cropWaveformBins({ bins: record.bins, durationSeconds: record.durationSeconds, startSeconds, endSeconds, outputBinCount: 1200 })
+          : record.bins;
+        const waveformDurationSeconds = isPlaybackRange ? endSeconds - startSeconds : record.durationSeconds;
+        playbackWaveform = waveform.localWaveformSnapshot({
+          generation, trackId, durationSeconds: waveformDurationSeconds, bins,
+          complete: !isPlaybackRange && record.complete,
+          scope: isPlaybackRange ? "playbackRange" : "wholeTrack",
+        });
+        verifiedLocalWaveformBinding = {
+          trackId, assetId, fileHash: asset.hash,
+          fullTrack: record.complete && record.scope === "wholeTrack" && record.bins.every(bin => bin !== null),
+        };
+        playbackWaveformReason = "";
+        localWaveformAnalysisStatus = "Full local waveform ready.";
+        return true;
+      };
+      const cached = await call<Parameters<typeof install>[0] | null>("get_local_waveform_analysis", requestData);
+      if (!isCurrent()) return;
+      if (cached && await install(cached)) return;
+      const jobId = await call<string>("start_local_waveform_analysis", requestData);
+      if (!isCurrent()) { await call("cancel_local_waveform_analysis", { jobId }).catch(() => {}); return; }
+      localWaveformAnalysisJobId = jobId;
+      localWaveformAnalysisOwnerKey = `${trackId}\u0000${assetId}\u0000${generation}`;
+      localWaveformAnalysisStatus = "Analyzing the registered audio file…";
+      while (isCurrent()) {
+        await new Promise(resolve => window.setTimeout(resolve, 500));
+        if (!isCurrent()) break;
+        const status = await call<{
+          jobId: string; status: string; assetId: string; fileHash: string; binCount: number;
+          durationSeconds?: number | null; processedSeconds: number; error?: string | null;
+        }>("get_local_waveform_analysis_status", { jobId });
+        if (status.jobId !== jobId || status.assetId !== assetId || status.fileHash !== asset.hash || status.binCount !== 1200) {
+          localWaveformAnalysisStatus = "Waveform analysis result did not match the current audio file.";
+          break;
+        }
+        if (status.status === "completed") {
+          const record = await call<Parameters<typeof install>[0] | null>("get_local_waveform_analysis", requestData);
+          if (!record || !await install(record)) localWaveformAnalysisStatus = "Waveform analysis finished, but a verified cached waveform is unavailable.";
+          break;
+        }
+        if (status.status === "failed" || status.status === "cancelled") {
+          localWaveformAnalysisStatus = status.error ?? (status.status === "cancelled" ? "Waveform analysis cancelled." : "Waveform analysis failed.");
+          break;
+        }
+        const total = status.durationSeconds ?? asset.durationSeconds ?? 0;
+        const progress = total > 0 ? Math.min(99, Math.floor(status.processedSeconds / total * 100)) : 0;
+        localWaveformAnalysisStatus = `Analyzing local audio… ${progress}%`;
+      }
+      if (!isCurrent()) await call("cancel_local_waveform_analysis", { jobId }).catch(() => {});
+      if (localWaveformAnalysisJobId === jobId) {
+        localWaveformAnalysisJobId = null;
+        localWaveformAnalysisOwnerKey = "";
+      }
+    } catch (failure) {
+      if (isCurrent()) localWaveformAnalysisStatus = failure instanceof Error ? failure.message : "Waveform analysis is unavailable.";
+      localWaveformAnalysisJobId = null;
+      localWaveformAnalysisOwnerKey = "";
+    }
+  }
+  async function analyzeCurrentLocalPlaybackDetails(asset: LocalAsset) {
+    const track = playingTrack;
+    if (!track || track.id !== waveformTrackId || asset.id !== waveformLocalAssetId || asset.recordingId !== track.id) return;
+    const owner = `${track.id}\u0000${asset.id}\u0000${asset.hash}`;
+    if (currentLocalAnalysisOwner === owner) return;
+    const fields = [...(!track.bpm ? ["bpm"] : []), ...(!track.key?.trim() ? ["key"] : [])];
+    currentLocalAnalysisOwner = owner;
+    currentLocalAnalysisResult = null;
+    currentLocalAnalysisStatus = "";
+    if (!fields.length) return;
+    const request = ++currentLocalAnalysisRequest;
+    const isCurrent = () => request === currentLocalAnalysisRequest && currentLocalAnalysisOwner === owner &&
+      playingTrack?.id === track.id && waveformLocalAssetId === asset.id;
+    currentLocalAnalysisStatus = fields.includes("key") ? "Analyzing musical key from the full file…" : "Analyzing BPM from the full file…";
+    try {
+      const started = await call<SelectedAnalysisJob>("start_selected_asset_analysis", { assetIds: [asset.id], fields });
+      if (!isCurrent()) { if (started?.jobId) void call("cancel_selected_asset_analysis", {jobId:started.jobId}).catch(()=>{}); return; }
+      if (!started?.jobId) throw new Error("Full-file analysis is unavailable.");
+      currentLocalAnalysisJobId = started.jobId;
+      let job = started;
+      while (isCurrent() && !["completed", "failed", "cancelled"].includes(job.state)) {
+        await new Promise(resolve => window.setTimeout(resolve, 500));
+        if (!isCurrent()) return;
+        job = await call<SelectedAnalysisJob>("get_selected_asset_analysis", {jobId:started.jobId});
+        if (!job || job.jobId !== started.jobId) throw new Error("Full-file analysis is unavailable.");
+      }
+      if (!isCurrent()) return;
+      const row = job.results.find(item => item.assetId === asset.id && item.recordingId === track.id);
+      const result = row?.analysis;
+      if (row?.status !== "completed" || !result || result.scope !== "wholeTrack" || result.coverage < 0.99 ||
+          result.resource.kind !== "registeredAsset" || result.resource.assetId !== asset.id ||
+          result.resource.recordingId !== track.id || result.resource.fileHash !== asset.hash) {
+        currentLocalAnalysisStatus = row?.error || "No confident full-file estimate is available.";
+        return;
+      }
+      currentLocalAnalysisResult = result;
+      currentLocalAnalysisStatus = result.key ? "Full-file analysis ready." : "No confident key estimate is available.";
+    } catch (failure) {
+      if (isCurrent()) currentLocalAnalysisStatus = failure instanceof Error ? failure.message : "Full-file analysis is unavailable.";
+    } finally {
+      if (isCurrent()) currentLocalAnalysisJobId = null;
+    }
+  }
+  $effect(() => {
+    const trackId = waveformTrackId, assetId = waveformLocalAssetId;
+    const result = currentLocalAnalysisResult;
+    if (currentLocalAnalysisOwner && (!trackId || !assetId || currentLocalAnalysisOwner.split("\u0000")[0] !== trackId ||
+        currentLocalAnalysisOwner.split("\u0000")[1] !== assetId)) {
+      currentLocalAnalysisRequest++;
+      const jobId = currentLocalAnalysisJobId;
+      currentLocalAnalysisJobId = null; currentLocalAnalysisOwner = "";
+      currentLocalAnalysisResult = null; currentLocalAnalysisStatus = "";
+      if (jobId) void call("cancel_selected_asset_analysis", {jobId}).catch(()=>{});
+    }
+    if (!desktop() || paused || !showPlayingInfo || infoTrack && infoTrack.id !== trackId || !assetId || !trackId || result) return;
+    const expectedAsset = assetId, expectedTrack = trackId;
+    let active = true;
+    untrack(() => { void call<LocalAsset | null>("get_asset_by_id", {assetId}).then(asset => {
+      if (active && asset && waveformLocalAssetId === expectedAsset && playingTrack?.id === expectedTrack) void analyzeCurrentLocalPlaybackDetails(asset);
+    }).catch(()=>{}); });
+    return () => { active = false; };
+  });
+  let automaticLocalWaveformOwner = "";
+  $effect(() => {
+    const enabled = waveformEnabled, assetId = waveformLocalAssetId, trackId = waveformTrackId, generation = waveformGeneration;
+    if (!enabled || !assetId || !trackId || generation === null) { automaticLocalWaveformOwner = ""; return; }
+    if (!desktop() || paused) return;
+    const owner = `${trackId}\u0000${assetId}\u0000${generation}`;
+    if (automaticLocalWaveformOwner === owner) return;
+    automaticLocalWaveformOwner = owner;
+    untrack(() => { void analyzeCurrentLocalWaveform(); });
+  });
+  $effect(() => {
+    const owner = `${waveformTrackId ?? ""}\u0000${waveformLocalAssetId ?? ""}\u0000${waveformGeneration ?? ""}`;
+    const jobId = localWaveformAnalysisJobId;
+    const jobOwner = localWaveformAnalysisOwnerKey;
+    if (jobId && (!waveformEnabled || !waveformTrackId || !waveformLocalAssetId || waveformGeneration === null || owner !== jobOwner)) {
+      void cancelLocalWaveformAnalysis();
+    }
+  });
+  let previousLocalWaveformOwner = "";
+  $effect(() => {
+    const trackId = waveformTrackId;
+    const assetId = waveformLocalAssetId;
+    const generation = waveformGeneration;
+    const owner = `${trackId ?? ""}\u0000${assetId ?? ""}\u0000${generation ?? ""}`;
+    const previousOwner = previousLocalWaveformOwner;
+    previousLocalWaveformOwner = owner;
+    const binding = verifiedLocalWaveformBinding;
+    if (binding && (binding.trackId !== trackId || binding.assetId !== assetId)) {
+      verifiedLocalWaveformBinding = null;
+      if (playbackWaveform?.source === "local-analysis") playbackWaveform = null;
+      playbackWaveformReason = "";
+      localWaveformAnalysisStatus = "";
+      return;
+    }
+    if (!binding || !binding.fullTrack || !waveformEnabled || !trackId || !assetId || generation === null || localWaveformAnalysisJobId) return;
+    const alreadyBound = playbackWaveform?.source === "local-analysis" && playbackWaveform.trackId === trackId && playbackWaveform.generation === generation;
+    if (alreadyBound || !previousOwner) return;
+    const previousResource = previousOwner.split("\u0000").slice(0, 2).join("\u0000");
+    const currentResource = `${trackId}\u0000${assetId}`;
+    if (previousResource !== currentResource) return;
+    // A chapter or user-selected range has its own seek axis. Keep its existing
+    // range-local policy; only rebind a verified whole-track cache to a
+    // whole-track playback owner here.
+    if (playingTrack?.playbackRange || nativeSnapshot?.chapter) return;
+
+    const request = ++localWaveformCacheRebindRequest;
+    localWaveformCacheRebindOwnerKey = owner;
+    const isCurrent = () => request === localWaveformCacheRebindRequest && waveformEnabled && waveformTrackId === trackId &&
+      waveformLocalAssetId === assetId && waveformGeneration === generation && nativeActive() &&
+      verifiedLocalWaveformBinding?.trackId === trackId && verifiedLocalWaveformBinding.assetId === assetId &&
+      verifiedLocalWaveformBinding.fileHash === binding.fileHash && verifiedLocalWaveformBinding.fullTrack;
+    const clearUnverifiedBinding = () => {
+      if (!isCurrent()) return;
+      verifiedLocalWaveformBinding = null;
+      if (playbackWaveform?.source === "local-analysis") playbackWaveform = null;
+      playbackWaveformReason = "Waveform cache could not be verified for this audio file.";
+    };
+    void (async () => {
+      try {
+        const asset = await call<LocalAsset | null>("get_asset_by_id", { assetId });
+        if (!isCurrent()) return;
+        if (!asset || asset.id !== assetId || asset.hash !== binding.fileHash || !/^[a-f0-9]{64}$/i.test(asset.hash)) {
+          clearUnverifiedBinding();
+          return;
+        }
+        const record = await call<{
+          assetId: string; fileHash: string; analyzerVersion: string; durationSeconds: number;
+          bins: Array<{ min: number; max: number } | null>; complete: boolean; scope?: "wholeTrack" | "playbackRange";
+        } | null>("get_local_waveform_analysis", { assetId, expectedHash: asset.hash, binCount: 1200 });
+        if (!isCurrent()) return;
+        if (!record || record.assetId !== assetId || record.fileHash !== asset.hash || record.analyzerVersion !== "ffmpeg-mono-peaks-8khz-v1" ||
+            record.scope !== "wholeTrack" || record.complete !== true || record.bins.length !== 1200 || record.bins.some(bin =>
+              !bin || !Number.isFinite(bin.min) || !Number.isFinite(bin.max) || bin.min < -1 || bin.max > 1 || bin.min > bin.max) ||
+            !Number.isFinite(record.durationSeconds) || record.durationSeconds <= 0) {
+          clearUnverifiedBinding();
+          return;
+        }
+        const waveform = waveformData;
+        if (!isCurrent()) return;
+        playbackWaveform = waveform.localWaveformSnapshot({
+          generation, trackId, durationSeconds: record.durationSeconds,
+          bins: record.bins, complete: true, scope: "wholeTrack",
+        });
+        playbackWaveformReason = "";
+        localWaveformAnalysisStatus = "Full local waveform ready.";
+      } catch {
+        clearUnverifiedBinding();
+      } finally {
+        if (localWaveformCacheRebindOwnerKey === owner) localWaveformCacheRebindOwnerKey = "";
+      }
+    })();
+    if (!localWaveformAnalysisJobId) localWaveformAnalysisStatus = "";
+  });
+  onMount(() => () => {
+    localWaveformAnalysisRequest++;
+    currentLocalAnalysisRequest++;
+    const detailsJobId = currentLocalAnalysisJobId;
+    if (detailsJobId) void call("cancel_selected_asset_analysis", {jobId:detailsJobId}).catch(()=>{});
+    const jobId = localWaveformAnalysisJobId;
+    if (jobId) void call("cancel_local_waveform_analysis", { jobId }).catch(() => {});
+  });
+  $effect(() => {
+    const enabled = waveformEnabled;
+    const resource = currentStreamMediaResource();
+    const generation = waveformGeneration;
+    const playerDurationSeconds = playerDuration;
+    if (!enabled || !resource || generation === null || !Number.isFinite(playerDurationSeconds) || playerDurationSeconds <= 0) {
+      streamWaveformCacheLookupOwner = "";
+      return;
+    }
+    const owner = `${resource.key}:${generation}`;
+    if (streamWaveformCacheLookupOwner === owner) return;
+    streamWaveformCacheLookupOwner = owner;
+    let active = true;
+    void (async () => {
+      try {
+        const trackContext = playingTrack;
+        if (!trackContext || trackContext.id !== resource.trackId) return;
+        const analysis = await call<WholeTrackAnalysisDto | null>("get_cached_stream_media_analysis", {
+          track: streamMediaTrackContext(trackContext, resource.provider, resource.sourceId),
+          provider: resource.provider, sourceId: resource.sourceId,
+          durationSeconds: resource.durationSeconds, audioVariant: resource.audioVariant ?? null,
+        });
+        if (!active || currentStreamMediaResource()?.key !== resource.key || waveformGeneration !== generation) return;
+        if (!analysis) {
+          playbackWaveformReason = "No complete cached waveform is available for this stream; observed playback remains partial.";
+          return;
+        }
+        const stillOwnsLookup = () => active && waveformEnabled && waveformGeneration === generation &&
+          currentStreamMediaResource()?.key === resource.key;
+        if (await installStreamMediaWaveform(analysis, resource, generation, stillOwnsLookup)) {
+          if (!stillOwnsLookup()) return;
+          streamMediaAnalysisResult = analysis;
+          streamMediaAnalysisResultKey = resource.key;
+          streamMediaAnalysisStatus = "Complete waveform cache available for this exact stream resource.";
+          playbackWaveformReason = "Full waveform is cached for this exact verified stream source.";
+        } else if (stillOwnsLookup()) {
+          playbackWaveformReason = "A complete waveform is unavailable for this exact stream resource; observed playback remains partial.";
+        }
+      } catch {
+        if (active) playbackWaveformReason = "No complete waveform is cached for this stream; observed playback remains partial.";
+      }
+    })();
+    return () => {
+      active = false;
+      // A metadata refresh can invalidate a pending exact-resource lookup.
+      // Its replacement effect must be allowed to retry the same resource.
+      if (streamWaveformCacheLookupOwner === owner) streamWaveformCacheLookupOwner = "";
+    };
+  });
+  $effect(() => {
+    const trackId = waveformTrackId;
+    const generation = waveformGeneration;
+    const durationSeconds = playerDuration;
+    const startSeconds = nativeSnapshot?.chapter?.startSeconds ?? playingTrack?.playbackRange?.startTime ?? 0;
+    // This effect owns native observer snapshots only. WebView cache/observer
+    // snapshots have a separate lifecycle and must survive metadata refreshes
+    // that rerun this effect for the same playback item.
+    if (!nativeActive()) return;
+    if (!trackId || generation === null || !Number.isFinite(durationSeconds) || durationSeconds <= 0 || durationSeconds > 86_400) {
+      playbackWaveform = null;
+      playbackWaveformReason = "";
+      return;
+    }
+    let active = true;
+    let inFlight = false;
+    const poll = async () => {
+      const owner = `${trackId ?? ""}\u0000${waveformLocalAssetId ?? ""}\u0000${generation ?? ""}`;
+      const completeAnalysisWaveformIsCurrent = playbackWaveform?.source === "local-analysis" && playbackWaveform.complete &&
+        playbackWaveform.trackId === trackId && playbackWaveform.generation === generation || currentStreamWaveformMatchesPlayback() &&
+        playbackWaveform?.trackId === trackId && playbackWaveform.generation === generation;
+      if (!active || inFlight || localWaveformAnalysisJobId || localWaveformCacheRebindOwnerKey === owner || completeAnalysisWaveformIsCurrent) return;
+      inFlight = true;
+      try {
+        const result = await call<{
+          generation: number; durationSeconds: number; bins: Array<{ min: number; max: number } | null>;
+          observedFraction: number; continuousFromZero: boolean; observedEndSeconds: number | null;
+          complete: boolean; reason?: string | null;
+        } | null>("get_playback_waveform", { generation, startSeconds, durationSeconds, binCount: 1200 });
+        const currentFullLocalWaveform = playbackWaveform?.source === "local-analysis" && playbackWaveform.complete &&
+          playbackWaveform.trackId === trackId && playbackWaveform.generation === generation || currentStreamWaveformMatchesPlayback() &&
+          playbackWaveform?.trackId === trackId && playbackWaveform.generation === generation;
+        if (!active || !result || localWaveformAnalysisJobId || localWaveformCacheRebindOwnerKey === owner || currentFullLocalWaveform || playingTrack?.id !== trackId || nativeSnapshot?.generation !== generation || !nativeActive()) return;
+        if (!Number.isSafeInteger(result.generation) || result.generation !== generation ||
+            !Number.isFinite(result.durationSeconds) || result.durationSeconds <= 0 ||
+            !Array.isArray(result.bins) || result.bins.length > 4096) {
+          playbackWaveform = null;
+          playbackWaveformReason = "Waveform data is unavailable for this playback position.";
+          return;
+        }
+        const bins = result.bins.map((bin) => bin && Number.isFinite(bin.min) && Number.isFinite(bin.max) && bin.min >= -1 && bin.max <= 1 && bin.min <= bin.max
+          ? { min: bin.min, max: bin.max } : null);
+        observedWaveformSnapshotOwner = currentObservedWaveformOwnerKey();
+        playbackWaveform = {
+          generation: result.generation,
+          trackId,
+          durationSeconds: result.durationSeconds,
+          bins,
+          source: "observed-playback",
+          complete: result.complete === true && bins.every((bin) => bin !== null),
+        };
+        playbackWaveformReason = typeof result.reason === "string" ? result.reason.slice(0, 180) : "";
+      } catch {
+        // The player remains usable when the optional waveform command is unavailable.
+      } finally { inFlight = false; }
+    };
+    // The poll reads the waveform it is about to update. Keep those reads
+    // out of the effect's dependency set so each sample does not immediately
+    // restart the effect and spin another poll in a microtask loop.
+    untrack(() => { void poll(); });
+    const timer = window.setInterval(() => void poll(), 1200);
+    return () => { active = false; window.clearInterval(timer); };
+  });
+  $effect(() => {
+    const trackId = waveformTrackId;
+    const generation = waveformGeneration;
+    const durationSeconds = playerDuration;
+    const observedSeekSerial = seekSerial;
+    const shouldObserveWebview = !nativeActive() && !paused && !playingRadioStation &&
+      (preview as WebviewResolvedPreview | null)?.normalizationRoute === "same-origin-relay" && Boolean(audio) && Boolean(trackId) &&
+      generation !== null && Number.isFinite(durationSeconds) && durationSeconds > 0 && durationSeconds <= 86_400;
+    if (!shouldObserveWebview) return;
+    let active = true;
+    let inFlight = false;
+    const poll = async () => {
+      if (!active || inFlight || localWaveformAnalysisJobId || playbackWaveform?.source === "local-analysis" && playbackWaveform.complete || currentStreamWaveformMatchesPlayback()) return;
+      inFlight = true;
+      try {
+        if (!await ensureWebviewWaveformRoute()) {
+          // Cache verification can finish while route setup is awaiting a
+          // decision or AudioContext operation. Never let that stale poll
+          // replace the newly installed complete waveform with an empty one.
+          if (!active || currentStreamWaveformMatchesPlayback()) return;
+          if (active) {
+            playbackWaveformReason = webviewNormalizationRouteStatus && !webviewNormalizationRouteStatus.toLowerCase().includes("route active")
+              ? webviewNormalizationRouteStatus : "This WebView cannot expose waveform samples for the current audio route.";
+            const current = playbackWaveform;
+            if (!current || current.generation !== generation || current.trackId !== trackId || current.reason !== playbackWaveformReason) {
+              const waveform = waveformData;
+              playbackWaveform = waveform.emptyWaveform(generation!, trackId!, durationSeconds, 1200, playbackWaveformReason);
+            }
+          }
+          return;
+        }
+        const node = audio;
+        if (!active || !node || paused || playingTrack?.id !== trackId || waveformGeneration !== generation || seekSerial !== observedSeekSerial) return;
+        const module = await import("./lib/loudness-normalization");
+        const windowPeak = module.readWebAudioPeakWindow(node);
+        if (!windowPeak || !active || paused || localWaveformAnalysisJobId || playbackWaveform?.source === "local-analysis" && playbackWaveform.complete || currentStreamWaveformMatchesPlayback() || playingTrack?.id !== trackId || waveformGeneration !== generation || seekSerial !== observedSeekSerial) return;
+        const pendingDrain = webviewWaveformSeekDrain;
+        if (!isFreshWebviewWaveformWindowAfterSeek(node, generation, observedSeekSerial, windowPeak, pendingDrain)) return;
+        if (pendingDrain?.node === node && pendingDrain.sourceGeneration === generation && pendingDrain.seekSerial === observedSeekSerial) webviewWaveformSeekDrain = null;
+        const waveform = waveformData;
+        const current = playbackWaveform;
+        const base = current?.source === "observed-playback" && current.generation === generation && current.trackId === trackId &&
+          Math.abs(current.durationSeconds - durationSeconds) <= 0.25
+          ? current
+          : waveform.emptyWaveform(generation, trackId!, durationSeconds, 1200);
+        const rangeStartSeconds = playingTrack?.playbackRange?.startTime ?? 0;
+        playbackWaveform = waveform.observeWaveformSegment(base, {
+          generation,
+          trackId: trackId!,
+          startSeconds: windowPeak.startPositionSeconds - rangeStartSeconds,
+          endSeconds: windowPeak.endPositionSeconds - rangeStartSeconds,
+          min: windowPeak.min,
+          max: windowPeak.max,
+        });
+        observedWaveformSnapshotOwner = currentObservedWaveformOwnerKey();
+        playbackWaveformReason = "WebView audio is sampled during playback; blank areas remain unobserved.";
+      } catch {
+        if (!active || currentStreamWaveformMatchesPlayback()) return;
+        if (active) {
+          playbackWaveformReason = "WebView waveform observation is unavailable for this audio route.";
+          const current = playbackWaveform;
+          if (!current || current.generation !== generation || current.trackId !== trackId || current.reason !== playbackWaveformReason) {
+            const waveform = waveformData;
+            playbackWaveform = waveform.emptyWaveform(generation!, trackId!, durationSeconds, 1200, playbackWaveformReason);
+          }
+        }
+      } finally { inFlight = false; }
+    };
+    // This poll reads playbackWaveform before awaiting and later publishes a
+    // new snapshot; tracking those reads would create an immediate feedback
+    // loop while waveform sampling is active.
+    untrack(() => { void poll(); });
+    const timer = window.setInterval(() => void poll(), 80);
+    return () => { active = false; window.clearInterval(timer); };
+  });
+  $effect(() => {
+    const detection = playingTrackDetectionView;
+    const owner = currentPlayingTrackDetectionOwner();
+    const durationSeconds = playerDuration;
+    const range = playingTrack?.playbackRange ?? null;
+    const stream = currentStreamMediaResource();
+    const streamIdentity = stream ?? currentObservedStreamIdentity();
+    const assetId = waveformLocalAssetId;
+    const resourceKey = detection?.resourceKey;
+    const sourceVariantKey = JSON.stringify(streamIdentity?.audioVariant ?? currentStreamAudioVariant());
+    const ownerKey = owner && resourceKey ? `${playingTrackDetectionOwnerKey(owner)}\u0000${resourceKey}\u0000${stream?.key ?? ""}\u0000${assetId ?? ""}\u0000${sourceVariantKey}\u0000${durationSeconds}\u0000${range?.startTime ?? ""}\u0000${range?.endTime ?? ""}` : "";
+    if (!owner) {
+      observedWaveformBinding = null;
+      observedWaveformBindingOwner = "";
+      observedWaveformBindingSequence++;
+      observedWaveformSnapshotOwner = "";
+      if (playbackWaveform?.source === "observed-playback") playbackWaveform = null;
+      return;
+    }
+    if (!resourceKey || !Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+      observedWaveformBinding = null;
+      observedWaveformBindingOwner = "";
+      observedWaveformBindingSequence++;
+      return;
+    }
+    if (observedWaveformBindingOwner === ownerKey) return;
+    observedWaveformBindingOwner = ownerKey;
+    const sequence = ++observedWaveformBindingSequence;
+    observedWaveformBinding = null;
+    if (playbackWaveform?.source === "observed-playback" && observedWaveformSnapshotOwner !== ownerKey) {
+      playbackWaveform = null;
+      observedWaveformSnapshotOwner = "";
+    }
+    const isRange = Boolean(range);
+    const identity = streamIdentity
+      ? { kind: "stream" as const, provider: streamIdentity.provider, sourceId: streamIdentity.sourceId, audioVariant: streamIdentity.audioVariant ?? null }
+      : assetId && /^[a-f0-9]{64}$/i.test(resourceKey)
+        ? { kind: "localResource" as const, resourceKeySha256: resourceKey }
+        : { kind: "session" as const };
+    void prepareObservedWaveformBinding({
+      resourceKey, trackId: owner.trackId, generation: owner.generation, durationSeconds,
+      binCount: 1200, scope: isRange ? "playbackRange" : "wholeTrack",
+      range: isRange ? { startSeconds: range!.startTime, endSeconds: range!.endTime } : null,
+      identity,
+    }).then(binding => {
+      if (sequence !== observedWaveformBindingSequence || observedWaveformBindingOwner !== ownerKey || !trackDetectionOwnerIsCurrent(owner) ||
+          playingTrackDetectionView?.resourceKey !== resourceKey) return;
+      observedWaveformBinding = binding;
+      if (!binding) return;
+      const current = playbackWaveform;
+      if (current?.source === "local-analysis" && current.complete || current?.source === "stream-analysis" && current.complete) return;
+      const restored = observedWaveformCache.restore(binding);
+      if (current?.source === "observed-playback" && (!observedWaveformSnapshotOwner || observedWaveformSnapshotOwner === ownerKey) && current.generation === owner.generation && current.trackId === owner.trackId &&
+          current.durationSeconds === durationSeconds && current.bins.some(Boolean)) {
+        observedWaveformSnapshotOwner = ownerKey;
+        const merged = observedWaveformCache.record(binding, current, { flushNow: paused });
+        if (merged && sequence === observedWaveformBindingSequence && trackDetectionOwnerIsCurrent(owner)) playbackWaveform = merged;
+        return;
+      }
+      if (restored && sequence === observedWaveformBindingSequence && observedWaveformBindingOwner === ownerKey && trackDetectionOwnerIsCurrent(owner)) {
+        observedWaveformSnapshotOwner = ownerKey;
+        playbackWaveform = restored;
+        playbackWaveformReason = "Partial waveform restored for this exact audio source.";
+      }
+    }).catch(() => {});
+  });
+  $effect(() => {
+    const binding = observedWaveformBinding;
+    const snapshot = playbackWaveform;
+    if (!binding || !snapshot || snapshot.source !== "observed-playback" || snapshot.complete ||
+        snapshot.trackId !== binding.trackId || snapshot.generation !== binding.generation ||
+        snapshot.durationSeconds !== binding.durationSeconds || snapshot.bins.length !== binding.binCount ||
+        observedWaveformBindingOwner === "" || observedWaveformSnapshotOwner !== observedWaveformBindingOwner) return;
+    const recorded = observedWaveformCache.record(binding, snapshot, { flushNow: paused });
+    if (recorded && recorded.bins.some((bin, index) => {
+      const current = snapshot.bins[index];
+      return bin === null ? current !== null : !current || bin.min !== current.min || bin.max !== current.max;
+    })) playbackWaveform = { ...recorded, reason: snapshot.reason };
+    if (paused) observedWaveformCache.flush();
+  });
+  $effect(() => {
+    if (paused) observedWaveformCache.flush();
+  });
+  onMount(() => {
+    const flush = () => observedWaveformCache.flush();
+    window.addEventListener("pagehide", flush);
+    return () => { window.removeEventListener("pagehide", flush); observedWaveformCache.flush(); };
+  });
+  $effect(() => {
+    const trackId = cachedStreamAnalysisTrackId;
+    const generation = cachedStreamAnalysisGeneration;
+    const ownerKey = `${trackId ?? ""}:${generation ?? ""}`;
+    if (cachedStreamAnalysisOwnerKey !== ownerKey) {
+      cachedStreamAnalysisOwnerKey = ownerKey;
+      cachedStreamAnalysis = null;
+    }
+    if (!trackId || generation === null || !cachedStreamAnalysisEligible) return;
+    let active = true;
+    let inFlight = false;
+    const poll = async () => {
+      if (!active || inFlight) return;
+      inFlight = true;
+      try {
+        const result = await call<WholeTrackAnalysisDto | null>("get_cached_stream_analysis", { trackId, generation });
+        if (!active || !result || playingTrack?.id !== trackId || nativeSnapshot?.generation !== generation || !nativeActive()) return;
+        if (result.scope !== "wholeTrack" || result.resource?.kind !== "stream" || result.resource.recordingId !== trackId ||
+            !Number.isFinite(result.durationSeconds) || !(8 <= result.durationSeconds && result.durationSeconds <= 900) ||
+            (!result.bpm && !result.key)) return;
+        cachedStreamAnalysis = result;
+      } catch {
+        // An optional cache read must not interrupt playback or track changes.
+      } finally { inFlight = false; }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 2200);
+    return () => { active = false; window.clearInterval(timer); };
   });
   const chaptersByTrack = $derived(Object.fromEntries(queueTracks.map(track=>[track.id,track.playbackRange ? [] : candidateForQueue(track)?.chapters ?? (track.id===playingTrack?.id ? playingCandidate?.chapters ?? [] : [])])));
   const chapterRangesByTrack = $derived(Object.fromEntries(queueTracks.map(track=>{
@@ -2807,6 +4172,22 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       typeof candidate.id === "string" && typeof candidate.url === "string" &&
       typeof candidate.title === "string" ? candidate : undefined;
   }
+  type PortablePlaybackSource = { provider: "youtube" | "soundcloud" | "monochrome"; sourceId: string; matchingLevel: "exact" | "balanced" | "flexible"; sourceHash: string };
+  function portablePlaybackSource(track: Track): PortablePlaybackSource | null {
+    const provenance = track.provenance && typeof track.provenance === "object"
+      ? track.provenance as Record<string, unknown> : {};
+    const value = provenance.portablePlaybackSource;
+    if (!value || typeof value !== "object") return null;
+    const source = value as Record<string, unknown>;
+    if (!(["youtube", "soundcloud", "monochrome"].includes(String(source.provider)) &&
+        typeof source.sourceId === "string" && /^[A-Za-z0-9:_-]{1,512}$/.test(source.sourceId) &&
+        ["exact", "balanced", "flexible"].includes(String(source.matchingLevel)) &&
+        typeof source.sourceHash === "string" && /^[a-f0-9]{64}$/i.test(source.sourceHash))) return null;
+    return {
+      provider: source.provider as PortablePlaybackSource["provider"], sourceId: source.sourceId,
+      matchingLevel: source.matchingLevel as PortablePlaybackSource["matchingLevel"], sourceHash: source.sourceHash,
+    };
+  }
   function linkedSearchCandidate(track: Track): Candidate | undefined {
     const provenance = track.provenance && typeof track.provenance === "object"
       ? track.provenance as Record<string, unknown> : {};
@@ -2843,15 +4224,504 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
 
   let audioStreamHandle: AudioStreamHandle | null = null;
   let lastHlsFailure = "";
+  async function ensureWebviewLoudnessSettings(): Promise<WebviewLoudnessSettings> {
+    if (!webviewLoudnessSettingsLoaded) {
+      try {
+        const loaded = await call<WebviewLoudnessSettings | null>("get_loudness_settings");
+        if (loaded && ["off", "track", "album"].includes(loaded.mode) &&
+            Number.isFinite(loaded.targetLufs) && Number.isFinite(loaded.ceilingDbtp) &&
+            Number.isFinite(loaded.maximumBoostDb) && typeof loaded.albumTrackFallback === "boolean") {
+          webviewLoudnessSettings = { ...loaded, analyzeWhenIdle: loaded.analyzeWhenIdle === true };
+        } else {
+          webviewLoudnessSettings = { mode: "off", targetLufs: -18, ceilingDbtp: -1, maximumBoostDb: 6, albumTrackFallback: true, analyzeWhenIdle: false };
+        }
+      } catch {
+        webviewLoudnessSettings = { mode: "off", targetLufs: -18, ceilingDbtp: -1, maximumBoostDb: 6, albumTrackFallback: true, analyzeWhenIdle: false };
+      }
+      webviewLoudnessSettingsLoaded = true;
+    }
+    return webviewLoudnessSettings;
+  }
+  onMount(() => { void ensureWebviewLoudnessSettings(); });
+  async function isWebviewNormalizationRouteRequired(collectWaveform = true): Promise<boolean> {
+    const config = await ensureWebviewLoudnessSettings();
+    const module = await import("./lib/loudness-normalization");
+    // Finite-track waveform observation starts with playback, independently of
+    // whether its seek bar is visible. Radio keeps its existing route policy.
+    return collectWaveform || config.mode !== "off" || waveformEnabled || Boolean(webviewAnalysisArmTrackId) || module.hasWebAudioGainGraph(audio);
+  }
+  function currentWebviewStreamCaptureIdentity(): { provider: string; sourceId: string; durationSeconds: number; audioVariant: StreamAudioVariant | null } | null {
+    const track = playingTrack, candidate = playingCandidate, source = preview as WebviewResolvedPreview | null;
+    const durationSeconds = stableWebviewSourceDuration(track, source, audio) ?? candidate?.durationSeconds ?? track?.durationSeconds ?? 0;
+    if (!track || !candidate || nativeActive() || playingRadioStation || track.localPath || source?.kind === "local" ||
+        track.playbackRange || source?.isExcerpt || source?.approximateExcerpt || source?.normalizationRoute !== "same-origin-relay" ||
+        !["youtube", "soundcloud", "bandcamp", "monochrome"].includes(candidate.provider) ||
+        !/^[A-Za-z0-9:_-]{1,512}$/.test(candidate.id) || !Number.isFinite(durationSeconds) || durationSeconds < 8 || durationSeconds > 900) return null;
+    return { provider: candidate.provider, sourceId: candidate.id, durationSeconds, audioVariant: currentStreamAudioVariant() };
+  }
+  function currentStreamAudioVariant(): StreamAudioVariant | null {
+    if (nativeActive()) {
+      const quality = nativeSnapshot?.quality;
+      return quality ? { formatId: quality.formatId, codec: quality.codec, mimeType: quality.mimeType,
+        bitrateKbps: quality.bitrateKbps, expectedContentLength: quality.expectedContentLength,
+        containsVideo: quality.formatHasVideo } : null;
+    }
+    return preview ? { formatId: preview.audioFormatId, codec: preview.audioCodec, mimeType: preview.audioMimeType,
+      bitrateKbps: preview.audioBitrateKbps, expectedContentLength: preview.audioExpectedContentLength,
+      containsVideo: preview.audioFormatHasVideo } : null;
+  }
+  type ActiveStreamMediaResource = StreamMediaResource & { key: string };
+  function currentStreamMediaResource(): ActiveStreamMediaResource | null {
+    const track = playingTrack;
+    const candidate = nativeActive() ? nativeSnapshot?.candidate : playingCandidate;
+    const durationSeconds = nativeActive()
+      ? nativeSnapshot?.duration || candidate?.durationSeconds || track?.durationSeconds || 0
+      : stableWebviewSourceDuration(track, preview, audio) || preview?.durationSeconds || candidate?.durationSeconds || track?.durationSeconds || 0;
+    if (!track || !candidate || playingRadioStation || track.localPath || track.playbackRange ||
+        nativeActive() && nativeSnapshot?.quality?.sourceKind === "localAsset" ||
+        !nativeActive() && (preview?.kind === "local" || preview?.isExcerpt || preview?.approximateExcerpt) ||
+        !["youtube", "soundcloud", "bandcamp", "monochrome"].includes(candidate.provider) ||
+        !/^[A-Za-z0-9:_-]{1,512}$/.test(candidate.id) || !Number.isFinite(durationSeconds) || durationSeconds < 8 || durationSeconds > 900) return null;
+    const resource = { trackId: track.id, provider: candidate.provider, sourceId: candidate.id, durationSeconds, audioVariant: currentStreamAudioVariant(),
+      sessionGeneration: nativeActive() ? nativeSnapshot?.generation : preview?.sourceGeneration };
+    return { ...resource, key: streamMediaResourceKey(resource) };
+  }
+  function currentObservedStreamIdentity(): { provider: string; sourceId: string; audioVariant: StreamAudioVariant | null } | null {
+    const track = playingTrack;
+    const candidate = nativeActive() ? nativeSnapshot?.candidate : playingCandidate;
+    // A catalog track can retain a local path while an explicitly selected
+    // remote source is playing. Bind observations to that active source.
+    if (!track || !candidate || playingRadioStation ||
+        nativeActive() && nativeSnapshot?.quality?.sourceKind === "localAsset" ||
+        !nativeActive() && preview?.kind === "local" ||
+        !["youtube", "soundcloud", "bandcamp", "monochrome"].includes(candidate.provider) ||
+        !/^[A-Za-z0-9:_-]{1,512}$/.test(candidate.id)) return null;
+    return { provider: candidate.provider, sourceId: candidate.id, audioVariant: currentStreamAudioVariant() };
+  }
+  function currentObservedWaveformOwnerKey(): string {
+    const owner = currentPlayingTrackDetectionOwner();
+    const resourceKey = playingTrackDetectionView?.resourceKey;
+    if (!owner || !resourceKey) return "";
+    const range = playingTrack?.playbackRange ?? null;
+    const stream = currentStreamMediaResource();
+    const streamIdentity = stream ?? currentObservedStreamIdentity();
+    return `${playingTrackDetectionOwnerKey(owner)}\u0000${resourceKey}\u0000${stream?.key ?? ""}\u0000${waveformLocalAssetId ?? ""}\u0000${JSON.stringify(streamIdentity?.audioVariant ?? currentStreamAudioVariant())}\u0000${playerDuration}\u0000${range?.startTime ?? ""}\u0000${range?.endTime ?? ""}`;
+  }
+  function streamMediaAnalysisPlaying(): boolean {
+    return nativeActive()
+      ? nativeSnapshot?.status === "playing" && nativeSnapshot.paused === false
+      : Boolean(audio && !audio.paused && preview && (preview.kind === "audio" || preview.kind === "direct"));
+  }
+  function streamMediaAnalysisUnavailableReason(): string {
+    if (playingRadioStation) return "Full-track analysis is unavailable for live radio.";
+    if (!playingTrack || playingTrack.localPath || nativeActive() && nativeSnapshot?.quality?.sourceKind === "localAsset" ||
+        !nativeActive() && preview?.kind === "local") return "";
+    if (playingTrack.playbackRange || preview?.isExcerpt || preview?.approximateExcerpt) return "Full-track analysis is unavailable for an excerpt or playback range.";
+    const candidate = nativeActive() ? nativeSnapshot?.candidate : playingCandidate;
+    if (!candidate) return "A stable verified stream identity is unavailable for this playback.";
+    if (!["youtube", "soundcloud", "bandcamp", "monochrome"].includes(candidate.provider)) return "This provider does not support full streamed-track analysis.";
+    const duration = nativeActive() ? nativeSnapshot?.duration ?? 0 : stableWebviewSourceDuration(playingTrack, preview, audio) ?? 0;
+    if (!Number.isFinite(duration) || duration < 8 || duration > 900) return "Full analysis requires a verified stream duration between 8 seconds and 15 minutes.";
+    return "This playback route cannot provide an eligible full stream resource.";
+  }
+  async function installStreamMediaWaveform(
+    analysis: WholeTrackAnalysisDto,
+    resource: StreamMediaResource,
+    generation: number,
+    stillCurrent: () => boolean = () => waveformEnabled && waveformGeneration === generation && currentStreamMediaResource()?.key === streamMediaResourceKey(resource),
+  ): Promise<boolean> {
+    if (!stillCurrent()) return false;
+    const snapshot = await verifiedStreamWaveform(analysis, resource, generation);
+    if (!snapshot || !stillCurrent()) return false;
+    playbackWaveform = snapshot;
+    playbackWaveformReason = analysis.resource.kind === "stream" && analysis.resource.audioVariantSha256
+      ? "Full waveform is cached for this exact verified stream source."
+      : "Full waveform ready for this playback; this encoding cannot be cached across sessions.";
+    return true;
+  }
+  async function cancelStreamMediaAnalysis(statusMessage = "Stream analysis cancelled."): Promise<void> {
+    const job = streamMediaAnalysisJob;
+    const wasStarting = Boolean(streamMediaAnalysisStartingKey);
+    const wasRunning = Boolean(job && !["completed", "failed", "cancelled"].includes(job.state));
+    streamMediaAnalysisRequest++;
+    if (wasRunning && job) {
+      await call("cancel_selected_stream_analysis", { jobId: job.jobId }).catch(() => {});
+    }
+    streamMediaAnalysisJob = null;
+    streamMediaAnalysisStartingKey = "";
+    if (wasStarting || wasRunning) streamMediaAnalysisStatus = statusMessage;
+  }
+  async function startStreamMediaAnalysis(resource: ActiveStreamMediaResource, automatic = false): Promise<void> {
+    if (streamMediaAnalysisStartingKey === resource.key) return;
+    if (streamMediaAnalysisJob && !["completed", "failed", "cancelled"].includes(streamMediaAnalysisJob.state)) {
+      if (streamMediaAnalysisJob.resourceKey === resource.key) return;
+      await cancelStreamMediaAnalysis();
+    }
+    const request = ++streamMediaAnalysisRequest;
+    streamMediaAnalysisStartingKey = resource.key;
+    streamMediaAnalysisResult = null;
+    streamMediaAnalysisResultKey = "";
+    streamMediaAnalysisStatus = automatic ? "Starting background stream analysis…" : "Starting full stream analysis…";
+    try {
+      const trackContext = playingTrack;
+      if (!trackContext || trackContext.id !== resource.trackId) {
+        if (request === streamMediaAnalysisRequest) streamMediaAnalysisStartingKey = "";
+        return;
+      }
+      const activeWebviewGeneration = !nativeActive() ? preview?.sourceGeneration : undefined;
+      const started = await call<SelectedStreamJobDto>("start_stream_media_analysis", {
+        track: streamMediaTrackContext(trackContext, resource.provider, resource.sourceId),
+        provider: resource.provider, sourceId: resource.sourceId, durationSeconds: resource.durationSeconds, audioVariant: resource.audioVariant ?? null, automatic,
+        webviewGeneration: typeof activeWebviewGeneration === "number" && Number.isSafeInteger(activeWebviewGeneration) && activeWebviewGeneration > 0
+          ? activeWebviewGeneration : null,
+      });
+      if (request !== streamMediaAnalysisRequest) { await call("cancel_selected_stream_analysis", { jobId: started.jobId }).catch(() => {}); return; }
+      streamMediaAnalysisStartingKey = "";
+      streamMediaAnalysisJob = { jobId: started.jobId, resourceKey: resource.key, state: started.state };
+      while (request === streamMediaAnalysisRequest) {
+        const current = await call<SelectedStreamJobDto>("get_selected_stream_analysis", { jobId: started.jobId });
+        if (request !== streamMediaAnalysisRequest) return;
+        const result = current.results.find(row => row.trackId === resource.trackId);
+        streamMediaAnalysisJob = { jobId: current.jobId, resourceKey: resource.key, state: fullStreamAnalysisOutcome(current.state, result) };
+        streamMediaAnalysisStatus = current.state === "completed"
+          ? result?.analysis && isCompleteStreamMediaWaveform(result.analysis)
+            ? result.analysis.resource.kind === "stream" && result.analysis.resource.audioVariantSha256
+              ? "Full streamed-track BPM, key, and waveform analysis is cached."
+              : "Full streamed-track BPM, key, and waveform ready for this playback."
+            : result?.error ?? "Full waveform analysis is unavailable for this stream."
+          : current.state === "cancelled" || current.state === "failed"
+            ? result?.error ?? `Stream analysis ${current.state}.`
+            : `Analyzing verified stream · ${current.completed} of ${current.total}`;
+        if (current.state === "completed" || current.state === "cancelled" || current.state === "failed") {
+          if (current.state === "completed" && result?.status === "completed" && result.analysis) {
+            streamMediaAnalysisResult = result.analysis;
+            streamMediaAnalysisResultKey = resource.key;
+            const currentResource = currentStreamMediaResource();
+            if (currentResource?.key === resource.key && waveformEnabled && waveformGeneration !== null) {
+              if (await installStreamMediaWaveform(result.analysis, resource, waveformGeneration)) streamWaveformCacheLookupOwner = `${resource.key}:${waveformGeneration}`;
+              else streamMediaAnalysisStatus = "BPM/key analysis is cached, but a complete matching stream waveform is unavailable.";
+            }
+          }
+          break;
+        }
+        await new Promise(resolve => window.setTimeout(resolve, 650));
+      }
+    } catch (failure) {
+      if (request === streamMediaAnalysisRequest) {
+        streamMediaAnalysisStartingKey = "";
+        streamMediaAnalysisJob = streamMediaAnalysisJob ? { ...streamMediaAnalysisJob, state: "failed" } : null;
+        streamMediaAnalysisStatus = `Stream analysis unavailable: ${failure instanceof Error ? failure.message : String(failure)}`;
+      }
+    }
+  }
+  $effect(() => {
+    const enabled = desktop() && streamMediaAnalysisEnabled && streamMediaAnalysisPreferenceReady;
+    const restorePolicyReady = streamMediaAnalysisRestorePolicyReady;
+    const restorePaused = streamMediaAnalysisRestorePaused;
+    const reviewRequired = streamMediaAnalysisRestoreReviewRequired;
+    const resource = currentStreamMediaResource();
+    const playing = streamMediaAnalysisPlaying();
+    const job = streamMediaAnalysisJob;
+    if (streamMediaAnalysisStartingKey && (!enabled || streamMediaAnalysisStartingKey !== resource?.key)) {
+      void cancelStreamMediaAnalysis(enabled ? "Analysis stopped because the playing source changed." : "Background analysis is off; verified waveform cache remains available.");
+      return;
+    }
+    if (job && (!enabled || job.resourceKey !== resource?.key)) {
+      void cancelStreamMediaAnalysis(enabled ? "Analysis stopped because the playing source changed." : "Background analysis is off; verified waveform cache remains available.");
+      return;
+    }
+    if (!resource && waveformLocalAssetId) {
+      streamMediaAnalysisStatus = "";
+      return;
+    }
+    if (enabled && playing && !resource) {
+      streamMediaAnalysisStatus = streamMediaAnalysisUnavailableReason();
+      return;
+    }
+    if (enabled && playing && !restorePolicyReady) {
+      streamMediaAnalysisStatus = "Checking restore work policy before background stream analysis.";
+      return;
+    }
+    if (enabled && playing && restorePaused) {
+      streamMediaAnalysisStatus = reviewRequired
+        ? "Background stream analysis is paused until restore review. You can start a one-time analysis manually."
+        : "Background stream analysis is paused for this restored profile. You can start a one-time analysis manually.";
+      return;
+    }
+    if (!claimAutomaticStreamMediaAnalysis(enabled, playing, resource?.key ?? null, attemptedStreamMediaAnalysis) || !resource) return;
+    void startStreamMediaAnalysis(resource, true);
+  });
+  function cancelWebviewObservedCapture(reason: string): void {
+    const capture = webviewObservedCapture;
+    webviewObservedCapture = null;
+    if (capture) {
+      capture.tap.stop();
+      void call("cancel_webview_stream_analysis", { sessionId: capture.sessionId }).catch(() => {});
+    }
+    if (reason) webviewObservedAnalysisStatus = reason;
+  }
+  async function analyzeCurrentWebviewStream(): Promise<void> {
+    const track = playingTrack, identity = currentWebviewStreamCaptureIdentity();
+    if (!track || !identity) {
+      webviewObservedAnalysisStatus = "Whole-track WebView analysis requires a supported, non-excerpt stream with a stable duration.";
+      return;
+    }
+    cancelWebviewObservedCapture("");
+    webviewObservedAnalysis = null;
+    webviewAnalysisArmTrackId = track.id;
+    webviewObservedAnalysisStatus = "Restarting this stream from the beginning for an explicit whole-track capture…";
+    try {
+      await startPreview(track, true, false, undefined, undefined, 0, null, false, undefined, activeWebviewLoudnessAlbumResource);
+      if (webviewAnalysisArmTrackId === track.id && !webviewObservedCapture) {
+        webviewAnalysisArmTrackId = null;
+        webviewObservedAnalysisStatus = "Whole-track capture could not start for this WebView source.";
+      }
+    } catch (failure) {
+      if (webviewAnalysisArmTrackId === track.id) {
+        webviewAnalysisArmTrackId = null;
+        webviewObservedAnalysisStatus = `Whole-track capture could not start: ${failure instanceof Error ? failure.message : String(failure)}`;
+      }
+    }
+  }
+  async function beginWebviewObservedCapture(
+    node: HTMLAudioElement,
+    source: WebviewResolvedPreview,
+    request: number,
+    module: typeof import("./lib/loudness-normalization"),
+  ): Promise<void> {
+    const track = playingTrack, candidate = playingCandidate, identity = currentWebviewStreamCaptureIdentity();
+    if (webviewAnalysisArmTrackId !== track?.id) return;
+    if (!track || !candidate || !identity || source.normalizationRoute !== "same-origin-relay" ||
+        source.isExcerpt || source.approximateExcerpt || node.currentTime > 0.05 || node.playbackRate !== 1) {
+      webviewAnalysisArmTrackId = null;
+      webviewObservedAnalysisStatus = "This WebView route cannot prove continuous whole-track coverage.";
+      return;
+    }
+    const generation = ++webviewAnalysisGeneration;
+    const sessionId = crypto.randomUUID();
+    let capture: WebviewObservedStreamCapture | null = null;
+    const attached = await module.attachWebAudioPcmTap(node, async event => {
+      if (event.kind === "gap") {
+        if (capture && webviewObservedCapture === capture) cancelWebviewObservedCapture(`Whole-track capture stopped: ${event.reason}`);
+        return;
+      }
+      if (!capture || webviewObservedCapture !== capture ||
+          (!capture.finishing && (!previewRequests.isCurrent(request) || playingTrack?.id !== capture.trackId || node !== audio || node.paused)) ||
+          node.playbackRate !== 1) {
+        throw new Error("Playback changed, paused, or left normal speed during whole-track capture.");
+      }
+      const batch = event.batch;
+      if (batch.sequence !== capture.nextSequence) throw new Error("A WebAudio PCM batch was dropped.");
+      const nextPosition = capture.expectedPositionSeconds + batch.samples.length / batch.sampleRate;
+      if (!capture.finishing && Math.abs(node.currentTime - nextPosition) > 0.15) throw new Error("WebView source time diverged from captured PCM.");
+      await call("push_webview_stream_analysis", {
+        sessionId, generation, endPositionSeconds: nextPosition, sampleRate: batch.sampleRate,
+        samplesBase64: module.encodeWebAudioPcm16Base64(batch.samples),
+      });
+      capture.expectedPositionSeconds = nextPosition;
+      capture.nextSequence++;
+    });
+    if (!attached.tap) {
+      webviewAnalysisArmTrackId = null;
+      webviewObservedAnalysisStatus = attached.reason ?? "Bounded WebAudio PCM capture is unavailable.";
+      return;
+    }
+    capture = {
+      sessionId, generation, trackId: track.id, node, tap: attached.tap,
+      durationSeconds: identity.durationSeconds, expectedPositionSeconds: 0, nextSequence: 0, started: false,
+    };
+    try {
+      await call("begin_webview_stream_analysis", {
+        sessionId, generation, recordingId: track.id, provider: identity.provider, sourceId: identity.sourceId,
+        durationSeconds: identity.durationSeconds, audioVariant: identity.audioVariant, initialPositionSeconds: node.currentTime,
+      });
+      if (!previewRequests.isCurrent(request) || node !== audio || playingTrack?.id !== track.id) {
+        attached.tap.stop();
+        await call("cancel_webview_stream_analysis", { sessionId }).catch(() => {});
+        return;
+      }
+      webviewObservedCapture = capture;
+      webviewAnalysisArmTrackId = null;
+      webviewObservedAnalysisStatus = "Capturing this full WebView stream; pausing or seeking will discard the capture.";
+    } catch (failure) {
+      attached.tap.stop();
+      webviewAnalysisArmTrackId = null;
+      webviewObservedAnalysisStatus = `Whole-track capture is unavailable: ${failure instanceof Error ? failure.message : String(failure)}`;
+    }
+  }
+  async function finishWebviewObservedCapture(node: HTMLAudioElement): Promise<void> {
+    const capture = webviewObservedCapture;
+    if (!capture || capture.node !== node || capture.finishing) return;
+    capture.finishing = true;
+    const naturalEndPosition = node.currentTime;
+    try {
+      await capture.tap.finish();
+      if (Math.abs(naturalEndPosition - capture.durationSeconds) > Math.max(0.05, capture.durationSeconds * 0.001) ||
+          Math.abs(capture.expectedPositionSeconds - capture.durationSeconds) > Math.max(0.05, capture.durationSeconds * 0.001)) {
+        throw new Error("The WebView stream ended without verified full-track PCM coverage.");
+      }
+      const result = await call<WholeTrackAnalysisDto>("finish_webview_stream_analysis", {
+        sessionId: capture.sessionId, generation: capture.generation,
+        naturalEndPositionSeconds: naturalEndPosition,
+      });
+      if (result.scope !== "wholeTrack" || result.resource?.recordingId !== capture.trackId || result.coverage < 0.999) {
+        throw new Error("The backend rejected incomplete whole-track coverage.");
+      }
+      webviewObservedAnalysis = result;
+      webviewObservedAnalysisStatus = "Complete WebView BPM/key analysis is cached. Track metadata was not changed.";
+    } catch (failure) {
+      void call("cancel_webview_stream_analysis", { sessionId: capture.sessionId }).catch(() => {});
+      webviewObservedAnalysisStatus = `WebView analysis was not cached: ${failure instanceof Error ? failure.message : String(failure)}`;
+    } finally { capture.tap.stop(); if (webviewObservedCapture === capture) webviewObservedCapture = null; }
+  }
+  function unavailableWebviewLoudness(reason: string): WebviewLoudnessDecision {
+    return { mode: webviewLoudnessSettings.mode, status: "unavailable", appliedGainDb: 0, reason };
+  }
+  async function resolveWebviewLoudnessDecision(
+    source: WebviewResolvedPreview,
+    albumResource: LoudnessResourceIdentity | null = activeWebviewLoudnessAlbumResource,
+  ): Promise<WebviewLoudnessDecision> {
+    const config = await ensureWebviewLoudnessSettings();
+    if (config.mode === "off") return { mode: "off", status: "off", appliedGainDb: 0 };
+    if (source.normalizationRoute !== "same-origin-relay") {
+      return unavailableWebviewLoudness("This source has no verified same-origin audio route. Normalization is unavailable until the next supported playback.");
+    }
+    if (!source.assetId) {
+      return unavailableWebviewLoudness("No trusted loudness measurement is available for this stream.");
+    }
+    const track = playingTrack;
+    const range = track?.playbackRange;
+    try {
+      const decision = await call<WebviewLoudnessDecision | null>("get_loudness_decision_for_asset", {
+        assetId: source.assetId,
+        range: { startSeconds: range?.startTime ?? 0, endSeconds: range?.endTime ?? null },
+        albumResource: config.mode === "album" ? albumResource : null,
+      });
+      if (decision && ["off", "track", "album"].includes(decision.mode) &&
+          ["off", "applied", "album_fallback_track", "unavailable"].includes(decision.status) &&
+          Number.isFinite(decision.appliedGainDb)) return decision;
+      return unavailableWebviewLoudness("The backend did not return a valid loudness decision.");
+    } catch (failure) {
+      return unavailableWebviewLoudness(failure instanceof Error ? failure.message : "The loudness decision is unavailable.");
+    }
+  }
+  async function refreshCurrentWebviewNormalization(savedSettings?: WebviewLoudnessSettings): Promise<void> {
+    if (savedSettings) {
+      webviewLoudnessSettings = savedSettings;
+      webviewLoudnessSettingsLoaded = true;
+    } else {
+      webviewLoudnessSettingsLoaded = false;
+      await ensureWebviewLoudnessSettings();
+    }
+    const node = audio;
+    const source = preview as WebviewResolvedPreview | null;
+    if (!node || !source || nativeActive()) return;
+    const decision = await resolveWebviewLoudnessDecision(source);
+    webviewLoudnessDecision = decision;
+    const module = await import("./lib/loudness-normalization");
+    const graphExists = module.hasWebAudioGainGraph(node);
+    const route = source.normalizationRoute ?? "unsupported";
+    if (graphExists && route !== "same-origin-relay") {
+      webviewNormalizationRouteStatus = "Normalization is unavailable for this audio route.";
+      return;
+    }
+    if (webviewLoudnessSettings.mode === "off" && !graphExists) {
+      webviewNormalizationRouteStatus = null;
+      return;
+    }
+    const adapter = webviewGainAdapter ??= new module.WebAudioGainAdapter();
+    const result = graphExists
+      ? { status: "supported" as const }
+      : await adapter.attach(node, route, decision.status === "unavailable" ? 0 : decision.appliedGainDb, volume);
+    if (result.status === "supported") {
+      if (graphExists) adapter.setGainDb(decision.status === "unavailable" ? 0 : decision.appliedGainDb, 150);
+      webviewNormalizationRouteStatus = "Same-origin Web Audio route active.";
+    } else {
+      webviewNormalizationRouteStatus = result.reason ?? "Web Audio normalization is unavailable.";
+      if (webviewLoudnessSettings.mode === "off") webviewLoudnessDecision = { mode: "off", status: "off", appliedGainDb: 0 };
+    }
+  }
+  async function ensureWebviewWaveformRoute(): Promise<boolean> {
+    const node = audio;
+    const source = preview as WebviewResolvedPreview | null;
+    if (!node || !source || nativeActive() || source.normalizationRoute !== "same-origin-relay") return false;
+    const trackId = playingTrack?.id;
+    const isCurrent = () => audio === node && preview?.url === source.url && playingTrack?.id === trackId && !nativeActive();
+    const module = await import("./lib/loudness-normalization");
+    if (!isCurrent()) return false;
+    if (module.hasWebAudioGainGraph(node)) return module.hasWebAudioWaveformTap(node);
+    if ((node.currentSrc || node.getAttribute("src")) && node.crossOrigin !== "anonymous") return false;
+    const decision = await resolveWebviewLoudnessDecision(source);
+    if (!isCurrent()) return false;
+    const adapter = webviewGainAdapter ??= new module.WebAudioGainAdapter();
+    const attached = await adapter.attach(node, "same-origin-relay", decision.status === "unavailable" ? 0 : decision.appliedGainDb, volume);
+    if (!isCurrent()) return false;
+    webviewLoudnessDecision = decision;
+    if (attached.status === "supported") {
+      webviewNormalizationRouteStatus = "Same-origin Web Audio route active.";
+      return module.hasWebAudioWaveformTap(node);
+    }
+    webviewNormalizationRouteStatus = attached.reason ?? "Web Audio waveform observation is unavailable.";
+    return false;
+  }
   async function prepareAudioStream(request:number, stillCurrent: () => boolean = () => true) {
     const node=audio, value=preview;
     if(!node || !value || !previewRequests.isCurrent(request) || !stillCurrent())throw new Error("Audio setup cancelled");
     audioStreamHandle?.destroy();audioStreamHandle=null;lastHlsFailure="";
     const isCurrent=()=>stillCurrent()&&previewRequests.isCurrent(request)&&audio===node&&preview?.url===value.url;
-    // Only our authenticated relay opts into CORS; external providers retain
-    // their established media loading behavior.
-    let relaySource = false;
-    try { const url = new URL(value.url); relaySource = url.protocol === "http:" && url.hostname === "127.0.0.1" && (url.pathname.startsWith("/webview-audio/") || url.pathname.startsWith("/webview-radio-mp3/")) && Boolean(url.searchParams.get("token")); } catch {}
+    const config = await ensureWebviewLoudnessSettings();
+    if (!isCurrent()) throw new Error("Audio setup cancelled");
+    const resolved = value as WebviewResolvedPreview;
+    const normalization = await resolveWebviewLoudnessDecision(resolved);
+    if (!isCurrent()) throw new Error("Audio setup cancelled");
+    webviewLoudnessDecision = normalization;
+    const module = await import("./lib/loudness-normalization");
+    if (!isCurrent()) throw new Error("Audio setup cancelled");
+    const graphExists = module.hasWebAudioGainGraph(node);
+    const route = resolved.normalizationRoute ?? "unsupported";
+    const captureArmed = webviewAnalysisArmTrackId === playingTrack?.id;
+    const shouldNormalize = config.mode !== "off" || graphExists || waveformEnabled || captureArmed ||
+      route === "same-origin-relay" && !playingRadioStation;
+    if (shouldNormalize && route !== "same-origin-relay") {
+      webviewNormalizationRouteStatus = "Normalization is unavailable for this audio route. It can be applied after the next supported playback.";
+      if (graphExists) throw new Error("The existing Web Audio route cannot play an unsupported audio source.");
+    } else if (shouldNormalize) {
+      // At a source transition, retire the old URL before changing CORS mode or
+      // creating the permanent MediaElementSource graph.
+      if (!graphExists && (node.currentSrc || node.getAttribute("src"))) {
+        node.pause();
+        node.removeAttribute("src");
+        node.load();
+      }
+      node.crossOrigin = "anonymous";
+      const adapter = webviewGainAdapter ??= new module.WebAudioGainAdapter();
+      const initialGainDb = config.mode === "off" || normalization.status === "unavailable" ? 0 : normalization.appliedGainDb;
+      const attached = await adapter.attach(node, route, initialGainDb, volume);
+      if (!isCurrent()) throw new Error("Audio setup cancelled");
+      if (attached.status !== "supported") {
+        webviewNormalizationRouteStatus = attached.reason ?? "Web Audio normalization is unavailable.";
+        if (module.hasWebAudioGainGraph(node)) throw new Error(attached.reason ?? "The existing Web Audio output route could not resume.");
+      } else {
+        webviewNormalizationRouteStatus = "Same-origin Web Audio route active.";
+      }
+    } else {
+      webviewNormalizationRouteStatus = null;
+    }
+    if (captureArmed) {
+      if (route === "same-origin-relay" && module.hasWebAudioGainGraph(node)) {
+        await beginWebviewObservedCapture(node, resolved, request, module);
+        if (!isCurrent()) throw new Error("WebView analysis capture setup was cancelled.");
+      } else {
+        webviewAnalysisArmTrackId = null;
+        webviewObservedAnalysisStatus = "This source has no verified same-origin WebAudio route for whole-track capture.";
+      }
+    }
+    // Backend-confirmed routes opt into CORS. The legacy route check remains
+    // for existing playable relays whose DTO predates normalization metadata.
+    let relaySource = route === "same-origin-relay";
+    if (resolved.normalizationRoute === undefined) {
+      try { const url = new URL(value.url); relaySource = url.protocol === "http:" && url.hostname === "127.0.0.1" && (url.pathname.startsWith("/webview-audio/") || url.pathname.startsWith("/webview-radio-mp3/")) && Boolean(url.searchParams.get("token")); } catch {}
+    }
     if (relaySource) node.crossOrigin = "anonymous"; else node.removeAttribute("crossorigin");
     const handle=await attachAudioStream(node,playable(value.url),value.audioMimeType,{isCurrent,onError:(failure)=>{if(isCurrent())lastHlsFailure=safePreviewError(failure);}});
     if(!isCurrent()){handle.destroy();throw new Error("Audio setup cancelled");}
@@ -2931,7 +4801,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     }
   }
   $effect(()=>{if(!preview || !["audio","local","direct"].includes(preview.kind)){audioStreamHandle?.destroy();audioStreamHandle=null;}});
-  onMount(()=>()=>{previewRequests.next();audioStartupGeneration++;cancelWebviewStartupPlay?.();cancelPendingWebviewResume();webviewStallWatchdog.reset();webviewSeekCompletionWatchdog.cancel();activeWebviewSeek=null;cancelRadioIdentification();audioStreamHandle?.destroy();audioStreamHandle=null;});
+  onMount(()=>()=>{previewRequests.next();audioStartupGeneration++;cancelWebviewStartupPlay?.();cancelPendingWebviewResume();if(webviewStartupResumeAudioGate)releaseWebviewStartupResumeGate(webviewStartupResumeAudioGate.node,webviewStartupResumeAudioGate.source,false,false);if(nativeHistorySummaryTimer!==null)clearTimeout(nativeHistorySummaryTimer);nativeHistorySummaryTimer=null;pendingNativeHistorySummaryOwner="";webviewStallWatchdog.reset();webviewSeekCompletionWatchdog.cancel();activeWebviewSeek=null;cancelRadioIdentification();audioStreamHandle?.destroy();audioStreamHandle=null;});
   function safePreviewError(reason: unknown): string {
     const message = reason instanceof Error ? reason.message : String(reason ?? "");
     // These resolver outcomes are fixed safe contracts. Keep them whole even
@@ -2997,13 +4867,113 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       ? automaticPreviewRecovery.sourceStartupDeadline ?? automaticPreviewRecovery.deadline : undefined;
     const budgetMs = Math.floor((deadline ?? performance.now() + playbackStartupTimeoutMs()) - performance.now());
     if (budgetMs <= 0) throw new Error(`Audio startup exceeded the ${playbackStartupTimeoutSeconds()}-second playback deadline.`);
-    const result = await boundedPreviewResolution(request, call<Preview>("resolve_candidate_audio", {candidate, requestGeneration: request, trackId: t.id, budgetMs}));
+    const normalizationRouteRequired = await isWebviewNormalizationRouteRequired();
+    const result = await boundedPreviewResolution(request, call<WebviewResolvedPreview>("resolve_candidate_audio", {
+      candidate, requestGeneration: request, trackId: t.id, budgetMs, normalizationRouteRequired,
+      trackContext: streamMediaTrackContext(t, candidate.provider, candidate.id),
+    }));
     return result ? startResolvedPreviewAudio(t, candidate, result, request) : false;
   }
 
-  async function startResolvedPreviewAudio(t: Track, candidate: Candidate | null, result: Preview, request: number) {
+  async function upgradeCurrentWebviewWaveformRoute(): Promise<void> {
+    const track = playingTrack;
+    const candidate = playingCandidate;
+    const source = preview as WebviewResolvedPreview | null;
+    const node = audio;
+    const durationSeconds = currentStreamMediaResource()?.durationSeconds ?? 0;
+    if (!waveformEnabled || !desktop() || nativeActive() || !track || !candidate || !source || !node ||
+        source.normalizationRoute === "same-origin-relay" || source.isExcerpt || source.approximateExcerpt ||
+        source.sessionId || !Number.isSafeInteger(source.sourceGeneration) ||
+        track.playbackRange || !["youtube", "soundcloud", "bandcamp", "monochrome"].includes(candidate.provider) ||
+        !/^[A-Za-z0-9:_-]{1,512}$/.test(candidate.id) || !Number.isFinite(durationSeconds) || durationSeconds < 8 || durationSeconds > 900 ||
+        resolvingPlayback || playbackLoading || bufferingAudio || pendingWebviewResume) return;
+    const requestOwner = ++waveformRouteUpgradeRequest;
+    waveformRouteUpgradeStatus = "Preparing a waveform-capable route for this stream…";
+    const wasPaused = paused;
+    const initialSeekSerial = seekSerial;
+    // The last startup play owner remains installed after settling; retire that
+    // stale cancel closure so the next generation does not pause healthy media.
+    cancelWebviewStartupPlay = null;
+    const request = nextPreviewRequest();
+    const sourceOwner = { ...source, sourceGeneration: request };
+    // Advance the frontend generation while retaining the current direct URL as
+    // a fallback until the exact-candidate relay is ready. This prevents late
+    // events from the pre-upgrade generation owning the active source.
+    preview = sourceOwner;
+    const isCurrent = () => requestOwner === waveformRouteUpgradeRequest && waveformEnabled && !nativeActive() &&
+      audio === node && playingTrack?.id === track.id && playingCandidate?.provider === candidate.provider && playingCandidate.id === candidate.id &&
+      preview?.url === sourceOwner.url &&
+      preview?.sourceGeneration === request && seekSerial === initialSeekSerial && paused === wasPaused;
+    const deadline = performance.now() + playbackStartupTimeoutMs();
+    automaticPreviewRecovery = {
+      request, track, tried: new Set(), attempts: 0, sourceAttempts: 0, deadline,
+      exactSourceOnly: true,
+    };
+    let routeStartupStarted = false;
+    try {
+      let routeCandidate = candidate;
+      if (candidate.provider === "monochrome") {
+        const inspected = await boundedPreviewResolution(request, call<Candidate>("inspect_candidate", { track, candidate }), deadline);
+        if (!inspected || !isCurrent() || inspected.provider !== candidate.provider || inspected.id !== candidate.id) return;
+        routeCandidate = inspected;
+      }
+      const remaining = Math.floor(deadline - performance.now());
+      if (remaining <= 0) throw new Error("Audio startup deadline expired.");
+      const resolved = await boundedPreviewResolution(request, call<WebviewResolvedPreview>("resolve_candidate_audio", {
+        candidate: routeCandidate, requestGeneration: request, trackId: track.id, budgetMs: remaining, normalizationRouteRequired: true,
+        trackContext: streamMediaTrackContext(track, routeCandidate.provider, routeCandidate.id),
+      }), deadline);
+      if (!resolved || !isCurrent()) return;
+      if (!resolved.url || !["audio", "direct"].includes(resolved.kind) || resolved.normalizationRoute !== "same-origin-relay") {
+        waveformRouteUpgradeStatus = "This exact stream cannot provide WebView waveform samples on a same-origin route.";
+        return;
+      }
+      const playhead = Number.isFinite(node.currentTime) && node.currentTime >= 0 ? node.currentTime : 0;
+      // Keep the current source playing through resolution; freeze only at the
+      // verified same-candidate route swap so the replacement resumes here.
+      node.pause();
+      paused = true;
+      position = playhead;
+      pendingResumePosition = playhead;
+      if (!requestOwnerIsCurrentAfterFreeze()) return;
+      routeStartupStarted = true;
+      const started = await startResolvedPreviewAudio(track, routeCandidate, resolved, request, wasPaused);
+      if (started && preview?.url === resolved.url && playingTrack?.id === track.id && requestOwner === waveformRouteUpgradeRequest) {
+        waveformRouteUpgradeStatus = "Waveform-capable route active for this stream.";
+      } else if (!started && requestOwner === waveformRouteUpgradeRequest) {
+        automaticPreviewRecovery = undefined;
+        waveformRouteUpgradeStatus = "The waveform-capable route could not start; retry playback to restore the stream.";
+      }
+    } catch {
+      if (isCurrent()) waveformRouteUpgradeStatus = "Could not prepare a waveform-capable route for this stream.";
+    } finally {
+      if (!routeStartupStarted && automaticPreviewRecovery?.request === request) automaticPreviewRecovery = undefined;
+    }
+    function requestOwnerIsCurrentAfterFreeze(): boolean {
+      return requestOwner === waveformRouteUpgradeRequest && waveformEnabled && !nativeActive() &&
+        audio === node && playingTrack?.id === track?.id && playingCandidate?.provider === candidate?.provider && playingCandidate?.id === candidate?.id &&
+        preview?.url === sourceOwner.url &&
+        preview?.sourceGeneration === request && seekSerial === initialSeekSerial && paused;
+    }
+  }
+
+  function toggleWaveformSeek(): void {
+    if (waveformEnabled) {
+      waveformEnabled = false;
+      waveformRouteUpgradeRequest++;
+      waveformRouteUpgradeStatus = "";
+      return;
+    }
+    waveformEnabled = true;
+    waveformRouteUpgradeStatus = "";
+    void upgradeCurrentWebviewWaveformRoute();
+  }
+
+  async function startResolvedPreviewAudio(t: Track, candidate: Candidate | null, result: Preview, request: number, startPaused = false) {
     if (!["audio", "local", "direct"].includes(result.kind) || !result.url || !previewRequests.isCurrent(request)) return false;
+    startupNativeHandoffReceipt = null;
     rememberResolvedSource(candidate, result);
+    webviewLoadedMetadataOwner = null;
     preview = result;
     playingTrack = t;
     playingCandidate = candidate;
@@ -3026,13 +4996,46 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     const resumeRequested = pendingResumePosition > 0;
     let startupPhase: WebviewStartupPhase = 'attach';
     const stillCurrent = () => attemptActive && previewRequests.isCurrent(request) && playingTrack?.id === t.id && audio === node && preview === source && audioStartupGeneration === startupGeneration;
+    const startupHandoffIsCurrent = () => {
+      const receipt = startupNativeHandoffReceipt;
+      if (!receipt || !receipt.committed || receipt.request !== request || receipt.startupGeneration !== startupGeneration ||
+          receipt.sourceGeneration !== source.sourceGeneration || receipt.trackId !== t.id || !receipt.sessionId ||
+          receipt.node !== node || receipt.source !== source || !previewRequests.isCurrent(request) ||
+          (audio !== node && audio !== null) || !blockedStartupNodes.has(node) || audioStartupGeneration !== startupGeneration ||
+          playingTrack?.id !== t.id || playbackSession !== receipt.sessionId || !nativeActive() ||
+          nativeSnapshot?.handoffId !== receipt.handoffId || nativeSnapshot.trackId !== receipt.trackId ||
+          nativeSnapshot.entryId !== receipt.entryId || nativeSnapshot.candidate?.id !== receipt.candidateId) return false;
+      const queue = playbackQueue.snapshot();
+      const entryIds = queue.entryIds ?? [];
+      return queue.currentIndex === receipt.index && queue.currentIndex === queueIndex &&
+        queue.tracks[queue.currentIndex]?.id === receipt.trackId && entryIds[receipt.index] === receipt.entryId &&
+        entryIds.length === receipt.queueEntryIds.length && entryIds.every((id, index) => id === receipt.queueEntryIds[index]) &&
+        (!nativeSnapshot.queueEntryIds || (nativeSnapshot.queueEntryIds.length === receipt.queueEntryIds.length &&
+          nativeSnapshot.queueEntryIds.every((id, index) => id === receipt.queueEntryIds[index])));
+    };
+    const startupStillCurrent = () => stillCurrent() || startupHandoffIsCurrent();
     let progressCheck: ReturnType<typeof setInterval> | undefined;
-    node.volume = volume;
+    setWebviewOutputVolume(node, volume);
+    if (resumeRequested && !startPaused && pendingResumePosition > 0) {
+      webviewStartupResumeAudioGate = {node,source,trackId:t.id,target:pendingResumePosition,startedAtMs:performance.now(),requestedVolume:volume,verified:false};
+      applyWebviewOutputVolume(node,0);
+    }
     try {
       await withinPreviewStartupBudget(() => prepareAudioStream(request, stillCurrent), sourceDeadline, stillCurrent);
       startupPhase = 'resume_seek';
       await withinPreviewStartupBudget(() => seekPendingResume(request, stillCurrent), sourceDeadline, stillCurrent);
       if (!stillCurrent()) return false;
+      if (startPaused) {
+        pendingResumePosition = 0;
+        position = node.currentTime;
+        paused = true;
+        previewStatus = "Paused";
+        if (candidate) void prepareCandidateDetails(t, candidate, request);
+        return true;
+      }
+      if (resumeRequested && pendingResumePosition > 0) {
+        beginWebviewSeekCompletionWatch(node, pendingResumePosition, true, request);
+      }
       startupPhase = 'play';
       if (requiredRecoveryResume?.request === request && requiredRecoveryResume.verifiedAtMs === null) {
         requiredRecoveryResume = { ...requiredRecoveryResume, verifiedAtMs: performance.now() };
@@ -3041,6 +5044,10 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       await withinPreviewStartupBudget(() => {
         const startPosition = node.currentTime;
         playPromise = ownedStartupPlay(node);
+        if (resumeRequested) void playPromise.then(() => {
+          const seek = activeWebviewSeek;
+          if (seek?.owner.node === node && seek.source === source && seek.startupResume && isCurrentWebviewSeek(seek)) armPendingWebviewSeekAfterResume(node);
+        }, () => {});
         void playPromise.then(() => {
           if (!attemptActive && startupGeneration === audioStartupGeneration) {
             node.pause();
@@ -3060,14 +5067,42 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
               reject(new Error("The recovered audio source could not resume at its previous playback position."));
               return;
             }
-            if (stillCurrent() && !node.paused && !node.seeking && node.readyState >= 2 &&
+            if (startupHandoffIsCurrent()) { resolve(); return; }
+            if (stillCurrent() && resumeRequested && hasWebviewStartupResumeProgress({
+              target: pendingResumePosition,
+              startPosition,
+              currentTime: node.currentTime,
+              duration: node.duration,
+              elapsedMs: performance.now() - startupStartedAt,
+              readyState: node.readyState,
+              seeking: node.seeking,
+              paused: node.paused,
+              playbackRate: node.playbackRate,
+            })) resolve();
+            else if (stillCurrent() && !resumeRequested && !node.paused && !node.seeking && node.readyState >= 2 &&
                 Number.isFinite(node.currentTime) && node.currentTime - startPosition >= 0.25) resolve();
           }, 25);
         });
         return progressed;
-      }, sourceDeadline, stillCurrent);
+      }, sourceDeadline, resumeRequested ? startupStillCurrent : stillCurrent);
       if (progressCheck !== undefined) { clearInterval(progressCheck); progressCheck = undefined; }
-      if (!stillCurrent()) return false;
+      const startupHandoffAccepted = startupHandoffIsCurrent();
+      if (!stillCurrent() && !startupHandoffAccepted) return false;
+      if (startupHandoffAccepted) {
+        attemptActive = false;
+        releaseWebviewStartupResumeGate(node, source, false, false);
+        position = nativeSnapshot?.position ?? pendingResumePosition;
+        pendingResumePosition = 0;
+        const receipt = startupNativeHandoffReceipt as StartupNativeHandoffReceipt | null;
+        if (receipt) receipt.consumed = true;
+        if (pendingWebviewHandoff?.handoffId !== receipt?.handoffId) startupNativeHandoffReceipt = null;
+        return true;
+      }
+      if (activeWebviewSeek?.owner.node === node && activeWebviewSeek.source === source && activeWebviewSeek.startupResume) {
+        webviewSeekCompletionWatchdog.complete(activeWebviewSeek.owner);
+        activeWebviewSeek = null;
+      }
+      releaseWebviewStartupResumeGate(node, source, true, false);
       const requiredResume = requiredRecoveryResume;
       if (requiredResume?.request === request) {
         const elapsedSeconds = requiredResume.verifiedAtMs === null ? 0 : Math.max(0, (performance.now() - requiredResume.verifiedAtMs) / 1000);
@@ -3083,12 +5118,18 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       previewStatus = result.isExcerpt ? "Playing preview" : `Playing ${candidate?.provider ?? "verified"} audio`;
       armWebviewStallWatchdog(node);
       if (candidate) void prepareCandidateDetails(t, candidate, request);
+      if (resumeRequested) void recordSuccessfulPlayback();
       return true;
     } catch (failure) {
       if (progressCheck !== undefined) clearInterval(progressCheck);
       const ownsSource = stillCurrent();
+      releaseWebviewStartupResumeGate(node, source, false, ownsSource && resumeRequested);
       if (ownsSource) {
-        recordWebviewStartupFailure(captureWebviewStartupFailure(node, startupPhase, result.audioMimeType, audioStreamHandle?.kind, resumeRequested, performance.now() - startupStartedAt));
+        if (activeWebviewSeek?.owner.node === node && activeWebviewSeek.source === source && activeWebviewSeek.startupResume) {
+          webviewSeekCompletionWatchdog.cancel();
+          activeWebviewSeek = null;
+        }
+        recordWebviewStartupFailure(captureWebviewStartupFailure(node, startupPhase, result.audioMimeType, audioStreamHandle?.kind, resumeRequested, performance.now() - startupStartedAt, pendingResumePosition, result.sourceTransport));
       }
       attemptActive = false;
       if (ownsSource) {
@@ -3103,6 +5144,16 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
           : `Playback could not start: ${safePreviewError(failure)}`;
         preview = null;
         paused = true;
+      }
+      if (!ownsSource && startupHandoffIsCurrent()) {
+        attemptActive = false;
+        releaseWebviewStartupResumeGate(node, source, false, false);
+        position = nativeSnapshot?.position ?? pendingResumePosition;
+        pendingResumePosition = 0;
+        const receipt = startupNativeHandoffReceipt as StartupNativeHandoffReceipt | null;
+        if (receipt) receipt.consumed = true;
+        if (pendingWebviewHandoff?.handoffId !== receipt?.handoffId) startupNativeHandoffReceipt = null;
+        return true;
       }
       return false;
     }
@@ -3190,6 +5241,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       try {
         const result = await boundedPreviewResolution(request, call<PlaybackResolution>("resolve_playback_track", {
           track: t, requestGeneration: request, selectedCandidate: queueCandidates[t.id] ?? null, budgetMs, webviewCapabilities: webviewAudioCapabilities(),
+          normalizationRouteRequired: await isWebviewNormalizationRouteRequired(),
           failedCandidates: recovery.exactSourceOnly ? [] : [...recovery.tried].slice(-2).map(key => {
             const separator = key.indexOf(":");
             return { provider: key.slice(0, separator), id: key.slice(separator + 1) };
@@ -3269,6 +5321,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       const result = await boundedPreviewResolution(request, call<PlaybackResolution>("resolve_playback_track", {
         track: t, requestGeneration: request, selectedCandidate: queueCandidates[t.id] ?? null,
         refreshCandidateFresh: true, refreshCandidate: candidate, seekRecovery, budgetMs, failedCandidates: [], webviewCapabilities: webviewAudioCapabilities(),
+        normalizationRouteRequired: await isWebviewNormalizationRouteRequired(),
       }));
       if (!result || !previewRequests.isCurrent(request)) return false;
       if (result.transport === "native") return await startNativeResolvedSource(t, result, request);
@@ -3300,7 +5353,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
   const webviewBufferingRecovery = new WebviewBufferingRecovery();
   const webviewStallWatchdog = new WebviewStallWatchdog();
   const webviewSeekCompletionWatchdog = new WebviewSeekCompletionWatchdog();
-  let activeWebviewSeek: { owner: WebviewSeekCompletionOwner; source: Preview; target: number; sessionId: string | null; trackId: string; deadline: number | null; handoffTimeoutMs: number } | null = null;
+  let activeWebviewSeek: { owner: WebviewSeekCompletionOwner; source: Preview; target: number; sessionId: string | null; trackId: string; deadline: number | null; startedAtMs: number; handoffTimeoutMs: number; startupResume: boolean; startupRequest: number | null } | null = null;
   function webviewSeekOwner(node: HTMLAudioElement): WebviewSeekCompletionOwner | null {
     const source=preview, track=playingTrack, occurrenceId=automationQueueProjection.entryIds[queueIndex] ?? null;
     if(node!==audio || !source || !track || nativeActive() || !occurrenceId || !["audio","local","direct"].includes(source.kind))return null;
@@ -3334,7 +5387,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
         !Number.isFinite(track.durationSeconds) || track.durationSeconds! < 5 || track.durationSeconds! > 86_400 ||
         !Number.isFinite(seek.target) || seek.target < 0 || seek.target >= track.durationSeconds! - 0.05 ||
         !Number.isSafeInteger(source.sourceGeneration) || source.sourceGeneration! < 0 || !playbackSession ||
-        !Number.isSafeInteger(seek.owner.seekSerial) || seek.owner.seekSerial < 1 || queue.currentIndex !== queueIndex ||
+        !Number.isSafeInteger(seek.owner.seekSerial) || seek.owner.seekSerial < (seek.startupResume ? 0 : 1) || queue.currentIndex !== queueIndex ||
         queue.currentIndex < 0 || queue.currentIndex >= queue.tracks.length || entryIds[queue.currentIndex] !== entryId ||
         queue.tracks[queue.currentIndex]?.id !== track.id || !entryId || !queue.tracks.length || queue.tracks.length !== entryIds.length) return null;
     return {
@@ -3349,7 +5402,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       entryId,
       // A media error can make the element report paused even while the user
       // still intends playback to continue.
-      paused,
+      paused: seek.startupResume ? false : paused,
       volume,
       repeat: repeatMode,
       shuffle: shuffleEnabled,
@@ -3369,6 +5422,69 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       Boolean(playingCandidate) && candidateKey(playingCandidate!) === candidateKeyAtStart && playingCandidate?.url === candidateUrlAtStart &&
       repeatMode === request.repeat && shuffleEnabled === request.shuffle && volume === request.volume;
   }
+  function prepareStartupNativeHandoffReceipt(node: HTMLAudioElement, seek: NonNullable<typeof activeWebviewSeek>, request: WebviewPlaybackHandoff): boolean {
+    if (!seek.startupResume || seek.startupRequest === null) return true;
+    if (!seek.sessionId || !seek.owner.queueOccurrenceId || audio !== node || preview !== seek.source ||
+        playingTrack?.id !== seek.trackId || playbackSession !== request.sessionId || !previewRequests.isCurrent(seek.startupRequest)) return false;
+    const trackId = request.tracks[request.index]?.id;
+    if (!trackId || request.entryIds[request.index] !== request.entryId || trackId !== seek.trackId) return false;
+    startupNativeHandoffReceipt = {
+      handoffId: request.handoffId,
+      request: seek.startupRequest,
+      startupGeneration: audioStartupGeneration,
+      node,
+      source: seek.source,
+      sourceGeneration: request.sourceGeneration,
+      sessionId: request.sessionId,
+      trackId,
+      entryId: request.entryId,
+      queueEntryIds: [...request.entryIds],
+      index: request.index,
+      targetPosition: request.targetPosition,
+      candidateId: request.candidate.id,
+      committed: false,
+      consumed: false,
+    };
+    return true;
+  }
+  function startupHandoffSnapshotMatches(receipt: StartupNativeHandoffReceipt, snapshot: NativePlaybackSnapshot): boolean {
+    const queue = playbackQueue.snapshot();
+    const entryIds = queue.entryIds ?? [];
+    return snapshot.engine === "native" && snapshot.handoffId === receipt.handoffId &&
+      snapshot.trackId === receipt.trackId && snapshot.entryId === receipt.entryId &&
+      snapshot.candidate?.id === receipt.candidateId && Number.isFinite(snapshot.position) &&
+      Math.abs(snapshot.position - receipt.targetPosition) <= 1 && snapshot.currentIndex === receipt.index &&
+      queue.currentIndex === receipt.index && queueIndex === receipt.index &&
+      queue.tracks[receipt.index]?.id === receipt.trackId && entryIds[receipt.index] === receipt.entryId &&
+      entryIds.length === receipt.queueEntryIds.length && entryIds.every((id, index) => id === receipt.queueEntryIds[index]) &&
+      (snapshot.queueEntryIds === undefined || (snapshot.queueEntryIds.length === receipt.queueEntryIds.length &&
+        snapshot.queueEntryIds.every((id, index) => id === receipt.queueEntryIds[index])));
+  }
+  function confirmStartupNativeHandoffSnapshot(snapshot: NativePlaybackSnapshot): void {
+    const receipt = startupNativeHandoffReceipt, pending = pendingWebviewHandoff;
+    if (!receipt || receipt.committed || !pending || pending.cancelled || pending.handoffId !== receipt.handoffId ||
+        nativeSnapshot?.engine !== "native" || nativeSnapshot.handoffId !== receipt.handoffId ||
+        snapshot.handoffId !== nativeSnapshot.handoffId || !previewRequests.isCurrent(receipt.request) ||
+        audioStartupGeneration !== receipt.startupGeneration || playbackSession !== receipt.sessionId ||
+        !startupHandoffSnapshotMatches(receipt, snapshot)) return;
+    receipt.committed = true;
+    blockedStartupNodes.add(receipt.node);
+    releaseWebviewStartupResumeGate(receipt.node, receipt.source, false, false);
+    webviewSeekCompletionWatchdog.cancel();
+    if (activeWebviewSeek?.owner.node === receipt.node && activeWebviewSeek.startupRequest === receipt.request) activeWebviewSeek = null;
+    webviewStallWatchdog.reset();
+    audioStreamHandle?.destroy(); audioStreamHandle = null;
+    receipt.node.pause(); receipt.node.removeAttribute("src"); receipt.node.load();
+  }
+  function recordStartupNativeHandoffReceipt(seek: NonNullable<typeof activeWebviewSeek>, request: WebviewPlaybackHandoff): boolean {
+    if (!seek.startupResume || seek.startupRequest === null) return true;
+    const receipt = startupNativeHandoffReceipt, snapshot = nativeSnapshot;
+    if (!receipt || receipt.handoffId !== request.handoffId || receipt.request !== seek.startupRequest ||
+        !snapshot || receipt.sessionId !== request.sessionId || receipt.entryId !== request.entryId ||
+        receipt.candidateId !== request.candidate.id || !startupHandoffSnapshotMatches(receipt, snapshot)) return false;
+    if (!receipt.committed) confirmStartupNativeHandoffSnapshot(snapshot);
+    return receipt.committed;
+  }
   async function attemptNativeSeekHandoff(node: HTMLAudioElement, seek: NonNullable<typeof activeWebviewSeek>): Promise<"not-applicable" | "handled" | "retry"> {
     if (pendingWebviewHandoff) return "handled";
     const request = canHandoffWebviewSeek(node, seek);
@@ -3379,6 +5495,11 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     let settle!: () => void;
     pending.settled = new Promise<void>(resolve => { settle = resolve; });
     pendingWebviewHandoff = pending;
+    if (!prepareStartupNativeHandoffReceipt(node, seek, request)) {
+      if (pendingWebviewHandoff === pending) pendingWebviewHandoff = null;
+      settle();
+      return "not-applicable";
+    }
     node.pause();
     paused = true;
     position = request.targetPosition;
@@ -3395,18 +5516,29 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       if (nativeBridge.acceptSnapshot(snapshot) && nativeBridge.snapshot) applyNativeSnapshot(nativeBridge.snapshot);
       else if (nativeBridge.snapshot?.handoffId === request.handoffId) applyNativeSnapshot(nativeBridge.snapshot);
       else throw new Error("The native player did not confirm the seek handoff.");
+      if (!recordStartupNativeHandoffReceipt(seek, request)) throw new Error("The native player changed playback ownership before startup resume completed.");
+      if (seek.startupResume) {
+        releaseWebviewStartupResumeGate(node, seek.source, false, false);
+      }
       webviewSeekCompletionWatchdog.cancel();
       activeWebviewSeek = null;
       webviewStallWatchdog.reset();
       audioStreamHandle?.destroy(); audioStreamHandle = null;
+      blockedStartupNodes.add(node);
       node.pause(); node.removeAttribute("src"); node.load();
       return "handled";
     } catch (failure) {
       if (nativeActive() && nativeSnapshot?.handoffId === request.handoffId && !pending.cancelled) {
+        const startupReceiptValid = recordStartupNativeHandoffReceipt(seek, request);
+        if (!startupReceiptValid) await nativeBridge.command({ action:"stop", expectedHandoffId:request.handoffId }).catch(()=>{});
+        if (seek.startupResume) {
+          releaseWebviewStartupResumeGate(node, seek.source, false, false);
+        }
         webviewSeekCompletionWatchdog.cancel();
         activeWebviewSeek = null;
         webviewStallWatchdog.reset();
         audioStreamHandle?.destroy(); audioStreamHandle = null;
+        blockedStartupNodes.add(node);
         node.pause(); node.removeAttribute("src"); node.load();
         return "handled";
       }
@@ -3419,6 +5551,8 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       return "retry";
     } finally {
       if (pendingWebviewHandoff === pending) pendingWebviewHandoff = null;
+      if (startupNativeHandoffReceipt?.handoffId === pending.handoffId &&
+          (!startupNativeHandoffReceipt.committed || startupNativeHandoffReceipt.consumed)) startupNativeHandoffReceipt = null;
       settle();
     }
   }
@@ -3435,12 +5569,14 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     void pending.settled.then(action);
     return true;
   }
-  function beginWebviewSeekCompletionWatch(node: HTMLAudioElement, target: number) {
+  function beginWebviewSeekCompletionWatch(node: HTMLAudioElement, target: number, startupResume = false, startupRequest: number | null = null) {
     const owner=webviewSeekOwner(node), track=playingTrack;
     if(!owner || !track)return;
     const source=preview!;
-    const seek={owner,source,target,sessionId:playbackSession,trackId:track.id,deadline:paused||node.paused?null:performance.now()+playbackStartupTimeoutMs(),
-      handoffTimeoutMs:canHandoffWebviewSeek(node,{owner,source,target,sessionId:playbackSession,trackId:track.id,deadline:null})?5_000:playbackStartupTimeoutMs()};
+    const startedAtMs=performance.now();
+    const pendingSeek={owner,source,target,sessionId:playbackSession,trackId:track.id,startedAtMs,startupResume,startupRequest,
+      deadline:paused||node.paused?null:startedAtMs+playbackStartupTimeoutMs()};
+    const seek={...pendingSeek,handoffTimeoutMs:canHandoffWebviewSeek(node,pendingSeek)?5_000:playbackStartupTimeoutMs()};
     activeWebviewSeek=seek;
     const onExpired: (requestedTarget:number)=>void = requestedTarget=>{
       if(activeWebviewSeek!==seek || !isCurrentWebviewSeek(seek))return;
@@ -3457,7 +5593,10 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
   }
   function armPendingWebviewSeekAfterResume(node: HTMLAudioElement) {
     const seek=activeWebviewSeek;
-    if(seek && seek.owner.node===node && isCurrentWebviewSeek(seek)){seek.deadline??=performance.now()+playbackStartupTimeoutMs();webviewSeekCompletionWatchdog.resume(seek.owner,seek.handoffTimeoutMs);}
+    if(seek && seek.owner.node===node && isCurrentWebviewSeek(seek)){
+      if(seek.deadline===null){seek.startedAtMs=performance.now();seek.deadline=seek.startedAtMs+playbackStartupTimeoutMs();}
+      webviewSeekCompletionWatchdog.resume(seek.owner,seek.handoffTimeoutMs);
+    }
   }
   function refreshSteadyMonitorAfterCompletedSeek(node: HTMLAudioElement) {
     if(pendingWebviewResume)return;
@@ -3466,11 +5605,16 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     updateSuccessfulRecoverySeek(node);
     armWebviewStallWatchdog(node);
   }
-  function completeWebviewSeekIfLanded(node: HTMLAudioElement) {
+  function completeWebviewSeekIfLanded(node: HTMLAudioElement, browserAcknowledged = false) {
     const seek=activeWebviewSeek;
     if(!seek || seek.owner.node!==node || !isCurrentWebviewSeek(seek) || node.seeking)return false;
-    const tolerance=Math.max(0.75,Math.min(2,Number.isFinite(node.duration)?node.duration*0.005:0.75));
-    if(!Number.isFinite(node.currentTime) || Math.abs(node.currentTime-seek.target)>tolerance)return false;
+    if(seek.startupResume && Number.isFinite(node.duration) && node.duration>0 && seek.target>node.duration+2)return false;
+    if(seek.startupResume&&!hasWebviewStartupResumeProgress({target:seek.target,startPosition:seek.target,currentTime:node.currentTime,
+      duration:node.duration,elapsedMs:performance.now()-seek.startedAtMs,readyState:node.readyState,seeking:node.seeking,
+      paused:node.paused,playbackRate:node.playbackRate}))return false;
+    if(node.error || node.readyState<2 || !hasWebviewSeekLanded({target:seek.target,currentTime:node.currentTime,
+      duration:node.duration,elapsedMs:performance.now()-seek.startedAtMs,playing:!paused&&!node.paused,
+      playbackRate:node.playbackRate,browserAcknowledged}))return false;
     webviewSeekCompletionWatchdog.complete(seek.owner);
     activeWebviewSeek=null;
     return true;
@@ -3558,7 +5702,20 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     if (previewStatus.startsWith("Loading")) return "Loading";
     return preview.isExcerpt ? "Playing preview" : "Playing";
   });
-  async function startPreview(t: Track, fromQueue = false, automaticContinuation = false, displayedTracks?: Track[], displayedIndex?: number, failedSkips = 0, automationRequestId: string | null = null, resumeSavedPosition = false, failedQueueRun?: FailedQueueRun) {
+  async function startPreview(t: Track, fromQueue = false, automaticContinuation = false, displayedTracks?: Track[], displayedIndex?: number, failedSkips = 0, automationRequestId: string | null = null, resumeSavedPosition = false, failedQueueRun?: FailedQueueRun, loudnessAlbumResource: LoudnessResourceIdentity | null = null) {
+    waveformRouteUpgradeRequest++;
+    waveformRouteUpgradeStatus = "";
+    let selectedAlbumResource = loudnessAlbumResource;
+    if (!selectedAlbumResource && (fromQueue || automaticContinuation || resumeSavedPosition)) {
+      const entryId = nativeActive()
+        ? nativeSnapshot?.queueEntryIds?.[nativeSnapshot.currentIndex] ?? nativeSnapshot?.entryId
+        : playbackQueue.entryIds[queueIndex];
+      selectedAlbumResource = playbackQueue.loudnessContextFor(entryId)
+        ?? (entryId ? nativeSnapshot?.queueLoudnessContexts?.[entryId] ?? null : null);
+    }
+    if (selectedAlbumResource && (!t.assetId || !selectedAlbumResource.members.some(member => member.assetId === t.assetId))) {
+      selectedAlbumResource = null;
+    }
     if (!automaticContinuation && !resumeSavedPosition && !failedQueueRun) clearPlaybackSkipNotice();
     if(resumeSavedPosition){automationRequestId=queuedOwnerForResume(automationRequestId);queuedPausedOwner=null;}
     nextCandidatePrefetch.cancel();
@@ -3572,7 +5729,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       webviewDiagnosticsCleared = false;
     }
     try {
-      await startPreviewInner(t, fromQueue, automaticContinuation, displayedTracks, displayedIndex, failedSkips, automationRequestId,trace,resumeSavedPosition,failedQueueRun);
+      await startPreviewInner(t, fromQueue, automaticContinuation, displayedTracks, displayedIndex, failedSkips, automationRequestId,trace,resumeSavedPosition,failedQueueRun,selectedAlbumResource);
       if(resumeSavedPosition && automationRequestId && activeAutomationPlayback===automationRequestId && queuedPausedOwner!==automationRequestId)reportQueuedPlaybackPhase(preview&&!paused?"playing":"failed");
       return sequence === playbackLoadSequence && (nativeActive() || Boolean(preview && !paused));
     } finally {
@@ -3594,8 +5751,40 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
   function sameNativePlaybackQueue(left: readonly Track[], right: readonly Track[]) {
     return left.length === right.length && left.every((track, index) => sameNativePlaybackTrack(track, right[index]!));
   }
-  async function startPreviewInner(t: Track, fromQueue = false, automaticContinuation = false, displayedTracks?: Track[], displayedIndex?: number, failedSkips = 0, automationRequestId: string | null = null,trace?:PlaybackOperationTrace,resumeSavedPosition = false, failedQueueRun?: FailedQueueRun) {
+  async function startPreviewInner(t: Track, fromQueue = false, automaticContinuation = false, displayedTracks?: Track[], displayedIndex?: number, failedSkips = 0, automationRequestId: string | null = null,trace?:PlaybackOperationTrace,resumeSavedPosition = false, failedQueueRun?: FailedQueueRun,loudnessAlbumResource: LoudnessResourceIdentity | null = null) {
+    if (webviewObservedCapture && !webviewObservedCapture.finishing) cancelWebviewObservedCapture("Whole-track WebView analysis was discarded because playback changed.");
+    if (webviewAnalysisArmTrackId && webviewAnalysisArmTrackId !== t.id) {
+      webviewAnalysisArmTrackId = null;
+      webviewObservedAnalysisStatus = "Whole-track WebView analysis was cancelled because playback changed.";
+    }
     await cancelPendingWebviewHandoff();
+    activeWebviewLoudnessAlbumResource = loudnessAlbumResource;
+    try {
+      await call("set_loudness_album_context", { resource: loudnessAlbumResource });
+    } catch (failure) {
+      if (loudnessAlbumResource) throw failure;
+    }
+    if (portablePlaybackSource(t) && !t.localPath) {
+      const source = portablePlaybackSource(t)!;
+      const bindingSequence = playbackLoadSequence;
+      let bound: Candidate | null;
+      try {
+        bound = await call<Candidate | null>("resolve_portable_playback_candidate", { track: t });
+      } catch (failure) {
+        if (bindingSequence === playbackLoadSequence) previewStatus = `Reviewed provider source could not be resolved: ${String(failure)}`;
+        return;
+      }
+      if (bindingSequence !== playbackLoadSequence) return;
+      const expectedId = `${source.provider}:${source.sourceId}`;
+      if (!bound || bound.provider !== source.provider || bound.id !== expectedId) {
+        const remainingBindings = { ...queueCandidates };
+        delete remainingBindings[t.id];
+        queueCandidates = remainingBindings;
+        previewStatus = "The reviewed provider recording is unavailable. Review the source selection before playing this entry.";
+        return;
+      }
+      queueCandidates = { ...queueCandidates, [t.id]: bound };
+    }
     playbackRunGeneration++;
     cancelRadioIdentification();
     if (nativeActive()) {
@@ -3607,8 +5796,8 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
         (!candidate || !queueCandidates[t.id] && candidate.url === t.sourceUrl);
       // Explicit track selection starts at the beginning. The native Resume command
       // owns restoration of paused playback, including its saved playhead.
-      if (canSelectFromNativeQueue) await nativeCommand({action:"select",index,...trace});
-      else await nativeCommand({action:"play",tracks:list.length ? list : [t],index:index >= 0 ? index : 0,candidate,position:0,...trace});
+      if (canSelectFromNativeQueue) await nativeCommand({action:"select",index,loudnessAlbumResource,...trace});
+      else await nativeCommand({action:"play",tracks:list.length ? list : [t],index:index >= 0 ? index : 0,candidate,position:0,loudnessAlbumResource,...trace});
       return;
     }
     if (radioBusy && radioBusy !== t.id) { radioRequest++; radioBusy = null; }
@@ -3619,6 +5808,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       const list = displayedTracks ?? (view === "history" ? historyItems.map((item) => item.track) : sorted.some((item) => item.id === t.id) ? [...sorted] : [t]);
       const index = displayedIndex ?? list.findIndex((item) => item === t);
       playbackQueue.setTracks(list, index >= 0 ? index : Math.max(0, list.findIndex((item) => item.id === t.id)));
+      if (loudnessAlbumResource) playbackQueue.setLoudnessContext(playbackQueue.entryIds, loudnessAlbumResource);
       playbackQueue.setRepeat(repeatMode); if (shuffleEnabled) playbackQueue.shuffle(); refreshQueue();
     }
     // Failed entry advancement is queue intent, not a natural-completion signal.
@@ -3657,11 +5847,15 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     const linked = importedAudioCandidate(t);
     if (linked && (t.playbackRange || isLinkedAudioSearchCandidate(t, linked))) playingCandidate = linked;
     if (t.artworkUrl || assetIdForTrack(t)) void cacheCover(t);
-    if(t.provider==="radioparadise" || t.provider==="internet-radio" || (t.provider==="radio" && (t.provenance as {sourceKind?:string})?.sourceKind==="radio")) {
+    if(isStationPlaybackTrack(t)) {
       const station=radioStations.find(item=>item.id===t.providerId);if(!station){previewStatus="Unknown radio station";return;}
       playingTrack={...t,title:station.name,artist:station.provider==="radio_paradise"?"Radio Paradise":"Internet radio",sourceUrl:station.homepageUrl??station.sourceUrl};
       automaticPreviewRecovery!.attempts = 1;
       await startRadioWebviewAudio(t, request);
+      return;
+    }
+    if (portablePlaybackSource(t)) {
+      await findAndStartPreviewSource(t, request);
       return;
     }
     await run(async () => {
@@ -3673,7 +5867,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
         result = await withinPreviewStartupBudget(
           () => previewRequests.resolve(
             request,
-            call<Preview>("resolve_preview", { track: t, requestGeneration: request }),
+            call<WebviewResolvedPreview>("resolve_preview", { track: t, requestGeneration: request }),
           ),
           deadline,
           () => previewRequests.isCurrent(request),
@@ -3704,7 +5898,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
           const resumeRequested = pendingResumePosition > 0;
           let startupPhase: WebviewStartupPhase = 'attach';
           const stillCurrent = () => attemptActive && previewRequests.isCurrent(request) && playingTrack?.id === t.id && audio === node && preview?.url === result.url;
-          node.volume = volume;
+          setWebviewOutputVolume(node, volume);
           try {
             await withinPreviewStartupBudget(() => prepareAudioStream(request, stillCurrent), deadline, stillCurrent);
             startupPhase = 'resume_seek';
@@ -3735,7 +5929,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
             }
           } catch (failure) {
             if (previewRequests.isCurrent(request) && playingTrack?.id === t.id && audio === node && preview?.url === result.url) {
-              recordWebviewStartupFailure(captureWebviewStartupFailure(node, startupPhase, result.audioMimeType, audioStreamHandle?.kind, resumeRequested, performance.now() - startupStartedAt));
+              recordWebviewStartupFailure(captureWebviewStartupFailure(node, startupPhase, result.audioMimeType, audioStreamHandle?.kind, resumeRequested, performance.now() - startupStartedAt, pendingResumePosition, result.sourceTransport));
             }
             attemptActive = false;
             if (!previewRequests.isCurrent(request)) return;
@@ -3801,6 +5995,9 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     }
   }
   function liveStationForTrack(track: Track) {
+    // A song identified on a station is a recording, not that station's live
+    // transport. Its origin attribution must never become a fallback source.
+    if (!isStationPlaybackTrack(track)) return null;
     const provenance = track.provenance as { stationId?: string; radioStationId?: string };
     return radioStations.find(station => station.id === (provenance?.radioStationId ?? provenance?.stationId ?? track.providerId));
   }
@@ -3813,10 +6010,12 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     let source: Preview | null = null;
     try {
       let streamUrl = station.streamUrl;
-      let transport: { audioMimeType?: string; audioCodec?: string; sourceTransport?: string } = {};
+      let transport: { audioMimeType?: string; audioCodec?: string; sourceTransport?: string; normalizationRoute?: WebviewNormalizationRoute } = {};
       if (desktop()) {
+        const normalizationRouteRequired = await isWebviewNormalizationRouteRequired(false);
         const resolved = await withinPreviewStartupBudget(() => call<string | ({url:string} & typeof transport)>("resolve_radio_station_playback_url", {
           stationId:station.id,requestGeneration:request,webviewCapabilities:webviewAudioCapabilities(),detailed:true,
+          normalizationRouteRequired,
         }), deadline, current);
         if (typeof resolved === "string" && resolved) streamUrl = resolved;
         else if (resolved && typeof resolved === "object" && resolved.url) { streamUrl = resolved.url; transport = resolved; }
@@ -3830,7 +6029,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       if (!current() || !audio) return false;
       node = audio;
       const owns = () => current() && audio === node && preview === source;
-      node.volume = volume;
+      setWebviewOutputVolume(node, volume);
       await withinPreviewStartupBudget(() => prepareAudioStream(request, owns), deadline, owns);
       await withinPreviewStartupBudget(() => ownedStartupPlay(node!), deadline, owns);
       if (!owns()) return false;
@@ -3877,7 +6076,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
   function armWebviewStallWatchdog(node: HTMLAudioElement) {
     const source = preview, track = playingTrack, serial = seekSerial, ownerCandidate = playingCandidate;
     if (!(node instanceof HTMLAudioElement) || node !== audio || !source || !track || nativeActive()) return;
-    const live = Boolean(playingRadioStation || currentRadioSong || ["radioparadise", "internet-radio", "radio_song"].includes(track.provider));
+    const live = isStationPlaybackTrack(track);
     const owner = webviewStallOwner(node, source, serial);
     const attached = successfulRecoveryAttachment;
     const recovery = automaticPreviewRecovery;
@@ -3905,7 +6104,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     webviewSeekCompletionWatchdog.cancel(); activeWebviewSeek=null;
     const track = playingTrack, source = preview, oldRequest = automaticPreviewRecovery;
     if(ownedSeek?.deadline !== null && ownedSeek?.deadline !== undefined && oldRequest)oldRequest.deadline=ownedSeek.deadline;
-    const live = Boolean(liveStationForTrack(track) && (playingRadioStation || currentRadioSong || ["radioparadise", "internet-radio", "radio_song", "radio"].includes(track.provider)));
+    const live = Boolean(isStationPlaybackTrack(track) && liveStationForTrack(track));
     const failedCandidate = playingCandidate;
     const transportFailure = node.error?.code === 2 || classifyPlaybackFailure(mediaAudioFailureReason()).retryable ||
       /(?:manifest|level|audioTrack|frag|key)Load(?:Error|TimeOut)/i.test(lastHlsFailure);
@@ -3919,7 +6118,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     const scopedPosition = Number.isFinite(currentTime) && Number.isFinite(resumeLimit) && resumeLimit > 0 &&
       currentTime >= lowerBound && currentTime < resumeLimit;
     const positionPreservingScope = source.kind !== "local" && !source.isExcerpt && !playingRadioStation && !currentRadioSong &&
-      !["radioparadise", "internet-radio", "radio_song"].includes(track.provider) &&
+      !isStationPlaybackTrack(track) &&
       Number.isFinite(sourceDuration) && Number(sourceDuration) > 0;
     const canResumePosition = positionPreservingScope && scopedPosition;
     const seekRefresh = requestedRecoveryPosition !== undefined;
@@ -4096,7 +6295,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       pendingWebviewResume = null;
       attempt.cancelledGeneration = ++webviewResumeSequence;
       node.pause(); paused = true; bufferingAudio = false;
-      recordWebviewStartupFailure(captureWebviewStartupFailure(node,"play",source.audioMimeType,audioStreamHandle?.kind,true,performance.now()-startedAt));
+      recordWebviewStartupFailure(captureWebviewStartupFailure(node,"play",source.audioMimeType,audioStreamHandle?.kind,true,performance.now()-startedAt,pendingResumePosition,source.sourceTransport));
       previewStatus = `Playback could not resume: ${safePreviewError(failure)}`;
       reportQueuedPlaybackPhase("failed");
       return "failed";
@@ -4341,7 +6540,11 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
               && sameNativePlaybackQueue(currentQueue.tracks, requestedTracks);
             const suppliedOccurrence = requestedTracks[currentQueue.currentIndex];
             if (activeAutomationPlayback !== request.requestId) throw new Error("Playback request was cancelled or superseded");
-            if (!exactSuppliedQueue || !suppliedOccurrence || !playingTrack || !sameNativePlaybackTrack(playingTrack, suppliedOccurrence) || !preview || paused) {
+            const sameActiveOccurrence = suppliedOccurrence && playingTrack &&
+              (suppliedOccurrence.provider === "radio" && playingTrack.provider === "radio"
+                ? suppliedOccurrence.id === playingTrack.id && suppliedOccurrence.providerId === playingTrack.providerId
+                : sameNativePlaybackTrack(playingTrack, suppliedOccurrence));
+            if (!exactSuppliedQueue || !suppliedOccurrence || !sameActiveOccurrence || !preview || paused) {
               throw new Error(previewStatus || "No playable audio found");
             }
           }
@@ -4407,7 +6610,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
         if (!Number.isFinite(value) || value < 0 || value > 1) throw new Error("Volume must be from 0 to 1");
         volume = value;
         if (nativeActive()) await nativeCommand({action:"volume",volume:value});
-        else { if (audio) audio.volume = value; if (preview?.sessionId) await call("candidate_preview_control", { action: "volume", value }); }
+        else { if (audio) setWebviewOutputVolume(audio, value); if (preview?.sessionId) await call("candidate_preview_control", { action: "volume", value }); }
       } else if (request.action === "stop") {
         await closePreview(); position = 0; if(!nativeActive())persistPlaybackPosition();
       } else if (request.action === "shuffle") {
@@ -4471,9 +6674,53 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     infoTrack = panel === "info" ? track ?? null : null;
     showPlayingInfo = panel === "info"; showQueue = panel === "queue"; showDownloads = panel === "downloads";
   }
+  async function refreshTrackLibrarySummaryFor(trackId: string, ownerStillCurrent: () => boolean = () => true) {
+    const visibleTrackId = () => showPlayingInfo ? (infoTrack ?? playingTrack)?.id ?? null : null;
+    if (!desktop() || visibleTrackId() !== trackId || !ownerStillCurrent()) return;
+    const request = ++trackLibrarySummaryRequest;
+    trackLibrarySummaryTrackId = trackId;
+    trackLibrarySummaryLoading = true;
+    try {
+      const summary = await call<TrackLibrarySummary>("get_track_library_summary", { trackId });
+      if (request === trackLibrarySummaryRequest && visibleTrackId() === trackId && ownerStillCurrent() && summary.trackId === trackId) {
+        trackLibrarySummary = summary;
+      }
+    } catch {
+      if (request === trackLibrarySummaryRequest && visibleTrackId() === trackId && ownerStillCurrent()) trackLibrarySummary = null;
+    } finally {
+      if (request === trackLibrarySummaryRequest) trackLibrarySummaryLoading = false;
+    }
+  }
+  $effect(() => {
+    const request = ++trackLibrarySummaryRequest;
+    const trackId = showPlayingInfo ? (infoTrack ?? playingTrack)?.id ?? null : null;
+    if (!desktop() || !trackId) {
+      trackLibrarySummary = null;
+      trackLibrarySummaryTrackId = null;
+      trackLibrarySummaryLoading = false;
+      return;
+    }
+    let cancelled = false;
+    trackLibrarySummary = null;
+    trackLibrarySummaryTrackId = trackId;
+    trackLibrarySummaryLoading = true;
+    void call<TrackLibrarySummary>("get_track_library_summary", { trackId })
+      .then(summary => {
+        if (!cancelled && request === trackLibrarySummaryRequest && summary.trackId === trackId) trackLibrarySummary = summary;
+      })
+      .catch(() => {
+        if (!cancelled && request === trackLibrarySummaryRequest) trackLibrarySummary = null;
+      })
+      .finally(() => {
+        if (!cancelled && request === trackLibrarySummaryRequest) trackLibrarySummaryLoading = false;
+      });
+    return () => { cancelled = true; };
+  });
   function keyboard(e: KeyboardEvent) {
+    if (desktop() && !backupHydrationReady) return;
     if(engineSwitchBusy){e.preventDefault();return;}
     const target = e.target instanceof Element ? e.target : null;
+    if (target?.closest("dialog[open]")) return;
     if (e.key === "Escape" && showFullNowPlaying) { e.preventDefault(); showFullNowPlaying = false; return; }
     if (showFullNowPlaying && e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) { e.preventDefault(); showFullNowPlaying = false; return; }
     const slot=playlistShortcut(e); if(slot>=0){e.preventDefault();void invokePlaylistShortcut(slot).catch(failure=>error=String(failure));return;}
@@ -4490,7 +6737,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     if (downloadTrack || playlistTrack) return;
     if (
       target?.closest(
-        "input,textarea,select,button,[contenteditable]",
+        "input,textarea,select,button,summary,[contenteditable]",
       ) ||
       e.ctrlKey ||
       e.metaKey ||
@@ -4643,7 +6890,120 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     activeArtistRef = artist;
     await navigate("artist", false);
   }
-  async function playArtistTrack(track: Track, displayed: Track[] = [track], index = 0) {
+  async function prepareReleaseLoudnessAnalysis(tracks: Track[], gapSeconds: number, localOnly = false): Promise<{ jobId: string; playbackTracks: Track[] }> {
+    if (gapSeconds !== 0) throw new Error("Album analysis currently matches gapless queue playback only.");
+    let prepared: Track[];
+    if (localOnly) {
+      const groups = await call<{ trackId: string; files: LocalAsset[] }[]>("list_track_files_for_recordings", { recordingIds: tracks.map(track => track.id) });
+      prepared = tracks.map(track => {
+        const files = groups.find(group => group.trackId === track.id)?.files ?? [];
+        const exact = track.assetId ? files.find(file => file.id === track.assetId) : null;
+        const asset = exact ?? (files.length === 1 ? files[0] : null);
+        if (!asset || !asset.path) {
+          throw new Error(files.length > 1
+            ? `Choose one registered local file for “${track.title}” before analyzing this album.`
+            : `“${track.title}” no longer has a registered local audio file.`);
+        }
+        return { ...track, assetId: asset.id, localPath: asset.path, localAvailability: "available" as const };
+      });
+    } else {
+      prepared = await matchArtistPlaybackSources(tracks);
+    }
+    if (prepared.length !== tracks.length || prepared.some(track => !track.localPath)) {
+      throw new Error("Album loudness analysis requires a registered local audio file for every release track.");
+    }
+    const paths = prepared.map(track => track.localPath!);
+    const assets = await call<LocalAsset[]>("list_assets_for_paths", { paths });
+    const assetByPath = new Map(assets.map(asset => [asset.path, asset]));
+    const playbackTracks = prepared.map(track => {
+      const asset = assetByPath.get(track.localPath!);
+      if (!asset || (track.assetId && track.assetId !== asset.id)) {
+        throw new Error("A release track no longer matches its registered local audio file.");
+      }
+      return { ...track, assetId: asset.id, localAvailability: "available" as const };
+    });
+    const assetIds = playbackTracks.map(track => track.assetId!);
+    if (new Set(assetIds).size !== assetIds.length) {
+      throw new Error("This release repeats a local audio asset, so it cannot be measured as a single ordered programme.");
+    }
+    const jobId = await call<string>("start_loudness_analysis", {
+      assetIds,
+      interTrackGapsSeconds: Array(Math.max(0, assetIds.length - 1)).fill(gapSeconds),
+    });
+    return { jobId, playbackTracks };
+  }
+
+  function localAlbumOrder(tracks: Track[]): { tracks: Track[]; canReorder: boolean } {
+    const position = (track: Track): { disc: number; track: number } | null => {
+      const provenance = track.provenance && typeof track.provenance === "object" ? track.provenance as Record<string, unknown> : {};
+      const raw = provenance.position ?? provenance.trackNumber ?? provenance.track_number;
+      let trackNumber = Number.isFinite(track.trackNumber) && Number(track.trackNumber) > 0 ? Number(track.trackNumber) : null;
+      let discNumber = Number.isFinite(track.discNumber) && Number(track.discNumber) > 0 ? Number(track.discNumber) : 1;
+      if (trackNumber == null && typeof raw === "number" && Number.isFinite(raw) && raw > 0) trackNumber = raw;
+      if (trackNumber == null && typeof raw === "string") {
+        const match = raw.trim().match(/^(?:(\d+)[.-])?(\d+)$/);
+        if (match) { if (match[1]) discNumber = Number(match[1]); trackNumber = Number(match[2]); }
+      }
+      return trackNumber == null ? null : { disc: discNumber, track: trackNumber };
+    };
+    const positions = tracks.map(position);
+    const complete = positions.every((value): value is { disc: number; track: number } => value !== null);
+    const unique = complete && new Set(positions.map(value => `${value.disc}:${value.track}`)).size === tracks.length;
+    if (!complete || !unique) return { tracks: [...tracks], canReorder: true };
+    return {
+      tracks: tracks.map((track, index) => ({ track, index, position: positions[index]! }))
+        .sort((left, right) => left.position.disc - right.position.disc || left.position.track - right.position.track || left.index - right.index)
+        .map(row => row.track),
+      canReorder: false,
+    };
+  }
+
+  async function openSelectedLocalAlbumLoudness(): Promise<void> {
+    localAlbumLoudnessFocusReturn = document.querySelector<HTMLElement>(".header-library-tools summary");
+    closeLibraryActionsPopover();
+    const selectedTracks = currentLoudnessSelection();
+    if (selectedTracks.length < 2 || selectedTracks.length > 200) {
+      setNotice("Select 2–200 downloaded tracks from one album to analyze a local album programme.");
+      return;
+    }
+    if (new Set(selectedTracks.map(track => track.id)).size !== selectedTracks.length) {
+      setNotice("A local album programme cannot repeat the same selected recording.");
+      return;
+    }
+    const album = selectedTracks[0]?.album?.trim() ?? "";
+    const albumArtist = selectedTracks[0]?.albumArtist?.trim() ?? "";
+    const same = (value: string | null | undefined, expected: string) => Boolean(value?.trim()) && value!.trim().toLocaleLowerCase() === expected.toLocaleLowerCase();
+    if (!album || !albumArtist || selectedTracks.some(track => !same(track.album, album) || !same(track.albumArtist, albumArtist))) {
+      setNotice("Select tracks with one matching album and album artist to analyze a local album programme.");
+      return;
+    }
+    try {
+      const groups = await call<{ trackId: string; files: LocalAsset[] }[]>("list_track_files_for_recordings", { recordingIds: selectedTracks.map(track => track.id) });
+      const localTracks = selectedTracks.map(track => {
+        const files = groups.find(group => group.trackId === track.id)?.files ?? [];
+        const exact = track.assetId ? files.find(file => file.id === track.assetId) : null;
+        const asset = exact ?? (files.length === 1 ? files[0] : null);
+        if (!asset || !asset.path) throw new Error(files.length > 1
+          ? `Choose one registered local file for “${track.title}” before analyzing this album.`
+          : `“${track.title}” is not a downloaded local track.`);
+        return { ...track, assetId: asset.id, localPath: asset.path, localAvailability: "available" as const };
+      });
+      if (new Set(localTracks.map(track => track.assetId)).size !== localTracks.length) {
+        throw new Error("Each selected album track must use a unique registered local audio asset.");
+      }
+      const order = localAlbumOrder(localTracks);
+      localAlbumLoudnessReview = { album, albumArtist, ...order };
+    } catch (failure) {
+      setNotice(failure instanceof Error ? failure.message : String(failure));
+    }
+  }
+
+  async function playReleaseAlbum(tracks: Track[], resource: LoudnessResourceIdentity | null) {
+    if (!tracks.length) return;
+    await playArtistTrack(tracks[0]!, tracks, 0, resource);
+  }
+
+  async function playArtistTrack(track: Track, displayed: Track[] = [track], index = 0, albumResource: LoudnessResourceIdentity | null = null) {
     const request = ++artistPlaybackMatchGeneration;
     const rows = displayed ?? [track];
     const rowIndex = Number.isInteger(index) && index >= 0 && index < rows.length ? index : Math.max(0, rows.indexOf(track));
@@ -4655,19 +7015,25 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     if (request !== artistPlaybackMatchGeneration) return;
     const playableRows = playableTrack === rows[rowIndex] ? rows : rows.map((item, itemIndex) => itemIndex === rowIndex ? playableTrack : item);
     selected = playableTrack;
-    if(nativeActive()) { await startPreview(playableTrack,false,false,playableRows,rowIndex); return; }
+    if(nativeActive()) { await startPreview(playableTrack,false,false,playableRows,rowIndex,0,null,false,undefined,albumResource); return; }
     playbackQueue.setTracks(playableRows, rowIndex);
+    if (albumResource) playbackQueue.setLoudnessContext(playbackQueue.entryIds, albumResource);
     playbackQueue.setRepeat(repeatMode);
     refreshQueue();
-    await startPreview(playableTrack, true);
+    await startPreview(playableTrack, true, false, undefined, undefined, 0, null, false, undefined, albumResource);
   }
-  function queueArtistTracks(items: Track[], mode: "append" | "next") {
+  function queueArtistTracks(items: Track[], mode: "append" | "next", albumResource: LoudnessResourceIdentity | null = null) {
     if (!items.length) return;
-    if (deferUntilWebviewHandoffSettles(() => queueArtistTracks(items, mode))) return;
-    if (nativeActive()) { void nativeCommand({action:"queue",tracks:items,mode}); return; }
-    if (!queueTracks.length) playbackQueue.setTracks(items, 0);
-    else if (mode === "next") playbackQueue.appendNextTracks(items);
-    else playbackQueue.appendTracks(items);
+    if (deferUntilWebviewHandoffSettles(() => queueArtistTracks(items, mode, albumResource))) return;
+    if (nativeActive()) { void nativeCommand({action:"queue",tracks:items,mode,loudnessAlbumResource:albumResource}); return; }
+    let added: readonly import("./lib/playback-queue").PlaybackQueueEntry[];
+    if (!queueTracks.length) {
+      playbackQueue.setTracks(items, 0);
+      added = playbackQueue.entries;
+    }
+    else if (mode === "next") added = playbackQueue.appendNextTracks(items);
+    else added = playbackQueue.appendTracks(items);
+    if (albumResource) playbackQueue.setLoudnessContext(added.map(entry => entry.entryId), albumResource);
     refreshQueue();
     setNotice(`${items.length === 1 ? items[0].title : `${items.length} tracks`} added ${mode === "next" ? "next" : "to queue"}.`);
   }
@@ -4812,8 +7178,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     return { ...profile, topTracks: await matchArtistPlaybackSources(profile.topTracks, names) };
   }
   async function loadArtistProfileArtwork(artist: ArtistRef) {
-    const profile = await call<ArtistProfile>("get_artist_profile", { artist });
-    return { imageUrl: profile.imageUrl };
+    return call<{imageUrl?:string|null}>("get_artist_artwork", { artist });
   }
   async function getArtistReleases(artist: ArtistRef, cursor?: string | null) {
     return call<ArtistReleasePage>("get_artist_releases", { artist, cursor });
@@ -4878,38 +7243,352 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     if (!matches || /failed|error|unavailable|no estimate|no confident estimate/i.test(status)) return "";
     return `Estimated from audio; not verified catalog metadata${record.method ? ` · ${record.method}` : ""}${record.confidence != null ? ` · ${field === "bpm" ? "rhythmic correlation" : "excerpt agreement"} ${record.confidence}` : ""}${field === "bpm" && typeof record.relatedTempoAlternativeBpm === "number" ? ` · alternative tempo ${record.relatedTempoAlternativeBpm} BPM` : ""}${record.uncertainty ? ` · ${record.uncertainty}` : ""}.`;
   }
-  async function analyzeLibraryAssets(force = false) {
-    if (analysisBusy) return;
-    if (!checked.length && !selected) {
-      if (force) { setNotice("Select local recordings to recalculate their BPM and key."); return; }
-      analysisBusy = true;
-      try {
-        const result = await call<{ queued: number }>("analyze_local_assets", { force: false });
-        setNotice(`Queued analysis for ${result.queued} local recording${result.queued === 1 ? "" : "s"}.`);
-      } catch (failure) { error = String(failure); }
-      finally { analysisBusy = false; }
+  function analysisFieldIsManual(track: Track | undefined, field: "bpm" | "key"): boolean {
+    const provenance = track?.provenance && typeof track.provenance === "object" ? track.provenance as Record<string, unknown> : {};
+    return (provenance.manualFields as Record<string, unknown> | undefined)?.[field] === true;
+  }
+  function analysisFieldExists(track: Track | undefined, field: "bpm" | "key"): boolean {
+    return field === "bpm" ? track?.bpm != null : track?.key != null;
+  }
+  function closeLibraryActionsPopover(): void {
+    const details = document.querySelector<HTMLDetailsElement>(".header-library-tools[open]");
+    if (!details) return;
+    // The menu action becomes hidden when details closes. Give its visible
+    // opener focus before the dialog captures the element to return to.
+    details.querySelector<HTMLElement>(":scope > summary")?.focus({ preventScroll: true });
+    details.removeAttribute("open");
+  }
+  async function analyzeLibraryAssets() {
+    if (selectedAnalysisBusy) return;
+    const selectedIds = checked.length ? [...new Set(checked)] : selected ? [selected.id] : playingTrack ? [playingTrack.id] : [];
+    if (!selectedIds.length) { setNotice("Select one or more local tracks to analyze."); return; }
+    if (selectedIds.length > 200) { setNotice("Analyze at most 200 selected tracks at a time."); return; }
+    closeLibraryActionsPopover();
+    const candidateTracks = [...new Map<string, Track>([...tracks, ...sorted, ...queueTracks, selected, playingTrack].filter((track): track is Track => Boolean(track)).map(track => [track.id, track] as const)).values()];
+    const selectedTracks = selectedIds.map(id => candidateTracks.find(track => track.id === id) ?? scopedAssetsById.get(id)?.track).filter((track): track is Track => Boolean(track));
+    const existingAssets = new Map<string, LocalAsset>();
+    for (const track of selectedTracks) {
+      const asset = trackAsset(track) ?? filesForTrack(track)[0];
+      if (asset) existingAssets.set(track.id, asset);
+    }
+    const missingTracks = selectedTracks.filter(track => !existingAssets.has(track.id));
+    if (missingTracks.length) {
+      let groups: { trackId: string; files: LocalAsset[] }[];
+      try { groups = await call<{ trackId: string; files: LocalAsset[] }[]>("list_track_files_for_recordings", { recordingIds: missingTracks.map(track => track.id) }); }
+      catch (failure) { error = String(failure); return; }
+      for (const group of groups) {
+        const track = missingTracks.find(item => item.id === group.trackId);
+        const asset = track?.assetId ? group.files.find(file => file.id === track.assetId) : null;
+        if (track && (asset || group.files[0])) existingAssets.set(track.id, asset ?? group.files[0]!);
+      }
+    }
+    const selectedAssets = [...new Map<string, LocalAsset>([...existingAssets.values()].map(asset => [asset.id, asset] as const)).values()];
+    if (!selectedAssets.length) { setNotice("No selected tracks have a registered local audio file. Download a track or select a downloaded track to analyze it."); return; }
+    if (selectedAssets.length > 200) { setNotice("Select at most 200 downloaded tracks at a time."); return; }
+    const tracksByAsset = Object.fromEntries(selectedAssets.map(asset => [asset.id, asset.track]));
+    selectedAnalysisTracks = tracksByAsset;
+    selectedAnalysisApplied = [];
+    selectedAnalysisJob = null;
+    selectedAnalysisKind = "asset";
+    selectedAnalysisOpen = true;
+    selectedAnalysisBusy = true;
+    analysisBusy = true;
+    const request = ++selectedAnalysisRequest;
+    try {
+      const started = await call<SelectedAnalysisJob>("start_selected_asset_analysis", {
+        assetIds: selectedAssets.map(asset => asset.id), fields: ["bpm", "key"],
+      });
+      selectedAnalysisJob = started;
+      while (request === selectedAnalysisRequest) {
+        const current = await call<SelectedAnalysisJob>("get_selected_asset_analysis", { jobId: started.jobId });
+        if (request !== selectedAnalysisRequest) return;
+        selectedAnalysisJob = current;
+        if (["completed", "cancelled", "failed"].includes(current.state)) break;
+        await new Promise(resolve => window.setTimeout(resolve, 650));
+      }
+      if (request === selectedAnalysisRequest && selectedAnalysisJob?.state === "completed") {
+        const count = selectedAnalysisJob.results.filter(row => row.analysis).length;
+        setNotice(`Analysis ready to review for ${count} of ${selectedAnalysisJob.total} selected track${selectedAnalysisJob.total === 1 ? "" : "s"}.`);
+      }
+    } catch (failure) { error = String(failure); }
+    finally { if (request === selectedAnalysisRequest) { selectedAnalysisBusy = false; analysisBusy = false; } }
+  }
+  function isLoudnessPlaybackActive(): boolean {
+    return Boolean((playingTrack || playingRadioStation || currentRadioSong) && !paused);
+  }
+  function currentLoudnessSelection(): Track[] {
+    const occurrenceTracks = view === "collections" ? selectedLocalOccurrenceTracks : [];
+    if (occurrenceTracks.length) return occurrenceTracks;
+    const ids = checked.length ? [...new Set(checked)] : selected ? [selected.id] : playingTrack ? [playingTrack.id] : [];
+    const candidates = [...new Map<string, Track>([...tracks, ...sorted, ...queueTracks, selected, playingTrack]
+      .filter((track): track is Track => Boolean(track)).map(track => [track.id, track] as const)).values()];
+    return ids.map(id => candidates.find(track => track.id === id) ?? scopedAssetsById.get(id)?.track).filter((track): track is Track => Boolean(track));
+  }
+  async function resolveLoudnessAssets(inputTracks: Track[]): Promise<LocalAsset[]> {
+    const byTrack = new Map<string, LocalAsset>();
+    for (const track of inputTracks) {
+      const asset = trackAsset(track) ?? filesForTrack(track)[0];
+      if (asset) byTrack.set(track.id, asset);
+    }
+    const missing = inputTracks.filter(track => !byTrack.has(track.id));
+    if (missing.length) {
+      const groups = await call<{ trackId: string; files: LocalAsset[] }[]>("list_track_files_for_recordings", { recordingIds: missing.map(track => track.id) });
+      for (const group of groups) {
+        const track = missing.find(item => item.id === group.trackId);
+        const preferred = track?.assetId ? group.files.find(file => file.id === track.assetId) : null;
+        if (track && (preferred || group.files[0])) byTrack.set(track.id, preferred ?? group.files[0]!);
+      }
+    }
+    return [...new Map([...byTrack.values()].map(asset => [asset.id, asset] as const)).values()];
+  }
+  async function analyzeLoudnessTracks(inputTracks: Track[]) {
+    if (loudnessAnalysisBusy) return;
+    const uniqueTracks = [...new Map(inputTracks.map(track => [track.id, track] as const)).values()];
+    if (!uniqueTracks.length) { setNotice("Select a downloaded track to analyze its loudness."); return; }
+    let assets: LocalAsset[];
+    try { assets = await resolveLoudnessAssets(uniqueTracks); }
+    catch (failure) { error = String(failure); return; }
+    if (!assets.length) { setNotice("No selected track has a registered local audio file. Loudness analysis does not change audio files or metadata."); return; }
+    if (assets.length > 50) { setNotice("Analyze at most 50 selected tracks at a time."); return; }
+    const assetIds = [...new Set(assets.map(asset => asset.id))];
+    if (webviewLoudnessSettings.analyzeWhenIdle && isLoudnessPlaybackActive()) {
+      loudnessRetryRequired = false;
+      pendingLoudnessAssetIds = [...new Set([...pendingLoudnessAssetIds, ...assetIds])];
+      loudnessAnalysisMessage = "Waiting for playback to pause. Selected files are untouched until analysis runs.";
+      setNotice(loudnessAnalysisMessage);
       return;
     }
-    const targeted = checked.length ? assets.filter((asset) => checked.includes(asset.recordingId) || checked.includes(asset.track.id))
-      : selected ? assets.filter((asset) => sameTrack(asset.track, selected!)) : [];
-    let targetIds = targeted.map((asset) => asset.id);
-    if (selected && !targetIds.length) {
-      const files = await call<LocalAsset[]>("list_track_files", { trackId: selected.id });
-      targetIds = files.map(asset => asset.id);
+    loudnessRetryRequired = false;
+    pendingLoudnessAssetIds = [];
+    await launchLoudnessAnalysis(assetIds, webviewLoudnessSettings.analyzeWhenIdle);
+  }
+  async function launchLoudnessAnalysis(assetIds: string[], queued: boolean) {
+    if (!assetIds.length || loudnessAnalysisBusy) return;
+    const request = ++activeLoudnessJobRequest;
+    activeLoudnessAssetIds = [...new Set(assetIds)];
+    activeLoudnessJobIsQueued = queued;
+    activeLoudnessJobId = "";
+    loudnessAnalysisMessage = queued ? "Selected analysis will pause if playback resumes." : "";
+    loudnessAnalysisBusy = true;
+    try {
+      const jobId = await call<string>("start_loudness_analysis", { assetIds: activeLoudnessAssetIds });
+      if (request !== activeLoudnessJobRequest) { await call("cancel_loudness_analysis", { jobId }).catch(() => {}); return; }
+      activeLoudnessJobId = jobId;
+      const initial = await call<LoudnessAnalysisJobStatus>("get_loudness_analysis_status", { jobId });
+      loudnessAnalysisJob = initial;
+      if (queued && isLoudnessPlaybackActive()) {
+        await pauseQueuedLoudnessAnalysis();
+        return;
+      }
+      while (request === activeLoudnessJobRequest) {
+        const current = await call<LoudnessAnalysisJobStatus>("get_loudness_analysis_status", { jobId });
+        if (request !== activeLoudnessJobRequest) return;
+        loudnessAnalysisJob = current;
+        if (["completed", "cancelled", "failed"].includes(current.status)) {
+          if (current.status === "completed") {
+            pendingLoudnessAssetIds = [];
+            loudnessAnalysisMessage = "Selected loudness measurements are ready. Audio files and recording metadata were not changed.";
+          } else if (current.status === "failed") {
+            pendingLoudnessAssetIds = activeLoudnessJobIsQueued ? activeLoudnessAssetIds : [];
+            loudnessRetryRequired = activeLoudnessJobIsQueued;
+            loudnessAnalysisMessage = current.error ?? "Loudness analysis failed.";
+          }
+          break;
+        }
+        await new Promise(resolve => window.setTimeout(resolve, 650));
+      }
+    } catch (failure) {
+      if (request === activeLoudnessJobRequest) {
+        pendingLoudnessAssetIds = queued ? activeLoudnessAssetIds : [];
+        loudnessRetryRequired = queued;
+        loudnessAnalysisMessage = String(failure);
+        error = String(failure);
+      }
+    } finally {
+      if (request === activeLoudnessJobRequest) {
+        loudnessAnalysisBusy = false;
+        activeLoudnessJobId = "";
+        activeLoudnessAssetIds = [];
+        activeLoudnessJobIsQueued = false;
+      }
     }
-    targetIds = [...new Set(targetIds)];
-    if (!targetIds.length) { setNotice("No local recordings need BPM or key analysis."); return; }
+  }
+  async function pauseQueuedLoudnessAnalysis() {
+    if (!activeLoudnessJobIsQueued || !activeLoudnessJobId) return;
+    const ids = activeLoudnessAssetIds;
+    const jobId = activeLoudnessJobId;
+    const request = activeLoudnessJobRequest;
+    try {
+      await call("cancel_loudness_analysis", { jobId });
+    } catch (failure) {
+      if (request !== activeLoudnessJobRequest || activeLoudnessJobId !== jobId) return;
+      const detail = failure instanceof Error ? failure.message : String(failure);
+      loudnessAnalysisMessage = `Playback resumed, but analysis could not be canceled and is still running. Retry cancel or wait for it to finish. ${detail}`;
+      return;
+    }
+    if (request !== activeLoudnessJobRequest || activeLoudnessJobId !== jobId) return;
+    activeLoudnessJobRequest++;
+    pendingLoudnessAssetIds = [...new Set([...ids, ...pendingLoudnessAssetIds])];
+    loudnessRetryRequired = false;
+    loudnessAnalysisJob = loudnessAnalysisJob ? { ...loudnessAnalysisJob, status: "cancelled" } : null;
+    loudnessAnalysisMessage = "Playback resumed. Analysis was canceled and the selected tracks are queued to retry when playback is idle.";
+    loudnessAnalysisBusy = false;
+    activeLoudnessJobId = "";
+    activeLoudnessAssetIds = [];
+    activeLoudnessJobIsQueued = false;
+  }
+  async function cancelLoudnessAnalysis() {
+    const jobId = activeLoudnessJobId;
+    const request = activeLoudnessJobRequest;
+    if (jobId) {
+      try {
+        await call("cancel_loudness_analysis", { jobId });
+      } catch (failure) {
+        if (request !== activeLoudnessJobRequest || activeLoudnessJobId !== jobId) return;
+        const detail = failure instanceof Error ? failure.message : String(failure);
+        loudnessAnalysisMessage = `Loudness analysis is still running because cancellation failed. Retry cancel or wait for it to finish. ${detail}`;
+        return;
+      }
+      if (request !== activeLoudnessJobRequest || activeLoudnessJobId !== jobId) return;
+    } else if (request !== activeLoudnessJobRequest) {
+      return;
+    }
+    activeLoudnessJobRequest++;
+    pendingLoudnessAssetIds = [];
+    loudnessRetryRequired = false;
+    loudnessAnalysisBusy = false;
+    activeLoudnessJobId = "";
+    activeLoudnessAssetIds = [];
+    activeLoudnessJobIsQueued = false;
+    loudnessAnalysisJob = jobId ? { jobId, status: "cancelled", total: loudnessAnalysisJob?.total ?? 0, completed: loudnessAnalysisJob?.completed ?? 0, error: null } : null;
+    loudnessAnalysisMessage = "Selected loudness analysis canceled.";
+  }
+  function retryQueuedLoudnessAnalysis() {
+    if (!pendingLoudnessAssetIds.length) return;
+    if (isLoudnessPlaybackActive()) { loudnessAnalysisMessage = "Pause playback before retrying selected analysis."; return; }
+    loudnessRetryRequired = false;
+    void launchLoudnessAnalysis(pendingLoudnessAssetIds, webviewLoudnessSettings.analyzeWhenIdle);
+  }
+  let previousLoudnessPlaybackActive = false;
+  $effect(() => {
+    const active = isLoudnessPlaybackActive();
+    if (active === previousLoudnessPlaybackActive) return;
+    previousLoudnessPlaybackActive = active;
+    if (active) void pauseQueuedLoudnessAnalysis();
+  });
+  $effect(() => {
+    const pending = pendingLoudnessAssetIds;
+    const enabled = webviewLoudnessSettings.analyzeWhenIdle;
+    const idle = !isLoudnessPlaybackActive();
+    if (!pending.length || !enabled || !idle || loudnessAnalysisBusy || loudnessLaunchScheduled || loudnessRetryRequired) return;
+    loudnessLaunchScheduled = true;
+    queueMicrotask(() => {
+      loudnessLaunchScheduled = false;
+      if (pendingLoudnessAssetIds.length && webviewLoudnessSettings.analyzeWhenIdle && !isLoudnessPlaybackActive() && !loudnessAnalysisBusy) {
+        void launchLoudnessAnalysis(pendingLoudnessAssetIds, true);
+      }
+    });
+  });
+  async function analyzeSelectedStreamTracks() {
+    if (selectedAnalysisBusy) return;
+    const occurrenceTracks = view === "collections" ? selectedLocalOccurrenceTracks : [];
+    const ids = occurrenceTracks.length
+      ? [...new Set(occurrenceTracks.map(track => track.id))]
+      : checked.length ? [...new Set(checked)] : selected ? [selected.id] : playingTrack ? [playingTrack.id] : [];
+    if (!ids.length) { setNotice("Select one or more saved recordings to analyze their verified streaming sources."); return; }
+    if (ids.length > 25) { setNotice("Analyze at most 25 streaming sources at a time."); return; }
+    closeLibraryActionsPopover();
+    const available = [...new Map<string, Track>([...tracks, ...sorted, ...queueTracks, selected, playingTrack]
+      .filter((track): track is Track => Boolean(track)).map(track => [track.id, track] as const)).values()];
+    const tracksById = Object.fromEntries(ids.flatMap(id => {
+      const track = available.find(item => item.id === id);
+      return track ? [[id, track] as const] : [];
+    }));
+    selectedAnalysisTracks = tracksById;
+    selectedAnalysisApplied = [];
+    selectedAnalysisJob = null;
+    selectedAnalysisKind = "stream";
+    selectedAnalysisOpen = true;
+    selectedAnalysisBusy = true;
+    analysisBusy = true;
+    const request = ++selectedAnalysisRequest;
+    const normalize = (job: {
+      jobId: string; state: string; total: number; completed: number;
+      results: { trackId: string; recordingId: string; status: string; provider?: string | null; sourceId?: string | null; analysis: WholeTrackAnalysisDto | null; error?: string | null }[];
+    }): SelectedAnalysisJob => ({
+      jobId: job.jobId, state: job.state, total: job.total, completed: job.completed,
+      results: job.results.map(row => ({
+        assetId: row.trackId, recordingId: row.recordingId, status: row.status,
+        analysis: row.analysis, error: row.error, kind: "stream",
+        sourceProvider: row.provider, sourceId: row.sourceId,
+      })),
+    });
+    try {
+      const started = normalize(await call<SelectedStreamJobDto>("start_selected_stream_analysis", {
+        trackIds: ids, fields: ["bpm", "key"],
+      }));
+      selectedAnalysisJob = started;
+      while (request === selectedAnalysisRequest) {
+        const current = normalize(await call<SelectedStreamJobDto>("get_selected_stream_analysis", { jobId: started.jobId }));
+        if (request !== selectedAnalysisRequest) return;
+        selectedAnalysisJob = current;
+        if (["completed", "cancelled", "failed"].includes(current.state)) break;
+        await new Promise(resolve => window.setTimeout(resolve, 650));
+      }
+      if (request === selectedAnalysisRequest && selectedAnalysisJob?.state === "completed") {
+        const count = selectedAnalysisJob.results.filter(row => row.analysis).length;
+        setNotice(`Streaming analysis ready to review for ${count} of ${selectedAnalysisJob.total} selected recording${selectedAnalysisJob.total === 1 ? "" : "s"}.`);
+      }
+    } catch (failure) { error = String(failure); }
+    finally { if (request === selectedAnalysisRequest) { selectedAnalysisBusy = false; analysisBusy = false; } }
+  }
+  type SelectedStreamJobDto = {
+    jobId: string; state: string; total: number; completed: number;
+    results: { trackId: string; recordingId: string; status: string; provider?: string | null; sourceId?: string | null; analysis: WholeTrackAnalysisDto | null; error?: string | null }[];
+  };
+  async function cancelSelectedAnalysis() {
+    const jobId = selectedAnalysisJob?.jobId;
+    if (!jobId) return;
+    try { await call(selectedAnalysisKind === "stream" ? "cancel_selected_stream_analysis" : "cancel_selected_asset_analysis", { jobId }); }
+    catch (failure) { error = String(failure); }
+  }
+  function closeSelectedAnalysis() {
+    if (selectedAnalysisBusy && selectedAnalysisJob?.jobId) void cancelSelectedAnalysis();
+    selectedAnalysisRequest++;
+    selectedAnalysisOpen = false;
+    selectedAnalysisBusy = false;
+    analysisBusy = false;
+  }
+  async function applySelectedAnalysis() {
+    const job = selectedAnalysisJob;
+    if (!job || selectedAnalysisBusy) return;
+    const fields = [applyAnalysisBpm ? "bpm" : null, applyAnalysisKey ? "key" : null].filter((field): field is "bpm" | "key" => field !== null);
+    if (!fields.length) { setNotice("Choose BPM, key, or both before applying analysis."); return; }
+    const policies = {
+      bpm: replaceAnalysisBpm ? "replace" : "fillMissing",
+      key: replaceAnalysisKey ? "replace" : "fillMissing",
+    };
+    selectedAnalysisBusy = true;
     analysisBusy = true;
     try {
-      let queued = 0;
-      for (let index = 0; index < targetIds.length; index += 200) {
-        const result = await call<{ queued: number }>("analyze_local_assets", { assetIds: targetIds.slice(index, index + 200), force });
-        queued += result.queued;
+      for (const row of job.results) {
+        if (row.status !== "completed" || !row.analysis || selectedAnalysisApplied.includes(row.assetId)) continue;
+        const track = await call<Track>(row.kind === "stream" ? "apply_selected_stream_analysis" : "apply_selected_asset_analysis", {
+          jobId: job.jobId,
+          ...(row.kind === "stream" ? { trackId: row.assetId } : { assetId: row.assetId }),
+          selection: { fields, policies },
+        });
+        mergeLibraryTrack(track);
+        selectedAnalysisTracks = { ...selectedAnalysisTracks, [row.assetId]: track };
+        selectedAnalysisApplied = [...selectedAnalysisApplied, row.assetId];
       }
-      setNotice(`Queued analysis for ${queued} local recording${queued === 1 ? "" : "s"}.`);
+      setNotice(selectedAnalysisKind === "stream"
+        ? `Applied reviewed analysis to ${selectedAnalysisApplied.length} selected streamed recording${selectedAnalysisApplied.length === 1 ? "" : "s"}.`
+        : `Applied reviewed analysis to ${selectedAnalysisApplied.length} selected local asset${selectedAnalysisApplied.length === 1 ? "" : "s"}.`);
+      closeSelectedAnalysis();
       await refreshCurrentAssetFiles();
     } catch (failure) { error = String(failure); }
-    finally { analysisBusy = false; }
+    finally { selectedAnalysisBusy = false; analysisBusy = false; }
   }
   function mergeLibraryTrack(updated: Track) {
     invalidateLegacyArtistAssets();
@@ -5088,7 +7767,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     }
     const request = ++downloadRequest;
     const typedDirectory = settings.musicDirectory;
-    const cached = initialCandidate ?? linkedSearchCandidate(track);
+    let cached = initialCandidate ?? (portablePlaybackSource(track) ? undefined : linkedSearchCandidate(track));
     openPlayerPanel(null);
     downloadTrack = track;
     downloadPlaylistContext = playlistContext ? { ...playlistContext } : null;
@@ -5115,6 +7794,18 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
         const searchSource = view === "search" && searchMode !== "audio" ? searchMode === "soulseek" ? "slskd" : searchMode : undefined;
         const preferred = searchSource ?? preferredSource(freshSettings);
         const providers = slskdEnabled ? ["monochrome", "youtube", "soundcloud", "slskd"] : ["monochrome", "youtube", "soundcloud"];
+        if (!cached && portablePlaybackSource(track)) {
+          try {
+            const bound = await call<Candidate | null>("resolve_portable_playback_candidate", { track });
+            if (request !== downloadRequest || downloadTrack?.id !== track.id) return;
+            const source = portablePlaybackSource(track)!;
+            if (bound?.provider === source.provider && bound.id === `${source.provider}:${source.sourceId}`) {
+              cached = bound;
+              downloadCandidates = [bound, ...downloadCandidates];
+              downloadCandidate = bound;
+            }
+          } catch { /* Provider search still offers alternatives when the saved identity is unavailable. */ }
+        }
         const inspect = async (candidate: Candidate) => {
           if (candidate.provider === "slskd" || (candidate.formats?.length && (candidate.provider !== "youtube" || candidate.chapters))) return;
           try {
@@ -5137,7 +7828,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
             if (request !== downloadRequest || downloadTrack?.id !== track.id) return;
             const existing = new Set(downloadCandidates.map(candidateKey));
             downloadCandidates = [...downloadCandidates, ...found.filter(item => !existing.has(candidateKey(item)))];
-            if (!downloadCandidate && provider === preferred) {
+            if (!downloadCandidate && !portablePlaybackSource(track) && provider === preferred) {
               const recommended = provider === "slskd" ? found.filter(item => item.source?.kind === "soulseek").sort((a,b) => b.score-a.score)[0] : choosePreviewCandidate(track, found, provider);
               if (recommended) { downloadCandidate = recommended; await inspect(recommended); }
             }
@@ -5172,7 +7863,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     });
   }
   async function saveFallbackSettings(kind: "streaming" | "download", enabled: boolean, sources: string[]) {
-    const changes = kind === "streaming" ? { streamingFallbackEnabled:enabled, streamingFallbackSources:sources } : { downloadFallbackEnabled:enabled, downloadFallbackSources:sources };
+    const changes = kind === "streaming" ? { streamingFallbackEnabled:enabled, streamingFallbackSources:sources, streamingFallbackPolicyVersion:1, bandcampFallbackEnabled:sources.includes("bandcamp") } : { downloadFallbackEnabled:enabled, downloadFallbackSources:sources };
     settings = { ...settings, ...changes };
     await run(async () => { const fresh = await call<Settings>("get_settings"); await call("save_settings", { settings:{ ...fresh, ...changes } }); });
   }
@@ -5532,7 +8223,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     let name="New playlist",n=2;while(collections.some(c=>c.name===name))name=`New playlist ${n++}`;
     await run(async()=>{const created=await call<Collection>("create_collection",{name});collections=[...collections,created];
       if(sectionId)sidebarLayout=await call<typeof sidebarLayout>("save_sidebar_layout",{layout:{...sidebarLayout,assignments:{...sidebarLayout.assignments,[created.id]:sectionId}}});
-      showImport=false;importTargetCollectionId=null;await openPlaylist(created.id);renamePlaylistName=name;renamingPlaylist=true;});
+      closeImportDialog();importTargetCollectionId=null;await openPlaylist(created.id);renamePlaylistName=name;renamingPlaylist=true;});
   }
   async function renameCurrentPlaylist(){if(!currentCollection||!renamePlaylistName.trim())return;await run(async()=>{await call("rename_collection",{collectionId:currentCollection!.id,name:renamePlaylistName.trim()});if(sidebarLayout.names?.[currentCollection!.id])sidebarLayout=await call<typeof sidebarLayout>("save_sidebar_layout",{layout:{...sidebarLayout,names:{...sidebarLayout.names,[currentCollection!.id]:renamePlaylistName.trim()}}});collections=await call<Collection[]>("list_collections");renamingPlaylist=false;});}
   async function removeSidebarStation(station:RadioStation){
@@ -5555,11 +8246,298 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       renameTarget=null;
     });
   }
-  function openPlaylistImport(){importTargetCollectionId=view==="collections"?collectionId:null;showImport=true;void refreshBrowser().catch(()=>{});}
+  function captureBackupFrontendPreferences(): Record<string, unknown> {
+    const preferences: Record<string, unknown> = {};
+    if (typeof localStorage === "undefined") return preferences;
+    const jsonKeys = [
+      "burrata.discovery.search-scope.v2",
+      "burrata.discovery.sources.v1",
+      "burrata.discovery.search-history.v1",
+      "burrata.soulseek.wishlist.v1",
+      "burrata.lyrics-timing.v1",
+    ];
+    for (const key of jsonKeys) {
+      try {
+        const raw = localStorage.getItem(key);
+        if (raw != null) preferences[key] = JSON.parse(raw);
+      } catch { /* The native allowlist ignores malformed local values. */ }
+    }
+    for (const key of ["burrata.discovery.continue-search.v1", "burrata.queue-end-radio.v1", "burrata.waveform-enabled.v1", "burrata.stream-media-analysis-enabled.v1", "burrata.playlist.include-ytdlp-search.v1"]) {
+      const raw = localStorage.getItem(key);
+      if (raw === "true" || raw === "false") preferences[key] = raw === "true";
+    }
+    for (const kind of ["sidebar", "info"] as const) {
+      const raw = localStorage.getItem(`burrata.layout.${kind}.v1`);
+      const width = raw == null ? NaN : Number(raw);
+      if (Number.isFinite(width)) preferences[`burrata.layout.${kind}.v1`] = width;
+    }
+    return preferences;
+  }
+
+  async function applyPendingBackupFrontendPreferences(): Promise<boolean> {
+    if (!desktop()) return true;
+    try {
+      await hydrateBackupFrontendPreferences();
+    } catch (failure) {
+      // Keep the native pending envelope so the next startup can retry.
+      backupHydrationError = String(failure);
+      backupHydrationFailureKind = "preferences";
+      return false;
+    }
+    try {
+      await applyPendingBackupPlaybackRestore(
+        () => call<PendingBackupPlaybackRestore | null>("get_backup_playback_restore"),
+        localStorage,
+        (nonce, receiptSessionId) => call<BackupPlaybackRestoreAck>("ack_backup_playback_restore", { nonce, receiptSessionId }),
+        values => values.forEach((value, key) => backupStartupStorageOverrides.set(key, value)),
+      );
+      return true;
+    } catch (failure) {
+      backupHydrationError = String(failure);
+      backupHydrationFailureKind = "playback";
+      return false;
+    }
+  }
+  async function hydrateBackupFrontendPreferences() {
+    return applyBackupFrontendPreferences(
+      () => call<PendingBackupFrontendPreferences | null>("get_backup_frontend_preferences"),
+      localStorage,
+      (nonce, receiptSessionId) => call<BackupFrontendPreferenceAck>("ack_backup_frontend_preferences", { nonce, receiptSessionId }),
+      values => values.forEach((value, key) => backupStartupStorageOverrides.set(key, value)),
+    );
+  }
+  let backupHydrationError = $state<string | null>(null);
+  let backupHydrationFailureKind = $state<"preferences" | "playback" | null>(null);
+  let backupHydrationReady = $state(false);
+  let retryBackupStartup = $state<(() => void) | null>(null);
+  $effect(() => {
+    if (!desktop() || !backupHydrationReady || !playbackControlsOwned) return;
+    persistPlaybackControlsWhenOwned(
+      localStorage,
+      { volume, shuffle: shuffleEnabled },
+      { desktop: desktop(), hydrated: backupHydrationReady, engineOwned: playbackControlsOwned },
+    );
+  });
+  const backupFrontendHydration = applyPendingBackupFrontendPreferences();
+
+  async function pausePlaybackForRestoreCheckpoint(request: BackupCheckpointRequest) {
+    const deadline = Date.now() + Math.max(250, Math.min(request.deadlineMs, 7_500));
+    const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+    if (nativeActive()) {
+      await nativeBridge.command({ action: "pause" });
+      let previous: { position: number; revision: number | undefined; entryIds: string[] } | null = null;
+      while (Date.now() < deadline) {
+        const snapshot = await call<NativePlaybackSnapshot & { queueTotal: number; queueEntryIds: string[] }>("get_playback_snapshot");
+        const stable = snapshot.engine === "native" && snapshot.paused === true
+          && ["paused", "idle", "ended", "failed"].includes(snapshot.status)
+          && Number.isFinite(snapshot.position)
+          && Array.isArray(snapshot.queueEntryIds) && snapshot.queueEntryIds.length === snapshot.queue.length
+          && previous?.position === snapshot.position
+          && previous?.revision === snapshot.queueRevision
+          && JSON.stringify(previous?.entryIds) === JSON.stringify(snapshot.queueEntryIds);
+        if (stable) {
+          applyNativeSnapshot(snapshot);
+          return;
+        }
+        previous = { position: snapshot.position, revision: snapshot.queueRevision, entryIds: [...(snapshot.queueEntryIds ?? [])] };
+        await wait(60);
+      }
+      throw new Error("Native playback did not reach a stable paused checkpoint");
+    }
+
+    cancelWebviewStartupPlay?.();
+    cancelPendingWebviewResume();
+    const node = audio;
+    if (!node) {
+      if (paused) return;
+      throw new Error("WebView playback has no controllable audio element to pause");
+    }
+    const source = preview;
+    node.pause();
+    let previousTime = Number.NaN;
+    let stablePolls = 0;
+    while (Date.now() < deadline) {
+      if (audio !== node || preview !== source) {
+        throw new Error("WebView playback changed before it reached a stable paused checkpoint");
+      }
+      if (node.paused && !activeWebviewSeek && !node.seeking && Number.isFinite(node.currentTime) && Math.abs(node.currentTime - previousTime) < 0.005) {
+        stablePolls += 1;
+        if (stablePolls >= 2) {
+          position = node.currentTime;
+          paused = true;
+          bufferingAudio = false;
+          return;
+        }
+      } else {
+        stablePolls = 0;
+      }
+      previousTime = node.currentTime;
+      await wait(60);
+    }
+    throw new Error("WebView playback did not reach a stable paused checkpoint");
+  }
+
+  function captureBackupPlayback(): Record<string, unknown> {
+    const queue = playbackQueue.snapshot();
+    const tracks = [...queue.tracks];
+    const entryIds = [...(queue.entryIds ?? [])];
+    return {
+      queue: {
+        tracks, entryIds, currentIndex: queue.currentIndex, repeat: queue.repeat,
+        ...(queue.queueLoudnessContexts ? { queueLoudnessContexts: queue.queueLoudnessContexts } : {}),
+      },
+      session: {
+        index: queue.currentIndex,
+        position: nativeActive() ? position : playerPosition,
+        repeat: queue.repeat,
+        shuffle: shuffleEnabled,
+        volume,
+        queueRevision: playbackQueueGeneration,
+      },
+    };
+  }
+
+  async function waitForBackupJob(jobId: string, report: (progress: BackupProgress) => void) {
+    const unlisten = await listen<BackupProgress>("backup-progress", event => {
+      if (event.payload.jobId === jobId) report(event.payload);
+    });
+    try {
+      while (true) {
+        const status = await call<BackupProgress>("get_backup_job", { jobId });
+        report(status);
+        if (status.state === "complete") return { jobId };
+        if (status.state === "failed" || status.state === "canceled") {
+          throw new Error(status.message || `Backup job ${status.state}`);
+        }
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    } finally { unlisten(); }
+  }
+
+  async function inspectBackupForUi() {
+    if (!desktop()) return null;
+    return await call<BackupInspection | null>("inspect_backup");
+  }
+  async function previewBackupRestore(previewId: string, options: { mode: "merge" | "replace"; componentIds: string[]; pathMappings: { rootKey: string; destinationToken: string }[] }) {
+    return call<NonNullable<BackupInspection["summary"]>>("preview_backup_restore", { previewId, options });
+  }
+  async function createBackupForUi(options: { includeMedia: boolean }, report: (progress: BackupProgress) => void) {
+    const started = await call<{ jobId: string }>("create_backup", { options: { includeMedia: options.includeMedia } });
+    return waitForBackupJob(started.jobId, report);
+  }
+  async function restoreBackupForUi(previewId: string, options: { mode: "merge" | "replace"; componentIds: string[]; pathMappings: { rootKey: string; destinationToken: string }[] }, report: (progress: BackupProgress) => void) {
+    return startRestoreAndWaitForCompletion(
+      () => call<{ jobId: string }>("restore_backup", { previewId, options }),
+      waitForBackupJob,
+      report,
+    );
+  }
+  async function chooseBackupMediaRoot(previewId: string, rootKey: string) {
+    return call<BackupMediaRootPreview | null>("choose_backup_restore_root", { previewId, rootKey });
+  }
+  async function estimateBackupForUi(includeMedia: boolean) { return call<BackupMediaEstimate>("estimate_backup", { includeMedia }); }
+  async function cancelBackupJob(jobId: string) { await call("cancel_backup_job", { jobId }); }
+  async function loadBackupSchedule() { return call<BackupSchedule>("get_backup_schedule"); }
+  async function loadActiveBackupJob() { return call<BackupProgress | null>("get_active_backup_job"); }
+  async function subscribeBackupProgress(handler: (progress: BackupProgress) => void) {
+    return listen<BackupProgress>("backup-progress", event => handler(event.payload));
+  }
+  async function saveBackupSchedule(schedule: BackupSchedule) { return call<BackupSchedule>("set_backup_schedule", { schedule }); }
+  async function chooseBackupScheduleDestination() { return call<string | null>("choose_backup_schedule_destination"); }
+  async function exportBackupSettings() {
+    return call<boolean>("export_backup_settings");
+  }
+  async function inspectBackupSettings() { return call<SettingsImportPreview | null>("inspect_backup_settings"); }
+  async function applyBackupSettings(previewId: string, selection: SettingsImportSelection, preview: SettingsImportPreview) {
+    const importsBackgroundWork = selection.preferenceKeys.includes("autotag.settings") ||
+      selection.frontendPreferenceKeys.includes("burrata.stream-media-analysis-enabled.v1") ||
+      selection.application && preview.applicationFields.includes("backgroundSourcePreparation");
+    if (importsBackgroundWork) {
+      streamMediaAnalysisRestorePolicyReady = false;
+      streamMediaAnalysisRestorePaused = true;
+    }
+    const result = await call<{ frontendPreferences?: Record<string, unknown> }>("apply_backup_settings", { previewId, selection });
+    let frontendPreferencesPending = false;
+    if (result.frontendPreferences && Object.keys(result.frontendPreferences).length) {
+      try {
+        frontendPreferencesPending = (await hydrateBackupFrontendPreferences()) === "deferred";
+      } catch {
+        throw new Error("Native settings were applied, but imported interface preferences could not be saved. They remain queued for retry when app storage is available.");
+      }
+    }
+    const importedStreamAnalysis = result.frontendPreferences?.["burrata.stream-media-analysis-enabled.v1"];
+    if (typeof importedStreamAnalysis === "boolean") {
+      streamMediaAnalysisEnabled = importedStreamAnalysis;
+      streamMediaAnalysisPreferenceReady = true;
+    }
+    if (selection.application || selection.preferenceKeys.length > 0 || selection.frontendPreferenceKeys.length > 0) {
+      await refreshStreamMediaAnalysisRestorePolicy();
+    }
+    const refreshed = await call<Settings>("get_settings");
+    settings = { ...refreshed, matchingLevel: refreshed.matchingLevel ?? "balanced", playbackStartupTimeoutSeconds: refreshed.playbackStartupTimeoutSeconds ?? 20 };
+    return frontendPreferencesPending ? { frontendPreferencesPending: true } : undefined;
+  }
+
+  function preventFileDropNavigation(event: DragEvent) {
+    const types = Array.from(event.dataTransfer?.types ?? []);
+    const alreadyHandled = event.defaultPrevented;
+    if (types.includes("Files") || types.includes("text/uri-list")) event.preventDefault();
+    if (event.type !== "drop" || alreadyHandled) return;
+    const files = Array.from(event.dataTransfer?.files ?? []);
+    if (files.length === 1 && files[0].name.toLowerCase().endsWith(".burrata-backup")) {
+      droppedBackupPreview = null;
+      importChoice = "restore-backup";
+      showImport = true;
+      setNotice("Select the dropped backup in Restore Backup to review its contents.");
+    }
+  }
+
+  function openPlaylistImport(){droppedBackupPreview=null;importTargetCollectionId=view==="collections"?collectionId:null;importChoice=null;showImport=true;void refreshBrowser().catch(()=>{});}
+  function openDroppedBackupPreview(preview: BackupInspection) {
+    droppedBackupPreview = preview;
+    importChoice = "restore-backup";
+  }
+  function closeImportDialog() {
+    nativeBackupDropRequest++;
+    droppedBackupPreview = null;
+    showImport = false;
+  }
+  function returnToImportChoices() {
+    nativeBackupDropRequest++;
+    droppedBackupPreview = null;
+    importChoice = null;
+  }
+  onMount(() => {
+    if (!desktop() || !window.__TAURI__?.event?.listen) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen<NativeImportFileDrop>("import-file-drop", ({ payload }) => {
+      if (!payload || payload.kind !== "backup" || typeof payload.token !== "string" || !payload.token) return;
+      const request = ++nativeBackupDropRequest;
+      void call<ConsumedImportDrop>("consume_import_drop", { token: payload.token }).then((result) => {
+        if (disposed || request !== nativeBackupDropRequest) return;
+        if (result.kind !== "backup") throw new Error("The dropped item did not contain a supported backup.");
+        openDroppedBackupPreview(result.preview);
+        showImport = true;
+      }).catch((failure) => {
+        if (!disposed && request === nativeBackupDropRequest) setNotice(`Could not inspect dropped backup: ${String(failure)}`);
+      });
+    }).then((stop) => {
+      if (disposed) stop();
+      else unlisten = stop;
+    }).catch((failure) => {
+      if (!disposed) setNotice(`Could not listen for dropped backups: ${String(failure)}`);
+    });
+    return () => {
+      disposed = true;
+      nativeBackupDropRequest++;
+      unlisten?.();
+    };
+  });
   $effect(()=>{if(!showImport)return;const interval=setInterval(()=>{void call<BrowserStatus>("get_browser_status").then(status=>browserStatus=status).catch(()=>{});},5000);return()=>clearInterval(interval);});
   async function finishBrowserImport(imported:BrowserImportResult){
     await refreshBrowser();
-    if(importTargetCollectionId){const target=importTargetCollectionId;const importedChart=await call<Chart>("load_browser_import",{id:imported.id});await appendPlaylistItems({collectionId:target,tracks:importedChart.tracks});collections=await call<Collection[]>("list_collections");showImport=false;importTargetCollectionId=null;await openPlaylist(target);}
+    if(importTargetCollectionId){const target=importTargetCollectionId;const importedChart=await call<Chart>("load_browser_import",{id:imported.id});await appendPlaylistItems({collectionId:target,tracks:importedChart.tracks});collections=await call<Collection[]>("list_collections");closeImportDialog();importTargetCollectionId=null;await openPlaylist(target);}
     else await openBrowserImport(imported);
   }
   function selectTrackRow(track:Track,event:MouseEvent){
@@ -5761,7 +8739,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       collections = await call<Collection[]>("list_collections");
       browserImports = await call<typeof browserImports>("list_browser_imports");
       if ((view === "collections" || view === "charts") && collectionId === target.id) await navigate("library");
-      setNotice(`Deleted playlist “${target.name}”. Audio files are kept.`);
+
     });
   }
   async function undoDeletePlaylist(target = deletedPlaylist) {
@@ -5817,10 +8795,44 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
         kind: importKind,
       });
       selected = null;
-      showImport = false;
+      closeImportDialog();
       importText = "";
       setNotice("Imported tracks are ready for review.");
     });
+  }
+  async function applySourceImport(incoming: Track[], options: { destinationId: string; newPlaylistName: string; folderPath: string; sectionName: string; duplicatePolicy: "keep" | "skip-repeated"; localAssetsImported?: boolean }) {
+    const targetId = importTargetCollectionId ?? options.destinationId;
+    let target = targetId;
+    if (!target) {
+      const name = options.newPlaylistName.trim();
+      if (!name) throw new Error("Choose a destination playlist or enter a new playlist name.");
+      const created = await call<Collection>("create_collection", { name });
+      target = created.id;
+    }
+    const isUniqueTarget = target === "favorites" || target === "history" || target === DOWNLOADS_PLAYLIST_ID || target === playlistPreferences.favoritesPlaylistId;
+    if (isUniqueTarget && (options.folderPath.trim() || options.sectionName.trim())) throw new Error("Folders and sections can only be applied to regular playlists.");
+    const sourceTracks = options.duplicatePolicy === "skip-repeated"
+      ? incoming.filter((track, index) => incoming.findIndex(candidate => candidate.id === track.id) === index)
+      : incoming;
+    const imported = sourceTracks.map(track => track.provider === "local" && track.localPath ? track : null);
+    const prepared: Track[] = [];
+    for (let index = 0; index < sourceTracks.length; index++) {
+      const track = sourceTracks[index];
+      if (imported[index] && !options.localAssetsImported) prepared.push(await call<Track>("import_local_file", { path: track.localPath! }));
+      else prepared.push(track);
+    }
+    const previousCount = collections.find(item => item.id === target)?.trackCount ?? 0;
+    await call(isUniqueTarget || options.duplicatePolicy === "skip-repeated" ? "add_to_collection" : "append_playlist_entries", { collectionId: target, tracks: prepared });
+    collections = await call<Collection[]>("list_collections");
+    const placedCount = options.duplicatePolicy === "skip-repeated"
+      ? Math.max(0, (collections.find(item => item.id === target)?.trackCount ?? previousCount) - previousCount)
+      : prepared.length;
+    if (options.folderPath.trim() || options.sectionName.trim()) {
+      await call("place_imported_playlist_items", { collectionId: target, folderPath: options.folderPath, sectionName: options.sectionName, occurrenceCount: placedCount });
+    }
+    await refreshFavorites();
+    setNotice(`Applied ${prepared.length} tracks to ${collections.find(item => item.id === target)?.name ?? "playlist"}.`);
+    closeImportDialog(); importChoice = null; importTargetCollectionId = null;
   }
   async function importM3uFile(event: Event) {
     const input = event.currentTarget as HTMLInputElement;
@@ -5834,7 +8846,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       importText = await file.text();
       tracks = await call<Track[]>("import_tracks", { text: importText, kind: "m3u" });
       selected = null;
-      showImport = false;
+      closeImportDialog();
       importText = "";
       setNotice("Playlist metadata imported for review.");
     });
@@ -5921,6 +8933,17 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     await appendPlaylistItems( { collectionId: copy.id, tracks });
     collections = await call<Collection[]>("list_collections"); await openPlaylist(copy.id);
   }
+  async function copyFavoritesPlaylist() {
+    await run(async () => {
+      const tracks = await call<Track[]>("list_tracks", { view: "favorites" });
+      const name = namedCollections.find(item => item.id === playlistPreferences.favoritesPlaylistId)?.name ?? sidebarLayout.names?.favorites ?? "Liked Songs";
+      const copy = await call<Collection>("create_collection", { name: `${name} (Copy)`.slice(0, 160) });
+      await appendPlaylistItems({ collectionId: copy.id, tracks });
+      collections = await call<Collection[]>("list_collections");
+      await openPlaylist(copy.id);
+      setNotice(`Made an editable copy of ${name}.`);
+    });
+  }
   async function refreshLinkedPlaylist(id: string) {
     const binding = remotePlaylistBindings.find(binding => binding.collectionId === id || binding.sourceCollectionId === id);
     if (!binding) return;
@@ -5932,14 +8955,17 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       setNotice("Playlist refreshed. Local edits are preserved.");
     });
   }
-  async function exportCurrentPlaylist(id: string) {
-    await run(async () => { setNotice(`Playlist exported: ${await call<string>("export_playlist", { collectionId: id })}`); });
-  }
   function openCurrentPlaylistMenu(event: MouseEvent) {
     const collection = view === "collections" ? currentCollection : (activeBrowserImport ? { id: activeBrowserImport.collectionId, name: playlistTitle(activeBrowserImport.title, activeBrowserImport.provider), trackCount: tracks.length } : chart ? { id: chart.id, name: chart.title, trackCount: tracks.length } : null);
     if (!collection) return;
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
     playlistActions = { collection, anchor: { x: rect.right - 260, y: rect.bottom + 4 } };
+  }
+  function playlistMirrorCollections(): Collection[] {
+    const byId = new Map(collections.map((collection) => [collection.id, collection]));
+    byId.set("favorites", { id: "favorites", name: "Liked Songs", trackCount: favoriteTrackIds.length });
+    byId.set("history", { id: "history", name: "Listening history", trackCount: 0 });
+    return [...byId.values()];
   }
   async function showAllImportDates() {
     if (!activeBrowserImport) return;
@@ -5959,10 +8985,11 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
   async function requestBrowserImport() {
     await run(async () => {
       const url=browserUrl.trim();browserRequest="direct";browserMessage="Reading the public source…";
+      if (!importTargetCollectionId) { urlImportDestinationId="";urlImportNewPlaylistName="";urlImportFolderPath="";urlImportSectionName="";urlImportDuplicatePolicy="keep"; }
       try {
-        const imported=await call<BrowserImportResult>("import_collection_url",{url});
-        browserRequest="";browserMessage=`Imported ${imported.capturedCount} tracks directly${imported.complete?"":" · partial"}.`;
-        await finishBrowserImport(imported);
+        collectionImportPreview=await call<CollectionImportPreview>("preview_collection_import",{url});
+        showImport=true;
+        browserRequest="";browserMessage="Import preview ready. Review the changes below.";
       }catch(failure){
         browserRequest="";
         const reason=String(failure);
@@ -5971,6 +8998,34 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
         await refreshBrowser();
       }
     });
+  }
+  async function applyCollectionImportPreview() {
+    if (!collectionImportPreview) return;
+    const previewId=collectionImportPreview.previewId;
+    await run(async()=>{
+      const contextualTarget = importTargetCollectionId;
+      let destinationId = contextualTarget ?? urlImportDestinationId;
+      const wantsPlacement = Boolean(urlImportFolderPath.trim() || urlImportSectionName.trim());
+      if (!contextualTarget && !destinationId && urlImportNewPlaylistName.trim()) {
+        destinationId = (await call<Collection>("create_collection", { name: urlImportNewPlaylistName.trim() })).id;
+      }
+      if (!contextualTarget && wantsPlacement && !destinationId) throw new Error("Choose a destination playlist or name a new playlist before applying folder or section placement.");
+      const args: Record<string, unknown> = { previewId };
+      if (!contextualTarget && destinationId) {
+        args.destinationCollectionId = destinationId;
+        args.duplicatePolicy = urlImportDuplicatePolicy;
+        args.folderPath = urlImportFolderPath;
+        args.sectionName = urlImportSectionName;
+      }
+      const result=await call<BrowserImportResult>("apply_collection_import",args);
+      collectionImportPreview=null;
+      await finishBrowserImport(result);
+      if (!contextualTarget && destinationId) await openPlaylist(destinationId);
+    });
+  }
+  async function retryFailedImport() {
+    if (!activeBrowserImport) return;
+    await run(async()=>{collectionImportPreview=await call<CollectionImportPreview>("retry_import_failures",{importId:activeBrowserImport!.id});});
   }
   async function importBrowserJson() {
     await run(async () => {
@@ -6050,6 +9105,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       await call("save_settings",{settings:{...fresh,...changes}});
       if(keys.includes("musicDirectory")) persistedMusicDirectory=settings.musicDirectory;
       if(keys.includes("playlistDirectories")) void syncMirrors();
+      if(keys.includes("playlistMirroringEnabled") && settings.playlistMirroringEnabled !== false) void syncMirrors();
       setNotice(message);
     });
   }
@@ -6073,24 +9129,22 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       setNotice(`Preferred download source saved: ${label}.`);
     });
   }
-  onMount(() => {
+  function initializeAppLifecycle(): () => void {
     if(desktop())void call<{setupComplete:boolean;musicDirectory?:string|null}>("get_release_setup").then(status=>{const musicDirectory=status?.musicDirectory===undefined?settings.musicDirectory:status.musicDirectory;if(status&&!status.setupComplete&&!musicDirectory)showReleaseSetup=true;}).catch(()=>{});
+    void ensureWebviewLoudnessSettings();
 
     void call<typeof sidebarLayout>("get_sidebar_layout").then(layout=>{if(layout?.sections&&layout?.assignments)sidebarLayout=layout;}).catch(()=>{});
     void call<PlaylistPreferences>("get_playlist_preferences").then(value=>{playlistPreferences=value;return refreshFavorites();}).catch(()=>{});
     void call<boolean>("get_radio_history_setting").then(value=>includeRadioHistory=value).catch(()=>{});
     void call<RadioStation[]>("get_radio_stations").then(stations=>{radioStations=stations??[];}).catch(()=>{});
-    const restored = loadPlaybackQueue();
+    const restored = loadPlaybackQueue(backupStartupReadStorage);
     if (restored) { playbackQueue.restore(restored.snapshot()); repeatMode = playbackQueue.repeat; refreshQueue(); playingTrack = playbackQueue.current; if (playingTrack) void cacheCover(playingTrack); }
     restorePlaybackPosition();
     try {
-      const controls=JSON.parse(localStorage.getItem("burrata.engine-switch-controls.v1") ?? "null");
-      if(controls && typeof controls.volume==="number" && Number.isFinite(controls.volume) && controls.volume>=0 && controls.volume<=1 && typeof controls.shuffle==="boolean") {
-        volume=controls.volume;shuffleEnabled=controls.shuffle;
-      }
-      localStorage.removeItem("burrata.engine-switch-controls.v1");
-    } catch { /* Keep default controls if storage is unavailable. */ }
-    try {const left=Number(localStorage.getItem("burrata.layout.sidebar.v1"));if(left>=160&&left<=320)sidebarWidth=left;const right=Number(localStorage.getItem("burrata.layout.info.v1"));if(right>=280&&right<=420)infoPanelWidth=right;}catch{}
+      const controls = consumeStartupPlaybackControls(backupStartupReadStorage);
+      if (controls) { volume = controls.volume; shuffleEnabled = controls.shuffle; }
+    } catch { /* Keep the last in-memory/default controls if storage is unavailable. */ }
+    try {const left=Number(backupStartupReadStorage.getItem("burrata.layout.sidebar.v1"));if(left>=160&&left<=320)sidebarWidth=left;const right=Number(backupStartupReadStorage.getItem("burrata.layout.info.v1"));if(right>=280&&right<=420)infoPanelWidth=right;}catch{}
     void loadAutotagState().catch(()=>{});
     if(desktop())void call<typeof availableSources>("list_search_sources").then(sources=>availableSources=sources).catch(()=>{});
     const automationTimer = setInterval(() => { void queuedPlaybackOutbox.flush(); if (!nativeActive()) void publishAutomationPlayback(); }, 1000);
@@ -6100,7 +9154,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
         syncMirrors,
       );
     }, 60000);
-    if (desktop()) { void syncMirrors(); void navigate("library", false); }
+    if (desktop()) { void syncMirrors(); if (view !== "library") void navigate("library", false); }
     if (desktop()) void nativeBridge.initialize((snapshot) => {
       if (disposed) return;
       applyNativeSnapshot(snapshot);
@@ -6109,13 +9163,16 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       if (!legacy?.tracks.length) { localStorage.setItem("burrata.native-playback-migrated.v1", "1"); return; }
       let savedPosition = 0;
       try {
-        const saved = JSON.parse(localStorage.getItem(PLAYBACK_POSITION_KEY) ?? "null");
-        if (saved?.trackId === legacy.tracks[legacy.currentIndex]?.id && Number.isFinite(saved.position)) savedPosition = Math.max(0, saved.position);
+        const saved = JSON.parse(localStorage.getItem(PLAYBACK_POSITION_KEY) ?? "null") as NativePositionBookmark | null;
+        const currentTrack = legacy.tracks[legacy.currentIndex];
+        const currentEntryId = legacy.entryIds?.[legacy.currentIndex];
+        if (validNativePositionBookmark(saved) && Date.now() - saved.savedAt <= 30 * 24 * 60 * 60 * 1000 &&
+            nativeBookmarkMatchesOccurrence(saved, currentTrack?.id, currentEntryId)) savedPosition = saved.position;
       } catch { /* Ignore corrupt prior position. */ }
       localStorage.setItem("burrata.native-playback-migrated.v1", "1");
       const current = legacy.tracks[legacy.currentIndex];
-      void nativeCommand({ action: "restore", tracks: legacy.tracks, index: legacy.currentIndex, position: current?.playbackRange ? chapterRelativePosition(current,savedPosition) : savedPosition, volume, repeat: legacy.repeat, shuffle: shuffleEnabled });
-    }, event => { if(!disposed)applyNativePosition(event); }).then(()=>{playbackEngineReady=true;if(disposed)nativeBridge.dispose();}).catch(() => { playbackEngineReady=true; /* Older desktop builds keep using webview playback. */ });
+      void nativeCommand({ action: "restore", tracks: legacy.tracks, index: legacy.currentIndex, position: current?.playbackRange ? chapterRelativePosition(current,savedPosition) : savedPosition, volume, repeat: legacy.repeat, shuffle: shuffleEnabled, ...(legacy.queueLoudnessContexts ? { queueLoudnessContexts: legacy.queueLoudnessContexts } : {}) });
+    }, event => { if(!disposed)applyNativePosition(event); }).then(()=>{playbackEngineReady=true;playbackControlsOwned=true;if(disposed)nativeBridge.dispose();}).catch(() => { playbackEngineReady=true;playbackControlsOwned=true; /* Older desktop builds keep using webview playback. */ });
     let unlisten: (() => void) | undefined;
     let unlistenWarning: (() => void) | undefined;
     let disposed = false;
@@ -6126,6 +9183,18 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
         extraListeners.push(fn);
         return true;
       }).catch((e) => { error = String(e); return false; });
+    register<BackupCheckpointRequest>("backup-checkpoint-request", request => {
+      if (!backupHydrationReady) return;
+      void respondToBackupCheckpoint(
+          request,
+          captureBackupFrontendPreferences,
+          captureBackupPlayback,
+          response => call("submit_backup_checkpoint", { response }),
+          () => pausePlaybackForRestoreCheckpoint(request),
+        ).catch(failure => {
+          error = `Could not submit the backup state checkpoint: ${String(failure)}`;
+        });
+    });
     void listen<unknown>("sort-availability-updated", () => handleSortAvailabilityUpdated()).then(fn => {
       if (disposed) fn();
       else {
@@ -6194,9 +9263,65 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       const identifyCancelListenerReady = register<{captureId:string}>("automation-identify-cancelled", request => cancelAutomationIdentify(request));
       const layoutListenerReady = register<{requestId:string}>("automation-inspect-playback-layout", request => {
         const layout = measurePlaybackLayout(document, {width:window.innerWidth,height:window.innerHeight});
+        const waveform = playbackWaveform;
+        const displayedWaveform = playbackWaveformForDisplay;
+        const waveformDurationMatches = Boolean(waveform && Number.isFinite(playerDuration) && playerDuration > 0 &&
+          Math.abs(waveform.durationSeconds - playerDuration) <= 0.25);
+        const waveformGenerationMatches = Boolean(waveform && waveform.generation === waveformGeneration);
+        const waveformTrackMatches = Boolean(waveform && waveform.trackId === waveformTrackId);
+        const populatedWaveformBins = waveform?.bins.filter(Boolean).length ?? 0;
+        const waveformRoute = (preview as WebviewResolvedPreview | null)?.normalizationRoute ?? null;
+        const waveformReasonCode = !waveformEnabled ? "disabled"
+          : !preview && !nativeActive() ? "no-playback-source"
+          : !nativeActive() && waveformRoute !== "same-origin-relay" ? "unsupported-audio-route"
+          : !waveform ? "no-waveform-snapshot"
+          : !waveformGenerationMatches ? "generation-mismatch"
+          : !waveformTrackMatches ? "track-mismatch"
+          : !waveformDurationMatches ? "duration-mismatch"
+          : displayedWaveform !== waveform ? "resource-binding-mismatch"
+          : populatedWaveformBins === 0 ? "no-sampled-bins"
+          : "waveform-ready";
+        const mediaGraph = inspectWebAudioGainGraph(audio);
+        const mediaAnalysisResource = currentStreamMediaResource();
+        const activeMediaJob = streamMediaAnalysisJob?.resourceKey === mediaAnalysisResource?.key ? streamMediaAnalysisJob : null;
+        const waveformDiagnostics = {
+          enabled: waveformEnabled,
+          backgroundAnalysisEnabled: streamMediaAnalysisEnabled,
+          fullStreamAnalysisEligible: Boolean(desktop() && mediaAnalysisResource),
+          fullStreamAnalysisState: streamMediaAnalysisStartingKey === mediaAnalysisResource?.key ? "starting"
+            : activeMediaJob ? activeMediaJob.state
+            : streamMediaAnalysisResultKey === mediaAnalysisResource?.key && streamMediaAnalysisResult ? "completed" : "idle",
+          reasonCode: waveformReasonCode,
+          snapshotPresent: Boolean(waveform),
+          observedCache: {
+            resourceAvailable: Boolean(playingTrackDetectionView?.resourceKey),
+            resourceStatus: playingTrackDetectionView?.resourceKey ? "ready" : playingTrackDetectionDisabledReason ? "unavailable" : "waiting",
+            bindingPrepared: Boolean(observedWaveformBinding),
+            persistable: Boolean(observedWaveformBinding?.persistenceKey),
+            trackMatches: Boolean(observedWaveformBinding && observedWaveformBinding.trackId === waveformTrackId),
+            generationMatches: Boolean(observedWaveformBinding && observedWaveformBinding.generation === waveformGeneration),
+            memoryEntries: observedWaveformCache.memoryEntryCount,
+            persistentEntries: observedWaveformCache.persistedEntryCount,
+          },
+          source: waveform?.source ?? null,
+          complete: waveform?.complete ?? false,
+          generationMatches: waveformGenerationMatches,
+          trackMatches: waveformTrackMatches,
+          durationMatches: waveformDurationMatches,
+          displayBindingMatches: Boolean(waveform && displayedWaveform === waveform),
+          binCount: waveform?.bins.length ?? 0,
+          populatedBins: populatedWaveformBins,
+          coverageFraction: waveform?.bins.length ? populatedWaveformBins / waveform.bins.length : 0,
+          route: waveformRoute,
+          routeActive: webviewNormalizationRouteStatus === "Same-origin Web Audio route active.",
+          analyserAttached: mediaGraph.attached,
+          mediaGraphUserVolume: mediaGraph.userVolumeLinear,
+          mediaVolume: audio?.volume ?? null,
+          mediaMuted: audio?.muted ?? null,
+        };
         const artworkUrl = playingTrack?.artworkUrl ?? "";
         void inspectArtworkImages(document, artworkUrl, Boolean(failedArtwork[artworkUrl])).then(artworkDiagnostics =>
-          call("automation_layout_complete", {requestId:request.requestId,layout:{...layout,artworkDiagnostics}})).catch(()=>{});
+          call("automation_layout_complete", {requestId:request.requestId,layout:{...layout,artworkDiagnostics,waveformDiagnostics,liveBpmDiagnostics:liveBpmObservation}})).catch(()=>{});
       });
       const mediaInspectionListenerReady = register<{requestId:string;trackId:string|null;sessionId:string|null;sourceGeneration:number|null;seekSerial:number;currentIndex:number;queueTotal:number;entryId:string|null;queueTrackId:string|null}>("automation-inspect-webview-media", request => {
         if(disposed||!request||typeof request.requestId!=="string")return;
@@ -6204,9 +9329,20 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
         const before=identity(), element=audio, sourceBefore=element?(element.currentSrc||element.src):"";
         const finite=(value:number)=>Number.isFinite(value)&&value>=0?value:null;
         const ranges=(value:TimeRanges|undefined)=>{const rows:number[][]=[];if(!value)return rows;try{for(let index=0;index<Math.min(value.length,8);index++){const start=value.start(index),end=value.end(index);if(Number.isFinite(start)&&Number.isFinite(end)&&start>=0&&end>=start&&end<=1e9)rows.push([start,end]);}}catch{}return rows;};
-        const sample:any={engine:"webview",applicable:true,...before,queueTotal:queueTracks.length,previewKind:preview?.kind??null,media:{
+        const graph = inspectWebAudioGainGraph(element);
+        const seek = activeWebviewSeek;
+        const seekCompletion = seek && element && seek.owner.node === element ? {
+          target: finite(seek.target), elapsedMs: finite(Math.max(0, performance.now()-seek.startedAtMs)),
+          playbackRate: finite(element.playbackRate), mediaPaused: element.paused, appPaused: paused,
+          ownerCurrent: isCurrentWebviewSeek(seek), hasError: Boolean(element.error),
+          withinWindow: hasWebviewSeekLanded({target:seek.target,currentTime:element.currentTime,duration:element.duration,
+            elapsedMs:performance.now()-seek.startedAtMs,playing:!paused&&!element.paused,playbackRate:element.playbackRate}),
+        } : null;
+        const sample:any={engine:"webview",applicable:true,...before,queueTotal:queueTracks.length,previewKind:preview?.kind??null,seekCompletion,media:{
           present:Boolean(element),currentTime:element?finite(element.currentTime):null,duration:element?finite(element.duration):null,
           paused:element?element.paused:null,seeking:element?element.seeking:null,buffered:ranges(element?.buffered),seekable:ranges(element?.seekable),readyState:element?element.readyState:null,networkState:element?element.networkState:null,
+          volume:element?finite(element.volume):null,muted:element?.muted??null,
+          webAudioGainGraph:graph,
           errorCode:element?.error?.code??null,sourcePresent:Boolean(element&&(element.currentSrc||element.src)),sourceStable:Boolean(element&&(element.currentSrc||element.src)===sourceBefore)
         }};
         if(mediaEventDiagnosticsEnabled) {
@@ -6221,6 +9357,41 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
         const matchesRequest=before.trackId===request.trackId&&before.sessionId===request.sessionId&&before.sourceGeneration===request.sourceGeneration&&before.seekSerial===request.seekSerial&&before.currentIndex===request.currentIndex&&before.entryId===request.entryId&&before.queueTrackId===request.queueTrackId&&queueTracks.length===request.queueTotal;
         if(!same||!matchesRequest||element!==audio){sample.trackId=after.trackId;sample.sessionId=after.sessionId;sample.sourceGeneration=after.sourceGeneration;sample.seekSerial=after.seekSerial;sample.currentIndex=after.currentIndex;sample.entryId=after.entryId;sample.queueTrackId=after.queueTrackId;}
         void call("automation_layout_complete",{requestId:request.requestId,layout:sample}).catch(()=>{});
+      });
+      const stereoDiagnosticListenerReady = register<{requestId:string;trackId:string;sessionId:string;sourceGeneration:number;seekSerial:number;currentIndex:number;queueTotal:number;entryId:string;queueTrackId:string;durationSeconds:number}>("automation-capture-webview-stereo-diagnostic", request => {
+        if(disposed||!request||typeof request.requestId!=="string")return;
+        const identity=()=>({trackId:playingTrack?.id??null,sessionId:playbackSession??null,sourceGeneration:preview?.sourceGeneration??null,seekSerial,currentIndex:queueIndex,entryId:automationQueueProjection.entryIds[queueIndex]??null,queueTrackId:queueTracks[queueIndex]?.id??null});
+        const before=identity();
+        const provenance=playingTrack?.provenance&&typeof playingTrack.provenance==="object"?playingTrack.provenance as Record<string,unknown>:{};
+        const graph=inspectWebAudioGainGraph(audio);
+        const fixture=playingTrack?.provider==="local"&&provenance.fixture==="burrata-local-qualification-v1";
+        const matches=before.trackId===request.trackId&&before.sessionId===request.sessionId&&before.sourceGeneration===request.sourceGeneration&&before.seekSerial===request.seekSerial&&before.currentIndex===request.currentIndex&&before.entryId===request.entryId&&before.queueTrackId===request.queueTrackId&&queueTracks.length===request.queueTotal;
+        const audioAtStart=audio;
+        const finish=async(capture:Record<string,unknown>)=>{
+          const after=identity();
+          const same=before.trackId===after.trackId&&before.sessionId===after.sessionId&&before.sourceGeneration===after.sourceGeneration&&before.seekSerial===after.seekSerial&&before.currentIndex===after.currentIndex&&before.entryId===after.entryId&&before.queueTrackId===after.queueTrackId&&audioAtStart===audio;
+          const safeCapture=same?capture:{status:"cancelled",sampleRate:Number(capture.sampleRate)||0,channels:2,frames:0,sourceGeneration:request.sourceGeneration};
+          const completionIdentity={requestId:request.requestId,trackId:before.trackId??request.trackId,sessionId:before.sessionId??request.sessionId,sourceGeneration:before.sourceGeneration??request.sourceGeneration,seekSerial:before.seekSerial,currentIndex:before.currentIndex>=0?before.currentIndex:request.currentIndex,queueTotal:queueTracks.length||request.queueTotal,entryId:before.entryId??request.entryId,queueTrackId:before.queueTrackId??request.queueTrackId};
+          await call("automation_stereo_diagnostic_complete",stereoDiagnosticCompletionArguments(completionIdentity,safeCapture)).catch(()=>{});
+        };
+        if(!fixture||!audioAtStart||!matches||paused||audioAtStart.paused||!graph.attached||graph.userVolumeLinear==null||graph.userVolumeLinear<=0||request.durationSeconds!==2){void finish({status:"unavailable",sampleRate:0,channels:2,frames:0,sourceGeneration:request.sourceGeneration});return;}
+        const mediaTimeAtStart=Number.isFinite(audioAtStart.currentTime)?audioAtStart.currentTime:0;
+        void (async()=>{
+          let session:Awaited<ReturnType<typeof startWebAudioStereoDiagnosticTap>>=null;
+          try{
+            session=await startWebAudioStereoDiagnosticTap(audioAtStart,2);
+            if(!session){await finish({status:"unavailable",sampleRate:0,channels:2,frames:0,sourceGeneration:request.sourceGeneration});return;}
+            const result=await session.capture;
+            const currentGraph=inspectWebAudioGainGraph(audioAtStart);
+            const mediaTimeAtEnd=Number.isFinite(audioAtStart.currentTime)?audioAtStart.currentTime:mediaTimeAtStart;
+            const payload:Record<string,unknown>={status:result.status,sampleRate:result.sampleRate,channels:2,frames:result.frames,sourceGeneration:request.sourceGeneration};
+            if(result.status==="complete"&&result.samples&&result.firstFrame!=null&&result.firstContextTime!=null){Object.assign(payload,{firstFrame:result.firstFrame,firstContextTime:result.firstContextTime,mediaTimeAtStart,mediaTimeAtEnd,gainLinear:currentGraph.gainLinear,userVolumeLinear:currentGraph.userVolumeLinear,samplesFloat32LeBase64:encodeStereoDiagnosticSamples(result.samples)});}
+            await finish(payload);
+          }catch{
+            session?.stop();
+            await finish({status:"unavailable",sampleRate:0,channels:2,frames:0,sourceGeneration:request.sourceGeneration});
+          }
+        })();
       });
       let activeUiNavigationRequest: string | null = null;
       const navigationListenerReady = register<{requestId:string;target:{kind:"view";view:"library"|"favorites"|"history"|"downloads"|"settings"|"radio";settingsCategory?:SettingsCategory;settingsControl?:string}|{kind:"catalog_artist";catalogArtist:ArtistRef;catalogArtistSection?:"overview"|"releases"|"tracks"}|{kind:"catalog_release";catalogArtist:ArtistRef;catalogRelease:ArtistRef}|{kind:"spotify_artist";spotifyArtistId:string}|{kind:"spotify_profile";spotifyProfileId:string}|{kind:"spotify_playlist";spotifyPlaylistId:string}|{kind:"local_playlist";collectionId:string}|{kind:"history";historyDirection:"back"|"forward"}}>("automation-ui-navigation", request => {
@@ -6398,7 +9569,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
           return call("automation_player_panel_complete", {requestId:request.requestId,panel:request.panel,status:mounted ? "complete" : "failed"});
         }).catch(()=>{});
       });
-      void Promise.all([layoutListenerReady, mediaInspectionListenerReady, queueUiListenerReady, queueUiCancelListenerReady, searchListenerReady, playerPanelListenerReady, navigationListenerReady, identifyListenerReady, identifyCancelListenerReady]).then(ready => { if (!disposed && ready.every(Boolean)) void call("set_automation_frontend_ready", {ready:true}).catch(()=>{}); });
+      void Promise.all([layoutListenerReady, mediaInspectionListenerReady, stereoDiagnosticListenerReady, queueUiListenerReady, queueUiCancelListenerReady, searchListenerReady, playerPanelListenerReady, navigationListenerReady, identifyListenerReady, identifyCancelListenerReady]).then(ready => { if (!disposed && ready.every(Boolean)) void call("set_automation_frontend_ready", {ready:true}).catch(()=>{}); });
       register<{requestId: string}>("automation-playback-cancelled", (request) => { if (activeAutomationPlayback === request.requestId) { nextPreviewRequest(); if(nativeActive())void nativeCommand({action:"stop"});else audio?.pause(); paused = true; setAutomationPlaybackOwner(null); if (preview?.sessionId) void call("stop_candidate_preview", {sessionId: preview.sessionId}); } });
       register<{stations:RadioStation[]}>("radio-stations-changed",({stations})=>{
         radioStations=stations;
@@ -6413,6 +9584,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       register<Track>("library-updated", (updated) => { detailAssetRevision++; void handleLibraryUpdated(updated); });
       register<string>("asset-facts-updated",()=>{invalidateLegacyArtistAssets();detailAssetRevision++;void refreshCurrentAssetFiles();});
       register<{ok: boolean; status?: {warnings: string[]; pausedMirrors: string[]; sources: {collectionId?: string | null}[]}; error?: string; watcherWarnings?: string[]}>("playlist-sync", (event) => {
+        if (settings.playlistMirroringEnabled === false) return;
         if (event.status) { mirrorStatus = [...event.status.warnings, ...(event.watcherWarnings ?? [])].join(" · "); pausedMirrors = event.status.pausedMirrors; localPlaylistIds = event.status.sources.map((source) => source.collectionId).filter((id): id is string => Boolean(id)); }
         else if (event.error) mirrorStatus = event.error;
         void call<Collection[]>("list_collections").then((result) => { collections = result; }).catch(() => {});
@@ -6522,11 +9694,51 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       nextPreviewRequest();
       audio?.pause();
     };
+  }
+  onMount(() => {
+    let canceled = false;
+    let cleanup: (() => void) | undefined;
+    let attempt = 0;
+    const start = (hydration: Promise<boolean>) => {
+      const currentAttempt = ++attempt;
+      void startAfterBackupHydration(
+        async () => (await hydration) && !canceled && currentAttempt === attempt,
+        () => {
+          if (canceled) return;
+          lyricsTiming.hydrateFromStorage(backupStartupReadStorage);
+          hydrateStoredFrontendFlags();
+          loadStreamMediaAnalysisRestorePolicy();
+          backupHydrationReady = true;
+          retryBackupStartup = null;
+          cleanup = initializeAppLifecycle();
+        },
+      ).then(ready => {
+        if (!ready && !canceled && currentAttempt === attempt) backupHydrationReady = false;
+      });
+    };
+    retryBackupStartup = () => {
+      backupHydrationError = null;
+      backupHydrationFailureKind = null;
+      start(applyPendingBackupFrontendPreferences());
+    };
+    start(backupFrontendHydration);
+    return () => { canceled = true; attempt++; retryBackupStartup = null; cleanup?.(); };
   });
 </script>
 
-<svelte:window onkeydown={keyboard} onpointerdown={dismissHistoryFiltersOutside} bind:innerWidth={screenWidth} />
-<div class:light={settings.theme === "light" || settings.theme === "system" && systemLight} class:has-player-panel={showPlayingInfo || showQueue} class="app-shell" inert={engineSwitchBusy} style={`--player-height: ${playerHeight}px; --library-sidebar-width:${screenWidth<=900?64:Math.min(sidebarWidth,Math.max(160,screenWidth-((showPlayingInfo||showQueue)?280:0)-320))}px; --info-panel-width:${Math.min(infoPanelWidth,Math.max(280,screenWidth-(screenWidth<=900?64:sidebarWidth)-280))}px`}>
+<svelte:window onkeydown={keyboard} onpointerdown={dismissHistoryFiltersOutside} ondragover={preventFileDropNavigation} ondrop={preventFileDropNavigation} bind:innerWidth={screenWidth} />
+{#if desktop() && !backupHydrationReady}
+  <div class="backup-hydration-gate" role="alert" aria-live="polite">
+    {#if backupHydrationError}
+      {#if backupHydrationFailureKind === "preferences"}
+        <p>Imported interface preferences could not be saved. They remain queued; check available app storage and retry.</p>
+      {:else}<p>Could not finish restoring saved playback. Retry to continue.</p>{/if}
+      {#if /quota/i.test(backupHydrationError ?? "")}<small>Free some app storage space, then retry.</small>{/if}
+      <button type="button" onclick={() => retryBackupStartup?.()}>Retry</button>
+    {:else}<p>Preparing saved playback…</p>{/if}
+  </div>
+{/if}
+<div class:light={settings.theme === "light" || settings.theme === "system" && systemLight} class:has-player-panel={showPlayingInfo || showQueue} class="app-shell" inert={engineSwitchBusy || desktop() && !backupHydrationReady} aria-busy={desktop() && !backupHydrationReady} style={`--player-height: ${playerHeight}px; --library-sidebar-width:${screenWidth<=900?64:Math.min(sidebarWidth,Math.max(160,screenWidth-((showPlayingInfo||showQueue)?280:0)-320))}px; --info-panel-width:${Math.min(infoPanelWidth,Math.max(280,screenWidth-(screenWidth<=900?64:sidebarWidth)-280))}px`}>
   <LibrarySidebar inert={showFullNowPlaying} {call} showAccountPlaylists={sidebarLayout.showAccountPlaylists} onRemotePlaylist={(source,url) => void openRemotePlaylist(source,url)} compact={screenWidth<=900} favoritesPlaylistId={playlistPreferences.favoritesPlaylistId} playlistNames={sidebarLayout.names??{}} onRadioContext={(station,event)=>radioActions={station,anchor:{x:event.clientX,y:event.clientY}}} {radioStations} activeRadioStationId={selectedRadioStationId} onRadioStation={(station)=>{showAddRadio=false;selectedRadioStationId=station.id;void navigate("radio");if(playingRadioStation?.id!==station.id)playRadioStation(station);}} onAddRadio={()=>{showAddRadio=true;void navigate("radio");}} width={sidebarWidth} onWidthChange={(width)=>saveLayoutWidth("sidebar",width)} {view} collections={namedCollections} browserImports={sidebarImports} {localPlaylistIds} activeSource="all" activeCollectionId={view === "collections" || view === "charts" ? collectionId : ""}
     onDirectoryBrowser={() => { directoryBrowserVisited = true; if (view !== "directory-browser") void navigate("directory-browser"); }}
     selectedFolder={view === "directory-browser" ? directoryLocation : null} rootsRevision={directoryRootsRevision} onSelectFolder={browseFolder} onRootsChanged={() => directoryRootsRevision++}
@@ -6554,9 +9766,22 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       <div class="header-actions">
         {#if view === "library"}
           <details class="library-tools header-library-tools"><summary aria-label="Library options" title="Library options">Library options</summary><div><button onclick={openPlaylistImport}>Import charts or playlists</button>
-            <button onclick={() => void syncMirrors()}>Sync M3U files</button>
+            {#if settings.playlistMirroringEnabled === false}
+              <button onclick={() => { settingsCategory = "library"; void navigate("settings"); }}>M3U mirroring is off · Settings</button>
+            {:else}
+              <button onclick={() => void syncMirrors()}>Sync M3U files</button>
+            {/if}
             <button onclick={() => void run(async () => { deletedCollections = await call<Collection[]>("list_deleted_collections"); })}>Deleted playlists</button>
-            {#if assetTotal > 0}<button disabled={analysisBusy} onclick={() => void analyzeLibraryAssets()}>{analysisBusy ? "Analyzing…" : "Analyze missing BPM / key"}</button><button disabled={analysisBusy || (!checked.length && !selected)} title="Recalculate selected local recordings; keep manually edited BPM and key" onclick={() => void analyzeLibraryAssets(true)}>Recalculate selected BPM / key</button>{/if}
+            {#if assetTotal > 0}<button disabled={analysisBusy || (!checked.length && !selected && !playingTrack)} title="Analyze selected local recordings, review the results, then choose which fields to apply" onclick={() => void analyzeLibraryAssets()}>{analysisBusy ? "Analyzing…" : "Analyze selected BPM / key"}</button>{/if}
+            {#if assetTotal > 1}<button disabled={loudnessAnalysisBusy || (!checked.length && !selected && !playingTrack)} title="Review selected downloaded tracks from one album, then analyze their exact gapless programme order" onclick={() => void openSelectedLocalAlbumLoudness()}>Analyze selected album loudness</button>{/if}
+            {#if (checked.length > 0 || selected || playingTrack)}
+              <button aria-label="Analyze selected streaming sources" title="Resolve verified streaming sources for selected saved recordings, analyze full tracks, then review BPM and key" disabled={analysisBusy} onclick={() => void analyzeSelectedStreamTracks()}>
+                {analysisBusy && selectedAnalysisKind === "stream" ? "Analyzing streams…" : "Analyze selected streams"}
+              </button>
+              <button aria-label="Analyze selected loudness" title="Analyze only selected downloaded tracks; analysis does not rewrite audio or recording metadata" disabled={loudnessAnalysisBusy} onclick={() => void analyzeLoudnessTracks(currentLoudnessSelection())}>
+                {loudnessAnalysisBusy ? "Analyzing loudness…" : "Analyze selected loudness"}
+              </button>
+            {/if}
           </div></details>
         {/if}
         {#if busy}<span class="busy">Working…</span>{/if}{#if view !== "directory-browser" && view !== "artist" && !searchRelease}<button
@@ -6564,7 +9789,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
         >{/if}
       </div>
     </header>
-    <SoulseekWishlist visible={view === "settings" && settingsCategory === "downloads"} onReview={async(value)=>{await navigate("search");query=value;catalogSearchSource="soulseek";catalogSearchKind="tracks";catalogSearchRequest++;}} />
+    {#if backupHydrationReady}<SoulseekWishlist startupStorage={backupStartupPersistence} visible={view === "settings" && settingsCategory === "downloads"} onReview={async(value)=>{await navigate("search");query=value;catalogSearchSource="soulseek";catalogSearchKind="tracks";catalogSearchRequest++;}} />{/if}
     {#if !desktop()}<div class="banner">
         Desktop connection unavailable. Run the Tauri app to browse real charts
         and access local files.
@@ -6589,10 +9814,25 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
           onclick={() => setNotice("")}>×</button
         >
       </div>{/if}
-    {#if deletedPlaylist}<div class="banner notice"><span>Deleted playlist: {deletedPlaylist.name}</span><button onclick={() => void undoDeletePlaylist()}>Undo deletion</button></div>{/if}
+    {#if deletedPlaylist}<div class="banner notice" role="status"><span>Deleted playlist: {deletedPlaylist.name}. Audio files are kept.</span><button onclick={() => void undoDeletePlaylist()}>Undo deletion</button><button aria-label="Dismiss deleted playlist notice" onclick={() => (deletedPlaylist = null)}>×</button></div>{/if}
     {#if deletedCollections}<div class="modal-backdrop"><dialog open aria-label="Deleted playlists" class="playlist-trash"><h2>Deleted playlists</h2><p>Restore a playlist with its tracks. Audio files are kept when playlists are deleted.</p>{#each deletedCollections as item (item.id)}<div class="trash-row"><span>{item.name}<small>{item.trackCount} tracks</small></span><button aria-label={`Restore ${item.name}`} onclick={() => void undoDeletePlaylist(item)}>Restore</button></div>{:else}<p>No deleted playlists.</p>{/each}<button onclick={() => (deletedCollections = null)}>Close</button></dialog></div>{/if}
-    {#if showImport}<section class="import-panel">
-        <h3>Import charts, playlists, or albums</h3>
+    {#if showImport}
+      <dialog class="download-dialog import-dialog" use:activateDownloadDialog={closeImportDialog} aria-label="Import" tabindex="-1" onclick={(event) => {
+        if (event.target !== event.currentTarget) return;
+        const bounds = event.currentTarget.getBoundingClientRect();
+        if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) closeImportDialog();
+      }}>
+        <button type="button" class="import-dialog-close" aria-label="Close import" title="Close import" onclick={closeImportDialog}>×</button>
+      {#if importChoice === null}
+        <section class="import-panel"><ImportHub onChoose={(choice) => { importChoice = choice; if (choice === "playlist-file") importKind = "m3u"; else if (choice === "paste-playlist") importKind = "tracklist"; }} /></section>
+      {:else if importChoice === "restore-backup"}
+        <section class="import-panel"><button type="button" onclick={returnToImportChoices}>← Import choices</button>{#if desktop()}{#key droppedBackupPreview?.previewId ?? "backup-picker"}<BackupRestore inspectBackup={inspectBackupForUi} createBackup={createBackupForUi} restoreBackup={restoreBackupForUi} chooseMediaRoot={chooseBackupMediaRoot} estimateBackup={estimateBackupForUi} cancelJob={cancelBackupJob} loadActiveBackupJob={loadActiveBackupJob} subscribeBackupProgress={subscribeBackupProgress} loadSchedule={loadBackupSchedule} saveSchedule={saveBackupSchedule} chooseScheduleDestination={chooseBackupScheduleDestination} exportSettings={exportBackupSettings} inspectSettings={inspectBackupSettings} applySettings={applyBackupSettings} previewRestore={previewBackupRestore} allowReplace={true} initialPreview={droppedBackupPreview} />{/key}{:else}<p>Backups require the Burrata desktop app.</p>{/if}</section>
+      {:else if importChoice !== "import-url"}
+        <section class="import-panel"><button type="button" onclick={returnToImportChoices}>← Import choices</button><ImportSources choice={importChoice} {call} {collections} currentCollectionId={importTargetCollectionId} desktop={desktop()} onApply={applySourceImport} onPortableImported={async (created) => { collections = await call<Collection[]>("list_collections"); await openPlaylist(created.id); importChoice = null; }} onBackupSelected={() => { if (droppedBackupPreview) return; importChoice = "restore-backup"; setNotice("Select the backup in Restore Backup to review its contents."); }} onBackupPreview={openDroppedBackupPreview} onClose={returnToImportChoices} /></section>
+      {:else}
+      <section class="import-panel">
+        <button type="button" onclick={() => importChoice = null}>← Import choices</button>
+        <h3>{importTargetCollectionId ? "Import tracks into this playlist" : "Import from a URL"}</h3>
         <p class="browser-help">Public tracklists are imported directly when available. Otherwise Burrata sends the source to your connected companion browser; use the companion to import the latest version. Your browser handles sign-in or verification.</p>
         <div class="toolbar">
           <input aria-label="Chart, playlist or album URL" bind:value={browserUrl} placeholder="Chart, Spotify playlist, Bandcamp album, Shazam or Last.fm URL" />
@@ -6600,6 +9840,22 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
           <button onclick={() => void run(refreshBrowser)}>Refresh connection</button>
         </div>
         <p role="status">{browserStatus?.connected ? "Browser extension connected" : "Companion not seen yet · open its popup to connect"}{browserStatus?.pendingCount ? ` · ${browserStatus.pendingCount} pending` : ""}{browserMessage ? ` · ${browserMessage}` : ""}</p>
+        {#if collectionImportPreview}<section class="browser-capture" aria-label="Import preview">
+          <h4>{collectionImportPreview.title}</h4>
+          <p>{collectionImportPreview.capturedCount} entries · {collectionImportPreview.uniqueRecordings} unique recordings · {collectionImportPreview.complete ? "complete" : "partial capture"}</p>
+          <p>Changes from the previous capture: {collectionImportPreview.changes.added} added · {collectionImportPreview.changes.removed} removed · {collectionImportPreview.changes.moved} moved{collectionImportPreview.changes.retainedFromEarlierCapture ? ` · ${collectionImportPreview.changes.retainedFromEarlierCapture} earlier recordings retained` : ""}</p>
+          {#each collectionImportPreview.warnings as warning}<p>{warning}</p>{/each}
+          {#if !importTargetCollectionId}<fieldset class="url-import-destination"><legend>Destination and duplicate handling</legend>
+            <label>Existing playlist<select bind:value={urlImportDestinationId}><option value="">Keep as an imported source</option>{#each collections.filter(item => !["favorites", "history", "downloads"].includes(item.id)) as collection}<option value={collection.id}>{collection.name}</option>{/each}</select></label>
+            <label>Or create a playlist<input bind:value={urlImportNewPlaylistName} placeholder={collectionImportPreview.title} /></label>
+            <label>Folder path<input bind:value={urlImportFolderPath} placeholder="Optional, e.g. Live sets/2026" /></label>
+            <label>Section name<input bind:value={urlImportSectionName} placeholder="Optional section for these tracks" /></label>
+            <label>Duplicates<select bind:value={urlImportDuplicatePolicy}><option value="keep">Keep each occurrence</option><option value="skip">Skip destination duplicates</option></select></label>
+            <p>Reviewing for {urlImportDestinationId ? collections.find(item => item.id === urlImportDestinationId)?.name ?? "selected playlist" : urlImportNewPlaylistName.trim() || "an imported source"} · {urlImportDuplicatePolicy === "keep" ? "keep occurrences" : "skip duplicates"}{urlImportFolderPath.trim() ? ` · folder ${urlImportFolderPath}` : ""}{urlImportSectionName.trim() ? ` · section ${urlImportSectionName}` : ""}</p>
+          </fieldset>{:else}<p>Destination: {collections.find(item => item.id === importTargetCollectionId)?.name ?? "current playlist"} · repeated tracks are appended.</p>{/if}
+          <details><summary>Track preview</summary>{#each collectionImportPreview.sample as item}<p>{item.artist} — {item.title}{item.version ? ` (${item.version})` : ""}</p>{/each}</details>
+          <button onclick={()=>void applyCollectionImportPreview()}>Apply import</button><button onclick={()=>collectionImportPreview=null}>Cancel</button>
+        </section>{/if}
         {#if browserRequest}<button onclick={() => { browserRequest = ""; browserMessage = "The browser request may still finish. You can submit another URL."; }}>Allow another request</button>{/if}
         {#if browserImports.length}<details open><summary>Saved browser imports</summary><div class="browser-imports">
           {#each browserImports as imported}<button onclick={() => void run(() => openBrowserImport(imported))}>
@@ -6608,48 +9864,16 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
         </div></details>{/if}
         {#if activeBrowserImport && !importTargetCollectionId}<div class="browser-capture">
           <strong>{activeBrowserImport.title}</strong> · {activeBrowserImport.kind} · {activeBrowserImport.capturedCount} entries captured, {activeBrowserImport.importedCount} unique recordings{activeBrowserImport.expectedTotal != null ? ` of ${activeBrowserImport.expectedTotal} expected entries` : " · total unknown"} · {activeBrowserImport.complete ? "complete" : "partial capture"}
+          {#if activeBrowserImport.changes}<p>Changes from the previous capture: {activeBrowserImport.changes.added} added · {activeBrowserImport.changes.removed} removed · {activeBrowserImport.changes.moved} moved</p>{/if}
+          {#if activeBrowserImport.failedSources?.length}<button onclick={()=>void retryFailedImport()}>Retry {activeBrowserImport.failedSources.length} failed album pages</button>{/if}
           {#each activeBrowserImport.warnings as warning}<p>{warning}</p>{/each}
         </div>{/if}
 
-        <div class="toolbar">
-          <label class="button" for="m3u-import-file">Import M3U / M3U8 file</label>
-          <input id="m3u-import-file" type="file" accept=".m3u,.m3u8,audio/x-mpegurl,application/vnd.apple.mpegurl" onchange={importM3uFile} />
-          <select aria-label="Import format" bind:value={importKind}>
-            <option value="tracklist">Tracklist</option>
-            <option value="csv">CSV / Spotify export</option>
-            <option value="m3u">M3U / M3U8 metadata</option>
-            <option value="browser-json">Browser snapshot JSON</option>
-          </select>
-          <button
-            onclick={() => void (importKind === "browser-json" ? importBrowserJson() : importTracks())}
-            disabled={!importText.trim()}>Import tracks</button
-          >
-          <button onclick={() => (showImport = false)}>Close</button>
-        </div>
-        <textarea
-          bind:value={importText}
-          placeholder="Paste an artist — title tracklist, CSV, or Spotify playlist CSV export here"
-          rows="5"
-        >
-        </textarea>
-        <div class="toolbar">
-          <input
-            bind:value={localPath}
-            placeholder="Full path to a local audio file"
-          />
-          <button
-            disabled={!localPath.trim()}
-            onclick={() =>
-              void run(async () => {
-                const t = await call<Track>("import_local_file", {
-                  path: localPath,
-                });
-                tracks = [t, ...tracks];
-                showImport = false;
-              })}>Import local file</button
-          >
-        </div>
-      </section>{/if}
+        <button type="button" onclick={closeImportDialog}>Close</button>
+      </section>
+      {/if}
+      </dialog>
+    {/if}
     {#if autotagReviewId && currentTagJob && currentTagAsset}<section class="autotag-page"><button onclick={()=>{autotagReviewId=null;autotagReviewAsset=null;}}>← Back</button><AutotagReview job={currentTagJob} asset={currentTagAsset} onReview={(assetId,providerId)=>call<AutotagJob>("review_autotag_candidate",{assetId,providerId})} onApply={async(assetId,fieldKeys)=>{await call("apply_autotag_review",{assetId,fieldKeys});autotagReviewAsset=await call<LocalAsset|null>("get_asset_by_id",{assetId});await loadAutotagState();}} onApplyRecognition={async(assetId,fieldKeys)=>{await call("apply_recognition_review",{assetId,fieldKeys});autotagReviewAsset=await call<LocalAsset|null>("get_asset_by_id",{assetId});await loadAutotagState();}} onRepairSource={desktop()?recoverDownloadSourceTags:undefined} onRetry={async(assetId)=>{await call("retry_autotag",{assetId});await loadAutotagState();}} /></section>
     {:else if view === "artist"}
       <section class="artist-page-host">
@@ -6700,8 +9924,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
             <option value="youtube">YouTube</option><option value="soundcloud">SoundCloud</option><option value="monochrome">Monochrome</option>
           </select><small>Local files play first. Monochrome requires a strong recording match.</small></label>
             <label>Fallback delay (ms)<input type="number" min="0" max="10000" step="100" aria-label="Streaming fallback delay" bind:value={settings.streamingFallbackDelayMs} onchange={() => void run(async () => { const fresh = await call<Settings>("get_settings"); await call("save_settings", {settings:{...fresh,streamingFallbackDelayMs:settings.streamingFallbackDelayMs}}); })} /></label>
-            <FallbackSettings label="Streaming" enabled={settings.streamingFallbackEnabled !== false} providers={settings.streamingFallbackSources ?? ["youtube", "soundcloud"]} primary={settings.preferredStreamingSource ?? "youtube"} sources={[{id:"monochrome",name:"Monochrome"},{id:"youtube",name:"YouTube"},{id:"soundcloud",name:"SoundCloud"}]} onchange={(enabled,sources)=>void saveFallbackSettings("streaming",enabled,sources)} />
-            <label class="settings-option"><input type="checkbox" aria-label="Bandcamp streaming fallback" checked={settings.bandcampFallbackEnabled !== false} onchange={(event) => { settings.bandcampFallbackEnabled = event.currentTarget.checked; void saveSettingsFields(["bandcampFallbackEnabled"], "Bandcamp fallback saved."); }} /><span><strong>Bandcamp fallback</strong><small>Try verified public Bandcamp streams when other sources cannot play the recording.</small></span></label>
+            <FallbackSettings label="Streaming" enabled={settings.streamingFallbackEnabled !== false} providers={settings.streamingFallbackSources ?? ["youtube", "soundcloud", "bandcamp"]} primary={settings.preferredStreamingSource ?? "youtube"} sources={[{id:"monochrome",name:"Monochrome"},{id:"youtube",name:"YouTube"},{id:"soundcloud",name:"SoundCloud"},{id:"bandcamp",name:"Bandcamp"}]} onchange={(enabled,sources)=>void saveFallbackSettings("streaming",enabled,sources)} />
             <label class="settings-option"><input type="checkbox" aria-label="Prepare saved radio songs" checked={settings.backgroundSourcePreparation !== false} onchange={(event) => { settings.backgroundSourcePreparation = event.currentTarget.checked; void saveSettingsFields(["backgroundSourcePreparation"], "Background preparation saved."); }} /><span><strong>Prepare saved radio songs</strong><small>Find and cache playable sources for saved radio songs in the background.</small></span></label>
             <label class="settings-option"><input type="checkbox" aria-label="Override playlist track URLs" bind:checked={settings.overridePlaylistTrackUrls} onchange={() => void run(async () => { const fresh = await call<Settings>("get_settings"); await call("save_settings", { settings: { ...fresh, overridePlaylistTrackUrls: settings.overridePlaylistTrackUrls } }); })} /><span><strong>Override playlist track URLs</strong><small>Try the preferred source and configured streaming fallbacks. Off keeps the specified playlist URL.</small></span></label>
           </section>
@@ -6726,7 +9949,12 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
           {/if}
         </div>{/if}
         {#if settingsCategory === "library"}
-        <PlaylistSettings preferences={playlistPreferences} collections={visibleCollections.filter(item=>!latestImports.some(imported=>imported.collectionId===item.id))} {call} onchange={(value)=>{playlistPreferences=value;void refreshFavorites();}} oncollections={()=>refreshCollections()}/>
+        <PlaylistSettings preferences={playlistPreferences} collections={visibleCollections.filter(item=>!latestImports.some(imported=>imported.collectionId===item.id))} {call} includeYtdlpSearchDefault={includeYtdlpSearchDefault} onYtdlpSearchDefaultChange={(enabled)=>includeYtdlpSearchDefault=enabled} onchange={(value)=>{playlistPreferences=value;void refreshFavorites();}} oncollections={()=>refreshCollections()}/>
+        <button onclick={() => playlistMirrorSettingsTarget = { collectionId: null }}>Choose playlists…</button>
+        <label class="settings-option"><input type="checkbox" aria-label="Keep local M3U playlist copies" disabled={Boolean(busy)} checked={settings.playlistMirroringEnabled !== false} onchange={(event) => { settings.playlistMirroringEnabled = event.currentTarget.checked; void saveSettingsFields(["playlistMirroringEnabled"], "Playlist mirroring preference saved."); }} /><span><strong>Keep local M3U playlist copies</strong><small>Automatically read and update playlists, Liked Songs, and listening history as M3U8 files in your Music/Playlists folder. Off leaves existing files in place. Manual playlist import and export remain available.</small></span></label>
+        <HistoryMirrorSettings {call} desktop={desktop()} />
+        <RestoredPlaylistSyncSettings {call} desktop={desktop()} />
+        <RestoreWorkReview onReviewed={updateStreamMediaAnalysisRestorePolicy} />
         <section class="settings-basic-card" aria-labelledby="library-settings-title">
           <h2 id="library-settings-title">Music folder</h2><p>Completed downloads are saved here after validation and tagging.</p>
           <label>Download destination<input bind:value={settings.musicDirectory} placeholder="/home/you/Music/DJ" /></label>
@@ -6734,6 +9962,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
           <button onclick={()=>void saveSettingsFields(["musicDirectory"],"Music folder saved.")}>Save music folder</button>
         </section>
         <LocalPlaylistFiles mode="settings" {settings} onChange={(value) => (settings = value)} onSave={() => void saveSettingsFields(["playlistDirectories"],"Playlist folders saved.")} />
+        {#if desktop()}<BackupRestore inspectBackup={inspectBackupForUi} createBackup={createBackupForUi} restoreBackup={restoreBackupForUi} chooseMediaRoot={chooseBackupMediaRoot} estimateBackup={estimateBackupForUi} cancelJob={cancelBackupJob} loadActiveBackupJob={loadActiveBackupJob} subscribeBackupProgress={subscribeBackupProgress} loadSchedule={loadBackupSchedule} saveSchedule={saveBackupSchedule} chooseScheduleDestination={chooseBackupScheduleDestination} exportSettings={exportBackupSettings} inspectSettings={inspectBackupSettings} applySettings={applyBackupSettings} previewRestore={previewBackupRestore} allowReplace={true} />{/if}
         {/if}
         {#if settingsCategory === "playback"}<label class="settings-option"><input type="checkbox" bind:checked={includeRadioHistory} onchange={()=>void run(()=>call("set_radio_history_setting",{enabled:includeRadioHistory}))}/><span><strong>Include radio songs in playback history</strong><small>Save identified songs you hear with their station and listening time.</small></span></label>{/if}
         {#if settingsCategory === "general" || settingsCategory === "playback"}<section class="settings-basic-card" aria-labelledby="playback-settings-title">
@@ -6742,9 +9971,37 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
           {#if settingsCategory === "playback"}<label>Playback startup timeout<select id="playback-startup-timeout" bind:value={settings.playbackStartupTimeoutSeconds}><option value={20}>20 seconds</option><option value={30}>30 seconds</option><option value={45}>45 seconds</option></select></label><label>Preview delay (ms)<input type="number" min="0" max="5000" bind:value={settings.previewDelayMs} /></label>{/if}</div>
           {#if settingsCategory === "playback"}<label class="settings-option"><input type="checkbox" bind:checked={settings.autoPreview} /><span><strong>Play songs selected with arrow keys</strong><small>Wait for the preview delay before starting audio.</small></span></label>{/if}
           {#if settingsCategory === "playback"}<PlaybackEngineSettings onApplyRestart={applyPlaybackEngineAndRestart} />{/if}
-          {#if settingsCategory === "playback"}<label class="settings-option"><input type="checkbox" aria-label="Enable live BPM" checked={settings.liveBpmEnabled === true} onchange={(event) => { settings.liveBpmEnabled = event.currentTarget.checked; void saveSettingsFields(["liveBpmEnabled"], "Live BPM preference saved."); }} /><span><strong>Show live BPM</strong><small>Requires Native audio. Estimates use a ten-second playback window and may remain unavailable when the rhythm is unclear. Saved track metadata is unchanged.</small></span></label>{/if}
+          {#if settingsCategory === "playback"}<LoudnessSettings settings={webviewLoudnessSettings} onSettingsSaved={refreshCurrentWebviewNormalization} playbackStatus={nativeActive() ? (nativeSnapshot as (NativePlaybackSnapshot & {loudnessNormalization?: LoudnessPlaybackStatus}) | null)?.loudnessNormalization ?? null : webviewLoudnessDecision} webviewRouteStatus={webviewNormalizationRouteStatus} engine={nativeActive() ? "native" : "webview"} analysisJob={loudnessAnalysisJob} pendingAnalysisCount={pendingLoudnessAssetIds.length} analysisMessage={loudnessAnalysisMessage} onCancelAnalysis={cancelLoudnessAnalysis} onRetryAnalysis={retryQueuedLoudnessAnalysis} />{/if}
+          {#if settingsCategory === "playback"}
+            {@const mediaResource = currentStreamMediaResource()}
+            {@const mediaJob = streamMediaAnalysisJob?.resourceKey === mediaResource?.key ? streamMediaAnalysisJob : null}
+            <StreamMediaAnalysisSettings
+              enabled={streamMediaAnalysisEnabled}
+              status={streamMediaAnalysisStatus}
+              onEnabledChange={(enabled)=>streamMediaAnalysisEnabled=enabled}
+              mediaEligible={Boolean(streamMediaAnalysisEnabled && desktop() && mediaResource)}
+              mediaState={streamMediaAnalysisStartingKey === mediaResource?.key ? "starting" : mediaJob ? mediaJob.state === "queued" || mediaJob.state === "running" || mediaJob.state === "cancelling" ? "running" : "idle" : "idle"}
+              mediaStatus={streamMediaAnalysisStartingKey === mediaResource?.key || mediaJob ? streamMediaAnalysisStatus : ""}
+              onMediaStart={() => { const resource = currentStreamMediaResource(); if (resource) { attemptedStreamMediaAnalysis.add(resource.key); void startStreamMediaAnalysis(resource); } }}
+              onMediaCancel={() => void cancelStreamMediaAnalysis()}
+              observedEligible={Boolean(!streamMediaAnalysisEnabled && playingTrack && !nativeActive() && !playingRadioStation && currentWebviewStreamCaptureIdentity())}
+              observedState={webviewAnalysisArmTrackId === playingTrack?.id ? "preparing" : playingTrack && webviewObservedCapture?.trackId === playingTrack.id ? (webviewObservedCapture.finishing ? "finalizing" : "capturing") : "idle"}
+              observedStatus={webviewObservedAnalysisStatus ?? ""}
+              observedResult={webviewObservedAnalysis ? `Whole-track analysis${webviewObservedAnalysis.bpm ? ` · ${webviewObservedAnalysis.bpm.bpm.toFixed(1)} BPM` : ""}${webviewObservedAnalysis.key ? ` · ${webviewObservedAnalysis.key.key}` : ""}` : ""}
+              cachedResult={cachedStreamAnalysis && cachedStreamAnalysisOwnerKey === `${playingTrack?.id ?? ""}:${nativeSnapshot?.generation ?? ""}` ? `Whole-track analysis${cachedStreamAnalysis.bpm ? ` · ${cachedStreamAnalysis.bpm.bpm.toFixed(1)} BPM${cachedStreamAnalysis.bpm.relatedTempoAlternativeBpm ? ` (tempo alternative ${cachedStreamAnalysis.bpm.relatedTempoAlternativeBpm.toFixed(1)})` : ""}` : ""}${cachedStreamAnalysis.key ? ` · ${cachedStreamAnalysis.key.key}` : ""}` : ""}
+              onObservedStart={() => void analyzeCurrentWebviewStream()}
+              onObservedCancel={() => cancelWebviewObservedCapture("Whole-track WebView analysis was cancelled.")}
+              localEligible={Boolean(waveformEnabled && waveformLocalAssetId)}
+              localBusy={Boolean(localWaveformAnalysisJobId)}
+              localStatus={localWaveformAnalysisStatus}
+              onLocalStart={() => void analyzeCurrentLocalWaveform()}
+              onLocalCancel={() => void cancelLocalWaveformAnalysis()}
+            />
+          {/if}
+          {#if settingsCategory === "playback"}<label class="settings-option"><input type="checkbox" aria-label="Compact playback bar" checked={settings.compactPlaybackBar === true} onchange={(event) => { settings.compactPlaybackBar = event.currentTarget.checked; void saveSettingsFields(["compactPlaybackBar"], "Playback bar preference saved."); }} /><span><strong>Compact playback bar</strong><small>Use a shorter player bar to leave more room for the library.</small></span></label>{/if}
+          {#if settingsCategory === "playback"}<label class="settings-option"><input type="checkbox" aria-label="Enable live BPM and key" checked={settings.liveBpmEnabled === true} onchange={(event) => { settings.liveBpmEnabled = event.currentTarget.checked; void saveSettingsFields(["liveBpmEnabled"], "Live playback estimate preference saved."); }} /><span><strong>Show live BPM and key</strong><small>Uses recent Native or supported Web Audio playback. BPM may show half/double-time alternatives; live key is a provisional recent-window estimate. Neither changes saved track metadata.</small></span></label>{/if}
           {#if settingsCategory === "playback"}<label class="settings-option"><input type="checkbox" bind:checked={settings.pauseOnSourceOpen} /><span>Pause when opening the playing track’s source</span></label><label class="settings-option"><input type="checkbox" bind:checked={settings.sourceOpenAtPosition} /><span>Open source at current position (YouTube and SoundCloud)</span></label>{/if}
-          <button onclick={()=>void saveSettingsFields(["theme","autoPreview","previewDelayMs","playbackStartupTimeoutSeconds","pauseOnSourceOpen","sourceOpenAtPosition","liveBpmEnabled"],"Playback preferences saved.")}>{settingsCategory === "general" ? "Save appearance" : "Save playback preferences"}</button>
+          <button onclick={()=>void saveSettingsFields(["theme","autoPreview","previewDelayMs","playbackStartupTimeoutSeconds","pauseOnSourceOpen","sourceOpenAtPosition","liveBpmEnabled","compactPlaybackBar"],"Playback preferences saved.")}>{settingsCategory === "general" ? "Save appearance" : "Save playback preferences"}</button>
         </section>
         {/if}
         {#if settingsCategory === "downloads"}<AutotagSetup {...autotagSettings} acoustIdConfigured={autotagSettings.acoustidConfigured} onChanged={(change)=>autotagSettings={...autotagSettings,...change}} onSave={()=>void run(async()=>{autotagSettings=await call("save_autotag_settings",{enabled:autotagSettings.enabled,shazamFallback:autotagSettings.shazamFallback});})} />
@@ -6758,8 +10015,8 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
         </details>{/if}
       </section>
     {:else if view === "search"}
-      {#if searchRelease}<ReleaseView bind:this={searchReleaseComponent} playingTrack={playingTrack} bufferingTrack={playbackLoading?playingTrack:null} {paused} release={searchRelease} tracks={searchReleaseTracks} loading={searchReleaseBusy} error={searchReleaseError} onAddAlbumToPlaylist={addAlbumToPlaylist} onPlay={playArtistTrack} onQueue={queueArtistTracks} onDownload={(track)=>void openDownloadChooser(track)} onDownloadAlbum={(items,onReceipt)=>queueSelected(items,onReceipt as ((receipt:AlbumBatchReceipt)=>void|Promise<void>)|undefined)} onFavorite={(track)=>void favorite(track)} onArtist={(track)=>void discoverArtist(track)} onPlaylist={(track)=>void addArtistTrack(track)} onAddSelectedToPlaylist={addTracksToPlaylist} onContext={(track,event)=>{actionTrack=track;actionAnchor={x:event.clientX,y:event.clientY};}} />{:else}
-      <SearchPanel searchArtists={(value)=>searchArtists(value,1).then(page=>page.results)} loadArtistProfile={loadArtistProfileArtwork} onTrackAlbum={(track) => void openTrackAlbum(track)} bind:this={searchComponent} navigationSnapshotKey={searchNavigationSnapshotKey} {automationSearch} {automationSearchCancelled} onAutomationSearchComplete={completeAutomationSearch} playingTrack={playingTrack} bufferingTrack={playbackLoading?playingTrack:null} playingTrackId={playingTrack?.id??""} bufferingTrackId={playbackLoading?playingTrack?.id??"":""} {paused} onRemoteResult={(row)=>void openRemoteSearchResult(row)} onAddRemotePlaylist={addRemoteSearchPlaylist} onPlaylistTracks={addTracksToPlaylist} onQueueTracks={queueArtistTracks} onFavorite={(track)=>void favorite(track)} {availableSources} {query} searchPreset={catalogSearchRequest ? {sourceId:catalogSearchSource,kind:catalogSearchKind,requestId:catalogSearchRequest} : undefined} onQueryChange={(value)=>query=value} {sourceCapabilities} onArtist={(artist)=>void discoverArtistRef(artist)} onArtistTrack={(track)=>void discoverArtist(track)} onAlbum={(release)=>void openSearchAlbum(release)} onPlay={(track,list,index)=>void startPreview(track,false,false,list??[track],index??0)} onDownload={(track)=>void openDownloadChooser(track)} onDownloadTracks={(items)=>void queueSelected(items,undefined,"slskd")} onNext={(track)=>queueArtistTracks([track],"next")} onQueue={(track)=>queueArtistTracks([track],"append")} onContext={(track,event)=>{actionTrack=track;actionAnchor=event ? {x:event.clientX,y:event.clientY}:null;}} onPlayChapter={playChapter} onQueueChapter={queueChapter} onDownloadChapter={(parent,candidate,chapter)=>void downloadChapter(parent,candidate,chapter)} onInfoChapter={(parent,candidate,chapter)=>{const virtual=virtualChapterTrack(parent,candidate,chapter);if(virtual)searchMoreInfo(virtual,candidate,chapter.title);}} />{/if}
+      {#if searchRelease}<ReleaseView bind:this={searchReleaseComponent} playingTrack={playingTrack} bufferingTrack={playbackLoading?playingTrack:null} {paused} release={searchRelease} tracks={searchReleaseTracks} loading={searchReleaseBusy} error={searchReleaseError} onAddAlbumToPlaylist={addAlbumToPlaylist} onAnalyzeLoudness={prepareReleaseLoudnessAnalysis} onPlayAlbum={playReleaseAlbum} onQueueAlbum={(items,resource)=>queueArtistTracks(items,"append",resource)} onPlay={playArtistTrack} onQueue={queueArtistTracks} onDownload={(track)=>void openDownloadChooser(track)} onDownloadAlbum={(items,onReceipt)=>queueSelected(items,onReceipt as ((receipt:AlbumBatchReceipt)=>void|Promise<void>)|undefined)} onFavorite={(track)=>void favorite(track)} onArtist={(track)=>void discoverArtist(track)} onPlaylist={(track)=>void addArtistTrack(track)} onAddSelectedToPlaylist={addTracksToPlaylist} onContext={(track,event)=>{actionTrack=track;actionAnchor={x:event.clientX,y:event.clientY};}} />{:else}
+      <SearchPanel startupReadStorage={backupStartupReadStorage} searchArtists={(value)=>searchArtists(value,1).then(page=>page.results)} loadArtistProfile={loadArtistProfileArtwork} onTrackAlbum={(track) => void openTrackAlbum(track)} bind:this={searchComponent} navigationSnapshotKey={searchNavigationSnapshotKey} {automationSearch} {automationSearchCancelled} onAutomationSearchComplete={completeAutomationSearch} playingTrack={playingTrack} bufferingTrack={playbackLoading?playingTrack:null} playingTrackId={playingTrack?.id??""} bufferingTrackId={playbackLoading?playingTrack?.id??"":""} {paused} onRemoteResult={(row)=>void openRemoteSearchResult(row)} onAddRemotePlaylist={addRemoteSearchPlaylist} onPlaylistTracks={addTracksToPlaylist} onQueueTracks={queueArtistTracks} onFavorite={(track)=>void favorite(track)} {availableSources} {query} searchPreset={catalogSearchRequest ? {sourceId:catalogSearchSource,kind:catalogSearchKind,requestId:catalogSearchRequest} : undefined} onQueryChange={(value)=>query=value} {sourceCapabilities} onArtist={(artist)=>void discoverArtistRef(artist)} onArtistTrack={(track)=>void discoverArtist(track)} onAlbum={(release)=>void openSearchAlbum(release)} onPlay={(track,list,index)=>void startPreview(track,false,false,list??[track],index??0)} onDownload={(track)=>void openDownloadChooser(track)} onDownloadTracks={(items)=>void queueSelected(items,undefined,"slskd")} onNext={(track)=>queueArtistTracks([track],"next")} onQueue={(track)=>queueArtistTracks([track],"append")} onContext={(track,event)=>{actionTrack=track;actionAnchor=event ? {x:event.clientX,y:event.clientY}:null;}} onPlayChapter={playChapter} onQueueChapter={queueChapter} onDownloadChapter={(parent,candidate,chapter)=>void downloadChapter(parent,candidate,chapter)} onInfoChapter={(parent,candidate,chapter)=>{const virtual=virtualChapterTrack(parent,candidate,chapter);if(virtual)searchMoreInfo(virtual,candidate,chapter.title);}} />{/if}
     {:else if view === "radio"}
       <RadioView onAddSelectedToPlaylist={addTracksToPlaylist} onTrackAlbum={(track) => void openTrackAlbum(track)} currentStationMetadata={(playingTrack?.provenance as {radioMetadata?:RadioTrackMetadata}|undefined)?.radioMetadata ?? null} onIdentifyPlayingStation={()=>identifyPlayingRadio()} identifyingPlayingStation={radioRecognizing} playingTrack={playingTrack} bufferingTrack={playbackLoading?playingTrack:null} onInfoTrack={(track)=>openPlayerPanel("info",track)} onOpenHistory={(stationId)=>{historyQuery="";historyProvider="radio";historyStationId=stationId;historyFrom="";historyTo="";historyOrder="newest";void navigate("history");}} {favoriteTrackIds} onPlayTrack={(track,list,index)=>void startPreview(track,false,false,list,index)} onDownloadTrack={(track)=>void openDownloadChooser(track)} onFavoriteTrack={(track)=>void favorite(track)} onQueueTracks={queueArtistTracks} onAddTrackToPlaylist={addArtistTrack} savedStations={radioStations} stationNames={Object.fromEntries(radioStations.map(station=>[station.id,station.name]))} onAddClosed={()=>showAddRadio=false} selectedStationId={selectedRadioStationId} showAdd={showAddRadio} onStationsChanged={(stations)=>{const added=stations.find(station=>!radioStations.some(existing=>existing.id===station.id));radioStations=stations;if(added)selectedRadioStationId=added.id;else if(!stations.some(station=>station.id===selectedRadioStationId))selectedRadioStationId=stations[0]?.id??"";}} onPlayStation={playRadioStation} onArtist={(track)=>void discoverArtist(track)} onTrackContext={(track,event)=>{actionTrack=track;actionAnchor={x:event.clientX,y:event.clientY};void matchArtistPlaybackSources([track]).then(([matched])=>{if(actionTrack===track&&matched)actionTrack=matched;}).catch(failure=>{error=String(failure);});}} playingStationId={!paused ? playingRadioStation?.id??"" : ""} onNowPlaying={radioNowPlaying} />
     {:else if view === "source-browser"}
@@ -6775,6 +10032,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       <div aria-hidden="true"></div>
     {:else if view === "history"}
       <section class="history-page" aria-label="Listening history">
+        <div class="history-export-action"><button onclick={()=>showPortableHistory=true}>Export history</button></div>
         <form class="history-filters" onsubmit={(event)=>{event.preventDefault();void loadHistory();}}>
           <label class="history-search">Search history<input aria-label="Search playback history" bind:value={historyQuery} placeholder="Track, artist, album or station"/></label>
           <button class="history-search-submit" disabled={historyBusy}>Search</button>
@@ -6877,7 +10135,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
 
           {#if showCreatePlaylist}<input bind:value={newCollection} placeholder="New playlist name" aria-label="New playlist name" /><button disabled={!newCollection.trim()} onclick={() => void createCollection().then(() => (showCreatePlaylist = false))}>Create</button>{/if}
 
-        {:else if view === "collections"}<button onclick={()=>{renamePlaylistName=currentCollection?.name??"";renamingPlaylist=true;}}>Rename</button><button onclick={openPlaylistImport}>Import tracks</button>
+        {:else if view === "collections"}{#if collectionId===DOWNLOADS_PLAYLIST_ID}<button aria-label="Open download activity" onclick={()=>{openPlayerPanel("downloads");void refreshJobs();}}>Download activity</button>{/if}<button onclick={()=>{renamePlaylistName=currentCollection?.name??"";renamingPlaylist=true;}}>Rename</button><button onclick={openPlaylistImport}>Import tracks</button>
           {#if renamingPlaylist}<input aria-label="Playlist name" bind:value={renamePlaylistName} onkeydown={(event)=>{if(event.key==="Enter")void renameCurrentPlaylist();if(event.key==="Escape")renamingPlaylist=false;}} /><button onclick={()=>void renameCurrentPlaylist()}>Save name</button>{/if}
           <button disabled={!collectionId || batchRunning} onclick={() => void downloadPlaylist(collectionId, true)}>↓ Download playlist</button>{#if currentPlaylistCreator}<button disabled={Boolean(busy)} onclick={()=>void refreshLinkedPlaylist(collectionId)}>Refresh</button>{#if (currentPlaylistCreator.provider === "spotify" || currentPlaylistCreator.provider === "youtube") && currentPlaylistCreator.canEdit}<PlaylistSync {call} bindingId={currentPlaylistCreator.bindingId} enabled={remotePlaylistWriteSyncEnabled[currentPlaylistCreator.provider as "spotify" | "youtube"]} onApplied={()=>refreshLinkedPlaylist(collectionId)}/>{/if}{/if}<button class="playlist-context-trigger" aria-label="Playlist context menu" title="Playlist actions" onclick={openCurrentPlaylistMenu}>⋯</button>{/if}
       </div>
@@ -7248,6 +10506,74 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
         </aside>{/if}
       </div>
     {/if}
+  {#if portablePlaylistTarget}<PortablePlaylist collection={portablePlaylistTarget} {call} initialMode={portablePlaylistInitialMode} includeYtdlpSearchDefault={includeYtdlpSearchDefault} onClose={()=>portablePlaylistTarget=null} />{/if}
+  {#if playlistMirrorSettingsTarget}<PlaylistMirrorSettings collections={playlistMirrorCollections()} initialCollectionId={playlistMirrorSettingsTarget.collectionId} {call} onClose={()=>playlistMirrorSettingsTarget=null} onSaved={()=>{if(settings.playlistMirroringEnabled!==false)void syncMirrors();}} />{/if}
+{#if selectedAnalysisOpen}
+    <dialog class="download-dialog analysis-review" use:activateDownloadDialog={closeSelectedAnalysis} aria-labelledby="selected-analysis-title" aria-modal="true" tabindex="-1" onclick={(event) => {
+      if (event.target !== event.currentTarget) return;
+      const bounds = event.currentTarget.getBoundingClientRect();
+      if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) closeSelectedAnalysis();
+    }}>
+      <header>
+        <button type="button" class="analysis-close" aria-label={selectedAnalysisBusy ? "Close and cancel analysis" : "Close analysis review"} onclick={closeSelectedAnalysis}>×</button>
+        <h2 id="selected-analysis-title">Review BPM and key analysis</h2>
+        {#if selectedAnalysisKind === "stream"}
+          <p>Analysis reads the full streamed tracks. Audio isn’t saved, and existing BPM and key values are kept unless you choose to replace them.</p>
+        {:else}
+          <p>Analysis reads registered local audio and does not change audio files. Choose which measurements to apply.</p>
+        {/if}
+      </header>
+      {#if selectedAnalysisJob}
+        <p role="status">{selectedAnalysisJob.state === "completed" ? "Analysis complete" : selectedAnalysisJob.state === "cancelled" ? "Analysis cancelled" : selectedAnalysisJob.state === "cancelling" ? "Cancelling analysis…" : "Analyzing selected audio…"} · {selectedAnalysisJob.completed} of {selectedAnalysisJob.total}</p>
+        {#if selectedAnalysisBusy}<progress max={selectedAnalysisJob.total || 1} value={selectedAnalysisJob.completed} aria-label="Selected track analysis progress"></progress>{/if}
+        <div class="analysis-review-controls">
+          <fieldset class="analysis-apply-options">
+            <legend>Apply fields</legend>
+            <label><input type="checkbox" bind:checked={applyAnalysisBpm} /><span>BPM</span></label>
+            <label><input type="checkbox" bind:checked={applyAnalysisKey} /><span>Key</span></label>
+          </fieldset>
+          <fieldset class="analysis-replace-options">
+            <legend>Replace existing values</legend>
+            <label><input type="checkbox" bind:checked={replaceAnalysisBpm} disabled={!applyAnalysisBpm} /><span>Replace existing BPM, including manual values</span></label>
+            <label><input type="checkbox" bind:checked={replaceAnalysisKey} disabled={!applyAnalysisKey} /><span>Replace existing key, including manual values</span></label>
+            <p>Without replacement, existing imported and manually entered values are kept.</p>
+          </fieldset>
+        </div>
+        <div class="analysis-review-list">
+          {#each selectedAnalysisJob.results as row (row.assetId)}
+            {@const reviewTrack = selectedAnalysisTracks[row.assetId]}
+            <section class="analysis-review-row">
+              <strong>{reviewTrack?.title ?? row.recordingId}</strong>
+              <small>{reviewTrack?.artist ?? "Local audio"} · {row.status === "completed" ? `Whole track · ${Math.round((row.analysis?.coverage ?? 0) * 100)}% coverage` : row.error ?? row.status}</small>
+              {#if row.kind === "stream" && row.sourceProvider && row.sourceId}<small class="analysis-source-identity">Verified source: {row.sourceProvider} · {row.sourceId}</small>{/if}
+              {#if row.analysis}
+                <div><span>BPM: {reviewTrack?.bpm ?? "—"} → {row.analysis.bpm?.bpm ?? "No estimate"}{#if row.analysis.bpm?.relatedTempoAlternativeBpm}<small> · alternative {row.analysis.bpm.relatedTempoAlternativeBpm}</small>{/if}</span>
+                  {#if !applyAnalysisBpm}<small>BPM will stay unchanged.</small>{:else if analysisFieldExists(reviewTrack, "bpm") && !replaceAnalysisBpm}<small>Existing BPM will be kept{analysisFieldIsManual(reviewTrack, "bpm") ? " · marked manual" : ""}.</small>{:else if applyAnalysisBpm && replaceAnalysisBpm && analysisFieldExists(reviewTrack, "bpm")}<small>Existing BPM will be replaced by your explicit choice.</small>{/if}
+                </div>
+                <div><span>Key: {reviewTrack?.key ?? "—"} → {row.analysis.key?.key ?? "No confident estimate"}</span>
+                  {#if !applyAnalysisKey}<small>Key will stay unchanged.</small>{:else if analysisFieldExists(reviewTrack, "key") && !replaceAnalysisKey}<small>Existing key will be kept{analysisFieldIsManual(reviewTrack, "key") ? " · marked manual" : ""}.</small>{:else if applyAnalysisKey && replaceAnalysisKey && analysisFieldExists(reviewTrack, "key")}<small>Existing key will be replaced by your explicit choice.</small>{/if}
+                </div>
+                <small>Detected with {row.analysis.analyzerVersion} · {Math.round(row.analysis.durationSeconds)} seconds · estimates are not catalog credits</small>
+              {:else if row.error}<p role="alert">{row.error}</p>{/if}
+            </section>
+          {/each}
+        </div>
+      {:else}
+        <p>Starting analysis…</p>
+      {/if}
+      <footer>
+        {#if selectedAnalysisBusy}<button type="button" onclick={() => void cancelSelectedAnalysis()}>Cancel analysis</button>{/if}
+        <button type="button" onclick={closeSelectedAnalysis}>{selectedAnalysisBusy ? "Close and cancel" : "Close"}</button>
+        {#if selectedAnalysisJob?.state === "completed"}
+          <button type="button" class="primary" disabled={selectedAnalysisBusy || (!applyAnalysisBpm && !applyAnalysisKey) || !selectedAnalysisJob.results.some(row => row.status === "completed" && row.analysis && !selectedAnalysisApplied.includes(row.assetId))} onclick={() => void applySelectedAnalysis()}>
+            {selectedAnalysisBusy ? "Applying…" : "Apply reviewed values"}
+          </button>
+        {/if}
+      </footer>
+    </dialog>
+{/if}
+
+  {#if showPortableHistory}<PortableHistory {call} includeYtdlpSearchDefault={includeYtdlpSearchDefault} onClose={()=>showPortableHistory=false} />{/if}
   </main>
   {#if playlistTrack}<div class="download-backdrop">
     <dialog class="download-dialog playlist-picker-dialog" use:activateDownloadDialog={closePlaylistPicker} aria-labelledby="playlist-picker-title" tabindex="-1">
@@ -7354,18 +10680,18 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
   {#if showPlayingInfo || showQueue}<section class="player-panel-host" aria-label="Player panel">{#if showQueue}
   <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions (Keyboard and pointer splitter.) -->
   <div class="queue-panel-resize" role="separator" tabindex="0" aria-label="Resize queue panel" aria-orientation="vertical" aria-valuemin="280" aria-valuemax="420" aria-valuenow={infoPanelWidth} onpointerdown={resizeQueuePanel} onkeydown={(event)=>{if(event.key==="ArrowLeft"||event.key==="ArrowRight"){event.preventDefault();saveLayoutWidth("info",infoPanelWidth+(event.key==="ArrowLeft"?10:-10));}}}></div>{/if}<nav class="player-panel-tabs"><button class:active={showPlayingInfo} onclick={()=>openPlayerPanel("info")}>Now playing</button><button class:active={showQueue} onclick={()=>openPlayerPanel("queue")}>Queue</button><button aria-label="Close player panel" onclick={()=>openPlayerPanel(null)}>×</button></nav>
-  {#if showPlayingInfo && (infoTrack || playingTrack)}{@const shownTrack = infoTrack || playingTrack!}{@const shownActionTrack = shownTrack.id===playingTrack?.id ? playbackActionTrack??shownTrack : shownTrack}<PlayingInfo loadRecording={recordingInformation.load} onRecordingRelease={(release,artist) => void browseRecordingRelease(release,artist)} loadArtist={loadNowPlayingArtist} onArtistRef={(artist) => {openPlayerPanel(null);void discoverArtistRef(artist);}} onAlbum={trackAlbumTarget(shownActionTrack) ? () => {openPlayerPanel(null);void openTrackAlbum(shownActionTrack);} : undefined} stationName={shownTrack.id===playingTrack?.id ? playingRadioStation?.name ?? "" : ""} liveBpm={shownTrack.id===playingTrack?.id && nativeActive() && !paused ? liveBpmEstimate : null} liveBpmStatus={shownTrack.id===playingTrack?.id ? settings.liveBpmEnabled !== true ? "disabled" : !nativeActive() ? "unsupported" : paused ? "paused" : liveBpmPollStatus : undefined} artworkDisplayUrl={artworkDisplayUrls[shownTrack.artworkUrl ?? ""]} onArtworkError={(track,failedUrl)=>void recoverDisplayArtwork(track,failedUrl)} onFavorite={()=>void favorite(shownTrack.id===playingTrack?.id?(playbackActionTrack??shownTrack):shownTrack)} favorite={(shownTrack.id===playingTrack?.id?(playbackActionTrack??shownTrack):shownTrack).favorite} docked={true} activeChapter={shownTrack.id===playingTrack?.id ? activeChapter?.title : undefined} panelWidth={infoPanelWidth} onPanelWidthChange={(width)=>saveLayoutWidth("info",width)} onPlay={()=>{if(shownTrack.id===playingTrack?.id)void toggleCurrentPlayback();else void startPreview(shownTrack);}} onOpenMpv={mpvAvailable?()=>void openTrackInMpv(shownTrack):undefined} onIdentifyRadio={shownTrack.id===playingTrack?.id&&(playingRadioStation||nativeActive()||preview?.sourceGeneration!==undefined)?()=>void (radioRecognizing?cancelRadioIdentification():identifyPlayingTrack()):undefined} onCancelIdentifyRadio={!nativeActive() || !playingRadioStation ? ()=>cancelRadioIdentification():undefined} identifyProgress={radioIdentifyProgress} identifyingRadio={radioRecognizing} track={shownTrack} asset={trackAsset(shownTrack)} availableFiles={filesForTrack(shownTrack)} preferredAssetId={shownTrack.assetId??null} onPreferredFile={(assetId)=>void preferTrackFile(shownTrack,assetId)} streamQuality={shownTrack.id===playingTrack?.id && (preview?.kind==="audio" || nativeActive() && !playingTrack?.localPath) ? {codec:nativeSnapshot?.quality?.codec ?? preview?.audioCodec,bitrateKbps:nativeSnapshot?.quality?.bitrateKbps ?? preview?.audioBitrateKbps,sampleRate:nativeSnapshot?.quality?.sampleRate,channels:nativeSnapshot?.quality?.channels,bitrateOrigin:nativeSnapshot?.quality?.bitrateOrigin,live:Boolean(playingRadioStation)} : undefined} onUpgrade={()=>void openDownloadChooser(shownActionTrack)} onRadio={() => { showPlayingInfo = false; void startSongRadio(shownActionTrack); }} radioBusy={radioBusy === shownTrack.id} candidate={shownTrack.id === playingTrack?.id ? playingCandidate : null} onClose={() => { showPlayingInfo = false; infoTrack = null; }} onArtist={() => { showPlayingInfo = false; void discoverArtist(shownActionTrack); }} onDownload={() => { showPlayingInfo = false; void openDownloadChooser(shownActionTrack); }} onPlaylist={() => { showPlayingInfo = false; void addArtistTrack(shownActionTrack); }} onMoreInfo={() => searchMoreInfo(shownTrack,shownTrack.id===playingTrack?.id?playingCandidate:null,shownTrack.id===playingTrack?.id?activeChapter?.title:undefined)} />{/if}
+  {#if showPlayingInfo && (infoTrack || playingTrack)}{@const shownTrack = infoTrack || playingTrack!}{@const shownActionTrack = shownTrack.id===playingTrack?.id ? playbackActionTrack??shownTrack : shownTrack}<PlayingInfo loadRecording={recordingInformation.load} onRecordingRelease={(release,artist) => void browseRecordingRelease(release,artist)} loadArtist={loadNowPlayingArtist} onArtistRef={(artist) => {openPlayerPanel(null);void discoverArtistRef(artist);}} onAlbum={trackAlbumTarget(shownActionTrack) ? () => {openPlayerPanel(null);void openTrackAlbum(shownActionTrack);} : undefined} stationName={shownTrack.id===playingTrack?.id ? playingRadioStation?.name ?? "" : ""} liveBpm={shownTrack.id===playingTrack?.id && !paused ? liveBpmEstimate : null} liveKey={shownTrack.id===playingTrack?.id && !paused ? liveKeyEstimate : null} liveBpmStatus={shownTrack.id===playingTrack?.id ? settings.liveBpmEnabled !== true ? "disabled" : paused ? "paused" : liveBpmPollStatus : undefined} liveBpmStatusReason={shownTrack.id===playingTrack?.id ? liveBpmPollReason : null} artworkDisplayUrl={artworkDisplayUrls[shownTrack.artworkUrl ?? ""]} onArtworkError={(track,failedUrl)=>void recoverDisplayArtwork(track,failedUrl)} onFavorite={()=>void favorite(shownTrack.id===playingTrack?.id?(playbackActionTrack??shownTrack):shownTrack)} favorite={(shownTrack.id===playingTrack?.id?(playbackActionTrack??shownTrack):shownTrack).favorite} docked={true} activeChapter={shownTrack.id===playingTrack?.id ? activeChapter?.title : undefined} panelWidth={infoPanelWidth} onPanelWidthChange={(width)=>saveLayoutWidth("info",width)} onPlay={()=>{if(shownTrack.id===playingTrack?.id)void toggleCurrentPlayback();else void startPreview(shownTrack);}} onOpenMpv={mpvAvailable?()=>void openTrackInMpv(shownTrack):undefined} onIdentifyRadio={shownTrack.id===playingTrack?.id&&(playingRadioStation||nativeActive()||preview?.sourceGeneration!==undefined)?()=>void (radioRecognizing?cancelRadioIdentification():identifyPlayingTrack()):undefined} onCancelIdentifyRadio={!nativeActive() || !playingRadioStation ? ()=>cancelRadioIdentification():undefined} identifyProgress={radioIdentifyProgress} identifyingRadio={radioRecognizing} loudnessStatus={shownTrack.id===playingTrack?.id ? nativeActive() ? (nativeSnapshot as (NativePlaybackSnapshot & {loudnessNormalization?: LoudnessPlaybackStatus}) | null)?.loudnessNormalization ?? null : webviewLoudnessDecision : null} loudnessMode={webviewLoudnessSettings.mode} loudnessAnalysisJob={loudnessAnalysisJob} pendingLoudnessAnalysisCount={pendingLoudnessAssetIds.length} loudnessAnalysisMessage={loudnessAnalysisMessage} onAnalyzeLoudness={trackAsset(shownActionTrack) || shownActionTrack.localPath ? () => void analyzeLoudnessTracks([shownActionTrack]) : undefined} onCancelLoudnessAnalysis={cancelLoudnessAnalysis} onRetryLoudnessAnalysis={retryQueuedLoudnessAnalysis} analysisEstimate={shownTrack.id===playingTrack?.id ? currentPlaybackAnalysisEstimate : null} analysisStatus={shownTrack.id===playingTrack?.id ? currentLocalAnalysisStatus || streamMediaAnalysisStatus : ""} trackDetectionView={shownTrack.id===playingTrack?.id && currentPlayingTrackDetectionOwner()!==null ? playingTrackDetectionView : null} trackDetectionStatus={shownTrack.id===playingTrack?.id ? playingTrackDetectionStatus : ""} trackDetectionDisabledReason={shownTrack.id===playingTrack?.id ? playingTrackDetectionDisabledReason : ""} trackDetectionAvailable={desktop() && shownTrack.id===playingTrack?.id && currentPlayingTrackDetectionOwner()!==null} onTrackDetectionToggle={togglePlayingTrackDetection} onTrackDetectionSeek={seekChapter} track={shownTrack} trackLibrarySummary={trackLibrarySummaryTrackId === shownTrack.id ? trackLibrarySummary : null} trackLibrarySummaryLoading={trackLibrarySummaryLoading && trackLibrarySummaryTrackId === shownTrack.id} trackLibrarySummaryRequested={trackLibrarySummaryTrackId === shownTrack.id} asset={trackAsset(shownTrack)} availableFiles={filesForTrack(shownTrack)} preferredAssetId={shownTrack.assetId??null} onPreferredFile={(assetId)=>void preferTrackFile(shownTrack,assetId)} streamQuality={shownTrack.id===playingTrack?.id && (preview?.kind==="audio" || nativeActive() && !playingTrack?.localPath) ? {codec:nativeSnapshot?.quality?.codec ?? preview?.audioCodec,bitrateKbps:nativeSnapshot?.quality?.bitrateKbps ?? preview?.audioBitrateKbps,sampleRate:nativeSnapshot?.quality?.sampleRate,channels:nativeSnapshot?.quality?.channels,bitrateOrigin:nativeSnapshot?.quality?.bitrateOrigin,live:Boolean(playingRadioStation)} : undefined} onUpgrade={()=>void openDownloadChooser(shownActionTrack)} onRadio={() => { showPlayingInfo = false; void startSongRadio(shownActionTrack); }} radioBusy={radioBusy === shownTrack.id} candidate={shownTrack.id === playingTrack?.id ? playingCandidate : null} onClose={() => { showPlayingInfo = false; infoTrack = null; }} onArtist={() => { showPlayingInfo = false; void discoverArtist(shownActionTrack); }} onDownload={() => { showPlayingInfo = false; void openDownloadChooser(shownActionTrack); }} onPlaylist={() => { showPlayingInfo = false; void addArtistTrack(shownActionTrack); }} onMoreInfo={() => searchMoreInfo(shownTrack,shownTrack.id===playingTrack?.id?playingCandidate:null,shownTrack.id===playingTrack?.id?activeChapter?.title:undefined)} />{/if}
   {#if showQueue}<PlaybackQueuePanel queueRevision={nativeActive()?nativeSnapshot?.queueRevision:undefined} onInteractionMove={queueUiMove??undefined} interactionSignal={queueUiController?.signal} paused={paused} buffering={playbackLoading} activePlaybackTrack={playbackActionTrack} {chapterRangesByTrack} radioNowPlaying={currentRadioSong} radioStationName={playingRadioStation?.name??""} radioHistory={previousRadioQueue} {radioRecognizing} radioIdentifyProgress={radioIdentifyProgress} onIdentifyRadio={playingRadioStation?()=>void (radioRecognizing?cancelRadioIdentification():identifyPlayingRadio()):undefined} onCancelIdentifyRadio={!nativeActive()?cancelRadioIdentification:undefined} onIdentifyCurrent={playingTrack&&!playingRadioStation&&(nativeActive()||preview?.sourceGeneration!==undefined)?()=>void (radioRecognizing?cancelRadioIdentification():identifyPlayingTrack()):undefined} onCancelIdentifyCurrent={()=>cancelRadioIdentification()} identifyingCurrentAudio={radioRecognizing} onPlayRadioTrack={(track)=>void startPreview(track)} onDownloadRadioTrack={(track)=>void openDownloadChooser(track)} onFavoriteRadioTrack={(track)=>void favorite(track)} onArtistRadioTrack={(track)=>void discoverArtist(track)} onInfoRadioTrack={(track)=>openPlayerPanel("info",track)} onContextRadioTrack={(track)=>{actionTrack=track;actionAnchor=null;}} onInfoTrack={(track)=>openPlayerPanel("info",track)} onAddToPlaylist={(track)=>void addArtistTrack(track,false)} {chaptersByTrack} onPlayChapter={(parent,chapter)=>{const candidate=candidateForQueue(parent);if(candidate)playChapter(parent,candidate,chapter);}} onQueueChapter={(parent,chapter)=>{const candidate=candidateForQueue(parent);if(candidate)queueChapter(parent,candidate,chapter,"append");}} onAddChapterToPlaylist={(parent,chapter)=>void addChapterToPlaylist(parent,chapter)} onDownloadChapter={(parent,chapter)=>{const candidate=candidateForQueue(parent);if(candidate)void downloadChapter(parent,candidate,chapter);}} onInfoChapter={(parent,chapter)=>{const candidate=candidateForQueue(parent);if(candidate){const virtual=virtualChapterTrack(parent,candidate,chapter);if(virtual)searchMoreInfo(virtual,candidate,chapter.title);}}} onQueueAllChapters={(parent,chapters)=>queueAllChapters(parent,chapters)} onInspectChapters={(parent)=>void inspectQueueChapters(parent)} tracks={queueTracks} currentIndex={queueIndex} chapters={playingCandidate?.chapters ?? []} {position} chapterPosition={nativeActive() && playingTrack?.playbackRange ? chapterAbsolutePosition(playingTrack,position) : position} {repeatMode} {shuffleEnabled} onClose={() => openPlayerPanel(null)} onPlay={playQueueIndex} onMove={moveQueueItem} onSortUpcoming={sortUpcoming} onRemove={removeQueueItem} onRemoveMany={removeQueueItems} onSeek={seekChapter} onToggleShuffle={toggleShuffle} onCycleRepeat={cycleRepeat} />{/if}
   </section>{/if}
   {#if spotifyTrackArtistChoices.length}<div class="modal-backdrop"><dialog use:activateDownloadDialog={() => spotifyTrackArtistChoices = []} tabindex="-1" class="download-dialog playlist-picker-dialog spotify-track-artist-chooser" aria-label="Choose Spotify artist"><h2>Choose Spotify artist</h2><p>This track credits multiple Spotify artists.</p>{#each spotifyTrackArtistChoices as artist (artist.id)}<button type="button" aria-label={`Open Spotify artist ${artist.name}`} onclick={() => void openSpotifyTrackArtist(artist)}>{artist.name}</button>{/each}<button type="button" onclick={() => spotifyTrackArtistChoices = []}>Cancel</button></dialog></div>{/if}
   {#if showReleaseSetup}<dialog open class="download-dialog release-onboarding" aria-label="Welcome to Burrata"><ReleaseSetup onboarding onSettingsChanged={()=>void call<Settings>("get_settings").then(value=>settings={...value,matchingLevel:value.matchingLevel??"balanced",playbackStartupTimeoutSeconds:value.playbackStartupTimeoutSeconds??20})} onComplete={()=>showReleaseSetup=false}/></dialog>{/if}
   {#if renameTarget}<dialog class="download-dialog playlist-picker-dialog" use:activateRenameDialog aria-label={`Rename ${renameTarget.kind}`} tabindex="-1"><form onsubmit={(event)=>{event.preventDefault();void saveSidebarRename();}}><h2>Rename {renameTarget.kind==="radio"?"station":"playlist"}</h2><label>Name<input aria-label="New name" maxlength="160" bind:value={sidebarRenameValue}/></label><footer><button type="button" onclick={()=>renameTarget=null}>Cancel</button><button class="primary" disabled={!sidebarRenameValue.trim()}>Save</button></footer></form></dialog>{/if}
   {#if radioActions}{@const menu=radioActions}<PlaylistMenu onDelete={()=>void removeSidebarStation(menu.station)} kind="radio station" name={menu.station.name} anchor={menu.anchor} {playerHeight} onRename={()=>startSidebarRename("radio",menu.station.id,menu.station.name)} onOpen={()=>{selectedRadioStationId=menu.station.id;void navigate("radio");}} onOpenSource={()=>void openSourceToRefresh(menu.station.homepageUrl??menu.station.sourceUrl)} onClose={()=>radioActions=null}/>{/if}
-  {#if playlistActions}{@const menu = playlistActions}<PlaylistMenu onRefresh={remotePlaylistBindings.some(binding=>binding.collectionId===menu.collection.id||binding.sourceCollectionId===menu.collection.id)?()=>void refreshLinkedPlaylist(menu.collection.id):undefined} onExport={collections.some(item=>item.id===menu.collection.id)?()=>void exportCurrentPlaylist(menu.collection.id):undefined} onCopy={activeBrowserImport?.collectionId===menu.collection.id?()=>void run(copyCurrentImport):undefined} onRename={()=>startSidebarRename("playlist",menu.collection.id,menu.collection.name)} onDownload={collections.some(item=>item.id===menu.collection.id)?()=>void downloadPlaylist(menu.collection.id):undefined} onOpenSource={(sourceUrlForCollection(menu.collection.id) || (menu.collection.id===chart?.id?currentChartSourceUrl:null)) ? () => void openSourceToRefresh((sourceUrlForCollection(menu.collection.id) || currentChartSourceUrl)!) : undefined} name={menu.collection.name} anchor={menu.anchor} {playerHeight} onClose={() => (playlistActions = null)} onOpen={() => void openPlaylist(menu.collection.id)} onDelete={menu.collection.id!==DOWNLOADS_PLAYLIST_ID && collections.some(item=>item.id===menu.collection.id)?()=>void deletePlaylist(menu.collection):undefined} />{/if}
+  {#if playlistActions}{@const menu = playlistActions}<PlaylistMenu onRefresh={remotePlaylistBindings.some(binding=>binding.collectionId===menu.collection.id||binding.sourceCollectionId===menu.collection.id)?()=>void refreshLinkedPlaylist(menu.collection.id):undefined} onExport={collections.some(item=>item.id===menu.collection.id)||menu.collection.id==="favorites"?()=>{portablePlaylistInitialMode="export";if(menu.collection.id==="favorites")portablePlaylistTarget={id:"favorites",name:menu.collection.name,trackCount:favoriteTrackIds.length};else portablePlaylistTarget=menu.collection;}:menu.collection.id==="history"?()=>showPortableHistory=true:undefined} onMoveToFolder={collections.some(item=>item.id===menu.collection.id)||menu.collection.id==="favorites"?()=>{portablePlaylistInitialMode="folder";if(menu.collection.id==="favorites")portablePlaylistTarget={id:"favorites",name:menu.collection.name,trackCount:favoriteTrackIds.length};else portablePlaylistTarget=menu.collection;}:undefined} onCopy={menu.collection.id==="favorites"||menu.collection.id===playlistPreferences.favoritesPlaylistId?()=>void copyFavoritesPlaylist():activeBrowserImport?.collectionId===menu.collection.id?()=>void run(copyCurrentImport):undefined} onRename={()=>startSidebarRename("playlist",menu.collection.id,menu.collection.name)} onDownload={collections.some(item=>item.id===menu.collection.id)?()=>void downloadPlaylist(menu.collection.id):undefined} onOpenSource={(sourceUrlForCollection(menu.collection.id) || (menu.collection.id===chart?.id?currentChartSourceUrl:null)) ? () => void openSourceToRefresh((sourceUrlForCollection(menu.collection.id) || currentChartSourceUrl)!) : undefined} name={menu.collection.name} anchor={menu.anchor} {playerHeight} onClose={() => (playlistActions = null)} onOpen={() => void openPlaylist(menu.collection.id)} onMirrorSettings={collections.some(item=>item.id===menu.collection.id)||menu.collection.id==="favorites"||menu.collection.id==="history"?() => playlistMirrorSettingsTarget = { collectionId: menu.collection.id, name: menu.collection.name }:undefined} onDelete={menu.collection.id!==DOWNLOADS_PLAYLIST_ID && collections.some(item=>item.id===menu.collection.id)?()=>void deletePlaylist(menu.collection):undefined} />{/if}
   {#if actionTrack}{@const menuTrack = actionTrack}{@const albumTarget = trackAlbumTarget(menuTrack)}<TrackMenu track={menuTrack} onRadio={() => void startSongRadio(menuTrack)} radioBusy={radioBusy === menuTrack.id} anchor={actionAnchor} {playerHeight} onRemove={view === "collections" ? () => void removePlaylistTrack(menuTrack) : undefined} onClose={() => (actionTrack = null)} onNext={() => queueArtistTracks([menuTrack], "next")} onQueue={() => queueArtistTracks([menuTrack], "append")} onPlaylist={() => void addArtistTrack(menuTrack)} onGoToAlbum={albumTarget ? () => void openTrackAlbum(menuTrack) : undefined} onGoToAlbumUnavailable={!albumTarget} onFavorite={() => void favorite(menuTrack)} onDownload={() => void openDownloadChooser(menuTrack, undefined, undefined, currentSavedPlaylistContext())} onUpgrade={()=>void openDownloadChooser(menuTrack)} onMoreInfo={() => searchMoreInfo(menuTrack,importedAudioCandidate(menuTrack))} onArtist={() => void discoverArtist(menuTrack)} onOpenMpv={mpvAvailable?()=>void openTrackInMpv(menuTrack):undefined} onDetails={() => openPlayerPanel("info", menuTrack)} onSelect={() => { if (view === "collections") localPlaylistSelectionMode = true; else batchSelectionMode = true; if (!checked.includes(menuTrack.id)) checked = [...checked, menuTrack.id]; }} />{/if}
   {#if infoSearchTarget}<TrackInfoSearch track={infoSearchTarget.track} candidate={infoSearchTarget.candidate} chapterTitle={infoSearchTarget.chapterTitle} onClose={() => (infoSearchTarget=null)} onCatalogSearch={openCatalogInfoSearch} onWebSearch={openWebInfoSearch} onOpenSource={openInfoSource} />{/if}
   {#if showFullNowPlaying && playingTrack}
-    <NowPlayingView track={expandedPlayingTrack ?? playingTrack} lyricsTrack={playingTrack} absolutePosition={position} loadLyrics={()=>call("get_current_track_lyrics",{visibleTrack:currentVisibleLyricsTrack()})} findLyrics={()=>call("search_current_track_lyric_candidates",{visibleTrack:currentVisibleLyricsTrack()})} chooseLyrics={(scopeId,candidateId)=>call("select_current_track_lyric_candidate",{visibleTrack:currentVisibleLyricsTrack(),scopeId,candidateId})} saveLyrics={async(sourceHash)=>{const result=await call("save_current_track_lyrics_to_file",{visibleTrack:currentVisibleLyricsTrack(),sourceHash});await refreshCurrentAssetFiles();return result;}} exportLyrics={(sourceHash,text)=>call("export_current_track_lyrics_text",{visibleTrack:currentVisibleLyricsTrack(),sourceHash,text})} translationLanguage={lyricsTranslationLanguage} changeTranslationLanguage={changeLyricsTranslationLanguage} translationEnabled={lyricsTranslationEnabled} translationCredentialPresent={lyricsTranslationCredentialPresent} translateLyrics={translateCurrentTrackLyrics} syncLyrics={playingTrack && nativeActive() && nativeSnapshot?.status==="playing" && !paused && !playingRadioStation && !playingTrack.playbackRange && !nativeSnapshot?.chapter ? () => syncLyricsWithAudio(playingTrack!.id) : undefined} syncScope={JSON.stringify([playingTrack?.id??null,nativeSnapshot?.generation??null,seekSerial,playbackQueue.entryIds[queueIndex]??null])} title={activeRecordingMatch?.assessment.relationship === "alternative" ? activeRecordingMatch.resolvedRecording.title : playingTitle}
+    <NowPlayingView track={expandedPlayingTrack ?? playingTrack} lyricsTrack={currentLyricsTrack ?? playingTrack} absolutePosition={position} loadLyrics={()=>call("get_current_track_lyrics",{visibleTrack:currentVisibleLyricsTrack()})} findLyrics={()=>call("search_current_track_lyric_candidates",{visibleTrack:currentVisibleLyricsTrack()})} chooseLyrics={(scopeId,candidateId)=>call("select_current_track_lyric_candidate",{visibleTrack:currentVisibleLyricsTrack(),scopeId,candidateId})} saveLyrics={async(sourceHash)=>{const result=await call("save_current_track_lyrics_to_file",{visibleTrack:currentVisibleLyricsTrack(),sourceHash});await refreshCurrentAssetFiles();return result;}} exportLyrics={(sourceHash,text)=>call("export_current_track_lyrics_text",{visibleTrack:currentVisibleLyricsTrack(),sourceHash,text})} translationLanguage={lyricsTranslationLanguage} changeTranslationLanguage={changeLyricsTranslationLanguage} translationEnabled={lyricsTranslationEnabled} translationCredentialPresent={lyricsTranslationCredentialPresent} translateLyrics={translateCurrentTrackLyrics} syncLyrics={playingTrack && nativeActive() && nativeSnapshot?.status==="playing" && !paused && !playingRadioStation && !playingTrack.playbackRange && !nativeSnapshot?.chapter ? () => syncLyricsWithAudio(playingTrack!.id) : undefined} syncScope={JSON.stringify([playingTrack?.id??null,nativeSnapshot?.generation??null,seekSerial,playbackQueue.entryIds[queueIndex]??null])} title={activeRecordingMatch?.assessment.relationship === "alternative" ? activeRecordingMatch.resolvedRecording.title : playingTitle}
       artworkUrl={artworkDisplayUrls[(expandedPlayingTrack ?? playingTrack).artworkUrl ?? ""]} sourceArtworkUrl={originalArtworkSource((expandedPlayingTrack ?? playingTrack).artworkUrl)} bottom={playerHeight}
       nextTrack={queueTracks[queueIndex + 1] ?? (repeatMode === "all" ? queueTracks[0] : null) ?? null} context={playingRadioStation?.name ?? "Now playing"}
       loadRecording={recordingInformation.load} onRecordingRelease={(release,artist) => void browseRecordingRelease(release,artist)} loadArtist={loadNowPlayingArtist} onArtistRef={(artist) => {showFullNowPlaying=false;void discoverArtistRef(artist);}} onClose={() => showFullNowPlaying = false}
@@ -7374,11 +10700,11 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       onQueue={() => { showFullNowPlaying = false; openPlayerPanel("queue"); }} onFavorite={() => void favorite(playbackActionTrack ?? playingTrack!)} />
   {/if}
   {#if showFullscreenLyrics && playingTrack}
-    <LyricsPanel track={playingTrack} absolutePosition={position} fullscreenRequested={true} onFullscreenClose={()=>{showFullscreenLyrics=false;void tick().then(()=>lyricsButton?.focus());}}
+    <LyricsPanel track={currentLyricsTrack ?? playingTrack} absolutePosition={position} fullscreenRequested={true} onFullscreenClose={()=>{showFullscreenLyrics=false;void tick().then(()=>lyricsButton?.focus());}}
       loadLyrics={()=>call("get_current_track_lyrics",{visibleTrack:currentVisibleLyricsTrack()})} findLyrics={()=>call("search_current_track_lyric_candidates",{visibleTrack:currentVisibleLyricsTrack()})} chooseLyrics={(scopeId,candidateId)=>call("select_current_track_lyric_candidate",{visibleTrack:currentVisibleLyricsTrack(),scopeId,candidateId})} saveLyrics={async(sourceHash)=>{const result=await call("save_current_track_lyrics_to_file",{visibleTrack:currentVisibleLyricsTrack(),sourceHash});await refreshCurrentAssetFiles();return result;}} exportLyrics={(sourceHash,text)=>call("export_current_track_lyrics_text",{visibleTrack:currentVisibleLyricsTrack(),sourceHash,text})} translationLanguage={lyricsTranslationLanguage} changeTranslationLanguage={changeLyricsTranslationLanguage}
       translationEnabled={lyricsTranslationEnabled} translationCredentialPresent={lyricsTranslationCredentialPresent} translateLyrics={translateCurrentTrackLyrics} />
   {/if}
-  <footer class="player" bind:offsetHeight={playerHeight}>
+  <footer class="player" class:compact={settings.compactPlaybackBar === true} bind:offsetHeight={playerHeight}>
     <div class="now-playing">
       <button class="now-playing-open click-info" aria-label="Show playing track information" disabled={!playingTrack} onclick={() => { infoTrack = null; openPlayerPanel("info"); }}>
       <div class="mini-art">
@@ -7417,21 +10743,33 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
         <button class="transport-mode" class:active={shuffleEnabled} title={shuffleEnabled ? "Shuffle: on. Turn off shuffle." : "Shuffle: off. Turn on shuffle."} aria-label="Shuffle" aria-pressed={shuffleEnabled} onclick={toggleShuffle}>⤨</button>
         <button class="transport-mode" aria-label="Autoplay radio after queue" title={autoQueueRadio ? "Autoplay radio: on. Turn off related tracks after the queue." : "Autoplay radio: off. Turn on related tracks after the queue."} aria-pressed={autoQueueRadio} class:active={autoQueueRadio} onclick={()=>autoQueueRadio=!autoQueueRadio}>∞ Radio</button>
         <button title="Previous recording" aria-label="Previous recording" onclick={() => { void advanceQueue(-1); }}>⏮</button>
-        <button class="play-button" class:buffering={playbackLoading} aria-busy={playbackLoading} aria-label={playbackLoading ? "Pause loading playback" : paused ? "Play" : "Pause"} title={playbackLoading ? "Loading audio · click to pause" : paused ? "Play" : "Pause"} onclick={toggleCurrentPlayback}>{playbackLoading ? "Ⅱ" : paused ? "▶" : "Ⅱ"}</button>
+        <button class="play-button" class:buffering={playbackLoading} aria-busy={playbackLoading} aria-label={playbackLoading ? "Pause loading playback" : paused ? "Play" : "Pause"} title={playbackLoading ? "Loading audio · click to pause" : paused ? "Play" : "Pause"} onclick={toggleCurrentPlayback}>
+          <span class="play-button-icon" aria-hidden="true">{playbackLoading ? "Ⅱ" : paused ? "▶" : "Ⅱ"}</span>
+          {#if playbackLoading}<span class="play-button-loading-ring" aria-hidden="true"></span>{/if}
+        </button>
         <button title="Next recording" aria-label="Next recording" onclick={() => { void advanceQueue(1); }}>⏭</button>
         <button class="transport-mode" class:active={repeatMode !== "off"} title={repeatMode === "off" ? "Repeat: off. Repeat the queue." : repeatMode === "all" ? "Repeat: queue. Switch to repeat one." : "Repeat: one. Turn off repeat."} aria-label={`Repeat: ${repeatMode}`} aria-pressed={repeatMode !== "off"} onclick={cycleRepeat}><span aria-hidden="true">↻</span>{#if repeatMode === "one"}<span class="repeat-one-badge" aria-hidden="true">1</span>{/if}</button>
       </div>
 
       <div class="player-scrubber">
         <span class="time">{time(playerPosition)}</span>
-        <SeekSlider position={playerPosition} duration={playerDuration}
-          disabled={nativeActive() ? !nativeSnapshot?.canSeek : !preview?.canSeek || (!audio && !preview?.sessionId)}
-          onSeek={(value) => void seekPlayer(value)} />
-        <span class="time">{time(playerDuration)}</span>
+        {#if liveRadioPlayback}<span class="radio-live-label">Live radio</span>
+        {:else if waveformEnabled}
+          <WaveformSeek position={playerPosition} duration={playerDuration}
+            disabled={nativeActive() ? !nativeSnapshot?.canSeek : !preview?.canSeek || (!audio && !preview?.sessionId)}
+            generation={waveformGeneration} trackId={waveformTrackId} waveform={playbackWaveformForDisplay}
+            onSeek={(value) => void seekPlayer(value)} />
+        {:else}
+          <SeekSlider position={playerPosition} duration={playerDuration}
+            disabled={nativeActive() ? !nativeSnapshot?.canSeek : !preview?.canSeek || (!audio && !preview?.sessionId)}
+            onSeek={(value) => void seekPlayer(value)} />
+        {/if}
+        {#if !liveRadioPlayback}<span class="time">{time(playerDuration)}</span>{/if}
       </div>
     </div>
 
     <div class="player-right">
+      {#if !liveRadioPlayback}<button aria-label={completeStreamWaveformVisible ? "Waveform seek bar, full verified stream waveform" : "Waveform seek bar"} title={`${waveformEnabled ? "Disable" : "Enable"} waveform seek bar${waveformRouteUpgradeStatus ? ` · ${waveformRouteUpgradeStatus}` : playbackWaveformReason ? ` · ${playbackWaveformReason}` : ""}`} aria-pressed={waveformEnabled} disabled={!playingTrack} onclick={toggleWaveformSeek}>〰</button>{/if}
       <button aria-label="Full-screen Now Playing" title="Full-screen Now Playing" aria-pressed={showFullNowPlaying} disabled={!playingTrack} onclick={() => { const open = !showFullNowPlaying; openPlayerPanel(null); showFullNowPlaying = open; }}>⤢</button>
       <button class="player-heart" aria-label={playbackActionTrack?.favorite?"Remove playing track from favorites":"Add playing track to favorites"} aria-pressed={playbackActionTrack?.favorite??false} disabled={!playbackActionTrack || Boolean(playingRadioStation&&!currentRadioSong)} title={playbackActionTrack?.favorite ? "Remove playing track from favorites" : "Add playing track to favorites"} onclick={()=>{const track=playbackActionTrack;if(track)void favorite(track);}}>{playbackActionTrack?.favorite?"♥":"♡"}</button>
       <button class="queue-toggle" aria-label="Show playback queue and chapters" title="Queue and chapters" aria-pressed={showQueue} onclick={() => openPlayerPanel(showQueue ? null : "queue")}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 5h16M3 10h16M3 15h8"/><path d="m16 14 5 4-5 4z"/></svg><span>Queue</span></button>
@@ -7450,7 +10788,7 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
             const value = Number(e.currentTarget.value);
             if (nativeActive()) void nativeCommand({action:"volume",volume:value});
             else if (preview?.sessionId) void run(() => call("candidate_preview_control", { action: "volume", value }));
-            else if (audio) audio.volume = value;
+            else if (audio) setWebviewOutputVolume(audio, value);
           }}
         />
       </label>
@@ -7459,10 +10797,17 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
     </div>
     {#if preview && ["audio", "local", "direct"].includes(preview.kind)}<audio
         bind:this={audio}
+        use:retireAudioGraphOnDestroy
         ontimeupdate={(event) => { signalWebviewResumeProgress(event.currentTarget); updateWebviewTime(event); }}
-        onseeked={(event) => { if(event.currentTarget!==audio)return; webviewBufferingRecovery.reset(); webviewStallWatchdog.reset(); recordWebviewMediaEvent("seeked",event.currentTarget); position = audio?.currentTime ?? 0; const landed=completeWebviewSeekIfLanded(event.currentTarget); if(landed || (!activeWebviewSeek && !pendingWebviewResume))refreshSteadyMonitorAfterCompletedSeek(event.currentTarget); void publishAutomationPlayback(); }}
-        onloadedmetadata={() => (duration = audio?.duration ?? 0)}
-        onplay={(event) => { if(event.currentTarget!==audio)return; if(blockedStartupNodes.has(event.currentTarget)){event.currentTarget.pause();return;} webviewBufferingRecovery.reset(); recordWebviewMediaEvent("play",event.currentTarget); paused = false; }}
+        onseeked={(event) => { if(event.currentTarget!==audio)return; webviewBufferingRecovery.reset(); webviewStallWatchdog.reset(); recordWebviewMediaEvent("seeked",event.currentTarget); updatePlaybackPosition(audio?.currentTime ?? 0,false); const landed=completeWebviewSeekIfLanded(event.currentTarget,true); if(landed || (!activeWebviewSeek && !pendingWebviewResume))refreshSteadyMonitorAfterCompletedSeek(event.currentTarget); void publishAutomationPlayback(); }}
+        onloadedmetadata={(event) => {
+          const activeSource = preview;
+          if(event.currentTarget===audio && activeSource && event.currentTarget.getAttribute("src")===activeSource.url) {
+            webviewLoadedMetadataOwner = { url: activeSource.url, sourceGeneration: Number.isSafeInteger(activeSource.sourceGeneration) ? Number(activeSource.sourceGeneration) : null };
+            duration = event.currentTarget.duration;
+          }
+        }}
+        onplay={(event) => { if(event.currentTarget!==audio)return; if(blockedStartupNodes.has(event.currentTarget)){event.currentTarget.pause();return;} if(webviewObservedCapture?.node===event.currentTarget)webviewObservedCapture.started=true; webviewBufferingRecovery.reset(); recordWebviewMediaEvent("play",event.currentTarget); paused = false; }}
         onpause={(event) => { if(event.currentTarget!==audio || (audio && !audio.paused))return; resetLiveSuccessfulPlayback(event.currentTarget); webviewBufferingRecovery.reset(); webviewStallWatchdog.reset(); webviewSeekCompletionWatchdog.pause(); if(activeWebviewSeek)activeWebviewSeek.deadline=null; nextCandidatePrefetch.cancel();
           // HTMLMediaElement events can be delivered after the state transition
           // that queued them. A pause caused by the previous transport pause may
@@ -7470,15 +10815,16 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
           // commands cancel that attempt before calling pause(), so this event
           // must not cancel a newer, owner-checked resume.
           if (!pendingWebviewResume || pendingWebviewResume.node !== event.currentTarget || pendingWebviewResume.source !== preview) cancelPendingWebviewResume();
-          paused = true; bufferingAudio = false; if(radioRecognizing&&!nativeActive())cancelRadioIdentification(); persistPlaybackPosition(); }}
-        onwaiting={(event) => { if(event.currentTarget!==audio)return; resetLiveSuccessfulPlayback(event.currentTarget); webviewBufferingRecovery.reset(); recordWebviewMediaEvent("waiting",event.currentTarget); bufferingAudio = Boolean(audio && !audio.paused); armWebviewStallWatchdog(event.currentTarget); }}
+          paused = true; bufferingAudio = false; if(webviewObservedCapture?.node===event.currentTarget && webviewObservedCapture.started && !event.currentTarget.ended)cancelWebviewObservedCapture("Whole-track WebView analysis was discarded because playback paused."); if(radioRecognizing&&!nativeActive())cancelRadioIdentification(); persistPlaybackPosition(); }}
+        onwaiting={(event) => { if(event.currentTarget!==audio)return; if(webviewObservedCapture?.node===event.currentTarget && webviewObservedCapture.started)cancelWebviewObservedCapture("Whole-track WebView analysis was discarded because the stream stalled."); resetLiveSuccessfulPlayback(event.currentTarget); webviewBufferingRecovery.reset(); recordWebviewMediaEvent("waiting",event.currentTarget); bufferingAudio = Boolean(audio && !audio.paused); armWebviewStallWatchdog(event.currentTarget); }}
         onstalled={(event) => { if(event.currentTarget!==audio)return; resetLiveSuccessfulPlayback(event.currentTarget); webviewBufferingRecovery.reset(); recordWebviewMediaEvent("stalled",event.currentTarget); bufferingAudio = Boolean(audio && !audio.paused && audio.readyState < 3); armWebviewStallWatchdog(event.currentTarget); }}
         oncanplay={(event) => recordWebviewMediaEvent("canplay",event.currentTarget)}
         oncanplaythrough={(event) => recordWebviewMediaEvent("canplaythrough",event.currentTarget)}
-        onseeking={(event) => { if(event.currentTarget!==audio)return; webviewBufferingRecovery.reset(); webviewStallWatchdog.reset(); recordWebviewMediaEvent("seeking",event.currentTarget); }}
+        onseeking={(event) => { if(event.currentTarget!==audio)return; if(!webviewWaveformSeekDrain || webviewWaveformSeekDrain.node!==event.currentTarget || webviewWaveformSeekDrain.sourceGeneration!==(preview?.sourceGeneration??null) || webviewWaveformSeekDrain.seekSerial!==seekSerial)webviewWaveformSeekDrain={node:event.currentTarget,sourceGeneration:preview?.sourceGeneration??null,seekSerial,targetPositionSeconds:event.currentTarget.currentTime}; if(webviewObservedCapture?.node===event.currentTarget && webviewObservedCapture.started)cancelWebviewObservedCapture("Whole-track WebView analysis was discarded because the source was seeked."); webviewBufferingRecovery.reset(); webviewStallWatchdog.reset(); recordWebviewMediaEvent("seeking",event.currentTarget); }}
+        onratechange={(event) => { if(event.currentTarget!==audio)return; if(webviewObservedCapture?.node===event.currentTarget && webviewObservedCapture.started && event.currentTarget.playbackRate!==1)cancelWebviewObservedCapture("Whole-track WebView analysis was discarded because playback speed changed."); }}
         onplaying={(event) => { if(event.currentTarget!==audio)return; if(blockedStartupNodes.has(event.currentTarget)){event.currentTarget.pause();return;} signalWebviewResumeProgress(event.currentTarget); webviewBufferingRecovery.reset(); recordWebviewMediaEvent("playing",event.currentTarget); paused = false; armPendingWebviewSeekAfterResume(event.currentTarget); if(!pendingWebviewResume && !activeWebviewSeek)refreshSteadyMonitorAfterCompletedSeek(event.currentTarget); const source=preview; if(source){const owner=webviewStallOwner(event.currentTarget,source,seekSerial);if(owner)webviewStallWatchdog.observeProgress(owner,event.currentTarget.currentTime);} bufferingAudio = false; void recordSuccessfulPlayback(); prepareUpcomingWebviewCandidate(event.currentTarget); }}
-        onended={(event) => { if(event.currentTarget!==audio)return; webviewSeekCompletionWatchdog.cancel(); activeWebviewSeek=null; webviewBufferingRecovery.reset(); webviewStallWatchdog.reset(); recordWebviewMediaEvent("ended",event.currentTarget); if(playingRadioStation)recoverOwnedAudioFailure(event.currentTarget,"Radio stream ended; reconnecting to the same station.");else completeWebviewQueueOccurrence(false, event.currentTarget); }}
-        onerror={(event) => { if(event.currentTarget!==audio)return; webviewBufferingRecovery.reset(); recordWebviewMediaEvent("error",event.currentTarget); recoverAudioFailure(event); }}
+        onended={(event) => { if(event.currentTarget!==audio)return; void finishWebviewObservedCapture(event.currentTarget); webviewSeekCompletionWatchdog.cancel(); activeWebviewSeek=null; webviewBufferingRecovery.reset(); webviewStallWatchdog.reset(); recordWebviewMediaEvent("ended",event.currentTarget); if(playingRadioStation)recoverOwnedAudioFailure(event.currentTarget,"Radio stream ended; reconnecting to the same station.");else completeWebviewQueueOccurrence(false, event.currentTarget); }}
+        onerror={(event) => { if(event.currentTarget!==audio)return; if(webviewObservedCapture?.node===event.currentTarget)cancelWebviewObservedCapture("Whole-track WebView analysis was discarded because the stream failed."); webviewBufferingRecovery.reset(); recordWebviewMediaEvent("error",event.currentTarget); recoverAudioFailure(event); }}
       >
       </audio>{:else if preview?.kind === "external"}<div class="embed-player">
         <p class="external-notice">
@@ -7507,5 +10853,21 @@ import { NativePlaybackBridge, nativeSnapshotFailure, type NativePositionEvent, 
       </div>{/if}
   </footer>
 </div>
+
+{#if localAlbumLoudnessReview}
+  <LocalAlbumLoudnessReview
+    light={settings.theme === "light" || settings.theme === "system" && systemLight}
+    tracks={localAlbumLoudnessReview.tracks}
+    album={localAlbumLoudnessReview.album}
+    albumArtist={localAlbumLoudnessReview.albumArtist}
+    canReorder={localAlbumLoudnessReview.canReorder}
+    focusReturn={localAlbumLoudnessFocusReturn}
+    onAnalyze={(orderedTracks) => prepareReleaseLoudnessAnalysis(orderedTracks, 0, true)}
+    onPlay={(orderedTracks, resource) => playReleaseAlbum(orderedTracks, resource)}
+    onQueue={(orderedTracks, resource) => queueArtistTracks(orderedTracks, "append", resource)}
+    onClose={() => { localAlbumLoudnessReview = null; localAlbumLoudnessFocusReturn = null; }}
+  />
+{/if}
+
 
 <LibraryCleanup open={showLibraryCleanup} {call} onClose={() => showLibraryCleanup=false} onRemoved={() => requestLocalPrefixRefresh(undefined,true)} />

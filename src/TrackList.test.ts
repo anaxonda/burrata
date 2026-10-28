@@ -9,6 +9,7 @@ import { SOURCE_OPENER } from "./lib/source-opening";
 // @ts-expect-error Reuse the reactive prop proxy for context-replacement coverage.
 import { proxy } from "../node_modules/svelte/src/internal/client/proxy.js";
 import trackListSource from "./TrackList.svelte?raw";
+import bufferingSpinnerSource from "./BufferingSpinner.svelte?raw";
 import type { Track } from "./lib/types";
 import { playlistDropIndex } from "./lib/playlist-reorder";
 
@@ -198,7 +199,11 @@ describe("TrackList", () => {
     const onPlay = vi.fn();
     const target = render({ playingTrackId: "track-1", onPlay });
     let status = target.querySelector<HTMLElement>(".playback-state")!;
-    expect(status.textContent).toBe("♫");
+    const playingIcon = status.querySelector<SVGSVGElement>(".playback-playing-icon");
+    expect(playingIcon).not.toBeNull();
+    expect(playingIcon?.querySelector(".playback-speaker-shape")).toBeNull();
+    expect(playingIcon?.querySelectorAll("path")).toHaveLength(1);
+    expect(status.textContent?.trim()).toBe("");
     expect(status.getAttribute("aria-label")).toBe("Playing Song Title");
     target.querySelector<HTMLButtonElement>('.track-title[aria-label="Play Song Title"]')!.click();
     expect(onPlay).toHaveBeenCalledWith(tracks[0], tracks, 0);
@@ -212,9 +217,52 @@ describe("TrackList", () => {
     resetRendered();
     const bufferingTarget = render({ playingTrackId: "track-1", bufferingTrackId: "track-1", onPlay });
     status = bufferingTarget.querySelector<HTMLElement>(".playback-state")!;
-    expect(status.textContent).toBe("…");
     expect(status.getAttribute("aria-label")).toBe("Buffering Song Title");
+    expect(status.querySelector(".buffering-spinner")).not.toBeNull();
+    expect(bufferingTarget.querySelector<HTMLButtonElement>(".icon-action.play")?.getAttribute("aria-busy")).toBe("true");
+    expect(bufferingTarget.querySelectorAll(".buffering-spinner")).toHaveLength(1);
+    expect(bufferingTarget.querySelector<HTMLButtonElement>(".icon-action.play")?.textContent?.trim()).toBe("▶");
     expect(bufferingTarget.querySelector<HTMLButtonElement>('.track-title[aria-label="Play Song Title"]')).toBeTruthy();
+  });
+
+  it("keeps a visible buffering status for a prebuffered non-current track in compact lists", () => {
+    const other = { ...tracks[0]!, id: "other-track", title: "Other Track" };
+    const target = render({ tracks: [tracks[0]!, other], playingTrack: other, bufferingTrack: tracks[0], onPlay: vi.fn() });
+    const row = target.querySelector<HTMLLIElement>('[data-track-index="0"]')!;
+    const status = row.querySelector<HTMLElement>(".playback-state")!;
+    expect(row.classList.contains("current")).toBe(false);
+    expect(row.classList.contains("buffering")).toBe(true);
+    expect(status.getAttribute("aria-label")).toBe("Buffering Song Title");
+    expect(status.querySelector(".buffering-spinner")).not.toBeNull();
+  });
+
+  it.each(["playlist", "default"] as const)("shows one contained buffering spinner for %s rows only while loading", async (presentation) => {
+    const props = proxy({
+      tracks,
+      presentation,
+      playingTrack: tracks[0],
+      bufferingTrack: tracks[0],
+      onPlay: vi.fn(),
+    });
+    const target = document.createElement("div"); document.body.append(target);
+    const instance = mount(TrackList, { target, props: props as never }); cleanup = () => unmount(instance);
+    await tick();
+
+    const row = target.querySelector<HTMLElement>("li")!;
+    const spinner = row.querySelector<SVGSVGElement>(".buffering-spinner")!;
+    const loadingButton = row.querySelector<HTMLButtonElement>(presentation === "playlist" ? ".position-play" : ".icon-action.play")!;
+    expect(row.querySelectorAll(".buffering-spinner")).toHaveLength(1);
+    expect(loadingButton.getAttribute("aria-busy")).toBe("true");
+    expect(loadingButton.getAttribute("aria-label")).toBe("Buffering Song Title");
+    expect(spinner.getAttribute("viewBox")).toBe("0 0 20 20");
+    expect(spinner.querySelectorAll("circle, path")).toHaveLength(2);
+
+    props.bufferingTrack = null;
+    for (let index = 0; index < 4; index++) await Promise.resolve();
+    await tick();
+    expect(row.querySelectorAll(".buffering-spinner")).toHaveLength(0);
+    expect(loadingButton.getAttribute("aria-busy")).toBe("false");
+    expect(loadingButton.getAttribute("aria-label")).toBe("Play Song Title");
   });
 
   it("uses full recording identity for playback state, including chapter source ranges", () => {
@@ -370,9 +418,10 @@ describe("TrackList", () => {
 
   it("includes reduced-motion handling for the buffering indicator", () => {
     const target = render({ bufferingTrackId: "track-1", onPlay: vi.fn() });
-    expect(target.querySelector(".buffering .icon-action.play")).toBeTruthy();
-    expect(trackListSource).toMatch(/prefers-reduced-motion\s*:\s*reduce/);
-    expect(trackListSource).toMatch(/buffering[^\n]+animation\s*:\s*none/);
+    expect(target.querySelector(".buffering .playback-state .buffering-spinner")).toBeTruthy();
+    expect(trackListSource).toMatch(/BufferingSpinner/);
+    expect(bufferingSpinnerSource).toMatch(/prefers-reduced-motion\s*:\s*reduce/);
+    expect(bufferingSpinnerSource).toMatch(/animation\s*:\s*none/);
   });
 
   it("bounds a 10k row list and preserves full-list play indexes after scrolling", async () => {

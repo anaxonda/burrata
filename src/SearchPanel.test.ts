@@ -962,6 +962,17 @@ describe("SearchPanel", () => {
     expect(target.querySelector("img[src='https://commons.wikimedia.org/stale.jpg']")).toBeNull();
   });
 
+  it("shows a fetched MusicBrainz portrait in the current search results", async () => {
+    const artist={id:"musicbrainz:ab1b3f93-99ba-4a5b-868f-e412ab0a57fb",kind:"artist",sourceId:"musicbrainz",title:"Ojos de Brujo",data:{artist:{provider:"musicbrainz",id:"ab1b3f93-99ba-4a5b-868f-e412ab0a57fb"}}};
+    const imageUrl="https://images.test/ojos.jpg";
+    const loadArtistProfile=vi.fn(async()=>({imageUrl}));
+    const target=render({initialSources:["musicbrainz"],availableSources:[{id:"musicbrainz",name:"MusicBrainz",enabled:true,kinds:["artist"]}],searchSource:vi.fn(async()=>({sourceId:"musicbrainz",complete:true,results:[artist]})),loadArtistProfile});
+    const input=target.querySelector<HTMLInputElement>("[aria-label='Search music']")!;input.value="Ojos de Brujo";input.dispatchEvent(new Event("input",{bubbles:true}));
+    target.querySelector<HTMLFormElement>(".search-form")!.dispatchEvent(new Event("submit",{bubbles:true,cancelable:true}));await settle();
+    expect(loadArtistProfile).toHaveBeenCalledOnce();
+    expect(target.querySelector<HTMLImageElement>(".result-row img")?.getAttribute("src")).toBe(imageUrl);
+  });
+
   it("keeps playlist, profile, and channel titles as single direct action targets", async () => {
     const rows = [
       { id: "playlist-id", kind: "playlist", sourceId: "youtube", title: "Village playlist", url: "https://www.youtube.com/playlist?list=playlist-id" },
@@ -1193,6 +1204,20 @@ describe("SearchPanel", () => {
     expect(select.value).toBe("all");
     expect([...select.options].map(option => option.value)).toEqual(["all", "custom", "musicbrainz", "discogs"]);
     expect(storage.get("burrata.discovery.search-scope.v2")).toBe(JSON.stringify({ mode: "online", sourceId: "all" }));
+  });
+
+  it("uses startup-restored discovery preferences when browser storage rolls back", async () => {
+    storage.set("burrata.discovery.search-scope.v2", JSON.stringify({ mode: "online", sourceId: "all" }));
+    const importedScope = JSON.stringify({ mode: "online", sourceId: "youtube" });
+    const startupReadStorage = { getItem: (key: string) => key === "burrata.discovery.search-scope.v2" ? importedScope : storage.get(key) ?? null };
+    const target = render({ initialSources: undefined, startupReadStorage, availableSources: [
+      { id: "library", name: "My library", kinds: ["track"] },
+      { id: "youtube", name: "YouTube", kinds: ["track"] },
+      { id: "musicbrainz", name: "MusicBrainz", kinds: ["track"] },
+    ] });
+    await settle();
+    expect(target.querySelector<HTMLSelectElement>('[aria-label="Search in"]')!.value).toBe("youtube");
+    expect(storage.get("burrata.discovery.search-scope.v2")).toBe(importedScope);
   });
 
   it("defaults to all enabled supported online sources", async () => {

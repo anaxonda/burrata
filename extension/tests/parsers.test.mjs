@@ -261,6 +261,15 @@ test('Bandcamp Discover captures only rendered artist album URLs, not track/card
  assert.equal(result.snapshot,undefined);
 });
 
+test('Bandcamp Alternative Discover preserves long album slugs for backend tracklist import',()=>{
+ const url='https://bandcamp.com/discover/alternative';
+ const slug='a-long-alternative-release-title-'.repeat(8);
+ const albumUrl=`https://artist.bandcamp.com/album/${slug}`;
+ const page=doc(`<main><a href="${albumUrl}?from=discover_page#tracks">Release</a></main>`,url);
+ assert.ok(slug.length>100);
+ assert.deepEqual(extract(page,url).albumCollection.albumUrls,[albumUrl]);
+});
+
 test('Provider matching is HTTPS and confined to explicit host families',()=>{
  assert.equal(providerFor('https://shazam.com/charts/top-200/world'),'shazam');assert.equal(providerFor('https://last.fm/charts'),'lastfm');
  assert.equal(providerFor('https://artist.bandcamp.com/album/x'),'bandcamp');assert.equal(providerFor('https://bandcamp.com.evil.invalid/'),null);
@@ -288,3 +297,36 @@ test('Beatport real row retains independent ranks when several recordings are re
   assert.equal(extract(make('BR-L6M-09-00003'),'https://www.shazam.com/charts/top-200/world').entries[0].isrc,'BRL6M0900003');
   assert.equal(extract(make('bad-code'),'https://www.shazam.com/charts/top-200/world').entries[0].isrc,null);
  });
+
+test('Bandcamp album retains artwork, release, page links and public credits without audio URLs',()=>{
+ const url='https://artist.bandcamp.com/album/release';
+ const data={artist:'Artist',album_title:'Release',art_id:12345,album_release_date:'2026-10-01',current:{about:'Album description',credits:'Recorded by Artist'},trackinfo:[{track_id:7,title:'Song',title_link:'/track/song',track_num:1,duration:123,file:{'mp3-128':'https://cdn.invalid/secret?token=private'}}]};
+ const page=doc(`<script data-tralbum='${JSON.stringify(data)}'></script><a class="tag">alternative</a><div class="location">Stockholm</div>`,url);
+ const entry=extract(page,url).entries[0];
+ assert.equal(entry.sourceUrl,'https://artist.bandcamp.com/track/song');
+ assert.equal(entry.artworkUrl,'https://f4.bcbits.com/img/a12345_10.jpg');
+ assert.equal(entry.releaseDate,'2026-10-01');
+ assert.equal(entry.metadata.albumUrl,url);assert.equal(entry.metadata.artistUrl,'https://artist.bandcamp.com/');
+ assert.equal(entry.metadata.credits,'Recorded by Artist');assert.deepEqual(entry.metadata.tags,['alternative']);
+ assert.ok(!JSON.stringify(entry).includes('private'));assert.ok(!JSON.stringify(entry).includes('mp3-128'));
+});
+
+test('Discover keeps explicit sort so top and new remain separate sources',()=>{
+ const url='https://bandcamp.com/discover/alternative?sort=top&tracking=secret';
+ const result=extract(doc('<main><a href="https://artist.bandcamp.com/album/release">Release</a></main>',url),url);
+ assert.equal(result.albumCollection.sourceUrl,'https://bandcamp.com/discover/alternative?sort=top');
+});
+
+test('Spotify captures per-track artwork, source links and explicit unavailability',()=>{
+ const url='https://open.spotify.com/playlist/test';
+ const page=doc('<h1>Playlist</h1><p>1 song</p><div data-testid="tracklist-row" aria-rowindex="1" aria-disabled="true"><img src="https://i.scdn.co/image/cover"><a href="/track/0123456789ABCDEFGHIJKL">Song</a><a href="/artist/artist?si=secret">Artist</a><a href="/album/album">Album</a><div role="gridcell">3:10</div></div>',url);
+ const e=extract(page,url).entries[0];assert.equal(e.artworkUrl,'https://i.scdn.co/image/cover');
+ assert.equal(e.metadata.albumUrl,'https://open.spotify.com/album/album');
+ assert.deepEqual(e.metadata.artistUrls,['https://open.spotify.com/artist/artist']);assert.equal(e.metadata.availability,'unavailable');
+});
+
+test('Traxsource preserves remixers separately from primary artists and retains page links',()=>{
+ const url='https://www.traxsource.com/genre/13/deep-house/top';
+ const page=doc('<h1>Top 1</h1><div class="trk-row"><span class="tnum">1</span><div class="title"><a href="/track/12/song">Song</a><span class="version">Remix</span></div><div class="artists"><a href="/artist/1/artist">Artist</a><span class="remixers"><a href="/artist/2/remixer">Remixer</a></span></div><a class="label" href="/label/3/label">Label</a><span class="catalog-number">CAT001</span></div>',url);
+ const e=extract(page,url).entries[0];assert.equal(e.artist,'Artist');assert.deepEqual(e.metadata.remixers,['Remixer']);assert.equal(e.catalogNumber,'CAT001');
+});

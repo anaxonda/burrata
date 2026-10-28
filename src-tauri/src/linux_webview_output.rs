@@ -25,6 +25,7 @@ struct CaptureTools {
     read_timeout: Duration,
     startup_timeout: Duration,
     capture_seconds: usize,
+    web_audio_graph_expected: bool,
 }
 
 impl CaptureTools {
@@ -37,6 +38,7 @@ impl CaptureTools {
             read_timeout: Duration::from_millis(750),
             startup_timeout: Duration::from_secs(2),
             capture_seconds: 8,
+            web_audio_graph_expected: false,
         }
     }
 
@@ -129,10 +131,17 @@ pub fn owned_webkit_pids(root: u32) -> Result<Vec<(u32, u64)>, String> {
     }
 }
 
-fn one_stream(rows: &Value, pids: &[(u32, u64)]) -> Result<(u32, u32, u32), String> {
+fn one_stream(
+    rows: &Value,
+    pids: &[(u32, u64)],
+    web_audio_graph_expected: bool,
+) -> Result<(u32, u32, u32), String> {
     let allow: HashSet<_> = pids.iter().map(|(pid, _)| *pid).collect();
-    let mut found = None;
+    let mut streams = Vec::new();
     for row in rows.as_array().ok_or("Invalid Pulse sink-input list")? {
+        if row["corked"].as_bool() == Some(true) {
+            continue;
+        }
         let props = &row["properties"];
         let pid = props["application.process.id"]
             .as_str()
@@ -147,15 +156,32 @@ fn one_stream(rows: &Value, pids: &[(u32, u64)]) -> Result<(u32, u32, u32), Stri
                 .and_then(|v| u32::try_from(v).ok())
                 .filter(|v| *v != u32::MAX)
                     .ok_or("Playback has not reached an audio output yet. Wait for it to start, then try again.")?;
-            if found.is_some() {
-                return Err("Audio is playing in more than one Burrata window. Pause audio in the other window, then try again.".into());
-            }
-            found = Some((index, sink, pid));
+            streams.push((
+                (index, sink, pid),
+                props["media.role"].as_str().unwrap_or(""),
+            ));
         }
     }
-    found.ok_or_else(|| {
-        "No Burrata audio stream is active. Start playback in Burrata and try again.".into()
-    })
+    match streams.as_slice() {
+        [(stream, role)] if web_audio_graph_expected && *role == "webaudio" => Ok(*stream),
+        [(stream, role)] if !web_audio_graph_expected && *role == "music" => Ok(*stream),
+        // WebKit retains its media-element Pulse stream when the element is
+        // routed through Web Audio. The graph is the final audible output.
+        // Accept this exact pair only when the frontend confirms that its
+        // current media element has a WebAudio graph. Pulse roles alone do
+        // not prove that two streams belong to the same media element.
+        [(first, first_role), (second, second_role)]
+            if web_audio_graph_expected && first.1 == second.1 && first.2 == second.2
+                && ((*first_role == "music" && *second_role == "webaudio")
+                    || (*first_role == "webaudio" && *second_role == "music")) =>
+        {
+            Ok(if *first_role == "webaudio" { *first } else { *second })
+        }
+        [] => Err("No Burrata audio stream is active. Start playback in Burrata and try again.".into()),
+        [(_, _)] if web_audio_graph_expected => Err("The current WebAudio route has no active graph output.".into()),
+        [(stream, _)] => Err("The current plain media route has an unexpected audio output role.".into()),
+        _ => Err("Multiple Burrata audio outputs are active. Pause audio in the other window, then try again.".into()),
+    }
 }
 
 /// Explicitly stop and reap recorder children on controlled early exits.
@@ -279,7 +305,7 @@ async fn selected(
         cancellation,
     )
     .await?;
-    let (input, sink, pid) = one_stream(&rows, pids)?;
+    let (input, sink, pid) = one_stream(&rows, pids, tools.web_audio_graph_expected)?;
     let sinks = pulse_json(
         &["--format=json", "list", "sinks"],
         tools,
@@ -317,12 +343,14 @@ pub async fn capture_wav_seconds_cancellable(
     status: impl Fn() -> ViewAudio,
     current: impl Fn() -> bool,
     cancellation: watch::Receiver<bool>,
+    web_audio_graph_expected: bool,
 ) -> Result<Vec<u8>, String> {
     if !(3..=12).contains(&seconds) {
         return Err("Audio capture must contain three to twelve seconds".into());
     }
     let mut tools = CaptureTools::system();
     tools.capture_seconds = seconds;
+    tools.web_audio_graph_expected = web_audio_graph_expected;
     capture_wav_with_tools_cancellable(root_pid, max_capture, status, current, cancellation, tools)
         .await
 }
@@ -577,7 +605,7 @@ mod tests {
         let parec = directory.join("parec-fake");
         std::fs::write(
             &pactl,
-            "#!/usr/bin/env python3\nimport json,os,sys,time\nif os.environ.get('TEST_PACTL_MODE')=='hold':\n open(os.environ['TEST_PACTL_PID_PATH'],'w').write(str(os.getpid()))\n time.sleep(60)\nelif sys.argv[-1]=='sink-inputs': print(json.dumps([{'index':8,'sink':4,'properties':{'application.process.id':os.environ['TEST_WEBKIT_PID']}}]))\nelse: print(json.dumps([{'index':4,'monitor_source':'burrata-test.monitor'}]))\n",
+            "#!/usr/bin/env python3\nimport json,os,sys,time\nif os.environ.get('TEST_PACTL_MODE')=='hold':\n open(os.environ['TEST_PACTL_PID_PATH'],'w').write(str(os.getpid()))\n time.sleep(60)\nelif sys.argv[-1]=='sink-inputs': print(json.dumps([{'index':8,'sink':4,'properties':{'application.process.id':os.environ['TEST_WEBKIT_PID'],'media.role':'music'}}]))\nelse: print(json.dumps([{'index':4,'monitor_source':'burrata-test.monitor'}]))\n",
         )
         .unwrap();
         std::fs::write(
@@ -592,6 +620,7 @@ mod tests {
         }
         CaptureTools {
             capture_seconds: 8,
+            web_audio_graph_expected: false,
             pactl,
             parec,
             env: vec![
@@ -764,22 +793,63 @@ mod tests {
         let p = [(237122, 1)];
         let rows = serde_json::json!([
          {"index":2,"sink":4,"properties":{"application.process.id":"991"}},
-         {"index":8,"sink":4,"properties":{"application.process.id":"237122"}},
+         {"index":8,"sink":4,"properties":{"application.process.id":"237122","media.role":"music"}},
          {"index":9,"sink":5,"properties":{"application.process.id":"238399"}}
         ]);
-        assert_eq!(one_stream(&rows, &p).unwrap(), (8, 4, 237122));
+        assert_eq!(one_stream(&rows, &p, false).unwrap(), (8, 4, 237122));
         let ambiguous = serde_json::json!([
-         {"index":8,"sink":4,"properties":{"application.process.id":"237122"}},
+         {"index":8,"sink":4,"properties":{"application.process.id":"237122","media.role":"music"}},
          {"index":9,"sink":5,"properties":{"application.process.id":"238399"}}
         ]);
         let both = [(237122, 1), (238399, 1)];
-        assert!(one_stream(&ambiguous, &both)
+        assert!(one_stream(&ambiguous, &both, false)
             .unwrap_err()
             .contains("Pause audio in the other window"));
-        let unrouted = serde_json::json!([{"index":8,"sink":4294967295u64,"properties":{"application.process.id":"237122"}}]);
-        assert!(one_stream(&unrouted, &p)
+        let unrouted = serde_json::json!([{"index":8,"sink":4294967295u64,"properties":{"application.process.id":"237122","media.role":"music"}}]);
+        assert!(one_stream(&unrouted, &p, false)
             .unwrap_err()
             .contains("not reached an audio output"));
+    }
+
+    #[test]
+    fn selects_graph_from_same_process_media_pair_but_keeps_ambiguity_guard() {
+        let p = [(237122, 1), (238399, 1)];
+        let rows = serde_json::json!([
+            {"index":8,"sink":4,"corked":false,"properties":{"application.process.id":"237122","media.role":"music"}},
+            {"index":9,"sink":4,"corked":false,"properties":{"application.process.id":"237122","media.role":"webaudio"}},
+            {"index":10,"sink":4,"corked":true,"properties":{"application.process.id":"238399","media.role":"music"}}
+        ]);
+        assert_eq!(one_stream(&rows, &p, true).unwrap(), (9, 4, 237122));
+        let mut changed = rows.clone();
+        changed[1]["properties"]["application.process.id"] = serde_json::json!("238399");
+        assert!(one_stream(&changed, &p, true).is_err());
+        changed = rows.clone();
+        changed[1]["sink"] = serde_json::json!(5);
+        assert!(one_stream(&changed, &p, true).is_err());
+        changed = rows.clone();
+        changed[0]["properties"]["media.role"] = serde_json::json!("webaudio");
+        assert!(one_stream(&changed, &p, true).is_err());
+        changed = rows.clone();
+        changed[2]["corked"] = serde_json::json!(false);
+        assert!(one_stream(&changed, &p, true).is_err());
+    }
+
+    #[test]
+    fn active_web_audio_graph_expectation_controls_allowed_pulse_roles() {
+        let p = [(237122, 1)];
+        let media = serde_json::json!([{"index":8,"sink":4,"properties":{"application.process.id":"237122","media.role":"music"}}]);
+        let graph = serde_json::json!([{"index":9,"sink":4,"properties":{"application.process.id":"237122","media.role":"webaudio"}}]);
+        let pair = serde_json::json!([
+            {"index":8,"sink":4,"properties":{"application.process.id":"237122","media.role":"music"}},
+            {"index":9,"sink":4,"properties":{"application.process.id":"237122","media.role":"webaudio"}}
+        ]);
+
+        assert_eq!(one_stream(&media, &p, false).unwrap(), (8, 4, 237122));
+        assert!(one_stream(&graph, &p, false).is_err());
+        assert!(one_stream(&pair, &p, false).is_err());
+        assert!(one_stream(&media, &p, true).is_err());
+        assert_eq!(one_stream(&graph, &p, true).unwrap(), (9, 4, 237122));
+        assert_eq!(one_stream(&pair, &p, true).unwrap(), (9, 4, 237122));
     }
 
     #[tokio::test]

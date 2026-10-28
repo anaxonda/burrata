@@ -1,13 +1,16 @@
 // @vitest-environment jsdom
 // @ts-expect-error Use Svelte's browser runtime because Vitest otherwise picks its server export.
-import { mount, tick, unmount } from "../node_modules/svelte/src/index-client.js";
+import { mount, tick, unmount as svelteUnmount } from "../node_modules/svelte/src/index-client.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BrowserImportResult, Candidate, Chart, Collection, DownloadJob, LocalAsset, NativePlaybackSnapshot, Preview, Settings, Track } from "./lib/types";
+import type { BrowserImportResult, Candidate, Chart, Collection, DownloadJob, LocalAsset, NativePlaybackSnapshot, PlaylistMirrorOptions, PlaylistMirrorOptionsView, Preview, Settings, Track } from "./lib/types";
 import type { ArtistReleaseRef } from "./lib/artist-types";
 import type { TrackSortAvailability } from "./lib/track-sort-availability";
 import { WebviewStallWatchdog } from "./webview-stall-watchdog";
 import { WebviewSeekCompletionWatchdog } from "./webview-seek-completion-watchdog";
 import type { WebviewPlaybackHandoff } from "./lib/native-playback";
+import { inspectWebAudioGainGraph, readWebAudioPeakWindow, WebAudioGainAdapter } from "./lib/loudness-normalization";
+import { streamAudioVariantIdentity } from "./lib/stream-media-analysis";
+import { prepareObservedWaveformBinding } from "./lib/observed-waveform-cache";
 
 const mocks = vi.hoisted(() => ({ call: vi.fn(), listen: vi.fn(), captureRadioPcm: vi.fn(), isDesktop: true }));
 vi.mock("./lib/webview-radio-pcm", () => ({ captureWebviewRadioWavBase64: mocks.captureRadioPcm }));
@@ -68,8 +71,8 @@ function nativeHandoffSnapshot(args?: Record<string, unknown>): NativePlaybackSn
   return makeNativeSnapshot({
     handoffId:request?.handoffId,
     engine:"native", revision:2, generation:2, status:request?.paused ? "paused" : "resolving",
-    trackId:track?.id ?? null, track, candidate:request?.candidate ?? null,
-    queue:tracks, queueRevision:1, currentIndex:index,
+    trackId:track?.id ?? null, entryId:request?.entryIds?.[index] ?? null, track, candidate:request?.candidate ?? null,
+    queue:tracks, queueEntryIds:request?.entryIds ? [...request.entryIds] : [], queueRevision:1, currentIndex:index,
     paused:request?.paused ?? true, position:request?.targetPosition ?? 0,
     duration:track?.durationSeconds ?? 0, volume:request?.volume ?? .8, canSeek:true,
     repeat:request?.repeat ?? "off", shuffle:request?.shuffle ?? false,
@@ -77,14 +80,26 @@ function nativeHandoffSnapshot(args?: Record<string, unknown>): NativePlaybackSn
   });
 }
 const eventHandlers = new Map<string, (event: { event: string; id: number; payload: unknown }) => void>();
+const pendingSvelteUnmounts: Promise<void>[] = [];
+const nativeCurrentTimeDescriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "currentTime");
+function unmount(instance: Parameters<typeof svelteUnmount>[0]): Promise<void> {
+  const pending = svelteUnmount(instance);
+  pendingSvelteUnmounts.push(pending);
+  return pending;
+}
 let failNextCollectionLoad = false;
 let unmountApp: (() => void) | undefined;
+let pendingBackupPlaybackRestore: Record<string, unknown> | null = null;
+let backupPlaybackRestoreAckCalls: { nonce: string; receiptSessionId: string }[] = [];
+let failNextBackupPlaybackAck = false;
+const backupPlaybackTestSessionId = "20000000-0000-4000-8000-000000000001";
 let holdStartupCalls = false;
 let delayedBrowserImports: Promise<BrowserImportResult[]> | undefined;
 let directBrowserImport: BrowserImportResult | null = null;
 let directBrowserImportFailure = "";
 let previewMode: "idle" | "fallback" | "race" | "direct" | "alternates" = "idle";
 let directPreviewExcerpt = true;
+let directPreviewDurationSeconds: number | undefined;
 let playbackResolverFailure = "";
 let playbackResolverCandidate: Candidate | null | undefined;
 let playbackResolverCandidates: (Candidate | Error)[] = [];
@@ -127,6 +142,8 @@ let partialSoulseekSearch = false;
 let discoveryAlbum: ArtistReleaseRef | null = null;
 let discoveryAlbumTracks: Track[] = [];
 let configuredMusicDirectory = "";
+let configuredPlaylistMirroringEnabled: boolean | undefined = undefined;
+let playlistMirrorOptionsById: Record<string, PlaylistMirrorOptions> = {};
 let configuredPreferredDownloadSource = "youtube";
 let configuredPreferredStreamingSource = "youtube";
 let configuredPauseOnSourceOpen = false;
@@ -134,6 +151,9 @@ let configuredSourceOpenAtPosition = false;
 let identifyPlayingTrackResult: { trackId: string; title?: string | null; artist?: string | null; note?: string } = { trackId: savedTrack.id, title: "Saved Recording", artist: "Visible Artist" };
 let holdNativeIdentify = false;
 let finishNativeIdentify: ((value: typeof identifyPlayingTrackResult) => void) | undefined;
+let playingTrackDetectionMock: { resourceKey:string; enabled: boolean; observations: { title:string; artist:string; detectedAtSeconds:number; capturedStartSeconds:number; capturedEndSeconds:number; observedAt:string }[] } = { resourceKey:"a".repeat(64), enabled:false, observations:[] };
+let holdPlayingTrackDetection = false;
+let finishPlayingTrackDetection: ((value: typeof playingTrackDetectionMock) => void) | undefined;
 let webviewIdentifyResult: { trackId: string; title?: string | null; artist?: string | null; artworkUrl?: string | null; note?: string } = { trackId: savedTrack.id, title: "Identified Recording", artist: "Identified Artist" };
 let holdWebviewIdentify = false;
 let finishWebviewIdentify: ((value: typeof webviewIdentifyResult) => void) | undefined;
@@ -160,6 +180,13 @@ let trackFilesByRequestedId = new Map<string, LocalAsset[]>();
 let unsupportedScopedAssetCommands = false;
 let preferredAssetChoice = "";
 let analysisStatusResult: { assetId: string; inputHash?: string; version?: number; status: string; payload?: Record<string, unknown> | null }[] = [];
+type MockSelectedAnalysisJob = { jobId: string; state: string; total: number; completed: number; results: { assetId: string; recordingId: string; status: string; analysis: Record<string, unknown> | null; error?: string | null }[] };
+let selectedAnalysisJobMock: MockSelectedAnalysisJob | null = null;
+let selectedAnalysisInitialState = "completed";
+let selectedAnalysisApplyCalls: { jobId: string; assetId: string; selection: Record<string, unknown> }[] = [];
+type MockSelectedStreamJob = { jobId: string; state: string; total: number; completed: number; results: { trackId: string; recordingId: string; status: string; provider: string | null; sourceId: string | null; analysis: Record<string, unknown> | null; error?: string | null }[] };
+let selectedStreamAnalysisJobMock: MockSelectedStreamJob | null = null;
+let selectedStreamAnalysisApplyCalls: { jobId: string; trackId: string; selection: Record<string, unknown> }[] = [];
 let savedSnapshots: Chart[] = [];
 let historyEntries: { id: string; track: Track; provider: string; sessionId: string; playedAt: string; chapter?: unknown }[] = [];
 let deferHistoryRestorePage = false;
@@ -178,6 +205,7 @@ let remoteBindingState: {bindingId: string; provider: string; collectionId: stri
 let mpvStatusAvailable = false;
 let nativePlaybackSnapshot: NativePlaybackSnapshot | null = null;
 let nativeHandoffDelay = false;
+let nativeHandoffEventBeforeResponse = false;
 let finishNativeHandoff: (() => void) | undefined;
 let playlistWatcherHealthy = true;
 let periodicPlaylistSyncCallbacks: (() => void)[] = [];
@@ -214,6 +242,17 @@ async function settle() {
   if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(0);
   else await new Promise((resolve) => setTimeout(resolve, 0));
   await tick();
+}
+async function openDownloadActivityFromLibrary() {
+  const downloads = [...document.querySelectorAll<HTMLButtonElement>(".built-in-playlists .playlist-card")]
+    .find((button) => button.textContent?.includes("Downloads"));
+  expect(downloads, "Downloads remains available as a library playlist").toBeDefined();
+  downloads!.click();
+  await settle();
+  const activity = document.querySelector<HTMLButtonElement>('[aria-label="Open download activity"]');
+  expect(activity, "The Downloads playlist exposes job activity").not.toBeNull();
+  activity!.click();
+  await settle();
 }
 function lastCallOf(command: string) { const calls = mocks.call.mock.calls.filter(([name]) => name === command); return calls[calls.length - 1]; }
 function collectionCard(name = "Saved Collection"): HTMLButtonElement {
@@ -280,6 +319,12 @@ async function openLibraryImport() {
   [...options.querySelectorAll<HTMLButtonElement>("button")]
     .find(button => button.textContent?.trim() === "Import charts or playlists")!.click();
   await settle();
+  const urlChoice = [...document.querySelectorAll<HTMLButtonElement>(".import-hub button")]
+    .find(button => button.textContent?.includes("Import a playlist or album link"));
+  if (urlChoice) {
+    urlChoice.click();
+    await settle();
+  }
 }
 async function refreshSidebarBrowserImports() {
   await openLibraryImport();
@@ -399,6 +444,7 @@ beforeEach(() => {
   directBrowserImportFailure = "";
   previewMode = "idle";
   directPreviewExcerpt = true;
+  directPreviewDurationSeconds = undefined;
   playbackResolverFailure = "";
   playbackResolverCandidate = undefined;
   playbackResolverCandidates = [];
@@ -441,6 +487,8 @@ beforeEach(() => {
   discoveryAlbum = null;
   discoveryAlbumTracks = [];
   configuredMusicDirectory = "";
+  configuredPlaylistMirroringEnabled = undefined;
+  playlistMirrorOptionsById = {};
   configuredPreferredDownloadSource = "youtube";
   configuredPreferredStreamingSource = "youtube";
   configuredPauseOnSourceOpen = false;
@@ -448,6 +496,9 @@ beforeEach(() => {
   identifyPlayingTrackResult = { trackId: savedTrack.id, title: "Saved Recording", artist: "Visible Artist" };
   holdNativeIdentify = false;
   finishNativeIdentify = undefined;
+  playingTrackDetectionMock = { resourceKey:"a".repeat(64), enabled:false, observations:[] };
+  holdPlayingTrackDetection = false;
+  finishPlayingTrackDetection = undefined;
   webviewIdentifyResult = { trackId: savedTrack.id, title: "Identified Recording", artist: "Identified Artist" };
   holdWebviewIdentify = false;
   finishWebviewIdentify = undefined;
@@ -477,6 +528,11 @@ beforeEach(() => {
   unsupportedScopedAssetCommands = false;
   preferredAssetChoice = "";
   analysisStatusResult = [];
+  selectedAnalysisJobMock = null;
+  selectedAnalysisInitialState = "completed";
+  selectedAnalysisApplyCalls = [];
+  selectedStreamAnalysisJobMock = null;
+  selectedStreamAnalysisApplyCalls = [];
   savedSnapshots = [];
   historyEntries = [];
   deferHistoryRestorePage = false;
@@ -494,7 +550,11 @@ beforeEach(() => {
   remoteBindingState = [];
   mpvStatusAvailable = false;
   nativePlaybackSnapshot = null;
+  pendingBackupPlaybackRestore = null;
+  backupPlaybackRestoreAckCalls = [];
+  failNextBackupPlaybackAck = false;
   nativeHandoffDelay = false;
+  nativeHandoffEventBeforeResponse = false;
   finishNativeHandoff = undefined;
   playlistWatcherHealthy = true;
   periodicPlaylistSyncCallbacks = [];
@@ -520,6 +580,22 @@ beforeEach(() => {
       case "public_spotify_duration_repair_running": return false;
       case "playlist_watcher_running": return playlistWatcherHealthy;
       case "get_playback_snapshot": return nativePlaybackSnapshot;
+      case "get_backup_frontend_preferences": return null;
+      case "ack_backup_frontend_preferences": return "acknowledged";
+      case "get_backup_playback_restore": return pendingBackupPlaybackRestore
+        ? { ...pendingBackupPlaybackRestore, currentSessionId: backupPlaybackTestSessionId }
+        : null;
+      case "ack_backup_playback_restore": {
+        const nonce = String(args?.nonce ?? "");
+        const receiptSessionId = String(args?.receiptSessionId ?? "");
+        backupPlaybackRestoreAckCalls.push({ nonce, receiptSessionId });
+        if (failNextBackupPlaybackAck) { failNextBackupPlaybackAck = false; throw new Error("stale nonce"); }
+        if (pendingBackupPlaybackRestore?.nonce !== nonce) return "stale";
+        if (receiptSessionId === backupPlaybackTestSessionId) return "deferred";
+        pendingBackupPlaybackRestore = null;
+        return "acknowledged";
+      }
+      case "get_restore_work_policy": return { reviewRequired: false, categories: [] };
       case "check_dependencies": if (deferDependencyCheck) return new Promise<void>((resolve) => { finishDependencyCheck = () => resolve(); }); return [];
       case "playback_command": {
         const command = args?.command as {action?:string;expectedHandoffId?:string} | undefined;
@@ -533,6 +609,11 @@ beforeEach(() => {
       }
       case "handoff_webview_playback": {
         const handoffArgs=args?.handoff as Record<string,unknown>|undefined;
+        if (nativeHandoffDelay && nativeHandoffEventBeforeResponse) {
+          const snapshot=nativeHandoffSnapshot(handoffArgs);nativePlaybackSnapshot=snapshot;
+          eventHandlers.get("native-playback-state")?.({event:"native-playback-state",id:0,payload:snapshot});
+          return new Promise(resolve => { finishNativeHandoff = () => resolve(snapshot); });
+        }
         if (nativeHandoffDelay) return new Promise(resolve => { finishNativeHandoff = () => { const snapshot=nativeHandoffSnapshot(handoffArgs); nativePlaybackSnapshot=snapshot; eventHandlers.get("native-playback-state")?.({event:"native-playback-state",id:0,payload:snapshot}); resolve(snapshot); }; });
         const snapshot=nativeHandoffSnapshot(handoffArgs);nativePlaybackSnapshot=snapshot;return snapshot;
       }
@@ -587,7 +668,20 @@ beforeEach(() => {
       };
       case "get_settings":
         if (holdStartupCalls) return new Promise(() => {});
-        return { musicDirectory: configuredMusicDirectory, preferredDownloadSource: configuredPreferredDownloadSource, preferredStreamingSource: configuredPreferredStreamingSource, overridePlaylistTrackUrls, streamingFallbackEnabled, streamingFallbackSources, downloadFallbackEnabled, downloadFallbackSources, pauseOnSourceOpen: configuredPauseOnSourceOpen, sourceOpenAtPosition: configuredSourceOpenAtPosition, playbackDiagnosticsEnabled: false, autoPreview: false, previewDelayMs: 250, theme: "dark", ytDlpPath: "yt-dlp", ffmpegPath: "ffmpeg", ffprobePath: "ffprobe", jsRuntimePath: "deno" };
+        return { musicDirectory: configuredMusicDirectory, ...(configuredPlaylistMirroringEnabled === undefined ? {} : { playlistMirroringEnabled: configuredPlaylistMirroringEnabled }), preferredDownloadSource: configuredPreferredDownloadSource, preferredStreamingSource: configuredPreferredStreamingSource, overridePlaylistTrackUrls, streamingFallbackEnabled, streamingFallbackSources, streamingFallbackPolicyVersion: 1, bandcampFallbackEnabled: streamingFallbackSources.includes("bandcamp"), downloadFallbackEnabled, downloadFallbackSources, pauseOnSourceOpen: configuredPauseOnSourceOpen, sourceOpenAtPosition: configuredSourceOpenAtPosition, playbackDiagnosticsEnabled: false, autoPreview: false, previewDelayMs: 250, theme: "dark", ytDlpPath: "yt-dlp", ffmpegPath: "ffmpeg", ffprobePath: "ffprobe", jsRuntimePath: "deno" };
+      case "get_playlist_mirror_options": {
+        const collectionId = String(args?.collectionId ?? "");
+        const options = playlistMirrorOptionsById[collectionId] ?? { included: true, includeMediaLinks: null, includeYtdlpSearch: null };
+        const defaults = { includeMediaLinks: true, includeYtdlpSearch: false };
+        return { collectionId, options, defaults, effective: { included: options.included, includeMediaLinks: options.includeMediaLinks ?? defaults.includeMediaLinks, includeYtdlpSearch: options.includeYtdlpSearch ?? defaults.includeYtdlpSearch }, globallyEnabled: configuredPlaylistMirroringEnabled !== false } satisfies PlaylistMirrorOptionsView;
+      }
+      case "set_playlist_mirror_options": {
+        const collectionId = String(args?.collectionId ?? "");
+        playlistMirrorOptionsById[collectionId] = args?.options as PlaylistMirrorOptions;
+        const options = playlistMirrorOptionsById[collectionId];
+        const defaults = { includeMediaLinks: true, includeYtdlpSearch: false };
+        return { collectionId, options, defaults, effective: { included: options.included, includeMediaLinks: options.includeMediaLinks ?? defaults.includeMediaLinks, includeYtdlpSearch: options.includeYtdlpSearch ?? defaults.includeYtdlpSearch }, globallyEnabled: configuredPlaylistMirroringEnabled !== false } satisfies PlaylistMirrorOptionsView;
+      }
       case "get_sidebar_layout": return sidebarLayoutState;
       case "save_sidebar_layout": {
         sidebarLayoutState = args?.layout as typeof sidebarLayoutState;
@@ -607,6 +701,13 @@ beforeEach(() => {
         ? new Promise((resolve) => { finishRadioIdentify = resolve; })
         : { nowPlaying: radioNowPlayingState, note: "No song identified." };
       case "identify_playing_track": return holdNativeIdentify ? new Promise((resolve) => { finishNativeIdentify = resolve; }) : identifyPlayingTrackResult;
+      case "get_playing_track_detections": return playingTrackDetectionMock;
+      case "set_playing_track_detection_enabled": playingTrackDetectionMock={...playingTrackDetectionMock,enabled:Boolean(args?.enabled)}; return playingTrackDetectionMock;
+      case "detect_playing_track_segment": return holdPlayingTrackDetection
+        ? new Promise(resolve => { finishPlayingTrackDetection = value => { playingTrackDetectionMock=value; resolve(value); }; })
+        : playingTrackDetectionMock;
+      case "cancel_playing_track_identification": return true;
+      case "cancel_webview_identification": return true;
       case "get_radio_history_setting": return radioHistoryEnabled;
       case "set_radio_history_setting": radioHistoryEnabled = Boolean(args?.enabled); return undefined;
       case "get_radio_song_track": {
@@ -640,6 +741,11 @@ beforeEach(() => {
       case "list_genres": return [{ id: "deep-house", name: "Deep House", chartUrl: "https://example.test/chart" }];
       case "get_browser_status": return { connected: false, pendingCount: 0, lastSeen: null, hostName: "test" };
       case "list_browser_imports": return delayedBrowserImports ?? (directBrowserImport ? [directBrowserImport, latestImport, oldImport] : [latestImport, oldImport]);
+      case "preview_collection_import":
+        if (directBrowserImportFailure) throw new Error(directBrowserImportFailure);
+        if (directBrowserImport) return {...directBrowserImport,previewId:"preview-import",uniqueRecordings:directBrowserImport.importedCount,changes:{added:directBrowserImport.importedCount,removed:0,moved:0,retainedFromEarlierCapture:0,partial:!directBrowserImport.complete},failedSources:[],sample:savedChartTracks.map(t=>({title:t.title,artist:t.artist}))};
+        throw new Error("Direct source import unavailable");
+      case "apply_collection_import": return directBrowserImport;
       case "import_collection_url":
         if (directBrowserImportFailure) throw new Error(directBrowserImportFailure);
         if (directBrowserImport) return directBrowserImport;
@@ -804,11 +910,98 @@ beforeEach(() => {
       case "list_asset_artist_matches_page": return { items: [], total: 0, limit: args?.limit ?? 200, offset: args?.offset ?? 0 };
       case "get_analysis_status": return analysisStatusResult;
       case "analyze_local_assets": return { queued: (args?.assetIds as string[] | undefined)?.length ?? 0 };
+      case "start_selected_asset_analysis": {
+        const assetIds = (args?.assetIds ?? []) as string[];
+        const results: MockSelectedAnalysisJob["results"] = selectedAnalysisInitialState === "completed" ? assetIds.flatMap((assetId): MockSelectedAnalysisJob["results"] => {
+          const asset = savedAssets.find(item => item.id === assetId);
+          if (!asset) return [{ assetId, recordingId: "", status: "failed", analysis: null, error: "Registered local audio asset not found" }];
+          return [{ assetId, recordingId: asset.recordingId, status: "completed", analysis: {
+            schemaVersion: 1, analyzerVersion: "burrata-whole-track-analysis-v1-bpm-v3-keyfinder-2.2.8",
+            resource: { kind: "registeredAsset", assetId, recordingId: asset.recordingId, fileHash: asset.hash },
+            durationSeconds: 180, scope: "wholeTrack", coverage: 1, measuredAt: "2026-10-25T12:00:00Z",
+            bpm: { bpm: 124, confidence: 0.9, relatedTempoAlternativeBpm: 62 },
+            key: { key: "Am", confidence: 0.8, wholeTrackKey: "Am", windowKeys: ["Am", "Am", "Am", "Am", null], agreementCount: 4 },
+          } }];
+        }) : [];
+        selectedAnalysisJobMock = {
+          jobId: "selected-analysis-1", state: selectedAnalysisInitialState,
+          total: assetIds.length, completed: results.length, results,
+        };
+        return selectedAnalysisJobMock;
+      }
+      case "get_selected_asset_analysis": return selectedAnalysisJobMock?.jobId === args?.jobId ? selectedAnalysisJobMock : null;
+      case "cancel_selected_asset_analysis": {
+        const current = selectedAnalysisJobMock;
+        if (current && current.jobId === args?.jobId) selectedAnalysisJobMock = {
+          jobId: current.jobId, state: "cancelled", total: current.total,
+          completed: current.completed, results: current.results,
+        };
+        return undefined;
+      }
+      case "start_selected_stream_analysis": {
+        const trackIds = (args?.trackIds ?? []) as string[];
+        selectedStreamAnalysisJobMock = {
+          jobId: "selected-stream-analysis-1", state: "completed", total: trackIds.length, completed: trackIds.length,
+          results: trackIds.map(trackId => ({
+            trackId, recordingId: trackId, status: "completed", provider: "youtube", sourceId: "stable-video-1",
+            analysis: {
+              schemaVersion: 1, analyzerVersion: "burrata-whole-track-analysis-v1-bpm-v3-keyfinder-2.2.8",
+              resource: { kind: "stream", recordingId: trackId, provider: "youtube", sourceIdentitySha256: "a".repeat(64) },
+              durationSeconds: 180, scope: "wholeTrack", coverage: 1, measuredAt: "2026-10-25T12:00:00Z",
+              bpm: { bpm: 124, confidence: 0.9, relatedTempoAlternativeBpm: 62 },
+              key: { key: "Am", confidence: 0.8, wholeTrackKey: "Am", windowKeys: ["Am", "Am", "Am", "Am", null], agreementCount: 4 },
+            },
+          })),
+        };
+        return selectedStreamAnalysisJobMock;
+      }
+      case "get_selected_stream_analysis": return selectedStreamAnalysisJobMock?.jobId === args?.jobId ? selectedStreamAnalysisJobMock : null;
+      case "cancel_selected_stream_analysis": {
+        const current = selectedStreamAnalysisJobMock;
+        if (current && current.jobId === args?.jobId) selectedStreamAnalysisJobMock = {
+          jobId: current.jobId, state: "cancelled", total: current.total,
+          completed: current.completed, results: current.results,
+        };
+        return undefined;
+      }
+      case "apply_selected_stream_analysis": {
+        const trackId = String(args?.trackId ?? "");
+        const selection = (args?.selection ?? {}) as { fields?: string[]; policies?: Record<string, string> };
+        const jobId = String(args?.jobId ?? "");
+        selectedStreamAnalysisApplyCalls.push({ jobId, trackId, selection: selection as Record<string, unknown> });
+        const result = selectedStreamAnalysisJobMock?.results.find(row => row.trackId === trackId)?.analysis as {
+          bpm?: { bpm: number } | null; key?: { key: string } | null;
+        } | null | undefined;
+        const current = savedChartTracks.find(track => track.id === trackId) ?? savedTrack;
+        const updated: Track = { ...current, provenance: { ...(current.provenance as Record<string, unknown> ?? {}) } };
+        if (selection.fields?.includes("bpm") && result?.bpm && (selection.policies?.bpm === "replace" || updated.bpm == null)) updated.bpm = result.bpm.bpm;
+        if (selection.fields?.includes("key") && result?.key && (selection.policies?.key === "replace" || updated.key == null)) updated.key = result.key.key;
+        savedChartTracks = savedChartTracks.map(track => track.id === trackId ? updated : track);
+        return updated;
+      }
+      case "apply_selected_asset_analysis": {
+        const assetId = String(args?.assetId ?? "");
+        const selection = (args?.selection ?? {}) as { fields?: string[]; policies?: Record<string, string> };
+        const jobId = String(args?.jobId ?? "");
+        selectedAnalysisApplyCalls.push({ jobId, assetId, selection: selection as Record<string, unknown> });
+        const result = selectedAnalysisJobMock?.results.find(row => row.assetId === assetId)?.analysis as {
+          bpm?: { bpm: number; confidence: number; relatedTempoAlternativeBpm?: number } | null;
+          key?: { key: string; confidence: number; wholeTrackKey: string; windowKeys: Array<string | null>; agreementCount: number } | null;
+        } | null | undefined;
+        const asset = savedAssets.find(item => item.id === assetId);
+        if (!asset || !result) throw new Error("Selected analysis result is unavailable");
+        const updated: Track = { ...asset.track, provenance: { ...(asset.track.provenance as Record<string, unknown> ?? {}) } };
+        if (selection.fields?.includes("bpm") && result.bpm && (selection.policies?.bpm === "replace" || updated.bpm == null)) updated.bpm = result.bpm.bpm;
+        if (selection.fields?.includes("key") && result.key && (selection.policies?.key === "replace" || updated.key == null)) updated.key = result.key.key;
+        savedAssets = savedAssets.map(item => item.id === assetId ? { ...item, track: updated } : item);
+        return updated;
+      }
       case "update_track": return args?.track;
       case "search_audio_tracks": return audioSearchResult;
       case "save_settings": {
         const value = args?.settings as Settings;
         configuredMusicDirectory = value.musicDirectory ?? configuredMusicDirectory;
+        configuredPlaylistMirroringEnabled = value.playlistMirroringEnabled ?? configuredPlaylistMirroringEnabled;
         configuredPreferredDownloadSource = value.preferredDownloadSource ?? configuredPreferredDownloadSource;
         streamingFallbackEnabled = value.streamingFallbackEnabled ?? streamingFallbackEnabled;
         streamingFallbackSources = value.streamingFallbackSources ?? streamingFallbackSources;
@@ -880,7 +1073,7 @@ beforeEach(() => {
       case "set_preferred_track_file": preferredAssetChoice = String(args?.assetId ?? ""); return undefined;
       case "resolve_preview": {
         const track = args?.track as Track;
-        if (previewMode === "direct") { const result = { kind: "audio", url: "/cached-preview.mp3", canSeek: true, canVolume: true, canAutoplay: true, isExcerpt: directPreviewExcerpt, sourceGeneration: webviewSourceGeneration, audioMimeType: "audio/mp4", audioCodec: "mp4a.40.2", audioFormatId: "140", audioFormatHasVideo: false, audioExpectedContentLength: 123456 } satisfies Preview; afterPreviewResolve?.(); return result; }
+        if (previewMode === "direct") { const result = { kind: "audio", url: "/cached-preview.mp3", canSeek: true, canVolume: true, canAutoplay: true, isExcerpt: directPreviewExcerpt, sourceGeneration: webviewSourceGeneration, ...(directPreviewDurationSeconds ? { durationSeconds: directPreviewDurationSeconds } : {}), audioMimeType: "audio/mp4", audioCodec: "mp4a.40.2", audioFormatId: "140", audioFormatHasVideo: false, audioExpectedContentLength: 123456 } satisfies Preview; afterPreviewResolve?.(); return result; }
         if (previewMode === "race" && track.id === savedTrack.id) throw new Error("Cached source unavailable");
         if (previewMode === "fallback") throw new Error("No cached preview");
         return { kind: "external", url: track.sourceUrl, canSeek: false, canVolume: false, canAutoplay: false, isExcerpt: false } satisfies Preview;
@@ -898,7 +1091,7 @@ beforeEach(() => {
         afterPlaybackResolver?.();
         return {
           candidate,
-          preview: { kind: "audio", url: `/resolved-${candidate?.id ?? track.id}.mp3`, canSeek: true, canVolume: true, canAutoplay: true, isExcerpt: false, durationSeconds: track.durationSeconds, provider: candidate?.provider, title: candidate?.title, sourceGeneration: webviewSourceGeneration, audioMimeType: "audio/mp4", audioCodec: "mp4a.40.2", audioFormatId: "140", audioFormatHasVideo: false, audioExpectedContentLength: 123456 } satisfies Preview,
+          preview: { kind: "audio", url: `/resolved-${candidate?.id ?? track.id}.mp3`, canSeek: true, canVolume: true, canAutoplay: true, isExcerpt: false, durationSeconds: track.durationSeconds, provider: candidate?.provider, title: candidate?.title, sourceGeneration: webviewSourceGeneration, ...(args?.normalizationRouteRequired ? { normalizationRoute: "same-origin-relay" as const } : {}), audioMimeType: "audio/mp4", audioCodec: "mp4a.40.2", audioFormatId: "140", audioFormatHasVideo: false, audioExpectedContentLength: 123456 } satisfies Preview,
         };
       }
       case "cancel_playback_resolution": return undefined;
@@ -961,8 +1154,8 @@ beforeEach(() => {
         if (candidate.id === delayAudioCandidateId) return new Promise((resolve) => { finishAudioResolve = resolve; });
         if (candidateAudioFailure) throw new Error(candidateAudioFailure);
         return { kind: "audio", url: `/candidate-${candidate.id}.mp3`, canSeek: true, canVolume: true, canAutoplay: true,
-          isExcerpt: false, provider: candidate.provider, sourceGeneration: webviewSourceGeneration,
-          title: candidate.title } satisfies Preview;
+          isExcerpt: false, provider: candidate.provider, sourceGeneration: args?.normalizationRouteRequired ? Number(args?.requestGeneration) : webviewSourceGeneration,
+          title: candidate.title, ...(args?.normalizationRouteRequired ? { normalizationRoute: "same-origin-relay" as const } : {}) } satisfies Preview & { normalizationRoute?: "same-origin-relay" };
       }
       case "start_candidate_preview": {
         const candidate = args?.candidate as Candidate;
@@ -975,16 +1168,149 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => {
+afterEach(async () => {
   unmountApp?.();
   unmountApp = undefined;
+  const pendingUnmounts = pendingSvelteUnmounts.splice(0);
+  await Promise.allSettled(pendingUnmounts);
+  await tick();
   sessionStorage.removeItem("burrata.webviewMediaEventDiagnostics");
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  if (nativeCurrentTimeDescriptor) Object.defineProperty(HTMLMediaElement.prototype, "currentTime", nativeCurrentTimeDescriptor);
   vi.clearAllMocks();
 });
 
 afterEach(() => { if (vi.isFakeTimers()) vi.useRealTimers(); });
+
+describe("selected playback restore startup gate", () => {
+  function pendingRestore() {
+    return {
+      version: 1, nonce: "a1b2c3d4-e5f6-4711-8222-334455667788",
+      queue: { tracks: [{ ...savedTrack, id: "local:restored", localPath: "/verified/restored/audio.wav" }], entryIds: ["occurrence-restored"], currentIndex: 0, repeat: "off" },
+      position: 7.5, volume: 0, repeat: "off", shuffle: false, paused: true,
+    };
+  }
+  it.each([2, 3])("does not initialize or publish playback while localStorage write %i fails; retry completes hydration", async (failedWrite: number) => {
+    pendingBackupPlaybackRestore = pendingRestore();
+    let restoreWrites = 0; let alreadyFailed = false;
+    const rawSet = localStorage.setItem.bind(localStorage);
+    vi.spyOn(localStorage, "setItem").mockImplementation((key, value) => {
+      if (["burrata.playback-queue.v1", "burrata.playback-position.v1", "burrata.playback-controls.v1", "burrata.engine-switch-controls.v1"].includes(key)) {
+        restoreWrites++;
+        if (!alreadyFailed && restoreWrites === failedWrite) { alreadyFailed = true; throw new DOMException("quota", "QuotaExceededError"); }
+      }
+      rawSet(key, value);
+    });
+    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); };
+    await settle();
+    const gate = document.querySelector<HTMLElement>(".backup-hydration-gate")!;
+    expect(gate.textContent).toContain("Could not finish restoring saved playback. Retry to continue.");
+    expect(gate.textContent).toContain("Free some app storage space, then retry.");
+    expect(mocks.call.mock.calls.some(([command]) => command === "automation_playback_state")).toBe(false);
+    expect(mocks.call.mock.calls.some(([command]) => command === "set_automation_frontend_ready")).toBe(false);
+    expect(mocks.call.mock.calls.some(([command]) => command === "get_restore_work_policy")).toBe(false);
+    expect(backupPlaybackRestoreAckCalls).toEqual([]);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: " " }));
+    expect(mocks.call.mock.calls.some(([command]) => command === "playback_command")).toBe(false);
+    const retry = document.querySelector<HTMLButtonElement>(".backup-hydration-gate button")!;
+    retry.focus();
+    const enter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    window.dispatchEvent(enter);
+    expect(enter.defaultPrevented).toBe(false);
+    retry.click();
+    await settle();
+    expect(backupPlaybackRestoreAckCalls).toEqual([{ nonce: pendingRestore().nonce, receiptSessionId: backupPlaybackTestSessionId }]);
+    expect(localStorage.getItem("burrata.playback-controls.v1")).toBe(JSON.stringify({ volume: 0, shuffle: false }));
+    expect(mocks.call).toHaveBeenCalledWith("get_restore_work_policy");
+    expect(mocks.call.mock.calls.some(([command]) => command === "automation_playback_state")).toBe(true);
+  });
+
+  it("keeps startup blocked when localStorage silently ignores a write, then loads the restored queue on retry", async () => {
+    pendingBackupPlaybackRestore = pendingRestore();
+    const rawSet = localStorage.setItem.bind(localStorage);
+    rawSet("burrata.playback-queue.v1", JSON.stringify({
+      tracks: [{ ...savedTrack, id: "local:old" }], entryIds: ["old-occurrence"], currentIndex: 0, repeat: "one",
+    }));
+    let ignoreQueueWrite = true;
+    vi.spyOn(localStorage, "setItem").mockImplementation((key, value) => {
+      if (ignoreQueueWrite && key === "burrata.playback-queue.v1") return;
+      rawSet(key, value);
+    });
+
+    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); };
+    await settle();
+    const gate = document.querySelector<HTMLElement>(".backup-hydration-gate")!;
+    expect(gate.textContent).toContain("Could not finish restoring saved playback. Retry to continue.");
+    expect(localStorage.getItem("burrata.playback-queue.v1")).toContain("old-occurrence");
+    expect(localStorage.getItem("burrata.backup-playback-restore-receipt.v1")).toBeNull();
+    expect(backupPlaybackRestoreAckCalls).toEqual([]);
+    expect(mocks.call.mock.calls.some(([command]) => command === "automation_playback_state")).toBe(false);
+
+    ignoreQueueWrite = false;
+    document.querySelector<HTMLButtonElement>(".backup-hydration-gate button")!.click();
+    await settle();
+    expect(backupPlaybackRestoreAckCalls).toEqual([{ nonce: pendingRestore().nonce, receiptSessionId: backupPlaybackTestSessionId }]);
+    const restored = JSON.parse(localStorage.getItem("burrata.playback-queue.v1")!);
+    expect(restored.tracks.map((track: Track) => track.id)).toEqual(["local:restored"]);
+    expect(restored.entryIds).toEqual(["occurrence-restored"]);
+    expect(restored.repeat).toBe("off");
+    expect(mocks.call.mock.calls.some(([command]) => command === "automation_playback_state")).toBe(true);
+  });
+
+  it("starts from the restored queue and controls when existing storage records roll back after ACK", async () => {
+    pendingBackupPlaybackRestore = {
+      ...pendingRestore(), repeat: "all",
+      queue: { ...pendingRestore().queue, repeat: "all" },
+    };
+    const oldQueue = JSON.stringify({
+      tracks: [{ ...savedTrack, id: "local:old" }], entryIds: ["old-occurrence"], currentIndex: 0, repeat: "one",
+    });
+    const oldControls = JSON.stringify({ volume: 0.5, shuffle: true });
+    const oldValues = new Map([
+      ["burrata.playback-queue.v1", oldQueue],
+      ["burrata.playback-position.v1", JSON.stringify({ trackId: "local:old", position: 2, savedAt: Date.now() })],
+      ["burrata.playback-controls.v1", oldControls],
+      ["burrata.engine-switch-controls.v1", oldControls],
+    ]);
+    for (const [key, value] of oldValues) localStorage.setItem(key, value);
+    const rawSet = localStorage.setItem.bind(localStorage);
+    vi.spyOn(localStorage, "setItem").mockImplementation((key, value) => {
+      rawSet(key, value);
+      if (oldValues.has(key)) queueMicrotask(() => rawSet(key, oldValues.get(key)!));
+    });
+
+    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); };
+    await settle();
+    expect(backupPlaybackRestoreAckCalls).toEqual([{ nonce: pendingRestore().nonce, receiptSessionId: backupPlaybackTestSessionId }]);
+    expect(localStorage.getItem("burrata.playback-queue.v1")).toBe(oldQueue);
+    expect(localStorage.getItem("burrata.playback-controls.v1")).toBe(oldControls);
+    expect(document.querySelector(".backup-hydration-gate")).toBeNull();
+    const playbackCalls = mocks.call.mock.calls.filter(([command]) => command === "automation_playback_state");
+    expect(playbackCalls.length).toBeGreaterThan(0);
+    const published = playbackCalls[playbackCalls.length - 1]![1] as { playback: Record<string, unknown> };
+    expect(published.playback).toMatchObject({ repeat: "all", shuffle: false, volume: 0 });
+    expect((published.playback.queue as Array<{ id: string }>).map(track => track.id)).toEqual(["local:restored"]);
+    expect(pendingBackupPlaybackRestore).not.toBeNull();
+  });
+
+  it("keeps startup blocked on a stale ack and starts only after retry succeeds", async () => {
+    pendingBackupPlaybackRestore = pendingRestore(); failNextBackupPlaybackAck = true;
+    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); };
+    await settle();
+    const gate = document.querySelector<HTMLElement>(".backup-hydration-gate")!;
+    expect(gate.textContent).toContain("Could not finish restoring saved playback. Retry to continue.");
+    expect(gate.textContent).not.toContain("Free some app storage space");
+    expect(mocks.call.mock.calls.some(([command]) => command === "automation_playback_state")).toBe(false);
+    expect(backupPlaybackRestoreAckCalls).toHaveLength(1);
+    expect(mocks.call.mock.calls.some(([command]) => command === "get_restore_work_policy")).toBe(false);
+    document.querySelector<HTMLButtonElement>(".backup-hydration-gate button")!.click();
+    await settle();
+    expect(backupPlaybackRestoreAckCalls).toHaveLength(2);
+    expect(pendingBackupPlaybackRestore).not.toBeNull();
+    expect(mocks.call).toHaveBeenCalledWith("get_restore_work_policy");
+  });
+});
 
 describe("periodic playlist sync fallback wiring", () => {
   it.each([[true, false], [false, true]] as const)("watcher healthy=%s triggers sync=%s", async (healthy, shouldSync) => {
@@ -1385,7 +1711,11 @@ describe("saved recording navigation", () => {
     [...document.querySelectorAll<HTMLButtonElement>(".import-panel button")]
       .find((button) => button.textContent?.trim() === "Import URL")!.click();
     await settle();
-    expect(mocks.call).toHaveBeenCalledWith("import_collection_url", { url });
+    expect(mocks.call).toHaveBeenCalledWith("preview_collection_import", { url });
+    expect(mocks.call.mock.calls.some(([command])=>command==="apply_collection_import")).toBe(false);
+    [...document.querySelectorAll<HTMLButtonElement>(".import-panel button")].find(button=>button.textContent?.trim()==="Apply import")!.click();
+    await settle();
+    expect(mocks.call).toHaveBeenCalledWith("apply_collection_import",{previewId:"preview-import"});
     expect(mocks.call).toHaveBeenCalledWith("list_browser_imports");
     expect(mocks.call).toHaveBeenCalledWith("load_browser_import", { id: "snapshot-direct-url" });
     expect(mocks.call.mock.calls.some(([command]) => command === "request_browser_import")).toBe(false);
@@ -1406,7 +1736,7 @@ describe("saved recording navigation", () => {
     [...document.querySelectorAll<HTMLButtonElement>(".import-panel button")]
       .find((button) => button.textContent?.trim() === "Import URL")!.click();
     await settle();
-    expect(mocks.call).toHaveBeenCalledWith("import_collection_url", { url });
+    expect(mocks.call).toHaveBeenCalledWith("preview_collection_import", { url });
     expect(mocks.call).toHaveBeenCalledWith("request_browser_import", { url });
     expect(document.body.textContent).toContain("Sent to the connected browser; use the companion");
     expect(document.querySelector('[aria-label="Chart, playlist or album URL"]')).not.toBeNull();
@@ -1570,7 +1900,11 @@ describe("saved recording navigation", () => {
     mocks.call.mockClear();
     document.querySelector<HTMLButtonElement>('.presets button.primary')!.click();
     await settle();
-    expect(mocks.call).toHaveBeenCalledWith("import_collection_url", { url });
+    expect(mocks.call).toHaveBeenCalledWith("preview_collection_import", { url });
+    expect(mocks.call.mock.calls.some(([command]) => command === "apply_collection_import")).toBe(false);
+    [...document.querySelectorAll<HTMLButtonElement>('section[aria-label="Import preview"] button')].find(button => button.textContent?.trim() === "Apply import")!.click();
+    await settle();
+    expect(mocks.call).toHaveBeenCalledWith("apply_collection_import", { previewId: "preview-import" });
     expect(mocks.call).toHaveBeenCalledWith("list_browser_imports");
     expect(mocks.call).toHaveBeenCalledWith("load_browser_import", { id: "snapshot-shazam-preset" });
     expect(mocks.call.mock.calls.some(([command]) => command === "import_chart" || command === "request_browser_import")).toBe(false);
@@ -2115,6 +2449,50 @@ describe("saved recording navigation", () => {
     expect(mocks.call).toHaveBeenCalledWith("rename_collection", { collectionId: "favorites", name: "Starred Tracks" });
   });
 
+  it("opens portable export for the virtual Favorites playlist and exposes copy text", async () => {
+    sidebarLayoutState = { sections: [], assignments: {}, names: {} };
+    playlistPreferences = { favoritesPlaylistId: "", shortcuts: Array<string | null>(9).fill(null), shortcutBindings: Array.from({ length: 9 }, (_, index) => `Alt+${index + 1}`) };
+    localStorage.setItem("burrata.playlist.include-ytdlp-search.v1", "true");
+    const original = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async (command, args) => command === "preview_portable_playlist_export"
+      ? { entryCount: 1, localEntries: 0, identityPlaceholders: 1, searchLinks: 0, requiresBurrata: true, excludedPrivateFields: [] }
+      : original(command, args));
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    const favorite = [...document.querySelectorAll<HTMLButtonElement>(".playlist-card")].find(button => button.textContent?.includes("Liked Songs"))!;
+    favorite.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 310, clientY: 180 }));
+    await settle();
+    const menu = document.querySelector<HTMLDialogElement>('dialog.playlist-menu[aria-label="Actions for playlist Liked Songs"]')!;
+    expect([...menu.querySelectorAll<HTMLButtonElement>("button")].map(menuActionText)).toContain("Export playlist");
+    [...menu.querySelectorAll<HTMLButtonElement>("button")].find(button => menuActionText(button) === "Export playlist")!.click();
+    await settle();
+    expect(document.querySelector<HTMLDialogElement>('dialog[aria-label="Portable playlist"]')).toBeTruthy();
+    expect(document.querySelector<HTMLInputElement>('[aria-label="Include search links for this export"]')?.checked).toBe(true);
+    document.querySelector<HTMLDetailsElement>('dialog[aria-label="Portable playlist"] .advanced')!.open = true;
+    expect(mocks.call).toHaveBeenCalledWith("preview_portable_playlist_export", expect.objectContaining({ collectionId: "favorites", options: expect.objectContaining({ includeYtdlpSearch: true }) }));
+    expect(document.querySelector<HTMLDialogElement>('dialog[aria-label="Portable playlist"]')?.textContent).toContain("Copy playlist file contents");
+  });
+
+  it.each(["", "favorite-collection-42"])("makes an editable copy of Favorites with backing collection %s in its current order", async (favoritesPlaylistId) => {
+    sidebarLayoutState = { sections: [], assignments: {}, names: {} };
+    playlistPreferences = { favoritesPlaylistId, shortcuts: Array<string | null>(9).fill(null), shortcutBindings: Array.from({ length: 9 }, (_, index) => `Alt+${index + 1}`) };
+    if (favoritesPlaylistId) mutableFavoritesCollection = { id: favoritesPlaylistId, name: "Liked Songs", trackCount: 1 };
+    favoriteTrackIds.add(savedTrack.id);
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    const favorite = [...document.querySelectorAll<HTMLButtonElement>(".playlist-card")].find(button => button.textContent?.includes("Liked Songs"))!;
+    favorite.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 310, clientY: 180 }));
+    await settle();
+    const menu = document.querySelector<HTMLDialogElement>('dialog.playlist-menu[aria-label="Actions for playlist Liked Songs"]')!;
+    [...menu.querySelectorAll<HTMLButtonElement>("button")].find(button => menuActionText(button) === "Make editable copy")!.click();
+    await settle();
+    expect(mocks.call).toHaveBeenCalledWith("list_tracks", { view: "favorites" });
+    expect(mocks.call).toHaveBeenCalledWith("create_collection", { name: "Liked Songs (Copy)" });
+    expect(mocks.call).toHaveBeenCalledWith("append_playlist_entries", { collectionId: "collection-new", tracks: [{ ...savedTrack, favorite: true }] });
+  });
+
   it("removes a built-in radio station through the sidebar context menu", async()=>{
     radioStationState=[{id:"main",name:"Main Mix",streamUrl:"https://radio.example/main",sourceUrl:"https://radio.example",provider:"radio_paradise",isCustom:false}];
     const instance=mount(App,{target:document.body});
@@ -2162,6 +2540,26 @@ describe("saved recording navigation", () => {
     expect(document.querySelector<HTMLInputElement>('[aria-label="Playlist name"]')?.value).toBe("New playlist");
   });
 
+  it("dismisses playlist import choices with Close, Escape, or the backdrop", async () => {
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    collectionCard("Empty Collection").click();
+    await settle();
+    for (const method of ["close", "escape", "backdrop"]) {
+      [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim() === "Import tracks")!.click();
+      await settle();
+      const dialog = document.querySelector<HTMLDialogElement>("dialog.import-dialog")!;
+      expect(dialog.querySelector(".import-hub")).not.toBeNull();
+      if (method === "close") dialog.querySelector<HTMLButtonElement>('[aria-label="Close import"]')!.click();
+      else if (method === "escape") dialog.dispatchEvent(new Event("cancel", { cancelable: true }));
+      else dialog.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: -1, clientY: -1 }));
+      await settle();
+      expect(document.querySelector("dialog.import-dialog")).toBeNull();
+      expect(document.querySelector("h1")?.textContent).toBe("Empty Collection");
+    }
+  });
+
   it("imports a chart URL into the already-open playlist when using Import tracks", async () => {
     const url = "https://www.shazam.com/charts/top-200/world";
     directBrowserImport = {
@@ -2176,16 +2574,45 @@ describe("saved recording navigation", () => {
     expect(document.querySelector("h1")?.textContent).toBe("Empty Collection");
     [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim() === "Import tracks")!.click();
     await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".import-hub button")].find(button => button.textContent?.includes("Import a playlist or album link"))!.click();
+    await settle();
     const input = document.querySelector<HTMLInputElement>('[aria-label="Chart, playlist or album URL"]')!;
     input.value = url; input.dispatchEvent(new Event("input", { bubbles: true }));
     await settle();
     [...document.querySelectorAll<HTMLButtonElement>(".import-panel button")].find(button => button.textContent?.trim() === "Import URL")!.click();
     await settle();
-    expect(mocks.call).toHaveBeenCalledWith("import_collection_url", { url });
+    expect(mocks.call).toHaveBeenCalledWith("preview_collection_import", { url });
+    expect(mocks.call.mock.calls.some(([command])=>command==="apply_collection_import")).toBe(false);
+    [...document.querySelectorAll<HTMLButtonElement>(".import-panel button")].find(button=>button.textContent?.trim()==="Apply import")!.click();
+    await settle();
+    expect(mocks.call).toHaveBeenCalledWith("apply_collection_import",{previewId:"preview-import"});
     expect(mocks.call).toHaveBeenCalledWith("load_browser_import", { id: "snapshot-into-playlist" });
     expect(mocks.call).toHaveBeenCalledWith("append_playlist_entries", { collectionId: "collection-empty", tracks: savedChartTracks });
     expect(document.querySelector("h1")?.textContent).toBe("Empty Collection");
     expect(document.querySelector(".browser-capture")).toBeNull();
+  });
+
+  it("applies a URL preview to a chosen playlist with reviewed folder, section, and duplicate settings", async () => {
+    const url = "https://www.shazam.com/charts/top-200/world";
+    directBrowserImport = { ...latestImport, id: "snapshot-url-destination", provider: "shazam", kind: "chart", title: "Shazam tracks", sourceUrl: url, collectionId: "collection-imported-source" };
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle(); await openLibraryImport();
+    const input = document.querySelector<HTMLInputElement>('[aria-label="Chart, playlist or album URL"]')!;
+    input.value = url; input.dispatchEvent(new Event("input", { bubbles: true })); await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".import-panel button")].find(button => button.textContent?.trim() === "Import URL")!.click(); await settle();
+    expect(document.querySelector('[aria-label="Import preview"]')).not.toBeNull();
+    const fields = [...document.querySelectorAll<HTMLSelectElement>(".url-import-destination select")];
+    fields[0].value = "collection-empty"; fields[0].dispatchEvent(new Event("change", { bubbles: true }));
+    fields[1].value = "skip"; fields[1].dispatchEvent(new Event("change", { bubbles: true }));
+    const textInputs = [...document.querySelectorAll<HTMLInputElement>(".url-import-destination input")];
+    textInputs[1].value = "Imported/Charts"; textInputs[1].dispatchEvent(new Event("input", { bubbles: true }));
+    textInputs[2].value = "Top 200"; textInputs[2].dispatchEvent(new Event("input", { bubbles: true })); await settle();
+    expect(document.querySelector(".url-import-destination")?.textContent).toContain("Empty Collection");
+    expect(document.querySelector(".url-import-destination")?.textContent).toContain("skip duplicates");
+    expect(mocks.call.mock.calls.some(([command]) => command === "apply_collection_import")).toBe(false);
+    [...document.querySelectorAll<HTMLButtonElement>(".import-panel button")].find(button => button.textContent?.trim() === "Apply import")!.click(); await settle();
+    expect(mocks.call).toHaveBeenCalledWith("apply_collection_import", { previewId: "preview-import", destinationCollectionId: "collection-empty", duplicatePolicy: "skip", folderPath: "Imported/Charts", sectionName: "Top 200" });
   });
 
   it("uses modifier clicks for range and toggle selection without starting extra previews", async () => {
@@ -2459,6 +2886,8 @@ describe("saved recording navigation", () => {
     expect(mocks.call.mock.calls.filter(([command]) => command === "resolve_preview")).toHaveLength(previewCount);
     expect(play).toHaveBeenCalledTimes(1);
 
+    document.querySelector<HTMLButtonElement>('[aria-label="Dismiss deleted playlist notice"]')!.click(); await settle();
+    expect(document.body.textContent).not.toContain("Deleted playlist: Empty Collection");
     [...document.querySelectorAll<HTMLElement>(".library-tools summary")].find((summary) => summary.textContent?.trim() === "Library options")!.click();
     [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "Deleted playlists")!.click(); await settle();
     expect(mocks.call).toHaveBeenCalledWith("list_deleted_collections");
@@ -2548,8 +2977,8 @@ describe("saved recording navigation", () => {
     expect(document.querySelector(".estimated-bpm-note")).toBeNull();
   });
 
-  it("queues missing local analysis and merges progress/results without restarting playback", async () => {
-    const localTrack: Track = { ...savedTrack, assetId: "asset-1", localAvailability: "available" };
+  it("previews selected whole-track analysis and preserves imported/manual BPM and key by default", async () => {
+    const localTrack: Track = { ...savedTrack, assetId: "asset-1", localAvailability: "available", bpm: 110, key: "C", provenance: { manualFields: { key: true }, bpmSource: "catalog" } };
     savedAssets = [{ id: "asset-1", recordingId: localTrack.id, path: "/music/saved.mp3", hash: "hash-1",
       sourceCodec: "mp3", finalCodec: "mp3", processing: "ready", track: localTrack }];
     previewMode = "direct";
@@ -2566,32 +2995,472 @@ describe("saved recording navigation", () => {
     [...document.querySelectorAll("nav button")].find((item) => item.textContent?.includes("Library"))!
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
-    [...document.querySelectorAll("button")].find((item) => item.textContent?.includes("Analyze missing BPM / key"))!
+    [...document.querySelectorAll("button")].find((item) => item.textContent?.includes("Analyze selected BPM / key"))!
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
-    expect(mocks.call).toHaveBeenCalledWith("analyze_local_assets", { assetIds: ["asset-1"], force: false });
-    [...document.querySelectorAll<HTMLButtonElement>("button")].find(button=>button.textContent==="Recalculate selected BPM / key")!.click();await settle();
-    expect(mocks.call).toHaveBeenCalledWith("analyze_local_assets", {assetIds:["asset-1"],force:true});
-
-    eventHandlers.get("analysis-progress")?.({ event: "analysis-progress", id: 2,
-      payload: { assetId: "asset-1", status: "running" } });
+    expect(mocks.call).toHaveBeenCalledWith("start_selected_asset_analysis", { assetIds: ["asset-1"], fields: ["bpm", "key"] });
+    expect(mocks.call).not.toHaveBeenCalledWith("analyze_local_assets", expect.anything());
+    expect(document.querySelector(".analysis-review")?.textContent).toContain("110 → 124");
+    expect(document.querySelector(".analysis-review")?.textContent).toContain("C → Am");
+    expect(document.querySelector(".analysis-review")?.textContent).toContain("Existing BPM will be kept");
+    expect(document.querySelector(".analysis-review")?.textContent).toContain("Existing key will be kept · marked manual");
+    document.querySelector<HTMLButtonElement>(".analysis-review button.primary")!.click();
     await settle();
+    expect(selectedAnalysisApplyCalls[0]).toMatchObject({
+      jobId: "selected-analysis-1", assetId: "asset-1",
+      selection: { fields: ["bpm", "key"], policies: { bpm: "fillMissing", key: "fillMissing" } },
+    });
+    expect(savedAssets[0]?.track.bpm).toBe(110);
+    expect(savedAssets[0]?.track.key).toBe("C");
+    expect(document.querySelector(".analysis-review")).toBeNull();
     expect(resolveCount()).toBe(1);
     expect(document.querySelector(".now-playing")?.textContent).toContain("Playing preview");
+  });
 
-    const analyzed: Track = { ...localTrack, bpm: 124, key: "Am", provenance: {
-      bpmAnalysis: { bpm: 124, source: "decoded audio", method: "10ms onset autocorrelation", confidence: 0.9 },
-      keyAnalysis: { wholeTrackKey: "Am", status: "complete", source: "decoded audio", method: "libkeyfinder distributed-window agreement", confidence: 0.88, version: "libkeyfinder-2.2.8" },
-    } };
-    eventHandlers.get("library-updated")?.({ event: "library-updated", id: 3, payload: analyzed });
+  it("replaces only the explicitly selected existing analysis field", async () => {
+    const localTrack: Track = { ...savedTrack, assetId: "asset-1", localAvailability: "available", bpm: 110, key: "C", provenance: { manualFields: { bpm: true, key: true } } };
+    savedAssets = [{ id: "asset-1", recordingId: localTrack.id, path: "/music/saved.mp3", hash: "hash-1", sourceCodec: "mp3", finalCodec: "mp3", processing: "ready", track: localTrack }];
+    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); }; await settle();
+    const savedRow = [...document.querySelectorAll(".shared-track-list > li")].find(item => item.textContent?.includes("Saved Recording"));
+    savedRow?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
-    const updatedRow = [...document.querySelectorAll(".shared-track-list > li")].find((item) => item.textContent?.includes("Saved Recording"))!;
-    expect(updatedRow.textContent).toContain("≈124 BPM");
-    expect(updatedRow.textContent).toContain("≈Am");
-    expect(updatedRow.querySelector(".track-title")?.getAttribute("title")).toContain("libkeyfinder distributed-window agreement");
-    expect(updatedRow.textContent).toContain("124");
-    expect(document.querySelector(".now-playing")?.textContent).toContain("Playing preview");
-    expect(resolveCount()).toBe(1);
+    [...document.querySelectorAll("nav button")].find(item => item.textContent?.includes("Library"))!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await settle();
+    [...document.querySelectorAll("button")].find(item => item.textContent?.includes("Analyze selected BPM / key"))!.click();
+    await settle();
+    const applyKey = [...document.querySelectorAll<HTMLLabelElement>(".analysis-apply-options label")].find(label => label.textContent?.includes("Key"))!.querySelector("input")!;
+    applyKey.click();
+    const replaceBpm = [...document.querySelectorAll<HTMLLabelElement>(".analysis-replace-options label")].find(label => label.textContent?.includes("Replace existing BPM"))!.querySelector("input")!;
+    replaceBpm.click();
+    await settle();
+    expect(document.querySelector(".analysis-review")?.textContent).toContain("Existing BPM will be replaced by your explicit choice");
+    expect(document.querySelector(".analysis-review")?.textContent).toContain("Key will stay unchanged.");
+    document.querySelector<HTMLButtonElement>(".analysis-review button.primary")!.click();
+    await settle();
+    expect(selectedAnalysisApplyCalls).toHaveLength(1);
+    expect(selectedAnalysisApplyCalls[0]?.selection).toEqual({ fields: ["bpm"], policies: { bpm: "replace", key: "fillMissing" } });
+    expect(savedAssets[0]?.track.bpm).toBe(124);
+    expect(savedAssets[0]?.track.key).toBe("C");
+  });
+
+  it("cancels a pending selected-analysis job without applying partial results", async () => {
+    vi.useFakeTimers();
+    selectedAnalysisInitialState = "running";
+    const localTrack: Track = { ...savedTrack, assetId: "asset-1", localAvailability: "available" };
+    savedAssets = [{ id: "asset-1", recordingId: localTrack.id, path: "/music/saved.mp3", hash: "hash-1", sourceCodec: "mp3", finalCodec: "mp3", processing: "ready", track: localTrack }];
+    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); }; await settle();
+    const savedRow = [...document.querySelectorAll(".shared-track-list > li")].find(item => item.textContent?.includes("Saved Recording"));
+    savedRow?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await settle();
+    [...document.querySelectorAll("nav button")].find(item => item.textContent?.includes("Library"))!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await settle();
+    [...document.querySelectorAll("button")].find(item => item.textContent?.includes("Analyze selected BPM / key"))!.click();
+    await settle();
+    expect(document.querySelector(".analysis-review")?.textContent).toContain("Analyzing selected audio");
+    const cancel = [...document.querySelectorAll<HTMLButtonElement>(".analysis-review button")].find(button => button.textContent === "Cancel analysis")!;
+    cancel.click();
+    await settle();
+    await vi.advanceTimersByTimeAsync(651);
+    await settle();
+    expect(mocks.call).toHaveBeenCalledWith("cancel_selected_asset_analysis", { jobId: "selected-analysis-1" });
+    expect(document.querySelector(".analysis-review")?.textContent).toContain("Analysis cancelled");
+    expect(selectedAnalysisApplyCalls).toHaveLength(0);
+  });
+
+  it.each([true, false])("closes selected analysis on Escape and restores its visible opener (action focused: %s)", async (actionFocused) => {
+    vi.useFakeTimers();
+    selectedAnalysisInitialState = "running";
+    const localTrack: Track = { ...savedTrack, assetId: "asset-1", localAvailability: "available" };
+    savedAssets = [{ id: "asset-1", recordingId: localTrack.id, path: "/music/saved.mp3", hash: "hash-1", sourceCodec: "mp3", finalCodec: "mp3", processing: "ready", track: localTrack }];
+    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); }; await settle();
+    const row = [...document.querySelectorAll(".shared-track-list > li")].find(item => item.textContent?.includes("Saved Recording"))!;
+    row.dispatchEvent(new MouseEvent("click", { bubbles: true })); await settle();
+    [...document.querySelectorAll("nav button")].find(item => item.textContent?.includes("Library"))!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await settle();
+    const trigger = [...document.querySelectorAll<HTMLButtonElement>("button")].find(item => item.textContent?.includes("Analyze selected BPM / key"))!;
+    const menu = trigger.closest("details")!;
+    menu.open = true;
+    const opener = menu.querySelector<HTMLElement>(":scope > summary")!;
+    const externalFocus = document.createElement("button");
+    document.body.append(externalFocus);
+    (actionFocused ? trigger : externalFocus).focus();
+    trigger.click(); await settle();
+    const dialog = document.querySelector<HTMLDialogElement>(".analysis-review")!;
+    expect(dialog.closest(".app-shell")).not.toBeNull();
+    const modalSpace = new KeyboardEvent("keydown", { key: " ", code: "Space", bubbles: true, cancelable: true });
+    dialog.dispatchEvent(modalSpace);
+    expect(modalSpace.defaultPrevented).toBe(false);
+    const cancel = new Event("cancel", { cancelable: true }); dialog.dispatchEvent(cancel); await settle();
+    await vi.advanceTimersByTimeAsync(651); await settle();
+    expect(cancel.defaultPrevented).toBe(true);
+    expect(document.querySelector(".analysis-review")).toBeNull();
+    expect(mocks.call).toHaveBeenCalledWith("cancel_selected_asset_analysis", { jobId: "selected-analysis-1" });
+    expect(selectedAnalysisApplyCalls).toHaveLength(0);
+    expect(document.activeElement).toBe(opener);
+    const menuSpace = new KeyboardEvent("keydown", { key: " ", code: "Space", bubbles: true, cancelable: true });
+    opener.dispatchEvent(menuSpace);
+    expect(menuSpace.defaultPrevented).toBe(false);
+  });
+
+  it("persists the waveform toggle and keeps the player seekable with no observed bins", async () => {
+    previewMode = "direct";
+    directPreviewExcerpt = false;
+    directPreviewDurationSeconds = 180;
+    vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(180);
+    vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(4);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const currentTimeSet = vi.spyOn(HTMLMediaElement.prototype, "currentTime", "set");
+    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); };
+    await settle();
+    await automationAction("waveform-seek-start", "play", { trackIds: [savedTrack.id] });
+    await settle();
+    const toggle = document.querySelector<HTMLButtonElement>('[aria-label="Waveform seek bar"]')!;
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    toggle.click();
+    await settle();
+    await new Promise(resolve => setTimeout(resolve, 25));
+    await settle();
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect(localStorage.getItem("burrata.waveform-enabled.v1")).toBe("true");
+    const range = document.querySelector<HTMLInputElement>('[aria-label="Playback position"]')!;
+    expect(range).not.toBeNull();
+    const seekTarget = 42;
+    range.value = String(seekTarget);
+    range.dispatchEvent(new Event("input", { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 170));
+    await settle();
+    expect(currentTimeSet).toHaveBeenCalledWith(seekTarget);
+    expect(document.querySelector(".now-playing")?.textContent).toContain("Playing");
+    toggle.click();
+    await settle();
+    expect(localStorage.getItem("burrata.waveform-enabled.v1")).toBe("false");
+    expect(document.querySelector('[aria-label="Playback position"]')).not.toBeNull();
+  });
+
+  it("keeps analysis controls and status out of the player footer while exposing the setting in Playback settings", async () => {
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    const footer = document.querySelector("footer.player")!;
+    expect(footer.querySelector(".stream-analysis-action")).toBeNull();
+    expect(footer.querySelector(".player-analysis-status")).toBeNull();
+    expect(footer.querySelector('[aria-label="Analyze full local waveform"]')).toBeNull();
+    expect(footer.querySelector('[aria-label="Waveform seek bar"]')).not.toBeNull();
+    expect(footer.textContent).not.toMatch(/BPM|Whole-track analysis|Full stream analysis/);
+    expect(footer.querySelector('input[aria-label="Analyze full streamed tracks in background"]')).toBeNull();
+
+    eventHandlers.get("automation-ui-navigation")!({ event: "automation-ui-navigation", id: 1, payload: {
+      requestId: "analysis-settings-location", target: { kind: "view", view: "settings", settingsCategory: "playback" },
+    } });
+    await settle(); await settle();
+    expect(document.querySelector('input[aria-label="Analyze full streamed tracks in background"]')).not.toBeNull();
+  });
+
+  it("collects a stream waveform while hidden and reveals earlier bins without restarting playback", async () => {
+    previewMode = "fallback";
+    playbackResolverCandidate = youtubeCandidate(savedTrack);
+    let mediaTime = 0;
+    let mediaPlaying = false;
+    let playCalls = 0;
+    vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(240);
+    vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(4);
+    vi.spyOn(HTMLMediaElement.prototype, "currentTime", "get").mockImplementation(() => mediaTime);
+    vi.spyOn(HTMLMediaElement.prototype, "currentTime", "set").mockImplementation(value => { mediaTime = Number(value); });
+    vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockImplementation(() => !mediaPlaying);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(async function() { playCalls++; mediaPlaying = true; });
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(function() { mediaPlaying = false; });
+    vi.stubGlobal("AudioContext", class {
+      currentTime = 0;
+      sampleRate = 48_000;
+      state = "running";
+      destination = {};
+      createGain() {
+        const gain = { value: 1, cancelScheduledValues() {}, setValueAtTime(value: number) { this.value = value; }, linearRampToValueAtTime(value: number) { this.value = value; } };
+        return { gain, connect() {} };
+      }
+      createAnalyser() { return { fftSize: 2048, smoothingTimeConstant: 0, connect() {}, getFloatTimeDomainData(buffer: Float32Array) { buffer.fill(0.25); } }; }
+      createMediaElementSource() { return { connect() {} }; }
+      async resume() {}
+    });
+
+    for (const shouldStayPaused of [false, true]) {
+      localStorage.removeItem("burrata.waveform-enabled.v1");
+      // These are independent route-upgrade trials. The preceding trial ends
+      // muted, and that user volume now correctly persists across app mounts.
+      localStorage.removeItem("burrata.playback-controls.v1");
+      mediaTime = 0;
+      mediaPlaying = false;
+      playCalls = 0;
+      const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); };
+      await settle();
+      await automationAction(`waveform-route-upgrade-${shouldStayPaused}`, "play", { trackIds: [savedTrack.id] });
+      await settle();
+      const element = document.querySelector<HTMLAudioElement>("audio")!;
+      element.dispatchEvent(new Event("loadedmetadata"));
+      mediaTime = 2;
+      element.dispatchEvent(new Event("timeupdate"));
+      await new Promise(resolve => setTimeout(resolve, 200));
+      expect(document.querySelector(".waveform-seek")).toBeNull();
+      if (shouldStayPaused) {
+        document.querySelector<HTMLButtonElement>('[aria-label="Pause"]')!.click();
+        document.querySelector<HTMLAudioElement>("audio")!.dispatchEvent(new Event("pause"));
+        await settle();
+        mediaPlaying = false;
+      }
+      mediaTime = 73.25;
+      element.dispatchEvent(new Event("timeupdate"));
+      const playCallsBeforeUpgrade = playCalls;
+      const advance = setInterval(() => { if (mediaPlaying) mediaTime += 0.3; }, 10);
+      const toggle = document.querySelector<HTMLButtonElement>('[aria-label="Waveform seek bar"]')!;
+      toggle.click();
+      await new Promise(resolve => setTimeout(resolve, 700));
+      await settle();
+      element.dispatchEvent(new Event("loadedmetadata"));
+      await settle();
+      clearInterval(advance);
+      expect(mocks.call).toHaveBeenCalledWith("resolve_playback_track", expect.objectContaining({
+        normalizationRouteRequired: true,
+      }));
+      expect(mocks.call.mock.calls.some(([command]) => command === "resolve_candidate_audio")).toBe(false);
+      // The sample at two seconds was captured before the toggle, not fabricated
+      // from the later playhead. Hidden observation survives revealing the bar.
+      const firstRect = document.querySelector(".waveform-seek .waveform rect");
+      expect(firstRect).not.toBeNull();
+      expect(Number(firstRect?.getAttribute("x"))).toBeLessThan(20);
+      if (!shouldStayPaused) {
+        let renderedBins = document.querySelectorAll(".waveform-seek .waveform rect");
+        for (let attempt = 0; attempt < 60 && renderedBins.length === 0; attempt++) {
+          await new Promise(resolve => setTimeout(resolve, 25));
+          await settle();
+          renderedBins = document.querySelectorAll(".waveform-seek .waveform rect");
+        }
+        eventHandlers.get("automation-inspect-playback-layout")?.({ event: "automation-inspect-playback-layout", id: Date.now(), payload: { requestId: "waveform-after-route-upgrade" } });
+        await settle();
+        const inspection = [...mocks.call.mock.calls].reverse().find(([command, args]) => command === "automation_layout_complete" &&
+          (args as { requestId?: string } | undefined)?.requestId === "waveform-after-route-upgrade")?.[1] as { layout?: { waveformDiagnostics?: unknown } } | undefined;
+        expect(renderedBins.length, JSON.stringify(inspection?.layout?.waveformDiagnostics)).toBeGreaterThan(0);
+      }
+      expect(mediaTime).toBeGreaterThanOrEqual(73.25);
+      expect(mediaPlaying).toBe(!shouldStayPaused);
+      expect(playCalls).toBe(playCallsBeforeUpgrade);
+      const activeElement = document.querySelector<HTMLAudioElement>("audio")!;
+      expect(inspectWebAudioGainGraph(activeElement)).toMatchObject({ attached: true, userVolumeLinear: 0.8 });
+      expect(activeElement.volume).toBe(1);
+      const volumeSlider = document.querySelector<HTMLInputElement>('[aria-label="Volume"]')!;
+      volumeSlider.value = "0.36";
+      volumeSlider.dispatchEvent(new Event("input", { bubbles: true }));
+      await settle();
+      expect(activeElement.volume).toBe(1);
+      expect(inspectWebAudioGainGraph(activeElement).userVolumeLinear).toBeCloseTo(0.36);
+      volumeSlider.value = "0";
+      volumeSlider.dispatchEvent(new Event("input", { bubbles: true }));
+      await settle();
+      expect(inspectWebAudioGainGraph(activeElement).userVolumeLinear).toBe(0);
+      expect(readWebAudioPeakWindow(activeElement)?.max).toBe(0.25);
+      unmountApp?.();
+      unmountApp = undefined;
+      await settle();
+    }
+  });
+
+  it.each([false, true])("keeps an exact cached full stream waveform through metadata refresh (pending lookup: %s)", async (pendingLookup) => {
+    previewMode = "fallback";
+    playbackResolverCandidate = youtubeCandidate(savedTrack);
+    webviewSourceGeneration = 71;
+    localStorage.setItem("burrata.waveform-enabled.v1", "true");
+    vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(240);
+    vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(4);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const identity = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("youtube\nyoutube:recording-1"));
+    const sourceIdentitySha256 = [...new Uint8Array(identity)].map(value => value.toString(16).padStart(2, "0")).join("");
+    const cached = {
+      schemaVersion: 1, analyzerVersion: "stream-analysis-v1", durationSeconds: 240,
+      scope: "wholeTrack", coverage: 1, measuredAt: "2026-10-26T00:00:00Z",
+      resource: { kind: "stream", recordingId: savedTrack.id, provider: "youtube", sourceIdentitySha256,
+        audioVariantSha256: "d39cf402ad2591ff335487243ebe454a6972fc1ef87a43e72d1dad74392e60be" },
+      bpm: { bpm: 120, confidence: 0.8 }, key: null,
+      waveform: { analyzerVersion: "stream-analysis-v1", binCount: 512, durationSeconds: 240,
+        bins: Array.from({ length: 512 }, () => ({ min: -0.2, max: 0.2 })), scope: "wholeTrack", complete: true,
+        measuredAt: "2026-10-26T00:00:00Z" },
+    };
+    const pendingCacheResolvers: Array<(value: typeof cached) => void> = [];
+    let holdCache = pendingLookup;
+    const originalCall = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async (command, args) => {
+      if (command === "get_loudness_settings") return { mode: "off", targetLufs: -18, ceilingDbtp: -1,
+        maximumBoostDb: 6, albumTrackFallback: true, analyzeWhenIdle: false };
+      if (command === "get_cached_stream_media_analysis") {
+        if (holdCache) return await new Promise<typeof cached>(resolve => pendingCacheResolvers.push(resolve));
+        return cached;
+      }
+      if (command === "get_playback_waveform") return null;
+      if (command === "save_audio_match") {
+        const track = args?.track as Track;
+        const candidate = args?.candidate as Candidate;
+        return { ...track, provenance: { ...(track.provenance as Record<string, unknown>), audioCandidate: candidate } };
+      }
+      return await originalCall(command, args);
+    });
+
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    await automationAction("cached-stream-waveform", "play", { trackIds: [savedTrack.id] });
+    await settle();
+    document.querySelector<HTMLAudioElement>("audio")!.dispatchEvent(new Event("loadedmetadata"));
+    await settle();
+    for (let attempt = 0; attempt < 30 && !mocks.call.mock.calls.some(([command]) => command === "get_cached_stream_media_analysis"); attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+      await settle();
+    }
+    if (pendingLookup) {
+      expect(pendingCacheResolvers.length).toBeGreaterThan(0);
+      const callsBeforeRefresh = pendingCacheResolvers.length;
+      document.querySelector<HTMLAudioElement>("audio")!.dispatchEvent(new Event("playing"));
+      await settle();
+      expect(mocks.call.mock.calls.some(([command]) => command === "save_audio_match")).toBe(true);
+      await settle();
+      expect(pendingCacheResolvers.length).toBeGreaterThan(callsBeforeRefresh);
+      holdCache = false;
+      for (const resolve of pendingCacheResolvers) resolve(cached);
+      await settle();
+    }
+    await new Promise(resolve => setTimeout(resolve, 140));
+    await settle();
+    const inspectWaveform = async (requestId: string) => {
+      eventHandlers.get("automation-inspect-playback-layout")!({ event: "automation-inspect-playback-layout", id: 72,
+        payload: { requestId } });
+      await settle();
+      return lastCallOf("automation_layout_complete")?.[1] as { requestId?: string; layout?: { waveformDiagnostics?: Record<string, unknown> } } | undefined;
+    };
+    const beforeMetadataRefresh = await inspectWaveform("cached-waveform-before-metadata-refresh");
+    expect(beforeMetadataRefresh?.layout?.waveformDiagnostics).toMatchObject({ source: "stream-analysis", complete: true, populatedBins: 512 });
+    document.querySelector<HTMLAudioElement>("audio")!.dispatchEvent(new Event("playing"));
+    await settle();
+    expect(mocks.call.mock.calls.some(([command]) => command === "save_audio_match")).toBe(true);
+    await new Promise(resolve => setTimeout(resolve, 140));
+    await settle();
+    const result = await inspectWaveform("cached-stream-waveform-stays-full");
+    expect(result?.requestId).toBe("cached-stream-waveform-stays-full");
+    expect(result?.layout?.waveformDiagnostics, JSON.stringify({ diagnostics: result?.layout?.waveformDiagnostics,
+      cacheCalls: mocks.call.mock.calls.filter(([command]) => String(command).includes("stream_media")) })).toMatchObject({ source: "stream-analysis", complete: true, populatedBins: 512 });
+    expect(mocks.call).toHaveBeenCalledWith("get_cached_stream_media_analysis", expect.objectContaining({
+      audioVariant: expect.objectContaining({ formatId: "140", codec: "mp4a.40.2", expectedContentLength: 123456 }),
+    }));
+    // Deliberately keep returning the previous cache row after a format switch.
+    // The renderer must reject it even if a backend reply is stale.
+    playbackResolverResultOverride = {
+      candidate: youtubeCandidate(savedTrack),
+      preview: { kind: "audio", url: "/same-video-format18.mp4", canSeek: true, canVolume: true, canAutoplay: true,
+        isExcerpt: false, durationSeconds: 240, sourceGeneration: 72, normalizationRoute: "same-origin-relay",
+        audioMimeType: "audio/mp4", audioCodec: "mp4a.40.2", audioFormatId: "18", audioFormatHasVideo: true,
+        audioExpectedContentLength: 234567 },
+    };
+    await automationAction("same-video-new-format", "play", { trackIds: [savedTrack.id] });
+    await new Promise(resolve => setTimeout(resolve, 140));
+    await settle();
+    const changedFormat = await inspectWaveform("cached-waveform-format-change");
+    expect(changedFormat?.layout?.waveformDiagnostics).not.toMatchObject({ source: "stream-analysis", complete: true });
+  });
+
+  it("discards a pending waveform route upgrade after disable or playback source change", async () => {
+    previewMode = "fallback";
+    automationTrackLookup = [savedTrack, secondTrack];
+    playbackResolverCandidates = [youtubeCandidate(savedTrack), youtubeCandidate(secondTrack)];
+    // Simulate an already-running legacy direct route: newly resolved streams
+    // now request the observable route before playback starts.
+    const originalCall = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async (command, args) => {
+      const result = await originalCall(command, args);
+      if (command === "resolve_playback_track" && result?.preview) {
+        return { ...result, preview: { ...result.preview, normalizationRoute: undefined } };
+      }
+      return result;
+    });
+    let mediaTime = 35;
+    let mediaPlaying = false;
+    vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(240);
+    vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(4);
+    vi.spyOn(HTMLMediaElement.prototype, "currentTime", "get").mockImplementation(() => mediaTime);
+    vi.spyOn(HTMLMediaElement.prototype, "currentTime", "set").mockImplementation(value => { mediaTime = Number(value); });
+    vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockImplementation(() => !mediaPlaying);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(async function() { mediaPlaying = true; });
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(function() { mediaPlaying = false; });
+    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); };
+    await settle();
+    await automationAction("waveform-upgrade-cancel-start", "play", { trackIds: [savedTrack.id] });
+    await settle();
+
+    delayAudioCandidateId = "youtube:recording-1";
+    document.querySelector<HTMLButtonElement>('[aria-label="Waveform seek bar"]')!.click();
+    await settle();
+    const finishDisabledUpgrade = finishAudioResolve;
+    expect(finishDisabledUpgrade).toBeDefined();
+    document.querySelector<HTMLButtonElement>('[aria-label="Waveform seek bar"]')!.click();
+    finishDisabledUpgrade!({ kind: "audio", url: "/stale-waveform-relay.mp3", canSeek: true, canVolume: true, canAutoplay: true,
+      isExcerpt: false, provider: "youtube", sourceGeneration: 50, normalizationRoute: "same-origin-relay" } as Preview);
+    await new Promise(resolve => setTimeout(resolve, 20));
+    await settle();
+    expect(document.querySelector<HTMLButtonElement>('[aria-label="Waveform seek bar"]')?.getAttribute("aria-pressed")).toBe("false");
+    expect(mediaPlaying).toBe(true);
+
+    delayAudioCandidateId = "youtube:recording-1";
+    document.querySelector<HTMLButtonElement>('[aria-label="Waveform seek bar"]')!.click();
+    await settle();
+    const finishSourceChangedUpgrade = finishAudioResolve;
+    expect(finishSourceChangedUpgrade).toBeDefined();
+    const changed = await automationAction("waveform-upgrade-source-change", "play", { trackIds: [secondTrack.id] });
+    expect(changed.error).toBeNull();
+    finishSourceChangedUpgrade!({ kind: "audio", url: "/stale-waveform-relay.mp3", canSeek: true, canVolume: true, canAutoplay: true,
+      isExcerpt: false, provider: "youtube", sourceGeneration: 51, normalizationRoute: "same-origin-relay" } as Preview);
+    await new Promise(resolve => setTimeout(resolve, 20));
+    await settle();
+    expect(document.querySelector(".now-playing")?.textContent).toContain("Another Recording");
+    expect(document.querySelector("audio")?.getAttribute("src")).not.toContain("stale-waveform-relay");
+  });
+
+  it("resolves selected saved streaming sources on demand and previews source identity before applying", async () => {
+    const remoteTrack: Track = {
+      ...savedTrack, bpm: 110, key: "C",
+      provenance: { bpmSource: "catalog", keySource: "import", manualFields: { key: true } },
+    };
+    savedChartTracks = [remoteTrack];
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    const row = [...document.querySelectorAll(".shared-track-list > li")]
+      .find(item => item.textContent?.includes("Saved Recording"))!;
+    row.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await settle();
+    const libraryOptions = document.querySelector<HTMLDetailsElement>(".header-library-tools")!;
+    expect(document.querySelector('main > header .header-actions > [aria-label="Analyze selected streaming sources"]')).toBeNull();
+    expect(document.querySelector('main > header .header-actions > [aria-label="Analyze selected loudness"]')).toBeNull();
+    expect([...document.querySelectorAll<HTMLButtonElement>("main > header .header-actions > button")]
+      .some((button) => button.textContent?.includes("New playlist"))).toBe(true);
+    libraryOptions.querySelector("summary")!.click();
+    expect(libraryOptions.querySelector('[aria-label="Analyze selected loudness"]')?.getAttribute("title"))
+      .toContain("analysis does not rewrite audio");
+    const analyze = libraryOptions.querySelector<HTMLButtonElement>('[aria-label="Analyze selected streaming sources"]')!;
+    expect(analyze.title).toContain("Resolve verified streaming sources");
+    analyze.click();
+    await settle();
+    expect(mocks.call).toHaveBeenCalledWith("start_selected_stream_analysis", {
+      trackIds: [remoteTrack.id], fields: ["bpm", "key"],
+    });
+    expect(mocks.call).not.toHaveBeenCalledWith("enqueue_download", expect.anything());
+    expect(document.querySelector(".analysis-review")?.textContent).toContain("Verified source: youtube · stable-video-1");
+    expect(document.querySelector(".analysis-review")?.textContent).toContain("Audio isn’t saved, and existing BPM and key values are kept unless you choose to replace them.");
+    expect(document.querySelector(".analysis-review")?.textContent).toContain("Existing BPM will be kept");
+    expect(document.querySelector(".analysis-review")?.textContent).toContain("Existing key will be kept · marked manual");
+    document.querySelector<HTMLButtonElement>(".analysis-review button.primary")!.click();
+    await settle();
+    expect(selectedStreamAnalysisApplyCalls).toEqual([{
+      jobId: "selected-stream-analysis-1", trackId: remoteTrack.id,
+      selection: { fields: ["bpm", "key"], policies: { bpm: "fillMissing", key: "fillMissing" } },
+    }]);
+    expect(savedChartTracks[0]?.bpm).toBe(110);
+    expect(savedChartTracks[0]?.key).toBe("C");
+    expect(document.querySelector(".analysis-review")).toBeNull();
   });
 
   it("requires an explicit field selection before applying catalog metadata in the download sheet", async () => {
@@ -2713,7 +3582,7 @@ describe("saved recording navigation", () => {
       }
       return original(command, args);
     });
-    [...document.querySelectorAll<HTMLButtonElement>(".library-footer button")].find(button => button.textContent?.includes("Settings"))!.click();
+    [...document.querySelectorAll<HTMLButtonElement>(".sidebar-scroll-end button")].find(button => button.textContent?.includes("Settings"))!.click();
     await settle();
     deferSources = true;
     document.querySelector<HTMLButtonElement>('[aria-label="Go back"]')!.click();
@@ -3857,8 +4726,7 @@ describe("saved recording navigation", () => {
     unmountApp = () => { void unmount(instance); };
     await settle();
 
-    document.querySelector<HTMLButtonElement>('[aria-label="Downloads"]')!.click();
-    await settle();
+    await openDownloadActivityFromLibrary();
     const viewAll = document.querySelector<HTMLButtonElement>('[aria-label="View all downloads"]');
     expect(viewAll).not.toBeNull();
     viewAll!.click();
@@ -3915,9 +4783,7 @@ describe("saved recording navigation", () => {
     expect(document.querySelector(".playback-queue-panel")).not.toBeNull();
     expect(document.querySelector(".download-activity")).toBeNull();
 
-    [...document.querySelectorAll<HTMLButtonElement>(".library-footer button")]
-      .find((button) => button.textContent?.includes("Downloads"))!.click();
-    await settle();
+    await openDownloadActivityFromLibrary();
     expect(document.querySelector(".playing-info, .playback-queue-panel")).toBeNull();
     expect(document.querySelector(".download-activity")?.textContent).toContain("Saved Recording");
     expect(document.querySelector(".download-activity progress")?.getAttribute("value")).toBe("61");
@@ -4350,6 +5216,37 @@ describe("saved recording navigation", () => {
     expect(mocks.call).toHaveBeenCalledWith("automation_playback_complete", expect.objectContaining({requestId: "background-play", error: null, playback: expect.objectContaining({ paused: false, trackId: savedTrack.id })}));
   });
 
+  it("acknowledges an automated radio station start after display metadata is applied", async () => {
+    const station = { id: "fixture-radio", name: "Fixture Radio", provider: "custom", sourceUrl: "https://radio.example", streamUrl: "https://radio.example/live", isCustom: true };
+    const track: Track = {
+      ...savedTrack, id: "radio:fixture-radio", provider: "radio", providerId: station.id,
+      title: "Fixture Radio", artist: "", sourceUrl: station.sourceUrl,
+      provenance: { sourceKind: "radio", radioStationId: station.id },
+    };
+    radioStationState = [station];
+    savedChartTracks = [track];
+    localStorage.setItem("burrata.waveform-enabled.v1", "true");
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(function (this: HTMLMediaElement) {
+      Object.defineProperty(this, "paused", { configurable: true, value: false });
+      return Promise.resolve();
+    });
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+
+    const result = await automationAction("automated-radio-start", "play", { trackIds: [track.id] });
+    expect(result.error).toBeNull();
+    expect(document.querySelector('[aria-label="Waveform seek bar"]')).toBeNull();
+    expect(document.querySelector('[aria-label="Playback position, waveform"]')).toBeNull();
+    expect(document.querySelector('[aria-label="Playback position"]')).toBeNull();
+    expect(document.querySelector('.radio-live-label')?.textContent).toBe("Live radio");
+    expect(result.playback).toMatchObject({ trackId: track.id, status: "playing", paused: false });
+    expect(mocks.call).toHaveBeenCalledWith("automation_playback_complete", expect.objectContaining({
+      requestId: "automated-radio-start", error: null,
+      playback: expect.objectContaining({ trackId: track.id, status: "playing", paused: false }),
+    }));
+  });
+
   it("waits for audio recovery before acknowledging automation playback success", async () => {
     previewMode = "direct";
     let rejectDirectPlay!: (reason: Error) => void;
@@ -4647,6 +5544,110 @@ describe("saved recording navigation", () => {
     expect(mocks.call).toHaveBeenCalledWith("automation_playback_complete", expect.objectContaining({ requestId: "unsafe-uri", error: expect.stringContaining("OpenUri supports") }));
   });
 
+  it("refreshes an open track details panel after the successful history write finishes", async () => {
+    previewMode = "direct";
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const originalCall = mocks.call.getMockImplementation()!;
+    let finishHistoryWrite!: () => void;
+    let summaryReads = 0;
+    mocks.call.mockImplementation((command, args) => {
+      if (command === "record_playback") {
+        return new Promise(resolve => {
+          finishHistoryWrite = () => { void originalCall(command, args).then(resolve); };
+        });
+      }
+      if (command === "get_track_library_summary") {
+        const trackId = String(args?.trackId);
+        summaryReads++;
+        const rows = historyEntries.filter(item => item.track.id === trackId);
+        return Promise.resolve({
+          trackId, inLibrary: false, downloaded: false, playCount: rows.length,
+          playedAt: rows.map(item => item.playedAt), playedAtHasMore: false, playlists: [],
+        });
+      }
+      return originalCall(command, args);
+    });
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    document.querySelector<HTMLButtonElement>(`[aria-label="Play ${savedTrack.title}"]`)!.click();
+    await settle();
+    document.querySelector<HTMLAudioElement>("audio")!.dispatchEvent(new Event("playing"));
+    await settle();
+    expect(finishHistoryWrite).toBeTypeOf("function");
+
+    document.querySelector<HTMLButtonElement>('[aria-label="Show track details"]')!.click();
+    await settle(); await settle();
+    const playsCount = document.querySelector(".playing-info .plays-disclosure > summary strong");
+    expect(playsCount?.textContent).toBe("0");
+    const readsBeforeWrite = summaryReads;
+
+    finishHistoryWrite();
+    await settle(); await settle();
+    const refreshedPlaysCount = document.querySelector(".playing-info .plays-disclosure > summary strong");
+    expect(summaryReads).toBeGreaterThan(readsBeforeWrite);
+    expect(refreshedPlaysCount?.textContent).toBe("1");
+  });
+
+  it("refreshes open track details on native first audio and fences a stale owner", async () => {
+    const summaryCounts = new Map([[savedTrack.id, 0], [secondTrack.id, 0]]);
+    const originalCall = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation((command, args) => {
+      if (command === "get_track_library_summary") {
+        const trackId = String(args?.trackId), playCount = summaryCounts.get(trackId) ?? 0;
+        return Promise.resolve({ trackId, inLibrary: false, downloaded: false, playCount,
+          playedAt: [], playedAtHasMore: false, playlists: [] });
+      }
+      return originalCall(command, args);
+    });
+    const initial = makeNativeSnapshot({
+      revision: 1, generation: 41, status: "playing", paused: false, track: savedTrack,
+      trackId: savedTrack.id, entryId: "native-entry-a", queue: [savedTrack], currentIndex: 0,
+      diagnostics: { firstAudioMs: null, operationId: "native-operation-a" },
+    });
+    nativePlaybackSnapshot = initial;
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Show track details"]')!.click();
+    await settle(); await settle();
+    const readsBeforeStart = mocks.call.mock.calls.filter(([command]) => command === "get_track_library_summary").length;
+
+    // A first-audio owner event is followed by a bounded, delayed reread.
+    summaryCounts.set(savedTrack.id, 1);
+    const firstAudio = { ...initial, revision: 2, diagnostics: { firstAudioMs: 100, operationId: "native-operation-a" } };
+    eventHandlers.get("native-playback-state")?.({ event: "native-playback-state", id: 2, payload: firstAudio });
+    // Supersede the owner before its delayed query can land.
+    const next = makeNativeSnapshot({
+      revision: 3, generation: 42, status: "playing", paused: false, track: secondTrack,
+      trackId: secondTrack.id, entryId: "native-entry-b", queue: [secondTrack], currentIndex: 0,
+      diagnostics: { firstAudioMs: null, operationId: "native-operation-b" },
+    });
+    summaryCounts.set(secondTrack.id, 2);
+    eventHandlers.get("native-playback-state")?.({ event: "native-playback-state", id: 3, payload: next });
+    await new Promise(resolve => setTimeout(resolve, 240));
+    await settle();
+    expect(document.querySelector(".playing-info")?.textContent).toContain("Another Recording");
+    expect(document.querySelector(".playing-info")?.textContent).toContain("Plays2");
+    expect(mocks.call.mock.calls.filter(([command]) => command === "get_track_library_summary").length)
+      .toBeGreaterThan(readsBeforeStart);
+    expect(mocks.call.mock.calls.filter(([command, args]) =>
+      command === "get_track_library_summary" && args?.trackId === savedTrack.id,
+    )).toHaveLength(1);
+
+    const readsBeforeCurrentOwnerAudio = mocks.call.mock.calls.filter(([command]) => command === "get_track_library_summary").length;
+    summaryCounts.set(secondTrack.id, 3);
+    eventHandlers.get("native-playback-state")?.({
+      event: "native-playback-state", id: 4,
+      payload: { ...next, revision: 4, diagnostics: { firstAudioMs: 200, operationId: "native-operation-b" } },
+    });
+    await new Promise(resolve => setTimeout(resolve, 240));
+    await settle();
+    expect(mocks.call.mock.calls.filter(([command]) => command === "get_track_library_summary").length)
+      .toBeGreaterThan(readsBeforeCurrentOwnerAudio);
+    expect(document.querySelector(".playing-info")?.textContent).toContain("Plays3");
+  });
+
   it("records one successful listening session across pause and resume", async () => {
     previewMode = "direct";
     vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
@@ -4912,7 +5913,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    [...document.querySelectorAll<HTMLButtonElement>(".library-footer button")].find((button) => button.textContent?.includes("Settings"))!.click();
+    [...document.querySelectorAll<HTMLButtonElement>(".sidebar-scroll-end button")].find((button) => button.textContent?.includes("Settings"))!.click();
     await settle();
     [...document.querySelectorAll<HTMLButtonElement>(".settings-nav button")].find((button) => button.textContent?.trim() === "Playback")!.click();
     await settle();
@@ -5348,7 +6349,8 @@ describe("saved recording navigation", () => {
     const info = document.querySelector<HTMLElement>(".playing-info")!;
     const playlistActions = [...info.querySelectorAll<HTMLButtonElement>("button")].filter((button) => button.textContent?.trim() === "Add to playlist");
     expect(playlistActions).toHaveLength(1);
-    expect(info.querySelector("select")).toBeNull();
+    expect(info.querySelector('select[aria-label="Playback source preference"]')).not.toBeNull();
+    expect([...info.querySelectorAll("select")].some(select => [...select.options].some(option => option.textContent?.includes("Favorites")))).toBe(false);
     expect(document.querySelector("dialog.playlist-picker-dialog")).toBeNull();
     playlistActions[0]!.click();
     await settle();
@@ -5632,25 +6634,26 @@ describe("saved recording navigation", () => {
 
   it("saves independent fallback switches and source order without unrelated edits", async () => {
     configuredPreferredStreamingSource="monochrome";
+    streamingFallbackSources = ["youtube", "soundcloud", "bandcamp"];
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
-    [...document.querySelectorAll<HTMLButtonElement>(".library-footer button")].find(item=>item.textContent?.includes("Settings"))!.dispatchEvent(new MouseEvent("click",{bubbles:true}));await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".sidebar-scroll-end button")].find(item=>item.textContent?.includes("Settings"))!.dispatchEvent(new MouseEvent("click",{bubbles:true}));await settle();
     [...document.querySelectorAll<HTMLButtonElement>('.settings-nav button')].find(item=>item.textContent?.trim()==="Playback")!.click();await settle();
     const source=document.querySelector('[aria-label="Streaming fallback 1"]') as HTMLSelectElement;
     source.value="soundcloud";source.dispatchEvent(new Event("change",{bubbles:true}));await settle();
-    expect(streamingFallbackSources).toEqual(["soundcloud","youtube"]);
-    const off=document.querySelector('[aria-label="Enable streaming fallback"]') as HTMLInputElement;
+    expect(streamingFallbackSources).toEqual(["soundcloud","youtube","bandcamp"]);
+    const off=document.querySelector('[aria-label="Try another source if playback fails"]') as HTMLInputElement;
     off.checked=false;off.dispatchEvent(new Event("change",{bubbles:true}));await settle();
     expect(streamingFallbackEnabled).toBe(false);expect(source.disabled).toBe(true);
     [...document.querySelectorAll<HTMLButtonElement>('.settings-nav button')].find(item=>item.textContent?.trim()==="Downloads")!.click();await settle();
-    const downloads=document.querySelector('[aria-label="Enable download fallback"]') as HTMLInputElement;
+    const downloads=document.querySelector('[aria-label="Try another source if download fails"]') as HTMLInputElement;
     downloads.checked=true;downloads.dispatchEvent(new Event("change",{bubbles:true}));await settle();
     expect(downloadFallbackEnabled).toBe(true);expect(streamingFallbackEnabled).toBe(false);
-    expect((mocks.call.mock.calls.filter(([command])=>command==="save_settings").slice(-1)[0]![1] as {settings:Settings}).settings.streamingFallbackSources).toEqual(["soundcloud","youtube"]);
+    expect((mocks.call.mock.calls.filter(([command])=>command==="save_settings").slice(-1)[0]![1] as {settings:Settings}).settings).toMatchObject({streamingFallbackSources:["soundcloud","youtube","bandcamp"],streamingFallbackPolicyVersion:1,bandcampFallbackEnabled:true});
   });
 
   it("can disable saved-radio preparation without changing streaming fallback", async () => {
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
-    [...document.querySelectorAll<HTMLButtonElement>(".library-footer button")].find(item=>item.textContent?.includes("Settings"))!.click();await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".sidebar-scroll-end button")].find(item=>item.textContent?.includes("Settings"))!.click();await settle();
     [...document.querySelectorAll<HTMLButtonElement>('.settings-nav button')].find(item=>item.textContent?.trim()==="Playback")!.click();await settle();
     const preparation=document.querySelector<HTMLInputElement>('[aria-label="Prepare saved radio songs"]')!;
     expect(preparation.checked).toBe(true);
@@ -5659,10 +6662,116 @@ describe("saved recording navigation", () => {
     expect((save[1] as {settings:Settings}).settings).toMatchObject({backgroundSourcePreparation:false,streamingFallbackEnabled:true});
   });
 
+  it("defaults the compact playback bar off and persists the playback setting", async () => {
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    document.querySelector<HTMLButtonElement>(".sidebar-scroll-end button[aria-label='Settings']")?.click();
+    await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".settings-nav button")]
+      .find((item) => item.textContent?.trim() === "Playback")!.click();
+    await settle();
+    const compact = document.querySelector<HTMLInputElement>('[aria-label="Compact playback bar"]')!;
+    expect(compact.checked).toBe(false);
+    expect(compact.closest("label")?.textContent).toContain("Use a shorter player bar");
+    compact.checked = true;
+    compact.dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+    const saved = mocks.call.mock.calls.filter(([command]) => command === "save_settings").slice(-1)[0]!;
+    expect((saved[1] as { settings: Settings }).settings.compactPlaybackBar).toBe(true);
+    expect(document.querySelector("footer.player")?.classList.contains("compact")).toBe(true);
+  });
+
+  it("defaults M3U mirroring on for older settings, saves the global toggle, and links Library options back to it", async () => {
+    configuredPlaylistMirroringEnabled = undefined;
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    document.querySelector<HTMLButtonElement>(".sidebar-scroll-end button[aria-label='Settings']")?.click();
+    await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".settings-nav button")]
+      .find((item) => item.textContent?.trim() === "Library")!.click();
+    await settle();
+
+    const toggle = document.querySelector<HTMLInputElement>('[aria-label="Keep local M3U playlist copies"]')!;
+    expect(toggle.checked).toBe(true);
+    expect(toggle.closest("label")?.textContent).toContain("playlists, Liked Songs, and listening history as M3U8 files");
+    expect(toggle.closest("label")?.textContent).toContain("Manual playlist import and export remain available");
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+    const saved = mocks.call.mock.calls.filter(([command]) => command === "save_settings").slice(-1)[0]!;
+    expect((saved[1] as { settings: Settings }).settings.playlistMirroringEnabled).toBe(false);
+    expect(configuredPlaylistMirroringEnabled).toBe(false);
+
+    document.querySelector<HTMLButtonElement>('[aria-label="Library"]')!.click();
+    await settle();
+    document.querySelector<HTMLElement>('.library-tools summary[aria-label="Library options"]')!.click();
+    const mirroringLink = [...document.querySelectorAll<HTMLButtonElement>(".library-tools button")]
+      .find((item) => item.textContent?.includes("M3U mirroring is off"))!;
+    expect(mirroringLink).toBeDefined();
+    mirroringLink.click();
+    await settle();
+    expect(document.querySelector<HTMLInputElement>('[aria-label="Keep local M3U playlist copies"]')?.checked).toBe(false);
+  });
+
+  it("sets per-playlist M3U inclusion and link overrides, with a metadata-only warning and defaults reset", async () => {
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    document.querySelector<HTMLButtonElement>(".sidebar-scroll-end button[aria-label='Settings']")?.click();
+    await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".settings-nav button")]
+      .find((item) => item.textContent?.trim() === "Library")!.click();
+    await settle();
+    [...document.querySelectorAll<HTMLButtonElement>("button")]
+      .find((item) => item.textContent?.trim() === "Choose playlists…")!.click();
+    await settle();
+    const dialog = document.querySelector<HTMLDialogElement>('dialog[aria-label="Local M3U copy settings"]')!;
+    expect(dialog).not.toBeNull();
+    const playlist = dialog.querySelector<HTMLSelectElement>('[aria-label="Playlist for local M3U copy"]')!;
+    playlist.value = "collection-full";
+    playlist.dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+    expect(mocks.call).toHaveBeenCalledWith("get_playlist_mirror_options", { collectionId: "collection-full" });
+
+    const mediaLinks = dialog.querySelector<HTMLInputElement>('[aria-label="Include media links in this playlist copy"]')!;
+    expect(mediaLinks.checked).toBe(true);
+    mediaLinks.checked = false;
+    mediaLinks.dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+    expect(dialog.textContent).toContain("This copy will contain playlist metadata only");
+    const reset = [...dialog.querySelectorAll<HTMLButtonElement>("button")]
+      .find((item) => item.textContent?.trim() === "Use current defaults");
+    expect(reset).toBeDefined();
+    reset!.click();
+    await settle();
+    expect(dialog.querySelector<HTMLInputElement>('[aria-label="Include media links in this playlist copy"]')?.checked).toBe(true);
+    expect(dialog.textContent).not.toContain("This copy will contain playlist metadata only");
+    [...dialog.querySelectorAll<HTMLButtonElement>("button")]
+      .find((item) => item.textContent?.trim() === "Save playlist copy")!.click();
+    await settle();
+    const saved = mocks.call.mock.calls.filter(([command]) => command === "set_playlist_mirror_options").slice(-1)[0]!;
+    expect(saved[1]).toMatchObject({ collectionId: "collection-full", options: { included: true, includeMediaLinks: null, includeYtdlpSearch: null } });
+    dialog.querySelector<HTMLButtonElement>('[aria-label="Close local M3U settings"]')!.click();
+    document.querySelector<HTMLButtonElement>(".library-sidebar button[aria-label='Library']")!.click();
+    await settle();
+    expect(document.querySelector("main h1")?.textContent).toBe("Library");
+    const renderedPlaylist = importedPlaylistCard("Latest Saved Import") ?? collectionCard("Saved Collection");
+    expect(renderedPlaylist).toBeDefined();
+    renderedPlaylist.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 340, clientY: 200 }));
+    await settle();
+    const menu = document.querySelector<HTMLDialogElement>('dialog.playlist-menu[aria-label="Actions for playlist Saved Collection"]')!;
+    expect([...menu.querySelectorAll<HTMLButtonElement>("button")].some((button) => menuActionText(button) === "Local M3U copy…")).toBe(true);
+    [...menu.querySelectorAll<HTMLButtonElement>("button")].find((button) => menuActionText(button) === "Local M3U copy…")!.click();
+    await settle();
+    expect(document.querySelector<HTMLDialogElement>('dialog[aria-label="Local M3U copy settings"]')).not.toBeNull();
+  });
+
   it("saves playback preferences without saving an unfinished music-folder edit", async () => {
     configuredMusicDirectory="/saved/music";
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
-    [...document.querySelectorAll<HTMLButtonElement>(".library-footer button")].find(item=>item.textContent?.includes("Settings"))!.dispatchEvent(new MouseEvent("click",{bubbles:true}));await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".sidebar-scroll-end button")].find(item=>item.textContent?.includes("Settings"))!.dispatchEvent(new MouseEvent("click",{bubbles:true}));await settle();
     [...document.querySelectorAll<HTMLButtonElement>('.settings-nav button')].find(item=>item.textContent?.trim()==="Library")!.click();await settle();
     const folder=document.querySelector('input[placeholder="/home/you/Music/DJ"]') as HTMLInputElement;
     folder.value="/unsaved/music";folder.dispatchEvent(new Event("input",{bubbles:true}));
@@ -5680,7 +6789,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    [...document.querySelectorAll<HTMLButtonElement>(".library-footer button")].find((item) => item.textContent?.includes("Settings"))!
+    [...document.querySelectorAll<HTMLButtonElement>(".sidebar-scroll-end button")].find((item) => item.textContent?.includes("Settings"))!
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
     [...document.querySelectorAll<HTMLButtonElement>('.settings-nav button')].find((item) => item.textContent?.trim()==="Library")!.click();
@@ -5736,6 +6845,128 @@ describe("saved recording navigation", () => {
     expect(rows.length).toBe(2);
     expect(rows[0].textContent).toContain("First album song");
     expect(rows[1].textContent).toContain("Second album song");
+  });
+
+  it("keeps loudness analysis active when native cancellation rejects and allows a retry", async () => {
+    const localTrack: Track = { ...savedTrack, assetId: "asset-cancel", localPath: "/music/cancel.flac", localAvailability: "available" };
+    savedChartTracks = [localTrack];
+    savedAssets = [{ id: "asset-cancel", recordingId: localTrack.id, path: localTrack.localPath!, hash: "cancel-hash",
+      sourceCodec: "flac", finalCodec: "flac", processing: "ready", track: localTrack }];
+    const originalCall = mocks.call.getMockImplementation()!;
+    let rejectNextCancel = true;
+    mocks.call.mockImplementation(async (command, args) => {
+      if (command === "get_loudness_settings") return { mode: "track", targetLufs: -18, ceilingDbtp: -1,
+        maximumBoostDb: 6, albumTrackFallback: true, analyzeWhenIdle: false };
+      if (command === "start_loudness_analysis") return "loudness-cancel-job";
+      if (command === "get_loudness_analysis_status") return { jobId: "loudness-cancel-job", status: "running", total: 1, completed: 0, error: null };
+      if (command === "cancel_loudness_analysis") {
+        if (rejectNextCancel) { rejectNextCancel = false; throw new Error("worker is busy"); }
+        return undefined;
+      }
+      return originalCall(command, args);
+    });
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    [...document.querySelectorAll(".shared-track-list > li")].find(row => row.textContent?.includes("Saved Recording"))!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await settle();
+    const tools = document.querySelector<HTMLDetailsElement>(".header-library-tools")!;
+    tools.querySelector("summary")!.click();
+    tools.querySelector<HTMLButtonElement>('[aria-label="Analyze selected loudness"]')!.click();
+    await settle();
+    expect(mocks.call).toHaveBeenCalledWith("start_loudness_analysis", { assetIds: ["asset-cancel"] });
+    expect(document.body.textContent).toContain("Analyzing loudness…");
+
+    [...document.querySelectorAll<HTMLButtonElement>(".sidebar-scroll-end button")].find(button => button.textContent?.includes("Settings"))!.click();
+    await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".settings-nav button")].find(button => button.textContent?.trim() === "Playback")!.click();
+    await settle();
+    const analysisSection = document.querySelector<HTMLElement>('[aria-label="Selected loudness analysis"]')!;
+    const cancelButton = () => [...analysisSection.querySelectorAll<HTMLButtonElement>("button")]
+      .find(button => button.textContent?.trim() === "Cancel loudness analysis");
+    cancelButton()!.click();
+    await settle();
+    expect(analysisSection.textContent).toContain("Analyzing 0 of 1 selected tracks");
+    expect(analysisSection.textContent).toContain("still running because cancellation failed");
+    expect(cancelButton()).toBeDefined();
+    const pollsAfterFailure = mocks.call.mock.calls.filter(([command]) => command === "get_loudness_analysis_status").length;
+    await new Promise(resolve => setTimeout(resolve, 700));
+    await settle();
+    expect(mocks.call.mock.calls.filter(([command]) => command === "get_loudness_analysis_status").length).toBeGreaterThan(pollsAfterFailure);
+
+    cancelButton()!.click();
+    await settle();
+    expect(mocks.call.mock.calls.filter(([command]) => command === "cancel_loudness_analysis")).toHaveLength(2);
+    expect(analysisSection.textContent).toContain("Analysis paused");
+    expect(cancelButton()).toBeUndefined();
+  });
+
+  it("passes album loudness identity only for direct album playback occurrences", async () => {
+    previewMode = "direct";
+    const artist = { provider: "musicbrainz", id: "123e4567-e89b-12d3-a456-426614174000" } as const;
+    const release: ArtistReleaseRef = {
+      release: { provider: "musicbrainz", id: "223e4567-e89b-42d3-a456-426614174001" },
+      title: "Context Bound Album", year: 2024, primaryType: "Album", trackCount: 2,
+      sourceUrl: "https://musicbrainz.org/release/album-loudness-context", tracks: [],
+      credits: [{ name: "Visible Artist", role: "artist", artist, sourceUrl: `https://musicbrainz.org/artist/${artist.id}` }],
+    };
+    const albumTracks = [
+      { ...savedTrack, id: "album-context-one", title: "Album Context One", album: release.title, localAvailability: "available", localPath: "/music/album-one.flac" },
+      { ...savedTrack, id: "album-context-two", title: "Album Context Two", album: release.title, localAvailability: "available", localPath: "/music/album-two.flac" },
+    ];
+    discoveryAlbumTracks = albumTracks;
+    savedAssets = albumTracks.map((track, index) => ({
+      id: `album-asset-${index + 1}`, recordingId: track.id, path: track.localPath!, hash: String.fromCharCode(97 + index).repeat(64),
+      sourceCodec: "flac", finalCodec: "flac", processing: "ready", track,
+    }));
+    const albumResource = {
+      scope: "album" as const,
+      members: savedAssets.map(asset => ({ assetId: asset.id, fileHash: asset.hash, range: { startSeconds: 0, endSeconds: null } })),
+      interTrackGapsSeconds: [0], resourceKey: "f".repeat(64),
+    };
+    const originalCall = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async (command, args) => {
+      if (command === "get_artist_releases") return { artist, items: [release], nextCursor: null, warnings: [] };
+      if (command === "get_release_tracks") return albumTracks;
+      if (command === "get_loudness_settings") return { mode: "album", targetLufs: -18, ceilingDbtp: -1, maximumBoostDb: 6, albumTrackFallback: true, analyzeWhenIdle: false };
+      if (command === "set_loudness_album_context") return undefined;
+      if (command === "start_loudness_analysis") return "album-loudness-job";
+      if (command === "get_loudness_analysis_status") return { jobId: "album-loudness-job", status: "completed", total: 2, completed: 2, error: null, resource: albumResource };
+      if (command === "get_loudness_decision_for_asset") return { mode: "album", status: "applied", appliedGainDb: -2 };
+      if (command === "resolve_preview") {
+        const track = args?.track as Track;
+        const base = await originalCall(command, args) as Record<string, unknown>;
+        const asset = savedAssets.find(item => item.recordingId === track.id);
+        return asset ? { ...base, assetId: asset.id, normalizationRoute: "same-origin-relay" } : base;
+      }
+      return originalCall(command, args);
+    });
+
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    eventHandlers.get("automation-ui-navigation")!({
+      event: "automation-ui-navigation", id: 501,
+      payload: { requestId: "album-loudness-context", target: { kind: "catalog_release", catalogArtist: artist, catalogRelease: release.release } },
+    });
+    await settle(); await settle();
+    document.querySelector<HTMLButtonElement>(".album-loudness-analysis button")!.click();
+    await settle(); await settle();
+    expect(document.body.textContent).toContain("Play or queue this release to use its measured album gain.");
+    document.querySelector<HTMLButtonElement>(".hero-actions .primary")!.click();
+    await settle(); await settle();
+    const decisionCalls = () => mocks.call.mock.calls.filter(([command]) => command === "get_loudness_decision_for_asset");
+    expect(decisionCalls()).toContainEqual(["get_loudness_decision_for_asset", expect.objectContaining({
+      assetId: "album-asset-1", range: { startSeconds: 0, endSeconds: null }, albumResource,
+    })]);
+
+    // Clicking an individual release row starts normal track playback. Its
+    // occurrence must not inherit the analysed album resource.
+    document.querySelector<HTMLButtonElement>('[aria-label="Play Album Context Two"]')!.click();
+    await settle(); await settle();
+    const finalDecisionCall = decisionCalls()[decisionCalls().length - 1];
+    expect(finalDecisionCall?.[1]).toMatchObject({ assetId: "album-asset-2", albumResource: null });
   });
 
   it("continues the ArtistPage album queue after a middle recording has no WebView source", async () => {
@@ -7537,6 +8768,34 @@ describe("saved recording navigation", () => {
     expect(mocks.call.mock.calls.filter(([command])=>command==="resolve_preview")).toHaveLength(previewCallsBefore);
   });
 
+  it("retains healthy playback when the browser acknowledges a coarse seek landing", async () => {
+    vi.useFakeTimers();
+    previewMode="direct"; directPreviewExcerpt=false; savedChartTracks=[{...savedTrack,durationSeconds:155}];
+    automationPlaybackAck={protocolVersion:1,accepted:true,needFull:false};
+    vi.spyOn(HTMLMediaElement.prototype,"readyState","get").mockReturnValue(4);
+    vi.spyOn(HTMLMediaElement.prototype,"duration","get").mockReturnValue(155.364716553);
+    vi.spyOn(HTMLMediaElement.prototype,"paused","get").mockReturnValue(false);
+    vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
+    const complete=vi.spyOn(WebviewSeekCompletionWatchdog.prototype,"complete");
+    const instance=mount(App,{target:document.body}); unmountApp=()=>{void unmount(instance);}; await settle();
+    expect((await automationAction("delayed-seek-start","play",{trackIds:[savedTrack.id]})).error).toBeNull();
+    expect((await automationAction("delayed-seek","seek",{position:80})).error).toBeNull();
+    const sourceCalls=mocks.call.mock.calls.filter(([command])=>command==="resolve_playback_track"||command==="resolve_preview").length;
+    await vi.advanceTimersByTimeAsync(5);
+    const audio=document.querySelector("audio")!;
+    audio.currentTime=81.037641723; audio.dispatchEvent(new Event("seeked")); await settle();
+    expect(complete).toHaveBeenCalledTimes(1);
+    for (let second=1; second<=21; second++) {
+      audio.currentTime=81.037641723+second;
+      audio.dispatchEvent(new Event("timeupdate"));
+      await vi.advanceTimersByTimeAsync(1_000); await settle();
+    }
+    expect(mocks.call.mock.calls.filter(([command])=>command==="resolve_playback_track"||command==="resolve_preview")).toHaveLength(sourceCalls);
+    expect(mocks.call.mock.calls.some(([command])=>command==="handoff_webview_playback")).toBe(false);
+    expect(document.querySelector(".player-error")).toBeNull();
+  });
+
   it("hands a long YouTube seek media error to native playback with the same candidate and queue occurrences", async () => {
     vi.useFakeTimers();
     let mediaNodePaused=false;
@@ -7567,6 +8826,73 @@ describe("saved recording navigation", () => {
     expect(nativePlaybackSnapshot?.handoffId).toBe(handoff?.handoffId);
     expect(nativePlaybackSnapshot?.position).toBe(1_800);
     expect(mocks.call.mock.calls.filter(([command])=>command==="resolve_playback_track")).toHaveLength(existingResolutionCount);
+  });
+
+  it("settles a saved-position startup only after its owned native handoff and retires the stale WebView node", async () => {
+    vi.useFakeTimers();
+    let mediaReadyState = 0, mediaDuration = Number.NaN, mediaPaused = true;
+    const track = handoffYoutubeTrack();
+    const candidate = handoffYoutubeCandidate(track);
+    const local = new Map<string, string>([
+      ["burrata.playback-queue.v1", JSON.stringify({ tracks: [track], currentIndex: 0, repeat: "off" })],
+      ["burrata.playback-position.v1", JSON.stringify({ trackId: track.id, position: 349.437, savedAt: Date.now() })],
+    ]);
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => local.get(key) ?? null,
+      setItem: (key: string, value: string) => local.set(key, value),
+      removeItem: (key: string) => local.delete(key),
+    });
+    savedChartTracks = [track]; playbackResolverCandidate = candidate; previewMode = "fallback";
+    nativeHandoffDelay = true; nativeHandoffEventBeforeResponse = true;
+    automationPlaybackAck = { protocolVersion: 1, accepted: true, needFull: false };
+    nativePlaybackSnapshot = makeNativeSnapshot({ engine: "webview" });
+    vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockImplementation(() => mediaReadyState);
+    vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockImplementation(() => mediaDuration);
+    vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockImplementation(() => mediaPaused);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(function(this: HTMLMediaElement) {
+      mediaPaused = false;
+      this.dispatchEvent(new Event("playing"));
+      return Promise.resolve();
+    });
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => { mediaPaused = true; });
+
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    expect(document.querySelector<HTMLElement>(".player-status")?.title).toContain("Ready to resume from 5:49");
+    document.querySelector<HTMLButtonElement>('.play-button[aria-label="Play"]')!.click();
+    await settle();
+    expect(mocks.call.mock.calls.some(([command]) => command === "resolve_playback_track")).toBe(true);
+    const oldAudio = document.querySelector<HTMLAudioElement>("audio")!;
+    mediaReadyState = 1; mediaDuration = 1.416;
+    oldAudio.dispatchEvent(new Event("loadedmetadata"));
+    await settle();
+    // Reproduce WebKit's optimistic assignment followed by a short metadata
+    // timeline resetting to the beginning while the long range is still loading.
+    oldAudio.currentTime = 1.416;
+    mediaReadyState = 4;
+    mediaDuration = 1.416;
+    await vi.advanceTimersByTimeAsync(5_000);
+    await settle();
+
+    const handoff = (mocks.call.mock.calls.find(([command]) => command === "handoff_webview_playback")?.[1] as { handoff?: WebviewPlaybackHandoff } | undefined)?.handoff;
+    expect(handoff, JSON.stringify({ calls: mocks.call.mock.calls.filter(([command]) => ["resolve_playback_track", "handoff_webview_playback", "automation_playback_state"].includes(String(command))), status: document.querySelector<HTMLElement>(".player-status")?.textContent, error: document.querySelector<HTMLElement>(".player-error")?.textContent })).toMatchObject({ targetPosition: 349.437, paused: false, candidate: { id: candidate.id }, entryId: expect.any(String) });
+    expect(nativePlaybackSnapshot).toMatchObject({ engine: "native", handoffId: handoff?.handoffId, trackId: track.id, entryId: handoff?.entryId, position: 349.437 });
+    expect(finishNativeHandoff).toBeTypeOf("function");
+    expect(oldAudio.getAttribute("src")).toBeNull();
+    expect(oldAudio.paused).toBe(true);
+    expect(oldAudio.volume).toBe(0);
+    // The native state event is authoritative even when the RPC response is
+    // delayed past the original startup deadline. It must not trigger a retry.
+    await vi.advanceTimersByTimeAsync(20_000);
+    await settle();
+    expect(mocks.call.mock.calls.filter(([command]) => command === "resolve_playback_track")).toHaveLength(1);
+    expect(document.querySelector(".player-error")).toBeNull();
+    finishNativeHandoff!();
+    await settle();
+    expect(mocks.call.mock.calls.filter(([command]) => command === "resolve_playback_track"), JSON.stringify(mocks.call.mock.calls.filter(([command]) => command === "resolve_playback_track"))).toHaveLength(1);
+    expect(document.querySelector(".player-error")).toBeNull();
+    expect(document.querySelector<HTMLElement>(".player-status")?.textContent).not.toContain("could not resume");
   });
 
   it("hands off a stalled eligible seek after five seconds and applies a newer seek safely", async () => {
@@ -8483,6 +9809,32 @@ describe("saved recording navigation", () => {
     expect(document.querySelector(".player-status")?.textContent).toContain("Playing");
   });
 
+  it("never reconnects a saved radio-identified recording to its origin station after audio fails", async () => {
+    previewMode = "direct";
+    const song: Track = { ...savedTrack, id: "radio_song:saved-recording", provider: "radio_song", providerId: "saved-recording",
+      sourceUrl: "", durationSeconds: 240,
+      provenance: { sourceKind: "radioSong", radioStationId: "main", radioStationName: "Origin station" } };
+    savedChartTracks = [song];
+    radioStationState = [{ id: "main", name: "Origin station", streamUrl: "https://radio.example/live",
+      sourceUrl: "https://radio.example", provider: "custom", isCustom: true }];
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    [...document.querySelectorAll(".shared-track-list > li")].find(row => row.textContent?.includes("Saved Recording"))!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await settle();
+    const originalAudio = document.querySelector("audio")!;
+    originalAudio.dispatchEvent(new Event("error"));
+    await settle();
+    expect(mocks.call.mock.calls.some(([command]) => command === "resolve_radio_station_playback_url")).toBe(false);
+    const resolutions = mocks.call.mock.calls.filter(([command]) => command === "resolve_playback_track");
+    expect(resolutions).toHaveLength(1);
+    expect(resolutions[0][1]).toMatchObject({ track: expect.objectContaining({ id: song.id, provider: "radio_song" }) });
+    expect(document.querySelector(".player-track-title")?.textContent).toContain(song.title);
+    expect(document.querySelector("audio")?.src).not.toContain("radio.example");
+  });
+
   it("discovers an alternative when cached audio fails after playback starts", async () => {
     previewMode = "direct";
     vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
@@ -8724,6 +10076,297 @@ describe("native playback frontend", () => {
     expect(mocks.call.mock.calls.some(([command]) => command === "play_tracks" || command === "resolve_preview")).toBe(false);
   }
 
+  it("shows a camelCase cached stream estimate and rejects stale track or generation results", async () => {
+    const track: Track = { ...savedTrack, id: "bandcamp-recording-2039312545", durationSeconds: 162.891 };
+    const candidate: Candidate = {
+      ...youtubeCandidate(track), id: "bandcamp:2039312545", provider: "bandcamp",
+      title: "Amynedd Dingle Dell", uploader: "Amynedd", durationSeconds: 162.891,
+    };
+    const cached = {
+      schemaVersion: 1,
+      analyzerVersion: "burrata-whole-track-analysis-v1-bpm-v4-keyfinder-2.2.8",
+      resource: {
+        kind: "stream" as const,
+        recordingId: track.id,
+        provider: "bandcamp",
+        sourceIdentitySha256: "e".repeat(64),
+      },
+      durationSeconds: 162.891,
+      scope: "wholeTrack" as const,
+      coverage: 1.0000026,
+      measuredAt: "2026-10-26T00:18:06.348396951Z",
+      bpm: { bpm: 95.1, confidence: 0.48, relatedTempoAlternativeBpm: null },
+      key: null,
+    };
+    const originalCall = mocks.call.getMockImplementation()!;
+    let resolveStaleGeneration: ((value: unknown) => void) | undefined;
+    mocks.call.mockImplementation(async (command, args) => {
+      if (command === "get_cached_stream_analysis") {
+        if (args?.trackId === track.id && args?.generation === 9) return cached;
+        if (args?.trackId === track.id && args?.generation === 10) {
+          return new Promise(resolve => { resolveStaleGeneration = resolve; });
+        }
+        // Simulate a delayed old-record reply for another track. The frontend
+        // must keep its owner fence even if an IPC response is stale/misbound.
+        return cached;
+      }
+      return originalCall(command, args);
+    });
+
+    const first = makeNativeSnapshot({
+      revision: 1, generation: 9, status: "playing", paused: false,
+      track, trackId: track.id, candidate, queue: [track], currentIndex: 0,
+      duration: 162.891, volume: 0,
+    });
+    mountNative(first);
+    await settle();
+    expect(mocks.call).toHaveBeenCalledWith("get_cached_stream_analysis", { trackId: track.id, generation: 9 });
+    expect(document.querySelector("footer.player")?.textContent).not.toContain("Whole-track analysis");
+    expect(document.querySelector("footer.player")?.textContent).not.toContain("95.1 BPM");
+
+    emitNative({ ...first, revision: 2, generation: 10 });
+    await settle();
+    expect(resolveStaleGeneration).toBeDefined();
+    const otherTrack: Track = { ...track, id: "different-stream-recording" };
+    emitNative({
+      ...first, revision: 3, generation: 11, track: otherTrack, trackId: otherTrack.id,
+      candidate: { ...candidate, id: "bandcamp:another-recording" }, queue: [otherTrack],
+    });
+    await settle();
+    resolveStaleGeneration!(cached);
+    await settle();
+    expect(mocks.call).toHaveBeenCalledWith("get_cached_stream_analysis", { trackId: otherTrack.id, generation: 11 });
+    expect(document.querySelector(".now-playing")?.textContent).not.toContain("95.1 BPM");
+    expectNoPlaybackStart();
+  });
+
+  it("keeps a deferred stream-cache lookup alive across same-owner position snapshots", async () => {
+    const track: Track = { ...savedTrack, id: "stream-cache-position-track", durationSeconds: 162.891 };
+    const candidate: Candidate = {
+      ...youtubeCandidate(track), id: "bandcamp:2039312545", provider: "bandcamp",
+      title: "Amynedd Dingle Dell", uploader: "Amynedd", durationSeconds: 162.891,
+    };
+    const cached = {
+      schemaVersion: 1,
+      analyzerVersion: "burrata-whole-track-analysis-v1-bpm-v4-keyfinder-2.2.8",
+      resource: {
+        kind: "stream" as const, recordingId: track.id, provider: "bandcamp",
+        sourceIdentitySha256: "e".repeat(64),
+      },
+      durationSeconds: 162.891, scope: "wholeTrack" as const, coverage: 1,
+      measuredAt: "2026-10-26T00:18:06.348396951Z",
+      bpm: { bpm: 95.1, confidence: 0.48, relatedTempoAlternativeBpm: null }, key: null,
+    };
+    const originalCall = mocks.call.getMockImplementation()!;
+    let resolveCache: ((value: unknown) => void) | undefined;
+    let cacheCalls = 0;
+    mocks.call.mockImplementation(async (command, args) => {
+      if (command === "get_cached_stream_analysis") {
+        cacheCalls++;
+        expect(args).toEqual({ trackId: track.id, generation: 22 });
+        return new Promise(resolve => { resolveCache = resolve; });
+      }
+      return originalCall(command, args);
+    });
+
+    const initial = makeNativeSnapshot({
+      revision: 1, generation: 22, status: "playing", paused: false,
+      track, trackId: track.id, candidate, queue: [track], currentIndex: 0,
+      duration: 162.891, volume: 0, position: 0,
+    });
+    mountNative(initial);
+    await settle();
+    const settledOwnerCallCount = cacheCalls;
+    expect(settledOwnerCallCount).toBeGreaterThan(0);
+    expect(resolveCache).toBeDefined();
+
+    for (const [index, position] of [1, 2, 3, 4].entries()) {
+      emitNative({ ...initial, revision: index + 2, position });
+      await settle();
+    }
+    expect(cacheCalls).toBe(settledOwnerCallCount);
+    resolveCache!(cached);
+    await settle();
+    expect(document.querySelector("footer.player")?.textContent).not.toContain("Whole-track analysis");
+    expect(document.querySelector("footer.player")?.textContent).not.toContain("95.1 BPM");
+    expectNoPlaybackStart();
+  });
+
+  it("automatically loads the complete local waveform and displays a cached key without applying metadata", async () => {
+    const hash = "c".repeat(64);
+    const track: Track = {...savedTrack,id:"automatic-waveform-track",provider:"local",providerId:"automatic-waveform-track",
+      sourceUrl:"local:automatic-waveform-track",localPath:"/music/whole.mp3",assetId:"automatic-waveform-asset",durationSeconds:180,bpm:124,key:undefined};
+    const asset: LocalAsset = {id:track.assetId!,recordingId:track.id,path:track.localPath!,hash,sourceCodec:"mp3",finalCodec:"mp3",durationSeconds:180,processing:"ready",track};
+    savedAssets=[asset]; selectedAnalysisInitialState="completed";
+    const bins=Array.from({length:1200},()=>({min:-.02,max:.025}));
+    const originalCall=mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation((command,args)=>{
+      if(command==="get_asset_by_id")return asset;
+      if(command==="get_local_waveform_analysis")return {assetId:asset.id,fileHash:hash,analyzerVersion:"ffmpeg-mono-peaks-8khz-v1",durationSeconds:180,bins,complete:true,scope:"wholeTrack"};
+      if(command==="get_playback_waveform")return null;
+      return originalCall(command,args);
+    });
+    localStorage.setItem("burrata.waveform-enabled.v1","true");
+    mountNative(makeNativeSnapshot({revision:1,generation:30,status:"playing",paused:false,trackId:track.id,track,queue:[track],currentIndex:0,duration:180,volume:0,
+      quality:{sourceKind:"localAsset",assetId:asset.id}}));
+    for(let i=0;i<20&&!document.querySelector('.waveform-status')?.textContent?.includes("Full audio waveform");i++)await settle();
+    expect(document.querySelectorAll('.waveform rect')).toHaveLength(1200);
+    expect(document.querySelector('.waveform-status')?.textContent).toContain("Full audio waveform");
+    expect(mocks.call).toHaveBeenCalledWith("get_local_waveform_analysis",expect.objectContaining({assetId:asset.id,expectedHash:hash}));
+    document.querySelector<HTMLButtonElement>('[aria-label="Show track details"]')!.click();
+    await settle();await settle();
+    const keyLabel=[...document.querySelectorAll("dt")].find(node=>node.textContent==="Key");
+    expect(keyLabel?.nextElementSibling?.textContent).toContain("Am");
+    expect(keyLabel?.nextElementSibling?.textContent).toContain("estimated from audio");
+    expect(mocks.call).toHaveBeenCalledWith("start_selected_asset_analysis",{assetIds:[asset.id],fields:["key"]});
+    expect(mocks.call.mock.calls.some(([command])=>command==="apply_selected_asset_analysis")).toBe(false);
+    expect(savedAssets[0]?.track.key).toBeUndefined();
+  });
+
+  it("rebinds a verified full local waveform after seek generations and clears it for another asset", async () => {
+    const track: Track = {
+      ...savedTrack, id: "waveform-local-track", provider: "local", providerId: "waveform-local-track",
+      sourceUrl: "local:waveform-local-track", localPath: "/music/waveform.wav", localAvailability: "available",
+      assetId: "waveform-asset-a", durationSeconds: 20,
+    };
+    const hashA = "a".repeat(64), hashB = "b".repeat(64);
+    const assetA: LocalAsset = { id: "waveform-asset-a", recordingId: track.id, path: track.localPath!, hash: hashA, sourceCodec: "wav", finalCodec: "wav", durationSeconds: 20, processing: "ready", track };
+    const assetB: LocalAsset = { ...assetA, id: "waveform-asset-b", path: "/music/waveform-copy.wav", hash: hashB };
+    savedAssets = [assetA, assetB];
+    const bins = Array.from({ length: 1200 }, () => ({ min: -0.25, max: 0.35 }));
+    const cachedRecord = (asset: LocalAsset) => ({
+      assetId: asset.id, fileHash: asset.hash, analyzerVersion: "ffmpeg-mono-peaks-8khz-v1",
+      durationSeconds: 20, bins, complete: true, scope: "wholeTrack" as const,
+    });
+    const originalCall = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async (command, args) => {
+      if (command === "get_asset_by_id") return savedAssets.find(asset => asset.id === args?.assetId) ?? null;
+      if (command === "get_local_waveform_analysis") {
+        const asset = savedAssets.find(item => item.id === args?.assetId);
+        return asset && args?.expectedHash === asset.hash ? cachedRecord(asset) : null;
+      }
+      if (command === "get_playback_waveform") return null;
+      return originalCall(command, args);
+    });
+    localStorage.setItem("burrata.waveform-enabled.v1", "true");
+    const snapshot = makeNativeSnapshot({
+      revision: 1, generation: 10, status: "paused", paused: true, trackId: track.id, track,
+      queue: [track], currentIndex: 0, duration: 20, canSeek: true, volume: 0,
+      quality: { sourceKind: "localAsset", assetId: assetA.id },
+    });
+    mountNative(snapshot);
+    await settle();
+    const toggle = document.querySelector<HTMLButtonElement>('[aria-label="Waveform seek bar"]')!;
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    eventHandlers.get("automation-ui-navigation")!({event:"automation-ui-navigation",id:1,payload:{
+      requestId:"local-waveform-settings",target:{kind:"view",view:"settings",settingsCategory:"playback"},
+    }});
+    await settle(); await settle();
+    const fullWaveButton = document.querySelector<HTMLButtonElement>('[aria-label="Analyze full local waveform"]')!;
+    fullWaveButton.click();
+    for (let attempt = 0; attempt < 20 && !document.querySelector(".waveform-status")?.textContent?.includes("Full audio waveform"); attempt += 1) await settle();
+    expect(document.querySelector(".waveform-status")?.textContent).toContain("Full audio waveform");
+    expect(document.querySelectorAll(".waveform rect")).toHaveLength(1200);
+
+    const range = document.querySelector<HTMLInputElement>('[aria-label="Playback position, waveform"]')!;
+    range.value = "8";
+    range.dispatchEvent(new Event("input", { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 180));
+    await settle();
+    expect(mocks.call).toHaveBeenCalledWith("playback_command", expect.objectContaining({ command: expect.objectContaining({ action: "seek", position: 8 }) }));
+    emitNative({ ...snapshot, revision: 2, generation: 11, seekSerial: 1, position: 8 });
+    for (let attempt = 0; attempt < 20 && (mocks.call.mock.calls.filter(([command, args]) => command === "get_local_waveform_analysis" && (args as Record<string, unknown>)?.assetId === assetA.id).length < 2 || !document.querySelector(".waveform-status")?.textContent?.includes("Full audio waveform")); attempt += 1) await settle();
+    expect(document.querySelector(".waveform-status")?.textContent).toContain("Full audio waveform");
+    expect(document.querySelectorAll(".waveform rect")).toHaveLength(1200);
+    expect(mocks.call.mock.calls.filter(([command, args]) => command === "get_local_waveform_analysis" && (args as Record<string, unknown>)?.assetId === assetA.id).length).toBeGreaterThanOrEqual(2);
+
+    savedAssets = savedAssets.map(asset => asset.id === assetA.id ? { ...asset, hash: "c".repeat(64) } : asset);
+    emitNative({ ...snapshot, revision: 3, generation: 12, track, quality: { sourceKind: "localAsset", assetId: assetA.id } });
+    await settle();
+    expect(document.querySelectorAll(".waveform rect")).toHaveLength(0);
+    expect(document.querySelector(".waveform-status")?.textContent).toContain("Standard seek bar shown");
+    expect(document.querySelector('[aria-label="Playback position"]')).not.toBeNull();
+    expect(mocks.call.mock.calls.filter(([command, args]) => command === "get_local_waveform_analysis" && (args as Record<string, unknown>)?.assetId === assetA.id)).toHaveLength(2);
+
+    emitNative({ ...snapshot, revision: 4, generation: 13, track, quality: { sourceKind: "localAsset", assetId: assetB.id } });
+    await settle();
+    expect(document.querySelectorAll(".waveform rect")).toHaveLength(0);
+    expect(document.querySelector(".waveform-status")?.textContent).toContain("Standard seek bar shown");
+    expect(document.querySelector('[aria-label="Playback position"]')).not.toBeNull();
+    expect(mocks.call.mock.calls.some(([command, args]) => command === "get_local_waveform_analysis" && (args as Record<string, unknown>)?.assetId === assetB.id)).toBe(false);
+  });
+
+  it("retries open lyrics when the decoder supplies an imported track's missing duration", async () => {
+    const originalCall = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async (command,args) => {
+      if(command === "get_current_track_lyrics") {
+        const visible = args?.visibleTrack as {durationSeconds?:number} | undefined;
+        return visible?.durationSeconds === 241.92
+          ? {status:"unsynced",provider:"lrclib",plainLyrics:"Synthetic current lyric",lines:[{id:"line-1",timeSeconds:null,text:"Synthetic current lyric"}]}
+          : {status:"noCurrentTrack",provider:"lrclib"};
+      }
+      return originalCall(command,args);
+    });
+    const track = {...savedTrack,durationSeconds:null};
+    const snapshot = makeNativeSnapshot({status:"playing",paused:false,track,trackId:track.id,queue:[track],currentIndex:0,duration:0});
+    mountNative(snapshot); await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Open fullscreen lyrics"]')!.click(); await settle();
+    expect(document.body.textContent).toContain("No current full-track metadata");
+    emitNative({...snapshot,revision:2,duration:241.92}); await settle();
+    expect(document.body.textContent).toContain("Synthetic current lyric");
+    expect(document.body.textContent).not.toContain("No current full-track metadata");
+    expect(track.durationSeconds).toBeNull();
+    expectNoPlaybackStart();
+  });
+
+  it("shows native stream BPM with the native seek counter instead of the WebView counter", async () => {
+    const originalCall = mocks.call.getMockImplementation()!;
+    let estimateSeek = 7;
+    mocks.call.mockImplementation(async (command, args) => {
+      if (command === "get_settings") return { ...await originalCall(command, args), liveBpmEnabled: true };
+      if (command === "get_live_playback_estimates") return {
+        bpm: { generation: 35, seekSerial: estimateSeek, trackId: savedTrack.id, bpm: 84.6, confidence: .36, windowSeconds: 10 },
+        key: { generation: 35, seekSerial: estimateSeek, trackId: savedTrack.id, key: "Am", profileFit: .34, profileMargin: .08, windowSeconds: 10 },
+      };
+      return originalCall(command, args);
+    });
+    const snapshot = makeNativeSnapshot({ generation: 35, seekSerial: 7, status: "playing", paused: false, track: savedTrack, trackId: savedTrack.id, queue: [savedTrack], currentIndex: 0 });
+    mountNative(snapshot); await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Show track details"]')!.click(); await settle();
+    expect(document.querySelector(".playing-info .live-bpm")?.textContent).toContain("84.6 BPM");
+    expect(document.querySelector(".playing-info")?.textContent).toContain("Live keyAm · recent window");
+    // A new native seek must invalidate the old window, even when the WebView
+    // counter has not changed. Stale estimates cannot be shown for that seek.
+    emitNative({ ...snapshot, revision: 2, seekSerial: 8 }); await settle();
+    expect(document.querySelector(".playing-info .live-bpm")?.textContent).not.toContain("84.6 BPM");
+    expect(document.querySelector(".playing-info")?.textContent).not.toContain("Live keyAm");
+    estimateSeek = 9;
+    emitNative({ ...snapshot, revision: 3, seekSerial: 9 }); await settle();
+    expect(document.querySelector(".playing-info .live-bpm")?.textContent).toContain("84.6 BPM");
+    expect(document.querySelector(".playing-info")?.textContent).toContain("Live keyAm · recent window");
+    expectNoPlaybackStart();
+  });
+
+  it("shows a qualified live key when the same PCM window has no live BPM estimate", async () => {
+    const originalCall = mocks.call.getMockImplementation()!;
+    const track = { ...savedTrack, key: "C" };
+    mocks.call.mockImplementation(async (command, args) => {
+      if (command === "get_settings") return { ...await originalCall(command, args), liveBpmEnabled: true };
+      if (command === "get_live_playback_estimates") return {
+        bpm: null,
+        key: { generation: 36, seekSerial: 0, trackId: track.id, key: "Am", profileFit: .34, profileMargin: .08, windowSeconds: 10 },
+      };
+      return originalCall(command, args);
+    });
+    mountNative(makeNativeSnapshot({ generation: 36, seekSerial: 0, status: "playing", paused: false, track, trackId: track.id, queue: [track], currentIndex: 0 }));
+    await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Show track details"]')!.click(); await settle();
+    expect(document.querySelector(".playing-info")?.textContent).toContain("Live keyAm · recent window");
+    expect(document.querySelector(".playing-info")?.textContent).toContain("KeyC");
+    expect(document.querySelector(".playing-info")?.textContent).not.toContain("84.6 BPM");
+    expectNoPlaybackStart();
+  });
+
   it("keeps the approximate album excerpt caption for a native asset-backed playback", async () => {
     const excerpt = {
       schemaVersion: 1, policy: "flexible", evaluatorVersion: "1", relationship: "probable",
@@ -8829,7 +10472,8 @@ describe("native playback frontend", () => {
     const status = () => currentRows()[0]?.querySelector<HTMLElement>(".table-playback-state");
     expect(currentRows()).toHaveLength(1);
     expect(currentRows()[0]?.textContent).toContain(savedTrack.title);
-    expect(status()?.textContent).toBe("♫");
+    expect(status()?.querySelector(".playback-playing-icon")).not.toBeNull();
+    expect(document.querySelector("footer.player .play-button-loading-ring")).toBeNull();
     expect(status()?.getAttribute("aria-label")).toBe(`Playing ${savedTrack.title}`);
     const playControl = () => currentRows()[0]?.querySelector<HTMLButtonElement>(".position-play");
     expect(playControl()?.getAttribute("aria-label")).toBe(`Play ${savedTrack.title}`);
@@ -8848,16 +10492,21 @@ describe("native playback frontend", () => {
     const buffering = { ...initial, revision: 72, status: "buffering" as const, paused: false, playerMessage: "Buffering audio…" };
     emitNative(buffering); await settle();
     expect(currentRows()).toHaveLength(1);
-    expect(status()?.textContent).toBe("…");
+    expect(playControl()?.querySelector("svg.buffering-spinner")).not.toBeNull();
     expect(status()?.getAttribute("aria-label")).toBe(`Buffering ${savedTrack.title}`);
     expect(playControl()?.classList.contains("buffering")).toBe(true);
     expect(playControl()?.getAttribute("aria-busy")).toBe("true");
+    expect(document.querySelector("footer.player .play-button-loading-ring")).not.toBeNull();
     const unrelatedSameTitle = [...document.querySelectorAll<HTMLLIElement>(".shared-track-list > li:not(.virtual-spacer)")].find(row => row.getAttribute("aria-current") !== "true");
     expect(unrelatedSameTitle?.querySelector<HTMLButtonElement>(".position-play")?.getAttribute("aria-busy")).toBe("false");
 
+    emitNative({ ...buffering, revision: 73, status: "playing", paused: false, playerMessage: "Playing" }); await settle();
+    expect(document.querySelector("footer.player .play-button-loading-ring")).toBeNull();
+    expect(currentRows()[0]?.querySelector(".playback-playing-icon")).not.toBeNull();
+
     const unknownRange = { parentTrackId: "same-id-parent", chapterId: "part", sourceUrl: "https://example.test/mix", startTime: 30, endTime: 60, parentTitle: "Unknown range" };
     const unknownPlaybackIdentity = { ...savedTrack, playbackRange: unknownRange };
-    emitNative({ ...initial, revision: 73, status: "playing", paused: false, track: unknownPlaybackIdentity, trackId: unknownPlaybackIdentity.id, queue: [unknownPlaybackIdentity] }); await settle();
+    emitNative({ ...initial, revision: 74, status: "playing", paused: false, track: unknownPlaybackIdentity, trackId: unknownPlaybackIdentity.id, queue: [unknownPlaybackIdentity] }); await settle();
     expect(currentRows()).toHaveLength(0);
   });
 
@@ -8882,6 +10531,103 @@ describe("native playback frontend", () => {
     await settle();
     expect(fileCalls()).toBe(initialFileCalls);
     expect(statusCalls()).toBe(initialStatusCalls);
+  });
+
+  it("persists a native duplicate-occurrence cursor and restores it on the next WebView start", async () => {
+    const track = { ...savedTrack, durationSeconds: 4_000 };
+    const tracks = [track, track];
+    const entryIds = ["occurrence-first", "occurrence-second"];
+    localStorage.setItem("burrata.playback-queue.v1", JSON.stringify({ tracks, entryIds, currentIndex: 0, repeat: "off" }));
+    localStorage.setItem("burrata.playback-position.v1", JSON.stringify({
+      trackId: track.id, entryId: "occurrence-first", position: 1_101.1, savedAt: Date.now(),
+    }));
+
+    const initial = makeNativeSnapshot({
+      revision: 1, generation: 17, status: "playing", trackId: track.id, entryId: entryIds[0], track,
+      queue: tracks, queueEntryIds: entryIds, currentIndex: 0, paused: false, position: 1_101.1,
+      duration: 4_000, seekSerial: 4,
+    });
+    mountNative(initial);
+    await settle();
+
+    // Native auto-advance changes the selected occurrence, then position and
+    // pause callbacks checkpoint that new occurrence before a cold WebView start.
+    const advanced = { ...initial, revision: 2, currentIndex: 1, entryId: entryIds[1], seekSerial: 5, position: 12.5 };
+    const originalStorageSet = localStorage.setItem;
+    let failQueueCheckpointOnce = true;
+    const failedQueueWrite = vi.spyOn(localStorage, "setItem").mockImplementation(function(this: Storage, key: string, value: string) {
+      if (key === "burrata.playback-queue.v1" && failQueueCheckpointOnce) {
+        failQueueCheckpointOnce = false;
+        throw new Error("Synthetic queue storage failure");
+      }
+      return originalStorageSet.call(this, key, value);
+    });
+    nativePlaybackSnapshot = advanced;
+    emitNative(advanced);
+    await settle();
+    expect(JSON.parse(localStorage.getItem("burrata.playback-queue.v1")!).currentIndex).toBe(0);
+    failedQueueWrite.mockRestore();
+    eventHandlers.get("native-playback-position")?.({
+      event: "native-playback-position", id: 3, payload: { generation: 17, position: 1_718.611, duration: 4_000 },
+    });
+    await settle();
+    const paused = { ...advanced, revision: 3, status: "paused" as const, paused: true, position: 1_718.611 };
+    nativePlaybackSnapshot = paused;
+    emitNative(paused);
+    await settle();
+
+    expect(JSON.parse(localStorage.getItem("burrata.playback-queue.v1")!).currentIndex).toBe(1);
+
+    expect(JSON.parse(localStorage.getItem("burrata.playback-position.v1")!)).toMatchObject({
+      trackId: track.id, entryId: "occurrence-second", position: 1_718.611,
+    });
+
+    unmountApp?.();
+    await settle();
+    nativePlaybackSnapshot = makeNativeSnapshot({ engine: "webview", status: "idle" });
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    expect(document.querySelector<HTMLElement>(".player-status")?.title).toContain("Ready to resume from 28:38");
+    expectNoPlaybackStart();
+
+    unmountApp?.();
+    await settle();
+    localStorage.setItem("burrata.playback-position.v1", JSON.stringify({
+      trackId: track.id, entryId: "occurrence-first", position: 1_718.611, savedAt: Date.now(),
+    }));
+    nativePlaybackSnapshot = makeNativeSnapshot({ engine: "webview", status: "idle" });
+    const duplicateMismatchInstance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(duplicateMismatchInstance); };
+    await settle();
+    expect(document.querySelector<HTMLElement>(".player-status")?.title ?? "").not.toContain("Ready to resume from");
+    expectNoPlaybackStart();
+  });
+
+  it("preserves the legacy queue at initial empty native bootstrap, then persists a later native clear", async () => {
+    const track = { ...savedTrack };
+    const tracks = [track, track];
+    const entryIds = ["legacy-first", "legacy-second"];
+    localStorage.setItem("burrata.playback-queue.v1", JSON.stringify({ tracks, entryIds, currentIndex: 1, repeat: "off" }));
+    const initialLegacyQueue = localStorage.getItem("burrata.playback-queue.v1");
+    nativePlaybackSnapshot = makeNativeSnapshot({ engine: "native", revision: 1, queue: [], queueEntryIds: [], currentIndex: -1 });
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    expect(localStorage.getItem("burrata.playback-queue.v1")).toBe(initialLegacyQueue);
+
+    const owned = makeNativeSnapshot({ engine: "native", revision: 2, generation: 8, status: "paused", trackId: track.id,
+      entryId: entryIds[1], track, queue: tracks, queueEntryIds: entryIds, currentIndex: 1, paused: true, position: 12.5 });
+    nativePlaybackSnapshot = owned;
+    emitNative(owned);
+    await settle();
+    expect(JSON.parse(localStorage.getItem("burrata.playback-queue.v1")!).currentIndex).toBe(1);
+
+    const cleared = makeNativeSnapshot({ engine: "native", revision: 3, generation: 9, queue: [], queueEntryIds: [], currentIndex: -1 });
+    nativePlaybackSnapshot = cleared;
+    emitNative(cleared);
+    await settle();
+    expect(JSON.parse(localStorage.getItem("burrata.playback-queue.v1")!)).toMatchObject({ tracks: [], entryIds: [], currentIndex: -1 });
   });
 
   it("loads parent and explicit asset files for a virtual chapter without changing its excerpt duration", async () => {
@@ -9355,6 +11101,228 @@ describe("native playback frontend", () => {
     expect(mocks.call.mock.calls.some(([command]) => ["update_track", "save_audio_match", "apply_autotag_review"].includes(String(command)))).toBe(false);
   });
 
+  it("keeps mix detection off by default and cancels its owned native capture when toggled off", async () => {
+    holdPlayingTrackDetection=true;
+    const candidate=youtubeCandidate(savedTrack);
+    mountNative(makeNativeSnapshot({revision:61,generation:14,seekSerial:3,status:"playing",trackId:savedTrack.id,track:savedTrack,candidate,queue:[savedTrack],currentIndex:0,paused:false,position:90,duration:240}));
+    await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Show playing track information"]')!.click();
+    await settle();
+    const toggle=document.querySelector<HTMLInputElement>('.playing-info .detected-tracks input[type="checkbox"]')!;
+    expect(toggle.checked).toBe(false);
+    expect(mocks.call.mock.calls.some(([command])=>command==="detect_playing_track_segment")).toBe(false);
+
+    toggle.checked=true;toggle.dispatchEvent(new Event("change",{bubbles:true}));await settle();
+    const detectionCall=mocks.call.mock.calls.find(([command])=>command==="detect_playing_track_segment");
+    expect(detectionCall?.[1]).toEqual({trackId:savedTrack.id,generation:14,seekSerial:3,captureId:expect.stringMatching(/^[0-9a-f-]{36}$/i)});
+    const captureId=(detectionCall?.[1] as {captureId:string}).captureId;
+    expect(mocks.call.mock.calls.some(([command])=>command==="identify_playing_track")).toBe(false);
+    expect(toggle.disabled).toBe(false);
+
+    toggle.checked=false;toggle.dispatchEvent(new Event("change",{bubbles:true}));await settle();
+    expect(mocks.call).toHaveBeenCalledWith("cancel_playing_track_identification",{captureId});
+    expect(mocks.call.mock.calls).toContainEqual(["set_playing_track_detection_enabled",{trackId:savedTrack.id,generation:14,seekSerial:3,enabled:false}]);
+    finishPlayingTrackDetection?.({resourceKey:"a".repeat(64),enabled:false,observations:[]});await settle();
+    expect(mocks.call.mock.calls.some(([command])=>["update_track","save_audio_match","apply_autotag_review"].includes(String(command)))).toBe(false);
+  });
+
+  it("offers optional detection for a finite recording identified from radio", async () => {
+    const finite = { ...savedTrack, provider: "radio", provenance: { sourceKind: "radioSong" } };
+    mountNative(makeNativeSnapshot({ revision: 61, generation: 14, seekSerial: 3, status: "playing", trackId: finite.id,
+      track: finite, candidate: youtubeCandidate(finite), queue: [finite], currentIndex: 0, paused: false, position: 90, duration: 240 }));
+    await settle();
+    expect(mocks.call).toHaveBeenCalledWith("get_playing_track_detections", { trackId: finite.id, generation: 14, seekSerial: 3 });
+    document.querySelector<HTMLButtonElement>('[aria-label="Show playing track information"]')!.click();
+    await settle();
+    const toggle = document.querySelector<HTMLInputElement>('.playing-info .detected-tracks input[type="checkbox"]');
+    expect(toggle).not.toBeNull();
+    expect(toggle?.checked).toBe(false);
+    expect(mocks.call.mock.calls.some(([command]) => command === "detect_playing_track_segment")).toBe(false);
+  });
+
+  it("spaces automatic detection from capture start and never overlaps pending captures", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    holdPlayingTrackDetection = true;
+    mountNative(makeNativeSnapshot({ revision: 61, generation: 14, seekSerial: 3, status: "playing", trackId: savedTrack.id,
+      track: savedTrack, candidate: youtubeCandidate(savedTrack), queue: [savedTrack], currentIndex: 0, paused: false, position: 90, duration: 240 }));
+    await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Show playing track information"]')!.click();
+    await settle();
+    const toggle = document.querySelector<HTMLInputElement>('.playing-info .detected-tracks input[type="checkbox"]')!;
+    toggle.checked = true; toggle.dispatchEvent(new Event("change", { bubbles: true })); await settle();
+    const calls = () => mocks.call.mock.calls.filter(([command]) => command === "detect_playing_track_segment").length;
+    expect(calls()).toBe(1);
+    await vi.advanceTimersByTimeAsync(12_000);
+    finishPlayingTrackDetection?.({ resourceKey: "a".repeat(64), enabled: true, observations: [] }); await settle();
+    await vi.advanceTimersByTimeAsync(22_000);
+    expect(calls()).toBe(1);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(calls()).toBe(2);
+    await vi.advanceTimersByTimeAsync(35_000);
+    expect(calls()).toBe(2);
+    finishPlayingTrackDetection?.({ resourceKey: "a".repeat(64), enabled: true, observations: [] }); await settle();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(calls()).toBe(3);
+    finishPlayingTrackDetection?.({ resourceKey: "a".repeat(64), enabled: true, observations: [] }); await settle();
+  });
+
+  it("restores cached partial waveform bins for paused native playback", async () => {
+    const track = { ...savedTrack, provider: "youtube", durationSeconds: 240, localPath: "/missing/former-download.wav" };
+    const candidate = youtubeCandidate(track);
+    const variant = { formatId: "251", codec: "opus", mimeType: "audio/webm", bitrateKbps: 128, expectedContentLength: 12345, containsVideo: false };
+    const resourceKey = playingTrackDetectionMock.resourceKey;
+    const identity = `stream\nyoutube\n${candidate.id}\n${streamAudioVariantIdentity(variant)}`;
+    const persistentText = `burrata-observed-waveform-cache-v1\nresource=${resourceKey}\ntrack=${track.id}\nduration=240\nbins=1200\nscope=wholeTrack\nrange=whole-track\nidentity=${identity}`;
+    const bytes = new TextEncoder().encode(persistentText);
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    const cacheKey = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+    const preparedFixture = await prepareObservedWaveformBinding({ resourceKey, trackId: track.id, generation: 14, durationSeconds: 240,
+      binCount: 1200, scope: "wholeTrack", range: null, identity: { kind: "stream", provider: "youtube", sourceId: candidate.id, audioVariant: variant } });
+    expect(preparedFixture?.persistenceKey).toBe(cacheKey);
+    const now = Date.now();
+    const bins: ([number, number] | null)[] = Array.from({ length: 1200 }, () => null);
+    bins[4] = [-0.4, 0.5];
+    localStorage.setItem("burrata.observed-waveform-cache.v1", JSON.stringify({ schemaVersion: 1, records: [{
+      key: cacheKey, updatedAt: now, expiresAt: now + 7 * 24 * 60 * 60 * 1000,
+      durationSeconds: 240, binCount: 1200, scope: "wholeTrack", range: null, bins,
+    }] }));
+    localStorage.setItem("burrata.waveform-enabled.v1", "true");
+    mountNative(makeNativeSnapshot({ revision: 62, generation: 14, seekSerial: 3, status: "paused", trackId: track.id, track, candidate,
+      queue: [track], currentIndex: 0, paused: true, duration: 240, quality: { ...variant, formatHasVideo: false, sourceKind: "stream" } }));
+    await settle();
+    for (let attempt = 0; attempt < 40 && !document.querySelector(".waveform rect"); attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 5));
+      await settle();
+    }
+    expect(mocks.call).toHaveBeenCalledWith("get_playback_waveform", expect.objectContaining({ generation: 14, binCount: 1200 }));
+    expect(mocks.call).toHaveBeenCalledWith("get_playing_track_detections", { trackId: track.id, generation: 14, seekSerial: 3 });
+    const renderedBins = [...document.querySelectorAll<SVGRectElement>(".waveform rect")];
+    expect(renderedBins).toHaveLength(1);
+    expect(Number(renderedBins[0]?.getAttribute("x"))).toBeGreaterThan(4);
+    expect(Number(renderedBins[0]?.getAttribute("x"))).toBeLessThan(5);
+    eventHandlers.get("automation-inspect-playback-layout")!({ event: "automation-inspect-playback-layout", id: 72, payload: { requestId: "cache-binding-state" } });
+    await settle();
+    const inspection = lastCallOf("automation_layout_complete")?.[1] as { layout?: { waveformDiagnostics?: { observedCache?: unknown } } } | undefined;
+    expect(inspection?.layout?.waveformDiagnostics?.observedCache).toMatchObject({ resourceAvailable: true, resourceStatus: "ready",
+      bindingPrepared: true, persistable: true, trackMatches: true, generationMatches: true, persistentEntries: 1 });
+    window.dispatchEvent(new Event("pagehide"));
+    const stored = JSON.parse(localStorage.getItem("burrata.observed-waveform-cache.v1")!) as { records: { bins: ([number, number] | null)[] }[] };
+    expect(stored.records).toHaveLength(1);
+    expect(stored.records[0]?.bins[4]).toEqual([-0.4, 0.5]);
+  });
+
+  it("merges newly observed native bins into restored cache coverage", async () => {
+    const track = { ...savedTrack, provider: "youtube", durationSeconds: 240 };
+    const candidate = youtubeCandidate(track);
+    const variant = { formatId: "251", codec: "opus", mimeType: "audio/webm", bitrateKbps: 128, expectedContentLength: 12345, containsVideo: false };
+    const resourceKey = playingTrackDetectionMock.resourceKey;
+    const identity = `stream\nyoutube\n${candidate.id}\n${streamAudioVariantIdentity(variant)}`;
+    const persistentText = `burrata-observed-waveform-cache-v1\nresource=${resourceKey}\ntrack=${track.id}\nduration=240\nbins=1200\nscope=wholeTrack\nrange=whole-track\nidentity=${identity}`;
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(persistentText));
+    const cacheKey = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+    const now = Date.now();
+    const bins: ([number, number] | null)[] = Array.from({ length: 1200 }, () => null);
+    bins[4] = [-0.4, 0.5];
+    localStorage.setItem("burrata.observed-waveform-cache.v1", JSON.stringify({ schemaVersion: 1, records: [{
+      key: cacheKey, updatedAt: now, expiresAt: now + 7 * 24 * 60 * 60 * 1000,
+      durationSeconds: 240, binCount: 1200, scope: "wholeTrack", range: null, bins,
+    }] }));
+    const observedBins: ({ min: number; max: number } | null)[] = Array.from({ length: 1200 }, () => null);
+    observedBins[8] = { min: -0.2, max: 0.3 };
+    const original = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => command === "get_playback_waveform"
+      ? { generation: 14, durationSeconds: 240, bins: observedBins, complete: false }
+      : original(command, args));
+    localStorage.setItem("burrata.waveform-enabled.v1", "true");
+    mountNative(makeNativeSnapshot({ revision: 62, generation: 14, seekSerial: 3, status: "paused", trackId: track.id, track, candidate,
+      queue: [track], currentIndex: 0, paused: true, duration: 240, quality: { ...variant, formatHasVideo: false } }));
+    for (let attempt = 0; attempt < 300 && document.querySelectorAll(".waveform rect").length < 2; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 5));
+      await settle();
+    }
+    expect(document.querySelectorAll(".waveform rect")).toHaveLength(2);
+    window.dispatchEvent(new Event("pagehide"));
+    const stored = JSON.parse(localStorage.getItem("burrata.observed-waveform-cache.v1")!) as { records: { key: string; bins: ([number, number] | null)[] }[] };
+    expect(stored.records).toHaveLength(1);
+    expect(stored.records[0]?.key).toBe(cacheKey);
+    expect(stored.records[0]?.bins[4]).toEqual([-0.4, 0.5]);
+    expect(stored.records[0]?.bins[8]).toEqual([-0.2, 0.3]);
+  });
+
+  it("restores a streamed playback range using absolute parent bounds", async () => {
+    const track = { ...savedTrack, provider: "youtube", durationSeconds: 10,
+      playbackRange: { parentTrackId: savedTrack.id, chapterId: "clip-100", sourceUrl: savedTrack.sourceUrl,
+        startTime: 100, endTime: 110, parentDurationSeconds: 240, parentTitle: savedTrack.title } };
+    const candidate = youtubeCandidate(track);
+    const variant = { formatId: "251", codec: "opus", mimeType: "audio/webm", bitrateKbps: 128, expectedContentLength: 12345, containsVideo: false };
+    const resourceKey = playingTrackDetectionMock.resourceKey;
+    const identity = `stream\nyoutube\n${candidate.id}\n${streamAudioVariantIdentity(variant)}`;
+    const persistentText = `burrata-observed-waveform-cache-v1\nresource=${resourceKey}\ntrack=${track.id}\nduration=10\nbins=1200\nscope=playbackRange\nrange=100\n110\nidentity=${identity}`;
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(persistentText));
+    const cacheKey = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+    const now = Date.now();
+    const bins: ([number, number] | null)[] = Array.from({ length: 1200 }, () => null);
+    bins[4] = [-0.4, 0.5];
+    localStorage.setItem("burrata.observed-waveform-cache.v1", JSON.stringify({ schemaVersion: 1, records: [{
+      key: cacheKey, updatedAt: now, expiresAt: now + 7 * 24 * 60 * 60 * 1000,
+      durationSeconds: 10, binCount: 1200, scope: "playbackRange", range: [100, 110], bins,
+    }] }));
+    localStorage.setItem("burrata.waveform-enabled.v1", "true");
+    mountNative(makeNativeSnapshot({ revision: 62, generation: 14, seekSerial: 3, status: "paused", trackId: track.id, track, candidate,
+      queue: [track], currentIndex: 0, paused: true, duration: 10, quality: { ...variant, formatHasVideo: false } }));
+    for (let attempt = 0; attempt < 40 && !document.querySelector(".waveform rect"); attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 5));
+      await settle();
+    }
+    expect(mocks.call).toHaveBeenCalledWith("get_playback_waveform", expect.objectContaining({ generation: 14, startSeconds: 100, durationSeconds: 10 }));
+    expect(document.querySelectorAll(".waveform rect")).toHaveLength(1);
+  });
+
+  it("keeps the newest encoding binding when an older async waveform hash resolves late", async () => {
+    const track = { ...savedTrack, provider: "youtube", durationSeconds: 240 };
+    const candidate = youtubeCandidate(track);
+    const firstVariant = { formatId: "251", codec: "opus", mimeType: "audio/webm", bitrateKbps: 128, expectedContentLength: 12345, containsVideo: false };
+    const nextVariant = { ...firstVariant, formatId: "140", expectedContentLength: 23456 };
+    const resourceKey = playingTrackDetectionMock.resourceKey;
+    const observedBins: ({ min: number; max: number } | null)[] = Array.from({ length: 1200 }, () => null);
+    observedBins[11] = { min: -0.3, max: 0.4 };
+    const originalCall = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => command === "get_playback_waveform"
+      ? { generation: 14, durationSeconds: 240, bins: observedBins, complete: false }
+      : originalCall(command, args));
+    const nativeDigest = crypto.subtle.digest.bind(crypto.subtle);
+    let finishOlderDigest: ((value: ArrayBuffer) => void) | undefined;
+    vi.spyOn(crypto.subtle, "digest").mockImplementation((algorithm, data) => {
+      const text = new TextDecoder().decode(data as BufferSource);
+      if (text.includes(`resource=${resourceKey}`) && text.includes("format=251")) {
+        return new Promise<ArrayBuffer>(resolve => { finishOlderDigest = resolve; });
+      }
+      return nativeDigest(algorithm, data);
+    });
+    localStorage.setItem("burrata.waveform-enabled.v1", "true");
+    mountNative(makeNativeSnapshot({ revision: 62, generation: 14, seekSerial: 3, status: "paused", trackId: track.id, track, candidate,
+      queue: [track], currentIndex: 0, paused: true, duration: 240, quality: { ...firstVariant, formatHasVideo: false } }));
+    await settle();
+    expect(finishOlderDigest).toBeDefined();
+    emitNative(makeNativeSnapshot({ revision: 63, generation: 14, seekSerial: 3, status: "paused", trackId: track.id, track, candidate,
+      queue: [track], currentIndex: 0, paused: true, duration: 240, quality: { ...nextVariant, formatHasVideo: false } }));
+    await settle();
+    const olderIdentity = `stream\nyoutube\n${candidate.id}\n${streamAudioVariantIdentity(firstVariant)}`;
+    const olderText = `burrata-observed-waveform-cache-v1\nresource=${resourceKey}\ntrack=${track.id}\nduration=240\nbins=1200\nscope=wholeTrack\nrange=whole-track\nidentity=${olderIdentity}`;
+    finishOlderDigest?.(await nativeDigest("SHA-256", new TextEncoder().encode(olderText)));
+    await settle();
+    window.dispatchEvent(new Event("pagehide"));
+    const nextIdentity = `stream\nyoutube\n${candidate.id}\n${streamAudioVariantIdentity(nextVariant)}`;
+    const nextText = `burrata-observed-waveform-cache-v1\nresource=${resourceKey}\ntrack=${track.id}\nduration=240\nbins=1200\nscope=wholeTrack\nrange=whole-track\nidentity=${nextIdentity}`;
+    const nextHash = await nativeDigest("SHA-256", new TextEncoder().encode(nextText));
+    const nextKey = [...new Uint8Array(nextHash)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+    const stored = JSON.parse(localStorage.getItem("burrata.observed-waveform-cache.v1")!) as { records: { key: string; bins: ([number, number] | null)[] }[] };
+    expect(stored.records).toHaveLength(1);
+    expect(stored.records[0]?.key).toBe(nextKey);
+    expect(stored.records[0]?.bins[11]).toEqual([-0.3, 0.4]);
+  });
+
   it("identifies active native audio directly from the expanded queue", async () => {
     identifyPlayingTrackResult = { trackId: savedTrack.id, title: "Saved Recording", artist: "Visible Artist" };
     mountNative(makeNativeSnapshot({ revision: 49, generation: 9, status: "playing", trackId: savedTrack.id, track: savedTrack, candidate: youtubeCandidate(savedTrack), queue: [savedTrack], currentIndex: 0, paused: false }));
@@ -9725,8 +11693,29 @@ describe("native playback frontend", () => {
     vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};
     await settle();(await startWebviewIdentify()).click();await settle();
-    expect(mocks.call).toHaveBeenCalledWith("identify_webview_playing_output",expect.objectContaining({trackId:savedTrack.id,generation:73,seekSerial:0}));
+    expect(mocks.call).toHaveBeenCalledWith("identify_webview_playing_output",expect.objectContaining({trackId:savedTrack.id,generation:73,seekSerial:0,webAudioGraphExpected:false}));
     expect(mocks.captureRadioPcm).not.toHaveBeenCalled();
+  });
+
+  it("passes current-element WebAudio graph ownership to Linux output capture", async () => {
+    vi.spyOn(navigator,"userAgent","get").mockReturnValue("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15");
+    previewMode="direct";webviewSourceGeneration=74;
+    vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};
+    await settle();
+    const identify=await startWebviewIdentify();
+    const element=document.querySelector<HTMLAudioElement>("audio")!;
+    element.crossOrigin="anonymous";
+    const param=()=>({value:1,cancelScheduledValues(){},setValueAtTime(value:number){this.value=value;},linearRampToValueAtTime(value:number){this.value=value;}});
+    const context={currentTime:0,sampleRate:48_000,state:"running",destination:{},createGain:()=>({gain:param(),connect(){}}),
+      createAnalyser:()=>({fftSize:2048,smoothingTimeConstant:0,connect(){},getFloatTimeDomainData(buffer:Float32Array){buffer.fill(0);}}),
+      createMediaElementSource:()=>({connect(){}}),resume:async()=>{}};
+    expect((await new WebAudioGainAdapter(()=>context as never).attach(element,"same-origin-relay")).status).toBe("supported");
+    expect(inspectWebAudioGainGraph(element).attached).toBe(true);
+    identify.click();
+    await new Promise(resolve=>setTimeout(resolve,1050));
+    await settle();
+    expect(mocks.call).toHaveBeenCalledWith("identify_webview_playing_output",expect.objectContaining({trackId:savedTrack.id,generation:74,webAudioGraphExpected:true}));
   });
 
   it("cancels only the matching automation identify nonce and completes cancellation before a late result", async () => {
@@ -10661,7 +12650,10 @@ describe("native playback frontend", () => {
     emitNative(makeNativeSnapshot({revision:2,status:"paused",track:liveTrack,trackId:liveTrack.id,queue:[liveTrack],currentIndex:0,
       paused:true,position:0,duration:0}));
     await settle();
-    expect([...document.querySelectorAll<HTMLElement>(".player-scrubber .time")].map((item) => item.textContent)).toEqual(["0:00", "0:00"]);
+    expect([...document.querySelectorAll<HTMLElement>(".player-scrubber .time")].map((item) => item.textContent)).toEqual(["0:00"]);
+    expect(document.querySelector(".radio-live-label")?.textContent).toBe("Live radio");
+    expect(document.querySelector('[aria-label="Playback position"]')).toBeNull();
+    expect(document.querySelector('[aria-label="Playback position, waveform"]')).toBeNull();
   });
 
   it("restores directory, search, album, and artist routes while discarding a late album response after Back", async () => {
@@ -11742,7 +13734,7 @@ describe("remote occurrence save wiring", () => {
 
 describe("audio engine switch session handoff",()=>{
   async function openEngineSettings(target="webview") {
-    [...document.querySelectorAll<HTMLButtonElement>(".library-footer button")].find(button=>button.textContent?.includes("Settings"))!.click();await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".sidebar-scroll-end button")].find(button=>button.textContent?.includes("Settings"))!.click();await settle();
     [...document.querySelectorAll<HTMLButtonElement>(".settings-nav button")].find(button=>button.textContent?.trim()==="Playback")!.click();await settle();
     const select=document.querySelector<HTMLSelectElement>('select[aria-label="Audio playback engine"]')!;
     select.value=target;select.dispatchEvent(new Event("change",{bubbles:true}));await settle();
@@ -11791,7 +13783,7 @@ it("keeps the wishlist in Downloads settings and reviews a saved query in Soulse
   slskdConnectionEnabled=true;
   const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
   expect(document.querySelector("details.wishlist")).toBeNull();
-  [...document.querySelectorAll<HTMLButtonElement>(".library-footer button")].find(button=>button.textContent?.includes("Settings"))!.click();await settle();
+  [...document.querySelectorAll<HTMLButtonElement>(".sidebar-scroll-end button")].find(button=>button.textContent?.includes("Settings"))!.click();await settle();
   [...document.querySelectorAll<HTMLButtonElement>(".settings-nav button")].find(button=>button.textContent?.trim()==="Downloads")!.click();await settle();
   const panel=document.querySelector<HTMLDetailsElement>("details.wishlist")!;expect(panel).not.toBeNull();panel.open=true;
   const query=panel.querySelector<HTMLInputElement>('[aria-label="Soulseek wishlist query"]')!;query.value="Synthetic wishlist track";query.dispatchEvent(new Event("input",{bubbles:true}));await settle();

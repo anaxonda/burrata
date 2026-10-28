@@ -19,6 +19,26 @@ afterEach(() => {
 });
 
 describe("PlaylistMenu", () => {
+  it("offers the separate Move to folder action when the playlist can be organized", async () => {
+    vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
+    originalShowModal = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "showModal");
+    Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value(this: HTMLDialogElement) { this.setAttribute("open", ""); } });
+    const target = document.createElement("div"); document.body.append(target);
+    const onMoveToFolder = vi.fn();
+    const onClose = vi.fn();
+    const instance = mount(PlaylistMenu, { target, props: {
+      name: "Evening set", anchor: { x: 40, y: 40 }, playerHeight: 90,
+      onClose, onOpen: vi.fn(), onMoveToFolder,
+    } as never });
+    cleanup = () => unmount(instance);
+    await tick();
+    const move = [...target.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim() === "Move to folder…")!;
+    expect(move).toBeTruthy();
+    move.click();
+    expect(onMoveToFolder).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
   it("uses contained dialog focus, restores the opener on unmount, and closes on Escape", async () => {
     originalShowModal = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "showModal");
     const showModal = vi.fn(function (this: HTMLDialogElement) { this.setAttribute("open", ""); });

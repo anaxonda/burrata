@@ -72,6 +72,7 @@ function redactToken(value, token) {
 export function requestTimeoutFor(endpoint, toolName) {
   if (endpoint === '/automation/tools') return REGISTRY_TIMEOUT_MS;
   if (endpoint === '/automation/call' && toolName === 'create_verification_playlist') return 110_000;
+  if (endpoint === '/automation/call' && ['preview_collection_import','retry_import_failures'].includes(toolName)) return 120_000;
   if (endpoint === '/automation/call' && toolName === 'repair_spotify_durations_public') {
     return PUBLIC_DURATION_REPAIR_TIMEOUT_MS;
   }

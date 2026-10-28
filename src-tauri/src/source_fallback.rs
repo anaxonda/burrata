@@ -12,7 +12,7 @@ pub fn provider_order(
     let allowed: &[&str] = if download {
         &["monochrome", "youtube", "soundcloud", "slskd"]
     } else {
-        &["monochrome", "youtube", "soundcloud"]
+        &["monochrome", "youtube", "soundcloud", "bandcamp"]
     };
     let mut result = vec![];
     for id in configured {
@@ -33,7 +33,7 @@ pub fn validate(settings: &Settings) -> Result<(), String> {
         let allowed: &[&str] = if download {
             &["monochrome", "youtube", "soundcloud", "slskd"]
         } else {
-            &["monochrome", "youtube", "soundcloud"]
+            &["monochrome", "youtube", "soundcloud", "bandcamp"]
         };
         if sources.len() > allowed.len()
             || sources.iter().any(|s| !allowed.contains(&s.as_str()))
@@ -312,9 +312,16 @@ fn verified_channel_matches_saved_artist(track: &Track, candidate: &Candidate) -
     }
     let normalized_channel = normalize_artist_credit(channel);
     let full_artist = normalize_artist_credit(&track.artist);
-    let first_artist = full_artist.split(" and ").next().unwrap_or_default();
-    !normalized_channel.is_empty()
-        && (normalized_channel == full_artist || normalized_channel == first_artist)
+    let primary_matches =
+        if let Some(names) = crate::recording_identity::declared_credit_names(track) {
+            names.first().is_some_and(|name| {
+                crate::matching::normalize_single_artist_name(name)
+                    == crate::matching::normalize_single_artist_name(channel)
+            })
+        } else {
+            normalized_channel == full_artist.split(" and ").next().unwrap_or_default()
+        };
+    !normalized_channel.is_empty() && (normalized_channel == full_artist || primary_matches)
 }
 
 fn fresh_topic_credit_line_matches_saved_artist(
@@ -350,7 +357,7 @@ fn fresh_topic_credit_line_matches_saved_artist(
         && normalize_artist_credit(metadata["artist"].as_str().unwrap_or_default())
             == normalize_artist_credit(&track.artist)
         && contains_phrase(expected_title)
-        && explicit_credit_parts(&track.artist)
+        && requested_credit_parts(track)
             .iter()
             .all(|artist| contains_phrase(artist))
 }
@@ -378,6 +385,47 @@ fn explicit_credit_parts(raw: &str) -> Vec<String> {
         .map(crate::matching::normalize_single_artist_name)
         .filter(|part| !part.is_empty())
         .collect()
+}
+
+fn requested_credit_parts(track: &Track) -> Vec<String> {
+    crate::recording_identity::declared_credit_names(track)
+        .map(|names| {
+            names
+                .iter()
+                .map(|name| crate::matching::normalize_single_artist_name(name))
+                .collect()
+        })
+        .unwrap_or_else(|| explicit_credit_parts(&track.artist))
+}
+fn declared_artist_partition_matches(
+    track: &Track,
+    observed: &[String],
+    featured: Option<&str>,
+) -> bool {
+    let Some(names) = crate::recording_identity::declared_credit_names(track) else {
+        return true;
+    };
+    let expected = names
+        .iter()
+        .map(|name| crate::matching::normalize_single_artist_name(name))
+        .collect::<Vec<_>>();
+    let mut actual = observed
+        .iter()
+        .map(|name| crate::matching::normalize_single_artist_name(name))
+        .collect::<Vec<_>>();
+    if let Some(guest) = featured.filter(|value| !value.trim().is_empty()) {
+        let missing = expected
+            .iter()
+            .filter(|name| !actual.contains(name))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !missing.is_empty()
+            && normalize_artist_credit(&missing.join(", ")) == normalize_artist_credit(guest)
+        {
+            actual.extend(missing);
+        }
+    }
+    expected == actual
 }
 
 /// This provider-tagged payload permits one extractor request only. The marker
@@ -426,7 +474,7 @@ pub(crate) fn is_provisional_youtube_music_catalog_candidate(
             &candidate.title,
             metadata["catalogArtist"].as_str().unwrap_or_default(),
         )
-        && !explicit_credit_parts(&track.artist).is_empty()
+        && !requested_credit_parts(track).is_empty()
 }
 
 /// Fresh yt-dlp structured fields can verify a title-only YouTube Music
@@ -527,14 +575,20 @@ pub(crate) fn playback_music_catalog_recording_matches_verified_extractor(
             observed.push(normalized);
         }
     }
+    let featured =
+        crate::recording_identity::parse_title(metadata["track"].as_str().unwrap_or_default())
+            .featured_credit;
     !observed.is_empty()
-        && normalize_artist_credit(&youtube_catalog_artist_credit(
-            metadata["track"].as_str().unwrap_or_default(),
-            &observed.join(", "),
-        )) == normalize_artist_credit(&track.artist)
+        && declared_artist_partition_matches(track, &observed, featured.as_deref())
+        && (crate::recording_identity::declared_credit_names(track).is_some()
+            || normalize_artist_credit(&youtube_catalog_artist_credit(
+                metadata["track"].as_str().unwrap_or_default(),
+                &observed.join(", "),
+            )) == normalize_artist_credit(&track.artist))
 }
 
-fn monochrome_catalog_artist_credit_matches(track_artist: &str, candidate: &Candidate) -> bool {
+fn monochrome_catalog_artist_credit_matches(track: &Track, candidate: &Candidate) -> bool {
+    let track_artist = &track.artist;
     if track_artist.trim().is_empty() || crate::matching::normalize(track_artist).is_empty() {
         return false;
     }
@@ -558,7 +612,16 @@ fn monochrome_catalog_artist_credit_matches(track_artist: &str, candidate: &Cand
     else {
         return false;
     };
-    if names.is_empty() {
+    if names.is_empty()
+        || !declared_artist_partition_matches(
+            track,
+            &names
+                .iter()
+                .map(|name| (*name).to_owned())
+                .collect::<Vec<_>>(),
+            None,
+        )
+    {
         return false;
     }
     if names.len() == 1 {
@@ -603,7 +666,7 @@ fn monochrome_catalog_recording_matches(track: &Track, candidate: &Candidate) ->
         || requested_title.is_empty()
         || catalog_title != requested_title
         || !requested_version_matches(track, candidate)
-        || !monochrome_catalog_artist_credit_matches(&track.artist, candidate)
+        || !monochrome_catalog_artist_credit_matches(track, candidate)
     {
         return false;
     }
@@ -709,10 +772,17 @@ fn monochrome_explicit_guest_without_saved_duration_matches(
         return false;
     }
     let normalized_guest = crate::matching::normalize_single_artist_name(guest);
-    let mut main_credit_options = vec![vec![primary.to_owned()]];
-    let split_credits = explicit_credit_parts(primary);
-    if split_credits.len() > 1 {
-        main_credit_options.push(split_credits);
+    let mut main_credit_options =
+        if let Some(names) = crate::recording_identity::declared_credit_names(track) {
+            vec![names]
+        } else {
+            vec![vec![primary.to_owned()]]
+        };
+    if crate::recording_identity::declared_credit_names(track).is_none() {
+        let split_credits = explicit_credit_parts(primary);
+        if split_credits.len() > 1 {
+            main_credit_options.push(split_credits);
+        }
     }
     let full_credit_matches = main_credit_options.into_iter().any(|mut expected| {
         if !expected
@@ -1355,7 +1425,7 @@ fn topic_channel_matches_artist(track: &Track, topic_artist: &str) -> bool {
     !topic_artist.is_empty()
         && (normalize_artist_credit(topic_artist.as_str())
             == normalize_artist_credit(&track.artist)
-            || explicit_credit_parts(&track.artist)
+            || requested_credit_parts(track)
                 .iter()
                 .any(|artist| artist == &topic_artist))
 }
@@ -1412,14 +1482,9 @@ fn topic_original_playback_matches(track: &Track, candidate: &Candidate) -> bool
         .unwrap_or_default();
     if crate::matching::normalize(title) != crate::matching::normalize(&track.title)
         || !crate::matching::normalize(credit).contains(&crate::matching::normalize(&track.title))
-        || !track
-            .artist
-            .split([',', '&'])
-            .map(str::trim)
-            .filter(|name| !name.is_empty())
-            .all(|name| {
-                crate::matching::normalize(credit).contains(&crate::matching::normalize(name))
-            })
+        || !requested_credit_parts(track).iter().all(|name| {
+            crate::matching::normalize(credit).contains(&crate::matching::normalize(name))
+        })
     {
         return false;
     }
@@ -1469,6 +1534,84 @@ pub fn requires_lossless(job: &DownloadJob) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn audit_band_track(name: &str) -> Track {
+        Track {
+            artist: name.into(),
+            title: "Synthetic Song".into(),
+            duration_seconds: Some(200.0),
+            provenance: serde_json::json!({"artistCredits":[{"name":name,"role":"artist credit","joinPhrase":""}]}),
+            ..Track::default()
+        }
+    }
+    #[test]
+    fn audit_monochrome_must_not_flatten_different_performer_partitions() {
+        for (name, split) in [
+            (
+                "King Gizzard & the Lizard Wizard",
+                vec!["King Gizzard", "the Lizard Wizard"],
+            ),
+            ("Earth, Wind & Fire", vec!["Earth", "Wind", "Fire"]),
+            ("Tyler, The Creator", vec!["Tyler", "The Creator"]),
+        ] {
+            let track = audit_band_track(name);
+            let mut candidate = Candidate {
+                provider: "monochrome".into(),
+                title: "Synthetic Song".into(),
+                duration_seconds: Some(200.0),
+                confidence: "review".into(),
+                source_metadata: Some(
+                    serde_json::json!({"catalogTitle":"Synthetic Song","artistNames":[name]}),
+                ),
+                ..Candidate::default()
+            };
+            assert!(
+                monochrome_catalog_recording_matches(&track, &candidate),
+                "{name}: one whole artist should match"
+            );
+            candidate.source_metadata.as_mut().unwrap()["artistNames"] = serde_json::json!(split);
+            assert!(
+                !monochrome_catalog_recording_matches(&track, &candidate),
+                "{name}: separate performers must not become the band"
+            );
+        }
+    }
+    #[test]
+    fn audit_youtube_catalog_must_not_flatten_different_performer_partitions() {
+        for (name, split) in [
+            (
+                "King Gizzard & the Lizard Wizard",
+                vec!["King Gizzard", "the Lizard Wizard"],
+            ),
+            ("Earth, Wind & Fire", vec!["Earth", "Wind", "Fire"]),
+            ("Tyler, The Creator", vec!["Tyler", "The Creator"]),
+        ] {
+            let track = audit_band_track(name);
+            let mut candidate = Candidate {
+                provider: "youtube".into(),
+                title: "Synthetic Song".into(),
+                duration_seconds: Some(200.0),
+                confidence: "review".into(),
+                source_metadata: Some(
+                    serde_json::json!({"provider":"youtube","track":"Synthetic Song","artists":[name],"channel":name,"channelId":"UC1234567890123456789012","channelIsVerified":true}),
+                ),
+                ..Candidate::default()
+            };
+            assert!(playback_music_catalog_recording_matches_verified_extractor(
+                &track, &candidate
+            ));
+            candidate.source_metadata.as_mut().unwrap()["artists"] = serde_json::json!(split);
+            assert!(
+                !playback_music_catalog_recording_matches_verified_extractor(&track, &candidate)
+            );
+        }
+    }
+
+    #[test]
+    fn audit_topic_channel_preserves_a_single_comma_name() {
+        let track = audit_band_track("Tyler, The Creator");
+        assert!(topic_channel_matches_artist(&track, "Tyler, The Creator"));
+        assert!(!topic_channel_matches_artist(&track, "Tyler"));
+    }
     #[test]
     fn known_catalog_feature_title_matches_complete_lyric_video_credit_and_bounded_duration() {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
@@ -1689,6 +1832,23 @@ mod tests {
             vec!["youtube", "soundcloud"]
         );
         assert!(provider_order("monochrome", false, &list, true).is_empty());
+    }
+    #[test]
+    fn bandcamp_is_an_ordered_streaming_fallback_not_a_download_provider() {
+        let list = vec!["bandcamp".into(), "soundcloud".into()];
+        assert_eq!(
+            provider_order("youtube", true, &list, false),
+            vec!["bandcamp", "soundcloud"]
+        );
+        assert_eq!(
+            provider_order("youtube", true, &list, true),
+            vec!["soundcloud"]
+        );
+        let mut settings = Settings::default();
+        settings.streaming_fallback_sources = list;
+        assert!(validate(&settings).is_ok());
+        settings.streaming_fallback_sources.push("bandcamp".into());
+        assert!(validate(&settings).is_err());
     }
     fn job() -> DownloadJob {
         DownloadJob {

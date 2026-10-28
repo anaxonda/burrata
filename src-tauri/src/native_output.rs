@@ -1,6 +1,8 @@
 //! Native desktop audio output. The device stream is created and controlled on one
 //! dedicated thread because CPAL streams are intentionally not `Send` on all hosts.
 
+#[path = "native_resample.rs"]
+mod continuous_resample;
 #[path = "native_http.rs"]
 mod native_http;
 #[path = "native_storage_fault.rs"]
@@ -14,7 +16,7 @@ use std::{
     io::{BufReader, Read},
     path::PathBuf,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         mpsc as std_mpsc, Arc,
     },
     thread::{self, JoinHandle},
@@ -167,6 +169,22 @@ pub struct AudioSourceDecoderHint {
     pub duration_seconds: Option<f64>,
     pub content_length: Option<u64>,
     pub has_video: bool,
+    /// Explicit decoder behavior selected only for a registered local Opus
+    /// source on the native normalization path.
+    pub decode_policy: AudioSourceDecodePolicy,
+    /// Ephemeral SHA-256 identity of the configured FFmpeg that passed the
+    /// Ogg Opus behavior probe. Never persisted or exposed in public diagnostics.
+    pub decoder_fingerprint: Option<String>,
+}
+
+/// Decoder behavior is an explicit capability, never inferred from codec
+/// strings or client-provided source metadata.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AudioSourceDecodePolicy {
+    #[default]
+    Automatic,
+    /// FFmpeg applies the binary OpusHead output gain once while decoding.
+    FfmpegOggOpusHeadGain,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -372,12 +390,51 @@ pub enum OutputCommand {
         position: f64,
         end: Option<f64>,
     },
+    /// Same as `Load`, with a validated resource-specific gain already known
+    /// before the first PCM sample is handed to the device.
+    LoadWithNormalization {
+        generation: u64,
+        startup_deadline: Instant,
+        allow_startup_reserve: bool,
+        source: AudioSource,
+        position: f64,
+        end: Option<f64>,
+        initial_gain_db: f32,
+    },
+    /// Native route plan resolved against the opened device before the PCM
+    /// queue is constructed. Legacy scalar commands remain available.
+    LoadWithNormalizationPlan {
+        generation: u64,
+        startup_deadline: Instant,
+        allow_startup_reserve: bool,
+        source: AudioSource,
+        position: f64,
+        end: Option<f64>,
+        plan: crate::loudness_manager::NativeNormalizationGainPlan,
+    },
     Preload {
         generation: u64,
         next_generation: u64,
         source: AudioSource,
         position: f64,
         end: Option<f64>,
+    },
+    /// Same as `Preload`, with a source-specific gain for gapless activation.
+    PreloadWithNormalization {
+        generation: u64,
+        next_generation: u64,
+        source: AudioSource,
+        position: f64,
+        end: Option<f64>,
+        initial_gain_db: f32,
+    },
+    PreloadWithNormalizationPlan {
+        generation: u64,
+        next_generation: u64,
+        source: AudioSource,
+        position: f64,
+        end: Option<f64>,
+        plan: crate::loudness_manager::NativeNormalizationGainPlan,
     },
     ClearPreload {
         generation: u64,
@@ -390,6 +447,16 @@ pub enum OutputCommand {
         position: f64,
     },
     Volume(f32),
+    NormalizationGain {
+        generation: u64,
+        gain_db: f32,
+        ramp_ms: u16,
+    },
+    NormalizationGainPlan {
+        generation: u64,
+        plan: crate::loudness_manager::NativeNormalizationGainPlan,
+        ramp_ms: u16,
+    },
     Shutdown,
 }
 
@@ -506,6 +573,11 @@ impl<T: std::io::Seek> std::io::Seek for TimedStreamReader<T> {
 
 #[derive(Debug, Clone)]
 pub enum OutputEvent {
+    NormalizationSelected {
+        generation: u64,
+        output_channels: u16,
+        status: crate::loudness_manager::LoudnessStatus,
+    },
     Started {
         generation: u64,
         duration: Option<f64>,
@@ -572,6 +644,21 @@ impl NativeOutput {
         self.tx
             .send(command)
             .map_err(|_| "native audio output has stopped".to_owned())
+    }
+
+    /// Change normalization for the active generation without stopping or
+    /// rebuilding its decoder.
+    pub fn set_normalization_gain(
+        &self,
+        generation: u64,
+        gain_db: f32,
+        ramp_ms: u16,
+    ) -> Result<(), String> {
+        self.send(OutputCommand::NormalizationGain {
+            generation,
+            gain_db,
+            ramp_ms,
+        })
     }
 }
 
@@ -865,7 +952,96 @@ struct Playback {
     source_sample_rate: u32,
     source_channels: u16,
     live_metadata: Option<ActiveMetadata>,
+    normalization_gain_target: Arc<AtomicU32>,
+    normalization_ramp_ms: Arc<AtomicU32>,
+    normalization_plan: Option<crate::loudness_manager::NativeNormalizationGainPlan>,
+    preload_normalization: Arc<std::sync::Mutex<Option<QueuedNormalizationControl>>>,
     paused: bool,
+}
+
+#[derive(Clone)]
+struct QueuedNormalizationControl {
+    generation: u64,
+    output_channels: u16,
+    normalization_gain_target: Arc<AtomicU32>,
+    normalization_ramp_ms: Arc<AtomicU32>,
+    normalization_plan:
+        Arc<std::sync::Mutex<Option<crate::loudness_manager::NativeNormalizationGainPlan>>>,
+}
+
+fn take_queued_plan_for_activation(
+    control_slot: &mut Option<QueuedNormalizationControl>,
+    generation: u64,
+    fallback: Option<crate::loudness_manager::NativeNormalizationGainPlan>,
+) -> Option<crate::loudness_manager::NativeNormalizationGainPlan> {
+    let matches = control_slot
+        .as_ref()
+        .is_some_and(|control| control.generation == generation);
+    let latest = control_slot
+        .as_ref()
+        .filter(|control| control.generation == generation)
+        .and_then(|control| {
+            control
+                .normalization_plan
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .clone()
+        });
+    if matches {
+        control_slot.take();
+    }
+    latest.or(fallback)
+}
+
+fn update_queued_normalization(
+    control: &QueuedNormalizationControl,
+    generation: u64,
+    plan: &crate::loudness_manager::NativeNormalizationGainPlan,
+    ramp_ms: u16,
+) -> Option<(u16, crate::loudness_manager::LoudnessStatus)> {
+    if control.generation != generation {
+        return None;
+    }
+    let selected = update_normalization_gain_target(
+        control.output_channels,
+        &control.normalization_gain_target,
+        &control.normalization_ramp_ms,
+        plan,
+        ramp_ms,
+    );
+    *control
+        .normalization_plan
+        .lock()
+        .unwrap_or_else(|error| error.into_inner()) = Some(plan.clone());
+    Some((control.output_channels, selected))
+}
+
+fn update_normalization_gain_target(
+    output_channels: u16,
+    normalization_gain_target: &Arc<AtomicU32>,
+    normalization_ramp_ms: &Arc<AtomicU32>,
+    plan: &crate::loudness_manager::NativeNormalizationGainPlan,
+    ramp_ms: u16,
+) -> crate::loudness_manager::LoudnessStatus {
+    let selected = plan.select(output_channels);
+    normalization_ramp_ms.store(ramp_ms.clamp(5, 250) as u32, Ordering::Relaxed);
+    normalization_gain_target.store(
+        gain_db_to_linear(selected.applied_gain_db as f32).to_bits(),
+        Ordering::Release,
+    );
+    selected
+}
+
+fn update_reconnect_normalization_plan(
+    reconnect: &mut Reconnect,
+    generation: u64,
+    plan: crate::loudness_manager::NativeNormalizationGainPlan,
+) -> bool {
+    if reconnect.generation != generation {
+        return false;
+    }
+    reconnect.normalization_plan = Some(plan);
+    true
 }
 
 struct Activation {
@@ -881,6 +1057,10 @@ struct Activation {
     decoder_diagnostics: Option<DecoderDiagnostics>,
     decode_failed: Arc<AtomicBool>,
     live_metadata: ActiveMetadata,
+    normalization_gain_target: Arc<AtomicU32>,
+    normalization_ramp_ms: Arc<AtomicU32>,
+    normalization_plan: Option<crate::loudness_manager::NativeNormalizationGainPlan>,
+    replace_normalization_plan: bool,
 }
 
 struct ActiveMetadata {
@@ -899,6 +1079,8 @@ struct Reconnect {
     attempts: u8,
     last_error: String,
     retry_at: Instant,
+    normalization_gain_db: f32,
+    normalization_plan: Option<crate::loudness_manager::NativeNormalizationGainPlan>,
 }
 
 // Only combine adjacent seeks. Preserve pause, load, stop and queue command ordering.
@@ -939,8 +1121,93 @@ fn run_worker(
             .map(Ok)
             .unwrap_or_else(|| rx.recv_timeout(Duration::from_millis(40)));
         let command = coalesce_seeks(command, &rx, &mut pending);
+        // Preserve the unity-gain legacy commands while allowing the resolver
+        // to provide a resource-specific value before first output.
+        let mut initial_gain_db = 0.0_f32;
+        let mut normalization_plan = None;
+        let command = match command {
+            Ok(OutputCommand::LoadWithNormalization {
+                generation,
+                startup_deadline,
+                allow_startup_reserve,
+                source,
+                position,
+                end,
+                initial_gain_db: gain,
+            }) => {
+                initial_gain_db = validated_gain_db(gain);
+                Ok(OutputCommand::Load {
+                    generation,
+                    startup_deadline,
+                    allow_startup_reserve,
+                    source,
+                    position,
+                    end,
+                })
+            }
+            Ok(OutputCommand::LoadWithNormalizationPlan {
+                generation,
+                startup_deadline,
+                allow_startup_reserve,
+                source,
+                position,
+                end,
+                plan,
+            }) => {
+                normalization_plan = Some(plan);
+                Ok(OutputCommand::Load {
+                    generation,
+                    startup_deadline,
+                    allow_startup_reserve,
+                    source,
+                    position,
+                    end,
+                })
+            }
+            Ok(OutputCommand::PreloadWithNormalization {
+                generation,
+                next_generation,
+                source,
+                position,
+                end,
+                initial_gain_db: gain,
+            }) => {
+                initial_gain_db = validated_gain_db(gain);
+                Ok(OutputCommand::Preload {
+                    generation,
+                    next_generation,
+                    source,
+                    position,
+                    end,
+                })
+            }
+            Ok(OutputCommand::PreloadWithNormalizationPlan {
+                generation,
+                next_generation,
+                source,
+                position,
+                end,
+                plan,
+            }) => {
+                normalization_plan = Some(plan);
+                Ok(OutputCommand::Preload {
+                    generation,
+                    next_generation,
+                    source,
+                    position,
+                    end,
+                })
+            }
+            other => other,
+        };
         match command {
             Ok(OutputCommand::Shutdown) => break,
+            Ok(OutputCommand::LoadWithNormalization { .. })
+            | Ok(OutputCommand::LoadWithNormalizationPlan { .. })
+            | Ok(OutputCommand::PreloadWithNormalization { .. })
+            | Ok(OutputCommand::PreloadWithNormalizationPlan { .. }) => {
+                unreachable!("normalization commands are converted before worker dispatch")
+            }
             Ok(OutputCommand::Load {
                 generation,
                 startup_deadline,
@@ -974,9 +1241,30 @@ fn run_worker(
                         }
                     }
                 }
+                let output_rate = sink
+                    .as_ref()
+                    .expect("sink opened")
+                    .config()
+                    .sample_rate()
+                    .get();
+                let output_channels = sink
+                    .as_ref()
+                    .expect("sink opened")
+                    .config()
+                    .channel_count()
+                    .get();
+                if let Some(plan) = normalization_plan.as_ref() {
+                    let selected = plan.select(output_channels);
+                    initial_gain_db = selected.applied_gain_db as f32;
+                    let _ = events.send(OutputEvent::NormalizationSelected {
+                        generation,
+                        output_channels,
+                        status: selected,
+                    });
+                }
                 let decoder_session = Arc::new(DecoderSession::default());
                 decoder_session.set_startup_deadline(Some(startup_deadline));
-                player = Some(start_playback_with_reserve_policy(
+                let mut started = start_playback_with_reserve_policy_and_gain(
                     sink.as_ref().expect("sink opened").mixer(),
                     volume,
                     generation,
@@ -984,16 +1272,8 @@ fn run_worker(
                     position,
                     end,
                     position,
-                    sink.as_ref()
-                        .expect("sink opened")
-                        .config()
-                        .sample_rate()
-                        .get(),
-                    sink.as_ref()
-                        .expect("sink opened")
-                        .config()
-                        .channel_count()
-                        .get(),
+                    output_rate,
+                    output_channels,
                     events.clone(),
                     tap.clone(),
                     decoder_session,
@@ -1003,7 +1283,10 @@ fn run_worker(
                     } else {
                         StartupReservePolicy::Disabled
                     },
-                ));
+                    initial_gain_db,
+                );
+                started.normalization_plan = normalization_plan;
+                player = Some(started);
             }
             Ok(OutputCommand::Preload {
                 generation,
@@ -1021,6 +1304,22 @@ fn run_worker(
                     if current.active_generation.load(Ordering::Relaxed) == generation
                         && current.preload_cancel.is_none()
                     {
+                        let output_channels = current.channels.load(Ordering::Acquire) as u16;
+                        let selected = normalization_plan
+                            .as_ref()
+                            .map(|plan| plan.select(output_channels));
+                        let selected_gain_db =
+                            selected.as_ref().map_or(initial_gain_db, |selection| {
+                                selection.applied_gain_db as f32
+                            });
+                        if let Some(status) = selected {
+                            let _ = events.send(OutputEvent::NormalizationSelected {
+                                generation: next_generation,
+                                output_channels,
+                                status,
+                            });
+                        }
+                        let preload_normalization = Arc::new(std::sync::Mutex::new(None));
                         current.preload_cancel = Some(append_source(
                             &current.player,
                             next_generation,
@@ -1037,7 +1336,11 @@ fn run_worker(
                             current.activation_tx.clone(),
                             Arc::new(AtomicBool::new(false)),
                             current.buffering.clone(),
+                            selected_gain_db,
+                            normalization_plan,
+                            preload_normalization.clone(),
                         ));
+                        current.preload_normalization = preload_normalization;
                     }
                 }
             }
@@ -1053,6 +1356,11 @@ fn run_worker(
                             cancel.store(true, Ordering::Relaxed);
                         }
                     }
+                    current
+                        .preload_normalization
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .take();
                 }
                 if interrupt {
                     if let Some(current) = player.take() {
@@ -1094,6 +1402,84 @@ fn run_worker(
                     current.player.set_volume(volume);
                 }
             }
+            Ok(OutputCommand::NormalizationGain {
+                generation,
+                gain_db,
+                ramp_ms,
+            }) => {
+                if let Some(current) = player.as_mut() {
+                    if current.active_generation.load(Ordering::Acquire) != current.generation {
+                        while let Ok(activation) = current.activation_rx.try_recv() {
+                            apply_activation(current, activation);
+                        }
+                    }
+                    if current.generation == generation {
+                        current
+                            .normalization_ramp_ms
+                            .store(ramp_ms.clamp(5, 250) as u32, Ordering::Relaxed);
+                        current.normalization_gain_target.store(
+                            gain_db_to_linear(validated_gain_db(gain_db)).to_bits(),
+                            Ordering::Release,
+                        );
+                        // A scalar update deliberately opts out of route-aware
+                        // reselection on a later device reconnect.
+                        current.normalization_plan = None;
+                    }
+                }
+            }
+            Ok(OutputCommand::NormalizationGainPlan {
+                generation,
+                plan,
+                ramp_ms,
+            }) => {
+                if let Some(current) = player.as_mut() {
+                    if current.active_generation.load(Ordering::Acquire) != current.generation {
+                        while let Ok(activation) = current.activation_rx.try_recv() {
+                            apply_activation(current, activation);
+                        }
+                    }
+                    if current.generation == generation {
+                        let output_channels = current.channels.load(Ordering::Acquire) as u16;
+                        let selected = update_normalization_gain_target(
+                            output_channels,
+                            &current.normalization_gain_target,
+                            &current.normalization_ramp_ms,
+                            &plan,
+                            ramp_ms,
+                        );
+                        current.normalization_plan = Some(plan);
+                        let _ = events.send(OutputEvent::NormalizationSelected {
+                            generation,
+                            output_channels,
+                            status: selected,
+                        });
+                    } else if let Some(selected) = current
+                        .preload_normalization
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .as_ref()
+                        .and_then(|control| {
+                            update_queued_normalization(control, generation, &plan, ramp_ms)
+                        })
+                    {
+                        let _ = events.send(OutputEvent::NormalizationSelected {
+                            generation,
+                            output_channels: selected.0,
+                            status: selected.1,
+                        });
+                    }
+                } else if let Some(reconnect) = reconnect.as_mut() {
+                    let _ = update_reconnect_normalization_plan(reconnect, generation, plan);
+                } else if let Some(device) = sink.as_ref() {
+                    let output_channels = device.config().channel_count().get();
+                    let selected = plan.select(output_channels);
+                    let _ = events.send(OutputEvent::NormalizationSelected {
+                        generation,
+                        output_channels,
+                        status: selected,
+                    });
+                }
+            }
             Ok(OutputCommand::Seek {
                 generation,
                 position: seconds,
@@ -1126,7 +1512,11 @@ fn run_worker(
                         generation,
                         diagnostics: None,
                     });
-                    let restarted = start_playback(
+                    let normalization_gain_db = linear_gain_to_db(f32::from_bits(
+                        current.normalization_gain_target.load(Ordering::Acquire),
+                    ));
+                    let normalization_plan = current.normalization_plan.clone();
+                    let mut restarted = start_playback_with_gain(
                         sink.as_ref().expect("checked sink").mixer(),
                         volume,
                         generation,
@@ -1148,7 +1538,9 @@ fn run_worker(
                         tap.clone(),
                         current.decoder_session.clone(),
                         was_paused,
+                        normalization_gain_db,
                     );
+                    restarted.normalization_plan = normalization_plan;
                     player = Some(restarted);
                 }
             }
@@ -1179,6 +1571,10 @@ fn run_worker(
                     attempts: 0,
                     last_error: reason,
                     retry_at: Instant::now() + reconnect_delay(0),
+                    normalization_gain_db: linear_gain_to_db(f32::from_bits(
+                        current.normalization_gain_target.load(Ordering::Acquire),
+                    )),
+                    normalization_plan: current.normalization_plan.clone(),
                 });
                 current.cancel.store(true, Ordering::Relaxed);
                 if let Some(cancel) = current.preload_cancel {
@@ -1197,7 +1593,23 @@ fn run_worker(
                 Ok(device) => {
                     let output_rate = device.config().sample_rate().get();
                     let output_channels = device.config().channel_count().get();
-                    player = Some(start_playback(
+                    let selected = pending
+                        .normalization_plan
+                        .as_ref()
+                        .map(|plan| plan.select(output_channels));
+                    let normalization_gain_db = selected
+                        .as_ref()
+                        .map_or(pending.normalization_gain_db, |status| {
+                            status.applied_gain_db as f32
+                        });
+                    if let Some(status) = selected {
+                        let _ = events.send(OutputEvent::NormalizationSelected {
+                            generation: pending.generation,
+                            output_channels,
+                            status,
+                        });
+                    }
+                    let mut restarted = start_playback_with_gain(
                         device.mixer(),
                         volume,
                         pending.generation,
@@ -1211,7 +1623,10 @@ fn run_worker(
                         tap.clone(),
                         Arc::new(DecoderSession::default()),
                         pending.paused,
-                    ));
+                        normalization_gain_db,
+                    );
+                    restarted.normalization_plan = pending.normalization_plan.clone();
+                    player = Some(restarted);
                     sink = Some(device);
                     reconnect = None;
                 }
@@ -1387,6 +1802,28 @@ fn decode_failure_event(
 
 const MAX_RECONNECT_ATTEMPTS: u8 = 6;
 
+fn validated_gain_db(gain_db: f32) -> f32 {
+    if gain_db.is_finite() {
+        gain_db.clamp(-60.0, 6.0)
+    } else {
+        0.0
+    }
+}
+
+fn gain_db_to_linear(gain_db: f32) -> f32 {
+    10.0_f32
+        .powf(validated_gain_db(gain_db) / 20.0)
+        .clamp(0.001, 2.0)
+}
+
+fn linear_gain_to_db(gain: f32) -> f32 {
+    if gain.is_finite() && gain > 0.0 {
+        validated_gain_db(20.0 * gain.log10())
+    } else {
+        0.0
+    }
+}
+
 fn reconnect_delay(attempt: u8) -> Duration {
     Duration::from_millis(250u64.saturating_mul(1u64 << u32::from(attempt.min(3))))
 }
@@ -1440,6 +1877,19 @@ fn apply_activation(current: &mut Playback, activation: Activation) {
     current.source_sample_rate = activation.sample_rate;
     current.source_channels = activation.channels;
     current.live_metadata = Some(activation.live_metadata);
+    current.normalization_gain_target = activation.normalization_gain_target;
+    current.normalization_ramp_ms = activation.normalization_ramp_ms;
+    if activation.replace_normalization_plan {
+        let mut preload = current
+            .preload_normalization
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        current.normalization_plan = take_queued_plan_for_activation(
+            &mut preload,
+            activation.generation,
+            activation.normalization_plan,
+        );
+    }
     if current
         .preload_cancel
         .as_ref()
@@ -1464,7 +1914,41 @@ fn start_playback(
     decoder_session: Arc<DecoderSession>,
     paused: bool,
 ) -> Playback {
-    start_playback_with_reserve_policy(
+    start_playback_with_gain(
+        mixer,
+        volume,
+        generation,
+        source,
+        position,
+        end,
+        base_position,
+        output_rate,
+        output_channels,
+        events,
+        tap,
+        decoder_session,
+        paused,
+        0.0,
+    )
+}
+
+fn start_playback_with_gain(
+    mixer: &rodio::mixer::Mixer,
+    volume: f32,
+    generation: u64,
+    source: AudioSource,
+    position: f64,
+    end: Option<f64>,
+    base_position: f64,
+    output_rate: u32,
+    output_channels: u16,
+    events: UnboundedSender<OutputEvent>,
+    tap: Arc<crate::pcm_tap::PcmTap>,
+    decoder_session: Arc<DecoderSession>,
+    paused: bool,
+    initial_gain_db: f32,
+) -> Playback {
+    start_playback_with_reserve_policy_and_gain(
         mixer,
         volume,
         generation,
@@ -1479,6 +1963,7 @@ fn start_playback(
         decoder_session,
         paused,
         StartupReservePolicy::Disabled,
+        initial_gain_db,
     )
 }
 
@@ -1498,8 +1983,47 @@ fn start_playback_with_reserve_policy(
     paused: bool,
     reserve_policy: StartupReservePolicy,
 ) -> Playback {
+    start_playback_with_reserve_policy_and_gain(
+        mixer,
+        volume,
+        generation,
+        source,
+        position,
+        end,
+        base_position,
+        output_rate,
+        output_channels,
+        events,
+        tap,
+        decoder_session,
+        paused,
+        reserve_policy,
+        0.0,
+    )
+}
+
+fn start_playback_with_reserve_policy_and_gain(
+    mixer: &rodio::mixer::Mixer,
+    volume: f32,
+    generation: u64,
+    source: AudioSource,
+    position: f64,
+    end: Option<f64>,
+    base_position: f64,
+    output_rate: u32,
+    output_channels: u16,
+    events: UnboundedSender<OutputEvent>,
+    tap: Arc<crate::pcm_tap::PcmTap>,
+    decoder_session: Arc<DecoderSession>,
+    paused: bool,
+    reserve_policy: StartupReservePolicy,
+    initial_gain_db: f32,
+) -> Playback {
     let player = Player::connect_new(mixer);
     player.set_volume(volume);
+    let initial_linear_gain = gain_db_to_linear(validated_gain_db(initial_gain_db));
+    let normalization_gain_target = Arc::new(AtomicU32::new(initial_linear_gain.to_bits()));
+    let normalization_ramp_ms = Arc::new(AtomicU32::new(80));
     if paused {
         player.pause();
     }
@@ -1626,6 +2150,15 @@ fn start_playback_with_reserve_policy(
         source_channels,
         decode_failed: decode_failed.clone(),
         buffering: buffering.clone(),
+        normalization_gain_target: normalization_gain_target.clone(),
+        normalization_ramp_ms: normalization_ramp_ms.clone(),
+        normalization_plan: None,
+        replace_normalization_plan: false,
+        normalization_current_gain: initial_linear_gain,
+        normalization_seen_target: initial_linear_gain.to_bits(),
+        normalization_ramp_start: initial_linear_gain,
+        normalization_ramp_total: 0,
+        normalization_ramp_remaining: 0,
         exhausted: false,
     });
     if !paused {
@@ -1655,6 +2188,10 @@ fn start_playback_with_reserve_policy(
         source_sample_rate: 44_100,
         source_channels: 2,
         live_metadata: None,
+        normalization_gain_target,
+        normalization_ramp_ms,
+        normalization_plan: None,
+        preload_normalization: Arc::new(std::sync::Mutex::new(None)),
         paused,
     }
 }
@@ -1675,6 +2212,9 @@ fn append_source(
     activation_tx: std_mpsc::Sender<Activation>,
     decode_failed: Arc<AtomicBool>,
     buffering: Arc<AtomicBool>,
+    initial_gain_db: f32,
+    normalization_plan: Option<crate::loudness_manager::NativeNormalizationGainPlan>,
+    preload_normalization_out: Arc<std::sync::Mutex<Option<QueuedNormalizationControl>>>,
 ) -> Arc<AtomicBool> {
     let (tx, rx) = std_mpsc::sync_channel(16);
     let cancel = Arc::new(AtomicBool::new(false));
@@ -1682,6 +2222,20 @@ fn append_source(
     let decoder_diagnostics = Arc::new(std::sync::Mutex::new(None));
     let rate = Arc::new(std::sync::atomic::AtomicU32::new(output_rate));
     let channels = Arc::new(std::sync::atomic::AtomicU32::new(output_channels as u32));
+    let initial_linear_gain = gain_db_to_linear(validated_gain_db(initial_gain_db));
+    let normalization_gain_target = Arc::new(AtomicU32::new(initial_linear_gain.to_bits()));
+    let normalization_ramp_ms = Arc::new(AtomicU32::new(80));
+    let queued_normalization_plan = normalization_plan.clone();
+    let shared_normalization_plan = Arc::new(std::sync::Mutex::new(normalization_plan));
+    *preload_normalization_out
+        .lock()
+        .unwrap_or_else(|error| error.into_inner()) = Some(QueuedNormalizationControl {
+        generation,
+        output_channels,
+        normalization_gain_target: normalization_gain_target.clone(),
+        normalization_ramp_ms: normalization_ramp_ms.clone(),
+        normalization_plan: shared_normalization_plan,
+    });
     let decoder_session = Arc::new(DecoderSession::default());
     decoder_session.bind(&cancel);
     let worker_session = decoder_session.clone();
@@ -1769,6 +2323,15 @@ fn append_source(
         end,
         activation_tx,
         buffering,
+        normalization_gain_target,
+        normalization_ramp_ms,
+        normalization_plan: queued_normalization_plan,
+        replace_normalization_plan: true,
+        normalization_current_gain: initial_linear_gain,
+        normalization_seen_target: initial_linear_gain.to_bits(),
+        normalization_ramp_start: initial_linear_gain,
+        normalization_ramp_total: 0,
+        normalization_ramp_remaining: 0,
         exhausted: false,
     });
     cancel
@@ -1801,6 +2364,15 @@ struct QueuedSamples {
     end: Option<f64>,
     activation_tx: std_mpsc::Sender<Activation>,
     buffering: Arc<AtomicBool>,
+    normalization_gain_target: Arc<AtomicU32>,
+    normalization_ramp_ms: Arc<AtomicU32>,
+    normalization_plan: Option<crate::loudness_manager::NativeNormalizationGainPlan>,
+    replace_normalization_plan: bool,
+    normalization_current_gain: f32,
+    normalization_seen_target: u32,
+    normalization_ramp_start: f32,
+    normalization_ramp_total: u32,
+    normalization_ramp_remaining: u32,
     exhausted: bool,
 }
 impl Iterator for QueuedSamples {
@@ -1859,8 +2431,9 @@ impl Iterator for QueuedSamples {
             }
             self.samples_played.fetch_add(1, Ordering::Relaxed);
             self.buffering.store(false, Ordering::Relaxed);
-            self.push_tap_sample(value);
-            return Some(value);
+            let output = self.apply_normalization_gain(value);
+            self.push_tap_sample(output);
+            return Some(output);
         }
         if self.exhausted {
             return None;
@@ -1876,10 +2449,12 @@ impl Iterator for QueuedSamples {
                     self.samples_played.fetch_add(1, Ordering::Relaxed);
                     self.buffering.store(false, Ordering::Relaxed);
                     if let Some(sample) = value {
-                        self.push_tap_sample(sample);
+                        let output = self.apply_normalization_gain(sample);
+                        self.push_tap_sample(output);
+                        return Some(output);
                     }
                 }
-                value
+                None
             }
             Err(std_mpsc::TryRecvError::Empty) => {
                 self.decoder_session
@@ -1902,6 +2477,44 @@ impl Iterator for QueuedSamples {
     }
 }
 impl QueuedSamples {
+    fn apply_normalization_gain(&mut self, sample: f32) -> f32 {
+        let target_bits = self.normalization_gain_target.load(Ordering::Acquire);
+        if target_bits != self.normalization_seen_target {
+            self.normalization_seen_target = target_bits;
+            self.normalization_ramp_start = self.normalization_current_gain;
+            let milliseconds = self
+                .normalization_ramp_ms
+                .load(Ordering::Relaxed)
+                .clamp(5, 250);
+            let frames = (u64::from(self.sample_rate.max(1))
+                .saturating_mul(u64::from(self.channels.max(1)))
+                .saturating_mul(u64::from(milliseconds))
+                / 1000)
+                .clamp(1, u64::from(u32::MAX)) as u32;
+            self.normalization_ramp_total = frames;
+            self.normalization_ramp_remaining = frames;
+        }
+        if self.normalization_ramp_remaining > 0 {
+            let target = f32::from_bits(self.normalization_seen_target).clamp(0.0, 2.0);
+            let progressed = self
+                .normalization_ramp_total
+                .saturating_sub(self.normalization_ramp_remaining)
+                .saturating_add(1);
+            let fraction = progressed as f32 / self.normalization_ramp_total.max(1) as f32;
+            self.normalization_current_gain =
+                self.normalization_ramp_start + (target - self.normalization_ramp_start) * fraction;
+            self.normalization_ramp_remaining -= 1;
+            if self.normalization_ramp_remaining == 0 {
+                self.normalization_current_gain = target;
+            }
+        }
+        if sample.is_finite() {
+            sample * self.normalization_current_gain
+        } else {
+            0.0
+        }
+    }
+
     fn push_tap_sample(&mut self, sample: f32) {
         let played_samples = self.samples_played.load(Ordering::Relaxed) as f64;
         let frame_position = self.initial_position
@@ -1951,11 +2564,27 @@ impl QueuedSamples {
                 duration: self.duration_bits.clone(),
                 decoder: self.decoder_diagnostics.clone(),
             },
+            normalization_gain_target: self.normalization_gain_target.clone(),
+            normalization_ramp_ms: self.normalization_ramp_ms.clone(),
+            normalization_plan: self.normalization_plan.clone(),
+            replace_normalization_plan: self.replace_normalization_plan,
         });
     }
     fn begin_track(&mut self) {
         if !self.activated {
             self.activate();
+        }
+        // A queued source may have been repriced while it waited behind the
+        // current track. Before its first audible sample, start at the latest
+        // selected gain instead of ramping from the obsolete preload gain.
+        let target_bits = self.normalization_gain_target.load(Ordering::Acquire);
+        if target_bits != self.normalization_seen_target {
+            let target = f32::from_bits(target_bits).clamp(0.0, 2.0);
+            self.normalization_current_gain = target;
+            self.normalization_seen_target = target_bits;
+            self.normalization_ramp_start = target;
+            self.normalization_ramp_total = 0;
+            self.normalization_ramp_remaining = 0;
         }
         self.started = true;
         let duration = f64::from_bits(self.duration_bits.load(Ordering::Relaxed));
@@ -2067,6 +2696,12 @@ fn decode_with_session_and_diagnostics(
     let decode_started = Instant::now();
     let reader_bytes_at_start = session.stream_stats.bytes_read.load(Ordering::Relaxed);
     let use_ffmpeg = should_use_ffmpeg_for_source(&source);
+    if requests_opus_head_gain_policy(&source) && !use_ffmpeg {
+        return Err(
+            "The qualified Ogg Opus decoder policy is incomplete; replay the track to refresh it"
+                .into(),
+        );
+    }
     #[cfg(test)]
     let use_ffmpeg = {
         let valid_loopback_opus = has_finite_opus_webm_hint(&source)
@@ -2533,7 +3168,7 @@ fn decode_with_session_and_diagnostics(
     duration_out.store(duration.unwrap_or(f64::NAN).to_bits(), Ordering::Relaxed);
     sample_rate_out.store(sample_rate, Ordering::Relaxed);
     channels_out.store(channels as u32, Ordering::Relaxed);
-    let decoder = rodio::source::UniformSourceIterator::new(
+    let decoder = continuous_resample::ContinuousSourceIterator::new(
         decoder,
         NonZeroU16::new(output_channels).unwrap(),
         NonZeroU32::new(output_rate).unwrap(),
@@ -2683,6 +3318,27 @@ fn is_finite_remote_opus_webm(source: &AudioSource) -> bool {
 }
 
 fn should_use_ffmpeg_for_source(source: &AudioSource) -> bool {
+    if source.decoder_hint.as_ref().is_some_and(|hint| {
+        hint.decode_policy == AudioSourceDecodePolicy::FfmpegOggOpusHeadGain
+            && hint.mime_type.as_deref() == Some("audio/ogg")
+            && hint
+                .codec
+                .as_deref()
+                .is_some_and(|codec| codec.eq_ignore_ascii_case("opus"))
+            && hint
+                .decoder_fingerprint
+                .as_deref()
+                .is_some_and(|fingerprint| {
+                    fingerprint.len() == 64
+                        && fingerprint.bytes().all(|byte| byte.is_ascii_hexdigit())
+                })
+            && !source.input.starts_with("http://")
+            && !source.input.starts_with("https://")
+            && !source.input.starts_with("ytdl://")
+            && source.cenc.is_none()
+    }) {
+        return true;
+    }
     // Symphonia scans every MP4 atom before starting a seekable stream. For
     // verified finite remote AAC, use the existing incremental FFmpeg path.
     source.cenc.is_some()
@@ -2695,6 +3351,38 @@ fn should_use_ffmpeg_for_source(source: &AudioSource) -> bool {
             .decoder_hint
             .as_ref()
             .is_some_and(|hint| hint.has_video && hint.mime_type.as_deref() == Some("audio/mp4"))
+}
+
+fn requests_opus_head_gain_policy(source: &AudioSource) -> bool {
+    source
+        .decoder_hint
+        .as_ref()
+        .is_some_and(|hint| hint.decode_policy == AudioSourceDecodePolicy::FfmpegOggOpusHeadGain)
+}
+
+fn verify_opus_decoder_before_launch(source: &AudioSource) -> Result<(), String> {
+    if !requests_opus_head_gain_policy(source) {
+        return Ok(());
+    }
+    if !should_use_ffmpeg_for_source(source) {
+        return Err(
+            "The qualified Ogg Opus decoder policy is incomplete; replay the track to refresh it"
+                .into(),
+        );
+    }
+    let fingerprint = source
+        .decoder_hint
+        .as_ref()
+        .and_then(|hint| hint.decoder_fingerprint.as_deref())
+        .ok_or_else(|| "The qualified Ogg Opus decoder fingerprint is missing".to_owned())?;
+    if !crate::opus_decoder_capability::executable_matches_fingerprint(&source.ffmpeg, fingerprint)
+    {
+        return Err(
+            "The qualified Opus decoder changed after verification; replay the track to check the configured decoder again"
+                .into(),
+        );
+    }
+    Ok(())
 }
 
 const MAX_CENC_FFCONCAT_MANIFEST: usize = 2048;
@@ -2912,6 +3600,7 @@ fn decode_ffmpeg_with_diagnostics(
     use std::process::{Command, Stdio};
     // Phase timing starts here; only first PCM keeps the original decode origin.
     let ffmpeg_setup_started = Instant::now();
+    verify_opus_decoder_before_launch(&source)?;
     let cenc_manifest = if source.cenc.is_some() {
         Some(build_cenc_manifest(&source)?)
     } else {
@@ -3257,6 +3946,57 @@ mod tests {
     use std::io::Write;
     use std::net::TcpListener;
 
+    fn queued_gain_fixture(sample_rate: u32, channels: u16, initial_gain_db: f32) -> QueuedSamples {
+        let (_tx, rx) = std_mpsc::sync_channel(1);
+        let (events, _) = tokio::sync::mpsc::unbounded_channel();
+        let (activation_tx, _) = std_mpsc::channel();
+        let initial_gain = gain_db_to_linear(initial_gain_db);
+        QueuedSamples {
+            reserve: None,
+            reserve_diagnostics: None,
+            decoder_session: Arc::new(DecoderSession::default()),
+            rx,
+            pending: VecDeque::new(),
+            channels,
+            sample_rate,
+            samples_played: Arc::new(AtomicU64::new(0)),
+            generation: 1,
+            active_generation: Arc::new(AtomicU64::new(1)),
+            base_position: Arc::new(AtomicU64::new(0.0f64.to_bits())),
+            initial_position: 0.0,
+            started: false,
+            activated: false,
+            cancelled: Arc::new(AtomicBool::new(false)),
+            tap_writer: crate::pcm_tap::PcmTap::new().writer(1, sample_rate, channels),
+            events,
+            duration_bits: Arc::new(AtomicU64::new(f64::NAN.to_bits())),
+            decoder_diagnostics: Arc::new(std::sync::Mutex::new(None)),
+            source_rate: Arc::new(std::sync::atomic::AtomicU32::new(sample_rate)),
+            source_channels: Arc::new(std::sync::atomic::AtomicU32::new(channels as u32)),
+            decode_failed: Arc::new(AtomicBool::new(false)),
+            source: AudioSource {
+                input: "generated-pcm-fixture".into(),
+                ffmpeg: "unused".into(),
+                headers: vec![],
+                decoder_hint: None,
+                cenc: None,
+            },
+            end: None,
+            activation_tx,
+            buffering: Arc::new(AtomicBool::new(false)),
+            normalization_gain_target: Arc::new(AtomicU32::new(initial_gain.to_bits())),
+            normalization_ramp_ms: Arc::new(AtomicU32::new(80)),
+            normalization_plan: None,
+            replace_normalization_plan: false,
+            normalization_current_gain: initial_gain,
+            normalization_seen_target: initial_gain.to_bits(),
+            normalization_ramp_start: initial_gain,
+            normalization_ramp_total: 0,
+            normalization_ramp_remaining: 0,
+            exhausted: false,
+        }
+    }
+
     fn accept_loopback(
         listener: &TcpListener,
         timeout: Duration,
@@ -3287,6 +4027,221 @@ mod tests {
                 Err(error) => return Err(error),
             }
         }
+    }
+
+    #[test]
+    fn native_normalization_applies_before_first_pcm_and_preserves_off_parity() {
+        let mut off = queued_gain_fixture(48_000, 2, 0.0);
+        let generated = [0.0_f32, 0.25, -0.5, 0.9];
+        off.pending = generated.into_iter().collect();
+        let rendered = (0..generated.len())
+            .map(|_| off.next().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(rendered, generated);
+
+        let mut attenuated = queued_gain_fixture(48_000, 2, -6.0);
+        attenuated.pending = vec![0.9, -0.9, 0.5].into();
+        let first = attenuated.next().unwrap();
+        let expected = 0.9 * gain_db_to_linear(-6.0);
+        assert!((first - expected).abs() < 1.0e-6);
+        assert!(
+            first < 0.9,
+            "attenuation is present on the first output sample"
+        );
+        let rendered_peak = std::iter::once(first)
+            .chain((0..2).map(|_| attenuated.next().unwrap()))
+            .map(f32::abs)
+            .fold(0.0_f32, f32::max);
+        assert!(rendered_peak <= 0.9 * gain_db_to_linear(-6.0) + 1.0e-6);
+    }
+
+    #[test]
+    fn native_mono_route_plan_gain_is_applied_to_the_first_queued_sample() {
+        use crate::loudness::{MeasurementProvenance, NormalizationMode};
+        use crate::loudness_manager::{LoudnessStatus, LoudnessStatusKind};
+        let source = LoudnessStatus {
+            mode: NormalizationMode::Track,
+            status: LoudnessStatusKind::Applied,
+            applied_gain_db: -1.33,
+            measurement_source: Some(MeasurementProvenance::FfmpegAnalysis),
+            reason: None,
+            source_resource_key: Some("mono-resource".into()),
+        };
+        let stereo = LoudnessStatus {
+            applied_gain_db: -4.33,
+            ..source.clone()
+        };
+        let plan = crate::loudness_manager::NativeNormalizationGainPlan::mono(source, Some(stereo));
+        let selected = plan.select(2);
+        let mut queued = queued_gain_fixture(48_000, 2, selected.applied_gain_db as f32);
+        queued.pending.push_back(0.5);
+        let first = queued.next().unwrap();
+        let expected = 0.5 * gain_db_to_linear(-4.33);
+        assert!((first - expected).abs() < 1.0e-6);
+        assert!(first < 0.5 * gain_db_to_linear(-1.33));
+    }
+
+    #[test]
+    fn queued_normalization_plan_updates_only_its_generation_before_and_after_activation() {
+        use crate::loudness::{MeasurementProvenance, NormalizationMode};
+        use crate::loudness_manager::{LoudnessStatus, LoudnessStatusKind};
+        let source = LoudnessStatus {
+            mode: NormalizationMode::Track,
+            status: LoudnessStatusKind::Applied,
+            applied_gain_db: -1.33,
+            measurement_source: Some(MeasurementProvenance::FfmpegAnalysis),
+            reason: None,
+            source_resource_key: Some("queued-mono-resource".into()),
+        };
+        let old_plan = crate::loudness_manager::NativeNormalizationGainPlan::mono(
+            source.clone(),
+            Some(LoudnessStatus {
+                applied_gain_db: -1.33,
+                ..source.clone()
+            }),
+        );
+        let next_plan = crate::loudness_manager::NativeNormalizationGainPlan::mono(
+            source.clone(),
+            Some(LoudnessStatus {
+                applied_gain_db: -4.33,
+                ..source.clone()
+            }),
+        );
+        let after_activation_plan = crate::loudness_manager::NativeNormalizationGainPlan::mono(
+            source.clone(),
+            Some(LoudnessStatus {
+                applied_gain_db: -6.0,
+                ..source
+            }),
+        );
+
+        let plan_state = Arc::new(std::sync::Mutex::new(Some(old_plan.clone())));
+        let mut queued = queued_gain_fixture(1_000, 1, -1.33);
+        queued.generation = 31;
+        queued.replace_normalization_plan = true;
+        queued.normalization_plan = Some(old_plan);
+        let (activation_tx, activation_rx) = std_mpsc::channel();
+        queued.activation_tx = activation_tx;
+        let control = QueuedNormalizationControl {
+            generation: 31,
+            output_channels: 2,
+            normalization_gain_target: queued.normalization_gain_target.clone(),
+            normalization_ramp_ms: queued.normalization_ramp_ms.clone(),
+            normalization_plan: plan_state,
+        };
+
+        assert!(update_queued_normalization(&control, 32, &next_plan, 80).is_none());
+        assert!(
+            (f32::from_bits(control.normalization_gain_target.load(Ordering::Acquire))
+                - gain_db_to_linear(-1.33))
+            .abs()
+                < 1.0e-6
+        );
+        let (_, selected) = update_queued_normalization(&control, 31, &next_plan, 80).unwrap();
+        assert_eq!(selected.applied_gain_db, -4.33);
+        queued.pending.extend(std::iter::repeat(0.5).take(100));
+        let first = queued.next().unwrap();
+        assert!(
+            (first - 0.5 * gain_db_to_linear(-4.33)).abs() < 1.0e-6,
+            "the first audible sample uses the replacement plan"
+        );
+        let activation = activation_rx.recv().unwrap();
+        let mut worker_control = Some(control.clone());
+        let activated_plan = take_queued_plan_for_activation(
+            &mut worker_control,
+            activation.generation,
+            activation.normalization_plan.clone(),
+        );
+        assert_eq!(
+            activated_plan.unwrap().select(2).applied_gain_db,
+            -4.33,
+            "worker activation reconciles the latest queued plan"
+        );
+        assert!(worker_control.is_none());
+        let rendered = (0..99).map(|_| queued.next().unwrap()).collect::<Vec<_>>();
+        assert!((rendered.last().unwrap() - 0.5 * gain_db_to_linear(-4.33)).abs() < 1.0e-6);
+
+        // After activation the same target Arc is owned by active Playback, so
+        // an active-generation update changes subsequent samples and the plan
+        // retained for a later reconnect.
+        let selected = update_normalization_gain_target(
+            2,
+            &activation.normalization_gain_target,
+            &activation.normalization_ramp_ms,
+            &after_activation_plan,
+            5,
+        );
+        assert_eq!(selected.applied_gain_db, -6.0);
+        queued.normalization_plan = Some(after_activation_plan);
+        let after_ramp = (0..11)
+            .map(|_| queued.apply_normalization_gain(0.5))
+            .last()
+            .unwrap();
+        assert!((after_ramp - 0.5 * gain_db_to_linear(-6.0)).abs() < 1.0e-6);
+    }
+
+    #[test]
+    fn stale_normalization_refresh_cannot_replace_reconnects_other_generation() {
+        use crate::loudness::{MeasurementProvenance, NormalizationMode};
+        use crate::loudness_manager::{LoudnessStatus, LoudnessStatusKind};
+        let status = LoudnessStatus {
+            mode: NormalizationMode::Track,
+            status: LoudnessStatusKind::Applied,
+            applied_gain_db: -3.0,
+            measurement_source: Some(MeasurementProvenance::FfmpegAnalysis),
+            reason: None,
+            source_resource_key: Some("reconnect-resource".into()),
+        };
+        let plan = crate::loudness_manager::NativeNormalizationGainPlan::fixed(status);
+        let mut reconnect = Reconnect {
+            generation: 42,
+            source: AudioSource {
+                input: "fixture.wav".into(),
+                ffmpeg: "ffmpeg".into(),
+                headers: vec![],
+                decoder_hint: None,
+                cenc: None,
+            },
+            position: 0.0,
+            end: None,
+            paused: false,
+            attempts: 0,
+            last_error: "fixture device loss".into(),
+            retry_at: Instant::now(),
+            normalization_gain_db: 0.0,
+            normalization_plan: None,
+        };
+        assert!(!update_reconnect_normalization_plan(
+            &mut reconnect,
+            41,
+            plan.clone()
+        ));
+        assert!(reconnect.normalization_plan.is_none());
+        assert!(update_reconnect_normalization_plan(
+            &mut reconnect,
+            42,
+            plan
+        ));
+        assert!(reconnect.normalization_plan.is_some());
+    }
+
+    #[test]
+    fn native_gain_changes_ramp_without_a_pcm_step() {
+        let mut ramp = queued_gain_fixture(1_000, 1, -6.0);
+        ramp.normalization_ramp_ms.store(5, Ordering::Relaxed);
+        ramp.normalization_gain_target
+            .store(1.0f32.to_bits(), Ordering::Release);
+        let generated = [1.0_f32; 6];
+        let rendered = generated
+            .iter()
+            .map(|sample| ramp.apply_normalization_gain(*sample))
+            .collect::<Vec<_>>();
+        assert!(rendered.windows(2).all(|pair| pair[0] <= pair[1]));
+        assert!(
+            rendered[0] < 0.7,
+            "first ramped sample avoids a full-scale jump"
+        );
+        assert_eq!(*rendered.last().unwrap(), 1.0);
     }
 
     #[test]
@@ -3337,6 +4292,15 @@ mod tests {
             end: None,
             activation_tx,
             buffering: Arc::new(AtomicBool::new(false)),
+            normalization_gain_target: Arc::new(AtomicU32::new(1.0_f32.to_bits())),
+            normalization_ramp_ms: Arc::new(AtomicU32::new(80)),
+            normalization_plan: None,
+            replace_normalization_plan: false,
+            normalization_current_gain: 1.0,
+            normalization_seen_target: 1.0_f32.to_bits(),
+            normalization_ramp_start: 1.0,
+            normalization_ramp_total: 0,
+            normalization_ramp_remaining: 0,
             exhausted: false,
         };
         // The next reader's failure cannot affect the healthy current reader.
@@ -4339,6 +5303,79 @@ mod tests {
     }
 
     #[test]
+    fn lyric_playhead_counts_consumption_not_decoder_lookahead_or_underrun_silence() {
+        let (tx, rx) = std_mpsc::sync_channel(2);
+        let (events, _) = tokio::sync::mpsc::unbounded_channel();
+        let (activation_tx, _) = std_mpsc::channel();
+        let samples = Arc::new(AtomicU64::new(0));
+        let mut source = QueuedSamples {
+            reserve: None,
+            reserve_diagnostics: None,
+            decoder_session: Arc::new(DecoderSession::default()),
+            rx,
+            pending: VecDeque::new(),
+            channels: 2,
+            sample_rate: 48_000,
+            samples_played: samples.clone(),
+            generation: 1,
+            active_generation: Arc::new(AtomicU64::new(1)),
+            base_position: Arc::new(AtomicU64::new(12f64.to_bits())),
+            initial_position: 12.,
+            started: true,
+            activated: true,
+            cancelled: Arc::new(AtomicBool::new(false)),
+            tap_writer: crate::pcm_tap::PcmTap::new().writer(1, 48_000, 2),
+            events,
+            duration_bits: Arc::new(AtomicU64::new(f64::NAN.to_bits())),
+            decoder_diagnostics: Arc::new(std::sync::Mutex::new(None)),
+            source_rate: Arc::new(std::sync::atomic::AtomicU32::new(48_000)),
+            source_channels: Arc::new(std::sync::atomic::AtomicU32::new(2)),
+            decode_failed: Arc::new(AtomicBool::new(false)),
+            source: AudioSource {
+                input: "fixture".into(),
+                ffmpeg: "unused".into(),
+                headers: vec![],
+                decoder_hint: None,
+                cenc: None,
+            },
+            end: None,
+            activation_tx,
+            buffering: Arc::new(AtomicBool::new(false)),
+            normalization_gain_target: Arc::new(AtomicU32::new(1.0_f32.to_bits())),
+            normalization_ramp_ms: Arc::new(AtomicU32::new(80)),
+            normalization_plan: None,
+            replace_normalization_plan: false,
+            normalization_current_gain: 1.0,
+            normalization_seen_target: 1.0_f32.to_bits(),
+            normalization_ramp_start: 1.0,
+            normalization_ramp_total: 0,
+            normalization_ramp_remaining: 0,
+            exhausted: false,
+        };
+        // Five seconds already decoded must not advance the lyric clock.
+        tx.send(vec![0.25; 48_000 * 2 * 5]).unwrap();
+        assert_eq!(samples.load(Ordering::Relaxed), 0);
+        for _ in 0..48_000 * 2 {
+            assert_eq!(source.next(), Some(0.25));
+        }
+        assert_eq!(
+            position_from_output_samples(12., samples.load(Ordering::Relaxed), 48_000, 2),
+            13.
+        );
+        for _ in 0..48_000 * 2 * 4 {
+            assert_eq!(source.next(), Some(0.25));
+        }
+        // Output still receives silence during a network stall, but song time freezes.
+        for _ in 0..48_000 * 2 {
+            assert_eq!(source.next(), Some(0.));
+        }
+        assert_eq!(
+            position_from_output_samples(12., samples.load(Ordering::Relaxed), 48_000, 2),
+            17.
+        );
+    }
+
+    #[test]
     fn underruns_do_not_reopen_output_but_backend_errors_do() {
         use rodio::cpal::{BackendSpecificError, StreamError};
 
@@ -4535,6 +5572,8 @@ mod tests {
                 duration_seconds: Some(250.0),
                 content_length: Some(10_000_000),
                 has_video: true,
+                decode_policy: crate::native_output::AudioSourceDecodePolicy::Automatic,
+                decoder_fingerprint: None,
             }),
 
             cenc: None,
@@ -4679,6 +5718,8 @@ mod tests {
                 duration_seconds: Some(3.),
                 content_length: None,
                 has_video: true,
+                decode_policy: crate::native_output::AudioSourceDecodePolicy::Automatic,
+                decoder_fingerprint: None,
             }),
             cenc: None,
         };
@@ -4697,6 +5738,8 @@ mod tests {
                     duration_seconds: Some(3.),
                     content_length: None,
                     has_video: false,
+                    decode_policy: crate::native_output::AudioSourceDecodePolicy::Automatic,
+                    decoder_fingerprint: None,
                 }),
                 cenc: Some(EncryptedMp4Audio::new(
                     CencDecryptionKey::from_hex(KEY).unwrap(),
@@ -4807,6 +5850,8 @@ mod tests {
                 duration_seconds: Some(250.0),
                 content_length: Some(4_000_000),
                 has_video: false,
+                decode_policy: crate::native_output::AudioSourceDecodePolicy::Automatic,
+                decoder_fingerprint: None,
             }),
 
             cenc: None,
@@ -4816,6 +5861,55 @@ mod tests {
             should_use_ffmpeg_for_source(&source),
             !cfg!(feature = "experimental-opus")
         );
+        let mut normalization_source = source.clone();
+        normalization_source
+            .decoder_hint
+            .as_mut()
+            .unwrap()
+            .decode_policy = AudioSourceDecodePolicy::FfmpegOggOpusHeadGain;
+        // The decoder policy is intentionally Ogg Opus only. The original
+        // fixture describes a remote audio/webm stream, so switch the local
+        // source's MIME hint along with its registered Ogg path.
+        normalization_source
+            .decoder_hint
+            .as_mut()
+            .unwrap()
+            .mime_type = Some("audio/ogg".into());
+        normalization_source
+            .decoder_hint
+            .as_mut()
+            .unwrap()
+            .decoder_fingerprint = Some("a".repeat(64));
+        normalization_source.input = "/music/verified.opus".into();
+        assert!(
+            should_use_ffmpeg_for_source(&normalization_source),
+            "the typed local normalization policy selects FFmpeg with experimental Opus enabled"
+        );
+        normalization_source.input = "https://cdn.example/stream".into();
+        let mut remote_ogg_automatic = normalization_source.clone();
+        remote_ogg_automatic
+            .decoder_hint
+            .as_mut()
+            .unwrap()
+            .decode_policy = AudioSourceDecodePolicy::Automatic;
+        assert_eq!(
+            should_use_ffmpeg_for_source(&normalization_source),
+            should_use_ffmpeg_for_source(&remote_ogg_automatic),
+            "typed Opus policy must not alter remote Ogg routing"
+        );
+        assert!(!should_use_ffmpeg_for_source(&normalization_source));
+        let mut invalid_codec = source.clone();
+        invalid_codec.input = "/music/verified.opus".into();
+        invalid_codec.decoder_hint.as_mut().unwrap().mime_type = Some("audio/ogg".into());
+        invalid_codec.decoder_hint.as_mut().unwrap().decode_policy =
+            AudioSourceDecodePolicy::FfmpegOggOpusHeadGain;
+        invalid_codec
+            .decoder_hint
+            .as_mut()
+            .unwrap()
+            .decoder_fingerprint = Some("a".repeat(64));
+        invalid_codec.decoder_hint.as_mut().unwrap().codec = Some("vorbis".into());
+        assert!(!should_use_ffmpeg_for_source(&invalid_codec));
         for change in 0..13 {
             let mut unsupported = source.clone();
             match change {
@@ -4841,6 +5935,87 @@ mod tests {
             assert!(!is_finite_remote_opus_webm(&unsupported), "case {change}");
             assert!(!should_use_ffmpeg_for_source(&unsupported), "case {change}");
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replaced_opus_decoder_is_rejected_before_first_pcm_or_process_launch() {
+        use sha2::Digest;
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("ffmpeg-wrapper");
+        let marker = directory.path().join("replacement-ran");
+        let replacement = format!("#!/bin/sh\necho launched > '{}'\n", marker.display());
+        let prefix = "#!/bin/sh\n# baseline ";
+        let suffix = "\nexit 0\n";
+        assert!(replacement.len() > prefix.len() + suffix.len());
+        let original = format!(
+            "{prefix}{}{suffix}",
+            "x".repeat(replacement.len() - prefix.len() - suffix.len())
+        );
+        assert_eq!(original.len(), replacement.len());
+        std::fs::write(&executable, original.as_bytes()).unwrap();
+        let mut permissions = std::fs::metadata(&executable).unwrap().permissions();
+        permissions.set_mode(0o700);
+        std::fs::set_permissions(&executable, permissions).unwrap();
+        let original_metadata = std::fs::metadata(&executable).unwrap();
+        let original_modified = original_metadata.modified().unwrap();
+        let expected_fingerprint = format!("{:x}", sha2::Sha256::digest(original.as_bytes()));
+        std::fs::write(&executable, replacement.as_bytes()).unwrap();
+        std::fs::File::open(&executable)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(original_modified))
+            .unwrap();
+        let replacement_metadata = std::fs::metadata(&executable).unwrap();
+        assert_eq!(original_metadata.len(), replacement_metadata.len());
+        assert_eq!(
+            original_metadata.modified().unwrap(),
+            replacement_metadata.modified().unwrap()
+        );
+        use std::os::unix::fs::MetadataExt;
+        assert_eq!(original_metadata.dev(), replacement_metadata.dev());
+        assert_eq!(original_metadata.ino(), replacement_metadata.ino());
+        assert_eq!(original_metadata.mode(), replacement_metadata.mode());
+
+        let source = AudioSource {
+            input: directory
+                .path()
+                .join("audio.ogg")
+                .to_string_lossy()
+                .into_owned(),
+            ffmpeg: executable,
+            headers: vec![],
+            decoder_hint: Some(AudioSourceDecoderHint {
+                mime_type: Some("audio/ogg".into()),
+                codec: Some("opus".into()),
+                duration_seconds: Some(1.0),
+                content_length: None,
+                has_video: false,
+                decode_policy: AudioSourceDecodePolicy::FfmpegOggOpusHeadGain,
+                decoder_fingerprint: Some(expected_fingerprint),
+            }),
+            cenc: None,
+        };
+        let (tx, rx) = std_mpsc::sync_channel(1);
+        let result = decode_ffmpeg_with_diagnostics(
+            source,
+            0.0,
+            None,
+            48_000,
+            2,
+            tx,
+            Arc::new(AtomicU64::new(0)),
+            Arc::new(AtomicU32::new(0)),
+            Arc::new(AtomicU32::new(0)),
+            Arc::new(AtomicU64::new(f64::NAN.to_bits())),
+            Arc::new(AtomicBool::new(false)),
+            None,
+            Instant::now(),
+        );
+        assert!(result.unwrap_err().contains("changed after verification"));
+        assert!(rx.try_recv().is_err(), "stale decoder emitted PCM");
+        assert!(!marker.exists(), "replacement executable was launched");
     }
 
     struct AacHttpFixture {
@@ -4917,6 +6092,8 @@ mod tests {
                     duration_seconds: Some(4.),
                     content_length: Some(bytes.len() as u64),
                     has_video: false,
+                    decode_policy: crate::native_output::AudioSourceDecodePolicy::Automatic,
+                    decoder_fingerprint: None,
                 }),
 
                 cenc: None,
@@ -5135,6 +6312,8 @@ mod tests {
                 duration_seconds: Some(expected),
                 content_length: Some(byte_len),
                 has_video: true,
+                decode_policy: crate::native_output::AudioSourceDecodePolicy::Automatic,
+                decoder_fingerprint: None,
             }),
 
             cenc: None,
@@ -5281,6 +6460,120 @@ mod tests {
         );
         assert!((output_samples as i64 - 44_100 * 2 * 6).abs() < 500);
         assert!(first_sample.unwrap() > 0.25, "seek should start near t=9s");
+    }
+
+    #[test]
+    #[ignore = "local diagnostic: synthetic two-minute markers through real codecs and native seek/resampling"]
+    fn lyric_clock_codec_marker_alignment_and_long_track_drift() {
+        let directory = tempfile::tempdir().unwrap();
+        let original = directory.path().join("markers.wav");
+        let rate = 44_100usize;
+        let markers = [1.25, 60.25, 119.25];
+        let mut wav = pcm_wav(rate as u32, 1, 120);
+        for frame in 0..rate * 120 {
+            let time = frame as f64 / rate as f64;
+            let active = markers
+                .iter()
+                .any(|start| time >= *start && time < start + 0.1);
+            let sample = if active {
+                (0.7 * (time * 1000. * std::f64::consts::TAU).sin() * i16::MAX as f64) as i16
+            } else {
+                0
+            };
+            wav[44 + frame * 2..46 + frame * 2].copy_from_slice(&sample.to_le_bytes());
+        }
+        std::fs::write(&original, wav).unwrap();
+        for (extension, codec) in [
+            ("wav", "pcm_s16le"),
+            ("flac", "flac"),
+            ("mp3", "libmp3lame"),
+            ("m4a", "aac"),
+        ] {
+            let path = directory.path().join(format!("encoded.{extension}"));
+            let encoded = std::process::Command::new("ffmpeg")
+                .args(["-nostdin", "-v", "error", "-y", "-i"])
+                .arg(&original)
+                .args(["-c:a", codec])
+                .arg(&path)
+                .output()
+                .expect("installed ffmpeg");
+            assert!(
+                encoded.status.success(),
+                "encode {extension}: {}",
+                String::from_utf8_lossy(&encoded.stderr)
+            );
+            let session = Arc::new(DecoderSession::default());
+            for position in [0., 59.5, 118.5] {
+                let source = AudioSource {
+                    input: path.to_string_lossy().into_owned(),
+                    ffmpeg: "ffmpeg".into(),
+                    headers: vec![],
+                    decoder_hint: None,
+                    cenc: None,
+                };
+                let worker_session = session.clone();
+                let cancel = Arc::new(AtomicBool::new(false));
+                session.bind(&cancel);
+                let (tx, rx) = std_mpsc::sync_channel(2);
+                let worker = thread::spawn(move || {
+                    decode_with_session(
+                        source,
+                        position,
+                        Some(120.),
+                        48_000,
+                        1,
+                        tx,
+                        Arc::new(AtomicU64::new(0)),
+                        Arc::new(std::sync::atomic::AtomicU32::new(0)),
+                        Arc::new(std::sync::atomic::AtomicU32::new(0)),
+                        Arc::new(AtomicU64::new(f64::NAN.to_bits())),
+                        cancel,
+                        worker_session,
+                    )
+                });
+                let mut index = 0u64;
+                let mut last_sound = None;
+                let mut onsets = Vec::new();
+                for block in rx {
+                    for sample in block {
+                        if sample.abs() > 0.2 {
+                            if last_sound.is_none_or(|last| index - last > 24_000) {
+                                onsets.push(position + index as f64 / 48_000.);
+                            }
+                            last_sound = Some(index);
+                        }
+                        index += 1;
+                    }
+                }
+                worker.join().unwrap().expect("native decode");
+                let expected = markers
+                    .iter()
+                    .copied()
+                    .filter(|time| *time >= position)
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    onsets.len(),
+                    expected.len(),
+                    "{extension}, seek {position}: {onsets:?}"
+                );
+                let errors = onsets
+                    .iter()
+                    .zip(&expected)
+                    .map(|(actual, expected)| actual - expected)
+                    .collect::<Vec<_>>();
+                eprintln!("LYRIC_CLOCK_CODEC extension={extension} seek={position:.1} markerErrorsMs={:?} tailErrorMs={:.3}", errors.iter().map(|error| error * 1000.).collect::<Vec<_>>(), (position + index as f64 / 48_000. - 120.) * 1000.);
+                assert!(
+                    errors.iter().all(|error| error.abs() <= 0.025),
+                    "{extension} seek {position}: offsets {errors:?}"
+                );
+                if errors.len() > 1 {
+                    assert!(
+                        (errors.last().unwrap() - errors[0]).abs() <= 0.002,
+                        "{extension}: cumulative drift {errors:?}"
+                    );
+                }
+            }
+        }
     }
 
     fn decode_excerpt(

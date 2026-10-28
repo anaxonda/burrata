@@ -250,6 +250,8 @@ test('timeouts and unavailable app errors stay distinct without waiting for the 
   assert.equal(requestTimeoutFor('/automation/tools'), 5_000);
   assert.equal(requestTimeoutFor('/automation/call'), CALL_TIMEOUT_MS);
   assert.equal(requestTimeoutFor('/automation/call', 'create_verification_playlist'), 110_000);
+  assert.equal(requestTimeoutFor('/automation/call', 'preview_collection_import'), 120_000);
+  assert.equal(requestTimeoutFor('/automation/call', 'retry_import_failures'), 120_000);
   assert.equal(requestTimeoutFor('/automation/call', 'repair_spotify_durations_public'), PUBLIC_DURATION_REPAIR_TIMEOUT_MS);
   assert.equal(PUBLIC_DURATION_REPAIR_TIMEOUT_MS, 75_000);
   assert.equal(CALL_TIMEOUT_MS, 65_000);

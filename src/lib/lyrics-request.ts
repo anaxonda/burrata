@@ -1,4 +1,4 @@
-import type { Track } from "./types";
+import type { Track, NativePlaybackSnapshot } from "./types";
 
 export interface VisibleLyricsTrack {
   trackId: string;
@@ -8,11 +8,14 @@ export interface VisibleLyricsTrack {
   albumName: string | null;
   durationSeconds: number;
   playbackRange: Track["playbackRange"] | null;
+  radio?: boolean;
 }
 
 /** Snapshot the player item metadata used for WebView lyrics lookup and translation. */
 export function visibleLyricsTrack(track: Track | null | undefined): VisibleLyricsTrack | undefined {
   if (!track) return undefined;
+  const metadata=(track.provenance as {radioMetadata?:{title?:unknown;artist?:unknown}}|null)?.radioMetadata;
+  const radio=["radio","radioparadise","internet-radio"].includes(track.provider) && typeof metadata?.title === "string" && metadata.title.trim() && metadata.title===track.title && typeof metadata.artist === "string" && metadata.artist.trim() && metadata.artist===track.artist;
   return {
     trackId: track.id,
     localPath: track.localPath ?? null,
@@ -21,5 +24,13 @@ export function visibleLyricsTrack(track: Track | null | undefined): VisibleLyri
     albumName: track.album ?? null,
     durationSeconds: track.durationSeconds ?? 0,
     playbackRange: track.playbackRange ?? null,
+    ...(radio ? {radio:true,durationSeconds:0} : {}),
   };
+}
+
+/** Playback-only duration projection; never promotes decoder observations into saved metadata. */
+export function lyricsTrackWithPlaybackDuration(track: Track | null, snapshot: Pick<NativePlaybackSnapshot, "engine" | "trackId" | "duration"> | null): Track | null {
+  const valid = (duration: unknown): duration is number => typeof duration === "number" && Number.isFinite(duration) && duration >= 1 && duration <= 3600;
+  if (!track || ["radio","radioparadise","internet-radio"].includes(track.provider) || valid(track.durationSeconds) || track.playbackRange || (track.provenance as Record<string, unknown> | null)?.approximateExcerpt || snapshot?.engine !== "native" || snapshot.trackId !== track.id || !valid(snapshot.duration)) return track;
+  return {...track, durationSeconds: snapshot.duration};
 }

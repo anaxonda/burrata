@@ -149,6 +149,8 @@ async fn live_three_public_ids_paired_opus_routes() {
                             duration_seconds: checked.duration_seconds,
                             content_length: checked.expected_content_length,
                             has_video: false,
+                            decode_policy: crate::native_output::AudioSourceDecodePolicy::Automatic,
+                            decoder_fingerprint: None,
                         }),
 
                         cenc: None,

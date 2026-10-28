@@ -174,3 +174,26 @@ test('provider request timeouts survive companion error normalization separately
   assert.equal(result?.ok,false);assert.equal(result?.error?.code,code);
  }
 });
+
+test('preview captures metadata without committing and apply forwards only its preview ID',async()=>{
+ const w=worker({requestTabs:[[8,'pending-review']]});
+ const result=await w.send({type:'previewCurrent'});
+ assert.equal(result.ok,true);
+ const request=w.messages.find(message=>message.type==='import');
+ assert.equal(request.preview,true);
+ assert.equal(request.requestId,undefined);
+ assert.equal(w.session.requestTabs[0][1],'pending-review');
+ await w.send({type:'applyImportPreview',previewId:'12345678-1234-4234-8234-123456789012'});
+ const applied=w.messages.find(message=>message.type==='applyImportPreview');
+ assert.equal(applied.previewId,'12345678-1234-4234-8234-123456789012');
+ assert.equal(applied.snapshot,undefined);
+});
+
+test('Discover preview retains its collection request and explicit album URLs',async()=>{
+ const w=worker({}, {pageUrl:'https://bandcamp.com/discover/alternative',albumCollection:true});
+ const result=await w.send({type:'previewCurrent'});
+ assert.equal(result.ok,true);
+ const request=w.messages.find(message=>message.type==='importAlbumCollection');
+ assert.equal(request.preview,true);
+ assert.deepEqual(request.albumUrls,['https://artist.bandcamp.com/album/record']);
+});

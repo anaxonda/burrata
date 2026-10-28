@@ -24,6 +24,7 @@ use std::{
 use tokio::sync::watch;
 
 static NEXT_RANGE_TRACE_ID: AtomicU64 = AtomicU64::new(1);
+const MAX_RANGE_TRACES_PER_PROCESS: u64 = 128;
 
 fn normalized_request_range(value: Option<&str>) -> String {
     let Some(value) = value else {
@@ -56,9 +57,12 @@ fn normalized_content_range(value: Option<&HeaderValue>) -> String {
     let Some((range, total)) = value.split_once('/') else {
         return "invalid".into();
     };
-    let total = match total.parse::<u64>() {
-        Ok(total) => total.to_string(),
-        Err(_) => return "invalid".into(),
+    let total = match total {
+        "*" => "*".to_owned(),
+        value => match value.parse::<u64>() {
+            Ok(total) => total.to_string(),
+            Err(_) => return "invalid".into(),
+        },
     };
     if let Some((start, end)) = range.split_once('-') {
         if let (Ok(start), Ok(end)) = (start.parse::<u64>(), end.parse::<u64>()) {
@@ -101,6 +105,9 @@ impl RangeTrace {
             return None;
         }
         let id = NEXT_RANGE_TRACE_ID.fetch_add(1, Ordering::Relaxed);
+        if id > MAX_RANGE_TRACES_PER_PROCESS {
+            return None;
+        }
         let range = normalized_request_range(range.and_then(|value| value.to_str().ok()));
         eprintln!(
             "[audio-range] id={id} generation={} phase=request method={} range={range}",
@@ -535,6 +542,37 @@ pub(crate) fn is_hls(source: &AudioSource) -> bool {
 pub(crate) fn needs_relay(source: &AudioSource) -> bool {
     is_hls(source) || source.input.starts_with("http://") || !source.headers.is_empty()
 }
+
+/// A Web Audio graph is safe only for an app-owned same-origin relay or a
+/// route that was independently CORS-verified before playback. Burrata's
+/// direct HTTPS path does not establish CORS, so normalization requests force
+/// HTTPS resources through the bounded, credential-scoped relay. Local paths,
+/// custom protocols, and arbitrary direct URLs remain unsupported.
+pub(crate) fn needs_relay_for_normalization(
+    source: &AudioSource,
+    normalization_requested: bool,
+) -> bool {
+    if !normalization_requested {
+        return needs_relay(source);
+    }
+    let scheme = url::Url::parse(&source.input)
+        .ok()
+        .map(|url| url.scheme().to_ascii_lowercase());
+    match scheme.as_deref() {
+        Some("http" | "https") => true,
+        _ => false,
+    }
+}
+
+/// Capability label for a source after transport selection. Callers should
+/// pass true only when they returned the generated app loopback relay URL.
+pub(crate) fn normalization_route_capability(relay_registered: bool) -> &'static str {
+    if relay_registered {
+        "same-origin-relay"
+    } else {
+        "unsupported"
+    }
+}
 pub(crate) fn allowed_origin(headers: &HeaderMap) -> bool {
     matches!(
         headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()),
@@ -569,6 +607,124 @@ fn valid_range(value: &str) -> bool {
         (None, Some(end)) => start.is_empty() && end > 0,
         _ => false,
     }
+}
+
+fn response_range_length(headers: &HeaderMap) -> Option<u64> {
+    let value = headers.get(header::CONTENT_RANGE)?.to_str().ok()?;
+    let (unit, value) = value.split_once(' ')?;
+    if !unit.eq_ignore_ascii_case("bytes") {
+        return None;
+    }
+    let (range, _) = value.split_once('/')?;
+    let (start, end) = range.split_once('-')?;
+    let start = start.parse::<u64>().ok()?;
+    let end = end.parse::<u64>().ok()?;
+    end.checked_sub(start)?.checked_add(1)
+}
+
+fn partial_response_matches_request(
+    request_range: Option<&str>,
+    status: StatusCode,
+    headers: &HeaderMap,
+) -> bool {
+    if status == StatusCode::OK {
+        // A server may ignore Range and send the complete representation with
+        // 200, but Content-Range on a full response is contradictory.
+        return request_range.is_none() || !headers.contains_key(header::CONTENT_RANGE);
+    }
+    if status != StatusCode::PARTIAL_CONTENT {
+        // Other statuses are handled by the caller's upstream status policy.
+        return true;
+    }
+    let Some(request_range) = request_range.filter(|value| valid_range(value)) else {
+        return false;
+    };
+    let Some(content_range) = headers
+        .get(header::CONTENT_RANGE)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return false;
+    };
+    let Some((unit, value)) = content_range.split_once(' ') else {
+        return false;
+    };
+    if !unit.eq_ignore_ascii_case("bytes") {
+        return false;
+    }
+    let Some((returned_range, total)) = value.split_once('/') else {
+        return false;
+    };
+    let Some((returned_start, returned_end)) = returned_range.split_once('-') else {
+        return false;
+    };
+    let (Ok(returned_start), Ok(returned_end)) =
+        (returned_start.parse::<u64>(), returned_end.parse::<u64>())
+    else {
+        return false;
+    };
+    if returned_start > returned_end {
+        return false;
+    }
+    let total = if total == "*" {
+        None
+    } else {
+        let Ok(total) = total.parse::<u64>() else {
+            return false;
+        };
+        if total == 0 || returned_end >= total {
+            return false;
+        }
+        Some(total)
+    };
+    let Some(requested) = request_range.strip_prefix("bytes=") else {
+        return false;
+    };
+    let Some((requested_start, requested_end)) = requested.split_once('-') else {
+        return false;
+    };
+    match (
+        requested_start.parse::<u64>().ok(),
+        requested_end.parse::<u64>().ok(),
+    ) {
+        (Some(start), Some(end)) => {
+            let upper_bound = total.map_or(end, |total| end.min(total - 1));
+            if start > upper_bound || returned_start < start || returned_end > upper_bound {
+                return false;
+            }
+        }
+        (Some(start), None) => {
+            if returned_start < start || total.is_some_and(|total| returned_end >= total) {
+                return false;
+            }
+        }
+        (None, Some(suffix_length)) => {
+            let Some(total) = total else {
+                // A suffix response cannot be verified without knowing the
+                // representation length.
+                return false;
+            };
+            let lower_bound = total.saturating_sub(suffix_length);
+            if suffix_length == 0 || total == 0 || returned_start < lower_bound {
+                return false;
+            }
+        }
+        _ => return false,
+    }
+    if let Some(content_length) = headers.get(header::CONTENT_LENGTH) {
+        let Ok(content_length) = content_length.to_str().unwrap_or_default().parse::<u64>() else {
+            return false;
+        };
+        let Some(returned_length) = returned_end
+            .checked_sub(returned_start)
+            .and_then(|length| length.checked_add(1))
+        else {
+            return false;
+        };
+        if returned_length != content_length {
+            return false;
+        }
+    }
+    true
 }
 #[derive(Deserialize)]
 struct Auth {
@@ -772,6 +928,18 @@ async fn direct_audio(
             .body(Body::empty())
             .unwrap();
     }
+    let requested_range = headers
+        .get(header::RANGE)
+        .and_then(|value| value.to_str().ok());
+    if !partial_response_matches_request(requested_range, response.status(), response.headers()) {
+        if let Some(trace) = range_trace.as_mut() {
+            trace.finish("invalid_range_response");
+        }
+        return Response::builder()
+            .status(StatusCode::BAD_GATEWAY)
+            .body(Body::empty())
+            .unwrap();
+    }
     let mut builder = Response::builder().status(response.status());
     for name in [
         header::CONTENT_TYPE,
@@ -813,9 +981,34 @@ async fn direct_audio(
         }
         return builder.body(Body::empty()).unwrap();
     }
+    let expected_range_bytes = if response.status() == StatusCode::PARTIAL_CONTENT {
+        response_range_length(response.headers())
+    } else {
+        None
+    };
+    if response.status() == StatusCode::PARTIAL_CONTENT && expected_range_bytes.is_none() {
+        if let Some(trace) = range_trace.as_mut() {
+            trace.finish("invalid_range_length");
+        }
+        return Response::builder()
+            .status(StatusCode::BAD_GATEWAY)
+            .body(Body::empty())
+            .unwrap();
+    }
     let stream = futures_util::stream::unfold(
-        (response.bytes_stream(), stop, permit, range_trace),
-        |(mut upstream, mut stop, permit, mut range_trace)| async move {
+        (
+            response.bytes_stream(),
+            stop,
+            permit,
+            range_trace,
+            expected_range_bytes,
+            0u64,
+            false,
+        ),
+        |(mut upstream, mut stop, permit, mut range_trace, expected, mut received, failed)| async move {
+            if failed {
+                return None;
+            }
             if *stop.borrow() {
                 if let Some(trace) = range_trace.as_mut() {
                     trace.finish("revoked_during_body");
@@ -830,14 +1023,27 @@ async fn direct_audio(
                 },
                 chunk = upstream.next() => match chunk {
                     Some(Ok(bytes)) => {
+                        let Some(next_received) = received.checked_add(bytes.len() as u64) else {
+                            if let Some(trace) = range_trace.as_mut() { trace.finish("body_length_overflow"); }
+                            return Some((Err(std::io::Error::other("Audio range length overflow")), (upstream, stop, permit, range_trace, expected, received, true)));
+                        };
+                        if expected.is_some_and(|expected| next_received > expected) {
+                            if let Some(trace) = range_trace.as_mut() { trace.finish("body_exceeded_range"); }
+                            return Some((Err(std::io::Error::other("Audio body exceeded its byte range")), (upstream, stop, permit, range_trace, expected, received, true)));
+                        }
+                        received = next_received;
                         if let Some(trace) = range_trace.as_mut() { trace.add_bytes(bytes.len()); }
-                        Some((Ok(bytes), (upstream, stop, permit, range_trace)))
+                        Some((Ok(bytes), (upstream, stop, permit, range_trace, expected, received, false)))
                     }
                     Some(Err(_)) => {
                         if let Some(trace) = range_trace.as_mut() { trace.finish("body_error"); }
-                        Some((Err(std::io::Error::other("Audio transport interrupted")), (upstream, stop, permit, range_trace)))
+                        Some((Err(std::io::Error::other("Audio transport interrupted")), (upstream, stop, permit, range_trace, expected, received, true)))
                     }
                     None => {
+                        if expected.is_some_and(|expected| expected != received) {
+                            if let Some(trace) = range_trace.as_mut() { trace.finish("body_short_range"); }
+                            return Some((Err(std::io::Error::other("Audio body ended before its byte range was complete")), (upstream, stop, permit, range_trace, expected, received, true)));
+                        }
                         if let Some(trace) = range_trace.as_mut() { trace.finish("body_eof"); }
                         None
                     }
@@ -1262,6 +1468,10 @@ mod tests {
             "*/200"
         );
         assert_eq!(
+            normalized_content_range(Some(&HeaderValue::from_static("bytes 10-19/*"))),
+            "10-19/*"
+        );
+        assert_eq!(
             normalized_content_range(Some(&HeaderValue::from_static("Bearer secret"))),
             "invalid"
         );
@@ -1275,8 +1485,126 @@ mod tests {
         );
     }
 
+    #[test]
+    fn partial_range_validation_covers_explicit_open_suffix_and_full_totals() {
+        let headers = |content_range: &'static str, content_length: Option<&'static str>| {
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                header::CONTENT_RANGE,
+                HeaderValue::from_static(content_range),
+            );
+            if let Some(length) = content_length {
+                headers.insert(header::CONTENT_LENGTH, HeaderValue::from_static(length));
+            }
+            headers
+        };
+        assert!(partial_response_matches_request(
+            Some("bytes=4-7"),
+            StatusCode::PARTIAL_CONTENT,
+            &headers("bytes 4-7/16", Some("4")),
+        ));
+        assert!(partial_response_matches_request(
+            Some("bytes=4-7"),
+            StatusCode::PARTIAL_CONTENT,
+            &headers("bytes 5-6/16", Some("2")),
+        ));
+        assert!(!partial_response_matches_request(
+            Some("bytes=4-7"),
+            StatusCode::PARTIAL_CONTENT,
+            &headers("bytes 3-6/16", Some("4")),
+        ));
+        assert!(!partial_response_matches_request(
+            Some("bytes=4-7"),
+            StatusCode::PARTIAL_CONTENT,
+            &headers("bytes 5-8/16", Some("4")),
+        ));
+        assert!(partial_response_matches_request(
+            Some("bytes=8-99"),
+            StatusCode::PARTIAL_CONTENT,
+            &headers("bytes 8-15/16", Some("8")),
+        ));
+        assert!(!partial_response_matches_request(
+            Some("bytes=4-7"),
+            StatusCode::PARTIAL_CONTENT,
+            &headers("bytes 0-3/16", Some("4")),
+        ));
+        assert!(!partial_response_matches_request(
+            Some("bytes=4-7"),
+            StatusCode::PARTIAL_CONTENT,
+            &headers("bytes 4-7/16", Some("3")),
+        ));
+        assert!(partial_response_matches_request(
+            Some("bytes=10-"),
+            StatusCode::PARTIAL_CONTENT,
+            &headers("bytes 10-19/20", Some("10")),
+        ));
+        assert!(partial_response_matches_request(
+            Some("bytes=349000-"),
+            StatusCode::PARTIAL_CONTENT,
+            &headers("bytes 349000-359999/2000000", Some("11000")),
+        ));
+        assert!(partial_response_matches_request(
+            Some("bytes=10-"),
+            StatusCode::PARTIAL_CONTENT,
+            &headers("bytes 12-19/20", Some("8")),
+        ));
+        assert!(partial_response_matches_request(
+            Some("bytes=10-"),
+            StatusCode::PARTIAL_CONTENT,
+            &headers("bytes 10-19/*", Some("10")),
+        ));
+        assert!(partial_response_matches_request(
+            Some("bytes=-4"),
+            StatusCode::PARTIAL_CONTENT,
+            &headers("bytes 16-19/20", Some("4")),
+        ));
+        assert!(partial_response_matches_request(
+            Some("bytes=-4"),
+            StatusCode::PARTIAL_CONTENT,
+            &headers("bytes 18-19/20", Some("2")),
+        ));
+        assert!(!partial_response_matches_request(
+            Some("bytes=-4"),
+            StatusCode::PARTIAL_CONTENT,
+            &headers("bytes 15-19/20", Some("5")),
+        ));
+        assert!(!partial_response_matches_request(
+            Some("bytes=-4"),
+            StatusCode::PARTIAL_CONTENT,
+            &headers("bytes 16-19/*", Some("4")),
+        ));
+        assert!(!partial_response_matches_request(
+            None,
+            StatusCode::PARTIAL_CONTENT,
+            &headers("bytes 0-9/10", Some("10")),
+        ));
+        assert!(partial_response_matches_request(
+            Some("bytes=4-7"),
+            StatusCode::OK,
+            &HeaderMap::new(),
+        ));
+    }
+
     #[tokio::test]
-    async fn range_passthrough_currently_accepts_ignored_and_mismatched_upstream_ranges() {
+    async fn range_passthrough_keeps_full_200_fallback_and_rejects_mismatched_206() {
+        fn is_length_or_incomplete_error(error: &reqwest::Error) -> bool {
+            if error.is_body() || error.is_decode() {
+                return true;
+            }
+            let mut source = std::error::Error::source(error);
+            while let Some(cause) = source {
+                if cause
+                    .to_string()
+                    .to_ascii_lowercase()
+                    .eq("connection closed before message completed")
+                {
+                    return true;
+                }
+                source = std::error::Error::source(cause);
+            }
+            false
+        }
+
         let upstream = server(
             Router::new()
                 .route(
@@ -1296,6 +1624,60 @@ mod tests {
                             .header(header::CONTENT_RANGE, "bytes 0-3/10")
                             .header(header::CONTENT_LENGTH, "4")
                             .body(Body::from("0123"))
+                            .unwrap()
+                    }),
+                )
+                .route(
+                    "/large",
+                    get(|| async {
+                        Response::builder()
+                            .status(StatusCode::PARTIAL_CONTENT)
+                            .header(
+                                header::CONTENT_RANGE,
+                                "bytes 4294967296-4294967303/4294967304",
+                            )
+                            .header(header::CONTENT_LENGTH, "8")
+                            .body(Body::from("abcdefgh"))
+                            .unwrap()
+                    }),
+                )
+                .route(
+                    "/short",
+                    get(|| async {
+                        Response::builder()
+                            .status(StatusCode::PARTIAL_CONTENT)
+                            .header(header::CONTENT_RANGE, "bytes 4-7/16")
+                            .body(Body::from("123"))
+                            .unwrap()
+                    }),
+                )
+                .route(
+                    "/short-stream",
+                    get(|| async {
+                        Response::builder()
+                            .status(StatusCode::PARTIAL_CONTENT)
+                            .header(header::CONTENT_RANGE, "bytes 4-7/16")
+                            .body(Body::from_stream(futures_util::stream::iter([Ok::<
+                                _,
+                                std::io::Error,
+                            >(
+                                axum::body::Bytes::from_static(b"123"),
+                            )])))
+                            .unwrap()
+                    }),
+                )
+                .route(
+                    "/long",
+                    get(|| async {
+                        Response::builder()
+                            .status(StatusCode::PARTIAL_CONTENT)
+                            .header(header::CONTENT_RANGE, "bytes 4-7/16")
+                            .body(Body::from_stream(futures_util::stream::iter([Ok::<
+                                _,
+                                std::io::Error,
+                            >(
+                                axum::body::Bytes::from_static(b"12345"),
+                            )])))
                             .unwrap()
                     }),
                 ),
@@ -1323,9 +1705,71 @@ mod tests {
             .send()
             .await
             .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        assert!(response.bytes().await.unwrap().is_empty());
+
+        let large = fixture_register(&manager, 3, &source(format!("{}/large", upstream.base)));
+        let response = client()
+            .get(large)
+            .header(header::RANGE, "bytes=4294967296-4294967303")
+            .send()
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
-        assert_eq!(response.headers()[header::CONTENT_RANGE], "bytes 0-3/10");
-        assert_eq!(response.bytes().await.unwrap().as_ref(), b"0123");
+        assert_eq!(
+            response.headers()[header::CONTENT_RANGE],
+            "bytes 4294967296-4294967303/4294967304"
+        );
+        assert_eq!(response.bytes().await.unwrap().as_ref(), b"abcdefgh");
+
+        let short = fixture_register(&manager, 4, &source(format!("{}/short", upstream.base)));
+        let response = client()
+            .get(short)
+            .header(header::RANGE, "bytes=4-7")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        assert!(response.bytes().await.unwrap().is_empty());
+
+        let short_stream = fixture_register(
+            &manager,
+            6,
+            &source(format!("{}/short-stream", upstream.base)),
+        );
+        let response = client()
+            .get(short_stream)
+            .header(header::RANGE, "bytes=4-7")
+            .send()
+            .await;
+        match response {
+            Err(error) => assert!(is_length_or_incomplete_error(&error)),
+            Ok(response) => {
+                assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+                let error = response.bytes().await.unwrap_err();
+                assert!(is_length_or_incomplete_error(&error));
+            }
+        }
+
+        let long = fixture_register(&manager, 7, &source(format!("{}/long", upstream.base)));
+        let response = client()
+            .get(long)
+            .header(header::RANGE, "bytes=4-7")
+            .send()
+            .await;
+        match response {
+            Err(error) => assert!(is_length_or_incomplete_error(&error)),
+            Ok(response) => {
+                assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+                let error = response.bytes().await.unwrap_err();
+                assert!(is_length_or_incomplete_error(&error));
+            }
+        }
+        // The rejected overrun must not poison the relay or its upstream client.
+        let healthy = fixture_register(&manager, 8, &source(format!("{}/ignore", upstream.base)));
+        let response = client().get(healthy).send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.bytes().await.unwrap().as_ref(), b"0123456789");
     }
 
     #[tokio::test]
@@ -1546,6 +1990,22 @@ mod tests {
             )
             .is_err());
         assert!(needs_relay(&source("https://cdn.example/live.m3u8".into())));
+        let header_bearing_https = source("https://cdn.example/audio.mp3".into());
+        assert!(needs_relay_for_normalization(&header_bearing_https, false));
+        let mut clear_header_https = header_bearing_https;
+        clear_header_https.headers.clear();
+        assert!(!needs_relay_for_normalization(&clear_header_https, false));
+        assert!(needs_relay_for_normalization(&clear_header_https, true));
+        assert!(needs_relay_for_normalization(
+            &source("http://cdn.example/audio.mp3".into()),
+            true
+        ));
+        assert!(!needs_relay_for_normalization(
+            &source("file:///music/audio.flac".into()),
+            true
+        ));
+        assert_eq!(normalization_route_capability(true), "same-origin-relay");
+        assert_eq!(normalization_route_capability(false), "unsupported");
     }
     #[tokio::test]
     async fn hls_nested_graph_ranges_and_revocation_work_without_upstream_cors() {

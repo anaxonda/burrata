@@ -1,5 +1,5 @@
 <script lang="ts">
-  let { name }: { name: "plus" | "heart" | "queue" | "play" | "radio" | "external" | "download" | "info" | "window" | "search" | "select" | "remove" | "edit" | "refresh" | "copy" | "export" | "arrow-up" | "arrow-down" | "album" } = $props();
+  let { name }: { name: "plus" | "heart" | "queue" | "play" | "radio" | "external" | "download" | "info" | "window" | "search" | "select" | "remove" | "edit" | "refresh" | "copy" | "export" | "arrow-up" | "arrow-down" | "album" | "folder" } = $props();
 </script>
 
 <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
@@ -41,5 +41,7 @@
     <path d="m6 10 6 6 6-6" />
   {:else if name === "album"}
     <rect x="4" y="4" width="16" height="16" rx="2" /><circle cx="12" cy="12" r="4" /><circle cx="12" cy="12" r=".7" />
+  {:else if name === "folder"}
+    <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
   {/if}
 </svg>

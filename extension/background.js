@@ -354,7 +354,7 @@ async function verification(tabId,requestId){
   if(requestId)await native({type:'status',requestId,state:'verification',message:'Complete provider login or verification in the browser, then click Import current page.'});
   throw new Error('Complete login or verification in this tab, then click Import current page.');
 }
-async function capture(tabId, requestId){
+async function capture(tabId, requestId, preview=false){
   const current=await api.tabs.get(tabId);
   if(!supported(current.url)||/\/(?:login|signin|authorize)(?:\/|$)/i.test(new URL(current.url).pathname))return verification(tabId,requestId);
   await api.scripting.executeScript({target:{tabId},files:['content.js']});
@@ -373,11 +373,11 @@ async function capture(tabId, requestId){
   let response;
   if(result?.albumCollection){
     const collection=result.albumCollection;
-    response=await native({type:'importAlbumCollection',...(requestId?{requestId}:{}),sourceUrl:collection.sourceUrl,title:collection.title,albumUrls:collection.albumUrls});
+    response=await native({type:'importAlbumCollection',...(preview?{preview:true}:{}),...(requestId?{requestId}:{}),sourceUrl:collection.sourceUrl,title:collection.title,albumUrls:collection.albumUrls});
   }else if(result?.snapshot){
-    response=await native({type:'import',...(requestId?{requestId}:{}),snapshot:result.snapshot});
+    response=await native({type:'import',...(preview?{preview:true}:{}),...(requestId?{requestId}:{}),snapshot:result.snapshot});
   }else throw new Error('Page did not return a chart, playlist, album, or Bandcamp album collection.');
-  await forgetRequest(tabId);badge('✓');lastError='';return response.result;
+  if(!preview)await forgetRequest(tabId);badge('✓');lastError='';return response.result;
 }
 async function waitLoaded(tabId){
   for(let i=0;i<40;i++){const t=await api.tabs.get(tabId);if(t.status==='complete'){await new Promise(r=>setTimeout(r,1200));return;}await new Promise(r=>setTimeout(r,500));}
@@ -438,6 +438,13 @@ api.runtime.onMessage.addListener((message,sender,respond)=>{
       if(!result?.diagnostic)throw new Error('This page did not return a parser diagnostic.');
       // Diagnostic export is local to the popup. Never forward it to native messaging.
       return {diagnostic:result.diagnostic};
+    }
+    if(message.type==='applyImportPreview'){
+      const response=await native({type:'applyImportPreview',previewId:message.previewId});return {result:response.result};
+    }
+    if(message.type==='previewCurrent'){
+      const [tab]=await api.tabs.query({active:true,currentWindow:true});if(!tab?.id||!supported(tab.url))throw new Error('Open a supported provider page.');
+      return {result:await capture(tab.id,undefined,true)};
     }
     if(message.type==='importCurrent'){
       const [tab]=await api.tabs.query({active:true,currentWindow:true});if(!tab?.id||!supported(tab.url))throw new Error('Open a supported provider page.');

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-loudness-decision-for-asset"
+description = "Enables the get_loudness_decision_for_asset command without any pre-configured scope."
+commands.allow = ["get_loudness_decision_for_asset"]
+
+[[permission]]
+identifier = "deny-get-loudness-decision-for-asset"
+description = "Denies the get_loudness_decision_for_asset command without any pre-configured scope."
+commands.deny = ["get_loudness_decision_for_asset"]

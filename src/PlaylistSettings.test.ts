@@ -13,11 +13,11 @@ const collections = [
 let destroy: (() => void) | undefined;
 afterEach(() => { destroy?.(); destroy = undefined; document.body.innerHTML = ""; });
 async function settle() { for (let i = 0; i < 8; i++) await Promise.resolve(); await tick(); }
-function render(call: (command: string, args?: Record<string, unknown>) => Promise<unknown>) {
+function render(call: (command: string, args?: Record<string, unknown>) => Promise<unknown>, includeYtdlpSearchDefault = false, onYtdlpSearchDefaultChange = vi.fn()) {
   const target = document.createElement("div"); document.body.append(target);
   const instance = mount(PlaylistSettings, { target, props: {
     preferences: { favoritesPlaylistId: "favorites", shortcuts: ["set-a", null, null, null, null, null, null, null, null], shortcutBindings: ["Alt+1", "Alt+2", "Alt+3", "Alt+4", "Alt+5", "Alt+6", "Alt+7", "Alt+8", "Alt+9"] },
-    collections, call, onchange: vi.fn(), oncollections: vi.fn(),
+    collections, call, onchange: vi.fn(), oncollections: vi.fn(), includeYtdlpSearchDefault, onYtdlpSearchDefaultChange,
   } });
   destroy = () => unmount(instance);
   return target;
@@ -45,5 +45,16 @@ describe("PlaylistSettings", () => {
     key.value = "Ctrl+1"; key.dispatchEvent(new Event("change", { bubbles: true }));
     await settle();
     expect(call).toHaveBeenCalledWith("set_playlist_shortcut_binding", { slot: 0, binding: "Ctrl+1" });
+  });
+
+  it("exposes the persisted yt-dlp default in common playlist settings", async () => {
+    const change = vi.fn();
+    const target = render(vi.fn(async () => ({})), true, change);
+    await settle();
+    const search = target.querySelector<HTMLInputElement>('[aria-label="Include search links by default"]')!;
+    expect(search.checked).toBe(true);
+    search.checked = false; search.dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+    expect(change).toHaveBeenCalledWith(false);
   });
 });

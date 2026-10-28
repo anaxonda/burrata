@@ -21,6 +21,7 @@ const MAX_PLAYLIST_ENTRIES: usize = 10_000;
 const MAX_SCAN_DEPTH: usize = 8;
 const MAX_PLAYLISTS: usize = 5000;
 const BURRATA_MIRROR_MARKER: &str = "#BURRATA-MIRROR";
+const BURRATA_EXPORT_MARKER: &str = "#BURRATA-EXPORT";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -136,7 +137,7 @@ fn is_burrata_mirror(path: &Path) -> bool {
         .and_then(|bytes| String::from_utf8(bytes).ok())
         .is_some_and(|text| {
             text.lines()
-                .any(|line| line.trim() == BURRATA_MIRROR_MARKER)
+                .any(|line| matches!(line.trim(), BURRATA_MIRROR_MARKER | BURRATA_EXPORT_MARKER))
         })
 }
 
@@ -324,13 +325,43 @@ pub fn import_local_playlist(
     if playlist_entry_count(text) > MAX_PLAYLIST_ENTRIES {
         return Err("Playlist import is limited to 10,000 entries".into());
     }
+    let portable = text
+        .contains("#BURRATA-PLAYLIST:")
+        .then(|| crate::portable_playlist::parse(text).map_err(|error| error.to_string()))
+        .transpose()?;
     let (tracks, unmatched, metadata_only) =
         preview_playlist_tracks(settings, store, &canonical_file, text)?;
-    if tracks.is_empty() {
+    if tracks.is_empty() && portable.is_none() {
         return Err("No playlist entries matched registered local audio files".into());
     }
-    let collection = store.create_collection(&playlist_name(&canonical_file))?;
+    let name = portable
+        .as_ref()
+        .map(|playlist| playlist.name.as_str())
+        .unwrap_or_else(|| "");
+    let fallback_name = playlist_name(&canonical_file);
+    let collection = store.create_collection(if name.is_empty() {
+        &fallback_name
+    } else {
+        name
+    })?;
     store.replace_playlist_entries(&collection.id, &tracks)?;
+    let folder_names = if let Some(portable) = portable.as_ref() {
+        if portable.folder_ancestry.is_empty() {
+            relative_folder_names(settings, &canonical_file)?
+        } else {
+            portable
+                .folder_ancestry
+                .iter()
+                .map(|folder| folder.name.clone())
+                .collect()
+        }
+    } else {
+        relative_folder_names(settings, &canonical_file)?
+    };
+    crate::playlist_hierarchy::set_folder_ancestry(store, &collection.id, &folder_names)?;
+    if let Some(portable) = portable.as_ref() {
+        crate::playlist_hierarchy::import_portable_metadata(store, &collection.id, portable)?;
+    }
     Ok(LocalPlaylistImport {
         collection: Collection {
             track_count: tracks.len() as u32,
@@ -351,6 +382,10 @@ pub(crate) fn preview_playlist_tracks(
 ) -> Result<(Vec<Track>, usize, usize)> {
     if playlist_entry_count(text) > MAX_PLAYLIST_ENTRIES {
         return Err("Playlist import is limited to 10,000 entries".into());
+    }
+    if crate::portable_playlist::is_portable_playlist(text) {
+        let portable = crate::portable_playlist::parse(text).map_err(|error| error.to_string())?;
+        return preview_portable_playlist_tracks(settings, store, canonical_file, &portable);
     }
     let assets = store.list_assets()?;
     let mut by_path: HashMap<PathBuf, Track> = HashMap::new();
@@ -406,6 +441,115 @@ pub(crate) fn preview_playlist_tracks(
         }
     }
     Ok((tracks, unmatched, metadata_only))
+}
+
+fn preview_portable_playlist_tracks(
+    settings: &Settings,
+    store: &Store,
+    canonical_file: &Path,
+    playlist: &crate::portable_playlist::PlaylistInput,
+) -> Result<(Vec<Track>, usize, usize)> {
+    let assets = store.list_assets()?;
+    let mut by_path: HashMap<PathBuf, Track> = HashMap::new();
+    let music_roots = approved_audio_roots(settings);
+    for asset in assets {
+        if let Ok(real) = fs::canonicalize(&asset.path) {
+            if real.is_file() && music_roots.iter().any(|root| real.starts_with(root)) {
+                by_path.insert(real, asset.track);
+            }
+        }
+    }
+    let base = canonical_file
+        .parent()
+        .ok_or("Playlist has no parent directory")?;
+    let rich = !playlist.id.is_empty();
+    let mut tracks = Vec::with_capacity(playlist.entries.len());
+    let mut unmatched = 0;
+    let mut metadata_only = 0;
+    for entry in &playlist.entries {
+        let location = entry.resource.as_deref();
+        let matched = location
+            .filter(|location| !location.contains("://"))
+            .and_then(|location| resolve_entry(base, location))
+            .and_then(|path| fs::canonicalize(path).ok())
+            .and_then(|real| by_path.get(&real));
+        if let Some(asset_track) = matched {
+            let mut track = asset_track.clone();
+            if rich {
+                track.provenance["portableIdentity"] =
+                    serde_json::to_value(&entry.track).map_err(|error| error.to_string())?;
+            }
+            tracks.push(track);
+            continue;
+        }
+        unmatched += 1;
+        let mut track = entry.track.to_track();
+        if let Some(location) = location {
+            if is_uri_entry(location) && !location.starts_with("burrata://track/") && !rich {
+                track.source_url = location.to_owned();
+                track.provenance["playlistEntry"] = serde_json::json!(location);
+                attach_playlist_audio_candidate(&mut track, location);
+            } else if !location.contains("://") {
+                track.provenance["unverifiedPlaylistPath"] = serde_json::json!(location);
+            }
+        }
+        track.provenance["importFormat"] =
+            serde_json::json!(if rich { "burrata-m3u-v1" } else { "m3u" });
+        tracks.push(track);
+        metadata_only += 1;
+    }
+    Ok((tracks, unmatched, metadata_only))
+}
+
+/// Return only explicit directory components below a configured playlist root.
+/// No root path is retained in the hierarchy preference.
+pub(crate) fn relative_folder_names(settings: &Settings, path: &Path) -> Result<Vec<String>> {
+    let canonical = fs::canonicalize(path).map_err(|_| "Playlist file is unavailable")?;
+    let mut roots = settings
+        .playlist_directories
+        .iter()
+        .filter(|path| !path.trim().is_empty())
+        .filter_map(|path| fs::canonicalize(path).ok())
+        .filter(|path| path.is_dir())
+        .collect::<Vec<_>>();
+    if roots.iter().all(|root| !canonical.starts_with(root))
+        && !settings.music_directory.trim().is_empty()
+    {
+        let music = PathBuf::from(&settings.music_directory);
+        let playlist_root = music.join("Playlists");
+        if fs::canonicalize(&playlist_root)
+            .ok()
+            .is_some_and(|root| canonical.starts_with(&root))
+        {
+            roots
+                .push(fs::canonicalize(playlist_root).map_err(|_| "Playlist root is unavailable")?);
+        } else {
+            roots.extend(configured_roots(settings));
+        }
+    }
+    let root = roots
+        .into_iter()
+        .filter(|root| canonical.starts_with(root))
+        .max_by_key(|root| root.components().count())
+        .ok_or("Playlist file is outside configured roots")?;
+    let relative_parent = canonical
+        .parent()
+        .and_then(|parent| parent.strip_prefix(root).ok())
+        .ok_or("Playlist folder is outside configured roots")?;
+    let mut folders = Vec::new();
+    for component in relative_parent.components() {
+        let std::path::Component::Normal(name) = component else {
+            continue;
+        };
+        let name = name
+            .to_str()
+            .ok_or("Playlist folder name is not valid UTF-8")?;
+        if name.is_empty() || name.chars().any(char::is_control) {
+            return Err("Playlist folder name is invalid".into());
+        }
+        folders.push(name.to_owned());
+    }
+    Ok(folders)
 }
 
 // Unit tests configure scratch roots explicitly. Never scan the developer's

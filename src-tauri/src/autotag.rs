@@ -6,6 +6,7 @@ use crate::{
     artists::ArtistService,
     media,
     models::{Candidate, DownloadJob, LocalAsset, Settings, Track},
+    restore_work_policy::{self, AutomaticWorkKind},
     Store,
 };
 use serde::{Deserialize, Serialize};
@@ -282,6 +283,7 @@ pub struct AutoTagger {
     fingerprint_cpu: Arc<Semaphore>,
     inflight: Arc<Mutex<HashSet<String>>>,
     pending: Arc<std::sync::Mutex<HashSet<String>>>,
+    explicit_work: Arc<std::sync::Mutex<HashSet<String>>>,
 }
 
 impl AutoTagger {
@@ -303,6 +305,7 @@ impl AutoTagger {
             fingerprint_cpu: Arc::new(Semaphore::new(1)),
             inflight: Arc::new(Mutex::new(HashSet::new())),
             pending: Arc::new(std::sync::Mutex::new(HashSet::new())),
+            explicit_work: Arc::new(std::sync::Mutex::new(HashSet::new())),
         });
         manager.start_workers(receiver);
         manager
@@ -338,9 +341,13 @@ impl AutoTagger {
                 });
             }
         });
-        // Resume queued and due retry records after app startup.
+        // Resume queued and due retry records after app startup only when the
+        // user has reviewed and explicitly resumed restored AutoTag work.
         let manager = self.clone();
         tauri::async_runtime::spawn(async move {
+            if restore_work_policy::is_paused(&manager.store, AutomaticWorkKind::AssetAutotag) {
+                return;
+            }
             if let Ok(jobs) = manager.records() {
                 for job in jobs.into_iter().filter(|job| {
                     job.status == "queued" || job.status == "retry" || job.status == "matching"
@@ -391,6 +398,15 @@ impl AutoTagger {
             || !(provenance["publicationJobId"].is_string()
                 || provenance["acquisition"].is_object())
         {
+            return Ok(false);
+        }
+        if restore_work_policy::is_paused(&self.store, AutomaticWorkKind::AssetAutotag) {
+            let already_recorded = self.records()?.into_iter().any(|job| {
+                job.asset_id == asset.id && job.input_hash == asset.hash && job.version == VERSION
+            });
+            if !already_recorded {
+                self.enqueue_new_download(&asset)?;
+            }
             return Ok(false);
         }
         if let Some(existing) = self.records()?.into_iter().find(|job| {
@@ -451,7 +467,8 @@ impl AutoTagger {
                 &json!({"enabled":enabled,"shazamFallback":shazam_fallback}),
             )
             .map_err(|e| e.to_string())?;
-        if enabled {
+        if enabled && !restore_work_policy::is_paused(&self.store, AutomaticWorkKind::AssetAutotag)
+        {
             for mut job in self.records()? {
                 if job.status == "paused" {
                     job.status = "queued".into();
@@ -471,7 +488,15 @@ impl AutoTagger {
             release_retry_slot(&self.pending, asset_id);
             return Err(error);
         }
+        self.explicit_work
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(asset_id.to_owned());
         if self.sender.send(asset_id.to_owned()).is_err() {
+            self.explicit_work
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(asset_id);
             release_retry_slot(&self.pending, asset_id);
             return Err("Autotag worker is not running".into());
         }
@@ -492,6 +517,10 @@ impl AutoTagger {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(asset_id);
+        self.explicit_work
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(asset_id);
         result
     }
 
@@ -507,6 +536,14 @@ impl AutoTagger {
             .find(|j| j.asset_id == asset.id && j.input_hash == asset.hash && j.version == VERSION)
             .ok_or("Autotag job record is missing")?;
         if !["queued", "retry", "matching"].contains(&job.status.as_str()) {
+            return Ok(());
+        }
+        let explicit = self
+            .explicit_work
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(asset_id);
+        if !queued_job_allowed(&self.store, explicit) {
             return Ok(());
         }
         if job.status == "retry" && !self.retry_due(&job).await {
@@ -568,6 +605,42 @@ impl AutoTagger {
         Ok(decode_job_records(rows))
     }
 
+    /// Resume only imported jobs that the user explicitly re-enabled in the
+    /// restore work review. Rebuild each job from the current registered asset
+    /// so imported candidates, approvals and recognition proof are discarded.
+    pub fn resume_restored_work(&self) -> Result<usize, String> {
+        if restore_work_policy::is_paused(&self.store, AutomaticWorkKind::AssetAutotag) {
+            return Err(
+                "Review and enable AutoTag work before resuming imported matcher records".into(),
+            );
+        }
+        let mut queued = 0;
+        for previous in self.records()?.into_iter().filter(|job| {
+            matches!(
+                job.status.as_str(),
+                "restore_review" | "queued" | "retry" | "matching"
+            )
+        }) {
+            let Some(asset) = self
+                .store
+                .get_asset_by_id(&previous.asset_id)
+                .map_err(|error| error.to_string())?
+            else {
+                continue;
+            };
+            if verify_asset_bytes(&asset).is_err() {
+                continue;
+            }
+            let (_, mut fresh) = current_asset_retry_job(&self.store, &asset.id)?;
+            fresh.updated_at = chrono::Utc::now().to_rfc3339();
+            self.persist(&fresh)?;
+            if self.schedule(&fresh.asset_id) {
+                queued += 1;
+            }
+        }
+        Ok(queued)
+    }
+
     fn persist(&self, job: &AutoTagJob) -> Result<(), String> {
         self.store
             .save_autotag_record(
@@ -591,6 +664,13 @@ impl AutoTagger {
         if job.asset_id != asset.id || job.input_hash != asset.hash || job.version != VERSION {
             return Err("Autotag job no longer matches the asset content hash".into());
         }
+        if asset.processing == "external-readonly" {
+            return Err(
+                "External audio is indexed read-only; download it before running AutoTag.".into(),
+            );
+        }
+        let _library_write = self.store.try_library_write()?;
+        verify_asset_bytes(asset)?;
         let _permit = self.workers.acquire().await.map_err(|e| e.to_string())?;
         job.status = "matching".into();
         job.updated_at = chrono::Utc::now().to_rfc3339();
@@ -939,6 +1019,7 @@ impl AutoTagger {
         &self,
         asset_id: &str,
     ) -> Result<DownloadSourceTagRepairResult, String> {
+        let _library_write = self.store.try_library_write()?;
         let asset = self
             .store
             .get_asset_by_id(asset_id)
@@ -1654,6 +1735,9 @@ impl AutoTagger {
             .into_iter()
             .find(|j| j.asset_id == asset_id && j.input_hash == current_hash)
             .ok_or("Autotag review job not found")?;
+        if job.status == "restore_review" {
+            return Err("Imported matcher candidates are display-only; retry to revalidate this audio before review.".into());
+        }
         let candidate = job
             .candidates
             .iter()
@@ -1674,6 +1758,7 @@ impl AutoTagger {
         field_keys: &[String],
     ) -> Result<LocalAsset, String> {
         let _permit = self.workers.acquire().await.map_err(|e| e.to_string())?;
+        let _library_write = self.store.try_library_write()?;
         let mut job = self
             .records()?
             .into_iter()
@@ -1794,6 +1879,7 @@ impl AutoTagger {
         field_keys: &[String],
     ) -> Result<LocalAsset, String> {
         let _permit = self.workers.acquire().await.map_err(|e| e.to_string())?;
+        let _library_write = self.store.try_library_write()?;
         let mut job = self
             .records()?
             .into_iter()
@@ -2330,8 +2416,28 @@ fn can_auto_apply(source: &Track, candidate: &AutoTagCandidate, excerpt_only: bo
 }
 
 fn autotag_job_retryable(job: &AutoTagJob) -> bool {
-    ["retry", "no_match", "failed"].contains(&job.status.as_str())
+    ["retry", "no_match", "failed", "restore_review"].contains(&job.status.as_str())
         || (job.status == "review" && job.chosen.is_none() && job.approved_fields.is_empty())
+}
+
+fn queued_job_allowed(store: &Store, explicit_revalidation: bool) -> bool {
+    explicit_revalidation || !restore_work_policy::is_paused(store, AutomaticWorkKind::AssetAutotag)
+}
+
+fn verify_asset_bytes(asset: &LocalAsset) -> Result<(), String> {
+    let path = std::path::Path::new(&asset.path);
+    let metadata = std::fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+    if !path.is_absolute()
+        || !metadata.is_file()
+        || metadata.file_type().is_symlink()
+        || media::hash_file(path)? != asset.hash
+    {
+        return Err(
+            "Audio changed since the matcher evidence was captured; retry against the current file."
+                .into(),
+        );
+    }
+    Ok(())
 }
 
 fn classify_lookup_result(
@@ -3174,6 +3280,52 @@ mod tests {
     }
 
     #[test]
+    fn restored_matcher_revalidation_rejects_changed_audio_without_writing_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("source.flac");
+        std::fs::write(&path, b"original audio bytes").unwrap();
+        let asset = LocalAsset {
+            id: "asset-revalidation".into(),
+            recording_id: "recording-revalidation".into(),
+            path: path.to_string_lossy().into_owned(),
+            hash: media::hash_file(&path).unwrap(),
+            source_codec: "flac".into(),
+            final_codec: "flac".into(),
+            source_bitrate: None,
+            final_bitrate: None,
+            sample_rate: None,
+            channels: None,
+            bit_depth: None,
+            duration_seconds: None,
+            size_bytes: None,
+            bitrate_origin: None,
+            processing: "managed".into(),
+            track: Track::default(),
+        };
+        assert!(verify_asset_bytes(&asset).is_ok());
+        assert_eq!(
+            std::fs::read(&path).unwrap().as_slice(),
+            b"original audio bytes"
+        );
+
+        std::fs::write(&path, b"changed audio bytes").unwrap();
+        assert!(verify_asset_bytes(&asset).is_err());
+        assert_eq!(
+            std::fs::read(&path).unwrap().as_slice(),
+            b"changed audio bytes"
+        );
+    }
+
+    #[test]
+    fn restored_autotag_startup_is_inert_until_explicit_resume() {
+        let (_directory, store) = retry_test_store();
+        crate::restore_work_policy::pause_all_after_restore(&store, "snapshot-restore-review")
+            .unwrap();
+        assert!(!queued_job_allowed(&store, false));
+        assert!(queued_job_allowed(&store, true));
+    }
+
+    #[test]
     fn retry_slot_rejects_pending_and_inflight_asset_overlap() {
         let pending = std::sync::Mutex::new(HashSet::from(["asset-1".to_owned()]));
         let inflight = Mutex::new(HashSet::new());
@@ -3582,6 +3734,8 @@ mod tests {
             job.status = status.into();
             assert!(autotag_job_retryable(&job));
         }
+        job.status = "restore_review".into();
+        assert!(autotag_job_retryable(&job));
     }
 
     #[test]

@@ -254,6 +254,8 @@ impl Fixture {
                 duration_seconds: Some(4.0),
                 content_length: Some(self.bytes.len() as u64),
                 has_video: false,
+                decode_policy: crate::native_output::AudioSourceDecodePolicy::Automatic,
+                decoder_fingerprint: None,
             }),
             cenc: None,
         }

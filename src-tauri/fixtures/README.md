@@ -1,0 +1,1 @@
+These three compact Ogg Opus fixtures are generated from a synthetic sine tone, not a copyrighted recording or a library asset. See `manifest.json` for the exact encoder command, byte hashes, Q7.8 mutations, CRC handling, and reference decode measurements. `src/opus_decoder_capability.rs` validates fixture structure and page CRCs before starting the configured decoder.

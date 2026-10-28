@@ -33,6 +33,9 @@ function render(props: Record<string, unknown> = {}) {
 }
 
 describe("ReleaseView", () => {
+  it("spells out the worldwide territory in the album header without modifying source metadata", async()=>{
+    const worldwide={...release,country:"XW"};const target=render({release:worldwide});await settle();expect(target.querySelector(".release-meta")?.textContent).toContain("Worldwide");expect(target.querySelector(".release-meta")?.textContent).not.toContain("XW");expect(worldwide.country).toBe("XW");
+  });
   it("filters downloaded and missing tracks without changing album order or identity", async () => {
     const downloaded={...tracks[0],localAvailability:"available"};
     const missing={...tracks[1],localAvailability:"missing",localPath:"/music/missing.flac"};

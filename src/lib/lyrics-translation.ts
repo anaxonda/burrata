@@ -29,3 +29,11 @@ export function validateLyricsTranslation(
   }
   return result;
 }
+
+/** Validate a progress update without treating missing, pending lines as errors. */
+export function validateLyricsTranslationProgress(sourceHash:string, sourceLines:readonly LyricsSourceLine[], result:LyricsTranslationResult):LyricsTranslationResult|null {
+  if(result.sourceHash!==sourceHash || !result.targetLanguage?.trim() || !Array.isArray(result.lines) || !result.lines.length)return null;
+  let previous=-1;
+  for(const line of result.lines){const index=sourceLines.findIndex(source=>source.id===line.id);if(index<=previous || index<0 || typeof line.text!=="string" || (sourceLines[index].text.trim() ? !line.text.trim() : Boolean(line.text.trim())))return null;previous=index;}
+  return result;
+}

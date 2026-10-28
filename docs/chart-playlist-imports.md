@@ -3,6 +3,61 @@
 Current browser companion version: **0.1.7**. This document covers the import work
 completed so far, setup, observed failures, and remaining validation.
 
+## Import improvements (October 24, 2026)
+
+The source code now provides optional **Preview changes** in the companion and a
+preview before applying direct URL imports in the app. Previews show additions,
+removals, moves, completeness, warnings, and a track sample. Applying a preview is
+idempotent and checks the previous capture inside the import transaction. A
+preview expires after 15 minutes. Partial captures retain earlier members.
+
+Import receipts include `changes`, `failedSources`, and ordered `albumUrls` for
+Bandcamp Discover. **Retry failed album pages** fetches only failed albums and
+prepares a new preview, retaining successful tracks and original album order.
+Discover remains a partial collection of rendered release cards, never a ranked
+song chart. Explicit `sort` values are retained in source identity.
+
+Public source evidence is retained under `provenance.importMetadata`, with
+per-field `fieldSources` and a `sourceContext` carrying the capture time and
+available country/tag/period/sort. It is not catalog proof. The bounded metadata
+allowlist includes album/artist/channel links, credits, descriptions, source tags,
+lyrics, album positions, MBIDs, and explicit availability/counts. Audio transport
+URLs, cookies, and arbitrary page JSON are excluded. Refreshes preserve user edits
+and fill missing values instead of clearing known metadata.
+
+- Bandcamp albums retain artwork (including numeric artwork IDs), release date,
+  explicit track IDs and positions, album/artist links, credits, tags and available
+  public descriptions. Verified Bandcamp playback can fill missing information;
+  **Fill missing Bandcamp information** supports existing saved entries.
+- Spotify rendered rows retain per-track artwork, album/artist links, and explicit
+  unavailability. Existing ordered duplicate occurrences remain supported.
+- YouTube keeps the video title/channel distinct in source evidence rather than
+  claiming the channel is a verified recording artist.
+- Beatport and Traxsource retain available exact mix names and separate remixer
+  credits; the browser parsers retain artist/release/label links and supplied IDs.
+- Shazam CSV imports retain supplied artwork and ISRCs; Last.fm API imports retain
+  supplied artwork, MBIDs, artist links and public counts. Missing rank values are
+  not invented from DOM/CSV order. Source tags are not promoted into track genres.
+
+New non-YouTube page imports use `playbackMode: lookup`, retaining their catalog
+identity/page URLs while consulting the preferred audio provider. YouTube imports
+retain their exact upload by default. **Imported source information → Playback
+source** switches an individual recording between lookup and its linked source.
+Explicit playback selections, local files, chapters and radio keep their existing
+source rules. Existing saved tracks are not silently migrated.
+
+The MCP registry now exposes `list_browser_imports`, `preview_collection_import`,
+`preview_browser_snapshot`, `apply_collection_import`, `request_browser_import`,
+`retry_import_failures`, `enrich_import_track`, and `set_import_playback_mode`.
+Discover previews require rendered album URLs or the browser companion; MCP does
+not bypass provider verification. Previewing does not add tracks to the library.
+
+These changes require a rebuilt/restarted app and an updated/reloaded companion,
+followed by reloading provider tabs. Existing imports can be reimported to gain
+newly captured metadata. Tests cover parser fixtures, public metadata boundaries,
+preview idempotency/staleness, safe partial refreshes, and import UI flows; live
+provider layouts still require browser verification.
+
 ## Supported paths
 
 | Input | Import path | Current evidence |
@@ -16,8 +71,8 @@ completed so far, setup, observed failures, and remaining validation.
 | M3U / M3U8 playlists | Local playlist discovery and app import panel | Discovery opens local playlists as Burrata collections; entries can include local paths or streaming URLs |
 | Browser snapshot JSON | App import panel | Accepts the same typed metadata snapshot as the browser bridge |
 
-SoundCloud and YouTube are supported for source search and candidate previews;
-the companion does not currently import their playlists. Importing a Spotify
+SoundCloud supports source search and candidate previews. The companion also
+supports public YouTube video and playlist imports. Importing a Spotify
 playlist imports metadata, not Spotify audio.
 
 ## Additional public collection imports (October 13, 2026)

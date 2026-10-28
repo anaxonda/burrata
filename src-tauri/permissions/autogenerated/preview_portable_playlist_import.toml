@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-preview-portable-playlist-import"
+description = "Enables the preview_portable_playlist_import command without any pre-configured scope."
+commands.allow = ["preview_portable_playlist_import"]
+
+[[permission]]
+identifier = "deny-preview-portable-playlist-import"
+description = "Denies the preview_portable_playlist_import command without any pre-configured scope."
+commands.deny = ["preview_portable_playlist_import"]

@@ -1,0 +1,10 @@
+#EXTM3U
+#BURRATA-PLAYLIST:{"schemaVersion":1,"id":"p1","purpose":"share","name":"夜の道","description":null,"folderAncestry":[{"id":"f1","name":"Sets"}],"sections":[{"id":"s1","name":"Warm up"}]}
+#BURRATA-TRACK:{"schemaVersion":1,"id":"t1","title":"Nuit d'été","artists":[{"name":"Élodie","role":"primary"}],"album":"Échos","albumArtist":null,"version":"Extended Mix","durationSeconds":245.4,"isrc":null,"catalogReferences":[],"bpm":{"value":124.0,"source":"manual"},"key":null,"tags":[]}
+#BURRATA-ENTRY:{"schemaVersion":1,"id":"e1","track":"t1","order":1,"sectionId":"s1","note":null,"cuePoints":[],"playbackRange":null,"history":null}
+#EXTINF:245,Élodie - Nuit d'été (Extended Mix)
+burrata://track/t1
+#BURRATA-TRACK:{"schemaVersion":1,"id":"t1","title":"Nuit d'été","artists":[{"name":"Élodie","role":"primary"}],"album":"Échos","albumArtist":null,"version":"Extended Mix","durationSeconds":245.4,"isrc":null,"catalogReferences":[],"bpm":{"value":124.0,"source":"manual"},"key":null,"tags":[]}
+#BURRATA-ENTRY:{"schemaVersion":1,"id":"e2","track":"t1","order":2,"sectionId":"s1","note":null,"cuePoints":[],"playbackRange":null,"history":null}
+#EXTINF:245,Élodie - Nuit d'été (Extended Mix)
+burrata://track/t1

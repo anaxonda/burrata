@@ -25,7 +25,22 @@ function canonicalSpotifyUrl(value) {
   return u.href;
 }
 function entry(providerId, sourceUrl, artist, title, position, extra={}) {
-  return {providerId, sourceUrl, artist, title, position, rank:null, version:null,durationSeconds:null,bpm:null,key:null,album:null,label:null,genre:null,releaseDate:null,artworkUrl:null,isrc:null,catalogNumber:null,...extra};
+  return {providerId, sourceUrl, artist, title, position, rank:null, version:null,durationSeconds:null,bpm:null,key:null,album:null,label:null,genre:null,releaseDate:null,artworkUrl:null,isrc:null,catalogNumber:null,metadata:null,...extra};
+}
+function pageLink(value,base){const raw=link(value,base);if(!raw)return null;const u=new URL(raw);if(u.username||u.password)return null;u.search='';u.hash='';return u.href;}
+function rowMetadata(row,base){
+ const links=selector=>[...row.querySelectorAll(selector)].map(a=>pageLink(a.getAttribute('href'),base)).filter(Boolean);
+ return {artistUrls:[...new Set(links('a[href*="/artist/"]'))],albumUrl:links('a[href*="/album/"],a[href*="/release/"]')[0]||null,labelUrl:links('a[href*="/label/"]')[0]||null,remixers:[...row.querySelectorAll('.remixers a,.remixer a')].map(a=>a.textContent.trim()).filter(Boolean)};
+}
+function bandcampArtwork(data,doc,base){
+ const raw=data.art_url||(typeof data.art==='string'&&/^https:/.test(data.art)?data.art:null)||doc.querySelector('meta[property="og:image"]')?.getAttribute('content');
+ if(raw)return pageLink(raw,base);
+ const id=String(data.art_id??data.art??'');return /^\d{1,20}$/.test(id)?`https://f4.bcbits.com/img/a${id}_10.jpg`:null;
+}
+function bandcampMetadata(data,doc,base){
+ const bounded=(value,max=12000)=>typeof value==='string'?value.trim().slice(0,max)||null:null;
+ const current=data.current||{};
+ return {albumUrl:pageLink(base,base),artistUrl:new URL(base).origin+'/',albumArtist:bounded(data.artist,2000),description:bounded(current.about||text(doc,'.tralbumData.tralbum-about,.tralbum-about')),credits:bounded(current.credits||text(doc,'.tralbum-credits')),lyrics:bounded(current.lyrics),location:bounded(text(doc,'.location'),2000),artistBio:bounded(text(doc,'#bio-text'),12000),tags:[...doc.querySelectorAll('a.tag')].slice(0,100).map(a=>a.textContent.trim().slice(0,500)).filter(Boolean)};
 }
 function safeTitle(doc){return text(doc,'main h1,[role="main"] h1,h1')||doc.title||'Imported tracks';}
 function boundedTotal(value){const n=Number(String(value??'').replaceAll(',',''));return Number.isInteger(n)&&n>0&&n<=10000?n:null;}
@@ -104,7 +119,7 @@ function shazamDomEntries(doc,url){
     if(!row)continue;
     const rank=rankedPosition(row),artist=[...row.querySelectorAll('a[href*="/artist/"]')].map(a=>a.textContent.trim()).filter(Boolean).join(', ');
     const key=`${rank}:${id}`;if(!rank||!artist||seen.has(key))continue;seen.add(key);
-    found.push(entry(id,href,artist,anchor.textContent.trim(),rank,{rank}));
+    found.push(entry(id,href,artist,anchor.textContent.trim(),rank,{rank,artworkUrl:link(row.querySelector('img')?.getAttribute('src'),url),metadata:rowMetadata(row,url)}));
   }
   return found;
 }
@@ -144,7 +159,7 @@ function lastfmRows(doc,chart){
     const rank=rankedPosition(row);if(chart&&!rank)continue;
     const href=lastfmTrackHref(titleAnchor.getAttribute('href'),doc.URL);if(!href)continue;
     const position=rank||found.length+1,key=`${position}:${href}`;if(seen.has(key))continue;seen.add(key);
-    found.push(entry(null,href,artistAnchor.textContent.trim(),titleAnchor.textContent.trim(),position,{rank:chart?rank:null,artworkUrl:link(row.querySelector('img[src]')?.getAttribute('src'),doc.URL)}));
+    found.push(entry(null,href,artistAnchor.textContent.trim(),titleAnchor.textContent.trim(),position,{rank:chart?rank:null,artworkUrl:link(row.querySelector('img[src]')?.getAttribute('src'),doc.URL),metadata:{artistUrl:pageLink(artistAnchor.getAttribute('href'),doc.URL),musicbrainzId:row.getAttribute('data-mbid')||null,...Object.fromEntries(['plays','listeners'].map(key=>[key,Number(row.getAttribute('data-'+key))||null]))}}));
   }
   return found;
 }
@@ -184,7 +199,7 @@ function bandcampData(doc){
 function bandcampAlbum(doc,url){
   const data=bandcampData(doc);
   if(!data||!Array.isArray(data.trackinfo)||!data.trackinfo.length)throw new Error('Bandcamp did not expose an explicit album tracklist. Open the album page and retry.');
-  const title=String(data.album_title||safeTitle(doc)),artist=String(data.artist||'').trim();
+  const title=String(data.album_title||data.current?.title||safeTitle(doc)),artist=String(data.artist||'').trim();
   if(!artist)throw new Error('Bandcamp album artist metadata was unavailable.');
   const rows=[...doc.querySelectorAll('#track_table .track_row_view,.track_row_view,[data-testid="track-row"]')];
   const entries=[];
@@ -195,7 +210,8 @@ function bandcampAlbum(doc,url){
     const anchor=row&&[...row.querySelectorAll('a[href*="/track/"]')].find(a=>a.textContent.trim()===name||!a.textContent.trim());
     const position=rankNumber(track.track_num)||index+1;
     const duration=num(track.duration);
-    entries.push(entry(id,link(anchor?.getAttribute('href'),url)||url,artist,name,position,{rank:null,durationSeconds:duration,album:title,releaseDate:data.release_date||null,artworkUrl:link(data.art||data.art_url,url)}));
+    const trackUrl=link(track.title_link,url)||link(anchor?.getAttribute('href'),url)||url;
+    entries.push(entry(id,trackUrl,artist,name,position,{rank:null,durationSeconds:duration,album:title,releaseDate:data.album_release_date||data.release_date||null,artworkUrl:bandcampArtwork(data,doc,url),metadata:{...bandcampMetadata(data,doc,url),trackNumber:position,lyrics:typeof track.lyrics==='string'?track.lyrics.slice(0,12000):null}}));
   });
   if(!entries.length)throw new Error('Bandcamp album metadata did not contain importable songs.');
   return {schemaVersion:1,provider:'bandcamp',kind:'album',title,sourceUrl:url,capturedAt:new Date().toISOString(),complete:false,expectedTotal:data.trackinfo.length,warnings:entries.length===data.trackinfo.length?[]:['Some album tracks lacked a stable provider ID or title and were omitted.'],entries};
@@ -231,7 +247,7 @@ function bandcampDiscover(doc,url){
   }
   if(!albumUrls.length)throw new Error('Bandcamp Discover did not show rendered album cards.');
   const warnings=albumUrls.length>20?['Only the first 20 rendered album cards can be imported at once.']:[];
-  return {albumCollection:{sourceUrl:`${page.origin}${page.pathname}`,title:safeTitle(doc),albumUrls:albumUrls.slice(0,20),warnings}};
+  return {albumCollection:{sourceUrl:`${page.origin}${page.pathname}${['top','new','rec','date'].includes(page.searchParams.get('sort'))?'?sort='+page.searchParams.get('sort'):''}`,title:safeTitle(doc),albumUrls:albumUrls.slice(0,20),warnings}};
 }
 export function isVerification(doc) {
   const challengePattern = /just a moment|verify you are human|security verification|security check|checking your browser|complete the security check/i;
@@ -284,7 +300,7 @@ function youtubePlaylistEntry(row,_index,base){
   const image=row.querySelector('img');
   const artworkUrl=link(image?.getAttribute('src')||image?.getAttribute('srcset')?.split(',').at(-1)?.trim().split(/\s+/)[0],base);
   const url=videoId?`https://www.youtube.com/watch?v=${videoId}`:null;
-  return entry(videoId,url,artist,title,position,{durationSeconds,artworkUrl});
+  return entry(videoId,url,artist,title,position,{durationSeconds,artworkUrl,metadata:{videoTitle:title,channelName:artist,channelUrl:pageLink(row.querySelector('a[href*="/channel/"],a[href*="/@"]')?.getAttribute('href'),base),availability:'available'}});
 }
 function extractYouTube(doc,url){
   const page=new URL(url),videoId=youtubeVideoId(page.searchParams.get('v'));
@@ -299,7 +315,7 @@ function extractYouTube(doc,url){
     const durationNode=doc.querySelector('meta[itemprop="duration"], .ytp-time-duration');
     const durationRaw=durationNode?.getAttribute('content')||youtubeText(durationNode);
     const image=doc.querySelector('meta[property="og:image"]')?.getAttribute('content')||doc.querySelector('#thumbnail img, ytd-video-primary-info-renderer img')?.getAttribute('src');
-    return {schemaVersion:1,provider:'youtube',kind:'playlist',title:`${artist} — ${title}`,sourceUrl:`https://www.youtube.com/watch?v=${videoId}`,capturedAt:new Date().toISOString(),complete:true,expectedTotal:1,warnings:[],entries:[entry(videoId,`https://www.youtube.com/watch?v=${videoId}`,artist,title,1,{durationSeconds:youtubeDuration(durationRaw),artworkUrl:link(image,url)})]};
+    return {schemaVersion:1,provider:'youtube',kind:'playlist',title:`${artist} — ${title}`,sourceUrl:`https://www.youtube.com/watch?v=${videoId}`,capturedAt:new Date().toISOString(),complete:true,expectedTotal:1,warnings:[],entries:[entry(videoId,`https://www.youtube.com/watch?v=${videoId}`,artist,title,1,{durationSeconds:youtubeDuration(durationRaw),artworkUrl:link(image,url),metadata:{videoTitle:title,channelName:artist,channelUrl:pageLink(doc.querySelector('#owner a[href*="/channel/"],#owner a[href*="/@"]')?.getAttribute('href'),url),availability:'available'}})]};
   }
   const playlistId=page.searchParams.get('list');
   if(page.pathname==='/playlist'&&typeof playlistId==='string'&&/^[A-Za-z0-9_-]{10,80}$/.test(playlistId)){
@@ -357,7 +373,7 @@ export function extract(doc, url) {
       const sourceUrl=link(a?.getAttribute('href'),url); const providerId=sourceUrl?.match(/\/track\/(\d+)/)?.[1];
       const artists=[...row.querySelectorAll('.artists a')].filter(a=>!a.closest('.remixers,.remixer')).map(a=>a.textContent.trim()).filter(Boolean).join(', ');
       if (!providerId || !artists || !a.textContent.trim()) continue;
-      entries.push(entry(providerId,sourceUrl,artists,a.textContent.trim(),entries.length+1,{rank:rankNumber(text(row,'.tnum,.position,.rank')?.replace(/^#/,'')),version:text(row,'.version,.mix,.mix-name'),durationSeconds:time(text(row,'.title')),label:text(row,'.label'),genre:text(row,'.genre'),releaseDate:text(row,'.r-date'),bpm:num(text(row,'.bpm')),key:text(row,'.key'),artworkUrl:link(row.querySelector('img')?.getAttribute('src'),url)}));
+      entries.push(entry(providerId,sourceUrl,artists,a.textContent.trim(),entries.length+1,{rank:rankNumber(text(row,'.tnum,.position,.rank')?.replace(/^#/,'')),version:text(row,'.version,.mix,.mix-name'),durationSeconds:time(text(row,'.title')),label:text(row,'.label'),genre:text(row,'.genre'),releaseDate:text(row,'.r-date'),bpm:num(text(row,'.bpm')),key:text(row,'.key'),artworkUrl:link(row.querySelector('img')?.getAttribute('src'),url),isrc:normalizedIsrc(row.getAttribute('data-isrc')),catalogNumber:text(row,'.catalog-number,.catalog'),metadata:rowMetadata(row,url)}));
     }
   } else if (provider==='beatport') {
     const named=v=>{
@@ -372,8 +388,8 @@ export function extract(doc, url) {
       const trackTitle=[t.name,t.title].find(value=>typeof value==='string'&&value.trim());
       // Require explicit chart rank, avoiding related tracks and recommendations.
       if(rank && /^\d+$/.test(String(t.id)) && trackTitle && Array.isArray(t.artists)) {
-        const artist=t.artists.map(named).filter(Boolean).join(', ');
-        if(artist) entries.push(entry(String(t.id),`https://www.beatport.com/track/${t.slug||'track'}/${t.id}`,artist,trackTitle.trim(),rank,{rank,version:t.mix_name||null,durationSeconds:num(t.length_ms)?t.length_ms/1000:num(t.duration),bpm:num(t.bpm),key:named(t.key),label:named(t.release?.label??t.label),album:named(t.release),genre:named(t.genre),releaseDate:t.publish_date||null,artworkUrl:link(t.release?.image?.uri??t.image?.uri,url),isrc:t.isrc||null,catalogNumber:t.release?.catalog_number||null})); return;
+        const artist=t.artists.filter(a=>!/remix/i.test(a.role?.name||a.role||'')).map(named).filter(Boolean).join(', ');
+        if(artist) entries.push(entry(String(t.id),`https://www.beatport.com/track/${t.slug||'track'}/${t.id}`,artist,trackTitle.trim(),rank,{rank,version:t.mix_name||null,durationSeconds:num(t.length_ms)?t.length_ms/1000:num(t.duration),bpm:num(t.bpm),key:named(t.key),label:named(t.release?.label??t.label),album:named(t.release),genre:named(t.genre),releaseDate:t.publish_date||null,artworkUrl:link(t.release?.image?.uri??t.image?.uri,url),isrc:t.isrc||null,catalogNumber:t.release?.catalog_number||null,metadata:{artistUrls:t.artists.map(a=>{const v=a.artist||a;return v.id?`https://www.beatport.com/artist/${v.slug||'artist'}/${v.id}`:null;}).filter(Boolean),albumUrl:t.release?.id?`https://www.beatport.com/release/${t.release.slug||'release'}/${t.release.id}`:null,remixers:[...(t.remixers||[]),...t.artists.filter(a=>/remix/i.test(a.role?.name||a.role||''))].map(named).filter(Boolean)}})); return;
       }
       Object.values(v).forEach(x=>walk(x,depth+1));
     };
@@ -434,7 +450,7 @@ export function extract(doc, url) {
         bpm:num(combined?.[1] || bpmText),key:text(row,'.cell.key,[data-testid="track-key"],.key') || combined?.[2]?.trim() || null,
         label:text(row,'.cell.label a,a[href*="/label/"],.label'),genre:text(row,'.cell.genre a,.cell.genre,[data-testid="track-genre"]'),
         releaseDate:text(row,'.cell.release-date,.cell.released,.cell.date,[data-testid="track-release-date"]'),
-        artworkUrl:link(row.querySelector('img')?.getAttribute('src'),url)}));
+        artworkUrl:link(row.querySelector('img')?.getAttribute('src'),url),metadata:rowMetadata(row,url)}));
     }
     // Visible rows define membership when available. Page JSON can also contain a
     // different ranked chart in recommendations; only enrich these same IDs.
@@ -442,7 +458,7 @@ export function extract(doc, url) {
       entries=domEntries.map(e=>{
         const metadata=entries.find(v=>v.providerId===e.providerId);
         if(!metadata)return e;
-        return {...metadata,...Object.fromEntries(Object.entries(e).filter(([,v])=>v!==null)),title:metadata.title || e.title,artist:metadata.artist || e.artist};
+        return {...metadata,...Object.fromEntries(Object.entries(e).filter(([,v])=>v!==null)),metadata:{...(metadata.metadata||{}),...Object.fromEntries(Object.entries(e.metadata||{}).filter(([,v])=>v!=null&&(!Array.isArray(v)||v.length)))},title:metadata.title || e.title,artist:metadata.artist || e.artist};
       });
     }
     entries.sort((a,b)=>a.rank-b.rank);
@@ -461,7 +477,7 @@ export function extract(doc, url) {
       const accessiblePosition=ariaIndex && !(hasHeader && ariaIndex===1) ? ariaIndex-(hasHeader?1:0) : null;
       const explicit=rankNumber(text(row,'[data-testid="tracklist-row-position"]')) || rankNumber(row.querySelector('[role="gridcell"]')?.textContent.trim()) || accessiblePosition;
       if(!id||!artist||!explicit)continue;
-      entries.push(entry(id,sourceUrl,artist,a.textContent.trim(),explicit,{album:text(row,'a[href*="/album/"]'),durationSeconds:time(text(row,'[aria-colindex="5"]') || [...row.querySelectorAll('[role="gridcell"]')].at(-1)?.textContent || row.textContent)}));
+      entries.push(entry(id,sourceUrl,artist,a.textContent.trim(),explicit,{metadata:{...rowMetadata(row,url),availability:row.getAttribute('aria-disabled')==='true'?'unavailable':'available'},artworkUrl:link(row.querySelector('img')?.getAttribute('src'),url),album:text(row,'a[href*="/album/"]'),durationSeconds:time(text(row,'[aria-colindex="5"]') || [...row.querySelectorAll('[role="gridcell"]')].at(-1)?.textContent || row.textContent)}));
     }
   }
   let title=text(doc,'main h1,[role="main"] h1')||text(doc,'h1')||doc.title;
@@ -475,7 +491,7 @@ export function extract(doc, url) {
   const count=provider==='spotify' ? metadataText.match(/\b([\d,]+)\s+(?:songs?|tracks?)\b/i) : title.match(/\btop[\s-]+(\d+)\b/i) || doc.title.match(/\btop[\s-]+(\d+)\b/i) || new URL(url).pathname.match(/\/top-(\d+)\/?$/i);
   const expectedTotal=count?num(count[1].replaceAll(',','')):null;
   if(provider==='traxsource')entries=entries.map(e=>({...e,position:e.rank||e.position}));
-  entries=entries.map(e=>Object.fromEntries(Object.entries({...e,...(albumArtwork?{artworkUrl:albumArtwork,album:title}:{})}).map(([k,v])=>[k,typeof v==='string'?v.slice(0,2000):typeof v==='number'?(Number.isFinite(v)?v:null):null])));
+  entries=entries.map(e=>Object.fromEntries(Object.entries({...e,...(albumArtwork?{artworkUrl:albumArtwork,album:title}:{})}).map(([k,v])=>[k,typeof v==='string'?v.slice(0,2000):typeof v==='number'?(Number.isFinite(v)?v:null):k==='metadata'?v:null])));
   return {schemaVersion:1,provider,kind:provider==='spotify'?spotifyKind:'chart',title,sourceUrl,capturedAt:new Date().toISOString(),complete:false,expectedTotal,warnings:[],entries};
 }
 export function mergeSnapshots(snapshots) {

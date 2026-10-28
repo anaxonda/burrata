@@ -3,6 +3,8 @@ use crate::{
     acquisition::AcquisitionManager,
     models::Track,
     playback_sources::{PlaybackDeadline, SourceTrace},
+    restore_work_policy::AutomaticWorkKind,
+    storage::{LibraryWritePermit, Store},
 };
 use serde_json::json;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -92,9 +94,22 @@ fn eligible(track: &Track) -> bool {
         && !track.title.trim().is_empty()
         && !crate::recording_identity::placeholder_title(&track.title)
 }
+
+fn acquire_worker_write(store: &Store) -> Option<LibraryWritePermit> {
+    if crate::restore_work_policy::is_paused(store, AutomaticWorkKind::BackgroundSourcePreparation)
+    {
+        return None;
+    }
+    store.try_library_write().ok()
+}
 /// At most 100 queued jobs, one provider operation at a time. A play click
 /// cancels the active job and keeps queued work deferred until 30 seconds pass.
 pub(crate) fn schedule(acquisition: Arc<AcquisitionManager>, tracks: Vec<Track>) {
+    let store = acquisition.alias_store();
+    if crate::restore_work_policy::is_paused(&store, AutomaticWorkKind::BackgroundSourcePreparation)
+    {
+        return;
+    }
     static SLOTS: OnceLock<Arc<Semaphore>> = OnceLock::new();
     static QUEUED: OnceLock<Arc<Semaphore>> = OnceLock::new();
     let slots = SLOTS.get_or_init(|| Arc::new(Semaphore::new(1))).clone();
@@ -119,6 +134,15 @@ pub(crate) fn schedule(acquisition: Arc<AcquisitionManager>, tracks: Vec<Track>)
             // Re-read after the quiet period, since the player/library/settings
             // may have changed while this queued task was waiting.
             let store = acquisition.alias_store();
+            // Restore staging must exclude the whole provider-backed worker,
+            // not just its final cache write. Acquire only after the foreground
+            // quiet wait so ordinary playback keeps restore responsive.
+            let Some(_library_write) = acquire_worker_write(&store) else {
+                if let Ok(mut state) = gate().lock() {
+                    state.clear_active(active_id);
+                }
+                return;
+            };
             let Ok(Some(saved)) = store.get_library_track(&track.id) else {
                 if let Ok(mut state) = gate().lock() {
                     state.clear_active(active_id);
@@ -240,9 +264,10 @@ pub(crate) fn schedule(acquisition: Arc<AcquisitionManager>, tracks: Vec<Track>)
 
 pub(crate) fn schedule_saved(acquisition: Arc<AcquisitionManager>) {
     let store = acquisition.alias_store();
-    if !store
-        .settings()
-        .is_ok_and(|s| s.background_source_preparation)
+    if crate::restore_work_policy::is_paused(&store, AutomaticWorkKind::BackgroundSourcePreparation)
+        || !store
+            .settings()
+            .is_ok_and(|s| s.background_source_preparation)
     {
         return;
     }
@@ -276,6 +301,33 @@ pub(crate) fn schedule_saved(acquisition: Arc<AcquisitionManager>) {
     }
 }
 
+/// Number of saved radio recordings that can still be queued for source
+/// preparation. This follows the scheduler's settings, identity, eligibility,
+/// and cache checks so restore review reports actionable work only.
+pub(crate) fn pending_count(store: &Store) -> Result<usize, String> {
+    let settings = store.settings().map_err(|error| error.to_string())?;
+    if !settings.background_source_preparation || !settings.streaming_fallback_enabled {
+        return Ok(0);
+    }
+    let tracks = store
+        .list_tracks("library", None)
+        .map_err(|error| error.to_string())?;
+    let mut pending = 0usize;
+    for track in tracks.into_iter().filter(eligible) {
+        let Ok(identity) = crate::remote_playlists::alias_hydration_key(&track) else {
+            continue;
+        };
+        let key = format!("matching-v1:{:?}:{identity}", settings.matching_level);
+        let cached = store
+            .get_provider_cache("playback.background-preparation.v2", &key)
+            .map_err(|error| error.to_string())?;
+        if cached.is_none() {
+            pending += 1;
+        }
+    }
+    Ok(pending)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -294,6 +346,15 @@ mod tests {
         track.title = "Matthew".into();
         track.provider = "spotify".into();
         assert!(!eligible(&track));
+    }
+
+    #[test]
+    fn source_preparation_worker_cannot_start_during_restore_staging() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("db.sqlite")).unwrap();
+        let _restore = store.try_restore_permit().unwrap();
+
+        assert!(acquire_worker_write(&store).is_none());
     }
 
     #[test]

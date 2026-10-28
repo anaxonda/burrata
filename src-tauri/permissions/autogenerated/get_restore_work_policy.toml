@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-restore-work-policy"
+description = "Enables the get_restore_work_policy command without any pre-configured scope."
+commands.allow = ["get_restore_work_policy"]
+
+[[permission]]
+identifier = "deny-get-restore-work-policy"
+description = "Denies the get_restore_work_policy command without any pre-configured scope."
+commands.deny = ["get_restore_work_policy"]

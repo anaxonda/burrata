@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-estimate-webview-live-bpm"
+description = "Enables the estimate_webview_live_bpm command without any pre-configured scope."
+commands.allow = ["estimate_webview_live_bpm"]
+
+[[permission]]
+identifier = "deny-estimate-webview-live-bpm"
+description = "Denies the estimate_webview_live_bpm command without any pre-configured scope."
+commands.deny = ["estimate_webview_live_bpm"]

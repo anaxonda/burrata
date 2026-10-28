@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-playing-track-detection-enabled"
+description = "Enables the set_playing_track_detection_enabled command without any pre-configured scope."
+commands.allow = ["set_playing_track_detection_enabled"]
+
+[[permission]]
+identifier = "deny-set-playing-track-detection-enabled"
+description = "Denies the set_playing_track_detection_enabled command without any pre-configured scope."
+commands.deny = ["set_playing_track_detection_enabled"]

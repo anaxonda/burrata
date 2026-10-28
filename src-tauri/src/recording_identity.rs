@@ -5,6 +5,53 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeSet;
 
+/// Preserve declared performer boundaries only when the complete ordered credit
+/// still renders as this track's current artist text. This is grouping evidence,
+/// never a declaration that all performer credits or recording identity are known.
+pub(crate) fn declared_credit_names(track: &Track) -> Option<Vec<String>> {
+    let rows = track.provenance["artistCredits"]
+        .as_array()
+        .or_else(|| track.provenance["catalog"]["artists"].as_array())
+        .or_else(|| track.provenance["remoteCatalog"]["artistRefs"].as_array())?;
+    if rows.is_empty() || rows.len() > 32 {
+        return None;
+    }
+    let mut names = Vec::new();
+    let mut joined = String::new();
+    let mut has_join = false;
+    for row in rows {
+        if row["role"].as_str().is_some_and(|role| {
+            !matches!(
+                role,
+                "artist" | "artist credit" | "primary" | "featured" | "performer"
+            )
+        }) {
+            return None;
+        }
+        let name = row["name"]
+            .as_str()
+            .or_else(|| row["creditedAs"].as_str())?
+            .trim();
+        if name.is_empty() || name.len() > 512 || name.chars().any(char::is_control) {
+            return None;
+        }
+        let join = row["joinPhrase"]
+            .as_str()
+            .or_else(|| row["joinphrase"].as_str());
+        has_join |= join.is_some();
+        joined.push_str(name);
+        joined.push_str(join.unwrap_or_default());
+        names.push(name.to_owned());
+    }
+    let expected = crate::matching::normalize_single_artist_name(&track.artist);
+    let agrees = crate::matching::normalize_single_artist_name(&joined) == expected
+        || (!has_join
+            && [", ", " & ", " and "].iter().any(|separator| {
+                crate::matching::normalize_single_artist_name(&names.join(separator)) == expected
+            }));
+    agrees.then_some(names)
+}
+
 /// Pure, source-scoped mapping of exact ordered provider credits to one fully
 /// observed caption rendering. Discovery constructs this only after validating
 /// the source authority and every owner profile; the scorer stays independent.
@@ -78,7 +125,7 @@ fn valid_musicbrainz_id(value: &str) -> bool {
 }
 
 /// Parsing behavior is versioned alongside evaluator/cache semantics.
-pub(crate) const PARSER_VERSION: &str = "2";
+pub(crate) const PARSER_VERSION: &str = "3";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -147,7 +194,8 @@ pub fn parse_recording_text(value: &str) -> ParsedRecordingText {
                     remaining
                         .strip_suffix(']')
                         .and_then(|s| s.rsplit_once(" ["))
-                });
+                })
+                .or_else(|| trailing_dash_version(remaining));
             let Some((base, label)) = bracketed else {
                 break;
             };
@@ -611,8 +659,8 @@ fn game_level_difficulty(base: &str, label: &str) -> bool {
         "easy" | "normal" | "hard" | "insane" | "expert" | "nightmare" | "extreme"
     )
 }
-/// Only explicit trailing labels are split. Work/movement names, dedications
-/// and ambiguous parentheses remain part of the title. Original tags are kept.
+/// Only explicit trailing labels are split. Work/movement names, dedications,
+/// ambiguous parentheses, and ordinary hyphenated titles remain intact.
 pub fn parse_title(value: &str) -> ParsedRecordingTitle {
     let mut result = ParsedRecordingTitle {
         title: value.to_owned(),
@@ -671,7 +719,34 @@ pub fn parse_title(value: &str) -> ParsedRecordingTitle {
             result.version = Some(label.to_owned());
         }
     }
+    // Some provider titles encode a mix with a spaced dash instead of
+    // parentheses. Interpret only a closed set of unambiguous music labels;
+    // ordinary hyphenated titles (and ambiguous "Live") remain untouched.
+    if result.version.is_none() {
+        if let Some((base, label)) = trailing_dash_version(value) {
+            result.title = base.trim().to_owned();
+            result.version = Some(label.trim().to_owned());
+        }
+    }
     result
+}
+
+fn trailing_dash_version(value: &str) -> Option<(&str, &str)> {
+    let (separator_start, separator_len) = [" - ", " – ", " — "]
+        .iter()
+        .filter_map(|separator| value.rfind(separator).map(|start| (start, separator.len())))
+        .max_by_key(|(start, _)| *start)?;
+    let base = value[..separator_start].trim_end();
+    let label = value[separator_start + separator_len..].trim();
+    if base.is_empty() {
+        return None;
+    }
+    let normalized = crate::matching::normalize(label);
+    matches!(
+        normalized.as_str(),
+        "extended mix" | "radio edit" | "original mix" | "club mix" | "instrumental"
+    )
+    .then_some((base, label))
 }
 
 #[cfg(test)]
@@ -708,6 +783,47 @@ mod tests {
             assert!(parsed.version.is_none());
         }
         assert_eq!(parse_title("Diaraby (w/ )").title, "Diaraby (w/ )");
+    }
+
+    #[test]
+    fn dash_delimited_known_music_versions_are_parsed_without_rewriting_other_titles() {
+        for (separator, label) in [
+            (" - ", "Extended Mix"),
+            (" – ", "Radio Edit"),
+            (" — ", "Original Mix"),
+            (" - ", "Club Mix"),
+            (" - ", "Instrumental"),
+        ] {
+            let parsed = parse_title(&format!("Song{separator}{label}"));
+            assert_eq!(parsed.title, "Song");
+            assert_eq!(parsed.version.as_deref(), Some(label));
+        }
+
+        let kylie = parse_title("Can't Get You out of My Head - Extended Mix");
+        assert_eq!(kylie.title, "Can't Get You out of My Head");
+        assert_eq!(kylie.version.as_deref(), Some("Extended Mix"));
+        let parsed = parse_recording_text("Can't Get You out of My Head - Extended Mix");
+        assert_eq!(parsed.base_title, "Can't Get You out of My Head");
+        assert_eq!(
+            parsed.semantic_versions().collect::<Vec<_>>(),
+            ["Extended Mix"]
+        );
+        let annotation = &parsed.annotations[0];
+        assert_eq!(
+            &parsed.original[annotation.content_span.start..annotation.content_span.end],
+            "Extended Mix"
+        );
+
+        for raw in [
+            "Love - Hate",
+            "A - B - C",
+            "Song - Live",
+            "Song - Extended Mix Part 2",
+        ] {
+            let parsed = parse_title(raw);
+            assert_eq!(parsed.title, raw);
+            assert!(parsed.version.is_none(), "unexpected parse for {raw}");
+        }
     }
     #[test]
     fn game_level_difficulty_is_version_only_in_level_track_context() {

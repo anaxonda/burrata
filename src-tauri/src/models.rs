@@ -446,6 +446,10 @@ pub struct Settings {
     pub streaming_fallback_delay_ms: u32,
     #[serde(default = "default_streaming_fallbacks")]
     pub streaming_fallback_sources: Vec<String>,
+    /// Distinguishes the unified ordered provider list from legacy settings,
+    /// where Bandcamp had a separate enable switch.
+    #[serde(default)]
+    pub streaming_fallback_policy_version: u8,
     #[serde(default = "default_true")]
     pub bandcamp_fallback_enabled: bool,
     #[serde(default = "default_true")]
@@ -458,6 +462,12 @@ pub struct Settings {
     pub download_fallback_allow_lossy: bool,
     #[serde(default)]
     pub playlist_directories: Vec<String>,
+    /// Automatically reconcile local M3U playlist, Favorites, and history mirrors.
+    #[serde(default = "default_true")]
+    pub playlist_mirroring_enabled: bool,
+    /// Show the compact playback bar in the main application shell.
+    #[serde(default)]
+    pub compact_playback_bar: bool,
 }
 fn default_playback_startup_timeout_seconds() -> u32 {
     20
@@ -489,7 +499,12 @@ fn default_true() -> bool {
     true
 }
 fn default_streaming_fallbacks() -> Vec<String> {
+    // Legacy serde default; policy v0 migration adds Bandcamp only when its
+    // separate pre-unification switch was enabled.
     vec!["youtube".into(), "soundcloud".into()]
+}
+fn default_streaming_fallbacks_v1() -> Vec<String> {
+    vec!["youtube".into(), "soundcloud".into(), "bandcamp".into()]
 }
 fn default_download_fallbacks() -> Vec<String> {
     vec![
@@ -530,13 +545,16 @@ impl Default for Settings {
             override_playlist_track_urls: false,
             streaming_fallback_enabled: true,
             streaming_fallback_delay_ms: default_streaming_fallback_delay(),
-            streaming_fallback_sources: default_streaming_fallbacks(),
+            streaming_fallback_sources: default_streaming_fallbacks_v1(),
+            streaming_fallback_policy_version: 1,
             bandcamp_fallback_enabled: true,
             background_source_preparation: true,
             download_fallback_enabled: false,
             download_fallback_sources: default_download_fallbacks(),
             download_fallback_allow_lossy: false,
             playlist_directories: Vec::new(),
+            playlist_mirroring_enabled: true,
+            compact_playback_bar: false,
         }
     }
 }
@@ -556,6 +574,43 @@ mod playback_startup_settings_tests {
         let settings: Settings = serde_json::from_value(legacy).unwrap();
         assert_eq!(settings.playback_startup_timeout_seconds, 20);
         assert_eq!(settings.playback_startup_timeout(), Duration::from_secs(20));
+    }
+
+    #[test]
+    fn old_settings_default_playlist_mirroring_to_enabled_and_explicit_off_roundtrips() {
+        let mut legacy = serde_json::to_value(Settings::default()).unwrap();
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("playlistMirroringEnabled");
+        let restored: Settings = serde_json::from_value(legacy).unwrap();
+        assert!(restored.playlist_mirroring_enabled);
+
+        let disabled = Settings {
+            playlist_mirroring_enabled: false,
+            ..Settings::default()
+        };
+        let encoded = serde_json::to_value(&disabled).unwrap();
+        assert_eq!(encoded["playlistMirroringEnabled"], false);
+        let decoded: Settings = serde_json::from_value(encoded).unwrap();
+        assert!(!decoded.playlist_mirroring_enabled);
+    }
+
+    #[test]
+    fn old_settings_default_compact_playback_bar_to_off() {
+        let mut legacy = serde_json::to_value(Settings::default()).unwrap();
+        legacy.as_object_mut().unwrap().remove("compactPlaybackBar");
+        let restored: Settings = serde_json::from_value(legacy).unwrap();
+        assert!(!restored.compact_playback_bar);
+
+        let enabled = Settings {
+            compact_playback_bar: true,
+            ..Settings::default()
+        };
+        let encoded = serde_json::to_value(&enabled).unwrap();
+        assert_eq!(encoded["compactPlaybackBar"], true);
+        let decoded: Settings = serde_json::from_value(encoded).unwrap();
+        assert!(decoded.compact_playback_bar);
     }
 
     #[test]

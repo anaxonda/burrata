@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { territoryLabel } from "./lib/territory-label";
   import TrackDownloadFilter from "./TrackDownloadFilter.svelte";
   let downloadAvailability = $state<"all"|"downloaded"|"not-downloaded">("all");
   import { onDestroy, onMount, tick } from "svelte";
@@ -36,13 +37,14 @@
     { id: "all", label: "All" }, { id: "tracks", label: "Tracks" }, { id: "artists", label: "Artists" }, { id: "albums", label: "Albums" }, { id: "videos", label: "Videos / Sets" }, { id:"playlists",label:"Playlists" }, { id:"profiles",label:"Profiles" }, { id:"channels",label:"Channels" },
   ];
   let {
-    query: initialQuery = "", navigationSnapshotKey = null, initialSources, availableSources, sourceCapabilities = {}, searchSource, enrichSource, enrichTrack, searchPreset,
+    query: initialQuery = "", navigationSnapshotKey = null, initialSources, availableSources, sourceCapabilities = {}, searchSource, enrichSource, enrichTrack, searchPreset, startupReadStorage,
     onRemoteResult = () => {}, onAddRemotePlaylist, onPlaylistTracks, onQueueTracks, onDownloadTracks, onArtist = () => {}, loadArtistProfile, searchArtists, onArtistTrack = () => {}, onAlbum = () => {}, onTrackAlbum, onQueryChange = () => {}, onPlay = () => {}, onDownload = () => {}, onFavorite, onNext, onQueue, onContext,
     onPlayChapter = () => {}, onQueueChapter = () => {}, onDownloadChapter = () => {}, onInfoChapter = () => {},
     playingTrack = null, bufferingTrack = null, playingTrackId = "", bufferingTrackId = "", paused = false,
     automationSearch = null, automationSearchCancelled = null, onAutomationSearchComplete = () => {},
   }: {
     navigationSnapshotKey?: string | null;
+    startupReadStorage?: Pick<Storage, "getItem">;
     query?: string; initialSources?: string[]; availableSources?: { id: string; name: string; kinds?: string[]; enabled?: boolean; detail?: string }[]; sourceCapabilities?: Record<string, boolean | string>;
     searchSource?: (request: { query: string; sourceIds: string[]; kinds: string[]; cursor?: string | null; limit: number }) => Promise<SearchPage>;
     enrichSource?: (url: string) => Promise<Candidate>;
@@ -80,7 +82,7 @@
   let artistSuggestionIndex = $state(-1);
   let artistSuggestionRequest = 0;
   let artistSuggestionTimer: ReturnType<typeof setTimeout> | null = null;
-  let searchHistory = $state<SearchHistoryEntry[]>(readSearchHistory());
+  let searchHistory = $state<SearchHistoryEntry[]>([]);
   let searchHistoryOpen = $state(false);
   let searchHistoryIndex = $state(-1);
   let submitted = $state("");
@@ -164,7 +166,7 @@
       } else {
         let restored = false;
         try {
-          const saved = JSON.parse(localStorage.getItem(PREF_KEY) ?? "null") as { mode?: unknown; sourceId?: unknown; sourceIds?: unknown } | null;
+          const saved = JSON.parse((startupReadStorage ?? localStorage).getItem(PREF_KEY) ?? "null") as { mode?: unknown; sourceId?: unknown; sourceIds?: unknown } | null;
           if (saved && (saved.mode === "online" || saved.mode === "library")) {
             if (saved.mode === "library" && available.has("library") && sourceEnabled("library")) { searchMode = "library"; restored = true; }
             else if (saved.mode === "online" && saved.sourceId === "custom") {
@@ -177,7 +179,7 @@
         } catch { /* fall back to the older source selection or online default */ }
         if (!restored) {
           let old: unknown = [];
-          try { old = JSON.parse(localStorage.getItem(OLD_PREF_KEY) ?? "[]"); } catch { old = []; }
+          try { old = JSON.parse((startupReadStorage ?? localStorage).getItem(OLD_PREF_KEY) ?? "[]"); } catch { old = []; }
           const migratedOnline = validOnline(old);
           if (Array.isArray(old) && old.includes("library") && !migratedOnline.length) searchMode = "library";
           else { searchMode = "online"; sourceChoice = "all"; }
@@ -212,7 +214,7 @@
       if (text.trim()) void runSearch();
     });
   });
-  onDestroy(() => { navigationDestroyed = true; navigationRestoreEpoch++; cancelAutomationSearch(); generation++; collectionRequest++; clearCollectionDeadline(); if (artistSuggestionTimer) clearTimeout(artistSuggestionTimer); artistSuggestionRequest++; providerReads.cancelAll(); collectionReads.cancelAll(); void cancelSoulseek(); for (const controller of playlistImportControllers.values()) controller.abort(); });
+  onDestroy(() => { navigationDestroyed = true; navigationRestoreEpoch++; lazyArtworkScope++;lazyArtworkQueue=[]; cancelAutomationSearch(); generation++; collectionRequest++; clearCollectionDeadline(); if (artistSuggestionTimer) clearTimeout(artistSuggestionTimer); artistSuggestionRequest++; providerReads.cancelAll(); collectionReads.cancelAll(); void cancelSoulseek(); for (const controller of playlistImportControllers.values()) controller.abort(); });
 
   function scheduleArtistSuggestions(query: string) {
     if (artistSuggestionTimer) clearTimeout(artistSuggestionTimer);
@@ -303,9 +305,10 @@
     else if (event.key === "Enter" && artistSuggestionIndex >= 0) { event.preventDefault(); chooseArtistSuggestion(artistSuggestions[artistSuggestionIndex]!); }
   }
   onMount(async () => {
+    searchHistory = readSearchHistory(startupReadStorage ?? localStorage);
     if (navigationSnapshotKey) return; // App owns the awaited history restoration.
     navigationReady = true;
-    try { continueSearch = localStorage.getItem(CONTINUE_PREF_KEY) === "true"; } catch { continueSearch = false; }
+    try { continueSearch = (startupReadStorage ?? localStorage).getItem(CONTINUE_PREF_KEY) === "true"; } catch { continueSearch = false; }
     continuePreferenceLoaded = true;
     if (automationSearch?.requestId) return;
     if (!initialQuery.trim()) return;
@@ -355,6 +358,7 @@
   }
   export async function restoreNavigationSnapshot(key:string):Promise<void> {
     const epoch=++navigationRestoreEpoch;navigationReady=false;
+    lazyArtworkScope++;lazyArtworkQueue=[];lazyArtworkScheduled=new Set();
     cancelAutomationSearch();generation++;collectionRequest++;clearCollectionDeadline();
     providerReads.cancelAll();collectionReads.cancelAll();void cancelSoulseek();
     collectingSearch=false;loadingSourceRequests={};enrichmentQueue=[];
@@ -391,6 +395,7 @@
         const rows=retainedSearchNavigationRows(cleared);
         providerNavigationSnapshots.put({kind:"search-panel",key,accountScope:"search-routes",snapshot:cleared,rows,stripRows:stripSearchNavigationRows});
       }
+      for(const id of Object.keys(rowsBySource))scheduleInitialMusicBrainzArtwork(id,lazyArtworkScope);
       await tick();if(!current())return;
       requestAnimationFrame(()=>{if(current()&&searchElement)searchElement.scrollTop=saved.scroll;});
     } finally {if(epoch===navigationRestoreEpoch)navigationReady=true;}
@@ -925,7 +930,7 @@
     const artist = rowArtist(row);
     if (!artist || artist.provider !== "musicbrainz") return;
     const key = `${scope}:${artist.id}`;
-    if (lazyArtistArtwork[key] || lazyArtworkScheduled.has(key)) return;
+    if (lazyArtistArtwork[artist.id] || lazyArtworkScheduled.has(key)) return;
     lazyArtworkScheduled.add(key);
     lazyArtworkQueue.push({ artist, scope });
     void pumpMusicBrainzArtworkQueue();
@@ -939,7 +944,8 @@
         if (job.scope === lazyArtworkScope && profile.imageUrl) lazyArtistArtwork = { ...lazyArtistArtwork, [job.artist.id]: profile.imageUrl };
       }).catch(() => {}).finally(() => {
         lazyArtworkActive--;
-        lazyArtworkScheduled.delete(`${job.scope}:${job.artist.id}`);
+        // Keep the attempted ID until the next search, including missing images.
+        // Pagination and visibility changes must not repeat a portrait request.
         void pumpMusicBrainzArtworkQueue();
       });
     }
@@ -1121,7 +1127,7 @@
     <div class="search-input-wrap">
       <input aria-label="Search music" role="combobox" aria-autocomplete="list" aria-expanded={artistSuggestionsOpen || searchHistoryOpen} aria-controls={artistSuggestionsOpen ? "artist-search-suggestions" : searchHistoryOpen ? "search-history-menu" : undefined} aria-activedescendant={artistSuggestionsOpen ? artistSuggestionIndex >= 0 ? `artist-search-suggestion-${artistSuggestionIndex}` : undefined : searchHistoryOpen && searchHistoryIndex >= 0 ? `search-history-item-${searchHistoryIndex}` : undefined} onfocus={() => { searchInputFocused = true; if (!text.trim() && searchHistory.length) searchHistoryOpen = true; }} onblur={closeSearchPopupsOnBlur} onkeydown={handleArtistSuggestionKeys} bind:value={text} oninput={(event) => { text = event.currentTarget.value; searchHistoryIndex = -1; scheduleArtistSuggestions(text); if (text.trim() !== submitted.trim()) { cancelSearchTrackSelection(); cancelAutomationSearch(); generation++; collectionRequest++; clearCollectionDeadline(); collectingSearch = false; collectionProgress = ""; providerReads.cancelAll(); collectionReads.cancelAll(); if (collectionSoulseekSource) { void cancelSoulseek(collectionSoulseekSource); collectionSoulseekSource = null; } statuses = Object.fromEntries(Object.entries(statuses).map(([id, status]) => [id, status === "Searching…" || status === "Loading more…" ? "Cancelled" : status])); } onQueryChange(text); }} placeholder="Track, artist, album, video or set" />
       {#if artistSuggestionsOpen}<ul id="artist-search-suggestions" class="artist-search-suggestions" role="listbox" aria-label="Artist suggestions">
-        {#each artistSuggestions as result, index (result.artist.provider + ":" + result.artist.id)}<li role="option" aria-selected={artistSuggestionIndex === index}><button id={`artist-search-suggestion-${index}`} type="button" tabindex="-1" onclick={() => chooseArtistSuggestion(result)}><span>{result.name}</span>{#if result.disambiguation}<small>{result.disambiguation}</small>{:else if result.country}<small>{result.country}</small>{/if}</button></li>{/each}
+        {#each artistSuggestions as result, index (result.artist.provider + ":" + result.artist.id)}<li role="option" aria-selected={artistSuggestionIndex === index}><button id={`artist-search-suggestion-${index}`} type="button" tabindex="-1" onclick={() => chooseArtistSuggestion(result)}><span>{result.name}</span>{#if result.disambiguation}<small>{result.disambiguation}</small>{:else if result.country}<small>{territoryLabel(result.country)}</small>{/if}</button></li>{/each}
       </ul>{/if}
       {#if searchHistoryOpen && !text.trim() && searchHistory.length}<div id="search-history-menu" class="artist-search-suggestions search-history-menu" role="listbox" aria-label="Recent searches">
         <div class="search-history-heading"><strong>Recent searches</strong><button type="button" class="clear-search-history" onclick={clearSearchHistory}>Clear history</button></div>

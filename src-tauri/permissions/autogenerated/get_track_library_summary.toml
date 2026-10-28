@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-track-library-summary"
+description = "Enables the get_track_library_summary command without any pre-configured scope."
+commands.allow = ["get_track_library_summary"]
+
+[[permission]]
+identifier = "deny-get-track-library-summary"
+description = "Denies the get_track_library_summary command without any pre-configured scope."
+commands.deny = ["get_track_library_summary"]

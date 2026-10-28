@@ -1,4 +1,5 @@
 import type { PlaybackFailure } from "./playback-failure";
+import type { LoudnessResourceIdentity } from "./loudness-normalization";
 
 export interface Track {
   id: string;
@@ -57,7 +58,12 @@ export interface BrowserStatus {
   connected: boolean; pendingCount: number; lastSeen: string | null; hostName: string;
 }
 export interface BrowserImportResult {
-  id: string; provider: string; kind: "chart" | "playlist" | "album" | "collection"; title: string; sourceUrl: string; fetchedAt: string; collectionId: string; capturedCount: number; importedCount: number; expectedTotal: number | null; complete: boolean; warnings: string[];
+  id: string; provider: string; kind: "chart" | "playlist" | "album" | "collection"; title: string; sourceUrl: string; fetchedAt: string; collectionId: string; capturedCount: number; importedCount: number; expectedTotal: number | null; complete: boolean; warnings: string[]; failedSources?: string[]; changes?: {added:number;removed:number;moved:number;retainedFromEarlierCapture:number;partial:boolean};
+}
+export interface CollectionImportPreview {
+  previewId: string; title: string; sourceUrl: string; capturedCount: number; uniqueRecordings:number; expectedTotal:number|null; complete:boolean;
+  changes: {added:number;removed:number;moved:number;retainedFromEarlierCapture:number;partial:boolean}; warnings:string[]; failedSources:string[];
+  sample:{title:string;artist:string;version?:string|null}[];
 }
 export interface CandidatePreviewStatus {
   sessionId: string; sourceId: string; provider: string; paused: boolean; position: number; duration: number; canSeek: boolean; canVolume: boolean; error?: string | null; closed?: boolean;
@@ -98,17 +104,23 @@ export interface NativePlaybackSnapshot {
   revision: number;
   naturalQueueEnd?: boolean;
   diagnostics?: {
+    firstAudioMs?: number | null;
+    operationId?: string | null;
     lastSourceFailure?: NativePlaybackFailure | null;
     lastSkippedTrackFailure?: NativePlaybackFailure | null;
     recentTrackFailures?: PlaybackTrackFailure[];
   };
   generation: number;
+  seekSerial?: number;
   status: "idle" | "resolving" | "buffering" | "playing" | "paused" | "ended" | "failed";
   trackId: string | null;
+  entryId?: string | null;
   track: Track | null;
   candidate: Candidate | null;
   queue: Track[];
   queueRevision?: number;
+  queueEntryIds?: string[];
+  queueLoudnessContexts?: Record<string, LoudnessResourceIdentity>;
   currentIndex: number;
   paused: boolean;
   position: number;
@@ -119,7 +131,7 @@ export interface NativePlaybackSnapshot {
   shuffle: boolean;
   repeat: "off" | "all" | "one" | string;
   playerMessage: string;
-  quality: { assetId?: string; codec?: string; bitrateKbps?: number; sampleRate?: number; channels?: number; bitDepth?: number; bitrateOrigin?: string; sourceKind?: string; label?: string; approximateExcerpt?: ApproximateExcerptProvenance };
+  quality: { formatId?: string; mimeType?: string; formatHasVideo?: boolean; expectedContentLength?: number; assetId?: string; codec?: string; bitrateKbps?: number; sampleRate?: number; channels?: number; bitDepth?: number; bitrateOrigin?: string; sourceKind?: string; label?: string; approximateExcerpt?: ApproximateExcerptProvenance };
   chapter?: { title: string; startSeconds: number; endSeconds?: number } | null;
   radioNowPlaying?: { id: string; title: string; artist: string; stationName: string; metadata?: Record<string, unknown> | null } | null;
   radioHistory?: { id: string; track: Track; playedAt: string; stationName: string }[];
@@ -132,6 +144,20 @@ export interface LiveBpmEstimate {
   confidence: number;
   relatedTempoAlternativeBpm?: number | null;
   windowSeconds: number;
+}
+export interface LiveKeyEstimate {
+  generation: number;
+  seekSerial: number;
+  trackId: string;
+  key: string;
+  /** LibKeyFinder profile fit, not a calibrated probability. */
+  profileFit: number;
+  profileMargin: number;
+  windowSeconds: number;
+}
+export interface LivePlaybackEstimates {
+  bpm?: LiveBpmEstimate | null;
+  key?: LiveKeyEstimate | null;
 }
 export interface NativePlaybackFailure {
   trackId: string | null;
@@ -234,6 +260,18 @@ export interface Collection {
   name: string;
   trackCount: number;
 }
+export interface PlaylistMirrorOptions {
+  included: boolean;
+  includeMediaLinks: boolean | null;
+  includeYtdlpSearch: boolean | null;
+}
+export interface PlaylistMirrorOptionsView {
+  collectionId: string;
+  options: PlaylistMirrorOptions;
+  effective: { included: boolean; includeMediaLinks: boolean; includeYtdlpSearch: boolean };
+  defaults: { includeMediaLinks: boolean; includeYtdlpSearch: boolean };
+  globallyEnabled: boolean;
+}
 export interface Settings {
   musicDirectory: string;
   autoPreview: boolean;
@@ -257,12 +295,15 @@ export interface Settings {
   streamingFallbackEnabled?: boolean;
   streamingFallbackDelayMs?: number;
   streamingFallbackSources?: string[];
+  streamingFallbackPolicyVersion?: number;
   bandcampFallbackEnabled?: boolean;
   backgroundSourcePreparation?: boolean;
   downloadFallbackEnabled?: boolean;
   downloadFallbackSources?: string[];
   downloadFallbackAllowLossy?: boolean;
   playlistDirectories?: string[];
+  playlistMirroringEnabled?: boolean;
+  compactPlaybackBar?: boolean;
 }
 export interface Dependency {
   name: string;
