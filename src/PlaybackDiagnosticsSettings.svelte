@@ -17,6 +17,9 @@
   let working = $state(false);
   let error = $state("");
   let message = $state("");
+  let browserPlayback = $state("not_tested");
+  let alternateNetworkPlayback = $state("not_tested");
+  let vpn = $state("unknown");
   let requestEpoch = 0;
   onMount(() => { void refresh(); });
 
@@ -55,7 +58,10 @@
   async function exportReport() {
     working = true; error = ""; message = "";
     try {
-      const result = await call<ExportResult>("export_playback_diagnostics", {webviewContext:getWebviewDiagnostics?.() ?? null});
+      const original = getWebviewDiagnostics?.() ?? null;
+      const webviewContext = browserPlayback === "not_tested" && alternateNetworkPlayback === "not_tested" && vpn === "unknown"
+        ? original : {...(original && typeof original === "object" ? original : {}), testerObservations:{browserPlayback,alternateNetworkPlayback,vpn}};
+      const result = await call<ExportResult>("export_playback_diagnostics", {webviewContext});
       if (result?.cancelled) message = "Export cancelled.";
       else if (result?.path) message = `Exported ${result.eventCount ?? status?.eventCount ?? 0} playback diagnostic events to ${result.path}. No report was uploaded.`;
       else message = "Playback diagnostics exported.";
@@ -66,7 +72,7 @@
 
 <section class="playback-diagnostics" aria-labelledby="playback-diagnostics-title">
   <h3 id="playback-diagnostics-title">Playback diagnostics</h3>
-  <p>Optional playback logging records player stages, timing, and source failure categories. When available, reports include WebView readiness, numeric media error codes, and source format families. They include timestamps and hashed track/source references, but exclude credentials, titles, raw errors, user-agent strings, and full source URLs. Events are kept in memory; export the report before closing Burrata.</p>
+  <p>Optional playback logging records player stages, timing, and source failure categories. When available, reports include WebView readiness, numeric media error codes, and source format families. Reports include timestamps, public YouTube/SoundCloud page links, redacted extractor errors, and token/proxy presence indicators. They exclude credentials, signed stream URLs, private-link tokens, titles, and user-agent strings. Events are kept in memory; export the report before closing Burrata.</p>
   <label class="diagnostics-toggle">
     <input type="checkbox" aria-label="Enable playback diagnostics" checked={enabled} disabled={working} onchange={event => void toggle(event.currentTarget.checked)} />
     <span>Enable playback diagnostics</span>
@@ -74,6 +80,12 @@
   {#if loading}<p role="status">Loading diagnostics status…</p>
   {:else if status}<p class="diagnostics-count" role="status">{status.eventCount} of {status.maxEvents} diagnostic events stored · {status.enabled ? "logging enabled" : "logging disabled"}</p>
   {:else}<p class="diagnostics-count">Diagnostics status is unavailable.</p>{/if}
+  <details><summary>Optional reproduction details</summary>
+    <p>For the same failing source, record comparisons you have tried. These choices are included in the exported report.</p>
+    <label>Same source in browser<select aria-label="Same source in browser" bind:value={browserPlayback}><option value="not_tested">Not tested</option><option value="works">Plays</option><option value="fails">Fails</option></select></label>
+    <label>Same source on another network<select aria-label="Same source on another network" bind:value={alternateNetworkPlayback}><option value="not_tested">Not tested</option><option value="works">Plays</option><option value="fails">Fails</option></select></label>
+    <label>VPN during reproduction<select aria-label="VPN during reproduction" bind:value={vpn}><option value="unknown">Unknown</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option></select></label>
+  </details>
   <div class="diagnostics-actions">
     <button type="button" disabled={working || loading} onclick={() => void refresh()}>Refresh status</button>
     <button type="button" disabled={working || !status?.eventCount} onclick={() => void clearEvents()}>Clear diagnostic events</button>

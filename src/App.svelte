@@ -26,7 +26,7 @@ import { hasWebviewStartupResumeProgress, startupResumeBlocksHistory } from "./w
   import { onMount, tick, setContext, untrack } from "svelte";
   import { createQueuedPlaybackOutbox, dispatchQueuedPlayback, type QueuedPlayRequest, type QueuedPlayOutcome } from "./lib/queued-playback";
   import { createAutomationPlaybackPublisher, queueProjectionRevision, type PlaybackStateAck } from "./lib/automation-playback-publisher";
-  import { captureWebviewStartupFailure, type WebviewStartupFailure, type WebviewStartupPhase } from "./lib/webview-startup-diagnostics";
+  import { startupStageTimings, waitForStartupClock, captureWebviewStartupFailure, type WebviewStartupFailure, type WebviewStartupPhase } from "./lib/webview-startup-diagnostics";
   import { attachAudioStream, type AudioStreamHandle } from "./lib/audio-stream";
   import { webviewAudioCapabilities } from "./lib/webview-audio-capabilities";
   import { captureWebviewRadioWavBase64 } from "./lib/webview-radio-pcm";
@@ -2231,6 +2231,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
   let lastStartupFailure = $state<WebviewStartupFailure | null>(null);
   let lastWebviewDiagnosticFailure: WebviewStartupFailure | null = null;
   let webviewDiagnosticFailureHistory: Array<{attempt:number;failure:WebviewStartupFailure}> = [];
+  let webviewStartupOutcomes: Array<{attempt:number;operationId:string;outcome:"playing"|"failed"|"cancelled";elapsedMs:number}> = [];
   let currentWebviewDiagnosticAttempt = 0;
   let lastWebviewDiagnosticContext: Record<string, unknown> | null = null;
   let webviewDiagnosticsCleared = false;
@@ -4995,6 +4996,8 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     const startupStartedAt = performance.now();
     const resumeRequested = pendingResumePosition > 0;
     let startupPhase: WebviewStartupPhase = 'attach';
+          const startupStages = startupStageTimings();
+          startupStages.mark('attach');
     const stillCurrent = () => attemptActive && previewRequests.isCurrent(request) && playingTrack?.id === t.id && audio === node && preview === source && audioStartupGeneration === startupGeneration;
     const startupHandoffIsCurrent = () => {
       const receipt = startupNativeHandoffReceipt;
@@ -5022,7 +5025,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     }
     try {
       await withinPreviewStartupBudget(() => prepareAudioStream(request, stillCurrent), sourceDeadline, stillCurrent);
-      startupPhase = 'resume_seek';
+      startupPhase = 'resume_seek'; startupStages.mark('resume_seek');
       await withinPreviewStartupBudget(() => seekPendingResume(request, stillCurrent), sourceDeadline, stillCurrent);
       if (!stillCurrent()) return false;
       if (startPaused) {
@@ -5036,7 +5039,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
       if (resumeRequested && pendingResumePosition > 0) {
         beginWebviewSeekCompletionWatch(node, pendingResumePosition, true, request);
       }
-      startupPhase = 'play';
+      startupPhase = 'play'; startupStages.mark('play');
       if (requiredRecoveryResume?.request === request && requiredRecoveryResume.verifiedAtMs === null) {
         requiredRecoveryResume = { ...requiredRecoveryResume, verifiedAtMs: performance.now() };
       }
@@ -5044,6 +5047,9 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
       await withinPreviewStartupBudget(() => {
         const startPosition = node.currentTime;
         playPromise = ownedStartupPlay(node);
+        void playPromise.then(() => {
+          if (stillCurrent()) { startupPhase = 'clock_progress'; startupStages.mark('clock_progress'); }
+        }, () => {});
         if (resumeRequested) void playPromise.then(() => {
           const seek = activeWebviewSeek;
           if (seek?.owner.node === node && seek.source === source && seek.startupResume && isCurrentWebviewSeek(seek)) armPendingWebviewSeekAfterResume(node);
@@ -5129,7 +5135,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
           webviewSeekCompletionWatchdog.cancel();
           activeWebviewSeek = null;
         }
-        recordWebviewStartupFailure(captureWebviewStartupFailure(node, startupPhase, result.audioMimeType, audioStreamHandle?.kind, resumeRequested, performance.now() - startupStartedAt, pendingResumePosition, result.sourceTransport));
+        recordWebviewStartupFailure(captureWebviewStartupFailure(node, startupPhase, result.audioMimeType, audioStreamHandle?.kind, resumeRequested, performance.now() - startupStartedAt, pendingResumePosition, result.sourceTransport, startupStages.snapshot()));
       }
       attemptActive = false;
       if (ownsSource) {
@@ -5728,11 +5734,22 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
       lastWebviewDiagnosticFailure = null;
       webviewDiagnosticsCleared = false;
     }
+    const diagnosticAttempt = currentWebviewDiagnosticAttempt;
+    const diagnosticStarted = performance.now();
+    let diagnosticOutcome: "playing"|"failed"|"cancelled" = "failed";
     try {
       await startPreviewInner(t, fromQueue, automaticContinuation, displayedTracks, displayedIndex, failedSkips, automationRequestId,trace,resumeSavedPosition,failedQueueRun,selectedAlbumResource);
       if(resumeSavedPosition && automationRequestId && activeAutomationPlayback===automationRequestId && queuedPausedOwner!==automationRequestId)reportQueuedPlaybackPhase(preview&&!paused?"playing":"failed");
-      return sequence === playbackLoadSequence && (nativeActive() || Boolean(preview && !paused));
+      const started = sequence === playbackLoadSequence && (nativeActive() || Boolean(preview && !paused));
+      diagnosticOutcome = sequence !== playbackLoadSequence ? "cancelled" : started ? "playing" : "failed";
+      return started;
     } finally {
+      if (settings.playbackDiagnosticsEnabled && !webviewDiagnosticsCleared && diagnosticAttempt > 0) {
+        webviewStartupOutcomes.push({attempt:diagnosticAttempt,operationId:trace.operationId,
+          outcome:sequence !== playbackLoadSequence ? "cancelled" : diagnosticOutcome,
+          elapsedMs:Math.min(60000, Math.max(0, Math.round(performance.now()-diagnosticStarted)))});
+        webviewStartupOutcomes = webviewStartupOutcomes.slice(-32);
+      }
       if (sequence === playbackLoadSequence) {
         resolvingPlayback = false;
         // A failed/cancelled source has no audio node left to emit a pause event.
@@ -5897,14 +5914,17 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
           const startupStartedAt = performance.now();
           const resumeRequested = pendingResumePosition > 0;
           let startupPhase: WebviewStartupPhase = 'attach';
+          const startupStages = startupStageTimings();
+          startupStages.mark('attach');
           const stillCurrent = () => attemptActive && previewRequests.isCurrent(request) && playingTrack?.id === t.id && audio === node && preview?.url === result.url;
           setWebviewOutputVolume(node, volume);
           try {
             await withinPreviewStartupBudget(() => prepareAudioStream(request, stillCurrent), deadline, stillCurrent);
-            startupPhase = 'resume_seek';
+            startupPhase = 'resume_seek'; startupStages.mark('resume_seek');
             await withinPreviewStartupBudget(() => seekPendingResume(request, stillCurrent), deadline, stillCurrent);
             if (!stillCurrent()) throw new Error("Audio startup was cancelled.");
-            startupPhase = 'play';
+            startupPhase = 'play'; startupStages.mark('play');
+            const initialClockPosition = node.currentTime;
             let playPromise: Promise<void>;
             await withinPreviewStartupBudget(() => {
               playPromise = ownedStartupPlay(node);
@@ -5919,6 +5939,8 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
               }, () => {});
               return playPromise;
             }, deadline, stillCurrent);
+            startupPhase = 'clock_progress'; startupStages.mark('clock_progress');
+            await waitForStartupClock(node, initialClockPosition, stillCurrent, deadline ?? performance.now() + playbackStartupTimeoutMs());
             if (stillCurrent()) {
               successfulRecoveryAttachment = { request, startedAt: performance.now(), position: node.currentTime, seekSerial };
               paused = false;
@@ -5929,7 +5951,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
             }
           } catch (failure) {
             if (previewRequests.isCurrent(request) && playingTrack?.id === t.id && audio === node && preview?.url === result.url) {
-              recordWebviewStartupFailure(captureWebviewStartupFailure(node, startupPhase, result.audioMimeType, audioStreamHandle?.kind, resumeRequested, performance.now() - startupStartedAt, pendingResumePosition, result.sourceTransport));
+              recordWebviewStartupFailure(captureWebviewStartupFailure(node, startupPhase, result.audioMimeType, audioStreamHandle?.kind, resumeRequested, performance.now() - startupStartedAt, pendingResumePosition, result.sourceTransport, startupStages.snapshot()));
             }
             attemptActive = false;
             if (!previewRequests.isCurrent(request)) return;
@@ -9077,6 +9099,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
       bufferedRanges:ranges(audio?.buffered),
       seekableRanges:ranges(audio?.seekable),
       startupFailure: lastWebviewDiagnosticFailure,
+      startupOutcomes: webviewStartupOutcomes,
       startupFailures: webviewDiagnosticFailureHistory.map(({attempt,failure})=>({attempt,...failure})),
       sourceFormat: sanitizeWebviewSourceFormatDiagnostics({codec:preview?.audioCodec,mimeType:preview?.audioMimeType,formatId:preview?.audioFormatId,hasVideo:preview?.audioFormatHasVideo,expectedContentLength:preview?.audioExpectedContentLength},streamKind),
       mediaEvents: events.map(event => ({...event, atMs:event.atMs === null ? null : event.atMs - firstAt})),
@@ -9095,6 +9118,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     lastWebviewDiagnosticContext = null;
     lastWebviewDiagnosticFailure = null;
     webviewDiagnosticFailureHistory = [];
+    webviewStartupOutcomes = [];
     currentWebviewDiagnosticAttempt = 0;
     webviewDiagnosticsCleared = true;
   }

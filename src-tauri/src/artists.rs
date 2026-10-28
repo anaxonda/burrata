@@ -301,8 +301,10 @@ impl ArtistService {
             if value.get("error").is_some() {
                 return Err("Provider rejected the request or credential".into());
             }
-            self.store
-                .set_provider_cache(namespace, cache_key, &value, ttl)?;
+            // A cache write must never discard a valid provider response.
+            let _ = self
+                .store
+                .set_provider_cache(namespace, cache_key, &value, ttl);
             return Ok(value);
         }
         Err(format!("{last_error} after retries"))
@@ -1656,16 +1658,13 @@ impl ArtistService {
             ("artist", mbid.to_owned()),
             ("limit", ARTIST_LIST_PAGE_SIZE.to_string()),
             ("offset", offset.to_string()),
-            (
-                "inc",
-                "artist-credits+labels+recordings+media+isrcs+release-groups".into(),
-            ),
+            ("inc", "artist-credits+labels+media+release-groups".into()),
         ];
         let data = self
             .musicbrainz_json(
                 "release",
                 &query,
-                "artists.releases.musicbrainz",
+                "artists.releases.musicbrainz.v2",
                 &format!("{mbid}:{offset}"),
                 LIST_TTL,
             )
@@ -1675,26 +1674,6 @@ impl ArtistService {
             .or_else(|| data["count"].as_u64())
             .unwrap_or(0) as u32;
         let raw_len = data["releases"].as_array().map_or(0, Vec::len) as u32;
-        // This listing already requests full media/recording data. Reuse it for
-        // playback only when every listed medium has a concrete ordered tracklist.
-        for release in data["releases"].as_array().into_iter().flatten() {
-            let complete = release["media"].as_array().is_some_and(|media| {
-                !media.is_empty()
-                    && media
-                        .iter()
-                        .all(|medium| medium["tracks"].as_array().is_some())
-            });
-            if complete {
-                if let Some(id) = release["id"].as_str().filter(|id| valid_mbid(id)) {
-                    self.store.set_provider_cache(
-                        "artists.release-tracks.musicbrainz",
-                        id,
-                        release,
-                        LIST_TTL,
-                    )?;
-                }
-            }
-        }
         let releases = data["releases"]
             .as_array()
             .into_iter()
@@ -3849,6 +3828,37 @@ async fn discogs_rate_limit() {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn oversized_provider_response_remains_usable_without_cache() {
+        use axum::{routing::get, Json, Router};
+        let app = Router::new().route("/large", get(|| async {
+            Json(json!({"releases":[{"title":"Still available"}], "padding":"x".repeat(1024*1024)}))
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&temp.path().join("cache.sqlite")).unwrap());
+        let service = ArtistService::new(store.clone()).unwrap();
+        let result = service
+            .get_json(
+                "test.large",
+                "page",
+                Url::parse(&format!("http://{address}/large")).unwrap(),
+                60,
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(result["releases"][0]["title"], "Still available");
+        assert!(store
+            .get_provider_cache("test.large", "page")
+            .unwrap()
+            .is_none());
+        server.abort();
+    }
+
+
     #[test]
     fn edition_without_cover_uses_its_exact_release_group() {
         let edition = "4de779b6-75f4-4041-9cde-70a60ea21a89";

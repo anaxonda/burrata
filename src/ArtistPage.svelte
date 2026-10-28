@@ -611,7 +611,7 @@
   }
 
   async function completeReleaseOrder(generation: number) {
-    if (!selectedArtist || !releases?.nextCursor) return;
+    if (!selectedArtist || !releases?.nextCursor || releases.warnings.length) return;
     const artist = selectedArtist.artist;
     const seen = new Set<string>();
     loadingReleaseOrder = true;
@@ -623,6 +623,7 @@
         const next = await getArtistReleases(artist, cursor);
         if (generation !== requestGeneration) return;
         releases = { ...next, items: dedupeReleases([...releases.items, ...next.items]) };
+        if (next.warnings.length) break;
       }
     } finally { if (generation === requestGeneration) loadingReleaseOrder = false; }
   }
@@ -737,7 +738,7 @@
         <button class:active={section === item[0]} onclick={() => void loadSection(item[0] as typeof section)}>{item[1]}</button>
       {/each}
     </nav>
-    {#if profile?.warnings.length}<div class="notice">{#each profile.warnings as warning}<p>{warning}</p>{/each}</div>{/if}
+    {#if profile?.warnings.length}<div class="notice">{#each profile.warnings.filter(warning => section !== "releases" || !releases?.warnings.includes(warning)) as warning}<p>{warning}</p>{/each}</div>{/if}
     {#if section === "overview"}
       {#if profile}
         <div class="overview-grid">
@@ -781,7 +782,7 @@
         <select bind:value={releaseSort} aria-label="Sort releases"><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="title">Title A–Z</option></select>
       </div>
       <p class="muted catalog-count">{releaseGroups.length} {releaseGroups.length === 1 ? "album" : "albums"} · {releaseGroups.reduce((count, group) => count + group.editions.length, 0)} editions loaded</p>
-      {#if loadingReleaseOrder}<p class="muted" role="status">Loading remaining releases to order albums…</p>{:else if releases?.nextCursor}<p class="muted">More releases are available; order applies to the albums loaded so far.</p>{/if}
+      {#if loadingReleaseOrder}<p class="muted" role="status">Loading remaining releases to order albums…</p>{:else if releases?.nextCursor && !releases.warnings.length}<p class="muted">More releases are available; order applies to the albums loaded so far.</p>{/if}
       <div class="release-list">{#each releaseGroups as group (group.key)}
         {@const release = selectedEdition(group)}
         {@const artworkTrack = (releaseTrackCache[release.sourceUrl] ?? []).find((track) => track.artworkUrl)}
@@ -828,7 +829,7 @@
           <div class="links release-source-link"><a href={release.sourceUrl} target="_blank" rel="noreferrer">Open edition source ↗</a>{#if activeTrack}<button class="secondary" disabled={busy} onclick={() => void inspectRelease(release)}>Review metadata</button>{/if}</div></article>
       {/each}</div>
       {#if releases?.items.length && !releaseGroups.length}<p class="muted">No loaded releases match these filters. <button class="secondary" onclick={() => { releaseQuery = ""; releaseFilter = "All"; releaseProvider = "All sources"; }}>Clear filters</button></p>{/if}
-      {#if releases?.nextCursor}<button class="secondary" onclick={() => void moreReleases()} disabled={busy}>Load more releases</button>{/if}
+      {#if releases?.nextCursor}<button class="secondary" onclick={() => void moreReleases()} disabled={busy}>{releases?.warnings.length ? "Retry releases" : "Load more releases"}</button>{/if}
       {#if !(releases?.items.length)}<p class="muted">No releases are available from this source.</p>{/if}
     {:else if section === "tracks"}
       <p class="muted">{tracks?.source ?? "Loading source recordings…"} · {visibleSourceTracks.length} of {(tracks?.items ?? []).length} loaded recordings</p>

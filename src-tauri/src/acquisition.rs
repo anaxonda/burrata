@@ -749,6 +749,10 @@ const RAW_AUDIO_SEARCH_CACHE_MAX: usize = 64;
 const PREVIEW_SEARCH_TIMEOUT: Duration = Duration::from_secs(20);
 const PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT: usize = 10;
 const OPTIONAL_PLAYBACK_RESEARCH_MAX: Duration = Duration::from_secs(3);
+// Keep one slow CDN range check from consuming the foreground attempt budget;
+// the resolver can spend the remaining shared deadline on same-recording
+// recovery or an already-validated fallback.
+const PLAYBACK_ACCESS_PROBE_TIMEOUT: Duration = Duration::from_secs(4);
 pub(crate) const PLAYBACK_EXTRACTION_RESERVE: Duration = Duration::from_secs(8);
 const PREVIEW_AUDIO_CACHE_TTL: Duration = Duration::from_secs(5 * 60);
 const PREVIEW_AUDIO_CACHE_MAX: usize = 64;
@@ -759,6 +763,31 @@ const CHAPTER_SOURCE_CACHE_TTL: Duration = Duration::from_secs(15 * 60);
 const CHAPTER_SOURCE_CACHE_MAX: usize = 16;
 const INSPECTION_CACHE_TTL: Duration = Duration::from_secs(90);
 const INSPECTION_CACHE_MAX: usize = 128;
+
+fn playback_access_probe_timeout(remaining: Duration) -> Duration {
+    PLAYBACK_ACCESS_PROBE_TIMEOUT.min(remaining)
+}
+
+#[cfg(test)]
+mod playback_access_probe_timeout_tests {
+    use super::*;
+
+    #[test]
+    fn access_probe_uses_its_cap_without_exceeding_shared_deadline() {
+        assert_eq!(
+            playback_access_probe_timeout(Duration::from_secs(20)),
+            Duration::from_secs(4)
+        );
+        assert_eq!(
+            playback_access_probe_timeout(Duration::from_secs(2)),
+            Duration::from_secs(2)
+        );
+        assert_eq!(
+            playback_access_probe_timeout(Duration::ZERO),
+            Duration::ZERO
+        );
+    }
+}
 const INSPECTION_PROFILE: &str = "acquisition-inspect-v3-youtube-support";
 const PREVIEW_AUDIO_FORMAT_SELECTOR: &str = "bestaudio[ext=m4a][protocol^=http][protocol!*=dash]/bestaudio[protocol^=http][protocol!*=dash]/bestaudio";
 const PREVIEW_AUDIO_ALTERNATE_FORMAT_SELECTOR: &str = "bestaudio[ext=webm][protocol^=http][protocol!*=dash]/bestaudio[ext=m4a][protocol^=http][protocol!*=dash]/bestaudio[protocol^=http][protocol!*=dash]/bestaudio";
@@ -1653,7 +1682,7 @@ async fn run_tool_until<F: FnMut(&str)>(
             exit = child.wait(), if !stream_open => {
                 break match exit {
                     Ok(status) if status.success() => Ok(output),
-                    Ok(_) => Err(format!("yt-dlp failed: {}", errors.trim())),
+                    Ok(status) => Err(format!("yt-dlp failed (exit {}): {}", status.code().unwrap_or(-1), errors.trim())),
                     Err(error) => Err(format!("yt-dlp wait failed: {error}")),
                 };
             }
@@ -4546,12 +4575,13 @@ async fn extract_preview_audio_with_prepared_alternate(
     let (managed_provider_args_installed, mut provider_invocation) = helper_result?;
     // The bundled provider supports token-bearing mobile web playback. Avoid
     // selecting a TV URL that does not use the available GVS token provider.
-    if should_force_managed_mweb_for_extraction(
+    let forced_mweb = should_force_managed_mweb_for_extraction(
         &candidate.provider,
         &settings.yt_dlp_path,
         managed_provider_args_installed,
         format_selector_override,
-    ) {
+    );
+    if forced_mweb {
         args.extend([
             "--extractor-args".into(),
             "youtube:player_client=mweb".into(),
@@ -4576,6 +4606,15 @@ async fn extract_preview_audio_with_prepared_alternate(
     {
         return Err(crate::playback_sources::EXTRACTION_ATTEMPTS_EXHAUSTED.into());
     }
+    if let Some(trace) = &trace {
+        trace.event("source_context", &candidate.provider, serde_json::json!({
+            "sourcePageUrl":candidate.url,
+            "youtubeClient":if candidate.provider != "youtube" { "not_youtube" } else if forced_mweb { "mweb" } else { "extractor_default" },
+            "managedProviderInstalled":managed_provider_args_installed,
+            "customHelper":!uses_managed_ytdlp(&settings.yt_dlp_path),
+            "cookiesPresent":args.iter().any(|arg| arg == "--cookies" || arg == "--cookies-from-browser")
+        }));
+    }
     let extraction_started = Instant::now();
     if let Some(trace) = &trace {
         trace.event(
@@ -4584,8 +4623,12 @@ async fn extract_preview_audio_with_prepared_alternate(
             serde_json::json!({}),
         );
     }
-    let extraction_result =
-        run_tool_until(settings, args, cancel.clone(), deadline.instant(), |_| {}).await;
+    let mut helper_warnings = String::new();
+    let extraction_result = run_tool_until(settings, args, cancel.clone(), deadline.instant(), |line| {
+        if line.starts_with("WARNING:") && helper_warnings.len() < 4096 {
+            helper_warnings.push_str(line); helper_warnings.push('\n');
+        }
+    }).await;
     if extraction_result.is_ok() {
         if let Some(invocation) = provider_invocation.as_mut() {
             invocation.complete();
@@ -4594,9 +4637,17 @@ async fn extract_preview_audio_with_prepared_alternate(
 
     if let Some(trace) = &trace {
         let mut details = serde_json::json!({"durationMs":extraction_started.elapsed().as_millis(), "ok":extraction_result.is_ok()});
+        if !helper_warnings.is_empty() {
+            details["extractorErrorSummary"] = serde_json::json!(helper_warnings);
+        }
         if let Err(error) = &extraction_result {
+            details["extractorErrorSummary"] = serde_json::json!(error);
             // Classify before redaction, exporting only enum values and an
             // explicit HTTP status. Never retain helper stderr or signed URLs.
+            if let Some(code) = error.strip_prefix("yt-dlp failed (exit ")
+                .and_then(|s| s.split_once(')')).and_then(|(code, _)| code.parse::<i32>().ok()) {
+                details["helperExitCode"] = serde_json::json!(code);
+            }
             let failure = crate::playback_failure::classify_extractor_failure(error);
             details["category"] = serde_json::json!(failure.category);
             details["extractorReason"] =
@@ -4630,7 +4681,7 @@ async fn extract_preview_audio_with_prepared_alternate(
 }
 
 async fn validate_prepared_preview_audio(
-    audio: PreviewAudio,
+    mut audio: PreviewAudio,
     mut cancel: watch::Receiver<bool>,
     trace: Option<crate::playback_sources::SourceTrace>,
     provider: &str,
@@ -4646,6 +4697,9 @@ async fn validate_prepared_preview_audio(
         return Err("Audio stream resolution timed out".into());
     }
     let stream = validate_source_url(&audio.url, "direct")?;
+    if let Some(trace) = &trace {
+        trace.event("stream_context", provider, stream_diagnostic_context(&stream, &audio));
+    }
     let dns_started = Instant::now();
     if let Some(trace) = &trace {
         trace.event("dns_stream_start", provider, serde_json::json!({}));
@@ -4669,10 +4723,10 @@ async fn validate_prepared_preview_audio(
             &stream_addresses,
         )
         .connect_timeout(Duration::from_secs(5))
-        .timeout(Duration::from_secs(8))
+        .timeout(playback_access_probe_timeout(deadline.remaining()))
         .build()
         .map_err(|_| "Could not initialize audio access check".to_owned())?;
-    run_playback_stage(
+    let final_url = run_playback_stage(
         cancel.clone(),
         deadline.instant(),
         "Audio stream resolution timed out",
@@ -4693,6 +4747,7 @@ async fn validate_prepared_preview_audio(
     if !audio.provider_session_current() {
         return Err("Audio source provider session changed during resolution".into());
     }
+    audio.url = final_url.to_string();
     Ok(audio)
 }
 
@@ -4862,7 +4917,7 @@ async fn verify_preview_audio_access(
         None,
         "other",
     )
-    .await
+    .await.map(|_| ())
 }
 
 async fn verify_preview_audio_access_with_trace(
@@ -4873,7 +4928,7 @@ async fn verify_preview_audio_access_with_trace(
     cancel: &mut watch::Receiver<bool>,
     trace: Option<crate::playback_sources::SourceTrace>,
     provider: &str,
-) -> Result<(), String> {
+) -> Result<url::Url, String> {
     if *cancel.borrow() {
         return Err("Cancelled".into());
     }
@@ -4904,6 +4959,10 @@ async fn verify_preview_audio_access_with_trace(
                 "tail",
             );
             let (first, tail) = tokio::try_join!(first_future, tail_future)?;
+            let final_url = first.url().clone();
+            if tail.url() != &final_url {
+                return Err("Audio probe ranges resolved to different destinations".into());
+            }
             validate_preview_range(
                 first,
                 first_range,
@@ -4924,9 +4983,12 @@ async fn verify_preview_audio_access_with_trace(
                 "tail",
             )
             .await?;
+            return Ok(final_url);
         } else {
+            let response = first_future.await?;
+            let final_url = response.url().clone();
             validate_preview_range(
-                first_future.await?,
+                response,
                 first_range,
                 length,
                 cancel,
@@ -4935,8 +4997,8 @@ async fn verify_preview_audio_access_with_trace(
                 "head",
             )
             .await?;
+            return Ok(final_url);
         }
-        return Ok(());
     }
 
     let mut response = send_preview_range(
@@ -4964,6 +5026,7 @@ async fn verify_preview_audio_access_with_trace(
     {
         return Err("The audio source returned a web page instead of audio".into());
     }
+    let final_url = response.url().clone();
     let body_result = tokio::select! {
         bytes = response.chunk() => bytes.map_err(|error| ("Audio stream could not deliver audio bytes".to_owned(), preview_probe_error_class(&error))),
         _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => return Err("Cancelled".into()),
@@ -4973,7 +5036,7 @@ async fn verify_preview_audio_access_with_trace(
     }
     let bytes = body_result.map_err(|(message, _)| message)?;
     if bytes.is_some_and(|bytes| !bytes.is_empty()) {
-        Ok(())
+        Ok(final_url)
     } else {
         Err("The audio source returned an empty stream".into())
     }
@@ -5200,6 +5263,35 @@ fn preview_redirect_host_class(url: Option<&url::Url>) -> &'static str {
     }
 }
 
+fn stream_diagnostic_context(stream: &url::Url, audio: &PreviewAudio) -> Value {
+    let has = |key: &str| stream.query_pairs().any(|(k, v)| k == key && !v.is_empty());
+    let expiry = stream.query_pairs().find(|(k,_)| k == "expire")
+        .and_then(|(_,v)| v.parse::<i64>().ok())
+        .map(|expiry| expiry.saturating_sub(chrono::Utc::now().timestamp()).clamp(0, 86_400));
+    serde_json::json!({
+        "sourceHostClass":preview_redirect_host_class(Some(stream)),
+        "formatId":audio.selected_format_id,
+        "streamExpirySecondsRemaining":expiry,
+        "poTokenPresent":has("pot") || has("po_token"),
+        "signaturePresent":has("sig") || has("signature") || has("lsig"),
+        "nParameterPresent":has("n"), "ipParameterPresent":has("ip"), "expiryPresent":has("expire"),
+        "urlClient":stream.query_pairs().find(|(k,_)| k == "c").map(|(_,v)| match v.as_ref() { "MWEB"=>"MWEB", "VISIONOS"=>"VISIONOS", "ANDROID"=>"ANDROID", "WEB"=>"WEB", "TVHTML5"=>"TVHTML5", _=>"other" }).unwrap_or("other"),
+        "refererPresent":audio.headers.iter().any(|(key,_)| key.eq_ignore_ascii_case("referer")),
+        "originPresent":audio.headers.iter().any(|(key,_)| key.eq_ignore_ascii_case("origin")),
+        "userAgentPresent":audio.headers.iter().any(|(key,_)| key.eq_ignore_ascii_case("user-agent")),
+        "expectedContentLength":audio.expected_content_length,
+        "streamTransport":if stream.path().contains("m3u8") { "hls" } else if audio.expected_content_length.is_some() { "progressive" } else { "other" }
+    })
+}
+
+fn safe_youtube_media_redirect(source: &url::Url, destination: &url::Url) -> bool {
+    [source, destination].iter().all(|url| {
+        preview_redirect_host_class(Some(url)) == "googlevideo"
+            && url.port_or_known_default() == Some(443)
+            && url.path() == "/videoplayback" && url.fragment().is_none()
+    })
+}
+
 async fn send_preview_range(
     client: &reqwest::Client,
     stream: &url::Url,
@@ -5210,11 +5302,17 @@ async fn send_preview_range(
     provider: &str,
     role: &'static str,
 ) -> Result<reqwest::Response, String> {
-    for attempt in 0..2 {
+    let mut stream = stream.clone();
+    let mut redirected_client = None;
+    let mut visited = std::collections::HashSet::new();
+    visited.insert(stream.to_string());
+    let mut attempt = 0;
+    loop {
         if *cancel.borrow() {
             return Err("Cancelled".into());
         }
-        let mut request = client.get(stream.clone()).header(
+        let active_client = redirected_client.as_ref().unwrap_or(client);
+        let mut request = active_client.get(stream.clone()).header(
             reqwest::header::RANGE,
             format!("bytes={}-{}", range.0, range.1),
         );
@@ -5254,20 +5352,40 @@ async fn send_preview_range(
                     "stream_redirect",
                     provider,
                     serde_json::json!({
-                        "status":response.status().as_u16(),"role":role,
-                        "sourceHostClass":preview_redirect_host_class(Some(stream)),
+                        "status":response.status().as_u16(),"role":role,"redirectHop":visited.len(),
+                        "sourceHostClass":preview_redirect_host_class(Some(&stream)),
                         "destinationHostClass":preview_redirect_host_class(destination.as_ref())
                     }),
                 );
             }
         }
-        if attempt == 0 && provider != "bandcamp" {
+        if response.status().is_redirection() && provider == "youtube" {
+            let destination = response.headers().get(reqwest::header::LOCATION)
+                .and_then(|v| v.to_str().ok()).and_then(|v| stream.join(v).ok())
+                .ok_or("Audio source returned an invalid redirect")?;
+            if !safe_youtube_media_redirect(&stream, &destination)
+                || visited.len() >= 4 || !visited.insert(destination.to_string()) {
+                return Err("Audio source returned an unsafe redirect or redirect loop".into());
+            }
+            let addresses = public_addresses(&destination).await?;
+            redirected_client = Some(reqwest::Client::builder().no_proxy()
+                .redirect(reqwest::redirect::Policy::none())
+                .resolve_to_addrs(destination.host_str().ok_or("Missing stream host")?, &addresses)
+                .connect_timeout(Duration::from_secs(5)).timeout(Duration::from_secs(8))
+                .build().map_err(|_| "Could not initialize redirected audio check")?);
+            stream = destination;
+            continue;
+        }
+        if attempt == 0 && provider != "bandcamp"
+            && !(provider == "youtube" && response.status() == reqwest::StatusCode::FORBIDDEN
+                && trace.as_ref().is_some_and(|trace| trace.skip_youtube_forbidden_retry)) {
             let Some(delay) = preview_access_retry_delay(response.status()) else {
                 return Ok(response);
             };
             if let Some(trace) = &trace {
                 trace.event("stream_probe_retry_wait", provider, serde_json::json!({"role":role,"attempt":attempt+1,"status":response.status().as_u16(),"expectedDelayMs":delay.as_millis()}));
             }
+            attempt += 1;
             drop(response);
             tokio::select! {
                 _ = tokio::time::sleep(delay) => {},
@@ -5277,7 +5395,6 @@ async fn send_preview_range(
         }
         return Ok(response);
     }
-    unreachable!()
 }
 
 async fn validate_preview_range(
@@ -10379,6 +10496,27 @@ mod tests {
             has_free_upload_slot: free_slot,
             queue_length: None,
             upload_speed: None,
+        }
+    }
+
+    #[test]
+    fn stream_context_exports_authorization_presence_without_values() {
+        let url = url::Url::parse("https://r1.googlevideo.com/videoplayback?expire=1&sig=canary&pot=private&ip=192.0.2.1&n=secret").unwrap();
+        let audio = PreviewAudio { selected_format_id:Some("140".into()), expected_content_length:Some(1234), provider_session:None,url:url.to_string(),mime_type:"audio/mp4".into(),codec:None,bitrate_kbps:None,duration_seconds:None,selected_format_has_video:false,source_metadata:None,resolved_title:None,resolved_provider_id:None,chapters:None,headers:vec![] };
+        let safe = crate::playback_diagnostics::sanitize_details(stream_diagnostic_context(&url, &audio));
+        assert_eq!(safe["poTokenPresent"], true);
+        assert_eq!(safe["signaturePresent"], true);
+        assert_eq!(safe["streamExpirySecondsRemaining"], 0);
+        let encoded = serde_json::to_string(&safe).unwrap();
+        for secret in ["canary", "private", "192.0.2.1", "secret"] { assert!(!encoded.contains(secret)); }
+    }
+
+    #[test]
+    fn youtube_redirect_policy_rejects_unsafe_destinations() {
+        let source = url::Url::parse("https://r1.googlevideo.com/videoplayback?sig=secret").unwrap();
+        assert!(safe_youtube_media_redirect(&source, &url::Url::parse("https://r2.googlevideo.com/videoplayback?sig=next").unwrap()));
+        for raw in ["http://r2.googlevideo.com/videoplayback", "https://r2.googlevideo.com:444/videoplayback", "https://googlevideo.com.evil.test/videoplayback", "https://user@r2.googlevideo.com/videoplayback", "https://127.0.0.1/videoplayback", "https://accounts.google.com/videoplayback", "https://r2.googlevideo.com/other"] {
+            assert!(!safe_youtube_media_redirect(&source, &url::Url::parse(raw).unwrap()));
         }
     }
 

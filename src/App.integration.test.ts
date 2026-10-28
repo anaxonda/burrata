@@ -7,6 +7,7 @@ import type { ArtistReleaseRef } from "./lib/artist-types";
 import type { TrackSortAvailability } from "./lib/track-sort-availability";
 import { WebviewStallWatchdog } from "./webview-stall-watchdog";
 import { WebviewSeekCompletionWatchdog } from "./webview-seek-completion-watchdog";
+import { waitForStartupClock } from "./lib/webview-startup-diagnostics";
 import type { WebviewPlaybackHandoff } from "./lib/native-playback";
 import { inspectWebAudioGainGraph, readWebAudioPeakWindow, WebAudioGainAdapter } from "./lib/loudness-normalization";
 import { streamAudioVariantIdentity } from "./lib/stream-media-analysis";
@@ -82,6 +83,45 @@ function nativeHandoffSnapshot(args?: Record<string, unknown>): NativePlaybackSn
 const eventHandlers = new Map<string, (event: { event: string; id: number; payload: unknown }) => void>();
 const pendingSvelteUnmounts: Promise<void>[] = [];
 const nativeCurrentTimeDescriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "currentTime");
+const mockAudioTimes = new WeakMap<HTMLMediaElement, number>();
+const mockAudioPlaying = new WeakMap<HTMLMediaElement, boolean>();
+const mockAudioPlayingListeners = new WeakSet<HTMLMediaElement>();
+let pendingMockStartupClocks = 0;
+function playAndAdvanceMediaClock(this: HTMLMediaElement): Promise<void> {
+  const currentTimeDescriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "currentTime");
+  if (vi.isMockFunction(currentTimeDescriptor?.set)) {
+    // Preserve test-owned time storage and setter assertions while simulating
+    // the short initial decode interval required by the startup gate.
+    this.currentTime = Number(this.currentTime) + 0.3;
+  } else if (!vi.isMockFunction(currentTimeDescriptor?.get)) {
+    const readNativeTime = () => nativeCurrentTimeDescriptor?.get?.call(this) ?? 0;
+    if (!Object.getOwnPropertyDescriptor(this, "currentTime")) mockAudioTimes.set(this, Number(readNativeTime()) || 0);
+    Object.defineProperty(this, "currentTime", {
+      configurable: true,
+      get: () => mockAudioTimes.get(this) ?? 0,
+      set: (value: number) => mockAudioTimes.set(this, Number(value)),
+    });
+    mockAudioTimes.set(this, (mockAudioTimes.get(this) ?? 0) + 0.3);
+  }
+  const pausedDescriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "paused");
+  if (!vi.isMockFunction(pausedDescriptor?.get)) {
+    mockAudioPlaying.set(this, true);
+    if (!mockAudioPlayingListeners.has(this)) {
+      this.addEventListener("pause", () => mockAudioPlaying.set(this, false), true);
+      this.addEventListener("play", () => mockAudioPlaying.set(this, true), true);
+      this.addEventListener("ended", () => mockAudioPlaying.set(this, false), true);
+      mockAudioPlayingListeners.add(this);
+    }
+    Object.defineProperty(this, "paused", { configurable: true, get: () => !mockAudioPlaying.get(this) });
+  }
+  const readyStateDescriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "readyState");
+  if (!vi.isMockFunction(readyStateDescriptor?.get)) Object.defineProperty(this, "readyState", { configurable: true, get: () => 4 });
+  const seekingDescriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "seeking");
+  if (!vi.isMockFunction(seekingDescriptor?.get)) Object.defineProperty(this, "seeking", { configurable: true, get: () => false });
+  pendingMockStartupClocks++;
+  setTimeout(() => { pendingMockStartupClocks = Math.max(0, pendingMockStartupClocks - 1); }, 25);
+  return Promise.resolve();
+}
 function unmount(instance: Parameters<typeof svelteUnmount>[0]): Promise<void> {
   const pending = svelteUnmount(instance);
   pendingSvelteUnmounts.push(pending);
@@ -238,10 +278,15 @@ function withChapters(candidate: Candidate): Candidate {
 }
 
 async function settle() {
-  for (let i = 0; i < 12; i++) await Promise.resolve();
-  if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(0);
-  else await new Promise((resolve) => setTimeout(resolve, 0));
-  await tick();
+  for (let pass = 0; pass < 2; pass++) {
+    for (let i = 0; i < 12; i++) await Promise.resolve();
+    if (pendingMockStartupClocks > 0) {
+      if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(25);
+      else await new Promise((resolve) => setTimeout(resolve, 30));
+    } else if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(0);
+    else await new Promise((resolve) => setTimeout(resolve, 0));
+    await tick();
+  }
 }
 async function openDownloadActivityFromLibrary() {
   const downloads = [...document.querySelectorAll<HTMLButtonElement>(".built-in-playlists .playlist-card")]
@@ -402,6 +447,8 @@ async function startWebviewIdentify(track = savedTrack) {
 
 beforeEach(() => {
   document.body.innerHTML = "";
+  pendingMockStartupClocks = 0;
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
   const localStorageValues = new Map<string, string>();
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => localStorageValues.get(key) ?? null,
@@ -1183,6 +1230,21 @@ afterEach(async () => {
 
 afterEach(() => { if (vi.isFakeTimers()) vi.useRealTimers(); });
 
+describe("WebView startup media clock", () => {
+  it("waits for actual elapsed-clock progress rather than a fulfilled play promise", async () => {
+    const startedAt = performance.now();
+    const audio = {
+      get currentTime() { return (performance.now() - startedAt) / 1000; },
+      paused: false,
+      seeking: false,
+      readyState: 2,
+      error: null,
+    };
+    await waitForStartupClock(audio, 0, () => true, startedAt + 2_000);
+    expect(performance.now() - startedAt).toBeGreaterThanOrEqual(250);
+  });
+});
+
 describe("selected playback restore startup gate", () => {
   function pendingRestore() {
     return {
@@ -1354,7 +1416,7 @@ describe("read-only WebView media inspection", () => {
   it("samples direct media-element getters and returns only bounded fields", async () => {
     previewMode = "direct";
     savedChartTracks = [savedTrack];
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); }; await settle();
     document.querySelector<HTMLButtonElement>('[aria-label="Play Saved Recording"]')!.click(); await settle();
     const element = document.querySelector<HTMLAudioElement>("audio")!;
@@ -1377,7 +1439,7 @@ describe("read-only WebView media inspection", () => {
     sessionStorage.setItem("burrata.webviewMediaEventDiagnostics", "1");
     previewMode = "direct";
     savedChartTracks = [savedTrack];
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); }; await settle();
     document.querySelector<HTMLButtonElement>('[aria-label="Play Saved Recording"]')!.click(); await settle();
     const element = document.querySelector<HTMLAudioElement>("audio")!;
@@ -2617,7 +2679,7 @@ describe("saved recording navigation", () => {
 
   it("uses modifier clicks for range and toggle selection without starting extra previews", async () => {
     previewMode = "direct";
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const thirdTrack: Track = { ...savedTrack, id: "recording-3", title: "Third Recording" };
     savedChartTracks = [savedTrack, secondTrack, thirdTrack];
     const instance = mount(App, { target: document.body });
@@ -2673,7 +2735,7 @@ describe("saved recording navigation", () => {
 
   it("opens the row context menu without playing or changing the selected recording", async () => {
     previewMode = "direct";
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     savedChartTracks = [savedTrack, secondTrack];
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
@@ -2694,7 +2756,7 @@ describe("saved recording navigation", () => {
 
   it("opens row More at the button edge without changing playback or selection", async () => {
     previewMode = "direct";
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     savedChartTracks = [savedTrack, secondTrack];
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
@@ -2820,7 +2882,7 @@ describe("saved recording navigation", () => {
   it("deletes and restores a playlist by stable ID without changing queued or playing audio", async () => {
     delayedBrowserImports = Promise.resolve([]);
     previewMode = "direct";
-    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -2862,7 +2924,7 @@ describe("saved recording navigation", () => {
     delayedBrowserImports = Promise.resolve([]);
     savedChartTracks = [savedTrack, secondTrack];
     previewMode = "direct";
-    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -2902,7 +2964,7 @@ describe("saved recording navigation", () => {
 
   it("creates a playlist from a selected chart track without changing playback or view", async () => {
     previewMode = "direct";
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -2926,7 +2988,7 @@ describe("saved recording navigation", () => {
 
   it("opens the active recording information without changing the view or restarting playback", async () => {
     previewMode = "direct";
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -2953,7 +3015,7 @@ describe("saved recording navigation", () => {
     };
     savedChartTracks = [analyzedTrack];
     previewMode = "direct";
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -2982,7 +3044,7 @@ describe("saved recording navigation", () => {
     savedAssets = [{ id: "asset-1", recordingId: localTrack.id, path: "/music/saved.mp3", hash: "hash-1",
       sourceCodec: "mp3", finalCodec: "mp3", processing: "ready", track: localTrack }];
     previewMode = "direct";
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -3108,7 +3170,7 @@ describe("saved recording navigation", () => {
     directPreviewDurationSeconds = 180;
     vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(180);
     vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(4);
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const currentTimeSet = vi.spyOn(HTMLMediaElement.prototype, "currentTime", "set");
     const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); };
     await settle();
@@ -3167,7 +3229,7 @@ describe("saved recording navigation", () => {
     vi.spyOn(HTMLMediaElement.prototype, "currentTime", "get").mockImplementation(() => mediaTime);
     vi.spyOn(HTMLMediaElement.prototype, "currentTime", "set").mockImplementation(value => { mediaTime = Number(value); });
     vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockImplementation(() => !mediaPlaying);
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(async function() { playCalls++; mediaPlaying = true; });
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(async function(this: HTMLMediaElement) { playCalls++; mediaPlaying = true; playAndAdvanceMediaClock.call(this); });
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(function() { mediaPlaying = false; });
     vi.stubGlobal("AudioContext", class {
       currentTime = 0;
@@ -3270,7 +3332,7 @@ describe("saved recording navigation", () => {
     localStorage.setItem("burrata.waveform-enabled.v1", "true");
     vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(240);
     vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(4);
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const identity = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("youtube\nyoutube:recording-1"));
     const sourceIdentitySha256 = [...new Uint8Array(identity)].map(value => value.toString(16).padStart(2, "0")).join("");
     const cached = {
@@ -3384,7 +3446,10 @@ describe("saved recording navigation", () => {
     vi.spyOn(HTMLMediaElement.prototype, "currentTime", "get").mockImplementation(() => mediaTime);
     vi.spyOn(HTMLMediaElement.prototype, "currentTime", "set").mockImplementation(value => { mediaTime = Number(value); });
     vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockImplementation(() => !mediaPlaying);
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(async function() { mediaPlaying = true; });
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(async function(this: HTMLMediaElement) {
+      mediaPlaying = true;
+      return playAndAdvanceMediaClock.call(this);
+    });
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(function() { mediaPlaying = false; });
     const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); };
     await settle();
@@ -4515,7 +4580,7 @@ describe("saved recording navigation", () => {
   it.each(["button.position-play", "button.track-title"])("rebuilds the library queue when its current track is played with %s", async (selector) => {
     savedChartTracks = [{...savedTrack,rank:1},{...secondTrack,rank:2}];
     previewMode="direct";
-    vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
     await automationAction("single-track-before-library","play",{trackIds:[savedTrack.id]});await settle();
     const single=(await automationAction("single-track-state","volume",{volume:0.8})).playback;
@@ -4533,7 +4598,7 @@ describe("saved recording navigation", () => {
   it("keeps the playback queue stable through navigation and advances on ended", async () => {
     savedChartTracks = [{ ...savedTrack, rank: 1 }, { ...secondTrack, rank: 2 }];
     previewMode = "direct";
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -4556,7 +4621,7 @@ describe("saved recording navigation", () => {
   it("refreshes autotagged current and queued tracks without reordering playback", async () => {
     savedChartTracks = [{ ...savedTrack, rank: 1 }, { ...secondTrack, rank: 2 }];
     previewMode = "direct";
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -4593,7 +4658,7 @@ describe("saved recording navigation", () => {
 
   it("shows full-set chapter titles, seeks chapter audio relative to its bounds over MPRIS, and advances at the chapter end", async () => {
     previewMode = "direct";
-    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
     const candidate: Candidate = {
       ...youtubeCandidate(savedTrack), title: "Visible Artist — Full Set", durationSeconds: 100,
@@ -4637,7 +4702,7 @@ describe("saved recording navigation", () => {
 
   it("adds a chapter through its own Queue menu using the inspected parent source and exact range", async () => {
     previewMode = "direct";
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const parent = { ...savedTrack, id: "playlist-chapter-parent", title: "Long Set", durationSeconds: 100 };
     const candidate: Candidate = {
       ...youtubeCandidate(parent), title: "Chapter Artist — Long Set", durationSeconds: 100,
@@ -4675,7 +4740,7 @@ describe("saved recording navigation", () => {
 
   it("does not let a late chapter registration replace a newer playlist picker", async () => {
     previewMode = "direct";
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const parent = { ...savedTrack, id: "picker-race-parent", title: "Long Set", durationSeconds: 100 };
     const candidate: Candidate = { ...youtubeCandidate(parent), title: "Chapter Artist — Long Set", durationSeconds: 100,
       chapters: [{ id: "chapter-song", title: "Chapter Artist — Natural Song", startTime: 20, endTime: 60, confidence: "review" }] };
@@ -4759,7 +4824,7 @@ describe("saved recording navigation", () => {
 
   it("keeps player information, queue, and download activity mutually exclusive", async () => {
     previewMode = "direct";
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     downloadJobs = [{
       id: "download-active", track: savedTrack,
       candidate: { ...youtubeCandidate(savedTrack), confidence: "high", score: 92,
@@ -4828,7 +4893,7 @@ describe("saved recording navigation", () => {
 
   it("opens Now Playing through app controls without restarting playback and acknowledges only a mounted view", async () => {
     previewMode = "direct"; savedChartTracks = [savedTrack];
-    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, {target: document.body}); unmountApp = () => {void unmount(instance);}; await settle();
     eventHandlers.get("automation-player-panel")?.({event:"automation-player-panel",id:1,payload:{requestId:"empty",panel:"now-playing"}}); await settle();
     expect(mocks.call).toHaveBeenCalledWith("automation_player_panel_complete",{requestId:"empty",panel:"now-playing",status:"failed"});
@@ -4850,7 +4915,7 @@ describe("saved recording navigation", () => {
   it("clears queued occurrences without restarting the playing track", async () => {
     previewMode = "direct";
     savedChartTracks = [savedTrack,{...savedTrack,id:"queue-next",title:"Next Recording"},{...savedTrack,id:"queue-third",title:"Third Recording"}];
-    const play = vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
     document.querySelector<HTMLButtonElement>('[aria-label="Play Saved Recording"]')!.click();await settle();
     eventHandlers.get("automation-player-panel")?.({event:"automation-player-panel",id:1,payload:{requestId:"clear-test",panel:"queue"}});await settle();
@@ -5204,13 +5269,14 @@ describe("saved recording navigation", () => {
   it("starts automation playback while animation frames are suspended in a background window", async () => {
     previewMode = "direct";
     vi.stubGlobal("requestAnimationFrame", () => 1);
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
     eventHandlers.get("automation-playback")?.({ event: "automation-playback", id: 9,
       payload: { requestId: "background-play", action: "play", trackIds: [savedTrack.id] } });
     await settle();
+    await new Promise(resolve => setTimeout(resolve, 60));
     await settle();
     expect(HTMLMediaElement.prototype.play).toHaveBeenCalled();
     expect(mocks.call).toHaveBeenCalledWith("automation_playback_complete", expect.objectContaining({requestId: "background-play", error: null, playback: expect.objectContaining({ paused: false, trackId: savedTrack.id })}));
@@ -5272,6 +5338,7 @@ describe("saved recording navigation", () => {
     expect(mocks.call.mock.calls.some(([command, args]) => command === "automation_playback_complete" && (args as { requestId: string }).requestId === "recover-play")).toBe(false);
 
     resolveRecoveredPlay();
+    playAndAdvanceMediaClock.call(document.querySelector<HTMLAudioElement>("audio")!);
     await settle();
     expect(mocks.call).toHaveBeenCalledWith("automation_playback_complete", expect.objectContaining({
       requestId: "recover-play", error: null,
@@ -5282,7 +5349,7 @@ describe("saved recording navigation", () => {
   it("does not start a candidate returned after an automation playback request is cancelled", async () => {
     previewMode = "race";
     delayPlaybackTrackId = savedTrack.id;
-    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -5412,7 +5479,7 @@ describe("saved recording navigation", () => {
 
   it("applies MPRIS repeat, shuffle, and stop requests and acknowledges updated playback snapshots", async () => {
     previewMode = "direct";
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     savedChartTracks = [savedTrack, secondTrack];
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
@@ -5441,7 +5508,7 @@ describe("saved recording navigation", () => {
   it("moves Next and Previous through a paused queue without resolving or replaying audio", async () => {
     previewMode = "direct";
     savedChartTracks = [savedTrack, secondTrack];
-    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
@@ -5481,7 +5548,7 @@ describe("saved recording navigation", () => {
     ["youtube", "https://www.youtube.com/watch?v=linked-source"],
   ])("resolves an explicit %s OpenUri directly without text search", async (provider, url) => {
     previewMode = "direct";
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -5495,7 +5562,7 @@ describe("saved recording navigation", () => {
 
   it("opens and closes fullscreen lyrics through finite app controls without restarting playback", async () => {
     previewMode = "direct";
-    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, {target:document.body});
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -5519,7 +5586,7 @@ describe("saved recording navigation", () => {
 
   it("opens lyrics fullscreen directly from the player microphone button", async () => {
     previewMode = "direct";
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -5546,7 +5613,7 @@ describe("saved recording navigation", () => {
 
   it("refreshes an open track details panel after the successful history write finishes", async () => {
     previewMode = "direct";
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const originalCall = mocks.call.getMockImplementation()!;
     let finishHistoryWrite!: () => void;
     let summaryReads = 0;
@@ -5650,7 +5717,7 @@ describe("saved recording navigation", () => {
 
   it("records one successful listening session across pause and resume", async () => {
     previewMode = "direct";
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -6024,7 +6091,7 @@ describe("saved recording navigation", () => {
   });
 
   it("keeps the unified track list and rail navigation usable with track actions and playlist creation", async () => {
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -6189,7 +6256,7 @@ describe("saved recording navigation", () => {
     configuredMusicDirectory = "/saved/music";
     configuredPreferredDownloadSource = "soundcloud";
     batchInspectionHigh = true;
-    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -6811,7 +6878,7 @@ describe("saved recording navigation", () => {
 
   it("queues an artist album without interrupting playback, then plays its full ordered tracklist", async () => {
     previewMode = "direct";
-    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const originalCall = mocks.call.getMockImplementation()!;
     const albumTracks = [{...savedTrack,id:"album-first",title:"First album song"},{...savedTrack,id:"album-second",title:"Second album song"}];
     mocks.call.mockImplementation(async (command, args) => {
@@ -6981,7 +7048,7 @@ describe("saved recording navigation", () => {
       { ...secondTrack, id: "catalog:musicbrainz:4f7f6950-29cc-448d-a25b-445e383612f1:1:2:1:d0b8d1b1-05c3-4422-ae75-a5aae859d8dd", title: "Duda E Bolna Legnada (Duda Lays Sick)", artist: "Le Mystère Des Voix Bulgares", durationSeconds: 162.32, album: album.title },
       { ...savedTrack, id: "kaufman-playable-following", title: "Playable following recording", album: album.title },
     ];
-    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
     const originalCall = mocks.call.getMockImplementation()!;
     mocks.call.mockImplementation(async (command, args) => {
@@ -7033,7 +7100,7 @@ describe("saved recording navigation", () => {
       removeItem: (key: string) => storage.delete(key),
     });
     previewMode = "direct";
-    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     discoveryAlbum = {
       release: { provider: "musicbrainz", id: "search-album-1" }, title: "Searched Album", year: 2021,
       primaryType: "Album", trackCount: 2, sourceUrl: "https://musicbrainz.org/release/search-album-1", tracks: [],
@@ -7154,7 +7221,7 @@ describe("saved recording navigation", () => {
 
   it("opens artist discovery from a track without interrupting the current preview", async () => {
     previewMode = "direct";
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -7325,7 +7392,7 @@ describe("saved recording navigation", () => {
 
   it("starts an official match from one row click without waiting for catalog details", async () => {
     previewMode = "fallback";
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -7343,7 +7410,7 @@ describe("saved recording navigation", () => {
 
   it("plays an exact low-score audio-search source with unknown artist and hashtag title", async () => {
     previewMode = "fallback";
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const candidate: Candidate = {
       ...youtubeCandidate(savedTrack), id: "abc123", url: "https://www.youtube.com/watch?v=abc123",
       title: "Bedouin, Hiya - Salaam (Francis Mercier Remix) - #afrohouse #thesacredtribe - 🔥🧡🔥",
@@ -7368,7 +7435,7 @@ describe("saved recording navigation", () => {
 
   it("plays the exact linked YouTube radio seed without catalog identity matching", async () => {
     previewMode = "fallback";
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const candidate: Candidate = {
       ...youtubeCandidate(savedTrack), id: "radio-seed-123", url: "https://youtu.be/radio-seed-123",
       title: "Different uploader title", confidence: "low", score: 0.03,
@@ -7393,7 +7460,7 @@ describe("saved recording navigation", () => {
     playbackResolverCandidates = enabled
       ? [{ ...youtubeCandidate(savedTrack), id: "soundcloud:recording-1", provider: "soundcloud", url: "https://soundcloud.com/visible-artist/saved-recording" }]
       : [new Error("Configured playback sources unavailable")];
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
     [...document.querySelectorAll(".shared-track-list > li")].find(row=>row.textContent?.includes(savedTrack.title))!.dispatchEvent(new MouseEvent("click",{bubbles:true}));await settle();
     expect(mocks.call.mock.calls.filter(([command])=>command==="resolve_playback_track")).toHaveLength(1);
@@ -7437,7 +7504,7 @@ describe("saved recording navigation", () => {
       } } };
       return { ...result, preview: { ...result.preview, kind: "local" }, quality: { sourceKind: "approximateAlbumExcerpt", approximateExcerpt: excerpt } };
     });
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -7455,7 +7522,7 @@ describe("saved recording navigation", () => {
     } } };
     savedChartTracks = [track];
     playbackResolverCandidates = [youtubeCandidate(track)];
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -7469,7 +7536,7 @@ describe("saved recording navigation", () => {
     previewMode="fallback";configuredPreferredStreamingSource="monochrome";streamingFallbackEnabled=enabled;streamingFallbackSources=["soundcloud"];
     monochromeCandidates=[{...youtubeCandidate(savedTrack),id:"monochrome:174208180224667648",provider:"monochrome",url:"https://tracks.monochrome.st/track/174208180224667648",confidence:"high",score:0.97}];
     playbackResolverCandidates = [monochromeCandidates[0]!, ...(enabled ? [{ ...youtubeCandidate(savedTrack), id: "soundcloud:recording-1", provider: "soundcloud", url: "https://soundcloud.com/visible-artist/saved-recording" } as Candidate] : [new Error("Configured playback sources unavailable")])];
-    vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
     [...document.querySelectorAll(".shared-track-list > li")].find(row=>row.textContent?.includes(savedTrack.title))!.dispatchEvent(new MouseEvent("click",{bubbles:true}));await settle();
     document.querySelector("audio")!.dispatchEvent(new Event("error"));await settle();
@@ -7481,7 +7548,7 @@ describe("saved recording navigation", () => {
     previewMode = "fallback";
     configuredPreferredStreamingSource = "monochrome";
     overridePlaylistTrackUrls = override;
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const linked = youtubeCandidate(savedTrack);
     const imported: Track = { ...savedTrack, provider:"import", sourceUrl:linked.url, provenance:{ sourceKind:"audioSearch", playlistEntry:linked.url, audioCandidate:linked } };
     savedChartTracks = [imported];
@@ -7520,7 +7587,7 @@ describe("saved recording navigation", () => {
 
   it("does not let a late explicit-source resolution replace a newer preview", async () => {
     previewMode = "fallback";
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const candidate: Candidate = {
       ...youtubeCandidate(savedTrack), id: "abc123", url: "https://www.youtube.com/watch?v=abc123",
       title: "Exact searched source", confidence: "low", score: 0.1,
@@ -7544,7 +7611,7 @@ describe("saved recording navigation", () => {
 
   it("lets the user cancel delayed source resolution and ignores the late result", async () => {
     previewMode = "fallback";
-    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const candidate: Candidate = {
       ...youtubeCandidate(savedTrack), id: "abc123", url: "https://www.youtube.com/watch?v=abc123",
       title: "Explicit source", confidence: "low", score: 0.1,
@@ -7587,7 +7654,7 @@ describe("saved recording navigation", () => {
 
   it("assigns the first unassigned playlist shortcut, reuses it, and ignores focused inputs", async () => {
     previewMode = "direct";
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -7645,7 +7712,7 @@ describe("saved recording navigation", () => {
     const previous=mocks.call.getMockImplementation()!;
     const url="http://127.0.0.1:4567/webview-radio-mp3/fixture?token=fixture";
     mocks.call.mockImplementation(async(command:string,args?:Record<string,unknown>)=>command==="resolve_radio_station_playback_url"?{url,audioMimeType:"audio/mpeg",audioCodec:"mp3",sourceTransport:"loopback-transcode"}:previous(command,args));
-    const play=vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    const play=vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
     [...document.querySelectorAll<HTMLButtonElement>(".radio-section .playlist-card")].find(button=>button.textContent?.includes("Ogg compatibility fixture"))!.click();await settle();
     expect(mocks.call).toHaveBeenCalledWith("resolve_radio_station_playback_url",expect.objectContaining({stationId:"ogg-live",detailed:true,webviewCapabilities:{oggVorbis:expect.any(Boolean),oggOpus:expect.any(Boolean)}}));
@@ -7658,7 +7725,7 @@ describe("saved recording navigation", () => {
     radioStationState=[{id:"rejected",name:"Rejected transport",streamUrl:"http://stream.example/live",sourceUrl:"https://radio.example",provider:"custom",isCustom:true}];
     const previous=mocks.call.getMockImplementation()!;
     mocks.call.mockImplementation(async(command:string,args?:Record<string,unknown>)=>{if(command==="resolve_radio_station_playback_url")throw new Error("Station redirect resolves to a nonpublic address");return previous(command,args);});
-    const play=vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    const play=vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
     [...document.querySelectorAll<HTMLButtonElement>(".radio-section .playlist-card")].find(button=>button.textContent?.includes("Rejected transport"))!.click();await settle();
     expect(document.body.textContent).toContain("Station redirect resolves to a nonpublic address");
@@ -7671,7 +7738,7 @@ describe("saved recording navigation", () => {
     const previous=mocks.call.getMockImplementation()!;
     let finish!:(url:string)=>void;
     mocks.call.mockImplementation(async(command:string,args?:Record<string,unknown>)=>command==="resolve_radio_station_playback_url" && args?.stationId==="transport"?new Promise<string>(resolve=>{finish=resolve;}):previous(command,args));
-    const play=vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    const play=vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
     const station=(name:string)=>[...document.querySelectorAll<HTMLButtonElement>(".radio-section .playlist-card")].find(button=>button.textContent?.includes(name))!;
     station("Old transport").click();await settle();expect(finish).toBeTypeOf("function");
@@ -7721,7 +7788,7 @@ describe("saved recording navigation", () => {
       { id: "backup", name: "Backup Mix", streamUrl: "https://radio.example/backup", sourceUrl: "https://radio.example", provider: "radio_paradise", isCustom: false },
     ];
     holdRadioIdentify = true;
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -7765,7 +7832,7 @@ describe("saved recording navigation", () => {
     previewMode = "direct";
     radioStationState = [{ id: "main", name: "Main Mix", streamUrl: "https://radio.example/live", sourceUrl: "https://radio.example", provider: "radio_paradise", isCustom: false }];
     mocks.captureRadioPcm.mockRejectedValueOnce(new Error("This WebView cannot capture the currently playing radio audio."));
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -7793,7 +7860,7 @@ describe("saved recording navigation", () => {
       if (command === "poll_radio_station" && rejectBackground) {staleRejections++; throw new Error("Playback changed during station metadata lookup");}
       return original(command, args);
     });
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, {target: document.body}); unmountApp = () => {void unmount(instance);};
     await settle();
     [...document.querySelectorAll<HTMLButtonElement>(".radio-section .playlist-card")].find(button => button.textContent?.includes("Main Mix"))!.click(); await settle();
@@ -7868,7 +7935,7 @@ describe("saved recording navigation", () => {
 
   it("opens selected search-track information and plays that track instead of the current one", async () => {
     previewMode = "direct";
-    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const searchedTrack: Track = {
       ...savedTrack, id: "search-selected", provider: "soundcloud", providerId: "search-selected", title: "Search Selected Song", artist: "Search Artist",
       provenance: { audioCandidate: { ...youtubeCandidate(savedTrack), id: "soundcloud:search-selected", provider: "soundcloud", url: "https://soundcloud.com/search-artist/search-selected", title: "Search Selected Song" } },
@@ -7949,7 +8016,7 @@ describe("saved recording navigation", () => {
   it("searches a selected audio provider and opens a reviewed download without auto-queueing", async () => {
     const candidate = youtubeCandidate(savedTrack);
     audioSearchResult = [{ ...savedTrack, provenance: { audioCandidate: candidate } }];
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -8127,7 +8194,7 @@ describe("saved recording navigation", () => {
   });
 
   it("starts song radio with the exact seed and 25 recommendations without restarting or downloading", async () => {
-    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const recommendations: Track[] = [
       { ...secondTrack, id: "radio-one", title: "Radio One" },
       { ...secondTrack, id: "radio-two", title: "Radio Two" },
@@ -8155,7 +8222,7 @@ describe("saved recording navigation", () => {
   });
 
   it("preserves the current playback and queue when song radio fails", async () => {
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     songRadioFailure = "YouTube radio is unavailable";
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
@@ -8193,7 +8260,7 @@ describe("saved recording navigation", () => {
   it("does not open a stale A result after the user selects B", async () => {
     previewMode = "race";
     delayPlaybackTrackId = savedTrack.id;
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     savedChartTracks = [savedTrack, secondTrack];
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
@@ -8214,10 +8281,11 @@ describe("saved recording navigation", () => {
 
   it.each([1, 2])("recovers WebView buffering only with current data after a seek (readyState %i)", async (readyState) => {
     previewMode = "direct";
-    vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(readyState);
+    let mediaReadyState = 2;
+    vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockImplementation(() => mediaReadyState);
     vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(240);
     vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockReturnValue(false);
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
     let clock = 1000;
     vi.spyOn(performance, "now").mockImplementation(() => clock);
@@ -8226,6 +8294,7 @@ describe("saved recording navigation", () => {
     await settle();
     [...document.querySelectorAll<HTMLLIElement>(".shared-track-list > li")].find(row => row.textContent?.includes("Saved Recording"))!.click();
     await settle();
+    mediaReadyState = readyState;
     const audio = document.querySelector("audio")!;
     audio.dispatchEvent(new Event("playing"));
     audio.dispatchEvent(new Event("waiting"));
@@ -8278,7 +8347,7 @@ describe("saved recording navigation", () => {
     const startedAt: number[] = [];
     vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(function(this: HTMLMediaElement) {
       startedAt.push(this.currentTime);
-      return Promise.resolve();
+      return playAndAdvanceMediaClock.call(this);
     });
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
     automationPlaybackAck = { protocolVersion: 1, accepted: true, needFull: false };
@@ -8375,7 +8444,7 @@ describe("saved recording navigation", () => {
     vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(2);
     vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(240);
     vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockReturnValue(false);
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(function(this: HTMLMediaElement) { this.currentTime += 0.3; return Promise.resolve(); });
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
@@ -8422,7 +8491,7 @@ describe("saved recording navigation", () => {
     vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(2);
     vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(240);
     vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockReturnValue(false);
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
@@ -8451,7 +8520,7 @@ describe("saved recording navigation", () => {
     vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(2);
     vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(240);
     vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockReturnValue(false);
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
@@ -8502,6 +8571,7 @@ describe("saved recording navigation", () => {
     expect(mocks.call.mock.calls.filter(([command]) => command === "resolve_playback_track")).toHaveLength(0);
 
     finishPlay();
+    playAndAdvanceMediaClock.call(audio);
     await settle();
     expect(armWatchdog).toHaveBeenCalledTimes(1);
     expect(document.querySelector(".player-status")?.textContent).toMatch(/^Playing/);
@@ -8527,7 +8597,7 @@ describe("saved recording navigation", () => {
     vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(2);
     vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(240);
     vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockImplementation(() => mediaPaused);
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
@@ -8565,7 +8635,8 @@ describe("saved recording navigation", () => {
     vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(240);
     vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockReturnValue(false);
     vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(function(this: HTMLMediaElement) {
-      if (++plays === 2) this.currentTime = 0; // Simulate a source that accepted the seek but reset at play().
+      if (++plays === 1) return playAndAdvanceMediaClock.call(this);
+      if (plays === 2) this.currentTime = 0; // Simulate a source that accepted the seek but reset at play().
       return Promise.resolve();
     });
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
@@ -8605,7 +8676,7 @@ describe("saved recording navigation", () => {
     vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockReturnValue(false);
     vi.spyOn(HTMLMediaElement.prototype, "seeking", "get").mockImplementation(() => plays >= 2 && mode === "seeking-frozen");
     vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(function(this: HTMLMediaElement) {
-      ++plays;
+      if (++plays === 1) return playAndAdvanceMediaClock.call(this);
       return plays >= 2 && mode === "pending-progress" ? new Promise<void>(() => {}) : Promise.resolve();
     });
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
@@ -8653,7 +8724,7 @@ describe("saved recording navigation", () => {
     vi.spyOn(HTMLMediaElement.prototype,"paused","get").mockReturnValue(false);
     let mediaSeeking=false;
     vi.spyOn(HTMLMediaElement.prototype,"seeking","get").mockImplementation(()=>mediaSeeking);
-    vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
     const descriptor=Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype,"currentTime")!;
     const seekWrites:number[]=[];
@@ -8677,7 +8748,7 @@ describe("saved recording navigation", () => {
     savedChartTracks = [{ ...savedTrack, durationSeconds: 347 }];
     automationPlaybackAck = { protocolVersion: 1, accepted: true, needFull: false };
     vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(35.5);
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
     const writes: number[] = [];
     const descriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "currentTime")!;
@@ -8704,7 +8775,7 @@ describe("saved recording navigation", () => {
     directPreviewExcerpt = true;
     savedChartTracks = [{ ...savedTrack, durationSeconds: 347 }];
     vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(30);
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -8720,8 +8791,9 @@ describe("saved recording navigation", () => {
     vi.spyOn(HTMLMediaElement.prototype,"readyState","get").mockReturnValue(2);
     vi.spyOn(HTMLMediaElement.prototype,"duration","get").mockReturnValue(mediaDuration);
     vi.spyOn(HTMLMediaElement.prototype,"paused","get").mockReturnValue(false);
-    vi.spyOn(HTMLMediaElement.prototype,"seeking","get").mockReturnValue(true);
-    vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    let isSeeking = false;
+    vi.spyOn(HTMLMediaElement.prototype,"seeking","get").mockImplementation(() => isSeeking);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
     const descriptor=Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype,"currentTime")!;
     const writes:number[]=[];
@@ -8753,7 +8825,7 @@ describe("saved recording navigation", () => {
     vi.spyOn(HTMLMediaElement.prototype,"readyState","get").mockReturnValue(2);
     vi.spyOn(HTMLMediaElement.prototype,"duration","get").mockReturnValue(240);
     vi.spyOn(HTMLMediaElement.prototype,"paused","get").mockReturnValue(false);
-    vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
     const complete=vi.spyOn(WebviewSeekCompletionWatchdog.prototype,"complete");
     const instance=mount(App,{target:document.body}); unmountApp=()=>{void unmount(instance);}; await settle();
@@ -8775,7 +8847,7 @@ describe("saved recording navigation", () => {
     vi.spyOn(HTMLMediaElement.prototype,"readyState","get").mockReturnValue(4);
     vi.spyOn(HTMLMediaElement.prototype,"duration","get").mockReturnValue(155.364716553);
     vi.spyOn(HTMLMediaElement.prototype,"paused","get").mockReturnValue(false);
-    vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
     const complete=vi.spyOn(WebviewSeekCompletionWatchdog.prototype,"complete");
     const instance=mount(App,{target:document.body}); unmountApp=()=>{void unmount(instance);}; await settle();
@@ -8805,12 +8877,14 @@ describe("saved recording navigation", () => {
     vi.spyOn(HTMLMediaElement.prototype,"readyState","get").mockReturnValue(2);
     vi.spyOn(HTMLMediaElement.prototype,"duration","get").mockReturnValue(5_400);
     vi.spyOn(HTMLMediaElement.prototype,"paused","get").mockImplementation(()=>mediaNodePaused);
-    vi.spyOn(HTMLMediaElement.prototype,"seeking","get").mockReturnValue(true);
-    vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    let isSeeking = false;
+    vi.spyOn(HTMLMediaElement.prototype,"seeking","get").mockImplementation(() => isSeeking);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
     expect((await automationAction("native-handoff-start","play",{trackIds:[track.id,secondTrack.id]})).error).toBeNull();
     const audio=document.querySelector("audio")!;audio.currentTime=12;audio.dispatchEvent(new Event("timeupdate"));await settle();
+    isSeeking = true;
     expect((await automationAction("native-handoff-seek","seek",{position:1_800})).error).toBeNull();
     const existingResolutionCount=mocks.call.mock.calls.filter(([command])=>command==="resolve_playback_track").length;
     mediaNodePaused=true; // Browsers can pause the element after a media error while playback intent remains active.
@@ -8903,12 +8977,14 @@ describe("saved recording navigation", () => {
     vi.spyOn(HTMLMediaElement.prototype,"readyState","get").mockReturnValue(2);
     vi.spyOn(HTMLMediaElement.prototype,"duration","get").mockReturnValue(5_400);
     vi.spyOn(HTMLMediaElement.prototype,"paused","get").mockReturnValue(false);
-    vi.spyOn(HTMLMediaElement.prototype,"seeking","get").mockReturnValue(true);
-    vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    let isSeeking = false;
+    vi.spyOn(HTMLMediaElement.prototype,"seeking","get").mockImplementation(() => isSeeking);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
     expect((await automationAction("handoff-race-start","play",{trackIds:[track.id]})).error).toBeNull();
     const audio=document.querySelector("audio")!;audio.currentTime=10;audio.dispatchEvent(new Event("timeupdate"));await settle();
+    isSeeking = true;
     expect((await automationAction("handoff-race-seek","seek",{position:1_800})).error).toBeNull();
     await vi.advanceTimersByTimeAsync(4_999);await settle();
     expect(mocks.call).not.toHaveBeenCalledWith("handoff_webview_playback",expect.anything());
@@ -8936,7 +9012,7 @@ describe("saved recording navigation", () => {
     vi.spyOn(HTMLMediaElement.prototype,"readyState","get").mockReturnValue(2);
     vi.spyOn(HTMLMediaElement.prototype,"duration","get").mockReturnValue(240);
     vi.spyOn(HTMLMediaElement.prototype,"paused","get").mockImplementation(()=>mediaPaused);
-    vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
     const begin=vi.spyOn(WebviewSeekCompletionWatchdog.prototype,"begin");
     const resume=vi.spyOn(WebviewSeekCompletionWatchdog.prototype,"resume");
@@ -8966,7 +9042,7 @@ describe("saved recording navigation", () => {
     vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(2);
     vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(240);
     vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockReturnValue(false);
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
@@ -9014,7 +9090,7 @@ describe("saved recording navigation", () => {
     vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockReturnValue(false);
     vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(function(this: HTMLMediaElement) {
       if (++plays === 2) { clock += 2_000; this.currentTime = 8; }
-      return Promise.resolve();
+      return playAndAdvanceMediaClock.call(this);
     });
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
     const instance = mount(App, { target: document.body });
@@ -9051,7 +9127,10 @@ describe("saved recording navigation", () => {
     vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(2);
     vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(240);
     vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockReturnValue(false);
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(() => { plays++; return Promise.resolve(); });
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(function(this: HTMLMediaElement) {
+      plays++;
+      return playAndAdvanceMediaClock.call(this);
+    });
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
@@ -9102,7 +9181,7 @@ describe("saved recording navigation", () => {
       if (this.getAttribute("src") === url) atAttach.push(this.getAttribute("crossorigin"));
       originalLoad.call(this);
     });
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -9115,7 +9194,7 @@ describe("saved recording navigation", () => {
 
   it("plays a cached direct preview before searching provider candidates", async () => {
     previewMode = "direct";
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -9134,7 +9213,7 @@ describe("saved recording navigation", () => {
     const hint: Candidate = { ...youtubeCandidate(savedTrack), confidence: "low", score: 0.1 };
     savedChartTracks = [{ ...savedTrack, provenance: { sourceKind: "audioSearch", audioCandidate: hint } }];
     playbackResolverCandidate = { ...hint, confidence: "high", score: 0.99 };
-    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -9218,11 +9297,11 @@ describe("saved recording navigation", () => {
     afterPlaybackResolver = () => { clock = 20_900; };
     let finishPlay: (() => void) | undefined;
     let playCalls = 0;
-    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(() => {
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(function(this: HTMLMediaElement) {
       playCalls++;
       return playCalls === 1
         ? new Promise<void>((resolve) => { finishPlay = resolve; })
-        : Promise.resolve();
+        : playAndAdvanceMediaClock.call(this);
     });
     const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
     const instance = mount(App, { target: document.body });
@@ -9259,7 +9338,7 @@ describe("saved recording navigation", () => {
     let clock = 1_000;
     vi.spyOn(performance, "now").mockImplementation(() => clock);
     afterPreviewResolve = () => { clock = 21_000; };
-    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -9277,7 +9356,7 @@ describe("saved recording navigation", () => {
     let clock = 1_000;
     vi.spyOn(performance, "now").mockImplementation(() => clock);
     afterPlaybackResolver = () => { clock = 21_000; };
-    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -9317,7 +9396,7 @@ describe("saved recording navigation", () => {
     retry.focus();
     expect(document.activeElement).toBe(retry);
 
-    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     playbackResolverFailure = "";
     retry.click();
     await settle();
@@ -9329,7 +9408,7 @@ describe("saved recording navigation", () => {
   it("cancels a pending shared playback resolution before it can start stale audio", async () => {
     previewMode = "fallback";
     delayPlaybackTrackId = savedTrack.id;
-    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -9355,7 +9434,7 @@ describe("saved recording navigation", () => {
     savedChartTracks=[savedTrack];
     nativePlaybackSnapshot=makeNativeSnapshot({engine:"webview",status:"idle"});
     playbackResolverResultOverride=(args?:Record<string,unknown>)=>({transport:"native",sourceHandle:"opaque-native-source-handle",sourceGeneration:Number(args?.requestGeneration)});
-    const play=vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    const play=vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
     expect((await automationAction("native-resolved-start","play",{trackIds:[savedTrack.id]})).error).toBeNull();
     await settle();
@@ -9379,7 +9458,7 @@ describe("saved recording navigation", () => {
     savedChartTracks=[savedTrack];
     nativePlaybackSnapshot=makeNativeSnapshot({engine:"webview",status:"idle"});
     delayPlaybackTrackId=savedTrack.id;
-    const play=vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    const play=vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
     eventHandlers.get("automation-playback")!({event:"automation-playback",id:Date.now(),payload:{requestId:"native-resolved-stale-start",action:"play",trackIds:[savedTrack.id]}});
     await settle();
@@ -9401,13 +9480,20 @@ describe("saved recording navigation", () => {
     playbackResolverCandidates = [0,1,2].map(index => ({ ...youtubeCandidate(savedTrack), id: `youtube:recovery-${index}` }));
     let clock = 1000;
     vi.spyOn(performance,"now").mockImplementation(() => clock);
-    vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App,{target:document.body}); unmountApp=()=>{void unmount(instance);}; await settle();
     [...document.querySelectorAll(".shared-track-list > li")].find(row=>row.textContent?.includes("Saved Recording"))!.dispatchEvent(new MouseEvent("click",{bubbles:true})); await settle();
     let audio=document.querySelector("audio")!;
     clock += mode!=="short" ? 6000 : 2000;
     audio.currentTime += mode!=="short" ? 6 : 2;
-    if(mode==="seek") await automationAction("recovery-new-seek","seek",{position:audio.currentTime});
+    if(mode==="seek") {
+      const seekTarget = audio.currentTime + 0.5;
+      await automationAction("recovery-new-seek","seek",{position:seekTarget});
+      audio.dispatchEvent(new Event("seeking"));
+      audio.currentTime = seekTarget;
+      audio.dispatchEvent(new Event("seeked"));
+      await settle();
+    }
     audio.dispatchEvent(new Event("error")); await settle();
     let calls=mocks.call.mock.calls.filter(([command])=>command==="resolve_playback_track");
     expect(calls).toHaveLength(2);
@@ -9527,13 +9613,13 @@ describe("saved recording navigation", () => {
     vi.spyOn(HTMLMediaElement.prototype,"readyState","get").mockReturnValue(2);
     vi.spyOn(HTMLMediaElement.prototype,"paused","get").mockReturnValue(false);
     vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
-    const starts:number[]=[];vi.spyOn(HTMLMediaElement.prototype,"play").mockImplementation(function(this:HTMLMediaElement){starts.push(this.currentTime);return Promise.resolve();});
+    const starts:number[]=[];vi.spyOn(HTMLMediaElement.prototype,"play").mockImplementation(function(this:HTMLMediaElement){starts.push(this.currentTime);return playAndAdvanceMediaClock.call(this);});
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
     document.querySelector<HTMLButtonElement>('[aria-label="Play Saved Recording"]')!.click();await settle();
     const original=document.querySelector("audio")!;clock+=60_000;original.currentTime=60;
     Object.defineProperty(original,"error",{configurable:true,value:{code:2,message:"Network error"}});
     original.dispatchEvent(new Event("error"));await settle();
-    const refreshed=document.querySelector("audio")!;expect(refreshed.currentTime).toBe(60);
+    const refreshed=document.querySelector("audio")!;expect(refreshed.currentTime).toBe(60.3);
     refreshed.currentTime=60.3;clock+=25;await vi.advanceTimersByTimeAsync(25);await settle();
     expect(starts).toEqual([0,60]);
     const calls=mocks.call.mock.calls.filter(([command])=>command==="resolve_playback_track");
@@ -9556,7 +9642,7 @@ describe("saved recording navigation", () => {
       }
       return base(command, args);
     });
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
@@ -9590,7 +9676,7 @@ describe("saved recording navigation", () => {
       if(command==="resolve_playback_track") (result as any).preview.sourceHeaderPolicy={headerCount:2,authorization:true,cookie:false,referer:false,origin:false,userAgent:false,other:true,unsafe:"Bearer secret-value"};
       return result;
     });
-    vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
     [...document.querySelectorAll(".shared-track-list > li")].find(row=>row.textContent?.includes("Saved Recording"))!.dispatchEvent(new MouseEvent("click",{bubbles:true}));await settle();
     document.querySelector("audio")!.dispatchEvent(new Event("error"));await settle();
@@ -9605,7 +9691,7 @@ describe("saved recording navigation", () => {
 
   it("keeps the attached relay registration alive through automation pause and paused seek", async () => {
     savedChartTracks=[savedTrack];previewMode="fallback";
-    vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
     const original=mocks.call.getMockImplementation()!;
     let registeredGeneration:number|null=null, relayRetired=false;
@@ -9632,7 +9718,7 @@ describe("saved recording navigation", () => {
   async function loadedResumeFixture() {
     savedChartTracks=[savedTrack,secondTrack];
     previewMode="fallback";automationPlaybackAck={protocolVersion:1,accepted:true,needFull:false};
-    const play=vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    const play=vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const pause=vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
     [...document.querySelectorAll(".shared-track-list > li")].find(row=>row.textContent?.includes("Saved Recording"))!.dispatchEvent(new MouseEvent("click",{bubbles:true}));await settle();
@@ -9735,7 +9821,7 @@ describe("saved recording navigation", () => {
   it("tries another plausible audio result when the first source fails", async () => {
     previewMode = "alternates";
     playbackResolverCandidates = [youtubeCandidate(savedTrack), { ...youtubeCandidate(savedTrack), id: `youtube-alt:${savedTrack.id}` }];
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -9762,7 +9848,7 @@ describe("saved recording navigation", () => {
     let clock = 1_000;
     vi.spyOn(performance, "now").mockImplementation(() => clock);
     afterPlaybackResolver = () => { clock = 14_000; };
-    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -9785,9 +9871,9 @@ describe("saved recording navigation", () => {
     const alternate = { ...youtubeCandidate(savedTrack), id: "youtube:working-alternate" };
     playbackResolverCandidates = [first, alternate];
     let playCalls = 0;
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(() => {
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(function(this: HTMLMediaElement) {
       playCalls++;
-      return playCalls === 1 ? new Promise<void>(() => {}) : Promise.resolve();
+      return playCalls === 1 ? new Promise<void>(() => {}) : playAndAdvanceMediaClock.call(this);
     });
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
     const instance = mount(App, { target: document.body });
@@ -9817,7 +9903,7 @@ describe("saved recording navigation", () => {
     savedChartTracks = [song];
     radioStationState = [{ id: "main", name: "Origin station", streamUrl: "https://radio.example/live",
       sourceUrl: "https://radio.example", provider: "custom", isCustom: true }];
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -9837,7 +9923,7 @@ describe("saved recording navigation", () => {
 
   it("discovers an alternative when cached audio fails after playback starts", async () => {
     previewMode = "direct";
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -11016,7 +11102,7 @@ describe("native playback frontend", () => {
       chapters: [{ id: "part", title: "Middle", startTime: 72, endTime: 102, confidence: "review" }],
     };
     savedChartTracks = [parent];
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -11045,7 +11131,7 @@ describe("native playback frontend", () => {
     const parent = { ...savedTrack, title: "Full Set", sourceUrl, durationSeconds: 240, provenance: { audioCandidate: candidate } };
     playbackResolverCandidate = candidate;
     savedChartTracks = [parent];
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
@@ -11362,7 +11448,7 @@ describe("native playback frontend", () => {
     previewMode = "direct";
     webviewSourceGeneration = 82;
     holdWebviewIdentify = true;
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -11392,7 +11478,7 @@ describe("native playback frontend", () => {
     previewMode = "direct";
     webviewSourceGeneration = 73;
     webviewIdentifyResult = { trackId: savedTrack.id, title: "Live Performance", artist: "Recognized Artist" };
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -11413,7 +11499,7 @@ describe("native playback frontend", () => {
   it("identifies progressive WebView samples and stops after the first match", async () => {
     previewMode = "direct";
     webviewSourceGeneration = 73;
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const originalCall = mocks.call.getMockImplementation()!;
     let attempts = 0;
     mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
@@ -11463,7 +11549,7 @@ describe("native playback frontend", () => {
     };
     const track: Track = { ...chapterTrack, provenance: { sourceKind: "audioSearch", audioCandidate: chapterCandidate } };
     savedChartTracks = [track];
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -11505,7 +11591,7 @@ describe("native playback frontend", () => {
       playbackRange: { parentTrackId: "concert-set", chapterId: "song-from-concert", sourceUrl: "https://youtube.com/watch?v=concert12345", startTime: 120, endTime: 158, parentTitle: "Concert Set" },
     };
     savedChartTracks = [chapterTrack];
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -11524,9 +11610,9 @@ describe("native playback frontend", () => {
     previewMode="direct";automationPlaybackAck={protocolVersion:1,accepted:true,needFull:false};
     const local=new Map<string,string>([["burrata.playback-queue.v1",JSON.stringify({tracks:[savedTrack,savedTrack],currentIndex:0,repeat:"off"})]]);
     vi.stubGlobal("localStorage",{getItem:(key:string)=>local.get(key)??null,setItem:(key:string,value:string)=>local.set(key,value),removeItem:(key:string)=>local.delete(key)});
-    vi.spyOn(HTMLMediaElement.prototype,"readyState","get").mockReturnValue(1);
+    vi.spyOn(HTMLMediaElement.prototype,"readyState","get").mockReturnValue(4);
     vi.spyOn(HTMLMediaElement.prototype,"duration","get").mockReturnValue(240);
-    const starts:number[]=[];vi.spyOn(HTMLMediaElement.prototype,"play").mockImplementation(function(this:HTMLMediaElement){starts.push(this.currentTime);return Promise.resolve();});
+    const starts:number[]=[];vi.spyOn(HTMLMediaElement.prototype,"play").mockImplementation(function(this:HTMLMediaElement){starts.push(this.currentTime);return playAndAdvanceMediaClock.call(this);});
     vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
     await automationAction("duplicate-first-resume","resume");await settle();
@@ -11544,8 +11630,8 @@ describe("native playback frontend", () => {
     const chapter:Track={...savedTrack,id:"repeat-chapter",playbackRange:{parentTrackId:"parent-set",chapterId:"chapter-a",sourceUrl:"https://example.test/set",startTime:10,endTime:25,parentTitle:"Set"}};
     const local=new Map<string,string>([["burrata.playback-queue.v1",JSON.stringify({tracks:[chapter,chapter],currentIndex:0,repeat:"off"})],["burrata.playback-position.v1",JSON.stringify({trackId:chapter.id,position:20,savedAt:Date.now()})]]);
     vi.stubGlobal("localStorage",{getItem:(key:string)=>local.get(key)??null,setItem:(key:string,value:string)=>local.set(key,value),removeItem:(key:string)=>local.delete(key)});
-    vi.spyOn(HTMLMediaElement.prototype,"readyState","get").mockReturnValue(1);vi.spyOn(HTMLMediaElement.prototype,"duration","get").mockReturnValue(240);
-    const starts:number[]=[];vi.spyOn(HTMLMediaElement.prototype,"play").mockImplementation(function(this:HTMLMediaElement){starts.push(this.currentTime);return Promise.resolve();});vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
+    vi.spyOn(HTMLMediaElement.prototype,"readyState","get").mockReturnValue(4);vi.spyOn(HTMLMediaElement.prototype,"duration","get").mockReturnValue(240);
+    const starts:number[]=[];vi.spyOn(HTMLMediaElement.prototype,"play").mockImplementation(function(this:HTMLMediaElement){starts.push(this.currentTime);return playAndAdvanceMediaClock.call(this);});vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
     document.querySelector<HTMLButtonElement>('[aria-label="Show playback queue and chapters"]')!.click();await settle();
     const rows=document.querySelectorAll<HTMLElement>('.queue-list article');expect(rows).toHaveLength(2);rows[1]!.querySelector<HTMLButtonElement>('.track-select')!.click();await settle();
@@ -11556,8 +11642,8 @@ describe("native playback frontend", () => {
     previewMode="direct";
     const local=new Map<string,string>([["burrata.playback-queue.v1",JSON.stringify({tracks:[savedTrack],currentIndex:0,repeat:"off"})],["burrata.playback-position.v1",JSON.stringify({trackId:savedTrack.id,position:61.25,savedAt:Date.now()})]]);
     vi.stubGlobal("localStorage",{getItem:(key:string)=>local.get(key)??null,setItem:(key:string,value:string)=>local.set(key,value),removeItem:(key:string)=>local.delete(key)});
-    vi.spyOn(HTMLMediaElement.prototype,"readyState","get").mockReturnValue(1);vi.spyOn(HTMLMediaElement.prototype,"duration","get").mockReturnValue(240);
-    const starts:number[]=[];vi.spyOn(HTMLMediaElement.prototype,"play").mockImplementation(function(this:HTMLMediaElement){starts.push(this.currentTime);return Promise.resolve();});vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
+    vi.spyOn(HTMLMediaElement.prototype,"readyState","get").mockReturnValue(4);vi.spyOn(HTMLMediaElement.prototype,"duration","get").mockReturnValue(240);
+    const starts:number[]=[];vi.spyOn(HTMLMediaElement.prototype,"play").mockImplementation(function(this:HTMLMediaElement){starts.push(this.currentTime);return playAndAdvanceMediaClock.call(this);});vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
     document.querySelector<HTMLButtonElement>('.play-button')!.click();await settle();expect(starts[starts.length - 1]).toBe(61.25);
   });
@@ -11568,8 +11654,8 @@ describe("native playback frontend", () => {
     const third={...secondTrack,id:"third-after-chapter",title:"Third after chapter"};
     const local=new Map<string,string>([["burrata.playback-queue.v1",JSON.stringify({tracks:[chapter,secondTrack,third],currentIndex:0,repeat:"off"})]]);
     vi.stubGlobal("localStorage",{getItem:(key:string)=>local.get(key)??null,setItem:(key:string,value:string)=>local.set(key,value),removeItem:(key:string)=>local.delete(key)});
-    vi.spyOn(HTMLMediaElement.prototype,"readyState","get").mockReturnValue(1);vi.spyOn(HTMLMediaElement.prototype,"duration","get").mockReturnValue(25);
-    vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
+    vi.spyOn(HTMLMediaElement.prototype,"readyState","get").mockReturnValue(4);vi.spyOn(HTMLMediaElement.prototype,"duration","get").mockReturnValue(25);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
     await automationAction("terminal-chapter-start","resume");await settle();
     const audio=document.querySelector("audio")!;audio.currentTime=25;
@@ -11596,7 +11682,7 @@ describe("native playback frontend", () => {
   it("publishes a queue-free position delta and sends the full duplicate queue after a queue edit", async () => {
     previewMode="direct";
     automationPlaybackAck={protocolVersion:1,accepted:true,needFull:false};
-    vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance=mount(App,{target:document.body});
     unmountApp=()=>{void unmount(instance);};
     await settle();
@@ -11642,7 +11728,7 @@ describe("native playback frontend", () => {
   it("keeps sending full queues when an older native bridge has no playback-state acknowledgement", async () => {
     previewMode="direct";
     automationPlaybackAck=undefined;
-    vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance=mount(App,{target:document.body});
     unmountApp=()=>{void unmount(instance);};
     await settle();
@@ -11666,7 +11752,7 @@ describe("native playback frontend", () => {
     previewMode = "direct";
     webviewSourceGeneration = 73;
     webviewIdentifyResult = { trackId: savedTrack.id, title: "Live Performance", artist: "Recognized Artist", artworkUrl: "https://images.shazam.com/matched-cover.jpg", note: "Matched" };
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -11690,7 +11776,7 @@ describe("native playback frontend", () => {
   it("uses owned Linux output capture when browser media capture is unavailable", async () => {
     vi.spyOn(navigator,"userAgent","get").mockReturnValue("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15");
     previewMode="direct";webviewSourceGeneration=73;
-    vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};
     await settle();(await startWebviewIdentify()).click();await settle();
     expect(mocks.call).toHaveBeenCalledWith("identify_webview_playing_output",expect.objectContaining({trackId:savedTrack.id,generation:73,seekSerial:0,webAudioGraphExpected:false}));
@@ -11700,7 +11786,7 @@ describe("native playback frontend", () => {
   it("passes current-element WebAudio graph ownership to Linux output capture", async () => {
     vi.spyOn(navigator,"userAgent","get").mockReturnValue("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15");
     previewMode="direct";webviewSourceGeneration=74;
-    vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};
     await settle();
     const identify=await startWebviewIdentify();
@@ -11722,7 +11808,7 @@ describe("native playback frontend", () => {
     previewMode = "direct";
     webviewSourceGeneration = 73;
     holdWebviewIdentify = true;
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -11756,7 +11842,7 @@ describe("native playback frontend", () => {
 
   it("completes MCP identification promptly when the user cancels capture and accepts the next request", async () => {
     previewMode="direct";webviewSourceGeneration=73;holdWebviewIdentify=true;
-    vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};
     await settle();await startWebviewIdentify();
     await new Promise(resolve=>setTimeout(resolve,1050));await settle();
@@ -11788,7 +11874,7 @@ describe("native playback frontend", () => {
   it("rejects a stale automation identify event before PCM capture", async () => {
     previewMode = "direct";
     webviewSourceGeneration = 73;
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -11809,7 +11895,7 @@ describe("native playback frontend", () => {
   it("cancels an in-flight captured-audio recognition by nonce and ignores its late result", async () => {
     previewMode = "direct";
     holdWebviewIdentify = true;
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -11830,7 +11916,7 @@ describe("native playback frontend", () => {
   it("discards a WebView identification result after seeking", async () => {
     previewMode = "direct";
     holdWebviewIdentify = true;
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -11849,7 +11935,7 @@ describe("native playback frontend", () => {
   it("discards a WebView identification result after a new playback session starts", async () => {
     previewMode = "direct";
     holdWebviewIdentify = true;
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -11868,7 +11954,7 @@ describe("native playback frontend", () => {
   it("discards a WebView identification result after its source generation changes", async () => {
     previewMode = "direct";
     holdWebviewIdentify = true;
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -11890,7 +11976,7 @@ describe("native playback frontend", () => {
     previewMode = "direct";
     holdWebviewIdentify = true;
     savedChartTracks = [savedTrack, secondTrack];
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
@@ -11921,7 +12007,7 @@ describe("native playback frontend", () => {
       }
       return original(command,args);
     });
-    vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
     if(options.repeat)await automationAction('finite-scan-repeat','repeat',{mode:options.repeat});
     const requestId='initial-unavailable-opener';
@@ -12070,8 +12156,8 @@ describe("native playback frontend", () => {
     }
     const last={...savedTrack,id:"album-success-last",title:"Successful last album recording"};
     savedChartTracks=mode==="end"?[savedTrack,middle]:[savedTrack,middle,last];
-    const play=vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
-    if(mode==="radio") play.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("Radio unavailable"));
+    const play=vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
+    if(mode==="radio") play.mockImplementationOnce(playAndAdvanceMediaClock).mockRejectedValueOnce(new Error("Radio unavailable"));
     vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
     const original=mocks.call.getMockImplementation()!;
     let failHeld: ((error:Error)=>void)|undefined;
@@ -12252,7 +12338,7 @@ describe("native playback frontend", () => {
   });
   it("WebView queue audit bounds consecutive unavailable skips without wrapping into radio",async()=>{
     previewMode="fallback";savedChartTracks=[savedTrack,...Array.from({length:5},(_,i)=>({...secondTrack,id:`failed-${i}`,title:`Unavailable ${i}`}))];
-    vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const original=mocks.call.getMockImplementation()!;
     mocks.call.mockImplementation(async(command:string,args?:Record<string,unknown>)=>{
       if(command==="resolve_playback_track" && (args?.track as Track|undefined)?.id!==savedTrack.id) throw new Error("Video has been deleted");
@@ -12348,7 +12434,7 @@ describe("native playback frontend", () => {
   it("starts one deduplicated WebView queue-radio result after successful natural queue exhaustion", async () => {
     previewMode = "direct";
     holdSongRadio = true;
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const seed = { ...savedTrack, provenance: { sourceKind: "audioSearch", audioCandidate: youtubeCandidate(savedTrack) } };
     const recommendation = { ...secondTrack, id: "webview-natural-radio-result", providerId: "webview-natural-radio-provider", sourceUrl: "https://example.test/webview-natural-radio" };
     savedChartTracks = [seed];
@@ -12380,7 +12466,7 @@ describe("native playback frontend", () => {
   it("does not continue WebView queue radio after automation pauses an ended track", async () => {
     previewMode="direct";
     holdSongRadio=true;
-    vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const seed={...savedTrack,provenance:{sourceKind:"audioSearch",audioCandidate:youtubeCandidate(savedTrack)}};
     const recommendation={...secondTrack,id:"paused-webview-radio-result",providerId:"paused-webview-radio-provider",sourceUrl:"https://example.test/paused-webview-radio"};
     savedChartTracks=[seed];
@@ -12454,7 +12540,7 @@ describe("native playback frontend", () => {
 
   it("discards pending queue radio when the ended WebView track is manually resumed", async () => {
     previewMode = "direct";
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     holdSongRadio = true;
     const seed = { ...savedTrack, provenance: { sourceKind: "audioSearch", audioCandidate: youtubeCandidate(savedTrack) } };
     const recommendation = { ...secondTrack, id: "stale-radio-result", sourceUrl: "https://example.test/stale-radio" };
@@ -12850,7 +12936,7 @@ describe("native playback frontend", () => {
   });
 
   it("starts a clicked track through playback_command without resolving or creating WebView audio", async () => {
-    const mediaPlay=vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    const mediaPlay=vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     mountNative(makeNativeSnapshot());
     await settle();
     mocks.call.mockClear();
@@ -13052,7 +13138,7 @@ describe("resume position persistence", () => {
     let nowValue = 1_000_000;
     vi.spyOn(Date, "now").mockImplementation(() => nowValue);
     savedChartTracks = [savedTrack, secondTrack];
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
     const values = new Map<string, string>();
     let positionWrites = 0;
@@ -13120,7 +13206,7 @@ describe("resume position persistence", () => {
 describe("loaded search continuation playback snapshot", () => {
   it("queues visible sorted loaded rows and keeps that occurrence snapshot through paging and a later query", async () => {
     previewMode = "direct";
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
     const makeTrack = (id: string, title: string, durationSeconds: number): Track => {
       const base = { ...savedTrack, id, title, durationSeconds };
@@ -13187,7 +13273,7 @@ describe("search-only upcoming WebView preparation", () => {
     vi.spyOn(HTMLMediaElement.prototype,"readyState","get").mockReturnValue(2);
     vi.spyOn(HTMLMediaElement.prototype,"duration","get").mockReturnValue(240);
     vi.spyOn(HTMLMediaElement.prototype,"paused","get").mockReturnValue(false);
-    vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
     const original=mocks.call.getMockImplementation()!;
     mocks.call.mockImplementation((command,args)=>command==="warm_playback_candidate_search"?new Promise(()=>{}):original(command,args));
@@ -13219,7 +13305,7 @@ describe("search-only upcoming WebView preparation", () => {
     vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(2);
     vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(240);
     vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockReturnValue(false);
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
     const original = mocks.call.getMockImplementation()!;
     mocks.call.mockImplementation((command, args) => command === "warm_playback_candidate_search" ? new Promise(() => {}) : original(command, args));
@@ -13321,7 +13407,7 @@ describe("search-only upcoming WebView preparation", () => {
   it("queued receipt cancellation from an older job cannot pause replacement playback or consume late source results", async () => {
     previewMode = "fallback";
     savedChartTracks = [savedTrack, secondTrack];
-    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => { });
     let rejectOld!: (reason: Error) => void;
     const original = mocks.call.getMockImplementation()!;
@@ -13362,7 +13448,7 @@ describe("search-only upcoming WebView preparation", () => {
     previewMode="direct";let mediaPaused=true;
     vi.spyOn(HTMLMediaElement.prototype,"paused","get").mockImplementation(()=>mediaPaused);
     vi.spyOn(HTMLMediaElement.prototype,"duration","get").mockReturnValue(240);
-    const play=vi.spyOn(HTMLMediaElement.prototype,"play").mockImplementation(()=>{mediaPaused=false;return Promise.resolve()});
+    const play=vi.spyOn(HTMLMediaElement.prototype,"play").mockImplementation(function(this:HTMLMediaElement){mediaPaused=false;return playAndAdvanceMediaClock.call(this);});
     vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{mediaPaused=true});
     const original=mocks.call.getMockImplementation()!;
     mocks.call.mockImplementation((command,args)=>command==="automation_queued_playback_accept"||command==="automation_queued_playback_update"?Promise.resolve({accepted:true}):original(command,args));
@@ -13388,12 +13474,12 @@ describe("search-only upcoming WebView preparation", () => {
     vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockImplementation(() => mediaPaused);
     vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(240);
     let finishResume!: () => void;
-    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(() => {
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(function(this:HTMLMediaElement) {
       if (play.mock.calls.length === 1) {
         mediaPaused = false;
-        return Promise.resolve();
+        return playAndAdvanceMediaClock.call(this);
       }
-      return new Promise<void>(resolve => { finishResume = () => { mediaPaused = false; resolve(); }; });
+      return new Promise<void>(resolve => { finishResume = () => { mediaPaused = false; playAndAdvanceMediaClock.call(this); resolve(); }; });
     });
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => { mediaPaused = true; });
     const original = mocks.call.getMockImplementation()!;
@@ -13429,7 +13515,7 @@ describe("search-only upcoming WebView preparation", () => {
 
   it.each(["missing", "failed"])("queued receipt preserves established ownership and cancellation when new track loading is %s", async mode => {
     previewMode="direct";savedChartTracks=[savedTrack];
-    vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const pause=vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
     const original=mocks.call.getMockImplementation()!;
     mocks.call.mockImplementation((command,args)=>{
@@ -13545,7 +13631,7 @@ describe("search-only upcoming WebView preparation", () => {
     previewMode = "fallback";
     savedChartTracks = [savedTrack, secondTrack];
     delayPlaybackTrackId = savedTrack.id;
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
     let releaseAck!: (value: { accepted: boolean; retryable: boolean }) => void;
     const original = mocks.call.getMockImplementation()!;
@@ -13575,7 +13661,7 @@ describe("search-only upcoming WebView preparation", () => {
   it("queued publication waits for the selected occurrence after old preview teardown and cancels that wait safely", async () => {
     savedChartTracks = [savedTrack, secondTrack];
     previewMode = "direct";
-    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
     let releaseStop!: () => void;
     const stopping = new Promise<void>(resolve => { releaseStop = resolve; });
     const original = mocks.call.getMockImplementation()!;

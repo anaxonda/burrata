@@ -8220,9 +8220,18 @@ async fn export_playback_diagnostics(
     let os_version: Option<String> = None;
     let helpers = acquisition::check_dependencies(&settings).await.into_iter().map(|dependency| {
         let version = dependency.version.as_deref().and_then(playback_diagnostics::numeric_helper_version);
-        serde_json::json!({"name":dependency.name,"available":dependency.available,"version":version})
+        serde_json::json!({"availabilityState":if dependency.name == "yt-dlp-ejs" { "unknown" } else if dependency.available { "available" } else { "unavailable" },"name":dependency.name,"available":if dependency.name == "yt-dlp-ejs" { None } else { Some(dependency.available) },"version":version})
     }).collect::<Vec<_>>();
-    let report = serde_json::json!({"appVersion":env!("CARGO_PKG_VERSION"),"platform":std::env::consts::OS,"osVersion":os_version,"architecture":std::env::consts::ARCH,"targetTriple":tools::target_triple(),"runtimePlayback":playback_context,"helpers":helpers,"settings":{"matchingLevel":settings.matching_level,"primaryStreamingSource":(["youtube","soundcloud","monochrome"].into_iter().find(|provider| *provider == settings.preferred_streaming_source)),"fallbackEnabled":settings.streaming_fallback_enabled,"fallbackSources":settings.streaming_fallback_sources.iter().filter(|provider| matches!(provider.as_str(),"youtube"|"soundcloud"|"monochrome")).take(3).collect::<Vec<_>>(),"fallbackDelayMs":settings.streaming_fallback_delay_ms,"startupTimeoutSeconds":settings.playback_startup_timeout_seconds,"bandcampFallbackEnabled":settings.bandcamp_fallback_enabled,"overridePlaylistTrackUrls":settings.override_playlist_track_urls},"playback":diagnostics});
+    let configured = |names: &[&str]| names.iter().any(|name| std::env::var_os(name).is_some_and(|value| !value.is_empty()));
+    let network_environment = serde_json::json!({
+        "httpProxyConfigured":configured(&["HTTP_PROXY", "http_proxy"]),
+        "httpsProxyConfigured":configured(&["HTTPS_PROXY", "https_proxy"]),
+        "allProxyConfigured":configured(&["ALL_PROXY", "all_proxy"]),
+        "noProxyConfigured":configured(&["NO_PROXY", "no_proxy"]),
+        "customCaConfigured":configured(&["SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"]),
+        "systemProxyChecked":false, "streamProbesUseProxy":false
+    });
+    let report = serde_json::json!({"diagnosticRevision":2,"networkEnvironment":network_environment,"diagnosticCoverage":{"publicSourcePages":true,"redactedExtractorErrors":true,"streamAuthorizationIndicators":true,"externalComparisons":"not_run"},"appVersion":env!("CARGO_PKG_VERSION"),"platform":std::env::consts::OS,"osVersion":os_version,"architecture":std::env::consts::ARCH,"targetTriple":tools::target_triple(),"runtimePlayback":playback_context,"helpers":helpers,"settings":{"matchingLevel":settings.matching_level,"primaryStreamingSource":(["youtube","soundcloud","monochrome"].into_iter().find(|provider| *provider == settings.preferred_streaming_source)),"fallbackEnabled":settings.streaming_fallback_enabled,"fallbackSources":settings.streaming_fallback_sources.iter().filter(|provider| matches!(provider.as_str(),"youtube"|"soundcloud"|"monochrome")).take(3).collect::<Vec<_>>(),"fallbackDelayMs":settings.streaming_fallback_delay_ms,"startupTimeoutSeconds":settings.playback_startup_timeout_seconds,"bandcampFallbackEnabled":settings.bandcamp_fallback_enabled,"overridePlaylistTrackUrls":settings.override_playlist_track_urls},"playback":diagnostics});
     tauri::async_runtime::spawn_blocking(move || {
         let picked = app
             .dialog()

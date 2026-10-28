@@ -75,6 +75,17 @@ pub(crate) fn project_webview(input: Option<&Value>) -> Option<Value> {
     ) {
         out.insert("status".into(), json!(status));
     }
+    if let Some(observations) = input.get("testerObservations").and_then(Value::as_object) {
+        let mut safe = Map::new();
+        for (key, allowed) in [
+            ("browserPlayback", &["not_tested", "works", "fails"][..]),
+            ("alternateNetworkPlayback", &["not_tested", "works", "fails"][..]),
+            ("vpn", &["unknown", "enabled", "disabled"][..]),
+        ] {
+            if let Some(value) = enum_value(observations.get(key), allowed) { safe.insert(key.into(), json!(value)); }
+        }
+        if !safe.is_empty() { out.insert("testerObservations".into(), Value::Object(safe)); }
+    }
     for key in ["currentTime", "duration", "requestedSeekPosition"] {
         if let Some(value) = bounded_float(input.get(key), 86_400.0) {
             out.insert(key.into(), json!(value));
@@ -85,6 +96,16 @@ pub(crate) fn project_webview(input: Option<&Value>) -> Option<Value> {
         if !ranges.is_empty() {
             out.insert(key.into(), json!(ranges));
         }
+    }
+    if let Some(rows) = input.get("startupOutcomes").and_then(Value::as_array) {
+        let rows = rows.iter().rev().take(32).filter_map(|row| {
+            let attempt = bounded_u64(row.get("attempt"), MAX_COUNTER)?;
+            let elapsed = bounded_u64(row.get("elapsedMs"), MAX_TIMING_MS)?;
+            let outcome = enum_value(row.get("outcome"), &["playing", "failed", "cancelled"])?;
+            let operation = uuid::Uuid::parse_str(row.get("operationId")?.as_str()?).ok()?;
+            Some(json!({"attempt":attempt,"elapsedMs":elapsed,"outcome":outcome,"operationId":operation.to_string()}))
+        }).collect::<Vec<_>>();
+        if !rows.is_empty() { out.insert("startupOutcomes".into(), json!(rows.into_iter().rev().collect::<Vec<_>>())); }
     }
     if let Some(value) = project_startup_failure(input.get("startupFailure")) {
         out.insert("startupFailure".into(), value);
@@ -212,7 +233,7 @@ fn project_startup_failure(value: Option<&Value>) -> Option<Value> {
     let startup = value?.as_object()?;
     let mut safe = Map::new();
     for (key, values) in [
-        ("phase", &["attach", "resume_seek", "play"][..]),
+        ("phase", &["attach", "resume_seek", "play", "clock_progress"][..]),
         (
             "mimeFamily",
             &[
@@ -241,6 +262,15 @@ fn project_startup_failure(value: Option<&Value>) -> Option<Value> {
         if let Some(value) = enum_value(startup.get(key), values) {
             safe.insert(key.into(), json!(value));
         }
+    }
+    if let Some(stages) = startup.get("stageTimings").and_then(Value::as_object) {
+        let mut projected = Map::new();
+        for key in ["attach", "resume_seek", "play", "clock_progress"] {
+            if let Some(value) = bounded_u64(stages.get(key), 60_000) {
+                projected.insert(key.into(), json!(value));
+            }
+        }
+        if !projected.is_empty() { safe.insert("stageTimings".into(), Value::Object(projected)); }
     }
     if let Some(value) = startup.get("resumeRequested").and_then(Value::as_bool) {
         safe.insert("resumeRequested".into(), json!(value));
@@ -345,6 +375,18 @@ pub(crate) fn safe_os_version(value: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn playback_outcomes_keep_operation_correlation_without_free_text() {
+        let id = uuid::Uuid::new_v4().to_string();
+        let safe = project_webview(Some(&json!({"startupOutcomes":[
+            {"attempt":1,"operationId":id,"outcome":"playing","elapsedMs":30,"error":"secret"},
+            {"attempt":2,"operationId":"secret","outcome":"failed","elapsedMs":40}
+        ]}))).unwrap();
+        assert_eq!(safe["startupOutcomes"].as_array().unwrap().len(), 1);
+        assert_eq!(safe["startupOutcomes"][0]["operationId"], id);
+        assert!(!safe.to_string().contains("secret"));
+    }
 
     #[test]
     fn projection_keeps_only_allowlisted_scalar_context() {
@@ -480,4 +522,15 @@ mod tests {
             assert_eq!(safe_os_version(value), None);
         }
     }
+    #[test]
+    fn startup_progress_stage_keeps_bounded_timings_without_source_fields() {
+        let result = project_startup_failure(Some(&json!({
+            "phase":"clock_progress", "stageTimings":{
+                "attach":0, "play":12, "clock_progress":15,
+                "resume_seek":90001, "url":"https://private.invalid/token"
+            }
+        }))).unwrap();
+        assert_eq!(result, json!({"phase":"clock_progress", "stageTimings":{"attach":0,"play":12,"clock_progress":15}}));
+    }
+
 }

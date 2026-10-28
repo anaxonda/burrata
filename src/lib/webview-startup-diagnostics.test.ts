@@ -16,3 +16,38 @@ it('captures bounded media timeline and range state without leaking source strin
  expect(result).toMatchObject({phase:'resume_seek',currentTime:349.4,duration:7202.1,seeking:true,requestedSeekPosition:349.437,bufferedRanges:[[340,360],[7000,7202]],seekableRanges:[[0,7202]],sourceTransport:'loopback-relay'});
  expect(JSON.stringify(result)).not.toMatch(/https?:|token|private/);
 });
+
+import {vi} from 'vitest';
+import {waitForStartupClock, startupStageTimings} from './webview-startup-diagnostics';
+it('does not accept play request until the decoder advances and cancels obsolete attachments', async()=>{
+ vi.useFakeTimers();
+ try {
+  const audio={currentTime:0, paused:false, seeking:false, readyState:2, error:null};
+  let current=true;
+  let done=false;
+  const pending=waitForStartupClock(audio,0,()=>current,performance.now()+1000).then(()=>{done=true;});
+  await vi.advanceTimersByTimeAsync(100); expect(done).toBe(false);
+  audio.currentTime=.3;
+  await vi.advanceTimersByTimeAsync(25); await pending; expect(done).toBe(true);
+  const cancelled=waitForStartupClock(audio,.3,()=>current,performance.now()+1000);
+  const rejection=expect(cancelled).rejects.toThrow('cancelled');
+  current=false; await vi.advanceTimersByTimeAsync(25); await rejection;
+ } finally {vi.useRealTimers();}
+});
+it('fails a stalled clock and records stage timings without source data', async()=>{
+ vi.useFakeTimers();
+ try {
+  const stages=startupStageTimings();stages.mark('attach');
+  await vi.advanceTimersByTimeAsync(50);stages.mark('play');
+  expect(stages.snapshot()).toEqual({attach:0,play:50});
+  const pending=waitForStartupClock({currentTime:0,paused:false,seeking:false,readyState:2,error:null},0,()=>true,performance.now()+50);
+  const rejection=expect(pending).rejects.toThrow('deadline');
+  await vi.advanceTimersByTimeAsync(50);await rejection;
+ } finally {vi.useRealTimers();}
+});
+
+it('accepts a short final resume only after that source reaches its end', async()=>{
+ const audio={currentTime:10, duration:10, ended:true, paused:true, seeking:false, readyState:2, error:null};
+ await expect(waitForStartupClock(audio,9.9,()=>true,performance.now()+100)).resolves.toBeUndefined();
+ await expect(waitForStartupClock(audio,10,()=>true,performance.now())).rejects.toThrow('deadline');
+});

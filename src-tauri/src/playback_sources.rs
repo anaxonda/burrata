@@ -213,6 +213,8 @@ pub(crate) struct SourceTrace {
     shared_lookup_id: Option<uuid::Uuid>,
     event_provider: Option<&'static str>,
     extraction_attempts: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    pub(crate) skip_youtube_forbidden_retry: bool,
+    recovery_attempts: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     catalog_duration_enriched: bool,
     catalog_artist_variants: Vec<String>,
     #[cfg(test)]
@@ -246,6 +248,8 @@ impl SourceTrace {
             shared_lookup_id: None,
             event_provider: None,
             extraction_attempts: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            skip_youtube_forbidden_retry: false,
+            recovery_attempts: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             catalog_duration_enriched: false,
             catalog_artist_variants: Vec::new(),
             #[cfg(test)]
@@ -277,6 +281,14 @@ impl SourceTrace {
                 |used| (used < 2).then_some(used + 1),
             )
             .is_ok()
+    }
+
+    fn try_spend_recovery(&self) -> bool {
+        self.recovery_attempts.fetch_update(
+            std::sync::atomic::Ordering::AcqRel,
+            std::sync::atomic::Ordering::Acquire,
+            |used| (used < 1).then_some(used + 1),
+        ).is_ok()
     }
 
     pub(crate) fn extraction_attempts_used(&self) -> usize {
@@ -311,7 +323,8 @@ impl SourceTrace {
             return;
         }
         // Callers supply bounded categorical enums, counts, timings and booleans.
-        // Never record source URLs, titles, IDs, subprocess arguments or errors.
+        // Public page URLs and closed-vocabulary error summaries pass the export sanitizer.
+        // Never record stream URLs, titles, credentials, arguments or raw errors.
         let payload = self.payload(phase, provider, details);
         if crate::playback_diagnostics::is_enabled() {
             crate::playback_diagnostics::record_safe_event(payload.clone());
@@ -2082,7 +2095,7 @@ where
         return Ok(None);
     }
     let started = Instant::now();
-    trace.event("direct_youtube_start", "youtube", json!({"budgetMs":opportunity.remaining().as_millis(),"attemptsUsed":trace.extraction_attempts_used(),"sourceFingerprint":source_diagnostic_fingerprint(candidate)}));
+    trace.event("direct_youtube_start", "youtube", json!({"youtubeClient":"visionos","budgetMs":opportunity.remaining().as_millis(),"attemptsUsed":trace.extraction_attempts_used(),"sourcePageUrl":candidate.url,"sourceFingerprint":source_diagnostic_fingerprint(candidate)}));
     let operation = async {
         let id = candidate
             .id
@@ -2098,7 +2111,7 @@ where
             trace.event(
                 "direct_youtube_failure",
                 "youtube",
-                json!({"code":failure.code,"stage":failure.stage,"httpStatus":failure.http_status,"sourceFingerprint":source_diagnostic_fingerprint(candidate)}),
+                json!({"code":failure.code,"stage":failure.stage,"httpStatus":failure.http_status,"sourcePageUrl":candidate.url,"sourceFingerprint":source_diagnostic_fingerprint(candidate)}),
             );
             if failure.code == "CANCELLED" {
                 "Cancelled".to_owned()
@@ -2140,7 +2153,7 @@ where
         _ = tokio::time::sleep_until(opportunity.instant()) => Err("Direct source opportunity elapsed".to_owned()),
         result = &mut operation => result,
     };
-    trace.event("direct_youtube_end", "youtube", json!({"ok":result.is_ok(),"elapsedMs":started.elapsed().as_millis(),"attemptsUsed":trace.extraction_attempts_used(),"sourceFingerprint":source_diagnostic_fingerprint(candidate)}));
+    trace.event("direct_youtube_end", "youtube", json!({"ok":result.is_ok(),"elapsedMs":started.elapsed().as_millis(),"attemptsUsed":trace.extraction_attempts_used(),"sourcePageUrl":candidate.url,"sourceFingerprint":source_diagnostic_fingerprint(candidate)}));
     if *cancel.borrow() {
         return Err("Cancelled".into());
     }
@@ -2221,6 +2234,7 @@ where
         trace,
         deadline,
         direct_youtube_opportunity_deadline,
+        false,
         resolve,
         validate,
     )
@@ -2261,6 +2275,7 @@ where
         trace,
         deadline,
         direct_youtube_recovery_deadline,
+        true,
         resolve,
         validate,
     )
@@ -2275,6 +2290,7 @@ async fn try_direct_youtube_mapped_with_opportunity<R, RF, V, VF, D>(
     trace: &SourceTrace,
     deadline: PlaybackDeadline,
     opportunity_deadline: D,
+    recovery: bool,
     resolve: R,
     validate: V,
 ) -> Result<Option<acquisition::PreviewAudio>, String>
@@ -2299,10 +2315,12 @@ where
         return Err("Cancelled".into());
     }
     let Some(opportunity) = opportunity_deadline(deadline) else {
+        trace.event("verified_source_transport_recovery_skipped", "youtube", json!({"reason":"insufficient_time"}));
         return Ok(None);
     };
     let stamp = acquisition.playback_provider_stamp("youtube")?;
-    if !trace.try_spend_extraction() {
+    if !(if recovery { trace.try_spend_recovery() } else { trace.try_spend_extraction() }) {
+        trace.event("verified_source_transport_recovery_skipped", "youtube", json!({"reason":"recovery_budget_exhausted"}));
         return Ok(None);
     }
     let started = Instant::now();
@@ -2312,7 +2330,8 @@ where
         json!({
             "budgetMs":opportunity.remaining().as_millis(),
             "attemptsUsed":trace.extraction_attempts_used(),
-            "sourceFingerprint":source_diagnostic_fingerprint_parts("youtube", &anchors.video_id)
+            "recoveryAttemptsUsed":trace.recovery_attempts.load(std::sync::atomic::Ordering::Acquire),
+            "sourcePageUrl":format!("https://www.youtube.com/watch?v={}", anchors.video_id),"youtubeClient":"visionos","sourceFingerprint":source_diagnostic_fingerprint_parts("youtube", &anchors.video_id)
         }),
     );
     let operation = async {
@@ -2328,7 +2347,7 @@ where
                 "youtube",
                 json!({
                     "code":failure.code,"stage":failure.stage,"httpStatus":failure.http_status,
-                    "sourceFingerprint":source_diagnostic_fingerprint_parts("youtube", &anchors.video_id)
+                    "sourcePageUrl":format!("https://www.youtube.com/watch?v={}", anchors.video_id),"youtubeClient":"visionos","sourceFingerprint":source_diagnostic_fingerprint_parts("youtube", &anchors.video_id)
                 }),
             );
             if failure.code == "CANCELLED" {
@@ -2380,7 +2399,8 @@ where
         json!({
             "ok":result.is_ok(),"elapsedMs":started.elapsed().as_millis(),
             "attemptsUsed":trace.extraction_attempts_used(),
-            "sourceFingerprint":source_diagnostic_fingerprint_parts("youtube", &anchors.video_id)
+            "recoveryAttemptsUsed":trace.recovery_attempts.load(std::sync::atomic::Ordering::Acquire),
+            "sourcePageUrl":format!("https://www.youtube.com/watch?v={}", anchors.video_id),"youtubeClient":"visionos","sourceFingerprint":source_diagnostic_fingerprint_parts("youtube", &anchors.video_id)
         }),
     );
     if *cancel.borrow() {
@@ -3408,7 +3428,7 @@ async fn resolve_serial(
             trace.event(
                 "extract_and_validate_start",
                 &provider,
-                json!({"attempt":attempt+1,"sourceFingerprint":source_diagnostic_fingerprint(&candidate),"trackFingerprint":recording_identity_fingerprint(track)}),
+                json!({"attempt":attempt+1,"sourcePageUrl":candidate.url,"sourceFingerprint":source_diagnostic_fingerprint(&candidate),"trackFingerprint":recording_identity_fingerprint(track)}),
             );
             let prepared_alternate = std::sync::Arc::new(std::sync::Mutex::new(None));
             let resolved = async {
@@ -3444,7 +3464,7 @@ async fn resolve_serial(
                     );
                     let identity_ok = proof.is_some();
                     trace.event("full_identity_check", &provider, json!({"ok":identity_ok,
-                        "sourceFingerprint":source_diagnostic_fingerprint(&candidate),
+                        "sourcePageUrl":candidate.url,"sourceFingerprint":source_diagnostic_fingerprint(&candidate),
                         "trackFingerprint":recording_identity_fingerprint(track),
                         "providerIdMatches":audio.resolved_provider_id.as_deref().is_some_and(|id|candidate.id.split_once(':').map(|(_,value)|value)==Some(id)),
                         "resolvedTitlePresent":audio.resolved_title.as_ref().is_some_and(|title|!title.is_empty()),
@@ -3474,7 +3494,7 @@ async fn resolve_serial(
             trace.event(
                 "extract_and_validate_end",
                 &provider,
-                json!({"attempt":attempt+1,"ok":resolved.is_ok(),"sourceFingerprint":source_diagnostic_fingerprint(&candidate),"trackFingerprint":recording_identity_fingerprint(track)}),
+                json!({"attempt":attempt+1,"ok":resolved.is_ok(),"sourcePageUrl":candidate.url,"sourceFingerprint":source_diagnostic_fingerprint(&candidate),"trackFingerprint":recording_identity_fingerprint(track)}),
             );
             match resolved {
                 Ok((audio, proof)) => {
@@ -3641,7 +3661,7 @@ async fn resolve_serial(
                     trace.event(
                         "extract_and_validate_end",
                         &provider,
-                        json!({"attempt":attempt+1,"ok":false,"sourceFingerprint":source_diagnostic_fingerprint(&candidate),"trackFingerprint":recording_identity_fingerprint(track)}),
+                        json!({"attempt":attempt+1,"ok":false,"sourcePageUrl":candidate.url,"sourceFingerprint":source_diagnostic_fingerprint(&candidate),"trackFingerprint":recording_identity_fingerprint(track)}),
                     );
                     failures.record(error);
                 }
@@ -4780,12 +4800,16 @@ async fn validate_or_recover_denied_source(
     trace: &SourceTrace,
     deadline: PlaybackDeadline,
 ) -> Result<acquisition::PreviewAudio, String> {
+    let mut validation_trace = trace.clone();
+    validation_trace.skip_youtube_forbidden_retry = fresh_denied_source_recovery_anchors(
+        track, candidate, &audio, proof, "HTTP 403", pinned, attempt_limit, trace, settings,
+    ).is_some();
     match acquisition
         .validate_playback_audio_traced(
             candidate,
             audio.clone(),
             cancel.clone(),
-            trace.clone(),
+            validation_trace,
             deadline,
         )
         .await
@@ -6046,6 +6070,18 @@ fn linked_candidate_with_bandcamp(track: &Track, bandcamp_enabled: bool) -> Opti
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn recovery_has_one_shared_slot_independent_of_normal_extractions() {
+        let trace = SourceTrace::new(None, None, None);
+        let parallel = trace.clone();
+        assert!(trace.try_spend_extraction());
+        assert!(parallel.try_spend_extraction());
+        assert!(!trace.try_spend_extraction());
+        assert!(trace.try_spend_recovery());
+        assert!(!parallel.try_spend_recovery());
+        assert_eq!(trace.extraction_attempts_used(), 2);
+    }
+
     #[test]
     fn verified_alias_rescore_opens_exact_provisional_caption_without_weakening_restrictions() {
         let track = Track {
