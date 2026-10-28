@@ -1,0 +1,166 @@
+name: Diagnose an installed Linux release artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Source CI run containing the preserved Linux installer
+        type: string
+        required: true
+        default: '40646525793'
+      artifact_name:
+        description: Exact preserved installer artifact name
+        type: string
+        required: true
+        default: debug-installer-linux-x64-64d6c33fba0763bda590d85accd3178dcde26325
+      expected_commit:
+        description: Expected source commit for that artifact
+        type: string
+        required: true
+        default: 64d6c33fba0763bda590d85accd3178dcde26325
+  workflow_call:
+    inputs:
+      source_run_id:
+        description: GitHub Actions run containing the preserved Linux installer
+        type: string
+        required: false
+        default: '40646525793'
+      artifact_name:
+        description: Exact preserved installer artifact name
+        type: string
+        required: false
+        default: debug-installer-linux-x64-64d6c33fba0763bda590d85accd3178dcde26325
+      expected_commit:
+        description: Expected source commit for that artifact
+        type: string
+        required: false
+        default: 64d6c33fba0763bda590d85accd3178dcde26325
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  replay-linux-smoke:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24.21.0'
+          cache: npm
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Install Linux smoke dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dbus-x11 file gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav libayatana-appindicator3-1 libdbus-1-3 libgtk-3-0 libwebkit2gtk-4.1-0 libxdo3 pulseaudio xvfb
+      - run: npm ci
+      - name: Check installed-smoke path handling
+        run: python scripts/release/test_smoke_installed.py
+      - name: Check installed WebView audio smoke protocol
+        run: node --test scripts/release/webview-audio-protocol.test.mjs
+      - name: Verify source run and expected commit
+        id: source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$ARTIFACT_NAME" =~ ^debug-installer-linux-x64-([0-9a-f]{40})$ ]]
+          test "${BASH_REMATCH[1]}" = "$EXPECTED_COMMIT"
+          run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID")"
+          source_repo="$(jq -r '.head_repository.full_name // empty' <<<"$run_json")"
+          source_commit="$(jq -r '.head_sha // empty' <<<"$run_json")"
+          test "$source_repo" = "$GITHUB_REPOSITORY"
+          test "$source_commit" = "$EXPECTED_COMMIT"
+          echo "commit=$source_commit" >> "$GITHUB_OUTPUT"
+      - name: Download the exact preserved Linux installer artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: .cache/diagnose-linux-installer
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+      - name: Select and verify the preserved DEB
+        id: installer
+        shell: bash
+        env:
+          EXPECTED_COMMIT: ${{ steps.source.outputs.commit }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          installers=(.cache/diagnose-linux-installer/*.deb)
+          test "${#installers[@]}" -eq 1 || { echo "Expected exactly one DEB, found ${#installers[@]}" >&2; exit 1; }
+          installer="${installers[0]}"
+          package_version="$(dpkg-deb -f "$installer" Version)"
+          test "$package_version" = '0.1.9' || { echo "Expected Burrata 0.1.9, found $package_version" >&2; exit 1; }
+          mkdir -p .cache/diagnose-linux-result
+          python3 - "$installer" "$package_version" "$SOURCE_RUN_ID" "$EXPECTED_COMMIT" <<'PY'
+          import hashlib, json, os, pathlib, sys
+          path = pathlib.Path(sys.argv[1])
+          digest = hashlib.sha256()
+          with path.open('rb') as stream:
+              for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                  digest.update(chunk)
+          metadata = {
+              "installer": path.name,
+              "sha256": digest.hexdigest(),
+              "packageVersion": sys.argv[2],
+              "sourceRunId": sys.argv[3],
+              "sourceCommit": sys.argv[4],
+              "diagnosticHarnessCommit": os.environ["GITHUB_SHA"],
+          }
+          pathlib.Path('.cache/diagnose-linux-result/installer.sha256').write_text(metadata['sha256'] + '\n')
+          pathlib.Path('.cache/diagnose-linux-result/installer.json').write_text(
+              json.dumps(metadata, indent=2) + '\n', encoding='utf-8')
+          PY
+          echo "path=$installer" >> "$GITHUB_OUTPUT"
+      - name: Replay current installed smoke against the preserved installer
+        id: replay
+        shell: bash
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_COMMIT: ${{ steps.source.outputs.commit }}
+          INSTALLER: ${{ steps.installer.outputs.path }}
+        run: |
+          set -euo pipefail
+          python scripts/release/smoke-installed.py \
+            --installer "$INSTALLER" \
+            --evidence .cache/diagnose-linux-result/smoke-evidence.json \
+            --source-run-id "$SOURCE_RUN_ID" \
+            --source-commit "$SOURCE_COMMIT"
+      - name: Record diagnostic outcome
+        if: always()
+        shell: bash
+        env:
+          REPLAY_OUTCOME: ${{ steps.replay.outcome }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          mkdir -p .cache/diagnose-linux-result
+          python3 - <<'PYOUTCOME'
+          import json, os, pathlib
+          pathlib.Path('.cache/diagnose-linux-result/outcome.json').write_text(json.dumps({
+              "sourceRunId": os.environ["SOURCE_RUN_ID"],
+              "smokeStep": os.environ.get("REPLAY_OUTCOME") or "not-run",
+              "diagnosticHarnessCommit": os.environ["GITHUB_SHA"],
+          }, indent=2) + '\n')
+          PYOUTCOME
+      - name: Upload diagnostic evidence and installer identity
+        if: always() && hashFiles('.cache/diagnose-linux-result/*') != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-installer-diagnostic-${{ inputs.source_run_id }}
+          path: .cache/diagnose-linux-result/*
+          if-no-files-found: ignore
+          retention-days: 14

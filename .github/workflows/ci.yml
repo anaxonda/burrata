@@ -1,11 +1,19 @@
 name: CI
+run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.installed_smoke_replay && 'Installed Linux artifact replay' || 'CI' }}
 
 on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      installed_smoke_replay:
+        description: Replay the preserved v0.1.9 Linux installer without building
+        type: boolean
+        required: false
+        default: false
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -14,6 +22,7 @@ concurrency:
 
 jobs:
   test:
+    if: github.event_name != 'workflow_dispatch' || inputs.installed_smoke_replay != true
     name: Checks (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -171,6 +180,7 @@ jobs:
           retention-days: 14
 
   linux-bundles:
+    if: github.event_name != 'workflow_dispatch' || inputs.installed_smoke_replay != true
     name: Linux configured bundle targets
     runs-on: ubuntu-22.04
     needs: test
@@ -290,3 +300,12 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
           compression-level: 0
+
+  replay-installed-linux:
+    if: github.event_name == 'workflow_dispatch' && inputs.installed_smoke_replay == true
+    name: Replay installed Linux smoke (no build)
+    uses: ./.github/workflows/diagnose-installed-linux.yml
+    with:
+      source_run_id: '40646525793'
+      artifact_name: debug-installer-linux-x64-64d6c33fba0763bda590d85accd3178dcde26325
+      expected_commit: 64d6c33fba0763bda590d85accd3178dcde26325

@@ -55,8 +55,20 @@ async function call(name, args = {}, timeoutMs = MCP_CALL_TIMEOUT_MS) {
 let started = false;
 let gate = null;
 async function inspectMediaSample() {
+  const requestStartedAtMs = performance.now();
   const media = await call('inspect_webview_media');
-  return { media, receivedAtMs: performance.now() };
+  const responseReceivedAtMs = performance.now();
+  return {
+    media: {
+      ...media,
+      rpcTiming: {
+        requestStartedAtMs,
+        responseReceivedAtMs,
+        durationMs: responseReceivedAtMs - requestStartedAtMs,
+      },
+    },
+    receivedAtMs: responseReceivedAtMs,
+  };
 }
 function diagnostics() {
   return {
