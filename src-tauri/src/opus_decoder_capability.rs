@@ -232,7 +232,7 @@ struct ProcessFamilyGuard {
     pid: Option<u32>,
     armed: bool,
     #[cfg(windows)]
-    job: Option<windows_sys::Win32::Foundation::HANDLE>,
+    job: Option<std::os::windows::io::OwnedHandle>,
 }
 
 impl ProcessFamilyGuard {
@@ -258,9 +258,10 @@ impl ProcessFamilyGuard {
             unsafe { libc::kill(-(pid as i32), libc::SIGKILL) };
         }
         #[cfg(windows)]
-        if let Some(job) = self.job {
+        if let Some(job) = self.job.as_ref() {
+            use std::os::windows::io::AsRawHandle;
             unsafe {
-                windows_sys::Win32::System::JobObjects::TerminateJobObject(job, 1);
+                windows_sys::Win32::System::JobObjects::TerminateJobObject(job.as_raw_handle(), 1);
             }
         }
     }
@@ -269,18 +270,15 @@ impl ProcessFamilyGuard {
 impl Drop for ProcessFamilyGuard {
     fn drop(&mut self) {
         self.terminate();
-        #[cfg(windows)]
-        if let Some(job) = self.job.take() {
-            // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE terminates every descendant
-            // still in the job, even when its original parent already exited.
-            unsafe { windows_sys::Win32::Foundation::CloseHandle(job) };
-        }
+        // OwnedHandle closes the Windows job exactly once on drop. The job's
+        // KILL_ON_JOB_CLOSE limit still cleans up descendants when disarmed.
     }
 }
 
 #[cfg(windows)]
-fn create_kill_on_close_job() -> Option<windows_sys::Win32::Foundation::HANDLE> {
+fn create_kill_on_close_job() -> Option<std::os::windows::io::OwnedHandle> {
     use std::mem::size_of;
+    use std::os::windows::io::{FromRawHandle, OwnedHandle};
     use std::ptr::null;
     use windows_sys::Win32::System::JobObjects::{
         CreateJobObjectW, JobObjectExtendedLimitInformation, SetInformationJobObject,
@@ -304,13 +302,50 @@ fn create_kill_on_close_job() -> Option<windows_sys::Win32::Foundation::HANDLE> 
         unsafe { windows_sys::Win32::Foundation::CloseHandle(job) };
         return None;
     }
-    Some(job)
+    // CreateJobObjectW returned an owned handle. Wrap it immediately so all
+    // early returns and async cancellation paths close it through RAII.
+    Some(unsafe { OwnedHandle::from_raw_handle(job) })
 }
 
 #[cfg(windows)]
 #[link(name = "ntdll")]
 unsafe extern "system" {
     fn NtResumeProcess(process_handle: windows_sys::Win32::Foundation::HANDLE) -> i32;
+}
+
+/// Assign a suspended child to its kill-on-close job and resume it. Keep all
+/// temporary raw handles inside this synchronous boundary so none can be held
+/// across an async suspension point.
+#[cfg(windows)]
+fn assign_and_resume_process(job: &std::os::windows::io::OwnedHandle, pid: u32) -> bool {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_QUOTA, PROCESS_SUSPEND_RESUME,
+        PROCESS_TERMINATE,
+    };
+
+    let process = unsafe {
+        OpenProcess(
+            PROCESS_SET_QUOTA
+                | PROCESS_TERMINATE
+                | PROCESS_QUERY_LIMITED_INFORMATION
+                | PROCESS_SUSPEND_RESUME,
+            0,
+            pid,
+        )
+    };
+    if process.is_null() {
+        return false;
+    }
+    let assigned = unsafe {
+        windows_sys::Win32::System::JobObjects::AssignProcessToJobObject(
+            job.as_raw_handle(),
+            process,
+        )
+    } != 0;
+    let resumed = assigned && unsafe { NtResumeProcess(process) } >= 0;
+    unsafe { windows_sys::Win32::Foundation::CloseHandle(process) };
+    resumed
 }
 
 /// Create a process in a kill-on-close job before it can run. Windows starts
@@ -335,10 +370,7 @@ async fn spawn_probe_child(
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        use windows_sys::Win32::System::Threading::{
-            OpenProcess, CREATE_SUSPENDED, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_QUOTA,
-            PROCESS_SUSPEND_RESUME, PROCESS_TERMINATE,
-        };
+        use windows_sys::Win32::System::Threading::CREATE_SUSPENDED;
         let job = create_kill_on_close_job()?;
         command
             .as_std_mut()
@@ -351,10 +383,7 @@ async fn spawn_probe_child(
             .spawn()
         {
             Ok(child) => child,
-            Err(_) => {
-                unsafe { windows_sys::Win32::Foundation::CloseHandle(job) };
-                return None;
-            }
+            Err(_) => return None,
         };
         let mut family = ProcessFamilyGuard::new(child.id());
         family.job = Some(job);
@@ -364,28 +393,13 @@ async fn spawn_probe_child(
             let _ = timeout(CLEANUP_TIMEOUT, child.wait()).await;
             return None;
         };
-        let process = unsafe {
-            OpenProcess(
-                PROCESS_SET_QUOTA
-                    | PROCESS_TERMINATE
-                    | PROCESS_QUERY_LIMITED_INFORMATION
-                    | PROCESS_SUSPEND_RESUME,
-                0,
-                pid,
-            )
-        };
-        if process.is_null() {
-            family.terminate();
-            let _ = child.start_kill();
-            let _ = timeout(CLEANUP_TIMEOUT, child.wait()).await;
-            return None;
-        }
-        let assigned = unsafe {
-            windows_sys::Win32::System::JobObjects::AssignProcessToJobObject(job, process)
-        } != 0;
-        let resumed = assigned && unsafe { NtResumeProcess(process) } >= 0;
-        unsafe { windows_sys::Win32::Foundation::CloseHandle(process) };
-        if !resumed {
+        if !assign_and_resume_process(
+            family
+                .job
+                .as_ref()
+                .expect("probe process family owns its job handle"),
+            pid,
+        ) {
             family.terminate();
             let _ = child.start_kill();
             let _ = timeout(CLEANUP_TIMEOUT, child.wait()).await;
@@ -865,6 +879,22 @@ fn steady_rms(samples: &[f32]) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_process_family_guard_is_send() {
+        fn assert_send<T: Send>(_: T) {}
+        assert_send::<ProcessFamilyGuard>(ProcessFamilyGuard::new(None));
+        let mut command = Command::new("ffmpeg");
+        assert_send(spawn_probe_child(&mut command, std::process::Stdio::null()));
+        assert_send(bounded_command_output(
+            &mut command,
+            MAX_STDOUT_BYTES,
+            MAX_STDERR_BYTES,
+            PROBE_TIMEOUT,
+        ));
+        assert_send(decode_fixture(Path::new("ffmpeg"), FIXTURE_ZERO));
+    }
 
     #[test]
     fn bundled_synthetic_fixture_set_proves_expected_pcm_relationships() {

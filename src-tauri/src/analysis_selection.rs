@@ -457,7 +457,13 @@ mod tests {
         let asset = LocalAsset {
             id: "asset-a".into(),
             recording_id: saved_track.id.clone(),
-            path: audio_path.to_string_lossy().into_owned(),
+            // Registered assets store the canonical native path. macOS tempdir
+            // paths may be exposed as /var/... while canonicalize resolves the
+            // system alias to /private/var/....
+            path: std::fs::canonicalize(&audio_path)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
             hash: original_hash.clone(),
             source_codec: "wav".into(),
             final_codec: "wav".into(),

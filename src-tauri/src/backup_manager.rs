@@ -3826,7 +3826,8 @@ mod tests {
             settings_projection: Default::default(),
         };
         let mut destination_tokens = HashMap::new();
-        destination_tokens.insert(token, seal_restore_root(&destination).unwrap());
+        let canonical_destination = fs::canonicalize(&destination).unwrap();
+        destination_tokens.insert(token, seal_restore_root(&canonical_destination).unwrap());
         PreviewRecord {
             archive,
             _scratch: scratch,
@@ -4005,7 +4006,10 @@ mod tests {
             archive,
             _scratch: scratch,
             preview,
-            destination_tokens: HashMap::from([(token, seal_restore_root(&destination).unwrap())]),
+            destination_tokens: HashMap::from([(
+                token,
+                seal_restore_root(&fs::canonicalize(&destination).unwrap()).unwrap(),
+            )]),
         }
     }
 
@@ -5228,7 +5232,7 @@ mod tests {
             file_name: owned_name.clone(),
             created_at: "2025-01-01T00:00:00Z".into(),
             cadence: "daily".into(),
-            destination: destination.path().to_path_buf(),
+            destination: fs::canonicalize(destination.path()).unwrap(),
         }];
         manager
             .store

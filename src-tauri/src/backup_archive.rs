@@ -992,9 +992,10 @@ mod tests {
     #[test]
     fn archive_round_trip_includes_hash_bound_lyrics_auxiliary_component() {
         let dir = tempfile::tempdir().unwrap();
-        let components = component_files(dir.path());
-        let audio_path = dir.path().join("track.flac");
-        let lyrics_path = dir.path().join("track.lrc");
+        let root = dir.path().canonicalize().unwrap();
+        let components = component_files(&root);
+        let audio_path = root.join("track.flac");
+        let lyrics_path = root.join("track.lrc");
         fs::write(&audio_path, b"audio fixture").unwrap();
         fs::write(&lyrics_path, "[00:01.00] lyric line\n").unwrap();
         let audio_hash = format!("{:x}", Sha256::digest(b"audio fixture"));
@@ -1026,7 +1027,7 @@ mod tests {
             source_path: audio_path,
             expected_sha256: Some(audio_hash),
         };
-        let archive_path = dir.path().join("lyrics.burrata-backup");
+        let archive_path = root.join("lyrics.burrata-backup");
         let cancellation = no_cancel();
         create_archive_with_auxiliary(
             &components,

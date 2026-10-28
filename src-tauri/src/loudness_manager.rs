@@ -1091,7 +1091,10 @@ mod tests {
             .save_asset(&LocalAsset {
                 id: "verification-fixture".into(),
                 recording_id: track.id.clone(),
-                path: path.to_string_lossy().into_owned(),
+                path: std::fs::canonicalize(&path)
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
                 hash: hash.clone(),
                 source_codec: "wav".into(),
                 final_codec: "wav".into(),

@@ -7394,6 +7394,10 @@ mod tests {
 
     fn insert_fixture(data_dir: &Path) -> (String, String, String, String) {
         std::fs::create_dir_all(data_dir).unwrap();
+        // Production path consumers use canonical registered paths. On macOS,
+        // tempfile may return /var/folders/... even though the real path is
+        // /private/var/folders/....
+        let data_dir = std::fs::canonicalize(data_dir).unwrap();
         let library = data_dir.join("burrata.sqlite");
         drop(Store::open(&library).unwrap());
         let music = data_dir.join("Music");
@@ -7673,6 +7677,7 @@ mod tests {
         std::fs::copy(&target_snapshot.library_sqlite, &target_database).unwrap();
         let remapped_root = stage.path().join("restored-media");
         std::fs::create_dir_all(remapped_root.join("Artist/Album")).unwrap();
+        let remapped_root = std::fs::canonicalize(remapped_root).unwrap();
         let current_media_path = PathBuf::from(&current_media);
         let restored_duplicate_media = remapped_root.join("Artist/Album/song.flac");
         std::fs::copy(&incoming_media, &restored_duplicate_media).unwrap();
@@ -8358,6 +8363,7 @@ mod tests {
         let restore_root = tempfile::tempdir().unwrap();
         let remapped_root = restore_root.path().join("new-music");
         std::fs::create_dir_all(remapped_root.join("Artist/Album")).unwrap();
+        let remapped_root = std::fs::canonicalize(remapped_root).unwrap();
         std::fs::write(
             remapped_root.join("Artist/Album/song.flac"),
             b"fixture audio bytes",

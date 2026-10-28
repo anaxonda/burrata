@@ -2447,7 +2447,9 @@ mod lyric_tag_tests {
                     "-i",
                     "anullsrc=r=44100:cl=mono",
                     "-t",
-                    "0.15",
+                    // Leave room for encoder delay and padding so every
+                    // platform FFmpeg build emits complete MPEG frames.
+                    "1.0",
                     "-metadata",
                     "title=Keep original title",
                     "-metadata",
@@ -2469,7 +2471,7 @@ mod lyric_tag_tests {
                 .guess_file_type()
                 .unwrap()
                 .read()
-                .unwrap();
+                .unwrap_or_else(|error| panic!("{extension}: {error}"));
             let retained = prior
                 .tags()
                 .iter()
