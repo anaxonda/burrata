@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Burrata Browser Companion",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Import public music pages and optionally connect your browser session to the local Burrata desktop app.",
   "permissions": [
     "activeTab",
