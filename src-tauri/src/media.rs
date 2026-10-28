@@ -2435,30 +2435,105 @@ mod lyric_tag_tests {
     #[tokio::test]
     async fn lyric_tags_round_trip_without_losing_existing_metadata_in_supported_formats() {
         let dir = tempfile::tempdir().unwrap();
-        for extension in ["flac", "mp3", "m4a", "ogg", "opus", "wav"] {
+        for (extension, encoder, muxer, expected_codec, expected_format) in [
+            ("flac", "flac", "flac", "flac", "flac"),
+            ("mp3", "libmp3lame", "mp3", "mp3", "mp3"),
+            ("m4a", "aac", "mp4", "aac", "mp4"),
+            ("ogg", "vorbis", "ogg", "vorbis", "ogg"),
+            ("opus", "libopus", "opus", "opus", "ogg"),
+            ("wav", "pcm_s16le", "wav", "pcm_s16le", "wav"),
+        ] {
             let path = dir.path().join(format!("fixture.{extension}"));
-            assert!(std::process::Command::new("ffmpeg")
+            let mut ffmpeg = std::process::Command::new("ffmpeg");
+            ffmpeg.args([
+                "-v",
+                "error",
+                "-nostdin",
+                "-f",
+                "lavfi",
+                "-i",
+                "anullsrc=r=44100:cl=mono",
+                "-t",
+                // Leave room for encoder priming and padding so each
+                // platform FFmpeg build emits complete audio packets.
+                "1.0",
+                "-metadata",
+                "title=Keep original title",
+                "-metadata",
+                "comment=Keep comment",
+            ]);
+            if extension == "ogg" {
+                // Homebrew's core FFmpeg intentionally omits libvorbis; its
+                // built-in experimental Vorbis encoder remains available.
+                ffmpeg.args(["-ac", "2", "-strict", "-2"]);
+            }
+            let generated = ffmpeg
+                .args(["-c:a", encoder, "-f", muxer])
+                .arg(&path)
+                .output()
+                .unwrap();
+            assert!(
+                generated.status.success(),
+                "{extension}: FFmpeg could not generate {expected_codec} in {expected_format}: {}",
+                String::from_utf8_lossy(&generated.stderr)
+            );
+            let ffprobe = std::process::Command::new("ffprobe")
                 .args([
                     "-v",
                     "error",
-                    "-nostdin",
-                    "-f",
-                    "lavfi",
-                    "-i",
-                    "anullsrc=r=44100:cl=mono",
-                    "-t",
-                    // Leave room for encoder delay and padding so every
-                    // platform FFmpeg build emits complete MPEG frames.
-                    "1.0",
-                    "-metadata",
-                    "title=Keep original title",
-                    "-metadata",
-                    "comment=Keep comment"
+                    "-select_streams",
+                    "a:0",
+                    "-show_entries",
+                    "stream=codec_name:format=format_name",
+                    "-of",
+                    "json",
                 ])
                 .arg(&path)
-                .status()
-                .unwrap()
-                .success());
+                .output()
+                .unwrap();
+            assert!(
+                ffprobe.status.success(),
+                "{extension}: ffprobe failed: {}",
+                String::from_utf8_lossy(&ffprobe.stderr)
+            );
+            let probe: serde_json::Value = serde_json::from_slice(&ffprobe.stdout).unwrap();
+            let actual_codec = probe["streams"][0]["codec_name"].as_str().unwrap_or("");
+            let actual_format = probe["format"]["format_name"].as_str().unwrap_or("");
+            assert_eq!(
+                actual_codec,
+                expected_codec,
+                "{extension}: expected FFmpeg fixture codec {expected_codec}; ffprobe={}",
+                String::from_utf8_lossy(&ffprobe.stdout)
+            );
+            assert!(
+                actual_format
+                    .split(',')
+                    .any(|format| format == expected_format),
+                "{extension}: expected FFmpeg fixture container {expected_format}; ffprobe={}",
+                String::from_utf8_lossy(&ffprobe.stdout)
+            );
+            let fixture_bytes = std::fs::read(&path).unwrap();
+            let has_expected_magic = match extension {
+                "flac" => fixture_bytes.starts_with(b"fLaC"),
+                "mp3" => {
+                    fixture_bytes.starts_with(b"ID3")
+                        || (fixture_bytes.first() == Some(&0xff)
+                            && fixture_bytes
+                                .get(1)
+                                .is_some_and(|byte| *byte & 0xe0 == 0xe0))
+                }
+                "m4a" => fixture_bytes
+                    .get(4..8)
+                    .is_some_and(|value| value == b"ftyp"),
+                "ogg" | "opus" => fixture_bytes.starts_with(b"OggS"),
+                "wav" => fixture_bytes.starts_with(b"RIFF"),
+                _ => false,
+            };
+            assert!(
+                has_expected_magic,
+                "{extension}: fixture header does not match the expected container; ffprobe={}",
+                String::from_utf8_lossy(&ffprobe.stdout)
+            );
             let pcm_before = std::process::Command::new("ffmpeg")
                 .args(["-v", "error", "-nostdin", "-i"])
                 .arg(&path)

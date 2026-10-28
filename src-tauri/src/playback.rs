@@ -7510,9 +7510,14 @@ mod tests {
     #[test]
     fn refresh_and_preload_adoption_preserve_the_exact_qualified_opus_decoder() {
         let capability = ActiveOpusDecoderCapability {
-            executable_path: std::path::PathBuf::from("/qualified/ffmpeg"),
+            executable_path: if cfg!(windows) {
+                std::path::PathBuf::from(r"C:\qualified\ffmpeg.exe")
+            } else {
+                std::path::PathBuf::from("/qualified/ffmpeg")
+            },
             executable_sha256: "a".repeat(64),
         };
+        assert!(capability.executable_path.is_absolute());
         let refreshed =
             registered_source_with_opus_capability("/music/track.ogg", Some(&capability));
         assert_eq!(refreshed.ffmpeg, capability.executable_path);

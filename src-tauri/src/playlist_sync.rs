@@ -3955,7 +3955,13 @@ fn restored_section_mirror_review(
             .join("Sections")
             .join(format!("{section_id}.m3u8"));
         let relative_path = match path.strip_prefix(&root) {
-            Ok(relative) => relative.to_string_lossy().into_owned(),
+            // This value is a portable relative path shown during cross-device
+            // relinking, so serialize separators independently of the host OS.
+            Ok(relative) => relative
+                .components()
+                .map(|component| component.as_os_str().to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+                .join("/"),
             Err(_) => continue,
         };
         let basename = format!("{section_id}.m3u8");
@@ -8068,7 +8074,7 @@ mod tests {
             ..Settings::default()
         };
         sync_playlists_with_scan(&store, &settings, empty_scan()).unwrap();
-        let mirror_dir = music.join("Playlists/Local");
+        let mirror_dir = music.join("Playlists").join("Local");
         let malformed_path = mirror_dir.join(format!("{}.m3u8", malformed.id));
         let unrelated_path = mirror_dir.join(format!("{}.m3u8", unrelated.id));
         let malformed_bytes = malformed_portable_edit(&malformed_path);

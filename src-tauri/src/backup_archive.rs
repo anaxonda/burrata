@@ -48,7 +48,14 @@ pub fn sqlite_online_snapshot(
             )));
         }
         drop(staged);
-        File::open(destination)?.sync_all()?;
+        // FlushFileBuffers on Windows requires a handle with write access.
+        // The snapshot was created by us and remains writable; reopening it
+        // read-only can fail with Access denied even though SQLite completed
+        // the backup successfully.
+        OpenOptions::new()
+            .write(true)
+            .open(destination)?
+            .sync_all()?;
         Ok(())
     })();
     if result.is_err() {
@@ -149,6 +156,17 @@ pub enum ArchiveError {
     Json(#[from] serde_json::Error),
     #[error("SQLite snapshot error: {0}")]
     Sqlite(#[from] rusqlite::Error),
+}
+
+fn archive_io_context(error: io::Error, context: &'static str) -> ArchiveError {
+    ArchiveError::Io(io::Error::new(error.kind(), format!("{context}: {error}")))
+}
+
+fn archive_error_io_context(error: ArchiveError, context: &'static str) -> ArchiveError {
+    match error {
+        ArchiveError::Io(error) => archive_io_context(error, context),
+        error => error,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -290,7 +308,8 @@ fn create_archive_with_auxiliary_inner<'a>(
         ));
     }
     let parent = destination.parent().unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(parent)?;
+    fs::create_dir_all(parent)
+        .map_err(|error| archive_io_context(error, "creating backup destination directory"))?;
     let mut control = BackupControl { canceled, progress };
     let mut seen_ids = HashSet::new();
     let mut seen_paths = HashSet::new();
@@ -453,7 +472,10 @@ fn create_archive_with_auxiliary_inner<'a>(
     }
     let mut temporary = match staging {
         Some(staging) => ArchiveTemp::Registered(staging.create_external_file(parent)?),
-        None => ArchiveTemp::Plain(NamedTempFile::new_in(parent)?),
+        None => ArchiveTemp::Plain(
+            NamedTempFile::new_in(parent)
+                .map_err(|error| archive_io_context(error, "creating archive staging file"))?,
+        ),
     };
     {
         let mut writer = ZipWriter::new(temporary.file_mut()?);
@@ -498,20 +520,26 @@ fn create_archive_with_auxiliary_inner<'a>(
         let _ = writer.finish()?;
     }
     if let ArchiveTemp::Plain(file) = &temporary {
-        file.as_file().sync_all()?;
+        file.as_file()
+            .sync_all()
+            .map_err(|error| archive_io_context(error, "syncing archive staging file"))?;
     }
     control.check()?;
     control.report(BackupPhase::Verifying, 0, 1);
-    let verified = inspect_archive_in(temporary.path(), canceled, None, scratch_parent)?;
+    let verified = inspect_archive_in(temporary.path(), canceled, None, scratch_parent)
+        .map_err(|error| archive_error_io_context(error, "validating staged archive"))?;
     drop(verified);
     control.check()?;
     let archive_bytes = fs::metadata(temporary.path())?.len();
     if archive_bytes > MAX_ARCHIVE_BYTES {
         return Err(ArchiveError::ArchiveTooLarge);
     }
-    temporary.publish(destination)?;
+    temporary
+        .publish(destination)
+        .map_err(|error| archive_error_io_context(error, "publishing archive destination"))?;
     if staging.is_none() {
-        sync_directory(parent)?;
+        sync_directory(parent)
+            .map_err(|error| archive_io_context(error, "syncing archive destination directory"))?;
     }
     control.report(BackupPhase::Verifying, 1, 1);
     Ok(BackupInspection {
@@ -543,12 +571,15 @@ pub fn inspect_archive_in<'a>(
     progress: Option<&'a mut dyn FnMut(BackupPhase, u64, u64)>,
     scratch_parent: Option<&Path>,
 ) -> Result<ValidatedArchive, ArchiveError> {
-    let archive_bytes = fs::metadata(path)?.len();
+    let archive_bytes = fs::metadata(path)
+        .map_err(|error| archive_io_context(error, "reading archive file metadata"))?
+        .len();
     if archive_bytes == 0 || archive_bytes > MAX_ARCHIVE_BYTES {
         return Err(ArchiveError::ArchiveTooLarge);
     }
     validate_first_local_entry(path)?;
-    let file = File::open(path)?;
+    let file = File::open(path)
+        .map_err(|error| archive_io_context(error, "opening archive for validation"))?;
     let mut archive = ZipArchive::new(file)?;
     // ZIP readers index entries by name and may collapse duplicate central
     // directory entries before by_index/len expose them. Reject the physical
@@ -650,10 +681,16 @@ pub fn inspect_archive_in<'a>(
     let staging = match scratch_parent {
         Some(parent) => tempfile::Builder::new()
             .prefix("archive-inspect-")
-            .tempdir_in(parent)?,
+            .tempdir_in(parent)
+            .map_err(|error| {
+                archive_io_context(error, "creating archive verification directory")
+            })?,
         None => tempfile::Builder::new()
             .prefix("burrata-backup-inspect-")
-            .tempdir()?,
+            .tempdir()
+            .map_err(|error| {
+                archive_io_context(error, "creating archive verification directory")
+            })?,
     };
     let mut paths = HashMap::new();
     let mut control = BackupControl { canceled, progress };
@@ -663,11 +700,13 @@ pub fn inspect_archive_in<'a>(
         let parent = output_path
             .parent()
             .ok_or_else(|| ArchiveError::Invalid("invalid staged path".into()))?;
-        fs::create_dir_all(parent)?;
+        fs::create_dir_all(parent)
+            .map_err(|error| archive_io_context(error, "creating extracted component directory"))?;
         let mut output = OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(&output_path)?;
+            .open(&output_path)
+            .map_err(|error| archive_io_context(error, "creating extracted component file"))?;
         let mut zip_file = archive.by_name(&component.path)?;
         if zip_file.size() != component.bytes {
             return Err(ArchiveError::Invalid(format!(
@@ -676,7 +715,9 @@ pub fn inspect_archive_in<'a>(
             )));
         }
         let (bytes, digest) = copy_hash(&mut zip_file, &mut output, component.bytes, &mut control)?;
-        output.sync_all()?;
+        output
+            .sync_all()
+            .map_err(|error| archive_io_context(error, "syncing extracted component file"))?;
         if bytes != component.bytes || !digest.eq_ignore_ascii_case(&component.sha256) {
             return Err(ArchiveError::Invalid(format!(
                 "checksum mismatch for {}",
@@ -993,7 +1034,7 @@ mod tests {
     fn archive_round_trip_includes_hash_bound_lyrics_auxiliary_component() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
-        let components = component_files(&root);
+        let components = component_files(dir.path());
         let audio_path = root.join("track.flac");
         let lyrics_path = root.join("track.lrc");
         fs::write(&audio_path, b"audio fixture").unwrap();
@@ -1027,6 +1068,9 @@ mod tests {
             source_path: audio_path,
             expected_sha256: Some(audio_hash),
         };
+        // Keep a canonical destination here: automatic backup destinations
+        // are canonicalized before they are persisted, so this exercises the
+        // same path form through archive staging and publication.
         let archive_path = root.join("lyrics.burrata-backup");
         let cancellation = no_cancel();
         create_archive_with_auxiliary(

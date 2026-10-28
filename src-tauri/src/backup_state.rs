@@ -6328,7 +6328,12 @@ mod tests {
     fn preserved_queue_keeps_registered_missing_asset_id_without_trusting_path() {
         let target = tempfile::tempdir().unwrap();
         insert_fixture(target.path());
-        let missing_media = target.path().join("Music/Artist/Album/song.flac");
+        let missing_media = std::fs::canonicalize(target.path())
+            .unwrap()
+            .join("Music")
+            .join("Artist")
+            .join("Album")
+            .join("song.flac");
         std::fs::remove_file(&missing_media).unwrap();
         let wrong_hash_media = target.path().join("wrong-hash.flac");
         std::fs::write(&wrong_hash_media, b"different fixture bytes").unwrap();
@@ -7401,7 +7406,7 @@ mod tests {
         let library = data_dir.join("burrata.sqlite");
         drop(Store::open(&library).unwrap());
         let music = data_dir.join("Music");
-        let media = music.join("Artist/Album/song.flac");
+        let media = music.join("Artist").join("Album").join("song.flac");
         std::fs::create_dir_all(media.parent().unwrap()).unwrap();
         std::fs::write(&media, b"fixture audio bytes").unwrap();
         let hash = format!("{:x}", Sha256::digest(b"fixture audio bytes"));
@@ -7577,9 +7582,16 @@ mod tests {
                 )
                 .unwrap();
         }
-        let second_media = incoming_source
-            .path()
-            .join("Music/Artist/Album/second.flac");
+        // Match the canonical music root persisted by insert_fixture. On
+        // macOS tempfile's /var path is an alias for /private/var, and an
+        // otherwise valid sibling asset would be classified as external if
+        // this test constructs its path from the noncanonical alias.
+        let incoming_music_root =
+            std::fs::canonicalize(incoming_source.path().join("Music")).unwrap();
+        let second_media = incoming_music_root
+            .join("Artist")
+            .join("Album")
+            .join("second.flac");
         std::fs::copy(&incoming_media, &second_media).unwrap();
         let incoming_connection = Connection::open(&incoming_library).unwrap();
         let first_payload: String = incoming_connection
@@ -7676,12 +7688,15 @@ mod tests {
         let target_database = stage.path().join("burrata.sqlite");
         std::fs::copy(&target_snapshot.library_sqlite, &target_database).unwrap();
         let remapped_root = stage.path().join("restored-media");
-        std::fs::create_dir_all(remapped_root.join("Artist/Album")).unwrap();
+        std::fs::create_dir_all(remapped_root.join("Artist").join("Album")).unwrap();
         let remapped_root = std::fs::canonicalize(remapped_root).unwrap();
         let current_media_path = PathBuf::from(&current_media);
-        let restored_duplicate_media = remapped_root.join("Artist/Album/song.flac");
+        let restored_duplicate_media = remapped_root.join("Artist").join("Album").join("song.flac");
         std::fs::copy(&incoming_media, &restored_duplicate_media).unwrap();
-        let restored_incoming_media = remapped_root.join("Artist/Album/second.flac");
+        let restored_incoming_media = remapped_root
+            .join("Artist")
+            .join("Album")
+            .join("second.flac");
         std::fs::create_dir_all(restored_incoming_media.parent().unwrap()).unwrap();
         std::fs::copy(&second_media, &restored_incoming_media).unwrap();
         let options = RestoreStateOptions {
@@ -8362,10 +8377,10 @@ mod tests {
         drop(archive_mutation);
         let restore_root = tempfile::tempdir().unwrap();
         let remapped_root = restore_root.path().join("new-music");
-        std::fs::create_dir_all(remapped_root.join("Artist/Album")).unwrap();
+        std::fs::create_dir_all(remapped_root.join("Artist").join("Album")).unwrap();
         let remapped_root = std::fs::canonicalize(remapped_root).unwrap();
         std::fs::write(
-            remapped_root.join("Artist/Album/song.flac"),
+            remapped_root.join("Artist").join("Album").join("song.flac"),
             b"fixture audio bytes",
         )
         .unwrap();
@@ -8566,7 +8581,9 @@ mod tests {
         assert_eq!(
             restored_path,
             remapped_root
-                .join("Artist/Album/song.flac")
+                .join("Artist")
+                .join("Album")
+                .join("song.flac")
                 .to_string_lossy()
         );
         let restored_payload: Value = library
@@ -8696,8 +8713,13 @@ mod tests {
                 .unwrap();
         let legacy_profile = tempfile::tempdir().unwrap();
         let legacy_music = legacy_profile.path().join("restored-music");
-        std::fs::create_dir_all(legacy_music.join("Artist/Album")).unwrap();
-        std::fs::copy(&_source_media, legacy_music.join("Artist/Album/song.flac")).unwrap();
+        std::fs::create_dir_all(legacy_music.join("Artist").join("Album")).unwrap();
+        let legacy_music = std::fs::canonicalize(legacy_music).unwrap();
+        std::fs::copy(
+            &_source_media,
+            legacy_music.join("Artist").join("Album").join("song.flac"),
+        )
+        .unwrap();
         let legacy_options = RestoreStateOptions {
             mode: RestoreMode::Replace,
             snapshot_id: snapshot_id.to_string(),
@@ -8730,7 +8752,9 @@ mod tests {
         assert_eq!(
             legacy_assets[0].path,
             legacy_music
-                .join("Artist/Album/song.flac")
+                .join("Artist")
+                .join("Album")
+                .join("song.flac")
                 .to_string_lossy()
         );
         let connections = std::sync::Arc::new(crate::connections::ConnectionManager::new(

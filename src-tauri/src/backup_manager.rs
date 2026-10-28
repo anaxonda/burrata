@@ -322,7 +322,9 @@ struct RegisteredRestoreRoot {
 enum RestoreRootIdentity {
     #[cfg(unix)]
     Unix { device: u64, inode: u64 },
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    Windows { volume_serial: u32, file_index: u64 },
+    #[cfg(not(any(unix, windows)))]
     Created(std::time::SystemTime),
 }
 
@@ -2224,7 +2226,9 @@ fn seal_restore_root(canonical_path: &Path) -> Result<RegisteredRestoreRoot, Str
             inode: metadata.ino(),
         }
     };
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    let identity = windows_restore_root_identity(canonical_path)?;
+    #[cfg(not(any(unix, windows)))]
     let identity = RestoreRootIdentity::Created(
         metadata
             .created()
@@ -2233,6 +2237,65 @@ fn seal_restore_root(canonical_path: &Path) -> Result<RegisteredRestoreRoot, Str
     Ok(RegisteredRestoreRoot {
         canonical_path: canonical_path.to_owned(),
         identity,
+    })
+}
+
+#[cfg(windows)]
+fn windows_restore_root_identity(canonical_path: &Path) -> Result<RestoreRootIdentity, String> {
+    use std::{os::windows::ffi::OsStrExt, ptr};
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, INVALID_HANDLE_VALUE},
+        Storage::FileSystem::{
+            CreateFileW, GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+            FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
+            FILE_SHARE_WRITE, OPEN_EXISTING,
+        },
+    };
+
+    let wide_path = canonical_path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let handle = unsafe {
+        CreateFileW(
+            wide_path.as_ptr(),
+            FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            ptr::null(),
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            ptr::null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(format!(
+            "Cannot verify selected audio folder identity: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    let queried = unsafe { GetFileInformationByHandle(handle, &mut info) } != 0;
+    let query_error = (!queried).then(std::io::Error::last_os_error);
+    let closed = unsafe { CloseHandle(handle) } != 0;
+    if let Some(error) = query_error {
+        return Err(format!(
+            "Cannot verify selected audio folder identity: {error}"
+        ));
+    }
+    if !closed {
+        return Err(format!(
+            "Cannot verify selected audio folder identity: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    let file_index = (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow);
+    if info.dwVolumeSerialNumber == 0 || file_index == 0 {
+        return Err("Windows did not provide a stable audio folder identity".into());
+    }
+    Ok(RestoreRootIdentity::Windows {
+        volume_serial: info.dwVolumeSerialNumber,
+        file_index,
     })
 }
 
@@ -2923,7 +2986,11 @@ fn prepare_recovery_pair(data_dir: &Path, pending: &PendingRestoreWire) -> Resul
         let destination = recovery.join(name);
         if source.is_file() {
             fs::copy(&source, &destination).map_err(|e| e.to_string())?;
-            File::open(&destination)
+            // Windows requires a write-capable handle for FlushFileBuffers;
+            // opening the freshly copied backup read-only reports ACCESS_DENIED.
+            OpenOptions::new()
+                .write(true)
+                .open(&destination)
                 .and_then(|file| file.sync_all())
                 .map_err(|e| e.to_string())?;
         } else {
@@ -2962,7 +3029,11 @@ fn rollback_pair(data_dir: &Path, pending: &PendingRestoreWire) -> Result<(), St
             }
             if existed && backup.is_file() {
                 fs::copy(&backup, &target).map_err(|e| e.to_string())?;
-                File::open(&target)
+                // Match prepare_recovery_pair: FlushFileBuffers needs a
+                // write-capable handle on Windows, without truncating data.
+                OpenOptions::new()
+                    .write(true)
+                    .open(&target)
                     .and_then(|file| file.sync_all())
                     .map_err(|e| e.to_string())?;
             }
