@@ -284,11 +284,13 @@ impl SourceTrace {
     }
 
     fn try_spend_recovery(&self) -> bool {
-        self.recovery_attempts.fetch_update(
-            std::sync::atomic::Ordering::AcqRel,
-            std::sync::atomic::Ordering::Acquire,
-            |used| (used < 1).then_some(used + 1),
-        ).is_ok()
+        self.recovery_attempts
+            .fetch_update(
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Acquire,
+                |used| (used < 1).then_some(used + 1),
+            )
+            .is_ok()
     }
 
     pub(crate) fn extraction_attempts_used(&self) -> usize {
@@ -2315,12 +2317,24 @@ where
         return Err("Cancelled".into());
     }
     let Some(opportunity) = opportunity_deadline(deadline) else {
-        trace.event("verified_source_transport_recovery_skipped", "youtube", json!({"reason":"insufficient_time"}));
+        trace.event(
+            "verified_source_transport_recovery_skipped",
+            "youtube",
+            json!({"reason":"insufficient_time"}),
+        );
         return Ok(None);
     };
     let stamp = acquisition.playback_provider_stamp("youtube")?;
-    if !(if recovery { trace.try_spend_recovery() } else { trace.try_spend_extraction() }) {
-        trace.event("verified_source_transport_recovery_skipped", "youtube", json!({"reason":"recovery_budget_exhausted"}));
+    if !(if recovery {
+        trace.try_spend_recovery()
+    } else {
+        trace.try_spend_extraction()
+    }) {
+        trace.event(
+            "verified_source_transport_recovery_skipped",
+            "youtube",
+            json!({"reason":"recovery_budget_exhausted"}),
+        );
         return Ok(None);
     }
     let started = Instant::now();
@@ -4802,8 +4816,17 @@ async fn validate_or_recover_denied_source(
 ) -> Result<acquisition::PreviewAudio, String> {
     let mut validation_trace = trace.clone();
     validation_trace.skip_youtube_forbidden_retry = fresh_denied_source_recovery_anchors(
-        track, candidate, &audio, proof, "HTTP 403", pinned, attempt_limit, trace, settings,
-    ).is_some();
+        track,
+        candidate,
+        &audio,
+        proof,
+        "HTTP 403",
+        pinned,
+        attempt_limit,
+        trace,
+        settings,
+    )
+    .is_some();
     match acquisition
         .validate_playback_audio_traced(
             candidate,

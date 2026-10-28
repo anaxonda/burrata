@@ -201,21 +201,44 @@ pub(crate) fn sanitize_details(details: Value) -> Map<String, Value> {
 /// Export only reproducible public page identities, never stream URLs or queries.
 pub(crate) fn public_source_page(raw: &str) -> Option<String> {
     let url = url::Url::parse(raw).ok()?;
-    if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some()
-        || url.port_or_known_default() != Some(443) { return None; }
+    if url.scheme() != "https"
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port_or_known_default() != Some(443)
+    {
+        return None;
+    }
     let host = url.host_str()?;
-    if matches!(host, "youtube.com" | "www.youtube.com" | "music.youtube.com" | "youtu.be") {
-        let id = if host == "youtu.be" { url.path().trim_start_matches('/').to_owned() }
-            else if url.path() == "/watch" { url.query_pairs().find(|(k,_)| k == "v")?.1.into_owned() }
-            else { url.path().strip_prefix("/shorts/")?.to_owned() };
-        if id.len() == 11 && id.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-')) {
+    if matches!(
+        host,
+        "youtube.com" | "www.youtube.com" | "music.youtube.com" | "youtu.be"
+    ) {
+        let id = if host == "youtu.be" {
+            url.path().trim_start_matches('/').to_owned()
+        } else if url.path() == "/watch" {
+            url.query_pairs().find(|(k, _)| k == "v")?.1.into_owned()
+        } else {
+            url.path().strip_prefix("/shorts/")?.to_owned()
+        };
+        if id.len() == 11
+            && id
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-'))
+        {
             return Some(format!("https://www.youtube.com/watch?v={id}"));
         }
     } else if matches!(host, "soundcloud.com" | "www.soundcloud.com") {
         let parts = url.path().trim_matches('/').split('/').collect::<Vec<_>>();
-        if parts.len() == 2 && parts.iter().all(|p| !p.is_empty() && p.len() <= 200
-            && !p.starts_with("s-") && p.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c,b'-'|b'_')))
-            && !matches!(parts[0], "search" | "discover" | "you") {
+        if parts.len() == 2
+            && parts.iter().all(|p| {
+                !p.is_empty()
+                    && p.len() <= 200
+                    && !p.starts_with("s-")
+                    && p.bytes()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_'))
+            })
+            && !matches!(parts[0], "search" | "discover" | "you")
+        {
             return Some(format!("https://soundcloud.com/{}/{}", parts[0], parts[1]));
         }
     }
@@ -226,17 +249,32 @@ pub(crate) fn public_source_page(raw: &str) -> Option<String> {
 /// removing arbitrary source text, URLs, paths, credentials and quoted values.
 pub(crate) fn extractor_error_summary(raw: &str) -> String {
     const WORDS: &str = "error warning unable failed failure download downloading extract extraction extractor client id json api response request requested format available unavailable found not no invalid unsupported expected unexpected missing required key value type object string integer list dictionary none attribute index certificate verify verification ssl tls expired issuer local self signed connection connect timeout timed out reset refused remote host server name resolution temporary forbidden unauthorized authentication authorization login sign in bot confirm country region restricted subscription premium soundcloud youtube http https status code traceback most recent call last exception caused by during handling another occurred retry retries exhausted permission denied file directory module import runtime javascript challenge signature decipher token provider po gvs nsig cookie cookies account ffmpeg ffprobe keyerror typeerror valueerror indexerror attributeerror httperror urlerror sslerror certificateerror sslcertverificationerror extractorerror downloaderror runtimeerror importerror modulenotfounderror connectionerror timeouterror os system exit returned process terminated signal metadata audio video stream formats parsing parse result data empty malformed decode decoding too many requests rate limit geo restricted soundcloudgo urn policy transcodings protocol transcoding url progressive hls client_id";
-    raw.split_whitespace().take(512).map(|word| {
-        let clean = word.trim_matches(|c: char| !c.is_ascii_alphanumeric()).to_ascii_lowercase();
-        if !word.contains(['/', '=', '@', '\\']) && !clean.is_empty()
-            && (WORDS.split_whitespace().any(|known| known == clean)
-                || clean.parse::<u16>().is_ok_and(|n| (100..=599).contains(&n))) {
-            clean
-        } else { "[redacted]".to_owned() }
-    }).fold(Vec::<String>::new(), |mut words, word| {
-        if word != "[redacted]" || words.last() != Some(&word) { words.push(word); }
-        words
-    }).join(" ").chars().take(2048).collect()
+    raw.split_whitespace()
+        .take(512)
+        .map(|word| {
+            let clean = word
+                .trim_matches(|c: char| !c.is_ascii_alphanumeric())
+                .to_ascii_lowercase();
+            if !word.contains(['/', '=', '@', '\\'])
+                && !clean.is_empty()
+                && (WORDS.split_whitespace().any(|known| known == clean)
+                    || clean.parse::<u16>().is_ok_and(|n| (100..=599).contains(&n)))
+            {
+                clean
+            } else {
+                "[redacted]".to_owned()
+            }
+        })
+        .fold(Vec::<String>::new(), |mut words, word| {
+            if word != "[redacted]" || words.last() != Some(&word) {
+                words.push(word);
+            }
+            words
+        })
+        .join(" ")
+        .chars()
+        .take(2048)
+        .collect()
 }
 
 fn sanitize_detail_value(key: &str, value: &Value, depth: usize) -> Option<Value> {
@@ -264,11 +302,15 @@ fn sanitize_detail_value(key: &str, value: &Value, depth: usize) -> Option<Value
         let number = value.as_number()?;
         return bounded_number(key, number).map(Value::Number);
     }
-    if key == "sourcePageUrl" { return public_source_page(value.as_str()?).map(Value::String); }
-    if key == "extractorErrorSummary" { return Some(Value::String(extractor_error_summary(value.as_str()?))); }
+    if key == "sourcePageUrl" {
+        return public_source_page(value.as_str()?).map(Value::String);
+    }
+    if key == "extractorErrorSummary" {
+        return Some(Value::String(extractor_error_summary(value.as_str()?)));
+    }
     if key == "formatId" {
         let value = value.as_str()?;
-        return (( !value.is_empty()
+        return ((!value.is_empty()
             && value.len() <= 4
             && value.bytes().all(|byte| byte.is_ascii_digit()))
             || ["hls_aac_96k", "hls_aac_160k", "http_mp3_128", "hls_mp3_128"].contains(&value))
@@ -476,7 +518,10 @@ fn number_key(key: &str) -> bool {
 
 fn bounded_number(key: &str, number: &Number) -> Option<Number> {
     if key == "helperExitCode" {
-        return number.as_i64().filter(|code| (-1..=255).contains(code)).map(Number::from);
+        return number
+            .as_i64()
+            .filter(|code| (-1..=255).contains(code))
+            .map(Number::from);
     }
     if matches!(key, "status" | "httpStatus" | "lastStatus") {
         return number
@@ -933,9 +978,21 @@ mod tests {
 
     #[test]
     fn public_source_pages_strip_secrets_and_reject_streams() {
-        assert_eq!(public_source_page("https://youtu.be/abcdefghijk?token=secret#private").as_deref(), Some("https://www.youtube.com/watch?v=abcdefghijk"));
-        assert_eq!(public_source_page("https://soundcloud.com/artist/recording?secret_token=secret").as_deref(), Some("https://soundcloud.com/artist/recording"));
-        for raw in ["https://r1.googlevideo.com/videoplayback?sig=secret", "https://soundcloud.com/a/b/s-secret", "https://user:pass@youtube.com/watch?v=abcdefghijk", "https://youtube.com.evil/watch?v=abcdefghijk"] {
+        assert_eq!(
+            public_source_page("https://youtu.be/abcdefghijk?token=secret#private").as_deref(),
+            Some("https://www.youtube.com/watch?v=abcdefghijk")
+        );
+        assert_eq!(
+            public_source_page("https://soundcloud.com/artist/recording?secret_token=secret")
+                .as_deref(),
+            Some("https://soundcloud.com/artist/recording")
+        );
+        for raw in [
+            "https://r1.googlevideo.com/videoplayback?sig=secret",
+            "https://soundcloud.com/a/b/s-secret",
+            "https://user:pass@youtube.com/watch?v=abcdefghijk",
+            "https://youtube.com.evil/watch?v=abcdefghijk",
+        ] {
             assert!(public_source_page(raw).is_none());
         }
     }
@@ -943,12 +1000,19 @@ mod tests {
     #[test]
     fn extractor_summary_retains_exception_type_but_excludes_arbitrary_values() {
         let raw = "ERROR: Traceback (most recent call last): KeyError: 'secret' token=canary https://private.invalid/?sig=canary /Users/canary/file.py HTTP Error 403 forbidden";
-        let safe = sanitize_details(json!({"extractorErrorSummary":raw,"sourcePageUrl":"https://youtube.com/watch?v=abcdefghijk&token=canary"}));
+        let safe = sanitize_details(
+            json!({"extractorErrorSummary":raw,"sourcePageUrl":"https://youtube.com/watch?v=abcdefghijk&token=canary"}),
+        );
         let encoded = serde_json::to_string(&safe).unwrap();
         assert!(encoded.contains("keyerror"));
         assert!(encoded.contains("403"));
-        for secret in ["canary", "private.invalid", "Users", "secret"] { assert!(!encoded.contains(secret)); }
-        assert_eq!(safe["extractorErrorSummary"], extractor_error_summary(safe["extractorErrorSummary"].as_str().unwrap()));
+        for secret in ["canary", "private.invalid", "Users", "secret"] {
+            assert!(!encoded.contains(secret));
+        }
+        assert_eq!(
+            safe["extractorErrorSummary"],
+            extractor_error_summary(safe["extractorErrorSummary"].as_str().unwrap())
+        );
     }
 
     #[test]
@@ -1102,9 +1166,13 @@ mod tests {
         let safe = sanitize_details(json!({"helperExitCode":1,"stderr":"secret"}));
         assert_eq!(safe["helperExitCode"], 1);
         assert!(safe.get("stderr").is_none());
-        assert!(sanitize_details(json!({"helperExitCode":9999})).get("helperExitCode").is_none());
+        assert!(sanitize_details(json!({"helperExitCode":9999}))
+            .get("helperExitCode")
+            .is_none());
         for reason in [
-            "tls_certificate", "helper_exception", "provider_response",
+            "tls_certificate",
+            "helper_exception",
+            "provider_response",
             "geo_restricted",
             "subscription_required",
             "provider_client",

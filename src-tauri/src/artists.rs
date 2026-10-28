@@ -3858,7 +3858,6 @@ mod tests {
         server.abort();
     }
 
-
     #[test]
     fn edition_without_cover_uses_its_exact_release_group() {
         let edition = "4de779b6-75f4-4041-9cde-70a60ea21a89";

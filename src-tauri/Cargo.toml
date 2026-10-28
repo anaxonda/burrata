@@ -1,7 +1,7 @@
 [package]
 name = "burrata"
 default-run = "burrata"
-version = "0.1.10"
+version = "0.1.11"
 description = "Local-first DJ music discovery and acquisition"
 edition = "2021"
 license = "GPL-3.0-or-later"

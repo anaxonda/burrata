@@ -374,11 +374,25 @@ pub(crate) fn extractor_diagnostic_reason(raw: &str) -> &'static str {
         ],
     ) {
         "provider_client"
-    } else if has_any(&message, &["certificate_verify_failed", "certificate verify failed", "ssl: certificate"]) {
+    } else if has_any(
+        &message,
+        &[
+            "certificate_verify_failed",
+            "certificate verify failed",
+            "ssl: certificate",
+        ],
+    ) {
         "tls_certificate"
     } else if message.contains("traceback (most recent call last)") {
         "helper_exception"
-    } else if has_any(&message, &["unable to download json", "unable to download api", "invalid json"]) {
+    } else if has_any(
+        &message,
+        &[
+            "unable to download json",
+            "unable to download api",
+            "invalid json",
+        ],
+    ) {
         "provider_response"
     } else if message.contains("unsupported url") {
         "unsupported_url"
@@ -433,10 +447,22 @@ mod tests {
     use super::*;
     #[test]
     fn extractor_details_distinguish_remote_debugging_failures_without_text() {
-        assert_eq!(extractor_diagnostic_reason("certificate_verify_failed https://private/?token=secret"), "tls_certificate");
-        assert_eq!(extractor_diagnostic_reason("Traceback (most recent call last): private account"), "helper_exception");
-        assert_eq!(extractor_diagnostic_reason("Unable to download JSON metadata"), "provider_response");
-        assert!(!safe_extractor_error("Traceback (most recent call last): token=secret").contains("secret"));
+        assert_eq!(
+            extractor_diagnostic_reason("certificate_verify_failed https://private/?token=secret"),
+            "tls_certificate"
+        );
+        assert_eq!(
+            extractor_diagnostic_reason("Traceback (most recent call last): private account"),
+            "helper_exception"
+        );
+        assert_eq!(
+            extractor_diagnostic_reason("Unable to download JSON metadata"),
+            "provider_response"
+        );
+        assert!(
+            !safe_extractor_error("Traceback (most recent call last): token=secret")
+                .contains("secret")
+        );
     }
 
     #[test]

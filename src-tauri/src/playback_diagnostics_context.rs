@@ -79,12 +79,19 @@ pub(crate) fn project_webview(input: Option<&Value>) -> Option<Value> {
         let mut safe = Map::new();
         for (key, allowed) in [
             ("browserPlayback", &["not_tested", "works", "fails"][..]),
-            ("alternateNetworkPlayback", &["not_tested", "works", "fails"][..]),
+            (
+                "alternateNetworkPlayback",
+                &["not_tested", "works", "fails"][..],
+            ),
             ("vpn", &["unknown", "enabled", "disabled"][..]),
         ] {
-            if let Some(value) = enum_value(observations.get(key), allowed) { safe.insert(key.into(), json!(value)); }
+            if let Some(value) = enum_value(observations.get(key), allowed) {
+                safe.insert(key.into(), json!(value));
+            }
         }
-        if !safe.is_empty() { out.insert("testerObservations".into(), Value::Object(safe)); }
+        if !safe.is_empty() {
+            out.insert("testerObservations".into(), Value::Object(safe));
+        }
     }
     for key in ["currentTime", "duration", "requestedSeekPosition"] {
         if let Some(value) = bounded_float(input.get(key), 86_400.0) {
@@ -105,7 +112,12 @@ pub(crate) fn project_webview(input: Option<&Value>) -> Option<Value> {
             let operation = uuid::Uuid::parse_str(row.get("operationId")?.as_str()?).ok()?;
             Some(json!({"attempt":attempt,"elapsedMs":elapsed,"outcome":outcome,"operationId":operation.to_string()}))
         }).collect::<Vec<_>>();
-        if !rows.is_empty() { out.insert("startupOutcomes".into(), json!(rows.into_iter().rev().collect::<Vec<_>>())); }
+        if !rows.is_empty() {
+            out.insert(
+                "startupOutcomes".into(),
+                json!(rows.into_iter().rev().collect::<Vec<_>>()),
+            );
+        }
     }
     if let Some(value) = project_startup_failure(input.get("startupFailure")) {
         out.insert("startupFailure".into(), value);
@@ -233,7 +245,10 @@ fn project_startup_failure(value: Option<&Value>) -> Option<Value> {
     let startup = value?.as_object()?;
     let mut safe = Map::new();
     for (key, values) in [
-        ("phase", &["attach", "resume_seek", "play", "clock_progress"][..]),
+        (
+            "phase",
+            &["attach", "resume_seek", "play", "clock_progress"][..],
+        ),
         (
             "mimeFamily",
             &[
@@ -270,7 +285,9 @@ fn project_startup_failure(value: Option<&Value>) -> Option<Value> {
                 projected.insert(key.into(), json!(value));
             }
         }
-        if !projected.is_empty() { safe.insert("stageTimings".into(), Value::Object(projected)); }
+        if !projected.is_empty() {
+            safe.insert("stageTimings".into(), Value::Object(projected));
+        }
     }
     if let Some(value) = startup.get("resumeRequested").and_then(Value::as_bool) {
         safe.insert("resumeRequested".into(), json!(value));
@@ -382,7 +399,8 @@ mod tests {
         let safe = project_webview(Some(&json!({"startupOutcomes":[
             {"attempt":1,"operationId":id,"outcome":"playing","elapsedMs":30,"error":"secret"},
             {"attempt":2,"operationId":"secret","outcome":"failed","elapsedMs":40}
-        ]}))).unwrap();
+        ]})))
+        .unwrap();
         assert_eq!(safe["startupOutcomes"].as_array().unwrap().len(), 1);
         assert_eq!(safe["startupOutcomes"][0]["operationId"], id);
         assert!(!safe.to_string().contains("secret"));
@@ -529,8 +547,11 @@ mod tests {
                 "attach":0, "play":12, "clock_progress":15,
                 "resume_seek":90001, "url":"https://private.invalid/token"
             }
-        }))).unwrap();
-        assert_eq!(result, json!({"phase":"clock_progress", "stageTimings":{"attach":0,"play":12,"clock_progress":15}}));
+        })))
+        .unwrap();
+        assert_eq!(
+            result,
+            json!({"phase":"clock_progress", "stageTimings":{"attach":0,"play":12,"clock_progress":15}})
+        );
     }
-
 }

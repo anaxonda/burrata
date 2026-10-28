@@ -8222,7 +8222,11 @@ async fn export_playback_diagnostics(
         let version = dependency.version.as_deref().and_then(playback_diagnostics::numeric_helper_version);
         serde_json::json!({"availabilityState":if dependency.name == "yt-dlp-ejs" { "unknown" } else if dependency.available { "available" } else { "unavailable" },"name":dependency.name,"available":if dependency.name == "yt-dlp-ejs" { None } else { Some(dependency.available) },"version":version})
     }).collect::<Vec<_>>();
-    let configured = |names: &[&str]| names.iter().any(|name| std::env::var_os(name).is_some_and(|value| !value.is_empty()));
+    let configured = |names: &[&str]| {
+        names
+            .iter()
+            .any(|name| std::env::var_os(name).is_some_and(|value| !value.is_empty()))
+    };
     let network_environment = serde_json::json!({
         "httpProxyConfigured":configured(&["HTTP_PROXY", "http_proxy"]),
         "httpsProxyConfigured":configured(&["HTTPS_PROXY", "https_proxy"]),
