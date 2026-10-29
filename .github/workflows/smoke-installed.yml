@@ -97,6 +97,7 @@ jobs:
           shopt -s nullglob
           installers=(.cache/debug-installers/*.AppImage)
           test "${#installers[@]}" -eq 1
+          chmod u+x "${installers[0]}"
           python scripts/release/smoke-installed.py --installer "${installers[0]}" \
             --evidence .cache/appimage-smoke-evidence.json \
             --source-run-id "$SOURCE_RUN_ID" --source-commit "$SOURCE_COMMIT"
