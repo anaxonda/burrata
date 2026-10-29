@@ -4483,6 +4483,7 @@ fn mirror_stamp(store: &Store, state: &SyncState, id: &str, settings: &Settings)
         .iter()
         .filter(|(key, _)| {
             key.as_str() == id
+                || id == "history" && key.starts_with("history:")
                 || parse_section_mirror_key(key).is_some_and(|(owner, _)| owner == id)
         })
         .collect::<Vec<_>>();
@@ -6471,6 +6472,30 @@ mod tests {
             .find(|entry| entry.history.as_ref().unwrap().occurrence_id == occurrence)
             .unwrap();
         assert_eq!(retained.id, before.entries[0].id);
+    }
+
+    #[test]
+    fn partitioned_history_file_edits_invalidate_the_incremental_stamp() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("library.sqlite")).unwrap();
+        let path = directory.path().join("2026-09.m3u8");
+        fs::write(&path, b"#EXTM3U\n").unwrap();
+        let mut state = SyncState::default();
+        state.mirror_paths.insert(
+            "history:2026-09".into(),
+            path.to_string_lossy().into_owned(),
+        );
+        let before = mirror_stamp(&store, &state, "history", &Settings::default()).unwrap();
+        fs::write(&path, b"#EXTM3U\n# User edit\n").unwrap();
+        assert_ne!(
+            mirror_stamp(&store, &state, "history", &Settings::default()).unwrap(),
+            before
+        );
+        fs::remove_file(&path).unwrap();
+        assert_ne!(
+            mirror_stamp(&store, &state, "history", &Settings::default()).unwrap(),
+            before
+        );
     }
 
     #[test]

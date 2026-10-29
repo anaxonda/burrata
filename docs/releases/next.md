@@ -1,10 +1,13 @@
-# Burrata 0.1.12
+# Burrata 0.1.13
+
+Changes since v0.1.11. The v0.1.12 candidate was superseded before publication.
 
 This release reduces background playlist and interface work, improves saved waveform handling, and makes sidebar filtering and playback progress easier to use.
 
 - Playlist synchronization tracks changes per collection and skips unchanged mirrors. Idle passes check file metadata and a session change journal before loading playlist state; they do not render mirrors or write unchanged state.
 - The backend watcher owns automatic startup synchronization. Requests are coalesced, the filesystem notification queue is bounded, and Linux mirroring runs at lower thread priority than normal UI and audio work.
 - Immutable mirror bodies remain separate from mutable sync state. Ordinary reconciliation reads reference headers; backups and snapshot viewing retain complete history. Browser archives load only the current snapshot and captures not already archived.
+- Partitioned history files are included in change detection, so edited or deleted monthly mirrors are checked immediately when their metadata changes.
 - Exports query registered files for their own tracks instead of repeatedly hydrating the entire audio library. Targeted indexes support change tracking and those lookups.
 - Saved track detections load for visible queue rows and selected track information, with four concurrent reads and a bounded cache. Hidden queues no longer trigger one request for every track whenever playback changes.
 - Observed waveform persistence skips unchanged data and merges delayed database restores with newer session observations. Optional waveform polling stops when hidden or paused, retaining a final sample when its cache binding becomes ready.
