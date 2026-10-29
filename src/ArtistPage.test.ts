@@ -78,6 +78,31 @@ describe("ArtistPage", () => {
     expect(titles.filter(title => title?.includes("Caleb Meyer"))).toHaveLength(2);
     expect(titles.filter(title => title?.includes("Time (The Revelator)"))).toHaveLength(2);
   });
+  it("deduplicates the same Monochrome edition returned in both albums and releases before keyed rendering", async () => {
+    const ref = { provider: "monochrome" as const, id: "154167137894666240" };
+    const result: ArtistProfile = {
+      artist: { artist: ref, name: "Gillian Welch", sourceUrl: `https://tracks.monochrome.st/artists/${ref.id}` },
+      aliases: [], genres: [], tags: [], sourceTags: [], links: [], topTracks: [],
+      releases: { artist: ref, items: [], nextCursor: null, sourceCoverage: [], warnings: [] },
+      discogsAvailable: false, lastfmAvailable: false, sourceCoverage: [], warnings: [],
+    };
+    const sourceUrl = "https://tracks.monochrome.st/releases/196984799326765056";
+    const sameEdition: ArtistReleaseRef = {
+      release: { provider: "monochrome", id: "196984799326765056" }, title: "Soul Journey", year: 2003,
+      releaseDate: "2003-06-03T00:00:00.000Z", primaryType: "ALBUM", trackCount: 10,
+      tracks: [], artworkUrls: ["https://tracks.monochrome.st/proxy/mi/196984799326765056-1A01.jpg"],
+      sourceUrl, credits: [{ name: "Gillian Welch", artist: ref, role: "artist credit", sourceUrl }],
+    };
+    result.releases = { ...result.releases, items: [sameEdition, { ...sameEdition }] };
+    const target = render({ initialArtistRef: ref, initialSection: "overview", getArtistProfile: async () => result });
+    await settle();
+    target.querySelector<HTMLButtonElement>('[aria-label="Artist sections"] button:nth-child(2)')!.click();
+    await settle();
+    expect(target.querySelector('[aria-label="Discography filters"]')).not.toBeNull();
+    expect(target.textContent).not.toContain("Genres and tags by source");
+    expect(target.querySelectorAll(".release-list .release-card")).toHaveLength(1);
+    expect(target.querySelector('[aria-label="Edition of Soul Journey"]')).toBeNull();
+  });
   it("offers explicit Spotify discovery for the exact Discogs artist name without changing the active identity", async () => {
     const name = "The Artist — Live & Unfiltered";
     const discogsArtist = artist("discogs-42", name);

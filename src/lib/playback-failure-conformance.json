@@ -40,7 +40,7 @@
     "skip": true
   },
   {
-    "reason": "No playable audio match was found for Network — Connection (Cancel Mix)",
+    "reason": "No playable audio match was found for Network \u2014 Connection (Cancel Mix)",
     "failure": {
       "category": "no_match",
       "stage": "resolver",
@@ -303,5 +303,25 @@
       "retryable": false
     },
     "skip": true
+  },
+  {
+    "reason": "ERROR: [soundcloud] 123456: This video is DRM protected",
+    "failure": {
+      "category": "unsupported_audio",
+      "stage": "extraction",
+      "scope": "source",
+      "retryable": true
+    },
+    "skip": false
+  },
+  {
+    "reason": "Audio source is DRM protected; choose another source",
+    "failure": {
+      "category": "unsupported_audio",
+      "stage": "extraction",
+      "scope": "source",
+      "retryable": true
+    },
+    "skip": false
   }
 ]

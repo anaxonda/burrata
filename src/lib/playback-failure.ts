@@ -35,7 +35,7 @@ export function classifyPlaybackFailure(reason: string): PlaybackFailure {
   if (message.startsWith("audio source recording identity could not be verified")) return failure("recording_identity_mismatch", "extraction", "source", false);
   if (has("audio source is private", "audio source was removed")) return failure(message.includes("private") ? "source_private" : "source_deleted", "extraction", "source", false);
   if (httpStatus === 401 || httpStatus === 403 || has("access denied", "access was denied", "forbidden", "sign in", "sign-in", "login required", "not a bot", "challenge", "expired url", "url expired")) return failure("source_access", "extraction", "source", true);
-  if (has("audio source format is unavailable", "requested format is not available", "no video formats found", "no suitable formats")) return failure("unsupported_audio", "extraction", "source", true);
+  if (has("audio source format is unavailable", "requested format is not available", "no video formats found", "no suitable formats", "drm protected", "drm-protected")) return failure("unsupported_audio", "extraction", "source", true);
   if (has("private video", "video is private")) {
     const legacyRecording = ["private video", "video is private"].includes(message);
     return failure("source_private", legacyRecording ? "resolver" : "extraction", legacyRecording ? "recording" : "source", false);

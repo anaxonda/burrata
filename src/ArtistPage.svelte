@@ -65,7 +65,7 @@
   let searchHasMore = $state(false);
   let selectedArtist = $state<ArtistSearchResult | null>(null);
   let profile = $state<ArtistProfile | null>(null);
-  const providerLabels: Record<string, string> = { musicbrainz: "MusicBrainz", discogs: "Discogs", lastfm: "Last.fm" };
+  const providerLabels: Record<string, string> = { musicbrainz: "MusicBrainz", discogs: "Discogs", monochrome: "Monochrome", lastfm: "Last.fm" };
   const providerLabel = (value: string) => providerLabels[value] ?? value;
   const coverageLabel = (value: string) => value.replaceAll("_", " ");
   let releases = $state<ArtistReleasePage | null>(null);
@@ -319,7 +319,7 @@
 
   function navigateTrackArtist(track: Track) {
     const provenance = track.provenance && typeof track.provenance === "object" ? track.provenance as { catalog?: { artists?: { provider?: string; id?: string; name?: string }[] } } : {};
-    const matches = (provenance.catalog?.artists ?? []).filter((artist) => artist.name && normalizeName(artist.name) === normalizeName(track.artist) && (artist.provider === "musicbrainz" || artist.provider === "discogs") && artist.id);
+    const matches = (provenance.catalog?.artists ?? []).filter((artist) => artist.name && normalizeName(artist.name) === normalizeName(track.artist) && (artist.provider === "musicbrainz" || artist.provider === "discogs" || artist.provider === "monochrome") && artist.id);
     if (matches.length === 1 && onArtistNavigate) {
       void onArtistNavigate({ provider: matches[0].provider as ArtistRef["provider"], id: matches[0].id! });
       return;
@@ -351,7 +351,10 @@
   }
 
   const releaseGroups = $derived.by(() => {
-    const items = (releases?.items ?? []).filter(matchesReleaseFilter)
+    // Some catalog APIs expose the same release in both `albums` and a
+    // combined `releases` array. Remove those repeated source identities
+    // before edition groups create keyed select options.
+    const items = dedupeReleases(releases?.items ?? []).filter(matchesReleaseFilter)
       .filter((release) => releaseProvider === "All sources" || release.release.provider === releaseProvider)
       .filter((release) => !releaseQuery.trim() || normalizeName(`${release.title} ${release.year ?? ""} ${release.format ?? ""} ${release.tracks.map(track => track.title).join(" ")} ${(releaseTrackCache[release.sourceUrl] ?? []).map((track) => track.title).join(" ")}`).includes(normalizeName(releaseQuery)));
     const groups = new Map<string, ArtistReleaseRef[]>();
@@ -690,7 +693,7 @@
 
   function message(cause: unknown): string { return cause instanceof Error ? cause.message : String(cause); }
   function sourceUrlFor(artist: ArtistRef): string {
-    return artist.provider === "musicbrainz" ? `https://musicbrainz.org/artist/${artist.id}` : `https://www.discogs.com/artist/${artist.id}`;
+    return artist.provider === "musicbrainz" ? `https://musicbrainz.org/artist/${artist.id}` : artist.provider === "monochrome" ? `https://tracks.monochrome.st/artists/${artist.id}` : `https://www.discogs.com/artist/${artist.id}`;
   }
   function browseCurrentArtistOnSpotify() {
     const name = selectedArtist?.name;
@@ -701,7 +704,7 @@
 <section bind:this={pageElement} class="artist-page" aria-label="Artist discovery" onscroll={(event) => onScroll?.(event.currentTarget.scrollTop)}>
   {#if !selectedArtist}
   <header>
-    <div><p class="eyebrow">MUSICBRAINZ · DISCOGS · LAST.FM</p><h2>Artist discovery</h2>
+    <div><p class="eyebrow">MUSICBRAINZ · DISCOGS · MONOCHROME · LAST.FM</p><h2>Artist discovery</h2>
       <p class="muted">Find an artist identity, explore source credits, and review metadata suggestions.</p></div>
   </header>
   <form class="search" onsubmit={(event) => { event.preventDefault(); void runSearch(); }}>

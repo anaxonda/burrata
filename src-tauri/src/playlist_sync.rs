@@ -135,8 +135,10 @@ struct SyncState {
     mirror_hashes: HashMap<String, String>,
     #[serde(default)]
     mirror_paths: HashMap<String, String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     mirror_snapshots: HashMap<String, Vec<SourceSnapshot>>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    mirror_snapshot_refs: HashMap<String, Vec<SnapshotReference>>,
     #[serde(default)]
     protected_copies: HashMap<String, String>,
     /// Full-backup source/mirror history is deliberately inert after restore.
@@ -155,6 +157,12 @@ struct SyncState {
     #[serde(skip)]
     paused_mirrors: HashSet<String>,
 }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SnapshotReference {
+    key: String,
+    revision: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct SourceState {
@@ -208,55 +216,127 @@ pub struct SourceSnapshot {
 /// Scan configured playlist roots and synchronize readable playlist files to one-time imports.
 /// Errors are reported per source so one unavailable directory does not hide the others.
 pub fn sync_playlists(store: &Store, settings: &Settings) -> Result<PlaylistSyncStatus> {
-    if !settings.playlist_mirroring_enabled {
-        return Ok(PlaylistSyncStatus::default());
-    }
-    if let Some(status) = paused_restore_status(store)? {
-        return Ok(status);
-    }
-    let perf_trace = std::env::var_os("BURRATA_PERF_TRACE").is_some();
-    let total_started = std::time::Instant::now();
-    let scan_started = std::time::Instant::now();
-    let scan = playlist_files::scan_local_playlists(settings)?;
-    if perf_trace {
-        eprintln!(
-            "[perf] playlist_sync.scan files={} warnings={} elapsed_ms={}",
-            scan.files.len(),
-            scan.warnings.len(),
-            scan_started.elapsed().as_millis()
-        );
-    }
-    let sync_started = std::time::Instant::now();
-    let result = sync_playlists_with_scan(store, settings, scan);
-    if perf_trace {
-        eprintln!(
-            "[perf] playlist_sync.total outcome={} elapsed_ms={}",
-            if result.is_ok() { "ok" } else { "error" },
-            total_started.elapsed().as_millis()
-        );
-        eprintln!(
-            "[perf] playlist_sync.reconcile_lock_inclusive elapsed_ms={}",
-            sync_started.elapsed().as_millis()
-        );
-    }
-    result
+    sync_incremental(store, settings, None, false)
 }
 
-/// Reconcile existing source/mirror bindings and publish a one-way local
-/// listening-history mirror using the caller's existing history store.
 pub fn sync_playlists_with_history(
     store: &Store,
     settings: &Settings,
     history: &crate::playback_history::PlaybackHistory,
 ) -> Result<PlaylistSyncStatus> {
+    sync_incremental(store, settings, Some(history), false)
+}
+
+/// Explicit user reconciliation also verifies bodies on filesystems with weak timestamps.
+pub fn force_sync_playlists_with_history(
+    store: &Store,
+    settings: &Settings,
+    history: &crate::playback_history::PlaybackHistory,
+) -> Result<PlaylistSyncStatus> {
+    sync_incremental(store, settings, Some(history), true)
+}
+
+fn sync_incremental(
+    store: &Store,
+    settings: &Settings,
+    history: Option<&crate::playback_history::PlaybackHistory>,
+    force: bool,
+) -> Result<PlaylistSyncStatus> {
     if !settings.playlist_mirroring_enabled {
         return Ok(PlaylistSyncStatus::default());
     }
-    if let Some(status) = paused_restore_status(store)? {
-        return Ok(status);
+    let _library_write = store.try_library_write()?;
+    let _guard = PLAYLIST_SYNC_LOCK
+        .lock()
+        .map_err(|_| "Playlist sync lock is unavailable")?;
+    if force {
+        *store
+            .playlist_incremental
+            .lock()
+            .map_err(|e| e.to_string())? = Default::default();
+    }
+    let started = std::time::Instant::now();
+    let revisions = store.playlist_sync_revisions()?;
+    let history_revision = history.map(|h| h.mirror_revision()).transpose()?;
+    let mut roots = playlist_files::effective_directories(settings);
+    let mirror_root = mirrors_dir(settings);
+    if let Some(root) = &mirror_root {
+        roots.push(root.clone());
+    }
+    roots.sort();
+    roots.dedup();
+    let archive_root = mirror_root.as_ref().map(|root| root.join("Archives"));
+    let files = crate::playlist_incremental::fingerprint(&roots, archive_root.as_deref())?;
+    let token = format!(
+        "{}:{}:{:?}:{}:{:?}:{:?}",
+        revisions.generation,
+        revisions.external,
+        history_revision,
+        files,
+        roots,
+        chrono::Utc::now().date_naive()
+    );
+    {
+        let mut cache = store
+            .playlist_incremental
+            .lock()
+            .map_err(|e| e.to_string())?;
+        // Periodic body verification remains a safety net for lost events and network filesystems.
+        if cache
+            .verified_at
+            .is_none_or(|at| at.elapsed() >= std::time::Duration::from_secs(900))
+        {
+            cache.pass = None;
+            cache.mirrors.clear();
+            cache.verified_at = Some(started);
+        }
+        if let Some((previous, status)) = &cache.pass {
+            if previous == &token {
+                let mut status = status.clone();
+                cache.noops += 1;
+                status.synchronized = 0;
+                status.repaired_track_metadata = 0;
+                status.migrated_generated_imports = 0;
+                if std::env::var_os("BURRATA_PERF_TRACE").is_some() {
+                    eprintln!(
+                        "[perf] playlist_sync.noop elapsed_ms={}",
+                        started.elapsed().as_millis()
+                    );
+                }
+                return Ok(status);
+            }
+        }
     }
     let scan = playlist_files::scan_local_playlists(settings)?;
-    sync_playlists_with_scan_and_history(store, settings, scan, Some(history))
+    let status = match reconcile_scan(store, settings, scan, history) {
+        Ok(status) => status,
+        Err(error) => {
+            // A failed pass may have created archives not yet committed to state.
+            // Do not let partial cache entries skip their reconciliation on retry.
+            *store
+                .playlist_incremental
+                .lock()
+                .map_err(|e| e.to_string())? = Default::default();
+            return Err(error);
+        }
+    };
+    if store.playlist_sync_revisions()?.generation == revisions.generation
+        && history.map(|h| h.mirror_revision()).transpose()? == history_revision
+    {
+        // Keep the *input* file token: concurrent edits can never be mistaken for our own writes.
+        store
+            .playlist_incremental
+            .lock()
+            .map_err(|e| e.to_string())?
+            .pass = Some((token, status.clone()));
+    }
+    if std::env::var_os("BURRATA_PERF_TRACE").is_some() {
+        eprintln!(
+            "[perf] playlist_sync.total elapsed_ms={}",
+            started.elapsed().as_millis()
+        );
+    }
+    Ok(status)
 }
 
 fn sync_playlists_with_scan(
@@ -277,22 +357,24 @@ fn sync_playlists_with_scan_and_history(
         return Ok(PlaylistSyncStatus::default());
     }
     let _library_write = store.try_library_write()?;
-    let perf_trace = std::env::var_os("BURRATA_PERF_TRACE").is_some();
-    let lock_started = std::time::Instant::now();
     let _guard = PLAYLIST_SYNC_LOCK
         .lock()
         .map_err(|_| "Playlist sync lock is unavailable")?;
-    if perf_trace {
-        eprintln!(
-            "[perf] playlist_sync.lock_wait elapsed_ms={}",
-            lock_started.elapsed().as_millis()
-        );
-    }
+    reconcile_scan(store, settings, scan, history)
+}
+
+fn reconcile_scan(
+    store: &Store,
+    settings: &Settings,
+    scan: playlist_files::LocalPlaylistScan,
+    history: Option<&crate::playback_history::PlaybackHistory>,
+) -> Result<PlaylistSyncStatus> {
+    let perf_trace = std::env::var_os("BURRATA_PERF_TRACE").is_some();
     let reconcile_started = std::time::Instant::now();
     let mut status = PlaylistSyncStatus::default();
     status.warnings.extend(scan.warnings);
     let state_started = std::time::Instant::now();
-    let mut state = read_state(store)?;
+    let mut state = read_runtime_state(store)?;
     let mirror_policy = crate::playlist_mirror_options::get_playlist_mirror_policy(store)?;
     if state.writes_paused {
         status.warnings.push(restored_pause_message());
@@ -1236,17 +1318,27 @@ fn attach_local_mirror_resources(
     tracks: &[Track],
 ) -> Result<()> {
     let music_directory = store.settings()?.music_directory;
-    let music_root = (!music_directory.trim().is_empty()).then(|| PathBuf::from(music_directory));
-    let assets = store.list_assets()?;
+    let directory = (!music_directory.trim().is_empty())
+        .then(|| PathBuf::from(music_directory).join("Playlists"));
+    attach_local_resources_at(store, input, tracks, directory.as_deref())
+}
+
+fn attach_local_resources_at(
+    store: &Store,
+    input: &mut crate::portable_playlist::PlaylistInput,
+    tracks: &[Track],
+    directory: Option<&Path>,
+) -> Result<()> {
+    let paths = tracks
+        .iter()
+        .filter_map(|track| track.local_path.clone())
+        .collect::<Vec<_>>();
+    let assets = store.registered_asset_paths(&paths)?;
     for (entry, track) in input.entries.iter_mut().zip(tracks) {
-        if let (Some(music_root), Some(path)) = (music_root.as_deref(), track.local_path.as_deref())
-        {
-            if let Some(asset) = assets.iter().find(|asset| asset.path == path) {
-                if let Ok(canonical) = fs::canonicalize(&asset.path) {
-                    if canonical.is_file() {
-                        entry.resolved_resource =
-                            Some(relative_mirror_resource(music_root, &canonical)?);
-                    }
+        if let (Some(directory), Some(path)) = (directory, track.local_path.as_deref()) {
+            if assets.contains(path) {
+                if let Ok(resource) = relative_path_resource(directory, Path::new(path)) {
+                    entry.resolved_resource = Some(resource);
                 }
             }
         }
@@ -2778,7 +2870,8 @@ fn history_playlist_input(
                 continue;
             }
             entries.push(crate::portable_playlist::PortableEntry {
-                id: format!("h{}", entries.len() + 1),
+                // Stable IDs keep older monthly mirrors unchanged when a new session is inserted.
+                id: format!("h-{}", digest(row.session_id.as_bytes())),
                 history: Some(crate::portable_playlist::HistoryOccurrence {
                     occurrence_id: Some(format!("h-{}", digest(row.session_id.as_bytes()))),
                     played_at: Some(row.played_at.clone()),
@@ -3360,6 +3453,37 @@ fn read_state(store: &Store) -> Result<SyncState> {
     let Some(value) = store.playlist_sync_state()? else {
         return Ok(SyncState::default());
     };
+    decode_sync_state(value)
+}
+
+/// Ordinary reconciliation only needs reference headers, never archived bodies.
+fn read_runtime_state(store: &Store) -> Result<SyncState> {
+    let Some(mut value) = store.get_json_preference("playlistSync.v1")? else {
+        return Ok(SyncState::default());
+    };
+    if let Some(refs) = value
+        .get_mut("mirrorSnapshotRefs")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        for records in refs.values_mut() {
+            for reference in records
+                .as_array_mut()
+                .ok_or("Invalid playlist snapshot references")?
+            {
+                if let Some(key) = reference.as_str() {
+                    if !key.starts_with("playlistSnapshot.v1.") || key.len() != 84 {
+                        return Err("Invalid playlist snapshot reference".into());
+                    }
+                    let revision = store.playlist_snapshot_revision(key)?;
+                    *reference = serde_json::json!({"key":key,"revision":revision});
+                }
+            }
+        }
+    }
+    decode_sync_state(value)
+}
+
+fn decode_sync_state(value: serde_json::Value) -> Result<SyncState> {
     // Older state has no restore gate. A backup projection, however, must carry
     // the explicit paused bit; fail closed if that invariant is malformed.
     let projection = value
@@ -3373,7 +3497,10 @@ fn read_state(store: &Store) -> Result<SyncState> {
             );
         }
     }
-    let mut state: SyncState = serde_json::from_value(value.clone()).map_err(|error| {
+    let writes_paused = value
+        .get("writesPaused")
+        .and_then(serde_json::Value::as_bool);
+    let mut state: SyncState = serde_json::from_value(value).map_err(|error| {
         if projection.is_some() {
             format!("Restored playlist mirror state is invalid ({error}); writes remain paused")
         } else {
@@ -3385,16 +3512,9 @@ fn read_state(store: &Store) -> Result<SyncState> {
         // The first read of an imported archive has writesPaused=true. Once an
         // explicit resume is persisted, preserve the inert projection without
         // re-arming the gate on every subsequent read.
-        state.writes_paused = value
-            .get("writesPaused")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(true);
+        state.writes_paused = writes_paused.unwrap_or(true);
     }
-    if value
-        .get("writesPaused")
-        .and_then(serde_json::Value::as_bool)
-        == Some(true)
-    {
+    if writes_paused == Some(true) {
         state.writes_paused = true;
     }
     Ok(state)
@@ -3404,15 +3524,6 @@ fn restored_pause_message() -> String {
     "Playlist synchronization is paused after restore; review and explicitly resume it on this device".into()
 }
 
-fn paused_restore_status(store: &Store) -> Result<Option<PlaylistSyncStatus>> {
-    if read_state(store)?.writes_paused {
-        let mut status = PlaylistSyncStatus::default();
-        status.warnings.push(restored_pause_message());
-        Ok(Some(status))
-    } else {
-        Ok(None)
-    }
-}
 fn persist_state(store: &Store, state: &SyncState) -> Result<()> {
     let mut value = serde_json::to_value(state).map_err(|e| e.to_string())?;
     if let Some(projection) = &state.backup_projection {
@@ -3421,6 +3532,41 @@ fn persist_state(store: &Store, state: &SyncState) -> Result<()> {
     if state.writes_paused {
         value["writesPaused"] = serde_json::Value::Bool(true);
     }
+    // Immutable snapshots are written once; mutable state contains only references.
+    // Readers expand these references so backups retain the existing portable format.
+    let mut refs = state.mirror_snapshot_refs.clone();
+    for (owner, snapshots) in &state.mirror_snapshots {
+        let references = refs.entry(owner.clone()).or_default();
+        for snapshot in snapshots {
+            if references
+                .iter()
+                .any(|reference| reference.revision == snapshot.revision)
+            {
+                continue;
+            }
+            let key = format!(
+                "playlistSnapshot.v1.{}",
+                digest(
+                    format!(
+                        "{}\0{}\0{}",
+                        snapshot.revision, snapshot.captured_at, snapshot.contents
+                    )
+                    .as_bytes()
+                )
+            );
+            if !store.json_preference_exists(&key)? {
+                store.set_json_preference(
+                    &key,
+                    &serde_json::to_value(snapshot).map_err(|e| e.to_string())?,
+                )?;
+            }
+            references.push(SnapshotReference {
+                key,
+                revision: snapshot.revision.clone(),
+            });
+        }
+    }
+    value["mirrorSnapshotRefs"] = serde_json::to_value(refs).map_err(|e| e.to_string())?;
     store.save_playlist_sync_state(&value)
 }
 
@@ -4325,6 +4471,95 @@ fn effective_render_options(
     })
 }
 
+fn mirror_stamp(store: &Store, state: &SyncState, id: &str, settings: &Settings) -> Result<String> {
+    let (global, external, revision) = store.playlist_mirror_revision(id)?;
+    let mut hash = Sha256::new();
+    hash.update(format!(
+        "{global}:{external}:{revision}:{}:{id}",
+        settings.music_directory
+    ));
+    let mut paths = state
+        .mirror_paths
+        .iter()
+        .filter(|(key, _)| {
+            key.as_str() == id
+                || parse_section_mirror_key(key).is_some_and(|(owner, _)| owner == id)
+        })
+        .collect::<Vec<_>>();
+    paths.sort_by_key(|(key, _)| *key);
+    for (key, path) in paths {
+        hash.update(key.as_bytes());
+        crate::playlist_incremental::stamp_path(&mut hash, Path::new(path));
+    }
+    for path in store.playlist_asset_paths(id)? {
+        crate::playlist_incremental::stamp_path(&mut hash, Path::new(&path));
+    }
+    Ok(format!("{:x}", hash.finalize()))
+}
+fn mirror_is_clean(store: &Store, id: &str, stamp: &str) -> Result<bool> {
+    let mut cache = store
+        .playlist_incremental
+        .lock()
+        .map_err(|e| e.to_string())?;
+    let clean = cache.mirrors.get(id).is_some_and(|old| old == stamp);
+    if !clean {
+        cache.mirror_work += 1;
+    }
+    Ok(clean)
+}
+fn remember_mirror(store: &Store, id: &str, stamp: String) -> Result<()> {
+    let mut cache = store
+        .playlist_incremental
+        .lock()
+        .map_err(|e| e.to_string())?;
+    if cache.mirrors.len() >= 10_000 {
+        cache.mirrors.clear();
+    }
+    cache.mirrors.insert(id.to_owned(), stamp);
+    Ok(())
+}
+
+fn mirror_browser_snapshots(
+    store: &Store,
+    collection_id: &str,
+    root: &Path,
+) -> Result<Vec<crate::models::Chart>> {
+    let headers = store.browser_snapshot_headers(collection_id)?;
+    let mut snapshots = Vec::new();
+    for (index, (id, fetched_at)) in headers.into_iter().enumerate() {
+        let stamp = fetched_at
+            .chars()
+            .filter(|c| c.is_ascii_digit())
+            .take(14)
+            .collect::<String>();
+        let filename = format!("{stamp}-{id}.m3u8");
+        let archived = ["Personal", "Spotify", "Beatport", "Traxsource", "Local"]
+            .iter()
+            .any(|group| {
+                root.join("Archives")
+                    .join(group)
+                    .join(collection_id)
+                    .join(&filename)
+                    .is_file()
+            });
+        if index == 0 || !archived {
+            let snapshot = store.raw_chart_snapshot(&id)?;
+            if !archived {
+                archive_chart_snapshot(
+                    root,
+                    &collection_group(&snapshot.tracks),
+                    collection_id,
+                    &snapshot,
+                )?;
+            }
+            if index == 0 {
+                snapshots.push(snapshot);
+            }
+        }
+    }
+    Ok(snapshots)
+}
+
 fn write_mirrors(
     store: &Store,
     settings: &Settings,
@@ -4374,7 +4609,12 @@ fn write_mirrors(
             collections.len()
         );
     }
+    let mut collection_names = collections
+        .iter()
+        .map(|collection| (collection.id.clone(), collection.name.clone()))
+        .collect::<HashMap<_, _>>();
     for collection in collections {
+        std::thread::yield_now();
         let mirror_options = mirror_policy
             .playlists
             .get(&collection.id)
@@ -4393,15 +4633,13 @@ fn write_mirrors(
             // Honor the destination's exclusion before reading or applying the origin file.
             continue;
         }
+        let stamp = mirror_stamp(store, state, &collection.id, settings)?;
+        if mirror_is_clean(store, &collection.id, &stamp)? {
+            continue;
+        }
         let mirror_render_options =
             effective_render_options(settings, state, &collection.id, &mirror_options)?;
-        let browser_snapshots = store.browser_snapshots_for_collection(&collection.id)?;
-        if !browser_snapshots.is_empty() {
-            for snapshot in browser_snapshots.iter().rev() {
-                let group = collection_group(&snapshot.tracks);
-                archive_chart_snapshot(&dir, &group, &collection.id, snapshot)?;
-            }
-        }
+        let browser_snapshots = mirror_browser_snapshots(store, &collection.id, &dir)?;
         let tracks =
             current_collection_tracks_from_snapshots(store, &collection.id, &browser_snapshots)?;
         let original_group = mirror_group(state, &collection.id, &tracks);
@@ -4476,12 +4714,21 @@ fn write_mirrors(
         } else {
             store.list_tracks("collection", Some(&target_id))?
         };
-        let target_name = store
-            .list_collections()?
-            .into_iter()
-            .find(|item| item.id == target_id)
-            .map(|item| item.name)
-            .unwrap_or_else(|| collection.name.clone());
+        let cached_name = collection_names
+            .get(&target_id)
+            .filter(|_| !edit.original_collection_changed && edit.personal_collection_id.is_none());
+        let target_name = if let Some(name) = cached_name {
+            name.clone()
+        } else {
+            // An edit may have created a new personal collection during this pass.
+            store
+                .list_collections()?
+                .into_iter()
+                .find(|item| item.id == target_id)
+                .map(|item| item.name)
+                .unwrap_or_else(|| collection.name.clone())
+        };
+        collection_names.insert(target_id.clone(), target_name.clone());
         let target_group = mirror_group(state, &target_id, &target_tracks);
         let target_relative_dir =
             mirror_relative_directory(store, state, &target_id, &target_tracks)?;
@@ -4520,7 +4767,7 @@ fn write_mirrors(
                 archive_mirror(state, &dir, &target_group, &target_id, previous)?;
             }
         }
-        if fs::read_to_string(&target_path).ok().as_deref() != Some(&target_body) {
+        if previous_target.as_deref() != Some(&target_body) {
             atomic_write(&target_path, target_body.as_bytes())?;
         }
         if target_id == collection.id && original_path != target_path && original_path.exists() {
@@ -4552,8 +4799,14 @@ fn write_mirrors(
             warnings,
             &target_render_options,
         )?;
+        let after = mirror_stamp(store, state, &collection.id, settings)?;
+        // A changed output path causes one verification pass; concurrent edits stay dirty.
+        if stamp == after {
+            remember_mirror(store, &collection.id, stamp)?;
+        }
     }
-    if favorites_included {
+    let favorites_stamp = mirror_stamp(store, state, "favorites", settings)?;
+    if favorites_included && !mirror_is_clean(store, "favorites", &favorites_stamp)? {
         let favorite_options = mirror_policy
             .playlists
             .get("favorites")
@@ -4743,9 +4996,21 @@ fn write_mirrors(
             warnings,
             &favorite_render_options,
         )?;
+        if favorites_stamp == mirror_stamp(store, state, "favorites", settings)? {
+            remember_mirror(store, "favorites", favorites_stamp)?;
+        }
     }
     if history_included {
         if let Some(history) = history {
+            let stamp = format!(
+                "{}:{:?}:{}",
+                mirror_stamp(store, state, "history", settings)?,
+                history.mirror_revision()?,
+                chrono::Utc::now().date_naive()
+            );
+            if mirror_is_clean(store, "history", &stamp)? {
+                return Ok(Some(dir.to_string_lossy().into_owned()));
+            }
             write_history_mirror_with_options(
                 store,
                 history,
@@ -4754,6 +5019,15 @@ fn write_mirrors(
                 warnings,
                 &history_render_options,
             )?;
+            let after = format!(
+                "{}:{:?}:{}",
+                mirror_stamp(store, state, "history", settings)?,
+                history.mirror_revision()?,
+                chrono::Utc::now().date_naive()
+            );
+            if stamp == after {
+                remember_mirror(store, "history", stamp)?;
+            }
         }
     }
     if std::env::var_os("BURRATA_PERF_TRACE").is_some() {
@@ -4944,6 +5218,13 @@ fn archive_mirror(
     contents: &str,
 ) -> Result<()> {
     let revision = digest(contents.as_bytes());
+    if state
+        .mirror_snapshot_refs
+        .get(id)
+        .is_some_and(|refs| refs.iter().any(|reference| reference.revision == revision))
+    {
+        return Ok(());
+    }
     let snapshots = state.mirror_snapshots.entry(id.to_owned()).or_default();
     if snapshots
         .iter()
@@ -5405,19 +5686,7 @@ fn render_managed_playlist_m3u_with_options(
     } else {
         portable_playlist_input_for_tracks(store, collection_id, name.to_owned(), tracks)?
     };
-    attach_local_mirror_resources(store, &mut input, tracks)?;
-    let assets = store.list_assets()?;
-    for (entry, track) in input.entries.iter_mut().zip(tracks) {
-        let Some(local) = track.local_path.as_deref() else {
-            continue;
-        };
-        let Some(asset) = assets.iter().find(|asset| asset.path == local) else {
-            continue;
-        };
-        if let Ok(resource) = relative_path_resource(mirror_directory, Path::new(&asset.path)) {
-            entry.resolved_resource = Some(resource);
-        }
-    }
+    attach_local_resources_at(store, &mut input, tracks, Some(mirror_directory))?;
     render_portable_m3u(
         &input,
         &crate::portable_playlist::PlaylistExportOptions {
@@ -5488,7 +5757,11 @@ fn write_section_mirrors_with_options(
         portable_playlist_input_for_tracks(store, collection_id, playlist_name.to_owned(), tracks)?
     };
     let sections = input.sections.clone();
-    let assets = store.list_assets()?;
+    let asset_paths = tracks
+        .iter()
+        .filter_map(|track| track.local_path.clone())
+        .collect::<Vec<_>>();
+    let assets = store.registered_asset_paths(&asset_paths)?;
     let active_keys = sections
         .iter()
         .map(|section| format!("section:{collection_id}:{}", section.id))
@@ -5529,8 +5802,8 @@ fn write_section_mirrors_with_options(
             let local = track
                 .local_path
                 .as_deref()
-                .and_then(|path| assets.iter().find(|asset| asset.path == path))
-                .and_then(|asset| fs::canonicalize(&asset.path).ok())
+                .filter(|path| assets.contains(*path))
+                .and_then(|path| fs::canonicalize(path).ok())
                 .filter(|path| path.is_file())
                 .and_then(|path| relative_path_resource(section_dir, &path).ok());
             entry.resolved_resource = local.or_else(|| {
@@ -6015,6 +6288,239 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
 mod tests {
     use super::*;
     use crate::models::{Candidate, LocalAsset, Track};
+
+    #[test]
+    fn immutable_mirror_snapshots_are_stored_once_and_expand_for_readers() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("library.sqlite")).unwrap();
+        let mut state = SyncState::default();
+        state.mirror_snapshots.insert(
+            "playlist-a".into(),
+            vec![SourceSnapshot {
+                revision: "revision-a".into(),
+                captured_at: "2026-10-28T00:00:00Z".into(),
+                contents: "#EXTM3U\n".repeat(1000),
+            }],
+        );
+        persist_state(&store, &state).unwrap();
+        let raw = store
+            .get_json_preference("playlistSync.v1")
+            .unwrap()
+            .unwrap();
+        assert!(raw.get("mirrorSnapshots").is_none());
+        assert!(raw["mirrorSnapshotRefs"]["playlist-a"][0]["key"].is_string());
+        let portable = store.playlist_sync_state().unwrap().unwrap();
+        assert_eq!(
+            portable["mirrorSnapshots"]["playlist-a"][0]["contents"],
+            state.mirror_snapshots["playlist-a"][0].contents
+        );
+        assert!(portable.get("mirrorSnapshotRefs").is_none());
+        persist_state(&store, &state).unwrap();
+        assert_eq!(
+            read_state(&store).unwrap().mirror_snapshots["playlist-a"].len(),
+            1
+        );
+    }
+
+    fn incremental_fixture() -> (tempfile::TempDir, Store, Settings, String, String) {
+        let dir = tempfile::tempdir().unwrap();
+        let music = dir.path().join("Music");
+        fs::create_dir_all(&music).unwrap();
+        let store = Store::open(&dir.path().join("library.sqlite")).unwrap();
+        let a = store.create_collection("First").unwrap().id;
+        let b = store.create_collection("Second").unwrap().id;
+        for id in [&a, &b] {
+            let track = Track {
+                id: format!("local:track-{id}"),
+                provider_id: format!("track-{id}"),
+                title: "Track".into(),
+                artist: "Artist".into(),
+                provider: "local".into(),
+                ..Default::default()
+            };
+            store.save_track(&track).unwrap();
+            store.add_to_collection(id, &[track]).unwrap();
+        }
+        let settings = Settings {
+            music_directory: music.to_string_lossy().into_owned(),
+            playlist_mirroring_enabled: true,
+            ..Default::default()
+        };
+        for _ in 0..4 {
+            sync_playlists(&store, &settings).unwrap();
+        }
+        (dir, store, settings, a, b)
+    }
+
+    #[test]
+    fn incremental_journal_ignores_bookmarks_and_unrelated_catalog_cache() {
+        let (_dir, store, _settings, a, b) = incremental_fixture();
+        let generation = store.playlist_sync_generation().unwrap();
+        store
+            .set_json_preference(
+                "nativePlaybackSession.v1",
+                &serde_json::json!({"position":42}),
+            )
+            .unwrap();
+        store
+            .cache_track(&Track {
+                id: "fixture:unrelated".into(),
+                provider_id: "unrelated".into(),
+                provider: "fixture".into(),
+                title: "Unrelated".into(),
+                artist: "Artist".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(store.playlist_sync_generation().unwrap(), generation);
+        let a_before = store.playlist_mirror_revision(&a).unwrap();
+        let b_before = store.playlist_mirror_revision(&b).unwrap();
+        store.rename_collection(&a, "Changed").unwrap();
+        assert_ne!(store.playlist_mirror_revision(&a).unwrap(), a_before);
+        assert_eq!(store.playlist_mirror_revision(&b).unwrap(), b_before);
+    }
+
+    #[test]
+    fn runtime_sync_does_not_expand_archived_snapshot_bodies() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("library.sqlite")).unwrap();
+        let mut state = SyncState::default();
+        state.mirror_snapshots.insert(
+            "playlist".into(),
+            vec![SourceSnapshot {
+                revision: "first".into(),
+                captured_at: "2026-10-28T00:00:00Z".into(),
+                contents: "#EXTM3U\n".repeat(1000),
+            }],
+        );
+        persist_state(&store, &state).unwrap();
+        let mut light = read_runtime_state(&store).unwrap();
+        assert!(light.mirror_snapshots.is_empty());
+        assert_eq!(light.mirror_snapshot_refs["playlist"].len(), 1);
+        // Saving a runtime mutation retains the original immutable body.
+        light
+            .mirror_hashes
+            .insert("playlist".into(), "changed".into());
+        persist_state(&store, &light).unwrap();
+        assert_eq!(
+            read_state(&store).unwrap().mirror_snapshots["playlist"][0].contents,
+            "#EXTM3U\n".repeat(1000)
+        );
+        // References written by the earlier build migrate without loading bodies.
+        let mut raw = store
+            .get_json_preference("playlistSync.v1")
+            .unwrap()
+            .unwrap();
+        let key = raw["mirrorSnapshotRefs"]["playlist"][0]["key"].clone();
+        raw["mirrorSnapshotRefs"]["playlist"][0] = key;
+        store.set_json_preference("playlistSync.v1", &raw).unwrap();
+        let migrated = read_runtime_state(&store).unwrap();
+        assert_eq!(
+            migrated.mirror_snapshot_refs["playlist"][0].revision,
+            "first"
+        );
+        assert!(migrated.mirror_snapshots.is_empty());
+    }
+
+    #[test]
+    fn incremental_failed_pass_discards_partial_cache_before_retry() {
+        let (_dir, store, settings, _, _) = incremental_fixture();
+        assert!(!store
+            .playlist_incremental
+            .lock()
+            .unwrap()
+            .mirrors
+            .is_empty());
+        let root = Path::new(&settings.music_directory).join("Playlists");
+        fs::rename(&root, root.with_extension("saved")).unwrap();
+        fs::write(&root, b"not a directory").unwrap();
+        assert!(sync_playlists(&store, &settings).is_err());
+        let cache = store.playlist_incremental.lock().unwrap();
+        assert!(cache.pass.is_none());
+        assert!(cache.mirrors.is_empty());
+    }
+
+    #[test]
+    fn history_export_ids_do_not_shift_when_newer_sessions_arrive() {
+        let directory = tempfile::tempdir().unwrap();
+        let history = crate::playback_history::PlaybackHistory::open(
+            &directory.path().join("history.sqlite"),
+        )
+        .unwrap();
+        let track = Track {
+            id: "local:history".into(),
+            provider: "local".into(),
+            provider_id: "history".into(),
+            title: "History".into(),
+            artist: "Artist".into(),
+            ..Default::default()
+        };
+        history.record("first", "local", &track, None).unwrap();
+        let before = history_playlist_input(&history, None).unwrap();
+        let occurrence = before.entries[0]
+            .history
+            .as_ref()
+            .unwrap()
+            .occurrence_id
+            .clone();
+        history.record("second", "local", &track, None).unwrap();
+        let after = history_playlist_input(&history, None).unwrap();
+        let retained = after
+            .entries
+            .iter()
+            .find(|entry| entry.history.as_ref().unwrap().occurrence_id == occurrence)
+            .unwrap();
+        assert_eq!(retained.id, before.entries[0].id);
+    }
+
+    #[test]
+    fn incremental_idle_sync_has_no_writes_or_mirror_work() {
+        let (_dir, store, settings, _, _) = incremental_fixture();
+        let before = store
+            .with_backup_connection(|conn| Ok(conn.total_changes()))
+            .unwrap();
+        let work = store.playlist_incremental.lock().unwrap().mirror_work;
+        for _ in 0..3 {
+            sync_playlists(&store, &settings).unwrap();
+        }
+        assert_eq!(
+            store
+                .with_backup_connection(|conn| Ok(conn.total_changes()))
+                .unwrap(),
+            before
+        );
+        let cache = store.playlist_incremental.lock().unwrap();
+        assert_eq!(cache.mirror_work, work);
+        assert!(cache.noops >= 3);
+    }
+
+    #[test]
+    fn incremental_rename_only_renders_affected_playlist_and_detects_external_edits() {
+        let (_dir, store, settings, a, b) = incremental_fixture();
+        let before = store.playlist_incremental.lock().unwrap().mirror_work;
+        let b_path = read_state(&store).unwrap().mirror_paths[&b].clone();
+        let b_before = fs::metadata(&b_path).unwrap().modified().unwrap();
+        store.rename_collection(&a, "Renamed").unwrap();
+        sync_playlists(&store, &settings).unwrap();
+        assert_eq!(
+            store.playlist_incremental.lock().unwrap().mirror_work - before,
+            1
+        );
+        assert_eq!(fs::metadata(&b_path).unwrap().modified().unwrap(), b_before);
+        let body = fs::read_to_string(&b_path).unwrap();
+        fs::write(&b_path, body.replace("Second", "External edit")).unwrap();
+        sync_playlists(&store, &settings).unwrap();
+        assert_eq!(
+            store
+                .list_collections()
+                .unwrap()
+                .into_iter()
+                .find(|c| c.id == b)
+                .unwrap()
+                .name,
+            "External edit"
+        );
+    }
 
     fn restored_sync_state() -> serde_json::Value {
         serde_json::json!({

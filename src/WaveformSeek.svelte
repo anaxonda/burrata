@@ -1,10 +1,15 @@
 <script lang="ts">
+  import { smoothPlaybackPosition } from "./lib/smooth-playback-position.svelte";
   import { onDestroy } from "svelte";
   import SeekSlider from "./SeekSlider.svelte";
   import { formatSeekTime as timeLabel, seekPreviewTime } from "./lib/seek-preview";
   import { waveformStatus, type WaveformSnapshot } from "./lib/waveform-data";
+  import { detectionMarkers } from "./lib/detection-markers";
+  import type { DetectedTrackObservation } from "./lib/playing-track-detection";
 
-  let { position, duration, disabled, onSeek, waveform = null, generation, trackId }: {
+  let { position, duration, disabled, onSeek, waveform = null, generation, trackId, detections = [], detectionSourceOffset = 0, playing = false, playbackIdentity = null }: {
+    playing?: boolean;
+    playbackIdentity?: unknown;
     position: number;
     duration: number;
     disabled: boolean;
@@ -12,8 +17,11 @@
     waveform?: WaveformSnapshot | null;
     generation: number | null;
     trackId: string | null;
+    detections?: DetectedTrackObservation[];
+    detectionSourceOffset?: number;
   } = $props();
 
+  const animated = smoothPlaybackPosition(() => ({ position, duration, playing, identity: playbackIdentity }));
   let target = $state<number | null>(null);
   let hoverPosition = $state<number | null>(null);
   let dragging = false;
@@ -22,7 +30,7 @@
 
   const hasTimeline = $derived(Number.isFinite(duration) && duration > 0);
   const safePosition = $derived(hasTimeline && Number.isFinite(position)
-    ? Math.max(0, Math.min(duration, position))
+    ? Math.max(0, Math.min(duration, animated.value))
     : 0);
   function isUsableBin(bin: WaveformSnapshot["bins"][number]): bin is NonNullable<WaveformSnapshot["bins"][number]> {
     return Boolean(bin && Number.isFinite(bin.min) && Number.isFinite(bin.max) &&
@@ -59,6 +67,7 @@
     return segments.join("");
   });
   const elapsedEnd = $derived(current ? current.bins.length * safePosition / duration : 0);
+  const markers = $derived(detectionMarkers(detections, duration, detectionSourceOffset));
   const previewPosition = $derived(target ?? hoverPosition);
   function previewSeek(event: PointerEvent) {
     if (disabled) return;
@@ -102,6 +111,9 @@
 <div class="waveform-seek-frame">
   <div class="waveform-seek" class:empty={!current} class:disabled>
     <div class="waveform-played-region" style={`width:${100 * safePosition / duration}%`} aria-hidden="true"></div>
+    {#each markers as marker, index (`${marker.startSeconds}:${marker.endSeconds}:${index}`)}
+      <span class={`detection-marker detection-color-${marker.colorIndex}`} style={`left:${100 * marker.startSeconds / duration}%;width:${100 * (marker.endSeconds - marker.startSeconds) / duration}%`} title={`Approximate observed span for ${marker.title}`} aria-hidden="true"></span>
+    {/each}
     <svg class="waveform" viewBox={`0 0 ${current?.bins.length ?? 1} 100`} preserveAspectRatio="none" aria-hidden="true">
       {#if unknownRailPath}<path class="waveform-unknown-rail" d={unknownRailPath} />{/if}
       <line x1="0" y1="50" x2={current?.bins.length ?? 1} y2="50" />
@@ -145,6 +157,8 @@
   .waveform-seek{position:relative;isolation:isolate;contain:layout paint;overflow:hidden;width:100%;height:2rem;display:grid;grid-template:2rem / minmax(0,1fr);align-items:center;touch-action:pan-y;border-radius:5px;background:color-mix(in srgb,var(--text,#eef5f0) 7%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--muted,#9ca6a0) 35%,transparent);transition:background 120ms,box-shadow 120ms}
   .waveform-seek:not(.disabled):hover{background:color-mix(in srgb,var(--text,#eef5f0) 11%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent,#71bda2) 65%,transparent)}
   .waveform-played-region{position:absolute;inset:0 auto 0 0;background:color-mix(in srgb,var(--accent,#71bda2) 12%,transparent);pointer-events:none}
+  .detection-marker{position:absolute;z-index:1;top:0;height:3px;min-width:2px;opacity:.9;pointer-events:none}
+  .detection-color-0{background:#62d6b0}.detection-color-1{background:#f2b84b}.detection-color-2{background:#e879a9}.detection-color-3{background:#78aaff}.detection-color-4{background:#bf91f5}.detection-color-5{background:#f27d61}
   .waveform-hover-guide{position:absolute;inset-block:0;width:1px;background:var(--text,#eef5f0);opacity:.65;pointer-events:none}
   .waveform-hover-time{position:absolute;top:2px;transform:translateX(-50%);padding:2px 5px;border-radius:3px;background:var(--surface,#17191c);color:var(--text,#eef5f0);font-size:10px;line-height:1.2;font-variant-numeric:tabular-nums;pointer-events:none;box-shadow:0 1px 4px #0006}
   .waveform{position:relative;grid-area:1 / 1;width:100%;height:2rem;display:block;overflow:hidden;pointer-events:none}

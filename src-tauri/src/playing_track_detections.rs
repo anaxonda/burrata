@@ -17,10 +17,14 @@ use std::{
 const CACHE_KEY: &str = "playingTrackDetectionCache.v1";
 const POLICY_KEY: &str = "playingTrackDetectionPolicy.v1";
 const MAX_RESOURCES: usize = 48;
-const MAX_DETECTIONS_PER_RESOURCE: usize = 1024;
-const MAX_TOTAL_DETECTIONS: usize = 1024;
+// A durable row is capped independently, while library recordings are
+// protected from the generic analysis-cache LRU.
+const MAX_DETECTIONS_PER_RESOURCE: usize = 256;
+const MAX_LEGACY_DETECTIONS_PER_RESOURCE: usize = 1024;
 const MAX_STORE_BYTES: usize = 256 * 1024;
+const MAX_DURABLE_RECORD_BYTES: usize = 240 * 1024;
 const DEDUPE_GAP_SECONDS: f64 = 45.0;
+const DURABLE_CACHE_NAMESPACE: &str = "detected-tracks-v1";
 
 static WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static LOCAL_HASH_CACHE: OnceLock<Mutex<HashMap<String, CachedLocalHash>>> = OnceLock::new();
@@ -287,6 +291,8 @@ pub struct DetectedTrackObservation {
     pub captured_end_seconds: f64,
     pub observed_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artwork_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identifiers: Option<crate::recording_identity::RecognitionIdentifiers>,
 }
 
@@ -297,6 +303,9 @@ pub struct DetectionResourceView {
     pub resource_key: String,
     pub enabled: bool,
     pub observations: Vec<DetectedTrackObservation>,
+    /// True when a saved library recording reached the per-resource history
+    /// limit. Further detections are withheld to preserve its existing times.
+    pub retention_limit_reached: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -312,6 +321,8 @@ struct ResourceRecord {
     key: String,
     last_used_at: String,
     observations: Vec<DetectedTrackObservation>,
+    #[serde(default)]
+    retention_limit_reached: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -331,43 +342,27 @@ struct PolicyRecord {
 
 pub fn read(store: &Store, key: &DetectionResourceKey) -> Result<DetectionResourceView, String> {
     let _guard = lock().lock().unwrap_or_else(|e| e.into_inner());
-    let cache = load_cache(store)?;
-    let policy = load_policy(store)?;
-    let enabled = policy
-        .resources
-        .iter()
-        .find(|record| record.key == key.0)
-        .is_some_and(|record| record.enabled);
-    let result = cache
-        .resources
-        .into_iter()
-        .find(|record| record.key == key.0)
-        .map(|record| DetectionResourceView {
-            resource_key: key.0.clone(),
-            enabled,
-            observations: chronological(record.observations),
-        })
-        .unwrap_or(DetectionResourceView {
-            resource_key: key.0.clone(),
-            enabled,
-            observations: Vec::new(),
-        });
-    Ok(result)
+    read_unlocked(store, key)
 }
 
 pub fn set_enabled(
     store: &Store,
     key: &DetectionResourceKey,
     enabled: bool,
+    library_recording_id: Option<&str>,
 ) -> Result<DetectionResourceView, String> {
     let _guard = lock().lock().unwrap_or_else(|e| e.into_inner());
     let mut policy = load_policy(store)?;
     let now = chrono::Utc::now().to_rfc3339();
     let record = find_or_insert_policy(&mut policy, key, &now);
     record.enabled = enabled;
-    record.last_used_at = now;
+    record.last_used_at = now.clone();
     trim_policy(&mut policy);
     save_policy(store, policy)?;
+    if let Some(mut record) = load_cache_record(store, key)? {
+        record.last_used_at = now;
+        save_cache_record(store, key, &record, library_recording_id)?;
+    }
     read_unlocked(store, key)
 }
 
@@ -375,6 +370,7 @@ pub fn record_if_enabled(
     store: &Store,
     key: &DetectionResourceKey,
     metadata: &RadioTrackMetadata,
+    library_recording_id: Option<&str>,
     captured_start_seconds: f64,
     captured_duration_seconds: f64,
 ) -> Result<bool, String> {
@@ -394,6 +390,7 @@ pub fn record_if_enabled(
     let title = metadata.title.trim().to_owned();
     let artist = metadata.artist.trim().to_owned();
     let identifiers = metadata.identifiers.as_ref().and_then(safe_identifiers);
+    let artwork_url = crate::radio::safe_recognition_artwork_url(metadata.artwork_url.as_deref());
 
     let _guard = lock().lock().unwrap_or_else(|e| e.into_inner());
     let policy = load_policy(store)?;
@@ -404,9 +401,23 @@ pub fn record_if_enabled(
     {
         return Ok(false);
     }
-    let mut cache = load_cache(store)?;
     let now = chrono::Utc::now().to_rfc3339();
-    let record = find_or_insert_cache(&mut cache, key, &now);
+    let mut record = load_cache_record(store, key)?.unwrap_or_else(|| ResourceRecord {
+        key: key.0.clone(),
+        last_used_at: now.clone(),
+        observations: Vec::new(),
+        retention_limit_reached: false,
+    });
+    let library_owned = library_recording_id
+        .map(|recording_id| store.recording_is_in_library(recording_id))
+        .transpose()?
+        .unwrap_or(false);
+    if record.observations.len() >= MAX_DETECTIONS_PER_RESOURCE && library_owned {
+        record.retention_limit_reached = true;
+        record.last_used_at = now;
+        save_cache_record(store, key, &record, library_recording_id)?;
+        return Ok(false);
+    }
     let midpoint = captured_start_seconds + captured_duration_seconds / 2.0;
     let same_index = record.observations.iter().position(|last| {
         let identity_conflicts = last
@@ -448,6 +459,9 @@ pub fn record_if_enabled(
         if last.identifiers.is_none() {
             last.identifiers = identifiers;
         }
+        if last.artwork_url.is_none() {
+            last.artwork_url = artwork_url;
+        }
     } else {
         record.observations.push(DetectedTrackObservation {
             title,
@@ -458,15 +472,13 @@ pub fn record_if_enabled(
             captured_end_seconds: end,
             observed_at: now.clone(),
             identifiers,
+            artwork_url,
         });
     }
     record.last_used_at = now;
-    if record.observations.len() > MAX_DETECTIONS_PER_RESOURCE {
-        let excess = record.observations.len() - MAX_DETECTIONS_PER_RESOURCE;
-        record.observations.drain(..excess);
-    }
-    trim_cache(&mut cache);
-    save_cache(store, cache)?;
+    record.retention_limit_reached = false;
+    trim_resource_record(&mut record);
+    save_cache_record(store, key, &record, library_recording_id)?;
     Ok(true)
 }
 
@@ -487,6 +499,10 @@ pub fn sanitize_backup_value(value: serde_json::Value) -> Option<serde_json::Val
                 .identifiers
                 .take()
                 .and_then(|ids| safe_identifiers(&ids));
+            observation.artwork_url = observation
+                .artwork_url
+                .take()
+                .and_then(|url| crate::radio::safe_recognition_artwork_url(Some(&url)));
         }
     }
     cache.resources.retain(valid_resource_record);
@@ -518,25 +534,24 @@ fn read_unlocked(
     store: &Store,
     key: &DetectionResourceKey,
 ) -> Result<DetectionResourceView, String> {
-    let cache = load_cache(store)?;
+    let cached_record = load_cache_record(store, key)?;
     let enabled = load_policy(store)?
         .resources
         .iter()
         .find(|record| record.key == key.0)
         .is_some_and(|record| record.enabled);
-    Ok(cache
-        .resources
-        .into_iter()
-        .find(|record| record.key == key.0)
+    Ok(cached_record
         .map(|record| DetectionResourceView {
             resource_key: key.0.clone(),
             enabled,
             observations: chronological(record.observations),
+            retention_limit_reached: record.retention_limit_reached,
         })
         .unwrap_or(DetectionResourceView {
             resource_key: key.0.clone(),
             enabled,
             observations: Vec::new(),
+            retention_limit_reached: false,
         }))
 }
 
@@ -545,46 +560,101 @@ fn chronological(mut observations: Vec<DetectedTrackObservation>) -> Vec<Detecte
     observations
 }
 
-fn load_cache(store: &Store) -> Result<DetectionCache, String> {
-    let value = store
-        .get_json_preference(CACHE_KEY)
-        .map_err(|e| e.to_string())?;
-    let Some(value) = value else {
-        return Ok(DetectionCache {
-            version: 1,
-            resources: Vec::new(),
-        });
-    };
-    if serde_json::to_vec(&value).map_err(|e| e.to_string())?.len() > MAX_STORE_BYTES {
-        return Ok(DetectionCache {
-            version: 1,
-            resources: Vec::new(),
-        });
-    }
-    let mut cache: DetectionCache = serde_json::from_value(value).unwrap_or(DetectionCache {
-        version: 1,
-        resources: Vec::new(),
-    });
-    if cache.version != 1 {
-        cache = DetectionCache {
-            version: 1,
-            resources: Vec::new(),
-        };
-    }
-    cache.resources.retain(valid_resource_record);
-    trim_cache(&mut cache);
-    Ok(cache)
+fn durable_cache_key(key: &DetectionResourceKey) -> String {
+    format!("{:x}", Sha256::digest(key.0.as_bytes()))
 }
 
-fn save_cache(store: &Store, cache: DetectionCache) -> Result<(), String> {
-    let value = serde_json::to_value(cache).map_err(|e| e.to_string())?;
-    let bytes = serde_json::to_vec(&value).map_err(|e| e.to_string())?;
-    if bytes.len() > MAX_STORE_BYTES {
-        return Err("Detected track cache reached its size limit".into());
+/// Migrate the old aggregate preference once. Old records have no owning
+/// recording reference, so they remain ordinary LRU cache entries until a
+/// live library playback writes them with a verified recording ID.
+fn migrate_legacy_cache(store: &Store) -> Result<(), String> {
+    let Some(value) = store
+        .get_json_preference(CACHE_KEY)
+        .map_err(|error| error.to_string())?
+    else {
+        return Ok(());
+    };
+    if serde_json::to_vec(&value).map_or(true, |bytes| bytes.len() > MAX_STORE_BYTES) {
+        return Ok(());
+    }
+    let mut cache: DetectionCache = match serde_json::from_value(value) {
+        Ok(cache) => cache,
+        Err(_) => return Ok(()),
+    };
+    if cache.version != 1 {
+        return Ok(());
+    }
+    if cache.resources.is_empty() {
+        return Ok(());
+    }
+    if cache.resources.len() > MAX_RESOURCES {
+        return Ok(());
+    }
+    for record in cache.resources {
+        let key = DetectionResourceKey(record.key.clone());
+        let mut record = record;
+        if record.observations.len() > MAX_LEGACY_DETECTIONS_PER_RESOURCE {
+            continue;
+        }
+        trim_resource_record(&mut record);
+        if !record.observations.is_empty() && valid_resource_record(&record) {
+            save_cache_record(store, &key, &record, None)?;
+        }
     }
     store
-        .set_json_preference(CACHE_KEY, &value)
-        .map_err(|e| e.to_string())
+        .set_json_preference(CACHE_KEY, &serde_json::json!({"version":1,"resources":[]}))
+        .map_err(|error| error.to_string())
+}
+
+fn load_cache_record(
+    store: &Store,
+    key: &DetectionResourceKey,
+) -> Result<Option<ResourceRecord>, String> {
+    migrate_legacy_cache(store)?;
+    let Some(value) =
+        store.read_analysis_cache_record(DURABLE_CACHE_NAMESPACE, &durable_cache_key(key))?
+    else {
+        return Ok(None);
+    };
+    let record: ResourceRecord = serde_json::from_value(value)
+        .map_err(|_| "Detected track cache record is invalid".to_owned())?;
+    if record.key != key.0 || !valid_resource_record(&record) {
+        return Ok(None);
+    }
+    Ok(Some(record))
+}
+
+fn save_cache_record(
+    store: &Store,
+    key: &DetectionResourceKey,
+    record: &ResourceRecord,
+    library_recording_id: Option<&str>,
+) -> Result<(), String> {
+    if record.key != key.0 || !valid_resource_record(record) {
+        return Err("Detected track cache record is invalid".into());
+    }
+    let value = serde_json::to_value(record).map_err(|error| error.to_string())?;
+    if serde_json::to_vec(&value).map_or(true, |bytes| bytes.len() > MAX_DURABLE_RECORD_BYTES) {
+        return Err("Detected track cache record reached its size limit".into());
+    }
+    store.write_analysis_cache_record(
+        DURABLE_CACHE_NAMESPACE,
+        &durable_cache_key(key),
+        &value,
+        library_recording_id,
+    )
+}
+
+fn trim_resource_record(record: &mut ResourceRecord) {
+    if record.observations.len() > MAX_DETECTIONS_PER_RESOURCE {
+        let excess = record.observations.len() - MAX_DETECTIONS_PER_RESOURCE;
+        record.observations.drain(..excess);
+    }
+    while serde_json::to_vec(record).map_or(true, |bytes| bytes.len() > MAX_DURABLE_RECORD_BYTES)
+        && record.observations.len() > 1
+    {
+        record.observations.remove(0);
+    }
 }
 
 fn load_policy(store: &Store) -> Result<DetectionPolicy, String> {
@@ -630,36 +700,6 @@ fn save_policy(store: &Store, policy: DetectionPolicy) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-fn find_or_insert_cache<'a>(
-    cache: &'a mut DetectionCache,
-    key: &DetectionResourceKey,
-    now: &str,
-) -> &'a mut ResourceRecord {
-    if let Some(index) = cache
-        .resources
-        .iter()
-        .position(|record| record.key == key.0)
-    {
-        return &mut cache.resources[index];
-    }
-    if cache.resources.len() >= MAX_RESOURCES {
-        let oldest = cache
-            .resources
-            .iter()
-            .enumerate()
-            .min_by_key(|(_, record)| record.last_used_at.as_str())
-            .map(|(index, _)| index)
-            .unwrap_or(0);
-        cache.resources.remove(oldest);
-    }
-    cache.resources.push(ResourceRecord {
-        key: key.0.clone(),
-        last_used_at: now.to_owned(),
-        observations: Vec::new(),
-    });
-    cache.resources.last_mut().expect("record was inserted")
-}
-
 fn find_or_insert_policy<'a>(
     policy: &'a mut DetectionPolicy,
     key: &DetectionResourceKey,
@@ -700,19 +740,11 @@ fn trim_cache(cache: &mut DetectionCache) {
             .resources
             .drain(..cache.resources.len() - MAX_RESOURCES);
     }
-    let mut total = cache
-        .resources
-        .iter()
-        .map(|record| record.observations.len())
-        .sum::<usize>();
-    while total > MAX_TOTAL_DETECTIONS {
-        let Some((resource_index, observation_index)) = oldest_observation(cache) else {
-            break;
-        };
-        cache.resources[resource_index]
-            .observations
-            .remove(observation_index);
-        total -= 1;
+    for record in &mut cache.resources {
+        if record.observations.len() > MAX_DETECTIONS_PER_RESOURCE {
+            let excess = record.observations.len() - MAX_DETECTIONS_PER_RESOURCE;
+            record.observations.drain(..excess);
+        }
     }
     while serde_json::to_vec(cache).map_or(true, |bytes| bytes.len() > MAX_STORE_BYTES) {
         let Some((resource_index, observation_index)) = oldest_observation(cache) else {
@@ -768,6 +800,9 @@ fn valid_resource_record(record: &ResourceRecord) -> bool {
                 && observation.last_confirmed_at_seconds <= 86_400.0
                 && observation.captured_end_seconds <= 86_400.0
                 && valid_timestamp(&observation.observed_at)
+                && observation.artwork_url.as_deref().is_none_or(|url| {
+                    crate::radio::safe_recognition_artwork_url(Some(url)).is_some()
+                })
                 && observation
                     .identifiers
                     .as_ref()
@@ -894,6 +929,150 @@ mod tests {
         let path = root.path().join("detections.sqlite");
         let store = Store::open(&path).unwrap();
         (root, store)
+    }
+
+    #[test]
+    fn durable_rows_protect_only_verified_library_recordings() {
+        let (root, store) = store();
+        let owner = Track {
+            id: "youtube:set-in-library".into(),
+            provider: "youtube".into(),
+            provider_id: "set-in-library".into(),
+            ..Track::default()
+        };
+        store
+            .save_library_tracks(std::slice::from_ref(&owner))
+            .unwrap();
+        let protected_key = DetectionResourceKey::for_track(&owner, None).unwrap();
+        set_enabled(&store, &protected_key, true, Some(&owner.id)).unwrap();
+        assert!(record_if_enabled(
+            &store,
+            &protected_key,
+            &metadata("Track A", "Artist"),
+            Some(&owner.id),
+            1.0,
+            12.0,
+        )
+        .unwrap());
+        for index in 1..MAX_DETECTIONS_PER_RESOURCE {
+            assert!(record_if_enabled(
+                &store,
+                &protected_key,
+                &metadata(&format!("Track {index}"), "Artist"),
+                Some(&owner.id),
+                index as f64 * 15.0,
+                12.0,
+            )
+            .unwrap());
+        }
+        assert!(!record_if_enabled(
+            &store,
+            &protected_key,
+            &metadata("Track newest", "Artist"),
+            Some(&owner.id),
+            MAX_DETECTIONS_PER_RESOURCE as f64 * 15.0,
+            12.0,
+        )
+        .unwrap());
+        let protected_view = read(&store, &protected_key).unwrap();
+        assert!(protected_view.retention_limit_reached);
+        assert_eq!(
+            protected_view.observations.len(),
+            MAX_DETECTIONS_PER_RESOURCE
+        );
+        assert_eq!(
+            protected_view
+                .observations
+                .first()
+                .unwrap()
+                .detected_at_seconds,
+            7.0
+        );
+        assert_eq!(
+            protected_view
+                .observations
+                .last()
+                .unwrap()
+                .detected_at_seconds,
+            3_831.0
+        );
+
+        let unowned = track("youtube", "not-in-library");
+        let unowned_key = DetectionResourceKey::for_track(&unowned, None).unwrap();
+        set_enabled(&store, &unowned_key, true, Some(&unowned.id)).unwrap();
+        record_if_enabled(
+            &store,
+            &unowned_key,
+            &metadata("Track B", "Artist"),
+            Some(&unowned.id),
+            1.0,
+            12.0,
+        )
+        .unwrap();
+
+        let connection = rusqlite::Connection::open(root.path().join("detections.sqlite")).unwrap();
+        let protected: i64 = connection
+            .query_row(
+                "SELECT protected FROM analysis_cache_records WHERE namespace=?1 AND cache_key=?2",
+                rusqlite::params![DURABLE_CACHE_NAMESPACE, durable_cache_key(&protected_key)],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let unprotected: i64 = connection
+            .query_row(
+                "SELECT protected FROM analysis_cache_records WHERE namespace=?1 AND cache_key=?2",
+                rusqlite::params![DURABLE_CACHE_NAMESPACE, durable_cache_key(&unowned_key)],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(protected, 1);
+        assert_eq!(unprotected, 0);
+        assert!(store.get_json_preference(CACHE_KEY).unwrap().is_none());
+    }
+
+    #[test]
+    fn legacy_preference_migrates_into_durable_detection_rows() {
+        let (_root, store) = store();
+        let key = DetectionResourceKey::for_track(&track("youtube", "legacy-set"), None).unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        let record = ResourceRecord {
+            key: key.0.clone(),
+            last_used_at: now.clone(),
+            observations: vec![DetectedTrackObservation {
+                title: "Legacy Song".into(),
+                artist: "Legacy Artist".into(),
+                detected_at_seconds: 10.0,
+                last_confirmed_at_seconds: 10.0,
+                captured_start_seconds: 4.0,
+                captured_end_seconds: 16.0,
+                observed_at: now,
+                identifiers: None,
+                artwork_url: None,
+            }],
+            retention_limit_reached: false,
+        };
+        store
+            .set_json_preference(
+                CACHE_KEY,
+                &serde_json::to_value(DetectionCache {
+                    version: 1,
+                    resources: vec![record],
+                })
+                .unwrap(),
+            )
+            .unwrap();
+
+        let view = read(&store, &key).unwrap();
+        assert_eq!(view.observations.len(), 1);
+        assert_eq!(view.observations[0].detected_at_seconds, 10.0);
+        assert_eq!(
+            store.get_json_preference(CACHE_KEY).unwrap().unwrap()["resources"],
+            serde_json::json!([])
+        );
+        assert!(store
+            .read_analysis_cache_record(DURABLE_CACHE_NAMESPACE, &durable_cache_key(&key))
+            .unwrap()
+            .is_some());
     }
 
     fn track(provider: &str, provider_id: &str) -> Track {
@@ -1090,19 +1269,31 @@ mod tests {
         let second = DetectionResourceKey::for_track(&track("youtube", "two"), None).unwrap();
         assert!(!read(&store, &first).unwrap().enabled);
         assert_eq!(read(&store, &first).unwrap().resource_key, first.as_str());
-        set_enabled(&store, &first, true).unwrap();
+        set_enabled(&store, &first, true, None).unwrap();
         assert!(read(&store, &first).unwrap().enabled);
         assert!(!read(&store, &second).unwrap().enabled);
-        assert!(
-            record_if_enabled(&store, &first, &metadata("Track A", "Artist"), 10.0, 12.0).unwrap()
-        );
-        set_enabled(&store, &first, false).unwrap();
+        assert!(record_if_enabled(
+            &store,
+            &first,
+            &metadata("Track A", "Artist"),
+            None,
+            10.0,
+            12.0
+        )
+        .unwrap());
+        set_enabled(&store, &first, false, None).unwrap();
         let view = read(&store, &first).unwrap();
         assert!(!view.enabled);
         assert_eq!(view.observations.len(), 1);
-        assert!(
-            !record_if_enabled(&store, &first, &metadata("Track B", "Artist"), 30.0, 12.0).unwrap()
-        );
+        assert!(!record_if_enabled(
+            &store,
+            &first,
+            &metadata("Track B", "Artist"),
+            None,
+            30.0,
+            12.0
+        )
+        .unwrap());
         assert_eq!(read(&store, &first).unwrap().observations.len(), 1);
     }
 
@@ -1110,35 +1301,69 @@ mod tests {
     fn repeated_matches_coalesce_after_seekback_but_later_repeats_remain() {
         let (_root, store) = store();
         let key = DetectionResourceKey::for_track(&track("youtube", "set-video"), None).unwrap();
-        set_enabled(&store, &key, true).unwrap();
+        set_enabled(&store, &key, true, None).unwrap();
         let song = metadata("Track A", "Artist");
-        record_if_enabled(&store, &key, &song, 0.0, 12.0).unwrap();
-        record_if_enabled(&store, &key, &song, 35.0, 12.0).unwrap();
-        record_if_enabled(&store, &key, &song, 70.0, 12.0).unwrap();
-        record_if_enabled(&store, &key, &metadata("Track B", "Artist"), 100.0, 12.0).unwrap();
-        record_if_enabled(&store, &key, &metadata("Track C", "Artist"), 130.0, 12.0).unwrap();
-        record_if_enabled(&store, &key, &song, 2.0, 12.0).unwrap();
+        record_if_enabled(&store, &key, &song, None, 0.0, 12.0).unwrap();
+        record_if_enabled(&store, &key, &song, None, 35.0, 12.0).unwrap();
+        record_if_enabled(&store, &key, &song, None, 70.0, 12.0).unwrap();
+        record_if_enabled(
+            &store,
+            &key,
+            &metadata("Track B", "Artist"),
+            None,
+            100.0,
+            12.0,
+        )
+        .unwrap();
+        record_if_enabled(
+            &store,
+            &key,
+            &metadata("Track C", "Artist"),
+            None,
+            130.0,
+            12.0,
+        )
+        .unwrap();
+        record_if_enabled(&store, &key, &song, None, 2.0, 12.0).unwrap();
         let view = read(&store, &key).unwrap();
         assert_eq!(view.observations.len(), 3);
         assert_eq!(view.observations[0].detected_at_seconds, 6.0);
         assert_eq!(view.observations[0].last_confirmed_at_seconds, 76.0);
         assert_eq!(view.observations[0].captured_start_seconds, 0.0);
-        record_if_enabled(&store, &key, &song, 300.0, 12.0).unwrap();
+        record_if_enabled(&store, &key, &song, None, 300.0, 12.0).unwrap();
         assert_eq!(read(&store, &key).unwrap().observations.len(), 4);
         // Seeking back after a much later observation still finds the first
         // point by searching its complete confirmation interval rather than
         // comparing only the latest confirmation or the latest row.
-        record_if_enabled(&store, &key, &song, 2.0, 12.0).unwrap();
+        record_if_enabled(&store, &key, &song, None, 2.0, 12.0).unwrap();
         let view = read(&store, &key).unwrap();
         assert_eq!(view.observations.len(), 4);
         assert_eq!(view.observations[0].last_confirmed_at_seconds, 76.0);
     }
 
     #[test]
+    fn per_resource_retention_is_bounded_without_a_global_observation_cap() {
+        let (_root, store) = store();
+        let key = DetectionResourceKey::for_track(&track("youtube", "long-set"), None).unwrap();
+        set_enabled(&store, &key, true, None).unwrap();
+        for index in 0..(MAX_DETECTIONS_PER_RESOURCE + 1) {
+            let song = metadata(&format!("Track {index}"), "Artist");
+            record_if_enabled(&store, &key, &song, None, index as f64 * 15.0, 12.0).unwrap();
+        }
+        let view = read(&store, &key).unwrap();
+        assert_eq!(view.observations.len(), MAX_DETECTIONS_PER_RESOURCE);
+        assert_eq!(view.observations.first().unwrap().detected_at_seconds, 21.0);
+        assert_eq!(
+            view.observations.last().unwrap().detected_at_seconds,
+            3_846.0
+        );
+    }
+
+    #[test]
     fn conflicting_recognition_ids_do_not_coalesce_even_when_another_id_matches() {
         let (_root, store) = store();
         let key = DetectionResourceKey::for_track(&track("youtube", "conflict-set"), None).unwrap();
-        set_enabled(&store, &key, true).unwrap();
+        set_enabled(&store, &key, true, None).unwrap();
         let mut first = metadata("Track A", "Artist");
         first.identifiers = Some(crate::recording_identity::RecognitionIdentifiers {
             isrc: Some("USABC2400001".into()),
@@ -1147,8 +1372,8 @@ mod tests {
         });
         let mut second = first.clone();
         second.identifiers.as_mut().unwrap().shazam_id = Some("1002".into());
-        record_if_enabled(&store, &key, &first, 0.0, 12.0).unwrap();
-        record_if_enabled(&store, &key, &second, 35.0, 12.0).unwrap();
+        record_if_enabled(&store, &key, &first, None, 0.0, 12.0).unwrap();
+        record_if_enabled(&store, &key, &second, None, 35.0, 12.0).unwrap();
         assert_eq!(read(&store, &key).unwrap().observations.len(), 2);
     }
 
@@ -1156,23 +1381,28 @@ mod tests {
     fn rejects_bad_intervals_and_never_persists_raw_source_urls() {
         let (_root, store) = store();
         let key = DetectionResourceKey::for_track(&track("youtube", "set-video"), None).unwrap();
-        set_enabled(&store, &key, true).unwrap();
-        assert!(record_if_enabled(&store, &key, &metadata("Track", "Artist"), 1.0, 12.0).unwrap());
+        set_enabled(&store, &key, true, None).unwrap();
         assert!(
-            !record_if_enabled(&store, &key, &metadata("Track", "Artist"), f64::NAN, 12.0).unwrap()
+            record_if_enabled(&store, &key, &metadata("Track", "Artist"), None, 1.0, 12.0).unwrap()
         );
-        let payload = store.get_json_preference(CACHE_KEY).unwrap().unwrap();
+        assert!(!record_if_enabled(
+            &store,
+            &key,
+            &metadata("Track", "Artist"),
+            None,
+            f64::NAN,
+            12.0
+        )
+        .unwrap());
+        let payload = store
+            .read_analysis_cache_record(DURABLE_CACHE_NAMESPACE, &durable_cache_key(&key))
+            .unwrap()
+            .unwrap();
         assert!(serde_json::to_string(&payload).unwrap().contains(&key.0));
         assert!(!serde_json::to_string(&payload)
             .unwrap()
             .contains("https://"));
-        assert_eq!(
-            payload["resources"][0]["observations"]
-                .as_array()
-                .unwrap()
-                .len(),
-            1
-        );
+        assert_eq!(payload["observations"].as_array().unwrap().len(), 1);
         assert!(store.get_json_preference(POLICY_KEY).unwrap().is_some());
     }
 
@@ -1180,10 +1410,21 @@ mod tests {
     fn backup_cache_and_policy_are_separate_and_policy_projection_resets_opt_in() {
         let (_root, store) = store();
         let key = DetectionResourceKey::for_track(&track("youtube", "set-video"), None).unwrap();
-        set_enabled(&store, &key, true).unwrap();
-        record_if_enabled(&store, &key, &metadata("Track A", "Artist"), 2.0, 12.0).unwrap();
-        let cache =
-            sanitize_backup_value(store.get_json_preference(CACHE_KEY).unwrap().unwrap()).unwrap();
+        set_enabled(&store, &key, true, None).unwrap();
+        record_if_enabled(
+            &store,
+            &key,
+            &metadata("Track A", "Artist"),
+            None,
+            2.0,
+            12.0,
+        )
+        .unwrap();
+        let cache = serde_json::to_value(DetectionCache {
+            version: 1,
+            resources: vec![load_cache_record(&store, &key).unwrap().unwrap()],
+        })
+        .unwrap();
         let policy =
             sanitize_policy_backup_value(store.get_json_preference(POLICY_KEY).unwrap().unwrap())
                 .unwrap();

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ArtistProfile, ArtistSearchPage } from "./artist-types";
+import type { ArtistProfile, ArtistRef, ArtistSearchPage } from "./artist-types";
 import type { Track } from "./types";
 import { createTrackArtistInformationLoader } from "./track-information";
 
@@ -11,17 +11,18 @@ function track(provenance: unknown = {}): Track {
 function page(results: ArtistSearchPage["results"]): ArtistSearchPage {
   return { query: "Faith Evans", page: 1, pageSize: 20, hasMore: false, results, warnings: [] };
 }
-function result(artist: typeof faithMb | typeof faithDiscogs, name = "Faith Evans") {
-  return { artist, name, sourceUrl: artist.provider === "musicbrainz" ? `https://musicbrainz.org/artist/${artist.id}` : `https://discogs.com/artist/${artist.id}` };
+function result(artist: ArtistRef, name = "Faith Evans") {
+  const sourceUrl = artist.provider === "musicbrainz" ? `https://musicbrainz.org/artist/${artist.id}` : artist.provider === "monochrome" ? `https://tracks.monochrome.st/artists/${artist.id}` : `https://discogs.com/artist/${artist.id}`;
+  return { artist, name, sourceUrl };
 }
-function profile(artist: typeof faithMb | typeof faithDiscogs): ArtistProfile {
+function profile(artist: ArtistRef): ArtistProfile {
   return { artist: { ...result(artist) }, biography: "Profile bio", genres: [], tags: [], sourceTags: [], aliases: [], links: [], topTracks: [], releases: { artist, items: [], sourceCoverage: [], warnings: [] }, discogsAvailable: false, lastfmAvailable: false, sourceCoverage: [], warnings: [] };
 }
 
 describe("track artist information loader", () => {
   it("deduplicates exact cross-provider matches and prefers a unique MusicBrainz identity", async () => {
     const searchArtists = vi.fn(async () => page([result(faithDiscogs), result(faithMb), result(faithMb)]));
-    const getArtistProfile = vi.fn(async (artist: typeof faithMb | typeof faithDiscogs) => profile(artist));
+    const getArtistProfile = vi.fn(async (artist: ArtistRef) => profile(artist));
     const loader = createTrackArtistInformationLoader({ searchArtists, getArtistProfile });
     const information = await loader.load(track());
     expect(searchArtists).toHaveBeenCalledWith("Faith Evans");
@@ -46,6 +47,20 @@ describe("track artist information loader", () => {
     const info = await loader.load(track({ artistCredits: [{ name: "Faith Evans", artist: faithMb, role: "main artist", joinPhrase: " & " }] }));
     expect(searchArtists).not.toHaveBeenCalled();
     expect(info?.artistCredits).toEqual([{ name: "Faith Evans", role: "main artist", artist: faithMb }]);
+  });
+
+  it("opens a provider-backed Monochrome artist ref from catalog provenance", async () => {
+    const artist = { provider: "monochrome" as const, id: "123456789012345678" };
+    const getArtistProfile = vi.fn(async (ref: ArtistRef) => profile(ref));
+    const searchArtists = vi.fn(async () => page([]));
+    const loader = createTrackArtistInformationLoader({ searchArtists, getArtistProfile });
+    const info = await loader.load(track({
+      artistCredits: [{ name: "Nipsey Hussle", role: "artist credit", artist }],
+      catalog: { provider: "monochrome", artists: [{ provider: "monochrome", id: artist.id, name: "Nipsey Hussle" }] },
+    }));
+    expect(searchArtists).not.toHaveBeenCalled();
+    expect(getArtistProfile).toHaveBeenCalledWith(artist);
+    expect(info?.primaryArtist.artist).toEqual(artist);
   });
 
   it("merges a catalog direct ref into the matching canonical credit and returns each track's own credits", async () => {

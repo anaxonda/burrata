@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-saved-track-detections"
+description = "Enables the get_saved_track_detections command without any pre-configured scope."
+commands.allow = ["get_saved_track_detections"]
+
+[[permission]]
+identifier = "deny-get-saved-track-detections"
+description = "Denies the get_saved_track_detections command without any pre-configured scope."
+commands.deny = ["get_saved_track_detections"]

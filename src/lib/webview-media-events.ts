@@ -16,10 +16,12 @@ type WebviewMediaEvent = {
   paused: boolean | null;
   mediaErrorCode?: number;
   currentTime: number | null;
+  durationSeconds: number | null;
+  webviewGeneration: number | null;
   buffered: BufferedRange[];
 };
 export type WebviewDiagnosticHistoryEvent = WebviewMediaEvent & { attempt: number };
-type MediaSample = Pick<HTMLMediaElement, "readyState" | "networkState" | "paused" | "currentTime"> & {
+type MediaSample = Pick<HTMLMediaElement, "readyState" | "networkState" | "paused" | "currentTime" | "duration"> & {
   error?: Pick<MediaError, "code"> | null;
   buffered?: Pick<TimeRanges, "length" | "start" | "end"> | null;
 };
@@ -33,6 +35,10 @@ const MAX_ATTEMPT = 1_000_000;
 
 function finiteNonnegative(value: number) {
   return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function boundedDurationSeconds(value: number) {
+  return Number.isFinite(value) && value >= 0 && value <= 86_400 ? value : null;
 }
 
 function ownerKey(owner: WebviewMediaEventOwner) {
@@ -98,6 +104,9 @@ export function createWebviewMediaEventRecorder({
         networkState: Number.isInteger(media.networkState) && media.networkState >= 0 && media.networkState <= 3 ? media.networkState : null,
         paused: typeof media.paused === 'boolean' ? media.paused : null,
         currentTime: finiteNonnegative(media.currentTime),
+        durationSeconds: boundedDurationSeconds(media.duration),
+        webviewGeneration: typeof owner.sourceGeneration === "number" && Number.isSafeInteger(owner.sourceGeneration) && owner.sourceGeneration >= 0
+          ? owner.sourceGeneration : null,
         buffered,
       };
       if (Number.isInteger(media.error?.code) && media.error!.code >= 1 && media.error!.code <= 4) event.mediaErrorCode = media.error!.code;

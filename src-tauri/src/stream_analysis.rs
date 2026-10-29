@@ -22,6 +22,8 @@ pub const BPM_PCM_RATE: u32 = 8_000;
 pub const KEY_PCM_RATE: u32 = 22_050;
 pub const MAX_TRACK_SECONDS: f64 = 900.0;
 pub const ROUNDED_DURATION_TOLERANCE_SECONDS: f64 = 1.0;
+/// Number of recent records kept in memory. Durable retention is managed by
+/// the SQLite analysis cache and is intentionally independent of this hot set.
 pub const MAX_CACHE_RECORDS: usize = 128;
 pub const STREAM_WAVEFORM_BINS: usize = 512;
 pub const STREAM_WAVEFORM_ANALYZER_VERSION: &str = "stream-waveform-peak-512-v1";
@@ -188,8 +190,24 @@ impl AnalysisResource {
             }
             _ => {}
         }
-        let bytes = serde_json::to_vec(self).map_err(|_| AnalysisError::InvalidResource)?;
-        Ok(hex_sha256(&bytes))
+        let identity = match self {
+            Self::RegisteredAsset { .. } => {
+                serde_json::to_vec(self).map_err(|_| AnalysisError::InvalidResource)?
+            }
+            Self::Stream {
+                recording_id,
+                provider,
+                source_identity_sha256,
+                ..
+            } => format!(
+                "burrata-stream-recording-analysis-v1\n{}\n{}\n{}",
+                recording_id,
+                provider.to_ascii_lowercase(),
+                source_identity_sha256.to_ascii_lowercase()
+            )
+            .into_bytes(),
+        };
+        Ok(hex_sha256(&identity))
     }
 
     pub fn has_stable_audio_variant(&self) -> bool {
@@ -1312,11 +1330,6 @@ impl SessionOnlyStreamAnalysisResults {
 impl StreamAnalysisCache {
     pub fn insert(&mut self, mut record: WholeTrackAnalysis) -> Result<(), AnalysisError> {
         record.validate()?;
-        if matches!(&record.resource, AnalysisResource::Stream { .. })
-            && !record.resource.has_stable_audio_variant()
-        {
-            return Err(AnalysisError::InvalidResource);
-        }
         let identity = record.resource.cache_identity()?;
         if record.waveform.is_none() {
             let tolerance = 0.05_f64.max(record.duration_seconds * 0.001);
@@ -1335,25 +1348,41 @@ impl StreamAnalysisCache {
         self.records.retain(|existing| {
             existing.resource.cache_identity().ok().as_deref() != Some(identity.as_str())
                 || existing.analyzer_version != record.analyzer_version
+                || (existing.duration_seconds - record.duration_seconds).abs()
+                    > 0.05_f64.max(record.duration_seconds * 0.001)
         });
-        self.records.push(record);
-        self.records
-            .sort_by(|left, right| right.measured_at.cmp(&left.measured_at));
+        let position = self
+            .records
+            .partition_point(|existing| existing.measured_at >= record.measured_at);
+        self.records.insert(position, record);
         self.records.truncate(MAX_CACHE_RECORDS);
         self.schema_version = SCHEMA_VERSION;
         Ok(())
     }
 
     pub fn get(&self, resource: &AnalysisResource) -> Option<&WholeTrackAnalysis> {
-        if matches!(resource, AnalysisResource::Stream { .. })
-            && !resource.has_stable_audio_variant()
-        {
-            return None;
-        }
         let identity = resource.cache_identity().ok()?;
         self.records.iter().find(|record| {
             record.analyzer_version == ANALYZER_VERSION
                 && record.resource.cache_identity().ok().as_deref() == Some(identity.as_str())
+                && record.validate().is_ok()
+        })
+    }
+
+    pub fn get_for_duration(
+        &self,
+        resource: &AnalysisResource,
+        duration_seconds: f64,
+    ) -> Option<&WholeTrackAnalysis> {
+        if !duration_seconds.is_finite() || duration_seconds <= 0.0 {
+            return None;
+        }
+        let identity = resource.cache_identity().ok()?;
+        let tolerance = 0.05_f64.max(duration_seconds * 0.001);
+        self.records.iter().find(|record| {
+            record.analyzer_version == ANALYZER_VERSION
+                && record.resource.cache_identity().ok().as_deref() == Some(identity.as_str())
+                && (record.duration_seconds - duration_seconds).abs() <= tolerance
                 && record.validate().is_ok()
         })
     }
@@ -1774,7 +1803,46 @@ mod tests {
     }
 
     #[test]
-    fn variant_unknown_legacy_stream_rows_are_not_reused_or_rewritten() {
+    fn durable_stream_cache_reuses_recording_across_variants_but_requires_duration_match() {
+        let mut cache = StreamAnalysisCache::default();
+        let first = result();
+        cache.insert(first.clone()).unwrap();
+        let changed_variant =
+            first
+                .resource
+                .clone()
+                .with_stream_audio_variant(Some(&StreamAudioVariant {
+                    format_id: Some("251".into()),
+                    codec: Some("opus".into()),
+                    mime_type: Some("audio/webm".into()),
+                    expected_content_length: Some(55_555),
+                    ..Default::default()
+                }));
+        assert_eq!(
+            first.resource.cache_identity().unwrap(),
+            changed_variant.cache_identity().unwrap()
+        );
+        assert!(cache
+            .get_for_duration(&changed_variant, first.duration_seconds)
+            .is_some());
+        assert!(cache
+            .get_for_duration(&changed_variant, first.duration_seconds + 3.0)
+            .is_none());
+
+        let mut longer = first.clone();
+        longer.duration_seconds += 3.0;
+        longer.measured_at = "2026-10-28T00:00:00Z".into();
+        cache.insert(longer).unwrap();
+        assert!(cache
+            .get_for_duration(&first.resource, first.duration_seconds)
+            .is_some());
+        assert!(cache
+            .get_for_duration(&first.resource, first.duration_seconds + 3.0)
+            .is_some());
+    }
+
+    #[test]
+    fn variant_unknown_legacy_stream_rows_migrate_to_recording_identity() {
         let mut legacy = result();
         legacy.resource = AnalysisResource::Stream {
             recording_id: "catalog:recording-1".into(),
@@ -1788,9 +1856,19 @@ mod tests {
         });
         let cache: StreamAnalysisCache = serde_json::from_value(persisted).unwrap();
         cache.validate().unwrap();
-        assert!(cache.get(&cache.records[0].resource).is_none());
+        assert!(cache.get(&cache.records[0].resource).is_some());
         let mut new_cache = StreamAnalysisCache::default();
-        assert!(new_cache.insert(cache.records[0].clone()).is_err());
+        new_cache.insert(cache.records[0].clone()).unwrap();
+        let with_variant = cache.records[0]
+            .resource
+            .clone()
+            .with_stream_audio_variant(Some(&StreamAudioVariant {
+                format_id: Some("140".into()),
+                codec: Some("aac".into()),
+                mime_type: Some("audio/mp4".into()),
+                ..Default::default()
+            }));
+        assert!(new_cache.get(&with_variant).is_some());
     }
 
     fn variant_unknown_result() -> WholeTrackAnalysis {
@@ -1841,13 +1919,20 @@ mod tests {
         assert!(stable_variant.has_stable_audio_variant());
         assert!(sessions.get(owner_generation, &stable_variant).is_none());
 
-        // Session-only records must remain ineligible for durable reuse.
+        // Variant-unknown results with a stable provider/source identity are
+        // valid durable records; callers can look them up across re-encoding.
         let mut persistent = StreamAnalysisCache::default();
-        assert_eq!(
-            persistent.insert(record),
-            Err(AnalysisError::InvalidResource)
-        );
-        assert!(persistent.records.is_empty());
+        persistent.insert(record.clone()).unwrap();
+        let reencoded =
+            record
+                .resource
+                .clone()
+                .with_stream_audio_variant(Some(&StreamAudioVariant {
+                    format_id: Some("251".into()),
+                    codec: Some("opus".into()),
+                    ..StreamAudioVariant::default()
+                }));
+        assert!(persistent.get(&reencoded).is_some());
 
         sessions.remove_generation(owner_generation);
         assert!(sessions.is_empty());
@@ -1940,7 +2025,12 @@ mod tests {
         different_duration.duration_seconds = 181.0;
         different_duration.waveform = None;
         cache.insert(different_duration).unwrap();
-        assert!(cache.records[0].waveform.is_none());
+        assert!(cache
+            .get_for_duration(&result().resource, 181.0)
+            .is_some_and(|record| record.waveform.is_none()));
+        assert!(cache
+            .get_for_duration(&result().resource, 180.0)
+            .is_some_and(|record| record.waveform.is_some()));
     }
 
     #[test]
@@ -2019,7 +2109,7 @@ mod tests {
         assert_eq!(cache.records.len(), 1);
         assert_eq!(cache.records[0].resource, row.resource);
         let identity_before_roundtrip = cache.records[0].resource.cache_identity().unwrap();
-        assert!(cache.get(&row.resource).is_none());
+        assert!(cache.get(&row.resource).is_some());
 
         let reserialized = serde_json::to_value(&cache).unwrap();
         let serialized_resource = &reserialized["records"][0]["resource"];
@@ -2035,7 +2125,7 @@ mod tests {
             restored.records[0].resource.cache_identity().unwrap(),
             identity_before_roundtrip
         );
-        assert!(restored.get(&row.resource).is_none());
+        assert!(restored.get(&row.resource).is_some());
     }
 
     #[test]

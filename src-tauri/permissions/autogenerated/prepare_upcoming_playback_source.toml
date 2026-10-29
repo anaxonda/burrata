@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-prepare-upcoming-playback-source"
+description = "Enables the prepare_upcoming_playback_source command without any pre-configured scope."
+commands.allow = ["prepare_upcoming_playback_source"]
+
+[[permission]]
+identifier = "deny-prepare-upcoming-playback-source"
+description = "Denies the prepare_upcoming_playback_source command without any pre-configured scope."
+commands.deny = ["prepare_upcoming_playback_source"]

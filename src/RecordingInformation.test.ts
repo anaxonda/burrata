@@ -35,8 +35,22 @@ it("shows imported page links and public credits without treating them as catalo
  instance=mount(RecordingInformation,{target:document.body,props:{track:imported,loadRecording:async()=>({resolution:"unresolved",recording:null,candidates:[]})}});
  await tick();await tick();
  expect(document.querySelector('a[href="https://artist.bandcamp.com/album/release"]')?.textContent).toContain("Album page");
+ expect(document.querySelector('a[href="https://artist.bandcamp.com/track/song"]')).toBeNull();
  expect(document.body.textContent).toContain("Recorded by Artist");
  expect(document.body.textContent).toContain("Source tags: alternative");
  expect((document.querySelector('[aria-label="Playback source preference"]') as HTMLSelectElement).value).toBe("lookup");
  expect(document.querySelector('.release')).toBeNull();
+});
+
+it("keeps exact-upload playback preferences separate from absent imported metadata",async()=>{
+ const upload={...track,provider:"youtube",sourceUrl:"https://www.youtube.com/watch?v=example",provenance:{}};
+ instance=mount(RecordingInformation,{target:document.body,props:{track:upload,loadRecording:async()=>({resolution:"unresolved",recording:null,candidates:[]})}});
+ await tick();await tick();
+ expect(document.body.textContent).not.toContain("Imported source information");
+ const select=document.querySelector<HTMLSelectElement>('[aria-label="Playback source preference"]')!;
+ expect(select.closest('details')).toBeNull();
+ expect(select.value).toBe("source");
+ expect(select.textContent).toContain("Keep this exact upload");
+ expect(select.textContent).toContain("Allow matching sources");
+ expect(document.body.textContent).toContain("Applies next time you play");
 });

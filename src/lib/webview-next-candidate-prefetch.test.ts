@@ -78,6 +78,39 @@ describe("WebView next candidate search", () => {
     prefetch.cancel();
     expect(invoke).toHaveBeenLastCalledWith("cancel_remote_read", {requestId: "reorder-2"});
   });
+  it("keeps early search distinct and starts validated source preparation 45 seconds before handoff", async () => {
+    vi.useFakeTimers();
+    let sequence = 0;
+    const invoke = vi.fn(async (_command: string, _args: Record<string, unknown>) => undefined);
+    const prefetch = new WebviewNextCandidatePrefetch(invoke, () => `lead-${++sequence}`);
+    prefetch.started(queue({remainingSeconds: 120}));
+    expect(invoke).toHaveBeenCalledWith("warm_playback_candidate_search", {track: track("b"), requestId: "lead-1"});
+    expect(invoke.mock.calls.some(([name]) => name === "prepare_upcoming_playback_source")).toBe(false);
+    await vi.advanceTimersByTimeAsync(74_999);
+    expect(invoke.mock.calls.some(([name]) => name === "prepare_upcoming_playback_source")).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(invoke).toHaveBeenLastCalledWith("prepare_upcoming_playback_source", {
+      track: track("b"), requestId: "lead-2", handoffInMs: 45_000,
+    });
+    prefetch.cancel();
+  });
+  it("uses known short-track time and cancels scheduled work on queue change", async () => {
+    vi.useFakeTimers();
+    let sequence = 0;
+    const invoke = vi.fn(async (_command: string, _args: Record<string, unknown>) => undefined);
+    const prefetch = new WebviewNextCandidatePrefetch(invoke, () => `short-${++sequence}`);
+    prefetch.started(queue({remainingSeconds: 30}));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(invoke).toHaveBeenLastCalledWith("prepare_upcoming_playback_source", {
+      track: track("b"), requestId: "short-2", handoffInMs: 30_000,
+    });
+    const changed = queue({generation: 2, remainingSeconds: 120});
+    changed.queue.repeat = "one";
+    prefetch.started(changed);
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(invoke.mock.calls.filter(([name]) => name === "prepare_upcoming_playback_source")).toHaveLength(1);
+    prefetch.cancel();
+  });
   it("respects native mode, repeat-one, radio, local/chapter, stale current and queue end", () => {
     for(const input of [queue({webview:false}),queue({playing:false}),queue({currentTrackId:"stale"}),queue({pinnedTrackIds:["b"]})]){
       const invoke=vi.fn(async(_command:string,_args:Record<string,unknown>)=>{});new WebviewNextCandidatePrefetch(invoke).started(input);expect(invoke).not.toHaveBeenCalled();

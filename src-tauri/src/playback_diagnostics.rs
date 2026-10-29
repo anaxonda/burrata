@@ -506,6 +506,8 @@ fn number_key(key: &str) -> bool {
             | "bitrateKbps"
             | "durationSeconds"
             | "catalogDuration"
+            | "catalogDurationSeconds"
+            | "candidateDurationSeconds"
             | "resolvedDuration"
             | "aliases"
             | "contentLength"
@@ -549,7 +551,11 @@ fn bounded_number(key: &str, number: &Number) -> Option<Number> {
             2_592_000
         } else if matches!(
             key,
-            "durationSeconds" | "catalogDuration" | "resolvedDuration"
+            "durationSeconds"
+                | "catalogDuration"
+                | "resolvedDuration"
+                | "catalogDurationSeconds"
+                | "candidateDurationSeconds"
         ) {
             86_400
         } else if matches!(
@@ -573,7 +579,12 @@ fn bounded_number(key: &str, number: &Number) -> Option<Number> {
         return None;
     }
     let limit = match key {
-        "windowSeconds" | "durationSeconds" | "catalogDuration" | "resolvedDuration"
+        "windowSeconds"
+        | "durationSeconds"
+        | "catalogDuration"
+        | "resolvedDuration"
+        | "catalogDurationSeconds"
+        | "candidateDurationSeconds"
         | "expiresInSeconds" => 86_400.0,
         "sampleRate" | "sampleRateHz" => 384_000.0,
         "channels" => 32.0,
@@ -640,6 +651,7 @@ fn enum_values(key: &str) -> Option<&'static [&'static str]> {
             "other",
         ]),
         "extractorReason" => Some(&[
+            "drm_protected",
             "tls_certificate",
             "helper_exception",
             "provider_response",
@@ -698,6 +710,7 @@ fn enum_values(key: &str) -> Option<&'static [&'static str]> {
             "no_verified_evidence",
         ]),
         "reason" => Some(&[
+            "cdn_destination_changed",
             "insufficient_time",
             "recovery_budget_exhausted",
             "ordinary_resolution_succeeded",
@@ -931,6 +944,7 @@ pub(crate) fn phase_is_allowed(value: &str) -> bool {
             | "dns_source_end"
             | "dns_stream_start"
             | "dns_stream_end"
+            | "stream_probe_recheck"
             | "stream_probe_start"
             | "stream_probe_end"
             | "stream_probe_retry_wait"
@@ -1162,6 +1176,31 @@ mod tests {
     }
 
     #[test]
+    fn candidate_identity_evidence_retains_only_public_links_and_fixed_proof_kinds() {
+        let safe = sanitize_details(json!({
+            "proofKind":"verified_extractor",
+            "candidateRows":[{
+                "catalogDurationSeconds":120.093,
+                "candidateDurationSeconds":240,
+                "sourcePageUrl":"https://youtube.com/watch?v=abcdefghijk&token=secret",
+                "title":"private title"
+            }]
+        }));
+        assert_eq!(safe["proofKind"], "verified_extractor");
+        assert_eq!(safe["candidateRows"][0]["catalogDurationSeconds"], 120.093);
+        assert_eq!(safe["candidateRows"][0]["candidateDurationSeconds"], 240);
+        assert_eq!(
+            safe["candidateRows"][0]["sourcePageUrl"],
+            "https://www.youtube.com/watch?v=abcdefghijk"
+        );
+        let encoded = serde_json::to_string(&safe).unwrap();
+        assert!(!encoded.contains("secret") && !encoded.contains("private title"));
+        assert!(sanitize_details(json!({"proofKind":"private title"}))
+            .get("proofKind")
+            .is_none());
+    }
+
+    #[test]
     fn extractor_reasons_retain_only_fixed_labels() {
         let safe = sanitize_details(json!({"helperExitCode":1,"stderr":"secret"}));
         assert_eq!(safe["helperExitCode"], 1);
@@ -1170,6 +1209,7 @@ mod tests {
             .get("helperExitCode")
             .is_none());
         for reason in [
+            "drm_protected",
             "tls_certificate",
             "helper_exception",
             "provider_response",

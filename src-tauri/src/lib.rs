@@ -16,6 +16,7 @@ mod artist_alias_discovery;
 mod artist_alias_lookup;
 mod artist_credit_aliases;
 pub mod artists;
+mod artwork_cache;
 mod artwork_display;
 mod artwork_protocol_trace;
 mod artwork_resource_probe;
@@ -90,6 +91,7 @@ pub mod playing_track_detections;
 mod playing_track_identification;
 pub mod playlist_files;
 pub mod playlist_hierarchy;
+mod playlist_incremental;
 pub mod playlist_mirror_options;
 pub mod playlist_preferences;
 pub mod playlist_sync;
@@ -1271,7 +1273,7 @@ async fn sync_playlists(state: State<'_, AppState>) -> Result<playlist_sync::Pla
     let store = state.store.clone();
     let history = state.history.clone();
     tokio::task::spawn_blocking(move || {
-        playlist_sync::sync_playlists_with_history(&store, &store.settings()?, &history)
+        playlist_sync::force_sync_playlists_with_history(&store, &store.settings()?, &history)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1548,37 +1550,17 @@ async fn enrich_chapters(state: State<'_, AppState>, candidate: Candidate) -> Re
         .await)
 }
 fn cached_artwork_path(directory: &Path, key: &str) -> Result<Option<PathBuf>> {
-    use sha2::{Digest, Sha256};
-    let stem = format!("{:x}", Sha256::digest(key.as_bytes()));
-    for extension in ["jpg", "png", "webp"] {
-        let path = directory.join(format!("{stem}.{extension}"));
-        if path.is_file() {
-            return Ok(Some(path));
-        }
-    }
-    Ok(None)
+    Ok(artwork_cache::lookup_or_migrate(directory, key))
 }
 
 fn cache_artwork_bytes(app: &tauri::AppHandle, key: &str, bytes: &[u8]) -> Result<String> {
-    use sha2::{Digest, Sha256};
     let extension = media::artwork_extension(bytes)?;
     let directory = app
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?
         .join("artwork");
-    let target = directory.join(format!("{:x}.{extension}", Sha256::digest(key.as_bytes())));
-    if !target.is_file() {
-        std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
-        let temporary = directory.join(format!("{}.tmp", uuid::Uuid::new_v4()));
-        std::fs::write(&temporary, bytes).map_err(|e| e.to_string())?;
-        if let Err(error) = std::fs::rename(&temporary, &target) {
-            let _ = std::fs::remove_file(&temporary);
-            if !target.is_file() {
-                return Err(error.to_string());
-            }
-        }
-    }
+    let target = artwork_cache::write(&directory, key, bytes, extension)?;
     app.asset_protocol_scope()
         .allow_file(&target)
         .map_err(|e| e.to_string())?;
@@ -4179,6 +4161,12 @@ async fn resolve_playback_track(
     let failed_candidates = failed_candidates.unwrap_or_default();
     playback_sources::validate_failed_candidates(&failed_candidates)?;
     let settings = state.store.settings()?;
+    let explicit_source = playback_sources::source_resolution_is_pinned(
+        &track,
+        selected_candidate.is_some(),
+        &settings,
+        true,
+    );
     let budget = playback_request_budget(&settings, budget_ms);
     let (stop, cancel) = {
         let mut gate = state
@@ -4258,10 +4246,12 @@ async fn resolve_playback_track(
         }
         // Retain the encrypted input and its lease entirely in Rust. The
         // WebView receives only a short-lived one-use handoff capability.
-        let source_handle =
-            state
-                .playback
-                .register_native_resolved_source(request_generation, &track, resolved)?;
+        let source_handle = state.playback.register_native_resolved_source(
+            request_generation,
+            &track,
+            explicit_source,
+            resolved,
+        )?;
         return Ok(serde_json::json!({
             "transport":"native", "sourceHandle":source_handle,
             "sourceGeneration":request_generation
@@ -6329,6 +6319,7 @@ async fn identify_webview_track_for(
                             &state.store,
                             &resource,
                             metadata,
+                            Some(track_id),
                             start,
                             duration,
                         );
@@ -6363,6 +6354,45 @@ fn detection_resource_key(
         source_identity,
         local_hash.as_deref(),
     )
+}
+
+fn saved_track_detection_key(
+    store: &Store,
+    track: &models::Track,
+) -> Option<playing_track_detections::DetectionResourceKey> {
+    let provenance = track.provenance.as_object();
+    let candidate = provenance
+        .and_then(|value| value.get("audioCandidate"))
+        .and_then(serde_json::Value::as_object);
+    let candidate_identity = candidate.and_then(|candidate| {
+        let provider = candidate.get("provider")?.as_str()?;
+        let id = candidate.get("id")?.as_str()?;
+        playing_track_detections::SourceIdentity::new(provider, id).map(|identity| {
+            identity.with_duration_seconds(
+                candidate
+                    .get("durationSeconds")
+                    .and_then(serde_json::Value::as_f64),
+            )
+        })
+    });
+    let source_identity = candidate_identity
+        .or_else(|| {
+            track.asset_id.as_deref().and_then(|asset_id| {
+                playing_track_detections::SourceIdentity::new("local", asset_id)
+                    .map(|identity| identity.with_duration_seconds(track.duration_seconds))
+            })
+        })
+        .or_else(|| {
+            playing_track_detections::SourceIdentity::new(&track.provider, &track.provider_id)
+                .map(|identity| identity.with_duration_seconds(track.duration_seconds))
+        });
+    let asset_id = track.asset_id.as_deref().or_else(|| {
+        source_identity
+            .as_ref()
+            .filter(|source| source.provider_source_id().0 == "local")
+            .map(|source| source.provider_source_id().1)
+    });
+    detection_resource_key(store, track, source_identity.as_ref(), asset_id)
 }
 
 /// Construct only the track fields required for a resource key from the
@@ -6438,6 +6468,44 @@ fn playback_snapshot_is_live_radio(snapshot: &serde_json::Value) -> bool {
 #[cfg(test)]
 mod detection_snapshot_tests {
     use super::*;
+
+    #[test]
+    fn saved_detection_identity_prefers_persisted_audio_candidate() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("saved-detection.sqlite")).unwrap();
+        let track = models::Track {
+            id: "library:mix".into(),
+            provider: "bandcamp".into(),
+            provider_id: "mix-track".into(),
+            duration_seconds: Some(900.0),
+            provenance: serde_json::json!({"audioCandidate": {
+                "provider":"youtube", "id":"abcdefghijk", "durationSeconds":901.0
+            }}),
+            ..models::Track::default()
+        };
+        let saved_key = saved_track_detection_key(&store, &track).unwrap();
+        let candidate_track = models::Track {
+            provider: "youtube".into(),
+            provider_id: "abcdefghijk".into(),
+            duration_seconds: Some(901.0),
+            ..track.clone()
+        };
+        let candidate_key = saved_track_detection_key(&store, &candidate_track).unwrap();
+        assert_eq!(saved_key, candidate_key);
+    }
+
+    #[test]
+    fn saved_detection_identity_rejects_unstable_catalog_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("saved-detection.sqlite")).unwrap();
+        let track = models::Track {
+            id: "catalog:unresolved".into(),
+            provider: "catalog".into(),
+            provider_id: "recording-id".into(),
+            ..models::Track::default()
+        };
+        assert!(saved_track_detection_key(&store, &track).is_none());
+    }
 
     #[test]
     fn thin_webview_track_uses_registered_local_or_remote_resource_identity() {
@@ -6752,6 +6820,24 @@ async fn get_playing_track_detections(
     .map_err(|error| error.to_string())?
 }
 
+/// Read detections for a saved or currently displayed track without requiring
+/// it to own playback. The key is derived only from persisted source identity;
+/// callers cannot select an arbitrary cache key.
+#[tauri::command]
+async fn get_saved_track_detections(
+    app: tauri::AppHandle,
+    track: models::Track,
+) -> Result<playing_track_detections::DetectionResourceView> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let key = saved_track_detection_key(&state.store, &track)
+            .ok_or("This track has no stable saved source identity for track detections")?;
+        playing_track_detections::read(&state.store, &key)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 #[tauri::command]
 async fn set_playing_track_detection_enabled(
     app: tauri::AppHandle,
@@ -6767,7 +6853,8 @@ async fn set_playing_track_detection_enabled(
         if current_detection_resource_key(&state, generation, seek_serial, &track_id)? != key {
             return Err("Playback source changed while detection options were updated".into());
         }
-        let view = playing_track_detections::set_enabled(&state.store, &key, enabled)?;
+        let view =
+            playing_track_detections::set_enabled(&state.store, &key, enabled, Some(&track_id))?;
         if current_detection_resource_key(&state, generation, seek_serial, &track_id)? != key {
             return Err("Playback source changed while detection options were updated".into());
         }
@@ -7759,7 +7846,7 @@ fn upcoming_candidate_search_trace_payload(
     details: serde_json::Value,
 ) -> serde_json::Value {
     let provider = match provider {
-        "youtube" | "soundcloud" | "monochrome" => provider,
+        "youtube" | "soundcloud" | "monochrome" | "bandcamp" => provider,
         _ => "other",
     };
     serde_json::json!({
@@ -7879,6 +7966,93 @@ async fn warm_playback_candidate_search(
     Ok(())
 }
 
+// Resolve and validate the next WebView track while the current track is
+// playing. AcquisitionManager retains the playable stream in its bounded,
+// expiry-aware cache; playback resolution still obtains a fresh URL at handoff
+// whenever the signed URL has expired or its TTL is unknown.
+#[tauri::command]
+async fn prepare_upcoming_playback_source(
+    state: State<'_, AppState>,
+    track: Track,
+    request_id: String,
+    handoff_in_ms: u64,
+) -> Result<()> {
+    let trace_enabled =
+        playback_trace_is_enabled(std::env::var("BURRATA_PLAYBACK_TRACE").ok().as_deref());
+    let trace_request_id = trace_enabled.then(|| request_id.clone());
+    let operation_id = format!("preparation:webview:{request_id}");
+    let guard = state.provider_reads.begin(request_id)?;
+    let cancel = guard.cancellation();
+    if *cancel.borrow() {
+        return Err("Upcoming playback preparation cancelled".into());
+    }
+    if !playback_candidate_search_needed(state.playback.native_enabled(), &track) {
+        return Ok(());
+    }
+    let settings = state.store.settings()?;
+    if playback_sources::source_resolution_is_pinned(&track, false, &settings, true) {
+        return Ok(());
+    }
+    let budget = handoff_in_ms.clamp(
+        50,
+        playback_sources::NEXT_SOURCE_DISCOVERY_BUDGET.as_millis() as u64,
+    );
+    let handoff = tokio::time::Instant::now() + std::time::Duration::from_millis(budget);
+    let started = std::time::Instant::now();
+    let preferred = settings.preferred_streaming_source.as_str();
+    if let Some(trace_request_id) = trace_request_id.as_deref() {
+        emit_upcoming_candidate_search_trace(
+            trace_enabled,
+            "upcoming_source_preparation_start",
+            trace_request_id,
+            preferred,
+            0,
+            || {
+                serde_json::json!({
+                    "requestId":trace_request_id,
+                    "preparationKind":"validated_playable_source",
+                    "budgetMs":budget,
+                })
+            },
+        );
+    }
+    let resolution = playback_sources::resolve_for_preload_until(
+        &state.store,
+        &state.acquisition,
+        &track,
+        cancel.clone(),
+        operation_id,
+        handoff,
+    )
+    .await;
+    let elapsed_ms = started.elapsed().as_millis();
+    let prepared_provider = resolution
+        .as_ref()
+        .ok()
+        .and_then(|resolved| resolved.candidate.as_ref())
+        .map(|candidate| candidate.provider.as_str())
+        .unwrap_or(preferred);
+    if let Some(trace_request_id) = trace_request_id.as_deref() {
+        emit_upcoming_candidate_search_trace(
+            trace_enabled,
+            "upcoming_source_preparation_end",
+            trace_request_id,
+            prepared_provider,
+            elapsed_ms,
+            || {
+                serde_json::json!({
+                    "requestId":trace_request_id,
+                    "preparationKind":"validated_playable_source",
+                    "ok":resolution.is_ok(),
+                    "cancelled":resolution.as_ref().is_err_and(|error| error == "Cancelled"),
+                    "deadline":resolution.as_ref().is_err_and(|error| error.contains("deadline")),
+                })
+            },
+        );
+    }
+    resolution.map(|_| ())
+}
+
 #[tauri::command]
 async fn warm_track_previews(state: State<'_, AppState>, tracks: Vec<Track>) -> Result<()> {
     // Kept for older frontend clients. Browsing or selecting a row must not
@@ -7977,12 +8151,65 @@ fn set_playback_diagnostics_enabled(
 fn clear_playback_diagnostics() -> playback_diagnostics::DiagnosticsStatus {
     playback_diagnostics::clear()
 }
+
+/// A detected song is a lyrics identity hint only. Revalidate its owner and
+/// observation against the active resource cache on every command invocation.
+fn authorize_detected_lyrics_input(
+    state: &AppState,
+    snapshot: &serde_json::Value,
+    mut visible: Option<lyrics::LyricsRequestInput>,
+) -> Result<Option<lyrics::LyricsRequestInput>> {
+    let Some(input) = visible.as_mut() else {
+        return Ok(visible);
+    };
+    let Some(detection) = input.detection.as_ref() else {
+        return Ok(visible);
+    };
+    if input.radio || detection.track_id.is_empty() || !detection.detected_at_seconds.is_finite() {
+        return Err("Detected lyrics identity is invalid".into());
+    }
+    let key = current_detection_resource_key(
+        state,
+        detection.generation,
+        detection.seek_serial,
+        &detection.track_id,
+    )?;
+    if key.as_str() != detection.resource_key {
+        return Err("Detected lyrics source changed".into());
+    }
+    let view = playing_track_detections::read(&state.store, &key)
+        .map_err(|_| "Detected lyrics are no longer available")?;
+    if !view.enabled || view.resource_key != detection.resource_key {
+        return Err("Track detection is not active for this source".into());
+    }
+    let position =
+        lyrics::detection_playback_position(&state.automation.playback_tracking_snapshot())
+            .ok_or("Current playback position is unavailable")?;
+    if !lyrics::active_detection_matches(
+        &view.observations,
+        position,
+        &input.track_name,
+        &input.artist_name,
+        detection.detected_at_seconds,
+    ) {
+        return Err("Detected song is no longer current".into());
+    }
+    // Native chapter snapshots keep the set as the playback track; the
+    // verified visible identity deliberately supplies the song metadata.
+    let _ = snapshot;
+    input.detected_track_verified = true;
+    input.duration_seconds = 0.0;
+    input.playback_range = None;
+    Ok(visible)
+}
+
 #[tauri::command]
 async fn get_current_track_lyrics(
     state: State<'_, AppState>,
     visible_track: Option<lyrics::LyricsRequestInput>,
 ) -> Result<lyrics_discovery::Document> {
     let snapshot = state.playback.snapshot_page(0, 1);
+    let visible_track = authorize_detected_lyrics_input(&state, &snapshot, visible_track)?;
     Ok(lyrics_discovery::current(&snapshot, visible_track, &state.store, &state.artists).await)
 }
 #[tauri::command]
@@ -7990,13 +8217,9 @@ async fn search_current_track_lyric_candidates(
     state: State<'_, AppState>,
     visible_track: Option<lyrics::LyricsRequestInput>,
 ) -> Result<lyrics_discovery::Page> {
-    Ok(lyrics_discovery::search(
-        &state.playback.snapshot_page(0, 1),
-        visible_track,
-        &state.store,
-        &state.artists,
-    )
-    .await)
+    let snapshot = state.playback.snapshot_page(0, 1);
+    let visible_track = authorize_detected_lyrics_input(&state, &snapshot, visible_track)?;
+    Ok(lyrics_discovery::search(&snapshot, visible_track, &state.store, &state.artists).await)
 }
 #[tauri::command]
 fn select_current_track_lyric_candidate(
@@ -8005,12 +8228,9 @@ fn select_current_track_lyric_candidate(
     scope_id: String,
     candidate_id: String,
 ) -> Result<lyrics_discovery::Document> {
-    let result = lyrics_discovery::choose(
-        &state.playback.snapshot_page(0, 1),
-        visible_track,
-        &scope_id,
-        &candidate_id,
-    )?;
+    let snapshot = state.playback.snapshot_page(0, 1);
+    let visible_track = authorize_detected_lyrics_input(&state, &snapshot, visible_track)?;
+    let result = lyrics_discovery::choose(&snapshot, visible_track, &scope_id, &candidate_id)?;
     lyrics_discovery::remember(&state.store, &scope_id, &candidate_id)?;
     Ok(result)
 }
@@ -8026,13 +8246,10 @@ async fn export_current_track_lyrics_text(
     if text.trim().is_empty() || text.len() > 131072 || text.contains('\0') {
         return Err("Lyrics text is empty or too large".into());
     }
-    let current = lyrics_discovery::current(
-        &state.playback.snapshot_page(0, 1),
-        visible_track,
-        &state.store,
-        &state.artists,
-    )
-    .await;
+    let snapshot = state.playback.snapshot_page(0, 1);
+    let visible_track = authorize_detected_lyrics_input(&state, &snapshot, visible_track)?;
+    let current =
+        lyrics_discovery::current(&snapshot, visible_track, &state.store, &state.artists).await;
     if current.document.source_hash.as_deref() != Some(source_hash.as_str()) {
         return Err("Displayed lyrics changed; reload before exporting".into());
     }
@@ -8062,6 +8279,13 @@ async fn save_current_track_lyrics_to_file(
     source_hash: String,
 ) -> Result<serde_json::Value> {
     let snapshot = state.playback.snapshot_page(0, 1);
+    let visible_track = authorize_detected_lyrics_input(&state, &snapshot, visible_track)?;
+    if lyrics::detected_request(visible_track.as_ref()).is_some() {
+        return Err(
+            "Export detected song lyrics as text; they do not belong to the full recording file"
+                .into(),
+        );
+    }
     let (scope, _, id) = lyrics_discovery::context(&snapshot, visible_track.clone())
         .ok_or("No current lyrics scope")?;
     let visible_path = visible_track.as_ref().and_then(|t| t.local_path.clone());
@@ -8130,6 +8354,7 @@ async fn translate_current_track_lyrics(
     use_fallback: Option<bool>,
 ) -> Result<lyrics_translation::LyricsTranslationResponse> {
     let snapshot = state.playback.snapshot_page(0, 1);
+    let visible_track = authorize_detected_lyrics_input(&state, &snapshot, visible_track)?;
     let selected = lyrics_discovery::selected(&snapshot, visible_track.clone())
         .or_else(|| lyrics_discovery::remembered(&state.store, &snapshot, visible_track.clone()));
     let current = if let Some(selected) = selected {
@@ -8235,7 +8460,7 @@ async fn export_playback_diagnostics(
         "customCaConfigured":configured(&["SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"]),
         "systemProxyChecked":false, "streamProbesUseProxy":false
     });
-    let report = serde_json::json!({"diagnosticRevision":2,"networkEnvironment":network_environment,"diagnosticCoverage":{"publicSourcePages":true,"redactedExtractorErrors":true,"streamAuthorizationIndicators":true,"externalComparisons":"not_run"},"appVersion":env!("CARGO_PKG_VERSION"),"platform":std::env::consts::OS,"osVersion":os_version,"architecture":std::env::consts::ARCH,"targetTriple":tools::target_triple(),"runtimePlayback":playback_context,"helpers":helpers,"settings":{"matchingLevel":settings.matching_level,"primaryStreamingSource":(["youtube","soundcloud","monochrome"].into_iter().find(|provider| *provider == settings.preferred_streaming_source)),"fallbackEnabled":settings.streaming_fallback_enabled,"fallbackSources":settings.streaming_fallback_sources.iter().filter(|provider| matches!(provider.as_str(),"youtube"|"soundcloud"|"monochrome")).take(3).collect::<Vec<_>>(),"fallbackDelayMs":settings.streaming_fallback_delay_ms,"startupTimeoutSeconds":settings.playback_startup_timeout_seconds,"bandcampFallbackEnabled":settings.bandcamp_fallback_enabled,"overridePlaylistTrackUrls":settings.override_playlist_track_urls},"playback":diagnostics});
+    let report = serde_json::json!({"diagnosticRevision":3,"networkEnvironment":network_environment,"diagnosticCoverage":{"publicSourcePages":true,"redactedExtractorErrors":true,"streamAuthorizationIndicators":true,"externalComparisons":"not_run"},"appVersion":env!("CARGO_PKG_VERSION"),"platform":std::env::consts::OS,"osVersion":os_version,"architecture":std::env::consts::ARCH,"targetTriple":tools::target_triple(),"runtimePlayback":playback_context,"helpers":helpers,"settings":{"matchingLevel":settings.matching_level,"primaryStreamingSource":(["youtube","soundcloud","monochrome"].into_iter().find(|provider| *provider == settings.preferred_streaming_source)),"fallbackEnabled":settings.streaming_fallback_enabled,"fallbackSources":settings.streaming_fallback_sources.iter().filter(|provider| matches!(provider.as_str(),"youtube"|"soundcloud"|"monochrome")).take(3).collect::<Vec<_>>(),"fallbackDelayMs":settings.streaming_fallback_delay_ms,"startupTimeoutSeconds":settings.playback_startup_timeout_seconds,"bandcampFallbackEnabled":settings.bandcamp_fallback_enabled,"overridePlaylistTrackUrls":settings.override_playlist_track_urls},"playback":diagnostics});
     tauri::async_runtime::spawn_blocking(move || {
         let picked = app
             .dialog()
@@ -9248,6 +9473,26 @@ async fn get_local_waveform_analysis(
         .await
 }
 #[tauri::command]
+fn read_analysis_cache_record(
+    state: State<'_, AppState>,
+    namespace: String,
+    key: String,
+) -> Result<Option<serde_json::Value>> {
+    state.store.read_analysis_cache_record(&namespace, &key)
+}
+#[tauri::command]
+fn write_analysis_cache_record(
+    state: State<'_, AppState>,
+    namespace: String,
+    key: String,
+    payload: serde_json::Value,
+    recording_id: Option<String>,
+) -> Result<()> {
+    state
+        .store
+        .write_analysis_cache_record(&namespace, &key, &payload, recording_id.as_deref())
+}
+#[tauri::command]
 async fn import_local_file(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
@@ -9700,10 +9945,9 @@ pub fn run() {
             // Asset protocol grants are process-local. Restored playback can already
             // contain asset:// artwork URLs and skip the HTTPS cache command, so
             // regrant only our own flat artwork cache before the frontend mounts.
-            app.asset_protocol_scope().allow_directory(
-                app.path().app_data_dir()?.join("artwork"),
-                false,
-            )?;
+            for path in artwork_cache::cached_image_files(&app.path().app_data_dir()?.join("artwork")) {
+                app.asset_protocol_scope().allow_file(&path)?;
+            }
             let yt=tools::bundled_executable("yt-dlp").unwrap_or_else(||tools::executable("system:yt-dlp","yt-dlp"));
             let node=tools::bundled_executable("node").or_else(||Some(tools::executable("system:node","node")));
             let helper=resources.join("youtube-support/bgutil/server/build/main.js");
@@ -9973,7 +10217,7 @@ pub fn run() {
             local_audio.set_base_url(browser.base_url());
             webview_audio_transport.set_base_url(browser.base_url());
             webview_audio_transcoder.set_base_url(browser.base_url());
-            let playlist_watcher = match playlist_watch::PlaylistWatcher::start(app.handle().clone(), store.clone()) { Ok(watcher) => Some(watcher), Err(error) => { diagnostics.push(error); None } };
+            let playlist_watcher = match playlist_watch::PlaylistWatcher::start(app.handle().clone(), store.clone(), history.clone()) { Ok(watcher) => Some(watcher), Err(error) => { diagnostics.push(error); None } };
             // Opening the app must not enqueue a bulk file-retag pass. Current
             // playback analysis uses resource-bound caches; explicit tagging
             // and newly acquired-file processing keep their separate actions.
@@ -10035,6 +10279,7 @@ pub fn run() {
             cancel_playing_track_identification,
             identify_webview_track,
             get_playing_track_detections,
+            get_saved_track_detections,
             set_playing_track_detection_enabled,
             detect_playing_track_segment,
             identify_webview_playing_pcm,
@@ -10067,6 +10312,7 @@ pub fn run() {
             resolve_candidate_audio,
             warm_track_previews,
             warm_playback_candidate_search,
+            prepare_upcoming_playback_source,
             inspect_candidate,
             assess_download_candidate,
             enqueue_download,
@@ -10107,6 +10353,7 @@ pub fn run() {
             start_loudness_analysis, get_loudness_analysis_status, cancel_loudness_analysis,
             start_local_waveform_analysis, get_local_waveform_analysis_status,
             cancel_local_waveform_analysis, get_local_waveform_analysis,
+            read_analysis_cache_record, write_analysis_cache_record,
             import_local_file, apply_local_audio_import,
             export_mp3,
             export_playlist, export_mixxx_playlist, resume_playlist_mirror, copy_playlist, move_playlist_entry,

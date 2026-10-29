@@ -487,6 +487,41 @@ def safe_webview_audio_diagnostics(payload: dict, track_id: str) -> dict:
         for key, maximum in (("readyState", 4), ("networkState", 3), ("errorCode", 4)):
             value = media.get(key)
             result["media"][key] = value if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= maximum else None
+        result["media"]["volume"] = number(media.get("volume"), 1.0)
+        result["media"]["muted"] = media.get("muted") if isinstance(media.get("muted"), bool) else None
+        graph = media.get("webAudioGainGraph")
+        if isinstance(graph, dict):
+            attached = graph.get("attached") if isinstance(graph.get("attached"), bool) else None
+            context_state = graph.get("contextState")
+            safe_graph = {
+                "attached": attached,
+                "gainLinear": number(graph.get("gainLinear"), 2.0),
+                "userVolumeLinear": number(graph.get("userVolumeLinear"), 1.0),
+                "contextState": context_state if isinstance(context_state, str) and context_state in {
+                    "suspended", "running", "closed", "interrupted",
+                } else None,
+                "contextTimeSeconds": number(graph.get("contextTimeSeconds")),
+            }
+            if attached is False:
+                safe_graph.update({"gainLinear": None, "userVolumeLinear": None,
+                                   "contextState": None, "contextTimeSeconds": None})
+            result["media"]["webAudioGainGraph"] = safe_graph
+        else:
+            result["media"]["webAudioGainGraph"] = None
+        rpc = raw.get("rpcTiming")
+        if isinstance(rpc, dict):
+            started = number(rpc.get("requestStartedAtMs"), 120_000)
+            received = number(rpc.get("responseReceivedAtMs"), 120_000)
+            duration = number(rpc.get("durationMs"), 120_000)
+            if started is not None and received is not None and received >= started:
+                result["rpcTiming"] = {
+                    "requestStartedAtMs": started,
+                    "responseReceivedAtMs": received,
+                    "durationMs": duration if duration is not None and abs(duration - (received - started)) <= 2 else None,
+                }
+            else:
+                result["rpcTiming"] = {"requestStartedAtMs": started,
+                                       "responseReceivedAtMs": received, "durationMs": None}
         for key in ("buffered", "seekable"):
             ranges = media.get(key)
             result["media"][key] = [[start, end] for row in ranges[:8]

@@ -243,6 +243,8 @@ pub fn classify(reason: &str) -> PlaybackFailure {
             "requested format is not available",
             "no video formats found",
             "no suitable formats",
+            "drm protected",
+            "drm-protected",
         ],
     ) {
         return failure(UnsupportedAudio, Stage::Extraction, Source, true, status);
@@ -345,7 +347,9 @@ pub fn classify_extractor_failure(reason: &str) -> PlaybackFailure {
 /// these fixed labels distinguish likely remote access causes without stderr.
 pub(crate) fn extractor_diagnostic_reason(raw: &str) -> &'static str {
     let message = raw.to_lowercase();
-    if has_any(
+    if has_any(&message, &["drm protected", "drm-protected"]) {
+        "drm_protected"
+    } else if has_any(
         &message,
         &[
             "not available in your country",
@@ -424,6 +428,9 @@ pub fn safe_extractor_error(raw: &str) -> String {
         SourcePrivate => "Audio source is private; choose another source",
         SourceDeleted => "Audio source was removed; choose another source",
         SourceUnavailable => "Audio source is unavailable; choose another source",
+        UnsupportedAudio if extractor_diagnostic_reason(raw) == "drm_protected" => {
+            "Audio source is DRM protected; choose another source"
+        }
         UnsupportedAudio => "Audio source format is unavailable; refresh or choose another source",
         NoMatch => "Audio source has no matching audio; choose another source",
         RecordingIdentityMismatch => {
@@ -482,6 +489,7 @@ mod tests {
             ("Requested format is not available", "format_unavailable"),
             ("HTTP Error 429", "rate_limited"),
             ("Unrecognized failure", "other"),
+            ("This video is DRM protected", "drm_protected"),
         ] {
             let raw = format!(
                 "{message} https://private.invalid/media?token=secret Authorization: Bearer secret"
@@ -497,6 +505,7 @@ mod tests {
             "network connection failed token=secret",
             "Private video token=secret",
             "Requested format is not available file:///private/secret",
+            "ERROR: [soundcloud] 123456: This video is DRM protected token=secret",
             "Cancelled token=secret",
             "No playable audio match was found",
             "The resolved audio source identity does not match this recording",

@@ -54,6 +54,18 @@ static CACHE: OnceLock<Mutex<HashMap<String, Entry>>> = OnceLock::new();
 fn cache() -> &'static Mutex<HashMap<String, Entry>> {
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
+fn prune_entries(entries: &mut HashMap<String, Entry>, incoming: &str) {
+    entries.retain(|_, entry| entry.inserted.elapsed() < Duration::from_secs(600));
+    if !entries.contains_key(incoming) && entries.len() >= 64 {
+        if let Some(oldest) = entries
+            .iter()
+            .min_by_key(|(_, entry)| entry.inserted)
+            .map(|(key, _)| key.clone())
+        {
+            entries.remove(&oldest);
+        }
+    }
+}
 pub(crate) fn context(
     snapshot: &Value,
     visible: Option<LyricsRequestInput>,
@@ -71,6 +83,7 @@ pub(crate) fn context(
     let request = lyrics::request_for_current_track(snapshot, visible.clone())?;
     if !lyrics::valid_request(&request)
         && lyrics::radio_request(snapshot, visible.as_ref()).is_none()
+        && lyrics::detected_request(visible.as_ref()).is_none()
     {
         return None;
     }
@@ -125,7 +138,9 @@ pub(crate) fn remembered(
         return None;
     }
     let id = candidate.id.clone();
-    cache().lock().ok()?.insert(
+    let mut entries = cache().lock().ok()?;
+    prune_entries(&mut entries, &key);
+    entries.insert(
         key.clone(),
         Entry {
             inserted: Instant::now(),
@@ -138,6 +153,7 @@ pub(crate) fn remembered(
             selected: None,
         },
     );
+    drop(entries);
     choose(snapshot, visible, &key, &id).ok()
 }
 fn title_key(value: &str) -> String {
@@ -458,12 +474,7 @@ pub(crate) async fn search(
     };
     if !page.candidates.is_empty() {
         if let Ok(mut entries) = cache().lock() {
-            entries.retain(|_, e| e.inserted.elapsed() < Duration::from_secs(600));
-            if entries.len() >= 64 {
-                if let Some(old) = entries.keys().next().cloned() {
-                    entries.remove(&old);
-                }
-            }
+            prune_entries(&mut entries, &key);
             entries.insert(
                 key,
                 Entry {
@@ -483,7 +494,8 @@ pub(crate) fn choose(
     scope: &str,
     id: &str,
 ) -> Result<Document, String> {
-    let radio = lyrics::radio_request(snapshot, visible.as_ref()).is_some();
+    let untimed = lyrics::radio_request(snapshot, visible.as_ref()).is_some()
+        || lyrics::detected_request(visible.as_ref()).is_some();
     let (key, request, _) = context(snapshot, visible).ok_or("Current playback changed")?;
     if key != scope {
         return Err("Current playback changed; search lyrics again".into());
@@ -504,7 +516,7 @@ pub(crate) fn choose(
         .get(id)
         .cloned()
         .ok_or("Lyric candidate unavailable")?;
-    let document = if candidate.automatic_match && !radio {
+    let document = if candidate.automatic_match && !untimed {
         let chosen = LyricsRequest {
             track_name: record.track_name.clone(),
             artist_name: record.artist_name.clone(),
@@ -602,6 +614,35 @@ pub(crate) async fn current(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cache_insertion_expires_old_records_and_preserves_limit_on_replacement() {
+        let mut entries = HashMap::new();
+        for index in 0..64 {
+            entries.insert(
+                index.to_string(),
+                Entry {
+                    inserted: Instant::now(),
+                    page: Page {
+                        scope_id: index.to_string(),
+                        status: "ok".into(),
+                        candidates: vec![],
+                    },
+                    records: HashMap::new(),
+                    selected: None,
+                },
+            );
+        }
+        prune_entries(&mut entries, "0");
+        assert_eq!(entries.len(), 64);
+        prune_entries(&mut entries, "new");
+        assert_eq!(entries.len(), 63);
+        for entry in entries.values_mut() {
+            entry.inserted = Instant::now() - Duration::from_secs(601);
+        }
+        prune_entries(&mut entries, "new");
+        assert!(entries.is_empty());
+    }
+
     fn snapshot() -> Value {
         serde_json::json!({"engine":"native","status":"paused","track":{"id":format!("catalog:lyrics:{}",uuid::Uuid::new_v4()),"title":"Synthetic Song","artist":"Synthetic Artist","durationSeconds":180.0}})
     }

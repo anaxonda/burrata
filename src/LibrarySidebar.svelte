@@ -174,14 +174,15 @@
   <div id="library-sidebar-content" class="library-scroll" aria-label="Playlists and sources">
     <div class="drawer-heading"><strong>Library navigation</strong><button aria-label="Close library menu" onclick={closeDrawer}>×</button></div>
     <details class="sidebar-filter-dropdown">
-      <summary aria-label="Filter playlists and sources"><span aria-hidden="true">⌕</span><span>Filter playlists</span>{#if playlistFilter.trim()}<small>Active</small>{/if}<span class="disclosure" aria-hidden="true">⌄</span></summary>
+      <summary aria-label="Filter playlists and sources"><span aria-hidden="true">⌕</span><span>Filter sidebar</span>{#if playlistFilter.trim()}<small>Active</small>{/if}<span class="disclosure" aria-hidden="true">⌄</span></summary>
       <label class="playlist-filter-label">Filter by name or owner<input class="playlist-filter" type="search" bind:value={playlistFilter} placeholder="Name or owner" aria-label="Filter playlists by name or owner" /></label>
     </details>
-    <FolderTree {call} {selectedFolder} {rootsRevision} {onSelectFolder} {onRootsChanged} onOpenFolders={() => { onDirectoryBrowser(); closeDrawer(); }}/>
+    <FolderTree filter={playlistFilter} {call} {selectedFolder} {rootsRevision} {onSelectFolder} {onRootsChanged} onOpenFolders={() => { onDirectoryBrowser(); closeDrawer(); }}/>
+    {#if !playlistFilter.trim() || radioStations.some(station => matchesPlaylist(station.name, station.country, "Radio"))}
     <details class="source-group radio-section" open>
-      <summary class="source-heading"><span class="source-mark" aria-hidden="true">◉</span><span class="source-name">Radio</span><small>{radioStations.length}</small><span class="disclosure" aria-hidden="true">⌄</span></summary>
+      <summary class="source-heading"><span class="source-mark" aria-hidden="true">◉</span><span class="source-name">Radio</span><small>{radioStations.filter(station => matchesPlaylist(station.name, station.country, "Radio")).length}</small><span class="disclosure" aria-hidden="true">⌄</span></summary>
       <div class="source-playlists">
-        {#each radioStations as station (station.id)}
+        {#each radioStations.filter(station => matchesPlaylist(station.name, station.country, "Radio")) as station (station.id)}
           <button class="playlist-card" class:active={view==="radio" && activeRadioStationId===station.id} onclick={()=>{onRadioStation(station);closeDrawer();}} oncontextmenu={(event)=>{if(onRadioContext){event.preventDefault();onRadioContext(station,event);closeDrawer();}}} title={station.name}>
             <span class="playlist-glyph" aria-hidden="true">◉</span><span class="playlist-copy"><strong>{station.name}</strong><small>{station.country || "Live radio"}</small></span>
           </button>
@@ -189,6 +190,7 @@
         <button class="browse-source" aria-label="Add radio station" onclick={()=>{onAddRadio();closeDrawer();}}>＋ Add station</button>
       </div>
     </details>
+    {/if}
     <section class="playlist-section">
       <div class="sidebar-section-title playlist-heading">
         <span>Playlists</span>

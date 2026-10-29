@@ -87,6 +87,8 @@ pub struct TrackLibrarySummary {
     pub play_count: usize,
     /// Up to 100 recent recorded successful playback timestamps, newest first.
     pub played_at: Vec<String>,
+    /// Stable occurrence identity paired with each timestamp for exact history navigation.
+    pub played_occurrences: Vec<TrackPlaybackOccurrence>,
     /// True when additional older timestamps exist beyond `playedAt`.
     pub played_at_has_more: bool,
     /// Active named playlist memberships; system Downloads is reported separately.
@@ -94,6 +96,13 @@ pub struct TrackLibrarySummary {
     pub in_library: bool,
     /// True only when an attached local audio asset currently exists on disk.
     pub downloaded: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackPlaybackOccurrence {
+    pub session_id: String,
+    pub played_at: String,
 }
 
 fn default_search_limit() -> u32 {
@@ -255,6 +264,13 @@ impl PlaybackHistory {
 
     /// Record one successful start. Repeated calls for the same playback session (such as resume)
     /// are ignored by the session primary key. Callers should use a new UUID for each new start.
+    pub(crate) fn mirror_revision(&self) -> Result<(u64, i64), String> {
+        let connection = self.lock_connection()?;
+        let external = connection
+            .query_row("PRAGMA data_version", [], |row| row.get(0))
+            .map_err(|e| e.to_string())?;
+        Ok((connection.total_changes(), external))
+    }
     pub fn record(
         &self,
         session_id: &str,
@@ -422,19 +438,28 @@ impl PlaybackHistory {
             .map_err(|error| error.to_string())?;
         let mut statement = connection
             .prepare(
-                "SELECT played_at FROM playback_history
+                "SELECT session_id, played_at FROM playback_history
                  WHERE json_extract(track_json,'$.id')=?1
                  ORDER BY julianday(played_at) IS NULL ASC,julianday(played_at) DESC,rowid DESC",
             )
             .map_err(|error| error.to_string())?;
-        let mut played_at = statement
-            .query_map([track_id], |row| row.get::<_, String>(0))
+        let mut played_occurrences = statement
+            .query_map([track_id], |row| {
+                Ok(TrackPlaybackOccurrence {
+                    session_id: row.get(0)?,
+                    played_at: row.get(1)?,
+                })
+            })
             .map_err(|error| error.to_string())?
             .take(101)
             .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(|error| error.to_string())?;
-        let played_at_has_more = played_at.len() > 100;
-        played_at.truncate(100);
+        let played_at_has_more = played_occurrences.len() > 100;
+        played_occurrences.truncate(100);
+        let played_at = played_occurrences
+            .iter()
+            .map(|occurrence| occurrence.played_at.clone())
+            .collect();
         drop(statement);
         drop(connection);
 
@@ -457,6 +482,7 @@ impl PlaybackHistory {
             track_id: track_id.to_owned(),
             play_count: usize::try_from(play_count.max(0)).unwrap_or(usize::MAX),
             played_at,
+            played_occurrences,
             played_at_has_more,
             playlists,
             in_library,
@@ -1140,6 +1166,12 @@ mod tests {
         assert_eq!(summary.play_count, 107);
         assert_eq!(summary.played_at.len(), 100);
         assert_eq!(summary.played_at[0], "2026-10-27T09:00:00Z");
+        assert_eq!(summary.played_occurrences.len(), 100);
+        assert_eq!(summary.played_occurrences[0].session_id, "later-session");
+        assert_eq!(
+            summary.played_occurrences[0].played_at,
+            summary.played_at[0]
+        );
         assert!(summary.played_at_has_more);
         assert_eq!(
             summary.playlists,
@@ -1160,6 +1192,49 @@ mod tests {
                 .unwrap()
                 .downloaded
         );
+    }
+
+    #[test]
+    fn track_summary_keeps_distinct_session_ids_for_duplicate_timestamps() {
+        let dir = tempdir().unwrap();
+        let store = Store::open(&dir.path().join("library.sqlite")).unwrap();
+        let history = PlaybackHistory::open(&dir.path().join("history.sqlite")).unwrap();
+        let track = Track {
+            id: "catalog:duplicate-time".into(),
+            provider: "catalog".into(),
+            provider_id: "duplicate-time".into(),
+            title: "Duplicate time fixture".into(),
+            ..Track::default()
+        };
+        let timestamp = "2026-10-27T09:00:00Z";
+        history
+            .record_at("occurrence-a", "local", &track, None, timestamp)
+            .unwrap();
+        history
+            .record_at("occurrence-b", "local", &track, None, timestamp)
+            .unwrap();
+
+        let summary = history.track_library_summary(&store, &track.id).unwrap();
+        assert_eq!(summary.play_count, 2);
+        assert_eq!(
+            summary.played_at,
+            vec![timestamp.to_owned(), timestamp.to_owned()]
+        );
+        assert_eq!(summary.played_occurrences.len(), 2);
+        assert_eq!(summary.played_occurrences[0].played_at, timestamp);
+        assert_eq!(summary.played_occurrences[1].played_at, timestamp);
+        assert_ne!(
+            summary.played_occurrences[0].session_id,
+            summary.played_occurrences[1].session_id
+        );
+        assert!(summary
+            .played_occurrences
+            .iter()
+            .any(|item| item.session_id == "occurrence-a"));
+        assert!(summary
+            .played_occurrences
+            .iter()
+            .any(|item| item.session_id == "occurrence-b"));
     }
 
     #[test]

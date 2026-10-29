@@ -184,8 +184,9 @@ export async function verifiedStreamWaveform(
       Math.abs(waveform.durationSeconds - analysis.durationSeconds) > 0.01 || !isCompleteStreamMediaWaveform(analysis)) return null;
   const digest = await sourceIdentitySha256(resource.provider, resource.sourceId);
   if (identity.sourceIdentitySha256 !== digest) return null;
-  const variantDigest = await streamAudioVariantSha256(resource.audioVariant);
-  if ((identity.audioVariantSha256 ?? null) !== variantDigest) return null;
+  // Resource ownership is the provider recording/upload identity. Audio URLs
+  // and ordinary representation refreshes can change encoding metadata while
+  // remaining the same recording; duration/version checks above still apply.
   const snapshot = streamWaveformSnapshot({
     generation, trackId: resource.trackId, provider: resource.provider, sourceId: resource.sourceId,
     sourceIdentitySha256: digest, durationSeconds: waveform.durationSeconds,

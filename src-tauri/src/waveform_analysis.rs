@@ -21,6 +21,7 @@ use tokio::{io::AsyncReadExt, process::Command};
 
 pub const ANALYZER_VERSION: &str = "ffmpeg-mono-peaks-8khz-v1";
 const CACHE_KEY: &str = "waveformAnalysisCache.v1";
+const DURABLE_CACHE_NAMESPACE: &str = "local-waveform-v1";
 const MAX_CACHE_RECORDS: usize = 128;
 const MAX_ACTIVE_JOBS: usize = 2;
 const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024 * 1024;
@@ -204,10 +205,21 @@ impl WaveformAnalysisJobs {
                         .lock()
                         .map_err(|_| "Waveform cache is unavailable".to_owned())
                         .and_then(|_guard| {
-                            let current = store.get_json_preference(CACHE_KEY)?;
-                            store.set_json_preference(
-                                CACHE_KEY,
-                                &upsert_cache(current, record.clone()),
+                            let key = local_waveform_cache_key(
+                                &record.asset_id,
+                                &record.file_hash,
+                                record.bin_count,
+                            );
+                            let payload =
+                                serde_json::to_value(&record).map_err(|error| error.to_string())?;
+                            let recording_id = store
+                                .get_asset_by_id(&record.asset_id)?
+                                .map(|asset| asset.recording_id);
+                            store.write_analysis_cache_record(
+                                DURABLE_CACHE_NAMESPACE,
+                                &key,
+                                &payload,
+                                recording_id.as_deref(),
                             )
                         });
                     let _ = jobs.update(&task_id, |value| {
@@ -338,17 +350,53 @@ fn get_cached_record(
     file_hash: &str,
     bin_count: usize,
 ) -> Result<Option<LocalWaveform>, String> {
+    let key = local_waveform_cache_key(asset_id, file_hash, bin_count);
+    if let Some(value) = store.read_analysis_cache_record(DURABLE_CACHE_NAMESPACE, &key)? {
+        let record =
+            serde_json::from_value::<LocalWaveform>(value).map_err(|error| error.to_string())?;
+        if record.file_hash.eq_ignore_ascii_case(file_hash)
+            && record.bin_count == bin_count
+            && record.analyzer_version == ANALYZER_VERSION
+            && record.validate().is_ok()
+        {
+            let mut record = record;
+            record.asset_id = asset_id.to_owned();
+            return Ok(Some(record));
+        }
+    }
     let Some(value) = store.get_json_preference(CACHE_KEY)? else {
         return Ok(None);
     };
     let cache: WaveformCache = serde_json::from_value(value).unwrap_or_default();
-    Ok(cache.records.into_iter().find(|record| {
+    let record = cache.records.into_iter().find(|record| {
         record.asset_id == asset_id
             && record.file_hash == file_hash
             && record.bin_count == bin_count
             && record.analyzer_version == ANALYZER_VERSION
             && record.validate().is_ok()
-    }))
+    });
+    if let Some(record) = &record {
+        let payload = serde_json::to_value(record).map_err(|error| error.to_string())?;
+        let recording_id = store
+            .get_asset_by_id(asset_id)?
+            .map(|asset| asset.recording_id);
+        store.write_analysis_cache_record(
+            DURABLE_CACHE_NAMESPACE,
+            &key,
+            &payload,
+            recording_id.as_deref(),
+        )?;
+    }
+    Ok(record)
+}
+
+fn local_waveform_cache_key(asset_id: &str, file_hash: &str, bin_count: usize) -> String {
+    let _ = asset_id; // Asset IDs can change during restore/remapping; bytes are stable.
+    let bytes = format!(
+        "burrata-local-waveform-content-v1\n{}\n{bin_count}\n{ANALYZER_VERSION}",
+        file_hash.to_ascii_lowercase()
+    );
+    format!("{:x}", Sha256::digest(bytes.as_bytes()))
 }
 
 #[derive(Default, Serialize, Deserialize)]

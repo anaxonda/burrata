@@ -3,7 +3,7 @@
 //! Filesystem events are only a prompt to rescan. A periodic sync remains enabled for
 //! network filesystems and platforms that do not report all changes reliably.
 
-use crate::{models::Settings, playlist_sync, storage::Store};
+use crate::{models::Settings, playback_history::PlaybackHistory, playlist_sync, storage::Store};
 use notify::{event::ModifyKind, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
 use std::{
@@ -22,7 +22,7 @@ use tauri::{AppHandle, Emitter};
 const SETTINGS_REFRESH: Duration = Duration::from_secs(5);
 const FALLBACK_SYNC: Duration = Duration::from_secs(60);
 const DEBOUNCE: Duration = Duration::from_millis(450);
-const POLL_INTERVAL: Duration = Duration::from_millis(250);
+const POLL_INTERVAL: Duration = SETTINGS_REFRESH;
 const MAX_DRAINED_EVENTS: usize = 512;
 const MAX_WATCHER_WARNINGS: usize = 32;
 
@@ -51,10 +51,15 @@ impl PlaylistWatcher {
                 .is_some_and(|worker| !worker.is_finished())
     }
 
-    pub fn start(app: AppHandle, store: Arc<Store>) -> Result<Self, String> {
-        let (tx, rx) = mpsc::channel::<notify::Result<Event>>();
+    pub fn start(
+        app: AppHandle,
+        store: Arc<Store>,
+        history: Arc<PlaybackHistory>,
+    ) -> Result<Self, String> {
+        let (tx, rx) = mpsc::sync_channel::<notify::Result<Event>>(MAX_DRAINED_EVENTS);
         let mut watcher = notify::recommended_watcher(move |event| {
-            let _ = tx.send(event);
+            // Bursts are coalesced; metadata fallback covers a saturated event queue.
+            let _ = tx.try_send(event);
         })
         .map_err(|error| format!("Could not create playlist filesystem watcher: {error}"))?;
 
@@ -74,6 +79,7 @@ impl PlaylistWatcher {
                 worker_loop(
                     app,
                     store,
+                    history,
                     watcher,
                     rx,
                     watched,
@@ -104,6 +110,7 @@ impl Drop for PlaylistWatcher {
 fn worker_loop(
     app: AppHandle,
     store: Arc<Store>,
+    history: Arc<PlaybackHistory>,
     mut watcher: RecommendedWatcher,
     rx: Receiver<notify::Result<Event>>,
     mut watched: HashSet<PathBuf>,
@@ -112,6 +119,11 @@ fn worker_loop(
     mut mirroring_enabled: bool,
     stop: Arc<AtomicBool>,
 ) {
+    // Linux nice values are per-thread; keep bulk mirroring behind audio/UI work.
+    #[cfg(target_os = "linux")]
+    unsafe {
+        libc::setpriority(libc::PRIO_PROCESS, 0, 10);
+    }
     let mut last_settings_refresh = Instant::now();
 
     let mut pending_event: Option<Instant> = None;
@@ -119,9 +131,17 @@ fn worker_loop(
     // Reconcile once only when automatic mirroring is enabled.
     let mut last_sync_payload = None;
     if mirroring_enabled {
-        emit_sync(&app, &store, &watcher_warnings, &mut last_sync_payload);
+        emit_sync(
+            &app,
+            &store,
+            &history,
+            &watcher_warnings,
+            &mut last_sync_payload,
+        );
     }
     let mut last_fallback_sync = Instant::now();
+    let mut last_library_revision = store.playlist_sync_generation().ok();
+    let mut last_history_revision = history.mirror_revision().ok();
 
     while !stop.load(Ordering::Acquire) {
         let now = Instant::now();
@@ -138,10 +158,26 @@ fn worker_loop(
                 if !enabled {
                     pending_event = None;
                 } else if reenabled {
-                    emit_sync(&app, &store, &watcher_warnings, &mut last_sync_payload);
+                    emit_sync(
+                        &app,
+                        &store,
+                        &history,
+                        &watcher_warnings,
+                        &mut last_sync_payload,
+                    );
                     last_fallback_sync = Instant::now();
                 }
             }
+            let library_revision = store.playlist_sync_generation().ok();
+            let history_revision = history.mirror_revision().ok();
+            if mirroring_enabled
+                && (library_revision != last_library_revision
+                    || history_revision != last_history_revision)
+            {
+                pending_event = Some(Instant::now());
+            }
+            last_library_revision = library_revision;
+            last_history_revision = history_revision;
             last_settings_refresh = now;
         }
 
@@ -190,7 +226,13 @@ fn worker_loop(
         let should_fallback_sync =
             mirroring_enabled && now.duration_since(last_fallback_sync) >= FALLBACK_SYNC;
         if should_sync_for_event || should_fallback_sync {
-            emit_sync(&app, &store, &watcher_warnings, &mut last_sync_payload);
+            emit_sync(
+                &app,
+                &store,
+                &history,
+                &watcher_warnings,
+                &mut last_sync_payload,
+            );
             pending_event = None;
             last_fallback_sync = Instant::now();
         }
@@ -254,12 +296,13 @@ fn watch_roots(
 fn emit_sync(
     app: &AppHandle,
     store: &Store,
+    history: &PlaybackHistory,
     watcher_warnings: &[String],
     previous_payload: &mut Option<serde_json::Value>,
 ) {
     let payload = match store
         .settings()
-        .and_then(|settings| playlist_sync::sync_playlists(store, &settings))
+        .and_then(|settings| playlist_sync::sync_playlists_with_history(store, &settings, history))
     {
         Ok(status) => SyncEvent {
             ok: true,

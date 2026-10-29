@@ -16,8 +16,27 @@ use std::{
 };
 
 const CACHE_KEY: &str = "streamAnalysisCache.v1";
+const DURABLE_CACHE_NAMESPACE: &str = "stream-analysis-v1";
 const MAX_ACTIVE_CAPTURES: usize = 2;
 const SUPERSEDED_END_GRACE: Duration = Duration::from_secs(10);
+
+fn persist_stream_analysis_record(
+    store: &Store,
+    record: &WholeTrackAnalysis,
+) -> Result<(), String> {
+    let key = record
+        .resource
+        .cache_identity()
+        .map_err(|error| error.to_string())?;
+    let payload =
+        serde_json::to_value(record).map_err(|_| "Could not serialize stream analysis")?;
+    store.write_analysis_cache_record(
+        DURABLE_CACHE_NAMESPACE,
+        &key,
+        &payload,
+        Some(record.resource.recording_id()),
+    )
+}
 
 pub struct ObservedAnalysis {
     store: Arc<Store>,
@@ -86,13 +105,46 @@ pub fn resource_for_variant(
 
 impl ObservedAnalysis {
     pub fn new(store: Arc<Store>) -> Arc<Self> {
-        let cache = store
+        let mut cache = StreamAnalysisCache::default();
+        let legacy = store
             .get_json_preference(CACHE_KEY)
             .ok()
             .flatten()
             .and_then(|value| serde_json::from_value::<StreamAnalysisCache>(value).ok())
-            .filter(|cache| cache.validate().is_ok())
-            .unwrap_or_default();
+            .filter(|cache| cache.validate().is_ok());
+        let had_legacy = legacy.is_some();
+        let mut legacy_migrated = true;
+        if let Some(legacy) = legacy {
+            for record in legacy.records {
+                if record.validate().is_err() {
+                    legacy_migrated = false;
+                    continue;
+                }
+                if cache.insert(record.clone()).is_err()
+                    || persist_stream_analysis_record(&store, &record).is_err()
+                {
+                    legacy_migrated = false;
+                }
+            }
+        }
+        if let Ok(records) = store.list_analysis_cache_records(
+            DURABLE_CACHE_NAMESPACE,
+            crate::stream_analysis::MAX_CACHE_RECORDS,
+        ) {
+            for (_, value) in records {
+                if let Ok(record) = serde_json::from_value::<WholeTrackAnalysis>(value) {
+                    let _ = cache.insert(record);
+                }
+            }
+        }
+        // Keep the previous preference as an inert empty migration marker;
+        // new records are stored individually in the managed DB cache.
+        if had_legacy && legacy_migrated {
+            let _ = store.set_json_preference(
+                CACHE_KEY,
+                &serde_json::json!({"schemaVersion":1,"records":[]}),
+            );
+        }
         Arc::new(Self {
             store,
             cache: Mutex::new(cache),
@@ -320,7 +372,33 @@ impl ObservedAnalysis {
             audio_variant_sha256: None,
         }
         .with_stream_audio_variant(audio_variant);
-        let record = self.cache.lock().ok()?.get(&resource)?.clone();
+        let identity = resource.cache_identity().ok()?;
+        let cached = self
+            .cache
+            .lock()
+            .ok()?
+            .get_for_duration(&resource, duration_seconds)
+            .cloned();
+        let record = match cached {
+            Some(record) => record,
+            None => {
+                let value = self
+                    .store
+                    .read_analysis_cache_record(DURABLE_CACHE_NAMESPACE, &identity)
+                    .ok()??;
+                let record = serde_json::from_value::<WholeTrackAnalysis>(value).ok()?;
+                if record.resource.cache_identity().ok().as_deref() != Some(identity.as_str())
+                    || (record.duration_seconds - duration_seconds).abs()
+                        > 0.05_f64.max(duration_seconds * 0.001)
+                {
+                    return None;
+                }
+                if let Ok(mut cache) = self.cache.lock() {
+                    let _ = cache.insert(record.clone());
+                }
+                record
+            }
+        };
         let tolerance = 0.05_f64.max(duration_seconds * 0.001);
         if (record.duration_seconds - duration_seconds).abs() > tolerance {
             return None;
@@ -334,25 +412,19 @@ impl ObservedAnalysis {
     /// same versioned cache used by complete native playback captures.
     pub fn cache_record(&self, record: WholeTrackAnalysis) -> Result<(), String> {
         record.validate().map_err(|error| error.to_string())?;
-        // Old persisted stream records are retained for compatibility, but a
-        // recording ID without a stable encoded-variant identity is not safe
-        // to reuse or replace in the persistent cache.
-        if matches!(&record.resource, AnalysisResource::Stream { .. })
-            && !record.resource.has_stable_audio_variant()
-        {
-            return Ok(());
-        }
         let _writer_lease = self.store.try_library_write()?;
         let mut cache = self
             .cache
             .lock()
             .map_err(|_| "Stream analysis cache is unavailable")?;
+        let resource = record.resource.clone();
+        let duration = record.duration_seconds;
         cache.insert(record).map_err(|error| error.to_string())?;
-        let value = serde_json::to_value(&*cache)
-            .map_err(|_| "Could not serialize stream analysis cache")?;
-        self.store
-            .set_json_preference(CACHE_KEY, &value)
-            .map_err(|_| "Could not save stream analysis cache".to_owned())
+        let saved = cache
+            .get_for_duration(&resource, duration)
+            .cloned()
+            .ok_or("Analysis cache record is unavailable")?;
+        persist_stream_analysis_record(&self.store, &saved)
     }
 
     pub fn cached_resource(&self, resource: &AnalysisResource) -> Option<WholeTrackAnalysis> {
@@ -459,14 +531,6 @@ impl ObservedAnalysis {
                     == Some(capture.resource_identity.as_str())
         }) {
             return false;
-        }
-        if matches!(&record.resource, AnalysisResource::Stream { .. })
-            && !record.resource.has_stable_audio_variant()
-        {
-            return match self.session_only.lock() {
-                Ok(mut results) => results.insert(generation, record).is_ok(),
-                Err(_) => false,
-            };
         }
         self.cache_record(record).is_ok()
     }
@@ -666,7 +730,7 @@ mod tests {
     }
 
     #[test]
-    fn native_session_result_is_generation_and_candidate_bound_without_store_write() {
+    fn native_result_is_generation_fenced_and_persisted_by_exact_source_identity() {
         let directory = tempfile::tempdir().unwrap();
         let store = Arc::new(Store::open(&directory.path().join("library.sqlite")).unwrap());
         let observed = ObservedAnalysis::new(store.clone());
@@ -704,9 +768,17 @@ mod tests {
         assert!(observed.commit_owned(73, new_owner, replacement_record.clone()));
         observed.release_capture(73, new_owner);
         assert_eq!(
-            observed.session_cached(73, &track, Some(&replacement_candidate)),
+            observed.cached(&track, Some(&replacement_candidate)),
+            Some(replacement_record.clone())
+        );
+        let restored = ObservedAnalysis::new(store.clone());
+        assert_eq!(
+            restored.cached(&track, Some(&replacement_candidate)),
             Some(replacement_record)
         );
+        assert!(observed
+            .session_cached(73, &track, Some(&replacement_candidate))
+            .is_none());
         assert!(observed
             .session_cached(74, &track, Some(&candidate))
             .is_none());
@@ -742,9 +814,10 @@ mod tests {
 
         assert!(store.get_json_preference(CACHE_KEY).unwrap().is_none());
         observed.cancel_generation(73);
+        assert!(observed.cached(&track, Some(&candidate)).is_none());
         assert!(observed
-            .session_cached(73, &track, Some(&candidate))
-            .is_none());
+            .cached(&track, Some(&replacement_candidate))
+            .is_some());
         assert!(store.get_json_preference(CACHE_KEY).unwrap().is_none());
     }
 
@@ -975,7 +1048,7 @@ mod tests {
                 32.3647,
                 Some(&changed_variant),
             )
-            .is_none());
+            .is_some());
         let changed_length = StreamAudioVariant {
             expected_content_length: Some(4_097),
             ..variant.clone()
@@ -988,7 +1061,7 @@ mod tests {
                 32.3647,
                 Some(&changed_length),
             )
-            .is_none());
+            .is_some());
         let refreshed_same_variant = StreamAudioVariant {
             bitrate_kbps: Some(128.5),
             ..variant.clone()
@@ -1004,7 +1077,7 @@ mod tests {
             .is_some());
         assert!(observed
             .cached_stream_media(&track, "youtube", "youtube:video-1", 32.3647, None)
-            .is_none());
+            .is_some());
 
         let candidate = Candidate {
             id: "youtube:video-1".into(),

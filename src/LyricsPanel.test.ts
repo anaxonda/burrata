@@ -317,6 +317,72 @@ describe("LyricsPanel", () => {
     expect(target.querySelectorAll(".translated-line")).toHaveLength(2);
     expect(translateLyrics).toHaveBeenCalledTimes(1);
   });
+  it("searches original and displayed translated lyrics, navigates matches, and keeps fullscreen open when Escape clears a query",async()=>{
+    const lines=[{id:"one",timeSeconds:2,text:"Morning starts here"},{id:"two",timeSeconds:8,text:"Morning comes again"}];
+    const translateLyrics=vi.fn(async(sourceHash:string,requested:typeof lines)=>({sourceHash,targetLanguage:"es",lines:requested.map(line=>({id:line.id,text:`Traducción ${line.id}`}))}));
+    const {target}=render({status:"synced",provider:"lrclib",sourceHash:"search-source",lines},0,{translationEnabled:true,translationCredentialPresent:true,translateLyrics,translationLanguage:"es"});
+    await settle();target.querySelector<HTMLButtonElement>(".lyrics-open")!.click();await settle();
+    target.querySelector<HTMLButtonElement>('[aria-label="Search lyrics"]')!.click();await settle();
+    const input=target.querySelector<HTMLInputElement>('[aria-label="Search lyrics text"]')!;
+    input.value="morning";input.dispatchEvent(new Event("input",{bubbles:true}));await settle();
+    expect(target.querySelector(".lyrics-search-count")?.textContent).toBe("1 of 2");
+    expect(target.querySelectorAll("mark")).toHaveLength(2);
+    target.querySelector<HTMLButtonElement>('[aria-label="Show translation"]')!.click();await settle();
+    input.value="traducción";input.dispatchEvent(new Event("input",{bubbles:true}));await settle();
+    expect(target.querySelector(".lyrics-search-count")?.textContent).toBe("1 of 2");
+    expect(target.querySelectorAll("mark")).toHaveLength(2);
+    target.querySelector<HTMLButtonElement>('[aria-label="Next lyric match"]')!.click();await settle();
+    expect(target.querySelector(".lyrics-search-count")?.textContent).toBe("2 of 2");
+    expect(target.querySelector("mark.current-search-match")?.textContent).toBe("Traducción");
+    target.querySelector<HTMLButtonElement>('[aria-label="Maximize lyrics"]')!.click();await settle();
+    input.value="morning";input.dispatchEvent(new Event("input",{bubbles:true}));await settle();
+    input.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}));await settle();
+    expect(document.body.querySelector('[aria-label="Search lyrics text"]')).toBeNull();
+    expect(document.body.querySelector('[role="dialog"][aria-label="Fullscreen lyrics"]')).not.toBeNull();
+  });
+  it("keeps the playbar inset in fullscreen and seeks source-offset lyric rows on either translation column",async()=>{
+    const onSeek=vi.fn();
+    const lines=[{id:"seek-line",timeSeconds:12,text:"Seek this lyric"}];
+    const translateLyrics=vi.fn(async(sourceHash:string,requested:typeof lines)=>({sourceHash,targetLanguage:"es",lines:requested.map(line=>({id:line.id,text:"Traducción"}))}));
+    const rangedTrack={...track,playbackRange:{parentTrackId:track.id,chapterId:"chapter",sourceUrl:track.sourceUrl,startTime:30,endTime:42,parentTitle:track.title}};
+    render({status:"synced",provider:"lrclib",sourceHash:"seek-source",sourceOffsetSeconds:2,lines},0,{fullscreenRequested:true,bottomInset:76,onSeek,translationEnabled:true,translationCredentialPresent:true,translationLanguage:"es",translateLyrics},rangedTrack);
+    await settle();
+    const panel=document.body.querySelector<HTMLElement>('[role="dialog"][aria-label="Fullscreen lyrics"]')!;
+    expect(panel.style.bottom).toBe("76px");
+    panel.querySelector<HTMLButtonElement>(".lyrics-seek-line")!.click();await settle();
+    expect(onSeek).toHaveBeenLastCalledWith(40);
+    panel.querySelector<HTMLButtonElement>('[aria-label="Show translation"]')!.click();await settle();
+    expect(panel.querySelector(".translated-line")?.textContent).toBe("Traducción");
+    panel.querySelector<HTMLButtonElement>(".lyrics-seek-line")!.click();await settle();
+    expect(onSeek).toHaveBeenCalledTimes(2);
+    expect(onSeek).toHaveBeenLastCalledWith(40);
+  });
+  it("keeps fullscreen tab focus within lyrics and the owned playback footer",async()=>{
+    const target=document.createElement("div");document.body.append(target);
+    const footer=document.createElement("footer");footer.id="lyrics-test-playback-controls";footer.innerHTML='<button type="button">Play</button><button type="button">Volume</button>';document.body.append(footer);
+    const covered=document.createElement("button");covered.textContent="Covered page control";document.body.append(covered);
+    const instance=mount(LyricsPanel,{target,props:{track,absolutePosition:0,loadLyrics:async()=>({status:"unsynced",provider:"lrclib",plainLyrics:"Fullscreen test"}),fullscreenRequested:true,playbackControlsId:footer.id} as never});
+    destroy=()=>unmount(instance);await settle();
+    const panel=document.body.querySelector<HTMLElement>('[role="dialog"][aria-label="Fullscreen lyrics"]')!;
+    const play=footer.querySelector<HTMLButtonElement>("button")!,volume=footer.querySelectorAll<HTMLButtonElement>("button")[1]!;
+    const hide=panel.querySelector<HTMLButtonElement>('[aria-label="Hide lyrics"]')!;
+    expect(panel.getAttribute("aria-owns")).toBe(footer.id);
+    const tab=(shiftKey=false)=>document.activeElement!.dispatchEvent(new KeyboardEvent("keydown",{key:"Tab",bubbles:true,cancelable:true,shiftKey}));
+    hide.focus();tab();expect(document.activeElement).toBe(play);
+    tab();expect(document.activeElement).toBe(volume);
+    tab();expect(document.activeElement).toBe(panel.querySelector('[aria-label="Search lyrics"]'));
+    tab(true);expect(document.activeElement).toBe(volume);
+    expect(document.activeElement).not.toBe(covered);
+  });
+  it("does not offer line seeking for unsynced or detected lyrics",async()=>{
+    const onSeek=vi.fn();
+    const unsynced=render({status:"unsynced",provider:"lrclib",plainLyrics:"Untimed text",lines:[{id:"plain",timeSeconds:null,text:"Untimed text"}]},0,{onSeek});
+    await settle();unsynced.target.querySelector<HTMLButtonElement>(".lyrics-open")!.click();await settle();expect(unsynced.target.querySelector(".lyrics-seek-line")).toBeNull();
+    destroy?.();destroy=undefined;document.body.innerHTML="";
+    const detectedTrack={...track,provenance:{activeLyricsDetection:{detectedAtSeconds:12}}};
+    const detected=render({status:"synced",provider:"lrclib",lines:[{id:"detected",timeSeconds:12,text:"Approximate detection"}]},12,{onSeek},detectedTrack);
+    await settle();detected.target.querySelector<HTMLButtonElement>(".lyrics-open")!.click();await settle();expect(detected.target.querySelector(".lyrics-seek-line")).toBeNull();
+  });
 
   it("rejects a translation response for a different lyric source", async () => {
     const translateLyrics = vi.fn(async () => ({ sourceHash: "stale-source", targetLanguage: "es", lines: [{ id: "line-1", text: "Stale synthetic text" }] }));

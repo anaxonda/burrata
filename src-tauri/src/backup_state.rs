@@ -378,6 +378,22 @@ const LIBRARY_TABLES: &[TableSpec] = &[
             "updated_at",
         ],
     },
+    TableSpec {
+        name: "analysis_cache_records",
+        columns: &[
+            "namespace",
+            "cache_key",
+            "payload",
+            "payload_bytes",
+            "updated_at",
+            "last_used_at",
+            "protected",
+        ],
+    },
+    TableSpec {
+        name: "analysis_cache_record_refs",
+        columns: &["namespace", "cache_key", "recording_id"],
+    },
 ];
 
 // Durable, user-authored settings. Unknown settings are excluded by design.
@@ -1382,6 +1398,8 @@ fn sanitize_table(
                 | "playlist_ordered_entries"
                 | "asset_analyses"
                 | "asset_autotags"
+                | "analysis_cache_records"
+                | "analysis_cache_record_refs"
                 | "chart_entries"
                 | "browser_sources"
                 | "browser_imports"
@@ -1854,8 +1872,17 @@ fn sanitize_settings_table(
                 serde_json::to_string(&sanitize_application(&value)).map_err(err)?,
             ));
         } else if is_preference_allowlisted(&key) {
-            let value = parse_bounded_json(&raw)?;
+            let mut value = parse_bounded_json(&raw)?;
             if key == "playlistSync.v1" {
+                crate::storage::expand_playlist_snapshot_refs(&mut value, |key| {
+                    let raw: Option<String> = tx
+                        .query_row("SELECT value FROM settings WHERE key=?1", [key], |row| {
+                            row.get(0)
+                        })
+                        .optional()
+                        .map_err(err)?;
+                    raw.map(|raw| parse_bounded_json(&raw)).transpose()
+                })?;
                 validate_playlist_sync_snapshot_limits(&value)?;
             }
             if let Some(value) = sanitize_preference(&key, value) {
@@ -1899,7 +1926,18 @@ fn build_settings_archive(
             let json = parse_bounded_json(&value)?;
             application = sanitize_application(&json);
         } else if is_preference_allowlisted(&key) {
-            let json = parse_bounded_json(&value)?;
+            let mut json = parse_bounded_json(&value)?;
+            if key == "playlistSync.v1" {
+                crate::storage::expand_playlist_snapshot_refs(&mut json, |key| {
+                    let raw: Option<String> = conn
+                        .query_row("SELECT value FROM settings WHERE key=?1", [key], |row| {
+                            row.get(0)
+                        })
+                        .optional()
+                        .map_err(err)?;
+                    raw.map(|raw| parse_bounded_json(&raw)).transpose()
+                })?;
+            }
             if let Some(clean) = sanitize_preference(&key, json) {
                 preferences.insert(key, clean);
             }
@@ -2098,7 +2136,7 @@ fn merge_library(
     let user_version: i64 = source
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .map_err(err)?;
-    if !(1..=11).contains(&user_version) {
+    if !(1..=14).contains(&user_version) {
         return Err("Unsupported library backup schema version".into());
     }
     // Reject archive-defined views, virtual tables, and shadow tables, even if
@@ -2703,6 +2741,252 @@ fn merge_assets(
             let _ = insert_values(target, spec.name, &cols, &row, true)?;
         }
     }
+    let cache_key_mapping =
+        merge_analysis_cache_records(source, target, recording_mapping, asset_map)?;
+    merge_analysis_cache_refs(source, target, recording_mapping, &cache_key_mapping)?;
+    Ok(())
+}
+
+fn merge_analysis_cache_records(
+    source: &Connection,
+    target: &rusqlite::Transaction<'_>,
+    recording_id_mapping: &HashMap<String, String>,
+    asset_id_mapping: &HashMap<String, String>,
+) -> Result<HashMap<(String, String), String>> {
+    const MAX_RECORD_BYTES: usize = 256 * 1024;
+    if !table_exists(source, "analysis_cache_records")? {
+        return Ok(HashMap::new());
+    }
+    let mut cache_key_mapping = HashMap::new();
+    for row in read_rows(
+        source,
+        "analysis_cache_records",
+        &[
+            "namespace",
+            "cache_key",
+            "payload",
+            "payload_bytes",
+            "updated_at",
+            "last_used_at",
+            "protected",
+        ],
+    )? {
+        let Some(namespace) = text(&row, "namespace") else {
+            continue;
+        };
+        let Some(source_key) = text(&row, "cache_key") else {
+            continue;
+        };
+        let Some(raw) = row.get("payload").and_then(sql_text) else {
+            continue;
+        };
+        if namespace.is_empty()
+            || namespace.len() > 64
+            || !namespace
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"._-".contains(&b))
+            || source_key.len() != 64
+            || !source_key
+                .bytes()
+                .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+            || raw.len() > MAX_RECORD_BYTES
+        {
+            continue;
+        }
+        let mut payload = sanitize_json(&parse_bounded_json(raw)?);
+        let mut key = source_key.to_owned();
+        if namespace == "stream-analysis-v1" {
+            let Ok(mut analysis) = serde_json::from_value::<
+                crate::stream_analysis::WholeTrackAnalysis,
+            >(payload.clone()) else {
+                continue;
+            };
+            let resource = &mut analysis.resource;
+            match resource {
+                crate::stream_analysis::AnalysisResource::Stream { recording_id, .. }
+                | crate::stream_analysis::AnalysisResource::RegisteredAsset {
+                    recording_id, ..
+                } => {
+                    if let Some(mapped) = recording_id_mapping.get(recording_id) {
+                        *recording_id = mapped.clone();
+                    }
+                }
+            }
+            key = analysis
+                .resource
+                .cache_identity()
+                .map_err(|error| error.to_string())?;
+            payload = serde_json::to_value(analysis).map_err(err)?;
+        } else if namespace == "local-waveform-v1" {
+            let Some(source_asset_id) = payload.get("assetId").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(asset_id) = asset_id_mapping.get(source_asset_id) else {
+                continue;
+            };
+            let Some(file_hash) = payload
+                .get("fileHash")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+            else {
+                continue;
+            };
+            let source_hash: Option<String> = source
+                .query_row(
+                    "SELECT hash FROM local_assets WHERE id=?1",
+                    [source_asset_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(err)?;
+            let target_hash: Option<String> = target
+                .query_row(
+                    "SELECT hash FROM local_assets WHERE id=?1",
+                    [asset_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(err)?;
+            if !source_hash
+                .as_deref()
+                .is_some_and(|hash| hash.eq_ignore_ascii_case(&file_hash))
+                || !target_hash
+                    .as_deref()
+                    .is_some_and(|hash| hash.eq_ignore_ascii_case(&file_hash))
+            {
+                continue;
+            }
+            if let Some(object) = payload.as_object_mut() {
+                object.insert("assetId".into(), Value::String(asset_id.clone()));
+            }
+            let Some(bin_count) = payload.get("binCount").and_then(Value::as_u64) else {
+                continue;
+            };
+            let Some(analyzer) = payload.get("analyzerVersion").and_then(Value::as_str) else {
+                continue;
+            };
+            let identity = format!(
+                "burrata-local-waveform-content-v1\n{}\n{bin_count}\n{analyzer}",
+                file_hash.to_ascii_lowercase()
+            );
+            key = format!("{:x}", sha2::Sha256::digest(identity.as_bytes()));
+        }
+        let encoded = serde_json::to_string(&payload).map_err(err)?;
+        if encoded.len() > MAX_RECORD_BYTES {
+            continue;
+        }
+        let Some(source_updated_at) = text(&row, "updated_at")
+            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+        else {
+            continue;
+        };
+        let source_updated_at = source_updated_at.with_timezone(&chrono::Utc).to_rfc3339();
+        let current_updated_at: Option<String> = target
+            .query_row(
+                "SELECT updated_at FROM analysis_cache_records WHERE namespace=?1 AND cache_key=?2",
+                rusqlite::params![namespace, key],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(err)?;
+        if current_updated_at
+            .as_deref()
+            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+            .is_some_and(|current| {
+                current.with_timezone(&chrono::Utc).to_rfc3339() >= source_updated_at
+            })
+        {
+            continue;
+        }
+        let now = chrono::Utc::now().to_rfc3339();
+        target.execute(
+            "INSERT INTO analysis_cache_records(namespace,cache_key,payload,payload_bytes,updated_at,last_used_at,protected)
+             VALUES(?1,?2,?3,?4,?5,?6,0)
+             ON CONFLICT(namespace,cache_key) DO UPDATE SET payload=excluded.payload,
+               payload_bytes=excluded.payload_bytes,updated_at=excluded.updated_at,
+               last_used_at=excluded.last_used_at",
+            rusqlite::params![namespace, key, encoded, encoded.len() as i64, source_updated_at, now],
+        ).map_err(err)?;
+        cache_key_mapping.insert((namespace.to_owned(), source_key.to_owned()), key);
+    }
+    Ok(cache_key_mapping)
+}
+
+fn merge_analysis_cache_refs(
+    source: &Connection,
+    target: &rusqlite::Transaction<'_>,
+    recording_id_mapping: &HashMap<String, String>,
+    cache_key_mapping: &HashMap<(String, String), String>,
+) -> Result<()> {
+    if !table_exists(source, "analysis_cache_record_refs")? {
+        return Ok(());
+    }
+    for row in read_rows(
+        source,
+        "analysis_cache_record_refs",
+        &["namespace", "cache_key", "recording_id"],
+    )? {
+        let Some(namespace) = text(&row, "namespace") else {
+            continue;
+        };
+        let Some(source_key) = text(&row, "cache_key") else {
+            continue;
+        };
+        let Some(source_id) = text(&row, "recording_id") else {
+            continue;
+        };
+        let key = cache_key_mapping
+            .get(&(namespace.to_owned(), source_key.to_owned()))
+            .map(String::as_str)
+            .unwrap_or(source_key);
+        if namespace.is_empty()
+            || namespace.len() > 64
+            || key.len() != 64
+            || !namespace
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"._-".contains(&b))
+            || !key
+                .bytes()
+                .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+        {
+            continue;
+        }
+        let cache_exists = target.query_row(
+            "SELECT EXISTS(SELECT 1 FROM analysis_cache_records WHERE namespace=?1 AND cache_key=?2)",
+            rusqlite::params![namespace, key], |row| row.get::<_, bool>(0),
+        ).map_err(err)?;
+        if !cache_exists {
+            continue;
+        }
+        let recording_id = recording_id_mapping
+            .get(source_id)
+            .map(String::as_str)
+            .unwrap_or(source_id);
+        let is_library = target.query_row(
+            "SELECT EXISTS(SELECT 1 FROM catalog_listings WHERE id=?1 AND recording_id=?1 AND in_library=1)",
+            [recording_id], |row| row.get::<_, bool>(0),
+        ).map_err(err)?;
+        if !is_library {
+            continue;
+        }
+        target.execute(
+            "INSERT OR IGNORE INTO analysis_cache_record_refs(namespace,cache_key,recording_id) VALUES(?1,?2,?3)",
+            rusqlite::params![namespace, key, recording_id],
+        ).map_err(err)?;
+        target
+            .execute(
+                "UPDATE analysis_cache_records SET protected=1 WHERE namespace=?1 AND cache_key=?2",
+                rusqlite::params![namespace, key],
+            )
+            .map_err(err)?;
+    }
+    target.execute(
+        "UPDATE analysis_cache_records SET protected=EXISTS(
+           SELECT 1 FROM analysis_cache_record_refs r JOIN catalog_listings l
+             ON l.id=r.recording_id AND l.recording_id=r.recording_id AND l.in_library=1
+           WHERE r.namespace=analysis_cache_records.namespace AND r.cache_key=analysis_cache_records.cache_key)",
+        [],
+    ).map_err(err)?;
     Ok(())
 }
 
@@ -5610,6 +5894,134 @@ mod tests {
     use super::*;
     use rusqlite::Connection;
     use sha2::Digest;
+
+    #[test]
+    fn backup_merge_remaps_waveform_cache_asset_and_preserves_verified_library_ref() {
+        let source = Connection::open_in_memory().unwrap();
+        let target = Connection::open_in_memory().unwrap();
+        source
+            .execute_batch(
+                "CREATE TABLE analysis_cache_records(
+                namespace TEXT NOT NULL, cache_key TEXT NOT NULL, payload TEXT NOT NULL,
+                payload_bytes INTEGER NOT NULL, updated_at TEXT NOT NULL,
+                last_used_at TEXT NOT NULL, protected INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(namespace,cache_key));
+             CREATE TABLE analysis_cache_record_refs(
+                namespace TEXT NOT NULL, cache_key TEXT NOT NULL, recording_id TEXT NOT NULL);
+             CREATE TABLE local_assets(id TEXT PRIMARY KEY, hash TEXT NOT NULL);",
+            )
+            .unwrap();
+        target.execute_batch(
+            "CREATE TABLE analysis_cache_records(
+                namespace TEXT NOT NULL, cache_key TEXT NOT NULL, payload TEXT NOT NULL,
+                payload_bytes INTEGER NOT NULL, updated_at TEXT NOT NULL,
+                last_used_at TEXT NOT NULL, protected INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(namespace,cache_key));
+             CREATE TABLE analysis_cache_record_refs(
+                namespace TEXT NOT NULL, cache_key TEXT NOT NULL, recording_id TEXT NOT NULL,
+                PRIMARY KEY(namespace,cache_key,recording_id));
+             CREATE TABLE catalog_listings(id TEXT PRIMARY KEY, recording_id TEXT NOT NULL, in_library INTEGER NOT NULL);
+             CREATE TABLE local_assets(id TEXT PRIMARY KEY, hash TEXT NOT NULL);",
+        ).unwrap();
+
+        let payload = serde_json::json!({
+            "schemaVersion": 1,
+            "assetId": "archive-asset",
+            "fileHash": "a".repeat(64),
+            "binCount": 2,
+            "analyzerVersion": "waveform-v1",
+            "durationSeconds": 8.0,
+            "bins": [{"min": -0.5, "max": 0.5}, {"min": -0.25, "max": 0.25}],
+        });
+        source
+            .execute(
+                "INSERT INTO local_assets(id,hash) VALUES('archive-asset',?1)",
+                ["a".repeat(64)],
+            )
+            .unwrap();
+        let encoded = payload.to_string();
+        let old_key = "b".repeat(64);
+        source.execute(
+            "INSERT INTO analysis_cache_records(namespace,cache_key,payload,payload_bytes,updated_at,last_used_at,protected)
+             VALUES('local-waveform-v1',?1,?2,?3,'2026-10-27T00:00:00Z','2026-10-27T00:00:00Z',1)",
+            params![old_key, encoded, encoded.len() as i64],
+        ).unwrap();
+        source
+            .execute(
+                "INSERT INTO analysis_cache_record_refs(namespace,cache_key,recording_id)
+             VALUES('local-waveform-v1',?1,'archive-recording')",
+                [&old_key],
+            )
+            .unwrap();
+        let mismatched_payload = serde_json::json!({
+            "assetId": "archive-asset", "fileHash": "c".repeat(64), "binCount": 2,
+            "analyzerVersion": "waveform-v1", "durationSeconds": 8.0,
+            "bins": [{"min": -0.5, "max": 0.5}, {"min": -0.25, "max": 0.25}],
+        })
+        .to_string();
+        let mismatched_payload_bytes = mismatched_payload.len() as i64;
+        source.execute(
+            "INSERT INTO analysis_cache_records(namespace,cache_key,payload,payload_bytes,updated_at,last_used_at,protected)
+             VALUES('local-waveform-v1',?1,?2,?3,'2026-10-27T00:00:00Z','2026-10-27T00:00:00Z',1)",
+            params!["d".repeat(64), mismatched_payload, mismatched_payload_bytes],
+        ).unwrap();
+        target
+            .execute(
+                "INSERT INTO local_assets(id,hash) VALUES('target-asset',?1)",
+                ["a".repeat(64)],
+            )
+            .unwrap();
+        target.execute(
+            "INSERT INTO catalog_listings(id,recording_id,in_library) VALUES('target-recording','target-recording',1)",
+            [],
+        ).unwrap();
+
+        let asset_mapping =
+            HashMap::from([("archive-asset".to_owned(), "target-asset".to_owned())]);
+        let recording_mapping = HashMap::from([(
+            "archive-recording".to_owned(),
+            "target-recording".to_owned(),
+        )]);
+        let transaction = target.unchecked_transaction().unwrap();
+        let key_mapping =
+            merge_analysis_cache_records(&source, &transaction, &recording_mapping, &asset_mapping)
+                .unwrap();
+        merge_analysis_cache_refs(&source, &transaction, &recording_mapping, &key_mapping).unwrap();
+
+        let (new_key, restored_payload, protected): (String, String, i64) = transaction.query_row(
+            "SELECT cache_key,payload,protected FROM analysis_cache_records WHERE namespace='local-waveform-v1'",
+            [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        ).unwrap();
+        let expected_identity = format!(
+            "burrata-local-waveform-content-v1\n{}\n2\nwaveform-v1",
+            "a".repeat(64)
+        );
+        assert_eq!(
+            new_key,
+            format!("{:x}", sha2::Sha256::digest(expected_identity.as_bytes()))
+        );
+        assert_eq!(
+            serde_json::from_str::<Value>(&restored_payload).unwrap()["assetId"],
+            "target-asset"
+        );
+        assert_eq!(protected, 1);
+        let reference: String = transaction.query_row(
+            "SELECT recording_id FROM analysis_cache_record_refs WHERE namespace='local-waveform-v1' AND cache_key=?1",
+            [&new_key], |row| row.get(0),
+        ).unwrap();
+        assert_eq!(reference, "target-recording");
+        let imported_count: i64 = transaction
+            .query_row(
+                "SELECT COUNT(*) FROM analysis_cache_records WHERE namespace='local-waveform-v1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            imported_count, 1,
+            "hash-mismatched waveform cache rows are not restored"
+        );
+    }
 
     fn loudness_test_record(
         resource: crate::loudness::LoudnessResourceIdentity,

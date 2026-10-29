@@ -23,6 +23,7 @@ const MUSICBRAINZ: &str = "https://musicbrainz.org/ws/2";
 const DISCOGS: &str = "https://api.discogs.com";
 const LASTFM: &str = "https://ws.audioscrobbler.com/2.0/";
 const COVER_ART: &str = "https://coverartarchive.org";
+const MONOCHROME: &str = "https://tracks.monochrome.st";
 const PAGE_SIZE: u32 = 25;
 const ARTIST_LIST_PAGE_SIZE: u32 = 100;
 const SEARCH_TTL: u64 = 60 * 60;
@@ -214,6 +215,7 @@ struct Endpoints {
     discogs: String,
     lastfm: String,
     cover_art: String,
+    monochrome: String,
 }
 
 #[derive(Clone)]
@@ -242,6 +244,7 @@ impl ArtistService {
                 discogs: DISCOGS.into(),
                 lastfm: LASTFM.into(),
                 cover_art: COVER_ART.into(),
+                monochrome: MONOCHROME.into(),
             },
         })
     }
@@ -266,6 +269,9 @@ impl ArtistService {
                 discogs_rate_limit().await;
             }
             let mut request = self.client.get(url.clone());
+            if namespace.contains("monochrome") {
+                request = request.header(header::ACCEPT, "application/json");
+            }
             if let Some(token) = discogs_token.filter(|token| !token.trim().is_empty()) {
                 request = request.header(header::AUTHORIZATION, format!("Discogs token={token}"));
             }
@@ -294,6 +300,9 @@ impl ArtistService {
                 .await
                 .map_err(|_| "Provider response could not be read".to_owned())?;
             if !status.is_success() {
+                if namespace.contains("monochrome") {
+                    return Err(format!("Monochrome catalog returned HTTP {status}"));
+                }
                 return Err(format!("Provider returned HTTP {status}"));
             }
             let value: Value = serde_json::from_str(&body)
@@ -342,6 +351,77 @@ impl ArtistService {
             url.query_pairs_mut().append_pair(key, value);
         }
         self.get_json(namespace, cache_key, url, ttl, Some(token))
+            .await
+    }
+
+    async fn monochrome_json(
+        &self,
+        path: &str,
+        namespace: &str,
+        cache_key: &str,
+        ttl: u64,
+    ) -> Result<Value, String> {
+        if self.endpoints.monochrome == MONOCHROME {
+            if let Some(value) = self.store.get_provider_cache(namespace, cache_key)? {
+                return Ok(value);
+            }
+            let value = crate::monochrome::Client::new()?
+                .catalog_detail(
+                    path.trim_start_matches('/')
+                        .split('/')
+                        .next()
+                        .unwrap_or_default(),
+                    path.rsplit('/').next().unwrap_or_default(),
+                )
+                .await?;
+            // A cache write must never discard a valid provider response.
+            let _ = self
+                .store
+                .set_provider_cache(namespace, cache_key, &value, ttl);
+            return Ok(value);
+        }
+        let url = Url::parse(&format!("{}{path}", self.endpoints.monochrome))
+            .map_err(|error| error.to_string())?;
+        self.get_json(namespace, cache_key, url, ttl, None).await
+    }
+
+    async fn monochrome_search(
+        &self,
+        kind: &str,
+        query: &str,
+        limit: u32,
+        namespace: &str,
+        cache_key: &str,
+    ) -> Result<Value, String> {
+        let cache_key_owned = cache_key.to_owned();
+        if self.endpoints.monochrome == MONOCHROME {
+            if let Some(value) = self.store.get_provider_cache(namespace, &cache_key_owned)? {
+                return Ok(value);
+            }
+            let rows = crate::monochrome::Client::new()?
+                .search_catalog(kind, query, limit as usize)
+                .await?;
+            let field = if kind == "artists" {
+                "artists"
+            } else {
+                "releases"
+            };
+            let value = json!({field:rows});
+            self.store
+                .set_provider_cache(namespace, &cache_key_owned, &value, SEARCH_TTL)?;
+            return Ok(value);
+        }
+        let path = match kind {
+            "artists" => "/search/artists",
+            "releases" => "/search/releases",
+            _ => return Err("Unsupported Monochrome catalog search".into()),
+        };
+        let mut url = Url::parse(&format!("{}{path}", self.endpoints.monochrome))
+            .map_err(|error| error.to_string())?;
+        url.query_pairs_mut()
+            .append_pair("q", query)
+            .append_pair("limit", &limit.min(25).to_string());
+        self.get_json(namespace, cache_key, url, SEARCH_TTL, None)
             .await
     }
 
@@ -462,6 +542,19 @@ impl ArtistService {
         if !(1..=200).contains(&page) || !(1..=PAGE_SIZE).contains(&page_size) {
             return Err("Artist search page or page size is out of range".into());
         }
+        if provider == "monochrome" && page > 1 {
+            return Ok(ArtistSearchPage {
+                query: query.into(),
+                page,
+                page_size,
+                total: None,
+                has_more: false,
+                results: Vec::new(),
+                warnings: vec![
+                    "Monochrome artist search does not provide additional pages.".into(),
+                ],
+            });
+        }
         let offset = (page - 1) * page_size;
         let cache_id = format!("{}:{page}:{page_size}", query.to_lowercase());
         let (mut results, total, has_more) = match provider {
@@ -528,10 +621,35 @@ impl ArtistService {
                     .is_some_and(|n| n > page as u64);
                 (rows, count, more)
             }
+            "monochrome" => {
+                let data = self
+                    .monochrome_search(
+                        "artists",
+                        query,
+                        page_size,
+                        "artists.search.monochrome.v1",
+                        &format!("{}:{page_size}", query.to_lowercase()),
+                    )
+                    .await?;
+                let rows = data["artists"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(parse_monochrome_artist)
+                    .collect();
+                (rows, None, false)
+            }
             _ => return Err("Unsupported artist search provider".into()),
         };
         if provider == "musicbrainz" {
             self.attach_cached_musicbrainz_artist_images(&mut results);
+        }
+        let mut search_warnings = credentials.warnings.clone();
+        if provider == "monochrome" && results.len() >= page_size as usize {
+            search_warnings.push(
+                "Showing a limited set of matches. Refine your search to narrow the results."
+                    .into(),
+            );
         }
         Ok(ArtistSearchPage {
             query: query.into(),
@@ -540,7 +658,7 @@ impl ArtistService {
             total,
             has_more,
             results,
-            warnings: credentials.warnings.clone(),
+            warnings: search_warnings,
         })
     }
 
@@ -662,6 +780,15 @@ impl ArtistService {
         if !(1..=200).contains(&page) {
             return Err("Album search page is out of range".into());
         }
+        if provider == "monochrome" && page > 1 {
+            return Ok(AlbumSearchPage {
+                items: Vec::new(),
+                next_page: None,
+                warnings: vec![
+                    "Monochrome release search does not provide additional pages.".into(),
+                ],
+            });
+        }
         let offset = (page - 1) * PAGE_SIZE;
         let cache_key = format!("v2:{}:{page}", query.to_lowercase());
         let (items, has_more) = match provider {
@@ -686,7 +813,7 @@ impl ArtistService {
                     .into_iter()
                     .flatten()
                     .filter_map(parse_musicbrainz_release_group)
-                    .collect();
+                    .collect::<Vec<ArtistReleaseRef>>();
                 (items, offset.saturating_add(PAGE_SIZE) < count)
             }
             "discogs" => {
@@ -722,12 +849,37 @@ impl ArtistService {
                     .is_some_and(|n| n > page as u64);
                 (items, more)
             }
+            "monochrome" => {
+                let data = self
+                    .monochrome_search(
+                        "releases",
+                        query,
+                        PAGE_SIZE,
+                        "albums.search.monochrome.v1",
+                        &query.to_lowercase(),
+                    )
+                    .await?;
+                let items = data["releases"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(parse_monochrome_release)
+                    .collect();
+                (items, false)
+            }
             _ => return Err("Unsupported album search provider".into()),
         };
+        let mut warnings = credentials.warnings.clone();
+        if provider == "monochrome" && items.len() >= 25 {
+            warnings.push(
+                "Showing up to 25 releases. This artist may have more releases on Monochrome."
+                    .into(),
+            );
+        }
         Ok(AlbumSearchPage {
             items,
             next_page: has_more.then_some(page + 1),
-            warnings: credentials.warnings.clone(),
+            warnings,
         })
     }
 
@@ -957,6 +1109,46 @@ impl ArtistService {
         let mut lastfm_available = false;
         let mut discogs_crosslink = (artist.provider == "discogs").then(|| artist.id.clone());
         let mut base_artist = match artist.provider.as_str() {
+            "monochrome" => {
+                let data = self
+                    .monochrome_json(
+                        &format!("/artists/{}", artist.id),
+                        "artists.profile.monochrome.v1",
+                        &artist.id,
+                        PROFILE_TTL,
+                    )
+                    .await?;
+                let payload = data
+                    .get("artist")
+                    .filter(|value| value.is_object())
+                    .unwrap_or(&data);
+                let profile = parse_monochrome_artist(payload)
+                    .ok_or("Monochrome artist response omitted its identity")?;
+                aliases = Vec::new();
+                genres = payload
+                    .get("genres")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect();
+                tags = Vec::new();
+                biography = payload
+                    .get("bio")
+                    .or_else(|| payload.get("biography"))
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.trim().is_empty())
+                    .map(str::to_owned);
+                biography_source = biography.as_ref().map(|_| "Monochrome".into());
+                image_url = profile.image_url.clone();
+                links.push(ArtistExternalLink {
+                    label: "Monochrome catalog".into(),
+                    url: profile.source_url.clone(),
+                    provider: Some("monochrome".into()),
+                });
+                profile
+            }
             "musicbrainz" => {
                 let data = self
                     .musicbrainz_json(
@@ -1147,58 +1339,62 @@ impl ArtistService {
                 }
             }
         }
-        if let Some(token) = credentials
-            .lastfm_api_key
-            .as_deref()
-            .filter(|s| !s.trim().is_empty())
-        {
-            let lastfm_result = self
-                .lastfm_artist_info(artist, &base_artist.name, token)
-                .await;
-            match lastfm_result {
-                Ok(data) => {
-                    lastfm_available = true;
-                    if biography.is_none() {
-                        biography = data["bio"]["content"]
-                            .as_str()
-                            .map(strip_html)
-                            .filter(|value| !value.is_empty());
-                        biography_source = biography.as_ref().map(|_| "Last.fm".to_owned());
-                    }
-                    if image_url.is_none() {
-                        image_url = data["image"].as_array().and_then(|items| {
-                            items.iter().rev().find_map(|item| {
-                                item["#text"]
-                                    .as_str()
-                                    .filter(|s| !s.is_empty())
-                                    .map(str::to_owned)
-                            })
-                        });
-                    }
-                    let lastfm_tags = named_items(&data["tags"]["tag"]);
-                    source_tags.extend(lastfm_tags.iter().cloned().map(|name| ArtistTag {
-                        name,
-                        provider: "lastfm".into(),
-                        kind: "tag".into(),
-                    }));
-                    for tag in lastfm_tags {
-                        if !tags.contains(&tag) {
-                            tags.push(tag);
+        if artist.provider != "monochrome" {
+            if let Some(token) = credentials
+                .lastfm_api_key
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+            {
+                let lastfm_result = self
+                    .lastfm_artist_info(artist, &base_artist.name, token)
+                    .await;
+                match lastfm_result {
+                    Ok(data) => {
+                        lastfm_available = true;
+                        if biography.is_none() {
+                            biography = data["bio"]["content"]
+                                .as_str()
+                                .map(strip_html)
+                                .filter(|value| !value.is_empty());
+                            biography_source = biography.as_ref().map(|_| "Last.fm".to_owned());
+                        }
+                        if image_url.is_none() {
+                            image_url = data["image"].as_array().and_then(|items| {
+                                items.iter().rev().find_map(|item| {
+                                    item["#text"]
+                                        .as_str()
+                                        .filter(|s| !s.is_empty())
+                                        .map(str::to_owned)
+                                })
+                            });
+                        }
+                        let lastfm_tags = named_items(&data["tags"]["tag"]);
+                        source_tags.extend(lastfm_tags.iter().cloned().map(|name| ArtistTag {
+                            name,
+                            provider: "lastfm".into(),
+                            kind: "tag".into(),
+                        }));
+                        for tag in lastfm_tags {
+                            if !tags.contains(&tag) {
+                                tags.push(tag);
+                            }
+                        }
+                        match self
+                            .lastfm_top_tracks(artist, &base_artist.name, token)
+                            .await
+                        {
+                            Ok(tracks) => {
+                                top_tracks = parse_lastfm_tracks(&tracks, &base_artist.name, artist)
+                            }
+                            Err(error) => {
+                                warnings.push(format!("Last.fm top tracks unavailable: {error}"))
+                            }
                         }
                     }
-                    match self
-                        .lastfm_top_tracks(artist, &base_artist.name, token)
-                        .await
-                    {
-                        Ok(tracks) => {
-                            top_tracks = parse_lastfm_tracks(&tracks, &base_artist.name, artist)
-                        }
-                        Err(error) => {
-                            warnings.push(format!("Last.fm top tracks unavailable: {error}"))
-                        }
+                    Err(error) => {
+                        warnings.push(format!("Last.fm artist details unavailable: {error}"))
                     }
                 }
-                Err(error) => warnings.push(format!("Last.fm artist details unavailable: {error}")),
             }
         }
         if image_url.is_none() && artist.provider == "musicbrainz" {
@@ -1239,6 +1435,33 @@ impl ArtistService {
                 }
             });
         warnings.extend(releases.warnings.iter().cloned());
+        if artist.provider == "monochrome" {
+            return Ok(ArtistProfile {
+                artist: base_artist,
+                biography,
+                biography_source,
+                image_url,
+                genres: dedupe(genres),
+                tags: dedupe(tags),
+                source_tags: dedupe_source_tags(source_tags),
+                aliases: dedupe(aliases),
+                links,
+                top_tracks: Vec::new(),
+                releases,
+                discogs_available: false,
+                lastfm_available: false,
+                source_coverage: vec![ArtistSourceCoverage {
+                    provider: "monochrome".into(),
+                    status: "available".into(),
+                    detail: "Monochrome artist profile and catalog discography loaded.".into(),
+                    source_url: Some(format!(
+                        "https://tracks.monochrome.st/artists/{}",
+                        artist.id
+                    )),
+                }],
+                warnings,
+            });
+        }
         let discogs_status = if discogs_available {
             (
                 "available",
@@ -1301,6 +1524,8 @@ impl ArtistService {
         });
         base_artist.source_url = if artist.provider == "musicbrainz" {
             format!("https://musicbrainz.org/artist/{}", artist.id)
+        } else if artist.provider == "monochrome" {
+            format!("https://tracks.monochrome.st/artists/{}", artist.id)
         } else {
             format!("https://www.discogs.com/artist/{}", artist.id)
         };
@@ -1370,6 +1595,51 @@ impl ArtistService {
         credentials: &ArtistCredentials,
     ) -> Result<ArtistReleasePage, String> {
         validate_artist_ref(artist)?;
+        if artist.provider == "monochrome" {
+            let data = self
+                .monochrome_json(
+                    &format!("/artists/{}", artist.id),
+                    "artists.profile.monochrome.v1",
+                    &artist.id,
+                    PROFILE_TTL,
+                )
+                .await?;
+            let payload = data
+                .get("artist")
+                .filter(|value| value.is_object())
+                .unwrap_or(&data);
+            let mut seen_releases = std::collections::HashSet::new();
+            let rows = ["albums", "releases", "singles", "compilations"]
+                .iter()
+                .filter_map(|key| {
+                    payload
+                        .get(*key)
+                        .or_else(|| data.get(*key))
+                        .and_then(Value::as_array)
+                })
+                .flat_map(|rows| rows.iter())
+                .filter_map(parse_monochrome_release)
+                .filter(|release| {
+                    seen_releases
+                        .insert((release.release.provider.clone(), release.release.id.clone()))
+                })
+                .collect::<Vec<_>>();
+            return Ok(ArtistReleasePage {
+                artist: artist.clone(),
+                items: rows,
+                next_cursor: None,
+                source_coverage: vec![ArtistSourceCoverage {
+                    provider: "monochrome".into(),
+                    status: "available".into(),
+                    detail: "Releases supplied by Monochrome; this list may be incomplete.".into(),
+                    source_url: Some(format!(
+                        "https://tracks.monochrome.st/artists/{}",
+                        artist.id
+                    )),
+                }],
+                warnings: credentials.warnings.clone(),
+            });
+        }
         let (mut mb_offset, mut discogs_page) = parse_release_cursor(cursor)?;
         let mut warnings = credentials.warnings.clone();
         let mut source_coverage = Vec::new();
@@ -1525,6 +1795,24 @@ impl ArtistService {
         credentials: &ArtistCredentials,
     ) -> Result<Vec<Track>, String> {
         validate_artist_ref(artist)?;
+        if release.release.provider == "monochrome" {
+            if artist.provider != "monochrome" || !valid_monochrome_id(&release.release.id) {
+                return Err("Invalid Monochrome release identity".into());
+            }
+            let data = self
+                .monochrome_json(
+                    &format!("/releases/{}", release.release.id),
+                    "artists.release-tracks.monochrome.v1",
+                    &release.release.id,
+                    LIST_TTL,
+                )
+                .await?;
+            let payload = data
+                .get("release")
+                .filter(|value| value.is_object())
+                .unwrap_or(&data);
+            return Ok(parse_monochrome_release_tracks(payload, artist, release));
+        }
         let edition = match release.release.provider.as_str() {
             "musicbrainz" => {
                 if !valid_crosswalk_mbid(&release.release.id) {
@@ -2440,6 +2728,205 @@ fn parse_musicbrainz_artist(value: &Value) -> Option<ArtistSearchResult> {
             .or_else(|| value["score"].as_str().and_then(|s| s.parse().ok())),
         source_url: format!("https://musicbrainz.org/artist/{id}"),
     })
+}
+
+fn valid_monochrome_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 80
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+}
+
+fn monochrome_id(value: &Value, names: &[&str]) -> Option<String> {
+    names
+        .iter()
+        .find_map(|name| {
+            value.get(*name).and_then(|v| {
+                v.as_str()
+                    .map(str::to_owned)
+                    .or_else(|| v.as_u64().map(|id| id.to_string()))
+            })
+        })
+        .filter(|id| valid_monochrome_id(id))
+}
+
+fn parse_monochrome_artist(value: &Value) -> Option<ArtistSearchResult> {
+    let id = monochrome_id(value, &["artistId", "id"])?;
+    let name = value
+        .get("displayName")
+        .or_else(|| value.get("name"))?
+        .as_str()?
+        .trim();
+    if name.is_empty() {
+        return None;
+    }
+    let source_url = format!("https://tracks.monochrome.st/artists/{id}");
+    Some(ArtistSearchResult {
+        artist: ArtistRef {
+            provider: "monochrome".into(),
+            id,
+        },
+        name: name.into(),
+        image_url: value
+            .get("artwork")
+            .or_else(|| value.get("imageUrl"))
+            .or_else(|| value.get("coverArt"))
+            .or_else(|| value.get("avatar"))
+            .or_else(|| value.get("picture"))
+            .and_then(Value::as_str)
+            .and_then(secure_url),
+        sort_name: value
+            .get("sortName")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        disambiguation: None,
+        artist_type: value.get("type").and_then(Value::as_str).map(str::to_owned),
+        country: None,
+        begin_date: None,
+        end_date: None,
+        score: value.get("score").and_then(Value::as_f64),
+        source_url,
+    })
+}
+
+fn parse_monochrome_release(value: &Value) -> Option<ArtistReleaseRef> {
+    let id = monochrome_id(value, &["releaseId", "id"])?;
+    let title = value
+        .get("title")
+        .or_else(|| value.get("name"))?
+        .as_str()?
+        .trim();
+    if title.is_empty() {
+        return None;
+    }
+    let source_url = format!("https://tracks.monochrome.st/releases/{id}");
+    let mut artist_values = value
+        .get("artists")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_else(|| {
+            value
+                .get("artist")
+                .filter(|v| v.is_object())
+                .cloned()
+                .into_iter()
+                .collect()
+        });
+    if artist_values.is_empty() {
+        if let Some(names) = value.get("artistNames").and_then(Value::as_array) {
+            let ids = value.get("artistIds").and_then(Value::as_array);
+            artist_values = names
+                .iter()
+                .enumerate()
+                .filter_map(|(index, name)| {
+                    let name = name.as_str()?;
+                    let id = ids
+                        .and_then(|ids| ids.get(index))
+                        .cloned()
+                        .unwrap_or(Value::Null);
+                    Some(json!({"name":name,"artistId":id}))
+                })
+                .collect();
+        }
+    }
+    let credits = artist_values
+        .into_iter()
+        .filter_map(|artist| {
+            let name = artist
+                .get("displayName")
+                .or_else(|| artist.get("name"))?
+                .as_str()?
+                .trim();
+            if name.is_empty() {
+                return None;
+            }
+            let artist_ref = monochrome_id(&artist, &["artistId", "id"]).map(|id| ArtistRef {
+                provider: "monochrome".into(),
+                id,
+            });
+            Some(ArtistCredit {
+                name: name.into(),
+                artist: artist_ref,
+                role: "artist credit".into(),
+                credited_as: None,
+                join_phrase: None,
+                source_url: source_url.clone(),
+            })
+        })
+        .collect();
+    let release_date = value
+        .get("releaseDate")
+        .or_else(|| value.get("date"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    Some(ArtistReleaseRef {
+        release: ArtistRef {
+            provider: "monochrome".into(),
+            id,
+        },
+        title: title.into(),
+        year: release_date.as_deref().and_then(year_from_date),
+        release_date,
+        country: None,
+        label: value
+            .get("label")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        catalog_number: None,
+        format: None,
+        primary_type: value
+            .get("releaseType")
+            .or_else(|| value.get("type"))
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        track_count: value
+            .get("numberOfTracks")
+            .or_else(|| value.get("trackCount"))
+            .and_then(Value::as_u64)
+            .map(|n| n.min(u32::MAX as u64) as u32),
+        tracks: Vec::new(),
+        artwork_urls: value
+            .get("artwork")
+            .or_else(|| value.get("cover"))
+            .or_else(|| value.get("coverArt"))
+            .or_else(|| value.get("image"))
+            .or_else(|| value.get("imageUrl"))
+            .and_then(Value::as_str)
+            .and_then(secure_url)
+            .into_iter()
+            .collect(),
+        source_url,
+        credits,
+    })
+}
+
+fn parse_monochrome_release_tracks(
+    value: &Value,
+    artist: &ArtistRef,
+    release: &ArtistReleaseRef,
+) -> Vec<Track> {
+    let artists = serde_json::to_value(&release.credits).unwrap_or(Value::Null);
+    value.get("tracks").and_then(Value::as_array).into_iter().flatten().filter_map(|raw| {
+        let id = monochrome_id(raw, &["trackId", "id"])?;
+        let title = raw.get("title")?.as_str()?.trim();
+        if title.is_empty() { return None; }
+        let duration = raw.get("duration").or_else(|| raw.get("durationMs")).and_then(Value::as_f64)
+            .map(|duration| if duration > 1000.0 { duration / 1000.0 } else { duration })
+            .filter(|duration| duration.is_finite() && *duration > 0.0 && *duration <= 86_400.0);
+        let source_url = format!("https://tracks.monochrome.st/releases/{}", release.release.id);
+        let provider_id = format!("monochrome:{id}");
+        Some(Track {
+            id: format!("catalog:{provider_id}"), provider: "catalog".into(), provider_id, source_url: source_url.clone(),
+            artist: release.credits.iter().map(|credit| credit.name.as_str()).collect::<Vec<_>>().join(", "),
+            title: title.into(), album: Some(release.title.clone()), duration_seconds: duration,
+            track_number: raw.get("trackNumber").or_else(|| raw.get("position")).and_then(Value::as_u64).map(|n| n.min(u32::MAX as u64) as u32),
+            release_date: release.release_date.clone(), artwork_url: release.artwork_urls.first().cloned(),
+            isrc: raw.get("isrc").and_then(Value::as_str).and_then(crate::recording_identity::normalize_isrc),
+            provenance: json!({"source":"Monochrome catalog","catalogProvider":"monochrome","providerId":id,"releaseId":release.release.id,"artistCredits":release.credits,"catalog":{"provider":"monochrome","providerId":release.release.id,"artists":release.credits.iter().filter_map(|credit| credit.artist.as_ref().map(|artist| json!({"provider":artist.provider,"id":artist.id,"name":credit.name}))).collect::<Vec<_>>()},"catalogArtist":artist,"audioAvailability":"not asserted"}),
+            ..Track::default()
+        })
+    }).collect()
 }
 
 fn valid_mbid(value: &str) -> bool {
@@ -3622,6 +4109,7 @@ fn parse_release_cursor(cursor: Option<&str>) -> Result<(Option<u32>, Option<u32
 fn validate_artist_ref(artist: &ArtistRef) -> Result<(), String> {
     match artist.provider.as_str() {
         "musicbrainz" if uuid_like(&artist.id) => Ok(()),
+        "monochrome" if valid_monochrome_id(&artist.id) => Ok(()),
         "discogs"
             if !artist.id.is_empty()
                 && artist.id.len() <= 20
@@ -3899,6 +4387,137 @@ mod tests {
     }
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn monochrome_artist_release_and_track_adapters_keep_provider_identity_and_catalog_only_semantics(
+    ) {
+        let artist = parse_monochrome_artist(&json!({"artistId":"123456789012345678","displayName":"Nipsey Hussle","artwork":"https://cdn.example/artist.jpg"})).unwrap();
+        assert_eq!(
+            artist.artist,
+            ArtistRef {
+                provider: "monochrome".into(),
+                id: "123456789012345678".into()
+            }
+        );
+        assert_eq!(artist.name, "Nipsey Hussle");
+        let release = parse_monochrome_release(&json!({
+            "releaseId":"223456789012345678","title":"Victory Lap","releaseDate":"2018-02-16",
+            "artists":[{"artistId":"123456789012345678","displayName":"Nipsey Hussle"}],
+            "artwork":"https://cdn.example/cover.jpg","numberOfTracks":14
+        }))
+        .unwrap();
+        assert_eq!(release.release.provider, "monochrome");
+        assert_eq!(release.release.id, "223456789012345678");
+        assert_eq!(
+            release.credits[0].artist.as_ref().unwrap().id,
+            artist.artist.id
+        );
+        let tracks = parse_monochrome_release_tracks(
+            &json!({"tracks":[{"trackId":"323456789012345678","title":"Rap Niggas","duration":217000,"trackNumber":1,"isrc":"USUM71800501"}]}),
+            &artist.artist,
+            &release,
+        );
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].provider, "catalog");
+        assert_eq!(tracks[0].provider_id, "monochrome:323456789012345678");
+        assert_eq!(tracks[0].id, "catalog:monochrome:323456789012345678");
+        assert_eq!(tracks[0].duration_seconds, Some(217.0));
+        assert_eq!(tracks[0].provenance["catalogProvider"], "monochrome");
+        assert_eq!(tracks[0].provenance["audioAvailability"], "not asserted");
+        assert!(parse_monochrome_artist(&json!({"id":"../unsafe","name":"bad"})).is_none());
+        assert!(validate_artist_ref(&ArtistRef {
+            provider: "monochrome".into(),
+            id: "../unsafe".into()
+        })
+        .is_err());
+    }
+
+    #[tokio::test]
+    async fn monochrome_search_artist_discography_and_release_tracklist_share_catalog_browse_flow()
+    {
+        use axum::{
+            extract::{Path, Query},
+            routing::get,
+            Json, Router,
+        };
+        use std::collections::HashMap;
+        async fn search(
+            Path(kind): Path<String>,
+            Query(params): Query<HashMap<String, String>>,
+        ) -> Json<Value> {
+            assert!(!params.contains_key("offset"));
+            if kind == "artists" {
+                Json(
+                    json!({"artists":[{"artistId":"123456789012345678","displayName":"Nipsey Hussle"}]}),
+                )
+            } else {
+                Json(
+                    json!({"releases":[{"releaseId":"223456789012345678","title":"Victory Lap","artists":[{"artistId":"123456789012345678","displayName":"Nipsey Hussle"}]}]}),
+                )
+            }
+        }
+        async fn artist(Path(_id): Path<String>) -> Json<Value> {
+            Json(json!({
+                "artist":{"artistId":"123456789012345678","displayName":"Nipsey Hussle"},
+                "albums":[{"releaseId":"223456789012345678","title":"Victory Lap","releaseType":"ALBUM","artists":[{"artistId":"123456789012345678","displayName":"Nipsey Hussle"}]}],
+                "releases":[{"releaseId":"223456789012345678","title":"Victory Lap","releaseType":"ALBUM","artists":[{"artistId":"123456789012345678","displayName":"Nipsey Hussle"}]}]
+            }))
+        }
+        async fn release(Path(_id): Path<String>) -> Json<Value> {
+            Json(
+                json!({"release":{"releaseId":"223456789012345678","title":"Victory Lap","tracks":[{"trackId":"323456789012345678","title":"Rap Niggas","duration":217000,"trackNumber":1}]}}),
+            )
+        }
+        let app = Router::new()
+            .route("/search/{kind}", get(search))
+            .route("/artists/{id}", get(artist))
+            .route("/releases/{id}", get(release));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let store =
+            Arc::new(Store::open(&temp.path().join("monochrome-artist-browse.sqlite")).unwrap());
+        let mut service = ArtistService::new(store.clone()).unwrap();
+        service.endpoints.monochrome = format!("http://{address}");
+        let credentials = ArtistCredentials::default();
+
+        let artists = service
+            .search_artists_for("monochrome", "Nipsey Hussle", 1, 20, &credentials)
+            .await
+            .unwrap();
+        assert_eq!(artists.results[0].artist.provider, "monochrome");
+        assert!(!artists.has_more);
+        let albums = service
+            .search_albums_for("monochrome", "Victory Lap", 1, &credentials)
+            .await
+            .unwrap();
+        let release = albums.items[0].clone();
+        assert_eq!(
+            release.credits[0].artist.as_ref().unwrap().id,
+            artists.results[0].artist.id
+        );
+        let profile = service
+            .get_artist_profile(&artists.results[0].artist, &credentials)
+            .await
+            .unwrap();
+        assert_eq!(profile.releases.items.len(), 1);
+        let discography = service
+            .get_artist_releases(&artists.results[0].artist, None, &credentials)
+            .await
+            .unwrap();
+        assert_eq!(discography.items.len(), 1);
+        let tracks = service
+            .get_release_tracks(&release, &artists.results[0].artist, &credentials)
+            .await
+            .unwrap();
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].id, "catalog:monochrome:323456789012345678");
+        assert_eq!(tracks[0].provider_id, "monochrome:323456789012345678");
+        assert_eq!(tracks[0].provider, "catalog");
+        assert_eq!(store.save_track(&tracks[0]).unwrap().id, tracks[0].id);
+        server.abort();
+    }
 
     fn assert_tracks_round_trip(tracks: &[Track]) {
         let temp = tempfile::tempdir().unwrap();

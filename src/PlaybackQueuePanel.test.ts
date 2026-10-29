@@ -36,6 +36,26 @@ function render(props: Record<string, unknown> = {}) {
 }
 
 describe("PlaybackQueuePanel", () => {
+  it("requests saved row data only when a queue row enters the viewport", async () => {
+    let notify!: IntersectionObserverCallback;
+    const nodes: Element[] = [];
+    const onVisibleTrack = vi.fn();
+    vi.stubGlobal("IntersectionObserver", class {
+      constructor(callback: IntersectionObserverCallback) { notify = callback; }
+      observe(node: Element) { if (!nodes.includes(node)) nodes.push(node); }
+      unobserve() {} disconnect() {}
+    });
+    try {
+      const second = {...track,id:"queue-2",title:"Second"};
+      render({tracks:[track,second],onVisibleTrack});
+      await tick();
+      expect(onVisibleTrack).not.toHaveBeenCalled();
+      notify([{target:nodes[1]!,isIntersecting:true} as IntersectionObserverEntry], {} as IntersectionObserver);
+      await tick();
+      expect(onVisibleTrack).toHaveBeenCalledExactlyOnceWith(second);
+    } finally { cleanup?.(); cleanup=undefined; vi.unstubAllGlobals(); }
+  });
+
   it("filters downloaded rows while retaining original queue occurrence indexes", async () => {
     const onPlay=vi.fn();
     const downloaded={...track,id:"downloaded",title:"Downloaded recording",localAvailability:"available"};
@@ -158,6 +178,21 @@ describe("PlaybackQueuePanel", () => {
     add.click();
     expect(onAddChapterToPlaylist).toHaveBeenCalledOnce();
     expect(onAddChapterToPlaylist).toHaveBeenCalledWith(parent, chapter, 1);
+  });
+
+  it("shows cached detections beneath their queue track with seek, info, and playlist actions", async () => {
+    const observation={title:"Recognized Song",artist:"Recognized Artist",detectedAtSeconds:125,capturedStartSeconds:120,capturedEndSeconds:132,observedAt:"2026-10-28T12:00:00Z",identifiers:{isrc:"USABC2600001"}};
+    const onSeekDetection=vi.fn(),onInfoDetection=vi.fn(),onAddDetectionToPlaylist=vi.fn(),onAddDetectionsToPlaylist=vi.fn();
+    const target=render({detectionsByTrack:{[track.id]:[observation]},onSeekDetection,onInfoDetection,onAddDetectionToPlaylist,onAddDetectionsToPlaylist});
+    expect(target.querySelector('[aria-label="Detected tracks for Queued Track"]')?.textContent).toContain("Recognized Song");
+    target.querySelector<HTMLButtonElement>('[aria-label^="Seek to"]')!.click();
+    target.querySelector<HTMLButtonElement>(".detection-track-info")!.click();
+    target.querySelector<HTMLButtonElement>(".detection-add")!.click();
+    target.querySelector<HTMLButtonElement>(".detection-child-heading button")!.click();
+    expect(onSeekDetection).toHaveBeenCalledWith(track,observation,0);
+    expect(onInfoDetection).toHaveBeenCalledWith(expect.objectContaining({id:expect.stringMatching(/^detected:/),title:"Recognized Song",isrc:"USABC2600001"}));
+    expect(onAddDetectionToPlaylist).toHaveBeenCalledWith(expect.objectContaining({title:"Recognized Song"}));
+    expect(onAddDetectionsToPlaylist).toHaveBeenCalledWith([expect.objectContaining({title:"Recognized Song"})]);
   });
 
   it("shows the current radio song with an identify action and retains previous listens with normal actions", async () => {

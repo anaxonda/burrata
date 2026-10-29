@@ -2,6 +2,7 @@ import { streamAudioVariantIdentity, type StreamAudioVariant } from "./stream-me
 import { MAX_WAVEFORM_BIN_COUNT, emptyWaveform, type WaveformBin, type WaveformSnapshot } from "./waveform-data";
 
 export const OBSERVED_WAVEFORM_CACHE_STORAGE_KEY = "burrata.observed-waveform-cache.v1";
+/** Kept for reading old localStorage records. Durable DB records are LRU managed. */
 export const OBSERVED_WAVEFORM_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const OBSERVED_WAVEFORM_CACHE_MAX_ENTRIES = 16;
 export const OBSERVED_WAVEFORM_CACHE_MAX_SESSION_BYTES = 2 * 1024 * 1024;
@@ -35,8 +36,10 @@ export type PreparedObservedWaveformBinding = Readonly<{
   binCount: number;
   scope: "wholeTrack" | "playbackRange";
   range: { startSeconds: number; endSeconds: number } | null;
+  streamDurationToleranceSeconds: number;
   sessionKey: string;
   persistenceKey: string | null;
+  legacyPersistenceKeys?: readonly string[];
 }>;
 
 type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
@@ -84,6 +87,14 @@ function rangeForStorage(range: ObservedWaveformCacheBinding["range"]): [number,
   return range ? [range.startSeconds, range.endSeconds] : null;
 }
 
+function sameStoredRange(a: StoredRecord["range"], b: StoredRecord["range"]): boolean {
+  return a === null || b === null ? a === b : a[0] === b[0] && a[1] === b[1];
+}
+
+function durationMatches(binding: PreparedObservedWaveformBinding, storedSeconds: number): boolean {
+  return Math.abs(storedSeconds - binding.durationSeconds) <= binding.streamDurationToleranceSeconds;
+}
+
 /** Validate and compute the persistent digest once, outside the 80 ms observer
  * loop. Unknown stream encodings stay session-only and are scoped to generation. */
 export async function prepareObservedWaveformBinding(
@@ -96,10 +107,12 @@ export async function prepareObservedWaveformBinding(
   if (!validScopeRange(binding.scope, range, binding.durationSeconds)) return null;
 
   let stableIdentity: string | null = null;
+  let legacyStreamVariant: string | null = null;
   let transientIdentity = "unknown";
   if (binding.identity.kind === "stream") {
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(binding.identity.provider) || !/^[A-Za-z0-9:_-]{1,512}$/.test(binding.identity.sourceId)) return null;
     const variant = streamAudioVariantIdentity(binding.identity.audioVariant);
+    legacyStreamVariant = variant;
     const transientVariant = binding.identity.audioVariant;
     const boundedLabel = (value: unknown) => typeof value === "string" ? value.slice(0, 128) : null;
     // Even non-durable representations need separate in-memory bindings when
@@ -109,11 +122,10 @@ export async function prepareObservedWaveformBinding(
       typeof transientVariant?.expectedContentLength === "number" && Number.isSafeInteger(transientVariant.expectedContentLength) && transientVariant.expectedContentLength > 0
         ? transientVariant.expectedContentLength : null,
       typeof transientVariant?.containsVideo === "boolean" ? transientVariant.containsVideo : null]);
-    // The current Monochrome route has no persistent representation validator.
-    // Catalog/source IDs plus an encoding label cannot validate its bytes.
-    if (variant && binding.identity.provider.toLowerCase() !== "monochrome") {
-      stableIdentity = `stream\n${binding.identity.provider}\n${binding.identity.sourceId}\n${variant}`;
-    }
+    // Recording/upload identity, duration and scope are stable across ordinary
+    // URL/encoding refreshes. Keep the encoding in the session key so live bins
+    // from two simultaneous variants cannot be merged in memory.
+    stableIdentity = `stream-recording-v1\n${binding.identity.provider.toLowerCase()}\n${binding.identity.sourceId}`;
   } else if (binding.identity.kind === "local") {
     if (!/^[A-Za-z0-9:_-]{1,256}$/.test(binding.identity.assetId) || !validHash(binding.identity.verifiedFileHash)) return null;
     stableIdentity = `local\n${binding.identity.assetId}\n${binding.identity.verifiedFileHash.toLowerCase()}`;
@@ -126,22 +138,46 @@ export async function prepareObservedWaveformBinding(
 
   const rangeText = range ? `${range.startSeconds}\n${range.endSeconds}` : "whole-track";
   const common = `resource=${binding.resourceKey}\ntrack=${binding.trackId}\nduration=${binding.durationSeconds}\nbins=${binding.binCount}\nscope=${binding.scope}\nrange=${rangeText}`;
-  const sessionKey = `session\n${binding.generation}\n${common}\nidentity=${stableIdentity ?? transientIdentity}`;
+  const sessionIdentity = binding.identity.kind === "stream" ? transientIdentity : stableIdentity ?? transientIdentity;
+  const sessionKey = `session\n${binding.generation}\n${common}\nidentity=${sessionIdentity}`;
   let persistenceKey: string | null = null;
+  const legacyPersistenceKeys: string[] = [];
   if (stableIdentity) {
     try {
-      const persistentCommon = binding.identity.kind === "localResource"
+      const persistentCommon = binding.identity.kind === "stream"
+        ? `bins=${binding.binCount}\nscope=${binding.scope}\nrange=${rangeText}`
+        : binding.identity.kind === "localResource"
         ? `duration=${binding.durationSeconds}\nbins=${binding.binCount}\nscope=${binding.scope}\nrange=${rangeText}`
         : common;
-      const bytes = new TextEncoder().encode(`burrata-observed-waveform-cache-v1\n${persistentCommon}\nidentity=${stableIdentity}`);
+      const cacheVersion = binding.identity.kind === "stream" ? "v2" : "v1";
+      const bytes = new TextEncoder().encode(`burrata-observed-waveform-cache-${cacheVersion}\n${persistentCommon}\nidentity=${stableIdentity}`);
       const digest = await crypto.subtle.digest("SHA-256", bytes);
       persistenceKey = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+      if (binding.identity.kind === "stream") {
+        // Migrate the previous exact-duration stable key, plus the older
+        // representation-specific key when the encoding is known.
+        const legacyStableBytes = new TextEncoder().encode(
+          `burrata-observed-waveform-cache-v1\nduration=${binding.durationSeconds}\nbins=${binding.binCount}\nscope=${binding.scope}\nrange=${rangeText}\nidentity=${stableIdentity}`,
+        );
+        const legacyStableDigest = await crypto.subtle.digest("SHA-256", legacyStableBytes);
+        legacyPersistenceKeys.push([...new Uint8Array(legacyStableDigest)].map(byte => byte.toString(16).padStart(2, "0")).join(""));
+      }
+      if (binding.identity.kind === "stream" && legacyStreamVariant && binding.identity.provider.toLowerCase() !== "monochrome") {
+        const legacyIdentity = `stream\n${binding.identity.provider}\n${binding.identity.sourceId}\n${legacyStreamVariant}`;
+        const legacyBytes = new TextEncoder().encode(`burrata-observed-waveform-cache-v1\n${common}\nidentity=${legacyIdentity}`);
+        const legacyDigest = await crypto.subtle.digest("SHA-256", legacyBytes);
+        legacyPersistenceKeys.push([...new Uint8Array(legacyDigest)].map(byte => byte.toString(16).padStart(2, "0")).join(""));
+      }
     } catch { persistenceKey = null; }
   }
   return Object.freeze({
     resourceKey: binding.resourceKey, trackId: binding.trackId, generation: binding.generation,
     durationSeconds: binding.durationSeconds, binCount: binding.binCount, scope: binding.scope,
-    range: range ? Object.freeze({ ...range }) : null, sessionKey, persistenceKey,
+    range: range ? Object.freeze({ ...range }) : null,
+    streamDurationToleranceSeconds: binding.identity.kind === "stream"
+      ? Math.max(0.05, Math.min(1, binding.durationSeconds * 0.001)) : 0,
+    sessionKey, persistenceKey,
+    legacyPersistenceKeys: Object.freeze(legacyPersistenceKeys),
   });
 }
 
@@ -173,7 +209,7 @@ function validStoredRecord(value: unknown, now: number): value is StoredRecord {
   if (!value || typeof value !== "object") return false;
   const row = value as StoredRecord;
   return validHash(row.key) && Number.isFinite(row.updatedAt) && row.updatedAt <= now + 60_000 &&
-    Number.isFinite(row.expiresAt) && row.expiresAt > now && row.expiresAt <= row.updatedAt + OBSERVED_WAVEFORM_CACHE_TTL_MS + 1_000 &&
+    Number.isFinite(row.expiresAt) && row.expiresAt <= row.updatedAt + OBSERVED_WAVEFORM_CACHE_TTL_MS + 1_000 &&
     validDuration(row.durationSeconds) && validCount(row.binCount) && ["wholeTrack", "playbackRange"].includes(row.scope) &&
     (row.range === null || Array.isArray(row.range) && row.range.length === 2 && row.range.every(Number.isFinite) && row.range[0] >= 0 && row.range[1] > row.range[0]) &&
     validScopeRange(row.scope, row.range ? { startSeconds: row.range[0], endSeconds: row.range[1] } : null, row.durationSeconds) &&
@@ -203,12 +239,26 @@ export class ObservedWaveformCache {
     this.load();
     const now = this.now();
     const memory = this.session.get(binding.sessionKey);
-    let bins = memory && now - memory.updatedAt >= 0 && now - memory.updatedAt <= OBSERVED_WAVEFORM_CACHE_TTL_MS ? memory.bins : null;
+    let bins = memory && now - memory.updatedAt >= 0 ? memory.bins : null;
     if (memory && !bins) this.deleteSession(binding.sessionKey);
     if (!bins && binding.persistenceKey) {
-      const stored = this.persistent.get(binding.persistenceKey);
-      if (stored && stored.expiresAt > now && stored.durationSeconds === binding.durationSeconds && stored.binCount === binding.binCount &&
-          stored.scope === binding.scope && JSON.stringify(stored.range) === JSON.stringify(rangeForStorage(binding.range))) {
+      let stored = this.persistent.get(binding.persistenceKey);
+      for (const legacyKey of binding.legacyPersistenceKeys ?? []) {
+        const legacy = this.persistent.get(legacyKey);
+        if (!legacy) continue;
+        const canMerge = durationMatches(binding, legacy.durationSeconds) && legacy.binCount === binding.binCount &&
+          legacy.scope === binding.scope && sameStoredRange(legacy.range, rangeForStorage(binding.range));
+        this.persistent.delete(legacyKey);
+        if (canMerge) {
+          stored = stored
+            ? { ...stored, updatedAt: Math.max(stored.updatedAt, legacy.updatedAt), bins: encodeBins(mergeBins(decodeBins(stored.bins, binding.binCount)!, decodeBins(legacy.bins, binding.binCount)!)) }
+            : { ...legacy, key: binding.persistenceKey };
+          this.persistent.set(binding.persistenceKey, stored);
+        }
+        this.markDirty();
+      }
+      if (stored && durationMatches(binding, stored.durationSeconds) && stored.binCount === binding.binCount &&
+          stored.scope === binding.scope && sameStoredRange(stored.range, rangeForStorage(binding.range))) {
         bins = decodeBins(stored.bins, binding.binCount);
       }
       else if (stored) { this.persistent.delete(binding.persistenceKey); this.markDirty(); }
@@ -220,6 +270,56 @@ export class ObservedWaveformCache {
     snapshot.complete = false;
     snapshot.source = "observed-playback";
     return snapshot;
+  }
+
+  /** Import one database-backed record after validating its opaque key and
+   * shape. The row remains incomplete and unknown bins stay null. */
+  restorePersistedRecord(binding: PreparedObservedWaveformBinding, value: unknown): WaveformSnapshot | null {
+    if (!this.validPrepared(binding) || !binding.persistenceKey || !validStoredRecord(value, this.now())) return null;
+    const record = value as StoredRecord;
+    const isCurrentKey = record.key === binding.persistenceKey;
+    const isLegacyKey = binding.legacyPersistenceKeys?.includes(record.key) ?? false;
+    if ((!isCurrentKey && !isLegacyKey) ||
+        (isCurrentKey ? !durationMatches(binding, record.durationSeconds) : record.durationSeconds !== binding.durationSeconds) ||
+        record.binCount !== binding.binCount || record.scope !== binding.scope ||
+        !sameStoredRange(record.range, rangeForStorage(binding.range))) return null;
+    this.load();
+    const existing = this.persistent.get(binding.persistenceKey);
+    const importedBins = record.bins.map(bin => bin ? [...bin] as EncodedBin : null);
+    const bins = existing && durationMatches(binding, existing.durationSeconds) && existing.binCount === record.binCount &&
+      existing.scope === record.scope && sameStoredRange(existing.range, record.range)
+      ? encodeBins(mergeBins(decodeBins(existing.bins, record.binCount)!, decodeBins(importedBins, record.binCount)!))
+      : importedBins;
+    // Observations can arrive before the asynchronous database read completes.
+    // Merge those session bins before replacing the persistent record; restore()
+    // otherwise prefers the session and can hide previously saved coverage.
+    const memory = this.session.get(binding.sessionKey);
+    const combined = memory ? encodeBins(mergeBins(decodeBins(bins, record.binCount)!, memory.bins)) : bins;
+    const changed = !existing || existing.bins.length !== combined.length || combined.some((bin,index) => {
+      const previous = existing.bins[index];
+      return bin === null ? previous !== null : !previous || bin[0] !== previous[0] || bin[1] !== previous[1];
+    });
+    if (changed) {
+      this.persistent.set(binding.persistenceKey, { ...record, key: binding.persistenceKey,
+        durationSeconds: binding.durationSeconds, updatedAt: Math.max(record.updatedAt, existing?.updatedAt ?? 0), bins: combined });
+      this.markDirty();
+    }
+    this.deleteSession(binding.sessionKey);
+    return this.restore(binding);
+  }
+
+  /** Return the current database payload for this exact prepared binding. */
+  persistedVersion(binding: PreparedObservedWaveformBinding): object | null {
+    if (!this.validPrepared(binding) || !binding.persistenceKey) return null;
+    this.load();
+    return this.persistent.get(binding.persistenceKey) ?? null;
+  }
+
+  exportPersistedRecord(binding: PreparedObservedWaveformBinding): unknown | null {
+    if (!this.validPrepared(binding) || !binding.persistenceKey) return null;
+    this.load();
+    const record = this.persistent.get(binding.persistenceKey);
+    return record ? { ...record, bins: record.bins.map(bin => bin ? [...bin] : null) } : null;
   }
 
   /** Merge new observed bins without filling null gaps. Returns a normalized
@@ -239,12 +339,15 @@ export class ObservedWaveformCache {
     this.load();
     const now = this.now();
     const previousMemory = this.session.get(binding.sessionKey);
-    let previous = previousMemory && now - previousMemory.updatedAt >= 0 && now - previousMemory.updatedAt <= OBSERVED_WAVEFORM_CACHE_TTL_MS
+    let previous = previousMemory && now - previousMemory.updatedAt >= 0
       ? previousMemory.bins : null;
     if (previousMemory) this.deleteSession(binding.sessionKey);
     if (!previous && binding.persistenceKey) {
       const stored = this.persistent.get(binding.persistenceKey);
-      if (stored && stored.expiresAt > now) previous = decodeBins(stored.bins, binding.binCount);
+      if (stored && durationMatches(binding, stored.durationSeconds) && stored.binCount === binding.binCount &&
+          stored.scope === binding.scope && sameStoredRange(stored.range, rangeForStorage(binding.range))) {
+        previous = decodeBins(stored.bins, binding.binCount);
+      }
     }
     const merged = previous ? mergeBins(previous, bins) : bins;
     const memoryRecord: MemoryRecord = { binding, updatedAt: now, bins: merged };
@@ -252,9 +355,12 @@ export class ObservedWaveformCache {
     this.sessionApproxBytes += this.sessionRecordBytes(memoryRecord);
     this.evictSession();
 
-    if (binding.persistenceKey && !this.readFailed) {
+    if (binding.persistenceKey && this.storage && !this.readFailed) {
       const stored = this.persistent.get(binding.persistenceKey);
-      const unchanged = stored && stored.expiresAt > now && stored.bins.length === merged.length &&
+      const unchanged = stored && durationMatches(binding, stored.durationSeconds) &&
+        stored.binCount === binding.binCount && stored.scope === binding.scope &&
+        sameStoredRange(stored.range, rangeForStorage(binding.range)) &&
+        stored.bins.length === merged.length &&
         merged.every((bin, index) => {
           const previous = stored.bins[index];
           return bin === null ? previous === null : previous !== null && previous[0] === bin.min && previous[1] === bin.max;
@@ -310,6 +416,7 @@ export class ObservedWaveformCache {
   private validPrepared(binding: PreparedObservedWaveformBinding): boolean {
     return Boolean(binding && validResourceKey(binding.resourceKey) && typeof binding.sessionKey === "string" &&
       binding.sessionKey.length <= 8192 && (!binding.persistenceKey || validHash(binding.persistenceKey)) &&
+      Number.isFinite(binding.streamDurationToleranceSeconds) && binding.streamDurationToleranceSeconds >= 0 && binding.streamDurationToleranceSeconds <= 1 &&
       typeof binding.trackId === "string" && binding.trackId.length > 0 && binding.trackId.length <= 512 &&
       Number.isSafeInteger(binding.generation) && binding.generation >= 0 && validDuration(binding.durationSeconds) &&
       validCount(binding.binCount) && validScopeRange(binding.scope, binding.range, binding.durationSeconds));

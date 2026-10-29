@@ -34,6 +34,27 @@ function render(props: Record<string, unknown> = {}) {
 }
 
 describe("TrackList", () => {
+  it("highlights and focuses one exact duplicate occurrence by stable row key", async () => {
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 1; });
+    const repeated = { ...tracks[0]! };
+    const rows = [tracks[0]!, repeated];
+    const target = render({
+      tracks: rows,
+      orderedRows: [
+        { kind: "track", key: "session-first", trackIndex: 0 },
+        { kind: "track", key: "session-second", trackIndex: 1 },
+      ],
+      focusedRowKey: "session-second",
+    });
+    await tick();
+    const highlighted = target.querySelectorAll("li.focused-history-occurrence");
+    expect(highlighted).toHaveLength(1);
+    expect(highlighted[0]?.getAttribute("data-row-key")).toBe("session-second");
+    expect(highlighted[0]?.getAttribute("aria-current")).toBe("location");
+    expect(document.activeElement).toBe(highlighted[0]?.querySelector("button.track-title"));
+    expect(target.querySelectorAll('li[aria-current="location"]')).toHaveLength(1);
+  });
+
   it("calculates final persisted indexes for before/after drops without identifying rows by track ID", () => {
     expect(playlistDropIndex(2, 4, true)).toBe(3);
     expect(playlistDropIndex(4, 2, false)).toBe(1);

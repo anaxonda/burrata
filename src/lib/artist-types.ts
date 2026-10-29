@@ -1,7 +1,7 @@
 import type { Track } from "./types";
 import type { TrackSortField, SortDirection } from "./track-sort";
 
-export type ArtistProvider = "musicbrainz" | "discogs";
+export type ArtistProvider = "musicbrainz" | "discogs" | "monochrome";
 
 export interface ArtistRef {
   provider: ArtistProvider;

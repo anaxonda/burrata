@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { hasWebviewStartupResumeProgress, startupResumeBlocksHistory } from "./webview-startup-resume";
+import { hasWebviewStartupResumeProgress, shouldRefreshWebviewResumeSource, startupResumeBlocksHistory } from "./webview-startup-resume";
 
 const resumed = {
   target: 349.437,
@@ -37,4 +37,11 @@ it("blocks history only for the exact unverified startup-resume owner", () => {
   expect(startupResumeBlocksHistory(gate, {}, source, "track-a")).toBe(false);
   expect(startupResumeBlocksHistory(gate, node, source, "track-b")).toBe(false);
   expect(startupResumeBlocksHistory(null, node, source, "track-a")).toBe(false);
+});
+
+it("refreshes a rejected resume only when the media error indicates a retryable transport failure", () => {
+  expect(shouldRefreshWebviewResumeSource(2, "The source could not be loaded because of a network error.")).toBe(true);
+  expect(shouldRefreshWebviewResumeSource(4, "The source did not provide a supported audio format.")).toBe(false);
+  expect(shouldRefreshWebviewResumeSource(null, "Audio source access was denied (HTTP 403)")).toBe(true);
+  expect(shouldRefreshWebviewResumeSource(null, "The Web Audio output could not be resumed.")).toBe(false);
 });

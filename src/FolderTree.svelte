@@ -6,12 +6,14 @@
   type FolderNode = FolderLocation & { name: string; depth: number; root: boolean };
   let {
     call,
+    filter = "",
     selectedFolder = null,
     rootsRevision = 0,
     onSelectFolder = () => {},
     onRootsChanged = () => {},
     onOpenFolders = () => {},
   }: {
+    filter?: string;
     call?: <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
     selectedFolder?: FolderLocation | null;
     rootsRevision?: number;
@@ -44,12 +46,16 @@
       const node = { rootId, relativePath: path, name, depth, root };
       result.push(node);
       const key = keyOf(rootId, path);
-      if (expanded.has(key)) {
+      if (expanded.has(key) || filter.trim()) {
         for (const child of childrenByKey[key] ?? []) append(rootId, child.relativePath, child.name, depth + 1, false);
       }
     };
     for (const root of roots) append(root.id, "", root.name, 0, true);
-    return result;
+    const query = filter.trim().toLocaleLowerCase();
+    if (!query) return result;
+    const matches = result.filter(node => `${node.name} ${node.relativePath}`.toLocaleLowerCase().includes(query));
+    return result.filter(node => matches.some(match => match.rootId === node.rootId &&
+      (match.relativePath === node.relativePath || node.root || match.relativePath.startsWith(node.relativePath + "/"))));
   });
 
   async function refreshRoots() {
@@ -178,6 +184,7 @@
   }
 </script>
 
+{#if !filter.trim() || visibleNodes.length}
 <section class="folder-tree" aria-labelledby="folder-tree-title">
   <div class="folder-tree-heading">
     <button class="folder-tree-title" id="folder-tree-title" type="button" aria-label="Folders" onclick={onOpenFolders}>Folders</button>
@@ -187,7 +194,7 @@
     </div>
   </div>
   {#if errors.roots}<p class="folder-tree-error" role="status">{errors.roots}</p>{/if}
-  {#if treeOpen && roots.length}
+  {#if (treeOpen || filter.trim()) && roots.length}
     <div class="folder-tree-list" role="tree" aria-label="Registered folders" bind:this={treeElement}>
       {#each visibleNodes as node, index (keyOf(node.rootId, node.relativePath))}
         {@const key = keyOf(node.rootId, node.relativePath)}
@@ -218,6 +225,7 @@
     <p class="folder-tree-empty">No folders registered</p>
   {/if}
 </section>
+{/if}
 
 <style>
   .folder-tree { margin: 4px 0 12px; min-width: 0; }

@@ -44,6 +44,70 @@ pub struct LyricsRequestInput {
     pub playback_range: Option<Value>,
     #[serde(default)]
     pub radio: bool,
+    #[serde(default)]
+    pub detection: Option<DetectedLyricsContext>,
+    #[serde(skip_deserializing, default)]
+    pub detected_track_verified: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetectedLyricsContext {
+    pub track_id: String,
+    pub generation: u64,
+    pub seek_serial: u64,
+    pub resource_key: String,
+    pub detected_at_seconds: f64,
+}
+
+pub(crate) fn detected_request(input: Option<&LyricsRequestInput>) -> Option<LyricsRequest> {
+    let input = input.filter(|input| input.detected_track_verified)?;
+    Some(LyricsRequest {
+        track_name: input.track_name.clone(),
+        artist_name: input.artist_name.clone(),
+        album_name: input.album_name.clone(),
+        // A detection point is an identity hint, not an exact song boundary.
+        duration_seconds: 0.,
+    })
+}
+
+pub(crate) fn active_detection_matches(
+    observations: &[crate::playing_track_detections::DetectedTrackObservation],
+    position: f64,
+    title: &str,
+    artist: &str,
+    detected_at_seconds: f64,
+) -> bool {
+    if !position.is_finite() || !detected_at_seconds.is_finite() {
+        return false;
+    }
+    observations
+        .iter()
+        .filter(|observation| observation.detected_at_seconds <= position)
+        .max_by(|a, b| a.detected_at_seconds.total_cmp(&b.detected_at_seconds))
+        .is_some_and(|observation| {
+            observation.title == title
+                && observation.artist == artist
+                && observation.detected_at_seconds == detected_at_seconds
+        })
+}
+
+/// Detection observations use source-absolute time. Native explicit-range
+/// snapshots expose a range-relative position; WebView publishes the source
+/// position separately from its ordinary relative player position.
+pub(crate) fn detection_playback_position(snapshot: &Value) -> Option<f64> {
+    if snapshot["engine"].as_str() == Some("native") {
+        let position = snapshot["position"].as_f64()?;
+        let range_start = snapshot["track"]["playbackRange"]["startTime"]
+            .as_f64()
+            .unwrap_or(0.0);
+        let absolute = position + range_start;
+        absolute.is_finite().then_some(absolute)
+    } else {
+        snapshot["absolutePosition"]
+            .as_f64()
+            .or_else(|| snapshot["position"].as_f64())
+    }
 }
 
 impl From<LyricsRequestInput> for LyricsRequest {
@@ -533,6 +597,9 @@ pub async fn get_current_track_lyrics_with_catalog(
     store: &crate::Store,
     artists: &crate::artists::ArtistService,
 ) -> LyricsResponse {
+    if let Some(request) = detected_request(visible.as_ref()) {
+        return get_radio_track_lyrics(request).await;
+    }
     if let Some(request) = radio_request(snapshot, visible.as_ref()) {
         return get_radio_track_lyrics(request).await;
     }
@@ -748,6 +815,9 @@ pub(crate) fn request_for_current_track(
     snapshot: &Value,
     visible_track: Option<LyricsRequestInput>,
 ) -> Option<LyricsRequest> {
+    if let Some(request) = detected_request(visible_track.as_ref()) {
+        return Some(request);
+    }
     if let Some(request) = radio_request(snapshot, visible_track.as_ref()) {
         return Some(request);
     }
@@ -1927,6 +1997,8 @@ mod tests {
             duration_seconds: 201.5,
             playback_range: None,
             radio: false,
+            detection: None,
+            detected_track_verified: false,
         }
     }
 
@@ -1943,6 +2015,98 @@ mod tests {
         });
         let request = request_for_current_track(&native, Some(visible_input())).unwrap();
         assert_eq!(request.track_name, "Native Song");
+    }
+
+    #[test]
+    fn only_verified_detection_overrides_native_parent_or_chapter_identity() {
+        let snapshot = serde_json::json!({"engine":"native","status":"playing","track":{"id":"set","title":"Long Set","artist":"DJ","durationSeconds":3600,"playbackRange":{"startTime":0,"endTime":3600}}});
+        let mut visible = visible_input();
+        visible.track_id = Some("set:detected:600".into());
+        visible.track_name = "Detected Song".into();
+        visible.artist_name = "Detected Artist".into();
+        visible.duration_seconds = 0.0;
+        visible.detection = Some(DetectedLyricsContext {
+            track_id: "set".into(),
+            generation: 9,
+            seek_serial: 2,
+            resource_key: "resource".into(),
+            detected_at_seconds: 600.,
+        });
+        assert!(request_for_current_track(&snapshot, Some(visible.clone())).is_none());
+        visible.detected_track_verified = true;
+        let request = request_for_current_track(&snapshot, Some(visible)).unwrap();
+        assert_eq!(request.track_name, "Detected Song");
+        assert_eq!(request.artist_name, "Detected Artist");
+        assert_eq!(request.duration_seconds, 0.0);
+    }
+
+    #[test]
+    fn verified_detection_flag_cannot_be_set_by_the_ui_payload() {
+        let value = serde_json::json!({
+            "trackId":"set:detected:10","localPath":null,"trackName":"Detected Song",
+            "artistName":"Detected Artist","albumName":null,"durationSeconds":0.0,
+            "playbackRange":null,"radio":false,"detectedTrackVerified":true,
+            "detection":{"trackId":"set","generation":9,"seekSerial":0,"resourceKey":"key","detectedAtSeconds":10.}
+        });
+        let input: LyricsRequestInput = serde_json::from_value(value).unwrap();
+        assert!(!input.detected_track_verified);
+        assert!(detected_request(Some(&input)).is_none());
+    }
+
+    #[test]
+    fn detected_lyrics_must_match_latest_observation_active_at_playback_position() {
+        let observation =
+            |title: &str, at: f64| crate::playing_track_detections::DetectedTrackObservation {
+                title: title.into(),
+                artist: "Artist".into(),
+                detected_at_seconds: at,
+                last_confirmed_at_seconds: at,
+                captured_start_seconds: at - 5.,
+                captured_end_seconds: at + 5.,
+                observed_at: "2026-10-28T00:00:00Z".into(),
+                artwork_url: None,
+                identifiers: None,
+            };
+        let observations = vec![observation("First", 10.), observation("Second", 40.)];
+        assert!(active_detection_matches(
+            &observations,
+            45.,
+            "Second",
+            "Artist",
+            40.
+        ));
+        assert!(!active_detection_matches(
+            &observations,
+            45.,
+            "First",
+            "Artist",
+            10.
+        ));
+        assert!(!active_detection_matches(
+            &observations,
+            35.,
+            "Second",
+            "Artist",
+            40.
+        ));
+        assert!(!active_detection_matches(
+            &observations,
+            f64::NAN,
+            "Second",
+            "Artist",
+            40.
+        ));
+    }
+
+    #[test]
+    fn detected_lyrics_position_uses_the_observation_clock_for_each_playback_engine() {
+        let native = serde_json::json!({"engine":"native","position":12.0,"track":{"playbackRange":{"startTime":300.0,"endTime":500.0}}});
+        let webview = serde_json::json!({"engine":"webview","position":12.0,"absolutePosition":312.0,"track":{"playbackRange":{"startTime":300.0,"endTime":500.0}}});
+        let full_native =
+            serde_json::json!({"engine":"native","position":42.0,"track":{"playbackRange":null}});
+        assert_eq!(detection_playback_position(&native), Some(312.0));
+        assert_eq!(detection_playback_position(&webview), Some(312.0));
+        assert_eq!(detection_playback_position(&full_native), Some(42.0));
     }
 
     #[tokio::test]

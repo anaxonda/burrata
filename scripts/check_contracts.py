@@ -156,7 +156,7 @@ class Schema(unittest.TestCase):
                     self.db.execute("INSERT INTO playlist_ordered_collections VALUES('house')")
                     for position in range(2):
                         self.db.execute("INSERT INTO playlist_ordered_entries(collection_id,position,listing_id) VALUES('house',?,?)",(position,'traxsource:2'))
-        self.assertEqual(self.db.execute('PRAGMA user_version').fetchone()[0],11)
+        self.assertEqual(self.db.execute('PRAGMA user_version').fetchone()[0],14)
         occurrence_ids=self.db.execute("SELECT occurrence_id FROM playlist_ordered_entries WHERE collection_id='house' ORDER BY position").fetchall()
         self.assertEqual(len(occurrence_ids),2)
         self.assertEqual(len({row[0] for row in occurrence_ids}),2)

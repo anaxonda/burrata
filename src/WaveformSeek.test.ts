@@ -6,7 +6,9 @@ import { createClassComponent } from "svelte/legacy";
 // @ts-expect-error Svelte internal client runtime has no public declarations
 vi.mock("svelte", async () => await import("../node_modules/svelte/src/index-client.js"));
 import WaveformSeek from "./WaveformSeek.svelte";
+import SeekSlider from "./SeekSlider.svelte";
 import { emptyWaveform, localWaveformSnapshot, observeWaveformSegment } from "./lib/waveform-data";
+import type { DetectedTrackObservation } from "./lib/playing-track-detection";
 
 let destroy: (() => void) | undefined;
 afterEach(() => { destroy?.(); destroy = undefined; document.body.innerHTML = ""; vi.useRealTimers(); });
@@ -172,5 +174,44 @@ describe("WaveformSeek", () => {
     expect(bars).toHaveLength(2);
     expect(Number(bars[0]?.getAttribute("height"))).toBeGreaterThan(10);
     expect(Number(bars[1]?.getAttribute("height"))).toBeGreaterThan(10);
+  });
+
+  it("shows optional approximate detected-track ranges across the waveform", async () => {
+    const waveform = localWaveformSnapshot({
+      generation: 7, trackId: "mix", durationSeconds: 100,
+      bins: Array.from({ length: 10 }, () => ({ min: -0.2, max: 0.3 })), complete: true,
+    });
+    const detections: DetectedTrackObservation[] = [{
+      title: "Song", artist: "Artist", detectedAtSeconds: 30, capturedStartSeconds: 20,
+      capturedEndSeconds: 45, observedAt: "2026-01-01T00:00:00Z",
+    }];
+    const target = document.createElement("div"); document.body.append(target);
+    const instance = mount(WaveformSeek, { target, props: {
+      position: 1, duration: 100, disabled: false, onSeek: vi.fn(), waveform,
+      generation: 7, trackId: "mix", detections,
+    } as never });
+    destroy = () => unmount(instance); await settle();
+    const marker = target.querySelector<HTMLElement>(".detection-marker");
+    expect(marker?.style.left).toBe("20%");
+    expect(marker?.style.width).toBe("25%");
+    expect(marker?.title).toContain("Artist — Song");
+    expect(target.querySelectorAll("svg rect")).toHaveLength(10);
+    expect(target.querySelector(".waveform-status")?.textContent).toBe("Full audio waveform");
+  });
+
+  it("shows the same approximate ranges when waveform seeking is disabled", async () => {
+    const detections: DetectedTrackObservation[] = [{
+      title: "Song", artist: "Artist", detectedAtSeconds: 30, capturedStartSeconds: 20,
+      capturedEndSeconds: 45, observedAt: "2026-01-01T00:00:00Z",
+    }];
+    const target = document.createElement("div"); document.body.append(target);
+    const instance = mount(SeekSlider, { target, props: {
+      position: 5, duration: 100, disabled: false, onSeek: vi.fn(), detections,
+    } as never });
+    destroy = () => unmount(instance); await settle();
+    const marker = target.querySelector<HTMLElement>(".detection-marker");
+    expect(marker?.style.left).toBe("20%");
+    expect(marker?.style.width).toBe("25%");
+    expect(target.querySelector('[aria-label="Playback position"]')).not.toBeNull();
   });
 });

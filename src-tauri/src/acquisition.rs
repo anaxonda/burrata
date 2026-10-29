@@ -4931,6 +4931,64 @@ async fn verify_preview_audio_access(
     .map(|_| ())
 }
 
+/// Prove head and tail access for the URL we hand to playback. CDN routing may
+/// produce different final URLs for parallel range requests; URL equality is
+/// not a media identity proof. When routes differ, check the tail again starting
+/// at the chosen head URL, using the same bounded range and total-length rules.
+async fn validate_preview_probe_pair<F, Fut>(
+    first: reqwest::Response,
+    tail: reqwest::Response,
+    length: u64,
+    cancel: &mut watch::Receiver<bool>,
+    trace: Option<crate::playback_sources::SourceTrace>,
+    provider: &str,
+    recheck: F,
+) -> Result<url::Url, String>
+where
+    F: FnOnce(url::Url) -> Fut,
+    Fut: std::future::Future<Output = Result<reqwest::Response, String>>,
+{
+    if *cancel.borrow() {
+        return Err("Cancelled".into());
+    }
+    let final_url = first.url().clone();
+    let different_destination = tail.url() != &final_url;
+    validate_preview_range(
+        first,
+        (0, length.saturating_sub(1).min(1023)),
+        length,
+        cancel,
+        trace.clone(),
+        provider,
+        "head",
+    )
+    .await?;
+    let tail = if different_destination {
+        drop(tail);
+        if let Some(trace) = &trace {
+            trace.event(
+                "stream_probe_recheck",
+                provider,
+                serde_json::json!({"role":"tail","reason":"cdn_destination_changed"}),
+            );
+        }
+        recheck(final_url.clone()).await?
+    } else {
+        tail
+    };
+    validate_preview_range(
+        tail,
+        (length - 1024, length - 1),
+        length,
+        cancel,
+        trace,
+        provider,
+        "tail",
+    )
+    .await?;
+    Ok(final_url)
+}
+
 async fn verify_preview_audio_access_with_trace(
     client: &reqwest::Client,
     stream: &url::Url,
@@ -4970,31 +5028,44 @@ async fn verify_preview_audio_access_with_trace(
                 "tail",
             );
             let (first, tail) = tokio::try_join!(first_future, tail_future)?;
-            let final_url = first.url().clone();
-            if tail.url() != &final_url {
-                return Err("Audio probe ranges resolved to different destinations".into());
-            }
-            validate_preview_range(
+            let recheck_cancel = cancel.clone();
+            let recheck_trace = trace.clone();
+            return validate_preview_probe_pair(
                 first,
-                first_range,
-                length,
-                cancel,
-                trace.clone(),
-                provider,
-                "head",
-            )
-            .await?;
-            validate_preview_range(
                 tail,
-                tail_range,
                 length,
                 cancel,
                 trace.clone(),
                 provider,
-                "tail",
+                |playback_url| async move {
+                    // Redirect destinations were already restricted by send_preview_range.
+                    // Pin a fresh public DNS resolution for the selected playback URL.
+                    let addresses = public_addresses(&playback_url).await?;
+                    let client = reqwest::Client::builder()
+                        .no_proxy()
+                        .redirect(reqwest::redirect::Policy::none())
+                        .resolve_to_addrs(
+                            playback_url.host_str().ok_or("Missing stream host")?,
+                            &addresses,
+                        )
+                        .connect_timeout(Duration::from_secs(5))
+                        .timeout(PLAYBACK_ACCESS_PROBE_TIMEOUT)
+                        .build()
+                        .map_err(|_| "Could not initialize audio access check".to_owned())?;
+                    send_preview_range(
+                        &client,
+                        &playback_url,
+                        headers,
+                        tail_range,
+                        recheck_cancel,
+                        recheck_trace,
+                        provider,
+                        "tail",
+                    )
+                    .await
+                },
             )
-            .await?;
-            return Ok(final_url);
+            .await;
         } else {
             let response = first_future.await?;
             let final_url = response.url().clone();
@@ -7763,7 +7834,7 @@ impl AcquisitionManager {
     pub(crate) async fn validate_playback_audio_traced(
         &self,
         candidate: &Candidate,
-        audio: PreviewAudio,
+        mut audio: PreviewAudio,
         cancel: watch::Receiver<bool>,
         trace: crate::playback_sources::SourceTrace,
         deadline: crate::playback_sources::PlaybackDeadline,
@@ -7774,7 +7845,8 @@ impl AcquisitionManager {
         if matches!(candidate.provider.as_str(), "youtube" | "soundcloud") {
             let key = playback_access_cache_key(candidate, &audio);
             let probe_audio = audio.clone();
-            self.inner
+            let validated = self
+                .inner
                 .playback_access_cache
                 .get_or_resolve_cancelled(key, cancel.clone(), Some(trace.clone()), |worker_id| {
                     validate_prepared_preview_audio(
@@ -7786,6 +7858,7 @@ impl AcquisitionManager {
                     )
                 })
                 .await?;
+            audio.url = validated.url;
         }
         if !audio.provider_session_current() {
             return Err("Audio source provider session changed during resolution".into());
@@ -8412,6 +8485,13 @@ impl AcquisitionManager {
                             ));
                         } else {
                             self.autotag_download(&asset);
+                            // Use the same automatic-work/restore gate, hash/version reuse and
+                            // pending-job deduplication as startup and chapter downloads.
+                            if let Ok(analysis) = self.inner.analysis.lock() {
+                                if let Some(analysis) = analysis.as_ref() {
+                                    let _ = analysis.queue(Some(vec![asset.id.clone()]), false);
+                                }
+                            }
                             if let Some(publication_id) =
                                 asset.track.provenance["publicationJobId"].as_str()
                             {
@@ -17175,6 +17255,204 @@ echo "$result"
     }
 
     #[tokio::test]
+    async fn cached_access_preserves_redirected_transport_and_fresh_recording_metadata() {
+        let directory = tempfile::tempdir().unwrap();
+        let store =
+            Arc::new(Store::open(&directory.path().join("redirect-access.sqlite")).unwrap());
+        let connections = Arc::new(ConnectionManager::new(store.clone()));
+        let manager = AcquisitionManager::new_for_playback_test(store, connections);
+        let candidate = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:abcdefghijk".into(),
+            url: "https://www.youtube.com/watch?v=abcdefghijk".into(),
+            ..Candidate::default()
+        };
+        let fresh = PreviewAudio {
+            provider_session: None,
+            url: "https://r1.googlevideo.com/videoplayback?expire=9999999999".into(),
+            mime_type: "audio/mp4".into(),
+            codec: Some("aac".into()),
+            bitrate_kbps: None,
+            duration_seconds: Some(120.),
+            selected_format_id: Some("140".into()),
+            selected_format_has_video: false,
+            source_metadata: Some(serde_json::json!({"artist":"Fresh credit"})),
+            resolved_title: Some("Fresh title".into()),
+            resolved_provider_id: Some("abcdefghijk".into()),
+            chapters: Some(vec![]),
+            expected_content_length: Some(12345),
+            headers: vec![],
+        };
+        let validated = PreviewAudio {
+            url: "https://r2.googlevideo.com/videoplayback?expire=9999999999".into(),
+            resolved_title: Some("Old cached title".into()),
+            source_metadata: None,
+            ..fresh.clone()
+        };
+        let expected_url = validated.url.clone();
+        manager
+            .inner
+            .playback_access_cache
+            .get_or_resolve(playback_access_cache_key(&candidate, &fresh), || async {
+                Ok(validated)
+            })
+            .await
+            .unwrap();
+        let (_sender, cancel) = watch::channel(false);
+        let result = manager
+            .validate_playback_audio_traced(
+                &candidate,
+                fresh.clone(),
+                cancel,
+                crate::playback_sources::SourceTrace::new(None, None, None),
+                crate::playback_sources::PlaybackDeadline::after(Duration::from_secs(2)),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.url, expected_url);
+        assert_eq!(result.resolved_title, fresh.resolved_title);
+        assert_eq!(result.source_metadata, fresh.source_metadata);
+        assert_eq!(result.duration_seconds, fresh.duration_seconds);
+    }
+
+    #[tokio::test]
+    async fn preview_access_rechecks_different_cdn_destinations_without_relaxing_ranges() {
+        use axum::{
+            http::{HeaderMap, StatusCode},
+            routing::get,
+            Router,
+        };
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        const LENGTH: u64 = 2 * 1024 * 1024;
+        for mode in [
+            "valid",
+            "relocated_again",
+            "different_total",
+            "denied",
+            "short_body",
+            "same_destination",
+            "cancelled",
+        ] {
+            let app = Router::new()
+                .route(
+                    "/chosen",
+                    get(move |headers: HeaderMap| async move {
+                        let is_tail = headers.get("range").unwrap() != "bytes=0-1023";
+                        let (start, end) = if is_tail {
+                            (LENGTH - 1024, LENGTH - 1)
+                        } else {
+                            (0, 1023)
+                        };
+                        let total = LENGTH + u64::from(is_tail && mode == "different_total");
+                        let status = if is_tail && mode == "denied" {
+                            StatusCode::FORBIDDEN
+                        } else {
+                            StatusCode::PARTIAL_CONTENT
+                        };
+                        (
+                            status,
+                            [
+                                ("content-range", format!("bytes {start}-{end}/{total}")),
+                                ("content-type", "audio/mp4".into()),
+                            ],
+                            vec![
+                                0u8;
+                                if is_tail && mode == "short_body" {
+                                    512
+                                } else {
+                                    1024
+                                }
+                            ],
+                        )
+                    }),
+                )
+                .route(
+                    "/alternate",
+                    get(|| async {
+                        (
+                            StatusCode::PARTIAL_CONTENT,
+                            [
+                                (
+                                    "content-range",
+                                    format!("bytes {}-{}/{LENGTH}", LENGTH - 1024, LENGTH - 1),
+                                ),
+                                ("content-type", "audio/mp4".into()),
+                            ],
+                            vec![0u8; 1024],
+                        )
+                    }),
+                );
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+            let client = reqwest::Client::builder()
+                .no_proxy()
+                .timeout(Duration::from_secs(3))
+                .build()
+                .unwrap();
+            let chosen = url::Url::parse(&format!("http://{address}/chosen")).unwrap();
+            let first = client
+                .get(chosen.clone())
+                .header("Range", "bytes=0-1023")
+                .send()
+                .await
+                .unwrap();
+            let tail_url = if mode == "same_destination" {
+                chosen.clone()
+            } else {
+                url::Url::parse(&format!("http://{address}/alternate")).unwrap()
+            };
+            let tail = client
+                .get(tail_url)
+                .header("Range", format!("bytes={}-{}", LENGTH - 1024, LENGTH - 1))
+                .send()
+                .await
+                .unwrap();
+            let (_sender, mut cancel) = watch::channel(mode == "cancelled");
+            let count = Arc::new(AtomicUsize::new(0));
+            let seen = count.clone();
+            let expected = chosen.clone();
+            let result = validate_preview_probe_pair(
+                first,
+                tail,
+                LENGTH,
+                &mut cancel,
+                None,
+                "youtube",
+                |url| async move {
+                    assert_eq!(url, expected);
+                    seen.fetch_add(1, Ordering::SeqCst);
+                    // A separate route models another permitted CDN redirect. The
+                    // response URL may differ again; byte-range proof is decisive.
+                    let url = if mode == "relocated_again" {
+                        url.join("/alternate").unwrap()
+                    } else {
+                        url
+                    };
+                    let response = client
+                        .get(url)
+                        .header("Range", format!("bytes={}-{}", LENGTH - 1024, LENGTH - 1))
+                        .send()
+                        .await
+                        .map_err(|_| "fixture request failed".to_owned())?;
+                    Ok(response)
+                },
+            )
+            .await;
+            if matches!(mode, "valid" | "same_destination" | "relocated_again") {
+                assert_eq!(result.unwrap(), chosen);
+            } else {
+                assert!(result.is_err(), "mode {mode} accepted invalid access");
+            }
+            assert_eq!(
+                count.load(Ordering::SeqCst),
+                usize::from(!matches!(mode, "same_destination" | "cancelled"))
+            );
+            server.abort();
+        }
+    }
+
+    #[tokio::test]
     async fn preview_access_checks_known_length_start_and_tail_ranges() {
         use std::io::{Read, Write};
         const TOTAL_BYTES: u64 = 2 * 1024 * 1024;
@@ -18305,6 +18583,45 @@ echo "$result"
             .await
             .unwrap();
         assert_eq!(next.url, "https://cdn.example/fresh");
+    }
+
+    #[tokio::test]
+    async fn already_expired_signed_stream_is_never_reused_on_later_playback() {
+        let cache = PreviewAudioCache::default();
+        let audio = |url: &str| PreviewAudio {
+            provider_session: None,
+            url: url.into(),
+            mime_type: "audio/mp4".into(),
+            codec: None,
+            bitrate_kbps: None,
+            duration_seconds: Some(100.),
+            selected_format_id: None,
+            selected_format_has_video: false,
+            source_metadata: None,
+            resolved_title: None,
+            resolved_provider_id: None,
+            chapters: None,
+            expected_content_length: None,
+            headers: vec![],
+        };
+        let expired = format!(
+            "https://cdn.example/audio?expire={}",
+            Utc::now().timestamp().saturating_sub(60)
+        );
+        let first = cache
+            .get_or_resolve("candidate".into(), || async { Ok(audio(&expired)) })
+            .await
+            .unwrap();
+        assert_eq!(first.url, expired);
+        assert_eq!(preview_audio_cache_ttl(&first.url), Duration::ZERO);
+
+        let second = cache
+            .get_or_resolve("candidate".into(), || async {
+                Ok(audio("https://cdn.example/audio?expire=4102444800"))
+            })
+            .await
+            .unwrap();
+        assert_eq!(second.url, "https://cdn.example/audio?expire=4102444800");
     }
 
     #[tokio::test]

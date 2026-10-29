@@ -177,6 +177,12 @@ impl PlaybackDeadline {
 /// probes, retries, and provider fallbacks. Per-operation timeouts alone can add
 /// up to minutes when several providers fail in sequence.
 pub const PLAYBACK_RESOLUTION_DEADLINE: Duration = Duration::from_secs(20);
+/// Separate bounded idle lead time for stable next-track source discovery.
+/// Stream URLs and decoders are still prepared close to the queue handoff.
+pub(crate) const NEXT_SOURCE_DISCOVERY_BUDGET: Duration = Duration::from_secs(45);
+/// Leave a small readiness window for output setup before the queue handoff.
+/// A fallback that is already ready can be chosen immediately inside this window.
+const PREPARATION_HANDOFF_RESERVE: Duration = Duration::from_secs(2);
 const PLAYBACK_DEADLINE_MESSAGE: &str =
     "Audio lookup exceeded the playback startup deadline; try again or choose a source";
 
@@ -210,6 +216,7 @@ pub(crate) struct SourceTrace {
     native_operation_id: Option<String>,
     native_seek_operation_id: Option<String>,
     webview_generation: Option<u64>,
+    preparation_handoff: Option<tokio::time::Instant>,
     shared_lookup_id: Option<uuid::Uuid>,
     event_provider: Option<&'static str>,
     extraction_attempts: std::sync::Arc<std::sync::atomic::AtomicUsize>,
@@ -245,6 +252,7 @@ impl SourceTrace {
             native_operation_id: safe_id(native_operation_id),
             native_seek_operation_id: safe_id(native_seek_operation_id),
             webview_generation,
+            preparation_handoff: None,
             shared_lookup_id: None,
             event_provider: None,
             extraction_attempts: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
@@ -255,6 +263,19 @@ impl SourceTrace {
             #[cfg(test)]
             test_sink: None,
         }
+    }
+    pub(crate) fn with_preparation_handoff(mut self, handoff: tokio::time::Instant) -> Self {
+        self.preparation_handoff = Some(handoff);
+        self
+    }
+    fn fallback_grace(&self, settings: &Settings) -> Duration {
+        self.preparation_handoff
+            .map(|handoff| {
+                handoff
+                    .saturating_duration_since(tokio::time::Instant::now())
+                    .saturating_sub(PREPARATION_HANDOFF_RESERVE)
+            })
+            .unwrap_or_else(|| Duration::from_millis(settings.streaming_fallback_delay_ms.into()))
     }
     pub(crate) fn with_shared_lookup(mut self, id: uuid::Uuid) -> Self {
         self.shared_lookup_id = Some(id);
@@ -736,6 +757,71 @@ pub(crate) async fn resolve_with_trace_context_excluding_until_attempt_limit(
     deadline: PlaybackDeadline,
     attempt_limit: usize,
 ) -> Result<ResolvedSource, String> {
+    resolve_with_trace_context_excluding_until_attempt_limit_with_handoff(
+        store,
+        acquisition,
+        track,
+        selected,
+        cancel,
+        native_operation_id,
+        native_seek_operation_id,
+        webview_generation,
+        failed,
+        deadline,
+        attempt_limit,
+        None,
+    )
+    .await
+}
+
+/// Resolve a queued source under the time remaining until its predicted
+/// handoff. The fallback can become ready early, but it does not displace a
+/// preferred source that becomes ready before the handoff.
+pub(crate) async fn resolve_for_preload_until(
+    store: &Store,
+    acquisition: &AcquisitionManager,
+    track: &Track,
+    cancel: watch::Receiver<bool>,
+    native_operation_id: String,
+    handoff: tokio::time::Instant,
+) -> Result<ResolvedSource, String> {
+    let deadline = PlaybackDeadline::at(handoff);
+    within_shared_deadline(
+        deadline,
+        Box::pin(
+            resolve_with_trace_context_excluding_until_attempt_limit_with_handoff(
+                store,
+                acquisition,
+                track,
+                None,
+                cancel,
+                Some(native_operation_id),
+                None,
+                None,
+                &[],
+                deadline,
+                2,
+                Some(handoff),
+            ),
+        ),
+    )
+    .await
+}
+
+async fn resolve_with_trace_context_excluding_until_attempt_limit_with_handoff(
+    store: &Store,
+    acquisition: &AcquisitionManager,
+    track: &Track,
+    selected: Option<Candidate>,
+    cancel: watch::Receiver<bool>,
+    native_operation_id: Option<String>,
+    native_seek_operation_id: Option<String>,
+    webview_generation: Option<u64>,
+    failed: &[FailedPlaybackCandidate],
+    deadline: PlaybackDeadline,
+    attempt_limit: usize,
+    preparation_handoff: Option<tokio::time::Instant>,
+) -> Result<ResolvedSource, String> {
     if (native_operation_id
         .as_deref()
         .is_some_and(|id| !id.starts_with("preparation:")))
@@ -747,11 +833,14 @@ pub(crate) async fn resolve_with_trace_context_excluding_until_attempt_limit(
         return Err("Playback candidate attempt limit must be one or two".into());
     }
     validate_failed_candidates(failed)?;
-    let trace = SourceTrace::new(
+    let mut trace = SourceTrace::new(
         native_operation_id,
         native_seek_operation_id,
         webview_generation,
     );
+    if let Some(handoff) = preparation_handoff {
+        trace = trace.with_preparation_handoff(handoff);
+    }
     let completion = ResolutionTraceGuard::begin(
         trace.clone(),
         &track.provider,
@@ -1744,13 +1833,14 @@ async fn resolve_inner_prepared_ordinary(
     let mut fallback = preferred.clone();
     fallback.preferred_streaming_source = fallbacks[0].clone();
     let (stop, child) = watch::channel(false);
+    let fallback_grace = trace.fallback_grace(&settings);
     let result = tokio::select! {
         biased;
         _ = wait_for_cancellation(cancel.clone()) => Err("Cancelled".into()),
         result = prefer_with_grace(
             Box::pin(resolve_serial(store, acquisition, track, None, child.clone(), preferred, trace, failed, deadline, attempt_limit, alias_pass)),
             Box::pin(resolve_serial(store, acquisition, track, None, child, fallback, trace, failed, deadline, attempt_limit, alias_pass)),
-            Duration::from_millis(settings.streaming_fallback_delay_ms.into()),
+            fallback_grace,
         ) => result,
     };
     stop.send_replace(true);
@@ -1786,15 +1876,88 @@ pub(crate) fn source_resolution_is_pinned(
     settings: &Settings,
     local_path_pins: bool,
 ) -> bool {
+    let catalog_selection = is_catalog_selection(track);
+    let playback_mode = track.provenance["playbackMode"].as_str();
+    if playback_mode == Some("lookup")
+        && matches!(track.provider.as_str(), "youtube" | "soundcloud")
+    {
+        return selected
+            || track.playback_range.is_some()
+            || (local_path_pins && track.local_path.is_some())
+            || track.provider == "radio"
+            || track.provenance["userSelectedSource"].as_bool() == Some(true)
+            || track.provenance["explicitSourceLock"].as_bool() == Some(true)
+            || track.provenance["sourceKind"].as_str() == Some("youtubeRadio");
+    }
     selected
         || (local_path_pins && track.local_path.is_some())
         || track.provider == "radio"
         || track.playback_range.is_some()
         || (matches!(track.provider.as_str(), "youtube" | "soundcloud")
-            && track.provenance["playbackMode"].as_str() != Some("lookup"))
+            && playback_mode != Some("lookup"))
+        || playback_mode == Some("source")
+        || track.provenance["userSelectedSource"].as_bool() == Some(true)
+        || track.provenance["explicitSourceLock"].as_bool() == Some(true)
+        || matches!(
+            track.provenance["sourceKind"].as_str(),
+            Some("youtubeRadio" | "upload" | "uploaded" | "localUpload")
+        )
         || (!overrides_import_url(track, settings)
-            && (linked_candidate(track).is_some()
-                || track.provenance["sourceKind"].as_str() == Some("audioSearch")))
+            && ((linked_candidate(track).is_some() && !catalog_source_replaceable(track))
+                || (track.provenance["sourceKind"].as_str() == Some("audioSearch")
+                    && (!catalog_selection || embedded_video_candidate(track)))))
+}
+
+fn is_catalog_selection(track: &Track) -> bool {
+    const CATALOG_PROVIDERS: &[&str] = &[
+        "catalog",
+        "spotify",
+        "monochrome",
+        "musicbrainz",
+        "discogs",
+        "beatport",
+        "traxsource",
+    ];
+    let catalog_provider = track.provenance["catalog"]["provider"]
+        .as_str()
+        .or_else(|| track.provenance["catalogProvider"].as_str());
+    CATALOG_PROVIDERS.contains(&track.provider.as_str())
+        || catalog_provider.is_some_and(|provider| CATALOG_PROVIDERS.contains(&provider))
+}
+
+fn embedded_video_candidate(track: &Track) -> bool {
+    matches!(
+        track.provenance["audioCandidate"]["provider"].as_str(),
+        Some("youtube" | "soundcloud")
+    )
+}
+
+fn catalog_source_replaceable(track: &Track) -> bool {
+    is_catalog_selection(track)
+        && track.playback_range.is_none()
+        && track.provider != "radio"
+        && (!matches!(track.provider.as_str(), "youtube" | "soundcloud")
+            || track.provenance["playbackMode"].as_str() == Some("lookup"))
+        && !matches!(
+            track.provenance["sourceKind"].as_str(),
+            Some("upload" | "uploaded" | "localUpload")
+        )
+        && track.provenance["playbackMode"].as_str() != Some("source")
+        && track.provenance["userSelectedSource"].as_bool() != Some(true)
+        && track.provenance["explicitSourceLock"].as_bool() != Some(true)
+        && track.provenance["sourceKind"].as_str() != Some("youtubeRadio")
+        && !embedded_video_candidate(track)
+}
+
+fn linked_candidate_for_resolution(
+    track: &Track,
+    failed: &[FailedPlaybackCandidate],
+) -> Option<Candidate> {
+    let candidate = linked_candidate(track)?;
+    if catalog_source_replaceable(track) && candidate_failed(&candidate, failed) {
+        return None;
+    }
+    Some(candidate)
 }
 
 // Poll both attempts immediately; preserve preferred-source priority until the grace expires.
@@ -2527,15 +2690,9 @@ async fn resolve_serial(
     let linked = if overrides_import_url(track, &settings) && selected.is_none() {
         None
     } else {
-        linked_candidate(track)
+        linked_candidate_for_resolution(track, failed)
     };
-    let pinned = selected.is_some()
-        || track.playback_range.is_some()
-        || (matches!(track.provider.as_str(), "youtube" | "soundcloud")
-            && track.provenance["playbackMode"].as_str() != Some("lookup"))
-        || (track.provenance["sourceKind"].as_str() == Some("audioSearch")
-            && !overrides_import_url(track, &settings))
-        || linked.is_some();
+    let pinned = source_resolution_is_pinned(track, selected.is_some(), &settings, true);
     let cache_started = Instant::now();
     let mut verified_artist_aliases = if pinned {
         crate::artist_credit_aliases::VerifiedPlaybackArtistAliases::default()
@@ -3478,6 +3635,7 @@ async fn resolve_serial(
                     );
                     let identity_ok = proof.is_some();
                     trace.event("full_identity_check", &provider, json!({"ok":identity_ok,
+                        "proofKind":proof.map(VerifiedRecordingProof::diagnostic_label).unwrap_or("none"),
                         "sourcePageUrl":candidate.url,"sourceFingerprint":source_diagnostic_fingerprint(&candidate),
                         "trackFingerprint":recording_identity_fingerprint(track),
                         "providerIdMatches":audio.resolved_provider_id.as_deref().is_some_and(|id|candidate.id.split_once(':').map(|(_,value)|value)==Some(id)),
@@ -4153,7 +4311,9 @@ fn evaluate_candidate_gate_with_proofs(
 /// matching allows 2s, provisional matching 7s, and Monochrome has an exact
 /// catalog-title exception when requested duration is absent.
 const MAX_CANDIDATE_GATE_ROWS: usize = 200;
-const MAX_CANDIDATE_GATE_ROWS_PER_EVENT: usize = 12;
+// Include durations and a public locator without exceeding the event byte cap,
+// even for the longest accepted SoundCloud page path.
+const MAX_CANDIDATE_GATE_ROWS_PER_EVENT: usize = 6;
 
 fn diagnostic_requested_version(track: &Track) -> String {
     let parsed = crate::recording_identity::parse_title(&track.title);
@@ -4297,6 +4457,8 @@ impl CandidateGateEvidence {
             let mut row = json!({
                 "ordinal": ordinal,
                 "providerClass": provider_class,
+                "catalogDurationSeconds": track.duration_seconds,
+                "candidateDurationSeconds": candidate.duration_seconds,
                 "confidenceClass": confidence_class,
                 "permissionClass": permission_class,
                 "gate": path.label(),
@@ -4316,6 +4478,11 @@ impl CandidateGateEvidence {
                 "descriptiveVersionTextPresentOrNotRequired": version_matches,
                 "versionConflictFlag": version_conflict_flag,
             });
+            if let Some(source_page_url) =
+                crate::playback_diagnostics::public_source_page(&candidate.url)
+            {
+                row["sourcePageUrl"] = json!(source_page_url);
+            }
             if let Some(shared) = shared_diagnostic {
                 row["sharedAction"] = json!(shared.action);
                 row["sharedRelationship"] = json!(shared.relationship);
@@ -4560,6 +4727,17 @@ enum RecordingProofKind {
     ExplicitSource,
 }
 
+impl RecordingProofKind {
+    fn diagnostic_label(self) -> &'static str {
+        match self {
+            Self::Recording => "recording",
+            Self::VerifiedExtractor => "verified_extractor",
+            Self::YoutubeMusicCatalog => "youtube_music_catalog",
+            Self::ExplicitSource => "explicit_source",
+        }
+    }
+}
+
 /// Produced only by fresh resolved-identity verification. V2 proofs retain a
 /// few fresh YouTube source facts so a direct resolver can verify it is still
 /// serving the exact source accepted by the existing identity gate.
@@ -4602,6 +4780,10 @@ struct EarlyCandidateAttempt {
 }
 
 impl VerifiedRecordingProof {
+    fn diagnostic_label(self) -> &'static str {
+        self.kind.diagnostic_label()
+    }
+
     fn persisted(
         self,
         candidate: &Candidate,
@@ -7754,7 +7936,7 @@ mod tests {
         let candidate = Candidate {
             id: "youtube:private-fixture-id".into(),
             provider: "youtube".into(),
-            url: "https://www.youtube.com/watch?v=private-fixture-id".into(),
+            url: "https://www.youtube.com/watch?v=abcdefghijk&token=private-fixture-token".into(),
             title: "Kylie Minogue - Can't Get You out of My Head (Radio Edit)".into(),
             duration_seconds: Some(359.0),
             source_metadata: Some(json!({
@@ -7776,6 +7958,12 @@ mod tests {
         evidence.observe_with_proofs(&track, &[], &[], &candidate, gate.path, Some(&shared));
 
         let row = &evidence.candidate_rows[0];
+        assert_eq!(row["catalogDurationSeconds"], 359.0);
+        assert_eq!(row["candidateDurationSeconds"], 359.0);
+        assert_eq!(
+            row["sourcePageUrl"],
+            "https://www.youtube.com/watch?v=abcdefghijk"
+        );
         assert_eq!(row["requestedVersionPresent"], true);
         assert_eq!(row["descriptiveVersionTextPresentOrNotRequired"], false);
         assert_eq!(row["sharedAction"], "reject");
@@ -7814,8 +8002,9 @@ mod tests {
 
         let serialized = serde_json::to_string(&evidence.candidate_rows).unwrap();
         assert!(!serialized.contains("private-fixture-id"));
+        assert!(!serialized.contains("private-fixture-token"));
         assert!(!serialized.contains("Can't Get You out of My Head"));
-        assert!(!serialized.contains("youtube.com"));
+        assert!(serialized.contains("https://www.youtube.com/watch?v=abcdefghijk"));
     }
 
     #[test]
@@ -7930,7 +8119,12 @@ mod tests {
         let mut evidence = CandidateGateEvidence::default();
         for index in 0..(MAX_CANDIDATE_GATE_ROWS + 5) {
             let candidate = Candidate {
-                provider: "youtube".into(),
+                provider: "soundcloud".into(),
+                url: format!(
+                    "https://soundcloud.com/{}/{}",
+                    "a".repeat(200),
+                    "b".repeat(200)
+                ),
                 confidence: if index == 0 { "high" } else { "low" }.into(),
                 permission: "unknown".into(),
                 title: if index == 0 {
@@ -9189,6 +9383,101 @@ mod tests {
         track.provider = "import".into();
         settings.override_playlist_track_urls = true;
         assert!(!overrides_import_url(&track, &settings));
+    }
+
+    #[test]
+    fn monochrome_catalog_selection_can_fall_back_after_its_linked_source_fails() {
+        let settings = Settings::default();
+        let track = Track {
+            id: "monochrome:12345678901234567".into(),
+            provider: "monochrome".into(),
+            provider_id: "12345678901234567".into(),
+            source_url: "https://tracks.monochrome.st/track/12345678901234567".into(),
+            artist: "Artist".into(),
+            title: "Song".into(),
+            provenance: json!({"catalog":{"provider":"monochrome","providerId":"12345678901234567"},"sourceKind":"audioSearch","audioCandidate":{"provider":"monochrome","id":"monochrome:12345678901234567","url":"https://tracks.monochrome.st/track/12345678901234567"}}),
+            ..Track::default()
+        };
+        assert!(!source_resolution_is_pinned(&track, false, &settings, true));
+        let candidate =
+            linked_candidate_for_resolution(&track, &[]).expect("catalog link candidate");
+        assert_eq!(candidate.provider, "monochrome");
+        assert_eq!(
+            crate::source_fallback::provider_order("youtube", true, &["soundcloud".into()], false,),
+            vec!["soundcloud".to_owned()]
+        );
+        assert!(linked_candidate_for_resolution(
+            &track,
+            &[FailedPlaybackCandidate {
+                provider: candidate.provider,
+                id: candidate.id,
+            }]
+        )
+        .is_none());
+
+        let explicit_youtube = Track {
+            provenance: json!({"catalog":{"provider":"monochrome"},"sourceKind":"audioSearch","audioCandidate":{"provider":"youtube","id":"youtube:exact-video"}}),
+            ..track.clone()
+        };
+        assert!(source_resolution_is_pinned(
+            &explicit_youtube,
+            false,
+            &settings,
+            true
+        ));
+        let source_mode = Track {
+            provider: "youtube".into(),
+            provenance: json!({"playbackMode":"source"}),
+            ..Track::default()
+        };
+        assert!(source_resolution_is_pinned(
+            &source_mode,
+            false,
+            &settings,
+            true
+        ));
+        let lookup_mode = Track {
+            provider: "youtube".into(),
+            provenance: json!({"playbackMode":"lookup","sourceKind":"audioSearch"}),
+            ..Track::default()
+        };
+        assert!(!source_resolution_is_pinned(
+            &lookup_mode,
+            false,
+            &settings,
+            true
+        ));
+
+        let explicit = Track {
+            provider: "import".into(),
+            provenance: json!({"sourceKind":"audioSearch"}),
+            ..Track::default()
+        };
+        assert!(source_resolution_is_pinned(
+            &explicit, false, &settings, true
+        ));
+        let chapter = Track {
+            playback_range: Some(crate::models::PlaybackRange {
+                parent_track_id: track.id.clone(),
+                chapter_id: "chapter".into(),
+                source_url: track.source_url.clone(),
+                start_time: 10.0,
+                end_time: 20.0,
+                parent_title: "Set".into(),
+                parent_duration_seconds: Some(60.0),
+            }),
+            ..track
+        };
+        assert!(source_resolution_is_pinned(
+            &chapter, false, &settings, true
+        ));
+        assert!(!catalog_source_replaceable(&chapter));
+        let catalog_video = Track {
+            provider: "youtube".into(),
+            provenance: json!({"catalogProvider":"spotify"}),
+            ..Track::default()
+        };
+        assert!(!catalog_source_replaceable(&catalog_video));
     }
 
     #[test]
@@ -10846,6 +11135,30 @@ mod tests {
 #[cfg(test)]
 mod scheduling_tests {
     use super::*;
+    #[test]
+    fn playback_uses_short_fallback_grace_but_preload_uses_handoff_budget() {
+        let settings = Settings::default();
+        let ordinary = SourceTrace::new(None, None, None);
+        assert_eq!(
+            ordinary.fallback_grace(&settings),
+            Duration::from_millis(1500)
+        );
+
+        let handoff = tokio::time::Instant::now() + Duration::from_secs(45);
+        let prepared = SourceTrace::new(Some("preparation:test".into()), None, None)
+            .with_preparation_handoff(handoff);
+        let grace = prepared.fallback_grace(&settings);
+        assert!(grace <= Duration::from_secs(43));
+
+        let short_handoff = tokio::time::Instant::now() + Duration::from_secs(1);
+        let late_preparation = SourceTrace::new(Some("preparation:late".into()), None, None)
+            .with_preparation_handoff(short_handoff);
+        assert_eq!(late_preparation.fallback_grace(&settings), Duration::ZERO);
+
+        let expired = SourceTrace::new(Some("preparation:expired".into()), None, None)
+            .with_preparation_handoff(tokio::time::Instant::now());
+        assert_eq!(expired.fallback_grace(&settings), Duration::ZERO);
+    }
     async fn ready(value: &str, delay: u64) -> Result<String, String> {
         tokio::time::sleep(Duration::from_millis(delay)).await;
         Ok(value.into())
@@ -10891,6 +11204,19 @@ mod scheduling_tests {
             .await
             .unwrap(),
             "preferred"
+        );
+    }
+    #[tokio::test]
+    async fn ready_fallback_is_selected_when_preferred_arrives_after_grace() {
+        assert_eq!(
+            prefer_with_grace(
+                Box::pin(ready("preferred", 40)),
+                Box::pin(ready("fallback", 0)),
+                Duration::from_millis(5)
+            )
+            .await
+            .unwrap(),
+            "fallback"
         );
     }
     #[tokio::test]

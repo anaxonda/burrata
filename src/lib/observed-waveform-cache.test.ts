@@ -70,6 +70,23 @@ describe("ObservedWaveformCache", () => {
     expect(restarted.restore(wrongSource!)).toBeNull();
   });
 
+  it("imports and exports a database record only for its exact durable key", async () => {
+    const binding1 = await prepareObservedWaveformBinding(binding());
+    const writer = new ObservedWaveformCache(new MemoryStorage());
+    writer.record(binding1!, partial(binding1, [{ min: -0.2, max: 0.2 }, null, null, null]));
+    const row = writer.exportPersistedRecord(binding1!);
+    const binding2 = await prepareObservedWaveformBinding(binding({ generation: 2 }));
+    const reader = new ObservedWaveformCache(new MemoryStorage());
+    expect(reader.restorePersistedRecord(binding2!, row)?.bins[0]).toEqual({ min: -0.2, max: 0.2 });
+    const wrong = await prepareObservedWaveformBinding(binding({
+      resourceKey: "different-resource",
+      identity: { kind: "stream", provider: "youtube", sourceId: "different-recording", audioVariant: { formatId: "140", codec: "mp4a.40.2" } },
+    }));
+    expect(reader.restorePersistedRecord(wrong!, row)).toBeNull();
+    const corrupt = { ...(row as Record<string, unknown>), bins: ["bad"] };
+    expect(reader.restorePersistedRecord(binding2!, corrupt)).toBeNull();
+  });
+
   it("defers full-cache serialization until flush while samples change", async () => {
     const storage = new MemoryStorage();
     const prepared = await prepareObservedWaveformBinding(binding());
@@ -85,6 +102,21 @@ describe("ObservedWaveformCache", () => {
     } finally { serialize.mockRestore(); }
   });
 
+  it("merges a delayed database restore with observations already recorded in the session", async () => {
+    const storage = new MemoryStorage();
+    const prepared = (await prepareObservedWaveformBinding(binding()))!;
+    const old = new ObservedWaveformCache(new MemoryStorage());
+    old.record(prepared, partial(prepared,[{min:-0.4,max:0.5},null,null,null]));
+    const persisted = old.exportPersistedRecord(prepared);
+    const cache = new ObservedWaveformCache(storage);
+    cache.record(prepared,partial(prepared,[null,{min:-0.2,max:0.3},null,null]),{flushNow:true});
+    cache.restorePersistedRecord(prepared,persisted);
+    cache.flush();
+    expect(cache.restore(prepared)?.bins.slice(0,2)).toEqual([{min:-0.4,max:0.5},{min:-0.2,max:0.3}]);
+    const stored=JSON.parse(storage.value!);
+    expect(stored.records[0].bins.slice(0,2)).toEqual([[-0.4,0.5],[-0.2,0.3]]);
+  });
+
   it("does not rewrite unchanged paused coverage and retries a failed flush", async () => {
     const storage = new MemoryStorage();
     const prepared = await prepareObservedWaveformBinding(binding());
@@ -93,7 +125,10 @@ describe("ObservedWaveformCache", () => {
     storage.failWrites = 1;
     cache.record(prepared!, snapshot, { flushNow: true });
     expect(storage.setCalls).toBe(1);
+    const version = cache.persistedVersion(prepared!);
+    expect(version).not.toBeNull();
     cache.record(prepared!, snapshot, { flushNow: true });
+    expect(cache.persistedVersion(prepared!)).toBe(version);
     expect(storage.setCalls).toBe(2);
     for (let i = 0; i < 10; i++) cache.record(prepared!, snapshot, { flushNow: true });
     expect(storage.setCalls).toBe(2);
@@ -101,23 +136,23 @@ describe("ObservedWaveformCache", () => {
     expect(storage.setCalls).toBe(3);
   });
 
-  it("keeps Monochrome observations session-only even when encoding metadata exists", async () => {
+  it("persists stable recording identities across encoding changes, including Monochrome", async () => {
     const input = binding({ identity: { kind: "stream", provider: "monochrome", sourceId: "catalog-a",
       audioVariant: { formatId: "lossless", codec: "flac", mimeType: "audio/flac", expectedContentLength: 2048 } } });
     const prepared = await prepareObservedWaveformBinding(input);
-    expect(prepared?.persistenceKey).toBeNull();
+    expect(prepared?.persistenceKey).toMatch(/^[a-f0-9]{64}$/);
     const storage = new MemoryStorage();
     const cache = new ObservedWaveformCache(storage);
     cache.record(prepared!, partial(prepared, [{ min: -0.1, max: 0.2 }, null, null, null]), { flushNow: true });
     expect(cache.restore(prepared!)).not.toBeNull();
     const changedEncoding = await prepareObservedWaveformBinding({ ...input, identity: { kind: "stream", provider: "monochrome", sourceId: "catalog-a",
       audioVariant: { formatId: "lossy", codec: "aac", mimeType: "audio/mp4", expectedContentLength: 2048 } } });
-    expect(cache.restore(changedEncoding!)).toBeNull();
-    expect(cache.restore((await prepareObservedWaveformBinding({ ...input, generation: 2 }))!)).toBeNull();
-    expect(storage.setCalls).toBe(0);
+    expect(cache.restore(changedEncoding!)?.bins[0]).toEqual({ min: -0.1, max: 0.2 });
+    expect(cache.restore((await prepareObservedWaveformBinding({ ...input, generation: 2 }))!)?.bins[0]).toEqual({ min: -0.1, max: 0.2 });
+    expect(storage.setCalls).toBeGreaterThan(0);
   });
 
-  it("rejects variant, duration, range, and resource changes", async () => {
+  it("survives encoding changes but rejects duration, range, and resource changes", async () => {
     const storage = new MemoryStorage();
     const original = binding();
     const prepared = await prepareObservedWaveformBinding(original);
@@ -126,7 +161,7 @@ describe("ObservedWaveformCache", () => {
     cache.flush();
 
     const changedVariant = await prepareObservedWaveformBinding(binding({
-      resourceKey: "opaque-resource-track-a-youtube-video-a-format251",
+      resourceKey: original.resourceKey,
       identity: { kind: "stream", provider: "youtube", sourceId: "video-a", audioVariant: { formatId: "251", codec: "opus", mimeType: "audio/webm", expectedContentLength: 2048, containsVideo: false } },
     }));
     const changedDuration = await prepareObservedWaveformBinding(binding({ durationSeconds: 31, resourceKey: "opaque-resource-track-a-youtube-video-a-31s" }));
@@ -134,9 +169,84 @@ describe("ObservedWaveformCache", () => {
       durationSeconds: 28, scope: "playbackRange", range: { startSeconds: 2, endSeconds: 30 }, resourceKey: "opaque-resource-track-a-youtube-video-a-2-30",
     }));
     const restarted = new ObservedWaveformCache(storage);
-    expect(restarted.restore(changedVariant!)).toBeNull();
+    expect(restarted.restore(changedVariant!)?.bins[0]).toEqual({ min: -0.2, max: 0.2 });
     expect(restarted.restore(changedDuration!)).toBeNull();
     expect(restarted.restore(changedRange!)).toBeNull();
+  });
+
+  it("reuses stream partials across track aliases and temporary resource-key changes", async () => {
+    const storage = new MemoryStorage();
+    const firstBinding = binding();
+    const first = await prepareObservedWaveformBinding(firstBinding);
+    const writer = new ObservedWaveformCache(storage);
+    writer.record(first!, partial(first, [{ min: -0.25, max: 0.35 }, null, null, null]));
+    writer.flush();
+    const alias = await prepareObservedWaveformBinding(binding({
+      resourceKey: "refreshed-session-resource-key",
+      trackId: "track-alias",
+      generation: 4,
+      identity: { kind: "stream", provider: "youtube", sourceId: "video-a", audioVariant: { formatId: "251", codec: "opus" } },
+    }));
+    expect(alias?.persistenceKey).toBe(first?.persistenceKey);
+    expect(new ObservedWaveformCache(storage).restore(alias!)?.bins[0]).toEqual({ min: -0.25, max: 0.35 });
+  });
+
+  it("reuses stream partials across duration padding but rejects material duration changes", async () => {
+    const storage = new MemoryStorage();
+    const first = await prepareObservedWaveformBinding(binding({
+      identity: { kind: "stream", provider: "youtube", sourceId: "video-a", audioVariant: null },
+    }));
+    const writer = new ObservedWaveformCache(storage);
+    writer.record(first!, partial(first, [{ min: -0.25, max: 0.35 }, null, null, null]));
+    writer.flush();
+
+    const padded = await prepareObservedWaveformBinding(binding({
+      durationSeconds: 30.000117,
+      resourceKey: "same-recording-webview-duration-padding",
+      generation: 9,
+      identity: { kind: "stream", provider: "youtube", sourceId: "video-a", audioVariant: null },
+    }));
+    expect(padded?.persistenceKey).toBe(first?.persistenceKey);
+    expect(new ObservedWaveformCache(storage).restore(padded!)?.bins[0]).toEqual({ min: -0.25, max: 0.35 });
+    const materiallyDifferent = await prepareObservedWaveformBinding(binding({
+      durationSeconds: 31,
+      resourceKey: "same-recording-material-duration-change",
+      identity: { kind: "stream", provider: "youtube", sourceId: "video-a", audioVariant: null },
+    }));
+    expect(materiallyDifferent?.persistenceKey).toBe(first?.persistenceKey);
+    expect(new ObservedWaveformCache(storage).restore(materiallyDifferent!)).toBeNull();
+  });
+
+  it("migrates exact-duration v1 stream keys and accepts padded database records", async () => {
+    const storage = new MemoryStorage();
+    const now = Date.now();
+    const oldBinding = await prepareObservedWaveformBinding(binding({
+      identity: { kind: "stream", provider: "youtube", sourceId: "video-a", audioVariant: null },
+    }));
+    const oldKey = oldBinding!.legacyPersistenceKeys![0];
+    storage.value = JSON.stringify({
+      schemaVersion: 1,
+      records: [{
+        key: oldKey, updatedAt: now, expiresAt: now + 7 * 24 * 60 * 60 * 1000,
+        durationSeconds: 30, binCount: 4, scope: "wholeTrack", range: null,
+        bins: [[-0.2, 0.2], null, null, null],
+      }],
+    });
+    const migrated = new ObservedWaveformCache(storage, () => now);
+    expect(migrated.restore(oldBinding!)?.bins[0]).toEqual({ min: -0.2, max: 0.2 });
+    expect(migrated.exportPersistedRecord(oldBinding!)).toMatchObject({ key: oldBinding!.persistenceKey });
+
+    const padded = await prepareObservedWaveformBinding(binding({
+      durationSeconds: 30.000117,
+      identity: { kind: "stream", provider: "youtube", sourceId: "video-a", audioVariant: null },
+    }));
+    const row = migrated.exportPersistedRecord(oldBinding!);
+    expect(migrated.restorePersistedRecord(padded!, row)?.bins[0]).toEqual({ min: -0.2, max: 0.2 });
+    const incompatible = await prepareObservedWaveformBinding(binding({
+      durationSeconds: 31,
+      identity: { kind: "stream", provider: "youtube", sourceId: "video-a", audioVariant: null },
+    }));
+    expect(migrated.restorePersistedRecord(incompatible!, row)).toBeNull();
   });
 
   it("retains clip-relative bins bound to absolute parent-source ranges", async () => {
@@ -155,7 +265,7 @@ describe("ObservedWaveformCache", () => {
 
   it("merges only known bins and leaves every unobserved gap null", async () => {
     const prepared = await prepareObservedWaveformBinding(binding({ identity: { kind: "stream", provider: "youtube", sourceId: "video-a", audioVariant: null } }));
-    expect(prepared?.persistenceKey).toBeNull();
+    expect(prepared?.persistenceKey).toMatch(/^[a-f0-9]{64}$/);
     const cache = new ObservedWaveformCache(null);
     cache.record(prepared!, partial(prepared, [{ min: -0.4, max: 0.4 }, null, null, { min: -0.1, max: 0.1 }]));
     const result = cache.record(prepared!, partial(prepared, [null, { min: -0.3, max: 0.3 }, null, { min: -0.2, max: 0.2 }]));
@@ -206,7 +316,7 @@ describe("ObservedWaveformCache", () => {
     }))).toBeNull();
   });
 
-  it("expires stale data and rejects a bin count outside the bounded model", async () => {
+  it("retains valid data across long pauses and rejects a bin count outside the bounded model", async () => {
     let now = 1_800_000_000_000;
     const storage = new MemoryStorage();
     const prepared = await prepareObservedWaveformBinding(binding());
@@ -214,20 +324,21 @@ describe("ObservedWaveformCache", () => {
     writer.record(prepared!, partial(prepared, [{ min: -0.1, max: 0.1 }, null, null, null]));
     writer.flush();
     now += 7 * 24 * 60 * 60 * 1000 + 1;
-    expect(new ObservedWaveformCache(storage, () => now).restore(prepared!)).toBeNull();
+    expect(new ObservedWaveformCache(storage, () => now).restore(prepared!)?.bins[0]).toEqual({ min: -0.1, max: 0.1 });
     expect(await prepareObservedWaveformBinding(binding({ binCount: 4097 }))).toBeNull();
   });
 
-  it("keeps unknown stream variants session-only and never persists them", async () => {
+  it("persists recording identity when stream variant metadata is unavailable", async () => {
     const storage = new MemoryStorage();
     const unknown = await prepareObservedWaveformBinding(binding({ identity: { kind: "stream", provider: "youtube", sourceId: "video-a", audioVariant: null } }));
-    expect(unknown?.persistenceKey).toBeNull();
+    expect(unknown?.persistenceKey).toMatch(/^[a-f0-9]{64}$/);
     const cache = new ObservedWaveformCache(storage);
     cache.record(unknown!, partial(unknown, [{ min: -0.1, max: 0.1 }, null, null, null]));
     expect(cache.restore(unknown!)?.bins[0]).toEqual({ min: -0.1, max: 0.1 });
     expect(cache.flush()).toBe(true);
-    expect(storage.setCalls).toBe(0);
-    expect(new ObservedWaveformCache(storage).restore(unknown!)).toBeNull();
+    expect(storage.setCalls).toBeGreaterThan(0);
+    const nextGeneration = await prepareObservedWaveformBinding(binding({ generation: 2, identity: { kind: "stream", provider: "youtube", sourceId: "video-a", audioVariant: null } }));
+    expect(new ObservedWaveformCache(storage).restore(nextGeneration!)?.bins[0]).toEqual({ min: -0.1, max: 0.1 });
   });
 
   it("never records a complete analyzed waveform over partial observed state", async () => {

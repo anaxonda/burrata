@@ -54,3 +54,23 @@ it("debounces keyboard scrubbing and cancels pending work on destruction", async
   vi.advanceTimersByTime(200);
   expect(onSeek).toHaveBeenCalledTimes(1);
 });
+
+it("animates between playback reports without issuing seeks", async () => {
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal("requestAnimationFrame", vi.fn((callback: FrameRequestCallback) => { frames.push(callback); return frames.length; }));
+  vi.stubGlobal("cancelAnimationFrame", vi.fn());
+  const clock = vi.spyOn(performance, "now").mockReturnValue(1000);
+  const onSeek = vi.fn();
+  try {
+    instance = mount(SeekSlider, { target: document.body, props: { position: 10, duration: 100, playing: true, disabled: false, onSeek } });
+    await tick();
+    frames.shift()!(1250);
+    await tick();
+    expect(Number(document.querySelector("input")!.value)).toBeCloseTo(10.25);
+    frames.shift()!(5000);
+    await tick();
+    expect(Number(document.querySelector("input")!.value)).toBe(11);
+    expect(frames).toHaveLength(0);
+    expect(onSeek).not.toHaveBeenCalled();
+  } finally { await unmount(instance); instance = undefined as never; clock.mockRestore(); vi.unstubAllGlobals(); }
+});

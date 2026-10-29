@@ -308,9 +308,9 @@ pub fn source_registry(connections: &ConnectionManager) -> Result<Vec<SourceCapa
         ),
         cap(
             "monochrome",
-            &["track"],
+            &["artist", "album", "track"],
             true,
-            Some("Direct catalog audio; quality is verified per track"),
+            Some("Artist and release metadata from the public Tracks API; audio availability and quality are not asserted"),
         ),
         cap(
             "soulseek",
@@ -841,6 +841,52 @@ impl DiscoveryService {
                 }
             }
             "monochrome" => {
+                if kind_ok(&request, "artist") {
+                    let artists = self
+                        .artists
+                        .search_artists_for(
+                            "monochrome",
+                            q,
+                            page,
+                            limit.min(25) as u32,
+                            &ArtistCredentials::default(),
+                        )
+                        .await?;
+                    for artist in artists.results.into_iter().take(limit) {
+                        out.results.push(DiscoveryResult {
+                            id: format!("monochrome:{}", artist.artist.id),
+                            kind: "artist".into(),
+                            source_id: source_id.into(),
+                            title: artist.name.clone(),
+                            subtitle: None,
+                            url: Some(artist.source_url.clone()),
+                            artwork_url: artist.image_url.clone(),
+                            track: None,
+                            data: serde_json::to_value(artist).unwrap_or(Value::Null),
+                        });
+                    }
+                    out.warnings.extend(artists.warnings);
+                }
+                if kind_ok(&request, "album") {
+                    let albums = self
+                        .artists
+                        .search_albums_for("monochrome", q, page, &ArtistCredentials::default())
+                        .await?;
+                    for album in albums.items.into_iter().take(limit) {
+                        out.results.push(DiscoveryResult {
+                            id: format!("monochrome:{}", album.release.id),
+                            kind: "album".into(),
+                            source_id: source_id.into(),
+                            title: album.title.clone(),
+                            subtitle: album.credits.first().map(|credit| credit.name.clone()),
+                            url: Some(album.source_url.clone()),
+                            artwork_url: album.artwork_urls.first().cloned(),
+                            track: None,
+                            data: serde_json::to_value(album).unwrap_or(Value::Null),
+                        });
+                    }
+                    out.warnings.extend(albums.warnings);
+                }
                 if kind_ok(&request, "track") {
                     let search_limit = limit.min(crate::monochrome::INTERACTIVE_SEARCH_LIMIT);
                     let (tracks, raw_count) = self.search_monochrome(q, search_limit).await?;
@@ -1702,13 +1748,13 @@ fn slskd_page(
 
 fn note_monochrome_search_coverage(page: &mut DiscoveryPage, raw_count: usize, limit: usize) {
     page.warnings.push(
-        "Monochrome returned one limited result batch; the source provides no total count or continuation cursor, so search coverage is unknown.".into(),
+        "Showing a limited set of Monochrome matches. Refine your search to narrow the results."
+            .into(),
     );
     if raw_count >= limit {
         page.complete = false;
         page.progress = Some(
-            "Monochrome result limit reached; this source has no supported continuation cursor."
-                .into(),
+            "Showing a limited set of matches. Refine your search to narrow the results.".into(),
         );
     }
 }
@@ -1783,7 +1829,7 @@ mod tests {
         assert!(short
             .warnings
             .iter()
-            .any(|warning| warning.contains("coverage is unknown")));
+            .any(|warning| warning.contains("limited set of Monochrome matches")));
 
         let mut full = DiscoveryPage {
             source_id: "monochrome".into(),
@@ -1799,7 +1845,7 @@ mod tests {
         assert!(full
             .progress
             .as_deref()
-            .is_some_and(|progress| progress.contains("no supported continuation cursor")));
+            .is_some_and(|progress| progress.contains("limited set of matches")));
     }
 
     #[tokio::test]

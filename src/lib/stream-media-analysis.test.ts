@@ -35,8 +35,8 @@ describe("verified streamed media analysis", () => {
     analysis.resource.audioVariantSha256 = digest;
     const encodedResource = { ...resource, audioVariant: variant };
     expect(await verifiedStreamWaveform(analysis, encodedResource, 17)).not.toBeNull();
-    expect(await verifiedStreamWaveform(analysis, { ...encodedResource, audioVariant: { ...variant, formatId: "18" } }, 17)).toBeNull();
-    expect(await verifiedStreamWaveform(analysis, resource, 17)).toBeNull();
+    expect(await verifiedStreamWaveform(analysis, { ...encodedResource, audioVariant: { ...variant, formatId: "18" } }, 17)).not.toBeNull();
+    expect(await verifiedStreamWaveform(analysis, resource, 17)).not.toBeNull();
     expect(streamMediaResourceKey(encodedResource)).not.toBe(streamMediaResourceKey({ ...encodedResource, audioVariant: { ...variant, expectedContentLength: 999 } }));
     expect(streamMediaResourceKey({ ...resource, sessionGeneration: 1 })).not.toBe(streamMediaResourceKey({ ...resource, sessionGeneration: 2 }));
   });

@@ -143,7 +143,7 @@ fn is_burrata_mirror(path: &Path) -> bool {
 
 /// Recognize pre-marker Burrata files by their narrowly defined generated path shape.
 /// Ordinary playlists elsewhere under Music/Playlists remain discoverable.
-fn is_legacy_burrata_playlist(path: &Path, mirror_root: &Path) -> bool {
+pub(crate) fn is_legacy_burrata_playlist(path: &Path, mirror_root: &Path) -> bool {
     let Ok(relative) = path.strip_prefix(mirror_root) else {
         return false;
     };
@@ -235,6 +235,14 @@ fn scan_directory(
         if file_type.is_dir() {
             scan_directory(root, &path, depth + 1, files)?;
         } else if file_type.is_file() && is_playlist(&path) {
+            // Archives are immutable generated output, never import sources.
+            // Recognize only Burrata's exact archive layout, not arbitrary folders.
+            if path.ancestors().any(|ancestor| {
+                ancestor.file_name().is_some_and(|name| name == "Playlists")
+                    && is_legacy_burrata_playlist(&path, ancestor)
+            }) {
+                continue;
+            }
             let metadata = match entry.metadata() {
                 Ok(m) => m,
                 Err(_) => continue,

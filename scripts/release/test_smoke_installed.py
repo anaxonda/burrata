@@ -339,6 +339,50 @@ class InstalledWebviewDiagnosticRetentionTests(unittest.TestCase):
         self.assertIsNone(diagnostics["first"]["media"]["currentTime"])
         self.assertIsNone(diagnostics["sampling"]["totalElapsedMs"])
 
+    def test_retention_preserves_valid_web_audio_graph_and_rpc_timing(self) -> None:
+        sample = InstalledWebviewAudioTests._sample("local:fixture", 1.25)
+        sample["media"].update({
+            "volume": 1.0, "muted": False,
+            "webAudioGainGraph": {
+                "attached": True, "gainLinear": 1.0, "userVolumeLinear": 0.0,
+                "contextState": "running", "contextTimeSeconds": 12.75,
+            },
+        })
+        sample["rpcTiming"] = {
+            "requestStartedAtMs": 3_100.0, "responseReceivedAtMs": 3_145.5,
+            "durationMs": 45.5,
+        }
+        diagnostics = smoke.safe_webview_audio_diagnostics({"first": sample}, "local:fixture")
+        self.assertEqual(diagnostics["first"]["media"]["webAudioGainGraph"], {
+            "attached": True, "gainLinear": 1.0, "userVolumeLinear": 0.0,
+            "contextState": "running", "contextTimeSeconds": 12.75,
+        })
+        self.assertEqual(diagnostics["first"]["media"]["volume"], 1.0)
+        self.assertIs(diagnostics["first"]["media"]["muted"], False)
+        self.assertEqual(diagnostics["first"]["rpcTiming"], sample["rpcTiming"])
+
+    def test_retention_rejects_invalid_graph_and_rpc_values(self) -> None:
+        sample = InstalledWebviewAudioTests._sample("local:fixture", 1.25)
+        sample["media"]["webAudioGainGraph"] = {
+            "attached": True, "gainLinear": float("inf"), "userVolumeLinear": 2.0,
+            "contextState": "running token=secret", "contextTimeSeconds": 1e99,
+        }
+        sample["rpcTiming"] = {
+            "requestStartedAtMs": -1.0, "responseReceivedAtMs": 3e99,
+            "durationMs": "private/path",
+        }
+        diagnostics = smoke.safe_webview_audio_diagnostics({"first": sample}, "local:fixture")
+        encoded = json.dumps(diagnostics)
+        for secret in ("secret", "private", "path"):
+            self.assertNotIn(secret, encoded)
+        self.assertEqual(diagnostics["first"]["media"]["webAudioGainGraph"], {
+            "attached": True, "gainLinear": None, "userVolumeLinear": None,
+            "contextState": None, "contextTimeSeconds": None,
+        })
+        self.assertEqual(diagnostics["first"]["rpcTiming"], {
+            "requestStartedAtMs": None, "responseReceivedAtMs": None, "durationMs": None,
+        })
+
     def test_platform_log_tail_is_bounded_and_sensitive_lines_are_fully_redacted(self) -> None:
         with tempfile.TemporaryDirectory(prefix="burrata-audio-log-") as directory:
             path = pathlib.Path(directory) / "app.log"

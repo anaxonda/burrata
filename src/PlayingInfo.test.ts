@@ -61,6 +61,14 @@ describe("PlayingInfo compact metadata", () => {
     const details = target.querySelector("dl")?.textContent;
     expect(details).toContain("Metadata sourceMusicBrainz");
     expect(details).toContain("Audio providerYouTube");
+    const audioSource = target.querySelector('dl a[href="https://youtube.com/watch?v=one"]') as HTMLAnchorElement;
+    expect(audioSource?.textContent).toContain("Selected upload");
+    expect(target.querySelectorAll("dl a")).toHaveLength(1);
+    expect(target.querySelector('.actions a[aria-label*="Selected upload"]')).toBeNull();
+    expect(target.querySelector('.actions button')?.textContent).not.toContain("youtube source");
+    audioSource.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await settle();
+    expect(callMock).toHaveBeenCalledWith("open_external_url", { url: "https://youtube.com/watch?v=one" });
     expect(details).not.toContain("Catalogcatalog");
   });
 
@@ -149,6 +157,25 @@ describe("PlayingInfo compact metadata", () => {
     expect(target.querySelector('[title*="does not change saved track metadata"]')).not.toBeNull();
   });
 
+  it("shows accepted last-measured BPM and key as compact fallbacks without live placeholders", async () => {
+    const target = render(radioTrack, {
+      liveBpmStatus: "warming",
+      lastLiveBpm: { value: 123, measuredAt: "2026-10-27T09:00:00Z", positionSeconds: 125.8 },
+      lastLiveKey: { value: "Am", measuredAt: "2026-10-27T09:00:00Z", positionSeconds: 126 },
+    });
+    await settle();
+    const rows = [...target.querySelectorAll("dl > div")];
+    const bpm = rows.find(row => row.querySelector("dt")?.textContent === "Last BPM");
+    const key = rows.find(row => row.querySelector("dt")?.textContent === "Last key");
+    expect(bpm?.textContent).toContain("123 BPM");
+    expect(bpm?.textContent).toContain("Last measured");
+    expect(bpm?.textContent).toContain("around 2:05");
+    expect(key?.textContent).toContain("Am");
+    expect(key?.textContent).toContain("Last measured");
+    expect(target.textContent).not.toContain("KeyNot analyzed");
+    expect(target.textContent).not.toContain("Listening for audio");
+  });
+
   it("shows source view and play counts, including zero, without fetching metadata", async () => {
     const candidate = {
       id: "candidate-1", provider: "youtube", url: "https://youtube.com/watch?v=one", title: "A video",
@@ -162,19 +189,26 @@ describe("PlayingInfo compact metadata", () => {
   });
 
   it("shows actual local play history, status, and only existing playlist memberships", async () => {
+    const onHistoryOccurrence = vi.fn(), onPlaylistMembership = vi.fn();
     const target = render({ ...radioTrack, localPath: "/stale/path/track.flac", localAvailability: "available", provenance: { remoteCatalog: { playCount: 12 } } }, {
       trackLibrarySummary: {
         trackId: radioTrack.id,
         playCount: 2,
         playedAt: ["2026-10-26T19:10:00Z", "2026-10-24T08:30:00Z"],
+        playedOccurrences: [
+          { sessionId: "history-session-1", playedAt: "2026-10-26T19:10:00Z" },
+          { sessionId: "history-session-2", playedAt: "2026-10-24T08:30:00Z" },
+        ],
         playlists: [{ id: "playlist-1", name: "Evening set" }],
-        inLibrary: false,
+        inLibrary: true,
         downloaded: false,
       },
+      onHistoryOccurrence, onPlaylistMembership,
     });
     await settle();
     const activity = target.querySelector('[aria-label="Library and listening activity"]')!;
     expect(activity.textContent).not.toContain("Not in library");
+    expect(activity.querySelector("dt")?.textContent).not.toBe("Library");
     expect(activity.textContent).not.toContain("Not downloaded");
     expect(activity.textContent).toContain("Plays2");
     expect(activity.textContent).toContain("In playlists");
@@ -192,6 +226,10 @@ describe("PlayingInfo compact metadata", () => {
     expect([...disclosure.querySelectorAll("time")].map(time => time.dateTime)).toEqual([
       "2026-10-26T19:10:00Z", "2026-10-24T08:30:00Z",
     ]);
+    disclosure.querySelector<HTMLButtonElement>(".history-occurrence")!.click();
+    expect(onHistoryOccurrence).toHaveBeenCalledWith("history-session-1");
+    activity.querySelector<HTMLButtonElement>(".playlist-membership-link")!.click();
+    expect(onPlaylistMembership).toHaveBeenCalledWith("playlist-1", radioTrack.id);
     const sourcePlays = [...target.querySelectorAll("dl > div")].find(row => row.querySelector("dt")?.textContent === "Source plays");
     expect(sourcePlays?.textContent).toContain("12");
   });
@@ -217,6 +255,28 @@ describe("PlayingInfo compact metadata", () => {
     expect(disclosure.querySelector("summary")?.textContent).toContain("Plays0");
     expect(disclosure.querySelector(".played-dates-note")?.textContent).toContain("No play dates are available");
     expect(activity.querySelector(".playlist-membership")).toBeNull();
+  });
+
+  it("keeps duplicate play timestamps separately navigable by stable session ID", async () => {
+    const onHistoryOccurrence = vi.fn();
+    const target = render(radioTrack, {
+      trackLibrarySummary: {
+        trackId: radioTrack.id,
+        playCount: 2,
+        playedAt: ["2026-10-26T19:10:00Z", "2026-10-26T19:10:00Z"],
+        playedOccurrences: [
+          { sessionId: "same-time-a", playedAt: "2026-10-26T19:10:00Z" },
+          { sessionId: "same-time-b", playedAt: "2026-10-26T19:10:00Z" },
+        ],
+        playlists: [], inLibrary: true, downloaded: false,
+      },
+      onHistoryOccurrence,
+    });
+    await settle();
+    const buttons = [...target.querySelectorAll<HTMLButtonElement>(".history-occurrence")];
+    expect(buttons).toHaveLength(2);
+    buttons[0].click(); buttons[1].click();
+    expect(onHistoryOccurrence.mock.calls).toEqual([["same-time-a"], ["same-time-b"]]);
   });
 
   it("discloses when the date list is limited to the most recent plays", async () => {
@@ -293,6 +353,43 @@ describe("PlayingInfo compact metadata", () => {
     expect(current?.disabled).toBe(true);
     current?.click();
     expect(onPreferredFile).not.toHaveBeenCalled();
+  });
+});
+
+describe("saved track detections in inactive track information", () => {
+  it("shows saved observations without controls for the current playback resource", async () => {
+    const onToggle = vi.fn();
+    const onMarkersToggle = vi.fn();
+    const target = render({ ...radioTrack, id: "inactive-mix", provider: "youtube", providerId: "mix-video" }, {
+      trackDetectionView: { resourceKey: "opaque", enabled: true, observations: [{
+        title: "Detected song", artist: "Detected artist", detectedAtSeconds: 42,
+        capturedStartSeconds: 35, capturedEndSeconds: 55, observedAt: "2026-10-28T00:00:00Z",
+      }] },
+      trackDetectionAvailable: false,
+      onTrackDetectionToggle: onToggle,
+      trackDetectionMarkersEnabled: true,
+      onTrackDetectionMarkersToggle: onMarkersToggle,
+    }); await settle();
+    expect(target.textContent).toContain("Detected song");
+    expect(target.querySelector('.detected-tracks input[type="checkbox"]')).toBeNull();
+    expect(target.querySelector(".detection-markers-toggle")).toBeNull();
+    expect(target.querySelector('dl a[href="https://station.example/about"]')?.textContent).toContain("Open source");
+    expect(target.querySelector('.detected-tracks .detection-time')).not.toBeNull();
+    expect(onToggle).not.toHaveBeenCalled();
+    expect(onMarkersToggle).not.toHaveBeenCalled();
+  });
+
+  it("forwards the global marker preference in active track information", async () => {
+    const onMarkersToggle = vi.fn();
+    const target = render({ ...radioTrack, provider: "youtube", providerId: "active-mix" }, {
+      trackDetectionAvailable: true,
+      trackDetectionMarkersEnabled: true,
+      onTrackDetectionMarkersToggle: onMarkersToggle,
+    }); await settle();
+    const checkbox = target.querySelector<HTMLInputElement>(".detection-markers-toggle input")!;
+    expect(checkbox.checked).toBe(true);
+    checkbox.click();
+    expect(onMarkersToggle).toHaveBeenCalledWith(false);
   });
 });
 
@@ -455,9 +552,9 @@ describe("PlayingInfo detected source points", () => {
       trackDetectionView: { resourceKey: "a".repeat(64), enabled: false,
         observations: [observation("Before excerpt", 6), observation("Inside excerpt", 106), observation("After excerpt", 306)] } });
     await settle();
-    const points = target.querySelectorAll<HTMLButtonElement>(".detected-track");
+    const points = target.querySelectorAll<HTMLButtonElement>(".detection-time");
     expect(points).toHaveLength(1);
-    expect(points[0]?.textContent).toContain("Inside excerpt");
+    expect(target.querySelector(".detection-copy")?.textContent).toContain("Inside excerpt");
     points[0]!.click();
     expect(onSeek).toHaveBeenCalledWith(106);
   });

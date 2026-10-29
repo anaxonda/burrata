@@ -21,6 +21,22 @@ function render(props: Record<string, unknown> = {}) {
 }
 
 describe("LibrarySidebar provider presets", () => {
+  it("filters radio and playlists together without unrelated sections burying matches", async () => {
+    const target = render({ collections: [{id:"bg", name:"north", trackCount:13}], radioStations: [
+      {id:"north", name:"South Radio", country:"Southland"}, {id:"bg-radio", name:"Harbor FM", country:"Northland"}
+    ] });
+    await settle();
+    const filter = target.querySelector<HTMLInputElement>('[aria-label="Filter playlists by name or owner"]')!;
+    filter.value = "north"; filter.dispatchEvent(new Event("input", {bubbles:true})); await settle();
+    expect(target.textContent).toContain("north");
+    expect(target.textContent).toContain("Harbor FM");
+    expect(target.textContent).not.toContain("South Radio");
+    filter.value = "south"; filter.dispatchEvent(new Event("input", {bubbles:true})); await settle();
+    expect(target.textContent).toContain("South Radio");
+    expect(target.textContent).not.toContain("Harbor FM");
+    expect(target.querySelector(".built-in-playlists")?.textContent).not.toContain("north");
+  });
+
   it("labels Spotify and YouTube navigation as Search playlists and keeps provider identity", async () => {
     const onSource = vi.fn();
     const target = render({ onSource }); await settle();

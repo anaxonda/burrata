@@ -47,6 +47,7 @@ function isArtistRef(value: unknown): value is ArtistRef {
   const raw = record(value);
   if (raw.provider === "musicbrainz") return typeof raw.id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw.id);
   if (raw.provider === "discogs") return typeof raw.id === "string" && /^[1-9][0-9]*$/.test(raw.id);
+  if (raw.provider === "monochrome") return typeof raw.id === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(raw.id);
   return false;
 }
 
@@ -99,7 +100,7 @@ function chooseExactArtist(page: ArtistSearchPage, name: string): ArtistRef | nu
     if (!entries) { entries = new Map(); byProvider.set(ref.provider, entries); }
     entries.set(ref.id, ref);
   }
-  for (const provider of ["musicbrainz", "discogs"] as const) {
+  for (const provider of ["musicbrainz", "discogs", "monochrome"] as const) {
     const matches = byProvider.get(provider);
     if (matches && matches.size > 1) return null;
     if (matches?.size === 1) return [...matches.values()][0]!;

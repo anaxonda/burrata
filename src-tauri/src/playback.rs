@@ -30,6 +30,9 @@ const SESSION_KEY: &str = "nativePlaybackSession.v1";
 const QUEUE_KEY: &str = "nativePlaybackQueue.v1";
 const ENGINE_KEY: &str = "playbackEngine.v1";
 const STEADY_BUFFERING_RECOVERY_DELAY: Duration = Duration::from_secs(5);
+const RECURRING_STALL_WINDOW: Duration = Duration::from_secs(90);
+const RECOVERY_HEALTHY_RESET: Duration = Duration::from_secs(60);
+const MAX_RECURRING_SOURCE_SWAPS: u8 = 2;
 const MAX_PENDING_NATIVE_SOURCES: usize = 4;
 const PENDING_NATIVE_SOURCE_TTL: Duration = Duration::from_secs(30);
 
@@ -299,6 +302,7 @@ pub struct ResolvedSourceHandoff {
 struct PendingNativeSource {
     source_generation: u64,
     request_track: Track,
+    explicit_source: bool,
     matching_level: crate::recording_match::MatchLevel,
     expires_at: Instant,
     resolved: crate::playback_sources::ResolvedSource,
@@ -643,6 +647,12 @@ struct State {
     startup_budget: Duration,
     recovery_deadline: Option<Instant>,
     recovered_audio_since: Option<(Instant, f64)>,
+    healthy_output_since: Option<(Instant, f64, u64)>,
+    recent_stall: Option<(String, String, Instant)>,
+    recurring_source_swaps: u8,
+    failed_recurring_candidates: Vec<(String, String)>,
+    replace_source_on_recovery: bool,
+    recovery_failure_generation: Option<u64>,
     failed_occurrence_ids: HashSet<String>,
     request_started: Instant,
     first_audio_ms: Option<u64>,
@@ -726,6 +736,12 @@ impl Default for State {
             startup_budget: crate::playback_sources::PLAYBACK_RESOLUTION_DEADLINE,
             recovery_deadline: None,
             recovered_audio_since: None,
+            healthy_output_since: None,
+            recent_stall: None,
+            recurring_source_swaps: 0,
+            failed_recurring_candidates: Vec::new(),
+            replace_source_on_recovery: false,
+            recovery_failure_generation: None,
             failed_occurrence_ids: HashSet::new(),
             request_started: Instant::now(),
             first_audio_ms: None,
@@ -1224,6 +1240,9 @@ fn clear_playback_failures(state: &mut State) {
     clear_current_source_failure(state);
     state.last_skipped_track_failure = None;
     state.last_recovery = None;
+    clear_native_stall_history(state);
+    state.healthy_output_since = None;
+    state.replace_source_on_recovery = false;
 }
 
 fn clear_current_source_failure(state: &mut State) {
@@ -3071,6 +3090,7 @@ impl PlaybackService {
         self: &Arc<Self>,
         source_generation: u64,
         track: &Track,
+        explicit_source: bool,
         resolved: crate::playback_sources::ResolvedSource,
     ) -> Result<String, String> {
         let candidate = resolved
@@ -3115,6 +3135,7 @@ impl PlaybackService {
             PendingNativeSource {
                 source_generation,
                 request_track: track.clone(),
+                explicit_source,
                 matching_level,
                 expires_at,
                 resolved,
@@ -3216,6 +3237,7 @@ impl PlaybackService {
             take_pending_native_source(&mut pending, &handoff.source_handle, Instant::now())
                 .ok_or("Native playback source handle expired or was already used")?;
         let candidate = source.resolved.candidate.clone();
+        let explicit_source = source.explicit_source;
         {
             let mut state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
             state.queue = handoff.tracks;
@@ -3229,7 +3251,7 @@ impl PlaybackService {
             state.repeat = handoff.repeat;
             state.shuffle = handoff.shuffle;
             state.candidate = candidate.clone();
-            state.explicit_source = true;
+            state.explicit_source = explicit_source;
             state.handoff_id = Some(handoff.handoff_id);
             state.pause_when_ready = handoff.paused;
             state.request_started = Instant::now();
@@ -3784,6 +3806,8 @@ impl PlaybackService {
                 }
                 self.change(|s| {
                     s.seek_watchdog_epoch = s.seek_watchdog_epoch.wrapping_add(1);
+                    s.recovered_audio_since = None;
+                    s.healthy_output_since = None;
                     s.status = "paused".into();
                     s.message = "Paused".into();
                 });
@@ -3818,6 +3842,12 @@ impl PlaybackService {
                     let mut seek_watchdog = None;
                     self.change(|s| {
                         self.inner.audible.send_replace(s.volume > 0.);
+                        if has_native_stall_history(s) {
+                            let now = Instant::now();
+                            s.recovery_deadline = Some(now + s.startup_budget);
+                            s.recovered_audio_since = Some((now, s.position));
+                            s.healthy_output_since = Some((now, s.position, s.seek_serial));
+                        }
                         if pending_seek.is_some() {
                             arm_resumed_seek_metrics(s, Instant::now());
                             s.seek_watchdog_epoch = s.seek_watchdog_epoch.wrapping_add(1);
@@ -3852,6 +3882,15 @@ impl PlaybackService {
                             s.recovery = 0;
                             s.recovery_deadline = None;
                             s.recovered_audio_since = None;
+                        });
+                    }
+                    if continuing {
+                        self.change(|s| {
+                            if has_native_stall_history(s) {
+                                s.recovery_deadline = Some(Instant::now() + s.startup_budget);
+                                s.recovered_audio_since = None;
+                                s.healthy_output_since = None;
+                            }
                         });
                     }
                     if pending_seek.is_some() {
@@ -3909,6 +3948,8 @@ impl PlaybackService {
                     s.seek_requested = (status != "paused").then(Instant::now);
                     s.seek_first_audio_ms = None;
                     s.seek_operation_first_audio_ms = None;
+                    s.recovered_audio_since = None;
+                    s.healthy_output_since = None;
                     self.inner.output.send(OutputCommand::Seek {
                         generation: s.generation,
                         position: position + offset,
@@ -3933,6 +3974,8 @@ impl PlaybackService {
                         s.seek_requested = (status != "paused").then(Instant::now);
                         s.seek_first_audio_ms = None;
                         s.seek_operation_first_audio_ms = None;
+                        s.recovered_audio_since = None;
+                        s.healthy_output_since = None;
                     });
                     self.start_with_pause(candidate, position, true, pause_when_ready);
                 } else if deferred_seek {
@@ -3948,6 +3991,8 @@ impl PlaybackService {
                             click_to_ipc_ms,
                             command_bytes,
                         );
+                        s.recovered_audio_since = None;
+                        s.healthy_output_since = None;
                         defer_paused_seek(s);
                     });
                 }
@@ -4224,6 +4269,9 @@ impl PlaybackService {
                 });
             if !resume {
                 s.explicit_source = candidate.is_some();
+                clear_native_stall_history(&mut s);
+                s.healthy_output_since = None;
+                s.replace_source_on_recovery = false;
             }
             s.candidate = candidate.clone();
             s.steady_http_stream = false;
@@ -4301,16 +4349,36 @@ impl PlaybackService {
                 Ok(resolved)
             } else if recovery > 0 {
                 if let Some(candidate) = candidate.as_ref() {
-                    let (operation_id, seek_operation_id) = {
-                        let state = service.inner.state.lock().unwrap();
+                    let (
+                        operation_id,
+                        seek_operation_id,
+                        replace_on_recurrence,
+                        source_swaps,
+                        failed_candidates,
+                    ) = {
+                        let mut state = service.inner.state.lock().unwrap();
                         let matches_request = state.generation == g
                             && state.track().is_some_and(|current| current.id == track.id);
                         if matches_request && state.seek_requested.is_some() {
-                            (None, state.seek_operation_id.clone())
+                            let recurrence = std::mem::take(&mut state.replace_source_on_recovery);
+                            (
+                                None,
+                                state.seek_operation_id.clone(),
+                                recurrence,
+                                state.recurring_source_swaps,
+                                state.failed_recurring_candidates.clone(),
+                            )
                         } else if matches_request {
-                            (state.operation_id.clone(), None)
+                            let recurrence = std::mem::take(&mut state.replace_source_on_recovery);
+                            (
+                                state.operation_id.clone(),
+                                None,
+                                recurrence,
+                                state.recurring_source_swaps,
+                                state.failed_recurring_candidates.clone(),
+                            )
                         } else {
-                            (None, None)
+                            (None, None, false, 0, Vec::new())
                         }
                     };
                     let strict_recording_verification =
@@ -4319,23 +4387,45 @@ impl PlaybackService {
                         tokio::time::Instant::from_std(startup_deadline),
                     );
                     let replace_source = service.inner.store.settings().is_ok_and(|settings| {
-                        recovery_can_replace_source(
+                        recovery_should_replace_source(
                             recovery,
                             !strict_recording_verification,
                             &track,
                             &settings,
+                            replace_on_recurrence,
+                            source_swaps,
                         )
                     });
                     if replace_source {
+                        if let Ok(mut state) = service.inner.state.lock() {
+                            if state.generation == g {
+                                remember_failed_recurring_candidate(&mut state, candidate);
+                                state.recurring_source_swaps = state
+                                    .recurring_source_swaps
+                                    .saturating_add(1)
+                                    .min(MAX_RECURRING_SOURCE_SWAPS);
+                            }
+                        }
+                        let mut excluded = failed_candidates;
+                        let key = (candidate.provider.clone(), candidate.id.clone());
+                        excluded.retain(|entry| entry != &key);
+                        excluded.push(key);
+                        if excluded.len() > MAX_RECURRING_SOURCE_SWAPS as usize {
+                            excluded.remove(0);
+                        }
+                        let failed_candidates = excluded
+                            .into_iter()
+                            .map(|(provider, id)| {
+                                crate::playback_sources::FailedPlaybackCandidate { provider, id }
+                            })
+                            .collect::<Vec<_>>();
                         // One refresh has failed. Spend the final recovery
                         // extraction on another verified source, excluding the
                         // failed ID, rather than repeating that ID indefinitely.
                         crate::playback_sources::resolve_with_trace_context_excluding_until_attempt_limit(
                             &service.inner.store, &service.inner.acquisition, &track, None,
                             rx.clone(), operation_id, seek_operation_id, None,
-                            &[crate::playback_sources::FailedPlaybackCandidate {
-                                provider: candidate.provider.clone(), id: candidate.id.clone(),
-                            }], deadline, 1,
+                            &failed_candidates, deadline, 1,
                         ).await
                     } else {
                         crate::playback_sources::recover_with_trace_context_until(
@@ -4712,9 +4802,10 @@ impl PlaybackService {
         });
     }
     fn recover_failure(&self, g: u64, message: &str, trigger: RecoveryTrigger) {
-        let recovery = {
+        let settings = self.inner.store.settings().ok();
+        let (recovery, locked_recurring_stall) = {
             let mut s = self.inner.state.lock().unwrap();
-            if s.generation != g {
+            if !claim_recovery_failure_generation(&mut s, g) {
                 return;
             }
             // Source resolution already tries a fresh format/URL before returning an
@@ -4722,21 +4813,49 @@ impl PlaybackService {
             // started (for example, a mid-stream disconnect), not after startup
             // resolution has exhausted its own retries.
             let can_recover = can_retry_failed_stream(&s, message);
-            if can_recover {
+            let recurring_decision =
+                if can_recover && failure_counts_as_native_transport_stall(trigger, message) {
+                    record_recurring_transport_stall(&mut s, Instant::now())
+                } else {
+                    RecurringStallDecision::NoRepeatedStall
+                };
+            let locked_recurring_stall = can_recover
+                && s.track().is_some_and(|track| {
+                    recurring_stall_requires_terminal_failure(
+                        recurring_decision,
+                        track,
+                        s.explicit_source,
+                        settings.as_ref(),
+                        s.station.is_some(),
+                        s.seek_requested.is_some(),
+                    )
+                });
+            if can_recover
+                && recurring_decision != RecurringStallDecision::Exhausted
+                && !locked_recurring_stall
+            {
                 let budget = s.startup_budget;
                 s.recovery_deadline
                     .get_or_insert_with(|| Instant::now() + budget);
                 s.recovered_audio_since = None;
+                s.healthy_output_since = None;
+                s.replace_source_on_recovery =
+                    recurring_decision == RecurringStallDecision::ReplaceSource;
                 record_recovery_facts(&mut s, trigger);
                 s.recovery += 1;
-                Some((s.candidate.clone(), s.position))
+                (Some((s.candidate.clone(), s.position)), false)
             } else {
-                None
+                (None, locked_recurring_stall)
             }
         };
         if let Some((candidate, position)) = recovery {
             self.invalidate_candidate_preview_audio(candidate.as_ref());
             self.start(candidate, position, true);
+        } else if locked_recurring_stall {
+            self.fail(
+                g,
+                "The selected source repeatedly stalled. Choose a different source.",
+            );
         } else if let Some(next) = self.failed_track_skip(g, message) {
             let failure = {
                 let state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -4804,6 +4923,8 @@ impl PlaybackService {
         }
         s.preload = None;
         s.recovered_audio_since = None;
+        s.healthy_output_since = None;
+        s.replace_source_on_recovery = false;
         // Keep stop under the ownership lock so an older failure cannot stop a
         // newer load, and failed status cannot coexist with queued audible PCM.
         let _ = self.inner.output.send(OutputCommand::Stop);
@@ -4879,6 +5000,9 @@ impl PlaybackService {
                         let position = s.position;
                         s.recovered_audio_since = Some((Instant::now(), position));
                     }
+                    if has_native_stall_history(&s) && s.healthy_output_since.is_none() {
+                        s.healthy_output_since = Some((Instant::now(), s.position, s.seek_serial));
+                    }
                     s.message = if pause_on_ready {
                         "Paused"
                     } else {
@@ -4939,6 +5063,12 @@ impl PlaybackService {
                         return;
                     }
                     s.position = (seconds - s.offset).max(0.);
+                    if s.recovery > 0 && s.recovered_audio_since.is_none() {
+                        s.recovered_audio_since = Some((Instant::now(), s.position));
+                    }
+                    if has_native_stall_history(&s) && s.healthy_output_since.is_none() {
+                        s.healthy_output_since = Some((Instant::now(), s.position, s.seek_serial));
+                    }
                     if s.recovered_audio_since.is_some_and(|(started, position)| {
                         started.elapsed() >= Duration::from_secs(5) && s.position - position >= 5.
                     }) {
@@ -4946,21 +5076,31 @@ impl PlaybackService {
                         s.recovery_deadline = None;
                         s.recovered_audio_since = None;
                     }
+                    if native_recovery_output_is_healthy(
+                        s.healthy_output_since,
+                        Instant::now(),
+                        s.position,
+                        s.seek_serial,
+                    ) {
+                        clear_native_stall_history(&mut s);
+                        s.healthy_output_since = None;
+                    }
                     s.revision += 1;
                     let save = s.last_saved.elapsed() > Duration::from_secs(10);
                     if save {
                         s.last_saved = Instant::now();
                     }
-                    (
-                        s.position,
-                        s.duration,
-                        s.revision,
-                        save,
-                        s.snapshot(self.native_enabled(), false),
-                    )
+                    (s.position, s.duration, s.revision, save, s.chapter())
                 };
-                let _=self.inner.app.emit("native-playback-position",json!({"generation":generation,"revision":revision,"position":position,"duration":duration,"buffering":false,"chapter":lite["chapter"]}));
-                self.inner.updates.send_replace(lite);
+                let _=self.inner.app.emit("native-playback-position",json!({"generation":generation,"revision":revision,"position":position,"duration":duration,"buffering":false,"chapter":lite}));
+                self.inner.updates.send_modify(|snapshot| {
+                    if snapshot["generation"].as_u64() == Some(generation) {
+                        snapshot["position"] = json!(position);
+                        snapshot["duration"] = json!(duration);
+                        snapshot["revision"] = json!(revision);
+                        snapshot["chapter"] = lite;
+                    }
+                });
                 if save {
                     self.persist();
                 }
@@ -4975,6 +5115,7 @@ impl PlaybackService {
                     return;
                 }
                 s.recovered_audio_since = None;
+                s.healthy_output_since = None;
                 let preload_deadline = adopted.then(|| s.request_started + s.startup_budget);
                 let steady_watch = steady_buffering_watch_matches(
                     &s,
@@ -5201,35 +5342,67 @@ impl PlaybackService {
                 }),
             );
             let mut updates = service.subscribe();
-            // Stable candidate discovery can be reused; expiring stream URLs
-            // and decoder preparation wait until the next occurrence is near.
+            let mut stop_discovery = None;
+            // Use the full idle lead time to warm stable provider results.
+            // This remains explicitly search/identity-only; the 45s deadline
+            // does not authorize returning an old signed URL at handoff.
             if track.local_path.is_none() {
-                if let Ok(settings) = service.inner.store.settings() {
-                    let mut providers = vec![settings.preferred_streaming_source.clone()];
-                    if settings.streaming_fallback_enabled {
-                        providers.extend(settings.streaming_fallback_sources.iter().cloned());
-                    }
-                    let mut seen = HashSet::new();
-                    providers.retain(|provider| seen.insert(provider.clone()));
-                    let discovery = warm_upcoming_playback_identity(
-                        &service.inner.acquisition,
-                        &service.inner.store,
-                        &track,
-                        &settings,
-                        &providers,
-                        cancel.clone(),
-                        crate::playback_sources::PlaybackDeadline::after(Duration::from_secs(3)),
-                        &trace,
-                    )
-                    .await;
-                    trace.event(
+                let background_service = service.clone();
+                let background_track = track.clone();
+                let background_owner_cancel = cancel.clone();
+                let background_trace = trace.clone();
+                let (discovery_stop, discovery_cancel) = watch::channel(false);
+                stop_discovery = Some(discovery_stop.clone());
+                let discovery_stop_for_owner = discovery_stop.clone();
+                tauri::async_runtime::spawn(async move {
+                    let discovery = async {
+                        let settings = background_service.inner.store.settings()?;
+                        let mut providers = vec![settings.preferred_streaming_source.clone()];
+                        if settings.streaming_fallback_enabled {
+                            providers.extend(settings.streaming_fallback_sources.iter().cloned());
+                        }
+                        let mut seen = HashSet::new();
+                        providers.retain(|provider| seen.insert(provider.clone()));
+                        warm_upcoming_playback_identity(
+                            &background_service.inner.acquisition,
+                            &background_service.inner.store,
+                            &background_track,
+                            &settings,
+                            &providers,
+                            discovery_cancel.clone(),
+                            crate::playback_sources::PlaybackDeadline::after(
+                                crate::playback_sources::NEXT_SOURCE_DISCOVERY_BUDGET,
+                            ),
+                            &background_trace,
+                        )
+                        .await
+                    };
+                    let result = tokio::select! {
+                        biased;
+                        _ = crate::playback_sources::wait_for_cancellation(background_owner_cancel) => {
+                            discovery_stop_for_owner.send_replace(true);
+                            Err("Cancelled".into())
+                        },
+                        result = discovery => result,
+                    };
+                    background_trace.event(
                         "next_preparation_discovery_end",
                         "other",
                         json!({
-                            "ok":discovery.is_ok(),"resultCount":discovery.ok(),
+                            "preparationKind":"candidate_search_only",
+                            "budgetMs":crate::playback_sources::NEXT_SOURCE_DISCOVERY_BUDGET.as_millis(),
+                            "ok":result.is_ok(),"resultCount":result.ok(),
                         }),
                     );
-                }
+                });
+                trace.event(
+                    "next_preparation_discovery_start",
+                    "other",
+                    json!({
+                        "preparationKind":"candidate_search_only",
+                        "budgetMs":crate::playback_sources::NEXT_SOURCE_DISCOVERY_BUDGET.as_millis(),
+                    }),
+                );
             }
             loop {
                 let prepare_now = {
@@ -5257,16 +5430,33 @@ impl PlaybackService {
                     },
                 }
             }
+            // Stop background identity queries before starting expiring URL
+            // resolution. The queue owner still controls the audio preload.
+            if let Some(stop) = stop_discovery.take() {
+                stop.send_replace(true);
+            }
             trace.event("next_preparation_resolve_start", "other", json!({}));
-            let mut resolved = crate::playback_sources::resolve_with_trace_context(
+            let remaining_seconds = {
+                let state = service
+                    .inner
+                    .state
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                if state.duration.is_finite() && state.duration > state.position {
+                    (state.duration - state.position).min(45.0).max(0.0)
+                } else {
+                    20.0
+                }
+            };
+            let handoff =
+                tokio::time::Instant::now() + Duration::from_secs_f64(remaining_seconds.max(0.05));
+            let mut resolved = crate::playback_sources::resolve_for_preload_until(
                 &service.inner.store,
                 &service.inner.acquisition,
                 &track,
-                None,
                 cancel.clone(),
-                Some(operation_id),
-                None,
-                None,
+                operation_id,
+                handoff,
             )
             .await;
             let resolved_ok = resolved.is_ok();
@@ -6111,15 +6301,18 @@ impl PlaybackService {
                     }
                 },
             );
-        let captured_audio_interval = capture_timing
-            .and_then(|timing| {
-                timing
-                    .start_position_seconds
-                    .map(|start| (start, timing.duration_seconds))
+        // The detection cache is keyed to the source resource, so every
+        // observation must use source-absolute time even when this queue item
+        // is an explicit range whose PCM tap clock starts at zero.
+        let range_offset = requested_track
+            .playback_range
+            .as_ref()
+            .map_or(0.0, |range| range.start_time);
+        let captured_audio_interval = capture_timing.and_then(|timing| {
+            timing.start_position_seconds.and_then(|start| {
+                source_absolute_detection_interval(start, timing.duration_seconds, range_offset)
             })
-            .filter(|(start, duration)| {
-                start.is_finite() && *start >= 0.0 && duration.is_finite() && *duration > 0.0
-            });
+        });
         if let (Some(resource), Some(metadata), Some((start, duration))) = (
             detection_resource.as_ref(),
             recognized.as_ref().map(|result| &result.metadata),
@@ -6150,6 +6343,7 @@ impl PlaybackService {
                     self.inner.store.as_ref(),
                     resource,
                     metadata,
+                    Some(&track_id),
                     start,
                     duration,
                 );
@@ -6397,6 +6591,22 @@ fn native_identification_capture_seconds(
         );
     }
     Ok(elapsed.min(MAX_CAPTURE_SECONDS))
+}
+
+fn source_absolute_detection_interval(
+    start: f64,
+    duration: f64,
+    range_offset: f64,
+) -> Option<(f64, f64)> {
+    let absolute_start = start + range_offset;
+    (start.is_finite()
+        && start >= 0.0
+        && duration.is_finite()
+        && duration > 0.0
+        && range_offset.is_finite()
+        && range_offset >= 0.0
+        && absolute_start.is_finite())
+    .then_some((absolute_start, duration))
 }
 
 fn native_radio_identification_matches(
@@ -6811,7 +7021,7 @@ fn should_skip_failed_track(message: &str) -> bool {
     crate::playback_failure::should_skip_recording(&crate::playback_failure::classify(message))
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 enum RecoveryTrigger {
     OutputFailed,
     PrematureEnded,
@@ -6869,6 +7079,116 @@ fn can_retry_failed_stream(state: &State, message: &str) -> bool {
         && !message.contains("Cancelled")
 }
 
+fn claim_recovery_failure_generation(state: &mut State, generation: u64) -> bool {
+    if state.generation != generation || state.recovery_failure_generation == Some(generation) {
+        return false;
+    }
+    // Multiple watchdog/decoder callbacks can converge on one source failure.
+    state.recovery_failure_generation = Some(generation);
+    true
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RecurringStallDecision {
+    NoRepeatedStall,
+    ReplaceSource,
+    Exhausted,
+}
+
+fn record_recurring_transport_stall(state: &mut State, now: Instant) -> RecurringStallDecision {
+    if state.station.is_some() || state.seek_requested.is_some() || state.recovery >= 2 {
+        return RecurringStallDecision::NoRepeatedStall;
+    }
+    let (Some(track), Some(candidate)) = (state.track(), state.candidate.as_ref()) else {
+        return RecurringStallDecision::NoRepeatedStall;
+    };
+    if candidate.provider.is_empty() || candidate.id.is_empty() {
+        return RecurringStallDecision::NoRepeatedStall;
+    }
+    let track_id = track.id.clone();
+    let candidate_key = format!("{}:{}", candidate.provider, candidate.id);
+    let repeated = state
+        .recent_stall
+        .as_ref()
+        .is_some_and(|(old_track, old_candidate, at)| {
+            old_track == &track_id
+                && old_candidate == &candidate_key
+                && now >= *at
+                && now.duration_since(*at) <= RECURRING_STALL_WINDOW
+        });
+    if repeated {
+        state.recent_stall = None;
+        return if state.recurring_source_swaps < MAX_RECURRING_SOURCE_SWAPS {
+            RecurringStallDecision::ReplaceSource
+        } else {
+            RecurringStallDecision::Exhausted
+        };
+    }
+    state.recent_stall = Some((track_id, candidate_key, now));
+    RecurringStallDecision::NoRepeatedStall
+}
+
+fn remember_failed_recurring_candidate(state: &mut State, candidate: &Candidate) {
+    if candidate.provider.is_empty() || candidate.id.is_empty() {
+        return;
+    }
+    let key = (candidate.provider.clone(), candidate.id.clone());
+    state
+        .failed_recurring_candidates
+        .retain(|entry| entry != &key);
+    state.failed_recurring_candidates.push(key);
+    if state.failed_recurring_candidates.len() > MAX_RECURRING_SOURCE_SWAPS as usize {
+        state.failed_recurring_candidates.remove(0);
+    }
+}
+
+fn failure_counts_as_native_transport_stall(trigger: RecoveryTrigger, message: &str) -> bool {
+    if matches!(
+        trigger,
+        RecoveryTrigger::SteadyBufferingTimeout | RecoveryTrigger::PrematureEnded
+    ) {
+        return true;
+    }
+    if trigger != RecoveryTrigger::OutputFailed {
+        return false;
+    }
+    let failure = crate::playback_failure::classify(message);
+    failure.retryable
+        && matches!(
+            failure.category,
+            crate::playback_failure::FailureCategory::Network
+                | crate::playback_failure::FailureCategory::RateLimited
+                | crate::playback_failure::FailureCategory::SourceAccess
+                | crate::playback_failure::FailureCategory::SourceUnavailable
+        )
+}
+
+fn has_native_stall_history(state: &State) -> bool {
+    state.recent_stall.is_some() || state.recurring_source_swaps > 0
+}
+
+fn clear_native_stall_history(state: &mut State) {
+    state.recent_stall = None;
+    state.recurring_source_swaps = 0;
+    state.failed_recurring_candidates.clear();
+}
+
+fn native_recovery_output_is_healthy(
+    since: Option<(Instant, f64, u64)>,
+    now: Instant,
+    position: f64,
+    seek_serial: u64,
+) -> bool {
+    since.is_some_and(|(started, initial_position, initial_seek_serial)| {
+        initial_seek_serial == seek_serial
+            && now >= started
+            && now.duration_since(started) >= RECOVERY_HEALTHY_RESET
+            && position.is_finite()
+            && initial_position.is_finite()
+            && position - initial_position >= RECOVERY_HEALTHY_RESET.as_secs_f64()
+    })
+}
+
 fn recovery_can_replace_source(
     attempt: u8,
     explicit: bool,
@@ -6878,6 +7198,34 @@ fn recovery_can_replace_source(
     attempt >= 2
         && !explicit
         && !crate::playback_sources::source_resolution_is_pinned(track, false, settings, true)
+}
+
+fn recovery_should_replace_source(
+    attempt: u8,
+    explicit: bool,
+    track: &Track,
+    settings: &crate::models::Settings,
+    recurring_stall: bool,
+    source_swaps: u8,
+) -> bool {
+    (recovery_can_replace_source(attempt, explicit, track, settings)
+        || recurring_stall && recovery_can_replace_source(2, explicit, track, settings))
+        && source_swaps < MAX_RECURRING_SOURCE_SWAPS
+}
+
+fn recurring_stall_requires_terminal_failure(
+    decision: RecurringStallDecision,
+    track: &Track,
+    explicit: bool,
+    settings: Option<&crate::models::Settings>,
+    is_radio: bool,
+    seek_pending: bool,
+) -> bool {
+    decision == RecurringStallDecision::ReplaceSource
+        && !is_radio
+        && !seek_pending
+        && settings
+            .is_some_and(|settings| !recovery_can_replace_source(2, explicit, track, settings))
 }
 
 fn record_seek_context(
@@ -7236,6 +7584,7 @@ pub(crate) fn safe_failure_text(raw: &str, max_chars: usize) -> String {
 fn reset_failed_resume_diagnostics(state: &mut State) {
     state.recovery_deadline = None;
     state.recovered_audio_since = None;
+    state.healthy_output_since = None;
     state.recovery = 0;
     state.first_audio_ms = None;
     state.source_ready_ms = None;
@@ -8115,6 +8464,7 @@ mod tests {
         PendingNativeSource {
             source_generation: generation,
             request_track: request_track.clone(),
+            explicit_source: false,
             matching_level: crate::recording_match::MatchLevel::Balanced,
             expires_at,
             resolved: crate::playback_sources::ResolvedSource {
@@ -9108,6 +9458,19 @@ mod tests {
             12.0
         );
         assert!(native_identification_capture_seconds(false, Some(10.0), 12.99).is_err());
+    }
+
+    #[test]
+    fn detection_intervals_are_normalized_to_the_shared_source_clock() {
+        assert_eq!(
+            source_absolute_detection_interval(12.0, 8.0, 300.0),
+            Some((312.0, 8.0))
+        );
+        assert_eq!(
+            source_absolute_detection_interval(12.0, 8.0, 0.0),
+            Some((12.0, 8.0))
+        );
+        assert_eq!(source_absolute_detection_interval(12.0, 0.0, 300.0), None);
     }
 
     #[test]
@@ -11325,6 +11688,246 @@ mod reliability_policy_tests {
         track.provider = "spotify".into();
         track.local_path = Some("fixture.flac".into());
         assert!(!recovery_can_replace_source(2, false, &track, &settings));
+    }
+    #[test]
+    fn recurring_locked_source_stops_after_the_pair_but_radio_and_seek_can_recover() {
+        let settings = crate::models::Settings::default();
+        let pinned = Track {
+            provider: "youtube".into(),
+            ..Track::default()
+        };
+        let automatic = Track {
+            provider: "spotify".into(),
+            ..Track::default()
+        };
+        let pair = RecurringStallDecision::ReplaceSource;
+        assert!(recurring_stall_requires_terminal_failure(
+            pair,
+            &pinned,
+            false,
+            Some(&settings),
+            false,
+            false
+        ));
+        assert!(recurring_stall_requires_terminal_failure(
+            pair,
+            &automatic,
+            true,
+            Some(&settings),
+            false,
+            false
+        ));
+        assert!(!recurring_stall_requires_terminal_failure(
+            pair,
+            &automatic,
+            false,
+            Some(&settings),
+            false,
+            false
+        ));
+        assert!(!recurring_stall_requires_terminal_failure(
+            pair,
+            &pinned,
+            false,
+            Some(&settings),
+            true,
+            false
+        ));
+        assert!(!recurring_stall_requires_terminal_failure(
+            pair,
+            &pinned,
+            false,
+            Some(&settings),
+            false,
+            true
+        ));
+        assert!(!recurring_stall_requires_terminal_failure(
+            RecurringStallDecision::NoRepeatedStall,
+            &pinned,
+            false,
+            Some(&settings),
+            false,
+            false,
+        ));
+    }
+    #[test]
+    fn recurring_native_stall_requests_one_bounded_unpinned_source_swap() {
+        let now = Instant::now();
+        let mut state = State::default();
+        state.queue = vec![Track {
+            id: "track-a".into(),
+            ..Track::default()
+        }];
+        state.candidate = Some(Candidate {
+            provider: "spotify".into(),
+            id: "spotify:recording-a".into(),
+            ..Candidate::default()
+        });
+        assert_eq!(
+            record_recurring_transport_stall(&mut state, now),
+            RecurringStallDecision::NoRepeatedStall
+        );
+        assert_eq!(
+            record_recurring_transport_stall(&mut state, now + Duration::from_secs(91)),
+            RecurringStallDecision::NoRepeatedStall
+        );
+        assert_eq!(state.recurring_source_swaps, 0);
+
+        assert_eq!(
+            record_recurring_transport_stall(&mut state, now + Duration::from_secs(92)),
+            RecurringStallDecision::ReplaceSource
+        );
+        state.recurring_source_swaps += 1; // Replacement accepted by the existing pin gate.
+        assert_eq!(state.recurring_source_swaps, 1);
+        assert!(state.recent_stall.is_none());
+        // A consumed pair cannot retrigger on a duplicate failure event.
+        assert_eq!(
+            record_recurring_transport_stall(&mut state, now + Duration::from_secs(93)),
+            RecurringStallDecision::NoRepeatedStall
+        );
+        assert_eq!(
+            record_recurring_transport_stall(&mut state, now + Duration::from_secs(94)),
+            RecurringStallDecision::ReplaceSource
+        );
+        state.recurring_source_swaps += 1;
+        assert_eq!(state.recurring_source_swaps, MAX_RECURRING_SOURCE_SWAPS);
+        assert_eq!(
+            record_recurring_transport_stall(&mut state, now + Duration::from_secs(95)),
+            RecurringStallDecision::NoRepeatedStall
+        );
+        assert_eq!(
+            record_recurring_transport_stall(&mut state, now + Duration::from_secs(96)),
+            RecurringStallDecision::Exhausted
+        );
+        assert_eq!(state.recurring_source_swaps, MAX_RECURRING_SOURCE_SWAPS);
+    }
+    #[test]
+    fn recurring_native_stall_replacement_respects_pinned_and_healthy_reset_gates() {
+        let settings = crate::models::Settings::default();
+        let mut unpinned = Track {
+            provider: "spotify".into(),
+            ..Track::default()
+        };
+        let pinned = Track {
+            provider: "youtube".into(),
+            ..Track::default()
+        };
+        assert!(recovery_should_replace_source(
+            1, false, &unpinned, &settings, true, 0
+        ));
+        assert!(!recovery_should_replace_source(
+            1, true, &unpinned, &settings, true, 0
+        ));
+        assert!(!recovery_should_replace_source(
+            1, false, &pinned, &settings, true, 0
+        ));
+        assert!(!recovery_should_replace_source(
+            2,
+            false,
+            &unpinned,
+            &settings,
+            false,
+            MAX_RECURRING_SOURCE_SWAPS
+        ));
+
+        let now = Instant::now();
+        let baseline = Some((now, 120.0, 8));
+        assert!(!native_recovery_output_is_healthy(
+            baseline,
+            now + Duration::from_secs(59),
+            180.0,
+            8
+        ));
+        assert!(native_recovery_output_is_healthy(
+            baseline,
+            now + Duration::from_secs(60),
+            180.0,
+            8
+        ));
+        assert!(
+            !native_recovery_output_is_healthy(baseline, now + Duration::from_secs(600), 180.0, 9),
+            "seek serial changes invalidate the uninterrupted output clock"
+        );
+        assert!(
+            !native_recovery_output_is_healthy(None, now + Duration::from_secs(600), 999.0, 8),
+            "pause and buffering clear the clock"
+        );
+
+        unpinned.provider = "catalog".into();
+        assert!(recovery_should_replace_source(
+            1, false, &unpinned, &settings, true, 0
+        ));
+        assert!(!recovery_should_replace_source(
+            1,
+            false,
+            &unpinned,
+            &settings,
+            true,
+            MAX_RECURRING_SOURCE_SWAPS
+        ));
+    }
+    #[test]
+    fn native_recurring_history_counts_transport_stalls_but_not_output_or_resolver_failures() {
+        assert!(failure_counts_as_native_transport_stall(
+            RecoveryTrigger::SteadyBufferingTimeout,
+            "Audio stalled for five seconds"
+        ));
+        assert!(failure_counts_as_native_transport_stall(
+            RecoveryTrigger::PrematureEnded,
+            "Audio stream ended before the recording finished"
+        ));
+        assert!(failure_counts_as_native_transport_stall(
+            RecoveryTrigger::OutputFailed,
+            "Audio source access was denied (HTTP 403)"
+        ));
+        assert!(!failure_counts_as_native_transport_stall(
+            RecoveryTrigger::OutputFailed,
+            "The audio decoder failed"
+        ));
+        assert!(!failure_counts_as_native_transport_stall(
+            RecoveryTrigger::SourceResolution,
+            "Network connection reset"
+        ));
+    }
+    #[test]
+    fn native_recovery_claims_each_failure_generation_only_once() {
+        let mut state = State::default();
+        state.generation = 12;
+        assert!(claim_recovery_failure_generation(&mut state, 12));
+        assert!(!claim_recovery_failure_generation(&mut state, 12));
+        state.generation = 13;
+        assert!(!claim_recovery_failure_generation(&mut state, 12));
+        assert!(claim_recovery_failure_generation(&mut state, 13));
+    }
+    #[test]
+    fn recurring_source_exclusions_keep_only_the_last_two_distinct_candidate_ids() {
+        let mut state = State::default();
+        for id in ["monochrome:one", "youtube:two", "soundcloud:three"] {
+            let (provider, _) = id.split_once(':').unwrap();
+            remember_failed_recurring_candidate(
+                &mut state,
+                &Candidate {
+                    provider: provider.into(),
+                    id: id.into(),
+                    ..Candidate::default()
+                },
+            );
+        }
+        remember_failed_recurring_candidate(
+            &mut state,
+            &Candidate {
+                provider: "soundcloud".into(),
+                id: "soundcloud:three".into(),
+                ..Candidate::default()
+            },
+        );
+        assert_eq!(
+            state.failed_recurring_candidates,
+            vec![
+                ("youtube".into(), "youtube:two".into()),
+                ("soundcloud".into(), "soundcloud:three".into()),
+            ]
+        );
     }
     #[test]
     fn source_http_denials_do_not_discard_recordings() {

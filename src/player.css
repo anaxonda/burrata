@@ -757,3 +757,12 @@ footer.player.compact .player-volume-control .volume {
     min-width: 36px;
   }
 }
+
+footer.player .player-artwork-menu { position: relative; flex: 0 0 32px; margin: 0; padding: 0; }
+footer.player .player-artwork-menu > summary { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; list-style: none; color: var(--muted); cursor: pointer; border-radius: 7px; }
+footer.player .player-artwork-menu > summary::-webkit-details-marker { display: none; }
+footer.player .player-artwork-menu > summary:hover { background: var(--surface); color: var(--text); }
+footer.player .player-artwork-menu > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+footer.player .player-artwork-options { position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 70; display: grid; gap: 3px; width: 175px; padding: 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 8px 24px #0005; }
+footer.player .player-artwork-options > button { text-align: left; padding: 7px 9px; font-size: 11px; border: 0; background: transparent; }
+footer.player .player-artwork-options > button[aria-pressed="true"] { color: var(--accent); }

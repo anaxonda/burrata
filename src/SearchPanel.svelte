@@ -26,7 +26,7 @@
   export type Source = { id: string; name: string; kinds?: string[]; enabled?: boolean; detail?: string };
 
   const DEFAULT_SOURCES: Source[] = [
-    { id: "library", name: "My library" }, { id: "musicbrainz", name: "MusicBrainz" }, { id: "discogs", name: "Discogs" },
+    { id: "library", name: "My library" }, { id: "musicbrainz", name: "MusicBrainz" }, { id: "discogs", name: "Discogs" }, { id: "monochrome", name: "Monochrome", kinds: ["track", "artist", "album"] },
     { id: "youtube", name: "YouTube" }, { id: "soundcloud", name: "SoundCloud" }, { id: "soulseek", name: "Soulseek" }, { id: "bandcamp", name: "Bandcamp", kinds: ["track"] },
   ];
   const ONLINE_SOURCE_IDS = ["spotify", "musicbrainz", "discogs", "youtube", "soundcloud", "soulseek", "monochrome", "bandcamp"];
@@ -923,7 +923,7 @@
   function rowArtist(row: SearchRow): ArtistRef | null {
     const data = row.data as Record<string, unknown> | null;
     const ref = (data?.artist ?? data?.ref ?? data) as ArtistRef | undefined;
-    return ref && (ref.provider === "musicbrainz" || ref.provider === "discogs") && typeof ref.id === "string" ? ref : null;
+    return ref && (ref.provider === "musicbrainz" || ref.provider === "discogs" || ref.provider === "monochrome") && typeof ref.id === "string" ? ref : null;
   }
   function scheduleMusicBrainzArtwork(row: SearchRow, scope: number) {
     if (!loadArtistProfile || scope !== lazyArtworkScope || row.sourceId !== "musicbrainz" || row.kind !== "artist" || row.artworkUrl) return;

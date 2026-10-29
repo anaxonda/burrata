@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 const BASE: &str = "https://tracks.monochrome.st";
 const SEARCH_PATH: &str = "/search/tracks";
+const CATALOG_SEARCH_LIMIT: usize = 25;
 const SEARCH_CACHE_SCHEMA: &str = "monochrome-track-search-v2";
 pub(crate) const CANDIDATE_SEARCH_LIMIT: usize = 12;
 pub(crate) const INTERACTIVE_SEARCH_LIMIT: usize = 30;
@@ -81,6 +82,101 @@ impl Client {
             return Err("Monochrome is temporarily rate limited (HTTP 429)".into());
         }
         Ok(())
+    }
+
+    /// Search the public artist/release catalog. The Tracks API accepts a
+    /// result limit but exposes no offset or total count, so callers must not
+    /// manufacture continuation pages.
+    pub(crate) async fn search_catalog(
+        &self,
+        kind: &str,
+        query: &str,
+        requested_limit: usize,
+    ) -> Result<Vec<Value>, String> {
+        if query.trim().is_empty() || query.chars().count() > 120 {
+            return Err("Catalog search must contain 1–120 characters".into());
+        }
+        let (path, field) = match kind {
+            "artists" => ("/search/artists", "artists"),
+            "releases" => ("/search/releases", "releases"),
+            _ => return Err("Unsupported Monochrome catalog search".into()),
+        };
+        self.check_cooldown()?;
+        let limit = requested_limit.clamp(1, CATALOG_SEARCH_LIMIT).to_string();
+        crate::diagnostic_metrics::record_http_send_attempt();
+        let response = self
+            .http
+            .get(format!("{}{path}", self.base))
+            .header(reqwest::header::ACCEPT, "application/json")
+            .query(&[("q", query), ("limit", limit.as_str())])
+            .send()
+            .await
+            .map_err(|_| "Monochrome catalog connection failed")?;
+        self.observe_rate_limit(&response);
+        if !response.status().is_success() {
+            return Err(format!(
+                "Monochrome catalog returned HTTP {}",
+                response.status()
+            ));
+        }
+        let value = self.read_json_response(response, 2 * 1024 * 1024).await?;
+        value
+            .get(field)
+            .and_then(Value::as_array)
+            .cloned()
+            .ok_or_else(|| format!("Invalid Monochrome {kind} response"))
+    }
+
+    /// Fetch one provider identity detail page. IDs are treated as opaque
+    /// path segments and are restricted to the provider's public ID alphabet.
+    pub(crate) async fn catalog_detail(&self, kind: &str, id: &str) -> Result<Value, String> {
+        if id.is_empty()
+            || id.len() > 80
+            || !id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+        {
+            return Err("Invalid Monochrome catalog identity".into());
+        }
+        let path = match kind {
+            "artists" => "artists",
+            "releases" => "releases",
+            _ => return Err("Unsupported Monochrome catalog identity".into()),
+        };
+        self.check_cooldown()?;
+        crate::diagnostic_metrics::record_http_send_attempt();
+        let response = self
+            .http
+            .get(format!("{}/{path}/{id}", self.base))
+            .header(reqwest::header::ACCEPT, "application/json")
+            .send()
+            .await
+            .map_err(|_| "Monochrome catalog connection failed")?;
+        self.observe_rate_limit(&response);
+        if !response.status().is_success() {
+            return Err(format!(
+                "Monochrome catalog returned HTTP {}",
+                response.status()
+            ));
+        }
+        self.read_json_response(response, 4 * 1024 * 1024).await
+    }
+
+    async fn read_json_response(
+        &self,
+        response: reqwest::Response,
+        max_bytes: usize,
+    ) -> Result<Value, String> {
+        let mut body = Vec::new();
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|_| "Monochrome catalog response failed")?;
+            if body.len() + chunk.len() > max_bytes {
+                return Err("Monochrome catalog response is too large".into());
+            }
+            body.extend_from_slice(&chunk);
+        }
+        serde_json::from_slice(&body).map_err(|_| "Invalid Monochrome catalog response".into())
     }
     fn observe_rate_limit(&self, response: &reqwest::Response) {
         if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
@@ -176,6 +272,7 @@ impl Client {
         let response = self
             .http
             .get(format!("{}{SEARCH_PATH}", self.base))
+            .header(reqwest::header::ACCEPT, "application/json")
             .query(&[("q", query), ("limit", limit_parameter.as_str())])
             .send()
             .await
@@ -1254,6 +1351,71 @@ mod tests {
         let (clamped, _) = client.search_with_limit("Test Artist", 500).await.unwrap();
         assert_eq!(clamped.len(), INTERACTIVE_SEARCH_LIMIT);
 
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn artist_and_release_catalog_routes_use_bounded_public_api_shapes() {
+        use axum::{
+            extract::{Path, Query},
+            routing::get,
+            Json, Router,
+        };
+        use std::collections::HashMap;
+        async fn search(
+            Path(kind): Path<String>,
+            Query(query): Query<HashMap<String, String>>,
+        ) -> Json<Value> {
+            assert_eq!(query.get("q").map(String::as_str), Some("Nipsey Hussle"));
+            assert!(query
+                .get("limit")
+                .and_then(|v| v.parse::<usize>().ok())
+                .is_some_and(|n| (1..=25).contains(&n)));
+            assert!(!query.contains_key("offset"));
+            if kind == "artists" {
+                Json(
+                    json!({"artists":[{"artistId":"123456789012345678","displayName":"Nipsey Hussle"}]}),
+                )
+            } else {
+                Json(json!({"releases":[{"releaseId":"223456789012345678","title":"Victory Lap"}]}))
+            }
+        }
+        async fn detail(Path((kind, id)): Path<(String, String)>) -> Json<Value> {
+            assert_eq!(id, "123456789012345678");
+            Json(
+                json!({"artist":{"artistId":id,"displayName":"Nipsey Hussle","albums":[]},"kind":kind}),
+            )
+        }
+        let app = Router::new()
+            .route("/search/{kind}", get(search))
+            .route("/{kind}/{id}", get(detail));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = Client::at(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        assert_eq!(
+            client
+                .search_catalog("artists", "Nipsey Hussle", 50)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            client
+                .search_catalog("releases", "Nipsey Hussle", 25)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(client.catalog_detail("artists", "../unsafe").await.is_err());
+        assert_eq!(
+            client
+                .catalog_detail("artists", "123456789012345678")
+                .await
+                .unwrap()["artist"]["displayName"],
+            "Nipsey Hussle"
+        );
         server.abort();
     }
 }

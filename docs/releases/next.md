@@ -1,17 +1,17 @@
-# Burrata 0.1.9
+# Burrata 0.1.12
 
-Changes since v0.1.8.
+This release reduces background playlist and interface work, improves saved waveform handling, and makes sidebar filtering and playback progress easier to use.
 
-- Optional complete waveform, BPM and key estimates for eligible finite streams. Imported and manually entered values remain unchanged until replacement is explicitly chosen.
-- Wider waveform seeking with visible partial coverage, retained observations across pause/restart, hover times, and a compact playback bar option.
-- Library/settings backups, optional verified audio and lyrics, scheduled copies with retention, and reviewed Merge/Replace restore with interrupted-restore recovery.
-- Configurable local M3U mirroring for playlists, liked songs and retained history, preserving folder/section structure and protecting edited or deleted files.
-- Clearer file/text/URL imports and playlist export, with privacy-safe sharing, preserved duplicates and visible recording conflicts.
-- Clipping-aware Track and Album loudness normalization, separate from player volume. Unknown streams remain unchanged with an explanation; local analysis is optional and cancellable.
-- Improved lyric source selection, local sidecar/embedded lyrics, saved timing adjustments, translation controls and retry with fallback.
-- Optional song recognition within long recordings, retaining approximate detected positions.
-- Playback-source recovery keeps recording identity, and buffering/download status remains visible in compact layouts. Track details include play history and library/playlist membership.
+- Playlist synchronization tracks changes per collection and skips unchanged mirrors. Idle passes check file metadata and a session change journal before loading playlist state; they do not render mirrors or write unchanged state.
+- The backend watcher owns automatic startup synchronization. Requests are coalesced, the filesystem notification queue is bounded, and Linux mirroring runs at lower thread priority than normal UI and audio work.
+- Immutable mirror bodies remain separate from mutable sync state. Ordinary reconciliation reads reference headers; backups and snapshot viewing retain complete history. Browser archives load only the current snapshot and captures not already archived.
+- Exports query registered files for their own tracks instead of repeatedly hydrating the entire audio library. Targeted indexes support change tracking and those lookups.
+- Saved track detections load for visible queue rows and selected track information, with four concurrent reads and a bounded cache. Hidden queues no longer trigger one request for every track whenever playback changes.
+- Observed waveform persistence skips unchanged data and merges delayed database restores with newer session observations. Optional waveform polling stops when hidden or paused, retaining a final sample when its cache binding becomes ready.
+- The seek indicator animates locally between playback reports and stops extrapolating after one second without a fresh report. Seeking, buffering, pausing and changing tracks keep their authoritative positions.
+- Sidebar filtering includes playlist names and owners, radio names and countries, and loaded folder names. Unrelated sections no longer bury matching results.
+- Playback recovery better handles recurring stalls while preserving recording identity and matching rules. Diagnostic reports include additional redacted source-proof and redirect evidence.
 
-The audit also bounds search-cache memory and concurrent audio analysis, fixes read-only existing-audio linking, and keeps cancellation failures visible instead of reporting work as stopped. Unfiltered history pages now fetch only the requested page: an isolated 100,000-row SQL benchmark improved from a 360.6 ms median full traversal to 0.8 ms for a 50-row page. These are query measurements, not an end-to-end application benchmark.
+Metadata checks remain a fallback for missed filesystem events. A body verification runs periodically, and the explicit M3U sync action forces verification. Cold starts and deliberate verification can still perform substantial work on large libraries.
 
-Functional acceptance used isolated Linux native/WebView routes, synthetic fixtures and read-only local recordings. Physical-device and final installer/platform results are recorded separately. Full background stream analysis is limited to eligible finite sources; estimates can remain unavailable when confidence is insufficient. Live radio does not have a complete-track waveform.
+Audio-device disconnections can still interrupt local playback. This release does not claim to resolve every driver-level failure. Hosted-runner installer checks do not replace physical-device qualification on an affected machine.

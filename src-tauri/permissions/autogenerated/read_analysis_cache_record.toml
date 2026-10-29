@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-read-analysis-cache-record"
+description = "Enables the read_analysis_cache_record command without any pre-configured scope."
+commands.allow = ["read_analysis_cache_record"]
+
+[[permission]]
+identifier = "deny-read-analysis-cache-record"
+description = "Denies the read_analysis_cache_record command without any pre-configured scope."
+commands.deny = ["read_analysis_cache_record"]

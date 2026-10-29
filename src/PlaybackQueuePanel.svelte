@@ -8,14 +8,18 @@
   import ActionMenu from "./ActionMenu.svelte";
   import type { MenuAnchorRect } from "./lib/menu-geometry";
   import MenuIcon from "./MenuIcon.svelte";
-  import { tick, untrack } from "svelte";
+  import { tick, untrack, onDestroy } from "svelte";
   import type { Chapter, Track } from "./lib/types";
   import { activeChapter, chapterRelativePosition } from "./lib/chapters";
   import type { PlaybackRange, RangedTrack } from "./lib/chapters";
+  import type { DetectedTrackObservation } from "./lib/playing-track-detection";
+  import { approximateDetectionTime } from "./lib/playing-track-detection";
+  import { detectedObservationTrack } from "./lib/detected-track";
   import { isTrackDownloaded, playableDuration, type SortDirection, type TrackSortField } from "./lib/track-sort";
 
   let {
     tracks,
+    onVisibleTrack,
     currentIndex,
     paused = false,
     buffering = false,
@@ -36,6 +40,7 @@
     onSeek,
     onInspectChapters,
     chaptersByTrack = {},
+    detectionsByTrack = {},
     onPlayChapter,
     onQueueChapter,
     onAppendChapters,
@@ -43,6 +48,10 @@
     onAddChapterToPlaylist,
     onInfoChapter,
     onQueueAllChapters,
+    onSeekDetection,
+    onInfoDetection,
+    onAddDetectionToPlaylist,
+    onAddDetectionsToPlaylist,
     radioNowPlaying = null,
     radioStationName = "",
     radioHistory = [],
@@ -83,6 +92,11 @@
     onCycleRepeat: () => void;
     onInspectChapters?: (track: Track) => void;
     chaptersByTrack?: Record<string, Chapter[]>;
+    detectionsByTrack?: Record<string, DetectedTrackObservation[]>;
+    onSeekDetection?: (parent: Track, observation: DetectedTrackObservation, parentIndex: number) => void;
+    onInfoDetection?: (track: Track) => void;
+    onAddDetectionToPlaylist?: (track: Track) => void;
+    onAddDetectionsToPlaylist?: (tracks: Track[]) => void;
     onPlayChapter?: (parent: Track, chapter: Chapter, parentIndex: number) => void;
     onQueueChapter?: (parent: Track, chapter: Chapter, parentIndex: number) => void;
     onAppendChapters?: (parent: Track, chapters: Chapter[]) => void;
@@ -106,6 +120,7 @@
     onArtistRadioTrack?: (track: Track) => void;
     onInfoRadioTrack?: (track: Track) => void;
     onContextRadioTrack?: (track: Track) => void;
+    onVisibleTrack?: (track: Track) => void;
     onInfoTrack?: (track: Track) => void;
     onAddToPlaylist?: (track: Track, index: number) => void;
   } = $props();
@@ -176,6 +191,27 @@
     if(event.key==="ArrowUp"&&first>0)void moveSelection(rows,first-1,event.currentTarget as HTMLElement,!event.isTrusted);
     if(event.key==="ArrowDown"&&last<tracks.length-1)void moveSelection(rows,first+1,event.currentTarget as HTMLElement,!event.isTrusted);
   }
+  const observedQueueRows = new WeakMap<Element, Track>();
+  let visibilityObserver: IntersectionObserver | undefined;
+  function observeQueueTrack(node: HTMLElement, track: Track) {
+    if (!onVisibleTrack) return;
+    const observe = (current: Track) => {
+      observedQueueRows.set(node,current);
+      if (typeof IntersectionObserver !== "function") { untrack(() => onVisibleTrack?.(current)); return; }
+      visibilityObserver ??= new IntersectionObserver(entries => {
+        for (const entry of entries) {
+          const visibleTrack = observedQueueRows.get(entry.target);
+          if (entry.isIntersecting && visibleTrack) untrack(() => onVisibleTrack?.(visibleTrack));
+        }
+      }, { rootMargin: "160px" });
+      visibilityObserver.unobserve(node);
+      visibilityObserver.observe(node);
+    };
+    observe(track);
+    return { update: observe, destroy: () => { visibilityObserver?.unobserve(node); observedQueueRows.delete(node); } };
+  }
+  onDestroy(() => visibilityObserver?.disconnect());
+
   let expanded: Record<string, boolean> = $state({});
   let sortField = $state<TrackSortField>("title");
   let sortDirection = $state<SortDirection>("asc");
@@ -284,8 +320,9 @@
         {/if}
         {#each visibleQueueRows as {track,index} (track.id + ":" + index)}
           {@const trackChapters = chaptersByTrack[track.id] ?? []}
+          {@const trackDetections = detectionsByTrack[track.id] ?? []}
           {@const duration=playableDuration(track)}
-          <article class:queue-selected={selectedRows.includes(index)} ondragover={event=>{if(draggedRows.length&&!movingRows)event.preventDefault();}} ondrop={event=>{event.preventDefault();if(draggedRows.length){const rows=draggedRows;draggedRows=[];void moveSelection(rows,index-rows.filter(at=>at<index).length,undefined,!event.isTrusted,draggedRevision);}}} class:current={index === currentIndex} class:paused={index === currentIndex && paused} class:buffering={index === currentIndex && buffering} aria-current={index === currentIndex ? "true" : undefined} aria-busy={index === currentIndex && buffering ? "true" : undefined}>
+          <article use:observeQueueTrack={track} class:queue-selected={selectedRows.includes(index)} ondragover={event=>{if(draggedRows.length&&!movingRows)event.preventDefault();}} ondrop={event=>{event.preventDefault();if(draggedRows.length){const rows=draggedRows;draggedRows=[];void moveSelection(rows,index-rows.filter(at=>at<index).length,undefined,!event.isTrusted,draggedRevision);}}} class:current={index === currentIndex} class:paused={index === currentIndex && paused} class:buffering={index === currentIndex && buffering} aria-current={index === currentIndex ? "true" : undefined} aria-busy={index === currentIndex && buffering ? "true" : undefined}>
             <button onkeydown={event=>moveSelectionKey(event,index)} class="queue-drag-select" draggable={!movingRows} aria-label={`Select queue occurrence ${index+1}: ${track.title}`} aria-pressed={selectedRows.includes(index)} title="Drag to reorder; Ctrl or Shift click to select; arrow keys move selection" onclick={event=>selectQueueRow(index,event)} ondragstart={event=>{if(movingRows){event.preventDefault();return;}draggedRevision=queueRevision;draggedRows=selectedRows.includes(index)?[...selectedRows]:[index];selectedRows=draggedRows;event.dataTransfer?.setData("text/plain","burrata-queue-row");if(event.dataTransfer)event.dataTransfer.effectAllowed="move";}} ondragend={()=>draggedRows=[]}>⠿</button>
             <button onkeydown={event=>moveSelectionKey(event,index)} class="track-select" title={`${track.title}${track.artist ? ` · ${track.artist}` : ""}`} aria-label={index === currentIndex ? `${buffering ? "Buffering" : paused ? "Paused" : "Playing"} ${track.title}` : "Play " + track.title} onclick={event => { if(event.ctrlKey||event.metaKey||event.shiftKey)selectQueueRow(index,event);else onPlay(index); }}>
               <span class="track-index">{index === currentIndex ? buffering ? "…" : paused ? "Ⅱ" : "♫" : String(index + 1).padStart(2, "0")}</span>
@@ -305,6 +342,19 @@
               {:else if onInspectChapters && !track.playbackRange && ["youtube","soundcloud"].includes(track.provider)}<button class="menu-section" onclick={(event) => runMenuAction(event, () => onInspectChapters?.(track))}><MenuIcon name="search"/><span>Check for chapters</span></button>{/if}
             </ActionMenu>{/if}</details>
           </article>
+          {#if trackDetections.length}
+            <div class="chapter-children detection-children" aria-label={"Detected tracks for " + track.title}>
+              <div class="detection-child-heading"><span>Detected tracks</span>{#if onAddDetectionsToPlaylist}<button type="button" onclick={() => onAddDetectionsToPlaylist?.(trackDetections.map(detectedObservationTrack))}>Add all to playlist…</button>{/if}</div>
+              {#each trackDetections as observation (`${observation.detectedAtSeconds}:${observation.observedAt}`)}
+                {@const detectedTrack = detectedObservationTrack(observation)}
+                <div class="chapter-child detection-child">
+                  <button class="chapter-child-play detection-seek" aria-label={`Seek to ${approximateDetectionTime(observation.detectedAtSeconds)} in ${track.title}`} onclick={() => onSeekDetection?.(track, observation, index)}><span>{approximateDetectionTime(observation.detectedAtSeconds)}</span></button>
+                  <button class="detection-track-info" onclick={() => onInfoDetection?.(detectedTrack)}><strong>{observation.title}</strong><span>{observation.artist}</span></button>
+                  {#if onAddDetectionToPlaylist}<button class="detection-add" aria-label={`Add ${observation.title} by ${observation.artist} to playlist`} title="Add to playlist" onclick={() => onAddDetectionToPlaylist?.(detectedTrack)}>＋</button>{/if}
+                </div>
+              {/each}
+            </div>
+          {/if}
           {#if trackChapters.length && expanded[track.id]}
             <div class="chapter-children" aria-label={"Chapters for " + track.title}>
               {#each trackChapters as chapter (chapter.id)}
@@ -400,6 +450,8 @@
     box-shadow: 0 18px 60px #0009;
   }
 
+  .playback-queue-panel > :global(.download-filter) { align-self:flex-start; margin:8px 10px; }
+
   .queue-sort-upcoming {
     display: flex;
     flex-wrap: wrap;
@@ -477,6 +529,15 @@
   .chapter-child-play { display: grid; flex: 1; grid-template-columns: 35px minmax(0,1fr) 35px; align-items: center; gap: 7px; padding: 6px 4px; background: transparent; color: var(--muted); text-align: left; }
   .chapter-child-play span { font-size: 9px; font-variant-numeric: tabular-nums; }
   .chapter-child-play strong { overflow: hidden; color: var(--text); font-size: 10px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+  .detection-child-heading { display:flex; justify-content:space-between; align-items:center; gap:8px; margin:0 3px 3px; color:var(--muted); font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; }
+  .detection-child-heading button { padding:3px 6px; border:1px solid var(--line); border-radius:5px; background:transparent; color:var(--text); font:inherit; text-transform:none; letter-spacing:0; cursor:pointer; }
+  .detection-seek { flex:0 0 42px; display:block; padding:6px 3px; border:0; background:transparent; cursor:pointer; }
+  .detection-track-info { display:grid; flex:1; min-width:0; gap:2px; padding:6px 4px; border:0; background:transparent; text-align:left; cursor:pointer; }
+  .detection-track-info strong,.detection-track-info span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .detection-track-info strong { color:var(--text); font-size:10px; font-weight:600; }
+  .detection-track-info span { color:var(--muted); font-size:9px; }
+  .detection-add { display:grid; flex:0 0 30px; place-items:center; width:30px; height:30px; padding:0; border:1px solid var(--line); border-radius:50%; background:transparent; color:var(--muted); font-size:16px; cursor:pointer; }
+  .detection-child button:hover { color:var(--accent); }
   .chapter-more summary { width:36px;height:36px; }
   .queue-empty { display: grid; justify-items: center; align-content: center; min-height: 180px; height: 100%; color: var(--muted); text-align: center; }
   .queue-empty span { display: grid; place-items: center; width: 42px; height: 42px; margin-bottom: 11px; border-radius: 13px; background: var(--raised); color: var(--accent); font-size: 22px; }

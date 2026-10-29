@@ -227,6 +227,14 @@ pub(crate) fn project_webview(input: Option<&Value>) -> Option<Value> {
                 if let Some(value) = bounded_float(event.get("currentTime"), 86_400.0) {
                     safe.insert("currentTime".into(), json!(value));
                 }
+                if let Some(value) = bounded_float(event.get("durationSeconds"), 86_400.0) {
+                    safe.insert("durationSeconds".into(), json!(value));
+                }
+                if let Some(value) =
+                    bounded_u64(event.get("webviewGeneration"), 9_007_199_254_740_991)
+                {
+                    safe.insert("webviewGeneration".into(), json!(value));
+                }
                 let ranges = project_ranges(event.get("buffered"));
                 if !ranges.is_empty() {
                     safe.insert("bufferedRanges".into(), json!(ranges));
@@ -462,7 +470,7 @@ mod tests {
             "trackTitle":"PRIVATE TITLE", "url":"https://private.invalid/?token=secret", "userAgent":"secret ua",
             "startupFailure":{"phase":"play","mimeFamily":"audio/mpeg","canPlayType":"probably","streamKind":"direct","sourceTransport":"loopback-relay","resumeRequested":true,"readyState":0,"networkState":3,"mediaErrorCode":4,"elapsedMs":90000,"currentTime":349.4,"duration":7202.1,"seeking":true,"requestedSeekPosition":349.437,"bufferedRanges":[[340,360],[0,90000],[10,5]],"seekableRanges":[[0,7202]],"message":"private error"},
             "sourceFormat":{"codec":"opus","mimeType":"audio/ogg","formatId":"251","hasVideo":false,"expectedContentLength":1000,"url":"https://secret"},
-            "mediaEvents":[{"type":"waiting","attempt":2,"readyState":1,"networkState":2,"paused":false,"atMs":42,"currentTime":99,"buffered":[{"start":0,"end":5},{"start":8,"end":4}],"trackId":"private"},{"type":"bad https://secret"}]
+            "mediaEvents":[{"type":"waiting","attempt":2,"readyState":1,"networkState":2,"paused":false,"atMs":42,"currentTime":99,"durationSeconds":120.093,"webviewGeneration":52,"buffered":[{"start":0,"end":5},{"start":8,"end":4}],"trackId":"private"},{"type":"bad https://secret"}]
         });
         let projected = project_webview(Some(&source)).unwrap();
         assert_eq!(
@@ -473,7 +481,7 @@ mod tests {
                 "currentTime":52.5,"duration":400.0,"requestedSeekPosition":53.0,"bufferedRanges":[[0.0,20.0]],"seekableRanges":[[0.0,300.0]],
                 "startupFailure":{"phase":"play","mimeFamily":"audio/mpeg","canPlayType":"probably","streamKind":"direct","sourceTransport":"loopback-relay","resumeRequested":true,"readyState":0,"networkState":3,"mediaErrorCode":4,"elapsedMs":90000,"currentTime":349.4,"duration":7202.1,"seeking":true,"requestedSeekPosition":349.437,"bufferedRanges":[[340.0,360.0]],"seekableRanges":[[0.0,7202.0]]},
                 "sourceFormat":{"codec":"opus","mimeType":"audio/ogg","formatId":"251","hasVideo":false,"expectedContentLength":1000},
-                "mediaEvents":[{"type":"waiting","attempt":2,"readyState":1,"networkState":2,"paused":false,"atMs":42,"currentTime":99.0,"bufferedRanges":[[0.0,5.0]]}]
+                "mediaEvents":[{"type":"waiting","attempt":2,"readyState":1,"networkState":2,"paused":false,"atMs":42,"currentTime":99.0,"durationSeconds":120.093,"webviewGeneration":52,"bufferedRanges":[[0.0,5.0]]}]
             })
         );
         let serialized = projected.to_string();
@@ -498,6 +506,17 @@ mod tests {
         assert_eq!(projected["mediaEvents"].as_array().unwrap().len(), 64);
         assert!(projected.get("startupFailure").is_none());
         assert!(projected.get("sourceFormat").is_none());
+
+        let generations = json!({"mediaEvents":[
+            {"type":"playing","webviewGeneration":9_007_199_254_740_991u64},
+            {"type":"playing","webviewGeneration":9_007_199_254_740_992u64},
+            {"type":"playing","webviewGeneration":"52"}
+        ]});
+        let projected = project_webview(Some(&generations)).unwrap();
+        let events = projected["mediaEvents"].as_array().unwrap();
+        assert_eq!(events[0]["webviewGeneration"], 9_007_199_254_740_991u64);
+        assert!(events[1].get("webviewGeneration").is_none());
+        assert!(events[2].get("webviewGeneration").is_none());
     }
 
     #[test]

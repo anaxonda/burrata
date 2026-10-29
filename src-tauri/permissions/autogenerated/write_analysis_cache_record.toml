@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-write-analysis-cache-record"
+description = "Enables the write_analysis_cache_record command without any pre-configured scope."
+commands.allow = ["write_analysis_cache_record"]
+
+[[permission]]
+identifier = "deny-write-analysis-cache-record"
+description = "Denies the write_analysis_cache_record command without any pre-configured scope."
+commands.deny = ["write_analysis_cache_record"]

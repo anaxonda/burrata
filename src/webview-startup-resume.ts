@@ -1,4 +1,12 @@
 import { hasWebviewSeekLanded } from "./webview-seek-completion-watchdog";
+import { classifyPlaybackFailure } from "./lib/playback-failure";
+
+/** A rejected resume should refresh its source only when media reports a transport failure. */
+export function shouldRefreshWebviewResumeSource(mediaErrorCode: number | null | undefined, reason: string): boolean {
+  const failure = classifyPlaybackFailure(reason);
+  return mediaErrorCode === 2 || failure.retryable &&
+    (failure.stage === "transport" || failure.category === "source_access");
+}
 
 export type StartupResumeProgress = {
   target: number;

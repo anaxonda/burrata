@@ -93,12 +93,52 @@ struct TrackPageRow {
     track: Option<Track>,
 }
 
+/// Expand immutable snapshot references for runtime and portable backup readers.
+pub(crate) fn expand_playlist_snapshot_refs(
+    value: &mut serde_json::Value,
+    mut read: impl FnMut(&str) -> Result<Option<serde_json::Value>>,
+) -> Result<()> {
+    let Some(refs) = value
+        .get("mirrorSnapshotRefs")
+        .and_then(serde_json::Value::as_object)
+    else {
+        return Ok(());
+    };
+    let mut snapshots = serde_json::Map::new();
+    for (owner, keys) in refs {
+        let mut records = Vec::new();
+        for key in keys
+            .as_array()
+            .ok_or("Invalid playlist snapshot references")?
+        {
+            let key = key
+                .as_str()
+                .or_else(|| key.get("key").and_then(serde_json::Value::as_str))
+                .filter(|key| key.starts_with("playlistSnapshot.v1.") && key.len() == 84)
+                .ok_or("Invalid playlist snapshot reference")?;
+            records.push(read(key)?.ok_or("Missing playlist snapshot")?);
+        }
+        snapshots.insert(owner.clone(), serde_json::Value::Array(records));
+    }
+    value
+        .as_object_mut()
+        .ok_or("Invalid playlist state")?
+        .remove("mirrorSnapshotRefs");
+    value["mirrorSnapshots"] = serde_json::Value::Object(snapshots);
+    Ok(())
+}
+
 pub struct Store {
+    pub(crate) playlist_incremental: Mutex<crate::playlist_incremental::Cache>,
     connection: Mutex<Connection>,
     library_barrier: LibraryWriteBarrier,
     connection_metrics_enabled: bool,
     connection_wait_metrics: ConnectionWaitMetrics,
 }
+
+const ANALYSIS_CACHE_MAX_BYTES: i64 = 256 * 1024 * 1024;
+const ANALYSIS_CACHE_MAX_RECORD_BYTES: usize = 256 * 1024;
+const ANALYSIS_CACHE_MAX_RECORDS: i64 = 32_768;
 
 /// Per-profile barrier shared by the library and playback-history connections.
 /// It is created by each Store instance, so isolated Stores never block one
@@ -216,6 +256,23 @@ fn encode<T: serde::Serialize>(value: &T) -> Result<String> {
 }
 fn decode<T: serde::de::DeserializeOwned>(value: String) -> Result<T> {
     serde_json::from_str(&value).map_err(err)
+}
+fn valid_analysis_cache_namespace(namespace: &str) -> bool {
+    !namespace.is_empty()
+        && namespace.len() <= 64
+        && namespace.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"._-".contains(&byte)
+        })
+}
+fn validate_analysis_cache_key(namespace: &str, cache_key: &str) -> Result<()> {
+    if !valid_analysis_cache_namespace(namespace)
+        || cache_key.len() != 64
+        || !cache_key.bytes().all(|byte| byte.is_ascii_hexdigit())
+        || cache_key.bytes().any(|byte| byte.is_ascii_uppercase())
+    {
+        return Err("Analysis cache namespace or key is invalid".into());
+    }
+    Ok(())
 }
 fn normalize_streaming_fallback_policy(settings: &mut Settings) -> Result<()> {
     match settings.streaming_fallback_policy_version {
@@ -727,7 +784,7 @@ impl Store {
         let version: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .map_err(err)?;
-        if version > 11 {
+        if version > 14 {
             return Err("Database was created by a newer Burrata version".into());
         }
         if version == 0 {
@@ -905,6 +962,58 @@ impl Store {
                  PRAGMA user_version=11; COMMIT;",
             ).map_err(err)?;
         }
+        if version < 12 {
+            conn.execute_batch(
+                "BEGIN IMMEDIATE;
+                 CREATE TABLE analysis_cache_records(
+                    namespace TEXT NOT NULL,
+                    cache_key TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    payload_bytes INTEGER NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    last_used_at TEXT NOT NULL,
+                    PRIMARY KEY(namespace,cache_key)
+                 );
+                 CREATE INDEX analysis_cache_lru ON analysis_cache_records(last_used_at);
+                 PRAGMA user_version=12;
+                 COMMIT;",
+            )
+            .map_err(err)?;
+        }
+        if version < 13 {
+            conn.execute_batch(
+                "BEGIN IMMEDIATE;
+                 ALTER TABLE analysis_cache_records ADD COLUMN protected INTEGER NOT NULL DEFAULT 0;
+                 PRAGMA user_version=13;
+                 COMMIT;",
+            )
+            .map_err(err)?;
+        }
+        if version < 14 {
+            conn.execute_batch(
+                "BEGIN IMMEDIATE;
+                 CREATE TABLE analysis_cache_record_refs(
+                    namespace TEXT NOT NULL,
+                    cache_key TEXT NOT NULL,
+                    recording_id TEXT NOT NULL,
+                    PRIMARY KEY(namespace,cache_key,recording_id),
+                    FOREIGN KEY(namespace,cache_key) REFERENCES analysis_cache_records(namespace,cache_key) ON DELETE CASCADE
+                 );
+                 CREATE INDEX analysis_cache_refs_recording ON analysis_cache_record_refs(recording_id);
+                 PRAGMA user_version=14;
+                 COMMIT;",
+            )
+            .map_err(err)?;
+        }
+        // Cache budget checks and LRU eviction intentionally exclude library
+        // rows. This partial covering index keeps those writes from scanning
+        // protected payload pages as the cache grows.
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS analysis_cache_unprotected_budget
+             ON analysis_cache_records(last_used_at,updated_at,payload_bytes,namespace,cache_key)
+             WHERE protected=0;",
+        )
+        .map_err(err)?;
         // Version 9 was not shipped; keep this guard so prototype v9 stores made
         // before the projection column was introduced can still be opened.
         for (name, sql) in [
@@ -1041,7 +1150,10 @@ impl Store {
              CREATE INDEX IF NOT EXISTS catalog_import_source_url ON catalog_listings(provider,source_url);",
         )
         .map_err(err)?;
+        conn.execute_batch("CREATE INDEX IF NOT EXISTS collection_members_recording_sync ON collection_members(recording_id,collection_id);").map_err(err)?;
+        crate::playlist_incremental::install(&conn)?;
         let store = Self {
+            playlist_incremental: Mutex::new(crate::playlist_incremental::Cache::default()),
             connection: Mutex::new(conn),
             library_barrier: Arc::new(RwLock::new(())),
             connection_metrics_enabled: db_wait_metrics_enabled(),
@@ -1087,6 +1199,7 @@ impl Store {
         let guard = barrier.clone().try_write_owned().map_err(|_| {
             "Library writers are active; wait for them to finish before restoring".to_owned()
         })?;
+        *self.playlist_incremental.lock().map_err(err)? = Default::default();
         Ok(RestorePermit {
             barrier,
             _guard: guard,
@@ -1196,7 +1309,8 @@ impl Store {
         settings.validate_playback_startup_timeout()?;
         let mut settings = settings.clone();
         normalize_streaming_fallback_policy(&mut settings)?;
-        self.lock_connection()?.execute("INSERT INTO settings(key,value) VALUES('application',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [encode(&settings)?]).map_err(err)?;
+        let encoded = encode(&settings)?;
+        self.lock_connection()?.execute("INSERT INTO settings(key,value) VALUES('application',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE settings.value != excluded.value", [encoded]).map_err(err)?;
         Ok(())
     }
     pub fn get_json_preference(&self, key: &str) -> Result<Option<serde_json::Value>> {
@@ -1207,21 +1321,195 @@ impl Store {
             })
             .optional()
             .map_err(err)?;
+        drop(conn);
         raw.map(decode).transpose()
+    }
+    pub fn recording_is_in_library(&self, recording_id: &str) -> Result<bool> {
+        if recording_id.trim().is_empty() {
+            return Ok(false);
+        }
+        let conn = self.lock_connection()?;
+        conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM catalog_listings WHERE id=?1 AND recording_id=?1 AND in_library=1)",
+            [recording_id],
+            |row| row.get(0),
+        ).map_err(err)
     }
     pub fn set_json_preference(&self, key: &str, value: &serde_json::Value) -> Result<()> {
         if key.trim().is_empty() || key.chars().count() > 100 {
             return Err("Preference key must contain 1–100 characters".into());
         }
-        self.connection
-            .lock()
-            .map_err(err)?
+        let encoded = encode(value)?;
+        self.lock_connection()?
             .execute(
-                "INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                params![key, encode(value)?],
+                "INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE settings.value != excluded.value",
+                params![key, encoded],
             )
             .map_err(err)?;
         Ok(())
+    }
+
+    /// Read one durable, regenerable analysis-cache record and refresh its LRU
+    /// timestamp. Keys are opaque SHA-256 digests so callers never persist
+    /// signed media URLs or other transient transport details.
+    pub fn read_analysis_cache_record(
+        &self,
+        namespace: &str,
+        cache_key: &str,
+    ) -> Result<Option<serde_json::Value>> {
+        validate_analysis_cache_key(namespace, cache_key)?;
+        let mut conn = self.lock_connection()?;
+        let tx = conn.transaction().map_err(err)?;
+        let payload: Option<String> = tx
+            .query_row(
+                "SELECT payload FROM analysis_cache_records WHERE namespace=?1 AND cache_key=?2",
+                params![namespace, cache_key],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(err)?;
+        if payload.is_some() {
+            tx.execute(
+                "UPDATE analysis_cache_records SET last_used_at=?1 WHERE namespace=?2 AND cache_key=?3 AND (julianday(?1)-julianday(last_used_at))*86400 >= 60",
+                params![chrono::Utc::now().to_rfc3339(), namespace, cache_key],
+            )
+            .map_err(err)?;
+        }
+        tx.commit().map_err(err)?;
+        drop(conn);
+        payload.map(decode).transpose()
+    }
+
+    /// Store a bounded regenerable result. Cleanup is LRU-only within this
+    /// cache table; library metadata and imported/user-authored analyses are
+    /// stored elsewhere and are never eligible for this eviction.
+    pub fn write_analysis_cache_record(
+        &self,
+        namespace: &str,
+        cache_key: &str,
+        payload: &serde_json::Value,
+        protect_if_library_recording_id: Option<&str>,
+    ) -> Result<()> {
+        validate_analysis_cache_key(namespace, cache_key)?;
+        let encoded = encode(payload)?;
+        let payload_bytes = encoded.len();
+        if payload_bytes > ANALYSIS_CACHE_MAX_RECORD_BYTES {
+            return Err(format!(
+                "Analysis cache records are limited to {} bytes",
+                ANALYSIS_CACHE_MAX_RECORD_BYTES
+            ));
+        }
+        let now = chrono::Utc::now().to_rfc3339();
+        let mut conn = self.lock_connection()?;
+        let tx = conn.transaction().map_err(err)?;
+        tx.execute(
+            "INSERT INTO analysis_cache_records(namespace,cache_key,payload,payload_bytes,updated_at,last_used_at,protected)
+             VALUES(?1,?2,?3,?4,?5,?5,0)
+             ON CONFLICT(namespace,cache_key) DO UPDATE SET payload=excluded.payload,
+               payload_bytes=excluded.payload_bytes,updated_at=excluded.updated_at,last_used_at=excluded.last_used_at,
+               protected=MAX(analysis_cache_records.protected,excluded.protected)",
+            params![namespace, cache_key, encoded, payload_bytes as i64, now],
+        )
+        .map_err(err)?;
+        if let Some(recording_id) = protect_if_library_recording_id {
+            let in_library = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM catalog_listings WHERE id=?1 AND recording_id=?1 AND in_library=1)",
+                [recording_id],
+                |row| row.get::<_, bool>(0),
+            ).map_err(err)?;
+            if in_library {
+                tx.execute(
+                    "INSERT OR IGNORE INTO analysis_cache_record_refs(namespace,cache_key,recording_id) VALUES(?1,?2,?3)",
+                    params![namespace, cache_key, recording_id],
+                ).map_err(err)?;
+            }
+        }
+        // Find changed ownership through the small reference index; never
+        // rewrite every protected payload for each three-second live reading.
+        let mut affected = {
+            let mut statement = tx.prepare(
+                "SELECT DISTINCT namespace,cache_key FROM analysis_cache_record_refs WHERE NOT EXISTS(
+                   SELECT 1 FROM catalog_listings WHERE id=analysis_cache_record_refs.recording_id
+                     AND recording_id=analysis_cache_record_refs.recording_id AND in_library=1)"
+            ).map_err(err)?;
+            let rows = statement
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(err)?;
+            rows.collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(err)?
+        };
+        tx.execute(
+            "DELETE FROM analysis_cache_record_refs WHERE NOT EXISTS(
+               SELECT 1 FROM catalog_listings WHERE id=analysis_cache_record_refs.recording_id
+                 AND recording_id=analysis_cache_record_refs.recording_id AND in_library=1)",
+            [],
+        )
+        .map_err(err)?;
+        affected.push((namespace.to_owned(), cache_key.to_owned()));
+        affected.sort();
+        affected.dedup();
+        for (namespace, key) in affected {
+            tx.execute(
+                "UPDATE analysis_cache_records SET protected=EXISTS(
+                   SELECT 1 FROM analysis_cache_record_refs r JOIN catalog_listings l
+                     ON l.id=r.recording_id AND l.recording_id=r.recording_id AND l.in_library=1
+                   WHERE r.namespace=analysis_cache_records.namespace AND r.cache_key=analysis_cache_records.cache_key)
+                 WHERE namespace=?1 AND cache_key=?2",
+                params![namespace, key],
+            ).map_err(err)?;
+        }
+        loop {
+            let (bytes, count): (i64, i64) = tx
+                .query_row(
+                    "SELECT COALESCE(SUM(payload_bytes),0),COUNT(*) FROM analysis_cache_records WHERE protected=0",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .map_err(err)?;
+            if bytes <= ANALYSIS_CACHE_MAX_BYTES && count <= ANALYSIS_CACHE_MAX_RECORDS {
+                break;
+            }
+            let evicted = tx
+                .execute(
+                    "DELETE FROM analysis_cache_records WHERE (namespace,cache_key) IN
+                     (SELECT namespace,cache_key FROM analysis_cache_records
+                      WHERE protected=0 AND NOT(namespace=?1 AND cache_key=?2)
+                      ORDER BY last_used_at ASC,updated_at ASC LIMIT 1)",
+                    params![namespace, cache_key],
+                )
+                .map_err(err)?;
+            if evicted == 0 {
+                return Err("Analysis cache budget is smaller than the requested record".into());
+            }
+        }
+        tx.commit().map_err(err)
+    }
+
+    /// Enumerate a bounded namespace for one-time cache migration or restore.
+    pub fn list_analysis_cache_records(
+        &self,
+        namespace: &str,
+        limit: usize,
+    ) -> Result<Vec<(String, serde_json::Value)>> {
+        if !valid_analysis_cache_namespace(namespace) || limit > 32_768 {
+            return Err("Analysis cache namespace or record limit is invalid".into());
+        }
+        let conn = self.lock_connection()?;
+        let mut statement = conn
+            .prepare("SELECT cache_key,payload FROM analysis_cache_records WHERE namespace=?1 ORDER BY last_used_at DESC LIMIT ?2")
+            .map_err(err)?;
+        let rows = statement
+            .query_map(params![namespace, limit as i64], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(err)?;
+        rows.map(|row| {
+            let (key, payload) = row.map_err(err)?;
+            Ok((key, decode(payload)?))
+        })
+        .collect()
     }
 
     /// Clear a durable one-time restore handoff only if the nonce still matches.
@@ -1299,8 +1587,64 @@ impl Store {
     }
     /// Durable state owned by the playlist synchronizer. Keeping this in SQLite means
     /// source bindings and immutable snapshots survive a missing or moved playlist file.
+    pub(crate) fn playlist_sync_generation(&self) -> Result<(i64, i64)> {
+        let conn = self.lock_connection()?;
+        let generation = conn
+            .query_row(
+                "SELECT generation FROM playlist_sync_epoch WHERE id=1",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(err)?;
+        let external = conn
+            .query_row("PRAGMA data_version", [], |row| row.get(0))
+            .map_err(err)?;
+        Ok((generation, external))
+    }
+    pub(crate) fn playlist_asset_paths(&self, id: &str) -> Result<Vec<String>> {
+        let conn = self.lock_connection()?;
+        let mut statement = conn.prepare("SELECT DISTINCT path FROM local_assets WHERE recording_id IN (
+            SELECT recording_id FROM collection_members WHERE collection_id=?1
+            UNION SELECT l.recording_id FROM playlist_ordered_entries e JOIN catalog_listings l ON l.id=e.listing_id WHERE e.collection_id=?1
+            UNION SELECT id FROM recordings WHERE ?1='favorites' AND favorite=1)").map_err(err)?;
+        let rows = statement.query_map([id], |row| row.get(0)).map_err(err)?;
+        rows.collect::<std::result::Result<_, _>>().map_err(err)
+    }
+    pub(crate) fn playlist_mirror_revision(&self, id: &str) -> Result<(i64, i64, i64)> {
+        let conn = self.lock_connection()?;
+        let (global, revision) = conn.query_row("SELECT global,COALESCE((SELECT revision FROM playlist_sync_dirty WHERE collection_id=?1),0) FROM playlist_sync_epoch WHERE id=1", [id], |row| Ok((row.get(0)?,row.get(1)?))).map_err(err)?;
+        let external = conn
+            .query_row("PRAGMA data_version", [], |row| row.get(0))
+            .map_err(err)?;
+        Ok((global, external, revision))
+    }
+    pub(crate) fn playlist_sync_revisions(&self) -> Result<crate::playlist_incremental::Revisions> {
+        crate::playlist_incremental::revisions(&*self.lock_connection()?)
+    }
+    pub(crate) fn playlist_snapshot_revision(&self, key: &str) -> Result<String> {
+        self.lock_connection()?
+            .query_row(
+                "SELECT json_extract(value,'$.revision') FROM settings WHERE key=?1",
+                [key],
+                |row| row.get(0),
+            )
+            .map_err(err)
+    }
     pub fn playlist_sync_state(&self) -> Result<Option<serde_json::Value>> {
-        self.get_json_preference("playlistSync.v1")
+        let Some(mut value) = self.get_json_preference("playlistSync.v1")? else {
+            return Ok(None);
+        };
+        expand_playlist_snapshot_refs(&mut value, |key| self.get_json_preference(key))?;
+        Ok(Some(value))
+    }
+    pub fn json_preference_exists(&self, key: &str) -> Result<bool> {
+        self.lock_connection()?
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM settings WHERE key=?1)",
+                [key],
+                |row| row.get(0),
+            )
+            .map_err(err)
     }
     pub fn save_playlist_sync_state(&self, value: &serde_json::Value) -> Result<()> {
         self.set_json_preference("playlistSync.v1", value)
@@ -4616,6 +4960,28 @@ impl Store {
     }
     /// Full stored snapshots for a browser-owned playlist collection, newest first.
     /// Each payload contains that capture's actual track list rather than the cumulative membership union.
+    pub(crate) fn browser_snapshot_headers(
+        &self,
+        collection_id: &str,
+    ) -> Result<Vec<(String, String)>> {
+        let conn = self.lock_connection()?;
+        let mut statement = conn.prepare("SELECT s.id,s.fetched_at FROM browser_sources b JOIN chart_snapshots s ON s.source_url=b.source_url AND s.provider=b.provider WHERE b.collection_id=?1 ORDER BY s.fetched_at DESC,s.rowid DESC").map_err(err)?;
+        let rows = statement
+            .query_map([collection_id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map_err(err)?;
+        rows.collect::<std::result::Result<_, _>>().map_err(err)
+    }
+    pub(crate) fn raw_chart_snapshot(&self, id: &str) -> Result<Chart> {
+        let raw: String = self
+            .lock_connection()?
+            .query_row(
+                "SELECT payload FROM chart_snapshots WHERE id=?1",
+                [id],
+                |r| r.get(0),
+            )
+            .map_err(err)?;
+        decode(raw)
+    }
     pub fn browser_snapshots_for_collection(&self, collection_id: &str) -> Result<Vec<Chart>> {
         let conn = self.lock_connection()?;
         let mut stmt = conn.prepare("SELECT s.payload FROM browser_sources b JOIN chart_snapshots s ON s.source_url=b.source_url AND s.provider=b.provider WHERE b.collection_id=?1 ORDER BY s.fetched_at DESC,s.rowid DESC").map_err(err)?;
@@ -5446,6 +5812,45 @@ impl Store {
                 asset.track = finish_hydration(track, manual, Some((selected, analysis)))?;
                 result.push(asset);
             }
+        }
+        Ok(result)
+    }
+    /// Lightweight membership lookup for exports: no audio/track payload hydration.
+    pub(crate) fn registered_asset_paths(
+        &self,
+        paths: &[String],
+    ) -> Result<std::collections::HashSet<String>> {
+        let mut result = std::collections::HashSet::new();
+        let mut paths = paths
+            .iter()
+            .map(String::as_str)
+            .filter(|path| !path.is_empty())
+            .collect::<Vec<_>>();
+        paths.sort_unstable();
+        paths.dedup();
+        if paths.is_empty() {
+            return Ok(result);
+        }
+        let conn = self.lock_connection()?;
+        for batch in paths.chunks(200) {
+            if batch.is_empty() {
+                continue;
+            }
+            let placeholders = vec!["?"; batch.len()].join(",");
+            let mut statement = conn
+                .prepare(&format!(
+                    "SELECT path FROM local_assets WHERE path IN ({placeholders})"
+                ))
+                .map_err(err)?;
+            let rows = statement
+                .query_map(rusqlite::params_from_iter(batch), |row| {
+                    row.get::<_, String>(0)
+                })
+                .map_err(err)?;
+            result.extend(
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(err)?,
+            );
         }
         Ok(result)
     }
@@ -7322,6 +7727,206 @@ fn copy_provenance_value(target: &mut Track, key: &str, value: serde_json::Value
 mod tests {
     use super::*;
     use crate::models::Candidate;
+    #[test]
+    fn durable_analysis_cache_round_trips_and_refreshes_lru() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("library.sqlite");
+        let key = "a".repeat(64);
+        let payload = serde_json::json!({"bins":[[0.1,0.3],null],"complete":false});
+        let store = Store::open(&path).unwrap();
+        store
+            .write_analysis_cache_record("observed-waveform-v1", &key, &payload, None)
+            .unwrap();
+        assert_eq!(
+            store
+                .read_analysis_cache_record("observed-waveform-v1", &key)
+                .unwrap(),
+            Some(payload.clone())
+        );
+        assert_eq!(
+            store
+                .list_analysis_cache_records("observed-waveform-v1", 10)
+                .unwrap(),
+            vec![(key.clone(), payload)]
+        );
+        drop(store);
+        let reopened = Store::open(&path).unwrap();
+        assert!(reopened
+            .read_analysis_cache_record("observed-waveform-v1", &key)
+            .unwrap()
+            .is_some());
+    }
+
+    #[test]
+    fn durable_analysis_cache_rejects_unbounded_or_nonopaque_keys() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("library.sqlite")).unwrap();
+        assert!(store
+            .write_analysis_cache_record("Observed", &"a".repeat(64), &serde_json::json!({}), None)
+            .is_err());
+        assert!(store
+            .write_analysis_cache_record(
+                "live-analysis-v1",
+                "provider:recording",
+                &serde_json::json!({}),
+                None
+            )
+            .is_err());
+        let too_large = serde_json::json!({"data":"x".repeat(ANALYSIS_CACHE_MAX_RECORD_BYTES)});
+        assert!(store
+            .write_analysis_cache_record("live-analysis-v1", &"b".repeat(64), &too_large, None)
+            .is_err());
+    }
+
+    #[test]
+    fn durable_analysis_cache_protection_tracks_all_live_library_aliases() {
+        let (_directory, store) = db();
+        let first = track("cache-ref-a", "");
+        let second = track("cache-ref-b", "");
+        store
+            .save_library_tracks(&[first.clone(), second.clone()])
+            .unwrap();
+        let key = "c".repeat(64);
+        let payload = serde_json::json!({"result":"partial"});
+        store
+            .write_analysis_cache_record("observed-waveform-v1", &key, &payload, Some(&first.id))
+            .unwrap();
+        store
+            .write_analysis_cache_record("observed-waveform-v1", &key, &payload, Some(&second.id))
+            .unwrap();
+        {
+            let conn = store.lock_connection().unwrap();
+            let (refs, protected): (i64, bool) = conn.query_row(
+                "SELECT (SELECT COUNT(*) FROM analysis_cache_record_refs WHERE namespace=?1 AND cache_key=?2),protected FROM analysis_cache_records WHERE namespace=?1 AND cache_key=?2",
+                params!["observed-waveform-v1", key], |row| Ok((row.get(0)?, row.get(1)?)),
+            ).unwrap();
+            assert_eq!(refs, 2);
+            assert!(protected);
+            conn.execute(
+                "UPDATE catalog_listings SET in_library=0 WHERE id=?1",
+                [&second.id],
+            )
+            .unwrap();
+        }
+        store
+            .write_analysis_cache_record("observed-waveform-v1", &key, &payload, Some(&first.id))
+            .unwrap();
+        {
+            let conn = store.lock_connection().unwrap();
+            let refs: i64 = conn.query_row("SELECT COUNT(*) FROM analysis_cache_record_refs WHERE namespace=?1 AND cache_key=?2", params!["observed-waveform-v1", key], |row| row.get(0)).unwrap();
+            assert_eq!(refs, 1);
+            conn.execute(
+                "UPDATE catalog_listings SET in_library=0 WHERE id=?1",
+                [&first.id],
+            )
+            .unwrap();
+        }
+        store
+            .write_analysis_cache_record("observed-waveform-v1", &key, &payload, None)
+            .unwrap();
+        let conn = store.lock_connection().unwrap();
+        let (refs, protected): (i64, bool) = conn.query_row(
+            "SELECT (SELECT COUNT(*) FROM analysis_cache_record_refs WHERE namespace=?1 AND cache_key=?2),protected FROM analysis_cache_records WHERE namespace=?1 AND cache_key=?2",
+            params!["observed-waveform-v1", key], |row| Ok((row.get(0)?, row.get(1)?)),
+        ).unwrap();
+        assert_eq!(refs, 0);
+        assert!(!protected);
+    }
+
+    #[test]
+    fn analysis_cache_write_updates_only_the_touched_and_stale_reference_rows() {
+        let (_directory, store) = db();
+        let first = track("cache-audit-a", "");
+        let second = track("cache-audit-b", "");
+        store
+            .save_library_tracks(&[first.clone(), second.clone()])
+            .unwrap();
+        let first_key = "d".repeat(64);
+        let second_key = "e".repeat(64);
+        let payload = serde_json::json!({"result":"partial"});
+        store
+            .write_analysis_cache_record(
+                "observed-waveform-v1",
+                &first_key,
+                &payload,
+                Some(&first.id),
+            )
+            .unwrap();
+        store
+            .write_analysis_cache_record(
+                "observed-waveform-v1",
+                &second_key,
+                &payload,
+                Some(&second.id),
+            )
+            .unwrap();
+        {
+            let conn = store.lock_connection().unwrap();
+            conn.execute_batch(
+                "CREATE TEMP TABLE analysis_cache_update_audit(cache_key TEXT NOT NULL);
+                 CREATE TEMP TRIGGER audit_analysis_cache_update AFTER UPDATE ON analysis_cache_records
+                 BEGIN INSERT INTO analysis_cache_update_audit(cache_key) VALUES(NEW.cache_key); END;",
+            ).unwrap();
+        }
+
+        store
+            .write_analysis_cache_record(
+                "observed-waveform-v1",
+                &first_key,
+                &payload,
+                Some(&first.id),
+            )
+            .unwrap();
+        {
+            let conn = store.lock_connection().unwrap();
+            let updated: Vec<String> = conn
+                .prepare(
+                    "SELECT DISTINCT cache_key FROM analysis_cache_update_audit ORDER BY cache_key",
+                )
+                .unwrap()
+                .query_map([], |row| row.get(0))
+                .unwrap()
+                .collect::<rusqlite::Result<_>>()
+                .unwrap();
+            assert_eq!(
+                updated,
+                [first_key.clone()],
+                "a live unrelated protected row is untouched"
+            );
+            conn.execute("DELETE FROM analysis_cache_update_audit", [])
+                .unwrap();
+            conn.execute(
+                "UPDATE catalog_listings SET in_library=0 WHERE id=?1",
+                [&first.id],
+            )
+            .unwrap();
+        }
+
+        store
+            .write_analysis_cache_record(
+                "observed-waveform-v1",
+                &second_key,
+                &payload,
+                Some(&second.id),
+            )
+            .unwrap();
+        let conn = store.lock_connection().unwrap();
+        let updated: Vec<String> = conn
+            .prepare(
+                "SELECT DISTINCT cache_key FROM analysis_cache_update_audit ORDER BY cache_key",
+            )
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(
+            updated,
+            [first_key, second_key],
+            "only the stale owner row and current write are recomputed"
+        );
+    }
+
     #[test]
     fn legacy_bandcamp_switch_migrates_once_to_ordered_fallbacks() {
         let mut settings = Settings::default();
@@ -13534,7 +14139,9 @@ mod tests {
             .lock()
             .unwrap()
             .execute_batch(
-                "ALTER TABLE verified_playback_sources DROP COLUMN verification_proof;
+                "DROP TABLE analysis_cache_record_refs;
+             DROP TABLE analysis_cache_records;
+             ALTER TABLE verified_playback_sources DROP COLUMN verification_proof;
              PRAGMA user_version=9;",
             )
             .unwrap();
@@ -14562,7 +15169,7 @@ mod tests {
         assert_eq!(
             c.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
                 .unwrap(),
-            11
+            14
         );
         let occurrence_column: bool = c.query_row(
             "SELECT EXISTS(SELECT 1 FROM pragma_table_info('playlist_ordered_entries') WHERE name='occurrence_id')",
@@ -14655,7 +15262,9 @@ mod tests {
         }
         legacy
             .execute_batch(
-                "DROP TRIGGER IF EXISTS playlist_occurrence_id_insert;
+                "DROP TABLE analysis_cache_record_refs;
+                 DROP TABLE analysis_cache_records;
+                 DROP TRIGGER IF EXISTS playlist_occurrence_id_insert;
                  DROP INDEX IF EXISTS playlist_occurrence_id;
                  ALTER TABLE playlist_ordered_entries DROP COLUMN occurrence_id;
                  ALTER TABLE catalog_listings DROP COLUMN in_library;
@@ -14671,7 +15280,7 @@ mod tests {
             connection
                 .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
                 .unwrap(),
-            11
+            14
         );
         drop(connection);
         let migrated_occurrences = migrated

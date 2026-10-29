@@ -20,7 +20,7 @@
   const evidence = $derived((track.provenance ?? {}) as Record<string,unknown>);
   const imported = $derived(importedOverride ?? (evidence.importMetadata ?? {}) as Record<string,unknown>);
   const canEnrich = $derived([track.sourceUrl, imported.albumUrl].some(url=>typeof url==="string" && /^https:\/\/[^/]+\.bandcamp\.com\/(album|track)\//.test(url)));
-  const pageLinks = $derived([...[{label:"Track page",url:track.sourceUrl},{label:"Album page",url:imported.albumUrl},{label:"Artist page",url:imported.artistUrl},{label:"Channel page",url:imported.channelUrl}],...(Array.isArray(imported.artistUrls)?imported.artistUrls.map(url=>({label:"Artist page",url})):[])].filter((item,index,items)=>typeof item.url==="string" && /^https:\/\//.test(item.url) && items.findIndex(other=>other.url===item.url)===index));
+  const pageLinks = $derived([...[{label:"Album page",url:imported.albumUrl},{label:"Artist page",url:imported.artistUrl},{label:"Channel page",url:imported.channelUrl}],...(Array.isArray(imported.artistUrls)?imported.artistUrls.map(url=>({label:"Artist page",url})):[])].filter((item,index,items)=>typeof item.url==="string" && /^https:\/\//.test(item.url) && items.findIndex(other=>other.url===item.url)===index));
   async function openSourcePage(event: MouseEvent, url: string) {
     event.preventDefault();
     try {await call("open_external_url",{url});} catch(error) {importStatus=String(error);}
@@ -58,9 +58,14 @@
     {#if imported.videoTitle}<p>Video: {String(imported.videoTitle)}{imported.channelName ? ` · Channel: ${imported.channelName}` : ""}</p>{/if}
     {#if imported.availability==="unavailable"}<p>This recording was unavailable on the source page.</p>{/if}
     {#if canEnrich}<button onclick={()=>void enrichImport()}>Fill missing Bandcamp information</button>{/if}
-    {#if !track.playbackRange && track.provider!=="radio"}<label>Playback source <select aria-label="Playback source preference" value={playbackOverride ?? (evidence.playbackMode as string ?? (["youtube","soundcloud","bandcamp"].includes(track.provider)?"source":"lookup"))} onchange={event=>void changePlaybackMode(event.currentTarget.value)}><option value="lookup">Find on preferred provider</option><option value="source">Use linked source</option></select></label>{/if}
-    {#if importStatus}<p role="status">{importStatus}</p>{/if}
   </details>{/if}
+  {#if !track.playbackRange && ["youtube","soundcloud","bandcamp"].includes(track.provider)}
+    <div class="playback-preference">
+      <label>Audio source<select aria-label="Playback source preference" value={playbackOverride ?? (evidence.playbackMode as string ?? "source")} onchange={event=>void changePlaybackMode(event.currentTarget.value)}><option value="source">Keep this exact upload</option><option value="lookup">Allow matching sources</option></select></label>
+      <p>Applies next time you play. Keep the exact upload for mixes, sets, and live performances.</p>
+    </div>
+  {/if}
+  {#if importStatus}<p role="status">{importStatus}</p>{/if}
   {#if recording}
     {#if !result?.recording}<p class="notice">Catalog suggestion · saved track information is unchanged.</p>{/if}
     <strong>{recording.title}{recording.version ? ` (${recording.version})` : ""}</strong>
@@ -75,5 +80,5 @@
   {#if !result?.recording && result?.candidates.length}<details><summary>{result.resolution === "ambiguous_isrc" ? "Choose a catalog recording" : "Possible catalog recordings"} ({result.candidates.length})</summary>{#each result.candidates as candidate (candidate.recording.id)}<button class="candidate" onclick={() => selection = candidate.recording}>{candidate.recording.title}{candidate.recording.version ? ` (${candidate.recording.version})` : ""}<small>{candidate.recording.artist ?? "Artist unknown"}</small></button>{/each}</details>{/if}
 </section>
 <style>
-  .recording-information{margin-top:26px}nav{display:flex;flex-wrap:wrap;gap:12px;margin:12px 0}nav a{color:var(--accent);font-size:13px}label{display:block;margin-top:12px}select{max-width:100%}h2{font-size:24px;margin:0 0 18px}h3{font-size:15px;margin:22px 0 10px}p{color:var(--muted);font-size:14px;line-height:1.5}.artist{display:block;margin-top:8px;background:transparent;border:0;padding:0;color:var(--text);text-align:left;text-decoration:underline}ul{list-style:none;padding:0;margin:0;display:grid;gap:7px;max-height:300px;overflow:auto}.release,.candidate{width:100%;display:grid;gap:5px;text-align:left;padding:9px 10px;border:1px solid var(--line);border-radius:7px;background:var(--raised);color:var(--text);overflow-wrap:anywhere}.release:disabled{opacity:1}.candidate{margin-top:8px}.release small,.candidate small,.attribution{color:var(--muted)}.attribution{display:block;margin-top:14px;font-size:11px}summary{cursor:pointer;color:var(--accent);margin-top:16px}.notice{font-size:12px}.compact h2{font-size:15px}.compact p,.compact button{font-size:12px}button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+  .recording-information{margin-top:26px}nav{display:flex;flex-wrap:wrap;gap:12px;margin:12px 0}nav a{color:var(--accent);font-size:13px}.playback-preference{margin:14px 0}.playback-preference label{display:grid;gap:6px;margin:0;color:var(--muted);font-size:11px}.playback-preference select{width:100%;min-width:0;max-width:100%;font-size:12px}.playback-preference p{margin:6px 0 0;font-size:11px;line-height:1.4}h2{font-size:24px;margin:0 0 18px}h3{font-size:15px;margin:22px 0 10px}p{color:var(--muted);font-size:14px;line-height:1.5}.artist{display:block;margin-top:8px;background:transparent;border:0;padding:0;color:var(--text);text-align:left;text-decoration:underline}ul{list-style:none;padding:0;margin:0;display:grid;gap:7px;max-height:300px;overflow:auto}.release,.candidate{width:100%;display:grid;gap:5px;text-align:left;padding:9px 10px;border:1px solid var(--line);border-radius:7px;background:var(--raised);color:var(--text);overflow-wrap:anywhere}.release:disabled{opacity:1}.candidate{margin-top:8px}.release small,.candidate small,.attribution{color:var(--muted)}.attribution{display:block;margin-top:14px;font-size:11px}summary{cursor:pointer;color:var(--accent);margin-top:16px}.notice{font-size:12px}.compact h2{font-size:15px}.compact p,.compact button{font-size:12px}button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 </style>
