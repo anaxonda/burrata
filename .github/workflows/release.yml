@@ -265,7 +265,17 @@ jobs:
           BURRATA_DIRECT_YOUTUBE: '0'
           BURRATA_BANDCAMP_PLAYBACK: '0'
       - name: Build native installer
-        run: npm run tauri -- build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          BUNDLES: ${{ matrix.bundles }}
+        run: |
+          extra=()
+          if [[ "$TARGET" = x86_64-unknown-linux-gnu ]]; then
+            python3 scripts/release/prepare-appimage-config.py --output .cache/appimage-config.json
+            extra=(--config "$PWD/.cache/appimage-config.json")
+          fi
+          npm run tauri -- build --target "$TARGET" --bundles "$BUNDLES" "${extra[@]}"
       - name: Smoke-test the installed desktop artifact
         shell: bash
         env:
@@ -281,11 +291,20 @@ jobs:
           installer="$(find "$bundle_dir" -type f -name "$pattern" -print -quit)"
           test -n "$installer"
           python3 scripts/release/smoke-installed.py --installer "$installer" --evidence .cache/release-smoke-evidence.json
+      - name: Smoke-test the AppImage launcher and bundled WebView audio
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          installer="$(find src-tauri/target/x86_64-unknown-linux-gnu/release/bundle -type f -name '*.AppImage' -print -quit)"
+          test -n "$installer"
+          python3 scripts/release/smoke-installed.py --installer "$installer" --evidence .cache/appimage-smoke-evidence.json
       - uses: actions/upload-artifact@v7
         if: always() && hashFiles('.cache/release-smoke-evidence.json') != ''
         with:
           name: smoke-evidence-${{ matrix.label }}-${{ needs.prepare.outputs.commit }}
-          path: .cache/release-smoke-evidence.json
+          path: |
+            .cache/release-smoke-evidence.json
+            .cache/appimage-smoke-evidence.json
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 30

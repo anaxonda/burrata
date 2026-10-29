@@ -242,17 +242,26 @@ jobs:
           npm run build:mcp
           bash scripts/release/prepare-native-resources.sh
       - name: Build configured Tauri bundles
-        run: npm run tauri -- build --target x86_64-unknown-linux-gnu --bundles deb,rpm,appimage
+        run: |
+          python3 scripts/release/prepare-appimage-config.py --output .cache/appimage-config.json
+          npm run tauri -- build --target x86_64-unknown-linux-gnu --bundles deb,rpm,appimage --config "$PWD/.cache/appimage-config.json"
       - name: Smoke-test the installed Linux desktop package
         run: |
           installer="$(find src-tauri/target/x86_64-unknown-linux-gnu/release/bundle -type f -name '*.deb' -print -quit)"
           test -n "$installer"
           python3 scripts/release/smoke-installed.py --installer "$installer" --evidence .cache/release-smoke-evidence.json
+      - name: Smoke-test the AppImage launcher and bundled WebView audio
+        run: |
+          installer="$(find src-tauri/target/x86_64-unknown-linux-gnu/release/bundle -type f -name '*.AppImage' -print -quit)"
+          test -n "$installer"
+          python3 scripts/release/smoke-installed.py --installer "$installer" --evidence .cache/appimage-smoke-evidence.json
       - uses: actions/upload-artifact@v7
         if: always() && hashFiles('.cache/release-smoke-evidence.json') != ''
         with:
           name: linux-smoke-evidence-${{ github.sha }}
-          path: .cache/release-smoke-evidence.json
+          path: |
+            .cache/release-smoke-evidence.json
+            .cache/appimage-smoke-evidence.json
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 14

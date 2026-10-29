@@ -117,9 +117,25 @@ def platform_environment(home: pathlib.Path, app_data: pathlib.Path) -> dict[str
     return env
 
 
-def install_linux(installer: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path, str]:
+def install_linux(installer: pathlib.Path, temp: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path, str | None]:
+    if installer.suffix.lower() == ".appimage":
+        extracted = temp / "appimage"
+        extracted.mkdir()
+        try:
+            result = subprocess.run([str(installer), "--appimage-extract"], cwd=extracted,
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=120)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise SmokeFailure("install", "AppImage extraction could not complete") from error
+        if result.returncode:
+            raise SmokeFailure("install", "AppImage extraction failed")
+        appdir = extracted / "squashfs-root"
+        app = appdir / "AppRun"
+        mcp = list(appdir.glob("usr/lib/*/resources/mcp/server.cjs"))
+        if not app.is_file() or len(mcp) != 1:
+            raise SmokeFailure("install", "AppImage is missing its launcher or MCP bridge")
+        return app, mcp[0].parent.parent, None
     if installer.suffix.lower() != ".deb":
-        raise SmokeFailure("install", "Linux smoke requires the built DEB installer")
+        raise SmokeFailure("install", "Linux smoke requires a built DEB or AppImage")
     package = run(["dpkg-deb", "-f", installer, "Package"]).stdout.decode().strip()
     if not package:
         raise SmokeFailure("install", "DEB did not declare a package name")
@@ -827,7 +843,7 @@ def main() -> int:
     env = platform_environment(home, app_data)
     try:
         if sys.platform == "linux":
-            app, resource_root, package_name = install_linux(installer)
+            app, resource_root, package_name = install_linux(installer, temp)
             installed_path = str(app)
         elif sys.platform == "darwin":
             app, resource_root, installed_path = install_macos(installer, temp)

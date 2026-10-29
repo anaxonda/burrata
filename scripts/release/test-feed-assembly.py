@@ -44,6 +44,7 @@ def check_patched_stream_download_collection():
         assets = cache / "release-assets"
         assets.mkdir(parents=True)
         (cache / "release-smoke-evidence.json").write_text('{"status": "passed"}')
+        (cache / "appimage-smoke-evidence.json").write_text('{"status": "passed"}')
         for name in [f"burrata-yt-dlp-{target}", f"bgutil-plugin-2.0.2-{target}.zip", "youtube-support-target.json"]:
             (assets / name).write_bytes(b"synthetic tool asset")
         bundles = workspace / "src-tauri/target" / target / "release/bundle"
@@ -73,6 +74,11 @@ def check_patched_stream_download_collection():
         assert "stream-download 0.24.4" in (output / "THIRD_PARTY_NOTICES.md").read_text()
         subprocess.run(command, cwd=workspace, env=environment, check=True, capture_output=True)
         assert archive.read_bytes() == archive_before, "source archive must not contain collection timestamps"
+        assert (output / "appimage-smoke-evidence.json").read_text() == '{"status": "passed"}'
+        (cache / "appimage-smoke-evidence.json").unlink()
+        rejected = subprocess.run(command, cwd=workspace, env=environment, capture_output=True)
+        assert rejected.returncode != 0, "Linux collection requires AppImage launch evidence"
+        (cache / "appimage-smoke-evidence.json").write_text('{"status": "passed"}')
         (vendor / "stream-download/LICENSE-MIT").unlink()
         rejected = subprocess.run(command, cwd=workspace, env=environment, capture_output=True)
         assert rejected.returncode != 0, "source collection must reject missing upstream license text"

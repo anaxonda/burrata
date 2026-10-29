@@ -36,6 +36,36 @@ class CanonicalTempRootTests(unittest.TestCase):
             self.assertFalse(canonical.is_symlink())
 
 
+class AppImageTests(unittest.TestCase):
+    def test_extracts_and_launches_wrapper_instead_of_bypassing_its_runtime(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            installer = root / "Burrata.AppImage"
+            installer.write_bytes(b"fixture")
+
+            def extract(command, **kwargs):
+                self.assertEqual(command, [str(installer), "--appimage-extract"])
+                appdir = kwargs["cwd"] / "squashfs-root"
+                mcp = appdir / "usr/lib/Burrata/resources/mcp/server.cjs"
+                mcp.parent.mkdir(parents=True)
+                mcp.write_text("fixture")
+                (appdir / "AppRun").write_text("fixture")
+                return subprocess.CompletedProcess(command, 0)
+
+            with patch.object(smoke.subprocess, "run", side_effect=extract):
+                app, resources, package = smoke.install_linux(installer, root)
+            self.assertEqual(app.name, "AppRun")
+            self.assertEqual(resources, app.parent / "usr/lib/Burrata/resources")
+            self.assertIsNone(package)
+
+    def test_incomplete_appimage_cannot_pass_installation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            with patch.object(smoke.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)):
+                with self.assertRaises(smoke.SmokeFailure):
+                    smoke.install_linux(root / "Burrata.AppImage", root)
+
+
 class MacosTransportSecurityTests(unittest.TestCase):
     def _write_bundle(self, info: dict) -> pathlib.Path:
         temp = tempfile.TemporaryDirectory(prefix="burrata-ats-test-")

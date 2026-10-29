@@ -13,6 +13,10 @@ rm -rf "$out"
 mkdir -p "$out/installers"
 test -s .cache/release-smoke-evidence.json || { echo "Installed-artifact smoke evidence is missing" >&2; exit 1; }
 cp .cache/release-smoke-evidence.json "$out/smoke-evidence.json"
+if [[ "$TARGET" = x86_64-unknown-linux-gnu ]]; then
+  test -s .cache/appimage-smoke-evidence.json || { echo "AppImage smoke evidence is missing" >&2; exit 1; }
+  cp .cache/appimage-smoke-evidence.json "$out/appimage-smoke-evidence.json"
+fi
 find "$bundle_dir" -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) -exec cp -v {} "$out/installers/" \;
 test -n "$(find "$out/installers" -type f -print -quit)" || { echo "No installer produced for $TARGET" >&2; exit 1; }
 python3 scripts/release/write-inventory.py "$out/artifact-inventory.json"
