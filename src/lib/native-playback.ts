@@ -144,7 +144,7 @@ export class NativePlaybackBridge {
   }
 
   acceptSnapshot(snapshot: NativeStateEvent): boolean {
-    snapshot = {...snapshot, failure:nativeSnapshotFailure(snapshot)};
+    snapshot = {...snapshot, failure:nativeSnapshotFailure(snapshot), paused:snapshot.status === "failed" || snapshot.paused};
     if (this.snapshot && snapshot.revision < this.snapshot.revision) return false;
     if (!Array.isArray(snapshot.queue)) {
       if (!this.snapshot || snapshot.queueRevision !== undefined && snapshot.queueRevision !== this.snapshot.queueRevision) {

@@ -2875,6 +2875,46 @@ impl PlaybackService {
         self.inner.app.restart();
     }
 
+    /// Serialize a background file replacement with playback ownership. A new
+    /// play request cannot acquire this recording between this check and commit.
+    pub(crate) fn commit_background_upgrade(
+        &self,
+        asset: &crate::models::LocalAsset,
+        disposition: &crate::models::ReplacementDisposition,
+    ) -> Result<crate::models::LocalAsset, String> {
+        let state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| "Playback ownership is unavailable")?;
+        if self.recording_in_use_locked(&state, &asset.recording_id)? {
+            return Err(
+                "Lossless upgrade needs review because this recording became active".into(),
+            );
+        }
+        self.inner.store.commit_download_asset(asset, disposition)
+    }
+    fn recording_in_use_locked(&self, state: &State, recording_id: &str) -> Result<bool, String> {
+        if !self.native_enabled() {
+            return Ok(true);
+        }
+        if matches!(state.status.as_str(), "idle" | "failed") {
+            return Ok(false);
+        }
+        match state.track() {
+            Some(track) => Ok(self.inner.store.recording_id(&track.id)? == recording_id),
+            None => Ok(false),
+        }
+    }
+    pub(crate) fn recording_in_use(&self, recording_id: &str) -> Result<bool, String> {
+        let state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| "Playback ownership is unavailable")?;
+        self.recording_in_use_locked(&state, recording_id)
+    }
+
     pub fn snapshot(&self) -> Value {
         self.inner
             .state
@@ -4808,11 +4848,14 @@ impl PlaybackService {
             if !claim_recovery_failure_generation(&mut s, g) {
                 return;
             }
-            // Source resolution already tries a fresh format/URL before returning an
-            // error. Only retry the whole playback source after audio has actually
-            // started (for example, a mid-stream disconnect), not after startup
-            // resolution has exhausted its own retries.
-            let can_recover = can_retry_failed_stream(&s, message);
+            // Resolution exhausts its own attempts. A decoder transport failure
+            // can still happen between successful preflight and first audio, so
+            // permit a bounded refresh within the original startup deadline.
+            let can_recover = can_retry_failed_stream_at_stage(
+                &s,
+                message,
+                trigger == RecoveryTrigger::OutputFailed,
+            );
             let recurring_decision =
                 if can_recover && failure_counts_as_native_transport_stall(trigger, message) {
                     record_recurring_transport_stall(&mut s, Instant::now())
@@ -4835,8 +4878,12 @@ impl PlaybackService {
                 && !locked_recurring_stall
             {
                 let budget = s.startup_budget;
-                s.recovery_deadline
-                    .get_or_insert_with(|| Instant::now() + budget);
+                let deadline = if s.first_audio_ms.is_none() {
+                    s.request_started + budget
+                } else {
+                    Instant::now() + budget
+                };
+                s.recovery_deadline.get_or_insert(deadline);
                 s.recovered_audio_since = None;
                 s.healthy_output_since = None;
                 s.replace_source_on_recovery =
@@ -7066,7 +7113,20 @@ fn record_recovery_facts(state: &mut State, trigger: RecoveryTrigger) {
 }
 
 fn can_retry_failed_stream(state: &State, message: &str) -> bool {
-    state.first_audio_ms.is_some()
+    can_retry_failed_stream_at_stage(state, message, false)
+}
+fn can_retry_failed_stream_at_stage(state: &State, message: &str, output_failed: bool) -> bool {
+    let failure = crate::playback_failure::classify(message);
+    let startup_transport = output_failed
+        && message.contains("Native HTTP")
+        && failure.retryable
+        && matches!(
+            failure.scope,
+            crate::playback_failure::FailureScope::Source
+                | crate::playback_failure::FailureScope::Global
+        )
+        && Instant::now() < state.request_started + state.startup_budget;
+    (state.first_audio_ms.is_some() || startup_transport)
         && state.recovery < 2
         && state
             .recovery_deadline
@@ -11138,6 +11198,45 @@ mod tests {
         assert!(!can_retry_failed_stream(&state, "Cancelled by user"));
         state.recovery = 2;
         assert!(!can_retry_failed_stream(&state, "decoder failed"));
+    }
+
+    #[test]
+    fn startup_http_recovery_is_bounded_to_transport_and_original_deadline() {
+        let mut state = State::default();
+        state.candidate = Some(Candidate::default());
+        for message in [
+            "Native HTTP byte range: HTTP 403 on initial media response",
+            "Native HTTP byte range: HTTP 503 on initial media response",
+            "Native HTTP request failed: connection reset",
+            "Native HTTP request failed: error sending request",
+            "Native HTTP request failed: error decoding response body",
+            "Native HTTP byte range: media response is empty",
+        ] {
+            assert!(
+                can_retry_failed_stream_at_stage(&state, message, true),
+                "{message}"
+            );
+            assert!(!can_retry_failed_stream_at_stage(&state, message, false));
+        }
+        assert!(!can_retry_failed_stream_at_stage(
+            &state,
+            "output device unavailable",
+            true
+        ));
+        assert!(!can_retry_failed_stream_at_stage(&state, "Cancelled", true));
+        state.recovery = 2;
+        assert!(!can_retry_failed_stream_at_stage(
+            &state,
+            "Native HTTP byte range: HTTP 403 on initial media response",
+            true
+        ));
+        state.recovery = 0;
+        state.request_started = Instant::now() - state.startup_budget - Duration::from_secs(1);
+        assert!(!can_retry_failed_stream_at_stage(
+            &state,
+            "Native HTTP byte range: HTTP 403 on initial media response",
+            true
+        ));
     }
 
     #[test]

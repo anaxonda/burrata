@@ -947,7 +947,7 @@ pub(crate) async fn resolve_candidate_fresh_until(
             }
             bind_linked_soundcloud_provider_id(&mut candidate, &audio);
             include_candidate_aliases(&mut aliases,track,&candidate,Some(&audio));
-            let requires_identity_check = !pinned;
+            let requires_identity_check = !pinned || candidate.provider == "bandcamp";
             if !policy_matching::accept(
                 track,
                 aliases.tracks(),
@@ -1315,6 +1315,25 @@ where
     Fut: std::future::Future<Output = Result<T, String>> + Send,
 {
     let prepared_track = reconcile_stale_local_asset(store, incoming, explicit_source)?;
+    let source_url = prepared_track
+        .playback_range
+        .as_ref()
+        .map(|range| range.source_url.as_str())
+        .filter(|url| !url.trim().is_empty())
+        .unwrap_or(&prepared_track.source_url);
+    let local_only = source_url.starts_with("local:")
+        || source_url.starts_with("file:")
+        || (prepared_track.provider == "local"
+            && (source_url.is_empty() || Path::new(source_url).is_absolute()));
+    // Hydration removes unusable paths. A local-only identity must not turn
+    // into a remote catalog lookup merely because its file disappeared or
+    // changed; catalog tracks with a remote source keep their existing fallback.
+    if local_only && prepared_track.local_path.is_none() {
+        return Err(
+            "Local file is missing or has changed. Reconnect its folder or choose another file."
+                .into(),
+        );
+    }
     resolve(prepared_track).await
 }
 
@@ -2600,6 +2619,14 @@ where
     }
 }
 
+fn automatic_bandcamp_discovery(
+    provider: &str,
+    pinned: bool,
+    no_selected_candidates: bool,
+) -> bool {
+    provider == "bandcamp" && !pinned && no_selected_candidates
+}
+
 async fn resolve_serial(
     store: &Store,
     acquisition: &AcquisitionManager,
@@ -2764,7 +2791,9 @@ async fn resolve_serial(
             break;
         }
         trace.event("provider_start", &provider, json!({"pinned":pinned}));
-        if provider == "bandcamp" {
+        // An explicit Bandcamp page is already selected. Discovery eligibility
+        // deliberately rejects pinned requests and must not intercept that path.
+        if automatic_bandcamp_discovery(&provider, pinned, candidates.is_empty()) {
             let eligible = !selected_candidate_present
                 && crate::bandcamp_fallback::eligible_in_order(
                     track,
@@ -3544,7 +3573,7 @@ async fn resolve_serial(
                 return Err("Cancelled".into());
             }
             tried_linked = true;
-            let requires_identity_check = !pinned;
+            let requires_identity_check = !pinned || candidate.provider == "bandcamp";
             if direct_youtube_enabled()
                 && acquisition::uses_managed_ytdlp(&settings.yt_dlp_path)
                 && direct_youtube_foreground_context(trace)
@@ -6083,7 +6112,7 @@ async fn recover_inner(
         crate::artist_credit_aliases::cached_verified_playback_artist_aliases(store, track)
     };
     include_candidate_aliases(&mut aliases, track, &candidate, Some(&audio));
-    let requires_identity_check = !pinned;
+    let requires_identity_check = !pinned || candidate.provider == "bandcamp";
     if verify_with_playback_alias_context(
         track,
         &aliases,
@@ -8960,6 +8989,81 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn missing_local_only_files_never_search_from_queued_or_hydrated_tracks() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        for hydrate_after_removal in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let store = Store::open(&directory.path().join("local-source.sqlite")).unwrap();
+            let track = Track {
+                id: "local:source-audit".into(),
+                provider: "local".into(),
+                provider_id: "source-audit".into(),
+                source_url: "local:source-audit".into(),
+                artist: "Artist".into(),
+                title: "Local recording".into(),
+                ..Track::default()
+            };
+            store.save_track(&track).unwrap();
+            let path = directory.path().join("recording.flac");
+            std::fs::write(&path, b"saved recording").unwrap();
+            store
+                .save_asset(&stored_asset("local-source", &track, &path))
+                .unwrap();
+            let queued = store.get_track(&track.id).unwrap().unwrap();
+            std::fs::remove_file(&path).unwrap();
+            let hydrated = if hydrate_after_removal {
+                store.get_track(&track.id).unwrap().unwrap()
+            } else {
+                queued
+            };
+            let called = std::sync::Arc::new(AtomicBool::new(false));
+            let resolver_called = called.clone();
+            let result =
+                resolve_after_local_preflight(&store, &hydrated, false, move |_| async move {
+                    resolver_called.store(true, Ordering::SeqCst);
+                    Ok::<_, String>(())
+                })
+                .await;
+            let error = result.unwrap_err();
+            assert!(error.starts_with("Local file is missing or has changed"));
+            assert!(!called.load(Ordering::SeqCst));
+            let classified = crate::playback_failure::classify(&error);
+            assert_eq!(
+                classified.category,
+                crate::playback_failure::FailureCategory::Storage
+            );
+            assert_eq!(
+                classified.scope,
+                crate::playback_failure::FailureScope::Global
+            );
+        }
+        // A downloaded chapter may retain a pinned remote parent source even
+        // when its local copy disappeared. Preserve that existing route.
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("remote-chapter.sqlite")).unwrap();
+        let chapter = Track {
+            provider: "local".into(),
+            source_url: "local:chapter".into(),
+            playback_range: Some(crate::models::PlaybackRange {
+                parent_track_id: "parent".into(),
+                chapter_id: "chapter".into(),
+                source_url: "https://example.invalid/parent".into(),
+                start_time: 12.0,
+                end_time: 48.0,
+                parent_title: "Parent".into(),
+                parent_duration_seconds: Some(180.0),
+            }),
+            ..Track::default()
+        };
+        let source = resolve_after_local_preflight(&store, &chapter, true, |track| async move {
+            Ok(track.playback_range.unwrap().source_url)
+        })
+        .await
+        .unwrap();
+        assert_eq!(source, "https://example.invalid/parent");
+    }
+
+    #[tokio::test]
     async fn stale_path_with_no_remaining_asset_reaches_the_existing_resolver_and_its_error() {
         use std::sync::{
             atomic::{AtomicBool, Ordering},
@@ -9644,6 +9748,122 @@ mod tests {
             assert_eq!(enabled.provider, expected_provider);
             assert_eq!(enabled.id, disabled.id);
             assert_eq!(enabled.url, disabled.url);
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "Live public-provider qualification; requires network"]
+    async fn live_bandcamp_sketches_import_resolves_without_changing_identity() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = std::sync::Arc::new(
+            Store::open(&directory.path().join("provider-qualification.sqlite")).unwrap(),
+        );
+        let connections =
+            std::sync::Arc::new(crate::connections::ConnectionManager::new(store.clone()));
+        let acquisition = AcquisitionManager::new_for_playback_test(store.clone(), connections);
+        let track = Track {
+            id: "bandcamp:import-hash".into(),
+            provider: "bandcamp".into(),
+            provider_id: "import-hash".into(),
+            title: "Sketches Of Brunswick East III".into(),
+            artist: "King Gizzard & The Lizard Wizard with Mild High Club".into(),
+            duration_seconds: Some(128.573),
+            source_url: "https://kinggizzard.bandcamp.com/track/sketches-of-brunswick-east-iii"
+                .into(),
+            provenance: json!({"browserImport":true,"captureProvider":"bandcamp","sourceKind":"album"}),
+            ..Track::default()
+        };
+        let (_sender, cancel) = watch::channel(false);
+        let source = resolve(&store, &acquisition, &track, None, cancel).await;
+        assert!(
+            source.is_ok(),
+            "Public Bandcamp qualification failed: {}",
+            source.err().unwrap_or_default()
+        );
+    }
+
+    #[test]
+    fn explicit_bandcamp_pages_bypass_discovery_but_keep_fresh_identity_checks() {
+        assert!(!automatic_bandcamp_discovery("bandcamp", true, false));
+        assert!(!automatic_bandcamp_discovery("bandcamp", false, false));
+        assert!(automatic_bandcamp_discovery("bandcamp", false, true));
+        assert!(!automatic_bandcamp_discovery("youtube", false, true));
+    }
+
+    #[test]
+    fn bandcamp_imported_collaboration_part_three_matches_fresh_page_identity() {
+        let track = Track {
+            id: "bandcamp:import-hash".into(), provider: "bandcamp".into(),
+            provider_id: "import-hash".into(),
+            title: "Sketches Of Brunswick East III".into(),
+            artist: "King Gizzard & The Lizard Wizard with Mild High Club".into(),
+            album: Some("Sketches Of Brunswick East | King Gizzard & The Lizard Wizard with Mild High Club | King Gizzard & The Lizard Wizard".into()),
+            source_url: "https://kinggizzard.bandcamp.com/track/sketches-of-brunswick-east-iii".into(),
+            duration_seconds: Some(128.573), ..Track::default()
+        };
+        let mut candidate = linked_candidate_with_bandcamp(&track, true).unwrap();
+        let audio = acquisition::PreviewAudio {
+            url: "https://invalid.example/audio".into(),
+            mime_type: "audio/mpeg".into(),
+            codec: Some("mp3".into()),
+            bitrate_kbps: Some(128.0),
+            duration_seconds: Some(128.573),
+            selected_format_id: Some("mp3-128".into()),
+            selected_format_has_video: false,
+            source_metadata: Some(
+                json!({"provider":"bandcamp","track":track.title,"artist":track.artist,"channel":track.artist,"uploader":track.artist}),
+            ),
+            resolved_title: Some(format!("{} - {}", track.artist, track.title)),
+            resolved_provider_id: Some("2643132897".into()),
+            chapters: Some(vec![]),
+            expected_content_length: None,
+            provider_session: None,
+            headers: vec![],
+        };
+        assert!(accept_resolved_identity(
+            &track,
+            &mut candidate,
+            &audio,
+            true
+        ));
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("bandcamp-matching.sqlite")).unwrap();
+        let mut fresh = linked_candidate_with_bandcamp(&track, true).unwrap();
+        assert!(
+            policy_matching::verify(
+                &track,
+                &[],
+                &[],
+                None,
+                &mut fresh,
+                &audio,
+                true,
+                crate::recording_match::MatchLevel::Balanced,
+                &store
+            )
+            .is_some(),
+            "fresh Bandcamp page fields must pass the shared evaluator"
+        );
+        for mut wrong in [audio.clone(), audio.clone()].into_iter().enumerate() {
+            if wrong.0 == 0 {
+                wrong.1.source_metadata.as_mut().unwrap()["artist"] = json!("Different Artist");
+                wrong.1.source_metadata.as_mut().unwrap()["channel"] = json!("Different Artist");
+            } else {
+                wrong.1.resolved_provider_id = Some("999999".into());
+            }
+            let mut bound = fresh.clone();
+            assert!(policy_matching::verify(
+                &track,
+                &[],
+                &[],
+                None,
+                &mut bound,
+                &wrong.1,
+                true,
+                crate::recording_match::MatchLevel::Balanced,
+                &store
+            )
+            .is_none());
         }
     }
 

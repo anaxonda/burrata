@@ -30,6 +30,12 @@ impl DecodeError for NativeHttpError {}
 fn invalid(message: &str) -> NativeHttpError {
     NativeHttpError(format!("Native HTTP byte range: {message}"))
 }
+fn unexpected_status(status: u16, phase: &str) -> NativeHttpError {
+    // Status is enough for safe retry policy. Never include signed URLs,
+    // response bodies, authentication headers or redirect locations.
+    invalid(&format!("HTTP {status} on {phase} media response"))
+}
+
 fn request_error(error: reqwest::Error) -> NativeHttpError {
     NativeHttpError(format!(
         "Native HTTP request failed: {}",
@@ -124,7 +130,16 @@ impl Client for NativeHttpClient {
             .send()
             .await
             .map_err(request_error)?;
+        if !matches!(
+            response.status(),
+            reqwest::StatusCode::OK | reqwest::StatusCode::PARTIAL_CONTENT
+        ) {
+            return Err(unexpected_status(response.status().as_u16(), "initial"));
+        }
         let length = content_length(response.headers())?;
+        if length == Some(0) {
+            return Err(invalid("media response is empty"));
+        }
         let total = match response.status() {
             reqwest::StatusCode::OK => {
                 if response.headers().contains_key(header::CONTENT_RANGE) {
@@ -142,7 +157,7 @@ impl Client for NativeHttpClient {
                 range.validate_length(length)?;
                 Some(range.total)
             }
-            _ => return Err(invalid("initial response status must be 200 or 206")),
+            _ => unreachable!("initial status checked above"),
         };
         let representation = Representation {
             total,
@@ -184,9 +199,7 @@ impl Client for NativeHttpClient {
         }
         let response = request.send().await.map_err(request_error)?;
         if response.status() != reqwest::StatusCode::PARTIAL_CONTENT {
-            return Err(invalid(
-                "range response must be 206; origin ignored the range or changed the resource",
-            ));
+            return Err(unexpected_status(response.status().as_u16(), "range"));
         }
         let range = parse_content_range(response.headers())?;
         let expected_end = end.unwrap_or(range.total - 1).min(range.total - 1);
@@ -584,7 +597,17 @@ mod tests {
             let client = client();
             collect(client.get(&url).await.unwrap()).await.unwrap();
             let response = client.get_range(&url, 4, None).await.unwrap();
-            assert!(collect(response).await.is_err());
+            let error = collect(response).await.unwrap_err().to_string();
+            let classified = crate::playback_failure::classify(&error);
+            assert!(classified.retryable);
+            assert_eq!(
+                classified.stage,
+                crate::playback_failure::FailureStage::Transport
+            );
+            assert_eq!(
+                classified.scope,
+                crate::playback_failure::FailureScope::Source
+            );
             worker.join().unwrap();
         }
     }
@@ -630,6 +653,51 @@ mod tests {
         );
         worker.join().unwrap();
         assert!(requests.lock().unwrap()[1].contains(&format!("if-range: {modified}\r\n")));
+    }
+
+    #[tokio::test]
+    async fn empty_media_and_connection_failures_retain_transport_retry_semantics() {
+        for response in [
+            String::new(),
+            response("200 OK", "Content-Length: 0\r\n", ""),
+        ] {
+            let (url, _, worker) = fixture(vec![response]);
+            let error = client().get(&url).await.err().unwrap().to_string();
+            assert!(!error.contains("127.0.0.1"));
+            let classified = crate::playback_failure::classify(&error);
+            assert!(classified.retryable, "{error}");
+            assert_eq!(
+                classified.stage,
+                crate::playback_failure::FailureStage::Transport
+            );
+            assert_eq!(
+                classified.scope,
+                crate::playback_failure::FailureScope::Source
+            );
+            worker.join().unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn denied_initial_responses_preserve_only_status_for_recovery() {
+        for status in [400, 401, 403, 404, 410, 416, 429, 500, 503] {
+            let (url, _, worker) = fixture(vec![response(
+                &format!("{status} Denied"),
+                "Content-Length: 6\r\n",
+                "secret",
+            )]);
+            let error = match client().get(&url).await {
+                Ok(_) => panic!("denied response accepted"),
+                Err(error) => error.to_string(),
+            };
+            assert!(error.contains(&format!("HTTP {status}")));
+            assert!(!error.contains("secret") && !error.contains(url.as_str()));
+            let failure = crate::playback_failure::classify(&error);
+            assert_eq!(failure.http_status, Some(status));
+            assert!(failure.retryable, "{status}");
+            assert!(!crate::playback_failure::should_skip_recording(&failure));
+            worker.join().unwrap();
+        }
     }
 
     #[tokio::test]

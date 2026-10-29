@@ -400,6 +400,7 @@ const LIBRARY_TABLES: &[TableSpec] = &[
 // `connections`, session-only markers, OAuth/account state, remote caches,
 // automation permissions and task state must never be copied.
 const PREFERENCE_KEYS: &[&str] = &[
+    "soulseekDownloadWatches.v1",
     "playlistPreferences.v1",
     "playlistMirrorOptions.v1",
     "playlistHierarchy.v1",
@@ -444,6 +445,8 @@ const PORTABLE_APPLICATION_FIELDS: &[&str] = &[
     "downloadFallbackEnabled",
     "downloadFallbackSources",
     "downloadFallbackAllowLossy",
+    "soulseekWaitForSource",
+    "soulseekLosslessUpgrades",
     "embedLyricsOnDownload",
 ];
 
@@ -3889,8 +3892,37 @@ fn is_preference_allowlisted(key: &str) -> bool {
         || key.starts_with("radioPlaylistCapture.v1:")
         || lyrics_choice_scope_from_key(key).is_some()
 }
+fn sanitize_download_watches(value: Value) -> Option<Value> {
+    let items = value.as_array()?;
+    if items.len() > 500 {
+        return None;
+    }
+    let items = items
+        .iter()
+        .filter_map(|item| {
+            // Typed validation strips unknown fields. Copies never resume automatic
+            // transfers against the source computer's destination or in-flight job.
+            let item: crate::acquisition::DownloadWatch =
+                serde_json::from_value(item.clone()).ok()?;
+            let mut value = serde_json::to_value(item).ok()?;
+            let track = sanitize_track_value(&value["request"]["track"]);
+            value["request"]["track"] = track;
+            value["musicDirectory"] = serde_json::json!("");
+            value["jobId"] = Value::Null;
+            if !matches!(value["state"].as_str(), Some("completed" | "cancelled")) {
+                value["state"] = serde_json::json!("paused");
+            }
+            value["revision"] =
+                serde_json::json!(value["revision"].as_u64().unwrap_or(0).saturating_add(1));
+            Some(value)
+        })
+        .collect();
+    Some(Value::Array(items))
+}
+
 fn sanitize_preference(key: &str, value: Value) -> Option<Value> {
     match key{
+    "soulseekDownloadWatches.v1"=>sanitize_download_watches(value),
     "playlistPreferences.v1"=>sanitize_playlist_preferences(value),
     "playlistMirrorOptions.v1"=>sanitize_playlist_mirror_options(value),
     "playlistHierarchy.v1"=>sanitize_playlist_hierarchy(value),
@@ -4990,6 +5022,8 @@ fn safe_setting_value(key: &str, value: &Value) -> bool {
         | "backgroundSourcePreparation"
         | "downloadFallbackEnabled"
         | "downloadFallbackAllowLossy"
+        | "soulseekWaitForSource"
+        | "soulseekLosslessUpgrades"
         | "embedLyricsOnDownload" => value.is_boolean(),
         _ => false,
     }

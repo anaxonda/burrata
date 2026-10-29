@@ -4,6 +4,7 @@ import type { Candidate, Track } from "./types";
 export interface BatchSourceResult {
   candidate?: Candidate;
   failures: string[];
+  waitingForSoulseek?: boolean;
 }
 
 export interface BatchMatchAssessment {
@@ -111,6 +112,7 @@ export async function resolveBatchSource(
   verifyPeer: (candidate: Candidate) => boolean,
   rankAssessment?: (candidate: Candidate) => Promise<BatchMatchAssessment>,
   acceptExplicitLinked?: (candidate: Candidate, assessment: BatchMatchAssessment) => boolean,
+  waitForSoulseek = false,
 ): Promise<BatchSourceResult> {
   const failures: string[] = [];
   const verify = async (candidate: Candidate, isLinked = false): Promise<Candidate | undefined> => {
@@ -149,6 +151,7 @@ export async function resolveBatchSource(
       candidates = await find(provider);
     } catch (error) {
       failures.push(`${provider}: ${String(error)}`);
+      if (provider === "slskd" && waitForSoulseek && !cancelled()) return {failures,waitingForSoulseek:true};
       continue;
     }
     if (cancelled()) break;
@@ -175,6 +178,7 @@ export async function resolveBatchSource(
       .slice(0, 3).map(({ candidate }) => candidate);
     if (!ordered.length) {
       failures.push(`${provider}: no suitable source found`);
+      if (provider === "slskd" && waitForSoulseek && !cancelled()) return {failures,waitingForSoulseek:true};
       continue;
     }
     for (const candidate of ordered) {
@@ -183,6 +187,7 @@ export async function resolveBatchSource(
       if (verified) return { candidate: verified, failures };
       if (!cancelled() && failures.length === failuresBefore) failures.push(`${provider}: ${candidate.title || "candidate"} was not accepted by recording match policy`);
     }
+    if (provider === "slskd" && waitForSoulseek && !cancelled()) return {failures,waitingForSoulseek:true};
   }
   return { failures };
 }

@@ -461,6 +461,10 @@ pub struct Settings {
     #[serde(default)]
     pub download_fallback_allow_lossy: bool,
     #[serde(default)]
+    pub soulseek_wait_for_source: bool,
+    #[serde(default)]
+    pub soulseek_lossless_upgrades: bool,
+    #[serde(default)]
     pub playlist_directories: Vec<String>,
     /// Automatically reconcile local M3U playlist, Favorites, and history mirrors.
     #[serde(default = "default_true")]
@@ -552,6 +556,8 @@ impl Default for Settings {
             download_fallback_enabled: false,
             download_fallback_sources: default_download_fallbacks(),
             download_fallback_allow_lossy: false,
+            soulseek_wait_for_source: false,
+            soulseek_lossless_upgrades: false,
             playlist_directories: Vec::new(),
             playlist_mirroring_enabled: true,
             compact_playback_bar: false,

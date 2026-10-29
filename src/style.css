@@ -2357,7 +2357,7 @@ select optgroup {
 .settings-section-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
 .settings-section-heading h2 { margin:0; font-size:14px; }
 .settings-section-heading > span { color:var(--muted); font-size:10px; }
-.settings-source-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.settings-source-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:16px; }
 .settings-source-card { padding:18px; border:1px solid var(--line); border-radius:12px; background:var(--surface); min-width:0; }
 .settings-source-card h3,.settings-basic-card h2 { margin:0; font-size:15px; color:var(--text); }
 .settings-source-card > p,.settings-basic-card > p { font-size:11px; line-height:1.6; color:var(--muted); margin:6px 0 14px; }

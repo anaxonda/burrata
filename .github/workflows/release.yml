@@ -269,6 +269,14 @@ jobs:
           BURRATA_NATIVE_YOUTUBE_SEARCH: '0'
           BURRATA_DIRECT_YOUTUBE: '0'
           BURRATA_BANDCAMP_PLAYBACK: '0'
+      - name: Qualify linked public Bandcamp playback before packaging
+        if: runner.os == 'Linux'
+        timeout-minutes: 5
+        env:
+          BURRATA_BANDCAMP_PLAYBACK: '1'
+          BURRATA_NATIVE_YOUTUBE_SEARCH: '0'
+          BURRATA_DIRECT_YOUTUBE: '0'
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib playback_sources::tests::live_bandcamp_sketches_import_resolves_without_changing_identity -- --ignored --exact --nocapture
       - name: Build native installer
         shell: bash
         env:

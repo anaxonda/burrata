@@ -2,7 +2,7 @@ import type { DownloadJob } from "./types";
 
 const states: Record<string, string> = {
   completed: "Saved to library", failed: "Could not download", cancelled: "Cancelled",
-  interrupted: "Interrupted", waiting_for_peer: "Waiting for source", queued: "In queue",
+  interrupted: "Interrupted", waiting_for_peer: "Waiting for peer", waiting_for_source: "Waiting for source", waiting_for_playback: "Upgrade ready · waiting for playback", queued: "In queue",
   identifying: "Identifying audio", downloading: "Downloading", validating: "Checking audio", tagging: "Writing tags",
   stalled: "No recent progress",
   publishing: "Saving file", finalizing: "Finishing",

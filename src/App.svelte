@@ -159,6 +159,11 @@ import { ObservedWaveformCache, prepareObservedWaveformBinding, type PreparedObs
   import SpotifyArtist from "./SpotifyArtist.svelte";
   import SearchPanel, { type SearchKind } from "./SearchPanel.svelte";
   import SoulseekWishlist from "./SoulseekWishlist.svelte";
+  import SoulseekDownloadPolicy from "./SoulseekDownloadPolicy.svelte";
+  import DownloadWatches from "./DownloadWatches.svelte";
+  let activeDownloadWatchCount = $state(0);
+  let showSavedSoulseekSearches = $state(false);
+  import InfoPopover from "./InfoPopover.svelte";
   import LyricsPanel from "./LyricsPanel.svelte";
   import { queueForEngineMigration } from "./lib/playback-engine-migration";
   import { createNativePositionBookmark, nativeBookmarkMatchesOccurrence, shouldPersistNativePositionBookmark, validNativePositionBookmark, type NativePositionBookmark, type NativePositionOwner } from "./lib/native-position-bookmark";
@@ -576,6 +581,8 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     downloadFallbackEnabled: false,
     downloadFallbackSources: ["monochrome", "slskd", "youtube", "soundcloud"],
     downloadFallbackAllowLossy: false,
+    soulseekWaitForSource: false,
+    soulseekLosslessUpgrades: false,
     playlistMirroringEnabled: true,
     compactPlaybackBar: false,
     ytDlpPath: "yt-dlp",
@@ -2028,7 +2035,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     const failure=snapshot.diagnostics?.lastSourceFailure;
     const skippedFailure=snapshot.diagnostics?.lastSkippedTrackFailure;
     const failureMessage=nativeFailureMessage(failure);
-    if(failure){const key=failureMessage;if(key!==lastSourceFailureKey){lastSourceFailureKey=key;setNotice(failureMessage, "persistent");}}
+    if(failure){lastSourceFailureKey=failureMessage;if(snapshot.status === "failed")clearPlaybackSkipNotice();}
     else lastSourceFailureKey="";
     if(skippedFailure){
       const skippedMessage=nativeFailureMessage(skippedFailure);
@@ -6065,7 +6072,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
   const playerStatusMessage = $derived.by(() => {
     if (nativeActive()) {
       switch (nativeSnapshot?.status) {
-        case "failed": return playerErrorMessage || "Unavailable";
+        case "failed": return "Playback unavailable";
         case "buffering": return "Buffering…";
         case "resolving": return "Finding audio…";
         case "paused": return "Paused";
@@ -8203,7 +8210,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     if (!selected) return;
     await openDownloadChooser(selected, c);
   }
-  async function openDownloadChooser(track: Track, initialCandidate?: Candidate, initialChapterId?: string, playlistContext?: PlaylistContext) {
+  async function openDownloadChooser(track: Track, initialCandidate?: Candidate, initialChapterId?: string, playlistContext?: PlaylistContext, preferredProvider?: "youtube" | "soundcloud" | "monochrome" | "slskd") {
     if(track.playbackRange) {
       const provenance=track.provenance as {parentTrack?:Track};const candidate=importedAudioCandidate(track);
       const chapter=candidate?.chapters?.find(ch=>ch.id===track.playbackRange!.chapterId);
@@ -8211,7 +8218,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     }
     const request = ++downloadRequest;
     const typedDirectory = settings.musicDirectory;
-    let cached = initialCandidate ?? (portablePlaybackSource(track) ? undefined : linkedSearchCandidate(track));
+    let cached = initialCandidate ?? (preferredProvider || portablePlaybackSource(track) ? undefined : linkedSearchCandidate(track));
     openPlayerPanel(null);
     downloadTrack = track;
     downloadPlaylistContext = playlistContext ? { ...playlistContext } : null;
@@ -8236,7 +8243,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
         persistedMusicDirectory = freshSettings.musicDirectory;
         settings = { ...freshSettings, musicDirectory: typedDirectory || freshSettings.musicDirectory };
         const searchSource = view === "search" && searchMode !== "audio" ? searchMode === "soulseek" ? "slskd" : searchMode : undefined;
-        const preferred = searchSource ?? preferredSource(freshSettings);
+        const preferred = preferredProvider ?? searchSource ?? preferredSource(freshSettings);
         const providers = slskdEnabled ? ["monochrome", "youtube", "soundcloud", "slskd"] : ["monochrome", "youtube", "soundcloud"];
         if (!cached && portablePlaybackSource(track)) {
           try {
@@ -8557,9 +8564,15 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
               }
               return isExplicitUnresolvedAudioSearchSource(track, candidate, assessment);
             },
+            latestSettings.soulseekWaitForSource === true,
           );
           const chosen = resolution.candidate;
           if (batchCancelled) break;
+          if (!chosen && resolution.waitingForSoulseek) {
+            await call("queue_download_watch", {request:{track,outputProfile:profile,playlistContext:playlistContext ?? null,requiresLossless:false}});
+            queued++;receipt.completedCount=i+1;await onReceipt?.(receipt);
+            continue;
+          }
           if (!chosen) {
             skipped++;
             const reason = resolution.failures.slice(-3).join("; ") || "no suitable source found";
@@ -8613,7 +8626,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
   let downloadSortField = $state<TrackSortField>("sourceOrder"),downloadSortDirection = $state<SortDirection>("asc"),downloadMinDuration=$state(""),downloadMaxDuration=$state("");
   const sortedDownloadJobs=$derived.by(()=>{
     const byId=new Map(jobs.map(job=>[job.id,job]));
-    const rows=filterTracks(jobs.map(job=>({...job.track,id:job.id})),{minDurationSeconds:parseDurationBound(downloadMinDuration)??undefined,maxDurationSeconds:parseDurationBound(downloadMaxDuration)??undefined});
+    const rows=filterTracks(jobs.filter(job=>!(job.track.provenance as Record<string,unknown>)?.deferredSoulseekWatchId).map(job=>({...job.track,id:job.id})),{minDurationSeconds:parseDurationBound(downloadMinDuration)??undefined,maxDurationSeconds:parseDurationBound(downloadMaxDuration)??undefined});
     return sortTracks(rows,downloadSortField,downloadSortDirection).map(track=>byId.get(track.id)!);
   });
   // A paged first page cannot establish that a field is globally absent from the
@@ -10200,7 +10213,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     onPlaylist={(id) => void openPlaylist(id)} onPlaylistContext={(id, event) => { const collection = namedCollections.find(item => item.id === id)??(["favorites","history"].includes(id)?{id,name:sidebarLayout.names?.[id]??(id==="favorites"?"Liked Songs":"History"),trackCount:0}:null); if (collection) playlistActions = { collection, anchor: { x: event.clientX, y: event.clientY } }; }} onSource={(source) => source === "spotify" || source === "youtube" ? void searchProviderPlaylists(source) : void browseProviderCharts(source)}
     sections={sidebarLayout.sections} assignments={sidebarLayout.assignments} onCreateSection={createSection} onRenameSection={renameSection} onDeleteSection={deleteSection} onMovePlaylist={movePlaylistToSection} onCreatePlaylist={(sectionId)=>void createNewPlaylist(sectionId)}
     onImport={() => void createNewPlaylist()} onSettings={() => void navigate("settings")} onDownloads={() => { openPlayerPanel("downloads"); void refreshJobs(); }}
-    activeJobs={jobs.filter((job) => !["completed", "failed", "cancelled"].includes(job.state)).length} />
+    activeJobs={jobs.filter((job) => !["completed", "failed", "cancelled", "waiting_for_source", "interrupted"].includes(job.state)).length} />
   <main inert={showFullNowPlaying}>
     <header>
       <div class="navigation-controls"><button aria-label="Go back" disabled={restoringRoute || !backRoutes.length} onclick={() => void travelRoute("back")}>←</button><button aria-label="Go forward" disabled={restoringRoute || !forwardRoutes.length} onclick={() => void travelRoute("forward")}>→</button></div>
@@ -10243,7 +10256,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
         >{/if}
       </div>
     </header>
-    {#if backupHydrationReady}<SoulseekWishlist startupStorage={backupStartupPersistence} visible={view === "settings" && settingsCategory === "downloads"} onReview={async(value)=>{await navigate("search");query=value;catalogSearchSource="soulseek";catalogSearchKind="tracks";catalogSearchRequest++;}} />{/if}
+    {#if backupHydrationReady}<SoulseekWishlist startupStorage={backupStartupPersistence} visible={showSavedSoulseekSearches} onClose={()=>showSavedSoulseekSearches=false} onReview={async(value)=>{showSavedSoulseekSearches=false;await navigate("search");query=value;catalogSearchSource="soulseek";catalogSearchKind="tracks";catalogSearchRequest++;}} />{/if}
     {#if !desktop()}<div class="banner">
         Desktop connection unavailable. Run the Tauri app to browse real charts
         and access local files.
@@ -10399,6 +10412,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
             <FallbackSettings label="Download" enabled={settings.downloadFallbackEnabled === true} providers={settings.downloadFallbackSources ?? ["monochrome","slskd","youtube","soundcloud"]} primary={settings.preferredDownloadSource ?? "youtube"} sources={[{id:"monochrome",name:"Monochrome"},{id:"slskd",name:"Soulseek"},{id:"youtube",name:"YouTube"},{id:"soundcloud",name:"SoundCloud"}]} onchange={(enabled,sources)=>void saveFallbackSettings("download",enabled,sources)} />
             <p class="settings-source-note">Soulseek is currently available for downloads only.</p>
             <label class="settings-option"><input type="checkbox" aria-label="Allow lossy download fallback" bind:checked={settings.downloadFallbackAllowLossy} onchange={() => void run(async()=>{ const fresh=await call<Settings>("get_settings"); await call("save_settings",{settings:{...fresh,downloadFallbackAllowLossy:settings.downloadFallbackAllowLossy}}); })} /><span><strong>Allow a lossy fallback</strong><small>Otherwise, a lossless download only falls back to another lossless source. Chapter downloads keep their selected source.</small></span></label>
+            <SoulseekDownloadPolicy unavailable={settings.soulseekWaitForSource ? "wait" : "continue"} upgrade={settings.soulseekLosslessUpgrades === true} inSourceOrder={settings.preferredDownloadSource === "slskd" || settings.downloadFallbackEnabled === true && (settings.downloadFallbackSources ?? []).includes("slskd")} onchange={(unavailable,upgrade)=>{settings.soulseekWaitForSource=unavailable==="wait";settings.soulseekLosslessUpgrades=upgrade;void saveSettingsFields(["soulseekWaitForSource","soulseekLosslessUpgrades"],"Soulseek download policy saved.");}} />
           </section>
           {/if}
         </div>{/if}
@@ -10506,21 +10520,24 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
           </details>
         </form>
         <div class="detail-actions"><small>{historyTotal} plays</small><button disabled={!historyItems.length} onclick={() => void run(async () => { await call("clear_playback_history"); await loadHistory(); })}>Clear history</button></div>
-        {#if displayedHistoryItems.length}<TrackList onAlbum={(track) => void openTrackAlbum(track)} virtualizationThreshold={50} orderedRows={displayedHistoryItems.map((item,index)=>({kind:"track" as const,key:item.sessionId,trackIndex:index}))} focusedRowKey={historyFocusedSessionId} tracks={displayedHistoryItems.map(item=>item.track)} listLabel="Playback history tracks" presentation="playlist" playingTrack={playingTrack} bufferingTrack={playbackLoading?playingTrack:null} playingTrackId={playingTrack?.id??""} bufferingTrackId={playbackLoading?playingTrack?.id??"":""} {paused} position={(_,index)=>index+1} meta={historySource} timestamp={(_,index)=>({label:new Date(displayedHistoryItems[index].playedAt).toLocaleString(undefined,{dateStyle:"medium",timeStyle:"long"}),full:new Date(displayedHistoryItems[index].playedAt).toString()})} onPlay={async (track,list,index)=>{ await startPreview(track,false,false,list,index); }} onDownload={(track)=>openDownloadChooser(track)} onFavorite={favorite} onArtist={(track)=>discoverArtist(track)} onNext={(track)=>queueArtistTracks([track],"next")} onQueue={(track)=>queueArtistTracks([track],"append")} onPlaylist={addArtistTrack} onInfo={(track)=>openPlayerPanel("info",track)} onContext={(track,event)=>{actionTrack=track;actionAnchor={x:event.clientX,y:event.clientY};}} initialScroll={historyScroll} onScroll={(value)=>historyScroll=value}/>
+        {#if displayedHistoryItems.length}<TrackList playbackFailed={nativeActive() ? nativePlaybackStatus === "failed" : Boolean(playerErrorMessage)} onAlbum={(track) => void openTrackAlbum(track)} virtualizationThreshold={50} orderedRows={displayedHistoryItems.map((item,index)=>({kind:"track" as const,key:item.sessionId,trackIndex:index}))} focusedRowKey={historyFocusedSessionId} tracks={displayedHistoryItems.map(item=>item.track)} listLabel="Playback history tracks" presentation="playlist" playingTrack={playingTrack} bufferingTrack={playbackLoading?playingTrack:null} playingTrackId={playingTrack?.id??""} bufferingTrackId={playbackLoading?playingTrack?.id??"":""} {paused} position={(_,index)=>index+1} meta={historySource} timestamp={(_,index)=>({label:new Date(displayedHistoryItems[index].playedAt).toLocaleString(undefined,{dateStyle:"medium",timeStyle:"long"}),full:new Date(displayedHistoryItems[index].playedAt).toString()})} onPlay={async (track,list,index)=>{ await startPreview(track,false,false,list,index); }} onDownload={(track)=>openDownloadChooser(track)} onFavorite={favorite} onArtist={(track)=>discoverArtist(track)} onNext={(track)=>queueArtistTracks([track],"next")} onQueue={(track)=>queueArtistTracks([track],"append")} onPlaylist={addArtistTrack} onInfo={(track)=>openPlayerPanel("info",track)} onContext={(track,event)=>{actionTrack=track;actionAnchor={x:event.clientX,y:event.clientY};}} initialScroll={historyScroll} onScroll={(value)=>historyScroll=value}/>
         {:else}<div class="empty"><h2>{historyBusy?"Loading history…":historyQuery||historyProvider||historyFrom||historyTo?"No matching plays":"Nothing played yet"}</h2><p>Songs appear here when audio starts.</p></div>{/if}
         {#if historyHasMore}<button disabled={historyBusy} onclick={()=>void loadHistory(!historyOptionsPending)}>{historyOptionsPending ? "Apply filters and reload" : "Show earlier plays"}</button>{/if}
       </section>
     {:else if view === "downloads"}
       <div class="toolbar">
         <span>{sortedDownloadJobs.length} jobs</span>
+        <details class="download-tools"><summary aria-label="More download options">•••</summary><button onclick={(event)=>{const menu=event.currentTarget.closest("details");if(menu)menu.open=false;showSavedSoulseekSearches=true;}}>Saved Soulseek searches…</button></details>
         <label>Sort downloads<select aria-label="Sort download jobs" bind:value={downloadSortField}><option value="sourceOrder">Original order</option><option value="title" disabled={!downloadSortAvailability.title}>{trackSortOptionLabel(downloadSortAvailability, "title", "Title")}</option><option value="artist" disabled={!downloadSortAvailability.artist}>{trackSortOptionLabel(downloadSortAvailability, "artist", "Artist")}</option><option value="album" disabled={!downloadSortAvailability.album}>{trackSortOptionLabel(downloadSortAvailability, "album", "Album")}</option><option value="duration" disabled={!downloadSortAvailability.duration}>{trackSortOptionLabel(downloadSortAvailability, "duration", "Duration")}</option><option value="releaseDate" disabled={!downloadSortAvailability.releaseDate}>{trackSortOptionLabel(downloadSortAvailability, "releaseDate", "Release date")}</option><option value="dateAdded" disabled={!downloadSortAvailability.dateAdded}>{trackSortOptionLabel(downloadSortAvailability, "dateAdded", "Date added")}</option><option value="bpm" disabled={!downloadSortAvailability.bpm}>{trackSortOptionLabel(downloadSortAvailability, "bpm", "BPM")}</option><option value="key" disabled={!downloadSortAvailability.key}>{trackSortOptionLabel(downloadSortAvailability, "key", "Key")}</option><option value="plays" disabled={!downloadSortAvailability.plays}>{trackSortOptionLabel(downloadSortAvailability, "plays", "Plays")}</option><option value="views" disabled={!downloadSortAvailability.views}>{trackSortOptionLabel(downloadSortAvailability, "views", "Views")}</option></select></label><label>Direction<select aria-label="Download sort direction" bind:value={downloadSortDirection}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label><TrackDurationFilter bind:minDuration={downloadMinDuration} bind:maxDuration={downloadMaxDuration} minLabel="Download minimum duration" maxLabel="Download maximum duration" />
         <button onclick={() => void refreshJobs()}>Refresh queue</button>
       </div>
+      <DownloadWatches onCount={(count)=>activeDownloadWatchCount=count} onReview={(track)=>openDownloadChooser(track,undefined,undefined,undefined,"slskd")} />
       <section class="queue">
         <VirtualResults items={sortedDownloadJobs} itemKey={(job) => job.id} estimateHeight={() => 112} scrollKey={`downloads:${downloadSortField}:${downloadSortDirection}:${downloadMinDuration}:${downloadMaxDuration}`} regionKey="download-jobs" scrollRootSelector=".queue" ariaLabel="Download job rows">
           {#snippet children(job)}<article class="job">
             <div>
               <strong>{downloadTitle(job)}</strong>
+              {#if (job.track.provenance as Record<string,unknown>)?.soulseekDownloadWatchKind === "upgrade"}<small>Lossless upgrade · your saved copy stays available until ready</small>{/if}
               <p>{job.track.artist || "Artist not identified"}{#if job.track.version} · {job.track.version}{/if}</p>
               <p>{downloadSourceLabel(job)}{#if downloadPeer(job)} · {downloadPeer(job)}{/if}</p>
               {#if downloadTransferDetail(job)}<p>{downloadTransferDetail(job)}</p>{/if}
@@ -10550,7 +10567,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
             </div>
           </article>{/snippet}
         </VirtualResults>
-        {#if !sortedDownloadJobs.length}<div class="empty">
+        {#if !sortedDownloadJobs.length && !activeDownloadWatchCount}<div class="empty">
           <span>↓</span>
           <h2>Your queue is clear</h2>
           <p>Choose a recording, compare its sources, then start a download.</p>
@@ -10735,7 +10752,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
             onscroll={(e) => (scrollTop = e.currentTarget.scrollTop)}
           >
             {#if virtualized && startRow > 0}<div class="track-list-virtual-spacer" aria-hidden="true" style={`height:${startRow * rowHeight}px`}></div>{/if}
-            <TrackList reorderable={view === "collections" && sort === "rank" && !descending && !filter.trim() && localFilter === "all" && !durationMinimum && !durationMaximum && !playlistReordering && !localPageLoading} onReorder={movePlaylistEntry} onInvertSelection={() => {if(view === "collections") selectedLocalOccurrences = invertSelection(localOccurrenceRows.map(row=>row.key),selectedLocalOccurrences); else {checked=invertSelection(sorted.map(track=>track.id),checked);mergeConfirmed=false;}}} onAlbum={(track) => void openTrackAlbum(track)} tracks={virtualized ? visibleTracks : sorted} focusedRowKey={view === "collections" ? focusedPlaylistRowKey : null} listLabel="Recordings" presentation="playlist" playingTrack={playingTrack} bufferingTrack={playbackLoading ? playingTrack : null} {paused} selectionMode={view === "collections" ? localPlaylistSelectionMode : batchSelectionMode} selectedTrackId={selected?.id} selectedTrackIds={view === "collections" ? selectedLocalOccurrences : checked} selectionKeys={view === "collections" ? localOccurrenceRows.slice(virtualized ? startRow : 0, virtualized ? endRow : sorted.length).map(row => row.key) : undefined} selectionLabel={(track, index) => view === "collections" ? `Select occurrence ${(virtualized ? startRow : 0) + index + 1}: ${track.title} for playlist` : `Select ${track.title}`} trackTitle={(track) => [track.title, bpmAnnotation(track), analysisAnnotation(track, "key")].filter(Boolean).join("\n")} position={(_, index) => (virtualized ? startRow : 0) + index + 1} meta={(track) => [track.bpm != null ? `${analysisAnnotation(track, "bpm") ? "≈" : ""}${String(track.bpm)} BPM` : "", track.key ? `${analysisAnnotation(track, "key") ? "≈" : ""}${track.key}` : "", !track.album && track.label ? track.label : "", track.localAvailability === "available" || (!track.localAvailability && track.localPath) ? "Downloaded" : "", track.disposition === "shortlist" ? "Shortlisted" : "", rowDownloadFeedback[track.id] ?? ""].filter(Boolean).join(" · ")} onPlay={(track, _window, index) => select(track, "click", (virtualized ? startRow : 0) + index)} onRowSelect={(track, event) => selectTrackRow(track, event)} onFavorite={favorite} onDownload={(track) => void openDownloadChooser(track, undefined, undefined, currentSavedPlaylistContext())} onArtist={(track) => void discoverArtist(track)} onContext={(track, event) => { actionTrack = track; const rect = event.type === "contextmenu" ? null : (event.currentTarget as HTMLElement).getBoundingClientRect(); actionAnchor = rect ? { x: rect.right, y: rect.bottom } : { x: event.clientX, y: event.clientY }; }} onSelect={(track, event, index) => { const checkedNow = (event.currentTarget as HTMLInputElement).checked; if (view === "collections") toggleLocalOccurrence((virtualized ? startRow : 0) + index, checkedNow); else { checked = checkedNow ? [...new Set([...checked, track.id])] : checked.filter(id => id !== track.id); mergeConfirmed = false; } }} virtualizationThreshold={100000} />
+            <TrackList playbackFailed={nativeActive() ? nativePlaybackStatus === "failed" : Boolean(playerErrorMessage)} reorderable={view === "collections" && sort === "rank" && !descending && !filter.trim() && localFilter === "all" && !durationMinimum && !durationMaximum && !playlistReordering && !localPageLoading} onReorder={movePlaylistEntry} onInvertSelection={() => {if(view === "collections") selectedLocalOccurrences = invertSelection(localOccurrenceRows.map(row=>row.key),selectedLocalOccurrences); else {checked=invertSelection(sorted.map(track=>track.id),checked);mergeConfirmed=false;}}} onAlbum={(track) => void openTrackAlbum(track)} tracks={virtualized ? visibleTracks : sorted} focusedRowKey={view === "collections" ? focusedPlaylistRowKey : null} listLabel="Recordings" presentation="playlist" playingTrack={playingTrack} bufferingTrack={playbackLoading ? playingTrack : null} {paused} selectionMode={view === "collections" ? localPlaylistSelectionMode : batchSelectionMode} selectedTrackId={selected?.id} selectedTrackIds={view === "collections" ? selectedLocalOccurrences : checked} selectionKeys={view === "collections" ? localOccurrenceRows.slice(virtualized ? startRow : 0, virtualized ? endRow : sorted.length).map(row => row.key) : undefined} selectionLabel={(track, index) => view === "collections" ? `Select occurrence ${(virtualized ? startRow : 0) + index + 1}: ${track.title} for playlist` : `Select ${track.title}`} trackTitle={(track) => [track.title, bpmAnnotation(track), analysisAnnotation(track, "key")].filter(Boolean).join("\n")} position={(_, index) => (virtualized ? startRow : 0) + index + 1} meta={(track) => [track.bpm != null ? `${analysisAnnotation(track, "bpm") ? "≈" : ""}${String(track.bpm)} BPM` : "", track.key ? `${analysisAnnotation(track, "key") ? "≈" : ""}${track.key}` : "", !track.album && track.label ? track.label : "", track.localAvailability === "available" || (!track.localAvailability && track.localPath) ? "Downloaded" : "", track.disposition === "shortlist" ? "Shortlisted" : "", rowDownloadFeedback[track.id] ?? ""].filter(Boolean).join(" · ")} onPlay={(track, _window, index) => select(track, "click", (virtualized ? startRow : 0) + index)} onRowSelect={(track, event) => selectTrackRow(track, event)} onFavorite={favorite} onDownload={(track) => void openDownloadChooser(track, undefined, undefined, currentSavedPlaylistContext())} onArtist={(track) => void discoverArtist(track)} onContext={(track, event) => { actionTrack = track; const rect = event.type === "contextmenu" ? null : (event.currentTarget as HTMLElement).getBoundingClientRect(); actionAnchor = rect ? { x: rect.right, y: rect.bottom } : { x: event.clientX, y: event.clientY }; }} onSelect={(track, event, index) => { const checkedNow = (event.currentTarget as HTMLInputElement).checked; if (view === "collections") toggleLocalOccurrence((virtualized ? startRow : 0) + index, checkedNow); else { checked = checkedNow ? [...new Set([...checked, track.id])] : checked.filter(id => id !== track.id); mergeConfirmed = false; } }} virtualizationThreshold={100000} />
             {#if virtualized && endRow < sorted.length}<div class="track-list-virtual-spacer" aria-hidden="true" style={`height:${(sorted.length - endRow) * rowHeight}px`}></div>{/if}
             {#if !sorted.length}<div class="empty">
                 <span>♫</span>
@@ -11130,7 +11147,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
         </footer>
       </dialog>
     </div>{/if}
-  {#if showDownloads}<DownloadActivity onViewAll={() => { openPlayerPanel(null); void navigate("downloads"); }} onFindSource={(job) => void openDownloadChooser(job.track)} tagStatuses={downloadTagStatuses} onReviewTags={(id)=>void openAutotagReview(id)} {jobs} onClose={() => (showDownloads = false)} onRefresh={() => void refreshJobs()} onCancel={(jobId) => void run(async () => { await call("cancel_download", {jobId}); await refreshJobs(); })} onRetry={(jobId) => void run(async () => { await call("retry_download", {jobId}); await refreshJobs(); })} onShowFile={(path) => void run(() => call("open_in_file_manager", {path}))} />{/if}
+  {#if showDownloads}<DownloadActivity onViewAll={() => { openPlayerPanel(null); void navigate("downloads"); }} onFindSource={(job) => void openDownloadChooser(job.track)} tagStatuses={downloadTagStatuses} onReviewTags={(id)=>void openAutotagReview(id)} jobs={jobs.filter(job=>!(job.track.provenance as Record<string,unknown>)?.deferredSoulseekWatchId)} onClose={() => (showDownloads = false)} onRefresh={() => void refreshJobs()} onCancel={(jobId) => void run(async () => { await call("cancel_download", {jobId}); await refreshJobs(); })} onRetry={(jobId) => void run(async () => { await call("retry_download", {jobId}); await refreshJobs(); })} onShowFile={(path) => void run(() => call("open_in_file_manager", {path}))} />{/if}
   {#if showPlayingInfo || showQueue}<section class="player-panel-host" aria-label="Player panel">{#if showQueue}
   <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions (Keyboard and pointer splitter.) -->
   <div class="queue-panel-resize" role="separator" tabindex="0" aria-label="Resize queue panel" aria-orientation="vertical" aria-valuemin="280" aria-valuemax="420" aria-valuenow={infoPanelWidth} onpointerdown={resizeQueuePanel} onkeydown={(event)=>{if(event.key==="ArrowLeft"||event.key==="ArrowRight"){event.preventDefault();saveLayoutWidth("info",infoPanelWidth+(event.key==="ArrowLeft"?10:-10));}}}></div>{/if}<nav class="player-panel-tabs"><button class:active={showPlayingInfo} onclick={()=>openPlayerPanel("info")}>Now playing</button><button class:active={showQueue} onclick={()=>openPlayerPanel("queue")}>Queue</button><button aria-label="Close player panel" onclick={()=>openPlayerPanel(null)}>×</button></nav>
@@ -11184,8 +11201,9 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
 
     {#if playerErrorMessage}
       <div class="player-error" role="alert" aria-live="assertive">
-        <p>{playerErrorMessage}</p>
+        <p>{playingTrack ? `Could not play ${playingTrack.title}.` : "Playback unavailable."}</p>
         <div class="player-error-actions">
+          <InfoPopover placement="top" label="Playback error details">{playerErrorMessage}</InfoPopover>
           <button type="button" aria-label="Retry playback" onclick={() => { if (playingTrack) void startPreview(playingTrack, true, false, queueTracks, queueIndex); }}>Retry</button>
           <button type="button" aria-label="Open playing track information" onclick={() => { infoTrack = null; openPlayerPanel("info"); }}>Track info</button>
         </div>

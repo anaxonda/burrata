@@ -158,3 +158,10 @@ describe("native typed failure compatibility", () => {
     expect(bridge.snapshot?.failure).toBeNull();
   });
 });
+
+it("shows a failed native stream as stopped even when an older backend leaves paused false", () => {
+  const bridge = new NativePlaybackBridge(vi.fn() as never, vi.fn() as never);
+  bridge.acceptSnapshot({...snapshot(1), status:"failed", paused:false});
+  expect(bridge.snapshot?.paused).toBe(true);
+  expect(bridge.snapshot?.status).toBe("failed");
+});

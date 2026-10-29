@@ -301,6 +301,8 @@ export interface Settings {
   downloadFallbackEnabled?: boolean;
   downloadFallbackSources?: string[];
   downloadFallbackAllowLossy?: boolean;
+  soulseekWaitForSource?: boolean;
+  soulseekLosslessUpgrades?: boolean;
   playlistDirectories?: string[];
   playlistMirroringEnabled?: boolean;
   compactPlaybackBar?: boolean;

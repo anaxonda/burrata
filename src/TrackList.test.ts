@@ -216,6 +216,17 @@ describe("TrackList", () => {
     expect(target.querySelector(".playlist-selection-actions")).toBeNull();
   });
 
+  it("distinguishes an unavailable source from paused and playing rows", () => {
+    const onPlay=vi.fn();
+    const target=render({playingTrackId:"track-1",playbackFailed:true,paused:true,onPlay});
+    const status=target.querySelector(".playback-state")!;
+    expect(status.getAttribute("aria-label")).toBe("Unavailable Song Title");
+    expect(status.textContent).toBe("!");
+    expect(status.querySelector(".playback-playing-icon")).toBeNull();
+    target.querySelector<HTMLButtonElement>(".track-title")!.click();
+    expect(onPlay).toHaveBeenCalledWith(tracks[0],tracks,0);
+  });
+
   it("shows distinct accessible current playback states without changing the play action", () => {
     const onPlay = vi.fn();
     const target = render({ playingTrackId: "track-1", onPlay });

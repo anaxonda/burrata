@@ -4921,7 +4921,7 @@ describe("saved recording navigation", () => {
     expect(row.textContent).toContain("Louie Vega Mix");
     expect(row.textContent).toContain("Soulseek");
     expect(row.textContent).toContain("music-peer");
-    expect(row.textContent).toContain("Waiting for source");
+    expect(row.textContent).toContain("Waiting for peer");
     expect(row.textContent).toContain("Position 884 in source queue");
     expect(row.querySelector("progress, .progress-label")).toBeNull();
     update({ ...downloadJobs[0], progress: 65 }); await settle();
@@ -11219,14 +11219,15 @@ describe("native playback frontend", () => {
     const playerStatus = document.querySelector<HTMLElement>(".player-status")!;
     expect(playerStatus.textContent).toBe("Buffering…");
     expect(document.querySelector(".player-error")).toBeNull();
-    expect(document.querySelector(".banner.notice")?.textContent).toContain("No eligible audio source");
+    expect(document.querySelector(".banner.notice")).toBeNull();
     expect(document.body.textContent).not.toContain("private.example");
     expect(document.body.textContent).not.toContain("secret-value");
 
     emitNative({ ...failed, revision: 45, status: "failed", paused: false });
     await settle();
     expect(document.querySelector(".player-error")?.textContent).toContain("No eligible audio source");
-    expect(document.querySelector(".player-status")?.textContent).toContain("Could not play Visible Artist — Saved Recording");
+    expect(document.querySelector(".player-status")?.textContent).toBe("Playback unavailable");
+    expect(document.querySelector('[aria-label="Playback error details"]')).not.toBeNull();
     expect(document.querySelector<HTMLElement>(".player-status")?.title).not.toContain("private.example");
     expect(document.querySelector<HTMLElement>(".player-status")?.title).not.toContain("secret-value");
 
@@ -11234,7 +11235,7 @@ describe("native playback frontend", () => {
     await settle();
     expect(document.querySelector(".player-status")?.textContent).toBe("Buffering…");
     expect(document.querySelector(".player-error")).toBeNull();
-    expect(document.querySelector(".banner.notice")?.textContent).toContain("No eligible audio source");
+    expect(document.querySelector(".banner.notice")).toBeNull();
 
     emitNative({ ...failed, revision: 47, status: "playing", paused: false, playerMessage: "Playing audio", diagnostics: { lastSourceFailure: null } });
     await settle();
@@ -11346,9 +11347,10 @@ describe("native playback frontend", () => {
     vi.useFakeTimers();
     try {
       const another={...skipped,title:"Another failed recording"};
-      emitNative({...next,revision:2,diagnostics:{lastSourceFailure:another,lastSkippedTrackFailure:null}});await settle();
+      emitNative({...next,revision:2,status:"failed",diagnostics:{lastSourceFailure:another,lastSkippedTrackFailure:null}});await settle();
       await vi.advanceTimersByTimeAsync(6500);await tick();
-      expect(document.querySelector(".banner.notice")?.textContent).toContain("Another failed recording");
+      expect(document.querySelector(".banner.notice")).toBeNull();
+      expect(document.querySelector(".player-error")?.textContent).toContain("Another failed recording");
       emitNative({...next,revision:3,diagnostics:{lastSourceFailure:null,lastSkippedTrackFailure:{...skipped,title:"Latest skipped recording"}}});await settle();
       await vi.advanceTimersByTimeAsync(6500);await tick();
       expect(document.querySelector(".banner.notice")?.textContent).toContain("Latest skipped recording");
@@ -12807,21 +12809,23 @@ describe("native playback frontend", () => {
     expect(notice).toContain("Skipped Unavailable middle album recording");expect(notice).toContain("No playable audio match");
     expect(notice).toContain("Choose another source");expect(notice).not.toContain("private.invalid");expect(notice).not.toContain("secret-token");expect(notice).not.toContain("hidden-value");
   });
-  it("ordinary notice after persistent failure expires and navigation clears persistent state", async () => {
+  it("ordinary notices expire independently of the persistent player error", async () => {
     mountNative(makeNativeSnapshot());await settle();vi.useFakeTimers();
     try {
       const failure={trackId:savedTrack.id,title:savedTrack.title,artist:savedTrack.artist,reason:"No playable audio match"};
-      const failed=makeNativeSnapshot({revision:30,diagnostics:{lastSourceFailure:failure,lastSkippedTrackFailure:null}});
+      const failed=makeNativeSnapshot({revision:30,status:"failed",diagnostics:{lastSourceFailure:failure,lastSkippedTrackFailure:null}});
       emitNative(failed);await settle();
       await vi.advanceTimersByTimeAsync(6000);await tick();
-      expect(document.querySelector(".banner.notice")?.textContent).toContain("Could not play");
+      expect(document.querySelector(".banner.notice")).toBeNull();
+      expect(document.querySelector(".player-error")?.textContent).toContain("Could not play");
       const warning=eventHandlers.get("provider-warning");expect(warning).toBeTypeOf("function");
       warning!({event:"provider-warning",id:1,payload:"Ordinary update completed."});await tick();
       await vi.advanceTimersByTimeAsync(5499);await tick();
       expect(document.querySelector(".banner.notice")?.textContent).toContain("Ordinary update completed.");
       await vi.advanceTimersByTimeAsync(1);await tick();expect(document.querySelector(".banner.notice")).toBeNull();
       emitNative({...failed,revision:31,diagnostics:{lastSourceFailure:{...failure,title:"Fresh failure"},lastSkippedTrackFailure:null}});await settle();
-      expect(document.querySelector(".banner.notice")?.textContent).toContain("Fresh failure");
+      expect(document.querySelector(".banner.notice")).toBeNull();
+      expect(document.querySelector(".player-error")?.textContent).toContain("Fresh failure");
       const navigation=eventHandlers.get("automation-ui-navigation");expect(navigation).toBeTypeOf("function");navigation!({event:"automation-ui-navigation",id:32,payload:{requestId:"notice-navigation-clear",target:{kind:"view",view:"favorites"}}});await settle();await settle();
       expect(document.querySelector(".banner.notice")).toBeNull();
     } finally {vi.useRealTimers();}
@@ -14473,18 +14477,20 @@ describe("audio engine switch session handoff",()=>{
   });
 });
 
-it("keeps the wishlist in Downloads settings and reviews a saved query in Soulseek Search",async()=>{
+it("opens saved Soulseek searches from Downloads and reviews a saved query in Soulseek Search",async()=>{
   slskdConnectionEnabled=true;
   const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
-  expect(document.querySelector("details.wishlist")).toBeNull();
-  [...document.querySelectorAll<HTMLButtonElement>(".sidebar-scroll-end button")].find(button=>button.textContent?.includes("Settings"))!.click();await settle();
-  [...document.querySelectorAll<HTMLButtonElement>(".settings-nav button")].find(button=>button.textContent?.trim()==="Downloads")!.click();await settle();
-  const panel=document.querySelector<HTMLDetailsElement>("details.wishlist")!;expect(panel).not.toBeNull();panel.open=true;
+  expect(document.querySelector("dialog.wishlist[open]")).toBeNull();
+  const navigation=eventHandlers.get("automation-ui-navigation")!;
+  navigation({event:"automation-ui-navigation",id:1,payload:{requestId:"wishlist-downloads",target:{kind:"view",view:"downloads"}}});await settle();await settle();
+  document.querySelector<HTMLDetailsElement>("details.download-tools")!.open=true;
+  [...document.querySelectorAll<HTMLButtonElement>("details.download-tools button")].find(button=>button.textContent?.includes("Saved Soulseek searches"))!.click();await settle();
+  const panel=document.querySelector<HTMLDialogElement>("dialog.wishlist[open]")!;expect(panel).not.toBeNull();
   const query=panel.querySelector<HTMLInputElement>('[aria-label="Soulseek wishlist query"]')!;query.value="Synthetic wishlist track";query.dispatchEvent(new Event("input",{bubbles:true}));await settle();
   [...panel.querySelectorAll<HTMLButtonElement>("button")].find(button=>button.textContent?.includes("Save search"))!.click();await settle();
   expect(JSON.parse(localStorage.getItem("burrata.soulseek.wishlist.v1")!).entries).toHaveLength(1);
   [...panel.querySelectorAll<HTMLButtonElement>("button")].find(button=>button.textContent==="Search now")!.click();await settle();
-  expect(document.querySelector("details.wishlist")).toBeNull();
+  expect(document.querySelector("dialog.wishlist[open]")).toBeNull();
   expect(document.querySelector<HTMLSelectElement>('select[aria-label="Search in"]')?.value).toBe("soulseek");
   expect(document.querySelector<HTMLInputElement>('input[aria-label="Search music"]')?.value).toBe("Synthetic wishlist track");
 });

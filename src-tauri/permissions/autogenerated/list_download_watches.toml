@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-download-watches"
+description = "Enables the list_download_watches command without any pre-configured scope."
+commands.allow = ["list_download_watches"]
+
+[[permission]]
+identifier = "deny-list-download-watches"
+description = "Denies the list_download_watches command without any pre-configured scope."
+commands.deny = ["list_download_watches"]

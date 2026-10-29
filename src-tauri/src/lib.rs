@@ -8121,6 +8121,28 @@ async fn retry_download(state: State<'_, AppState>, job_id: String) -> Result<Do
         .await
 }
 #[tauri::command]
+fn list_download_watches(state: State<'_, AppState>) -> Result<Vec<acquisition::DownloadWatch>> {
+    state.acquisition.list_download_watches()
+}
+#[tauri::command]
+async fn queue_download_watch(
+    state: State<'_, AppState>,
+    request: acquisition::DownloadWatchRequest,
+) -> Result<acquisition::DownloadWatch> {
+    state
+        .acquisition
+        .queue_download_watch(request, &state.store.settings()?)
+        .await
+}
+#[tauri::command]
+async fn control_download_watch(
+    state: State<'_, AppState>,
+    id: String,
+    action: String,
+) -> Result<()> {
+    state.acquisition.control_download_watch(&id, &action).await
+}
+#[tauri::command]
 fn list_jobs(state: State<'_, AppState>) -> Result<Vec<DownloadJob>> {
     state.store.list_jobs()
 }
@@ -10095,6 +10117,7 @@ pub fn run() {
             let discovery = Arc::new(discovery::DiscoveryService::new(artists.clone(), acquisition.clone(), store.clone(), connections.clone()));
             let autotag = autotag::AutoTagger::new(app.handle().clone(), store.clone(), artists.clone(), connections.clone());
             acquisition.set_autotag_manager(autotag.clone());
+            acquisition.start_download_watch_scheduler();
             let recovery_acquisition = acquisition.clone();
             let recovery_settings = settings.clone();
             tauri::async_runtime::spawn(async move {
@@ -10316,6 +10339,9 @@ pub fn run() {
             inspect_candidate,
             assess_download_candidate,
             enqueue_download,
+            list_download_watches,
+            queue_download_watch,
+            control_download_watch,
             cancel_download,
             retry_download,
             list_jobs,

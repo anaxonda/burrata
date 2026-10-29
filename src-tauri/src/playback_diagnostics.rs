@@ -168,8 +168,32 @@ fn record_into(events: &mut EventRing, enabled: bool, payload: Value) {
         events.dropped_events = events.dropped_events.saturating_add(1);
         return;
     }
-    if events.events.len() == MAX_EVENTS {
-        events.events.pop_front();
+    let background = |event: &PlaybackDiagnosticEvent| {
+        event
+            .native_operation_id
+            .as_deref()
+            .is_some_and(|id| id.starts_with("preparation:"))
+    };
+    // Reserve most of the report for foreground activity. Background lookups
+    // must not evict the failure the user is trying to diagnose.
+    if background(&event)
+        && events
+            .events
+            .iter()
+            .filter(|event| background(event))
+            .count()
+            >= MAX_EVENTS / 4
+    {
+        if let Some(index) = events.events.iter().position(background) {
+            events.events.remove(index);
+        }
+        events.dropped_events = events.dropped_events.saturating_add(1);
+    } else if events.events.len() == MAX_EVENTS {
+        if let Some(index) = events.events.iter().position(background) {
+            events.events.remove(index);
+        } else {
+            events.events.pop_front();
+        }
         events.dropped_events = events.dropped_events.saturating_add(1);
     }
     events.events.push_back(event);
@@ -733,7 +757,7 @@ fn enum_values(key: &str) -> Option<&'static [&'static str]> {
         ]),
         "confidenceClass" => Some(&["high", "review", "low", "unknown"]),
         "permissionClass" => Some(&["restricted", "unknown", "allowed", "other"]),
-        "providerClass" => Some(&["youtube", "soundcloud", "monochrome", "other"]),
+        "providerClass" => Some(&["youtube", "soundcloud", "monochrome", "bandcamp", "other"]),
         "authority" => Some(&["musicbrainz", "discogs", "spotify", "other"]),
         "identity" => Some(&["complete", "incomplete"]),
         "scope" => Some(&["candidatesEvaluatedBeforeForegroundCap"]),
@@ -827,6 +851,7 @@ fn sanitize_event(value: Value) -> Option<PlaybackDiagnosticEvent> {
         "youtube" => "youtube",
         "soundcloud" => "soundcloud",
         "monochrome" => "monochrome",
+        "bandcamp" => "bandcamp",
         "musicbrainz" => "musicbrainz",
         _ => "other",
     };
@@ -1128,6 +1153,25 @@ mod tests {
         assert_eq!(events.dropped_events, 1);
         record_into(&mut events, false, event(MAX_EVENTS + 1));
         assert_eq!(events.events.len(), MAX_EVENTS);
+    }
+
+    #[test]
+    fn background_preparation_cannot_crowd_out_foreground_failure() {
+        let mut events = EventRing::default();
+        let foreground = event(0);
+        let foreground_id = foreground["resolutionId"].clone();
+        record_into(&mut events, true, foreground);
+        for index in 0..MAX_EVENTS * 2 {
+            let mut payload = event(index);
+            payload["nativeOperationId"] = json!(format!("preparation:{}", uuid::Uuid::new_v4()));
+            record_into(&mut events, true, payload);
+        }
+        assert!(events
+            .events
+            .iter()
+            .any(|event| event.resolution_id == foreground_id.as_str().unwrap()));
+        assert!(events.events.len() <= MAX_EVENTS / 4 + 1);
+        assert!(events.dropped_events > 0);
     }
 
     #[test]

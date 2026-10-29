@@ -766,3 +766,9 @@ footer.player .player-artwork-menu > summary:focus-visible { outline: 2px solid 
 footer.player .player-artwork-options { position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 70; display: grid; gap: 3px; width: 175px; padding: 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 8px 24px #0005; }
 footer.player .player-artwork-options > button { text-align: left; padding: 7px 9px; font-size: 11px; border: 0; background: transparent; }
 footer.player .player-artwork-options > button[aria-pressed="true"] { color: var(--accent); }
+
+/* Download tools use an anchored compact menu, independent of toolbar flow. */
+.download-tools { position:relative; flex:none; }
+.download-tools > summary { display:grid; place-items:center; min-width:32px; min-height:32px; border:1px solid var(--line); border-radius:7px; list-style:none; }
+.download-tools > summary::-webkit-details-marker { display:none; }
+.download-tools > button { position:absolute; left:0; top:calc(100% + 5px); z-index:40; min-width:210px; padding:10px 12px; background:var(--surface); box-shadow:0 8px 22px #0005; text-align:left; }

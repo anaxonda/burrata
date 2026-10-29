@@ -314,6 +314,31 @@ pub(super) fn verify_with_discogs_credit_variant(
         }
         resolved.id = format!("bandcamp:{id}");
     }
+    if required && resolved.provider == "bandcamp" {
+        // This artist is returned by the fresh artist-hosted page, rather than
+        // inferred from an uploader caption. A matching display caption must
+        // never override a contradictory page artist.
+        let metadata = audio.source_metadata.as_ref()?;
+        let artist = metadata["artist"]
+            .as_str()
+            .or(metadata["channel"].as_str())
+            .or(metadata["uploader"].as_str())?;
+        let artist = crate::source_fallback::normalize_artist_credit(artist);
+        let agrees = |expected: &Track| {
+            !artist.is_empty()
+                && artist == crate::source_fallback::normalize_artist_credit(&expected.artist)
+        };
+        if !agrees(track)
+            && !aliases
+                .iter()
+                .filter(|variant| {
+                    valid_artist_alias_variant_with_proof(track, variant, isrc_aliases)
+                })
+                .any(agrees)
+        {
+            return None;
+        }
+    }
     let extractor = matches!(
         candidate.provider.as_str(),
         "youtube" | "soundcloud" | "bandcamp"

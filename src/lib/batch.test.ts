@@ -346,3 +346,26 @@ describe("selected batch acquisition", () => {
     expect(inspect).toHaveBeenCalledOnce();
   });
 });
+
+describe("Soulseek waiting in source order", () => {
+  it.each(["empty", "unavailable", "uncertain"])("holds later providers after %s Soulseek results", async (outcome) => {
+    const find=vi.fn(async(provider:string)=>{
+      if(provider==="slskd" && outcome==="unavailable")throw new Error("daemon unavailable");
+      return provider==="slskd" && outcome==="uncertain" ? [{...candidate("peer"),provider:"slskd"}] : [];
+    });
+    const result=await resolveBatchSource(["monochrome","slskd","youtube"],undefined,find,(_provider,rows)=>rows,async row=>row,rejected,()=>false,()=>true,undefined,undefined,true);
+    expect(find.mock.calls.map(([provider])=>provider)).toEqual(["monochrome","slskd"]);
+    expect(result.waitingForSoulseek).toBe(true);
+    expect(result.candidate).toBeUndefined();
+  });
+  it("continues after Soulseek by default", async()=>{
+    const find=vi.fn(async(provider:string)=>provider==="youtube"?[candidate("later-source")]:[]);
+    const result=await resolveBatchSource(["slskd","youtube"],undefined,find,(_provider,rows)=>rows,async row=>row,accepted,()=>false,()=>true);
+    expect(result.candidate?.id).toBe("later-source");expect(result.waitingForSoulseek).toBeUndefined();
+  });
+  it("keeps a usable earlier source ahead of a waiting policy",async()=>{
+    const find=vi.fn(async()=>[candidate("first-source")]);
+    const result=await resolveBatchSource(["youtube","slskd"],undefined,find,(_provider,rows)=>rows,async row=>row,accepted,()=>false,()=>true,undefined,undefined,true);
+    expect(result.candidate?.id).toBe("first-source");expect(find).toHaveBeenCalledTimes(1);
+  });
+});

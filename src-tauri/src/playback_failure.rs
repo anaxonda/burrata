@@ -80,7 +80,7 @@ fn http_status(message: &str) -> Option<u16> {
             if let Some(tail) = remaining.strip_prefix(prefix) {
                 let digits: String = tail.chars().take_while(char::is_ascii_digit).collect();
                 if digits.len() == 3 {
-                    if let Ok(status @ 400..=599) = digits.parse::<u16>() {
+                    if let Ok(status @ 200..=599) = digits.parse::<u16>() {
                         return Some(status);
                     }
                 }
@@ -133,6 +133,29 @@ pub fn classify(reason: &str) -> PlaybackFailure {
     }
     if has_any(&message, &["cancel", "superseded"]) {
         return failure(Cancelled, Stage::Resolver, Operation, false, status);
+    }
+    if message.contains("native http byte range: http ") {
+        if let Some(status) = status {
+            let category = match status {
+                401 | 403 => SourceAccess,
+                429 => RateLimited,
+                500..=599 => Network,
+                _ => SourceUnavailable,
+            };
+            return failure(category, Stage::Transport, Source, true, Some(status));
+        }
+    }
+    if message.contains("native http request failed:")
+        || message.contains("native http byte range:")
+    {
+        let category = if has_any(&message, &["timed out", "timeout"]) {
+            Timeout
+        } else if message.contains("native http request failed:") {
+            Network
+        } else {
+            SourceUnavailable
+        };
+        return failure(category, Stage::Transport, Source, true, status);
     }
     if has_any(&message, &["timed out", "timeout", "deadline"]) {
         return failure(Timeout, Stage::Resolver, Operation, true, status);

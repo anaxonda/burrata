@@ -12,6 +12,8 @@ vi.mock("svelte",async()=>{
 });
 let instance:ReturnType<typeof mount>|null=null;
 beforeEach(()=>{
+  Object.defineProperty(HTMLDialogElement.prototype,"showModal",{configurable:true,value:function(this:HTMLDialogElement){this.setAttribute("open","");}});
+  Object.defineProperty(HTMLDialogElement.prototype,"close",{configurable:true,value:function(this:HTMLDialogElement){this.removeAttribute("open");this.dispatchEvent(new Event("close"));}});
   const storage=new Map<string,string>();
   vi.stubGlobal("localStorage",{getItem:(key:string)=>storage.get(key)??null,setItem:(key:string,value:string)=>storage.set(key,value)});
   mocks.call.mockReset();
@@ -31,5 +33,5 @@ it("saves only an explicit subscription, offers review, pause and remove",async(
 });
 it("does not render controls while hidden",async()=>{
   instance=mount(SoulseekWishlist,{target:document.body,props:{visible:false,query:'track'}});await tick();
-  expect(document.querySelector('details')).toBeNull();expect(mocks.call).not.toHaveBeenCalled();
+  expect(document.querySelector("dialog[open]")).toBeNull();expect(mocks.call).not.toHaveBeenCalled();
 });

@@ -25,6 +25,10 @@ use tokio::{
 };
 use uuid::Uuid;
 
+#[path = "download_watches.rs"]
+mod download_watches;
+pub use download_watches::{DownloadWatch, DownloadWatchRequest};
+
 // Peer queues must not consume the workers used for direct downloads or file processing.
 const SOULSEEK_PENDING_LIMIT: usize = 32;
 const SLSKD_COMPLETED_SEARCH_TTL: Duration = Duration::from_secs(300);
@@ -4853,16 +4857,19 @@ async fn resolve_bandcamp_preview_audio(
         selected_format_id: Some("mp3-128".into()),
         selected_format_has_video: false,
         source_metadata: Some(serde_json::json!({
+            "provider":"bandcamp",
+            "track":resolved.title.clone(),
+            "artist":resolved.artist.clone(),
             "channel": resolved.artist.clone(),
             "uploader": resolved.artist.clone(),
             "albumUrl": resolved.album_url.as_ref().map(|url| url.as_str()),
             "albumId": resolved.album_id,
             "pageMetadata": resolved.page_metadata,
         })),
-        // The shared strict matcher expects provider titles to include the
-        // credited artist. Keep the parsed artist separately as well so the
-        // identity gate can reject an artist mismatch directly.
-        resolved_title: Some(format!("{} {}", resolved.artist, resolved.title)),
+        // Keep the page's structured track and artist fields. A delimiter also
+        // prevents a collaboration credit from swallowing the song title when
+        // the shared caption parser encounters “with” in the artist credit.
+        resolved_title: Some(format!("{} - {}", resolved.artist, resolved.title)),
         resolved_provider_id: Some(resolved.provider_id),
         chapters: Some(vec![]),
         expected_content_length: Some(expected_content_length),
@@ -6270,6 +6277,10 @@ struct Inner {
     slskd_searches: Mutex<HashMap<String, SlskdSearchSession>>,
     slskd_completed: Mutex<HashMap<String, (Instant, SlskdSearchPoll)>>,
     active: Mutex<HashMap<String, watch::Sender<bool>>>,
+    watch_gate: tokio::sync::Mutex<()>,
+    watch_notify: tokio::sync::Notify,
+    watch_scheduler_started: AtomicBool,
+    watch_search_not_before: AtomicU64,
     search_cache: CandidateSearchCache,
     raw_audio_search_cache: RawAudioSearchCache,
     preview_audio_cache: PreviewAudioCache,
@@ -6464,6 +6475,10 @@ impl AcquisitionManager {
                 slskd_searches: Mutex::new(HashMap::new()),
                 slskd_completed: Mutex::new(HashMap::new()),
                 active: Mutex::new(HashMap::new()),
+                watch_gate: tokio::sync::Mutex::new(()),
+                watch_notify: tokio::sync::Notify::new(),
+                watch_scheduler_started: AtomicBool::new(false),
+                watch_search_not_before: AtomicU64::new(0),
                 search_cache: CandidateSearchCache::default(),
                 raw_audio_search_cache: RawAudioSearchCache::default(),
                 preview_audio_cache: PreviewAudioCache::default(),
@@ -8459,11 +8474,7 @@ impl AcquisitionManager {
         let result = self
             .acquire_with_fallback(&mut job, &settings, rx.clone())
             .await
-            .and_then(|asset| {
-                self.inner
-                    .store
-                    .commit_download_asset(&asset, &job.disposition)
-            });
+            .and_then(|asset| self.commit_download_result(&job, &asset));
         match result {
             Ok(mut asset) => {
                 let _ = crate::directory_browser::stamp_registered_asset_fingerprint(
@@ -8499,6 +8510,8 @@ impl AcquisitionManager {
                             }
                             job.state = "completed".into();
                             job.progress = 100.0;
+                            self.remember_lossless_upgrade(&job, &asset, &settings)
+                                .await;
                         }
                     }
                     Err(e) => {
@@ -8511,7 +8524,9 @@ impl AcquisitionManager {
                 }
             }
             Err(e) => {
-                job.state = if *rx.borrow() || e == "Cancelled" {
+                job.state = if e == "Waiting for Soulseek" {
+                    "waiting_for_source"
+                } else if *rx.borrow() || e == "Cancelled" {
                     "cancelled"
                 } else {
                     "failed"
@@ -8521,6 +8536,7 @@ impl AcquisitionManager {
             }
         }
         let _ = self.update(&job);
+        self.inner.watch_notify.notify_one();
         if let Ok(mut active) = self.inner.active.lock() {
             active.remove(&job.id);
         }
@@ -8542,6 +8558,22 @@ impl AcquisitionManager {
             Err(error) => error,
         };
         let lossless = lossless || crate::source_fallback::requires_lossless(job);
+        if original_provider == "slskd"
+            && settings.soulseek_wait_for_source
+            && !*rx.borrow()
+            && crate::source_fallback::may_switch(
+                job,
+                &first_error,
+                &Settings {
+                    download_fallback_enabled: true,
+                    ..settings.clone()
+                },
+                false,
+            )
+        {
+            self.defer_soulseek_job(job, settings, lossless).await?;
+            return Err("Waiting for Soulseek".into());
+        }
         if !crate::source_fallback::may_switch(job, &first_error, settings, *rx.borrow()) {
             return Err(first_error);
         }
@@ -8568,6 +8600,10 @@ impl AcquisitionManager {
                 Ok(found) => found,
                 Err(error) => {
                     failures.push(serde_json::json!({"provider":provider,"error":error}));
+                    if provider == "slskd" && settings.soulseek_wait_for_source {
+                        self.defer_soulseek_job(job, settings, lossless).await?;
+                        return Err("Waiting for Soulseek".into());
+                    }
                     continue;
                 }
             };
@@ -8706,6 +8742,10 @@ impl AcquisitionManager {
             }
             if !attempted {
                 failures.push(serde_json::json!({"provider":provider,"error":"No permitted recording match meeting the fallback quality policy"}));
+            }
+            if provider == "slskd" && settings.soulseek_wait_for_source && !*rx.borrow() {
+                self.defer_soulseek_job(job, settings, lossless).await?;
+                return Err("Waiting for Soulseek".into());
             }
         }
         if !job.track.provenance.is_object() {
@@ -9234,6 +9274,13 @@ impl AcquisitionManager {
         };
         if job.track.provenance["downloadFallbackRequiresLossless"] == true {
             media::verify_lossless_fallback(&path, settings).await?;
+        }
+        if job.track.provenance["soulseekDownloadWatchKind"].as_str() == Some("upgrade") {
+            // Completed bytes can wait without occupying a peer/processing slot.
+            admission.processing.take();
+            admission.peer.take();
+            self.wait_for_upgrade_playback(job, &mut rx).await?;
+            admission.processing = Some(cancellable_slot(&self.inner.slots, &mut rx).await?);
         }
         job.state = if needs_verification {
             "identifying"
