@@ -2,7 +2,7 @@
 """Focused tests for installed smoke runner path handling."""
 import importlib.util
 from contextlib import closing, ExitStack
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 import pathlib
 import json
 import subprocess
@@ -72,6 +72,41 @@ class AppImageTests(unittest.TestCase):
             with patch.object(smoke.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)):
                 with self.assertRaises(smoke.SmokeFailure):
                     smoke.install_linux(root / "Burrata.AppImage", root)
+
+
+class PrivateLinuxAudioTests(unittest.TestCase):
+    def test_private_endpoint_replaces_inherited_server_without_global_daemon_commands(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory).resolve()
+            env = {"PULSE_SERVER": "unix:/user/audio", "PATH": "/bin"}
+            process = Mock()
+            process.poll.return_value = None
+            ready = subprocess.CompletedProcess([], 0, b"0\tburrata_smoke\tmodule-null-sink.c\ts16le\tIDLE\n", b"")
+            with patch.object(smoke.shutil, "which", side_effect=lambda name: '/bin/' + name), \
+                 patch.object(smoke.subprocess, "Popen", return_value=process) as launch, \
+                 patch.object(smoke, "run", return_value=ready) as run:
+                self.assertIs(smoke.start_linux_audio(env, root), process)
+            command = launch.call_args.args[0]
+            self.assertIn("--use-pid-file=no", command)
+            self.assertIn("-n", command)
+            self.assertTrue(any("norewinds=1" in value for value in command))
+            self.assertNotIn("--start", command)
+            self.assertNotIn("--kill", command)
+            self.assertEqual(env["PULSE_SERVER"], 'unix:' + str(root / 'pulse-runtime/native'))
+            self.assertTrue(launch.call_args.kwargs["start_new_session"])
+            self.assertEqual(run.call_args.kwargs["env"]["PULSE_SERVER"], env["PULSE_SERVER"])
+
+    def test_failed_private_server_stops_only_its_owned_process(self):
+        with tempfile.TemporaryDirectory() as directory:
+            process = Mock()
+            process.poll.return_value = 1
+            root = pathlib.Path(directory)
+            with patch.object(smoke.shutil, "which", return_value='/bin/tool'), \
+                 patch.object(smoke.subprocess, "Popen", return_value=process), \
+                 patch.object(smoke, "stop_process") as stop:
+                with self.assertRaisesRegex(smoke.SmokeFailure, "did not become ready"):
+                    smoke.start_linux_audio({}, root)
+                stop.assert_called_once_with(process, root)
 
 
 class AppImageRuntimeTests(unittest.TestCase):

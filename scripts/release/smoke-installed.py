@@ -710,14 +710,46 @@ def linux_audio_diagnostics(env: dict[str, str]) -> dict:
     }
 
 
+def start_linux_audio(env: dict[str, str], temp: pathlib.Path) -> subprocess.Popen:
+    """Own a clocked test endpoint without changing the user's audio server."""
+    pulse, pactl = shutil.which("pulseaudio"), shutil.which("pactl")
+    if not pulse or not pactl:
+        raise SmokeFailure("launch", "Linux smoke requires pulseaudio and pactl")
+    runtime = temp / "pulse-runtime"
+    runtime.mkdir(mode=0o700)
+    env.update(XDG_RUNTIME_DIR=str(runtime), PULSE_SERVER="unix:" + str(runtime / "native"),
+               PULSE_SINK="burrata_smoke", PULSE_SOURCE="burrata_smoke.monitor")
+    # PulseAudio's ordinary null sink renders in two-second blocks and rewinds
+    # on new streams. norewinds uses a 50ms maximum block instead. A dedicated
+    # server also avoids suspension/latency changes from unrelated clients.
+    # See PulseAudio src/modules/module-null-sink.c, BLOCK_USEC_NOREWINDS.
+    command = [pulse, "--daemonize=no", "--use-pid-file=no", "--exit-idle-time=-1", "-n",
+               "--load=module-native-protocol-unix socket=" + str(runtime / "native") + " auth-anonymous=1",
+               "--load=module-null-sink sink_name=burrata_smoke rate=44100 channels=2 norewinds=1"]
+    with (temp / "virtual-audio.log").open("wb") as log:
+        process = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL,
+                                   stdout=log, stderr=log, start_new_session=True)
+    try:
+        deadline = time.monotonic() + 10
+        while process.poll() is None and time.monotonic() < deadline:
+            result = run([pactl, "list", "short", "sinks"], timeout=2, env=env, check=False)
+            if result.returncode == 0 and any(
+                    row.split("\t")[1:2] == ["burrata_smoke"]
+                    for row in result.stdout.decode(errors="replace").splitlines()):
+                return process
+            time.sleep(0.1)
+        raise SmokeFailure("launch", "private clocked Linux audio endpoint did not become ready")
+    except BaseException:
+        stop_process(process, temp)
+        raise
+
+
 def launch_app(app: pathlib.Path, env: dict[str, str], temp: pathlib.Path) -> subprocess.Popen:
     if sys.platform == "linux":
-        pulse = shutil.which("pulseaudio")
         dbus = shutil.which("dbus-run-session")
         xvfb = shutil.which("xvfb-run")
-        if not pulse or not dbus or not xvfb:
-            raise SmokeFailure("launch", "Linux smoke requires pulseaudio, dbus-run-session, and xvfb-run")
-        run([pulse, "--start", "--exit-idle-time=-1"], timeout=20, env={**os.environ, **env})
+        if not dbus or not xvfb:
+            raise SmokeFailure("launch", "Linux smoke requires dbus-run-session and xvfb-run")
         command = [dbus, "--", xvfb, "-a", "--server-args=-screen 0 1280x800x24", app]
     else:
         command = [app]
@@ -837,6 +869,7 @@ def main() -> int:
     if args.source_commit:
         evidence["sourceCommit"] = args.source_commit
     app_process = None
+    audio_process = None
     package_name = None
     mount = None
     installed_path = None
@@ -882,6 +915,9 @@ def main() -> int:
             key: value for key, value in audio_fixture.items() if key != "trackId"
         }
         env["BURRATA_PLAYBACK_ENGINE"] = "webview"
+        if sys.platform == "linux":
+            audio_process = start_linux_audio(env, temp)
+            evidence["checks"]["linuxAudioEndpoint"] = {"private": True, "maximumBlockMs": 50, "rewinds": False}
         app_process = launch_app(app, env, temp)
         discovery = app_data / "automation.json"
         wait_for_app(app_process, discovery, temp / "installed-app.stderr.log")
@@ -922,10 +958,7 @@ def main() -> int:
             uninstaller = next(install_dir.glob("*uninstall*.exe"), None) if install_dir.is_dir() else None
             if uninstaller:
                 run([uninstaller, "/S"], timeout=120, check=False)
-        if sys.platform == "linux":
-            pulse = shutil.which("pulseaudio")
-            if pulse:
-                run([pulse, "--kill"], timeout=10, check=False)
+        stop_process(audio_process, temp)
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
         temp_obj.cleanup()

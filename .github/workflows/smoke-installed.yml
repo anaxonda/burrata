@@ -26,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ github.sha }}
       - uses: actions/setup-node@v6
         with:
           node-version: '24.21.0'
@@ -86,11 +86,27 @@ jobs:
             --evidence .cache/release-smoke-evidence.json \
             --source-run-id "$SOURCE_RUN_ID" \
             --source-commit "$SOURCE_COMMIT"
+      - name: Check the preserved AppImage independently
+        if: inputs.platform == 'linux-x64'
+        shell: bash
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_COMMIT: ${{ steps.source.outputs.commit }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          installers=(.cache/debug-installers/*.AppImage)
+          test "${#installers[@]}" -eq 1
+          python scripts/release/smoke-installed.py --installer "${installers[0]}" \
+            --evidence .cache/appimage-smoke-evidence.json \
+            --source-run-id "$SOURCE_RUN_ID" --source-commit "$SOURCE_COMMIT"
       - uses: actions/upload-artifact@v7
         if: always() && hashFiles('.cache/release-smoke-evidence.json') != ''
         with:
           name: smoke-rerun-evidence-${{ inputs.platform }}-${{ inputs.source_run_id }}
-          path: .cache/release-smoke-evidence.json
+          path: |
+            .cache/release-smoke-evidence.json
+            .cache/appimage-smoke-evidence.json
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 14
