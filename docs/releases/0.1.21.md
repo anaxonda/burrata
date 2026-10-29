@@ -1,4 +1,4 @@
-# Burrata 0.1.20
+# Burrata 0.1.21
 
 Changes since v0.1.11.
 
@@ -8,7 +8,7 @@ This release reduces background playlist and interface work, improves saved wave
 - The backend watcher owns automatic startup synchronization. Requests are coalesced, the filesystem notification queue is bounded, and Linux mirroring runs at lower thread priority than normal UI and audio work.
 - Immutable mirror bodies remain separate from mutable sync state. Ordinary reconciliation reads reference headers; backups and snapshot viewing retain complete history. Browser archives load only the current snapshot and captures not already archived.
 - Local detection identity checks memoize hashes only after file timestamps have been quiet, so rapid same-size edits are reverified on filesystems with coarse timestamps.
-- Linux AppImage packaging selects a coherent GTK, WebKit and media runtime from the build environment. A minimal launcher and per-component relative library paths keep bundled libraries isolated from host commands. Qualification checks unresolved symbols, launches both DEB and AppImage packages, and requires three consecutive steady audio-clock windows with a longer synthetic fixture.
+- Linux AppImage packaging selects a coherent GTK, WebKit and media runtime from the build environment. A minimal launcher and per-component relative library paths keep bundled libraries isolated from host commands. Linux qualification uses a private clocked virtual audio endpoint. Qualification checks unresolved symbols, launches both DEB and AppImage packages, and requires three consecutive steady audio-clock windows with a longer synthetic fixture.
 - Partitioned history files are included in change detection, so edited or deleted monthly mirrors are checked immediately when their metadata changes.
 - Exports query registered files for their own tracks instead of repeatedly hydrating the entire audio library. Targeted indexes support change tracking and those lookups.
 - Saved track detections load for visible queue rows and selected track information, with four concurrent reads and a bounded cache. Hidden queues no longer trigger one request for every track whenever playback changes.
