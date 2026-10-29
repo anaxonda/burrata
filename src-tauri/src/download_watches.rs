@@ -39,6 +39,17 @@ pub struct DownloadWatch {
 fn active(item: &DownloadWatch) -> bool {
     !matches!(item.state.as_str(), "completed" | "cancelled")
 }
+fn next_ready_watch(items: &[DownloadWatch], now: i64, not_before: u64) -> Option<usize> {
+    if not_before > now.max(0) as u64 {
+        return None;
+    }
+    items
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| item.state == "waiting" && item.next_check <= now)
+        .min_by_key(|(index, item)| (item.next_check, *index))
+        .map(|(index, _)| index)
+}
 fn next_delay(failures: u32) -> i64 {
     HOUR * (1_i64 << failures.min(3))
 }
@@ -199,7 +210,9 @@ impl AcquisitionManager {
             item.music_directory = settings.music_directory;
         }
         item.revision = item.revision.wrapping_add(1);
-        if matches!(action, "check" | "resume") {
+        if action == "check" {
+            item.next_check = 0;
+        } else if action == "resume" {
             item.next_check = Utc::now().timestamp();
         }
         self.save_download_watches(&items)?;
@@ -241,6 +254,14 @@ impl AcquisitionManager {
         let item = {
             let _gate = self.inner.watch_gate.lock().await;
             let mut items = self.list_download_watches()?;
+            // With no runnable request or transfer to reconcile, avoid reading
+            // download history at startup or on an idle hourly wake.
+            if !items
+                .iter()
+                .any(|item| matches!(item.state.as_str(), "waiting" | "queued"))
+            {
+                return Ok(HOUR as u64);
+            }
             let jobs = self.inner.store.list_jobs()?;
             for item in items.iter_mut().filter(|item| item.state == "queued") {
                 if let Some(job) = jobs
@@ -276,12 +297,11 @@ impl AcquisitionManager {
                     .into();
                 }
             }
-            let selected = items.iter().position(|item| {
-                item.state == "waiting"
-                    && item.next_check <= now
-                    && self.inner.watch_search_not_before.load(Ordering::Acquire)
-                        <= now.max(0) as u64
-            });
+            let selected = next_ready_watch(
+                &items,
+                now,
+                self.inner.watch_search_not_before.load(Ordering::Acquire),
+            );
             let item = selected.map(|index| {
                 items[index].state = "checking".into();
                 items[index].clone()
@@ -522,6 +542,49 @@ impl AcquisitionManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn overdue_requests_get_a_turn_before_early_entries_recheck() {
+        let start = 1_800_000_000i64;
+        let mut items = (0..100)
+            .map(|index| DownloadWatch {
+                id: index.to_string(),
+                request: DownloadWatchRequest {
+                    track: Track::default(),
+                    output_profile: "source".into(),
+                    playlist_context: None,
+                    requires_lossless: false,
+                },
+                kind: "waiting".into(),
+                state: "waiting".into(),
+                next_check: start,
+                last_checked: None,
+                revision: 0,
+                job_id: None,
+                target_asset_id: None,
+                expected_hash: None,
+                failures: 0,
+                music_directory: String::new(),
+                layout: DownloadLayout::ArtistAlbum,
+                matching_level: crate::recording_match::MatchLevel::Balanced,
+            })
+            .collect::<Vec<_>>();
+        for index in 0..items.len() {
+            // 100 slow checks exceed the hourly recheck period. Insertion-order
+            // selection would revisit early rows and starve the back of the list.
+            let now = start + index as i64 * 78;
+            let selected = next_ready_watch(&items, now, 0).unwrap();
+            assert_eq!(selected, index);
+            items[selected].last_checked = Some(now);
+            items[selected].next_check = now + HOUR;
+        }
+        assert!(items.iter().all(|item| item.last_checked.is_some()));
+        let now = start + 100 * 78;
+        items[99].next_check = 0;
+        assert_eq!(next_ready_watch(&items, now, 0), Some(99));
+        assert_eq!(next_ready_watch(&items, now, now as u64 + 1), None);
+        items[99].state = "paused".into();
+        assert_ne!(next_ready_watch(&items, now, 0), Some(99));
+    }
     #[test]
     fn retries_are_bounded_and_back_off() {
         assert_eq!(next_delay(0), HOUR);

@@ -27,7 +27,7 @@
   </header>
   {#if message}<p role="status">{message}</p>{/if}
   {#each visible as item(item.id)}
-    <article><div><strong>{item.request.track.title}</strong><p>{item.request.track.artist}</p><small>{label(item)}</small>{#if item.state==="waiting"}<small>Next check {new Date(item.nextCheck*1000).toLocaleString()}</small>{/if}</div>
+    <article><div><strong>{item.request.track.title}</strong><p>{item.request.track.artist}</p><small>{label(item)}</small>{#if item.state==="waiting"}<small>{item.nextCheck*1000 <= Date.now() ? "Queued for a check" : `Next check ${new Date(item.nextCheck*1000).toLocaleString()}`}</small>{/if}</div>
       <details><summary aria-label={`Options for ${item.request.track.title}`}>•••</summary><div class="watch-menu">
         {#if item.state!=="queued"}<button onclick={(event)=>act(event,()=>control(item,item.state==="paused"?"resume":"check"))}>{item.state==="paused"?"Resume checks":"Check now"}</button>{/if}
         <button onclick={(event)=>act(event,()=>choose(item))}>Choose source…</button>

@@ -13,6 +13,8 @@ This audit follows two reported production failures: a linked Bandcamp import re
 
 - A missing or changed local-only file cannot become an online source search after library hydration removes its path. Playback stops with a file-specific storage message. Catalog recordings with remote source identities retain their existing fallback policy.
 
+- Waiting-source scheduling selects the oldest-due request rather than the first eligible row. A 100-request regression crosses the hourly retry boundary and verifies that every request gets a turn.
+
 ## Verification matrix
 
 The native transport fixtures exercise real loopback responses: valid 200/206 bodies; 400, 401, 403, 404, 410, 416, 429, 500 and 503 initial responses; rejected 200 range responses; mismatched ranges and validators; truncated/overflow bodies; and cancellation before headers/seek handshakes complete. They retain strict byte-range validation rather than accepting incompatible content after a seek.
@@ -27,4 +29,4 @@ A separate ignored **live_bandcamp_sketches_import_resolves_without_changing_ide
 
 Deterministic fixtures verify behavior under controlled failures; they do not establish current provider availability. Live resolution verifies source identity and accessible media bytes, not physical audio output. Installed-artifact audio smoke remains a separate required check. No claim of live Soulseek peer-transfer qualification should be made without a configured daemon and an available consenting peer/test fixture. Cross-platform CI and installed-artifact checks must pass for the exact release commit before publishing another public release.
 
-Local verification of the frozen implementation passed **2,284 native tests** (56 explicit environment/live qualifications ignored in the ordinary suite), **1,728 frontend tests**, **12 MCP tests**, and **8 repository contract tests**. The live Bandcamp resolver qualification passed separately. Release packaging and cross-platform results are recorded by the workflow for the exact tagged source commit.
+Local verification of the frozen implementation passed **2,285 native tests** (56 explicit environment/live qualifications ignored in the ordinary suite), **1,728 frontend tests**, **12 MCP tests**, and **8 repository contract tests**. The live Bandcamp resolver qualification passed separately. Release packaging and cross-platform results are recorded by the workflow for the exact tagged source commit.
