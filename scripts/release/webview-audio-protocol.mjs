@@ -60,7 +60,7 @@ function sampleReady(snapshot, playback, trackId) {
     && Number.isFinite(media?.currentTime);
 }
 
-/** One attempt: prove startup progress before measuring the steady clock. */
+/** One attempt: prove startup progress and stabilization before steady checks. */
 export function createWebviewAudioSmokeGate(trackId, startedAtMs) {
   const startupDeadlineMs = startedAtMs + 10_000;
   let phase = 'startup';
@@ -93,10 +93,24 @@ export function createWebviewAudioSmokeGate(trackId, startedAtMs) {
         if (!initialReady) { initialReady = latest; initialReadyAt = sampledAtMs; }
         if (latest.media.currentTime - initialReady.media.currentTime >= 0.5) {
           firstProgress = latest; firstProgressAt = sampledAtMs;
-          first = latest; firstAt = sampledAtMs;
           previous = latest; previousAt = sampledAtMs;
+          phase = 'settling';
+        }
+        return phase;
+      }
+      if (phase === 'settling') {
+        if (sampledAtMs >= startupDeadlineMs) return this.expireStartup();
+        if (!sampleReady(inspection, playback, trackId)) {
+          previous = null; previousAt = null;
+          return phase;
+        }
+        if (!previous) { previous = latest; previousAt = sampledAtMs; return phase; }
+        if (sampledAtMs - previousAt < 900) return phase;
+        if (latest.media.currentTime - previous.media.currentTime >= 0.5) {
+          first = latest; firstAt = sampledAtMs;
           phase = 'steady';
         }
+        previous = latest; previousAt = sampledAtMs;
         return phase;
       }
       if (!sampleReady(inspection, playback, trackId)) return fail('audio_state_not_playing');
@@ -108,8 +122,8 @@ export function createWebviewAudioSmokeGate(trackId, startedAtMs) {
       return phase;
     },
     expireStartup() {
-      if (phase !== 'startup') throw new Error('Startup attempt is already terminal');
-      return fail(initialReady ? 'audio_clock_not_started' : 'audio_not_ready');
+      if (phase !== 'startup' && phase !== 'settling') throw new Error('Startup attempt is already terminal');
+      return fail(firstProgress ? 'audio_clock_not_stable' : initialReady ? 'audio_clock_not_started' : 'audio_not_ready');
     },
     diagnostics(nowMs) {
       const elapsed = time => time === null ? null : time - startedAtMs;

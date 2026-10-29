@@ -75,6 +75,30 @@ class AppImageTests(unittest.TestCase):
 
 
 class AppImageRuntimeTests(unittest.TestCase):
+    def test_runtime_collection_does_not_require_gstreamer_development_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            libdir = root / 'lib'
+            libdir.mkdir()
+            (libdir / 'gstreamer-1.0').mkdir()
+            pixbuf = root / 'loaders'
+            pixbuf.mkdir()
+            for names in runtime.ROOT_LIBRARIES.values():
+                for name in names:
+                    (libdir / name).write_bytes(b'fixture')
+            gst = libdir / 'libgstreamer-1.0.so.0'
+            gst.write_bytes(b'fixture')
+
+            def pkg(package, variable):
+                if package == 'gstreamer-1.0':
+                    raise subprocess.CalledProcessError(1, ['pkg-config', package])
+                return str(pixbuf if variable == 'gdk_pixbuf_moduledir' else libdir)
+
+            with patch.object(runtime, 'pkg_variable', side_effect=pkg), patch.object(
+                    runtime.subprocess, 'check_output', return_value=f'libgstreamer-1.0.so.0 => {gst} (0x1234)'):
+                files = runtime.configuration()['bundle']['linux']['appimage']['files']
+            self.assertEqual(files['/usr/lib/libgstreamer-1.0.so.0'], str(gst.resolve()))
+
     def test_dependency_closure_keeps_cairo_and_glib_but_leaves_host_drivers_alone(self):
         found = runtime.dependencies("""
           libcairo.so.2 => /build/lib/libcairo.so.2 (0x1234)

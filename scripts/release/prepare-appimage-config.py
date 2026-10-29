@@ -29,7 +29,6 @@ ROOT_LIBRARIES = {
     'gtk+-3.0': ['libgtk-3.so.0', 'libgdk-3.so.0'],
     'webkit2gtk-4.1': ['libwebkit2gtk-4.1.so.0', 'libjavascriptcoregtk-4.1.so.0'],
     'libsoup-3.0': ['libsoup-3.0.so.0'],
-    'gstreamer-1.0': ['libgstreamer-1.0.so.0'],
 }
 
 
@@ -65,18 +64,28 @@ def configuration() -> dict:
             source.resolve(strict=True)
             libraries[name] = source
             roots.append(source)
-    # These plugins are bundled by Tauri too. Their dependencies must come from
-    # the same build environment as the UI, including Cairo's X11 backend.
-    plugin_dirs = [Path(pkg_variable('gstreamer-1.0', 'pluginsdir')),
-                   Path(pkg_variable('gdk-pixbuf-2.0', 'gdk_pixbuf_moduledir'))]
+    clean_env = {key: value for key, value in os.environ.items()
+                 if key not in ('LD_LIBRARY_PATH', 'LD_PRELOAD')}
+    libraries.update(dependencies(subprocess.check_output(
+        ['ldd', *map(str, roots)], text=True, env=clean_env)))
+    # WebKit links the GStreamer runtime. Derive the plugin directory from that
+    # actual library instead of requiring GStreamer development metadata (whose
+    # libunwind dependency conflicts with the hosted runner's compiler tools).
+    gstreamer = libraries.get('libgstreamer-1.0.so.0')
+    if gstreamer is None:
+        raise ValueError('WebKit GStreamer runtime dependency is missing')
+    pixbuf_modules = pkg_variable('gdk-pixbuf-2.0', 'gdk_pixbuf_moduledir')
+    pixbuf_dir = Path(pixbuf_modules) if pixbuf_modules else (
+        Path(pkg_variable('gdk-pixbuf-2.0', 'libdir')) / 'gdk-pixbuf-2.0' / '2.10.0' / 'loaders')
+    plugin_dirs = [gstreamer.parent / 'gstreamer-1.0', pixbuf_dir]
+    plugins = []
     for directory in plugin_dirs:
         if not directory.is_dir():
             raise ValueError(f'Build-host plugin directory is missing: {directory}')
-        roots.extend(sorted(directory.glob('*.so')))
-    clean_env = {key: value for key, value in os.environ.items()
-                 if key not in ('LD_LIBRARY_PATH', 'LD_PRELOAD')}
-    output = subprocess.check_output(['ldd', *map(str, roots)], text=True, env=clean_env)
-    libraries.update(dependencies(output))
+        plugins.extend(sorted(directory.glob('*.so')))
+    if plugins:
+        libraries.update(dependencies(subprocess.check_output(
+            ['ldd', *map(str, plugins)], text=True, env=clean_env)))
     files = {}
     for name, source in sorted(libraries.items()):
         resolved = source.resolve(strict=True)
