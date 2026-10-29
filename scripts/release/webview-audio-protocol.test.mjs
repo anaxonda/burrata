@@ -70,7 +70,7 @@ function ready(currentTime, overrides = {}) {
   return { engine:'webview', applicable:true, trackId, queueTrackId:trackId,
     entryId:'fixture-entry', queueTotal:1, sourceGeneration:3, sessionId:'fixture-session', seekSerial:0, previewKind:'local',
     media:{present:true, sourceStable:true, paused:false, readyState:4, networkState:1,
-      duration:4, currentTime, errorCode:null, seeking:false, ended:false, buffered:[[0,4]], seekable:[[0,4]]}, ...overrides };
+      duration:12, currentTime, errorCode:null, seeking:false, ended:false, buffered:[[0,12]], seekable:[[0,12]]}, ...overrides };
 }
 const playback = {status:'playing', trackId};
 const hasCategory = category => error => error.category === category;

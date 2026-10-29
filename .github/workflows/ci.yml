@@ -67,7 +67,7 @@ jobs:
           }
       - run: npm ci
       - name: Check installed-smoke path handling
-        run: python scripts/release/test_smoke_installed.py
+        run: python -m unittest discover -s scripts/release -p "test_*.py"
       - name: Check installed WebView audio smoke protocol
         run: node --test scripts/release/webview-audio-protocol.test.mjs
       - name: Check installer and supporting-download separation
@@ -190,7 +190,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential cmake curl dbus-x11 file gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav libasound2-dev libdbus-1-dev libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev nasm perl patchelf pulseaudio rpm libfuse2 xvfb
       - name: Prepare and validate the Linux AppImage runtime
-        run: python3 scripts/release/prepare-appimage-config.py --output .cache/appimage-config.json
+        run: |
+          python3 scripts/release/prepare-appimage-config.py --output .cache/appimage-config.json
+          python3 scripts/release/finalize-appimage.py --prepare-only
       - run: npm ci
       - uses: actions/setup-python@v6
         with:
@@ -247,6 +249,8 @@ jobs:
         run: |
           test -s .cache/appimage-config.json
           npm run tauri -- build --target x86_64-unknown-linux-gnu --bundles deb,rpm,appimage --config "$PWD/.cache/appimage-config.json"
+      - name: Finalize isolated AppImage runtime
+        run: python3 scripts/release/finalize-appimage.py --bundle-dir src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage
       - name: Smoke-test the installed Linux desktop package
         run: |
           installer="$(find src-tauri/target/x86_64-unknown-linux-gnu/release/bundle -type f -name '*.deb' -print -quit)"

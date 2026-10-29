@@ -233,6 +233,33 @@ class MacosTransportSecurityTests(unittest.TestCase):
 
 
 class InstalledWebviewAudioTests(unittest.TestCase):
+    def test_builder_requires_aac_long_enough_for_all_steady_windows(self) -> None:
+        for duration in (4.0, 12.0):
+            with self.subTest(duration=duration), tempfile.TemporaryDirectory() as directory:
+                root = pathlib.Path(directory)
+                target = "synthetic-target"
+                tools = root / "resources/tools" / target
+                tools.mkdir(parents=True)
+                ext = ".exe" if smoke.sys.platform == "win32" else ""
+                for name in ("ffmpeg", "ffprobe"):
+                    (tools / (name + ext)).write_bytes(b"fixture-tool")
+
+                def command(args, **kwargs):
+                    if pathlib.Path(args[0]).name == "ffmpeg" + ext:
+                        pathlib.Path(args[-1]).write_bytes(b"synthetic-aac")
+                        return subprocess.CompletedProcess(args, 0, b"", b"")
+                    payload = {"streams": [{"codec_name": "aac"}], "format": {"duration": str(duration)}}
+                    return subprocess.CompletedProcess(args, 0, json.dumps(payload).encode(), b"")
+
+                with patch.object(smoke, "run", side_effect=command):
+                    if duration == 4.0:
+                        with self.assertRaisesRegex(smoke.SmokeFailure, "too short"):
+                            smoke.build_webview_audio_fixture(root / "resources", target, {}, root, root / "data")
+                        self.assertFalse((root / "data/burrata.sqlite").exists())
+                    else:
+                        result = smoke.build_webview_audio_fixture(root / "resources", target, {}, root, root / "data")
+                        self.assertEqual(result["durationSeconds"], 12.0)
+
     @staticmethod
     def _sample(track_id: str, current_time: float, *, error_code=None,
                 entry_id="smoke-entry", source_stable=True, paused=False) -> dict:
@@ -240,7 +267,7 @@ class InstalledWebviewAudioTests(unittest.TestCase):
             "engine": "webview", "applicable": True, "trackId": track_id,
             "queueTrackId": track_id, "queueTotal": 1, "entryId": entry_id,
             "sourceGeneration": 3, "previewKind": "local", "playbackStatus": "playing",
-            "media": {"present": True, "currentTime": current_time, "duration": 4.0,
+            "media": {"present": True, "currentTime": current_time, "duration": 12.0,
                       "paused": paused, "readyState": 4, "networkState": 1,
                       "errorCode": error_code, "sourcePresent": True,
                       "sourceStable": source_stable},

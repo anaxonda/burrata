@@ -56,7 +56,7 @@ function sampleReady(snapshot, playback, trackId) {
     && Number.isInteger(media?.readyState)
     && media.readyState >= 2
     && Number.isFinite(media?.duration)
-    && media.duration >= 3.5 && media.duration <= 5.0
+    && media.duration >= 11.5 && media.duration <= 13.0
     && Number.isFinite(media?.currentTime);
 }
 

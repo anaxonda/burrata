@@ -141,7 +141,9 @@ jobs:
           sudo apt-get install -y build-essential cmake curl dbus-x11 file gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav libasound2-dev libdbus-1-dev libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev nasm patchelf perl pulseaudio rpm libfuse2 xvfb
       - name: Prepare and validate the Linux AppImage runtime
         if: runner.os == 'Linux'
-        run: python3 scripts/release/prepare-appimage-config.py --output .cache/appimage-config.json
+        run: |
+          python3 scripts/release/prepare-appimage-config.py --output .cache/appimage-config.json
+          python3 scripts/release/finalize-appimage.py --prepare-only
       - uses: msys2/setup-msys2@v2
         if: runner.os == 'Windows'
         with:
@@ -279,6 +281,9 @@ jobs:
             extra=(--config "$PWD/.cache/appimage-config.json")
           fi
           npm run tauri -- build --target "$TARGET" --bundles "$BUNDLES" "${extra[@]}"
+      - name: Finalize isolated AppImage runtime
+        if: runner.os == 'Linux'
+        run: python3 scripts/release/finalize-appimage.py --bundle-dir src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage
       - name: Smoke-test the installed desktop artifact
         shell: bash
         env:

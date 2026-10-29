@@ -30,6 +30,10 @@ static WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 static LOCAL_HASH_CACHE: OnceLock<Mutex<HashMap<String, CachedLocalHash>>> = OnceLock::new();
 static LOCAL_HASH_CACHE_CLOCK: AtomicU64 = AtomicU64::new(0);
 const MAX_LOCAL_HASH_CACHE_ENTRIES: usize = 64;
+// Coarse filesystem timestamps can collide during rapid same-size writes.
+// Only reuse metadata-identified hashes after a file has been quiet for two
+// seconds. Recent, future-dated or unknown timestamps are verified directly.
+const LOCAL_HASH_QUIET_WINDOW: std::time::Duration = std::time::Duration::from_secs(2);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct LocalFileStamp {
@@ -188,9 +192,8 @@ impl DetectionResourceKey {
     }
 }
 
-/// Return a local content identity only when the registered asset still
-/// matches the bytes currently present at its path. The database hash alone
-/// can be stale after an external file change.
+/// Verify a local content identity, memoizing only quiet, unchanged file
+/// metadata. The database hash alone can be stale after an external change.
 pub fn verified_local_asset_hash(store: &Store, asset_id: &str) -> Option<String> {
     let asset = store.get_asset_by_id(asset_id).ok().flatten()?;
     if !valid_sha256(&asset.hash) {
@@ -203,21 +206,28 @@ pub fn verified_local_asset_hash(store: &Store, asset_id: &str) -> Option<String
     let use_tick = LOCAL_HASH_CACHE_CLOCK.fetch_add(1, Ordering::Relaxed);
     {
         let mut cache = cache.lock().unwrap_or_else(|error| error.into_inner());
-        if let Some(entry) = cache.get_mut(&key) {
+        if let Some(entry) = cache
+            .get_mut(&key)
+            .filter(|_| local_stamp_cacheable(&stamp, std::time::SystemTime::now()))
+        {
             if entry.registered_hash.eq_ignore_ascii_case(&asset.hash) && entry.stamp == stamp {
                 entry.last_used = use_tick;
                 return Some(entry.registered_hash.clone());
             }
         }
+        cache.remove(&key);
     }
 
-    // Cold or invalidated entries are cryptographically verified once. Check
-    // metadata on both sides of the read so a concurrent replacement cannot
-    // publish a hash for a different file version.
+    // Cold, invalidated and recent entries are cryptographically verified.
+    // Check metadata on both sides of the read so a concurrent replacement
+    // cannot publish a hash for a different file version.
     let actual_hash = crate::media::hash_file(path).ok()?;
     let after = local_file_stamp(path)?;
     if stamp != after || !actual_hash.eq_ignore_ascii_case(&asset.hash) {
         return None;
+    }
+    if !local_stamp_cacheable(&after, std::time::SystemTime::now()) {
+        return Some(asset.hash.to_ascii_lowercase());
     }
     let mut cache = cache.lock().unwrap_or_else(|error| error.into_inner());
     if cache.len() >= MAX_LOCAL_HASH_CACHE_ENTRIES && !cache.contains_key(&key) {
@@ -238,6 +248,20 @@ pub fn verified_local_asset_hash(store: &Store, asset_id: &str) -> Option<String
         },
     );
     Some(asset.hash.to_ascii_lowercase())
+}
+
+fn local_stamp_cacheable(stamp: &LocalFileStamp, now: std::time::SystemTime) -> bool {
+    let Some(now_ns) = now
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|elapsed| elapsed.as_nanos())
+    else {
+        return false;
+    };
+    stamp
+        .modified_ns
+        .and_then(|modified| now_ns.checked_sub(modified))
+        .is_some_and(|age| age >= LOCAL_HASH_QUIET_WINDOW.as_nanos())
 }
 
 fn local_file_stamp(path: &Path) -> Option<LocalFileStamp> {
@@ -1213,53 +1237,90 @@ mod tests {
     }
 
     #[test]
-    fn verified_local_asset_hash_memo_rejects_changed_same_size_file() {
-        let (root, store) = store();
-        let path = root.path().join("memo-audio.flac");
-        std::fs::write(&path, b"first audio bytes").unwrap();
-        let local_track = Track {
-            id: "local:memo-audio".into(),
-            provider: "local".into(),
-            provider_id: "memo-audio".into(),
-            ..Track::default()
-        };
-        let hash = crate::media::hash_file(&path).unwrap();
-        store
-            .save_asset(&LocalAsset {
-                id: "detection-memo-asset".into(),
-                recording_id: local_track.id.clone(),
-                path: path.to_string_lossy().into_owned(),
-                hash: hash.clone(),
-                source_codec: "flac".into(),
-                final_codec: "flac".into(),
-                source_bitrate: None,
-                final_bitrate: None,
-                sample_rate: None,
-                channels: None,
-                bit_depth: None,
-                duration_seconds: None,
-                size_bytes: None,
-                bitrate_origin: None,
-                processing: "fixture".into(),
-                track: local_track,
-            })
-            .unwrap();
+    fn local_hash_memo_requires_quiet_known_timestamps() {
+        let root = tempdir().unwrap();
+        let path = root.path().join("quiet.flac");
+        std::fs::write(&path, b"audio").unwrap();
+        let mut stamp = local_file_stamp(&path).unwrap();
+        let now = std::time::UNIX_EPOCH + std::time::Duration::from_secs(100);
+        stamp.modified_ns = Some(std::time::Duration::from_secs(99).as_nanos());
+        assert!(!local_stamp_cacheable(&stamp, now));
+        stamp.modified_ns = Some(std::time::Duration::from_secs(98).as_nanos());
+        assert!(local_stamp_cacheable(&stamp, now));
+        stamp.modified_ns = Some(std::time::Duration::from_secs(101).as_nanos());
+        assert!(!local_stamp_cacheable(&stamp, now));
+        stamp.modified_ns = None;
+        assert!(!local_stamp_cacheable(&stamp, now));
+    }
 
-        assert_eq!(
-            verified_local_asset_hash(&store, "detection-memo-asset").as_deref(),
-            Some(hash.as_str())
-        );
-        // This exercises the warm cache path before invalidating its stamp.
-        assert_eq!(
-            verified_local_asset_hash(&store, "detection-memo-asset").as_deref(),
-            Some(hash.as_str())
-        );
-        std::fs::write(&path, b"other audio bytes").unwrap();
-        assert_eq!(
-            std::fs::metadata(&path).unwrap().len(),
-            b"first audio bytes".len() as u64
-        );
-        assert!(verified_local_asset_hash(&store, "detection-memo-asset").is_none());
+    #[test]
+    fn verified_local_asset_hash_memo_rejects_changed_same_size_file() {
+        for quiet in [false, true] {
+            let (root, store) = store();
+            let path = root.path().join("memo-audio.flac");
+            std::fs::write(&path, b"first audio bytes").unwrap();
+            let local_track = Track {
+                id: "local:memo-audio".into(),
+                provider: "local".into(),
+                provider_id: "memo-audio".into(),
+                ..Track::default()
+            };
+            if quiet {
+                let modified = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&path)
+                    .unwrap()
+                    .set_times(std::fs::FileTimes::new().set_modified(modified))
+                    .unwrap();
+            }
+            let asset_id = format!("detection-memo-asset-{quiet}");
+            let hash = crate::media::hash_file(&path).unwrap();
+            store
+                .save_asset(&LocalAsset {
+                    id: asset_id.clone(),
+                    recording_id: local_track.id.clone(),
+                    path: path.to_string_lossy().into_owned(),
+                    hash: hash.clone(),
+                    source_codec: "flac".into(),
+                    final_codec: "flac".into(),
+                    source_bitrate: None,
+                    final_bitrate: None,
+                    sample_rate: None,
+                    channels: None,
+                    bit_depth: None,
+                    duration_seconds: None,
+                    size_bytes: None,
+                    bitrate_origin: None,
+                    processing: "fixture".into(),
+                    track: local_track,
+                })
+                .unwrap();
+
+            assert_eq!(
+                verified_local_asset_hash(&store, &asset_id).as_deref(),
+                Some(hash.as_str())
+            );
+            // Stable files reuse a memo; recent files must be verified again.
+            assert_eq!(
+                verified_local_asset_hash(&store, &asset_id).as_deref(),
+                Some(hash.as_str())
+            );
+            if quiet {
+                assert!(LOCAL_HASH_CACHE
+                    .get()
+                    .unwrap()
+                    .lock()
+                    .unwrap()
+                    .contains_key(&asset_id));
+            }
+            std::fs::write(&path, b"other audio bytes").unwrap();
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().len(),
+                b"first audio bytes".len() as u64
+            );
+            assert!(verified_local_asset_hash(&store, &asset_id).is_none());
+        }
     }
 
     #[test]

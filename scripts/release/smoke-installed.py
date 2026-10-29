@@ -134,7 +134,8 @@ def install_linux(installer: pathlib.Path, temp: pathlib.Path) -> tuple[pathlib.
         if not app.is_file() or len(mcp) != 1:
             raise SmokeFailure("install", "AppImage is missing its launcher or MCP bridge")
         linked = run(["ldd", "-r", appdir / "usr/bin/burrata"],
-                     env={**os.environ, "LD_LIBRARY_PATH": str(appdir / "usr/lib")})
+                     env={key: value for key, value in os.environ.items()
+                          if key not in ("LD_LIBRARY_PATH", "LD_PRELOAD")})
         findings = (linked.stdout + linked.stderr).decode(errors="replace")
         if "undefined symbol:" in findings or "not found" in findings:
             raise SmokeFailure("AppImage linking", "bundled UI runtime has unresolved libraries or symbols")
@@ -251,7 +252,7 @@ def bundled_media_checks(resource_root: pathlib.Path, target: str, env: dict[str
     mp3 = fixture_dir / "tagged-cover.mp3"
     opus = fixture_dir / "tagged-tone.opus"
     run([ffmpeg, "-nostdin", "-hide_banner", "-v", "error", "-f", "lavfi",
-         "-i", "sine=frequency=440:duration=12:sample_rate=44100", "-ac", "2",
+         "-i", "sine=frequency=440:duration=4:sample_rate=44100", "-ac", "2",
          "-c:a", "pcm_s16le", source], timeout=60, env=env)
     run([ffmpeg, "-nostdin", "-hide_banner", "-v", "error", "-f", "lavfi",
          "-i", "color=c=0x7f42ff:s=64x64", "-frames:v", "1", cover],
@@ -353,7 +354,7 @@ def build_webview_audio_fixture(resource_root: pathlib.Path, target: str,
     fixture_dir.mkdir()
     audio = fixture_dir / "installed-smoke.m4a"
     run([ffmpeg, "-nostdin", "-hide_banner", "-v", "error", "-f", "lavfi",
-         "-i", "sine=frequency=440:duration=4:sample_rate=44100", "-ac", "2",
+         "-i", "sine=frequency=440:duration=12:sample_rate=44100", "-ac", "2",
          "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", audio],
         timeout=30, env=env)
     probed = run([ffprobe, "-v", "error", "-select_streams", "a:0", "-show_entries",
@@ -367,6 +368,8 @@ def build_webview_audio_fixture(resource_root: pathlib.Path, target: str,
         raise SmokeFailure("WebView audio setup", "packaged ffprobe returned invalid AAC fixture metadata") from error
     if codec != "aac":
         raise SmokeFailure("WebView audio setup", "packaged FFmpeg did not encode AAC")
+    if not math.isfinite(duration) or not 11.5 <= duration <= 13.0:
+        raise SmokeFailure("WebView audio setup", "AAC fixture is too short for sustained playback qualification")
     fixture = register_webview_audio_fixture(app_data, audio, duration, temp)
     return {"trackId": fixture["trackId"], "codec": codec, "mimeType": "audio/mp4", "durationSeconds": fixture["durationSeconds"],
             "registered": "isolated local asset"}
@@ -468,7 +471,7 @@ def assess_webview_audio_progress(track_id: str, first: dict, second: dict) -> d
             raise SmokeFailure("WebView audio", "audio source was unstable or playback was paused")
         if not isinstance(media.get("readyState"), (int, float)) or media["readyState"] < 2:
             raise SmokeFailure("WebView audio", "audio element did not reach a playable ready state")
-        if not isinstance(media.get("duration"), (int, float)) or not 3.5 <= media["duration"] <= 5.0:
+        if not isinstance(media.get("duration"), (int, float)) or not 11.5 <= media["duration"] <= 13.0:
             raise SmokeFailure("WebView audio", "audio element reported an invalid fixture duration")
         if not isinstance(media.get("currentTime"), (int, float)) or not math.isfinite(media["currentTime"]):
             raise SmokeFailure("WebView audio", "audio element clock was unavailable")
