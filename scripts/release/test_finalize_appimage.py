@@ -14,7 +14,7 @@ SPEC.loader.exec_module(finalize)
 class RelocationTests(unittest.TestCase):
     def test_nested_elf_gets_bundle_path_but_pinned_helpers_and_links_are_untouched(self):
         with tempfile.TemporaryDirectory() as directory:
-            app = Path(directory)
+            app = Path(directory).resolve()
             helper = app / 'usr/lib/webkit/process'
             pinned = app / 'usr/lib/Burrata/resources/tools/ffmpeg'
             for p in (helper, pinned):
@@ -49,7 +49,7 @@ class RelocationTests(unittest.TestCase):
         if finalize.os.name == 'nt':
             self.skipTest('Linux launcher')
         with tempfile.TemporaryDirectory() as directory:
-            app = Path(directory)
+            app = Path(directory).resolve()
             (app / 'usr/bin').mkdir(parents=True)
             (app / 'apprun-hooks').mkdir()
             for hook in ('gtk', 'gstreamer'):
