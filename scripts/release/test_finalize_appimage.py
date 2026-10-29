@@ -27,7 +27,7 @@ class RelocationTests(unittest.TestCase):
             original = pinned.read_bytes()
             with patch.object(finalize.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, '$ORIGIN:/custom\n', '')) as run:
                 self.assertEqual(finalize.relocate_runtime(app, Path('/patchelf')), 1)
-            self.assertEqual(run.call_args_list[1].args[0], ['/patchelf', '--set-rpath', '$ORIGIN/..:$ORIGIN:/custom', str(helper)])
+            self.assertEqual(run.call_args_list[1].args[0], [str(Path('/patchelf')), '--set-rpath', '$ORIGIN/..:$ORIGIN:/custom', str(helper)])
             self.assertEqual(len(run.call_args_list), 2)
             self.assertEqual(pinned.read_bytes(), original)
 
