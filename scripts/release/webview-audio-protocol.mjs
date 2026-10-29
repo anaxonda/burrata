@@ -66,6 +66,7 @@ export function createWebviewAudioSmokeGate(trackId, startedAtMs) {
   let phase = 'startup';
   let initialReady = null, firstProgress = null, first = null, second = null, latest = null;
   let initialReadyAt = null, firstProgressAt = null, firstAt = null, secondAt = null, latestAt = null;
+  let previous = null, previousAt = null, validatedSteadyWindows = 0;
   const fail = category => {
     phase = 'failed';
     throw Object.assign(new Error(category), { category });
@@ -93,14 +94,17 @@ export function createWebviewAudioSmokeGate(trackId, startedAtMs) {
         if (latest.media.currentTime - initialReady.media.currentTime >= 0.5) {
           firstProgress = latest; firstProgressAt = sampledAtMs;
           first = latest; firstAt = sampledAtMs;
+          previous = latest; previousAt = sampledAtMs;
           phase = 'steady';
         }
         return phase;
       }
       if (!sampleReady(inspection, playback, trackId)) return fail('audio_state_not_playing');
-      if (sampledAtMs - firstAt < 900) return fail('steady_sample_too_early');
-      if (second.media.currentTime - first.media.currentTime < 0.5) return fail('steady_clock_stalled');
-      phase = 'passed';
+      if (sampledAtMs - previousAt < 900) return fail('steady_sample_too_early');
+      if (second.media.currentTime - previous.media.currentTime < 0.5) return fail('steady_clock_stalled');
+      previous = latest; previousAt = sampledAtMs;
+      validatedSteadyWindows += 1;
+      if (validatedSteadyWindows === 3) phase = 'passed';
       return phase;
     },
     expireStartup() {
@@ -114,6 +118,7 @@ export function createWebviewAudioSmokeGate(trackId, startedAtMs) {
         firstSampleElapsedMs: elapsed(firstAt), secondSampleElapsedMs: elapsed(secondAt), latestSampleElapsedMs: elapsed(latestAt),
         betweenSamplesWallMs: firstAt === null || secondAt === null ? null : secondAt - firstAt,
         totalElapsedMs: nowMs - startedAtMs,
+        validatedSteadyWindows,
       } };
     },
   };

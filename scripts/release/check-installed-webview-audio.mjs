@@ -54,9 +54,10 @@ async function call(name, args = {}, timeoutMs = MCP_CALL_TIMEOUT_MS) {
 
 let started = false;
 let gate = null;
-async function inspectMediaSample() {
+const postFailureSamples = [];
+async function inspectMediaSample(timeoutMs) {
   const requestStartedAtMs = performance.now();
-  const media = await call('inspect_webview_media');
+  const media = await call('inspect_webview_media', {}, timeoutMs);
   const responseReceivedAtMs = performance.now();
   return {
     media: {
@@ -73,6 +74,7 @@ async function inspectMediaSample() {
 function diagnostics() {
   return {
     ...(gate?.diagnostics(performance.now()) ?? {}),
+    postFailureSamples,
     ...(currentPhase ? { failurePhase: currentPhase } : {}),
     ...(failedTool ? { failureTool: failedTool } : {}),
     ...(failureCode ? { failureCode } : {}),
@@ -125,16 +127,29 @@ try {
     await sleep(150);
   }
   if (gate.phase !== 'steady') gate.expireStartup();
-  await sleep(900);
-  currentPhase = 'steady_sample';
-  const [playback, { media, receivedAtMs }] = await Promise.all([
-    call('playback_state', { offset: 0, limit: 1 }),
-    inspectMediaSample(),
-  ]);
-  gate.observe(playback, media, receivedAtMs);
+  while (gate.phase === 'steady') {
+    await sleep(900);
+    currentPhase = 'steady_sample';
+    const [playback, { media, receivedAtMs }] = await Promise.all([
+      call('playback_state', { offset: 0, limit: 1 }),
+      inspectMediaSample(),
+    ]);
+    gate.observe(playback, media, receivedAtMs);
+  }
   currentPhase = null;
   process.stdout.write(`${JSON.stringify({ status: 'sampled', ...diagnostics() })}\n`);
 } catch (error) {
+  if (started && error?.category === 'steady_clock_stalled') {
+    const originalFailure = { failedTool, failureCode };
+    // Observe recovery without retrying playback or converting a failure into
+    // a pass. Keep evidence for runner clock jitter versus a persistent stall.
+    for (let index = 0; index < 3; index += 1) {
+      await sleep(400);
+      try { postFailureSamples.push((await inspectMediaSample(1500)).media); }
+      catch { break; }
+    }
+    ({ failedTool, failureCode } = originalFailure);
+  }
   process.stdout.write(`${JSON.stringify({ status: 'failed', failureCategory: error?.category ?? 'mcp_failure', ...diagnostics() })}\n`);
   process.exitCode = 1;
 } finally {

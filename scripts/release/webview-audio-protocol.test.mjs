@@ -81,14 +81,26 @@ test('startup preroll does not become the steady baseline until the same clock a
   assert.equal(gate.observe(playback, ready(0.013834), 744.6), 'startup');
   assert.equal(gate.observe(playback, ready(0.116099774), 1650.9), 'startup');
   assert.equal(gate.observe(playback, ready(0.66), 2200), 'steady');
-  assert.equal(gate.observe(playback, ready(1.56), 3100), 'passed');
-  const evidence = gate.diagnostics(3110);
+  assert.equal(gate.observe(playback, ready(1.56), 3100), 'steady');
+  assert.equal(gate.observe(playback, ready(2.46), 4000), 'steady');
+  assert.equal(gate.observe(playback, ready(3.36), 4900), 'passed');
+  const evidence = gate.diagnostics(4910);
   assert.equal(evidence.initialReady.media.currentTime, 0.013834);
   assert.equal(evidence.firstProgress.media.currentTime, 0.66);
   assert.equal(evidence.first.media.currentTime, 0.66);
   assert.equal(evidence.sampling.initialReadyElapsedMs, 744.6);
   assert.equal(evidence.sampling.firstProgressElapsedMs, 2200);
-  assert.equal(evidence.sampling.betweenSamplesWallMs, 900);
+  assert.equal(evidence.sampling.betweenSamplesWallMs, 2700);
+  assert.equal(evidence.sampling.validatedSteadyWindows, 3);
+});
+
+test('one successful window cannot hide a stall in a later steady window', () => {
+  const gate = createWebviewAudioSmokeGate(trackId, 0);
+  gate.observe(playback, ready(0), 0);
+  gate.observe(playback, ready(0.6), 1000);
+  assert.equal(gate.observe(playback, ready(1.5), 1900), 'steady');
+  assert.throws(() => gate.observe(playback, ready(1.6), 2800), hasCategory('steady_clock_stalled'));
+  assert.equal(gate.diagnostics(2800).sampling.validatedSteadyWindows, 1);
 });
 
 test('a permanently stalled ready source fails the original startup deadline', () => {

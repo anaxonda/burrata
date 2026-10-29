@@ -133,6 +133,11 @@ def install_linux(installer: pathlib.Path, temp: pathlib.Path) -> tuple[pathlib.
         mcp = list(appdir.glob("usr/lib/*/resources/mcp/server.cjs"))
         if not app.is_file() or len(mcp) != 1:
             raise SmokeFailure("install", "AppImage is missing its launcher or MCP bridge")
+        linked = run(["ldd", "-r", appdir / "usr/bin/burrata"],
+                     env={**os.environ, "LD_LIBRARY_PATH": str(appdir / "usr/lib")})
+        findings = (linked.stdout + linked.stderr).decode(errors="replace")
+        if "undefined symbol:" in findings or "not found" in findings:
+            raise SmokeFailure("AppImage linking", "bundled UI runtime has unresolved libraries or symbols")
         return app, mcp[0].parent.parent, None
     if installer.suffix.lower() != ".deb":
         raise SmokeFailure("install", "Linux smoke requires a built DEB or AppImage")
@@ -246,7 +251,7 @@ def bundled_media_checks(resource_root: pathlib.Path, target: str, env: dict[str
     mp3 = fixture_dir / "tagged-cover.mp3"
     opus = fixture_dir / "tagged-tone.opus"
     run([ffmpeg, "-nostdin", "-hide_banner", "-v", "error", "-f", "lavfi",
-         "-i", "sine=frequency=440:duration=4:sample_rate=44100", "-ac", "2",
+         "-i", "sine=frequency=440:duration=12:sample_rate=44100", "-ac", "2",
          "-c:a", "pcm_s16le", source], timeout=60, env=env)
     run([ffmpeg, "-nostdin", "-hide_banner", "-v", "error", "-f", "lavfi",
          "-i", "color=c=0x7f42ff:s=64x64", "-frames:v", "1", cover],
@@ -374,7 +379,7 @@ def register_webview_audio_fixture(app_data: pathlib.Path, audio_path: pathlib.P
     path = audio_path.resolve(strict=True)
     if not path.is_relative_to(root) or path.suffix.lower() != ".m4a" or not path.is_file():
         raise SmokeFailure("WebView audio setup", "AAC fixture must be a temporary smoke-owned M4A file")
-    if not math.isfinite(duration_seconds) or not 3.5 <= duration_seconds <= 5.0:
+    if not math.isfinite(duration_seconds) or not 3.5 <= duration_seconds <= 13.0:
         raise SmokeFailure("WebView audio setup", "generated AAC fixture duration is outside the smoke bound")
 
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -550,8 +555,10 @@ def safe_webview_audio_diagnostics(payload: dict, track_id: str) -> dict:
         "initialReady": sample(payload.get("initialReady")), "firstProgress": sample(payload.get("firstProgress")),
         "first": sample(payload.get("first")), "second": sample(payload.get("second")),
         "latest": sample(payload.get("latest")),
+        "postFailureSamples": [sample(raw) for raw in payload.get("postFailureSamples", [])[:3]]
+            if isinstance(payload.get("postFailureSamples"), list) else [],
         "sampling": {key: number(timing.get(key), 120_000) for key in (
-            "initialReadyElapsedMs", "firstProgressElapsedMs", "firstSampleElapsedMs", "secondSampleElapsedMs", "latestSampleElapsedMs", "betweenSamplesWallMs", "totalElapsedMs",
+            "initialReadyElapsedMs", "firstProgressElapsedMs", "firstSampleElapsedMs", "secondSampleElapsedMs", "latestSampleElapsedMs", "betweenSamplesWallMs", "totalElapsedMs", "validatedSteadyWindows",
         )},
     }
     for key, allowed in {
@@ -635,6 +642,10 @@ def run_mcp_webview_audio(resource_root: pathlib.Path, target: str,
             raise SmokeFailure("WebView audio", "installed MCP playback checker exited unsuccessfully")
         samples = payload
         assessment = assess_webview_audio_progress(track_id, samples["first"], samples["second"])
+        if diagnostics["sampling"].get("validatedSteadyWindows") != 3:
+            raise SmokeFailure("WebView audio", "installed audio check did not prove three steady clock windows")
+        if (diagnostics["sampling"].get("betweenSamplesWallMs") or 0) < 2700 or assessment["clockAdvanceSeconds"] < 1.5:
+            raise SmokeFailure("WebView audio", "installed audio check returned incomplete steady clock timing")
         assessment["diagnostics"] = diagnostics
         return assessment
     except SmokeFailure as error:
@@ -844,6 +855,8 @@ def main() -> int:
     try:
         if sys.platform == "linux":
             app, resource_root, package_name = install_linux(installer, temp)
+            if installer.suffix.lower() == ".appimage":
+                env["APPDIR"] = str(app.parent)
             installed_path = str(app)
         elif sys.platform == "darwin":
             app, resource_root, installed_path = install_macos(installer, temp)

@@ -17,6 +17,11 @@ SPEC = importlib.util.spec_from_file_location("smoke_installed", SCRIPT)
 smoke = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(smoke)
+RUNTIME_SPEC = importlib.util.spec_from_file_location(
+    "appimage_runtime", SCRIPT.with_name("prepare-appimage-config.py"))
+runtime = importlib.util.module_from_spec(RUNTIME_SPEC)
+assert RUNTIME_SPEC.loader is not None
+RUNTIME_SPEC.loader.exec_module(runtime)
 
 
 class CanonicalTempRootTests(unittest.TestCase):
@@ -44,6 +49,9 @@ class AppImageTests(unittest.TestCase):
             installer.write_bytes(b"fixture")
 
             def extract(command, **kwargs):
+                if command[0] == "ldd":
+                    self.assertEqual(command[1], "-r")
+                    return subprocess.CompletedProcess(command, 0, stdout=b"", stderr=b"")
                 self.assertEqual(command, [str(installer), "--appimage-extract"])
                 appdir = kwargs["cwd"] / "squashfs-root"
                 mcp = appdir / "usr/lib/Burrata/resources/mcp/server.cjs"
@@ -64,6 +72,27 @@ class AppImageTests(unittest.TestCase):
             with patch.object(smoke.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)):
                 with self.assertRaises(smoke.SmokeFailure):
                     smoke.install_linux(root / "Burrata.AppImage", root)
+
+
+class AppImageRuntimeTests(unittest.TestCase):
+    def test_dependency_closure_keeps_cairo_and_glib_but_leaves_host_drivers_alone(self):
+        found = runtime.dependencies("""
+          libcairo.so.2 => /build/lib/libcairo.so.2 (0x1234)
+          libglib-2.0.so.0 => /build/lib/libglib-2.0.so.0 (0xabcd)
+          libc.so.6 => /build/lib/libc.so.6 (0x1111)
+          libGL.so.1 => /build/lib/libGL.so.1 (0x2222)
+          libasound.so.2 => /build/lib/libasound.so.2 (0x3333)
+        """)
+        self.assertEqual(set(found), {"libcairo.so.2", "libglib-2.0.so.0"})
+
+    def test_missing_dependency_fails_instead_of_falling_back_to_packagers_runtime(self):
+        with self.assertRaises(ValueError):
+            runtime.dependencies("libcairo.so.2 => not found")
+
+    def test_conflicting_sonames_cannot_silently_mix_ui_runtimes(self):
+        with self.assertRaises(ValueError):
+            runtime.dependencies("libglib-2.0.so.0 => /first/libglib.so (0x1234)\n"
+                                 "libglib-2.0.so.0 => /second/libglib.so (0x5678)")
 
 
 class MacosTransportSecurityTests(unittest.TestCase):
@@ -338,14 +367,21 @@ class InstalledWebviewDiagnosticRetentionTests(unittest.TestCase):
     def test_passing_evidence_retains_startup_proof_and_steady_samples(self) -> None:
         initial = InstalledWebviewAudioTests._sample("local:fixture", 0.013834)
         first = InstalledWebviewAudioTests._sample("local:fixture", 0.61)
-        second = InstalledWebviewAudioTests._sample("local:fixture", 1.51)
+        second = InstalledWebviewAudioTests._sample("local:fixture", 3.31)
         evidence = self._run_payload({"status": "sampled", "initialReady": initial, "firstProgress": first,
                                       "first": first, "second": second, "latest": second,
-                                      "sampling": {"initialReadyElapsedMs": 744.6, "firstProgressElapsedMs": 2200, "betweenSamplesWallMs": 900}})
-        self.assertEqual(evidence["clockAdvanceSeconds"], 0.9)
+                                      "sampling": {"initialReadyElapsedMs": 744.6, "firstProgressElapsedMs": 2200, "betweenSamplesWallMs": 2700, "validatedSteadyWindows": 3}})
+        self.assertEqual(evidence["clockAdvanceSeconds"], 2.7)
         self.assertEqual(evidence["diagnostics"]["initialReady"]["media"]["currentTime"], 0.013834)
         self.assertEqual(evidence["diagnostics"]["firstProgress"]["media"]["currentTime"], 0.61)
-        self.assertEqual(evidence["diagnostics"]["sampling"]["betweenSamplesWallMs"], 900)
+        self.assertEqual(evidence["diagnostics"]["sampling"]["betweenSamplesWallMs"], 2700)
+
+    def test_one_steady_window_cannot_be_published_as_complete_evidence(self) -> None:
+        first = InstalledWebviewAudioTests._sample("local:fixture", 0.61)
+        second = InstalledWebviewAudioTests._sample("local:fixture", 1.51)
+        with self.assertRaisesRegex(smoke.SmokeFailure, "three steady clock windows"):
+            self._run_payload({"status": "sampled", "first": first, "second": second,
+                               "sampling": {"validatedSteadyWindows": 1}})
 
     def test_early_media_error_retains_partial_latest_sample(self) -> None:
         latest = InstalledWebviewAudioTests._sample("local:fixture", 0, error_code=4)
@@ -359,7 +395,8 @@ class InstalledWebviewDiagnosticRetentionTests(unittest.TestCase):
         sample = InstalledWebviewAudioTests._sample("https://private.invalid/?token=track-secret", 0.2, entry_id="token=entry-secret")
         sample.update({"url": "https://private.invalid/?token=url-secret", "message": "Authorization: Bearer bearer-secret"})
         sample["media"].update({"currentSrc": "file:///private/file-secret", "errorMessage": "password=error-secret", "buffered": [[0, 4]] * 100, "seekable": [[0, float("inf")], [False, 4], [0, 4]], "currentTime": float("nan")})
-        diagnostics = smoke.safe_webview_audio_diagnostics({"first": sample, "sampling": {"totalElapsedMs": float("inf"), "url": "https://private.invalid"}}, "local:fixture")
+        diagnostics = smoke.safe_webview_audio_diagnostics({"first": sample, "postFailureSamples": [sample] * 100, "sampling": {"totalElapsedMs": float("inf"), "url": "https://private.invalid"}}, "local:fixture")
+        self.assertEqual(len(diagnostics["postFailureSamples"]), 3)
         encoded = json.dumps(diagnostics)
         for secret in ("private.invalid", "track-secret", "entry-secret", "url-secret", "bearer-secret", "file-secret", "error-secret"):
             self.assertNotIn(secret, encoded)
