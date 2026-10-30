@@ -119,6 +119,17 @@
     try { await call("open_external_url", { url }); }
     catch (cause) { error = `Could not open link: ${String(cause)}`; }
   }
+  function diagnosisNextStep(category: string): string {
+    switch (category) {
+      case "network": return "Check your internet connection and try again.";
+      case "invalidUrl": case "unsupported": return "Check the YouTube link in troubleshooting options and try again.";
+      case "videoUnavailable": return "Try another public YouTube video.";
+      case "loginRequired": return "Try a public video that does not require signing in.";
+      case "http403": case "expiredStream": return "Try the check again. If it still fails, look for a recommended update below.";
+      case "missingRuntime": case "missingEjs": case "tokenProvider": return "Check the included tools below and look for a recommended update.";
+      default: return "Try the check again or review the troubleshooting options.";
+    }
+  }
   const browserLabel = (name: string) => name.charAt(0).toUpperCase() + name.slice(1);
 </script>
 
@@ -167,11 +178,12 @@
     {#if category === "all" || category === "advanced"}<section class="tool-section" aria-label="YouTube support">
       {#if category === "all"}<h3 id="youtube-title">YouTube support</h3>{/if}
       {#if youtube}
-        <p>{diagnosis ? (diagnosis.ok ? "YouTube playback check passed." : "YouTube playback could not be confirmed.") : youtube.provider.available ? "YouTube support is included. Playback has not been checked yet." : "YouTube support needs attention. Check playback to find out more."}</p>
-        <p>Check whether Burrata can play public YouTube audio. No account or cookies are used.</p>
-        <button disabled={busy} onclick={() => void diagnose()}>{busy ? "Checking…" : "Check YouTube playback"}</button>
+        <p>{diagnosis ? (diagnosis.ok ? "YouTube audio access check passed." : "YouTube audio access could not be confirmed.") : youtube.provider.available ? "YouTube support is included. Audio access has not been checked yet." : "YouTube support needs attention. Check audio access to find out more."}</p>
+        <p>Check whether Burrata can reach public YouTube audio. No account or cookies are used.</p>
+        <button disabled={busy} onclick={() => void diagnose()}>{busy ? "Checking…" : "Check YouTube audio access"}</button>
         {#if diagnosis}
-          <span role="status" class="sr-only">{diagnosis.ok ? "YouTube playback check passed." : "YouTube playback could not be confirmed."}</span>
+          <span role="status" class="sr-only">{diagnosis.ok ? "YouTube audio access check passed." : "YouTube audio access could not be confirmed."}</span>
+          {#if !diagnosis.ok}<p>{diagnosisNextStep(diagnosis.category)}</p>{/if}
           {#if !diagnosis.ok && checks.recommended}
             <p role="status">{checks.recommended.message}</p>
             {#if checks.recommended.available}<button class="primary" disabled={busy} onclick={() => void updateYoutube("recommended")}>Install recommended update</button>{/if}

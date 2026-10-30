@@ -6191,7 +6191,8 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     return left.id === right.id && left.provider === right.provider && left.sourceUrl === right.sourceUrl &&
       left.artist === right.artist && left.title === right.title && (left.version ?? null) === (right.version ?? null) &&
       (left.durationSeconds ?? null) === (right.durationSeconds ?? null) && (left.localPath ?? null) === (right.localPath ?? null) &&
-      (left.assetId ?? null) === (right.assetId ?? null) && sameRange;
+      (left.assetId ?? null) === (right.assetId ?? null) && sameRange &&
+      JSON.stringify(portablePlaybackSource(left)) === JSON.stringify(portablePlaybackSource(right));
   }
   function sameNativePlaybackQueue(left: readonly Track[], right: readonly Track[]) {
     return left.length === right.length && left.every((track, index) => sameNativePlaybackTrack(track, right[index]!));
@@ -6209,34 +6210,15 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     } catch (failure) {
       if (loudnessAlbumResource) throw failure;
     }
-    if (nativeActive() && portablePlaybackSource(t) && !t.localPath) {
-      const source = portablePlaybackSource(t)!;
-      const bindingSequence = playbackLoadSequence;
-      let bound: Candidate | null;
-      try {
-        bound = await call<Candidate | null>("resolve_portable_playback_candidate", { track: t });
-      } catch (failure) {
-        if (bindingSequence === playbackLoadSequence) previewStatus = `Reviewed provider source could not be resolved: ${String(failure)}`;
-        return;
-      }
-      if (bindingSequence !== playbackLoadSequence) return;
-      const expectedId = `${source.provider}:${source.sourceId}`;
-      if (!bound || bound.provider !== source.provider || bound.id !== expectedId) {
-        const remainingBindings = { ...queueCandidates };
-        delete remainingBindings[t.id];
-        queueCandidates = remainingBindings;
-        previewStatus = "The reviewed provider recording is unavailable. Review the source selection before playing this entry.";
-        return;
-      }
-      queueCandidates = { ...queueCandidates, [t.id]: bound };
-    }
     playbackRunGeneration++;
     cancelRadioIdentification();
     if (nativeActive()) {
       clearTimeout(autoTimer); setAutomationPlaybackOwner(automationRequestId); systemPausedTrack=false;
       const list = displayedTracks ?? (fromQueue ? queueTracks : view === "history" ? historyItems.map(item => item.track) : sorted.some(item => item.id === t.id) ? [...sorted] : [t]);
       const index = displayedIndex ?? (fromQueue ? queueTracks.findIndex(item => item.id === t.id) : list.findIndex(item => item.id === t.id));
-      const candidate = sourceIsAuthoritative(t) ? candidateForQueue(t) ?? importedAudioCandidate(t) ?? undefined : undefined;
+      // Native resolves the reviewed portable identity itself under its queue
+      // ownership, so a failed lookup can advance the occurrence safely.
+      const candidate = !portablePlaybackSource(t) && sourceIsAuthoritative(t) ? candidateForQueue(t) ?? importedAudioCandidate(t) ?? undefined : undefined;
       const canSelectFromNativeQueue = index >= 0 && sameNativePlaybackQueue(nativeSnapshot?.queue ?? [], list) &&
         (!candidate || !queueCandidates[t.id] && candidate.url === t.sourceUrl);
       // Explicit track selection starts at the beginning. The native Resume command
@@ -6614,6 +6596,41 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
       Number.isFinite(sourceDuration) && Number(sourceDuration) > 0;
     const canResumePosition = positionPreservingScope && scopedPosition;
     const seekRefresh = requestedRecoveryPosition !== undefined;
+    async function advanceExhaustedRecovery(request: number, load: number) {
+      // Only the still-owned occurrence can advance after recovery is exhausted.
+      if (recoveryEntryIds.length < 2 || !previewRequests.isCurrent(request) || load !== playbackLoadSequence ||
+          preview || !recoveryEntryId || recoveryIndex !== queueIndex ||
+          recoveryEntryIds.length !== playbackQueue.entryIds.length ||
+          !recoveryEntryIds.every((id, index) => id === playbackQueue.entryIds[index]) ||
+          !shouldAdvanceAfterExhaustedFailure(previewStatus)) return;
+      const sourceKey = JSON.stringify(playbackQueue.tracks.map(queueRadioSeedKey));
+      const previous = activeFailedQueueRun;
+      const failureRun: FailedQueueRun = previous && previous.sourceKey === sourceKey &&
+        previous.entryIds.length === recoveryEntryIds.length && previous.entryIds.every((id, index) => id === recoveryEntryIds[index])
+        ? previous : { entryIds: recoveryEntryIds, sourceKey, visited: new Set(), sourceRefreshRetries: new Set() };
+      failureRun.visited.add(recoveryEntryId);
+      activeFailedQueueRun = failureRun;
+      const reason = previewStatus;
+      const next = playbackQueue.nextAfterFailedStart(failureRun.visited);
+      recentTrackFailures = appendTrackFailure(recentTrackFailures, track, {
+        queueRevision: automationQueueProjection.revision, generation: request, operationId: playbackSession,
+        entryId: recoveryEntryId, outcome: next ? "skipped" : "queue_exhausted",
+      }, reason);
+      failureHistoryRevision++;
+      setNotice(skippedPreviewFailureNotice(track, safePreviewError(reason)), "persistent", "playbackSkip");
+      if (next) {
+        pendingResumePosition = 0;
+        selected = next; refreshQueue();
+        await startPreview(next, true, false, undefined, undefined, 1, null, false, failureRun);
+      } else {
+        previewStatus = `Could not continue ${safeNativeFailurePart(track.title, "Unavailable recording")}; reached the end of the queue. ${safePreviewError(reason)}`;
+      }
+    }
+    function advanceEarlyRecoveryFailure() {
+      const request = nextPreviewRequest();
+      const load = ++playbackLoadSequence;
+      void advanceExhaustedRecovery(request, load);
+    }
     if(requestedRecoveryPosition !== undefined && !canResumePosition){
       const reason="The requested seek did not complete, and this source cannot be automatically resumed at that position. Choose Play to retry from the requested position.";
       node.pause(); preview=null; paused=true; bufferingAudio=false; requiredRecoveryResume=null;
@@ -6624,6 +6641,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
       // startup failure then advances through the same bounded failure pass.
       if (source.kind === "local" && fixedReason?.startsWith("Audio stopped after the requested seek") && recoveryEntryIds.length > 1)
         void startPreview(track, true, false, undefined, undefined, 0, null, true, undefined, null, true);
+      else advanceEarlyRecoveryFailure();
       return;
     }
     if (seekRefresh && (!stalledCandidate || !oldRequest)) {
@@ -6636,6 +6654,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
       // startup failure then advances through the same bounded failure pass.
       if (source.kind === "local" && fixedReason?.startsWith("Audio stopped after the requested seek") && recoveryEntryIds.length > 1)
         void startPreview(track, true, false, undefined, undefined, 0, null, true, undefined, null, true);
+      else advanceEarlyRecoveryFailure();
       return;
     }
     const invalidScopedPosition = positionPreservingScope && !scopedPosition;
@@ -6693,6 +6712,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
       if (oldRequest) oldRequest.failureReason = resumeFailure;
       previewStatus = resumeFailure;
       lastMediaFailure = resumeFailure;
+      void advanceExhaustedRecovery(request, ++playbackLoadSequence);
       return;
     }
     previewStatus = fixedReason ? fixedReason : "Audio preview failed. Trying another match…";
@@ -6767,36 +6787,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
         return;
       }
       await findAndStartPreviewSource(track, request, true);
-    }).then(async () => {
-      // A seek has its own explicit position-preserving recovery contract.
-      if (recoveryEntryIds.length < 2 || !previewRequests.isCurrent(request) || load !== playbackLoadSequence ||
-          preview || !recoveryEntryId || recoveryIndex !== queueIndex ||
-          recoveryEntryIds.length !== playbackQueue.entryIds.length ||
-          !recoveryEntryIds.every((id, index) => id === playbackQueue.entryIds[index]) ||
-          !shouldAdvanceAfterExhaustedFailure(previewStatus)) return;
-      const sourceKey = JSON.stringify(playbackQueue.tracks.map(queueRadioSeedKey));
-      const previous = activeFailedQueueRun;
-      const failureRun: FailedQueueRun = previous && previous.sourceKey === sourceKey &&
-        previous.entryIds.length === recoveryEntryIds.length && previous.entryIds.every((id, index) => id === recoveryEntryIds[index])
-        ? previous : { entryIds: recoveryEntryIds, sourceKey, visited: new Set(), sourceRefreshRetries: new Set() };
-      failureRun.visited.add(recoveryEntryId);
-      activeFailedQueueRun = failureRun;
-      const reason = previewStatus;
-      const next = playbackQueue.nextAfterFailedStart(failureRun.visited);
-      recentTrackFailures = appendTrackFailure(recentTrackFailures, track, {
-        queueRevision: automationQueueProjection.revision, generation: request, operationId: playbackSession,
-        entryId: recoveryEntryId, outcome: next ? "skipped" : "queue_exhausted",
-      }, reason);
-      failureHistoryRevision++;
-      setNotice(skippedPreviewFailureNotice(track, safePreviewError(reason)), "persistent", "playbackSkip");
-      if (next) {
-        pendingResumePosition = 0;
-        selected = next; refreshQueue();
-        await startPreview(next, true, false, undefined, undefined, 1, null, false, failureRun);
-      } else {
-        previewStatus = `Could not continue ${safeNativeFailurePart(track.title, "Unavailable recording")}; reached the end of the queue. ${safePreviewError(reason)}`;
-      }
-    }).finally(() => { if(load===playbackLoadSequence) { resolvingPlayback=false; if (!preview) bufferingAudio=false; } });
+    }).then(() => advanceExhaustedRecovery(request, load)).finally(() => { if(load===playbackLoadSequence) { resolvingPlayback=false; if (!preview) bufferingAudio=false; } });
   }
   let webviewResumeSequence = 0;
   let pendingWebviewResume: {token:number;cancelledGeneration:number|null;node:HTMLAudioElement;source:Preview;

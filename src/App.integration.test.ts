@@ -9465,6 +9465,47 @@ describe("saved recording navigation", () => {
     expect(state.diagnostics).toMatchObject({recentTrackFailures: [expect.any(Object), expect.any(Object)]});
   });
 
+  it("advances the queue when a failed stream has an invalid resume position", async () => {
+    const first = { ...savedTrack, durationSeconds: 240 };
+    savedChartTracks = [first, secondTrack]; previewMode = "direct"; directPreviewExcerpt = false;
+    automationPlaybackAck = { protocolVersion: 1, accepted: true, needFull: false };
+    vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(2);
+    vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(240);
+    vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockReturnValue(false);
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
+    const instance = mount(App, {target:document.body}); unmountApp = () => { void unmount(instance); }; await settle();
+    expect((await automationAction("invalid-resume-start", "play", {trackIds:[first.id, secondTrack.id]})).error).toBeNull();
+    const audio = document.querySelector("audio")!;
+    audio.currentTime = 240;
+    Object.defineProperty(audio, "error", {configurable:true, value:{code:2, message:"Network error"}});
+    audio.dispatchEvent(new Event("error")); await settle(); await settle();
+    const state = (await automationAction("invalid-resume-state", "volume", {volume:0.8})).playback;
+    expect(state.trackId).toBe(secondTrack.id);
+    expect(state.paused).toBe(false);
+  });
+
+  it("advances after an unrecoverable seek on an excerpt without a resumable position", async () => {
+    vi.useFakeTimers();
+    const first = { ...savedTrack, durationSeconds: 240 };
+    savedChartTracks = [first, secondTrack]; previewMode = "direct"; directPreviewExcerpt = true;
+    automationPlaybackAck = { protocolVersion: 1, accepted: true, needFull: false };
+    vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(2);
+    vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(240);
+    vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockReturnValue(false);
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
+    const instance = mount(App, {target:document.body}); unmountApp = () => { void unmount(instance); }; await settle();
+    expect((await automationAction("excerpt-seek-start", "play", {trackIds:[first.id, secondTrack.id]})).error).toBeNull();
+    const audio = document.querySelector("audio")!;
+    expect((await automationAction("excerpt-seek", "seek", {position:60})).error).toBeNull();
+    audio.dispatchEvent(new Event("seeked")); await settle();
+    await vi.advanceTimersByTimeAsync(5_000); await settle(); await settle();
+    const state = (await automationAction("excerpt-seek-state", "volume", {volume:0.8})).playback;
+    expect(state.trackId).toBe(secondTrack.id);
+    expect(state.paused).toBe(false);
+  });
+
   it("recovers a frozen local clock after an acknowledged seek and advances when retry fails", async () => {
     vi.useFakeTimers();
     const local = { ...savedTrack, localPath: "/music/fixture.flac", durationSeconds: 240 };
@@ -10748,6 +10789,30 @@ describe("native playback frontend", () => {
       && starts.has(String((args as { command?: { action?: string } } | undefined)?.command?.action)))).toBe(false);
     expect(mocks.call.mock.calls.some(([command]) => command === "play_tracks" || command === "resolve_preview")).toBe(false);
   }
+
+  it("dispatches reviewed portable tracks to native without preflight or stale candidate", async () => {
+    const stale = { ...youtubeCandidate(savedTrack), id: "youtube:stale" };
+    const track: Track = { ...savedTrack, provenance: { sourceKind: "audioSearch", userSelectedSource: true,
+      audioCandidate: stale, portablePlaybackSource: { provider: "youtube", sourceId: "reviewed", matchingLevel: "exact", sourceHash: "a".repeat(64) } } };
+    savedChartTracks = [track, secondTrack];
+    mountNative(makeNativeSnapshot()); await settle();
+    document.querySelector<HTMLButtonElement>(`[aria-label="Play ${track.title}"]`)!.click(); await settle();
+    expect(mocks.call).not.toHaveBeenCalledWith("resolve_portable_playback_candidate", expect.anything());
+    const playCall = mocks.call.mock.calls.find(([command, args]) => command === "playback_command" && (args as { command?: { action?: string } })?.command?.action === "play");
+    expect(playCall?.[1]).toMatchObject({ command: { tracks: [track, secondTrack], candidate: undefined } });
+  });
+
+  it("does not select a native queue occurrence with an outdated portable binding", async () => {
+    const binding = { provider: "youtube", sourceId: "reviewed", matchingLevel: "exact", sourceHash: "a".repeat(64) };
+    const track: Track = { ...savedTrack, provenance: { portablePlaybackSource: binding } };
+    const stale: Track = { ...track, provenance: { portablePlaybackSource: { ...binding, sourceId: "previous" } } };
+    savedChartTracks = [track, secondTrack];
+    mountNative(makeNativeSnapshot({ queue: [stale, secondTrack], queueEntryIds: ["first", "second"], currentIndex: 0 }));
+    await settle();
+    document.querySelector<HTMLButtonElement>(`[aria-label="Play ${track.title}"]`)!.click(); await settle();
+    expect(mocks.call).toHaveBeenCalledWith("playback_command", { command: expect.objectContaining({ action: "play", tracks: [track, secondTrack], candidate: undefined }) });
+    expect(mocks.call).not.toHaveBeenCalledWith("playback_command", { command: expect.objectContaining({ action: "select" }) });
+  });
 
   it("does not pin a remembered Monochrome candidate when starting a catalog track", async () => {
     const candidate: Candidate = { ...youtubeCandidate(savedTrack), id: "monochrome:remembered", provider: "monochrome",

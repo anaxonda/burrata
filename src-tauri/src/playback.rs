@@ -4712,19 +4712,8 @@ impl PlaybackService {
             }
         };
         let deadline = restart_deadline(&self.inner.state.lock().unwrap());
-        let selected = if selected.is_some() {
-            selected
-        } else {
-            let settings = self.inner.store.settings()?;
-            crate::playlist_sync::resolve_portable_playback_candidate(
-                &self.inner.store,
-                &self.inner.acquisition,
-                track,
-                &settings,
-                cancel.clone(),
-            )
-            .await?
-        };
+        // The source resolver binds reviewed online identities after validating
+        // local assets, so downloaded recordings never need an online lookup.
         crate::playback_sources::resolve_with_trace_context_excluding_until(
             &self.inner.store,
             &self.inner.acquisition,

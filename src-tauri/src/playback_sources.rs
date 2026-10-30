@@ -1159,7 +1159,8 @@ async fn resolve_inner(
         &track.provider,
         json!({"durationMs":settings_started.elapsed().as_millis()}),
     );
-    let explicit_source = source_resolution_is_pinned(track, selected.is_some(), &settings, false);
+    let explicit_source = source_resolution_is_pinned(track, selected.is_some(), &settings, false)
+        || track.provenance.get("portablePlaybackSource").is_some();
     let automatic_source = !explicit_source && selected.is_none();
     resolve_after_local_preflight(store, track, explicit_source, |prepared_track| {
         Box::pin(async move {
@@ -1183,6 +1184,16 @@ async fn resolve_inner(
             let mut effective_track = prepared_track;
             let excerpt_request_track = effective_track.clone();
             crate::recording_identity::hydrate_identifiers(&mut effective_track);
+            // A valid registered download takes priority over an online binding.
+            // If local preflight removed a stale file, resolve only the reviewed
+            // provider identity; a failed binding must not become flexible search.
+            let selected = if selected.is_none() && effective_track.local_path.is_none() {
+                crate::playlist_sync::resolve_portable_playback_candidate(
+                    store, acquisition, &effective_track, &settings, cancel.clone(),
+                ).await?
+            } else {
+                selected
+            };
             if selected.is_none()
                 && !source_resolution_is_pinned(&effective_track, false, &settings, true)
                 && effective_track.local_path.is_none()
@@ -8975,6 +8986,41 @@ mod tests {
             processing: "managed copy".into(),
             track: track.clone(),
         }
+    }
+
+    #[tokio::test]
+    async fn downloaded_portable_source_uses_local_asset_before_reviewed_online_binding() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&directory.path().join("portable-local.sqlite")).unwrap());
+        let mut settings = store.settings().unwrap();
+        settings.preferred_streaming_source = "youtube".into();
+        settings.streaming_fallback_enabled = false;
+        store.save_settings(&settings).unwrap();
+        let connections = Arc::new(crate::connections::ConnectionManager::new(store.clone()));
+        let acquisition = AcquisitionManager::new_for_playback_test(store.clone(), connections);
+        let path = directory.path().join("download.flac");
+        std::fs::write(&path, b"registered local audio").unwrap();
+        let track = Track {
+            id: "spotify:portable-local".into(), provider: "spotify".into(),
+            provider_id: "portable-local".into(), source_url: "https://open.spotify.com/track/portable-local".into(),
+            artist: "Artist".into(), title: "Downloaded recording".into(),
+            local_path: Some(path.to_string_lossy().into_owned()),
+            provenance: json!({"portablePlaybackSource": {
+                "provider": "monochrome", "sourceId": "reviewed", "matchingLevel": "exact", "sourceHash": "a".repeat(64),
+            }}),
+            ..Track::default()
+        };
+        store.save_track(&track).unwrap();
+        store.save_asset(&stored_asset("portable-local", &track, &path)).unwrap();
+        let (_sender, cancel) = watch::channel(false);
+        let local = resolve(&store, &acquisition, &track, None, cancel.clone()).await.unwrap();
+        assert_eq!(local.source.input, path.to_string_lossy());
+        assert!(local.candidate.is_none());
+        // The reviewed provider is disabled. Local playback must still succeed,
+        // but losing that file must not authorize a different online recording.
+        std::fs::remove_file(&path).unwrap();
+        let failure = resolve(&store, &acquisition, &track, None, cancel).await.err().unwrap();
+        assert_eq!(failure, "The reviewed portable playback provider is no longer configured");
     }
 
     #[test]
