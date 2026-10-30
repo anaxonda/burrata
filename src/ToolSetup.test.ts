@@ -28,6 +28,7 @@ describe("ToolSetup executable sources", () => {
     const target = render(vi.fn()); await settle();
     const selector = target.querySelector<HTMLSelectElement>('[aria-label="JavaScript runtime executable source"]')!;
     expect(selector.value).toBe("bundled");
+    expect(selector.parentElement?.querySelector("input")).toBeNull();
   });
 
   it("stores system and custom choices in the settings value", async () => {
@@ -49,6 +50,7 @@ describe("ToolSetup executable sources", () => {
     destroy = () => unmount(instance); await settle();
     const selector = target.querySelector<HTMLSelectElement>('[aria-label="JavaScript runtime executable source"]')!;
     expect(selector.value).toBe("custom");
+    expect(selector.parentElement?.querySelector("input")?.value).toBe("/opt/deno/bin/deno");
     selector.value = "bundled"; selector.dispatchEvent(new Event("change", { bubbles: true })); await settle();
     expect(onChange).toHaveBeenLastCalledWith({ ...customSettings, jsRuntimePath: "bundled:node" });
   });

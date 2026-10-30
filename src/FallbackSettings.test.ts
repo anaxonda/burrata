@@ -31,8 +31,9 @@ describe("FallbackSettings", () => {
     await settle();
 
     const chain = target.querySelector(".fallback-chain")?.textContent?.replace(/\s+/g, " ") ?? "";
-    expect(chain).toMatch(/First choice: YouTube→SoundCloud→Bandcamp/);
-    expect(target.textContent).toContain("Burrata tries these sources in order");
+    expect(chain).toMatch(/YouTube→SoundCloud→Bandcamp/);
+    expect(target.textContent).toContain("searches may run at the same time");
+    expect(target.querySelector("details")?.open).toBe(false);
     expect(target.querySelector('[aria-label="Streaming fallback 2"]')).not.toBeNull();
     expect(target.querySelector('[aria-label="Enable streaming fallback"]')).toBeNull();
 

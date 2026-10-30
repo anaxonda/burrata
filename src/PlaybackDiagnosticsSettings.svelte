@@ -72,7 +72,8 @@
 
 <section class="playback-diagnostics" aria-labelledby="playback-diagnostics-title">
   <h3 id="playback-diagnostics-title">Playback diagnostics</h3>
-  <p>Optional playback logging records player stages, timing, and source failure categories. When available, reports include WebView readiness, numeric media error codes, and source format families. Reports include timestamps, public YouTube/SoundCloud page links, redacted extractor errors, and token/proxy presence indicators. They exclude credentials, signed stream URLs, private-link tokens, titles, and user-agent strings. Events are kept in memory; export the report before closing Burrata.</p>
+  <p>Record playback problems and export a report before closing Burrata.</p>
+  <details><summary>What is included in a report?</summary><p>Reports include timestamps, public source links, playback stages and redacted errors. They exclude credentials, signed stream URLs, private-link tokens, titles and user-agent strings. Events stay in memory until exported.</p></details>
   <label class="diagnostics-toggle">
     <input type="checkbox" aria-label="Enable playback diagnostics" checked={enabled} disabled={working} onchange={event => void toggle(event.currentTarget.checked)} />
     <span>Enable playback diagnostics</span>

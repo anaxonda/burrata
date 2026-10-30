@@ -1,5 +1,6 @@
 <script lang="ts">
   import { loudnessMeasurementSourceLabel, type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type LoudnessSettings as Settings, type NormalizationMode } from "./lib/loudness-normalization";
+  import InfoPopover from "./InfoPopover.svelte";
   import { call } from "./lib/api";
 
   let { settings, onSettingsSaved, playbackStatus = null, webviewRouteStatus = null, engine = "webview", analysisJob = null, pendingAnalysisCount = 0, analysisMessage = "", onCancelAnalysis, onRetryAnalysis }: {
@@ -60,16 +61,15 @@
 </script>
 
 <section class="loudness-settings" aria-labelledby="loudness-title">
-  <h3 id="loudness-title">Loudness normalization</h3>
+  <div class="heading"><h3 id="loudness-title">Even out volume</h3><InfoPopover label="About loudness normalization">Adjusts playback levels without changing your audio files or player volume.</InfoPopover></div>
   <label>
-    Mode
+    Adjust volume by
     <select aria-label="Loudness normalization mode" value={mode} onchange={event => changeMode(event.currentTarget.value)}>
       <option value="off">Off</option>
-      <option value="track">Track</option>
+      <option value="track">Each track</option>
       <option value="album">Album</option>
     </select>
   </label>
-  <p>Applies constant playback gain while keeping your player volume separate. It does not compress or rewrite audio.</p>
   <details class="advanced-options">
     <summary>Advanced</summary>
     <div class="advanced-content">
@@ -90,6 +90,7 @@
 
 <style>
   .loudness-settings{display:grid;gap:.5rem;padding:.85rem 0;border-top:1px solid var(--line,#454a50)}
+  .heading{display:flex;align-items:center;gap:8px}
   h3{margin:0;font-size:1rem}label{display:grid;gap:.35rem;max-width:28rem;font-size:.86rem}
   select{padding:.5rem;border:1px solid var(--line,#454a50);border-radius:7px;background:var(--surface,#202723);color:var(--text,#e5ebe7)}
   p{margin:0;color:var(--muted,#a3a8ae);font-size:.82rem;line-height:1.45}.loudness-status{color:var(--text,#e5ebe7)}.advanced-options{max-width:38rem;border-top:1px solid var(--line,#454a50);padding-top:.45rem}.advanced-options>summary{width:max-content;color:var(--text,#e5ebe7);font-size:.82rem;cursor:pointer}.advanced-content{display:grid;gap:.45rem;padding:.55rem 0 0}.idle-option{display:flex;align-items:flex-start;gap:.55rem;max-width:38rem}.idle-option input{width:auto;margin:.18rem 0 0}.analysis-status{display:grid;gap:.4rem;padding:.65rem;border:1px solid var(--line,#454a50);border-radius:7px}.analysis-status div{display:flex;gap:.5rem}.analysis-status progress{width:100%}

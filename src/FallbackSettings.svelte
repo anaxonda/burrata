@@ -18,19 +18,24 @@
 </script>
 <div class="fallback-settings">
   <label class="check"><input type="checkbox" checked={enabled} aria-label={`Try another source if ${actionName} fails`} onchange={event => onchange(event.currentTarget.checked, ordered)} /><span>Try another source if {actionName} fails</span></label>
-  <small class="fallback-chain"><strong>First choice:</strong> {primaryName}{#if enabled && ordered.length}<span aria-hidden="true"> → </span>{#each ordered as id, index}{#if index}<span aria-hidden="true"> → </span>{/if}{sources.find(source=>source.id===id)?.name}{/each}{:else if !enabled}<span class="fallback-only"> · no alternatives</span>{/if}</small>
-  <small class="fallback-help">{enabled ? "Burrata tries these sources in order until it finds the same recording." : "Only the first choice is used."}</small>
-  {#each choices as _, index}
-    <label><span>{index===0 ? "Next" : index===1 ? "Then" : "Last"}</span><select aria-label={`${label} fallback ${index + 1}`} disabled={!enabled} value={ordered[index] ?? ""} onchange={event => setSource(index, event.currentTarget.value)}>
-      <option value="">None</option>{#each choices as source}<option value={source.id}>{source.name}</option>{/each}
-    </select></label>
-  {/each}
+  {#if enabled}
+    <details>
+      <summary>Source order: <span class="fallback-chain">{primaryName}{#each ordered as id}<span aria-hidden="true"> → </span>{sources.find(source=>source.id===id)?.name}{/each}</span></summary>
+      <small class="fallback-help">{actionName === "download" ? "Downloads try sources in this order." : "Playback uses this order to prioritize matching sources; searches may run at the same time."}</small>
+      {#each choices as _, index}
+        <label><span>{index===0 ? "Next" : index===1 ? "Then" : "Last"}</span><select aria-label={`${label} fallback ${index + 1}`} value={ordered[index] ?? ""} onchange={event => setSource(index, event.currentTarget.value)}>
+          <option value="">None</option>{#each choices as source}<option value={source.id}>{source.name}</option>{/each}
+        </select></label>
+      {/each}
+    </details>
+  {:else}<small>Only the preferred source is used.</small>{/if}
 </div>
 <style>
   .fallback-settings { border-top:1px solid var(--line); padding:14px 0 0; margin-top:16px; }
   .fallback-settings .check { margin:0 0 8px; }
   small { display:block; line-height:1.5; color:var(--muted); }
   label:not(.check) { flex-direction:row; align-items:center; gap:10px; margin:10px 0 0; }
+  summary { cursor:pointer; font-size:11px; }
   .fallback-chain { color:var(--text); font-size:11px; }
   .fallback-chain span { color:var(--muted); margin:0 3px; }
   .fallback-help { margin-top:5px; font-size:10px; }

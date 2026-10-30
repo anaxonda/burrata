@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import InfoPopover from "./InfoPopover.svelte";
   import { call, desktop } from "./lib/api";
 
   type BrowserInfo = { browser: string; installed: boolean };
@@ -31,19 +31,22 @@
   let diagnosis = $state<Diagnosis | null>(null), diagnosisUrl = $state("");
   let browserBusy = $state<Record<string, boolean>>({});
 
-  async function refresh() {
+  let refreshEpoch = 0;
+  async function refresh(currentCategory: string) {
+    const epoch = ++refreshEpoch;
     loading = true; error = "";
     try {
       const [nextSetup, nextYoutube] = await Promise.all([
-        call<Setup>("get_release_setup"), call<YoutubeStatus>("youtube_support_status"),
+        call<Setup>("get_release_setup"), currentCategory === "all" || currentCategory === "advanced" ? call<YoutubeStatus>("youtube_support_status") : Promise.resolve(null),
       ]);
+      if (epoch !== refreshEpoch) return;
       setup = nextSetup; youtube = nextYoutube;
       radioRecognition = nextSetup.radioRecognition;
       musicDirectory = nextSetup.musicDirectory ?? "";
-    } catch (cause) { error = String(cause); }
-    finally { loading = false; }
+    } catch (cause) { if (epoch === refreshEpoch) error = String(cause); }
+    finally { if (epoch === refreshEpoch) loading = false; }
   }
-  onMount(() => { if (desktop()) void refresh(); else { loading = false; error = "Setup is available in the Burrata desktop app."; } });
+  $effect(() => { const currentCategory = category; if (desktop()) void refresh(currentCategory); else { loading = false; error = "Setup is available in the Burrata desktop app."; } });
 
   async function chooseDirectory() {
     busy = true; error = "";
@@ -62,13 +65,14 @@
     } catch (cause) { error = `Could not save setup: ${String(cause)}`; }
     finally { busy = false; }
   }
-  async function saveRecognition() {
-    busy = true; error = "";
+  async function saveRecognition(enabled: boolean) {
+    const previous = setup?.radioRecognition ?? !enabled;
+    radioRecognition = enabled; busy = true; error = ""; message = "";
     try {
-      await call<void>("set_radio_recognition", { enabled: radioRecognition });
-      if (setup) setup = { ...setup, radioRecognition };
+      await call<void>("set_radio_recognition", { enabled });
+      if (setup) setup = { ...setup, radioRecognition: enabled };
       message = "Radio recognition setting saved."; onSettingsChanged();
-    } catch (cause) { error = `Could not save radio recognition setting: ${String(cause)}`; }
+    } catch (cause) { radioRecognition = previous; error = `Could not save radio recognition setting: ${String(cause)}`; }
     finally { busy = false; }
   }
   async function updateBrowserHost(remove: boolean) {
@@ -135,8 +139,8 @@
       </section>
     {/if}
 
-    {#if category === "all" || category === "connections"}<section class="tool-section" aria-labelledby="browser-title">
-      <h3 id="browser-title">Browser companion</h3>
+    {#if category === "all" || category === "connections"}<section class="tool-section" aria-label="Browser companion">
+      {#if category === "all"}<h3 id="browser-title">Browser companion</h3>{/if}
       <p>Connect a browser to import charts and playlists. Burrata reads pages only when you use the extension; it does not read cookies or logins.</p>
       {#if setup?.browser.browsers.length}
         <div class="browser-list">{#each setup.browser.browsers as item (item.browser)}
@@ -149,20 +153,19 @@
         {#if setup?.toolPaths.length}<ul class="paths">{#each setup.toolPaths as tool (tool.name)}<li><strong>{tool.name}</strong><code>{tool.path}</code><small>{tool.origin}</small></li>{/each}</ul>{/if}
         <button onclick={() => void openUrl("https://github.com/anaxonda/burrata/releases")}>Open Burrata releases ↗</button>
       </details>
-      {#if setup?.mcpCommand?.length}<details><summary>MCP command</summary><p>Use this command to connect Burrata tools to an MCP-compatible client.</p><code class="command">{setup.mcpCommand.join(" ")}</code></details>{/if}
+      {#if category === "all" && setup?.mcpCommand?.length}<details><summary>MCP command</summary><p>Use this command to connect Burrata tools to an MCP-compatible client.</p><code class="command">{setup.mcpCommand.join(" ")}</code></details>{/if}
     </section>
 
     {/if}
-    {#if category === "integrations" && setup?.mcpCommand?.length}<p>Connect a local MCP client with:</p><code class="command">{setup.mcpCommand.join(" ")}</code>{/if}
+    {#if category === "integrations" && setup?.mcpCommand?.length}<details><summary>Connect an assistant</summary><p>Use this command to connect a compatible assistant to Burrata.</p><code class="command">{setup.mcpCommand.join(" ")}</code></details>{/if}
     {#if category === "all" || category === "playback"}<section class="tool-section" aria-labelledby="recognition-title">
-      <h3 id="recognition-title">Radio recognition</h3>
-      <label class="check"><input type="checkbox" bind:checked={radioRecognition} /> Enable radio track recognition</label>
-      <button disabled={busy || radioRecognition === setup?.radioRecognition} onclick={() => void saveRecognition()}>Save setting</button>
+      <div class="section-heading"><h3 id="recognition-title">Radio recognition</h3><InfoPopover label="About radio recognition">Burrata sends a short sample of the radio stream for identification. This uses network data and processing.</InfoPopover></div>
+      <label class="check"><input type="checkbox" checked={radioRecognition} disabled={busy} onchange={(event) => void saveRecognition(event.currentTarget.checked)} /> Enable radio track recognition</label>
     </section>
 
     {/if}
-    {#if category === "all" || category === "advanced"}<section class="tool-section" aria-labelledby="youtube-title">
-      <h3 id="youtube-title">YouTube support</h3>
+    {#if category === "all" || category === "advanced"}<section class="tool-section" aria-label="YouTube support">
+      {#if category === "all"}<h3 id="youtube-title">YouTube support</h3>{/if}
       {#if youtube}
         <p class="version">Active yt-dlp: {youtube.activeVersion ?? "version unavailable"} · {youtube.activeSource}</p>
         <p>{youtube.provider.message}</p>
@@ -189,6 +192,7 @@
 <style>
   .release-setup{min-width:0}.intro,.tool-section>p,.setup-step>p{color:var(--muted);line-height:1.5}
   .setup-step,.tool-section{min-width:0;margin:14px 0;padding:14px;border:1px solid var(--line);border-radius:10px;background:color-mix(in srgb,var(--surface) 80%,transparent)}
+  .section-heading{display:flex;align-items:center;gap:8px}.section-heading h3{margin:0}
   h3{margin:0 0 8px;font-size:15px}.directory-row,.browser-row{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0}
   .directory-row{margin:12px 0}.directory-row span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
   .browser-list{display:grid;gap:8px}.browser-row{padding:8px 10px;border-radius:7px;background:var(--raised)}.browser-row>div{display:grid;gap:3px}.browser-row small,.paths small,.muted{color:var(--muted)}

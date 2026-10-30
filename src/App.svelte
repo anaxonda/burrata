@@ -941,10 +941,13 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
       }
       return;
     }
+    await openSpotifyAlbum(target.albumId, track.album?.trim() || "");
+  }
+  async function openSpotifyAlbum(albumId: string, title: string) {
     rememberRoute();
     spotifyNavigationSnapshotKey = null;
-    spotifyArtistId = ""; spotifyAlbumId = target.albumId; spotifyArtistSearchFallback = null;
-    activeArtistName = track.album?.trim() || ""; activeArtistRef = null; activeArtistTrack = null; artistSection = "overview"; artistScroll = 0;
+    spotifyArtistId = ""; spotifyAlbumId = albumId; spotifyArtistSearchFallback = null;
+    activeArtistName = title; activeArtistRef = null; activeArtistTrack = null; artistSection = "overview"; artistScroll = 0;
     await navigate("artist", false);
   }
   let importDateFilter = $state("");
@@ -3431,6 +3434,21 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
       rememberRoute();spotifyNavigationSnapshotKey=null;spotifyArtistId=id;spotifyAlbumId="";spotifyArtistSearchFallback={id,title:row.title,url:row.url??null,artworkUrl};activeArtistName=row.title;artistScroll=0;await navigate("artist",false);return;
     }
     if(row.kind==="artist") { await discoverArtist({id:`${row.sourceId}:artist-search`,provider:row.sourceId,providerId:"artist-search",sourceUrl:row.url??"",artist:row.title,title:"",favorite:false,provenance:{}});return; }
+    if (row.kind === "album" && row.sourceId === "spotify") {
+      const rowId = row.id?.replace(/^spotify:(?:album:)?/, "");
+      let urlId: string | undefined;
+      if (row.url) {
+        try {
+          const url = new URL(row.url);
+          if (url.protocol === "https:" && url.hostname === "open.spotify.com" && !url.username && !url.password)
+            urlId = url.pathname.match(/^\/(?:intl-[a-z-]+\/)?album\/([A-Za-z0-9]{22})\/?$/)?.[1];
+        } catch { /* The result ID can still identify this album. */ }
+      }
+      const id = rowId && /^[A-Za-z0-9]{22}$/.test(rowId) ? rowId : urlId;
+      if (!id || (urlId && urlId !== id)) { error = "This Spotify result has no usable album ID."; return; }
+      await openSpotifyAlbum(id, row.title);
+      return;
+    }
     if(row.kind==="album") { if(row.url)await importPreset(row.url);return; }
     if ((row.sourceId === "spotify" || row.sourceId === "youtube") && row.kind === "playlist") {
       rememberRoute(); provider = row.sourceId; remoteOwner = ""; remotePlaylistUrl = row.url ?? ""; activeBrowserImport = null; chart = null; tracks = []; collectionId = "";
@@ -6514,7 +6532,10 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
         successfulRecoveryAttachment?.request === recovery.request && successfulRecoveryAttachment.seekSerial === serial,
       mediaTime: node.currentTime, duration: node.duration, paused: paused || node.paused,
       seeking: node.seeking, ended: node.ended, hasError: Boolean(node.error), live, timeoutMs: live ? 5_000 : 20_000,
-      onExpired: () => recoverOwnedAudioFailure(node, live ? "Radio made no playable progress for 5 seconds; reconnecting to the same station." : "Audio remained stalled for 20 seconds after playback started. Check the connection or choose another source.", undefined, ownerCandidate ?? undefined),
+      onExpired: () => {
+        recordWebviewMediaEvent("watchdog-expired", node);
+        recoverOwnedAudioFailure(node, live ? "Radio made no playable progress for 5 seconds; reconnecting to the same station." : "Audio remained stalled for 20 seconds after playback started. Check the connection or choose another source.", undefined, ownerCandidate ?? undefined);
+      },
     });
   }
   function recoverOwnedAudioFailure(node: HTMLAudioElement, fixedReason?: string, requestedRecoveryPosition?: number, stalledCandidate?: Candidate, allowPausedRecovery = false) {
@@ -9589,16 +9610,31 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     currentWebviewDiagnosticAttempt = 0;
     webviewDiagnosticsCleared = true;
   }
+  let settingsSaveQueue: Promise<unknown> = Promise.resolve();
   async function saveSettingsFields(keys: (keyof Settings)[], message: string) {
     const changes = Object.fromEntries(keys.map(key=>[key,settings[key]]));
-    await run(async()=>{
+    // Capture each edit now, but read persisted settings only after earlier saves.
+    // Rapid edits must not overwrite one another with a stale full-settings copy.
+    const save = settingsSaveQueue.then(() => run(async()=>{
       const fresh = await call<Settings>("get_settings");
       await call("save_settings",{settings:{...fresh,...changes}});
-      if(keys.includes("musicDirectory")) persistedMusicDirectory=settings.musicDirectory;
+      if(keys.includes("musicDirectory")) persistedMusicDirectory=changes.musicDirectory as string;
       if(keys.includes("playlistDirectories")) void syncMirrors();
-      if(keys.includes("playlistMirroringEnabled") && settings.playlistMirroringEnabled !== false) void syncMirrors();
+      if(keys.includes("playlistMirroringEnabled") && changes.playlistMirroringEnabled !== false) void syncMirrors();
       setNotice(message);
-    });
+    }));
+    settingsSaveQueue = save.catch(() => {});
+    await save;
+  }
+  async function configureAcoustId() {
+    settingsCategory = "connections";
+    await tick();
+    const connection = document.getElementById("acoustid-connection") as HTMLDetailsElement | null;
+    if (connection) {
+      connection.open = true;
+      connection.scrollIntoView({block:"center"});
+      connection.querySelector<HTMLElement>("summary")?.focus({preventScroll:true});
+    }
   }
   async function saveSettings() {
     await run(async () => {
@@ -9969,6 +10005,10 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
             if (hasSettingsControl) {
               const control = document.getElementById("playback-startup-timeout") as HTMLSelectElement | null;
               if (!control || !control.isConnected || control.tagName !== "SELECT") throw new Error("Playback startup timeout control is unavailable");
+              for (let parent = control.parentElement; parent; parent = parent.parentElement) {
+                if (parent instanceof HTMLDetailsElement) parent.open = true;
+              }
+              await tick();
               control.scrollIntoView({block:"center",inline:"nearest"});
               control.focus({preventScroll:true});
               await tick();
@@ -10221,14 +10261,14 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
 
 <svelte:window onkeydown={keyboard} onpointerdown={dismissHistoryFiltersOutside} ondragover={preventFileDropNavigation} ondrop={preventFileDropNavigation} bind:innerWidth={screenWidth} />
 {#if desktop() && !backupHydrationReady}
-  <div class="backup-hydration-gate" role="alert" aria-live="polite">
+  <div class="backup-hydration-gate" class:restore-error={Boolean(backupHydrationError)} role={backupHydrationError ? "alert" : "status"} aria-live="polite">
     {#if backupHydrationError}
       {#if backupHydrationFailureKind === "preferences"}
         <p>Imported interface preferences could not be saved. They remain queued; check available app storage and retry.</p>
       {:else}<p>Could not finish restoring saved playback. Retry to continue.</p>{/if}
       {#if /quota/i.test(backupHydrationError ?? "")}<small>Free some app storage space, then retry.</small>{/if}
       <button type="button" onclick={() => retryBackupStartup?.()}>Retry</button>
-    {:else}<p>Preparing saved playback…</p>{/if}
+    {:else}<p>Starting Burrata…</p>{/if}
   </div>
 {/if}
 <div class:light={settings.theme === "light" || settings.theme === "system" && systemLight} class:has-player-panel={showPlayingInfo || showQueue} class="app-shell" inert={engineSwitchBusy || desktop() && !backupHydrationReady} aria-busy={desktop() && !backupHydrationReady} style={`--player-height: ${playerHeight}px; --library-sidebar-width:${screenWidth<=900?64:Math.min(sidebarWidth,Math.max(160,screenWidth-((showPlayingInfo||showQueue)?280:0)-320))}px; --info-panel-width:${Math.min(infoPanelWidth,Math.max(280,screenWidth-(screenWidth<=900?64:sidebarWidth)-280))}px`}>
@@ -10277,7 +10317,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
             {/if}
           </div></details>
         {/if}
-        {#if busy}<span class="busy">Working…</span>{/if}{#if view !== "directory-browser" && view !== "artist" && !searchRelease}<button
+        {#if busy}<span class="busy">Working…</span>{/if}{#if view !== "directory-browser" && view !== "artist" && view !== "settings" && !searchRelease}<button
           onclick={() => void createNewPlaylist()}>＋ New playlist</button
         >{/if}
       </div>
@@ -10401,25 +10441,40 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     {:else if view === "settings"}
       <section class="settings" aria-label="Settings">
         <SettingsNavigation active={settingsCategory} onchange={(category)=>settingsCategory=category}/>
-        {#if ["playback","connections","integrations","advanced"].includes(settingsCategory)}<ReleaseSetup category={settingsCategory} onSettingsChanged={()=>void call<Settings>("get_settings").then(value=>settings={...value,matchingLevel:value.matchingLevel??"balanced",playbackStartupTimeoutSeconds:value.playbackStartupTimeoutSeconds??20})}/>{/if}
+        {#if settingsCategory === "general"}
+        <section class="settings-basic-card" aria-labelledby="appearance-settings-title">
+          <h2 id="appearance-settings-title">Appearance</h2>
+          <label>Theme<select bind:value={settings.theme} onchange={()=>void saveSettingsFields(["theme"],"Appearance saved.")}><option value="dark">Dark</option><option value="light">Light</option><option value="system">System</option></select></label>
+          <label class="settings-option"><input type="checkbox" aria-label="Compact playback bar" checked={settings.compactPlaybackBar === true} onchange={(event) => { settings.compactPlaybackBar = event.currentTarget.checked; void saveSettingsFields(["compactPlaybackBar"], "Playback bar preference saved."); }} /><span><strong>Compact playback bar</strong><small>Leave more room for your library.</small></span></label>
+        </section>
+        {:else if settingsCategory === "playback"}
+        <section class="settings-basic-card" aria-labelledby="playback-settings-title">
+          <h2 id="playback-settings-title">Playback</h2>
+          <LoudnessSettings settings={webviewLoudnessSettings} onSettingsSaved={refreshCurrentWebviewNormalization} playbackStatus={nativeActive() ? (nativeSnapshot as (NativePlaybackSnapshot & {loudnessNormalization?: LoudnessPlaybackStatus}) | null)?.loudnessNormalization ?? null : webviewLoudnessDecision} webviewRouteStatus={webviewNormalizationRouteStatus} engine={nativeActive() ? "native" : "webview"} analysisJob={loudnessAnalysisJob} pendingAnalysisCount={pendingLoudnessAssetIds.length} analysisMessage={loudnessAnalysisMessage} onCancelAnalysis={cancelLoudnessAnalysis} onRetryAnalysis={retryQueuedLoudnessAnalysis} />
+          <label class="settings-option"><input type="checkbox" bind:checked={settings.autoPreview} onchange={()=>void saveSettingsFields(["autoPreview"],"Playback preference saved.")} /><span><strong>Play songs selected with arrow keys</strong><small>Start the selected song after a short delay.</small></span></label>
+          <details class="settings-inline-details"><summary>Opening a song’s source</summary>
+            <label class="settings-option"><input type="checkbox" bind:checked={settings.pauseOnSourceOpen} onchange={()=>void saveSettingsFields(["pauseOnSourceOpen"],"Playback preference saved.")} /><span>Pause when opening the playing track’s source</span></label>
+            <label class="settings-option"><input type="checkbox" bind:checked={settings.sourceOpenAtPosition} onchange={()=>void saveSettingsFields(["sourceOpenAtPosition"],"Playback preference saved.")} /><span>Open source at current position (YouTube and SoundCloud)</span></label>
+          </details>
+        </section>
+        {/if}
+        {#if ["connections","integrations","advanced"].includes(settingsCategory)}<ReleaseSetup category={settingsCategory} onSettingsChanged={()=>void call<Settings>("get_settings").then(value=>settings={...value,matchingLevel:value.matchingLevel??"balanced",playbackStartupTimeoutSeconds:value.playbackStartupTimeoutSeconds??20})}/>{/if}
         {#if settingsCategory === "playback" || settingsCategory === "downloads"}
-        <div class="settings-section-heading"><h2>{settingsCategory === "playback" ? "Streaming" : "Downloads"}</h2><span>Changes save automatically</span></div>
-        <label class="settings-basic-card">Recording matching
-          <select aria-label="Recording match level" value={settings.matchingLevel ?? "balanced"} onchange={(event) => { settings.matchingLevel = event.currentTarget.value as "exact" | "balanced" | "flexible"; void saveSettingsFields(["matchingLevel"], "Recording matching saved."); }}>
+        <section class="settings-basic-card recording-matching-card" aria-label="Recording matching"><div class="settings-label-help"><label for="recording-matching">Recording matching</label><InfoPopover label="About recording matching">This app-wide rule applies to both playback and downloads. Exact requires complete recording agreement. Balanced allows metadata and credit variations while preserving the requested recording. Flexible can substitute another live version, cover or remix, labeled when used.</InfoPopover></div>
+          <select id="recording-matching" aria-label="Recording match level" value={settings.matchingLevel ?? "balanced"} onchange={(event) => { settings.matchingLevel = event.currentTarget.value as "exact" | "balanced" | "flexible"; void saveSettingsFields(["matchingLevel"], "Recording matching saved."); }}>
             <option value="exact">Exact</option><option value="balanced">Balanced</option><option value="flexible">Flexible</option>
           </select>
-          <small>Applies to playback and downloads. {settings.matchingLevel === "exact" ? "Requires complete recording agreement." : settings.matchingLevel === "flexible" ? "May use another live version, cover or remix; substitutions are labeled." : "Allows metadata and credit variations while preserving the requested recording."}</small>
-        </label>
+          <small>{settings.matchingLevel === "flexible" ? "Other versions, covers or remixes may be used." : "Keep the requested recording."}</small>
+        </section>
         <div class="settings-source-grid">
           {#if settingsCategory === "playback"}<section class="settings-source-card" aria-labelledby="streaming-settings-title">
-            <h3 id="streaming-settings-title">Streaming</h3><p>Play audio without downloading a file.</p>
-            <label>Primary source<select aria-label="Preferred streaming source" bind:value={settings.preferredStreamingSource} onchange={() => void run(async () => { const fresh = await call<Settings>("get_settings"); await call("save_settings", { settings: { ...fresh, preferredStreamingSource: settings.preferredStreamingSource } }); })}>
+            <h3 id="streaming-settings-title">Audio sources</h3><p>Local files play first. Choose where to look for other songs.</p>
+            <label>Primary source<select aria-label="Preferred streaming source" bind:value={settings.preferredStreamingSource} onchange={()=>void saveSettingsFields(["preferredStreamingSource"],"Streaming source saved.")}>
             <option value="youtube">YouTube</option><option value="soundcloud">SoundCloud</option><option value="monochrome">Monochrome</option>
-          </select><small>Local files play first. Monochrome requires a strong recording match.</small></label>
-            <label>Fallback delay (ms)<input type="number" min="0" max="10000" step="100" aria-label="Streaming fallback delay" bind:value={settings.streamingFallbackDelayMs} onchange={() => void run(async () => { const fresh = await call<Settings>("get_settings"); await call("save_settings", {settings:{...fresh,streamingFallbackDelayMs:settings.streamingFallbackDelayMs}}); })} /></label>
+          </select><small>Monochrome requires a strong recording match.</small></label>
             <FallbackSettings label="Streaming" enabled={settings.streamingFallbackEnabled !== false} providers={settings.streamingFallbackSources ?? ["youtube", "soundcloud", "bandcamp"]} primary={settings.preferredStreamingSource ?? "youtube"} sources={[{id:"monochrome",name:"Monochrome"},{id:"youtube",name:"YouTube"},{id:"soundcloud",name:"SoundCloud"},{id:"bandcamp",name:"Bandcamp"}]} onchange={(enabled,sources)=>void saveFallbackSettings("streaming",enabled,sources)} />
             <label class="settings-option"><input type="checkbox" aria-label="Prepare saved radio songs" checked={settings.backgroundSourcePreparation !== false} onchange={(event) => { settings.backgroundSourcePreparation = event.currentTarget.checked; void saveSettingsFields(["backgroundSourcePreparation"], "Background preparation saved."); }} /><span><strong>Prepare saved radio songs</strong><small>Find and cache playable sources for saved radio songs in the background.</small></span></label>
-            <label class="settings-option"><input type="checkbox" aria-label="Override playlist track URLs" bind:checked={settings.overridePlaylistTrackUrls} onchange={() => void run(async () => { const fresh = await call<Settings>("get_settings"); await call("save_settings", { settings: { ...fresh, overridePlaylistTrackUrls: settings.overridePlaylistTrackUrls } }); })} /><span><strong>Override playlist track URLs</strong><small>Try the preferred source and configured streaming fallbacks. Off keeps the specified playlist URL.</small></span></label>
+            <label class="settings-option"><input type="checkbox" aria-label="Override playlist track URLs" bind:checked={settings.overridePlaylistTrackUrls} onchange={()=>void saveSettingsFields(["overridePlaylistTrackUrls"],"Playlist source preference saved.")} /><span><strong>Find alternative sources for playlist links</strong><small>Off keeps the audio source linked in each playlist.</small></span></label>
           </section>
           {/if}{#if settingsCategory === "downloads"}<section class="settings-source-card" aria-labelledby="download-settings-title">
             <h3 id="download-settings-title">Downloads</h3><p>Save a recording to your music folder.</p>
@@ -10437,15 +10492,17 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
           </select><small>Default for Charts and Library. A source you explicitly select takes priority.</small></label>
             <FallbackSettings label="Download" enabled={settings.downloadFallbackEnabled === true} providers={settings.downloadFallbackSources ?? ["monochrome","slskd","youtube","soundcloud"]} primary={settings.preferredDownloadSource ?? "youtube"} sources={[{id:"monochrome",name:"Monochrome"},{id:"slskd",name:"Soulseek"},{id:"youtube",name:"YouTube"},{id:"soundcloud",name:"SoundCloud"}]} onchange={(enabled,sources)=>void saveFallbackSettings("download",enabled,sources)} />
             <p class="settings-source-note">Soulseek is currently available for downloads only.</p>
-            <label class="settings-option"><input type="checkbox" aria-label="Allow lossy download fallback" bind:checked={settings.downloadFallbackAllowLossy} onchange={() => void run(async()=>{ const fresh=await call<Settings>("get_settings"); await call("save_settings",{settings:{...fresh,downloadFallbackAllowLossy:settings.downloadFallbackAllowLossy}}); })} /><span><strong>Allow a lossy fallback</strong><small>Otherwise, a lossless download only falls back to another lossless source. Chapter downloads keep their selected source.</small></span></label>
+            <label class="settings-option"><input type="checkbox" aria-label="Allow lossy download fallback" bind:checked={settings.downloadFallbackAllowLossy} onchange={()=>void saveSettingsFields(["downloadFallbackAllowLossy"],"Download fallback preference saved.")} /><span><strong>Allow a lossy fallback</strong><small>Otherwise, a lossless download only falls back to another lossless source. Chapter downloads keep their selected source.</small></span></label>
             <SoulseekDownloadPolicy unavailable={settings.soulseekWaitForSource ? "wait" : "continue"} upgrade={settings.soulseekLosslessUpgrades === true} inSourceOrder={settings.preferredDownloadSource === "slskd" || settings.downloadFallbackEnabled === true && (settings.downloadFallbackSources ?? []).includes("slskd")} onchange={(unavailable,upgrade)=>{settings.soulseekWaitForSource=unavailable==="wait";settings.soulseekLosslessUpgrades=upgrade;void saveSettingsFields(["soulseekWaitForSource","soulseekLosslessUpgrades"],"Soulseek download policy saved.");}} />
           </section>
           {/if}
         </div>{/if}
         {#if settingsCategory === "library"}
         <PlaylistSettings preferences={playlistPreferences} collections={visibleCollections.filter(item=>!latestImports.some(imported=>imported.collectionId===item.id))} {call} includeYtdlpSearchDefault={includeYtdlpSearchDefault} onYtdlpSearchDefaultChange={(enabled)=>includeYtdlpSearchDefault=enabled} onchange={(value)=>{playlistPreferences=value;void refreshFavorites();}} oncollections={()=>refreshCollections()}/>
-        <button onclick={() => playlistMirrorSettingsTarget = { collectionId: null }}>Choose playlists…</button>
+        <section class="settings-basic-card" aria-label="Local playlist copies"><h2>Local playlist copies</h2>
         <label class="settings-option"><input type="checkbox" aria-label="Keep local M3U playlist copies" disabled={Boolean(busy)} checked={settings.playlistMirroringEnabled !== false} onchange={(event) => { settings.playlistMirroringEnabled = event.currentTarget.checked; void saveSettingsFields(["playlistMirroringEnabled"], "Playlist mirroring preference saved."); }} /><span><strong>Keep local M3U playlist copies</strong><small>Automatically read and update playlists, Liked Songs, and listening history as M3U8 files in your Music/Playlists folder. Off leaves existing files in place. Manual playlist import and export remain available.</small></span></label>
+        {#if settings.playlistMirroringEnabled !== false}<button onclick={() => playlistMirrorSettingsTarget = { collectionId: null }}>Choose playlists to sync…</button>{/if}
+        </section>
         <HistoryMirrorSettings {call} desktop={desktop()} />
         <RestoredPlaylistSyncSettings {call} desktop={desktop()} />
         <RestoreWorkReview onReviewed={updateStreamMediaAnalysisRestorePolicy} />
@@ -10453,22 +10510,17 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
           <h2 id="library-settings-title">Music folder</h2><p>Completed downloads are saved here after validation and tagging.</p>
           <label>Download destination<input bind:value={settings.musicDirectory} placeholder="/home/you/Music/DJ" /></label>
           <button disabled={busy>0} onclick={()=>void chooseMusicDirectory()}>Choose music folder…</button>
-          <button onclick={()=>void saveSettingsFields(["musicDirectory"],"Music folder saved.")}>Save music folder</button>
+          {#if settings.musicDirectory !== persistedMusicDirectory}<button onclick={()=>void saveSettingsFields(["musicDirectory"],"Music folder saved.")}>Save music folder</button>{/if}
         </section>
         <LocalPlaylistFiles mode="settings" {settings} onChange={(value) => (settings = value)} onSave={() => void saveSettingsFields(["playlistDirectories"],"Playlist folders saved.")} />
         {#if desktop()}<BackupRestore inspectBackup={inspectBackupForUi} createBackup={createBackupForUi} restoreBackup={restoreBackupForUi} chooseMediaRoot={chooseBackupMediaRoot} estimateBackup={estimateBackupForUi} cancelJob={cancelBackupJob} loadActiveBackupJob={loadActiveBackupJob} subscribeBackupProgress={subscribeBackupProgress} loadSchedule={loadBackupSchedule} saveSchedule={saveBackupSchedule} chooseScheduleDestination={chooseBackupScheduleDestination} exportSettings={exportBackupSettings} inspectSettings={inspectBackupSettings} applySettings={applyBackupSettings} previewRestore={previewBackupRestore} allowReplace={true} />{/if}
         {/if}
         {#if settingsCategory === "playback"}<label class="settings-option"><input type="checkbox" bind:checked={includeRadioHistory} onchange={()=>void run(()=>call("set_radio_history_setting",{enabled:includeRadioHistory}))}/><span><strong>Include radio songs in playback history</strong><small>Save identified songs you hear with their station and listening time.</small></span></label>{/if}
-        {#if settingsCategory === "general" || settingsCategory === "playback"}<section class="settings-basic-card" aria-labelledby="playback-settings-title">
-          <h2 id="playback-settings-title">{settingsCategory === "general" ? "Appearance" : "Playback behavior"}</h2>
-          <div class="settings-grid">{#if settingsCategory === "general"}<label>Theme<select bind:value={settings.theme}><option value="dark">Dark</option><option value="light">Light</option><option value="system">System</option></select></label>{/if}
-          {#if settingsCategory === "playback"}<label>Playback startup timeout<select id="playback-startup-timeout" bind:value={settings.playbackStartupTimeoutSeconds}><option value={20}>20 seconds</option><option value={30}>30 seconds</option><option value={45}>45 seconds</option></select></label><label>Preview delay (ms)<input type="number" min="0" max="5000" bind:value={settings.previewDelayMs} /></label>{/if}</div>
-          {#if settingsCategory === "playback"}<label class="settings-option"><input type="checkbox" bind:checked={settings.autoPreview} /><span><strong>Play songs selected with arrow keys</strong><small>Wait for the preview delay before starting audio.</small></span></label>{/if}
-          {#if settingsCategory === "playback"}<PlaybackEngineSettings onApplyRestart={applyPlaybackEngineAndRestart} />{/if}
-          {#if settingsCategory === "playback"}<LoudnessSettings settings={webviewLoudnessSettings} onSettingsSaved={refreshCurrentWebviewNormalization} playbackStatus={nativeActive() ? (nativeSnapshot as (NativePlaybackSnapshot & {loudnessNormalization?: LoudnessPlaybackStatus}) | null)?.loudnessNormalization ?? null : webviewLoudnessDecision} webviewRouteStatus={webviewNormalizationRouteStatus} engine={nativeActive() ? "native" : "webview"} analysisJob={loudnessAnalysisJob} pendingAnalysisCount={pendingLoudnessAssetIds.length} analysisMessage={loudnessAnalysisMessage} onCancelAnalysis={cancelLoudnessAnalysis} onRetryAnalysis={retryQueuedLoudnessAnalysis} />{/if}
-          {#if settingsCategory === "playback"}
+        {#if settingsCategory === "playback"}
             {@const mediaResource = currentStreamMediaResource()}
             {@const mediaJob = streamMediaAnalysisJob?.resourceKey === mediaResource?.key ? streamMediaAnalysisJob : null}
+        <details class="settings-advanced"><summary><strong>Audio analysis</strong><span>BPM, musical key and waveforms</span></summary><div class="settings-details-body">
+          <div class="settings-option-help"><label class="settings-option"><input type="checkbox" aria-label="Enable live BPM and key" checked={settings.liveBpmEnabled === true} onchange={(event) => { settings.liveBpmEnabled = event.currentTarget.checked; void saveSettingsFields(["liveBpmEnabled"], "Live playback estimate preference saved."); }} /><span><strong>Show live BPM and key</strong><small>Estimate tempo and key while listening.</small></span></label><InfoPopover label="About live BPM and key">Uses recent audio from Native or supported Web Audio playback. Estimates may change as the song plays and do not update saved metadata. Enabling analysis uses additional processing power.</InfoPopover></div>
             <StreamMediaAnalysisSettings
               enabled={streamMediaAnalysisEnabled}
               status={streamMediaAnalysisStatus}
@@ -10491,21 +10543,27 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
               onLocalStart={() => void analyzeCurrentLocalWaveform()}
               onLocalCancel={() => void cancelLocalWaveformAnalysis()}
             />
-          {/if}
-          {#if settingsCategory === "playback"}<label class="settings-option"><input type="checkbox" aria-label="Compact playback bar" checked={settings.compactPlaybackBar === true} onchange={(event) => { settings.compactPlaybackBar = event.currentTarget.checked; void saveSettingsFields(["compactPlaybackBar"], "Playback bar preference saved."); }} /><span><strong>Compact playback bar</strong><small>Use a shorter player bar to leave more room for the library.</small></span></label>{/if}
-          {#if settingsCategory === "playback"}<label class="settings-option"><input type="checkbox" aria-label="Enable live BPM and key" checked={settings.liveBpmEnabled === true} onchange={(event) => { settings.liveBpmEnabled = event.currentTarget.checked; void saveSettingsFields(["liveBpmEnabled"], "Live playback estimate preference saved."); }} /><span><strong>Show live BPM and key</strong><small>Uses recent Native or supported Web Audio playback. BPM may show half/double-time alternatives; live key is a provisional recent-window estimate. Neither changes saved track metadata.</small></span></label>{/if}
-          {#if settingsCategory === "playback"}<label class="settings-option"><input type="checkbox" bind:checked={settings.pauseOnSourceOpen} /><span>Pause when opening the playing track’s source</span></label><label class="settings-option"><input type="checkbox" bind:checked={settings.sourceOpenAtPosition} /><span>Open source at current position (YouTube and SoundCloud)</span></label>{/if}
-          <button onclick={()=>void saveSettingsFields(["theme","autoPreview","previewDelayMs","playbackStartupTimeoutSeconds","pauseOnSourceOpen","sourceOpenAtPosition","liveBpmEnabled","compactPlaybackBar"],"Playback preferences saved.")}>{settingsCategory === "general" ? "Save appearance" : "Save playback preferences"}</button>
-        </section>
+
+        </div></details>
+        <details class="settings-advanced"><summary><strong>Advanced playback</strong><span>Audio engine and timing</span></summary><div class="settings-details-body">
+          <PlaybackEngineSettings onApplyRestart={applyPlaybackEngineAndRestart} />
+          <div class="settings-grid">
+            <label>Playback startup timeout<select id="playback-startup-timeout" bind:value={settings.playbackStartupTimeoutSeconds} onchange={()=>void saveSettingsFields(["playbackStartupTimeoutSeconds"],"Startup timeout saved.")}><option value={20}>20 seconds</option><option value={30}>30 seconds</option><option value={45}>45 seconds</option></select></label>
+            <label>Preview delay (ms)<input type="number" min="0" max="5000" bind:value={settings.previewDelayMs} onchange={()=>void saveSettingsFields(["previewDelayMs"],"Preview delay saved.")} /></label>
+          </div>
+          <div class="settings-label-help"><label for="streaming-fallback-delay">Wait for preferred source (ms)</label><InfoPopover label="About source priority timing">Source lookups can run in parallel. When an alternative is ready first, Burrata gives your preferred source this much extra time before using the alternative. The playback startup timeout still applies.</InfoPopover></div>
+          <input id="streaming-fallback-delay" type="number" min="0" max="10000" step="100" aria-label="Streaming fallback delay" bind:value={settings.streamingFallbackDelayMs} onchange={()=>void saveSettingsFields(["streamingFallbackDelayMs"],"Fallback delay saved.")} />
+        </div></details>
+        <ReleaseSetup category="playback" onSettingsChanged={()=>void call<Settings>("get_settings").then(value=>settings={...value,matchingLevel:value.matchingLevel??"balanced",playbackStartupTimeoutSeconds:value.playbackStartupTimeoutSeconds??20})}/>
         {/if}
-        {#if settingsCategory === "downloads"}<AutotagSetup {...autotagSettings} acoustIdConfigured={autotagSettings.acoustidConfigured} onChanged={(change)=>autotagSettings={...autotagSettings,...change}} onSave={()=>void run(async()=>{autotagSettings=await call("save_autotag_settings",{enabled:autotagSettings.enabled,shazamFallback:autotagSettings.shazamFallback});})} />
+        {#if settingsCategory === "downloads"}<AutotagSetup {...autotagSettings} onConfigureAcoustId={()=>void configureAcoustId()} acoustIdConfigured={autotagSettings.acoustidConfigured} onChanged={(change)=>autotagSettings={...autotagSettings,...change}} onSave={()=>void run(async()=>{autotagSettings=await call("save_autotag_settings",{enabled:autotagSettings.enabled,shazamFallback:autotagSettings.shazamFallback});})} />
         {/if}{#if settingsCategory === "connections"}<AccountPlaylistSettings value={sidebarLayout.showAccountPlaylists} onChange={(value) => void persistSidebar({...sidebarLayout,showAccountPlaylists:value})} /><BrowserConnections {call} onWriteSyncChange={(provider,enabled)=>remotePlaylistWriteSyncEnabled={...remotePlaylistWriteSyncEnabled,[provider]:enabled}} onChanged={() => { void call<typeof availableSources>("list_search_sources").then(sources => availableSources = sources).catch(() => {}); }} onBrowse={(source)=>void searchProviderPlaylists(source)} /><ConnectionsSetup onChanged={(status) => { slskdEnabled = status.settings.slskd.enabled; lyricsTranslationLanguage=status.settings.lyricsTranslation?.targetLanguage ?? "en";lyricsTranslationEnabled=status.settings.lyricsTranslation?.enabled===true; lyricsTranslationCredentialPresent=status.settings.lyricsTranslation?.provider === "googleFree" || status.settings.lyricsTranslation?.provider === "auto" || status.lyricsTranslationCredential?.present===true; sourceCapabilities={soulseek:slskdEnabled,discogs:status.settings.discogsEnabled}; void call<typeof availableSources>("list_search_sources").then(sources=>availableSources=sources).catch(()=>{}); void loadAutotagState().catch(()=>{}); }} />
         {/if}{#if settingsCategory === "advanced"}<details class="settings-advanced" open><summary><strong>Tools & diagnostics</strong><span>Executable paths and dependency checks</span></summary>
           <PlaybackDiagnosticsSettings {call} enabled={settings.playbackDiagnosticsEnabled === true} onEnabledChange={savePlaybackDiagnosticsEnabled} getWebviewDiagnostics={webviewDiagnosticsForExport} onClearWebviewDiagnostics={clearWebviewDiagnostics} />
           <ToolSetup {settings} {dependencies} onChange={(value)=>(settings=value)} onCheck={()=>void run(async()=>(dependencies=await call<Dependency[]>("check_dependencies")))} onSave={()=>void saveSettingsFields(["ytDlpPath","ffmpegPath","ffprobePath","jsRuntimePath"],"Tool paths saved.")} checking={busy>0} />
         </details>
-        {/if}{#if settingsCategory === "integrations"}<details class="settings-advanced" open><summary><strong>AI control</strong><span>Local MCP connections and permissions</span></summary>
-          <section class="automation-settings"><p>Allow a connected assistant to use the player and library.</p><label class="settings-option"><input type="checkbox" bind:checked={automationPermissions.control} onchange={()=>void saveAutomationPermissions()} /><span>Allow playback and playlist changes</span></label><label class="settings-option"><input type="checkbox" bind:checked={automationPermissions.manage} onchange={()=>void saveAutomationPermissions()} /><span>Allow downloads and audio analysis</span></label><details><summary>Connection instructions</summary><p>Use the installed MCP command shown in YouTube &amp; integrations above.</p></details></section>
+        {/if}{#if settingsCategory === "integrations"}<details class="settings-advanced" open><summary><strong>Assistant permissions</strong><span>Control access to your player and library</span></summary>
+          <section class="automation-settings"><p>Allow a connected assistant to use the player and library.</p><label class="settings-option"><input type="checkbox" bind:checked={automationPermissions.control} onchange={()=>void saveAutomationPermissions()} /><span>Allow playback and playlist changes</span></label><label class="settings-option"><input type="checkbox" bind:checked={automationPermissions.manage} onchange={()=>void saveAutomationPermissions()} /><span>Allow downloads and audio analysis</span></label></section>
         </details>{/if}
       </section>
     {:else if view === "search"}

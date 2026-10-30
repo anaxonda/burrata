@@ -1264,6 +1264,22 @@ describe("selected playback restore startup gate", () => {
       position: 7.5, volume: 0, repeat: "off", shuffle: false, paused: true,
     };
   }
+  it("shows startup status while hydration is pending and keeps the app inert", async () => {
+    const original = mocks.call.getMockImplementation()!;
+    let finishRestore: ((value: null) => void) | undefined;
+    mocks.call.mockImplementation((command: string, args?: Record<string, unknown>) => command === "get_backup_playback_restore"
+      ? new Promise(resolve => { finishRestore = resolve; }) : original(command, args));
+    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); };
+    await settle();
+    expect(document.querySelector('[role="status"].backup-hydration-gate')?.textContent).toContain("Starting Burrata…");
+    expect(document.querySelector<HTMLElement>(".app-shell")?.inert).toBe(true);
+    expect(document.querySelector(".app-shell")?.getAttribute("aria-busy")).toBe("true");
+    expect(document.querySelector(".library-sidebar")).not.toBeNull();
+    expect(mocks.call.mock.calls.some(([command]) => command === "automation_playback_state")).toBe(false);
+    finishRestore?.(null); await settle();
+    expect(document.querySelector(".backup-hydration-gate")).toBeNull();
+    expect(document.querySelector<HTMLElement>(".app-shell")?.inert).toBe(false);
+  });
   it.each([2, 3])("does not initialize or publish playback while localStorage write %i fails; retry completes hydration", async (failedWrite: number) => {
     pendingBackupPlaybackRestore = pendingRestore();
     let restoreWrites = 0; let alreadyFailed = false;
@@ -4100,6 +4116,30 @@ describe("saved recording navigation", () => {
     expect(remoteCalls()).toBe(callsBeforeBack);
   });
 
+  it("opens a Spotify album search result and returns without importing or playing", async () => {
+    const albumId = "dddddddddddddddddddddd";
+    const album = { id: albumId, title: "Search Album Edition", url: `https://open.spotify.com/album/${albumId}`, artists: ["Exact Artist"] };
+    const original = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "get_managed_provider_session_status") return { accountRevisions: { spotify: 14 }, spotifyAccountId: "fixture-account" };
+      if (command === "list_search_sources") return [{ id: "library", name: "Library", kinds: ["track"], enabled: true }, { id: "spotify", name: "Spotify", kinds: ["album"], enabled: true }];
+      if (command === "search_source") return { sourceId: "spotify", complete: true, results: [{ id: albumId, kind: "album", sourceId: "spotify", title: album.title, url: album.url }] };
+      if (command === "browse_remote_album_tracks") return { provider: "spotify", accountId: "fixture-account", album, tracks: [], total: 0, complete: true };
+      return original(command, args);
+    });
+    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); }; await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Search"]')!.click(); await settle();
+    await searchDiscovery(album.title, ["spotify"]);
+    const result = [...document.querySelectorAll<HTMLElement>(".result-row")].find(row => row.textContent?.includes(album.title))!;
+    const open = [...result.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.includes("Open album"))!;
+    expect(open).toBeTruthy(); open.click(); await settle();
+    expect(mocks.call).toHaveBeenCalledWith("browse_remote_album_tracks", expect.objectContaining({ albumId, cursor: null }));
+    expect(document.querySelector(".spotify-artist h1")?.textContent).toBe(album.title);
+    expect(mocks.call.mock.calls.some(([command]) => ["import_remote_playlists", "resolve_playback_track", "playback_command"].includes(command))).toBe(false);
+    document.querySelector<HTMLButtonElement>('[aria-label="Go back"]')!.click(); await settle();
+    expect(document.querySelector(".search-panel")?.textContent).toContain(album.title);
+  });
+
   it("opens the exact Spotify album identity from a track context menu and restores the prior route", async () => {
     const albumId = "aaaaaaaaaaaaaaaaaaaaaa", trackId = "bbbbbbbbbbbbbbbbbbbbbb";
     const album = { id: albumId, title: "Exact Album Edition", url: `https://open.spotify.com/album/${albumId}`, artists: ["Exact Artist"] };
@@ -5198,7 +5238,7 @@ describe("saved recording navigation", () => {
     expect([...control.options].map(option => [option.value, option.textContent])).toEqual([
       ["exact", "Exact"], ["balanced", "Balanced"], ["flexible", "Flexible"],
     ]);
-    expect(document.body.textContent).toContain("Allows metadata and credit variations while preserving the requested recording.");
+    expect(document.body.textContent).toContain("Balanced allows metadata and credit variations while preserving the requested recording.");
   });
 
   it("saves Flexible matching with fresh settings and shares the selection with Downloads", async () => {
@@ -5232,7 +5272,7 @@ describe("saved recording navigation", () => {
     await settle();
     const downloadsControl = document.querySelector<HTMLSelectElement>('[aria-label="Recording match level"]')!;
     expect(downloadsControl.value).toBe("flexible");
-    expect(document.body.textContent).toContain("May use another live version, cover or remix; substitutions are labeled.");
+    expect(document.body.textContent).toContain("Other versions, covers or remixes may be used.");
   });
 
   it("scrolls to and focuses only the fixed startup timeout control before completing navigation", async () => {
@@ -5248,6 +5288,7 @@ describe("saved recording navigation", () => {
       }});await settle();await settle();
       const control=document.getElementById("playback-startup-timeout") as HTMLSelectElement;
       expect(scrollIntoView).toHaveBeenCalledWith({block:"center",inline:"nearest"});
+      expect(control.closest("details")?.open).toBe(true);
       expect(document.activeElement).toBe(control);
       const completionCall = mocks.call.mock.calls.findIndex(([name,args]) => name === "automation_ui_navigation_complete" && args?.requestId === "focus-playback-timeout");
       expect(scrollIntoView.mock.invocationCallOrder[0]).toBeLessThan(mocks.call.mock.invocationCallOrder[completionCall]);
@@ -6837,7 +6878,7 @@ describe("saved recording navigation", () => {
     expect(streamingFallbackSources).toEqual(["soundcloud","youtube","bandcamp"]);
     const off=document.querySelector('[aria-label="Try another source if playback fails"]') as HTMLInputElement;
     off.checked=false;off.dispatchEvent(new Event("change",{bubbles:true}));await settle();
-    expect(streamingFallbackEnabled).toBe(false);expect(source.disabled).toBe(true);
+    expect(streamingFallbackEnabled).toBe(false);expect(document.querySelector('[aria-label="Streaming fallback 1"]')).toBeNull();
     [...document.querySelectorAll<HTMLButtonElement>('.settings-nav button')].find(item=>item.textContent?.trim()==="Downloads")!.click();await settle();
     const downloads=document.querySelector('[aria-label="Try another source if download fails"]') as HTMLInputElement;
     downloads.checked=true;downloads.dispatchEvent(new Event("change",{bubbles:true}));await settle();
@@ -6856,18 +6897,18 @@ describe("saved recording navigation", () => {
     expect((save[1] as {settings:Settings}).settings).toMatchObject({backgroundSourcePreparation:false,streamingFallbackEnabled:true});
   });
 
-  it("defaults the compact playback bar off and persists the playback setting", async () => {
+  it("defaults the compact playback bar off and persists the general setting", async () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
     document.querySelector<HTMLButtonElement>(".sidebar-scroll-end button[aria-label='Settings']")?.click();
     await settle();
     [...document.querySelectorAll<HTMLButtonElement>(".settings-nav button")]
-      .find((item) => item.textContent?.trim() === "Playback")!.click();
+      .find((item) => item.textContent?.trim() === "General")!.click();
     await settle();
     const compact = document.querySelector<HTMLInputElement>('[aria-label="Compact playback bar"]')!;
     expect(compact.checked).toBe(false);
-    expect(compact.closest("label")?.textContent).toContain("Use a shorter player bar");
+    expect(compact.closest("label")?.textContent).toContain("Leave more room for your library");
     compact.checked = true;
     compact.dispatchEvent(new Event("change", { bubbles: true }));
     await settle();
@@ -6919,7 +6960,7 @@ describe("saved recording navigation", () => {
       .find((item) => item.textContent?.trim() === "Library")!.click();
     await settle();
     [...document.querySelectorAll<HTMLButtonElement>("button")]
-      .find((item) => item.textContent?.trim() === "Choose playlists…")!.click();
+      .find((item) => item.textContent?.trim() === "Choose playlists to sync…")!.click();
     await settle();
     const dialog = document.querySelector<HTMLDialogElement>('dialog[aria-label="Local M3U copy settings"]')!;
     expect(dialog).not.toBeNull();
@@ -6971,11 +7012,59 @@ describe("saved recording navigation", () => {
     folder.value="/unsaved/music";folder.dispatchEvent(new Event("input",{bubbles:true}));
     [...document.querySelectorAll<HTMLButtonElement>('.settings-nav button')].find(item=>item.textContent?.trim()==="Playback")!.click();await settle();
     const delay=document.querySelector('input[type="number"][max="5000"]') as HTMLInputElement;
-    delay.value="500";delay.dispatchEvent(new Event("input",{bubbles:true}));
-    [...document.querySelectorAll("button")].find(item=>item.textContent==="Save playback preferences")!.dispatchEvent(new MouseEvent("click",{bubbles:true}));await settle();
+    delay.value="500";delay.dispatchEvent(new Event("input",{bubbles:true}));delay.dispatchEvent(new Event("change",{bubbles:true}));await settle();
     const save=mocks.call.mock.calls.filter(([command])=>command==="save_settings").slice(-1)[0]!;
     expect((save[1] as {settings:Settings}).settings).toMatchObject({musicDirectory:"/saved/music",previewDelayMs:500});
     expect(folder.value).toBe("/unsaved/music");
+  });
+
+  it("serializes rapid individual preference saves without losing changes or a folder draft", async () => {
+    configuredMusicDirectory = "/saved/music";
+    const original = mocks.call.getMockImplementation()!;
+    let persisted: Settings | undefined;
+    let releaseFirst: (() => void) | undefined;
+    mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "get_settings" && persisted) return { ...persisted };
+      if (command === "save_settings") {
+        const next = args!.settings as Settings;
+        if (!releaseFirst) await new Promise<void>(resolve => { releaseFirst = resolve; });
+        persisted = { ...next };
+        return undefined;
+      }
+      return original(command, args);
+    });
+    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); }; await settle();
+    document.querySelector<HTMLButtonElement>('.sidebar-scroll-end button[aria-label="Settings"]')!.click(); await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".settings-nav button")].find(button => button.textContent?.trim() === "Library")!.click(); await settle();
+    const folder = document.querySelector<HTMLInputElement>('input[placeholder="/home/you/Music/DJ"]')!;
+    folder.value = "/unsaved/music"; folder.dispatchEvent(new Event("input", { bubbles: true }));
+    [...document.querySelectorAll<HTMLButtonElement>(".settings-nav button")].find(button => button.textContent?.trim() === "General")!.click(); await settle();
+    const theme = [...document.querySelectorAll<HTMLLabelElement>("label")].find(label => label.textContent?.trim().startsWith("Theme"))!.querySelector("select")!;
+    theme.value = "light"; theme.dispatchEvent(new Event("change", { bubbles: true })); await settle();
+    const compact = document.querySelector<HTMLInputElement>('[aria-label="Compact playback bar"]')!;
+    compact.checked = true; compact.dispatchEvent(new Event("change", { bubbles: true })); await settle();
+    expect(mocks.call.mock.calls.filter(([command]) => command === "save_settings")).toHaveLength(1);
+    releaseFirst?.(); await settle(); await settle();
+    expect(persisted).toMatchObject({ theme: "light", compactPlaybackBar: true, musicDirectory: "/saved/music" });
+    expect(folder.value).toBe("/unsaved/music");
+  });
+
+  it("opens the AcoustID connection from download settings", async () => {
+    const previousScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
+    try {
+      const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); }; await settle();
+      document.querySelector<HTMLButtonElement>('.sidebar-scroll-end button[aria-label="Settings"]')!.click(); await settle();
+      [...document.querySelectorAll<HTMLButtonElement>(".settings-nav button")].find(button => button.textContent?.trim() === "Downloads")!.click(); await settle();
+      [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim() === "Set up connection")!.click(); await settle();
+      expect(document.querySelector('.settings-nav [aria-current="page"]')?.textContent).toBe("Connections");
+      const connection = document.querySelector<HTMLDetailsElement>("#acoustid-connection")!;
+      expect(connection.open).toBe(true);
+      expect(document.activeElement).toBe(connection.querySelector("summary"));
+    } finally {
+      if (previousScrollIntoView) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: previousScrollIntoView });
+      else delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
+    }
   });
 
   it("saves preferred source immediately without persisting unrelated typed settings", async () => {

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import InfoPopover from "./InfoPopover.svelte";
   import StreamAnalysisAction from "./StreamAnalysisAction.svelte";
   import StreamMediaAnalysisAction, { type StreamMediaAnalysisActionState } from "./StreamMediaAnalysisAction.svelte";
   import type { StreamAnalysisActionState } from "./StreamAnalysisAction.svelte";
@@ -27,9 +28,10 @@
   />
   <span>
     <strong>Analyze full streamed tracks in background</strong>
-    <small>When enabled, one eligible playing stream at a time is decoded locally in a separate pass (up to 15 minutes) for BPM, key, and a complete waveform. Playback continues; this uses network and CPU. No audio is saved and track metadata is unchanged.</small>
+    <small>Find BPM, key, and a full waveform while you listen.</small>
   </span>
 </label>
+<InfoPopover label="About streamed track analysis">One eligible stream at a time is analyzed locally, up to 15 minutes. This uses network and CPU. Audio is not saved and track metadata is unchanged.</InfoPopover>
 
 {#if status && !(mediaEligible || mediaState !== "idle")}<p class="analysis-status" role="status">{status}</p>{/if}
 {#if mediaEligible || mediaState !== "idle"}
@@ -50,7 +52,7 @@
   <div class="local-waveform-analysis-control">
     <div class="local-waveform-analysis-copy">
       <strong>Local file waveform</strong>
-      <small>Visible local files are analyzed automatically when a full waveform is needed. Completed results are cached and reused; this control starts analysis now when no result is available.</small>
+      <small>Local waveforms are analyzed automatically when needed and reused later.</small>
     </div>
     <div class="local-waveform-analysis-action">
       {#if localBusy}<button type="button" aria-label="Cancel waveform analysis" onclick={onLocalCancel}>Cancel waveform analysis</button>

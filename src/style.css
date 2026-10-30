@@ -2356,22 +2356,22 @@ select optgroup {
 .settings-heading p { color:var(--muted); font-size:12px; margin:0 0 22px; }
 .settings-section-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
 .settings-section-heading h2 { margin:0; font-size:14px; }
-.settings-section-heading > span { color:var(--muted); font-size:10px; }
+.settings-section-heading > span { color:var(--muted); font-size:12px; }
 .settings-source-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:16px; }
 .settings-source-card { padding:18px; border:1px solid var(--line); border-radius:12px; background:var(--surface); min-width:0; }
 .settings-source-card h3,.settings-basic-card h2 { margin:0; font-size:15px; color:var(--text); }
-.settings-source-card > p,.settings-basic-card > p { font-size:11px; line-height:1.6; color:var(--muted); margin:6px 0 14px; }
-.settings-source-card label > small { line-height:1.5; font-size:10px; }
+.settings-source-card > p,.settings-basic-card > p { font-size:12px; line-height:1.6; color:var(--muted); margin:6px 0 14px; }
+.settings-source-card label > small { line-height:1.5; font-size:12px; }
 .settings .settings-option { display:flex; flex-direction:row; align-items:flex-start; gap:10px; margin:16px 0 0; }
 .settings .settings-option input { flex:none; width:auto; margin:2px 0 0; }
 .settings .settings-option span { min-width:0; line-height:1.5; }
-.settings .settings-option strong { color:var(--text); font-size:11px; font-weight:550; }
-.settings .settings-option small { display:block; margin-top:4px; color:var(--muted); font-size:10px; line-height:1.5; }
+.settings .settings-option strong { color:var(--text); font-size:13px; font-weight:550; }
+.settings .settings-option small { display:block; margin-top:4px; color:var(--muted); font-size:12px; line-height:1.5; }
 .settings-source-card > p.settings-source-note { margin:12px 0; font-size:10px; }
 .settings-basic-card > button { margin-top:16px; }
-.settings-advanced { border:1px solid var(--line); background:var(--surface); border-radius:9px; margin:14px 0; overflow:hidden; }
+.settings-advanced { border:1px solid var(--line); background:var(--surface); border-radius:9px; margin:14px 0; overflow:visible; min-width:0; }
 .settings-advanced > summary { padding:15px 16px; cursor:pointer; font-size:12px; }
-.settings-advanced > summary > span { color:var(--muted); font-size:10px; margin-left:12px; }
+.settings-advanced > summary > span { color:var(--muted); font-size:12px; margin-left:12px; }
 .settings-advanced > .tool-setup,.settings-advanced > .automation-settings { margin:0; padding:0 16px 16px; border:0; }
 .settings .automation-settings code { overflow-wrap:anywhere; font-size:11px; }
 @media(max-width:760px) { .settings-source-grid { grid-template-columns:minmax(0,1fr); } .settings-advanced > summary > span { display:block; margin:5px 0 0 16px; } }
@@ -2419,17 +2419,49 @@ body .shared-track-list .more-menu a:focus-visible {
   body .shared-track-list .more-menu a { min-height:32px; }
 }
 
+/* Keep the application visible while startup restores its saved state. */
 .backup-hydration-gate {
   position: fixed;
-  inset: 0;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 10000;
   display: grid;
-  place-content: center;
   gap: 12px;
-  padding: 24px;
-  background: rgba(12, 14, 18, 0.96);
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  padding: 12px 18px;
+  border: 1px solid var(--line, #35413a);
+  border-radius: 10px;
+  background: var(--surface, #1c2520);
   color: var(--text, #f5f7fa);
-  text-align: center;
+  box-shadow: 0 4px 24px #0003;
 }
+.backup-hydration-gate.restore-error { top: 25%; padding: 24px; }
 .backup-hydration-gate p { max-width: 36rem; margin: 0; }
-.backup-hydration-gate button { justify-self: center; }
+.backup-hydration-gate button { justify-self: start; }
+.settings-details-body { padding: 0 16px 16px; }
+.settings-inline-details { margin-top: 18px; }
+.settings-inline-details > summary { cursor: pointer; color: var(--muted); }
+.settings-label-help { display: flex; align-items: center; gap: 8px; }
+.settings-label-help label { margin: 0; }
+.settings-option-help { display: flex; align-items: baseline; gap: 8px; }
+.settings-option-help > .settings-option { flex: 1; margin-top: 0; }
+.settings label > select, .settings label > input:not([type="checkbox"]),
+.settings-basic-card > select { width: 100%; max-width: 32rem; }
+.settings input[type="checkbox"] { accent-color: var(--accent); }
+
+.settings select {
+  appearance: none;
+  -webkit-appearance: none;
+  min-height: 34px;
+  padding: 8px 32px 8px 11px;
+  background-color: var(--base);
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}
+.settings input[type="checkbox"] { width: 15px; height: 15px; }
+.recording-matching-card { display: grid; gap: 8px; }
+.recording-matching-card > small { display: block; color: var(--muted); font-size: 12px; }

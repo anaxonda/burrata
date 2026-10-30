@@ -794,29 +794,13 @@ describe("SearchPanel", () => {
     }
   });
 
-  it("disables result kinds Spotify does not declare and explains why", async () => {
-    const searchSource = vi.fn(async () => ({ complete: true, results: [] }));
-    const target = render({
-      initialSources: ["spotify"],
+  it("shows only supported result kinds for a single provider", async () => {
+    const target = render({ initialSources: ["spotify"],
       availableSources: [{ id: "spotify", name: "Spotify", enabled: true, kinds: ["profile"] }],
-      searchSource,
-    });
+      searchSource: vi.fn(async () => ({ complete: true, results: [] })) });
     await settle();
-    const allButton = target.querySelector<HTMLButtonElement>('.filters button');
-    expect(allButton?.textContent).toBe("All");
-    expect(allButton?.disabled).toBe(false);
-    const profileButton = [...target.querySelectorAll<HTMLButtonElement>(".filters button")].find(button => button.textContent === "Profiles");
-    expect(profileButton?.disabled).toBe(false);
-    for (const label of ["Tracks", "Artists", "Albums", "Videos / Sets", "Playlists", "Channels"]) {
-      const button = [...target.querySelectorAll<HTMLButtonElement>(".filters button")].find(item => item.textContent === label);
-      expect(button?.disabled).toBe(true);
-      expect(button?.getAttribute("aria-describedby")).toBe("unsupported-result-kinds");
-    }
-    expect(target.querySelector("#unsupported-result-kinds")?.textContent).toContain("Spotify does not support tracks, artists");
-    const tracks = [...target.querySelectorAll<HTMLButtonElement>(".filters button")].find(button => button.textContent === "Tracks")!;
-    tracks.click();
-    expect(target.querySelector<HTMLButtonElement>('.filters button[aria-pressed="true"]')?.textContent).toBe("All");
-    expect(searchSource).not.toHaveBeenCalled();
+    expect([...target.querySelectorAll<HTMLButtonElement>(".filters button")].map(button => button.textContent)).toEqual(["All", "Profiles"]);
+    expect(target.querySelector("#unsupported-result-kinds")).toBeNull();
   });
 
   it("allows grouped Videos / Sets when a provider declares video support", async () => {
@@ -1317,28 +1301,27 @@ describe("SearchPanel", () => {
     expect(searchSource).toHaveBeenLastCalledWith(expect.objectContaining({ query: "artist title", sourceIds: ["library"], kinds: ["track"] }));
   });
 
-  it("keeps a selected source through kind changes and explains unsupported kinds", async () => {
+  it("preserves an unsupported selected kind when switching providers", async () => {
     const searchSource = vi.fn(async () => ({ complete: true, results: [] }));
-    const target = render({ initialSources: ["discogs"], availableSources: [
-      { id: "library", name: "My library", kinds: ["track"] },
+    const target = render({ initialSources: ["youtube"], availableSources: [
+      { id: "youtube", name: "YouTube", kinds: ["track"] },
       { id: "discogs", name: "Discogs", kinds: ["artist", "album"] },
     ], searchSource });
     await settle();
-    const input = target.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
-    input.value = "some artist"; input.dispatchEvent(new Event("input", { bubbles: true }));
-    target.querySelector(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-    await settle();
-    expect(searchSource).toHaveBeenCalledTimes(1);
     [...target.querySelectorAll<HTMLButtonElement>(".filters button")].find(button => button.textContent?.trim() === "Tracks")!.click();
     await settle();
-    expect(target.querySelector<HTMLSelectElement>('[aria-label="Search in"]')?.value).toBe("discogs");
-    expect(searchSource).toHaveBeenCalledTimes(1);
+    const select = target.querySelector<HTMLSelectElement>('[aria-label="Search in"]')!;
+    select.value = "discogs"; select.dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+    const selected = target.querySelector<HTMLButtonElement>('.filters button[aria-pressed="true"]');
+    expect(selected?.textContent).toBe("Tracks");
+    expect(selected?.disabled).toBe(true);
     expect(target.textContent).toContain("Discogs does not support tracks");
-    expect(target.querySelector('[aria-label="Discogs results"]')).not.toBeNull();
+    expect(select.value).toBe("discogs");
     [...target.querySelectorAll<HTMLButtonElement>(".filters button")].find(button => button.textContent?.trim() === "Albums")!.click();
     await settle();
-    expect(searchSource).toHaveBeenCalledTimes(2);
-    expect(searchSource).toHaveBeenLastCalledWith(expect.objectContaining({ sourceIds: ["discogs"], kinds: ["album"] }));
+    expect(target.querySelector("#unsupported-result-kinds")).toBeNull();
+    expect(target.querySelector<HTMLButtonElement>('.filters button[aria-pressed="true"]')?.textContent).toBe("Albums");
   });
 
   it("cancels a Soulseek job whose start response arrives after a newer query", async () => {

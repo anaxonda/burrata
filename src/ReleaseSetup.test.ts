@@ -58,10 +58,31 @@ describe("ReleaseSetup", () => {
     const target = render({ onSettingsChanged: changed }); await settle();
     const checkbox = target.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
     checkbox.click(); await settle();
-    button(target, "Save setting").click(); await settle();
     expect(callMock).toHaveBeenCalledWith("set_radio_recognition", { enabled: false });
     expect(target.textContent).toContain("Radio recognition setting saved.");
     expect(changed).toHaveBeenCalledOnce();
+  });
+
+  it("loads YouTube support only for relevant categories", async () => {
+    callMock.mockImplementation(async (command: string) => {
+      if (command === "get_release_setup") return setup({ setupComplete: true });
+      if (command === "youtube_support_status") return youtube;
+      throw new Error(`Unexpected command ${command}`);
+    });
+    render({ category: "playback" }); await settle();
+    expect(callMock).not.toHaveBeenCalledWith("youtube_support_status");
+  });
+
+  it("restores radio recognition when saving fails", async () => {
+    callMock.mockImplementation(async (command: string) => {
+      if (command === "get_release_setup") return setup({ setupComplete: true, radioRecognition: true });
+      if (command === "set_radio_recognition") throw new Error("failed");
+    });
+    const target = render({ category: "playback" }); await settle();
+    const checkbox = target.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    checkbox.click(); await settle();
+    expect(checkbox.checked).toBe(true);
+    expect(target.querySelector('[role="alert"]')?.textContent).toContain("failed");
   });
 
   it("registers a selected browser host and keeps errors visible", async () => {

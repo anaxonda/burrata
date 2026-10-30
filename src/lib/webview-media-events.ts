@@ -1,6 +1,6 @@
 export type WebviewMediaEventType =
   | "play" | "playing" | "waiting" | "stalled" | "canplay" | "canplaythrough"
-  | "seeking" | "seeked" | "ended" | "error";
+  | "seeking" | "seeked" | "ended" | "error" | "watchdog-expired";
 export type WebviewMediaEventOwner = {
   sessionId: string | null;
   sourceGeneration: number | null;
@@ -27,7 +27,7 @@ type MediaSample = Pick<HTMLMediaElement, "readyState" | "networkState" | "pause
 };
 const MEDIA_EVENTS = new Set<WebviewMediaEventType>([
   'play', 'playing', 'waiting', 'stalled', 'canplay', 'canplaythrough',
-  'seeking', 'seeked', 'ended', 'error',
+  'seeking', 'seeked', 'ended', 'error', 'watchdog-expired',
 ]);
 const MAX_EVENTS = 64;
 const MAX_RANGES = 8;

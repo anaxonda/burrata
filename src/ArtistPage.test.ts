@@ -319,6 +319,53 @@ describe("ArtistPage", () => {
     expect(target.querySelector(".tabs button.active")?.textContent).toBe("Discography");
   });
 
+  it("shows album loading and errors without expanding tracks, and closes the action menu", async () => {
+    const ref = artist("pending", "Pending Artist");
+    const album = release("pending-album", "Pending Record", "https://musicbrainz.org/release/pending", "Album");
+    let reject!: (error: Error) => void;
+    const getReleaseTracks = vi.fn(() => new Promise<Track[]>((_, fail) => { reject = fail; }));
+    const target = render({ initialArtistRef: ref.artist, initialSection: "releases", onPlayTrack: vi.fn(), onQueueTracks: vi.fn(),
+      getArtistProfile: async () => profile(ref, emptyReleasePage(ref.artist.id, [album])), getReleaseTracks });
+    await settle();
+    const menu = target.querySelector<HTMLDetailsElement>(".release-menu")!;
+    menu.open = true;
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(menu.open).toBe(false);
+    target.querySelector<HTMLButtonElement>('[aria-label="Play album Pending Record"]')!.click();
+    await settle();
+    expect(target.querySelector('[role="status"].album-load-status')?.textContent).toContain("Loading tracks for Pending Record");
+    expect(target.querySelector(".expanded-tracks")).toBeNull();
+    reject(new Error("Source unavailable"));
+    await settle();
+    expect(target.querySelector('[role="alert"]')?.textContent).toContain("Source unavailable");
+    expect(target.querySelector(".album-load-status")).toBeNull();
+  });
+
+  it("keeps album actions open through pointer down and closes after activation or Escape", async () => {
+    const ref = artist("menu", "Menu Artist");
+    const album = release("menu-album", "Menu Record", "https://musicbrainz.org/release/menu", "Album");
+    const songs: Track[] = [{ id: "menu-song", provider: "musicbrainz", providerId: "menu-song", sourceUrl: "", artist: "Menu Artist", title: "Song", favorite: false, provenance: {} }];
+    const onQueueTracks = vi.fn();
+    const target = render({ initialArtistRef: ref.artist, initialSection: "releases", onQueueTracks,
+      getArtistProfile: async () => profile(ref, emptyReleasePage(ref.artist.id, [album])), getReleaseTracks: async () => songs });
+    await settle();
+    const menu = target.querySelector<HTMLDetailsElement>(".release-menu")!;
+    const summary = menu.querySelector<HTMLElement>("summary")!;
+    const queue = menu.querySelector<HTMLButtonElement>('[aria-label="Queue album Menu Record"]')!;
+    menu.open = true;
+    queue.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    expect(menu.open).toBe(true);
+    queue.click();
+    await settle();
+    expect(onQueueTracks).toHaveBeenCalledWith(songs, "append");
+    expect(menu.open).toBe(false);
+    menu.open = true;
+    queue.focus();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(menu.open).toBe(false);
+    expect(document.activeElement).toBe(summary);
+  });
+
   it("plays the full selected edition in order and starts a clicked track at its album offset", async () => {
     const ref = artist("playable", "Playable Artist");
     const album = release("album", "First Record", "https://musicbrainz.org/release/album", "Album");

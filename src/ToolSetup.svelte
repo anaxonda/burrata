@@ -62,9 +62,9 @@
       linux: "https://ffmpeg.org/download.html",
     },
     "JavaScript runtime": {
-      windows: "https://nodejs.org/en/download/",
-      macos: "https://nodejs.org/en/download/",
-      linux: "https://nodejs.org/en/download/",
+      windows: "https://deno.com/",
+      macos: "https://deno.com/",
+      linux: "https://deno.com/",
     },
   };
 
@@ -72,7 +72,7 @@
     "yt-dlp": "https://github.com/yt-dlp/yt-dlp/wiki/Installation",
     "FFmpeg": "https://ffmpeg.org/download.html",
     ffprobe: "https://ffmpeg.org/download.html",
-    "JavaScript runtime": "https://nodejs.org/en/download/",
+    "JavaScript runtime": "https://deno.com/",
   };
 
   function toolName(key:ToolPath){return key==="ytDlpPath"?"yt-dlp":key==="ffmpegPath"?"ffmpeg":key==="ffprobePath"?"ffprobe":"node";}
@@ -119,7 +119,7 @@
   <div class="tool-list">
     <article class="tool-card">
       <div class="tool-title">
-        <div><h3>yt-dlp</h3><p>Searches YouTube and SoundCloud, opens temporary previews, and retrieves a chosen source when you start an acquisition.</p></div>
+        <div><h3>yt-dlp</h3><p>Finds and retrieves audio from supported sources.</p></div>
         <span class:ready={dependency("yt-dlp")?.available} class="tool-status">{statusLabel(dependency("yt-dlp"))}</span>
       </div>
       <p class="status-detail">{statusText(dependency("yt-dlp"))}</p>
@@ -131,67 +131,64 @@
 
     <article class="tool-card">
       <div class="tool-title">
-        <div><h3>FFmpeg</h3><p>Converts audio and creates MP3 compatibility copies. Burrata also decodes audio for BPM and bundled musical-key analysis when catalog values are missing. Estimates can be imperfect.</p></div>
+        <div><h3>FFmpeg</h3><p>Converts audio and supports audio analysis.</p></div>
         <span class:ready={dependency("ffmpeg")?.available} class="tool-status">{statusLabel(dependency("ffmpeg"))}</span>
       </div>
       <p class="status-detail">{statusText(dependency("ffmpeg"))}</p>
       <div class="tool-links">
         <a href={links.FFmpeg[platform]} target="_blank" rel="noreferrer" onclick={openGuide}>FFmpeg project page · {platform === "macos" ? "macOS" : platform} downloads</a>
-        <a href={guides.FFmpeg} target="_blank" rel="noreferrer" onclick={openGuide}>Official download page</a>
       </div>
     </article>
 
     <article class="tool-card">
       <div class="tool-title">
-        <div><h3>ffprobe</h3><p>Checks that a downloaded file contains audio and reads its codec and duration before Burrata publishes it. It is included with FFmpeg builds.</p></div>
+        <div><h3>ffprobe</h3><p>Checks downloaded audio. Included with FFmpeg builds.</p></div>
         <span class:ready={dependency("ffprobe")?.available} class="tool-status">{statusLabel(dependency("ffprobe"))}</span>
       </div>
       <p class="status-detail">{statusText(dependency("ffprobe"))}</p>
       <div class="tool-links">
         <a href={links.ffprobe[platform]} target="_blank" rel="noreferrer" onclick={openGuide}>FFmpeg project page · ffprobe with FFmpeg</a>
-        <a href={guides.ffprobe} target="_blank" rel="noreferrer" onclick={openGuide}>Official download page</a>
       </div>
     </article>
 
     <article class="tool-card">
       <div class="tool-title">
-        <div><h3>Node JavaScript runtime</h3><p>Runs the small JavaScript challenge scripts yt-dlp needs to read some YouTube search results and media formats. Deno is the recommended runtime.</p></div>
+        <div><h3>JavaScript runtime</h3><p>Helps yt-dlp access some YouTube content. Deno is recommended.</p></div>
         <span class:ready={dependency("JavaScript runtime")?.available} class="tool-status">{statusLabel(dependency("JavaScript runtime"))}</span>
       </div>
       <p class="status-detail">{statusText(dependency("JavaScript runtime"))}</p>
       <div class="tool-links">
         <a href={links["JavaScript runtime"][platform]} target="_blank" rel="noreferrer" onclick={openGuide}>Deno installation for {platform === "macos" ? "macOS" : platform}</a>
-        <a href="https://nodejs.org/en/download/" target="_blank" rel="noreferrer" onclick={openGuide}>Official installation guide</a>
       </div>
     </article>
   </div>
 
-  <aside class="ejs-note">
+  <details class="ejs-note"><summary>YouTube tool details</summary>
     <strong>YouTube also needs yt-dlp’s EJS scripts.</strong>
     <span>Official yt-dlp release binaries include them. Some package-manager installs need extra setup. Burrata checks the runtime executable, but can only confirm EJS support by successfully inspecting a real YouTube source.</span>
     <a href="https://github.com/yt-dlp/yt-dlp/wiki/EJS" target="_blank" rel="noreferrer" onclick={openGuide}>yt-dlp EJS setup guide</a>
-  </aside>
+  </details>
 
   <details class="custom-paths">
-    <summary>Advanced: use custom executable paths</summary>
+    <summary>Tool locations</summary>
     <p>Bundled tools are recommended. System tools stay under your package manager’s control. Use a custom path for a specific executable.</p>
     <div class="custom-path-grid">
       {#each pathFields as field}
         <label>{field.label}
           <select aria-label={`${field.label} source`} value={toolMode(field.key)} onchange={event=>changeMode(field.key,event.currentTarget.value)}><option value="bundled">Bundled / managed</option><option value="system">System</option><option value="custom">Custom path</option></select>
-          <input
+          {#if toolMode(field.key) === "custom"}<span>Enter an executable name or full path</span><input
             value={settings[field.key]}
             placeholder={field.hint}
             oninput={(event) => onChange({ ...settings, [field.key]: event.currentTarget.value })}
-          />
+          />{/if}
         </label>
       {/each}
     </div>
+    <div class="setup-actions"><button class="primary" onclick={onSave}>Save tool paths</button></div>
   </details>
 
   <div class="setup-actions">
     <button onclick={onCheck} disabled={checking}>{checking ? "Checking tools…" : "Check tools"}</button>
-    <button class="primary" onclick={onSave}>Save tool paths</button>
   </div>
 </section>
 

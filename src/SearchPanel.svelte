@@ -419,9 +419,9 @@
   const trackControlsApplicable = $derived(!["artists", "albums", "playlists", "profiles", "channels"].includes(kind));
   const enabledOnlineSources = $derived(sources.filter(source => ONLINE_SOURCE_IDS.includes(source.id) && sourceEnabled(source.id)));
   const selectedSource = $derived(searchMode === "library" || sourceChoice === "all" || sourceChoice === "custom" ? null : enabledOnlineSources.find(source => source.id === sourceChoice) ?? null);
-  const visibleKinds = $derived(searchMode === "library" ? kinds.filter(item => item.id === "all" || item.id === "tracks") : kinds);
+  const visibleKinds = $derived(searchMode === "library" ? kinds.filter(item => item.id === "all" || item.id === "tracks") : selectedSource ? kinds.filter(item => item.id === kind || sourceSupportsKind(selectedSource.id, item.id)) : kinds);
   const selectedSourceUnsupportedKinds = $derived(searchMode === "online" && sourceChoice !== "all" && sourceChoice !== "custom" && selectedSource
-    ? visibleKinds.filter(item => !sourceSupportsKind(selectedSource.id, item.id))
+    ? visibleKinds.filter(item => item.id === kind && !sourceSupportsKind(selectedSource.id, item.id))
     : []);
   const selectedSourceUnsupported = $derived(searchMode === "online" && sourceChoice !== "all" && sourceChoice !== "custom" && selectedSource && !sourceSupports(selectedSource.id) ? selectedSource : null);
   // This changes only provider section order. Each provider keeps its own relevance order;

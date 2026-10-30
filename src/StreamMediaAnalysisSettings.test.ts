@@ -17,8 +17,8 @@ describe("StreamMediaAnalysisSettings", () => {
     await tick();
     const toggle = target.querySelector<HTMLInputElement>("input[aria-label='Analyze full streamed tracks in background']")!;
     expect(toggle.checked).toBe(false);
-    expect(target.textContent).toContain("Playback continues");
-    expect(target.textContent).toContain("No audio is saved");
+    expect(target.textContent).toContain("while you listen");
+    expect(target.textContent).toContain("Audio is not saved");
   });
 
   it("reports current analysis state without replacing the opt-in control", async () => {
@@ -98,7 +98,7 @@ describe("StreamMediaAnalysisSettings", () => {
     expect(localControl).not.toBeNull();
     expect(streamOptIn.contains(localControl)).toBe(false);
     expect(localControl.textContent).toContain("analyzed automatically");
-    expect(localControl.textContent).toContain("cached and reused");
+    expect(localControl.textContent).toContain("reused later");
     const start = localControl.querySelector<HTMLButtonElement>('[aria-label="Analyze full local waveform"]')!;
     expect(start.textContent).toContain("Analyze full file waveform");
     start.click();

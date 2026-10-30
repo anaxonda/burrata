@@ -1918,6 +1918,7 @@ fn sanitize_webview_media_inspection(raw: Value) -> Result<Value, ToolError> {
                 "canplaythrough",
                 "seeking",
                 "seeked",
+                "watchdog-expired",
                 "ended",
                 "error",
             ];
@@ -10820,7 +10821,7 @@ mod tests {
             "engine":"webview","applicable":true,"trackId":"t","sessionId":"s","sourceGeneration":7,"seekSerial":2,
             "currentIndex":0,"queueTotal":1,"entryId":"e","queueTrackId":"t","previewKind":"audio",
             "media":{"present":true,"currentTime":10.0,"duration":131.0,"paused":false,"readyState":2,"networkState":2,"errorCode":null,"sourcePresent":true,"sourceStable":true},
-            "diagnostics":{"owner":{"sessionId":"s","sourceGeneration":7,"entryId":"e","seekSerial":2},"sourceFormat":{"codec":"mp4a.40.2","mimeType":"audio/mp4","formatId":"140","hasVideo":false,"expectedContentLength":123456,"streamKind":"direct","url":"https://private.invalid/?token=secret"},"events":[{"atMs":20.5,"type":"waiting","readyState":2,"networkState":2,"paused":false,"currentTime":10.0,"buffered":[{"start":9.0,"end":12.0}],"url":"https://private.invalid/?token=secret","title":"private title","path":"/private/file"}]}
+            "diagnostics":{"owner":{"sessionId":"s","sourceGeneration":7,"entryId":"e","seekSerial":2},"sourceFormat":{"codec":"mp4a.40.2","mimeType":"audio/mp4","formatId":"140","hasVideo":false,"expectedContentLength":123456,"streamKind":"direct","url":"https://private.invalid/?token=secret"},"events":[{"atMs":20.5,"type":"watchdog-expired","readyState":2,"networkState":2,"paused":false,"currentTime":10.0,"buffered":[{"start":9.0,"end":12.0}],"url":"https://private.invalid/?token=secret","title":"private title","path":"/private/file"}]}
         });
         let mut base = base;
         base["startupDiagnostics"] = json!({
@@ -10839,7 +10840,7 @@ mod tests {
             safe["startupDiagnostics"]["startupFailures"][0]["mediaErrorCode"],
             4
         );
-        assert_eq!(safe["diagnostics"]["events"][0]["type"], "waiting");
+        assert_eq!(safe["diagnostics"]["events"][0]["type"], "watchdog-expired");
         assert_eq!(safe["diagnostics"]["events"][0]["buffered"][0]["end"], 12.0);
         assert_eq!(
             safe["diagnostics"]["sourceFormat"],

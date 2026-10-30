@@ -19,6 +19,12 @@ describe("WebView media event recorder", () => {
     expect(Object.keys(result.owner).sort()).toEqual(["entryId", "seekSerial", "sessionId", "sourceGeneration"]);
   });
 
+  it("records a bounded watchdog expiry sample", () => {
+    const recorder = createWebviewMediaEventRecorder({ enabled: true, now: () => 20_000 });
+    recorder.record(owner, "watchdog-expired", media(3));
+    expect(recorder.snapshotHistory()).toMatchObject([{ type: "watchdog-expired", currentTime: 3, readyState: 2, buffered: [{ start: 0, end: 4 }, { start: 5, end: 8 }] }]);
+  });
+
   it("resets on owner change and prevents stale snapshots from restoring old history", () => {
     const recorder = createWebviewMediaEventRecorder({ enabled: true });
     recorder.record(owner, "playing", media());

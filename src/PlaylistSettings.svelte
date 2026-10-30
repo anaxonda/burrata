@@ -86,17 +86,8 @@
   </label>
   <header>
     <h3>Playlist shortcuts</h3>
-    <p>Assign playlists to number keys 1–9. Empty slots stay unassigned.</p>
+    <p>Assign playlists and keys to the nine shortcut slots. Empty slots stay unassigned.</p>
   </header>
-  <header>
-    <h3>Playlist exports</h3>
-    <p>Choose whether optional search links are included by default. Each export can override this.</p>
-  </header>
-  <label class="export-search-default">
-    <input type="checkbox" aria-label="Include search links by default" checked={includeYtdlpSearchDefault}
-      onchange={event => onYtdlpSearchDefaultChange(event.currentTarget.checked)} />
-    <span>Include search links by default</span>
-  </label>
   <div class="slots">
     {#each Array.from({ length: 9 }, (_, index) => index) as slot}
       <div class="slot-card">
@@ -120,6 +111,15 @@
     <input bind:value={newName} maxlength="120" placeholder="New playlist name" aria-label="New playlist name" disabled={saving} />
     <button type="submit" disabled={saving || !newName.trim()}>Create playlist</button>
   </form>
+  <header>
+    <h3>Playlist exports</h3>
+    <p>Choose whether optional search links are included by default. Each export can override this.</p>
+  </header>
+  <label class="export-search-default">
+    <input type="checkbox" aria-label="Include search links by default" checked={includeYtdlpSearchDefault}
+      onchange={event => onYtdlpSearchDefaultChange(event.currentTarget.checked)} />
+    <span>Include search links by default</span>
+  </label>
   {#if error}<p class="error" role="alert">{error}</p>{/if}
 </section>
 

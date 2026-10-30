@@ -21,7 +21,7 @@ describe("PlaybackDiagnosticsSettings", () => {
     const instance = mount(PlaybackDiagnosticsSettings, { target, props: { enabled: false, onEnabledChange, call } as never });
     destroy = () => unmount(instance); await settle();
     expect(target.textContent).toContain("7 of 500 diagnostic events stored");
-    expect(target.textContent).toContain("exclude credentials, signed stream URLs, private-link tokens, titles, and user-agent strings");
+    expect(target.textContent).toContain("exclude credentials, signed stream URLs, private-link tokens, titles and user-agent strings");
     const toggle = target.querySelector<HTMLInputElement>("[aria-label='Enable playback diagnostics']")!;
     toggle.click(); await settle();
     expect(onEnabledChange).toHaveBeenCalledWith(true);

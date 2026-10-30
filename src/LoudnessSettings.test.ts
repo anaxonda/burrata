@@ -32,8 +32,8 @@ describe("LoudnessSettings", () => {
     const settings = { mode: "off" as const, targetLufs: -18, ceilingDbtp: -1, maximumBoostDb: 6, albumTrackFallback: true, analyzeWhenIdle: false };
     const instance = mount(LoudnessSettings, { target, props: { settings, onSettingsSaved } as never });
     destroy = () => unmount(instance); await settle();
-    expect([...target.querySelectorAll("option")].map(option => option.textContent)).toEqual(["Off", "Track", "Album"]);
-    expect(target.textContent).toContain("your player volume separate");
+    expect([...target.querySelectorAll("option")].map(option => option.textContent)).toEqual(["Off", "Each track", "Album"]);
+    expect(target.textContent).toContain("without changing your audio files or player volume");
     const select = target.querySelector<HTMLSelectElement>("select")!;
     select.value = "album"; select.dispatchEvent(new Event("change", { bubbles: true })); await settle();
     expect(mocks.call).toHaveBeenCalledWith("set_loudness_settings", { settings: { ...settings, mode: "album" } });

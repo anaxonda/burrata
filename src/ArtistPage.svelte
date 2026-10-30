@@ -115,7 +115,7 @@
   let releaseTrackCache = $state<Record<string, Track[]>>({});
   let loadingRelease = $state<Record<string, boolean>>({});
   let albumSaveState = $state<Record<string, { status: "saving" | "saved" | "error"; message: string }>>({});
-  let releaseLoadError = $state("");
+  let releaseLoadErrors = $state<Record<string, string>>({});
   const releaseTrackLoads = new Map<string, Promise<Track[]>>();
   let lastInitialSection = $state<"overview" | "releases" | "tracks" | "collaborations" | "local">("overview");
   let pageElement = $state<HTMLElement | null>(null);
@@ -391,7 +391,7 @@
     const key = `${generation}:${artist.provider}:${artist.id}:${release.sourceUrl}`;
     const existing = releaseTrackLoads.get(key);
     if (existing) return existing;
-    loadingRelease = { ...loadingRelease, [release.sourceUrl]: true }; releaseLoadError = "";
+    loadingRelease = { ...loadingRelease, [release.sourceUrl]: true }; releaseLoadErrors = { ...releaseLoadErrors, [release.sourceUrl]: "" };
     let task!: Promise<Track[]>;
     task = (async () => {
       try {
@@ -399,7 +399,7 @@
         if (generation !== requestGeneration) return [];
         releaseTrackCache = { ...releaseTrackCache, [release.sourceUrl]: result };
         return result;
-      } catch (cause) { if (generation === requestGeneration) releaseLoadError = message(cause); return []; }
+      } catch (cause) { if (generation === requestGeneration) releaseLoadErrors = { ...releaseLoadErrors, [release.sourceUrl]: message(cause) }; return []; }
       finally {
         if (releaseTrackLoads.get(key) === task) releaseTrackLoads.delete(key);
         if (generation === requestGeneration) { const next = { ...loadingRelease }; delete next[release.sourceUrl]; loadingRelease = next; }
@@ -527,7 +527,7 @@
     const generation = ++requestGeneration;
     busy = true; error = ""; review = null;
     loadingReleaseOrder = false;
-    releaseTrackCache = {}; loadingRelease = {}; releaseLoadError = ""; expandedRelease = ""; editionByGroup = {};
+    releaseTrackCache = {}; loadingRelease = {}; releaseLoadErrors = {}; expandedRelease = ""; editionByGroup = {};
     localArtistRequestGeneration++; localArtistTracks = []; localArtistTotal = 0; localArtistSortAvailability = null; localArtistLoading = false;
     selectedArtist = artist; profile = null; section = initialSection;
     scrollRestorePending = true;
@@ -701,6 +701,16 @@
   }
 </script>
 
+<svelte:window onclick={(event) => {
+  for (const menu of pageElement?.querySelectorAll<HTMLDetailsElement>(".release-menu[open]") ?? []) {
+    if (!(event.target instanceof Node) || !menu.contains(event.target) || (event.target instanceof Element && event.target.closest(".release-menu-content button"))) menu.open = false;
+  }
+}} onkeydown={(event) => {
+  if (event.key !== "Escape") return;
+  for (const menu of pageElement?.querySelectorAll<HTMLDetailsElement>(".release-menu[open]") ?? []) {
+    menu.open = false; menu.querySelector<HTMLElement>("summary")?.focus();
+  }
+}} />
 <section bind:this={pageElement} class="artist-page" aria-label="Artist discovery" onscroll={(event) => onScroll?.(event.currentTarget.scrollTop)}>
   {#if !selectedArtist}
   <header>
@@ -790,15 +800,14 @@
         {@const release = selectedEdition(group)}
         {@const artworkTrack = (releaseTrackCache[release.sourceUrl] ?? []).find((track) => track.artworkUrl)}
         {@const artworkSources = [...(artworkTrack ? trackArtworkSources(artworkTrack) : []), ...(release.artworkUrls ?? []), musicBrainzCover(release.sourceUrl)]}
-        <article class="release-card"><div class="release-card-header"><div class="release-card-main"><div class="release-art" aria-hidden="true"><ArtworkImage urls={artworkSources} /></div><div class="release-info"><small class="release-source">{providerLabel(release.release.provider)}</small><button class="album-title" aria-expanded={expandedRelease === group.key} onclick={() => void toggleRelease(group)}><strong>{release.title}</strong></button><p>{release.year ?? "Year unknown"}{#if release.country} · {territoryLabel(release.country)}{/if}{#if release.label} · {release.label}{/if}</p><small>{release.format ?? release.primaryType ?? "Format unknown"}{#if release.catalogNumber} · {release.catalogNumber}{/if} · {release.trackCount ?? "?"} tracks</small></div></div>
-          <div class="release-actions"><button class="secondary" aria-label={`Play album ${release.title}`} onclick={() => void playRelease(release)} disabled={!getReleaseTracks || !onPlayTrack || loadingRelease[release.sourceUrl]}>Play album</button><button class="secondary" aria-label={`Queue album ${release.title}`} onclick={() => void queueRelease(release, "append")} disabled={!getReleaseTracks || !onQueueTracks || loadingRelease[release.sourceUrl]}>Queue</button><button class="secondary" aria-label={`Play album ${release.title} next`} onclick={() => void queueRelease(release, "next")} disabled={!getReleaseTracks || !onQueueTracks || loadingRelease[release.sourceUrl]}>Play next</button>{#if onDownloadAlbum}<button class="secondary" aria-label={`Download album ${release.title}`} onclick={() => void downloadRelease(release)} disabled={!getReleaseTracks || loadingRelease[release.sourceUrl]}>Download album</button>{/if}{#if onAddAlbumToPlaylist || onSaveAlbumToLibrary}<button class="secondary" aria-label={onAddAlbumToPlaylist ? `Add album ${release.title} to playlist` : `Save album ${release.title} to library`} onclick={() => void saveAlbumToLibrary(release, group.key)} disabled={!getReleaseTracks || loadingRelease[release.sourceUrl] || albumSaveState[release.sourceUrl]?.status === "saving"}>{albumSaveState[release.sourceUrl]?.status === "saving" ? (onAddAlbumToPlaylist ? "Loading…" : "Saving…") : onAddAlbumToPlaylist ? "Add to playlist" : albumSaveState[release.sourceUrl]?.status === "saved" ? "Saved" : "Save to library"}</button>{/if}<button class="secondary" aria-expanded={expandedRelease === group.key} onclick={() => void toggleRelease(group)}>Tracks</button></div></div>
+        <article class="release-card" aria-busy={Boolean(loadingRelease[release.sourceUrl])}><div class="release-card-header"><div class="release-card-main"><div class="release-art" aria-hidden="true"><ArtworkImage urls={artworkSources} /></div><div class="release-info"><small class="release-source">{providerLabel(release.release.provider)}</small><button class="album-title" aria-expanded={expandedRelease === group.key} onclick={() => void toggleRelease(group)}><strong>{release.title}</strong></button><p>{release.year ?? "Year unknown"}{#if release.country} · {territoryLabel(release.country)}{/if}{#if release.label} · {release.label}{/if}</p><small>{release.format ?? release.primaryType ?? "Format unknown"}{#if release.catalogNumber} · {release.catalogNumber}{/if} · {release.trackCount ?? "?"} tracks</small></div></div>
+          <div class="release-actions"><button class="secondary" aria-label={`Play album ${release.title}`} onclick={() => void playRelease(release)} disabled={!getReleaseTracks || !onPlayTrack || loadingRelease[release.sourceUrl]}>{loadingRelease[release.sourceUrl] ? "Loading tracks…" : "Play album"}</button><details class="release-menu"><summary aria-label={`More actions for ${release.title}`}>More</summary><div class="release-menu-content"><button class="secondary" aria-label={`Queue album ${release.title}`} onclick={() => void queueRelease(release, "append")} disabled={!getReleaseTracks || !onQueueTracks || loadingRelease[release.sourceUrl]}>Queue</button><button class="secondary" aria-label={`Play album ${release.title} next`} onclick={() => void queueRelease(release, "next")} disabled={!getReleaseTracks || !onQueueTracks || loadingRelease[release.sourceUrl]}>Play next</button>{#if onDownloadAlbum}<button class="secondary" aria-label={`Download album ${release.title}`} onclick={() => void downloadRelease(release)} disabled={!getReleaseTracks || loadingRelease[release.sourceUrl]}>Download album</button>{/if}{#if onAddAlbumToPlaylist || onSaveAlbumToLibrary}<button class="secondary" aria-label={onAddAlbumToPlaylist ? `Add album ${release.title} to playlist` : `Save album ${release.title} to library`} onclick={() => void saveAlbumToLibrary(release, group.key)} disabled={!getReleaseTracks || loadingRelease[release.sourceUrl] || albumSaveState[release.sourceUrl]?.status === "saving"}>{albumSaveState[release.sourceUrl]?.status === "saving" ? (onAddAlbumToPlaylist ? "Loading…" : "Saving…") : onAddAlbumToPlaylist ? "Add to playlist" : albumSaveState[release.sourceUrl]?.status === "saved" ? "Saved" : "Save to library"}</button>{/if}</div></details><button class="secondary" aria-expanded={expandedRelease === group.key} onclick={() => void toggleRelease(group)}>Tracks</button></div></div>
+          {#if loadingRelease[release.sourceUrl]}<p class="muted album-load-status" role="status">Loading tracks for {release.title}…</p>{:else if releaseLoadErrors[release.sourceUrl]}<p class="notice error" role="alert">Could not load tracks for {release.title}: {releaseLoadErrors[release.sourceUrl]}</p>{/if}
           {#if (onAddAlbumToPlaylist || onSaveAlbumToLibrary) && albumSaveState[release.sourceUrl]}<p class={`notice album-save-status ${albumSaveState[release.sourceUrl].status === "error" ? "error" : ""}`} aria-live="polite">{albumSaveState[release.sourceUrl].message}</p>{/if}
           {#if release.tracks.length && !getReleaseTracks}<details class="source-track-details"><summary>Track titles from source · {release.tracks.length}</summary><ol class="release-tracklist">{#each release.tracks as sourceTrack, trackIndex (trackIndex)}<li>{sourceTrack.position ? `${sourceTrack.position}. ` : ""}{sourceTrack.title}</li>{/each}</ol></details>{/if}
           {#if group.editions.length > 1}<label class="edition-select">Edition <select value={release.sourceUrl} onchange={(event) => { editionByGroup = { ...editionByGroup, [group.key]: event.currentTarget.value }; const chosen = group.editions.find((item) => item.sourceUrl === event.currentTarget.value); if (chosen && expandedRelease === group.key) void loadReleaseTracks(chosen); }} aria-label={`Edition of ${release.title}`}>{#each group.editions as edition (edition.sourceUrl)}<option value={edition.sourceUrl}>{edition.year ?? "Year unknown"} · {providerLabel(edition.release.provider)}{edition.country ? ` · ${territoryLabel(edition.country)}` : ""}</option>{/each}</select></label>{/if}
           {#if expandedRelease === group.key}<div class="expanded-tracks">
-            {#if releaseLoadError}<p class="notice error">{releaseLoadError}</p>{/if}
-            {#if loadingRelease[release.sourceUrl]}<p class="muted">Loading this edition’s tracks…</p>
-            {:else if (releaseTrackCache[release.sourceUrl] ?? []).length}
+            {#if !loadingRelease[release.sourceUrl] && (releaseTrackCache[release.sourceUrl] ?? []).length}
               {@const sourceTracks = releaseTrackCache[release.sourceUrl] ?? []}
               {@const visibleReleaseOccurrences = filteredReleaseOccurrences(sourceTracks)}
               {@const visibleReleaseTracks = visibleReleaseOccurrences.map(row => row.track)}
@@ -827,7 +836,7 @@
               {#if visibleReleaseTracks.length}
                 <TrackList presentation="playlist" tracks={visibleReleaseTracks} selectionContext={`artist-release:${release.sourceUrl}`} selectionKeys={visibleReleaseOccurrences.map(row => String(row.sourceIndex))} selectionTracks={sourceTracks} selectionTrackKeys={sourceTracks.map((_, index) => String(index))} listLabel={`${release.title} tracks`} position={(_track, index) => (visibleReleaseOccurrences[index]?.sourceIndex ?? index) + 1} onPlay={(_track, _list, index) => void playReleaseOccurrence(release, visibleReleaseOccurrences[index]?.sourceIndex ?? -1)} onDownload={onDownloadTrack} onFavorite={onFavoriteTrack} onNext={track => onQueueTracks?.([track], "next")} onQueue={track => onQueueTracks?.([track], "append")} onPlaylist={onAddTrackToPlaylist} {onAddSelectedToPlaylist} onArtist={navigateTrackArtist} onAlbum={onTrackAlbum} onContext={onTrackContext} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} />
               {:else}<p class="muted">No loaded tracks match these filters.</p>{/if}
-            {:else}<p class="muted">No track details available for this edition.</p>{/if}
+            {:else if !loadingRelease[release.sourceUrl] && !releaseLoadErrors[release.sourceUrl]}<p class="muted">No track details available for this edition.</p>{/if}
           </div>{/if}
           <div class="links release-source-link"><a href={release.sourceUrl} target="_blank" rel="noreferrer">Open edition source ↗</a>{#if activeTrack}<button class="secondary" disabled={busy} onclick={() => void inspectRelease(release)}>Review metadata</button>{/if}</div></article>
       {/each}</div>
@@ -908,9 +917,10 @@
   h2,h3,h4,p{margin:.25rem 0}h2{font-size:1.4rem}h3{font-size:1rem}.eyebrow,.source,small,.muted{color:var(--muted,#a3a8ae);font-size:.82rem}.eyebrow{letter-spacing:.09em;font-weight:700}
   .search{display:flex;gap:.5rem}.search input{flex:1;min-width:80px}.search input,input[type=checkbox]{accent-color:var(--accent,#67c3a5)}
   input:not([type=checkbox]){background:var(--input,#22262b);border:1px solid var(--border,#383d43);color:inherit;border-radius:7px;padding:.65rem}
-  button{border:0;border-radius:7px;padding:.6rem .8rem;background:var(--accent,#67c3a5);color:#111;font-weight:650;cursor:pointer}button:disabled{opacity:.5;cursor:not-allowed}.secondary,.back{background:transparent;color:inherit;border:1px solid var(--border,#383d43)}.back{align-self:start}
+  button{border:0;border-radius:7px;padding:.6rem .8rem;background:var(--accent,#67c3a5);color:#111;font-weight:650;cursor:pointer}button:disabled{opacity:.5;cursor:default}.secondary,.back{background:transparent;color:inherit;border:1px solid var(--border,#383d43)}.back{align-self:start}
   .results,.release-list{display:flex;flex-direction:column;gap:.5rem;min-width:0}.artist-result,.release-list article{width:100%;min-width:0;text-align:left;background:var(--input,#22262b);color:inherit;border:1px solid var(--border,#383d43);padding:.8rem;border-radius:8px;overflow-wrap:anywhere}.artist-result span{min-width:0;overflow-wrap:anywhere}.artist-result span:first-child{display:flex;flex-direction:column;gap:.2rem}.artist-result .source{text-align:right}.artist-heading{justify-content:flex-start;min-width:0}.artist-heading>div{min-width:0;overflow-wrap:anywhere}.artist-portrait{width:84px;height:84px;object-fit:cover;border-radius:8px}.tabs{display:flex;gap:.35rem;overflow:auto;border-bottom:1px solid var(--border,#383d43);max-width:100%}.tabs button{white-space:nowrap;background:transparent;color:inherit;border-radius:6px 6px 0 0}.tabs button.active{background:var(--accent,#67c3a5);color:#111}
   .artist-provider-action{display:block;margin-top:.5rem}.notice{padding:.65rem .8rem;border-left:3px solid var(--accent,#67c3a5);background:var(--input,#22262b);border-radius:4px}.error{border-color:#ec7373}.overview-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:.75rem}.overview-grid article,.review{padding:.8rem;border:1px solid var(--border,#383d43);border-radius:8px}.bio{white-space:pre-wrap;max-height:12rem;overflow:auto}.links{display:flex;gap:.75rem;flex-wrap:wrap}.release-list article{align-items:flex-start}.release-list article>div{min-width:0}.review{display:flex;flex-direction:column;gap:.6rem}.field{display:flex;gap:.65rem;align-items:flex-start;padding:.5rem;border:1px solid var(--border,#383d43);border-radius:6px}.field>span{display:flex;flex-direction:column;gap:.2rem}.candidate{justify-content:space-between;padding:.5rem 0}
+  .release-menu{position:relative}.release-menu summary{cursor:pointer;list-style:none;border:1px solid var(--border,#383d43);border-radius:6px;padding:.43rem .58rem;font-size:.8rem}.release-menu-content{position:absolute;z-index:5;right:0;top:100%;display:flex;flex-direction:column;gap:.25rem;min-width:10rem;padding:.4rem;background:var(--input,#22262b);border:1px solid var(--border,#383d43);border-radius:6px;box-shadow:0 4px 12px #0008}.release-menu-content button{text-align:left}.album-load-status{margin:0}
   .release-source{display:block;margin-bottom:.35rem}
   .catalog-provider-details{font-size:.82rem;color:var(--muted)}.catalog-provider-details summary{cursor:pointer}.edition-select{flex-direction:row;justify-content:flex-start;margin:0}.release-info{overflow-wrap:anywhere}
   .album-title{display:block;max-width:100%;min-width:0;background:transparent;color:inherit;text-align:left;padding:0;white-space:normal;overflow-wrap:anywhere}.album-title strong{overflow-wrap:anywhere}

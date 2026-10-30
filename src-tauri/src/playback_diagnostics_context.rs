@@ -200,6 +200,7 @@ pub(crate) fn project_webview(input: Option<&Value>) -> Option<Value> {
                         "canplaythrough",
                         "seeking",
                         "seeked",
+                        "watchdog-expired",
                         "ended",
                         "error",
                     ],
@@ -470,7 +471,7 @@ mod tests {
             "trackTitle":"PRIVATE TITLE", "url":"https://private.invalid/?token=secret", "userAgent":"secret ua",
             "startupFailure":{"phase":"play","mimeFamily":"audio/mpeg","canPlayType":"probably","streamKind":"direct","sourceTransport":"loopback-relay","resumeRequested":true,"readyState":0,"networkState":3,"mediaErrorCode":4,"elapsedMs":90000,"currentTime":349.4,"duration":7202.1,"seeking":true,"requestedSeekPosition":349.437,"bufferedRanges":[[340,360],[0,90000],[10,5]],"seekableRanges":[[0,7202]],"message":"private error"},
             "sourceFormat":{"codec":"opus","mimeType":"audio/ogg","formatId":"251","hasVideo":false,"expectedContentLength":1000,"url":"https://secret"},
-            "mediaEvents":[{"type":"waiting","attempt":2,"readyState":1,"networkState":2,"paused":false,"atMs":42,"currentTime":99,"durationSeconds":120.093,"webviewGeneration":52,"buffered":[{"start":0,"end":5},{"start":8,"end":4}],"trackId":"private"},{"type":"bad https://secret"}]
+            "mediaEvents":[{"type":"watchdog-expired","attempt":2,"readyState":1,"networkState":2,"paused":false,"atMs":42,"currentTime":99,"durationSeconds":120.093,"webviewGeneration":52,"buffered":[{"start":0,"end":5},{"start":8,"end":4}],"trackId":"private"},{"type":"bad https://secret"}]
         });
         let projected = project_webview(Some(&source)).unwrap();
         assert_eq!(
@@ -481,7 +482,7 @@ mod tests {
                 "currentTime":52.5,"duration":400.0,"requestedSeekPosition":53.0,"bufferedRanges":[[0.0,20.0]],"seekableRanges":[[0.0,300.0]],
                 "startupFailure":{"phase":"play","mimeFamily":"audio/mpeg","canPlayType":"probably","streamKind":"direct","sourceTransport":"loopback-relay","resumeRequested":true,"readyState":0,"networkState":3,"mediaErrorCode":4,"elapsedMs":90000,"currentTime":349.4,"duration":7202.1,"seeking":true,"requestedSeekPosition":349.437,"bufferedRanges":[[340.0,360.0]],"seekableRanges":[[0.0,7202.0]]},
                 "sourceFormat":{"codec":"opus","mimeType":"audio/ogg","formatId":"251","hasVideo":false,"expectedContentLength":1000},
-                "mediaEvents":[{"type":"waiting","attempt":2,"readyState":1,"networkState":2,"paused":false,"atMs":42,"currentTime":99.0,"durationSeconds":120.093,"webviewGeneration":52,"bufferedRanges":[[0.0,5.0]]}]
+                "mediaEvents":[{"type":"watchdog-expired","attempt":2,"readyState":1,"networkState":2,"paused":false,"atMs":42,"currentTime":99.0,"durationSeconds":120.093,"webviewGeneration":52,"bufferedRanges":[[0.0,5.0]]}]
             })
         );
         let serialized = projected.to_string();

@@ -1849,44 +1849,30 @@ async fn resolve_inner_prepared_ordinary(
         .await
         .map_err(|error| merge_resolution_errors(prior, error));
     }
-    let mut fallback = preferred.clone();
-    fallback.preferred_streaming_source = fallbacks[0].clone();
+    // Run the ordered fallback chain beside the preferred source. A failed
+    // fallback can then advance without waiting for a stalled preferred source,
+    // while only one fallback provider searches at a time.
+    let fallback = ordered_fallback_settings(&settings, &fallbacks);
     let (stop, child) = watch::channel(false);
-    let fallback_grace = trace.fallback_grace(&settings);
+    let grace = trace.fallback_grace(&settings);
     let result = tokio::select! {
         biased;
         _ = wait_for_cancellation(cancel.clone()) => Err("Cancelled".into()),
         result = prefer_with_grace(
             Box::pin(resolve_serial(store, acquisition, track, None, child.clone(), preferred, trace, failed, deadline, attempt_limit, alias_pass)),
             Box::pin(resolve_serial(store, acquisition, track, None, child, fallback, trace, failed, deadline, attempt_limit, alias_pass)),
-            fallback_grace,
+            grace,
         ) => result,
     };
     stop.send_replace(true);
-    match result {
-        Ok(source) => Ok(source),
-        Err(error) if *cancel.borrow() || fallbacks.len() < 2 => Err(error),
-        Err(prior_error) => {
-            let mut remaining = settings;
-            remaining.preferred_streaming_source = fallbacks[1].clone();
-            remaining.streaming_fallback_sources = fallbacks[2..].to_vec();
-            resolve_serial(
-                store,
-                acquisition,
-                track,
-                None,
-                cancel,
-                remaining,
-                trace,
-                failed,
-                deadline,
-                attempt_limit,
-                alias_pass,
-            )
-            .await
-            .map_err(|error| merge_resolution_errors(prior_error, error))
-        }
-    }
+    result
+}
+
+fn ordered_fallback_settings(settings: &Settings, fallbacks: &[String]) -> Settings {
+    let mut fallback = settings.clone();
+    fallback.preferred_streaming_source = fallbacks[0].clone();
+    fallback.streaming_fallback_sources = fallbacks[1..].to_vec();
+    fallback
 }
 
 pub(crate) fn source_resolution_is_pinned(
@@ -11412,6 +11398,24 @@ mod scheduling_tests {
             "fallback"
         );
         assert!(dropped.load(Ordering::Relaxed));
+    }
+    #[test]
+    fn fallback_chain_retains_later_sources_in_configured_order() {
+        let mut settings = Settings::default();
+        settings.streaming_fallback_enabled = true;
+        let fallbacks = vec!["youtube".into(), "soundcloud".into(), "bandcamp".into()];
+        let chain = ordered_fallback_settings(&settings, &fallbacks);
+        assert_eq!(chain.preferred_streaming_source, "youtube");
+        assert!(chain.streaming_fallback_enabled);
+        assert_eq!(
+            crate::source_fallback::provider_order(
+                &chain.preferred_streaming_source,
+                chain.streaming_fallback_enabled,
+                &chain.streaming_fallback_sources,
+                false,
+            ),
+            vec!["soundcloud", "bandcamp"]
+        );
     }
     #[tokio::test]
     async fn preferred_wins_inside_grace() {
