@@ -193,7 +193,7 @@ pub fn parse_recording_text(value: &str) -> ParsedRecordingText {
                 .or_else(|| {
                     remaining
                         .strip_suffix(']')
-                        .and_then(|s| s.rsplit_once(" ["))
+                        .and_then(|s| s.rsplit_once('['))
                 })
                 .or_else(|| trailing_dash_version(remaining));
             let Some((base, label)) = bracketed else {
@@ -203,7 +203,8 @@ pub fn parse_recording_text(value: &str) -> ParsedRecordingText {
             let parsed = parse_title(remaining);
             let kind = if matches!(
                 label_key.as_str(),
-                "official audio"
+                "audio"
+                    | "official audio"
                     | "official video"
                     | "official music video"
                     | "official lyric video"
@@ -679,7 +680,7 @@ pub fn parse_title(value: &str) -> ParsedRecordingTitle {
         }
     }
     let bracketed = crate::matching::split_balanced_trailing_parenthetical(value)
-        .or_else(|| value.strip_suffix(']').and_then(|s| s.rsplit_once(" [")));
+        .or_else(|| value.strip_suffix(']').and_then(|s| s.rsplit_once('[')));
     if let Some((base, label)) = bracketed {
         let lower = label.to_ascii_lowercase();
         if let Some(credit) = lower
@@ -742,10 +743,10 @@ fn trailing_dash_version(value: &str) -> Option<(&str, &str)> {
         return None;
     }
     let normalized = crate::matching::normalize(label);
-    matches!(
+    (matches!(
         normalized.as_str(),
-        "extended mix" | "radio edit" | "original mix" | "club mix" | "instrumental"
-    )
+        "extended mix" | "radio edit" | "vocal edit" | "original mix" | "club mix" | "instrumental"
+    ) || normalized == "remix" || normalized.ends_with(" remix"))
     .then_some((base, label))
 }
 
@@ -783,6 +784,31 @@ mod tests {
             assert!(parsed.version.is_none());
         }
         assert_eq!(parse_title("Diaraby (w/ )").title, "Diaraby (w/ )");
+    }
+
+    #[test]
+    fn dash_named_remixes_do_not_strip_session_or_restoration_labels() {
+        let parsed = parse_title("To My Love - Tainy Remix");
+        assert_eq!(parsed.title, "To My Love");
+        assert_eq!(parsed.version.as_deref(), Some("Tainy Remix"));
+        let vocal = parse_title("Mañana Tepotzlan - Vocal Edit");
+        assert_eq!(vocal.title, "Mañana Tepotzlan");
+        assert_eq!(vocal.version.as_deref(), Some("Vocal Edit"));
+        for title in ["Swing 42 - Restored Edition ’25", "I Got Rhythm - Rome 1949 session"] {
+            assert_eq!(parse_title(title).title, title);
+        }
+    }
+
+    #[test]
+    fn adjacent_brackets_preserve_semantic_and_guest_annotations() {
+        let remix = parse_recording_text("Song[Remix]");
+        assert_eq!(remix.base_title, "Song");
+        assert_eq!(remix.semantic_versions().collect::<Vec<_>>(), vec!["Remix"]);
+        let guest = parse_title("Song[feat. Guest]");
+        assert_eq!(guest.title, "Song");
+        assert_eq!(guest.featured_credit.as_deref(), Some("Guest"));
+        let unknown = parse_recording_text("Song[1949 session]");
+        assert_eq!(unknown.annotations[0].kind, AnnotationKind::Unresolved);
     }
 
     #[test]

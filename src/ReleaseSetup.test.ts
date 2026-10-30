@@ -102,6 +102,16 @@ describe("ReleaseSetup", () => {
     expect(changed).toHaveBeenCalledOnce();
   });
 
+  it("shows an honest unchecked status and keeps provider details collapsed", async () => {
+    callMock.mockImplementation(async (command: string) => command === "get_release_setup" ? setup({ setupComplete: true }) : youtube);
+    const target = render({ category: "advanced" }); await settle();
+    expect(target.textContent).toContain("Playback has not been checked yet");
+    const details = [...target.querySelectorAll("details")].find(item => item.querySelector("summary")?.textContent === "More troubleshooting options")!;
+    expect(details.open).toBe(false);
+    expect(details.textContent).toContain("Anonymous provider is available.");
+    expect(button(target, "Check YouTube playback")).toBeTruthy();
+  });
+
   it("diagnoses before offering repair and requires a separate explicit update click", async () => {
     callMock.mockImplementation(async (command: string) => {
       if (command === "get_release_setup") return setup({ setupComplete: true });
@@ -112,7 +122,7 @@ describe("ReleaseSetup", () => {
       throw new Error(`Unexpected command ${command}`);
     });
     const target = render(); await settle();
-    button(target, "Diagnose YouTube support").click(); await settle();
+    button(target, "Check YouTube playback").click(); await settle();
     expect(callMock).toHaveBeenCalledWith("youtube_support_diagnose", {});
     expect(callMock).toHaveBeenCalledWith("youtube_support_check", { channel: "recommended" });
     expect(target.textContent).toContain("Public audio could not be reached.");

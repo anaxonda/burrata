@@ -122,7 +122,7 @@
   const browserLabel = (name: string) => name.charAt(0).toUpperCase() + name.slice(1);
 </script>
 
-<section class="release-setup settings-card" aria-labelledby="release-setup-title">
+<section class="release-setup settings-card" class:troubleshooting={category === "advanced"} aria-labelledby="release-setup-title">
   <h2 id="release-setup-title">{onboarding ? "Welcome to Burrata" : category === "connections" ? "Browser companion" : category === "playback" ? "Radio" : category === "integrations" ? "Local integrations" : "YouTube support"}</h2>
   {#if onboarding}<p class="intro">Choose where Burrata keeps music and connect optional desktop tools.</p>{/if}
   {#if loading}<p role="status">Loading setup…</p>
@@ -167,21 +167,31 @@
     {#if category === "all" || category === "advanced"}<section class="tool-section" aria-label="YouTube support">
       {#if category === "all"}<h3 id="youtube-title">YouTube support</h3>{/if}
       {#if youtube}
-        <p class="version">Active yt-dlp: {youtube.activeVersion ?? "version unavailable"} · {youtube.activeSource}</p>
-        <p>{youtube.provider.message}</p>
-        <p class="privacy">YouTube support uses no account or cookies. Audio diagnosis checks public playback access.</p>
-        <label>Optional YouTube URL<input aria-label="YouTube URL for diagnosis" bind:value={diagnosisUrl} placeholder="https://www.youtube.com/watch?v=…" /></label>
-        <button disabled={busy} onclick={() => void diagnose()}>{busy ? "Checking…" : "Diagnose YouTube support"}</button>
-        {#if diagnosis}<p role="status">{diagnosis.message}</p><small>Result: {diagnosis.category} · yt-dlp {diagnosis.ytDlpVersion ?? "unknown"} · provider {diagnosis.providerAvailable ? "available" : "unavailable"} · audio {diagnosis.audioAccessible ? "accessible" : "not accessible"}</small>{/if}
-        <div class="update-actions">
-          <button disabled={busy} onclick={() => void checkUpdate("recommended")}>Check recommended update</button>
-          {#if checks.recommended}<p role="status">{checks.recommended.message}</p>{#if checks.recommended.available}<button class="primary" disabled={busy} onclick={() => void updateYoutube("recommended")}>Install recommended update</button>{/if}{/if}
-          <details><summary>Advanced: official yt-dlp nightly</summary><p>Nightly builds can change unexpectedly. Check only if you choose to try the advanced update channel.</p>
-            <button disabled={busy} onclick={() => void checkUpdate("nightly")}>Check nightly</button>
-            {#if checks.nightly}<p role="status">{#if checks.nightly.version}Latest nightly: {checks.nightly.version} · {checks.nightly.available ? "Update available" : "Already installed"}{:else}{checks.nightly.message}{/if}</p>{#if checks.nightly.available}<p>{checks.nightly.message}</p><button disabled={busy} onclick={() => void updateYoutube("nightly")}>Install nightly</button>{/if}{/if}
-          </details>
-          {#if youtube.managedVersion}<button class="quiet" disabled={busy} onclick={() => void rollbackYoutube()}>Roll back managed update</button>{/if}
-        </div>
+        <p>{diagnosis ? (diagnosis.ok ? "YouTube playback check passed." : "YouTube playback could not be confirmed.") : youtube.provider.available ? "YouTube support is included. Playback has not been checked yet." : "YouTube support needs attention. Check playback to find out more."}</p>
+        <p>Check whether Burrata can play public YouTube audio. No account or cookies are used.</p>
+        <button disabled={busy} onclick={() => void diagnose()}>{busy ? "Checking…" : "Check YouTube playback"}</button>
+        {#if diagnosis}
+          <span role="status" class="sr-only">{diagnosis.ok ? "YouTube playback check passed." : "YouTube playback could not be confirmed."}</span>
+          {#if !diagnosis.ok && checks.recommended}
+            <p role="status">{checks.recommended.message}</p>
+            {#if checks.recommended.available}<button class="primary" disabled={busy} onclick={() => void updateYoutube("recommended")}>Install recommended update</button>{/if}
+          {/if}
+        {/if}
+        <details class="youtube-details"><summary>More troubleshooting options</summary>
+          <p class="tool-version">Active yt-dlp: {youtube.activeVersion ?? "version unavailable"} · {youtube.activeSource}</p>
+          <p>{youtube.provider.message}</p>
+          <label>Optional YouTube URL<input aria-label="YouTube URL for diagnosis" bind:value={diagnosisUrl} placeholder="https://www.youtube.com/watch?v=…" /></label>
+          {#if diagnosis}<p>{diagnosis.message}</p><small>Result: {diagnosis.category} · yt-dlp {diagnosis.ytDlpVersion ?? "unknown"} · provider {diagnosis.providerAvailable ? "available" : "unavailable"} · audio {diagnosis.audioAccessible ? "accessible" : "not accessible"}</small>{/if}
+          <div class="update-actions">
+            <button disabled={busy} onclick={() => void checkUpdate("recommended")}>Check recommended update</button>
+            {#if checks.recommended && (!diagnosis || diagnosis.ok)}<p role="status">{checks.recommended.message}</p>{#if checks.recommended.available}<button class="primary" disabled={busy} onclick={() => void updateYoutube("recommended")}>Install recommended update</button>{/if}{/if}
+            <details><summary>Official yt-dlp nightly</summary><p>Nightly builds can change unexpectedly. Check only if you choose to try the advanced update channel.</p>
+              <button disabled={busy} onclick={() => void checkUpdate("nightly")}>Check nightly</button>
+              {#if checks.nightly}<p role="status">{#if checks.nightly.version}Latest nightly: {checks.nightly.version} · {checks.nightly.available ? "Update available" : "Already installed"}{:else}{checks.nightly.message}{/if}</p>{#if checks.nightly.available}<p>{checks.nightly.message}</p><button disabled={busy} onclick={() => void updateYoutube("nightly")}>Install nightly</button>{/if}{/if}
+            </details>
+            {#if youtube.managedVersion}<button class="quiet" disabled={busy} onclick={() => void rollbackYoutube()}>Roll back managed update</button>{/if}
+          </div>
+        </details>
       {:else}<p role="status">YouTube support status is unavailable.</p>{/if}
     </section>{/if}
   {/if}
@@ -192,11 +202,12 @@
 <style>
   .release-setup{min-width:0}.intro,.tool-section>p,.setup-step>p{color:var(--muted);line-height:1.5}
   .setup-step,.tool-section{min-width:0;margin:14px 0;padding:14px;border:1px solid var(--line);border-radius:10px;background:color-mix(in srgb,var(--surface) 80%,transparent)}
+  .troubleshooting > h2{font-size:16px;margin:0 0 8px}.troubleshooting > .tool-section{margin:0;padding:0;border:0;background:transparent}.troubleshooting .tool-section > p{font-size:.82rem;margin:10px 0;line-height:1.45}.troubleshooting .youtube-details{margin:12px 0 0;padding:0;border:0;border-radius:0}.troubleshooting .youtube-details > summary{font-size:12px}
   .section-heading{display:flex;align-items:center;gap:8px}.section-heading h3{margin:0}
   h3{margin:0 0 8px;font-size:15px}.directory-row,.browser-row{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0}
   .directory-row{margin:12px 0}.directory-row span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
   .browser-list{display:grid;gap:8px}.browser-row{padding:8px 10px;border-radius:7px;background:var(--raised)}.browser-row>div{display:grid;gap:3px}.browser-row small,.paths small,.muted{color:var(--muted)}
-  label{display:grid;gap:6px;margin:12px 0}.check{display:flex;flex-flow:row nowrap;align-items:flex-start;gap:8px;min-width:0}.check input[type="checkbox"]{appearance:auto;flex:0 0 16px;width:16px;height:16px;min-width:16px;margin:2px 0 0;padding:0;border-radius:3px}.privacy{font-size:12px}.version{font-size:13px}
+  label{display:grid;gap:6px;margin:12px 0}.check{display:flex;flex-flow:row nowrap;align-items:flex-start;gap:8px;min-width:0}.check input[type="checkbox"]{appearance:auto;flex:0 0 16px;width:16px;height:16px;min-width:16px;margin:2px 0 0;padding:0;border-radius:3px}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}.tool-version{font-size:13px}
   details{margin:12px 0;padding:10px;border:1px solid var(--line);border-radius:8px}summary{cursor:pointer;font-weight:600}code{overflow-wrap:anywhere}.command{display:block;padding:9px;background:var(--raised);border-radius:6px}
   .paths{padding-left:20px}.paths li{display:grid;gap:3px;margin:10px 0}.paths code{color:var(--muted);font-size:11px}.update-actions{display:grid;justify-items:start;gap:8px;margin-top:12px}
   .quiet{background:transparent}.primary{font-weight:600}.release-setup button{max-width:100%}

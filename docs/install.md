@@ -129,9 +129,9 @@ for ordinary Burrata setup.
 
 ### Capture a playback diagnostic report
 
-1. Open **Settings → Advanced → Playback diagnostics** and enable **Enable playback diagnostics**.
-2. Select **Clear diagnostic events** to start a focused capture. Reproduce one failure, then try one working comparison without changing playback or matching settings.
-3. Return to Advanced and select **Export report…**. Save the JSON **before closing or restarting Burrata**; events are held in memory.
+1. Open **Settings → Troubleshooting → Playback reports** and enable **Record playback problems**.
+2. Expand **Report details** and select **Clear diagnostic events** to start a focused capture. Reproduce one failure, then try one working comparison without changing playback or matching settings.
+3. Return to **Playback reports** and select **Export report…**. Save the JSON **before closing or restarting Burrata**; events are held in memory.
 4. Include the track names and where you started them (Library, album, search or a direct link), plus the visible error. For a seek failure, include the requested position. Track names are excluded from the report, so supply those separately.
 
 The report is saved locally and is not uploaded automatically. It contains bounded

@@ -8,7 +8,7 @@
     { id: "downloads", label: "Downloads" },
     { id: "connections", label: "Connections" },
     { id: "integrations", label: "Integrations" },
-    { id: "advanced", label: "Advanced" },
+    { id: "advanced", label: "Troubleshooting" },
   ];
 </script>
 

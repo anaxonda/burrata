@@ -165,6 +165,8 @@ pub fn classify(reason: &str) -> PlaybackFailure {
         &[
             "storage",
             "disk full",
+            "disk quota exceeded",
+            "os error 122",
             "no space left",
             "read-only file system",
             "readonly database",
@@ -370,7 +372,11 @@ pub fn classify_extractor_failure(reason: &str) -> PlaybackFailure {
 /// these fixed labels distinguish likely remote access causes without stderr.
 pub(crate) fn extractor_diagnostic_reason(raw: &str) -> &'static str {
     let message = raw.to_lowercase();
-    if has_any(&message, &["drm protected", "drm-protected"]) {
+    if message.contains("failed to extract") && (message.contains("[pyi-") || message.contains("pyinstaller")) {
+        "helper_unpack_failed"
+    } else if has_any(&message, &["disk quota exceeded", "no space left", "disk full"]) {
+        "storage_unavailable"
+    } else if has_any(&message, &["drm protected", "drm-protected"]) {
         "drm_protected"
     } else if has_any(
         &message,
@@ -477,6 +483,10 @@ mod tests {
     use super::*;
     #[test]
     fn extractor_details_distinguish_remote_debugging_failures_without_text() {
+        assert_eq!(extractor_diagnostic_reason("[PYI-123:ERROR] Failed to extract private/file: decompression failed"), "helper_unpack_failed");
+        assert_eq!(extractor_diagnostic_reason("Disk quota exceeded: /private"), "storage_unavailable");
+        assert_eq!(classify("Disk quota exceeded (os error 122)").category, FailureCategory::Storage);
+        assert_eq!(safe_extractor_error("Disk quota exceeded /private/token"), "Audio source storage operation failed");
         assert_eq!(
             extractor_diagnostic_reason("certificate_verify_failed https://private/?token=secret"),
             "tls_certificate"

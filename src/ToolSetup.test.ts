@@ -23,6 +23,46 @@ function render(onChange: (value: Settings) => void) {
   destroy = () => unmount(instance); return target;
 }
 
+describe("Included tools summary", () => {
+  it("shows unchecked tools and keeps advanced controls collapsed", async () => {
+    const onCheck = vi.fn();
+    const target = document.createElement("div"); document.body.append(target);
+    const instance = mount(ToolSetup, { target, props: { settings, dependencies: [], onChange: vi.fn(), onCheck, onSave: vi.fn() } });
+    destroy = () => unmount(instance); await settle();
+    expect(target.querySelector(".tool-summary")?.textContent).toContain("not been checked yet");
+    expect(target.querySelector<HTMLDetailsElement>(".tool-details")?.open).toBe(false);
+    expect(target.querySelector(".tool-details > summary")?.textContent).toContain("Tool details and custom locations");
+    target.querySelector<HTMLButtonElement>(".setup-heading button")!.click();
+    expect(onCheck).toHaveBeenCalledOnce();
+  });
+
+  it("distinguishes available, missing and unknown tools without showing versions in the summary", async () => {
+    const target = document.createElement("div"); document.body.append(target);
+    const checked: Dependency[] = [
+      { name: "yt-dlp", available: true, version: "2026.01", message: "" },
+      { name: "FFmpeg", available: false, message: "not found" },
+      { name: "ffprobe", available: false, message: "Unknown: check required" },
+      { name: "JavaScript runtime", available: false, message: "not found" },
+    ];
+    const instance = mount(ToolSetup, { target, props: { settings, dependencies: checked, onChange: vi.fn(), onCheck: vi.fn(), onSave: vi.fn() } });
+    destroy = () => unmount(instance); await settle();
+    const summary = target.querySelector(".tool-summary")!.textContent!;
+    expect(summary).toContain("Attention needed: audio conversion is unavailable");
+    expect(summary).not.toContain("2026.01");
+    expect(summary).not.toContain("JavaScript runtime");
+    expect(target.querySelector(".tool-details")?.textContent).toContain("JavaScript runtime (optional)");
+  });
+
+  it("reports required tools available even when the optional runtime is missing", async () => {
+    const target = document.createElement("div"); document.body.append(target);
+    const checked: Dependency[] = ["yt-dlp", "FFmpeg", "ffprobe"].map(name => ({ name, available: true, message: "" }));
+    checked.push({ name: "JavaScript runtime", available: false, message: "not found" });
+    const instance = mount(ToolSetup, { target, props: { settings, dependencies: checked, onChange: vi.fn(), onCheck: vi.fn(), onSave: vi.fn() } });
+    destroy = () => unmount(instance); await settle();
+    expect(target.querySelector(".tool-summary")?.textContent).toContain("Required audio tools are available");
+  });
+});
+
 describe("ToolSetup executable sources", () => {
   it("treats the default node command as bundled or managed", async () => {
     const target = render(vi.fn()); await settle();

@@ -21,10 +21,11 @@
   import { createWebviewMediaEventRecorder } from "./lib/webview-media-events";
   import { WebviewBufferingRecovery } from "./lib/webview-buffering-recovery";
   import { WebviewStallWatchdog, type WebviewStallOwner } from "./webview-stall-watchdog";
+  import { WebviewPostSeekProgress } from "./webview-post-seek-progress";
   import { WebviewSeekCompletionWatchdog, hasWebviewSeekLanded, type WebviewSeekCompletionOwner } from "./webview-seek-completion-watchdog";
 import { hasWebviewStartupResumeProgress, shouldRefreshWebviewResumeSource, startupResumeBlocksHistory } from "./webview-startup-resume";
   import { sanitizeWebviewSourceFormatDiagnostics } from "./lib/webview-source-format-diagnostics";
-  import { appendTrackFailure, classifyPlaybackFailure, FIXED_RESOLVER_FAILURES, shouldSkipFailedTrack, trackFailureCategory } from "./lib/playback-failure";
+  import { appendTrackFailure, classifyPlaybackFailure, FIXED_RESOLVER_FAILURES, shouldAdvanceAfterExhaustedFailure, trackFailureCategory } from "./lib/playback-failure";
   import { allTrackSortFieldsAvailable, trackSortAvailability, trackSortOptionLabel, type TrackSortAvailability } from "./lib/track-sort-availability";
   import { onMount, onDestroy, tick, setContext, untrack } from "svelte";
   import { createQueuedPlaybackOutbox, dispatchQueuedPlayback, type QueuedPlayRequest, type QueuedPlayOutcome } from "./lib/queued-playback";
@@ -749,6 +750,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     nextCandidatePrefetch.cancel();
     cancelPendingWebviewResume();
     webviewSeekCompletionWatchdog.cancel();
+    webviewPostSeekProgress.cancel(); pendingPostSeekProgress = null;
     activeWebviewSeek = null;
     seekSerial++;
     webviewWaveformSeekDrain = { node, sourceGeneration: preview?.sourceGeneration ?? null, seekSerial, targetPositionSeconds: target };
@@ -1529,6 +1531,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     }
   }
   type FailedQueueRun = {entryIds: string[]; sourceKey: string; visited: Set<string>; sourceRefreshRetries: Set<string>};
+  let activeFailedQueueRun: FailedQueueRun | null = null;
   let resumeTrackId = "", resumePosition = 0, pendingResumePosition = 0;
   let requiredRecoveryResume: { request: number; position: number; verifiedAtMs: number | null } | null = null;
   let playingCandidate = $state<Candidate | null>(null), splitChapters = $state(false), selectedChapterIds = $state<string[]>([]);
@@ -5199,7 +5202,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     }
   }
   $effect(()=>{if(!preview || !["audio","local","direct"].includes(preview.kind)){audioStreamHandle?.destroy();audioStreamHandle=null;}});
-  onMount(()=>()=>{previewRequests.next();audioStartupGeneration++;cancelWebviewStartupPlay?.();cancelPendingWebviewResume();if(webviewStartupResumeAudioGate)releaseWebviewStartupResumeGate(webviewStartupResumeAudioGate.node,webviewStartupResumeAudioGate.source,false,false);if(nativeHistorySummaryTimer!==null)clearTimeout(nativeHistorySummaryTimer);nativeHistorySummaryTimer=null;pendingNativeHistorySummaryOwner="";webviewStallWatchdog.reset();webviewSeekCompletionWatchdog.cancel();activeWebviewSeek=null;cancelRadioIdentification();audioStreamHandle?.destroy();audioStreamHandle=null;});
+  onMount(()=>()=>{previewRequests.next();audioStartupGeneration++;cancelWebviewStartupPlay?.();cancelPendingWebviewResume();if(webviewStartupResumeAudioGate)releaseWebviewStartupResumeGate(webviewStartupResumeAudioGate.node,webviewStartupResumeAudioGate.source,false,false);if(nativeHistorySummaryTimer!==null)clearTimeout(nativeHistorySummaryTimer);nativeHistorySummaryTimer=null;pendingNativeHistorySummaryOwner="";webviewStallWatchdog.reset();webviewSeekCompletionWatchdog.cancel();webviewPostSeekProgress.cancel();pendingPostSeekProgress=null;activeWebviewSeek=null;cancelRadioIdentification();audioStreamHandle?.destroy();audioStreamHandle=null;});
   function safePreviewError(reason: unknown): string {
     const message = reason instanceof Error ? reason.message : String(reason ?? "");
     // These resolver outcomes are fixed safe contracts. Keep them whole even
@@ -5762,6 +5765,8 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
   const webviewBufferingRecovery = new WebviewBufferingRecovery();
   const webviewStallWatchdog = new WebviewStallWatchdog();
   const webviewSeekCompletionWatchdog = new WebviewSeekCompletionWatchdog();
+  const webviewPostSeekProgress = new WebviewPostSeekProgress();
+  let pendingPostSeekProgress: NonNullable<typeof activeWebviewSeek> | null = null;
   let activeWebviewSeek: { owner: WebviewSeekCompletionOwner; source: Preview; target: number; sessionId: string | null; trackId: string; deadline: number | null; startedAtMs: number; handoffTimeoutMs: number; startupResume: boolean; startupRequest: number | null } | null = null;
   function webviewSeekOwner(node: HTMLAudioElement): WebviewSeekCompletionOwner | null {
     const source=preview, track=playingTrack, occurrenceId=automationQueueProjection.entryIds[queueIndex] ?? null;
@@ -6026,7 +6031,16 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
       playbackRate:node.playbackRate,browserAcknowledged}))return false;
     webviewSeekCompletionWatchdog.complete(seek.owner);
     activeWebviewSeek=null;
+    if (!seek.startupResume) { pendingPostSeekProgress = seek; armPostSeekProgress(node); }
     return true;
+  }
+  function armPostSeekProgress(node: HTMLAudioElement) {
+    const seek = pendingPostSeekProgress;
+    if (!seek || seek.owner.node !== node || node.paused || paused || !isCurrentWebviewSeek(seek)) return;
+    pendingPostSeekProgress = null;
+    const candidate = playingCandidate;
+    webviewPostSeekProgress.begin({ owner: seek.owner, isCurrent: () => isCurrentWebviewSeek(seek) && !paused,
+      onExpired: () => recoverOwnedAudioFailure(node, "Audio stopped after the requested seek; recovering at that position.", seek.target, candidate ?? undefined) });
   }
   $effect(() => {
     audio; preview; preview?.url; preview?.sourceGeneration; seekSerial; playingTrack?.id; queueIndex;
@@ -6035,6 +6049,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     webviewStallWatchdog.reset();
     const seek=activeWebviewSeek;
     if(seek && !isCurrentWebviewSeek(seek)){webviewSeekCompletionWatchdog.cancel();activeWebviewSeek=null;}
+    if(pendingPostSeekProgress && !isCurrentWebviewSeek(pendingPostSeekProgress)) pendingPostSeekProgress=null;
     if(audio)untrack(()=>armWebviewStallWatchdog(audio!));
     return () => webviewStallWatchdog.reset();
   });
@@ -6060,6 +6075,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
       // starts a new uninterrupted-progress baseline.
       const healthy = attached.healthy || (!paused && performance.now()-(attached.healthStartedAt ?? attached.startedAt) >= HEALTHY_PLAYBACK_RESET_MS
         && node.currentTime-(attached.healthPosition ?? attached.position) >= HEALTHY_PLAYBACK_RESET_MS/1000);
+      if (healthy) activeFailedQueueRun = null;
       successfulRecoveryAttachment = {...attached,healthStartedAt:performance.now(),healthPosition:node.currentTime,healthy};
       return;
     }
@@ -6119,7 +6135,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     if (previewStatus.startsWith("Loading")) return "Loading";
     return preview.isExcerpt ? "Playing preview" : "Playing";
   });
-  async function startPreview(t: Track, fromQueue = false, automaticContinuation = false, displayedTracks?: Track[], displayedIndex?: number, failedSkips = 0, automationRequestId: string | null = null, resumeSavedPosition = false, failedQueueRun?: FailedQueueRun, loudnessAlbumResource: LoudnessResourceIdentity | null = null) {
+  async function startPreview(t: Track, fromQueue = false, automaticContinuation = false, displayedTracks?: Track[], displayedIndex?: number, failedSkips = 0, automationRequestId: string | null = null, resumeSavedPosition = false, failedQueueRun?: FailedQueueRun, loudnessAlbumResource: LoudnessResourceIdentity | null = null, advanceResumeFailure = false) {
     waveformRouteUpgradeRequest++;
     waveformRouteUpgradeStatus = "";
     let selectedAlbumResource = loudnessAlbumResource;
@@ -6133,6 +6149,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     if (selectedAlbumResource && (!t.assetId || !selectedAlbumResource.members.some(member => member.assetId === t.assetId))) {
       selectedAlbumResource = null;
     }
+    if (!failedQueueRun) activeFailedQueueRun = null;
     if (!automaticContinuation && !resumeSavedPosition && !failedQueueRun) clearPlaybackSkipNotice();
     if(resumeSavedPosition){automationRequestId=queuedOwnerForResume(automationRequestId);queuedPausedOwner=null;}
     nextCandidatePrefetch.cancel();
@@ -6149,7 +6166,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     const diagnosticStarted = performance.now();
     let diagnosticOutcome: "playing"|"failed"|"cancelled" = "failed";
     try {
-      await startPreviewInner(t, fromQueue, automaticContinuation, displayedTracks, displayedIndex, failedSkips, automationRequestId,trace,resumeSavedPosition,failedQueueRun,selectedAlbumResource);
+      await startPreviewInner(t, fromQueue, automaticContinuation, displayedTracks, displayedIndex, failedSkips, automationRequestId,trace,resumeSavedPosition,failedQueueRun,selectedAlbumResource,advanceResumeFailure);
       if(resumeSavedPosition && automationRequestId && activeAutomationPlayback===automationRequestId && queuedPausedOwner!==automationRequestId)reportQueuedPlaybackPhase(preview&&!paused?"playing":"failed");
       const started = sequence === playbackLoadSequence && (nativeActive() || Boolean(preview && !paused));
       diagnosticOutcome = sequence !== playbackLoadSequence ? "cancelled" : started ? "playing" : "failed";
@@ -6179,7 +6196,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
   function sameNativePlaybackQueue(left: readonly Track[], right: readonly Track[]) {
     return left.length === right.length && left.every((track, index) => sameNativePlaybackTrack(track, right[index]!));
   }
-  async function startPreviewInner(t: Track, fromQueue = false, automaticContinuation = false, displayedTracks?: Track[], displayedIndex?: number, failedSkips = 0, automationRequestId: string | null = null,trace?:PlaybackOperationTrace,resumeSavedPosition = false, failedQueueRun?: FailedQueueRun,loudnessAlbumResource: LoudnessResourceIdentity | null = null) {
+  async function startPreviewInner(t: Track, fromQueue = false, automaticContinuation = false, displayedTracks?: Track[], displayedIndex?: number, failedSkips = 0, automationRequestId: string | null = null,trace?:PlaybackOperationTrace,resumeSavedPosition = false, failedQueueRun?: FailedQueueRun,loudnessAlbumResource: LoudnessResourceIdentity | null = null,advanceResumeFailure = false) {
     if (webviewObservedCapture && !webviewObservedCapture.finishing) cancelWebviewObservedCapture("Whole-track WebView analysis was discarded because playback changed.");
     if (webviewAnalysisArmTrackId && webviewAnalysisArmTrackId !== t.id) {
       webviewAnalysisArmTrackId = null;
@@ -6192,7 +6209,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     } catch (failure) {
       if (loudnessAlbumResource) throw failure;
     }
-    if (portablePlaybackSource(t) && !t.localPath) {
+    if (nativeActive() && portablePlaybackSource(t) && !t.localPath) {
       const source = portablePlaybackSource(t)!;
       const bindingSequence = playbackLoadSequence;
       let bound: Candidate | null;
@@ -6240,7 +6257,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
       playbackQueue.setRepeat(repeatMode); if (shuffleEnabled) playbackQueue.shuffle(); refreshQueue();
     }
     // Failed entry advancement is queue intent, not a natural-completion signal.
-    const advanceFailedQueueEntry = automaticContinuation || (!resumeSavedPosition && queueTracks.length > 1);
+    const advanceFailedQueueEntry = queueTracks.length > 1 && (!resumeSavedPosition || advanceResumeFailure);
     const failedQueueEntryIds = [...playbackQueue.entryIds];
     const failedQueueSourceKeys = playbackQueue.tracks.map(queueRadioSeedKey);
     const failedQueueSourceKey = JSON.stringify(failedQueueSourceKeys);
@@ -6258,6 +6275,52 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     playbackSession = crypto.randomUUID(); recordedSession = ""; playingCandidate = null; currentRadioSong=null; radioOccurrence=null;
     clearTimeout(autoTimer);
     const request = nextPreviewRequest();
+    async function advanceFailedQueue() {
+    const failedQueueOccurrenceIsCurrent = advanceFailedQueueEntry &&
+      failedQueueEntryIds.length === playbackQueue.entryIds.length &&
+      failedQueueEntryIds.every((id,index) => playbackQueue.entryIds[index] === id) &&
+      failedQueueIndex === queueIndex && previewRequests.isCurrent(request) && !preview;
+    const currentQueueTrack = playbackQueue.tracks[failedQueueIndex];
+    const currentOccurrenceSourceKey = currentQueueTrack ? queueRadioSeedKey(currentQueueTrack) : "";
+    const currentOccurrenceSourceChanged = Boolean(occurrenceId) &&
+      currentOccurrenceSourceKey !== failedQueueSourceKeys[failedQueueIndex];
+    if (failedQueueOccurrenceIsCurrent && occurrenceId && currentOccurrenceSourceChanged &&
+        !failureRun.sourceRefreshRetries.has(occurrenceId)) {
+      // A library/autotag refresh can enrich this same occurrence while its old
+      // resolver request is pending. Retry it once with the current row payload;
+      // the old source's failure cannot decide whether the refreshed source works.
+      failureRun.sourceRefreshRetries.add(occurrenceId);
+      failureRun.visited.delete(occurrenceId);
+      failureRun.sourceKey = JSON.stringify(playbackQueue.tracks.map(queueRadioSeedKey));
+      selected = currentQueueTrack!;
+      await startPreview(currentQueueTrack!, true, false, undefined, undefined, failedSkips, automationRequestId, false, failureRun);
+      return;
+    }
+    if (failedQueueOccurrenceIsCurrent && !currentOccurrenceSourceChanged && shouldAdvanceAfterExhaustedFailure(previewStatus)) {
+      pendingResumePosition = 0;
+      const failedTitle = safeNativeFailurePart(t.title, "Unavailable recording");
+      const failedReason = safePreviewError(previewStatus);
+      // Attempt each occurrence at most once; repeat-all may wrap to an unvisited entry.
+      activeFailedQueueRun = failureRun;
+      const next = playbackQueue.nextAfterFailedStart(failureRun.visited);
+      recentTrackFailures = appendTrackFailure(recentTrackFailures, t, {
+        queueRevision: automationQueueProjection.revision, generation: request, operationId: automationRequestId ?? playbackSession,
+        entryId: occurrenceId, outcome: next ? "skipped" : "queue_exhausted",
+      }, previewStatus);
+      failureHistoryRevision++;
+      setNotice(skippedPreviewFailureNotice(t, failedReason), "persistent", "playbackSkip");
+      if (next) {
+        selected = next;
+        refreshQueue();
+        failureRun.sourceKey = JSON.stringify(playbackQueue.tracks.map(queueRadioSeedKey));
+        // Source exhaustion is not a natural end and must retain cancellation ownership.
+        await startPreview(next, true, false, undefined, undefined, failedSkips + 1, automationRequestId, false, failureRun);
+      } else {
+        paused = true;
+        previewStatus = `Could not start ${failedTitle}; reached the end of the queue (${failureRun.visited.size} unavailable occurrences checked). ${failedReason}`;
+      }
+    }
+    }
     successfulRecoveryAttachment = null;
     automaticPreviewRecovery = { request, track: t, tried: new Set(), attempts: 0, sourceAttempts: 0,
       exactSourceOnly: sourceIsAuthoritative(t), deadline: performance.now() + playbackStartupTimeoutMs() };
@@ -6266,11 +6329,34 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     if (!previewRequests.isCurrent(request)) return;
     paused = true;
     preview = null;
+    if (portablePlaybackSource(t) && !t.localPath) {
+      const source = portablePlaybackSource(t)!;
+      const bindingSequence = playbackLoadSequence;
+      let bound: Candidate | null;
+      try {
+        bound = await call<Candidate | null>("resolve_portable_playback_candidate", { track: t });
+      } catch (failure) {
+        if (bindingSequence === playbackLoadSequence) { previewStatus = `Reviewed provider source could not be resolved: ${String(failure)}`; await advanceFailedQueue(); }
+        return;
+      }
+      if (bindingSequence !== playbackLoadSequence) return;
+      const expectedId = `${source.provider}:${source.sourceId}`;
+      if (!bound || bound.provider !== source.provider || bound.id !== expectedId) {
+        const remainingBindings = { ...queueCandidates };
+        delete remainingBindings[t.id];
+        queueCandidates = remainingBindings;
+        previewStatus = "The reviewed provider recording is unavailable. Review the source selection before playing this entry.";
+        await advanceFailedQueue();
+        return;
+      }
+      queueCandidates = { ...queueCandidates, [t.id]: bound };
+    }
     if(t.playbackRange && desktop()) {
       try { t=await call<Track>("register_chapter_track",{track:t}); }
       catch(failure) {
         if (!previewRequests.isCurrent(request)) return;
         previewStatus=String(failure);
+        await advanceFailedQueue();
         return;
       }
       if (!previewRequests.isCurrent(request)) return;
@@ -6284,14 +6370,16 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     if (linked && (t.playbackRange || isLinkedAudioSearchCandidate(t, linked))) playingCandidate = linked;
     if (t.artworkUrl || assetIdForTrack(t)) void cacheCover(t);
     if(isStationPlaybackTrack(t)) {
-      const station=radioStations.find(item=>item.id===t.providerId);if(!station){previewStatus="Unknown radio station";return;}
+      const station=radioStations.find(item=>item.id===t.providerId);if(!station){previewStatus="Unknown radio station";await advanceFailedQueue();return;}
       playingTrack={...t,title:station.name,artist:station.provider==="radio_paradise"?"Radio Paradise":"Internet radio",sourceUrl:station.homepageUrl??station.sourceUrl};
       automaticPreviewRecovery!.attempts = 1;
       await startRadioWebviewAudio(t, request);
+      await advanceFailedQueue();
       return;
     }
     if (portablePlaybackSource(t)) {
       await findAndStartPreviewSource(t, request);
+      await advanceFailedQueue();
       return;
     }
     await run(async () => {
@@ -6390,50 +6478,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
       }
       if (previewRequests.isCurrent(request)) await findAndStartPreviewSource(t, request);
     });
-    const failedQueueOccurrenceIsCurrent = advanceFailedQueueEntry &&
-      failedQueueEntryIds.length === playbackQueue.entryIds.length &&
-      failedQueueEntryIds.every((id,index) => playbackQueue.entryIds[index] === id) &&
-      failedQueueIndex === queueIndex && previewRequests.isCurrent(request) && (!preview || paused);
-    const currentQueueTrack = playbackQueue.tracks[failedQueueIndex];
-    const currentOccurrenceSourceKey = currentQueueTrack ? queueRadioSeedKey(currentQueueTrack) : "";
-    const currentOccurrenceSourceChanged = Boolean(occurrenceId) &&
-      currentOccurrenceSourceKey !== failedQueueSourceKeys[failedQueueIndex];
-    if (failedQueueOccurrenceIsCurrent && occurrenceId && currentOccurrenceSourceChanged &&
-        !failureRun.sourceRefreshRetries.has(occurrenceId)) {
-      // A library/autotag refresh can enrich this same occurrence while its old
-      // resolver request is pending. Retry it once with the current row payload;
-      // the old source's failure cannot decide whether the refreshed source works.
-      failureRun.sourceRefreshRetries.add(occurrenceId);
-      failureRun.visited.delete(occurrenceId);
-      failureRun.sourceKey = JSON.stringify(playbackQueue.tracks.map(queueRadioSeedKey));
-      selected = currentQueueTrack!;
-      await startPreview(currentQueueTrack!, true, false, undefined, undefined, failedSkips, automationRequestId, false, failureRun);
-      return;
-    }
-    if (failedQueueOccurrenceIsCurrent && !currentOccurrenceSourceChanged && shouldSkipFailedTrack(previewStatus)) {
-      pendingResumePosition = 0;
-      const failedTitle = safeNativeFailurePart(t.title, "Unavailable recording");
-      const failedReason = safePreviewError(previewStatus);
-      // One sequential attempt per supplied occurrence. Failed starts never wrap
-      // under repeat-all/one, retry a visited occurrence, or seed queue-end radio.
-      const next = playbackQueue.nextAfterFailedStart(failureRun.visited);
-      recentTrackFailures = appendTrackFailure(recentTrackFailures, t, {
-        queueRevision: automationQueueProjection.revision, generation: request, operationId: automationRequestId ?? playbackSession,
-        entryId: occurrenceId, outcome: next ? "skipped" : "queue_exhausted",
-      }, previewStatus);
-      failureHistoryRevision++;
-      setNotice(skippedPreviewFailureNotice(t, failedReason), "persistent", "playbackSkip");
-      if (next) {
-        selected = next;
-        refreshQueue();
-        failureRun.sourceKey = JSON.stringify(playbackQueue.tracks.map(queueRadioSeedKey));
-        // Source exhaustion is not a natural end and must retain cancellation ownership.
-        await startPreview(next, true, false, undefined, undefined, failedSkips + 1, automationRequestId, false, failureRun);
-      } else {
-        paused = true;
-        previewStatus = `Could not start ${failedTitle}; reached the end of the queue (${failureRun.visited.size} unavailable occurrences checked). ${failedReason}`;
-      }
-    }
+    await advanceFailedQueue();
   }
   function liveStationForTrack(track: Track) {
     // A song identified on a station is a recording, not that station's live
@@ -6547,6 +6592,9 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     bufferingAudio = false;
     webviewSeekCompletionWatchdog.cancel(); activeWebviewSeek=null;
     const track = playingTrack, source = preview, oldRequest = automaticPreviewRecovery;
+    const recoveryEntryIds = [...playbackQueue.entryIds];
+    const recoveryIndex = queueIndex;
+    const recoveryEntryId = recoveryEntryIds[recoveryIndex];
     if(ownedSeek?.deadline !== null && ownedSeek?.deadline !== undefined && oldRequest)oldRequest.deadline=ownedSeek.deadline;
     const live = Boolean(isStationPlaybackTrack(track) && liveStationForTrack(track));
     const failedCandidate = playingCandidate;
@@ -6572,6 +6620,10 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
       position=requestedRecoveryPosition; pendingResumePosition=requestedRecoveryPosition;
       resumeTrackId=track.id; resumePosition=requestedRecoveryPosition; previewStatus=reason; lastMediaFailure=reason;
       lastMediaFailureSource=lastResolvedSource; successfulRecoveryAttachment=null; persistPlaybackPosition();
+      // Retry this exact queue occurrence once from its saved position. A terminal
+      // startup failure then advances through the same bounded failure pass.
+      if (source.kind === "local" && fixedReason?.startsWith("Audio stopped after the requested seek") && recoveryEntryIds.length > 1)
+        void startPreview(track, true, false, undefined, undefined, 0, null, true, undefined, null, true);
       return;
     }
     if (seekRefresh && (!stalledCandidate || !oldRequest)) {
@@ -6580,6 +6632,10 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
       position=requestedRecoveryPosition; pendingResumePosition=requestedRecoveryPosition;
       resumeTrackId=track.id; resumePosition=requestedRecoveryPosition; previewStatus=reason; lastMediaFailure=reason;
       lastMediaFailureSource=lastResolvedSource; successfulRecoveryAttachment=null; persistPlaybackPosition();
+      // Retry this exact queue occurrence once from its saved position. A terminal
+      // startup failure then advances through the same bounded failure pass.
+      if (source.kind === "local" && fixedReason?.startsWith("Audio stopped after the requested seek") && recoveryEntryIds.length > 1)
+        void startPreview(track, true, false, undefined, undefined, 0, null, true, undefined, null, true);
       return;
     }
     const invalidScopedPosition = positionPreservingScope && !scopedPosition;
@@ -6598,6 +6654,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     const steadyPlayback = establishedPlayback && (attached.healthy || (live ? node.currentTime-attached.position >= 5
       : performance.now()-(attached.healthStartedAt ?? attached.startedAt) >= HEALTHY_PLAYBACK_RESET_MS && node.currentTime-(attached.healthPosition ?? attached.position) >= HEALTHY_PLAYBACK_RESET_MS/1000));
     if (steadyPlayback && !ownedSeek) {
+      activeFailedQueueRun = null;
       oldRequest.deadline = performance.now() + playbackStartupTimeoutMs();
       oldRequest.attempts = 0;
       oldRequest.sourceAttempts = 0;
@@ -6710,6 +6767,35 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
         return;
       }
       await findAndStartPreviewSource(track, request, true);
+    }).then(async () => {
+      // A seek has its own explicit position-preserving recovery contract.
+      if (recoveryEntryIds.length < 2 || !previewRequests.isCurrent(request) || load !== playbackLoadSequence ||
+          preview || !recoveryEntryId || recoveryIndex !== queueIndex ||
+          recoveryEntryIds.length !== playbackQueue.entryIds.length ||
+          !recoveryEntryIds.every((id, index) => id === playbackQueue.entryIds[index]) ||
+          !shouldAdvanceAfterExhaustedFailure(previewStatus)) return;
+      const sourceKey = JSON.stringify(playbackQueue.tracks.map(queueRadioSeedKey));
+      const previous = activeFailedQueueRun;
+      const failureRun: FailedQueueRun = previous && previous.sourceKey === sourceKey &&
+        previous.entryIds.length === recoveryEntryIds.length && previous.entryIds.every((id, index) => id === recoveryEntryIds[index])
+        ? previous : { entryIds: recoveryEntryIds, sourceKey, visited: new Set(), sourceRefreshRetries: new Set() };
+      failureRun.visited.add(recoveryEntryId);
+      activeFailedQueueRun = failureRun;
+      const reason = previewStatus;
+      const next = playbackQueue.nextAfterFailedStart(failureRun.visited);
+      recentTrackFailures = appendTrackFailure(recentTrackFailures, track, {
+        queueRevision: automationQueueProjection.revision, generation: request, operationId: playbackSession,
+        entryId: recoveryEntryId, outcome: next ? "skipped" : "queue_exhausted",
+      }, reason);
+      failureHistoryRevision++;
+      setNotice(skippedPreviewFailureNotice(track, safePreviewError(reason)), "persistent", "playbackSkip");
+      if (next) {
+        pendingResumePosition = 0;
+        selected = next; refreshQueue();
+        await startPreview(next, true, false, undefined, undefined, 1, null, false, failureRun);
+      } else {
+        previewStatus = `Could not continue ${safeNativeFailurePart(track.title, "Unavailable recording")}; reached the end of the queue. ${safePreviewError(reason)}`;
+      }
     }).finally(() => { if(load===playbackLoadSequence) { resolvingPlayback=false; if (!preview) bufferingAudio=false; } });
   }
   let webviewResumeSequence = 0;
@@ -10558,10 +10644,10 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
         {/if}
         {#if settingsCategory === "downloads"}<AutotagSetup {...autotagSettings} onConfigureAcoustId={()=>void configureAcoustId()} acoustIdConfigured={autotagSettings.acoustidConfigured} onChanged={(change)=>autotagSettings={...autotagSettings,...change}} onSave={()=>void run(async()=>{autotagSettings=await call("save_autotag_settings",{enabled:autotagSettings.enabled,shazamFallback:autotagSettings.shazamFallback});})} />
         {/if}{#if settingsCategory === "connections"}<AccountPlaylistSettings value={sidebarLayout.showAccountPlaylists} onChange={(value) => void persistSidebar({...sidebarLayout,showAccountPlaylists:value})} /><BrowserConnections {call} onWriteSyncChange={(provider,enabled)=>remotePlaylistWriteSyncEnabled={...remotePlaylistWriteSyncEnabled,[provider]:enabled}} onChanged={() => { void call<typeof availableSources>("list_search_sources").then(sources => availableSources = sources).catch(() => {}); }} onBrowse={(source)=>void searchProviderPlaylists(source)} /><ConnectionsSetup onChanged={(status) => { slskdEnabled = status.settings.slskd.enabled; lyricsTranslationLanguage=status.settings.lyricsTranslation?.targetLanguage ?? "en";lyricsTranslationEnabled=status.settings.lyricsTranslation?.enabled===true; lyricsTranslationCredentialPresent=status.settings.lyricsTranslation?.provider === "googleFree" || status.settings.lyricsTranslation?.provider === "auto" || status.lyricsTranslationCredential?.present===true; sourceCapabilities={soulseek:slskdEnabled,discogs:status.settings.discogsEnabled}; void call<typeof availableSources>("list_search_sources").then(sources=>availableSources=sources).catch(()=>{}); void loadAutotagState().catch(()=>{}); }} />
-        {/if}{#if settingsCategory === "advanced"}<details class="settings-advanced" open><summary><strong>Tools & diagnostics</strong><span>Executable paths and dependency checks</span></summary>
+        {/if}{#if settingsCategory === "advanced"}<div class="settings-details-body">
           <PlaybackDiagnosticsSettings {call} enabled={settings.playbackDiagnosticsEnabled === true} onEnabledChange={savePlaybackDiagnosticsEnabled} getWebviewDiagnostics={webviewDiagnosticsForExport} onClearWebviewDiagnostics={clearWebviewDiagnostics} />
           <ToolSetup {settings} {dependencies} onChange={(value)=>(settings=value)} onCheck={()=>void run(async()=>(dependencies=await call<Dependency[]>("check_dependencies")))} onSave={()=>void saveSettingsFields(["ytDlpPath","ffmpegPath","ffprobePath","jsRuntimePath"],"Tool paths saved.")} checking={busy>0} />
-        </details>
+        </div>
         {/if}{#if settingsCategory === "integrations"}<details class="settings-advanced" open><summary><strong>Assistant permissions</strong><span>Control access to your player and library</span></summary>
           <section class="automation-settings"><p>Allow a connected assistant to use the player and library.</p><label class="settings-option"><input type="checkbox" bind:checked={automationPermissions.control} onchange={()=>void saveAutomationPermissions()} /><span>Allow playback and playlist changes</span></label><label class="settings-option"><input type="checkbox" bind:checked={automationPermissions.manage} onchange={()=>void saveAutomationPermissions()} /><span>Allow downloads and audio analysis</span></label></section>
         </details>{/if}
@@ -11373,7 +11459,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
           }
         }}
         onplay={(event) => { if(event.currentTarget!==audio)return; if(blockedStartupNodes.has(event.currentTarget)){event.currentTarget.pause();return;} if(webviewObservedCapture?.node===event.currentTarget)webviewObservedCapture.started=true; webviewBufferingRecovery.reset(); recordWebviewMediaEvent("play",event.currentTarget); paused = false; }}
-        onpause={(event) => { if(event.currentTarget!==audio || (audio && !audio.paused))return; resetLiveSuccessfulPlayback(event.currentTarget); webviewBufferingRecovery.reset(); webviewStallWatchdog.reset(); webviewSeekCompletionWatchdog.pause(); if(activeWebviewSeek)activeWebviewSeek.deadline=null; nextCandidatePrefetch.cancel();
+        onpause={(event) => { if(event.currentTarget!==audio || (audio && !audio.paused))return; resetLiveSuccessfulPlayback(event.currentTarget); webviewBufferingRecovery.reset(); webviewStallWatchdog.reset(); webviewSeekCompletionWatchdog.pause(); webviewPostSeekProgress.cancel(); if(activeWebviewSeek)activeWebviewSeek.deadline=null; nextCandidatePrefetch.cancel();
           // HTMLMediaElement events can be delivered after the state transition
           // that queued them. A pause caused by the previous transport pause may
           // arrive while the subsequent play() promise is pending; explicit pause
@@ -11387,8 +11473,8 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
         oncanplaythrough={(event) => recordWebviewMediaEvent("canplaythrough",event.currentTarget)}
         onseeking={(event) => { if(event.currentTarget!==audio)return; if(!webviewWaveformSeekDrain || webviewWaveformSeekDrain.node!==event.currentTarget || webviewWaveformSeekDrain.sourceGeneration!==(preview?.sourceGeneration??null) || webviewWaveformSeekDrain.seekSerial!==seekSerial)webviewWaveformSeekDrain={node:event.currentTarget,sourceGeneration:preview?.sourceGeneration??null,seekSerial,targetPositionSeconds:event.currentTarget.currentTime}; if(webviewObservedCapture?.node===event.currentTarget && webviewObservedCapture.started)cancelWebviewObservedCapture("Whole-track WebView analysis was discarded because the source was seeked."); webviewBufferingRecovery.reset(); webviewStallWatchdog.reset(); recordWebviewMediaEvent("seeking",event.currentTarget); }}
         onratechange={(event) => { if(event.currentTarget!==audio)return; if(webviewObservedCapture?.node===event.currentTarget && webviewObservedCapture.started && event.currentTarget.playbackRate!==1)cancelWebviewObservedCapture("Whole-track WebView analysis was discarded because playback speed changed."); }}
-        onplaying={(event) => { if(event.currentTarget!==audio)return; if(blockedStartupNodes.has(event.currentTarget)){event.currentTarget.pause();return;} signalWebviewResumeProgress(event.currentTarget); webviewBufferingRecovery.reset(); recordWebviewMediaEvent("playing",event.currentTarget); paused = false; armPendingWebviewSeekAfterResume(event.currentTarget); if(!pendingWebviewResume && !activeWebviewSeek)refreshSteadyMonitorAfterCompletedSeek(event.currentTarget); const source=preview; if(source){const owner=webviewStallOwner(event.currentTarget,source,seekSerial);if(owner)webviewStallWatchdog.observeProgress(owner,event.currentTarget.currentTime);} bufferingAudio = Boolean(pendingWebviewResume && pendingWebviewResume.node === event.currentTarget && pendingWebviewResume.source === preview); void recordSuccessfulPlayback(); prepareUpcomingWebviewCandidate(event.currentTarget); }}
-        onended={(event) => { if(event.currentTarget!==audio)return; void finishWebviewObservedCapture(event.currentTarget); webviewSeekCompletionWatchdog.cancel(); activeWebviewSeek=null; webviewBufferingRecovery.reset(); webviewStallWatchdog.reset(); recordWebviewMediaEvent("ended",event.currentTarget); if(playingRadioStation)recoverOwnedAudioFailure(event.currentTarget,"Radio stream ended; reconnecting to the same station.");else completeWebviewQueueOccurrence(false, event.currentTarget); }}
+        onplaying={(event) => { if(event.currentTarget!==audio)return; if(blockedStartupNodes.has(event.currentTarget)){event.currentTarget.pause();return;} signalWebviewResumeProgress(event.currentTarget); webviewBufferingRecovery.reset(); recordWebviewMediaEvent("playing",event.currentTarget); paused = false; armPendingWebviewSeekAfterResume(event.currentTarget); armPostSeekProgress(event.currentTarget); if(!pendingWebviewResume && !activeWebviewSeek)refreshSteadyMonitorAfterCompletedSeek(event.currentTarget); const source=preview; if(source){const owner=webviewStallOwner(event.currentTarget,source,seekSerial);if(owner)webviewStallWatchdog.observeProgress(owner,event.currentTarget.currentTime);} bufferingAudio = Boolean(pendingWebviewResume && pendingWebviewResume.node === event.currentTarget && pendingWebviewResume.source === preview); void recordSuccessfulPlayback(); prepareUpcomingWebviewCandidate(event.currentTarget); }}
+        onended={(event) => { if(event.currentTarget!==audio)return; void finishWebviewObservedCapture(event.currentTarget); webviewSeekCompletionWatchdog.cancel(); webviewPostSeekProgress.cancel(); pendingPostSeekProgress=null; activeWebviewSeek=null; webviewBufferingRecovery.reset(); webviewStallWatchdog.reset(); recordWebviewMediaEvent("ended",event.currentTarget); if(playingRadioStation)recoverOwnedAudioFailure(event.currentTarget,"Radio stream ended; reconnecting to the same station.");else completeWebviewQueueOccurrence(false, event.currentTarget); }}
         onerror={(event) => { if(event.currentTarget!==audio)return; if(webviewObservedCapture?.node===event.currentTarget)cancelWebviewObservedCapture("Whole-track WebView analysis was discarded because the stream failed."); webviewBufferingRecovery.reset(); recordWebviewMediaEvent("error",event.currentTarget); recoverAudioFailure(event); }}
       >
       </audio>{:else if preview?.kind === "external"}<div class="embed-player">

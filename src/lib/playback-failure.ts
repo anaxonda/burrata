@@ -27,7 +27,7 @@ export function classifyPlaybackFailure(reason: string): PlaybackFailure {
   if (message === "this source has no supported audio stream") return failure("unsupported_audio", "resolver", "recording", false, null);
   if (has("cancel", "superseded")) return failure("cancelled", "resolver", "operation", false);
   if (has("timed out", "timeout", "deadline")) return failure("timeout", "resolver", "operation", true);
-  if (has("storage", "disk full", "no space left", "read-only file system", "readonly database", "database is locked", "permission denied", "local audio is not registered", "local file", "os error 28")) return failure("storage", "storage", "global", true);
+  if (has("storage", "disk full", "no space left", "read-only file system", "readonly database", "database is locked", "permission denied", "local audio is not registered", "local file", "os error 28", "disk quota exceeded", "os error 122", "helper_unpack_failed", "storage_unavailable")) return failure("storage", "storage", "global", true);
   if (has("output device", "audio output", "audio device", "audio sink", "cpal")) return failure("output", "output", "global", true);
   if (httpStatus === 429 || has("rate limit", "too many requests")) return failure("rate_limited", "transport", "global", true);
   if ((httpStatus !== undefined && httpStatus >= 500) || has("network", "connection", "dns", "resolve host", "resolve hostname", "service unavailable", "server unavailable", "temporarily unavailable", "tls", "certificate")) return failure("network", "transport", "global", true);
@@ -55,6 +55,16 @@ export function shouldSkipRecording(failure: PlaybackFailure): boolean {
 /** Typed detail takes precedence; the legacy reason remains supported. */
 export function shouldSkipFailedTrack(reason: string, failure?: PlaybackFailure | null): boolean {
   return shouldSkipRecording(failure ?? classifyPlaybackFailure(reason));
+}
+
+/** Once a per-item attempt has exhausted its recovery budget, try the next
+ * queue occurrence. User cancellations and shared output/storage failures are
+ * not evidence that another recording can play. */
+export function shouldAdvanceAfterExhaustedFailure(reason: string): boolean {
+  if (!reason.trim() || /^(?:loading|playing|paused|buffering|reconnecting)/i.test(reason.trim())) return false;
+  if (["Local file is missing or has changed. Reconnect its folder or choose another file.", "Local audio is not registered in the library"].includes(reason)) return true;
+  const failure = classifyPlaybackFailure(reason);
+  return !["cancelled", "output", "storage"].includes(failure.category);
 }
 
 export const MAX_RECENT_TRACK_FAILURES = 64;

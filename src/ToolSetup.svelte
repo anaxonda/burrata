@@ -88,8 +88,24 @@
 
   function statusLabel(item: Dependency | undefined): string {
     if (!item) return "Not checked";
-    if (isUnknown(item)) return "Needs a real check";
+    if (isUnknown(item)) return "Unknown";
     return item.available ? "Available" : "Not found";
+  }
+
+  function summaryText(): string {
+    const required = [
+      { name: "yt-dlp", capability: "online audio" },
+      { name: "FFmpeg", capability: "audio conversion" },
+      { name: "ffprobe", capability: "audio file information" },
+    ];
+    const missing = required.filter(({ name }) => {
+      const item = dependency(name);
+      return item && !isUnknown(item) && !item.available;
+    }).map(({ capability }) => capability);
+    if (missing.length) return `Attention needed: ${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} unavailable.`;
+    if (!dependencies.length) return "Tools have not been checked yet.";
+    if (required.some(({ name }) => !dependency(name) || isUnknown(dependency(name)))) return "Some required tools have not been checked yet.";
+    return "Required audio tools are available.";
   }
 
   function statusText(item: Dependency | undefined): string {
@@ -103,9 +119,18 @@
   {#if linkError}<p role="alert">{linkError}</p>{/if}
   <div class="setup-heading">
     <div>
-      <h2 id="tool-setup-title">Tools Burrata uses</h2>
-      <p>Installed releases include the required tools. You can also use system tools or custom executable paths.</p>
+      <h2 id="tool-setup-title">Included tools</h2>
+      <p>Burrata releases include tools for finding, converting, and checking audio. Check their availability when troubleshooting.</p>
     </div>
+    <button onclick={onCheck} disabled={checking}>{checking ? "Checking tools…" : "Check tools"}</button>
+  </div>
+
+  <div class="tool-summary" aria-label="Tool availability">
+    <p>{summaryText()}</p>
+  </div>
+
+  <details class="tool-details">
+    <summary>Tool details and custom locations</summary>
     <label class="platform-choice">
       Show download links for
       <select bind:value={platform} aria-label="Operating system for tool links">
@@ -114,7 +139,6 @@
         <option value="linux">Linux</option>
       </select>
     </label>
-  </div>
 
   <div class="tool-list">
     <article class="tool-card">
@@ -153,7 +177,7 @@
 
     <article class="tool-card">
       <div class="tool-title">
-        <div><h3>JavaScript runtime</h3><p>Helps yt-dlp access some YouTube content. Deno is recommended.</p></div>
+        <div><h3>JavaScript runtime (optional)</h3><p>Helps yt-dlp access some YouTube content. Deno is recommended.</p></div>
         <span class:ready={dependency("JavaScript runtime")?.available} class="tool-status">{statusLabel(dependency("JavaScript runtime"))}</span>
       </div>
       <p class="status-detail">{statusText(dependency("JavaScript runtime"))}</p>
@@ -187,19 +211,20 @@
     <div class="setup-actions"><button class="primary" onclick={onSave}>Save tool paths</button></div>
   </details>
 
-  <div class="setup-actions">
-    <button onclick={onCheck} disabled={checking}>{checking ? "Checking tools…" : "Check tools"}</button>
-  </div>
+  </details>
 </section>
 
 <style>
   .tool-setup { display: grid; gap: 14px; margin: 8px 0 28px; container-type:inline-size; }
   .setup-heading { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; }
-  h2 { margin: 0 0 5px; }
+  h2 { margin: 0 0 5px; font-size: 16px; }
   h3 { margin: 0 0 5px; font-size: 14px; }
   p { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0; }
   .platform-choice, .custom-path-grid label { display:grid; gap:6px; color:var(--muted); font-size:11px; }
-  .platform-choice { min-width:160px; }
+  .platform-choice { max-width:240px; margin:14px 0; }
+  .tool-summary { min-width:0; }
+  .tool-details > summary { cursor:pointer; font-size:12px; font-weight:650; }
+  .tool-details > .tool-list, .tool-details > .ejs-note, .tool-details > .custom-paths { margin-top:12px; }
   .tool-list { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; }
   .tool-card { min-width:0; border:1px solid var(--line); border-radius:8px; background:var(--surface); padding:14px; }
   .tool-title { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }

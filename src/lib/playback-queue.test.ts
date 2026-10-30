@@ -187,6 +187,15 @@ describe("PlaybackQueue", () => {
     expect(q.currentIndex).toBe(4);expect(q.repeat).toBe(mode);expect(visited.size).toBe(5);
     expect(q.nextAfterFailedStart(visited)).toBeNull();
   });
+  it("wraps repeat-all after a failed last occurrence and stops after one pass", () => {
+    const q = new PlaybackQueue(); q.setTracks(["a", "b", "c"].map(track), 2); q.setRepeat("all");
+    const visited = new Set([q.entryIds[2]!]);
+    expect(q.nextAfterFailedStart(visited)?.id).toBe("a");
+    visited.add(q.entryIds[0]!);
+    expect(q.nextAfterFailedStart(visited)?.id).toBe("b");
+    visited.add(q.entryIds[1]!);
+    expect(q.nextAfterFailedStart(visited)).toBeNull();
+  });
   it("refuses an already visited next occurrence without changing index",()=>{
     const q=new PlaybackQueue();q.setTracks(["a","b"].map(track));
     expect(q.nextAfterFailedStart(new Set([q.entryIds[1]!]))).toBeNull();expect(q.currentIndex).toBe(0);

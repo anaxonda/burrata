@@ -1399,8 +1399,17 @@ struct AliasResolutionPass {
     attempts: std::sync::Mutex<std::collections::HashMap<String, usize>>,
     spare_queries: std::sync::Mutex<std::collections::HashMap<String, bool>>,
     empty_search: std::sync::atomic::AtomicBool,
+    fresh_alias_lookup_started: std::sync::atomic::AtomicBool,
+}
+fn fresh_alias_budget(remaining: Duration) -> Duration {
+    remaining.saturating_sub(Duration::from_secs(3))
 }
 impl AliasResolutionPass {
+    fn claim_fresh_alias_lookup(&self, track: &Track, fresh: &Candidate, budget: Duration) -> bool {
+        !budget.is_zero()
+            && plausible_artist_alias_block(track, fresh)
+            && !self.fresh_alias_lookup_started.swap(true, std::sync::atomic::Ordering::Relaxed)
+    }
     fn remember(&self, candidate: &Candidate) {
         if self.retry {
             return;
@@ -3639,7 +3648,7 @@ async fn resolve_serial(
                         &candidate,
                         Some(&audio),
                     );
-                    let proof = verify_with_playback_alias_context(
+                    let mut proof = verify_with_playback_alias_context(
                         track,
                         &verified_artist_aliases,
                         &mut candidate,
@@ -3648,6 +3657,36 @@ async fn resolve_serial(
                         settings.matching_level,
                         store,
                     );
+                    if proof.is_none() && !pinned && track.provider == "spotify"
+                        && crate::artist_alias_lookup::enabled()
+                        && !trace.catalog_duration_enriched
+                    {
+                        let mut fresh = candidate.clone();
+                        if let Some(metadata) = &audio.source_metadata {
+                            fresh.source_metadata = Some(metadata.clone());
+                        }
+                        if let Some(title) = &audio.resolved_title {
+                            fresh.title = title.clone();
+                        }
+                        fresh.duration_seconds = audio.duration_seconds.or(fresh.duration_seconds);
+                        let alias_budget = fresh_alias_budget(deadline.remaining());
+                        if alias_pass.claim_fresh_alias_lookup(track, &fresh, alias_budget) {
+                            let lookup = crate::artist_alias_lookup::lookup(
+                                acquisition, track, cancel.clone(), deadline, trace,
+                            );
+                            let _ = tokio::time::timeout(
+                                alias_budget, lookup,
+                            ).await;
+                            if *cancel.borrow() { return Err("Cancelled".into()); }
+                            if deadline.remaining().is_zero() { return Err(PLAYBACK_DEADLINE_MESSAGE.into()); }
+                            verified_artist_aliases = crate::artist_credit_aliases::cached_verified_playback_artist_aliases(store, track);
+                            include_candidate_aliases(&mut verified_artist_aliases, track, &candidate, Some(&audio));
+                            proof = verify_with_playback_alias_context(
+                                track, &verified_artist_aliases, &mut candidate, &audio,
+                                requires_identity_check, settings.matching_level, store,
+                            );
+                        }
+                    }
                     let identity_ok = proof.is_some();
                     trace.event("full_identity_check", &provider, json!({"ok":identity_ok,
                         "proofKind":proof.map(VerifiedRecordingProof::diagnostic_label).unwrap_or("none"),
@@ -6290,6 +6329,19 @@ fn linked_candidate_with_bandcamp(track: &Track, bandcamp_enabled: bool) -> Opti
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn fresh_alias_lookup_is_bounded_to_one_plausible_candidate() {
+        assert_eq!(fresh_alias_budget(Duration::from_secs(20)), Duration::from_secs(17));
+        assert_eq!(fresh_alias_budget(Duration::from_secs(3)), Duration::ZERO);
+        let track = Track { artist: "Quantic, Nidia Gongora".into(), title: "Amor en Francia".into(), duration_seconds: Some(270.293), ..Track::default() };
+        let candidate = Candidate { id: "youtube:x1aO1kcVeu4".into(), provider: "youtube".into(), title: "Quantic, Nidia Góngora - Amor en Francia".into(), duration_seconds: Some(270.0), confidence: "review".into(), permission: "unknown".into(), uploader: Some("Tru Thoughts Records".into()), ..Candidate::default() };
+        let pass = AliasResolutionPass::default();
+        assert!(!pass.claim_fresh_alias_lookup(&track, &candidate, Duration::ZERO));
+        let wrong = Candidate { title: "Quantic, Nidia Góngora - Different Song".into(), ..candidate.clone() };
+        assert!(!pass.claim_fresh_alias_lookup(&track, &wrong, Duration::from_secs(1)));
+        assert!(pass.claim_fresh_alias_lookup(&track, &candidate, Duration::from_secs(1)));
+        assert!(!pass.claim_fresh_alias_lookup(&track, &candidate, Duration::from_secs(1)));
+    }
     #[test]
     fn recovery_has_one_shared_slot_independent_of_normal_extractions() {
         let trace = SourceTrace::new(None, None, None);
@@ -9735,6 +9787,73 @@ mod tests {
             assert_eq!(enabled.id, disabled.id);
             assert_eq!(enabled.url, disabled.url);
         }
+    }
+
+    #[tokio::test]
+    #[ignore = "Live public-provider qualification; requires network"]
+    async fn live_reported_named_versions_resolve_with_fresh_identity() {
+        for (id, artist, title, duration) in [
+            ("5LciLoxa1gK70yIUeoHgRx", "Bomba Estéreo, Tainy", "To My Love - Tainy Remix", 251.),
+            ("47ymc88dn5leh2YhetiqDT", "El Búho, Gotopo", "Mañana Tepotzlan - Vocal Edit", 270.),
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let store = Arc::new(Store::open(&directory.path().join("qualification.sqlite")).unwrap());
+            let mut settings = store.settings().unwrap();
+            settings.preferred_streaming_source = "youtube".into();
+            settings.streaming_fallback_enabled = false;
+            store.save_settings(&settings).unwrap();
+            let connections = Arc::new(crate::connections::ConnectionManager::new(store.clone()));
+            let acquisition = AcquisitionManager::new_for_playback_test(store.clone(), connections);
+            let track = Track {
+                id: format!("spotify:{id}"), provider: "spotify".into(), provider_id: id.into(),
+                source_url: format!("https://open.spotify.com/track/{id}"),
+                artist: artist.into(), title: title.into(), duration_seconds: Some(duration),
+                ..Track::default()
+            };
+            let (_sender, cancel) = watch::channel(false);
+            let result = resolve(&store, &acquisition, &track, None, cancel).await;
+            assert!(result.is_ok(), "Live {id} qualification failed: {}", result.err().unwrap_or_default());
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "Live public-provider and verified-alias qualification; requires network"]
+    async fn live_amor_en_francia_resolves_with_verified_artist_aliases() {
+        crate::playback_diagnostics::set_enabled(true);
+        crate::playback_diagnostics::clear();
+        let directory = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&directory.path().join("qualification.sqlite")).unwrap());
+        let mut settings = store.settings().unwrap();
+        settings.preferred_streaming_source = "youtube".into();
+        settings.streaming_fallback_enabled = false;
+        store.save_settings(&settings).unwrap();
+        let connections = Arc::new(crate::connections::ConnectionManager::new(store.clone()));
+        let acquisition = AcquisitionManager::new_for_playback_test(store.clone(), connections);
+        let mut track = Track {
+            id: "spotify:4tkd3bpIj6ff1PZT3nBCD2".into(), provider: "spotify".into(),
+            provider_id: "4tkd3bpIj6ff1PZT3nBCD2".into(),
+            source_url: "https://open.spotify.com/track/4tkd3bpIj6ff1PZT3nBCD2".into(),
+            artist: "Quantic, Nidia Gongora".into(), title: "Amor en Francia".into(),
+            album: Some("Curao".into()), duration_seconds: Some(270.293),
+            provenance: json!({"catalog":{"provider":"spotify", "providerId":"4tkd3bpIj6ff1PZT3nBCD2",
+                "verified":true, "artistCount":2, "artists":[
+                    {"id":"5ZMwoAjeDtLJ0XRwRTgaK8","name":"Quantic","provider":"spotify"},
+                    {"id":"5Ln6VxkwRDdAH40Lel6Yj8","name":"Nidia Gongora","provider":"spotify"}
+                ]}}),
+            ..Track::default()
+        };
+        track.provenance["remoteCatalog"] = json!({
+            "trackId":track.provider_id, "title":track.title, "artist":track.artist,
+            "album":track.album, "durationSeconds":track.duration_seconds,
+            "artistCount":2, "artistRefs":track.provenance["catalog"]["artists"]
+        });
+        assert!(crate::artist_credit_aliases::spotify_artist_credit_fingerprint(&track).is_some());
+        store.save_track(&track).unwrap();
+        let (_sender, cancel) = watch::channel(false);
+        let result = resolve(&store, &acquisition, &track, None, cancel).await;
+        if result.is_err() { eprintln!("{}", serde_json::to_string(&crate::playback_diagnostics::export()).unwrap()); }
+        crate::playback_diagnostics::set_enabled(false);
+        assert!(result.is_ok(), "Live Amor qualification failed: {}", result.err().unwrap_or_default());
     }
 
     #[tokio::test]

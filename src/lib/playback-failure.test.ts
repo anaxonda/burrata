@@ -1,6 +1,6 @@
 import {describe,it,expect} from "vitest";
 import failureContracts from "./playback-failure-conformance.json";
-import {appendTrackFailure, FIXED_RESOLVER_FAILURES, MAX_RECENT_TRACK_FAILURES, safeTrackFailureText, trackFailureCategory, shouldSkipFailedTrack, classifyPlaybackFailure, shouldSkipRecording} from "./playback-failure";
+import {appendTrackFailure, FIXED_RESOLVER_FAILURES, MAX_RECENT_TRACK_FAILURES, safeTrackFailureText, trackFailureCategory, shouldSkipFailedTrack, classifyPlaybackFailure, shouldSkipRecording, shouldAdvanceAfterExhaustedFailure} from "./playback-failure";
 describe("automatic queue failure classification",()=>{
   it("recognizes exhausted recording failures before title words",()=>{
     for(const reason of ["No playable audio match was found for Network — Connection (Cancel Mix)","The resolved audio source identity does not match this recording","This source has no supported audio stream","Private video","Video has been removed"])
@@ -84,5 +84,18 @@ describe("typed playback failure contract", () => {
     expect(shouldSkipFailedTrack("Unknown playback failure", exhausted)).toBe(true);
     for (const scope of ["global", "operation", "source", "unknown"] as const) expect(shouldSkipRecording({...exhausted, scope})).toBe(false);
     expect(shouldSkipRecording({...exhausted, retryable:true})).toBe(false);
+  });
+});
+
+describe("exhausted queue attempts", () => {
+  it("advances after per-item network, timeout, access, and unknown failures", () => {
+    for (const reason of ["network connection failed", "playback deadline exceeded", "HTTP 403", "decoder failed", "Local file is missing or has changed. Reconnect its folder or choose another file.", "Local audio is not registered in the library"]) {
+      expect(shouldAdvanceAfterExhaustedFailure(reason), reason).toBe(true);
+    }
+  });
+  it("does not advance for cancellation or shared output and storage failures", () => {
+    for (const reason of ["", "request cancelled", "audio output device unavailable", "disk full", "disk quota exceeded", "os error 122", "helper_unpack_failed", "storage_unavailable", "local file permission denied"]) {
+      expect(shouldAdvanceAfterExhaustedFailure(reason), reason).toBe(false);
+    }
   });
 });

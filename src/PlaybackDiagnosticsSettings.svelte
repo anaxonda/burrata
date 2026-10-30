@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import InfoPopover from "./InfoPopover.svelte";
 
   export type PlaybackDiagnosticsStatus = { enabled: boolean; eventCount: number; maxEvents: number };
   type ExportResult = { cancelled: boolean; path?: string; eventCount?: number };
@@ -71,35 +72,38 @@
 </script>
 
 <section class="playback-diagnostics" aria-labelledby="playback-diagnostics-title">
-  <h3 id="playback-diagnostics-title">Playback diagnostics</h3>
-  <p>Record playback problems and export a report before closing Burrata.</p>
-  <details><summary>What is included in a report?</summary><p>Reports include timestamps, public source links, playback stages and redacted errors. They exclude credentials, signed stream URLs, private-link tokens, titles and user-agent strings. Events stay in memory until exported.</p></details>
+  <div class="heading"><h2 id="playback-diagnostics-title">Playback reports</h2><InfoPopover label="About playback reports">Reports include timestamps, public source links, playback stages and redacted errors. They exclude credentials, signed stream URLs, private-link tokens, titles and user-agent strings. Events stay in memory until exported. Export saves a file; it does not upload a report.</InfoPopover></div>
+  <p>Turn on recording, reproduce the playback problem, then export a report before closing Burrata.</p>
   <label class="diagnostics-toggle">
     <input type="checkbox" aria-label="Enable playback diagnostics" checked={enabled} disabled={working} onchange={event => void toggle(event.currentTarget.checked)} />
-    <span>Enable playback diagnostics</span>
+    <span>Record playback problems</span>
   </label>
-  {#if loading}<p role="status">Loading diagnostics status…</p>
-  {:else if status}<p class="diagnostics-count" role="status">{status.eventCount} of {status.maxEvents} diagnostic events stored · {status.enabled ? "logging enabled" : "logging disabled"}</p>
-  {:else}<p class="diagnostics-count">Diagnostics status is unavailable.</p>{/if}
-  <details><summary>Optional reproduction details</summary>
-    <p>For the same failing source, record comparisons you have tried. These choices are included in the exported report.</p>
-    <label>Same source in browser<select aria-label="Same source in browser" bind:value={browserPlayback}><option value="not_tested">Not tested</option><option value="works">Plays</option><option value="fails">Fails</option></select></label>
-    <label>Same source on another network<select aria-label="Same source on another network" bind:value={alternateNetworkPlayback}><option value="not_tested">Not tested</option><option value="works">Plays</option><option value="fails">Fails</option></select></label>
-    <label>VPN during reproduction<select aria-label="VPN during reproduction" bind:value={vpn}><option value="unknown">Unknown</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option></select></label>
+  <div><button class="export" type="button" disabled={working} onclick={() => void exportReport()}>{working ? "Working…" : "Export report…"}</button></div>
+  <details class="report-details"><summary>Report details</summary>
+    {#if loading}<p role="status">Loading diagnostics status…</p>
+    {:else if status}<p class="diagnostics-count" role="status">{status.eventCount} of {status.maxEvents} diagnostic events stored · {status.enabled ? "logging enabled" : "logging disabled"}</p>
+    {:else}<p class="diagnostics-count">Diagnostics status is unavailable.</p>{/if}
+    <div class="diagnostics-actions">
+      <button type="button" disabled={working || loading} onclick={() => void refresh()}>Refresh status</button>
+      <button type="button" disabled={working || !status?.eventCount} onclick={() => void clearEvents()}>Clear diagnostic events</button>
+    </div>
+    <details><summary>Optional reproduction details</summary>
+      <p>For the same failing source, record comparisons you have tried. These choices are included in the exported report.</p>
+      <label>Same source in browser<select aria-label="Same source in browser" bind:value={browserPlayback}><option value="not_tested">Not tested</option><option value="works">Plays</option><option value="fails">Fails</option></select></label>
+      <label>Same source on another network<select aria-label="Same source on another network" bind:value={alternateNetworkPlayback}><option value="not_tested">Not tested</option><option value="works">Plays</option><option value="fails">Fails</option></select></label>
+      <label>VPN during reproduction<select aria-label="VPN during reproduction" bind:value={vpn}><option value="unknown">Unknown</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option></select></label>
+    </details>
   </details>
-  <div class="diagnostics-actions">
-    <button type="button" disabled={working || loading} onclick={() => void refresh()}>Refresh status</button>
-    <button type="button" disabled={working || !status?.eventCount} onclick={() => void clearEvents()}>Clear diagnostic events</button>
-    <button type="button" disabled={working} onclick={() => void exportReport()}>{working ? "Working…" : "Export report…"} </button>
-  </div>
   {#if message}<p role="status" class="diagnostics-message">{message}</p>{/if}
   {#if error}<p role="alert" class="diagnostics-error">{error}</p>{/if}
 </section>
 
 <style>
-  .playback-diagnostics{display:grid;gap:.55rem;padding:.85rem 0;border-top:1px solid var(--line,#454a50)}
-  h3{margin:0;font-size:1rem}p{margin:0;color:var(--muted,#a3a8ae);font-size:.82rem;line-height:1.45}
-  .diagnostics-toggle{display:flex;align-items:center;gap:.55rem;color:var(--text,#eee);font-size:.86rem}
+  .playback-diagnostics{display:grid;gap:.55rem;padding:15px 16px;border-top:1px solid var(--line,#454a50)}
+  .heading{display:flex;align-items:center;gap:.4rem}.report-details{font-size:.82rem}.report-details > :not(summary){margin-top:.55rem}.report-details label{display:flex;flex-direction:column;align-items:stretch;gap:.35rem;margin:.55rem 0 0}
+  h2{margin:0;font-size:1rem}p{margin:0;color:var(--muted,#a3a8ae);font-size:.82rem;line-height:1.45}
+  .diagnostics-toggle{display:flex;flex-direction:row;align-items:center;gap:.55rem;margin:0;color:var(--text,#eee);font-size:.86rem}
+  .playback-diagnostics .diagnostics-toggle input[type="checkbox"]{width:auto;flex:none;margin:0}
   .diagnostics-count{font-size:.78rem}.diagnostics-actions{display:flex;gap:.45rem;flex-wrap:wrap}
   button{border:1px solid var(--line,#454a50);border-radius:7px;padding:.4rem .6rem;color:inherit;background:#ffffff0a;cursor:pointer}
   button:disabled{opacity:.55;cursor:not-allowed}.diagnostics-message{color:var(--success,#75d49a)}.diagnostics-error{color:var(--danger,#ff8c8c)}

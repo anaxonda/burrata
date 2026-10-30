@@ -3459,60 +3459,19 @@ impl PlaybackService {
         self.inner.audible.send_replace(false);
         let _ = self.inner.output.send(OutputCommand::Stop);
     }
-    fn cancel_timed_out_generation(&self, generation: u64) -> bool {
-        self.expire_generation(generation, false)
-    }
-    fn expire_generation(&self, generation: u64, startup_only: bool) -> bool {
-        self.expire_generation_checked(generation, startup_only, None)
-    }
-    fn expire_generation_checked(
-        &self,
-        generation: u64,
-        startup_only: bool,
-        expected_seek_epoch: Option<u64>,
-    ) -> bool {
-        let mut state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
-        if state.generation != generation
-            || (startup_only && !matches!(state.status.as_str(), "resolving" | "buffering"))
-            || expected_seek_epoch.is_some_and(|epoch| state.seek_watchdog_epoch != epoch)
-        {
-            return false;
-        }
-        let decoder_diagnostic = state.native_decoder_diagnostic.take();
-        if let Some(cancel) = state.cancel.take() {
-            let _ = cancel.send(true);
-        }
-        if let Some(cancel) = state.preload_cancel.take() {
-            let _ = cancel.send(true);
-        }
-        state.preload = None;
-        state.output_ready = false;
-        state.opus_decoder_capability = None;
-        state.pending_seek_generation = None;
-        state.steady_http_stream = false;
-        state.seek_watchdog_epoch = state.seek_watchdog_epoch.wrapping_add(1);
-        state.generation_counter += 1;
-        state.generation = state.generation_counter;
-        state.status = "failed".into();
-        state.message = if expected_seek_epoch.is_some() {
-            format!(
-                "The seek did not become ready before its {} second deadline. Try another position or restart playback.",
-                state.startup_budget.as_secs()
-            )
-        } else if startup_only {
-            format!(
-                "Playback startup exceeded {} seconds before audio became ready. Check provider availability or choose another source.",
-                state.startup_budget.as_secs()
-            )
-        } else {
-            "Playback timed out".into()
+    // Caller holds the command lock, so a newer pause, seek or queue change
+    // cannot interleave between checking ownership and starting the next item.
+    fn expire_generation_checked(&self, generation: u64, expected_seek_epoch: Option<u64>) -> bool {
+        let (eligible, diagnostic) = {
+            let mut state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+            let eligible =
+                deadline_owned_by_active_operation(&state, generation, expected_seek_epoch);
+            let diagnostic = eligible
+                .then(|| state.native_decoder_diagnostic.take())
+                .flatten();
+            (eligible, diagnostic)
         };
-        state.revision += 1;
-        self.inner.audible.send_replace(false);
-        // Keep the stop under the generation lock so a newer request cannot be stopped.
-        let _ = self.inner.output.send(OutputCommand::Stop);
-        drop(state);
-        if let Some(context) = decoder_diagnostic.as_ref() {
+        if let Some(context) = diagnostic.as_ref() {
             record_native_decoder_diagnostic(
                 context,
                 "decoder_end",
@@ -3520,8 +3479,15 @@ impl PlaybackService {
                 Some("timeout"),
             );
         }
-        self.publish();
-        true
+        if eligible {
+            let message = if expected_seek_epoch.is_some() {
+                "Playback seek timed out"
+            } else {
+                "Playback startup timed out"
+            };
+            self.recover_failure(generation, message, RecoveryTrigger::SourceResolution);
+        }
+        eligible
     }
     fn watch_ready_seek(&self, generation: u64, epoch: u64, deadline: Instant) {
         let service = self.clone();
@@ -3542,7 +3508,8 @@ impl PlaybackService {
             })
             .await
             {
-                service.expire_generation_checked(generation, true, Some(epoch));
+                let _command = service.inner.commands.lock().await;
+                service.expire_generation_checked(generation, Some(epoch));
             }
         });
     }
@@ -4375,12 +4342,14 @@ impl PlaybackService {
                     }
                 }
             };
-            tokio::select! {
+            let expired = tokio::select! {
                 biased;
-                _=startup_cancel.wait_for(|cancelled|*cancelled)=>{},
-                result=tokio::time::timeout_at(tokio::time::Instant::from_std(startup_deadline),ready)=>{
-                    if result.is_err(){deadline_service.expire_generation(g,true);}
-                }
+                _=startup_cancel.wait_for(|cancelled|*cancelled)=>false,
+                result=tokio::time::timeout_at(tokio::time::Instant::from_std(startup_deadline),ready)=>result.is_err(),
+            };
+            if expired {
+                let _command = deadline_service.inner.commands.lock().await;
+                deadline_service.expire_generation_checked(g, None);
             }
         });
         let service = self.clone();
@@ -4843,9 +4812,12 @@ impl PlaybackService {
     }
     fn recover_failure(&self, g: u64, message: &str, trigger: RecoveryTrigger) {
         let settings = self.inner.store.settings().ok();
-        let (recovery, locked_recurring_stall) = {
+        let recovery = {
             let mut s = self.inner.state.lock().unwrap();
-            if !claim_recovery_failure_generation(&mut s, g) {
+            if !matches!(s.status.as_str(), "resolving" | "buffering" | "playing")
+                || s.cancel.as_ref().is_some_and(|cancel| *cancel.borrow())
+                || !claim_recovery_failure_generation(&mut s, g)
+            {
                 return;
             }
             // Resolution exhausts its own attempts. A decoder transport failure
@@ -4890,19 +4862,14 @@ impl PlaybackService {
                     recurring_decision == RecurringStallDecision::ReplaceSource;
                 record_recovery_facts(&mut s, trigger);
                 s.recovery += 1;
-                (Some((s.candidate.clone(), s.position)), false)
+                Some((s.candidate.clone(), s.position))
             } else {
-                (None, locked_recurring_stall)
+                None
             }
         };
         if let Some((candidate, position)) = recovery {
             self.invalidate_candidate_preview_audio(candidate.as_ref());
             self.start(candidate, position, true);
-        } else if locked_recurring_stall {
-            self.fail(
-                g,
-                "The selected source repeatedly stalled. Choose a different source.",
-            );
         } else if let Some(next) = self.failed_track_skip(g, message) {
             let failure = {
                 let state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -4932,11 +4899,11 @@ impl PlaybackService {
         }
     }
     fn failed_track_skip(&self, generation: u64, message: &str) -> Option<usize> {
-        if !should_skip_failed_track(message) {
+        if !should_skip_exhausted_failure(message) {
             return None;
         }
         let mut s = self.inner.state.lock().unwrap();
-        match failed_track_next_index(&mut s, generation, message) {
+        match failed_track_next_index_exhausted(&mut s, generation, message) {
             Ok(Some(next)) => {
                 record_track_failure(&mut s, generation, message, "skipped");
                 Some(next)
@@ -5047,7 +5014,9 @@ impl PlaybackService {
                         let position = s.position;
                         s.recovered_audio_since = Some((Instant::now(), position));
                     }
-                    if has_native_stall_history(&s) && s.healthy_output_since.is_none() {
+                    if (has_native_stall_history(&s) || !s.failed_occurrence_ids.is_empty())
+                        && s.healthy_output_since.is_none()
+                    {
                         s.healthy_output_since = Some((Instant::now(), s.position, s.seek_serial));
                     }
                     s.message = if pause_on_ready {
@@ -5113,7 +5082,9 @@ impl PlaybackService {
                     if s.recovery > 0 && s.recovered_audio_since.is_none() {
                         s.recovered_audio_since = Some((Instant::now(), s.position));
                     }
-                    if has_native_stall_history(&s) && s.healthy_output_since.is_none() {
+                    if (has_native_stall_history(&s) || !s.failed_occurrence_ids.is_empty())
+                        && s.healthy_output_since.is_none()
+                    {
                         s.healthy_output_since = Some((Instant::now(), s.position, s.seek_serial));
                     }
                     if s.recovered_audio_since.is_some_and(|(started, position)| {
@@ -5130,6 +5101,7 @@ impl PlaybackService {
                         s.seek_serial,
                     ) {
                         clear_native_stall_history(&mut s);
+                        s.failed_occurrence_ids.clear();
                         s.healthy_output_since = None;
                     }
                     s.revision += 1;
@@ -5229,6 +5201,13 @@ impl PlaybackService {
                         }
                         if !self.current(generation) {
                             return;
+                        }
+                        {
+                            let mut state = self.inner.state.lock().unwrap();
+                            if state.generation != generation || state.status != "playing" {
+                                return;
+                            }
+                            state.failed_occurrence_ids.clear();
                         }
                         self.advance(1, true);
                     }
@@ -5340,7 +5319,8 @@ impl PlaybackService {
                 .await
                 .is_err()
             {
-                service.expire_generation(generation, true);
+                let _command = service.inner.commands.lock().await;
+                service.expire_generation_checked(generation, None);
             }
         });
     }
@@ -6527,10 +6507,7 @@ impl PlaybackService {
         .await
         {
             Ok(result) => result,
-            Err(_) => {
-                self.cancel_timed_out_generation(generation);
-                Err("Playback timed out".into())
-            }
+            Err(_) => Err("Playback timed out".into()),
         }
     }
 }
@@ -7068,6 +7045,23 @@ fn should_skip_failed_track(message: &str) -> bool {
     crate::playback_failure::should_skip_recording(&crate::playback_failure::classify(message))
 }
 
+// Called only after this occurrence has exhausted its available recovery. A
+// provider/network failure is not evidence that the next occurrence will fail.
+fn should_skip_exhausted_failure(message: &str) -> bool {
+    use crate::playback_failure::FailureCategory;
+    if matches!(
+        message,
+        "Local file is missing or has changed. Reconnect its folder or choose another file."
+            | "Local audio is not registered in the library"
+    ) {
+        return true;
+    }
+    !matches!(
+        crate::playback_failure::classify(message).category,
+        FailureCategory::Cancelled | FailureCategory::Output | FailureCategory::Storage
+    )
+}
+
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum RecoveryTrigger {
     OutputFailed,
@@ -7137,6 +7131,17 @@ fn can_retry_failed_stream_at_stage(state: &State, message: &str, output_failed:
         && (state.candidate.is_some() || state.station.is_some())
         && !message.to_ascii_lowercase().contains("output device")
         && !message.contains("Cancelled")
+}
+
+fn deadline_owned_by_active_operation(
+    state: &State,
+    generation: u64,
+    seek_epoch: Option<u64>,
+) -> bool {
+    state.generation == generation
+        && matches!(state.status.as_str(), "resolving" | "buffering")
+        && seek_epoch.is_none_or(|epoch| state.seek_watchdog_epoch == epoch)
+        && !state.cancel.as_ref().is_some_and(|cancel| *cancel.borrow())
 }
 
 fn claim_recovery_failure_generation(state: &mut State, generation: u64) -> bool {
@@ -7350,7 +7355,6 @@ fn arm_resumed_seek_metrics(state: &mut State, resumed_at: Instant) {
 
 fn note_audio_started(state: &mut State) {
     state.last_local_storage_failure = None;
-    state.failed_occurrence_ids.clear();
     state.last_source_failure = None;
     state.decoder_diagnostics = None;
     if let Some(started) = state.seek_requested.take() {
@@ -7547,7 +7551,7 @@ pub(crate) fn track_failure_category(reason: &str) -> &'static str {
 fn record_track_failure(state: &mut State, generation: u64, reason: &str, outcome: &str) {
     if state.generation != generation
         || !["resolving", "buffering", "playing"].contains(&state.status.as_str())
-        || !should_skip_failed_track(reason)
+        || !should_skip_exhausted_failure(reason)
         || state.cancel.as_ref().is_some_and(|cancel| *cancel.borrow())
     {
         return;
@@ -7666,9 +7670,21 @@ fn failed_track_next_index(
     generation: u64,
     message: &str,
 ) -> Result<Option<usize>, ()> {
+    if !should_skip_failed_track(message) {
+        return Err(());
+    }
+    failed_track_next_index_exhausted(state, generation, message)
+}
+
+fn failed_track_next_index_exhausted(
+    state: &mut State,
+    generation: u64,
+    message: &str,
+) -> Result<Option<usize>, ()> {
     if state.generation != generation
         || !["resolving", "buffering", "playing"].contains(&state.status.as_str())
-        || !should_skip_failed_track(message)
+        || !should_skip_exhausted_failure(message)
+        || state.station.is_some()
         || state.cancel.as_ref().is_some_and(|cancel| *cancel.borrow())
         || state.queue.is_empty()
         || state.index >= state.queue.len()
@@ -10904,6 +10920,75 @@ mod tests {
     }
 
     #[test]
+    fn deadline_requires_current_active_uncancelled_generation_and_seek_epoch() {
+        let mut state = State::default();
+        state.status = "buffering".into();
+        state.generation = 7;
+        state.seek_watchdog_epoch = 3;
+        assert!(deadline_owned_by_active_operation(&state, 7, Some(3)));
+        assert!(deadline_owned_by_active_operation(&state, 7, None));
+        assert!(!deadline_owned_by_active_operation(&state, 6, Some(3)));
+        assert!(!deadline_owned_by_active_operation(&state, 7, Some(2)));
+        state.status = "paused".into();
+        assert!(!deadline_owned_by_active_operation(&state, 7, Some(3)));
+        state.status = "buffering".into();
+        let (cancel, _) = watch::channel(true);
+        state.cancel = Some(cancel);
+        assert!(!deadline_owned_by_active_operation(&state, 7, Some(3)));
+    }
+
+    #[test]
+    fn exhausted_transport_and_decoder_failures_advance_once_but_system_failures_do_not() {
+        let mut state = State::default();
+        state.queue = vec![Track::default(), Track::default()];
+        state.entries = vec!["first".into(), "second".into()];
+        state.status = "buffering".into();
+        state.generation = 7;
+        state.repeat = "all".into();
+        for message in [
+            "Native HTTP request failed: connection reset",
+            "Audio stream ended before the recording finished",
+            "Audio stalled for five seconds",
+            "decoder failed",
+            "Audio source extraction timed out",
+            "Local file is missing or has changed. Reconnect its folder or choose another file.",
+            "Local audio is not registered in the library",
+        ] {
+            state.failed_occurrence_ids.clear();
+            state.index = 0;
+            assert_eq!(
+                failed_track_next_index_exhausted(&mut state, 7, message),
+                Ok(Some(1)),
+                "{message}"
+            );
+            state.index = 1;
+            assert_eq!(
+                failed_track_next_index_exhausted(&mut state, 7, message),
+                Ok(None),
+                "{message}"
+            );
+        }
+        for message in [
+            "Cancelled by user",
+            "could not open audio output device",
+            "no space left on device",
+        ] {
+            state.failed_occurrence_ids.clear();
+            assert_eq!(
+                failed_track_next_index_exhausted(&mut state, 7, message),
+                Err(()),
+                "{message}"
+            );
+            assert!(state.failed_occurrence_ids.is_empty());
+        }
+        state.status = "paused".into();
+        assert_eq!(
+            failed_track_next_index_exhausted(&mut state, 7, "decoder failed"),
+            Err(())
+        );
+    }
+
+    #[test]
     fn failure_traversal_rechecks_cancellation_after_initial_failure_eligibility() {
         let mut state = State::default();
         state.queue = vec![Track::default(), Track::default()];
@@ -11174,13 +11259,14 @@ mod tests {
         );
 
         note_audio_started(&mut state);
-        assert!(
-            state.failed_occurrence_ids.is_empty(),
-            "successful audio starts a fresh failure traversal"
+        assert_eq!(
+            state.failed_occurrence_ids.len(),
+            4,
+            "brief audio must not reset an exhausted failure traversal"
         );
         assert_eq!(
             failed_track_next_index(&mut state, 4, "Video has been deleted"),
-            Ok(Some(0))
+            Ok(None)
         );
     }
 

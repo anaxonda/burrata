@@ -21,7 +21,8 @@ describe("PlaybackDiagnosticsSettings", () => {
     const instance = mount(PlaybackDiagnosticsSettings, { target, props: { enabled: false, onEnabledChange, call } as never });
     destroy = () => unmount(instance); await settle();
     expect(target.textContent).toContain("7 of 500 diagnostic events stored");
-    expect(target.textContent).toContain("exclude credentials, signed stream URLs, private-link tokens, titles and user-agent strings");
+    expect(target.querySelector("details.report-details")?.hasAttribute("open")).toBe(false);
+    expect(target.textContent).toContain("reproduce the playback problem");
     const toggle = target.querySelector<HTMLInputElement>("[aria-label='Enable playback diagnostics']")!;
     toggle.click(); await settle();
     expect(onEnabledChange).toHaveBeenCalledWith(true);
@@ -40,11 +41,11 @@ describe("PlaybackDiagnosticsSettings", () => {
     const onClearWebviewDiagnostics = vi.fn(() => {retained=null;});
     const instance = mount(PlaybackDiagnosticsSettings, { target, props: { enabled: true, onEnabledChange: vi.fn(), call, getWebviewDiagnostics, onClearWebviewDiagnostics } as never });
     destroy = () => unmount(instance); await settle();
-    target.querySelector<HTMLButtonElement>("[type=button]:nth-of-type(2)")!.click(); await settle();
+    Array.from(target.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent?.includes("Clear diagnostic events"))!.click(); await settle();
     expect(call).toHaveBeenCalledWith("clear_playback_diagnostics");
     expect(onClearWebviewDiagnostics).toHaveBeenCalledOnce();
     expect(target.textContent).toContain("Playback diagnostic events cleared");
-    target.querySelector<HTMLButtonElement>("[type=button]:nth-of-type(3)")!.click(); await settle();
+    Array.from(target.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent?.includes("Export report"))!.click(); await settle();
     expect(call).toHaveBeenCalledWith("export_playback_diagnostics", {webviewContext:null});
     expect(target.textContent).toContain("Exported 2 playback diagnostic events to /tmp/playback-diagnostics.json");
   });
@@ -55,7 +56,7 @@ describe("PlaybackDiagnosticsSettings", () => {
     const target = document.createElement("div"); document.body.append(target);
     const instance = mount(PlaybackDiagnosticsSettings, {target, props:{enabled:true,onEnabledChange:vi.fn(),call,getWebviewDiagnostics} as never});
     destroy = () => unmount(instance); await settle();
-    target.querySelector<HTMLButtonElement>("[type=button]:nth-of-type(3)")!.click(); await settle();
+    Array.from(target.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent?.includes("Export report"))!.click(); await settle();
     expect(getWebviewDiagnostics).toHaveBeenCalledOnce();
     expect(call).toHaveBeenCalledWith("export_playback_diagnostics", {webviewContext:{status:"playing",mediaEvents:[]}});
   });
@@ -67,8 +68,19 @@ describe("PlaybackDiagnosticsSettings", () => {
     const target = document.createElement("div"); document.body.append(target);
     const instance = mount(PlaybackDiagnosticsSettings, {target, props:{enabled:false,onEnabledChange:vi.fn(),call,getWebviewDiagnostics} as never});
     destroy = () => unmount(instance); await settle();
-    target.querySelector<HTMLButtonElement>("[type=button]:nth-of-type(3)")!.click(); await settle();
+    Array.from(target.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent?.includes("Export report"))!.click(); await settle();
     expect(getWebviewDiagnostics).toHaveBeenCalledOnce();
     expect(call).toHaveBeenCalledWith("export_playback_diagnostics", {webviewContext:retained});
   });
+  it("includes optional comparisons in the report", async () => {
+    const call = vi.fn(async (command: string) => command === "export_playback_diagnostics" ? {cancelled:true} : {enabled:true,eventCount:0,maxEvents:500});
+    const target = document.createElement("div"); document.body.append(target);
+    const instance = mount(PlaybackDiagnosticsSettings, {target, props:{enabled:true,onEnabledChange:vi.fn(),call} as never});
+    destroy = () => unmount(instance); await settle();
+    const browser = target.querySelector<HTMLSelectElement>("[aria-label='Same source in browser']")!;
+    browser.value = "fails"; browser.dispatchEvent(new Event("change", {bubbles:true})); await settle();
+    Array.from(target.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent?.includes("Export report"))!.click(); await settle();
+    expect(call).toHaveBeenCalledWith("export_playback_diagnostics", {webviewContext:{testerObservations:{browserPlayback:"fails",alternateNetworkPlayback:"not_tested",vpn:"unknown"}}});
+  });
+
 });

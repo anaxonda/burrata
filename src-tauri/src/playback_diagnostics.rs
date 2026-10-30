@@ -326,6 +326,21 @@ fn sanitize_detail_value(key: &str, value: &Value, depth: usize) -> Option<Value
         let number = value.as_number()?;
         return bounded_number(key, number).map(Value::Number);
     }
+    // Preserve the evaluator's actual decision, not just legacy matching hints.
+    // Deserialize fixed enums/fields so diagnostic metadata cannot carry text,
+    // credentials, or arbitrary nested provider data through these keys.
+    if key == "sharedDimensions" {
+        let dimensions: crate::recording_match::MatchDimensions =
+            serde_json::from_value(value.clone()).ok()?;
+        return serde_json::to_value(dimensions).ok();
+    }
+    if key == "sharedReasons" {
+        let reasons = value.as_array()?.iter().take(32).filter_map(|value| {
+            serde_json::from_value::<crate::recording_match::MatchReason>(value.clone())
+                .ok().and_then(|reason| serde_json::to_value(reason).ok())
+        }).collect();
+        return Some(Value::Array(reasons));
+    }
     if key == "sourcePageUrl" {
         return public_source_page(value.as_str()?).map(Value::String);
     }
@@ -682,6 +697,8 @@ fn enum_values(key: &str) -> Option<&'static [&'static str]> {
             "geo_restricted",
             "subscription_required",
             "provider_client",
+            "helper_unpack_failed",
+            "storage_unavailable",
             "unsupported_url",
             "cancelled",
             "timeout",
@@ -746,8 +763,16 @@ fn enum_values(key: &str) -> Option<&'static [&'static str]> {
             "negative_cache",
         ]),
         "decision" => Some(&["inspect"]),
+        "sharedAction" => Some(&["inspect", "accept", "enrich", "reject"]),
+        "sharedRelationship" => Some(&["exact", "probable", "alternative", "unresolved"]),
         "gate" => Some(&[
+            "policy_exact",
+            "policy_probable",
+            "policy_inspect",
+            "policy_alternative",
+            "music_catalog_locator",
             "recording_canonical",
+            "recording_verified_alias",
             "verified_artist_alias",
             "topic_canonical",
             "topic_verified_alias",
@@ -1245,6 +1270,31 @@ mod tests {
     }
 
     #[test]
+    fn shared_matching_diagnostics_keep_decisions_but_never_free_text() {
+        let safe = sanitize_details(json!({"rows":[{
+            "gate":"policy_inspect", "sharedAction":"inspect",
+            "sharedRelationship":"unresolved",
+            "sharedReasons":["artistConflict","extractorNeedsInspection","private token=secret"],
+            "sharedDimensions":{"title":"agree","artists":"unknown","guests":"agree",
+                "version":"agree","runtime":"agree","isrc":"unknown","work":"unknown",
+                "extra":"private token=secret"},
+            "title":"private track title"
+        }]}));
+        let row = &safe["rows"][0];
+        assert_eq!(row["gate"], "policy_inspect");
+        assert_eq!(row["sharedAction"], "inspect");
+        assert_eq!(row["sharedRelationship"], "unresolved");
+        assert_eq!(row["sharedReasons"], json!(["artistConflict","extractorNeedsInspection"]));
+        assert_eq!(row["sharedDimensions"]["artists"], "unknown");
+        assert!(!serde_json::to_string(&safe).unwrap().contains("private"));
+        let unsafe_value = sanitize_details(json!({"sharedDimensions":{
+            "title":"private", "artists":"unknown", "guests":"agree", "version":"agree",
+            "runtime":"agree", "isrc":"unknown", "work":"unknown"},
+            "sharedAction":"token=secret", "sharedRelationship":"private"}));
+        assert!(unsafe_value.is_empty());
+    }
+
+    #[test]
     fn extractor_reasons_retain_only_fixed_labels() {
         let safe = sanitize_details(json!({"helperExitCode":1,"stderr":"secret"}));
         assert_eq!(safe["helperExitCode"], 1);
@@ -1260,6 +1310,8 @@ mod tests {
             "geo_restricted",
             "subscription_required",
             "provider_client",
+            "helper_unpack_failed",
+            "storage_unavailable",
             "access_denied",
             "other",
         ] {

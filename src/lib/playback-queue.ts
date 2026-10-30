@@ -214,10 +214,12 @@ export class PlaybackQueue {
     return null;
   }
 
-  /** Failed starts traverse the finite supplied order once, regardless of repeat. */
+  /** Failed starts traverse each occurrence at most once; repeat-all may wrap. */
   nextAfterFailedStart(visitedEntryIds: ReadonlySet<string>): Track | null {
-    const next = this.index + 1;
-    if (this.index < 0 || next >= this.items.length || visitedEntryIds.has(this.items[next]!.entryId)) return null;
+    if (this.index < 0 || !this.items.length) return null;
+    let next = this.index + 1;
+    if (next >= this.items.length && this.repeatMode === "all") next = 0;
+    if (next >= this.items.length || visitedEntryIds.has(this.items[next]!.entryId)) return null;
     this.index = next;
     return this.current;
   }

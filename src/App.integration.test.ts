@@ -9304,6 +9304,7 @@ describe("saved recording navigation", () => {
     expect(complete).not.toHaveBeenCalled();
     audio.currentTime=44; audio.dispatchEvent(new Event("timeupdate")); await settle();
     expect(complete).toHaveBeenCalledTimes(1);
+    audio.currentTime=45; audio.dispatchEvent(new Event("timeupdate")); await settle();
     await vi.advanceTimersByTimeAsync(19_999); await settle();
     expect(mocks.call.mock.calls.filter(([command])=>command==="resolve_preview")).toHaveLength(previewCallsBefore);
   });
@@ -9435,6 +9436,62 @@ describe("saved recording navigation", () => {
     expect(mocks.call.mock.calls.filter(([command]) => command === "resolve_playback_track"), JSON.stringify(mocks.call.mock.calls.filter(([command]) => command === "resolve_playback_track"))).toHaveLength(1);
     expect(document.querySelector(".player-error")).toBeNull();
     expect(document.querySelector<HTMLElement>(".player-status")?.textContent).not.toContain("could not resume");
+  });
+
+  it("bounds repeat-all when each recording briefly plays and then fails", async () => {
+    vi.useFakeTimers(); previewMode="direct"; directPreviewExcerpt=false;
+    savedChartTracks=[savedTrack,secondTrack]; automationPlaybackAck={protocolVersion:1,accepted:true,needFull:false};
+    vi.spyOn(HTMLMediaElement.prototype,"readyState","get").mockReturnValue(2);
+    vi.spyOn(HTMLMediaElement.prototype,"duration","get").mockReturnValue(240);
+    vi.spyOn(HTMLMediaElement.prototype,"paused","get").mockReturnValue(false);
+    vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});
+    vi.spyOn(HTMLMediaElement.prototype,"play").mockImplementation(playAndAdvanceMediaClock);
+    const base=mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async(command,args)=>{
+      if(command==="resolve_playback_track") throw new Error("No playable audio match was found");
+      return base(command,args);
+    });
+    const instance=mount(App,{target:document.body}); unmountApp=()=>{void unmount(instance);}; await settle();
+    expect((await automationAction("brief-repeat-start","play",{trackIds:[savedTrack.id,secondTrack.id]})).error).toBeNull();
+    await automationAction("brief-repeat-mode","repeat",{mode:"all"});
+    for(let i=0;i<2;i++) {
+      const audio=document.querySelector("audio")!;
+      Object.defineProperty(audio,"error",{configurable:true,value:{code:3,message:"Decoder failed"}});
+      audio.dispatchEvent(new Event("error")); await settle(); await settle();
+      Object.defineProperty(audio,"error",{configurable:true,value:null});
+    }
+    const state=(await automationAction("brief-repeat-state","volume",{volume:0.8})).playback;
+    expect(state.paused).toBe(true); expect(state.playerMessage).toContain("end of the queue");
+    expect(state.diagnostics).toMatchObject({recentTrackFailures: [expect.any(Object), expect.any(Object)]});
+  });
+
+  it("recovers a frozen local clock after an acknowledged seek and advances when retry fails", async () => {
+    vi.useFakeTimers();
+    const local = { ...savedTrack, localPath: "/music/fixture.flac", durationSeconds: 240 };
+    savedChartTracks = [local, secondTrack]; previewMode = "direct"; directPreviewExcerpt = false;
+    automationPlaybackAck = { protocolVersion: 1, accepted: true, needFull: false };
+    vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(2);
+    vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(240);
+    vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockReturnValue(false);
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
+    const base = mocks.call.getMockImplementation()!; let localResolutions = 0;
+    mocks.call.mockImplementation(async (command, args) => {
+      if (command === "resolve_preview" && (args as {track?: Track}).track?.id === local.id) {
+        if (++localResolutions > 1) throw new Error("No playable audio match was found");
+        return {kind:"local",url:"/fixture.flac",canSeek:true,canVolume:true,canAutoplay:true,isExcerpt:false,durationSeconds:240};
+      }
+      if (command === "resolve_playback_track" && (args as {track?: Track}).track?.id === local.id) throw new Error("No playable audio match was found");
+      return base(command,args);
+    });
+    const instance=mount(App,{target:document.body}); unmountApp=()=>{void unmount(instance);}; await settle();
+    expect((await automationAction("frozen-local-start","play",{trackIds:[local.id,secondTrack.id]})).error).toBeNull();
+    const audio=document.querySelector("audio")!;
+    expect((await automationAction("frozen-local-seek","seek",{position:60})).error).toBeNull();
+    audio.dispatchEvent(new Event("seeked")); await settle();
+    await vi.advanceTimersByTimeAsync(5_000); await settle(); await settle();
+    const state=(await automationAction("frozen-local-state","volume",{volume:0.8})).playback;
+    expect(localResolutions).toBeGreaterThan(1); expect(state.trackId).toBe(secondTrack.id); expect(state.paused).toBe(false);
   });
 
   it("hands off a stalled eligible seek after five seconds and applies a newer seek safely", async () => {
@@ -9782,15 +9839,10 @@ describe("saved recording navigation", () => {
     await new Promise((resolve) => setTimeout(resolve, 150));
     await settle();
 
-    expect(document.querySelector(".player-status")?.textContent).toContain("Unavailable");
-    expect(document.querySelector(".player-status")?.getAttribute("title")).toContain("20-second playback deadline");
-    expect(document.querySelector(".player-error")?.textContent).toContain("20-second playback deadline");
-    expect(pause).toHaveBeenCalled();
-    [...document.querySelectorAll(".shared-track-list > li")].find((item) => item.textContent?.includes("Another Recording"))!
-      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    await settle();
     expect(document.querySelector(".player-status")?.textContent).toContain("Playing");
-    expect(document.querySelector(".player-error")).toBeNull();
+    expect(document.querySelector(".now-playing")?.textContent).toContain("Another Recording");
+    expect(document.querySelector(".banner.notice")?.textContent).toContain("20-second playback deadline");
+    expect(pause).toHaveBeenCalled();
     const newAudio = document.querySelector("audio")!;
     const pausesWhileNewTrackPlays = pause.mock.contexts.filter(node => node === newAudio).length;
     finishPlay?.();
@@ -12901,6 +12953,15 @@ describe("native playback frontend", () => {
     expect(result.playback.queue.map(track=>track.id)).toEqual([savedTrack.id,savedTrack.id]);
     const state=JSON.parse(localStorage.getItem('burrata.playback-queue.v1')!);expect(state.entryIds).toHaveLength(2);expect(new Set(state.entryIds).size).toBe(2);
   });
+  it("pausing a pending failure prevents late queue advancement",async()=>{
+    const fixture=await mountInitialQueueFailureFixture("Network connection unavailable",{hold:true});
+    await automationAction("pause-held-failure","pause");
+    fixture.release()!(new Error("Network connection unavailable")); await settle(); await settle();
+    expect(fixture.resolved).toEqual([savedTrack.id]);
+    const snapshot=(await automationAction("pause-held-state","volume",{volume:0.8})).playback;
+    expect(snapshot.currentIndex).toBe(0); expect(snapshot.paused).toBe(true);
+    expect(snapshot.diagnostics).toMatchObject({recentTrackFailures: []});
+  });
   it("cancellation ownership survives advancement to a held second occurrence",async()=>{
     const fixture=await mountInitialQueueFailureFixture('No playable audio match was found',{holdAfterSkip:true});
     expect(fixture.resolved).toEqual([savedTrack.id,secondTrack.id]);
@@ -12917,8 +12978,11 @@ describe("native playback frontend", () => {
     expect(document.querySelector(".player-error")?.textContent).toContain(completeCopy);
     expect(fixture.completion()!.playback.trackId).toBe(savedTrack.id);
   });
-  it.each(['HTTP 429 temporarily unavailable','Network connection unavailable','Playback request cancelled'])("initial queue global failure stays on the opener: %s",async(reason)=>{
-    const fixture=await mountInitialQueueFailureFixture(reason);expect(fixture.resolved).toEqual([savedTrack.id]);expect(fixture.completion()!.error).not.toBeNull();expect(fixture.completion()!.playback.currentIndex).toBe(0);expect(fixture.completion()!.playback.diagnostics.recentTrackFailures).toEqual([]);
+  it.each(['HTTP 429 temporarily unavailable','Network connection unavailable'])("initial queue advances after exhausted failure: %s",async(reason)=>{
+    const fixture=await mountInitialQueueFailureFixture(reason);expect(fixture.resolved).toEqual([savedTrack.id,secondTrack.id]);expect(fixture.completion()!.playback.currentIndex).toBe(1);expect(fixture.completion()!.playback.paused).toBe(false);
+  });
+  it("initial queue does not advance after cancellation",async()=>{
+    const fixture=await mountInitialQueueFailureFixture('Playback request cancelled');expect(fixture.resolved).toEqual([savedTrack.id]);expect(fixture.completion()!.playback.currentIndex).toBe(0);expect(fixture.completion()!.playback.diagnostics.recentTrackFailures).toEqual([]);
   });
   it("cancelling a held initial opener prevents a late queue skip or success",async()=>{
     const fixture=await mountInitialQueueFailureFixture('No playable audio match was found',{hold:true});
@@ -13114,12 +13178,12 @@ describe("native playback frontend", () => {
     expect(snapshot.playerMessage).toContain("reached the end of the queue (1 unavailable occurrences checked)");
     expect(snapshot.playerMessage).toContain("Video has been deleted");expect(snapshot.playerMessage).not.toContain("skipping 3");
   });
-  it.each(["Network connection timed out","HTTP 403 forbidden","HTTP 404 unavailable","HTTP 429 too many requests"])("WebView queue audit stops retryable failures on the current occurrence: %s",async(reason)=>{
+  it.each(["Network connection timed out","HTTP 403 forbidden","HTTP 404 unavailable","HTTP 429 too many requests"])("WebView queue advances after exhausted failures: %s",async(reason)=>{
     const fixture=await mountQueueFailureFixture(reason);
     const snapshot=(await automationAction("queue-network-inspect","volume",{volume:0.8})).playback;
-    expect(fixture.resolved()).toEqual([savedTrack.id,fixture.middle.id]);
-    expect(snapshot.currentIndex).toBe(1);expect(snapshot.trackId).toBe(fixture.middle.id);expect(snapshot.paused).toBe(true);
-    expect((snapshot.diagnostics as {recentTrackFailures:unknown[]}).recentTrackFailures).toEqual([]);
+    expect(fixture.resolved()).toEqual([savedTrack.id,fixture.middle.id,fixture.last.id]);
+    expect(snapshot.currentIndex).toBe(2);expect(snapshot.trackId).toBe(fixture.last.id);expect(snapshot.paused).toBe(false);
+    expect((snapshot.diagnostics as {recentTrackFailures:unknown[]}).recentTrackFailures).toHaveLength(1);
   });
   it.each([
     ["No audio results were returned by the available providers. Open the catalog source or choose another source.", "no_audio_results"],
@@ -13141,11 +13205,11 @@ describe("native playback frontend", () => {
     expect(fixture.resolved()).toEqual([savedTrack.id,fixture.middle.id,fixture.last.id]);
     expect(snapshot.repeat).toBe("one");expect(snapshot.currentIndex).toBe(2);expect(snapshot.paused).toBe(false);
   });
-  it("WebView queue audit excludes a failed radio station from recording auto-skip",async()=>{
+  it("WebView queue advances after a failed radio station",async()=>{
     const fixture=await mountQueueFailureFixture("unused","radio");
     const snapshot=(await automationAction("queue-radio-inspect","volume",{volume:0.8})).playback;
-    expect(fixture.resolved()).toEqual([savedTrack.id]);expect(snapshot.currentIndex).toBe(1);expect(snapshot.paused).toBe(true);
-    expect(snapshot.playerMessage).toContain("Radio could not play");
+    expect(fixture.resolved()).toEqual([savedTrack.id,fixture.last.id]);expect(snapshot.currentIndex).toBe(2);expect(snapshot.paused).toBe(false);
+    expect(document.querySelector(".banner.notice")?.textContent).toContain("Radio could not play");
   });
   it("WebView queue audit bounds consecutive unavailable skips without wrapping into radio",async()=>{
     previewMode="fallback";savedChartTracks=[savedTrack,...Array.from({length:5},(_,i)=>({...secondTrack,id:`failed-${i}`,title:`Unavailable ${i}`}))];

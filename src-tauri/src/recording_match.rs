@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) const EVALUATOR_VERSION: &str = "11";
+pub(crate) const EVALUATOR_VERSION: &str = "12";
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -267,13 +267,14 @@ pub(crate) fn verified_soulseek_folder_artist(candidate: &Candidate) -> Option<S
 fn strip_caption_presentation(mut raw: &str) -> &str {
     for _ in 0..4 {
         let bracketed = crate::matching::split_balanced_trailing_parenthetical(raw)
-            .or_else(|| raw.strip_suffix(']').and_then(|s| s.rsplit_once(" [")));
+            .or_else(|| raw.strip_suffix(']').and_then(|s| s.rsplit_once('[')));
         let Some((base, label)) = bracketed else {
             break;
         };
         if !matches!(
             norm(label).as_str(),
-            "official audio"
+            "audio"
+                | "official audio"
                 | "official video"
                 | "official music video"
                 | "official lyric video"
@@ -2045,10 +2046,24 @@ fn build_comparison(
         .collect::<Vec<_>>();
     requested_guests.sort();
     requested_guests.dedup();
-    let request_primary_credits = primary_credit_override
+    let mut request_primary_credits = primary_credit_override
         .filter(|credits| !credits.is_empty() && credits.len() <= 16)
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| structured_primary_credits(track, &comparison_artist));
+    // A named remixer may also appear as a catalog artist. When both sides
+    // name the same remix, its version already identifies that credit; the
+    // caption need only identify the remaining performers.
+    if same_remix && request_primary_credits.len() > 1 {
+        let remixer = requested_semantic.strip_suffix(" remix").unwrap_or("");
+        let retained = request_primary_credits
+            .iter()
+            .filter(|credit| norm_artist(credit) != norm_artist(remixer))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !retained.is_empty() {
+            request_primary_credits = retained;
+        }
+    }
     let request_credit_parts = request_primary_credits
         .iter()
         .cloned()
@@ -3032,6 +3047,74 @@ mod tests {
             ),
             ..Candidate::default()
         }
+    }
+
+    #[test]
+    fn named_remix_dash_title_matches_caption_with_catalog_remixer_credit() {
+        let mut request = Track {
+            artist: "Bomba Estéreo, Tainy".into(),
+            title: "To My Love - Tainy Remix".into(),
+            duration_seconds: Some(251.0),
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            provider: "youtube".into(),
+            title: "Bomba Estéreo - To My Love (Tainy Remix)".into(),
+            duration_seconds: Some(252.0),
+            ..Candidate::default()
+        };
+        for structured in [false, true] {
+            if structured {
+                request.provenance = json!({"artistCredits":[
+                    {"name":"Bomba Estéreo","role":"artist"},
+                    {"name":"Tainy","role":"artist"}
+                ]});
+            }
+            let result = assess(&request, &candidate, MatchLevel::Balanced, MatchStage::Search);
+            assert!(matches!(result.action, MatchAction::Accept | MatchAction::Inspect), "{result:?}");
+            assert_eq!(result.dimensions.title, Comparison::Agree, "{result:?}");
+            assert_eq!(result.dimensions.version, Comparison::Agree, "{result:?}");
+            assert_eq!(result.dimensions.artists, Comparison::Agree, "{result:?}");
+            let audio = Candidate { title: "Bomba Estéreo - To My Love (Tainy Remix)[Audio]".into(), duration_seconds: Some(254.0), ..candidate.clone() };
+            let result = assess(&request, &audio, MatchLevel::Balanced, MatchStage::Search);
+            assert!(matches!(result.action, MatchAction::Accept | MatchAction::Inspect), "{result:?}");
+            for suffix in ["Other Remix", "Live", "Cover"] {
+                let other = Candidate { title: format!("Bomba Estéreo - To My Love ({suffix})"), ..candidate.clone() };
+                let result = assess(&request, &other, MatchLevel::Balanced, MatchStage::Search);
+                assert_ne!(result.action, MatchAction::Accept, "{suffix}: {result:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn vocal_edit_full_metadata_identifies_all_requested_performers() {
+        let request = Track {
+            artist: "El Búho, Gotopo".into(),
+            title: "Mañana Tepotzlan - Vocal Edit".into(),
+            duration_seconds: Some(270.0),
+            provenance: json!({"catalog":{"artistCount":2,"artists":[
+                {"name":"El Búho","provider":"spotify","id":"1I7FVmvisCtSFzmm87mbLR"},
+                {"name":"Gotopo","provider":"spotify","id":"0rmwkyTOL6DJ3GISXikmUF"}
+            ],"provider":"spotify","verified":true}}),
+            ..Track::default()
+        };
+        let mut candidate = Candidate {
+            id: "youtube:2fT_ojy_tYc".into(),
+            provider: "youtube".into(),
+            title: "Mañana Tepotzlan (Vocal Edit)".into(),
+            duration_seconds: Some(270.0),
+            confidence: "low".into(),
+            source_metadata: Some(json!({"artistCount":2,"artists":["El Búho","Gotopo"],
+                "catalogTitle":"Mañana Tepotzlan (Vocal Edit)","track":"Mañana Tepotzlan (Vocal Edit)",
+                "extractor":true,"resolvedProviderId":"2fT_ojy_tYc","sourceMetadataOrigin":"ytDlpFullInfo"})),
+            ..Candidate::default()
+        };
+        let resolved = assess(&request, &candidate, MatchLevel::Balanced, MatchStage::Resolved);
+        assert_eq!(resolved.action, MatchAction::Accept, "{resolved:?}");
+        candidate.title = "Mañana Tepotzlan (Radio Edit)".into();
+        candidate.source_metadata.as_mut().unwrap()["catalogTitle"] = json!("Mañana Tepotzlan (Radio Edit)");
+        candidate.source_metadata.as_mut().unwrap()["track"] = json!("Mañana Tepotzlan (Radio Edit)");
+        assert_ne!(assess(&request, &candidate, MatchLevel::Balanced, MatchStage::Resolved).action, MatchAction::Accept);
     }
 
     #[test]
@@ -5205,3 +5288,7 @@ mod prepared_evidence_tests {
         assert!(!compare_prepared(&prepared).identifier_conflict);
     }
 }
+
+#[cfg(test)]
+#[path = "recording_match_pattern_tests.rs"]
+mod recording_match_pattern_tests;
