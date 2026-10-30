@@ -99,6 +99,24 @@ describe("attachAudioStream", () => {
     expect(audio.hasAttribute("src")).toBe(false);
   });
 
+  it("does not forward a fatal error after its source has been superseded", async () => {
+    const audio = audioElement();
+    let current = true;
+    const onError = vi.fn(), mediaError = vi.fn();
+    audio.addEventListener("error", mediaError);
+    const preparing = attachAudioStream(audio, "https://cdn.test/old.m3u8", null,
+      { loadHls: fakeLoader(), isCurrent: () => current, onError });
+    await Promise.resolve();
+    const hls = FakeHls.instance;
+    hls.emit(attached);
+    const handle = await preparing;
+    current = false;
+    hls.emit(errorEvent, { fatal: true, details: "fragLoadError" });
+    expect(onError).not.toHaveBeenCalled();
+    expect(mediaError).not.toHaveBeenCalled();
+    handle.destroy();
+  });
+
   it("rejects fatal setup errors before media is ready and unsupported MSE", async () => {
     const audio = audioElement();
     const loadHls = fakeLoader();

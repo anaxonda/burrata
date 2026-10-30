@@ -98,9 +98,13 @@ export class NativePlaybackBridge {
     this.snapshot = null;
     this.pendingState = null;
     const lifecycle = this.lifecycle;
+    const ensureCurrent = () => {
+      if (lifecycle !== this.lifecycle) throw new Error("Native playback initialization was cancelled");
+    };
     let receivedStateEvent = false;
     try {
-      this.stopState = await this.listen<NativeStateEvent>("native-playback-state", ({ payload }) => {
+      const stopState = await this.listen<NativeStateEvent>("native-playback-state", ({ payload }) => {
+        if (lifecycle !== this.lifecycle) return;
         if (this.acceptSnapshot(payload)) { receivedStateEvent = true; onState(this.snapshot!); }
         else if (this.snapshot && this.pendingState && !this.refreshingQueue) {
           this.refreshingQueue = true;
@@ -111,7 +115,10 @@ export class NativePlaybackBridge {
           });
         }
       });
-      this.stopPosition = await this.listen<NativePositionEvent>("native-playback-position", ({ payload }) => {
+      if (lifecycle !== this.lifecycle) { stopState(); ensureCurrent(); }
+      this.stopState = stopState;
+      const stopPosition = await this.listen<NativePositionEvent>("native-playback-position", ({ payload }) => {
+        if (lifecycle !== this.lifecycle) return;
         if (!this.snapshot || payload.generation !== this.snapshot.generation ||
             payload.revision !== undefined && payload.revision < this.snapshot.revision) return;
         this.snapshot = { ...this.snapshot,
@@ -123,11 +130,15 @@ export class NativePlaybackBridge {
         };
         onPosition(payload);
       });
+      if (lifecycle !== this.lifecycle) { stopPosition(); ensureCurrent(); }
+      this.stopPosition = stopPosition;
       let initial = await this.invoke<NativePlaybackSnapshot>("get_playback_snapshot");
+      ensureCurrent();
       if (!initial || typeof initial !== "object") throw new Error("Native playback snapshot is unavailable");
       const pendingQueue = this.pendingState as NativeStateEvent | null;
       if (pendingQueue?.queueRevision !== undefined && initial.queueRevision !== pendingQueue.queueRevision) {
         initial = await this.invoke<NativePlaybackSnapshot>("get_playback_snapshot");
+        ensureCurrent();
       }
       const latest = this.snapshot as NativePlaybackSnapshot | null;
       if (!latest || initial.revision > latest.revision || !receivedStateEvent && initial.revision >= latest.revision) {
@@ -137,8 +148,11 @@ export class NativePlaybackBridge {
       if (!this.snapshot) throw new Error("Native playback queue is unavailable");
       return this.snapshot;
     } catch (error) {
-      this.dispose();
-      this.snapshot = null;
+      // An obsolete initialization must never tear down its replacement.
+      if (lifecycle === this.lifecycle) {
+        this.dispose();
+        this.snapshot = null;
+      }
       throw error;
     }
   }

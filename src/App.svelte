@@ -5274,6 +5274,8 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     // The last startup play owner remains installed after settling; retire that
     // stale cancel closure so the next generation does not pause healthy media.
     cancelWebviewStartupPlay = null;
+    const previousRecovery = automaticPreviewRecovery;
+    const previousAttachment = successfulRecoveryAttachment;
     const request = nextPreviewRequest();
     const sourceOwner = { ...source, sourceGeneration: request };
     // Advance the frontend generation while retaining the current direct URL as
@@ -5285,11 +5287,12 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
       preview?.url === sourceOwner.url &&
       preview?.sourceGeneration === request && seekSerial === initialSeekSerial && paused === wasPaused;
     const deadline = performance.now() + playbackStartupTimeoutMs();
-    automaticPreviewRecovery = {
-      request, track, tried: new Set(), attempts: 0, sourceAttempts: 0, deadline,
-      exactSourceOnly: true,
-    };
-    let routeStartupStarted = false;
+    // The old route is still playing during this optional lookup. Transfer its
+    // recovery ownership without resetting its retry history or deadline.
+    automaticPreviewRecovery = previousRecovery ? { ...previousRecovery, request } : undefined;
+    successfulRecoveryAttachment = previousAttachment && previousAttachment.request === previousRecovery?.request
+      ? { ...previousAttachment, request } : null;
+    armWebviewStallWatchdog(node);
     try {
       let routeCandidate = candidate;
       if (candidate.provider === "monochrome") {
@@ -5316,7 +5319,10 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
       position = playhead;
       pendingResumePosition = playhead;
       if (!requestOwnerIsCurrentAfterFreeze()) return;
-      routeStartupStarted = true;
+      automaticPreviewRecovery = {
+        request, track, tried: new Set(), attempts: 0, sourceAttempts: 0, deadline,
+        exactSourceOnly: true,
+      };
       const started = await startResolvedPreviewAudio(track, routeCandidate, resolved, request, wasPaused);
       if (started && preview?.url === resolved.url && playingTrack?.id === track.id && requestOwner === waveformRouteUpgradeRequest) {
         waveformRouteUpgradeStatus = "Waveform-capable route active for this stream.";
@@ -5326,8 +5332,6 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
       }
     } catch {
       if (isCurrent()) waveformRouteUpgradeStatus = "Could not prepare a waveform-capable route for this stream.";
-    } finally {
-      if (!routeStartupStarted && automaticPreviewRecovery?.request === request) automaticPreviewRecovery = undefined;
     }
     function requestOwnerIsCurrentAfterFreeze(): boolean {
       return requestOwner === waveformRouteUpgradeRequest && waveformEnabled && !nativeActive() &&
@@ -6702,7 +6706,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
   function signalWebviewResumeProgress(node: HTMLAudioElement) {
     const attempt = pendingWebviewResume;
     if (!attempt || attempt.node !== node || node !== audio || attempt.source !== preview ||
-        attempt.playRequestedAtMs === null || node.paused || node.readyState < 2 ||
+        attempt.playRequestedAtMs === null || node.paused || node.seeking || node.ended || node.error || node.readyState < 2 ||
         !Number.isFinite(node.currentTime) || node.currentTime - attempt.startPosition < 0.25) return;
     // Some WebViews leave play() pending after media has actually resumed. Only
     // accept a resume after this exact node/source has advanced media time while
@@ -6718,11 +6722,12 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     let resolveStarted!: () => void;
     const started = new Promise<void>(resolve => { resolveStarted = resolve; });
     const attempt = {token:++webviewResumeSequence,cancelledGeneration:null as number|null,node,source,
-      startPosition:node.currentTime,playRequestedAtMs:null as number|null,started,resolveStarted};
+      startPosition:node.ended ? 0 : node.currentTime,playRequestedAtMs:null as number|null,started,resolveStarted};
     pendingWebviewResume = attempt;
     const startedAt = performance.now(), deadline = startedAt + playbackStartupTimeoutMs();
     const sameSource = () => audio === node && preview === source && playingTrack?.id === trackId && playbackSession === session && source.sourceGeneration === preview?.sourceGeneration;
     const stillCurrent = () => pendingWebviewResume === attempt && sameSource() && seekSerial === serial && audioStartupGeneration === startupGeneration && queueIndex === index && (automationQueueProjection.entryIds[index] ?? null) === entryId && (!automationRequestId || activeAutomationPlayback === automationRequestId);
+    let progressCheck: ReturnType<typeof setInterval> | undefined;
     bufferingAudio = true; previewStatus = "Resuming audio…";
     try {
       await withinPreviewStartupBudget(() => {
@@ -6733,7 +6738,17 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
         void promise.then(() => {
           if (attempt.cancelledGeneration !== null && webviewResumeSequence === attempt.cancelledGeneration && !pendingWebviewResume && sameSource()) node.pause();
         }, () => {});
-        return Promise.race([promise, attempt.started]);
+        // As at first startup, a settled play() is not proof that the decoder
+        // has resumed. Require progress from this source under the same budget.
+        progressCheck = setInterval(() => {
+          if (stillCurrent()) signalWebviewResumeProgress(node);
+        }, 25);
+        return new Promise<void>((resolve, reject) => {
+          void promise.then(() => {
+            if (stillCurrent()) signalWebviewResumeProgress(node);
+          }, reject);
+          void attempt.started.then(resolve);
+        });
       }, deadline, stillCurrent);
       if (!stillCurrent()) return "cancelled";
       paused = false; bufferingAudio = false;
@@ -6760,6 +6775,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
       }
       return "failed";
     } finally {
+      if (progressCheck !== undefined) clearInterval(progressCheck);
       if (pendingWebviewResume === attempt) { pendingWebviewResume = null; bufferingAudio = false; }
     }
   }
@@ -11313,7 +11329,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
         oncanplaythrough={(event) => recordWebviewMediaEvent("canplaythrough",event.currentTarget)}
         onseeking={(event) => { if(event.currentTarget!==audio)return; if(!webviewWaveformSeekDrain || webviewWaveformSeekDrain.node!==event.currentTarget || webviewWaveformSeekDrain.sourceGeneration!==(preview?.sourceGeneration??null) || webviewWaveformSeekDrain.seekSerial!==seekSerial)webviewWaveformSeekDrain={node:event.currentTarget,sourceGeneration:preview?.sourceGeneration??null,seekSerial,targetPositionSeconds:event.currentTarget.currentTime}; if(webviewObservedCapture?.node===event.currentTarget && webviewObservedCapture.started)cancelWebviewObservedCapture("Whole-track WebView analysis was discarded because the source was seeked."); webviewBufferingRecovery.reset(); webviewStallWatchdog.reset(); recordWebviewMediaEvent("seeking",event.currentTarget); }}
         onratechange={(event) => { if(event.currentTarget!==audio)return; if(webviewObservedCapture?.node===event.currentTarget && webviewObservedCapture.started && event.currentTarget.playbackRate!==1)cancelWebviewObservedCapture("Whole-track WebView analysis was discarded because playback speed changed."); }}
-        onplaying={(event) => { if(event.currentTarget!==audio)return; if(blockedStartupNodes.has(event.currentTarget)){event.currentTarget.pause();return;} signalWebviewResumeProgress(event.currentTarget); webviewBufferingRecovery.reset(); recordWebviewMediaEvent("playing",event.currentTarget); paused = false; armPendingWebviewSeekAfterResume(event.currentTarget); if(!pendingWebviewResume && !activeWebviewSeek)refreshSteadyMonitorAfterCompletedSeek(event.currentTarget); const source=preview; if(source){const owner=webviewStallOwner(event.currentTarget,source,seekSerial);if(owner)webviewStallWatchdog.observeProgress(owner,event.currentTarget.currentTime);} bufferingAudio = false; void recordSuccessfulPlayback(); prepareUpcomingWebviewCandidate(event.currentTarget); }}
+        onplaying={(event) => { if(event.currentTarget!==audio)return; if(blockedStartupNodes.has(event.currentTarget)){event.currentTarget.pause();return;} signalWebviewResumeProgress(event.currentTarget); webviewBufferingRecovery.reset(); recordWebviewMediaEvent("playing",event.currentTarget); paused = false; armPendingWebviewSeekAfterResume(event.currentTarget); if(!pendingWebviewResume && !activeWebviewSeek)refreshSteadyMonitorAfterCompletedSeek(event.currentTarget); const source=preview; if(source){const owner=webviewStallOwner(event.currentTarget,source,seekSerial);if(owner)webviewStallWatchdog.observeProgress(owner,event.currentTarget.currentTime);} bufferingAudio = Boolean(pendingWebviewResume && pendingWebviewResume.node === event.currentTarget && pendingWebviewResume.source === preview); void recordSuccessfulPlayback(); prepareUpcomingWebviewCandidate(event.currentTarget); }}
         onended={(event) => { if(event.currentTarget!==audio)return; void finishWebviewObservedCapture(event.currentTarget); webviewSeekCompletionWatchdog.cancel(); activeWebviewSeek=null; webviewBufferingRecovery.reset(); webviewStallWatchdog.reset(); recordWebviewMediaEvent("ended",event.currentTarget); if(playingRadioStation)recoverOwnedAudioFailure(event.currentTarget,"Radio stream ended; reconnecting to the same station.");else completeWebviewQueueOccurrence(false, event.currentTarget); }}
         onerror={(event) => { if(event.currentTarget!==audio)return; if(webviewObservedCapture?.node===event.currentTarget)cancelWebviewObservedCapture("Whole-track WebView analysis was discarded because the stream failed."); webviewBufferingRecovery.reset(); recordWebviewMediaEvent("error",event.currentTarget); recoverAudioFailure(event); }}
       >

@@ -3481,6 +3481,33 @@ describe("saved recording navigation", () => {
     expect(changedFormat?.layout?.waveformDiagnostics).toMatchObject({ source: "stream-analysis", complete: true, populatedBins: 512 });
   });
 
+  it("keeps stall recovery armed when an optional waveform route lookup fails", async () => {
+    vi.useFakeTimers();
+    previewMode = "fallback";
+    const base = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async (command, args) => {
+      if (command === "resolve_candidate_audio") throw new Error("Optional waveform route unavailable");
+      const result = await base(command, args);
+      if (command === "resolve_playback_track" && result?.preview)
+        return { ...result, preview: { ...result.preview, normalizationRoute: undefined } };
+      return result;
+    });
+    vi.spyOn(HTMLMediaElement.prototype, "duration", "get").mockReturnValue(240);
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
+    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); };
+    await settle();
+    await automationAction("failed-waveform-start", "play", {trackIds:[savedTrack.id]});
+    const audio = document.querySelector("audio")!;
+    document.querySelector<HTMLButtonElement>('[aria-label="Waveform seek bar"]')!.click();
+    await settle();
+    expect(mocks.call.mock.calls.filter(([command]) => command === "resolve_candidate_audio")).toHaveLength(1);
+    expect(document.querySelector("audio")).toBe(audio);
+    audio.dispatchEvent(new Event("waiting"));
+    await vi.advanceTimersByTimeAsync(20_000);
+    await settle();
+    expect(mocks.call.mock.calls.filter(([command]) => command === "resolve_playback_track")).toHaveLength(2);
+  });
+
   it("discards a pending waveform route upgrade after disable or playback source change", async () => {
     previewMode = "fallback";
     automationTrackLookup = [savedTrack, secondTrack];
@@ -10087,13 +10114,46 @@ describe("saved recording navigation", () => {
     const completion=(id:string)=>mocks.call.mock.calls.find(([command,args])=>command==="automation_playback_complete"&&(args as {requestId?:string}).requestId===id)?.[1] as {error:string|null;playback:Record<string,unknown>}|undefined;
     return {play,pause,audio,begin,completion};
   }
-  it("bounds a hung existing WebView resume at twenty seconds and retains paused seek state",async()=>{
+  it("accepts resumed progress from zero when replaying an ended WebView source", async () => {
+    const fixture = await loadedResumeFixture();
+    fixture.audio.currentTime = 240;
+    let ended = true;
+    vi.spyOn(HTMLMediaElement.prototype, "ended", "get").mockImplementation(() => ended);
+    fixture.play.mockImplementationOnce(function(this: HTMLMediaElement) {
+      ended = false;
+      this.currentTime = 0;
+      return playAndAdvanceMediaClock.call(this);
+    });
+    fixture.begin("ended-replay-resume");
+    await settle();
+    expect(fixture.completion("ended-replay-resume")?.error).toBeNull();
+    expect(fixture.audio.currentTime).toBeCloseTo(0.3);
+  });
+
+  it("does not report a settled but frozen existing WebView resume as playing", async () => {
+    const fixture = await loadedResumeFixture();
+    vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(2);
+    vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockReturnValue(false);
+    fixture.play.mockResolvedValueOnce();
+    fixture.begin("settled-frozen-resume");
+    await settle();
+    fixture.audio.dispatchEvent(new Event("playing"));
+    await settle();
+    expect(fixture.completion("settled-frozen-resume")).toBeUndefined();
+    expect(document.querySelector('[aria-label="Pause loading playback"]')).not.toBeNull();
+    fixture.audio.currentTime = 10.3;
+    fixture.audio.dispatchEvent(new Event("timeupdate"));
+    await settle();
+    expect(fixture.completion("settled-frozen-resume")?.error).toBeNull();
+  });
+
+  it.each(["pending", "settled"] as const)("bounds a frozen existing WebView resume (%s) at twenty seconds and retains paused seek state",async mode=>{
     const fixture=await loadedResumeFixture();
     // A ready decoder alone is not resume proof: without media-time progress,
     // this held play promise must still hit the finite deadline.
     vi.spyOn(HTMLMediaElement.prototype,"readyState","get").mockReturnValue(2);
     vi.spyOn(HTMLMediaElement.prototype,"paused","get").mockReturnValue(false);
-    fixture.play.mockImplementation(()=>new Promise<void>(()=>{}));
+    fixture.play.mockImplementation(() => mode === "pending" ? new Promise<void>(() => {}) : Promise.resolve());
     const realTimeout=setTimeout;
     const timeout=vi.spyOn(globalThis,"setTimeout").mockImplementation(((callback:any,ms?:number,...args:any[])=>realTimeout(callback,ms===20000?40:ms,...args)) as typeof setTimeout);
     vi.spyOn(performance,"now").mockReturnValue(1000);
@@ -10170,6 +10230,7 @@ describe("saved recording navigation", () => {
     fixture.begin("pause-event-resume");await settle();
     Object.defineProperty(fixture.audio,"paused",{configurable:true,value:false});
     fixture.audio.dispatchEvent(new Event("pause"));await settle();
+    fixture.audio.currentTime = 10.3;
     finish();await settle();
     const result=fixture.completion("pause-event-resume")!;
     expect(result.error).toBeNull();expect(result.playback.paused).toBe(false);
@@ -10182,6 +10243,8 @@ describe("saved recording navigation", () => {
     fixture.begin("resume-after-seek");await settle();
     fixture.audio.dispatchEvent(new Event("seeked"));await settle();
     expect(fixture.completion("resume-after-seek")).toBeUndefined();
+    Object.defineProperty(fixture.audio,"paused",{configurable:true,value:false});
+    fixture.audio.currentTime = 15.3;
     finish();await settle();
     const result=fixture.completion("resume-after-seek")!;
     expect(result.error).toBeNull();
@@ -11318,6 +11381,9 @@ describe("native playback frontend", () => {
   });
 
   it("clears a skip notice for paused WebView MCP navigation, not failed play hydration", async () => {
+    // Keep a live native subscription for the later engine transition. A failed
+    // bootstrap now correctly retires its callbacks instead of accepting events.
+    nativePlaybackSnapshot = makeNativeSnapshot({engine:"webview",status:"idle"});
     await mountQueueFailureFixture("No playable audio match was found for the skipped recording");
     const skipMessage = document.querySelector(".banner.notice")?.textContent ?? "";
     expect(skipMessage).toContain("Skipped Unavailable middle album recording");

@@ -140,6 +140,9 @@ export async function attachAudioStream(
     };
     const onHlsError = (_event: string, data?: HlsErrorData) => {
       if (!data?.fatal || fatalForwarded || destroyed) return;
+      // HLS can deliver queued failures after the caller changes sources.
+      // Never turn an old transport failure into an error on the current player.
+      if (!isCurrent() || audioOwners.get(audio) !== owner) { destroy(); return; }
       fatalForwarded = true;
       const error = new Error(data.details || `Fatal HLS playback error${data.type ? ` (${data.type})` : ""}.`);
       if (!settled) {
@@ -153,7 +156,7 @@ export async function attachAudioStream(
         reject(error);
       } else {
         options.onError?.(error);
-        audio.dispatchEvent(new Event("error"));
+        if (isCurrent() && audioOwners.get(audio) === owner) audio.dispatchEvent(new Event("error"));
         destroy();
       }
     };

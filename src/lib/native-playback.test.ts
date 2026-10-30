@@ -123,6 +123,45 @@ describe("NativePlaybackBridge", () => {
     expect(revisions).toEqual([6,8]);
   });
 
+  it("rejects a disposed initialization and releases a subscription that arrives late", async () => {
+    let finishListen!: (stop: () => void) => void;
+    const stop = vi.fn(), state = vi.fn(), invoke = vi.fn(async () => snapshot(1));
+    const bridge = new NativePlaybackBridge(invoke as never,
+      vi.fn(() => new Promise<() => void>(resolve => { finishListen = resolve; })) as never);
+    const initializing = bridge.initialize(state, () => {});
+    const rejected = expect(initializing).rejects.toThrow("cancelled");
+    bridge.dispose();
+    finishListen(stop);
+    await rejected;
+    expect(stop).toHaveBeenCalledOnce();
+    expect(invoke).not.toHaveBeenCalled();
+    expect(state).not.toHaveBeenCalled();
+  });
+
+  it("ignores obsolete native events and snapshot responses after reinitialization", async () => {
+    const handlers: ((event: {payload: any}) => void)[] = [];
+    let finishOld!: (value: NativePlaybackSnapshot) => void;
+    const oldState = vi.fn(), newState = vi.fn();
+    const invoke = vi.fn().mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve; }))
+      .mockResolvedValue(snapshot(3));
+    const stops: ReturnType<typeof vi.fn>[] = [];
+    const bridge = new NativePlaybackBridge(invoke as never, vi.fn(async (_event, handler) => {
+      handlers.push(handler); const stop = vi.fn(); stops.push(stop); return stop;
+    }) as never);
+    const old = bridge.initialize(oldState, () => {});
+    const rejected = expect(old).rejects.toThrow("cancelled");
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce());
+    await bridge.initialize(newState, () => {});
+    handlers[0]({payload: snapshot(100)});
+    handlers[1]({payload: {generation:2,revision:101,position:9}});
+    finishOld(snapshot(102));
+    await rejected;
+    expect(bridge.snapshot).toMatchObject({revision:3,position:0});
+    expect(oldState).not.toHaveBeenCalled();
+    expect(stops.slice(2).every(stop => stop.mock.calls.length === 0)).toBe(true);
+    bridge.dispose();
+  });
+
   it("cleans up an earlier listener when a later subscription fails", async () => {
     const stopState=vi.fn();
     const invoke=vi.fn(async <T>()=>snapshot(1) as T);
