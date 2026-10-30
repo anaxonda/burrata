@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-cached-spotify-artist-ref"
+description = "Enables the cached_spotify_artist_ref command without any pre-configured scope."
+commands.allow = ["cached_spotify_artist_ref"]
+
+[[permission]]
+identifier = "deny-cached-spotify-artist-ref"
+description = "Denies the cached_spotify_artist_ref command without any pre-configured scope."
+commands.deny = ["cached_spotify_artist_ref"]

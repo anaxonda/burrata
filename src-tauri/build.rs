@@ -262,6 +262,7 @@ const COMMANDS: &[&str] = &[
     "cancel_slskd_search",
     "search_artists",
     "search_albums",
+    "cached_spotify_artist_ref",
     "get_artist_profile",
     "get_artist_artwork",
     "get_artist_releases",
