@@ -2668,6 +2668,28 @@ mod live_qualification {
 }
 
 const PROVIDER_ARTIST: &str = "artists.alias-discovery.provider-artist.v1";
+pub(crate) fn cached_spotify_musicbrainz_artist(store: &Store, artist_id: &str) -> Option<String> {
+    if artist_id.len() != 22 || !artist_id.bytes().all(|b| b.is_ascii_alphanumeric()) {
+        return None;
+    }
+    let binding = store
+        .get_provider_cache(PROVIDER_ARTIST, &format!("spotify:{artist_id}"))
+        .ok()??;
+    let id = binding["musicbrainzArtistId"].as_str()?;
+    let resource = format!("https://open.spotify.com/artist/{artist_id}");
+    if binding["version"] != 1
+        || binding["provider"].as_str() != Some("spotify")
+        || binding["providerArtistId"].as_str() != Some(artist_id)
+        || binding["profile"]["id"].as_str() != Some(id)
+        || !aliases::valid_musicbrainz_recording_id(id)
+        || !exact_url_artist_ids(&binding["lookup"], &resource)
+            .is_some_and(|ids| ids.len() == 1 && ids.contains(id))
+        || !exact_spotify_artist_profile(&binding["profile"], artist_id)
+    {
+        return None;
+    }
+    Some(id.to_owned())
+}
 fn exact_spotify_artist_profile(profile: &Value, artist_id: &str) -> bool {
     let expected = format!("https://open.spotify.com/artist/{artist_id}");
     let urls = relation_urls(profile)
@@ -2824,6 +2846,28 @@ async fn discover_spotify_artist_inner(store: &Store, artist_id: &str) -> Result
 #[cfg(test)]
 mod provider_identity_tests {
     use super::*;
+    #[test]
+    fn cached_spotify_artist_requires_consistent_verified_evidence() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("artist.sqlite")).unwrap();
+        let spotify = "aaaaaaaaaaaaaaaaaaaaaa";
+        let id = "00000000-0000-4000-8000-000000000002";
+        assert!(cached_spotify_musicbrainz_artist(&store, spotify).is_none());
+        let resource = format!("https://open.spotify.com/artist/{spotify}");
+        let mut binding = json!({"version":1,"provider":"spotify","providerArtistId":spotify,"musicbrainzArtistId":id,"lookup":{"resource":resource,"relations":[{"target-type":"artist","artist":{"id":id}}]},"profile":{"id":id,"relations":[{"url":{"resource":resource}}]}});
+        store
+            .set_retained_provider_cache(PROVIDER_ARTIST, &format!("spotify:{spotify}"), &binding)
+            .unwrap();
+        assert_eq!(
+            cached_spotify_musicbrainz_artist(&store, spotify).as_deref(),
+            Some(id)
+        );
+        binding["profile"]["id"] = json!("00000000-0000-4000-8000-000000000003");
+        store
+            .set_retained_provider_cache(PROVIDER_ARTIST, &format!("spotify:{spotify}"), &binding)
+            .unwrap();
+        assert!(cached_spotify_musicbrainz_artist(&store, spotify).is_none());
+    }
     #[test]
     fn url_lookup_requires_exact_resource_and_unique_identity() {
         let resource = "https://open.spotify.com/artist/aaaaaaaaaaaaaaaaaaaaaa";

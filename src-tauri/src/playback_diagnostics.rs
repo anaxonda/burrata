@@ -335,10 +335,16 @@ fn sanitize_detail_value(key: &str, value: &Value, depth: usize) -> Option<Value
         return serde_json::to_value(dimensions).ok();
     }
     if key == "sharedReasons" {
-        let reasons = value.as_array()?.iter().take(32).filter_map(|value| {
-            serde_json::from_value::<crate::recording_match::MatchReason>(value.clone())
-                .ok().and_then(|reason| serde_json::to_value(reason).ok())
-        }).collect();
+        let reasons = value
+            .as_array()?
+            .iter()
+            .take(32)
+            .filter_map(|value| {
+                serde_json::from_value::<crate::recording_match::MatchReason>(value.clone())
+                    .ok()
+                    .and_then(|reason| serde_json::to_value(reason).ok())
+            })
+            .collect();
         return Some(Value::Array(reasons));
     }
     if key == "sourcePageUrl" {
@@ -1284,7 +1290,10 @@ mod tests {
         assert_eq!(row["gate"], "policy_inspect");
         assert_eq!(row["sharedAction"], "inspect");
         assert_eq!(row["sharedRelationship"], "unresolved");
-        assert_eq!(row["sharedReasons"], json!(["artistConflict","extractorNeedsInspection"]));
+        assert_eq!(
+            row["sharedReasons"],
+            json!(["artistConflict", "extractorNeedsInspection"])
+        );
         assert_eq!(row["sharedDimensions"]["artists"], "unknown");
         assert!(!serde_json::to_string(&safe).unwrap().contains("private"));
         let unsafe_value = sanitize_details(json!({"sharedDimensions":{

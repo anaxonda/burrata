@@ -190,11 +190,7 @@ pub fn parse_recording_text(value: &str) -> ParsedRecordingText {
         let mut remaining = value.trim_end();
         for _ in 0..16 {
             let bracketed = crate::matching::split_balanced_trailing_parenthetical(remaining)
-                .or_else(|| {
-                    remaining
-                        .strip_suffix(']')
-                        .and_then(|s| s.rsplit_once('['))
-                })
+                .or_else(|| remaining.strip_suffix(']').and_then(|s| s.rsplit_once('[')))
                 .or_else(|| trailing_dash_version(remaining));
             let Some((base, label)) = bracketed else {
                 break;
@@ -746,7 +742,8 @@ fn trailing_dash_version(value: &str) -> Option<(&str, &str)> {
     (matches!(
         normalized.as_str(),
         "extended mix" | "radio edit" | "vocal edit" | "original mix" | "club mix" | "instrumental"
-    ) || normalized == "remix" || normalized.ends_with(" remix"))
+    ) || normalized == "remix"
+        || normalized.ends_with(" remix"))
     .then_some((base, label))
 }
 
@@ -794,7 +791,10 @@ mod tests {
         let vocal = parse_title("Mañana Tepotzlan - Vocal Edit");
         assert_eq!(vocal.title, "Mañana Tepotzlan");
         assert_eq!(vocal.version.as_deref(), Some("Vocal Edit"));
-        for title in ["Swing 42 - Restored Edition ’25", "I Got Rhythm - Rome 1949 session"] {
+        for title in [
+            "Swing 42 - Restored Edition ’25",
+            "I Got Rhythm - Rome 1949 session",
+        ] {
             assert_eq!(parse_title(title).title, title);
         }
     }

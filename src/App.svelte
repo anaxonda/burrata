@@ -959,6 +959,7 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
   const trackArtistInformation = createTrackArtistInformationLoader({
     searchArtists: name => searchArtists(name, 1),
     getArtistProfile: artist => call<ArtistProfile>("get_artist_profile", {artist}),
+    lookupSpotifyArtist: artistId => call<ArtistRef | null>("cached_spotify_artist_ref", {artistId}),
     lookupRecordingArtist: async track => {
       const result = await recordingInformation.load(track);
       return result.recording?.recordingArtist?.artist ?? null;

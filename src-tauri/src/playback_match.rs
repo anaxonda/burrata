@@ -1143,9 +1143,11 @@ mod tests {
     fn vocal_edit_search_reaches_inspection_and_fresh_complete_credits_verify() {
         let (_dir, s) = store();
         let t = Track {
-            id: "spotify:47ymc88dn5leh2YhetiqDT".into(), provider: "spotify".into(),
+            id: "spotify:47ymc88dn5leh2YhetiqDT".into(),
+            provider: "spotify".into(),
             provider_id: "47ymc88dn5leh2YhetiqDT".into(),
-            artist: "El Búho, Gotopo".into(), title: "Mañana Tepotzlan - Vocal Edit".into(),
+            artist: "El Búho, Gotopo".into(),
+            title: "Mañana Tepotzlan - Vocal Edit".into(),
             duration_seconds: Some(270.),
             provenance: json!({"catalog":{"provider":"spotify","verified":true,"artistCount":2,
                 "artists":[{"provider":"spotify","id":"1I7FVmvisCtSFzmm87mbLR","name":"El Búho"},
@@ -1153,27 +1155,58 @@ mod tests {
             ..Track::default()
         };
         let c = Candidate {
-            id: "youtube:2fT_ojy_tYc".into(), provider: "youtube".into(),
+            id: "youtube:2fT_ojy_tYc".into(),
+            provider: "youtube".into(),
             url: "https://www.youtube.com/watch?v=2fT_ojy_tYc".into(),
-            title: "Mañana Tepotzlan (Vocal Edit)".into(), uploader: Some("El Búho".into()),
-            duration_seconds: Some(270.), confidence: "low".into(), permission: "unknown".into(),
+            title: "Mañana Tepotzlan (Vocal Edit)".into(),
+            uploader: Some("El Búho".into()),
+            duration_seconds: Some(270.),
+            confidence: "low".into(),
+            permission: "unknown".into(),
             source_metadata: Some(json!({"track":"Mañana Tepotzlan (Vocal Edit)",
                 "catalogTitle":"Mañana Tepotzlan (Vocal Edit)","duration":270,
                 "extractor":true,"resolvedProviderId":"2fT_ojy_tYc","sourceMetadataOrigin":"ytDlpCandidateMetadata"})),
             ..Candidate::default()
         };
-        let (gate, diagnostic) = evaluate_with_diagnostics(&t, &[], &[], None, &c, MatchLevel::Balanced, &s);
+        let (gate, diagnostic) =
+            evaluate_with_diagnostics(&t, &[], &[], None, &c, MatchLevel::Balanced, &s);
         assert!(gate.accepted(), "{diagnostic:?}");
         assert_eq!(diagnostic.action, MatchAction::Inspect);
-        assert_ne!(assessment(&s, &t, &[], &[], None, &c, MatchLevel::Balanced, MatchStage::Resolved).action,
-            MatchAction::Accept);
-        let mut fresh = audio("Mañana Tepotzlan (Vocal Edit)", json!(["El Búho","Gotopo"]));
+        assert_ne!(
+            assessment(
+                &s,
+                &t,
+                &[],
+                &[],
+                None,
+                &c,
+                MatchLevel::Balanced,
+                MatchStage::Resolved
+            )
+            .action,
+            MatchAction::Accept
+        );
+        let mut fresh = audio(
+            "Mañana Tepotzlan (Vocal Edit)",
+            json!(["El Búho", "Gotopo"]),
+        );
         fresh.resolved_provider_id = Some("2fT_ojy_tYc".into());
         fresh.duration_seconds = Some(270.);
         fresh.source_metadata = Some(json!({"artists":["El Búho","Gotopo"],"artistCount":2,
             "track":"Mañana Tepotzlan (Vocal Edit)","catalogTitle":"Mañana Tepotzlan (Vocal Edit)",
             "duration":270,"extractor":true,"resolvedProviderId":"2fT_ojy_tYc","sourceMetadataOrigin":"ytDlpFullInfo"}));
-        assert!(verify(&t, &[], &[], None, &mut c.clone(), &fresh, true, MatchLevel::Balanced, &s).is_some());
+        assert!(verify(
+            &t,
+            &[],
+            &[],
+            None,
+            &mut c.clone(),
+            &fresh,
+            true,
+            MatchLevel::Balanced,
+            &s
+        )
+        .is_some());
         // Search relevance never overrides contradictory fresh metadata.
         for bad in ["missing performer", "wrong edit", "changed source"] {
             let mut other = fresh.clone();
@@ -1181,15 +1214,31 @@ mod tests {
                 "missing performer" => {
                     other.source_metadata.as_mut().unwrap()["artists"] = json!(["El Búho"]);
                     other.source_metadata.as_mut().unwrap()["artistCount"] = json!(1);
-                },
+                }
                 "wrong edit" => {
                     other.resolved_title = Some("Mañana Tepotzlan (Instrumental)".into());
-                    other.source_metadata.as_mut().unwrap()["track"] = json!("Mañana Tepotzlan (Instrumental)");
-                    other.source_metadata.as_mut().unwrap()["catalogTitle"] = json!("Mañana Tepotzlan (Instrumental)");
-                },
+                    other.source_metadata.as_mut().unwrap()["track"] =
+                        json!("Mañana Tepotzlan (Instrumental)");
+                    other.source_metadata.as_mut().unwrap()["catalogTitle"] =
+                        json!("Mañana Tepotzlan (Instrumental)");
+                }
                 _ => other.resolved_provider_id = Some("differentid".into()),
             }
-            assert!(verify(&t, &[], &[], None, &mut c.clone(), &other, true, MatchLevel::Balanced, &s).is_none(), "{bad}");
+            assert!(
+                verify(
+                    &t,
+                    &[],
+                    &[],
+                    None,
+                    &mut c.clone(),
+                    &other,
+                    true,
+                    MatchLevel::Balanced,
+                    &s
+                )
+                .is_none(),
+                "{bad}"
+            );
         }
     }
     #[test]

@@ -883,6 +883,37 @@ impl ArtistService {
         })
     }
 
+    async fn wikipedia_biography(&self, qid: &str) -> Option<(String, String)> {
+        let entity_url = Url::parse(&format!(
+            "https://www.wikidata.org/wiki/Special:EntityData/{qid}.json"
+        ))
+        .ok()?;
+        let entity = self
+            .get_json(
+                "artists.biography.wikidata.v1",
+                qid,
+                entity_url,
+                PROFILE_TTL,
+                None,
+            )
+            .await
+            .ok()?;
+        let title = wikipedia_sitelink(qid, &entity)?;
+        let mut url = Url::parse("https://en.wikipedia.org/api/rest_v1/page/summary/").ok()?;
+        url.path_segments_mut().ok()?.push(&title);
+        let summary = self
+            .get_json(
+                "artists.biography.wikipedia.v1",
+                qid,
+                url,
+                PROFILE_TTL,
+                None,
+            )
+            .await
+            .ok()?;
+        wikipedia_summary(qid, &summary)
+    }
+
     async fn wikidata_portrait(&self, qid: &str) -> Option<(String, String)> {
         let namespace = "artists.portrait.wikidata.v1";
         if let Ok(Some(cached)) = self.store.get_provider_cache(namespace, qid) {
@@ -1394,6 +1425,23 @@ impl ArtistService {
                     Err(error) => {
                         warnings.push(format!("Last.fm artist details unavailable: {error}"))
                     }
+                }
+            }
+        }
+        // Only follow an explicit identity relation, never a name-based Wikipedia search.
+        if biography.is_none() && artist.provider == "musicbrainz" {
+            if let Some(qid) = links.iter().find_map(|link| wikidata_item_id(&link.url)) {
+                if let Ok(Some((text, source))) =
+                    tokio::time::timeout(Duration::from_secs(3), self.wikipedia_biography(&qid))
+                        .await
+                {
+                    biography = Some(text);
+                    biography_source = Some("Wikipedia".into());
+                    links.push(ArtistExternalLink {
+                        label: "Wikipedia biography".into(),
+                        url: source,
+                        provider: Some("wikipedia".into()),
+                    });
                 }
             }
         }
@@ -4148,6 +4196,39 @@ fn wikidata_item_id(raw: &str) -> Option<String> {
     }
     Some(id.to_owned())
 }
+fn wikipedia_sitelink(qid: &str, raw: &Value) -> Option<String> {
+    let entity = &raw["entities"][qid];
+    if entity["id"].as_str()? != qid {
+        return None;
+    }
+    let title = entity["sitelinks"]["enwiki"]["title"].as_str()?.trim();
+    if title.is_empty() || title.len() > 512 {
+        return None;
+    }
+    Some(title.to_owned())
+}
+
+fn wikipedia_summary(qid: &str, raw: &Value) -> Option<(String, String)> {
+    if raw["wikibase_item"].as_str()? != qid || raw["type"].as_str()? != "standard" {
+        return None;
+    }
+    let text = raw["extract"].as_str()?.trim();
+    if text.is_empty() || text.len() > 20_000 {
+        return None;
+    }
+    let url = Url::parse(raw["content_urls"]["desktop"]["page"].as_str()?).ok()?;
+    if url.scheme() != "https"
+        || url.host_str() != Some("en.wikipedia.org")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port().is_some()
+        || !url.path().starts_with("/wiki/")
+    {
+        return None;
+    }
+    Some((text.to_owned(), url.to_string()))
+}
+
 fn wikidata_portrait_urls(qid: &str, raw: &Value) -> Option<(String, String)> {
     let entity = &raw["entities"][qid];
     if entity["id"] != qid {
@@ -4360,6 +4441,26 @@ mod tests {
         let raw = json!({"cover-art-archive":{"front":true},"release-group":{"id":group}});
         assert_eq!(musicbrainz_artwork_urls(&raw, "release", edition).len(), 2);
         assert!(musicbrainz_artwork_urls(&raw, "release", edition)[0].contains(edition));
+    }
+
+    #[test]
+    fn wikipedia_biography_requires_matching_entity_and_article() {
+        let entity = json!({"entities":{"Q42":{"id":"Q42","sitelinks":{"enwiki":{"title":"Example artist"}}}}});
+        assert_eq!(
+            wikipedia_sitelink("Q42", &entity).as_deref(),
+            Some("Example artist")
+        );
+        assert!(wikipedia_sitelink("Q43", &entity).is_none());
+        let summary = json!({"wikibase_item":"Q42","type":"standard","extract":"An artist.","content_urls":{"desktop":{"page":"https://en.wikipedia.org/wiki/Example_artist"}}});
+        assert!(wikipedia_summary("Q42", &summary).is_some());
+        assert!(wikipedia_summary("Q43", &summary).is_none());
+        let mut disambiguation = summary.clone();
+        disambiguation["type"] = json!("disambiguation");
+        assert!(wikipedia_summary("Q42", &disambiguation).is_none());
+        let mut wrong_host = summary;
+        wrong_host["content_urls"]["desktop"]["page"] =
+            json!("https://en.wikipedia.org.evil.test/wiki/Example");
+        assert!(wikipedia_summary("Q42", &wrong_host).is_none());
     }
 
     #[test]

@@ -18,6 +18,7 @@ export interface TrackArtistInformationLoaderOptions {
   searchArtists: (name: string) => Promise<ArtistSearchPage>;
   getArtistProfile: (artist: ArtistRef) => Promise<ArtistProfile>;
   /** Optional read-only recording lookup for tracks without a direct artist ref. */
+  lookupSpotifyArtist?: (id: string) => Promise<ArtistRef | null>;
   lookupRecordingArtist?: (track: Track, artistName: string) => Promise<ArtistRef | null>;
   positiveCacheMs?: number;
   negativeCacheMs?: number;
@@ -118,6 +119,15 @@ export function createTrackArtistInformationLoader(options: TrackArtistInformati
 
   async function resolve(track: Track, primary: TrackArtistCredit): Promise<ResolvedArtist | null> {
     let artist = primary.artist;
+    if (!artist && options.lookupSpotifyArtist) {
+      const catalog = record(record(track.provenance).catalog);
+      const entries = Array.isArray(catalog.artists) ? catalog.artists : [];
+      const matching = entries.filter((entry: unknown) => {
+        const item = record(entry);
+        return item.provider === "spotify" && typeof item.id === "string" && /^[A-Za-z0-9]{22}$/.test(item.id) && typeof item.name === "string" && normalizedName(item.name) === normalizedName(primary.name);
+      });
+      if (catalog.verified === true && catalog.provider === "spotify" && matching.length === 1) artist = await options.lookupSpotifyArtist(record(matching[0]).id as string);
+    }
     if (!artist) {
       const page = await options.searchArtists(primary.name);
       artist = chooseExactArtist(page, primary.name);

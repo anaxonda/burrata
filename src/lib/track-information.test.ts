@@ -20,6 +20,16 @@ function profile(artist: ArtistRef): ArtistProfile {
 }
 
 describe("track artist information loader", () => {
+  it("uses a verified cached Spotify artist binding before name search", async () => {
+    const lookupSpotifyArtist = vi.fn(async () => faithMb);
+    const searchArtists = vi.fn(async () => page([]));
+    const loader = createTrackArtistInformationLoader({lookupSpotifyArtist, searchArtists, getArtistProfile: async artist => profile(artist)});
+    const spotifyId = "aaaaaaaaaaaaaaaaaaaaaa";
+    const info = await loader.load(track({catalog:{verified:true,provider:"spotify",artists:[{provider:"spotify",id:spotifyId,name:"Faith Evans"}]}}));
+    expect(lookupSpotifyArtist).toHaveBeenCalledWith(spotifyId);
+    expect(info?.primaryArtist.artist).toEqual(faithMb);
+    expect(searchArtists).not.toHaveBeenCalled();
+  });
   it("deduplicates exact cross-provider matches and prefers a unique MusicBrainz identity", async () => {
     const searchArtists = vi.fn(async () => page([result(faithDiscogs), result(faithMb), result(faithMb)]));
     const getArtistProfile = vi.fn(async (artist: ArtistRef) => profile(artist));

@@ -3070,16 +3070,34 @@ mod tests {
                     {"name":"Tainy","role":"artist"}
                 ]});
             }
-            let result = assess(&request, &candidate, MatchLevel::Balanced, MatchStage::Search);
-            assert!(matches!(result.action, MatchAction::Accept | MatchAction::Inspect), "{result:?}");
+            let result = assess(
+                &request,
+                &candidate,
+                MatchLevel::Balanced,
+                MatchStage::Search,
+            );
+            assert!(
+                matches!(result.action, MatchAction::Accept | MatchAction::Inspect),
+                "{result:?}"
+            );
             assert_eq!(result.dimensions.title, Comparison::Agree, "{result:?}");
             assert_eq!(result.dimensions.version, Comparison::Agree, "{result:?}");
             assert_eq!(result.dimensions.artists, Comparison::Agree, "{result:?}");
-            let audio = Candidate { title: "Bomba Estéreo - To My Love (Tainy Remix)[Audio]".into(), duration_seconds: Some(254.0), ..candidate.clone() };
+            let audio = Candidate {
+                title: "Bomba Estéreo - To My Love (Tainy Remix)[Audio]".into(),
+                duration_seconds: Some(254.0),
+                ..candidate.clone()
+            };
             let result = assess(&request, &audio, MatchLevel::Balanced, MatchStage::Search);
-            assert!(matches!(result.action, MatchAction::Accept | MatchAction::Inspect), "{result:?}");
+            assert!(
+                matches!(result.action, MatchAction::Accept | MatchAction::Inspect),
+                "{result:?}"
+            );
             for suffix in ["Other Remix", "Live", "Cover"] {
-                let other = Candidate { title: format!("Bomba Estéreo - To My Love ({suffix})"), ..candidate.clone() };
+                let other = Candidate {
+                    title: format!("Bomba Estéreo - To My Love ({suffix})"),
+                    ..candidate.clone()
+                };
                 let result = assess(&request, &other, MatchLevel::Balanced, MatchStage::Search);
                 assert_ne!(result.action, MatchAction::Accept, "{suffix}: {result:?}");
             }
@@ -3109,12 +3127,28 @@ mod tests {
                 "extractor":true,"resolvedProviderId":"2fT_ojy_tYc","sourceMetadataOrigin":"ytDlpFullInfo"})),
             ..Candidate::default()
         };
-        let resolved = assess(&request, &candidate, MatchLevel::Balanced, MatchStage::Resolved);
+        let resolved = assess(
+            &request,
+            &candidate,
+            MatchLevel::Balanced,
+            MatchStage::Resolved,
+        );
         assert_eq!(resolved.action, MatchAction::Accept, "{resolved:?}");
         candidate.title = "Mañana Tepotzlan (Radio Edit)".into();
-        candidate.source_metadata.as_mut().unwrap()["catalogTitle"] = json!("Mañana Tepotzlan (Radio Edit)");
-        candidate.source_metadata.as_mut().unwrap()["track"] = json!("Mañana Tepotzlan (Radio Edit)");
-        assert_ne!(assess(&request, &candidate, MatchLevel::Balanced, MatchStage::Resolved).action, MatchAction::Accept);
+        candidate.source_metadata.as_mut().unwrap()["catalogTitle"] =
+            json!("Mañana Tepotzlan (Radio Edit)");
+        candidate.source_metadata.as_mut().unwrap()["track"] =
+            json!("Mañana Tepotzlan (Radio Edit)");
+        assert_ne!(
+            assess(
+                &request,
+                &candidate,
+                MatchLevel::Balanced,
+                MatchStage::Resolved
+            )
+            .action,
+            MatchAction::Accept
+        );
     }
 
     #[test]

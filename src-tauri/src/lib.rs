@@ -1904,6 +1904,18 @@ async fn get_artist_artwork(
     Ok(serde_json::json!({"imageUrl":image}))
 }
 #[tauri::command]
+fn cached_spotify_artist_ref(
+    state: State<'_, AppState>,
+    artist_id: String,
+) -> Option<artists::ArtistRef> {
+    artist_alias_discovery::cached_spotify_musicbrainz_artist(&state.store, &artist_id).map(|id| {
+        artists::ArtistRef {
+            provider: "musicbrainz".into(),
+            id,
+        }
+    })
+}
+#[tauri::command]
 async fn get_artist_profile(
     state: State<'_, AppState>,
     artist: artists::ArtistRef,
@@ -10392,7 +10404,7 @@ pub fn run() {
             open_external_url
             ,get_connections, save_connections, test_connections, get_managed_slskd_download_settings, save_managed_slskd_download_settings, get_slskd_shares, rescan_slskd_shares, add_managed_slskd_share, remove_managed_slskd_share, translate_current_track_lyrics,
             start_slskd_search, get_slskd_search, cancel_slskd_search,
-            search_artists, search_albums, get_artist_artwork, get_artist_profile, get_artist_releases, get_release_tracks, save_library_tracks,
+            search_artists, search_albums, get_artist_artwork, cached_spotify_artist_ref, get_artist_profile, get_artist_releases, get_release_tracks, save_library_tracks,
             get_artist_tracks, get_artist_collaborations, resolve_recording_metadata,
             list_directory_browser_roots, list_directory_browser_children, choose_directory_browser_root, add_directory_browser_root, remove_directory_browser_root, browse_directory_browser, start_directory_browser_sort_availability, get_directory_browser_sort_availability, cancel_directory_browser_sort_availability, start_directory_browser_scan, get_directory_browser_scan, cancel_directory_browser_scan,
             import_onetagger_discogs, list_local_playlists, import_local_playlist,

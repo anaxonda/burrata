@@ -1419,7 +1419,9 @@ impl AliasResolutionPass {
     fn claim_fresh_alias_lookup(&self, track: &Track, fresh: &Candidate, budget: Duration) -> bool {
         !budget.is_zero()
             && plausible_artist_alias_block(track, fresh)
-            && !self.fresh_alias_lookup_started.swap(true, std::sync::atomic::Ordering::Relaxed)
+            && !self
+                .fresh_alias_lookup_started
+                .swap(true, std::sync::atomic::Ordering::Relaxed)
     }
     fn remember(&self, candidate: &Candidate) {
         if self.retry {
@@ -6342,13 +6344,33 @@ fn linked_candidate_with_bandcamp(track: &Track, bandcamp_enabled: bool) -> Opti
 mod tests {
     #[test]
     fn fresh_alias_lookup_is_bounded_to_one_plausible_candidate() {
-        assert_eq!(fresh_alias_budget(Duration::from_secs(20)), Duration::from_secs(17));
+        assert_eq!(
+            fresh_alias_budget(Duration::from_secs(20)),
+            Duration::from_secs(17)
+        );
         assert_eq!(fresh_alias_budget(Duration::from_secs(3)), Duration::ZERO);
-        let track = Track { artist: "Quantic, Nidia Gongora".into(), title: "Amor en Francia".into(), duration_seconds: Some(270.293), ..Track::default() };
-        let candidate = Candidate { id: "youtube:x1aO1kcVeu4".into(), provider: "youtube".into(), title: "Quantic, Nidia Góngora - Amor en Francia".into(), duration_seconds: Some(270.0), confidence: "review".into(), permission: "unknown".into(), uploader: Some("Tru Thoughts Records".into()), ..Candidate::default() };
+        let track = Track {
+            artist: "Quantic, Nidia Gongora".into(),
+            title: "Amor en Francia".into(),
+            duration_seconds: Some(270.293),
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            id: "youtube:x1aO1kcVeu4".into(),
+            provider: "youtube".into(),
+            title: "Quantic, Nidia Góngora - Amor en Francia".into(),
+            duration_seconds: Some(270.0),
+            confidence: "review".into(),
+            permission: "unknown".into(),
+            uploader: Some("Tru Thoughts Records".into()),
+            ..Candidate::default()
+        };
         let pass = AliasResolutionPass::default();
         assert!(!pass.claim_fresh_alias_lookup(&track, &candidate, Duration::ZERO));
-        let wrong = Candidate { title: "Quantic, Nidia Góngora - Different Song".into(), ..candidate.clone() };
+        let wrong = Candidate {
+            title: "Quantic, Nidia Góngora - Different Song".into(),
+            ..candidate.clone()
+        };
         assert!(!pass.claim_fresh_alias_lookup(&track, &wrong, Duration::from_secs(1)));
         assert!(pass.claim_fresh_alias_lookup(&track, &candidate, Duration::from_secs(1)));
         assert!(!pass.claim_fresh_alias_lookup(&track, &candidate, Duration::from_secs(1)));
@@ -9001,9 +9023,12 @@ mod tests {
         let path = directory.path().join("download.flac");
         std::fs::write(&path, b"registered local audio").unwrap();
         let track = Track {
-            id: "spotify:portable-local".into(), provider: "spotify".into(),
-            provider_id: "portable-local".into(), source_url: "https://open.spotify.com/track/portable-local".into(),
-            artist: "Artist".into(), title: "Downloaded recording".into(),
+            id: "spotify:portable-local".into(),
+            provider: "spotify".into(),
+            provider_id: "portable-local".into(),
+            source_url: "https://open.spotify.com/track/portable-local".into(),
+            artist: "Artist".into(),
+            title: "Downloaded recording".into(),
             local_path: Some(path.to_string_lossy().into_owned()),
             provenance: json!({"portablePlaybackSource": {
                 "provider": "monochrome", "sourceId": "reviewed", "matchingLevel": "exact", "sourceHash": "a".repeat(64),
@@ -9011,16 +9036,26 @@ mod tests {
             ..Track::default()
         };
         store.save_track(&track).unwrap();
-        store.save_asset(&stored_asset("portable-local", &track, &path)).unwrap();
+        store
+            .save_asset(&stored_asset("portable-local", &track, &path))
+            .unwrap();
         let (_sender, cancel) = watch::channel(false);
-        let local = resolve(&store, &acquisition, &track, None, cancel.clone()).await.unwrap();
+        let local = resolve(&store, &acquisition, &track, None, cancel.clone())
+            .await
+            .unwrap();
         assert_eq!(local.source.input, path.to_string_lossy());
         assert!(local.candidate.is_none());
         // The reviewed provider is disabled. Local playback must still succeed,
         // but losing that file must not authorize a different online recording.
         std::fs::remove_file(&path).unwrap();
-        let failure = resolve(&store, &acquisition, &track, None, cancel).await.err().unwrap();
-        assert_eq!(failure, "The reviewed portable playback provider is no longer configured");
+        let failure = resolve(&store, &acquisition, &track, None, cancel)
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(
+            failure,
+            "The reviewed portable playback provider is no longer configured"
+        );
     }
 
     #[test]
@@ -9839,11 +9874,22 @@ mod tests {
     #[ignore = "Live public-provider qualification; requires network"]
     async fn live_reported_named_versions_resolve_with_fresh_identity() {
         for (id, artist, title, duration) in [
-            ("5LciLoxa1gK70yIUeoHgRx", "Bomba Estéreo, Tainy", "To My Love - Tainy Remix", 251.),
-            ("47ymc88dn5leh2YhetiqDT", "El Búho, Gotopo", "Mañana Tepotzlan - Vocal Edit", 270.),
+            (
+                "5LciLoxa1gK70yIUeoHgRx",
+                "Bomba Estéreo, Tainy",
+                "To My Love - Tainy Remix",
+                251.,
+            ),
+            (
+                "47ymc88dn5leh2YhetiqDT",
+                "El Búho, Gotopo",
+                "Mañana Tepotzlan - Vocal Edit",
+                270.,
+            ),
         ] {
             let directory = tempfile::tempdir().unwrap();
-            let store = Arc::new(Store::open(&directory.path().join("qualification.sqlite")).unwrap());
+            let store =
+                Arc::new(Store::open(&directory.path().join("qualification.sqlite")).unwrap());
             let mut settings = store.settings().unwrap();
             settings.preferred_streaming_source = "youtube".into();
             settings.streaming_fallback_enabled = false;
@@ -9851,14 +9897,22 @@ mod tests {
             let connections = Arc::new(crate::connections::ConnectionManager::new(store.clone()));
             let acquisition = AcquisitionManager::new_for_playback_test(store.clone(), connections);
             let track = Track {
-                id: format!("spotify:{id}"), provider: "spotify".into(), provider_id: id.into(),
+                id: format!("spotify:{id}"),
+                provider: "spotify".into(),
+                provider_id: id.into(),
                 source_url: format!("https://open.spotify.com/track/{id}"),
-                artist: artist.into(), title: title.into(), duration_seconds: Some(duration),
+                artist: artist.into(),
+                title: title.into(),
+                duration_seconds: Some(duration),
                 ..Track::default()
             };
             let (_sender, cancel) = watch::channel(false);
             let result = resolve(&store, &acquisition, &track, None, cancel).await;
-            assert!(result.is_ok(), "Live {id} qualification failed: {}", result.err().unwrap_or_default());
+            assert!(
+                result.is_ok(),
+                "Live {id} qualification failed: {}",
+                result.err().unwrap_or_default()
+            );
         }
     }
 
@@ -9876,16 +9930,19 @@ mod tests {
         let connections = Arc::new(crate::connections::ConnectionManager::new(store.clone()));
         let acquisition = AcquisitionManager::new_for_playback_test(store.clone(), connections);
         let mut track = Track {
-            id: "spotify:4tkd3bpIj6ff1PZT3nBCD2".into(), provider: "spotify".into(),
+            id: "spotify:4tkd3bpIj6ff1PZT3nBCD2".into(),
+            provider: "spotify".into(),
             provider_id: "4tkd3bpIj6ff1PZT3nBCD2".into(),
             source_url: "https://open.spotify.com/track/4tkd3bpIj6ff1PZT3nBCD2".into(),
-            artist: "Quantic, Nidia Gongora".into(), title: "Amor en Francia".into(),
-            album: Some("Curao".into()), duration_seconds: Some(270.293),
+            artist: "Quantic, Nidia Gongora".into(),
+            title: "Amor en Francia".into(),
+            album: Some("Curao".into()),
+            duration_seconds: Some(270.293),
             provenance: json!({"catalog":{"provider":"spotify", "providerId":"4tkd3bpIj6ff1PZT3nBCD2",
-                "verified":true, "artistCount":2, "artists":[
-                    {"id":"5ZMwoAjeDtLJ0XRwRTgaK8","name":"Quantic","provider":"spotify"},
-                    {"id":"5Ln6VxkwRDdAH40Lel6Yj8","name":"Nidia Gongora","provider":"spotify"}
-                ]}}),
+            "verified":true, "artistCount":2, "artists":[
+                {"id":"5ZMwoAjeDtLJ0XRwRTgaK8","name":"Quantic","provider":"spotify"},
+                {"id":"5Ln6VxkwRDdAH40Lel6Yj8","name":"Nidia Gongora","provider":"spotify"}
+            ]}}),
             ..Track::default()
         };
         track.provenance["remoteCatalog"] = json!({
@@ -9897,9 +9954,18 @@ mod tests {
         store.save_track(&track).unwrap();
         let (_sender, cancel) = watch::channel(false);
         let result = resolve(&store, &acquisition, &track, None, cancel).await;
-        if result.is_err() { eprintln!("{}", serde_json::to_string(&crate::playback_diagnostics::export()).unwrap()); }
+        if result.is_err() {
+            eprintln!(
+                "{}",
+                serde_json::to_string(&crate::playback_diagnostics::export()).unwrap()
+            );
+        }
         crate::playback_diagnostics::set_enabled(false);
-        assert!(result.is_ok(), "Live Amor qualification failed: {}", result.err().unwrap_or_default());
+        assert!(
+            result.is_ok(),
+            "Live Amor qualification failed: {}",
+            result.err().unwrap_or_default()
+        );
     }
 
     #[tokio::test]
