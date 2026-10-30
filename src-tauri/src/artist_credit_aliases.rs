@@ -1474,9 +1474,7 @@ fn cached_verified_provider_artist_credit_set(
             || evidence["provider"] != "spotify"
             || evidence["providerArtistId"].as_str() != Some(credit.id.as_str())
             || !valid_mbid(mbid)
-            || profile["id"].as_str() != Some(mbid)
             || lookup["resource"].as_str() != Some(url.as_str())
-            || !profile_has_exact_spotify_artist_url(profile, &credit.id)
         {
             return None;
         }
@@ -1487,6 +1485,21 @@ fn cached_verified_provider_artist_credit_set(
             .map(|relation| relation["artist"]["id"].as_str())
             .collect::<Option<std::collections::HashSet<_>>>()?;
         if mapped.len() != 1 || !mapped.contains(mbid) {
+            return None;
+        }
+        if evidence["canonicalLookupOnly"] == true {
+            let canonical =
+                crate::artist_alias_discovery::exact_url_artist_name(lookup, &url, mbid)?;
+            let mut names = vec![credit.name.clone()];
+            if crate::matching::normalize(&credit.name) != crate::matching::normalize(canonical) {
+                names.push(canonical.to_owned());
+            }
+            all_names.push(names);
+            continue;
+        }
+        if profile["id"].as_str() != Some(mbid)
+            || !profile_has_exact_spotify_artist_url(profile, &credit.id)
+        {
             return None;
         }
         let canonical = profile["name"].as_str()?.trim();
@@ -2620,6 +2633,42 @@ mod tests {
         assert!(cached_verified_playback_artist_aliases(&store, &second)
             .matching_track(&second, "Canonical Act, Guest")
             .is_none());
+    }
+
+    #[test]
+    fn url_only_canonical_names_require_complete_ordered_credit_set() {
+        let directory = tempdir().unwrap();
+        let store = Store::open(&directory.path().join("artists.sqlite")).unwrap();
+        let source = spotify_artist_credit_track();
+        store.save_track(&source).unwrap();
+        let namespace = "artists.alias-discovery.provider-artist.v1";
+        let (_, a, b) = recording_credit_fixture();
+        let entry = |provider: &str, profile: &Value| {
+            json!({
+                "version":1,"provider":"spotify","providerArtistId":provider,
+                "musicbrainzArtistId":profile["id"],"canonicalLookupOnly":true,
+                "lookup":{"resource":format!("https://open.spotify.com/artist/{provider}"),"relations":[
+                    {"target-type":"artist","artist":{"id":profile["id"],"name":profile["name"]}}]}
+            })
+        };
+        let first = entry("aaaaaaaaaaaaaaaaaaaaaa", &a);
+        let second = entry("cccccccccccccccccccccc", &b);
+        store
+            .set_retained_provider_cache(namespace, "spotify:aaaaaaaaaaaaaaaaaaaaaa", &first)
+            .unwrap();
+        assert!(cached_verified_provider_artist_credit_set(&store, &source).is_none());
+        store
+            .set_retained_provider_cache(namespace, "spotify:cccccccccccccccccccccc", &second)
+            .unwrap();
+        assert!(cached_verified_playback_artist_aliases(&store, &source)
+            .matching_track(&source, "Canonical Act, Guest")
+            .is_some());
+        let mut bad = second.clone();
+        bad["lookup"]["resource"] = json!("https://open.spotify.com/artist/wrong");
+        store
+            .set_retained_provider_cache(namespace, "spotify:cccccccccccccccccccccc", &bad)
+            .unwrap();
+        assert!(cached_verified_provider_artist_credit_set(&store, &source).is_none());
     }
 
     #[test]

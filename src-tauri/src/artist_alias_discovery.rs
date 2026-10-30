@@ -2718,6 +2718,31 @@ fn exact_url_artist_ids(lookup: &Value, resource: &str) -> Option<BTreeSet<Strin
     }
     Some(ids)
 }
+pub(crate) fn exact_url_artist_name<'a>(
+    lookup: &'a Value,
+    resource: &str,
+    id: &str,
+) -> Option<&'a str> {
+    let ids = exact_url_artist_ids(lookup, resource)?;
+    if ids.len() != 1 || !ids.contains(id) {
+        return None;
+    }
+    let mut names = lookup["relations"]
+        .as_array()?
+        .iter()
+        .filter(|relation| relation["target-type"] == "artist")
+        .map(|relation| relation["artist"]["name"].as_str());
+    let name = names.next()??;
+    if name.trim() != name
+        || name.is_empty()
+        || name.len() > 256
+        || name.chars().any(char::is_control)
+        || names.any(|other| other != Some(name))
+    {
+        return None;
+    }
+    Some(name)
+}
 async fn discover_spotify_artist(store: &Store, artist_id: &str) -> Result<bool, String> {
     type ArtistLock = tokio::sync::Mutex<()>;
     static LOCKS: OnceLock<
@@ -2820,14 +2845,24 @@ async fn discover_spotify_artist_inner(store: &Store, artist_id: &str) -> Result
         return Ok(false);
     }
     let id = ids.iter().next().expect("one artist");
-    let profile = mb(
+    let profile = match mb(
         store,
         "artists.profile.musicbrainz",
         id,
         "artist",
         "aliases+url-rels",
     )
-    .await?;
+    .await
+    {
+        Ok(profile) => profile,
+        Err(error) => {
+            if exact_url_artist_name(&lookup, &resource, id).is_none() {
+                return Err(error);
+            }
+            store.set_retained_provider_cache(PROVIDER_ARTIST, &key, &json!({"version":1,"provider":"spotify","providerArtistId":artist_id,"musicbrainzArtistId":id,"lookup":lookup,"fetchedAt":chrono::Utc::now().timestamp(),"canonicalLookupOnly":true}))?;
+            return Ok(true);
+        }
+    };
     if !exact_spotify_artist_profile(&profile, artist_id) {
         store.set_retained_provider_cache(
             PROVIDER_ARTIST,
@@ -2896,6 +2931,30 @@ mod provider_identity_tests {
             &profile,
             "aaaaaaaaaaaaaaaaaaaaaa"
         ));
+    }
+
+    #[test]
+    fn url_canonical_name_requires_unique_exact_artist_relation() {
+        let resource = "https://open.spotify.com/artist/aaaaaaaaaaaaaaaaaaaaaa";
+        let id = "00000000-0000-4000-8000-000000000002";
+        let good = json!({"resource":resource,"relations":[{"target-type":"artist","artist":{"id":id,"name":"Nidia Góngora"}}]});
+        assert_eq!(
+            exact_url_artist_name(&good, resource, id),
+            Some("Nidia Góngora")
+        );
+        assert!(exact_url_artist_name(&good, "wrong", id).is_none());
+        assert!(exact_url_artist_name(&good, resource, "wrong").is_none());
+        for relations in [
+            json!([]),
+            json!([{"target-type":"label","artist":{"id":id,"name":"Nidia"}}]),
+            json!([{"target-type":"artist","artist":{"id":id,"name":""}}]),
+            json!([{"target-type":"artist","artist":{"id":id,"name":"Nidia\n"}}]),
+            json!([{"target-type":"artist","artist":{"id":id,"name":"Nidia"}},{"target-type":"artist","artist":{"id":"00000000-0000-4000-8000-000000000003","name":"Other"}}]),
+        ] {
+            let mut bad = good.clone();
+            bad["relations"] = relations;
+            assert!(exact_url_artist_name(&bad, resource, id).is_none());
+        }
     }
 }
 

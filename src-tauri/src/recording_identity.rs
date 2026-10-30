@@ -708,6 +708,7 @@ pub fn parse_title(value: &str) -> ParsedRecordingTitle {
         ]
         .iter()
         .any(|label| lower == *label || (label.ends_with(' ') && lower.starts_with(label)))
+            || restored_edition_year(&lower)
             || [" remix", " mix", " edit", " version"]
                 .iter()
                 .any(|suffix| lower.ends_with(suffix))
@@ -726,6 +727,17 @@ pub fn parse_title(value: &str) -> ParsedRecordingTitle {
         }
     }
     result
+}
+
+fn restored_edition_year(label: &str) -> bool {
+    let Some(year) = label.strip_prefix("restored edition ") else {
+        return false;
+    };
+    let year = year
+        .strip_prefix('\'')
+        .or_else(|| year.strip_prefix('’'))
+        .unwrap_or(year);
+    matches!(year.len(), 2 | 4) && year.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 fn trailing_dash_version(value: &str) -> Option<(&str, &str)> {
@@ -809,6 +821,27 @@ mod tests {
         assert_eq!(guest.featured_credit.as_deref(), Some("Guest"));
         let unknown = parse_recording_text("Song[1949 session]");
         assert_eq!(unknown.annotations[0].kind, AnnotationKind::Unresolved);
+    }
+
+    #[test]
+    fn restored_edition_with_year_is_semantic_not_presentation() {
+        for label in [
+            "Restored Edition '25",
+            "Restored Edition ’25",
+            "Restored Edition 2025",
+        ] {
+            let parsed = parse_recording_text(&format!("Swing 42 ({label})"));
+            assert_eq!(parsed.base_title, "Swing 42");
+            assert_eq!(parsed.semantic_versions().collect::<Vec<_>>(), vec![label]);
+        }
+        for label in [
+            "Restored Edition",
+            "Restored Edition 2025 Session",
+            "Rome 1949 session",
+        ] {
+            let parsed = parse_recording_text(&format!("Swing 42 ({label})"));
+            assert_eq!(parsed.annotations[0].kind, AnnotationKind::Unresolved);
+        }
     }
 
     #[test]
