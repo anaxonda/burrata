@@ -20,7 +20,7 @@ prompts and full product behavior still need manual review.
 
 1. Install and launch Burrata. Record any Gatekeeper, SmartScreen, or other OS
    security prompts and whether the app starts after the user's decision.
-2. Open **Settings → Tools Burrata uses** and run **Check tools**. Confirm packaged
+2. Open **Settings → Troubleshooting → Included tools** and run **Check tools**. Confirm packaged
    tools are available without system media tools on `PATH`.
 3. Import a short synthetic or authorized audio file. Play it, inspect its
    metadata, and run BPM/key analysis where the recording is suitable for those
@@ -49,3 +49,9 @@ prompts and full product behavior still need manual review.
 Record each platform and installer result separately, including failures and
 manual OS security prompts. Do not describe hosted-runner smoke as fresh-machine
 qualification.
+
+## Artist biography check (2026-10-30)
+
+A private Linux headless instance of candidate SHA-256 `e8cf78f96f6653cecc3c667407694ff1f0d1ee45d1f294e3bc9cb88bc693d434` returned a nonempty Wikipedia biography and the expected article link for MusicBrainz artist `0c4d8428-05fc-4386-a428-f12615479651` (Ghazi Abdel Baki). The linked Wikidata entity was `Q16148373`, and the Wikipedia summary matched that entity. The in-memory automation result was corroborated against the private profile's retained provider cache; the original response could not be saved because the temporary filesystem quota was exhausted. A bounded evidence record is retained at `.cache/playback-audit-evidence/20261030/ghazi-wikipedia-profile.json` in the local workspace.
+
+This qualifies the direct MusicBrainz profile path only. It does not establish that the original player card resolved that identity, that a Spotify crosswalk was present, or that other platforms were exercised. The private instance used no audio server.

@@ -36,6 +36,7 @@ enum ResolutionFailureKind {
     SourceOrSearch,
     Retryable,
     Deadline,
+    Storage,
     Cancelled,
 }
 
@@ -64,6 +65,8 @@ impl ResolutionFailure {
         .contains(&message.as_str())
         {
             ResolutionFailureKind::IdentityRejected
+        } else if message == "Audio source storage operation failed" {
+            ResolutionFailureKind::Storage
         } else if message == EXTRACTION_ATTEMPTS_EXHAUSTED
             || message == "Playback extraction attempt budget exhausted"
         {
@@ -125,6 +128,12 @@ impl SerialResolutionFailures {
             Some(prior) => prior.preferred(error),
             None => error,
         });
+    }
+    fn deadline(&self) -> String {
+        match &self.failure {
+            Some(error) if error.kind == ResolutionFailureKind::Storage => error.message.clone(),
+            _ => PLAYBACK_DEADLINE_MESSAGE.to_owned(),
+        }
     }
     fn finish(self, missing_duration: bool) -> String {
         if let Some(error) = self.failure {
@@ -3545,7 +3554,7 @@ async fn resolve_serial(
                     });
                 }
                 Err(error) if error == "Cancelled" => return Err("Cancelled".into()),
-                Err(error) if error == PLAYBACK_DEADLINE_MESSAGE => return Err(error),
+                Err(error) if error == PLAYBACK_DEADLINE_MESSAGE => return Err(failures.deadline()),
                 Err(error) => failures.record(error),
                 Ok(_) => {}
             }
@@ -3694,7 +3703,7 @@ async fn resolve_serial(
                             };
                             trace.event("alias_canonical_lookup_end", &track.provider, json!({"durationMs":canonical_started.elapsed().as_millis(),"metadataRequests":canonical.as_ref().map(|r|r.stats.requests),"ok":canonical.as_ref().is_some_and(|r|r.result.is_ok())}));
                             if *cancel.borrow() { return Err("Cancelled".into()); }
-                            if deadline.remaining().is_zero() { return Err(PLAYBACK_DEADLINE_MESSAGE.into()); }
+                            if deadline.remaining().is_zero() { return Err(failures.deadline()); }
                             verified_artist_aliases = crate::artist_credit_aliases::cached_verified_playback_artist_aliases(store, track);
                             include_candidate_aliases(&mut verified_artist_aliases, track, &candidate, Some(&audio));
                             proof = verify_with_playback_alias_context(
@@ -3707,7 +3716,7 @@ async fn resolve_serial(
                                     acquisition, track, cancel.clone(), deadline, trace,
                                 )).await;
                                 if *cancel.borrow() { return Err("Cancelled".into()); }
-                                if deadline.remaining().is_zero() { return Err(PLAYBACK_DEADLINE_MESSAGE.into()); }
+                                if deadline.remaining().is_zero() { return Err(failures.deadline()); }
                                 verified_artist_aliases = crate::artist_credit_aliases::cached_verified_playback_artist_aliases(store, track);
                                 include_candidate_aliases(&mut verified_artist_aliases, track, &candidate, Some(&audio));
                                 proof = verify_with_playback_alias_context(track, &verified_artist_aliases, &mut candidate, &audio,
@@ -7381,6 +7390,26 @@ mod tests {
                     PLAYBACK_DEADLINE_MESSAGE,
                 ),
                 ("Cancelled", PLAYBACK_DEADLINE_MESSAGE, "Cancelled"),
+                (
+                    "Audio source storage operation failed",
+                    PLAYBACK_DEADLINE_MESSAGE,
+                    "Audio source storage operation failed",
+                ),
+                (
+                    PLAYBACK_DEADLINE_MESSAGE,
+                    "Audio source storage operation failed",
+                    "Audio source storage operation failed",
+                ),
+                (
+                    "Audio source storage operation failed",
+                    "Cancelled",
+                    "Cancelled",
+                ),
+                (
+                    "Cancelled",
+                    "Audio source storage operation failed",
+                    "Cancelled",
+                ),
             ] {
                 let preferred = async move {
                     tokio::time::sleep(Duration::from_millis(if early_preferred { 1 } else { 4 }))
@@ -12003,6 +12032,85 @@ mod catalog_alias_priority_tests {
             .unwrap_err(),
             PLAYBACK_DEADLINE_MESSAGE
         );
+    }
+
+    #[test]
+    fn explicit_storage_failure_survives_provider_merging_and_serial_deadline() {
+        use crate::playback_failure::{
+            classify, safe_extractor_error, FailureCategory, FailureScope,
+        };
+        let storage = safe_extractor_error("Disk quota exceeded: /private/token");
+        assert_eq!(storage, "Audio source storage operation failed");
+        for other in [
+            "Monochrome catalog connection failed",
+            PLAYBACK_DEADLINE_MESSAGE,
+        ] {
+            for (first, second) in [(storage.as_str(), other), (other, storage.as_str())] {
+                let result = merge_resolution_errors(first.into(), second.into());
+                assert_eq!(result, storage);
+                let failure = classify(&result);
+                assert_eq!(failure.category, FailureCategory::Storage);
+                assert_eq!(failure.scope, FailureScope::Global);
+            }
+        }
+        assert_eq!(
+            merge_resolution_errors(storage.clone(), "Cancelled".into()),
+            "Cancelled"
+        );
+        assert_eq!(
+            merge_resolution_errors("Cancelled".into(), storage.clone()),
+            "Cancelled"
+        );
+        let mut failures = SerialResolutionFailures::default();
+        failures.record(storage.clone());
+        failures.record("Monochrome catalog connection failed".into());
+        assert_eq!(failures.deadline(), storage);
+        assert_eq!(failures.finish(false), storage);
+        let mut no_storage = SerialResolutionFailures::default();
+        no_storage.record(safe_extractor_error(
+            "[PYI-123:ERROR] Failed to extract libpython: decompression failed",
+        ));
+        assert_eq!(no_storage.deadline(), PLAYBACK_DEADLINE_MESSAGE);
+        assert_ne!(
+            classify(&no_storage.finish(false)).category,
+            FailureCategory::Storage
+        );
+    }
+
+    #[tokio::test]
+    async fn storage_failure_never_overrides_an_available_provider() {
+        for early_preferred in [true, false] {
+            for preferred_succeeds in [true, false] {
+                let preferred = async move {
+                    tokio::time::sleep(Duration::from_millis(if early_preferred { 1 } else { 4 }))
+                        .await;
+                    if preferred_succeeds {
+                        Ok(17u8)
+                    } else {
+                        Err("Audio source storage operation failed".into())
+                    }
+                };
+                let fallback = async move {
+                    tokio::time::sleep(Duration::from_millis(if early_preferred { 4 } else { 1 }))
+                        .await;
+                    if preferred_succeeds {
+                        Err("Audio source storage operation failed".into())
+                    } else {
+                        Ok(17u8)
+                    }
+                };
+                assert_eq!(
+                    prefer_with_grace(
+                        Box::pin(preferred),
+                        Box::pin(fallback),
+                        Duration::from_millis(10)
+                    )
+                    .await
+                    .unwrap(),
+                    17
+                );
+            }
+        }
     }
 
     #[test]
