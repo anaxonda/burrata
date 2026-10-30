@@ -2050,6 +2050,11 @@ fn sanitize_webview_media_inspection(raw: Value) -> Result<Value, ToolError> {
         }
     };
     let mut output = json!({"engine":"webview","applicable":true,"trackId":nullable_string("trackId")?,"sessionId":nullable_string("sessionId")?,"sourceGeneration":nullable_u64("sourceGeneration")?,"seekSerial":nullable_u64("seekSerial")?,"currentIndex":current_index,"queueTotal":queue_total,"entryId":entry_id,"queueTrackId":queue_track_id,"previewKind":match raw.get("previewKind"){Some(Value::String(v)) if v.len()<=32=>json!(v),Some(Value::Null)=>Value::Null,_=>return Err(ToolError::bad("Invalid media sample previewKind"))},"media":{"present":media_present,"currentTime":current_time,"duration":duration,"paused":nullable_boolean("paused")?,"readyState":ready_state,"networkState":network_state,"errorCode":error_code,"sourcePresent":boolean("sourcePresent")?,"sourceStable":source_stable}});
+    if let Some(startup) =
+        crate::playback_diagnostics_context::project_webview(raw.get("startupDiagnostics"))
+    {
+        output["startupDiagnostics"] = startup;
+    }
     // Optional fields preserve compatibility with older frontends while exposing
     // only bounded numeric playback ranges, never source URLs or headers.
     if let Some(value) = media.get("seeking") {
@@ -7014,7 +7019,30 @@ impl AutomationService {
                 json!(browse)
             }
             "get_playback_diagnostics_status" => json!(crate::playback_diagnostics::status()),
-            "get_playback_diagnostics_report" => json!(crate::playback_diagnostics::export()),
+            "get_playback_diagnostics_report" => {
+                require_no_arguments(&a, name)?;
+                let mut report = json!(crate::playback_diagnostics::export());
+                // The same read-only inspection used for media state also carries
+                // the opt-in startup history retained across manual retries.
+                // A missing frontend must not hide the backend diagnostic ring.
+                if !self
+                    .playback
+                    .get()
+                    .is_some_and(|playback| playback.native_enabled())
+                {
+                    match self.inspect_webview_media().await {
+                        Ok(media) => {
+                            report["webview"] = media
+                                .get("startupDiagnostics")
+                                .cloned()
+                                .unwrap_or(Value::Null);
+                            report["webviewInspectionStatus"] = json!("available");
+                        }
+                        Err(_) => report["webviewInspectionStatus"] = json!("unavailable"),
+                    }
+                }
+                report
+            }
             "clear_playback_diagnostics" => json!(crate::playback_diagnostics::clear()),
             "get_acquisition_preferences" => {
                 require_no_arguments(&a, name)?;
@@ -10794,7 +10822,23 @@ mod tests {
             "media":{"present":true,"currentTime":10.0,"duration":131.0,"paused":false,"readyState":2,"networkState":2,"errorCode":null,"sourcePresent":true,"sourceStable":true},
             "diagnostics":{"owner":{"sessionId":"s","sourceGeneration":7,"entryId":"e","seekSerial":2},"sourceFormat":{"codec":"mp4a.40.2","mimeType":"audio/mp4","formatId":"140","hasVideo":false,"expectedContentLength":123456,"streamKind":"direct","url":"https://private.invalid/?token=secret"},"events":[{"atMs":20.5,"type":"waiting","readyState":2,"networkState":2,"paused":false,"currentTime":10.0,"buffered":[{"start":9.0,"end":12.0}],"url":"https://private.invalid/?token=secret","title":"private title","path":"/private/file"}]}
         });
+        let mut base = base;
+        base["startupDiagnostics"] = json!({
+            "status":"playing", "url":"https://private.invalid/?token=secret",
+            "startupFailures":(1..=10).map(|attempt| json!({"attempt":attempt,"phase":"play","mediaErrorCode":4,"elapsedMs":200,"url":"https://private.invalid/secret"})).collect::<Vec<_>>()
+        });
         let safe = sanitize_webview_media_inspection(base.clone()).unwrap();
+        assert_eq!(
+            safe["startupDiagnostics"]["startupFailures"]
+                .as_array()
+                .unwrap()
+                .len(),
+            8
+        );
+        assert_eq!(
+            safe["startupDiagnostics"]["startupFailures"][0]["mediaErrorCode"],
+            4
+        );
         assert_eq!(safe["diagnostics"]["events"][0]["type"], "waiting");
         assert_eq!(safe["diagnostics"]["events"][0]["buffered"][0]["end"], 12.0);
         assert_eq!(

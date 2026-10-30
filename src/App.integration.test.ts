@@ -1475,6 +1475,51 @@ describe("read-only WebView media inspection", () => {
     expect(JSON.stringify(response)).not.toContain("never-return");
     sessionStorage.removeItem("burrata.webviewMediaEventDiagnostics");
   });
+  it("dispatches ordinary source lookup before the first synchronous media capability scan", async () => {
+    previewMode = "fallback";
+    savedChartTracks = [savedTrack];
+    const probe = vi.spyOn(HTMLMediaElement.prototype, "canPlayType").mockImplementation(mime => {
+      if (mime.includes("audio/ogg")) expect(mocks.call.mock.calls.some(([command]) => command === "resolve_playback_track")).toBe(true);
+      return "probably";
+    });
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
+    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); }; await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Play Saved Recording"]')!.click(); await settle();
+    expect(mocks.call).toHaveBeenCalledWith("resolve_playback_track", expect.objectContaining({ track: expect.objectContaining({ id: savedTrack.id }) }));
+    expect(document.querySelector(".player-status")?.textContent).toContain("Playing");
+    expect(probe.mock.calls.filter(([mime]) => mime.includes("audio/ogg"))).toHaveLength(2);
+  });
+  it("exposes retained startup failures after replay through normal diagnostic opt-in without a session flag", async () => {
+    const originalCall = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      const result = await originalCall(command, args);
+      return command === "get_settings" ? { ...result, playbackDiagnosticsEnabled: true } : result;
+    });
+    sessionStorage.removeItem("burrata.webviewMediaEventDiagnostics");
+    previewMode = "fallback";
+    savedChartTracks = [savedTrack];
+    let permitPlayback = false;
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(function(this: HTMLMediaElement) {
+      return permitPlayback ? playAndAdvanceMediaClock.call(this) : Promise.reject(new Error("fixture first startup failed"));
+    });
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); }; await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Play Saved Recording"]')!.click(); await settle();
+    expect(document.querySelector(".player-status")?.textContent).not.toContain("Playing");
+    permitPlayback = true;
+    document.querySelector<HTMLButtonElement>('[aria-label="Play Saved Recording"]')!.click(); await settle();
+    const element = document.querySelector<HTMLAudioElement>("audio");
+    expect(element).not.toBeNull();
+    element!.dispatchEvent(new Event("seeked")); await settle();
+    const playback = await latestPublishedPlaybackFor(savedTrack.id);
+    const response = await inspectWithRequest({ requestId: "webview-media:startup-history", ...playback });
+    const history = response?.layout.startupDiagnostics as { startupFailures: unknown[]; startupOutcomes: Array<{outcome:string}> };
+    expect(history.startupFailures).toEqual(expect.arrayContaining([expect.objectContaining({ phase: "play", attempt: 1 })]));
+    expect(history.startupOutcomes.map(row => row.outcome)).toContain("failed");
+    expect(history.startupOutcomes.map(row => row.outcome)).toContain("playing");
+    expect(response?.layout.diagnostics).toBeDefined();
+    expect(sessionStorage.getItem("burrata.webviewMediaEventDiagnostics")).toBeNull();
+  });
   it("returns actual identity on a stale request and reports an absent element without inventing media fields", async () => {
     const mediaListenerCleanup=vi.fn();
     mocks.listen.mockImplementation(async (event: string, handler: (event: { event: string; id: number; payload: unknown }) => void) => {

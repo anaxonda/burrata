@@ -4,3 +4,9 @@ export function webviewAudioCapabilities(node?: Pick<HTMLAudioElement, "canPlayT
   const supports = (mime: string) => { try { return Boolean(audio?.canPlayType(mime)); } catch { return false; } };
   return { oggVorbis: supports('audio/ogg; codecs="vorbis"'), oggOpus: supports('audio/ogg; codecs="opus"') };
 }
+
+/** Each WebView needs one media-registry initialization, not one per source. */
+export function createWebviewAudioCapabilitiesProbe() {
+  let cached: ReturnType<typeof webviewAudioCapabilities> | undefined;
+  return () => cached ??= webviewAudioCapabilities();
+}

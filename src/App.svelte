@@ -31,7 +31,7 @@ import { hasWebviewStartupResumeProgress, shouldRefreshWebviewResumeSource, star
   import { createAutomationPlaybackPublisher, queueProjectionRevision, type PlaybackStateAck } from "./lib/automation-playback-publisher";
   import { startupStageTimings, waitForStartupClock, captureWebviewStartupFailure, type WebviewStartupFailure, type WebviewStartupPhase } from "./lib/webview-startup-diagnostics";
   import { attachAudioStream, type AudioStreamHandle } from "./lib/audio-stream";
-  import { webviewAudioCapabilities } from "./lib/webview-audio-capabilities";
+  import { createWebviewAudioCapabilitiesProbe } from "./lib/webview-audio-capabilities";
   import { captureWebviewRadioWavBase64 } from "./lib/webview-radio-pcm";
   import { measurePlaybackLayout } from "./lib/playback-layout";
   import { inspectArtworkImages } from "./lib/artwork-diagnostics";
@@ -5098,6 +5098,15 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     if(!isCurrent()){handle.destroy();throw new Error("Audio setup cancelled");}
     audioStreamHandle=handle;
   }
+  const webviewAudioCapabilities = createWebviewAudioCapabilitiesProbe();
+  function resolvePlaybackWithMediaWarmup(args: Record<string, unknown>): Promise<PlaybackResolution> {
+    // First-use canPlayType() can synchronously scan the platform media registry
+    // for several seconds. Dispatch source lookup first so its network work runs
+    // during initialization, rather than spending the startup budget serially.
+    const pending = call<PlaybackResolution>("resolve_playback_track", args);
+    webviewAudioCapabilities();
+    return pending;
+  }
   function boundedPreviewResolution<T>(request: number, operation: Promise<T>, deadlineOverride?: number): Promise<T | undefined> {
     const deadline = deadlineOverride ?? (automaticPreviewRecovery?.request === request ? automaticPreviewRecovery.deadline : undefined);
     return withinPreviewStartupBudget(() => previewRequests.resolve(request, operation), deadline, () => previewRequests.isCurrent(request));
@@ -5617,8 +5626,8 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
       const budgetMs = Math.floor(resolveDeadline - performance.now());
       if (budgetMs <= 0) break;
       try {
-        const result = await boundedPreviewResolution(request, call<PlaybackResolution>("resolve_playback_track", {
-          track: t, requestGeneration: request, selectedCandidate: recovery.exactSourceOnly ? queueCandidates[t.id] ?? null : null, budgetMs, webviewCapabilities: webviewAudioCapabilities(),
+        const result = await boundedPreviewResolution(request, resolvePlaybackWithMediaWarmup({
+          track: t, requestGeneration: request, selectedCandidate: recovery.exactSourceOnly ? queueCandidates[t.id] ?? null : null, budgetMs,
           normalizationRouteRequired: await isWebviewNormalizationRouteRequired(),
           failedCandidates: recovery.exactSourceOnly ? [] : [...recovery.tried].slice(-2).map(key => {
             const separator = key.indexOf(":");
@@ -5696,9 +5705,9 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     recovery.sourceStartupDeadline = recovery.deadline ?? performance.now() + budgetMs;
     recovery.attempts++;
     try {
-      const result = await boundedPreviewResolution(request, call<PlaybackResolution>("resolve_playback_track", {
+      const result = await boundedPreviewResolution(request, resolvePlaybackWithMediaWarmup({
         track: t, requestGeneration: request, selectedCandidate: recovery.exactSourceOnly ? queueCandidates[t.id] ?? candidate : null,
-        refreshCandidateFresh: true, refreshCandidate: candidate, seekRecovery, budgetMs, failedCandidates: [], webviewCapabilities: webviewAudioCapabilities(),
+        refreshCandidateFresh: true, refreshCandidate: candidate, seekRecovery, budgetMs, failedCandidates: [],
         normalizationRouteRequired: await isWebviewNormalizationRouteRequired(),
       }));
       if (!result || !previewRequests.isCurrent(request)) return false;
@@ -9811,7 +9820,8 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
           webAudioGainGraph:graph,
           errorCode:element?.error?.code??null,sourcePresent:Boolean(element&&(element.currentSrc||element.src)),sourceStable:Boolean(element&&(element.currentSrc||element.src)===sourceBefore)
         }};
-        if(mediaEventDiagnosticsEnabled) {
+        if (settings.playbackDiagnosticsEnabled || mediaEventDiagnosticsEnabled) {
+          sample.startupDiagnostics = webviewDiagnosticsForExport();
           const eventDiagnostics=webviewMediaEventRecorder.snapshot(before);
           if(eventDiagnostics) {
             const streamKind=audioStreamHandle?.kind==="direct"?"direct":audioStreamHandle?.kind?.endsWith("hls")?"hls":"unavailable";
