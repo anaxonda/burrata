@@ -221,7 +221,7 @@ impl YouTubeSupportManager {
     }
 
     /// Recommended updates remain explicitly unavailable until Burrata
-    /// publishes a signed/trusted manifest feed. No third-party manifest is
+    /// publishes its configured trusted manifest feed. No third-party manifest is
     /// accepted as a normal update source.
     pub async fn check_recommended_update(&self) -> UpdateCheck {
         match self.load_recommended().await {
@@ -267,6 +267,8 @@ impl YouTubeSupportManager {
             .as_str()
             .ok_or("GitHub nightly release has no tag_name")?
             .to_owned();
+        validate_version(&release_version)?;
+        validate_nightly_assets(&release)?;
         let published = release["published_at"].as_str().map(str::to_owned);
         let current = version(&self.active_executable()).await.ok();
         Ok(UpdateCheck { channel: "official-nightly".into(), available: current.as_deref() != Some(&release_version), version: Some(release_version), published_at: published,
@@ -355,14 +357,42 @@ impl YouTubeSupportManager {
         F: FnOnce(PathBuf) -> Fut,
         Fut: std::future::Future<Output = Result<(), String>>,
     {
+        validate_version(expected_version)?;
         let root = self.managed_root();
         fs::create_dir_all(root.join("versions"))
             .map_err(|e| format!("Could not create managed YouTube support directory: {e}"))?;
         let version_dir = root.join("versions").join(expected_version);
         if version_dir.exists() {
-            return Err(format!(
-                "Version {expected_version} is already staged; it was left intact."
-            ));
+            let existing = version_dir.join(executable_filename());
+            let existing_bytes = fs::read(&existing)
+                .map_err(|e| format!("Could not read existing managed version: {e}"))?;
+            if existing_bytes != bytes {
+                return Err("Existing managed version differs from the verified download; active version was kept.".into());
+            }
+            let actual = version(&existing).await.map_err(|e| {
+                format!("Existing managed version probe failed; active version was kept: {e}")
+            })?;
+            if actual != expected_version {
+                return Err(format!("Existing managed version reported {actual}, expected {expected_version}; active version was kept."));
+            }
+            probe(existing)
+                .await
+                .map_err(|e| format!("Compatibility probe failed; active version was kept: {e}"))?;
+            let previous = self
+                .read_pointer("current.json")
+                .map(|p| p.version)
+                .unwrap_or_else(|| "@bundled".into());
+            if previous != expected_version {
+                self.write_pointer_atomically(
+                    "current.json",
+                    &VersionPointer {
+                        version: expected_version.to_owned(),
+                        executable: executable_filename().to_owned(),
+                        previous: Some(previous),
+                    },
+                )?;
+            }
+            return Ok(self.status().await);
         }
         let staging = root
             .join("versions")
@@ -522,6 +552,7 @@ impl YouTubeSupportManager {
             .previous
             .ok_or("No previous managed YouTube version is available")?;
         if previous != "@bundled" {
+            validate_version(&previous)?;
             let prior_path = self
                 .managed_root()
                 .join("versions")
@@ -1247,14 +1278,31 @@ async fn run_capped(
     timeout: Duration,
     byte_limit: usize,
 ) -> Result<std::process::Output, String> {
-    let mut child = command
-        .spawn()
-        .map_err(|e| format!("could not start process: {e}"))?;
-    let stdout = child.stdout.take().ok_or("stdout pipe was not created")?;
-    let stderr = child.stderr.take().ok_or("stderr pipe was not created")?;
-    let out_task = tokio::spawn(read_bounded(stdout, byte_limit));
-    let err_task = tokio::spawn(read_bounded(stderr, byte_limit));
     tokio::time::timeout(timeout, async {
+        // Another concurrent fork can briefly retain a close-on-exec writer for
+        // a freshly staged file. Retry only the transient Unix ETXTBSY spawn
+        // failure; the original overall process deadline still applies.
+        let mut retries = 0;
+        let mut child = loop {
+            match command.spawn() {
+                Ok(child) => break child,
+                Err(error) => {
+                    #[cfg(unix)]
+                    let busy = error.raw_os_error() == Some(26);
+                    #[cfg(not(unix))]
+                    let busy = false;
+                    if !busy || retries >= 3 {
+                        return Err(format!("could not start process: {error}"));
+                    }
+                    retries += 1;
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            }
+        };
+        let stdout = child.stdout.take().ok_or("stdout pipe was not created")?;
+        let stderr = child.stderr.take().ok_or("stderr pipe was not created")?;
+        let out_task = tokio::spawn(read_bounded(stdout, byte_limit));
+        let err_task = tokio::spawn(read_bounded(stderr, byte_limit));
         let (status, stdout, stderr) = tokio::join!(child.wait(), out_task, err_task);
         let status = status.map_err(|e| format!("process wait failed: {e}"))?;
         let (stdout, out_exceeded) = stdout
@@ -1359,8 +1407,21 @@ fn select_recommended_release(releases: &Value) -> Option<&Value> {
             })
     })
 }
+fn validate_nightly_assets(release: &Value) -> Result<(), String> {
+    let assets = parse_assets(release)?;
+    let binary = platform_asset_name()?;
+    for name in [binary, "SHA2-256SUMS", "SHA2-512SUMS"] {
+        if !assets.iter().any(|asset| asset.name == name) {
+            return Err(format!(
+                "Official nightly has no required {name} asset for this platform"
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn platform_asset_name() -> Result<&'static str, String> {
-    if cfg!(target_os = "windows") {
+    if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
         Ok("yt-dlp.exe")
     } else if cfg!(target_os = "macos") {
         Ok("yt-dlp_macos")
@@ -1420,6 +1481,8 @@ fn replace_atomically(from: &Path, to: &Path) -> std::io::Result<()> {
 }
 fn validate_version(version: &str) -> Result<(), String> {
     if version.is_empty()
+        || version == "."
+        || version == ".."
         || version.len() > 80
         || !version
             .bytes()
@@ -1678,6 +1741,29 @@ mod tests {
     }
 
     #[test]
+    fn nightly_check_requires_platform_binary_and_both_checksum_assets() {
+        let Ok(binary) = platform_asset_name() else {
+            return;
+        };
+        let asset = |name: &str| serde_json::json!({"name":name,"browser_download_url":"https://github.com/example"});
+        let complete = serde_json::json!({"assets":[asset(binary),asset("SHA2-256SUMS"),asset("SHA2-512SUMS")]});
+        assert!(validate_nightly_assets(&complete).is_ok());
+        for missing in [binary, "SHA2-256SUMS", "SHA2-512SUMS"] {
+            let assets = complete["assets"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|value| value["name"] != missing)
+                .cloned()
+                .collect::<Vec<_>>();
+            assert!(
+                validate_nightly_assets(&serde_json::json!({"assets":assets})).is_err(),
+                "{missing}"
+            );
+        }
+    }
+
+    #[test]
     fn pointer_is_app_data_scoped_and_switches_atomically() {
         let tmp = tempfile::tempdir().unwrap();
         let manager = YouTubeSupportManager::new(tmp.path(), "/usr/bin/yt-dlp", None, None, None);
@@ -1698,6 +1784,191 @@ mod tests {
             root.join("versions/v1").join(executable_filename())
         );
         assert!(root.join("current.json").is_file());
+    }
+
+    // Compile a real host executable so Windows tests exercise CreateProcess
+    // and MoveFileExW, not a Unix-only shell script or a mocked version check.
+    fn native_updater_fixture() -> &'static [u8] {
+        static FIXTURE: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+        FIXTURE.get_or_init(|| {
+            let tmp = tempfile::tempdir().unwrap();
+            let source = tmp.path().join("fixture.rs");
+            let binary = tmp.path().join(executable_filename());
+            fs::write(
+                &source,
+                r#"fn main() {
+                match std::env::args().nth(1).as_deref() {
+                    Some("--version") => println!("fixture.1"),
+                    Some("--fixture-probe") => (),
+                    _ => std::process::exit(1),
+                }
+            }"#,
+            )
+            .unwrap();
+            let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+            let output = std::process::Command::new(rustc)
+                .arg(&source)
+                .arg("-o")
+                .arg(&binary)
+                .output()
+                .expect("run rustc for updater fixture");
+            assert!(
+                output.status.success(),
+                "fixture compilation failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            fs::read(binary).unwrap()
+        })
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn version_probe_retries_a_temporarily_busy_executable() {
+        let tmp = tempfile::tempdir().unwrap();
+        let executable = tmp.path().join(executable_filename());
+        fs::write(&executable, native_updater_fixture()).unwrap();
+        set_executable(&executable).unwrap();
+        let writer = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&executable)
+            .unwrap();
+        let release = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            drop(writer);
+        });
+        assert_eq!(version(&executable).await.unwrap(), "fixture.1");
+        release.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn native_fixture_stage_probe_activate_and_rollback() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bundled = tmp.path().join(executable_filename());
+        fs::write(&bundled, native_updater_fixture()).unwrap();
+        set_executable(&bundled).unwrap();
+        let manager =
+            YouTubeSupportManager::new(tmp.path().join("data"), &bundled, None, None, None);
+        let wrong = manager
+            .stage_activate_with_probe("wrong.1", native_updater_fixture(), |_| async {
+                panic!("compatibility probe must not run on version mismatch");
+                #[allow(unreachable_code)]
+                Ok(())
+            })
+            .await
+            .unwrap_err();
+        assert!(wrong.contains("reported version fixture.1"));
+        assert_eq!(manager.active_executable(), bundled);
+        let rejected = manager
+            .stage_activate_with_probe("fixture.1", native_updater_fixture(), |path| async move {
+                let mut command = Command::new(path);
+                command
+                    .arg("--reject")
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
+                let output = run_capped(command, Duration::from_secs(10), 4096).await?;
+                if output.status.success() {
+                    Ok(())
+                } else {
+                    Err("fixture probe rejected".into())
+                }
+            })
+            .await
+            .unwrap_err();
+        assert!(rejected.contains("Compatibility probe failed"));
+        assert_eq!(manager.active_executable(), bundled);
+        assert!(!manager.managed_root().join("versions/fixture.1").exists());
+        manager
+            .stage_activate_with_probe("fixture.1", native_updater_fixture(), |path| async move {
+                let mut command = Command::new(path);
+                command
+                    .arg("--fixture-probe")
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
+                let output = run_capped(command, Duration::from_secs(10), 4096).await?;
+                if output.status.success() {
+                    Ok(())
+                } else {
+                    Err("fixture probe failed".into())
+                }
+            })
+            .await
+            .unwrap();
+        let managed = manager
+            .managed_root()
+            .join("versions/fixture.1")
+            .join(executable_filename());
+        assert_eq!(manager.active_executable(), managed);
+        assert_eq!(version(&managed).await.unwrap(), "fixture.1");
+        manager.rollback().await.unwrap();
+        assert_eq!(manager.active_executable(), bundled);
+        let differing = manager
+            .stage_activate_with_probe("fixture.1", b"different", |_| async { Ok(()) })
+            .await;
+        assert!(differing.is_err());
+        assert_eq!(manager.active_executable(), bundled);
+        let rejected = manager
+            .stage_activate_with_probe("fixture.1", native_updater_fixture(), |_| async {
+                Err("rejected again".into())
+            })
+            .await;
+        assert!(rejected.is_err());
+        assert_eq!(manager.active_executable(), bundled);
+        manager
+            .stage_activate_with_probe("fixture.1", native_updater_fixture(), |path| async move {
+                let mut command = Command::new(path);
+                command
+                    .arg("--fixture-probe")
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
+                let output = run_capped(command, Duration::from_secs(10), 4096).await?;
+                if output.status.success() {
+                    Ok(())
+                } else {
+                    Err("fixture probe failed".into())
+                }
+            })
+            .await
+            .unwrap();
+        assert_eq!(manager.active_executable(), managed);
+        manager.rollback().await.unwrap();
+        assert_eq!(manager.active_executable(), bundled);
+        manager.rollback().await.unwrap();
+        assert_eq!(manager.active_executable(), managed);
+    }
+
+    #[tokio::test]
+    async fn rollback_rejects_unsafe_previous_version_without_replacing_current_pointer() {
+        let tmp = tempfile::tempdir().unwrap();
+        let manager =
+            YouTubeSupportManager::new(tmp.path(), tmp.path().join("bundled"), None, None, None);
+        let root = manager.managed_root();
+        fs::create_dir_all(root.join("versions/current")).unwrap();
+        fs::write(
+            root.join("versions/current").join(executable_filename()),
+            b"fixture",
+        )
+        .unwrap();
+        manager
+            .write_pointer_atomically(
+                "current.json",
+                &VersionPointer {
+                    version: "current".into(),
+                    executable: executable_filename().into(),
+                    previous: Some("..".into()),
+                },
+            )
+            .unwrap();
+        assert!(manager.rollback().await.is_err());
+        assert_eq!(
+            manager.read_pointer("current.json").unwrap().version,
+            "current"
+        );
+        assert_eq!(
+            manager.active_executable(),
+            root.join("versions/current").join(executable_filename())
+        );
+        assert!(validate_version(".").is_err());
+        assert!(validate_version("..").is_err());
     }
 
     #[tokio::test]
