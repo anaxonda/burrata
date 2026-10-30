@@ -6259,50 +6259,50 @@ import { encodeStereoDiagnosticSamples, stereoDiagnosticCompletionArguments } fr
     clearTimeout(autoTimer);
     const request = nextPreviewRequest();
     async function advanceFailedQueue() {
-    const failedQueueOccurrenceIsCurrent = advanceFailedQueueEntry &&
-      failedQueueEntryIds.length === playbackQueue.entryIds.length &&
-      failedQueueEntryIds.every((id,index) => playbackQueue.entryIds[index] === id) &&
-      failedQueueIndex === queueIndex && previewRequests.isCurrent(request) && !preview;
-    const currentQueueTrack = playbackQueue.tracks[failedQueueIndex];
-    const currentOccurrenceSourceKey = currentQueueTrack ? queueRadioSeedKey(currentQueueTrack) : "";
-    const currentOccurrenceSourceChanged = Boolean(occurrenceId) &&
-      currentOccurrenceSourceKey !== failedQueueSourceKeys[failedQueueIndex];
-    if (failedQueueOccurrenceIsCurrent && occurrenceId && currentOccurrenceSourceChanged &&
-        !failureRun.sourceRefreshRetries.has(occurrenceId)) {
-      // A library/autotag refresh can enrich this same occurrence while its old
-      // resolver request is pending. Retry it once with the current row payload;
-      // the old source's failure cannot decide whether the refreshed source works.
-      failureRun.sourceRefreshRetries.add(occurrenceId);
-      failureRun.visited.delete(occurrenceId);
-      failureRun.sourceKey = JSON.stringify(playbackQueue.tracks.map(queueRadioSeedKey));
-      selected = currentQueueTrack!;
-      await startPreview(currentQueueTrack!, true, false, undefined, undefined, failedSkips, automationRequestId, false, failureRun);
-      return;
-    }
-    if (failedQueueOccurrenceIsCurrent && !currentOccurrenceSourceChanged && shouldAdvanceAfterExhaustedFailure(previewStatus)) {
-      pendingResumePosition = 0;
-      const failedTitle = safeNativeFailurePart(t.title, "Unavailable recording");
-      const failedReason = safePreviewError(previewStatus);
-      // Attempt each occurrence at most once; repeat-all may wrap to an unvisited entry.
-      activeFailedQueueRun = failureRun;
-      const next = playbackQueue.nextAfterFailedStart(failureRun.visited);
-      recentTrackFailures = appendTrackFailure(recentTrackFailures, t, {
-        queueRevision: automationQueueProjection.revision, generation: request, operationId: automationRequestId ?? playbackSession,
-        entryId: occurrenceId, outcome: next ? "skipped" : "queue_exhausted",
-      }, previewStatus);
-      failureHistoryRevision++;
-      setNotice(skippedPreviewFailureNotice(t, failedReason), "persistent", "playbackSkip");
-      if (next) {
-        selected = next;
-        refreshQueue();
+      const failedQueueOccurrenceIsCurrent = advanceFailedQueueEntry &&
+        failedQueueEntryIds.length === playbackQueue.entryIds.length &&
+        failedQueueEntryIds.every((id,index) => playbackQueue.entryIds[index] === id) &&
+        failedQueueIndex === queueIndex && previewRequests.isCurrent(request) && !preview;
+      const currentQueueTrack = playbackQueue.tracks[failedQueueIndex];
+      const currentOccurrenceSourceKey = currentQueueTrack ? queueRadioSeedKey(currentQueueTrack) : "";
+      const currentOccurrenceSourceChanged = Boolean(occurrenceId) &&
+        currentOccurrenceSourceKey !== failedQueueSourceKeys[failedQueueIndex];
+      if (failedQueueOccurrenceIsCurrent && occurrenceId && currentOccurrenceSourceChanged &&
+          !failureRun.sourceRefreshRetries.has(occurrenceId)) {
+        // A library/autotag refresh can enrich this same occurrence while its old
+        // resolver request is pending. Retry it once with the current row payload;
+        // the old source's failure cannot decide whether the refreshed source works.
+        failureRun.sourceRefreshRetries.add(occurrenceId);
+        failureRun.visited.delete(occurrenceId);
         failureRun.sourceKey = JSON.stringify(playbackQueue.tracks.map(queueRadioSeedKey));
-        // Source exhaustion is not a natural end and must retain cancellation ownership.
-        await startPreview(next, true, false, undefined, undefined, failedSkips + 1, automationRequestId, false, failureRun);
-      } else {
-        paused = true;
-        previewStatus = `Could not start ${failedTitle}; reached the end of the queue (${failureRun.visited.size} unavailable occurrences checked). ${failedReason}`;
+        selected = currentQueueTrack!;
+        await startPreview(currentQueueTrack!, true, false, undefined, undefined, failedSkips, automationRequestId, false, failureRun);
+        return;
       }
-    }
+      if (failedQueueOccurrenceIsCurrent && !currentOccurrenceSourceChanged && shouldAdvanceAfterExhaustedFailure(previewStatus)) {
+        pendingResumePosition = 0;
+        const failedTitle = safeNativeFailurePart(t.title, "Unavailable recording");
+        const failedReason = safePreviewError(previewStatus);
+        // Attempt each occurrence at most once; repeat-all may wrap to an unvisited entry.
+        activeFailedQueueRun = failureRun;
+        const next = playbackQueue.nextAfterFailedStart(failureRun.visited);
+        recentTrackFailures = appendTrackFailure(recentTrackFailures, t, {
+          queueRevision: automationQueueProjection.revision, generation: request, operationId: automationRequestId ?? playbackSession,
+          entryId: occurrenceId, outcome: next ? "skipped" : "queue_exhausted",
+        }, previewStatus);
+        failureHistoryRevision++;
+        setNotice(skippedPreviewFailureNotice(t, failedReason), "persistent", "playbackSkip");
+        if (next) {
+          selected = next;
+          refreshQueue();
+          failureRun.sourceKey = JSON.stringify(playbackQueue.tracks.map(queueRadioSeedKey));
+          // Source exhaustion is not a natural end and must retain cancellation ownership.
+          await startPreview(next, true, false, undefined, undefined, failedSkips + 1, automationRequestId, false, failureRun);
+        } else {
+          paused = true;
+          previewStatus = `Could not start ${failedTitle}; reached the end of the queue (${failureRun.visited.size} unavailable occurrences checked). ${failedReason}`;
+        }
+      }
     }
     successfulRecoveryAttachment = null;
     automaticPreviewRecovery = { request, track: t, tried: new Set(), attempts: 0, sourceAttempts: 0,

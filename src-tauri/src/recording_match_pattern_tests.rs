@@ -122,3 +122,40 @@ fn restored_edition_remains_recording_version_evidence() {
         }
     }
 }
+
+#[test]
+fn swing_remastered_2002_flexible_policy_qualification() {
+    let track = Track {
+        id: "catalog:musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:1:1:ec12bebd-e1b9-42ff-892b-4aa4825ac8ea".into(),
+        provider: "catalog".into(),
+        provider_id: "musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:1:1:ec12bebd-e1b9-42ff-892b-4aa4825ac8ea".into(),
+        artist: "Django Reinhardt & Quintette du Hot Club de France".into(),
+        title: "Swing 42 (Restored Edition '25)".into(), duration_seconds: Some(165.0),
+        provenance: json!({"artistCredits":[
+            {"name":"Django Reinhardt","role":"artist credit","joinPhrase":" & "},
+            {"name":"Quintette du Hot Club de France","role":"artist credit","joinPhrase":""}
+        ]}), ..Track::default()
+    };
+    let title = "Swing 42 (Remastered 2002)";
+    let candidate = Candidate {
+        provider: "youtube".into(),
+        id: "youtube:AVgvKGkxDLc".into(),
+        title: title.into(),
+        duration_seconds: Some(147.0),
+        source_metadata: Some(
+            json!({"provider":"youtube","track":title,"artists":["Django Reinhardt","The Quintet of the Hot Club of France","Stéphane Grappelli"],"artistCount":3,"duration":147.0,"album":"Djangology","channel":"Django Reinhardt"}),
+        ),
+        ..Candidate::default()
+    };
+    for level in [MatchLevel::Balanced, MatchLevel::Flexible] {
+        for stage in [MatchStage::Search, MatchStage::Resolved] {
+            let result = assess(&track, &candidate, level, stage);
+            println!("{level:?} {stage:?}: {result:?}");
+            assert_ne!(
+                result.action,
+                MatchAction::Accept,
+                "unverified performer and version: {result:?}"
+            );
+        }
+    }
+}

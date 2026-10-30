@@ -310,6 +310,19 @@ impl VerifiedPlaybackArtistAliases {
         Some(variant)
     }
 
+    pub(crate) fn matching_credit_names(
+        &self,
+        source: &Track,
+        candidate_artist: &str,
+    ) -> Option<Vec<String>> {
+        if self.source.as_ref() != Some(source) {
+            return None;
+        }
+        self.credit_sets
+            .iter()
+            .find_map(|credits| credits.matching_names(candidate_artist))
+    }
+
     pub(crate) fn discogs_credit_variant(
         &self,
         source: &Track,
@@ -2669,6 +2682,89 @@ mod tests {
             .set_retained_provider_cache(namespace, "spotify:cccccccccccccccccccccc", &bad)
             .unwrap();
         assert!(cached_verified_provider_artist_credit_set(&store, &source).is_none());
+    }
+
+    #[test]
+    fn verified_spotify_credit_aliases_reach_resolved_recording_assessment() {
+        use crate::recording_match::{MatchAction, MatchLevel, MatchStage};
+        let directory = tempdir().unwrap();
+        let store = Store::open(&directory.path().join("aliases.sqlite")).unwrap();
+        let mut track = spotify_artist_credit_track();
+        track.artist = "Quantic, Nidia Gongora".into();
+        track.title = "Amor en Francia".into();
+        track.duration_seconds = Some(270.293);
+        track.isrc = None;
+        let credits = [
+            (
+                "aaaaaaaaaaaaaaaaaaaaaa",
+                "Quantic",
+                "00000000-0000-4000-8000-000000000001",
+            ),
+            (
+                "cccccccccccccccccccccc",
+                "Nidia Gongora",
+                "00000000-0000-4000-8000-000000000002",
+            ),
+        ];
+        let refs = credits
+            .iter()
+            .map(|(id, name, _)| json!({"provider":"spotify","id":id,"name":name}))
+            .collect::<Vec<_>>();
+        track.provenance["catalog"]["artists"] = json!(refs);
+        track.provenance["remoteCatalog"]["artistRefs"] = json!(refs);
+        track.provenance["remoteCatalog"]["artist"] = json!(track.artist);
+        track.provenance["remoteCatalog"]["title"] = json!(track.title);
+        track.provenance["remoteCatalog"]["durationSeconds"] = json!(270.293);
+        store.save_track(&track).unwrap();
+        for (id, _, mbid) in credits {
+            let name = if id.starts_with('a') {
+                "Quantic"
+            } else {
+                "Nidia Góngora"
+            };
+            store.set_retained_provider_cache("artists.alias-discovery.provider-artist.v1", &format!("spotify:{id}"), &json!({"version":1,"provider":"spotify","providerArtistId":id,"musicbrainzArtistId":mbid,"canonicalLookupOnly":true,"lookup":{"resource":format!("https://open.spotify.com/artist/{id}"),"relations":[{"target-type":"artist","artist":{"id":mbid,"name":name}}]}})).unwrap();
+        }
+        let aliases = cached_verified_playback_artist_aliases(&store, &track);
+        let candidate = crate::models::Candidate {
+            provider: "youtube".into(),
+            id: "youtube:x1aO1kcVeu4".into(),
+            title: "Quantic, Nidia Góngora - Amor en Francia".into(),
+            duration_seconds: Some(270.0),
+            ..Default::default()
+        };
+        let assess = |candidate: &crate::models::Candidate| {
+            crate::recording_match_context::assess_with_aliases(
+                &store,
+                &track,
+                candidate,
+                MatchLevel::Balanced,
+                MatchStage::Resolved,
+                aliases.tracks(),
+                aliases.isrc_enriched(),
+                aliases.verified_recording_isrc(),
+            )
+        };
+        assert_eq!(assess(&candidate).action, MatchAction::Accept);
+        let wrong = crate::models::Candidate {
+            title: "Quantic, Different Artist - Amor en Francia".into(),
+            ..candidate.clone()
+        };
+        assert_ne!(assess(&wrong).action, MatchAction::Accept);
+        let extra = crate::models::Candidate {
+            title: "Quantic, Nidia Góngora, Other - Amor en Francia".into(),
+            ..candidate.clone()
+        };
+        assert_ne!(assess(&extra).action, MatchAction::Accept);
+        let different_runtime = crate::models::Candidate {
+            duration_seconds: Some(300.0),
+            ..candidate.clone()
+        };
+        assert_ne!(assess(&different_runtime).action, MatchAction::Accept);
+        let different_version = crate::models::Candidate {
+            title: "Quantic, Nidia Góngora - Amor en Francia (Live 1949)".into(),
+            ..candidate.clone()
+        };
+        assert_ne!(assess(&different_version).action, MatchAction::Accept);
     }
 
     #[test]

@@ -3684,12 +3684,15 @@ async fn resolve_serial(
                         fresh.duration_seconds = audio.duration_seconds.or(fresh.duration_seconds);
                         let alias_budget = fresh_alias_budget(deadline.remaining());
                         if alias_pass.claim_fresh_alias_lookup(track, &fresh, alias_budget) {
-                            let lookup = crate::artist_alias_lookup::lookup(
-                                acquisition, track, cancel.clone(), deadline, trace,
-                            );
-                            let _ = tokio::time::timeout(
-                                alias_budget, lookup,
-                            ).await;
+                            let canonical_started = Instant::now();
+                            trace.event("alias_canonical_lookup_start", &track.provider, json!({}));
+                            let canonical = tokio::select! {
+                                biased;
+                                _ = wait_for_cancellation(cancel.clone()) => return Err("Cancelled".into()),
+                                result = tokio::time::timeout(alias_budget,
+                                    crate::artist_alias_discovery::discover_spotify_canonical_credits_traced(store, track, trace.clone())) => result.ok(),
+                            };
+                            trace.event("alias_canonical_lookup_end", &track.provider, json!({"durationMs":canonical_started.elapsed().as_millis(),"metadataRequests":canonical.as_ref().map(|r|r.stats.requests),"ok":canonical.as_ref().is_some_and(|r|r.result.is_ok())}));
                             if *cancel.borrow() { return Err("Cancelled".into()); }
                             if deadline.remaining().is_zero() { return Err(PLAYBACK_DEADLINE_MESSAGE.into()); }
                             verified_artist_aliases = crate::artist_credit_aliases::cached_verified_playback_artist_aliases(store, track);
@@ -3698,6 +3701,18 @@ async fn resolve_serial(
                                 track, &verified_artist_aliases, &mut candidate, &audio,
                                 requires_identity_check, settings.matching_level, store,
                             );
+                            let remaining = fresh_alias_budget(deadline.remaining());
+                            if proof.is_none() && !remaining.is_zero() {
+                                let _ = tokio::time::timeout(remaining, crate::artist_alias_lookup::lookup(
+                                    acquisition, track, cancel.clone(), deadline, trace,
+                                )).await;
+                                if *cancel.borrow() { return Err("Cancelled".into()); }
+                                if deadline.remaining().is_zero() { return Err(PLAYBACK_DEADLINE_MESSAGE.into()); }
+                                verified_artist_aliases = crate::artist_credit_aliases::cached_verified_playback_artist_aliases(store, track);
+                                include_candidate_aliases(&mut verified_artist_aliases, track, &candidate, Some(&audio));
+                                proof = verify_with_playback_alias_context(track, &verified_artist_aliases, &mut candidate, &audio,
+                                    requires_identity_check, settings.matching_level, store);
+                            }
                         }
                     }
                     let identity_ok = proof.is_some();
@@ -8741,6 +8756,127 @@ mod tests {
         let mut changed_locator = searched.clone();
         changed_locator.url = "https://www.youtube.com/watch?v=other".into();
         assert!(!same_candidate_search_row(&searched, &changed_locator));
+    }
+
+    #[test]
+    fn verified_spotify_alias_reaches_fresh_extractor_playback_proof() {
+        use crate::recording_match::MatchLevel;
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("playback-alias.sqlite")).unwrap();
+        let track_id = "4tkd3bpIj6ff1PZT3nBCD2";
+        let credits = [
+            (
+                "aaaaaaaaaaaaaaaaaaaaaa",
+                "Quantic",
+                "Quantic",
+                "00000000-0000-4000-8000-000000000001",
+            ),
+            (
+                "cccccccccccccccccccccc",
+                "Nidia Gongora",
+                "Nidia Góngora",
+                "00000000-0000-4000-8000-000000000002",
+            ),
+        ];
+        let refs = credits
+            .iter()
+            .map(|(id, name, _, _)| json!({"provider":"spotify","id":id,"name":name}))
+            .collect::<Vec<_>>();
+        let track = Track {
+            id: format!("spotify:{track_id}"),
+            provider: "spotify".into(),
+            provider_id: track_id.into(),
+            source_url: format!("https://open.spotify.com/track/{track_id}"),
+            title: "Amor en Francia".into(),
+            artist: "Quantic, Nidia Gongora".into(),
+            duration_seconds: Some(270.293),
+            provenance: json!({"catalog":{"verified":true,"provider":"spotify","providerId":track_id,"artistCount":2,"artists":refs},
+                "remoteCatalog":{"trackId":track_id,"title":"Amor en Francia","artist":"Quantic, Nidia Gongora","durationSeconds":270.293,"artistCount":2,"artistRefs":refs}}),
+            ..Track::default()
+        };
+        store.save_track(&track).unwrap();
+        for (id, _, canonical, mbid) in credits {
+            store.set_retained_provider_cache("artists.alias-discovery.provider-artist.v1", &format!("spotify:{id}"), &json!({"version":1,"provider":"spotify","providerArtistId":id,"musicbrainzArtistId":mbid,"canonicalLookupOnly":true,"lookup":{"resource":format!("https://open.spotify.com/artist/{id}"),"relations":[{"target-type":"artist","artist":{"id":mbid,"name":canonical}}]}})).unwrap();
+        }
+        let aliases =
+            crate::artist_credit_aliases::cached_verified_playback_artist_aliases(&store, &track);
+        assert!(aliases
+            .tracks()
+            .iter()
+            .any(|a| a.artist == "Quantic, Nidia Góngora"));
+        let candidate = Candidate {
+            id: "youtube:x1aO1kcVeu4".into(),
+            provider: "youtube".into(),
+            url: "https://www.youtube.com/watch?v=x1aO1kcVeu4".into(),
+            title: "Quantic, Nidia Góngora - Amor en Francia".into(),
+            duration_seconds: Some(270.0),
+            permission: "public".into(),
+            ..Candidate::default()
+        };
+        let audio = acquisition::PreviewAudio {
+            url: "https://example.invalid/audio".into(),
+            mime_type: "audio/webm".into(),
+            codec: Some("opus".into()),
+            bitrate_kbps: None,
+            duration_seconds: Some(270.0),
+            selected_format_id: None,
+            selected_format_has_video: false,
+            source_metadata: None,
+            resolved_title: Some(candidate.title.clone()),
+            resolved_provider_id: Some("x1aO1kcVeu4".into()),
+            chapters: Some(vec![]),
+            expected_content_length: None,
+            provider_session: None,
+            headers: vec![],
+        };
+        let mut verified = candidate.clone();
+        assert!(verify_with_playback_alias_context(
+            &track,
+            &aliases,
+            &mut verified,
+            &audio,
+            true,
+            MatchLevel::Balanced,
+            &store
+        )
+        .is_some());
+        assert_eq!(
+            verified.source_metadata.as_ref().unwrap()["matching"]["assessment"]["action"],
+            "accept"
+        );
+        for bad in [
+            acquisition::PreviewAudio {
+                resolved_title: Some("Quantic, Other Artist - Amor en Francia".into()),
+                ..audio.clone()
+            },
+            acquisition::PreviewAudio {
+                resolved_title: Some("Quantic, Nidia Góngora - Amor en Francia (Live)".into()),
+                ..audio.clone()
+            },
+            acquisition::PreviewAudio {
+                duration_seconds: Some(300.0),
+                ..audio.clone()
+            },
+            acquisition::PreviewAudio {
+                resolved_provider_id: Some("differentID".into()),
+                ..audio.clone()
+            },
+        ] {
+            let mut rejected = candidate.clone();
+            assert!(
+                verify_with_playback_alias_context(
+                    &track,
+                    &aliases,
+                    &mut rejected,
+                    &bad,
+                    true,
+                    MatchLevel::Balanced,
+                    &store
+                )
+                .is_none(),
+                "{bad:?}"
+            );
+        }
     }
 
     #[test]

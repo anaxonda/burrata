@@ -899,8 +899,7 @@ impl ArtistService {
             .await
             .ok()?;
         let title = wikipedia_sitelink(qid, &entity)?;
-        let mut url = Url::parse("https://en.wikipedia.org/api/rest_v1/page/summary/").ok()?;
-        url.path_segments_mut().ok()?.push(&title);
+        let url = wikipedia_summary_url(&title)?;
         let summary = self
             .get_json(
                 "artists.biography.wikipedia.v1",
@@ -4196,6 +4195,12 @@ fn wikidata_item_id(raw: &str) -> Option<String> {
     }
     Some(id.to_owned())
 }
+fn wikipedia_summary_url(title: &str) -> Option<Url> {
+    let mut url = Url::parse("https://en.wikipedia.org/api/rest_v1/page/summary/").ok()?;
+    url.path_segments_mut().ok()?.pop_if_empty().push(title);
+    Some(url)
+}
+
 fn wikipedia_sitelink(qid: &str, raw: &Value) -> Option<String> {
     let entity = &raw["entities"][qid];
     if entity["id"].as_str()? != qid {
@@ -4445,6 +4450,14 @@ mod tests {
 
     #[test]
     fn wikipedia_biography_requires_matching_entity_and_article() {
+        assert_eq!(
+            wikipedia_summary_url("Ghazi Abdel Baki").unwrap().as_str(),
+            "https://en.wikipedia.org/api/rest_v1/page/summary/Ghazi%20Abdel%20Baki"
+        );
+        assert_eq!(
+            wikipedia_summary_url("Artist/Name").unwrap().as_str(),
+            "https://en.wikipedia.org/api/rest_v1/page/summary/Artist%2FName"
+        );
         let entity = json!({"entities":{"Q42":{"id":"Q42","sitelinks":{"enwiki":{"title":"Example artist"}}}}});
         assert_eq!(
             wikipedia_sitelink("Q42", &entity).as_deref(),

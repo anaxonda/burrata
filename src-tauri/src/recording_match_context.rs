@@ -1386,6 +1386,8 @@ fn assess_with_aliases_and_context_impl(
     if let Some(assessment) = early_folder_credit_assessment.clone() {
         return assessment;
     }
+    let verified_credits =
+        crate::artist_credit_aliases::cached_verified_playback_artist_aliases(store, track);
     for variant in aliases {
         let mut same = track.clone();
         same.artist = variant.artist.clone();
@@ -1395,7 +1397,14 @@ fn assess_with_aliases_and_context_impl(
         if &same != variant {
             continue;
         }
-        let next = recording_match::assess(variant, candidate, level, stage);
+        let next =
+            if let Some(credits) = verified_credits.matching_credit_names(track, &variant.artist) {
+                recording_match::assess_with_primary_credit_override(
+                    variant, candidate, level, stage, &credits,
+                )
+            } else {
+                recording_match::assess(variant, candidate, level, stage)
+            };
         if priority(&next) < priority(&best) {
             best = next;
             best_request = variant.clone();

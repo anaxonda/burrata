@@ -2744,6 +2744,13 @@ pub(crate) fn exact_url_artist_name<'a>(
     Some(name)
 }
 async fn discover_spotify_artist(store: &Store, artist_id: &str) -> Result<bool, String> {
+    discover_spotify_artist_mode(store, artist_id, false).await
+}
+async fn discover_spotify_artist_mode(
+    store: &Store,
+    artist_id: &str,
+    canonical_only: bool,
+) -> Result<bool, String> {
     type ArtistLock = tokio::sync::Mutex<()>;
     static LOCKS: OnceLock<
         std::sync::Mutex<std::collections::HashMap<String, std::sync::Weak<ArtistLock>>>,
@@ -2764,9 +2771,13 @@ async fn discover_spotify_artist(store: &Store, artist_id: &str) -> Result<bool,
         }
     };
     let _guard = lock.lock().await;
-    discover_spotify_artist_inner(store, artist_id).await
+    discover_spotify_artist_inner(store, artist_id, canonical_only).await
 }
-async fn discover_spotify_artist_inner(store: &Store, artist_id: &str) -> Result<bool, String> {
+async fn discover_spotify_artist_inner(
+    store: &Store,
+    artist_id: &str,
+    canonical_only: bool,
+) -> Result<bool, String> {
     let key = format!("spotify:{artist_id}");
     if let Some(binding) = store.get_provider_cache(PROVIDER_ARTIST, &key)? {
         let fresh = binding["fetchedAt"]
@@ -2774,6 +2785,18 @@ async fn discover_spotify_artist_inner(store: &Store, artist_id: &str) -> Result
             .is_some_and(|at| chrono::Utc::now().timestamp().saturating_sub(at) < TTL as i64);
         let resource = format!("https://open.spotify.com/artist/{artist_id}");
         let id = binding["musicbrainzArtistId"].as_str().unwrap_or_default();
+        if canonical_only
+            && fresh
+            && binding["version"] == 1
+            && binding["provider"] == "spotify"
+            && binding["providerArtistId"].as_str() == Some(artist_id)
+            && exact_url_artist_name(&binding["lookup"], &resource, id).is_some()
+            && (binding["canonicalLookupOnly"] == true
+                || binding["profile"]["id"].as_str() == Some(id)
+                    && exact_spotify_artist_profile(&binding["profile"], artist_id))
+        {
+            return Ok(true);
+        }
         if fresh
             && binding["version"] == 1
             && binding["providerArtistId"].as_str() == Some(artist_id)
@@ -2783,6 +2806,9 @@ async fn discover_spotify_artist_inner(store: &Store, artist_id: &str) -> Result
             && exact_spotify_artist_profile(&binding["profile"], artist_id)
         {
             return Ok(true);
+        }
+        if canonical_only && binding.get("profile").is_some() {
+            return Ok(false);
         }
     }
     if store
@@ -2804,6 +2830,9 @@ async fn discover_spotify_artist_inner(store: &Store, artist_id: &str) -> Result
     {
         Ok(value) => value,
         Err(error) if error == "Artist discovery HTTP 404" => {
+            if canonical_only {
+                return Ok(false);
+            }
             store.set_retained_provider_cache(
                 PROVIDER_ARTIST,
                 &key,
@@ -2823,6 +2852,9 @@ async fn discover_spotify_artist_inner(store: &Store, artist_id: &str) -> Result
         return Ok(false);
     };
     if ids.len() != 1 {
+        if canonical_only {
+            return Ok(false);
+        }
         if ids.len() > 1 {
             store.set_retained_provider_cache(
                 PROVIDER_ARTIST,
@@ -2845,6 +2877,13 @@ async fn discover_spotify_artist_inner(store: &Store, artist_id: &str) -> Result
         return Ok(false);
     }
     let id = ids.iter().next().expect("one artist");
+    if canonical_only {
+        if exact_url_artist_name(&lookup, &resource, id).is_none() {
+            return Ok(false);
+        }
+        store.set_retained_provider_cache(PROVIDER_ARTIST, &key, &json!({"version":1,"provider":"spotify","providerArtistId":artist_id,"musicbrainzArtistId":id,"lookup":lookup,"fetchedAt":chrono::Utc::now().timestamp(),"canonicalLookupOnly":true}))?;
+        return Ok(true);
+    }
     let profile = match mb(
         store,
         "artists.profile.musicbrainz",
@@ -2876,6 +2915,34 @@ async fn discover_spotify_artist_inner(store: &Store, artist_id: &str) -> Result
     // adds optional independently corroborated spellings to this reusable ID.
     let _ = hydrate_artist(store, id, "artists.profile.musicbrainz").await;
     Ok(true)
+}
+
+pub(crate) async fn discover_spotify_canonical_credits_traced(
+    store: &Store,
+    track: &Track,
+    trace: crate::playback_sources::SourceTrace,
+) -> DiscoveryReport {
+    TRACE
+        .scope(
+            trace,
+            STATS.scope(std::cell::RefCell::new(DiscoveryStats::default()), async {
+                let result = discover_spotify_canonical_credits(store, track).await;
+                let stats = STATS.with(|stats| stats.borrow().clone());
+                DiscoveryReport { stats, result }
+            }),
+        )
+        .await
+}
+async fn discover_spotify_canonical_credits(store: &Store, track: &Track) -> Result<(), String> {
+    let Some(fingerprint) = aliases::spotify_artist_credit_fingerprint(track) else {
+        return Ok(());
+    };
+    for credit in &fingerprint.artists {
+        if !discover_spotify_artist_mode(store, &credit.id, true).await? {
+            return Ok(());
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -2955,6 +3022,30 @@ mod provider_identity_tests {
             bad["relations"] = relations;
             assert!(exact_url_artist_name(&bad, resource, id).is_none());
         }
+    }
+
+    #[tokio::test]
+    async fn canonical_pass_reuses_valid_cache_without_overwriting_profile() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("cache.sqlite")).unwrap();
+        let spotify = "aaaaaaaaaaaaaaaaaaaaaa";
+        let id = "00000000-0000-4000-8000-000000000002";
+        let resource = format!("https://open.spotify.com/artist/{spotify}");
+        let binding = json!({"version":1,"provider":"spotify","providerArtistId":spotify,"musicbrainzArtistId":id,"fetchedAt":chrono::Utc::now().timestamp(),"profile":{"id":id,"name":"Nidia Góngora","relations":[{"url":{"resource":resource}}]},"lookup":{"resource":resource,"relations":[{"target-type":"artist","artist":{"id":id,"name":"Nidia Góngora"}}]}});
+        let key = format!("spotify:{spotify}");
+        store
+            .set_retained_provider_cache(PROVIDER_ARTIST, &key, &binding)
+            .unwrap();
+        assert!(discover_spotify_artist_mode(&store, spotify, true)
+            .await
+            .unwrap());
+        assert_eq!(
+            store
+                .get_provider_cache(PROVIDER_ARTIST, &key)
+                .unwrap()
+                .unwrap(),
+            binding
+        );
     }
 }
 
