@@ -170,15 +170,282 @@ def remove_rpm(package: RpmInstallation) -> None:
         raise SmokeFailure("RPM cleanup", "installed package or owned runtime paths remain after removal")
 
 
-def verify_rpm_profile_stopped(temp: pathlib.Path) -> None:
-    for folder in pathlib.Path("/proc").glob("[0-9]*"):
+def rpm_process_identity(pid: int) -> dict | None:
+    """Stat/status identity; protected environments are deliberately never read."""
+    root = pathlib.Path('/proc') / str(pid)
+    try:
+        raw = (root / 'stat').read_text()
+        prefix, fields = raw.rsplit(') ', 1)
+        fields = fields.split()
+        comm = re.sub(r'[^A-Za-z0-9_.:-]', '?', prefix.split('(', 1)[1])[:40]
+        # Proc-directory ownership changes with dumpability, not just credentials.
+        # Use actual status UIDs for birth checks; never inspect protected env/argv.
+        with (root / 'status').open('r') as status_file:
+            status = status_file.read(65_537)
+        credentials = re.search(r'^Uid:[ \t]+(\d+)[ \t]+(\d+)[ \t]+(\d+)[ \t]+(\d+)[ \t]*$', status, re.MULTILINE)
+        if len(status) > 65_536 or credentials is None:
+            raise ValueError('bounded process credential status unavailable')
+        uid, euid, suid, fsuid = map(int, credentials.groups())
+        return {'pid': pid, 'start': int(fields[19]), 'uid': uid, 'euid': euid,
+                'suid': suid, 'fsuid': fsuid, 'procOwnerUid': root.stat().st_uid,
+                'ppid': int(fields[1]), 'pgid': int(fields[2]), 'sid': int(fields[3]),
+                'state': fields[0], 'flags': int(fields[6]), 'comm': comm}
+    except (FileNotFoundError, ProcessLookupError):
+        return None
+
+
+def rpm_runtime_snapshot() -> dict[int, dict]:
+    rows = {}
+    try:
+        folders = list(pathlib.Path('/proc').glob('[0-9]*'))
+    except Exception as error:
+        failure = SmokeFailure('RPM cleanup', 'Process identity enumeration could not be inspected')
+        failure.diagnostics = {'probe': 'enumeration', 'pid': None,
+                               'errorKind': type(error).__name__, 'errno': getattr(error, 'errno', None)}
+        raise failure from error
+    for folder in folders:
+        pid = int(folder.name)
         try:
-            if folder.stat().st_uid != os.getuid():
-                continue
-            if str(temp).encode() in (folder / "cmdline").read_bytes() or str(temp).encode() in (folder / "environ").read_bytes():
-                raise SmokeFailure("RPM cleanup", "owned runtime profile processes remain")
-        except (FileNotFoundError, ProcessLookupError):
-            continue
+            row = rpm_process_identity(pid)
+        except Exception as error:
+            failure = SmokeFailure('RPM cleanup', 'Process stat identity could not be inspected')
+            failure.diagnostics = {'probe': 'stat', 'pid': pid,
+                                   'errorKind': type(error).__name__, 'errno': getattr(error, 'errno', None)}
+            raise failure from error
+        if row is not None:
+            rows[pid] = row
+    return rows
+
+
+def rpm_same_identity(left: dict, right: dict | None) -> bool:
+    return bool(right and all(left.get(key) == right.get(key) for key in ('pid', 'start', 'uid', 'euid', 'suid', 'fsuid')))
+
+
+class RpmRuntimeRegistry:
+    """Only recorded births may be signalled, through identity-bound Linux pidfds.
+
+    Baseline and fresh stat snapshots distinguish pre-runtime processes from
+    owned children/sessions and unexplained new processes. No argv/env probing,
+    new root privileges, sandbox changes, or blanket permission-error exclusions.
+    """
+    def __init__(self, grace_seconds: float = 3):
+        self.grace = grace_seconds
+        self.baseline = rpm_runtime_snapshot()
+        self.owner = self.baseline.get(os.getpid())
+        if not self.owner or self.owner['uid'] != os.getuid():
+            raise SmokeFailure('RPM cleanup', 'Runtime observer identity is unavailable')
+        if not hasattr(os, 'pidfd_open') or not hasattr(signal, 'pidfd_send_signal'):
+            raise SmokeFailure('RPM cleanup', 'Identity-bound Linux process handles are required')
+        self.owned: dict[int, dict] = {}
+        self.handles: dict[int, int] = {}
+        self.roots: dict[str, tuple[subprocess.Popen, dict]] = {}
+        self.errors: list[dict] = []
+        self.snapshots = []
+        self.stopping = False
+        self.finished = False
+        self.attempted = False
+        self.record('before-runtime', self.baseline, [])
+
+    def record(self, phase: str, rows: dict, unknown: list) -> None:
+        self.snapshots.append({'phase': phase, 'owned': [dict(row) for pid, row in rows.items() if pid in self.owned],
+                               'preexisting': [dict(row) for pid, row in rows.items() if pid != self.owner['pid'] and rpm_same_identity(self.baseline.get(pid, {}), row)] if phase == 'before-runtime' else [],
+                               'unknownNew': unknown})
+        # Bounded history; first snapshot retains concrete pre-start identities.
+        if len(self.snapshots) > 30:
+            del self.snapshots[1]
+
+    def problem(self, reason: str, **facts) -> None:
+        error = {'reason': reason, **facts}
+        if error not in self.errors:
+            self.errors.append(error)
+        failure = SmokeFailure('RPM cleanup', 'Owned runtime cleanup could not be proven: ' + reason)
+        failure.diagnostics = self.evidence()
+        raise failure
+
+    def evidence(self) -> dict:
+        return {'scope': 'RPM-owned runtime births/sessions; no process environments or argv',
+                'observer': self.owner, 'baselineProcessCount': len(self.baseline),
+                'roots': {role: identity for role, (_, identity) in self.roots.items()},
+                'ownedIdentities': list(self.owned.values()), 'snapshots': self.snapshots,
+                'errors': self.errors, 'noLiveOwnedProcessesProven': self.finished and not self.errors}
+
+    def bind(self, row: dict, relation: str) -> None:
+        pid = row['pid']
+        fd = os.pidfd_open(pid, 0)
+        try:
+            current = rpm_process_identity(pid)
+            if current is None:
+                raise ProcessLookupError(pid)
+            if not rpm_same_identity(row, current):
+                self.problem('identity_changed_while_binding', process=row)
+        except BaseException:
+            os.close(fd)
+            raise
+        self.handles[pid] = fd
+        self.owned[pid] = {**row, 'ownership': relation}
+
+    def register(self, role: str, process: subprocess.Popen) -> None:
+        try:
+            row = rpm_process_identity(process.pid)
+            if (not row or process.returncode is not None or row['ppid'] != self.owner['pid']
+                    or row['sid'] != row['pid'] or row['pgid'] != row['pid']
+                    or row['uid'] != self.owner['uid'] or row['pid'] in self.baseline):
+                self.problem('spawn_root_unverifiable', role=role, process=row or {'pid': process.pid})
+            self.bind(row, 'Popen-' + role)
+            self.roots[role] = (process, row)
+            self.capture('registered-' + role)
+        except SmokeFailure:
+            raise
+        except Exception as error:
+            self.problem('root_probe_error', role=role, pid=process.pid,
+                         errorKind=type(error).__name__, errno=getattr(error, 'errno', None))
+
+    def capture(self, phase: str) -> dict[int, dict]:
+        try:
+            return self._capture(phase)
+        except SmokeFailure as error:
+            if error.diagnostics is not None and error.diagnostics.get('probe') in ('stat', 'enumeration'):
+                self.problem('stat_probe_error', **error.diagnostics)
+            raise
+        except Exception as error:
+            self.problem('unexpected_probe_error', errorKind=type(error).__name__, errno=getattr(error, 'errno', None))
+
+    def _capture(self, phase: str) -> dict[int, dict]:
+        rows = rpm_runtime_snapshot()
+        for role, (process, identity) in self.roots.items():
+            current = rows.get(identity['pid'])
+            if current and not rpm_same_identity(identity, current):
+                self.problem('root_pid_reused', role=role, expected=identity, observed=current)
+            if not current and not self.stopping:
+                self.problem('root_missing_before_teardown', role=role, expected=identity)
+        for pid, identity in self.owned.items():
+            if pid in rows and not rpm_same_identity(identity, rows[pid]):
+                self.problem('owned_pid_reused', expected=identity, observed=rows[pid])
+        # Adopt through observed parentage or an original, still-unreaped session leader.
+        vanished = set()
+        changed = True
+        while changed:
+            changed = False
+            for pid, row in rows.items():
+                if pid in vanished or pid == self.owner['pid'] or pid in self.owned or rpm_same_identity(self.baseline.get(pid, {}), row):
+                    continue
+                parent = rows.get(row['ppid'])
+                anchored_parent = (parent and (rpm_same_identity(self.owner, parent)
+                    or (parent['pid'] in self.owned and rpm_same_identity(self.owned[parent['pid']], parent))))
+                relation = 'observed-descendant' if anchored_parent and row['start'] >= parent['start'] else None
+                for role, (process, identity) in self.roots.items():
+                    if (process.returncode is None and rpm_same_identity(identity, rows.get(identity['pid']))
+                            and row['sid'] == identity['sid'] and row['start'] >= identity['start']):
+                        relation = 'owned-session-' + role
+                if relation:
+                    try:
+                        self.bind(row, relation)
+                    except ProcessLookupError:
+                        vanished.add(pid)  # Independently observed gone while binding.
+                        continue
+                    changed = True
+        unknown = [dict(row) for pid, row in rows.items() if pid != self.owner['pid']
+                   and pid not in vanished and pid not in self.owned and not rpm_same_identity(self.baseline.get(pid, {}), row)
+                   and row['state'] != 'Z']
+        self.record(phase, rows, unknown)
+        if unknown:
+            self.problem('unknown_new_process', processes=unknown)
+        return rows
+
+    def signal_owned(self, pid: int, sig: int) -> None:
+        identity = self.owned[pid]
+        try:
+            current = rpm_process_identity(pid)
+        except Exception as error:
+            self.problem('owned_identity_probe_error', process=identity,
+                         errorKind=type(error).__name__, errno=getattr(error, 'errno', None))
+        if current is None or current['state'] == 'Z':
+            return
+        if not rpm_same_identity(identity, current):
+            self.problem('identity_changed_before_signal', expected=identity, observed=current)
+        try:
+            signal.pidfd_send_signal(self.handles[pid], sig, None, 0)
+        except ProcessLookupError:
+            pass
+        except OSError as error:
+            self.problem('owned_signal_failed', process=current, signal=int(sig), errno=error.errno)
+
+    def stop_owned(self) -> dict:
+        if self.finished:
+            if self.errors:
+                self.problem('previous_cleanup_unproven')
+            return self.evidence()
+        if self.attempted:
+            self.problem('previous_cleanup_unproven')
+        self.attempted = True
+        primary = None
+        try:
+            self.capture('before-teardown')
+        except SmokeFailure as error:
+            primary = error  # Still stop only verified known births; never signal unknowns.
+        self.stopping = True
+        try:
+            for sig in (signal.SIGTERM, signal.SIGKILL):
+                # Newer descendants first; original Popen roots remain unreaped throughout signalling.
+                for pid in sorted(self.owned, key=lambda pid: self.owned[pid]['start'], reverse=True):
+                    try:
+                        self.signal_owned(pid, sig)
+                    except SmokeFailure as error:
+                        primary = primary or error
+                deadline = time.monotonic() + self.grace
+                while True:
+                    try:
+                        rows = self.capture('stopping-' + str(int(sig)))
+                    except SmokeFailure as error:
+                        primary = primary or error
+                        rows = {}
+                        # Never treat a failed probe as proof of absence.
+                        for pid in self.owned:
+                            try:
+                                row = rpm_process_identity(pid)
+                            except Exception as probe_error:
+                                # Unknown is live for the bound; never substitute absence.
+                                row = {**self.owned[pid], 'state': '?'}
+                                if not any(item.get('reason') == 'owned_identity_probe_error' and item.get('process', {}).get('pid') == pid for item in self.errors):
+                                    self.errors.append({'reason': 'owned_identity_probe_error', 'process': self.owned[pid], 'errorKind': type(probe_error).__name__, 'errno': getattr(probe_error, 'errno', None)})
+                            if row:
+                                rows[pid] = row
+                    live = [row for pid, row in rows.items() if pid in self.owned and row['state'] != 'Z']
+                    if not live or time.monotonic() >= deadline:
+                        break
+                    time.sleep(.05)
+                if not live:
+                    break
+            if live:
+                self.problem('owned_processes_survived_kill', processes=live)
+            # Only after live owned descendants are gone may wait() release root PID/session IDs.
+            for process, _ in self.roots.values():
+                process.wait(timeout=2)
+            self.capture('after-root-reap')
+            self.finished = True
+            if primary or self.errors:
+                self.problem('cleanup_identity_or_probe_failure')
+            return self.evidence()
+        except SmokeFailure:
+            raise
+        except Exception as error:
+            self.problem('cleanup_exception', errorKind=type(error).__name__, errno=getattr(error, 'errno', None))
+        finally:
+            close_errors = []
+            for pid, fd in self.handles.items():
+                try:
+                    os.close(fd)
+                except OSError as error:
+                    close_errors.append({'pid': pid, 'errorKind': type(error).__name__, 'errno': error.errno})
+            self.handles.clear()
+            if close_errors:
+                self.problem('pidfd_close_failed', processes=close_errors)
+
+
+def verify_rpm_profile_stopped(temp: pathlib.Path, registry: RpmRuntimeRegistry | None = None) -> dict:
+    if registry is None:
+        raise SmokeFailure('RPM cleanup', 'A pre-runtime owned-process registry is required')
+    return registry.stop_owned()
 
 
 def install_rpm(installer: pathlib.Path, temp: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path, RpmInstallation]:
@@ -851,7 +1118,7 @@ def linux_audio_diagnostics(env: dict[str, str]) -> dict:
     }
 
 
-def start_linux_audio(env: dict[str, str], temp: pathlib.Path) -> subprocess.Popen:
+def start_linux_audio(env: dict[str, str], temp: pathlib.Path, registry: RpmRuntimeRegistry | None = None) -> subprocess.Popen:
     """Own a clocked test endpoint without changing the user's audio server."""
     pulse, pactl = shutil.which("pulseaudio"), shutil.which("pactl")
     if not pulse or not pactl:
@@ -870,6 +1137,8 @@ def start_linux_audio(env: dict[str, str], temp: pathlib.Path) -> subprocess.Pop
     with (temp / "virtual-audio.log").open("wb") as log:
         process = subprocess.Popen(command, env=env, stdin=subprocess.DEVNULL,
                                    stdout=log, stderr=log, start_new_session=True)
+    if registry is not None:
+        registry.register('pulse', process)
     try:
         deadline = time.monotonic() + 10
         while process.poll() is None and time.monotonic() < deadline:
@@ -881,11 +1150,14 @@ def start_linux_audio(env: dict[str, str], temp: pathlib.Path) -> subprocess.Pop
             time.sleep(0.1)
         raise SmokeFailure("launch", "private clocked Linux audio endpoint did not become ready")
     except BaseException:
-        stop_process(process, temp)
+        if registry is not None:
+            registry.stop_owned()
+        else:
+            stop_process(process, temp)
         raise
 
 
-def launch_app(app: pathlib.Path, env: dict[str, str], temp: pathlib.Path) -> subprocess.Popen:
+def launch_app(app: pathlib.Path, env: dict[str, str], temp: pathlib.Path, registry: RpmRuntimeRegistry | None = None) -> subprocess.Popen:
     if sys.platform == "linux":
         dbus = shutil.which("dbus-run-session")
         xvfb = shutil.which("xvfb-run")
@@ -903,7 +1175,10 @@ def launch_app(app: pathlib.Path, env: dict[str, str], temp: pathlib.Path) -> su
     else:
         kwargs["start_new_session"] = True
     try:
-        return subprocess.Popen([os.fspath(item) for item in command], **kwargs)
+        process = subprocess.Popen([os.fspath(item) for item in command], **kwargs)
+        if registry is not None:
+            registry.register('app', process)
+        return process
     except OSError as error:
         raise SmokeFailure("launch", f"could not start installed GUI executable: {error}") from error
     finally:
@@ -1040,6 +1315,7 @@ def main() -> int:
     app_process = None
     audio_process = None
     package_name = None
+    rpm_registry = None
     mount = None
     installed_path = None
     temp_obj = tempfile.TemporaryDirectory(prefix="burrata-install-smoke-", ignore_cleanup_errors=True)
@@ -1064,6 +1340,8 @@ def main() -> int:
             if installer.suffix.lower() == ".appimage":
                 env["APPDIR"] = str(app.parent)
             installed_path = str(app)
+            if isinstance(package_name, RpmInstallation):
+                rpm_registry = RpmRuntimeRegistry()
         elif sys.platform == "darwin":
             app, resource_root, installed_path = install_macos(installer, temp)
         elif sys.platform == "win32":
@@ -1085,11 +1363,13 @@ def main() -> int:
         }
         env["BURRATA_NATIVE_OUTPUT_QUALIFICATION"] = "1"
         if sys.platform == "linux":
-            audio_process = start_linux_audio(env, temp)
+            audio_process = start_linux_audio(env, temp, rpm_registry) if rpm_registry is not None else start_linux_audio(env, temp)
             evidence["checks"]["linuxAudioEndpoint"] = {"private": True, "maximumBlockMs": 50, "rewinds": False}
-        app_process = launch_app(app, env, temp)
+        app_process = launch_app(app, env, temp, rpm_registry) if rpm_registry is not None else launch_app(app, env, temp)
         discovery = app_data / "automation.json"
         wait_for_app(app_process, discovery, temp / "installed-app.stderr.log")
+        if rpm_registry is not None:
+            rpm_registry.capture("frontend-ready")
         evidence["checks"]["guiStartup"] = "automation discovery published"
         evidence["checks"]["nativeHost"] = native_host_check(resource_root, target, env)
         evidence["checks"]["mcp"] = run_mcp_status(resource_root, target, discovery, env)
@@ -1102,11 +1382,9 @@ def main() -> int:
         )
         evidence["checks"]["nativeAudio"]["proofScope"] = ("Linux private OS monitor after Player gain; no physical hardware" if sys.platform == "linux" else "Muted pre-Player-gain mixer PCM; no OS loopback/physical proof")
         if isinstance(package_name, RpmInstallation):
-            stop_process(app_process, temp)
+            evidence["checks"]["rpmRuntimeCleanup"] = verify_rpm_profile_stopped(temp, rpm_registry)
             app_process = None
-            stop_process(audio_process, temp)
             audio_process = None
-            verify_rpm_profile_stopped(temp)
             verify_rpm(package_name)
             rpm_identity = package_name.nevra
             rpm_version = package_name.metadata[1]
@@ -1126,24 +1404,41 @@ def main() -> int:
         evidence["error"] = str(error)
         if error.stage == "Native audio" and error.diagnostics is not None:
             evidence["checks"]["nativeAudio"] = {"status": "failed", "diagnostics": error.diagnostics}
+        if error.stage == "RPM cleanup" and error.diagnostics is not None:
+            evidence["checks"]["rpmRuntimeCleanup"] = error.diagnostics
         print(f"Installed smoke failed at {error.stage}: {error}", file=sys.stderr)
         return 1
     finally:
         if sys.platform == "linux" and app_process is not None:
             evidence["checks"].setdefault("linuxAudio", {})["afterPlayback"] = linux_audio_diagnostics(env)
-        stop_process(app_process, temp)
+        runtime_stopped = True
+        runtime_cleanup_error = None
+        if rpm_registry is not None:
+            try:
+                evidence["checks"]["rpmRuntimeCleanup"] = rpm_registry.stop_owned()
+            except SmokeFailure as error:
+                runtime_stopped = False
+                runtime_cleanup_error = error
+                evidence.update(status="failed", failedStage="RPM cleanup", error=str(error))
+                evidence["checks"]["rpmRuntimeCleanup"] = error.diagnostics or rpm_registry.evidence()
+            app_process = None
+            audio_process = None
+        else:
+            stop_process(app_process, temp)
         if evidence.get("failedStage") == "Native audio":
             evidence["checks"].setdefault("nativeAudio", {"status": "failed"})["mediaLogTail"] = {
                 "stderr": safe_media_log_tail(temp / "installed-app.stderr.log"),
                 "stdout": safe_media_log_tail(temp / "installed-app.stdout.log"),
             }
         rpm_cleanup_error = None
-        if isinstance(package_name, RpmInstallation):
+        if isinstance(package_name, RpmInstallation) and runtime_stopped:
             try:
                 remove_rpm(package_name)
             except SmokeFailure as error:
                 rpm_cleanup_error = error
                 evidence.update(status="failed", failedStage="RPM cleanup", error=str(error))
+        elif isinstance(package_name, RpmInstallation):
+            evidence["checks"]["rpmUninstallSkippedUnprovenRuntime"] = True
         elif sys.platform == "linux" and package_name:
             run(["sudo", "-n", "apt-get", "remove", "-y", package_name], timeout=300, check=False)
         if sys.platform == "darwin" and mount:
@@ -1157,6 +1452,8 @@ def main() -> int:
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
         temp_obj.cleanup()
+        if runtime_cleanup_error is not None:
+            raise runtime_cleanup_error
         if rpm_cleanup_error is not None:
             raise rpm_cleanup_error
 

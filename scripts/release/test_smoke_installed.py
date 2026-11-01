@@ -2,7 +2,7 @@
 """Focused tests for installed smoke runner path handling."""
 import importlib.util
 from contextlib import closing, ExitStack
-from unittest.mock import patch, Mock
+from unittest.mock import patch, Mock, mock_open
 import pathlib
 import json
 import subprocess
@@ -708,6 +708,232 @@ class RpmInstallationTests(unittest.TestCase):
     def test_metadata_rejects_wrong_package_arch_multiline_empty_and_option_names(self):
         for data in [b'foreign\t0.1.25\t1\tx86_64\n',self.metadata.replace(b'x86_64',b'aarch64'),self.metadata+self.metadata,b'--all\t0.1.25\t1\tx86_64\n',self.metadata.replace(b'\t1\t',b'\t\t')]:
             with self.assertRaises(smoke.SmokeFailure):smoke.rpm_metadata(data)
+
+
+@unittest.skipUnless(smoke.sys.platform == 'linux', 'Linux pidfd runtime cleanup')
+class RpmRuntimeIdentityTests(unittest.TestCase):
+    def rig(self):
+        stack = ExitStack()
+        self.addCleanup(stack.close)
+        owner = smoke.os.getpid()
+        uid = smoke.os.getuid()
+        def row(pid, start=20, ppid=owner, sid=None, state='S'):
+            return dict(pid=pid, start=start, uid=uid, ppid=ppid,
+                        pgid=pid if sid is None else sid, sid=pid if sid is None else sid,
+                        state=state, comm='fixture')
+        rows = {owner: row(owner, start=1, ppid=1), 80: row(80, start=2, ppid=1)}
+        calls, handles, waits, closed = [], {}, [], []
+        clock = [0.0]
+        policy = {'term': True, 'kill': True}
+        def snapshot():
+            return {pid: dict(value) for pid, value in rows.items()}
+        def identity(pid):
+            return dict(rows[pid]) if pid in rows else None
+        def bind(pid, flags):
+            fd = 10000 + pid
+            handles[fd] = pid
+            return fd
+        def send(fd, sig, info, flags):
+            pid = handles[fd]
+            calls.append((pid, sig))
+            if (sig == smoke.signal.SIGTERM and policy['term']) or (sig == smoke.signal.SIGKILL and policy['kill']):
+                rows[pid]['state'] = 'Z'
+        def tick():
+            clock[0] += .1
+            return clock[0]
+        stack.enter_context(patch.object(smoke, 'rpm_runtime_snapshot', side_effect=snapshot))
+        stack.enter_context(patch.object(smoke, 'rpm_process_identity', side_effect=identity))
+        stack.enter_context(patch.object(smoke.os, 'pidfd_open', side_effect=bind, create=True))
+        stack.enter_context(patch.object(smoke.signal, 'pidfd_send_signal', side_effect=send, create=True))
+        stack.enter_context(patch.object(smoke.os, 'close', side_effect=closed.append))
+        stack.enter_context(patch.object(smoke.time, 'monotonic', side_effect=tick))
+        stack.enter_context(patch.object(smoke.time, 'sleep'))
+        registry = smoke.RpmRuntimeRegistry(grace_seconds=.2)
+        def root(pid=100):
+            rows[pid] = row(pid)
+            process = Mock(pid=pid, returncode=None)
+            def wait(timeout):
+                self.assertFalse(any(value['state'] != 'Z' for p, value in rows.items() if p in registry.owned))
+                waits.append(pid)
+                rows.pop(pid, None)
+                process.returncode = 0
+            process.wait.side_effect = wait
+            registry.register('app', process)
+            return process
+        return registry, rows, row, root, calls, policy, waits, closed
+
+    def test_alive_owned_child_is_stopped_before_root_reap_without_env_probe(self):
+        registry, rows, row, root, calls, _, waits, closed = self.rig()
+        root(); rows[101] = row(101, start=21, ppid=100, sid=100)
+        registry.capture('before-checker')
+        with patch.object(pathlib.Path, 'read_bytes', side_effect=PermissionError('nondumpable environment')):
+            proof = registry.stop_owned()
+        self.assertTrue(proof['noLiveOwnedProcessesProven'])
+        self.assertEqual([pid for pid, _ in calls], [101, 100])
+        self.assertEqual(waits, [100]); self.assertEqual(len(closed), 2)
+        self.assertEqual(registry.stop_owned(), proof)
+
+    def test_observed_child_escaping_session_remains_owned(self):
+        registry, rows, row, root, calls, *_ = self.rig()
+        root(); rows[101] = row(101, start=21, ppid=100, sid=100)
+        registry.capture('child-observed')
+        rows[101].update(ppid=1, sid=101, pgid=101)
+        self.assertTrue(registry.stop_owned()['noLiveOwnedProcessesProven'])
+        self.assertIn((101, smoke.signal.SIGTERM), calls)
+
+    def test_preexisting_unrelated_identity_is_recorded_and_never_signalled(self):
+        registry, rows, _, root, calls, *_ = self.rig()
+        root(); proof = registry.stop_owned()
+        self.assertEqual(proof['snapshots'][0]['preexisting'][0]['pid'], 80)
+        self.assertEqual(rows[80]['state'], 'S')
+        self.assertNotIn(80, [pid for pid, _ in calls])
+
+    def test_unknown_new_process_fails_but_only_owned_processes_are_stopped(self):
+        registry, rows, row, root, calls, *_ = self.rig()
+        root(); rows[200] = row(200, ppid=1)
+        with self.assertRaises(smoke.SmokeFailure) as failure: registry.stop_owned()
+        self.assertIn('unknown_new_process', str(failure.exception.diagnostics))
+        self.assertNotIn(200, [pid for pid, _ in calls])
+        self.assertEqual(rows[100]['state'] if 100 in rows else 'Z', 'Z')
+        with self.assertRaises(smoke.SmokeFailure): registry.stop_owned()
+        self.assertEqual([pid for pid, _ in calls], [100])
+
+    def test_missing_root_before_teardown_is_not_proof(self):
+        registry, rows, _, root, calls, *_ = self.rig()
+        root(); del rows[100]
+        with self.assertRaises(smoke.SmokeFailure) as failure: registry.stop_owned()
+        self.assertIn('root_missing_before_teardown', str(failure.exception.diagnostics))
+        self.assertEqual(calls, [])
+
+    def test_reused_pid_never_receives_a_signal(self):
+        registry, rows, _, root, calls, *_ = self.rig()
+        root(); rows[100]['start'] += 100
+        with self.assertRaises(smoke.SmokeFailure) as failure: registry.stop_owned()
+        self.assertIn('root_pid_reused', str(failure.exception.diagnostics))
+        self.assertEqual(calls, [])
+
+    def test_zombie_is_nonlive_but_root_is_reaped(self):
+        registry, rows, row, root, calls, _, waits, _ = self.rig()
+        root(); rows[101] = row(101, start=21, ppid=100, sid=100, state='Z')
+        registry.capture('zombie-observed'); rows[100]['state'] = 'Z'
+        self.assertTrue(registry.stop_owned()['noLiveOwnedProcessesProven'])
+        self.assertEqual(calls, []); self.assertEqual(waits, [100])
+
+    def test_term_ignored_escalates_identity_bound_kill_and_reaps(self):
+        registry, _, _, root, calls, policy, waits, closed = self.rig()
+        root(); policy['term'] = False
+        self.assertTrue(registry.stop_owned()['noLiveOwnedProcessesProven'])
+        self.assertEqual(calls, [(100, smoke.signal.SIGTERM), (100, smoke.signal.SIGKILL)])
+        self.assertEqual(waits, [100]); self.assertEqual(closed, [10100])
+
+    def test_kill_survivor_fails_bounded_without_reaping_live_root(self):
+        registry, _, _, root, calls, policy, waits, closed = self.rig()
+        root(); policy.update(term=False, kill=False)
+        with self.assertRaises(smoke.SmokeFailure): registry.stop_owned()
+        self.assertEqual(len(calls), 2); self.assertEqual(waits, []); self.assertEqual(closed, [10100])
+        with self.assertRaises(smoke.SmokeFailure): registry.stop_owned()
+        self.assertEqual(len(calls), 2)
+
+    def test_unreadable_owned_stat_fails_closed_with_minimal_diagnostics(self):
+        registry, _, _, root, calls, *_ = self.rig()
+        root()
+        with patch.object(smoke, 'rpm_process_identity', side_effect=PermissionError(13, 'protected')):
+            with self.assertRaises(smoke.SmokeFailure) as failure: registry.stop_owned()
+        diagnostics = failure.exception.diagnostics
+        self.assertIn('owned_identity_probe_error', str(diagnostics))
+        self.assertNotIn('protected', str(diagnostics))
+        self.assertEqual(calls, [])
+
+    def test_snapshot_probe_error_is_structured_and_not_treated_as_empty(self):
+        registry, _, _, root, _, *_ = self.rig()
+        root()
+        failure = smoke.SmokeFailure('RPM cleanup', 'stat unavailable')
+        failure.diagnostics = {'probe': 'stat', 'pid': 782, 'errorKind': 'PermissionError', 'errno': 13}
+        with patch.object(smoke, 'rpm_runtime_snapshot', side_effect=failure):
+            with self.assertRaises(smoke.SmokeFailure) as actual: registry.stop_owned()
+        self.assertIn('stat_probe_error', str(actual.exception.diagnostics))
+        self.assertFalse(actual.exception.diagnostics['noLiveOwnedProcessesProven'])
+
+    def test_registry_required_and_unverifiable_spawn_is_rejected(self):
+        with self.assertRaises(smoke.SmokeFailure): smoke.verify_rpm_profile_stopped(pathlib.Path('/unused'))
+        registry, rows, row, _, calls, *_ = self.rig()
+        rows[100] = row(100, ppid=1)
+        with self.assertRaises(smoke.SmokeFailure): registry.register('app', Mock(pid=100, returncode=None))
+        self.assertEqual(calls, [])
+
+
+    def test_proc_owner_dumpability_flip_does_not_change_owned_identity(self):
+        registry, rows, _, root, calls, *_ = self.rig()
+        root(); rows[100]['procOwnerUid'] = 0
+        self.assertTrue(registry.stop_owned()['noLiveOwnedProcessesProven'])
+        self.assertEqual(calls, [(100, smoke.signal.SIGTERM)])
+
+    def test_actual_credential_change_is_rejected_without_signal(self):
+        registry, rows, _, root, calls, *_ = self.rig()
+        root(); rows[100]['uid'] = 0
+        with self.assertRaises(smoke.SmokeFailure): registry.stop_owned()
+        self.assertEqual(calls, [])
+
+    def test_proc_enumeration_error_is_structured_before_runtime(self):
+        with patch.object(pathlib.Path, 'glob', side_effect=PermissionError(13, 'private detail')):
+            with self.assertRaises(smoke.SmokeFailure) as failure: smoke.RpmRuntimeRegistry()
+        self.assertEqual(failure.exception.diagnostics, {'probe': 'enumeration', 'pid': None, 'errorKind': 'PermissionError', 'errno': 13})
+
+    def test_status_permission_error_reports_identity_probe_without_env_contents(self):
+        with patch.object(pathlib.Path, 'glob', return_value=[pathlib.Path('/proc/782')]), patch.object(smoke, 'rpm_process_identity', side_effect=PermissionError(13, 'private detail')):
+            with self.assertRaises(smoke.SmokeFailure) as failure: smoke.rpm_runtime_snapshot()
+        self.assertEqual(failure.exception.diagnostics, {'probe': 'stat', 'pid': 782, 'errorKind': 'PermissionError', 'errno': 13})
+
+    def test_handle_close_error_is_structured_and_does_not_skip_other_handles(self):
+        registry, rows, row, root, _, _, _, _ = self.rig()
+        root(); rows[101] = row(101, start=21, ppid=100, sid=100)
+        registry.capture('child')
+        with patch.object(smoke.os, 'close', side_effect=[PermissionError(13, 'protected'), None]) as close:
+            with self.assertRaises(smoke.SmokeFailure) as failure: registry.stop_owned()
+        self.assertEqual(close.call_count, 2)
+        self.assertIn('pidfd_close_failed', str(failure.exception.diagnostics))
+        self.assertFalse(failure.exception.diagnostics['noLiveOwnedProcessesProven'])
+
+    def test_main_persists_failed_cleanup_and_never_uninstalls_unproven_runtime(self):
+        with tempfile.TemporaryDirectory() as folder, ExitStack() as patches:
+            root = pathlib.Path(folder)
+            installer = root / 'fixture.rpm'; installer.write_bytes(b'synthetic rpm')
+            evidence = root / 'result.json'
+            package = smoke.RpmInstallation(('burrata', '0.1.25', '1', 'x86_64', '0'))
+            registry = Mock()
+            failure = smoke.SmokeFailure('RPM cleanup', 'unknown process remains')
+            failure.diagnostics = {'errors': [{'reason': 'unknown_new_process', 'processes': [{'pid': 782, 'start': 33, 'uid': 10001, 'ppid': 1, 'sid': 1, 'pgid': 1, 'comm': 'fixture', 'state': 'S'}]}], 'noLiveOwnedProcessesProven': False}
+            registry.stop_owned.side_effect = failure
+            patches.enter_context(patch.object(smoke.sys, 'argv', [str(SCRIPT), '--installer', str(installer), '--evidence', str(evidence)]))
+            patches.enter_context(patch.object(smoke, 'install_linux', return_value=(root/'burrata', root, package)))
+            patches.enter_context(patch.object(smoke, 'RpmRuntimeRegistry', return_value=registry))
+            for name in ['bundled_tool_checks', 'bundled_media_checks', 'start_linux_audio', 'launch_app', 'wait_for_app', 'native_host_check', 'run_mcp_status', 'run_mcp_entrypoints', 'linux_audio_diagnostics', 'linux_private_monitor_context', 'run_mcp_native_audio']:
+                patches.enter_context(patch.object(smoke, name, return_value={}))
+            patches.enter_context(patch.object(smoke, 'build_native_audio_fixture', return_value={'trackId': 'local:fixture'}))
+            remove = patches.enter_context(patch.object(smoke, 'remove_rpm'))
+            verify = patches.enter_context(patch.object(smoke, 'verify_rpm'))
+            stop = patches.enter_context(patch.object(smoke, 'stop_process'))
+            with self.assertRaises(smoke.SmokeFailure): smoke.main()
+            result = json.loads(evidence.read_text())
+            self.assertEqual(result['status'], 'failed')
+            self.assertEqual(result['failedStage'], 'RPM cleanup')
+            self.assertEqual(result['checks']['rpmRuntimeCleanup'], failure.diagnostics)
+            self.assertTrue(result['checks']['rpmUninstallSkippedUnprovenRuntime'])
+            remove.assert_not_called(); verify.assert_not_called()
+            self.assertTrue(all(call.args[0] is None for call in stop.call_args_list))
+
+    def test_stat_reader_parses_identity_without_environment_or_cmdline(self):
+        # Linux stat field22 is starttime, accounting for spaces/parentheses in comm.
+        fields = ['S', '5', '7', '7'] + ['0'] * 15 + ['1234']
+        with patch.object(pathlib.Path, 'read_text', return_value='17 (worker (odd)) ' + ' '.join(fields)), patch.object(pathlib.Path, 'stat', return_value=Mock(st_uid=0)), patch.object(pathlib.Path, 'open', mock_open(read_data='Uid:\t10001\t10001\t10001\t10001\n')), patch.object(pathlib.Path, 'read_bytes', side_effect=AssertionError('must not read env')):
+            actual = smoke.rpm_process_identity(17)
+        self.assertEqual((actual['pid'], actual['start'], actual['uid'], actual['ppid'], actual['sid']), (17, 1234, 10001, 5, 7))
+        self.assertEqual(actual['procOwnerUid'], 0)
+        changed_proc_owner = {**actual, 'procOwnerUid': 10001}
+        self.assertTrue(smoke.rpm_same_identity(actual, changed_proc_owner))
+        for credential in ('uid', 'euid', 'suid', 'fsuid'):
+            self.assertFalse(smoke.rpm_same_identity(actual, {**actual, credential: 0}))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -147,7 +147,7 @@ with tempfile.TemporaryDirectory(prefix="burrata-feed-fixture-") as temp:
     rpm_path = next(incoming.glob("*/installers/*.rpm"))
     rpm_evidence = {"status":"passed", "sourceCommit":commit, "sourceVersion":"1.2.3", "sourceRunId":"123", "harnessCommit":"b"*40,
                     "installerSha256":hashlib.sha256(rpm_path.read_bytes()).hexdigest(),
-                    "checks":{"rpm":{"postRuntimeVerify":True,"uninstalled":True,"packageAndRuntimePathsAbsent":True,"runtimeUid":10001,"installedVersion":"1.2.3"},
+                    "checks":{"rpmRuntimeCleanup":{"noLiveOwnedProcessesProven":True,"errors":[]},"rpm":{"postRuntimeVerify":True,"uninstalled":True,"packageAndRuntimePathsAbsent":True,"runtimeUid":10001,"installedVersion":"1.2.3"},
                               "mcp":{"initialized":True,"statusRunning":True,"frontendMounted":True,"toolCount":132},"mcpEntrypoints":{"applicationMcp":{"initialized":True,"statusRunning":True,"frontendMounted":True,"toolCount":132},"shippedConsole":[{"initialized":True,"statusRunning":True,"frontendMounted":True,"toolCount":132}]},
                               "nativeAudio":{"status":"sampled","engine":"native","channels":2,"capturedSeconds":3,
                                              "osOutput":{"postPlayerGain":True,"physicalHardware":False,"verifiedToneSeconds":3.2,"remuteQuietSeconds":.75},

@@ -93,6 +93,7 @@ mod exact_refresh_orchestration {
         cancel: watch::Receiver<bool>,
         trace: SourceTrace,
         events: Arc<Mutex<Vec<Value>>>,
+        helper_warmup: Duration,
     }
     impl Fixture {
         fn new(blocked: bool, cancel_on_response: bool, timeout_case: bool) -> Self {
@@ -108,6 +109,9 @@ mod exact_refresh_orchestration {
 import json,os,sys,time
 args=sys.argv[1:]
 log={log:?}
+if args==['--fixture-warmup']:
+    with open({ready:?},'w') as f:json.dump({{'ready':True,'python':sys.executable}},f)
+    sys.exit(0)
 query=args[-1]
 search=query.startswith('scsearch')
 corrected='correct catalog title' in query.lower()
@@ -120,15 +124,40 @@ else:
     i=query.rsplit('/',1)[-1]
     if i=='222' and {timeout_case}:
         with open({pid:?},'w') as f:f.write(str(os.getpid()))
-        time.sleep(3)
+        time.sleep(60)
     print(json.dumps({{'id':i,'title':'Fixture Artist - Correct Catalog Title','track':'Correct Catalog Title','artist':'Fixture Artist','artists':['Fixture Artist'],'uploader':'Fixture Artist','duration':240,'webpage_url':query,'url':'https://cf-media.sndcdn.com/audio.m4a','acodec':'aac','vcodec':'none','protocol':'https','ext':'m4a'}}))
 "##,
                 log = log.to_string_lossy(),
                 pid = pid.to_string_lossy(),
+                ready = directory.path().join("helper-ready.json").to_string_lossy(),
                 timeout_case = if timeout_case { "True" } else { "False" }
             );
             std::fs::write(&helper, script).unwrap();
             std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
+            // Interpreter startup is fixture preparation, not the invariant
+            // under test. Keep the exact helper path/interpreter and warm it
+            // before creating the measured request's absolute deadline.
+            let helper_warmup_started = Instant::now();
+            let mut warmup = std::process::Command::new(&helper)
+                .arg("--fixture-warmup")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .expect("fake extractor warmup must start");
+            loop {
+                if let Some(status) = warmup.try_wait().unwrap() {
+                    assert!(status.success(), "fake extractor warmup failed");
+                    break;
+                }
+                if helper_warmup_started.elapsed() > Duration::from_secs(15) {
+                    let _ = warmup.kill();
+                    let _ = warmup.wait();
+                    panic!("fake extractor warmup exceeded fixture preparation bound");
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            let helper_warmup = helper_warmup_started.elapsed();
             let mut settings = store.settings().unwrap();
             settings.preferred_streaming_source = "soundcloud".into();
             settings.streaming_fallback_enabled = false;
@@ -200,6 +229,50 @@ else:
                 cancel,
                 trace,
                 events,
+                helper_warmup,
+            }
+        }
+        async fn second_extraction_entered(&self) -> u32 {
+            loop {
+                if let Ok(pid) =
+                    std::fs::read_to_string(self.directory.path().join("blocked-helper.pid"))
+                {
+                    return pid.parse().expect("fake extractor PID");
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        }
+        async fn assert_helper_stopped(&self, pid: u32) {
+            // /proc is Linux-only: its absence on macOS is not exit proof.
+            // Query only the recorded synthetic helper PID, without signaling.
+            let helper = self.directory.path().join("fake-yt-dlp");
+            let canonical_helper = helper.canonicalize().unwrap();
+            loop {
+                let output = tokio::process::Command::new("/bin/ps")
+                    .args(["-ww", "-p", &pid.to_string(), "-o", "pid=,stat=,command="])
+                    .kill_on_drop(true)
+                    .output()
+                    .await
+                    .expect("owned helper process status must be observable");
+                if output.status.code() == Some(1)
+                    && output.stdout.iter().all(u8::is_ascii_whitespace)
+                {
+                    return;
+                }
+                assert!(output.status.success(), "owned helper process query failed");
+                let output = String::from_utf8(output.stdout).unwrap();
+                let mut fields = output.split_whitespace();
+                assert_eq!(fields.next().and_then(|v| v.parse::<u32>().ok()), Some(pid));
+                let state = fields.next().expect("owned helper process state");
+                if state.contains('Z') {
+                    return;
+                }
+                assert!(
+                    output.contains(helper.to_string_lossy().as_ref())
+                        || output.contains(canonical_helper.to_string_lossy().as_ref()),
+                    "recorded helper PID is live but its identity cannot be verified"
+                );
+                tokio::time::sleep(Duration::from_millis(10)).await;
             }
         }
         async fn run(&self, deadline: PlaybackDeadline) -> Result<ResolvedSource, String> {
@@ -323,9 +396,30 @@ else:
     #[tokio::test]
     async fn exact_refresh_orchestration_keeps_original_deadline() {
         let f = Fixture::new(false, false, true);
-        let deadline = PlaybackDeadline::after(Duration::from_millis(1400));
+        // Use the same six-second allowance as the sibling orchestration
+        // tests. Four real helper launches must reach the controlled blocked
+        // second extractor; a pre-lookup timeout does not exercise refresh.
+        let deadline = PlaybackDeadline::after(Duration::from_secs(6));
         let original = deadline.instant();
-        let result = f.run(deadline).await;
+        let run = f.run(deadline);
+        tokio::pin!(run);
+        let pid = tokio::select! {
+            biased;
+            pid=f.second_extraction_entered()=>pid,
+            result=&mut run=>panic!("second extraction not reached before request ended: {:?}; helper {:?}; calls {:#?}; events {:#?}",result.err(),f.helper_warmup,f.helper_calls(),f.events.lock().unwrap()),
+        };
+        assert!(
+            !deadline.remaining().is_zero(),
+            "phase entered after original deadline"
+        );
+        eprintln!(
+            "refresh deadline phase entered: warmupMs={}, remainingMs={}, attempts={}",
+            f.helper_warmup.as_millis(),
+            deadline.remaining().as_millis(),
+            f.trace.extraction_attempts_used()
+        );
+        // The original deadline is never replaced after refresh or handoff.
+        let result = run.await;
         assert!(deadline.remaining().is_zero(), "{:?}", result.err());
         assert!(tokio::time::Instant::now() <= original + Duration::from_millis(400));
         assert_eq!(deadline.instant(), original);
@@ -334,37 +428,43 @@ else:
         f.unchanged();
         f.assert_no_media_access();
         assert_eq!(f.accepted_refresh_count(), 1);
-        let pid = std::fs::read_to_string(f.directory.path().join("blocked-helper.pid"))
-            .expect("second extraction entered")
-            .parse::<u32>()
-            .unwrap();
-        for _ in 0..30 {
-            let running = std::fs::read_to_string(format!("/proc/{pid}/stat"))
-                .ok()
-                .is_some_and(|s| {
-                    !s.rsplit_once(") ")
-                        .is_some_and(|(_, rest)| rest.starts_with('Z'))
-                });
-            if !running {
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-        panic!("timed-out fake extractor remains running: {pid}");
+        assert_eq!(f.trace.extraction_attempts_used(), 2);
+        tokio::time::timeout(Duration::from_secs(2), f.assert_helper_stopped(pid))
+            .await
+            .expect("timed-out fake extractor remains running");
     }
 
     #[tokio::test]
     async fn exact_refresh_orchestration_cancellation_drops_pending_exact_lookup() {
         let f = Fixture::new(true, false, false);
-        let run = f.run(PlaybackDeadline::after(Duration::from_secs(6)));
+        let deadline = PlaybackDeadline::after(Duration::from_secs(6));
+        let run = f.run(deadline);
         tokio::pin!(run);
         tokio::select! {
             _=f.transport.entered.notified()=>{},
             result=&mut run=>panic!("resolver completed before exact lookup: {:?}; events {:#?}",result.err(),f.events.lock().unwrap()),
-            _=tokio::time::sleep(Duration::from_secs(3))=>panic!("exact lookup not reached; events {:#?}",f.events.lock().unwrap()),
+            _=tokio::time::sleep_until(deadline.instant())=>panic!("exact lookup not reached by original deadline; helper {:?}; calls {:#?}; events {:#?}",f.helper_warmup,f.helper_calls(),f.events.lock().unwrap()),
         }
+        f.assert_exact_read();
+        assert!(
+            deadline.remaining() > Duration::from_millis(500),
+            "fixture must reach blocked lookup with an independent cancellation window"
+        );
+        let cancelled_at = Instant::now();
         f.stop.send_replace(true);
-        assert_eq!(run.await.err().as_deref(), Some("Cancelled"));
+        assert_eq!(
+            tokio::time::timeout(Duration::from_millis(500), run)
+                .await
+                .expect("pending exact lookup cancellation must be prompt")
+                .err()
+                .as_deref(),
+            Some("Cancelled")
+        );
+        eprintln!(
+            "refresh cancellation observed: warmupMs={}, cancelMs={}",
+            f.helper_warmup.as_millis(),
+            cancelled_at.elapsed().as_millis()
+        );
         assert!(f.transport.dropped.load(Ordering::SeqCst));
         f.assert_exact_read();
         f.unchanged();
@@ -377,6 +477,19 @@ else:
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn fixture_warmup_never_spends_search_extraction_or_catalog_attempts() {
+        let f = Fixture::new(false, false, false);
+        assert!(f.helper_calls().is_empty());
+        assert!(f.transport.calls.lock().unwrap().is_empty());
+        let ready: Value = serde_json::from_slice(
+            &std::fs::read(f.directory.path().join("helper-ready.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(ready["ready"], true);
+        f.unchanged();
     }
 
     #[tokio::test]

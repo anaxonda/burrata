@@ -51,6 +51,10 @@ def validate_evidence(evidence, artifact):
             or type(rpm.get("runtimeUid")) is not int or rpm["runtimeUid"] <= 0
             or rpm.get("installedVersion") != artifact["sourceVersion"]):
         raise ValueError("Real unprivileged RPM verification/removal proof missing")
+    cleanup = checks.get("rpmRuntimeCleanup")
+    if (not isinstance(cleanup, dict) or cleanup.get("noLiveOwnedProcessesProven") is not True
+            or type(cleanup.get("errors")) is not list or cleanup["errors"]):
+        raise ValueError("Identity-scoped owned runtime cleanup proof missing or failed")
     native = checks.get("nativeAudio", {})
     output = native.get("osOutput", {})
     control = native.get("privateMonitorControl", {})

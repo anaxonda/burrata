@@ -22,6 +22,7 @@ def mcp_record():
 def evidence(artifact):
     return {**artifact, 'status':'passed', 'sourceRunId':'123', 'harnessCommit':HARNESS,
             'checks':{'rpm':{'postRuntimeVerify':True,'uninstalled':True,'packageAndRuntimePathsAbsent':True,'runtimeUid':10001,'installedVersion':'0.1.25'},
+                      'rpmRuntimeCleanup':{'noLiveOwnedProcessesProven':True,'errors':[]},
                       'mcp':mcp_record(),'mcpEntrypoints':{'applicationMcp':mcp_record(),'shippedConsole':[mcp_record()]},
                       'nativeAudio':{'status':'sampled','engine':'native','channels':2,'capturedSeconds':3,
                                      'osOutput':{'postPlayerGain':True,'physicalHardware':False,'verifiedToneSeconds':3.2,'remuteQuietSeconds':.75},
@@ -87,6 +88,24 @@ class RpmArtifactTests(unittest.TestCase):
         for key,value in [('postRuntimeVerify',False),('uninstalled',False),('packageAndRuntimePathsAbsent',False),('runtimeUid',0),('runtimeUid',True),('installedVersion','9.9.9')]:
             item=evidence(artifact);item['checks']['rpm'][key]=value
             with self.subTest(key=key),self.assertRaises(ValueError):gate.validate_evidence(item,artifact)
+
+    def test_runtime_cleanup_requires_explicit_true_and_typed_empty_errors(self):
+        artifact = self.artifact()
+        replacements = [None, True, {}, {'errors': []},
+                        {'noLiveOwnedProcessesProven': False, 'errors': []},
+                        {'noLiveOwnedProcessesProven': 1, 'errors': []},
+                        {'noLiveOwnedProcessesProven': True},
+                        *({'noLiveOwnedProcessesProven': True, 'errors': value}
+                          for value in [None, False, '', {}, (), ['unknown_new_process']])]
+        for replacement in replacements:
+            with self.subTest(replacement=replacement):
+                item = evidence(artifact)
+                if replacement is None:
+                    del item['checks']['rpmRuntimeCleanup']
+                else:
+                    item['checks']['rpmRuntimeCleanup'] = replacement
+                with self.assertRaises(ValueError): gate.validate_evidence(item, artifact)
+        gate.validate_evidence(evidence(artifact), artifact)
 
     def test_backend_clock_pre_gain_or_invalid_timing_never_passes(self):
         artifact=self.artifact()
