@@ -31,7 +31,11 @@ Deterministic fixtures verify behavior under controlled failures; they do not es
 
 Local verification of the frozen implementation passed **2,285 native tests** (56 explicit environment/live qualifications ignored in the ordinary suite), **1,728 frontend tests**, **12 MCP tests**, and **8 repository contract tests**. The live Bandcamp resolver qualification passed separately. Release packaging and cross-platform results are recorded by the workflow for the exact tagged source commit.
 
-## Unreleased follow-up: first WebView start on the reported YouTube mix
+## Historical follow-up: first WebView start on the reported YouTube mix
+
+This section records the earlier WebView implementation and its measurements.
+The current candidate uses Native playback, so this browser-media initialization
+path is not its playback startup path.
 
 The original production report for `youtube:mDtud5fLgFQ` shows a 20,142 ms first attempt with a configured 20-second limit. Its attachment stopped after 5,052 ms in the play phase, still at `readyState=0`, `networkState=2`, time zero, and without a recorded media error. Source identity and both range probes had already passed. Replay completed in 6,208 ms, with media reaching playing about 5,788 ms after play. The timeout identifies the failure boundary, not a reason to increase the configured budget.
 
@@ -41,7 +45,11 @@ Ordinary source lookup and refresh now dispatch their backend request first, the
 
 A fresh private run reproduced the old timeout. A controlled check of the patched build used a 14-second synthetic lookup plus real AAC decoding through the packaged WebKit runtime and a silent virtual sink. Its 4,955 ms cold probe began after lookup dispatch and overlapped that lookup; media reached playing in 14,462 ms and the full startup completed in 14,473 ms, with the original 20-second deadline and a progressing media clock. This controls the scheduling variable without relying on changing provider availability; it does not measure physical audibility or guarantee live YouTube access.
 
-The existing `inspect_webview_media` and `get_playback_diagnostics_report` read-only tools also expose bounded startup history when normal playback diagnostics are enabled, including failures retained after replay. They use the same redacted projection as export: no signed audio URLs, headers, titles or paths. A missing frontend leaves backend events available. Future inspection does not require a hidden session flag or a manual export dialog.
+For the current Native candidate, the `get_playback_diagnostics_report` read-only
+tool exposes bounded sanitized playback and source events when playback problem
+recording is enabled, including failures retained after replay. It uses the same
+safe projection as export, without signed media URLs, headers, titles, local media
+paths or raw audio. Save the report before closing or restarting Burrata.
 
 Verification: all **529 app integration and codec tests**, Svelte checks with zero errors/warnings, the native startup-history bounds/redaction regression, the native application build, and the real-WebView controlled check passed. These fixes are local follow-up changes and are not in the published v0.1.23 build.
 

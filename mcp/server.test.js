@@ -187,7 +187,7 @@ test('identify/cancel MCP tools preserve no-argument compatibility and forward o
   }
 });
 
-test('WebView media inspection is exposed as a read-only no-argument proxy tool', async () => {
+test('Native output qualification is exposed as a read-only no-argument proxy tool', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'burrata-media-inspection-mcp-'));
   const discoveryPath = join(directory, 'automation.json');
   const requests = [];
@@ -199,15 +199,16 @@ test('WebView media inspection is exposed as a read-only no-argument proxy tool'
     response.setHeader('content-type', 'application/json');
     if (request.url === '/automation/tools' && request.method === 'GET') {
       response.end(JSON.stringify({ tools: [{
-        name: 'inspect_webview_media', description: 'Read current WebView audio-element state.', scope: 'read',
+        name: 'inspect_native_output', description: 'Read consumed Native synthetic PCM measurements.', scope: 'read',
         inputSchema: { type: 'object', properties: {}, required: [], additionalProperties: false },
       }] }));
       return;
     }
     if (request.url === '/automation/call' && request.method === 'POST') {
-      response.end(JSON.stringify({ content: [{ type: 'text', text: 'WebView media sample' }], structuredContent: {
-        engine: 'webview', applicable: true, trackId: 'track-1', sessionId: 'session-1', sourceGeneration: 7, seekSerial: 2,
-        currentIndex: 0, queueTotal: 1, entryId: null, previewKind: 'audio', media: { present: true, currentTime: 10.25, duration: 131, paused: false, readyState: 4, networkState: 2, errorCode: null, sourcePresent: true, sourceStable: true },
+      response.end(JSON.stringify({ content: [{ type: 'text', text: 'Native output sample' }], structuredContent: {
+        engine: 'native', trackId: 'track-1', generation: 7, seekSerial: 2,
+        position: 10.25, sampleRate: 48000, channels: 2, capturedSeconds: 3,
+        measurements: [{rms:.1,tone440:.15,tone660:0},{rms:.08,tone440:0,tone660:.12}],
       } }));
       return;
     }
@@ -226,12 +227,12 @@ test('WebView media inspection is exposed as a read-only no-argument proxy tool'
     assert.equal(listing.tools[0].annotations.readOnlyHint, true);
     assert.deepEqual(listing.tools[0].inputSchema.required, []);
     assert.deepEqual(listing.tools[0].inputSchema.properties, {});
-    const result = await client.callTool({ name: 'inspect_webview_media', arguments: {} });
-    assert.equal(result.structuredContent.media.currentTime, 10.25);
-    const invalid = await client.callTool({ name: 'inspect_webview_media', arguments: { command: 'play' } });
+    const result = await client.callTool({ name: 'inspect_native_output', arguments: {} });
+    assert.equal(result.structuredContent.position, 10.25);
+    const invalid = await client.callTool({ name: 'inspect_native_output', arguments: { command: 'play' } });
     assert.equal(invalid.isError, true);
     assert.equal(requests.filter((item) => item.path === '/automation/call').length, 1);
-    assert.deepEqual(requests.find((item) => item.path === '/automation/call').body, { name: 'inspect_webview_media', arguments: {} });
+    assert.deepEqual(requests.find((item) => item.path === '/automation/call').body, { name: 'inspect_native_output', arguments: {} });
   } finally {
     await client.close().catch(() => {});
     await new Promise((resolveClose) => app.close(resolveClose));

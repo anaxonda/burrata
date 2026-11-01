@@ -163,6 +163,10 @@ impl YouTubeSupportManager {
         }
     }
 
+    pub(crate) fn helper_temp_root(&self) -> PathBuf {
+        self.data_dir.join("helper-tmp")
+    }
+
     pub fn active_executable(&self) -> PathBuf {
         self.read_pointer("current.json")
             .map(|p| self.safe_version_executable(&p))

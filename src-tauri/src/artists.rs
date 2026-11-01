@@ -4326,18 +4326,44 @@ fn musicbrainz_id_for(artist: &ArtistRef, store: &Store) -> Result<Option<String
     Ok(mapping.and_then(|value| value.strip_prefix("musicbrainz:").map(str::to_owned)))
 }
 fn strip_html(value: &str) -> String {
-    let mut output = String::with_capacity(value.len());
-    let mut in_tag = false;
-    for c in value.chars() {
-        match c {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => output.push(c),
+    use scraper::node::Node;
+    let document = scraper::Html::parse_fragment(value);
+    let mut output = String::new();
+    for node in document.tree.root().descendants() {
+        // HTML parsing decodes entities. Ignore active and embedded subtrees,
+        // including their text, rather than stripping tags and keeping script.
+        if node.ancestors().any(|ancestor| {
+            matches!(ancestor.value(), Node::Element(element)
+            if matches!(element.name(), "script" | "style" | "iframe" | "object" | "template"))
+        }) {
+            continue;
+        }
+        match node.value() {
+            Node::Element(element) if element.name() == "br" => output.push('\n'),
+            Node::Element(element)
+                if matches!(
+                    element.name(),
+                    "p" | "div" | "li" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
+                ) =>
+            {
+                if !output.trim().is_empty() {
+                    output.push_str("\n\n");
+                }
+            }
+            Node::Text(text) => output.push_str(text),
             _ => {}
         }
     }
-    output.split_whitespace().collect::<Vec<_>>().join(" ")
+    // Keep paragraph boundaries while cleaning provider whitespace.
+    output
+        .lines()
+        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_owned()
 }
+
 fn url_component(value: &str) -> String {
     url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
 }
@@ -5089,8 +5115,9 @@ mod tests {
     fn html_markup_is_removed_from_lastfm_bio() {
         assert_eq!(
             strip_html("<p>One &amp; Two</p>\n<b>three</b>"),
-            "One &amp; Two three"
+            "One & Two\nthree"
         );
+        assert_eq!(strip_html("<p>First &amp; more</p><p>Second<br>line<script>unsafe()</script><style>bad</style></p>"), "First & more\n\nSecond\nline");
     }
 
     #[test]

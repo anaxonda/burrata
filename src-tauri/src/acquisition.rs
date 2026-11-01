@@ -1347,6 +1347,10 @@ fn is_public_ip(ip: std::net::IpAddr) -> bool {
 }
 
 #[cfg(test)]
+#[path = "playback_test_transport.rs"]
+pub(crate) mod playback_test_transport;
+
+#[cfg(test)]
 tokio::task_local! {
     static PLAYBACK_TEST_PUBLIC_DNS: bool;
 }
@@ -1361,6 +1365,13 @@ pub(crate) async fn with_playback_test_public_addresses<F: std::future::Future>(
 }
 
 pub(crate) async fn public_addresses(url: &url::Url) -> Result<Vec<std::net::SocketAddr>, String> {
+    #[cfg(test)]
+    if let Some(address) = playback_test_transport::fixture_address(url) {
+        if !is_public_ip(address.ip()) || address.port() != 443 {
+            return Err("Synthetic playback fixture address violates public HTTPS policy".into());
+        }
+        return Ok(vec![address]);
+    }
     #[cfg(test)]
     if PLAYBACK_TEST_PUBLIC_DNS
         .try_with(|enabled| *enabled)
@@ -1574,21 +1585,85 @@ async fn run_tool<F: FnMut(&str)>(
     .await
 }
 
+// Each helper gets its own RAII directory in the managed app profile, so a
+// restricted system temp quota cannot prevent the bundled binary from unpacking.
+fn owned_helper_temp_dir(root: Option<&Path>) -> Result<tempfile::TempDir, String> {
+    let Some(root) = root else {
+        return tempfile::Builder::new()
+            .prefix("burrata-yt-dlp-")
+            .tempdir()
+            .map_err(|error| format!("Could not create yt-dlp temporary directory: {error}"));
+    };
+    let parent = root
+        .parent()
+        .ok_or("Invalid yt-dlp storage temporary directory root")?;
+    // The manager supplies exactly <profile>/youtube-support/helper-tmp.
+    // Create one component at a time and refuse symlinks and non-directories.
+    for path in [parent, root] {
+        let mut builder = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
+        }
+        match builder.create(path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(format!("Could not create yt-dlp temporary root: {error}")),
+        }
+        let meta = std::fs::symlink_metadata(path)
+            .map_err(|error| format!("Could not inspect yt-dlp temporary root: {error}"))?;
+        if !meta.file_type().is_dir() || meta.file_type().is_symlink() {
+            return Err("Unsafe yt-dlp storage temporary directory root".into());
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            if meta.uid() != unsafe { libc::geteuid() }
+                || (path == root && meta.mode() & 0o077 != 0)
+            {
+                return Err("Unsafe yt-dlp storage temporary directory owner".into());
+            }
+        }
+    }
+    tempfile::Builder::new()
+        .prefix("burrata-yt-dlp-")
+        .tempdir_in(root)
+        .map_err(|error| format!("Could not create yt-dlp temporary directory: {error}"))
+}
+
 async fn run_tool_until<F: FnMut(&str)>(
+    settings: &Settings,
+    args: Vec<String>,
+    cancel: watch::Receiver<bool>,
+    deadline: tokio::time::Instant,
+    on_line: F,
+) -> Result<String, String> {
+    let managed_root = crate::youtube_support::global().map(|manager| manager.helper_temp_root());
+    run_tool_until_with_temp_root(
+        settings,
+        args,
+        cancel,
+        deadline,
+        on_line,
+        managed_root.as_deref(),
+    )
+    .await
+}
+
+async fn run_tool_until_with_temp_root<F: FnMut(&str)>(
     settings: &Settings,
     args: Vec<String>,
     mut cancel: watch::Receiver<bool>,
     deadline: tokio::time::Instant,
     mut on_line: F,
+    managed_root: Option<&Path>,
 ) -> Result<String, String> {
     if *cancel.borrow() {
         return Err("Cancelled".into());
     }
     let yt_dlp = yt_dlp_executable(settings);
-    let temp_dir = tempfile::Builder::new()
-        .prefix("burrata-yt-dlp-")
-        .tempdir()
-        .map_err(|error| format!("Could not create yt-dlp temporary directory: {error}"))?;
+    let temp_dir = owned_helper_temp_dir(managed_root)?;
     let mut command = Command::new(yt_dlp);
     command
         .args(args)
@@ -4241,10 +4316,11 @@ fn playback_candidate_search_cache_key(
     alternate_artists: &[String],
 ) -> String {
     format!(
-        "{}:playback-source-search:recording-match-{}:{:?}:{}",
+        "{}:playback-source-search:recording-match-{}:{:?}:{}:{}",
         search_cache_key(track, provider_ids, settings, 3),
         crate::recording_match::EVALUATOR_VERSION,
         settings.matching_level,
+        serde_json::to_string(&settings.flexible_matching).unwrap_or_default(),
         serde_json::to_string(alternate_artists).unwrap_or_default(),
     )
 }
@@ -4606,7 +4682,7 @@ async fn extract_preview_audio_with_prepared_alternate(
     ]);
     if trace
         .as_ref()
-        .is_some_and(|trace| !trace.try_spend_extraction())
+        .is_some_and(|trace| !trace.try_spend_extraction_for(&candidate.provider))
     {
         return Err(crate::playback_sources::EXTRACTION_ATTEMPTS_EXHAUSTED.into());
     }
@@ -4737,7 +4813,10 @@ async fn validate_prepared_preview_audio(
             &stream_addresses,
         )
         .connect_timeout(Duration::from_secs(5))
-        .timeout(playback_access_probe_timeout(deadline.remaining()))
+        .timeout(playback_access_probe_timeout(deadline.remaining()));
+    #[cfg(test)]
+    let client = playback_test_transport::configure_preflight(client, &stream)?;
+    let client = client
         .build()
         .map_err(|_| "Could not initialize audio access check".to_owned())?;
     let final_url = run_playback_stage(
@@ -5056,7 +5135,11 @@ async fn verify_preview_audio_access_with_trace(
                             &addresses,
                         )
                         .connect_timeout(Duration::from_secs(5))
-                        .timeout(PLAYBACK_ACCESS_PROBE_TIMEOUT)
+                        .timeout(PLAYBACK_ACCESS_PROBE_TIMEOUT);
+                    #[cfg(test)]
+                    let client =
+                        playback_test_transport::configure_preflight(client, &playback_url)?;
+                    let client = client
                         .build()
                         .map_err(|_| "Could not initialize audio access check".to_owned())?;
                     send_preview_range(
@@ -6615,6 +6698,48 @@ impl AcquisitionManager {
             *slot = Some(service);
         }
     }
+    /// Fresh exact-ID lookup for one playback request; never saves a library row.
+    pub(crate) async fn refresh_playback_catalog_track(
+        &self,
+        track: &Track,
+    ) -> Result<Option<Track>, String> {
+        match track.provider.as_str() {
+            "beatport" | "traxsource" => {
+                let mut request = track.clone();
+                if request.provider_id.is_empty()
+                    || !request.provider_id.bytes().all(|b| b.is_ascii_digit())
+                {
+                    return Ok(None);
+                }
+                request.source_url = if request.provider == "beatport" {
+                    format!("https://www.beatport.com/track/-/{}", request.provider_id)
+                } else {
+                    format!("https://www.traxsource.com/track/{}/-", request.provider_id)
+                };
+                crate::providers::provider(&request.provider)?
+                    .get_track_details(&request)
+                    .await
+                    .map(Some)
+            }
+            "spotify" => {
+                let service = self
+                    .inner
+                    .remote_playlists
+                    .lock()
+                    .map_err(|_| "Catalog service unavailable")?
+                    .clone();
+                match service {
+                    Some(service) => service
+                        .get_remote_track("spotify", &track.provider_id)
+                        .await
+                        .map(Some),
+                    None => Ok(None),
+                }
+            }
+            _ => Ok(None),
+        }
+    }
+
     pub(crate) async fn prepare_catalog_duration_track(
         &self,
         track: &Track,
@@ -7057,7 +7182,8 @@ impl AcquisitionManager {
                 "deadlineMs": 22_000,
             }),
         );
-        let matching_level = self.inner.store.settings()?.matching_level;
+        let matching_settings = self.inner.store.settings()?;
+        let matching_level = matching_settings.matching_level;
         for (index, query) in queries.iter().enumerate() {
             if *cancel.borrow() || Instant::now() >= selection_deadline {
                 break;
@@ -7079,12 +7205,13 @@ impl AcquisitionManager {
             let network_ms = query_started.elapsed().as_millis();
             let candidate_count = candidates.len();
             let selection_started = Instant::now();
-            let selection = select_soulseek_album_group(
+            let selection = select_soulseek_album_group_with_options(
                 &self.inner.store,
                 tracks,
                 &alias_contexts,
                 candidates,
                 matching_level,
+                matching_settings.flexible_matching,
                 query_selection_deadline,
                 &cancel,
             );
@@ -8280,12 +8407,15 @@ impl AcquisitionManager {
             if let Some(provenance) = request.track.provenance.as_object_mut() {
                 provenance.remove("userSelectedSource");
             }
-            let assessment = crate::recording_match_context::assess(
+            let assessment = crate::recording_match_context::assess_with_context(
                 &self.inner.store,
                 &request.track,
                 &request.candidate,
                 settings.matching_level,
                 crate::recording_match::MatchStage::Resolved,
+                &mut crate::recording_match_context::AssessmentContext::with_flexible_options(
+                    settings.flexible_matching,
+                ),
             );
             if is_explicit_soulseek_folder_source(&request.track, &request.candidate, &assessment) {
                 request.track.provenance["userSelectedSource"] = serde_json::json!(true);
@@ -8322,6 +8452,7 @@ impl AcquisitionManager {
             *transfer_id = None;
         }
         let job = DownloadJob {
+            flexible_matching: settings.flexible_matching,
             id,
             track: request.track,
             candidate,
@@ -8438,12 +8569,15 @@ impl AcquisitionManager {
             if let Some(provenance) = job.track.provenance.as_object_mut() {
                 provenance.remove("userSelectedSource");
             }
-            let assessment = crate::recording_match_context::assess(
+            let assessment = crate::recording_match_context::assess_with_context(
                 &self.inner.store,
                 &job.track,
                 &job.candidate,
                 download_matching_level(&job.track),
                 crate::recording_match::MatchStage::Resolved,
+                &mut crate::recording_match_context::AssessmentContext::with_flexible_options(
+                    job.flexible_matching,
+                ),
             );
             if is_explicit_soulseek_folder_source(&job.track, &job.candidate, &assessment) {
                 if !job.track.provenance.is_object() {
@@ -8484,6 +8618,35 @@ impl AcquisitionManager {
                 job.output_path = Some(asset.path.clone());
                 match self.inner.store.save_asset(&asset) {
                     Ok(()) => {
+                        // Recompute the final fresh candidate assessment; only the
+                        // backend-owned retained record can later produce a notice.
+                        if job.chapter_ids.as_ref().is_none_or(|ids| ids.is_empty()) {
+                            let assessment = crate::recording_match_context::assess_with_context(
+                                &self.inner.store, &job.track, &job.candidate,
+                                download_matching_level(&job.track), crate::recording_match::MatchStage::Resolved,
+                                &mut crate::recording_match_context::AssessmentContext::with_flexible_options(job.flexible_matching),
+                            );
+                            if assessment.action == crate::recording_match::MatchAction::Accept
+                                && assessment.relationship
+                                    == crate::recording_match::MatchRelationship::Alternative
+                            {
+                                let meta = job
+                                    .candidate
+                                    .source_metadata
+                                    .as_ref()
+                                    .unwrap_or(&Value::Null);
+                                let title = meta["catalogTitle"]
+                                    .as_str()
+                                    .or(meta["track"].as_str())
+                                    .unwrap_or(&job.candidate.title);
+                                let _ = self.inner.store.save_local_alternative_notice(
+                                    &asset,
+                                    &job.track,
+                                    title,
+                                    &assessment,
+                                );
+                            }
+                        }
                         let _ = self
                             .inner
                             .store
@@ -8547,6 +8710,9 @@ impl AcquisitionManager {
         settings: &Settings,
         mut rx: watch::Receiver<bool>,
     ) -> Result<LocalAsset, String> {
+        let mut job_settings = settings.clone();
+        job_settings.flexible_matching = job.flexible_matching;
+        let settings = &job_settings;
         let original_track = job.track.clone();
         let original_provider = job.candidate.provider.clone();
         let lossless = crate::source_fallback::requires_lossless(job);
@@ -8583,7 +8749,10 @@ impl AcquisitionManager {
             &settings.download_fallback_sources,
             true,
         );
-        let mut assessment_context = crate::recording_match_context::AssessmentContext::default();
+        let mut assessment_context =
+            crate::recording_match_context::AssessmentContext::with_flexible_options(
+                job.flexible_matching,
+            );
         let mut failures = vec![
             serde_json::json!({"provider":original_provider,"candidateId":job.candidate.id,"error":first_error}),
         ];
@@ -8608,15 +8777,30 @@ impl AcquisitionManager {
                 }
             };
             candidates.sort_by_key(|candidate| {
-                crate::recording_match_context::priority(
-                    &crate::recording_match_context::assess_with_context(
-                        &self.inner.store,
-                        &expected,
-                        candidate,
-                        matching_level,
-                        crate::recording_match::MatchStage::Search,
-                        &mut assessment_context,
-                    ),
+                let assessment = crate::recording_match_context::assess_with_context(
+                    &self.inner.store,
+                    &expected,
+                    candidate,
+                    matching_level,
+                    crate::recording_match::MatchStage::Search,
+                    &mut assessment_context,
+                );
+                let proof = match assessment.proof_strength {
+                    crate::recording_match::ProofStrength::AudioFingerprint => 0,
+                    crate::recording_match::ProofStrength::RecordingIdentifier => 1,
+                    crate::recording_match::ProofStrength::MetadataOnly => 2,
+                };
+                let delta = assessment
+                    .evidence
+                    .as_ref()
+                    .and_then(|e| e.runtime_delta_seconds)
+                    .map(|value| (value.abs() * 1000.0) as u64)
+                    .unwrap_or(u64::MAX);
+                (
+                    crate::recording_match_context::priority(&assessment),
+                    crate::recording_match::alternative_rank(&assessment, &expected, candidate),
+                    proof,
+                    delta,
                 )
             });
             let mut attempted = false;
@@ -8955,12 +9139,15 @@ impl AcquisitionManager {
             matching::score_candidate(&job.track, &mut inspected);
             job.candidate = inspected;
         }
-        let selected_assessment = crate::recording_match_context::assess(
+        let selected_assessment = crate::recording_match_context::assess_with_context(
             &self.inner.store,
             &job.track,
             &job.candidate,
             download_matching_level(&job.track),
             crate::recording_match::MatchStage::Resolved,
+            &mut crate::recording_match_context::AssessmentContext::with_flexible_options(
+                job.flexible_matching,
+            ),
         );
         let explicitly_selected = explicit_download_source(&job.track, &job.candidate);
         let needs_verification = !explicitly_selected
@@ -9967,12 +10154,35 @@ fn soulseek_album_assessment_rejections(
     reasons
 }
 
+#[cfg(test)]
 fn select_soulseek_album_group(
     store: &Store,
     tracks: &[Track],
     aliases: &[crate::artist_credit_aliases::VerifiedPlaybackArtistAliases],
     candidates: Vec<Candidate>,
     matching_level: crate::recording_match::MatchLevel,
+    deadline: Instant,
+    cancel: &watch::Receiver<bool>,
+) -> SoulseekAlbumSelection {
+    select_soulseek_album_group_with_options(
+        store,
+        tracks,
+        aliases,
+        candidates,
+        matching_level,
+        crate::recording_match::FlexibleMatchingOptions::default(),
+        deadline,
+        cancel,
+    )
+}
+
+fn select_soulseek_album_group_with_options(
+    store: &Store,
+    tracks: &[Track],
+    aliases: &[crate::artist_credit_aliases::VerifiedPlaybackArtistAliases],
+    candidates: Vec<Candidate>,
+    matching_level: crate::recording_match::MatchLevel,
+    flexible_options: crate::recording_match::FlexibleMatchingOptions,
     deadline: Instant,
     cancel: &watch::Receiver<bool>,
 ) -> SoulseekAlbumSelection {
@@ -10159,7 +10369,8 @@ fn select_soulseek_album_group(
     );
 
     let mut evaluations = Vec::new();
-    let mut context = crate::recording_match_context::AssessmentContext::default();
+    let mut context =
+        crate::recording_match_context::AssessmentContext::with_flexible_options(flexible_options);
     'groups: for (group_rank, group) in ranked_groups.into_iter().enumerate() {
         if *cancel.borrow() {
             return selection;
@@ -11512,6 +11723,7 @@ mod tests {
             work: Comparison::Unknown,
         };
         crate::recording_match::MatchAssessment {
+            alternative_kind: None,
             relationship: MatchRelationship::Unresolved,
             action: MatchAction::Enrich,
             reasons: Vec::new(),
@@ -13552,11 +13764,11 @@ mod tests {
             id: "youtube:raw-row".into(),
             provider: "youtube".into(),
             url: "https://www.youtube.com/watch?v=raw-row".into(),
-            title: "Main Artist - Song".into(),
+            title: "Main Artist - Song (Live)".into(),
             duration_seconds: Some(200.0),
             source_metadata: Some(serde_json::json!({
                 "provider":"youtube",
-                "track":"Song",
+                "track":"Song (Live)",
                 "artists":null,
                 "artistNames":null,
                 "duration":200.0
@@ -13602,8 +13814,7 @@ mod tests {
         let track = Track {
             artist: "Main Artist".into(),
             title: "Song".into(),
-            duration_seconds: None,
-            version: Some("Live Remix".into()),
+            duration_seconds: Some(200.0),
             ..Track::default()
         };
         let exact = crate::recording_match::assess(
@@ -13612,13 +13823,27 @@ mod tests {
             crate::recording_match::MatchLevel::Exact,
             crate::recording_match::MatchStage::Resolved,
         );
-        let permissive = crate::recording_match::assess(
+        let default_flexible = crate::recording_match::assess(
             &track,
             &second.candidates[0],
             crate::recording_match::MatchLevel::Flexible,
             crate::recording_match::MatchStage::Resolved,
         );
+        let permissive = crate::recording_match::assess_with_options(
+            &track,
+            &second.candidates[0],
+            crate::recording_match::MatchLevel::Flexible,
+            crate::recording_match::MatchStage::Resolved,
+            &crate::recording_match::FlexibleMatchingOptions {
+                allow_other_performances: true,
+                ..Default::default()
+            },
+        );
         assert_ne!(exact.action, crate::recording_match::MatchAction::Accept);
+        assert_eq!(
+            default_flexible.action,
+            crate::recording_match::MatchAction::Reject
+        );
         assert_eq!(
             permissive.action,
             crate::recording_match::MatchAction::Accept
@@ -14421,6 +14646,7 @@ mod tests {
     #[test]
     fn startup_recovers_only_interrupted_authorized_soulseek_jobs() {
         let mut job = DownloadJob {
+            flexible_matching: Default::default(),
             disposition: Default::default(),
             id: "job".into(),
             track: Track::default(),
@@ -16670,6 +16896,72 @@ printf 'BURRATA_FILE "%s"\n' "$destination"
         let result = run_tool(&settings, vec![], rx, Duration::from_secs(10), |_| {}).await;
         assert_eq!(result.unwrap_err(), "Cancelled");
         assert!(started.elapsed() < Duration::from_secs(3));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn managed_helper_temp_is_private_owned_and_removed_after_spawn() {
+        use std::os::unix::fs::MetadataExt;
+        let profile = tempfile::tempdir().unwrap();
+        let root = profile.path().join("youtube-support/helper-tmp");
+        let temp = owned_helper_temp_dir(Some(&root)).unwrap();
+        assert_eq!(temp.path().parent(), Some(root.as_path()));
+        assert_eq!(std::fs::metadata(&root).unwrap().mode() & 0o077, 0);
+        let path = temp.path().to_owned();
+        let status = std::process::Command::new("sh").arg("-c")
+            .arg("test \"$TMPDIR\" = \"$TMP\" && test \"$TMPDIR\" = \"$TEMP\" && touch \"$TMPDIR/owned\"")
+            .env("TMPDIR", &path).env("TMP", &path).env("TEMP", &path).status().unwrap();
+        assert!(status.success());
+        assert!(path.join("owned").exists());
+        drop(temp);
+        assert!(!path.exists());
+        assert!(root.exists());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn run_tool_uses_managed_temp_root_and_removes_it_after_exit() {
+        let profile = tempfile::tempdir().unwrap();
+        let marker = profile.path().join("marker");
+        let root = profile.path().join("youtube-support/helper-tmp");
+        let (_tool, settings) = fake_tool(&fake_tool_writing_to_owned_temp(&marker));
+        let (_tx, cancel) = idle_cancel();
+        run_tool_until_with_temp_root(
+            &settings,
+            vec![],
+            cancel,
+            tokio::time::Instant::now() + Duration::from_secs(5),
+            |_| {},
+            Some(&root),
+        )
+        .await
+        .unwrap();
+        let (path, _) = fake_tool_temp_path(&marker);
+        assert_eq!(path.parent(), Some(root.as_path()));
+        assert!(!path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn managed_helper_temp_rejects_unsafe_or_malformed_roots() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let profile = tempfile::tempdir().unwrap();
+        let external = tempfile::tempdir().unwrap();
+        let parent = profile.path().join("youtube-support");
+        symlink(external.path(), &parent).unwrap();
+        assert!(owned_helper_temp_dir(Some(&parent.join("helper-tmp"))).is_err());
+        std::fs::remove_file(&parent).unwrap();
+        std::fs::create_dir(&parent).unwrap();
+        let root = parent.join("helper-tmp");
+        symlink(external.path(), &root).unwrap();
+        assert!(owned_helper_temp_dir(Some(&root)).is_err());
+        std::fs::remove_file(&root).unwrap();
+        std::fs::write(&root, b"not a directory").unwrap();
+        assert!(owned_helper_temp_dir(Some(&root)).is_err());
+        std::fs::remove_file(&root).unwrap();
+        std::fs::create_dir(&root).unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o777)).unwrap();
+        assert!(owned_helper_temp_dir(Some(&root)).is_err());
     }
 
     #[cfg(target_os = "linux")]

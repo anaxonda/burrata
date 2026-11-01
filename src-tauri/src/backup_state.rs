@@ -7916,6 +7916,7 @@ mod tests {
         connection.execute("INSERT INTO local_assets(id,recording_id,path,hash,payload) VALUES('asset-1','recording-1',?1,?2,?3)", params![media.to_string_lossy(),hash,asset_payload]).unwrap();
         connection.execute("INSERT INTO provider_cache(namespace,key,payload,expires_at) VALUES('private','cache-key','{}','2099-01-01')", []).unwrap();
         let job_payload = serde_json::to_string(&crate::models::DownloadJob {
+            flexible_matching: Default::default(),
             id: "job-1".into(),
             track: crate::models::Track {
                 id: "youtube:abc123".into(),

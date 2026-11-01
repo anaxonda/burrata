@@ -28,9 +28,10 @@ const MAX_SOURCE_DURATION: f64 = 3000.0;
 const MAX_ALBUM_DURATION_DELTA: f64 = 2.0;
 const MAX_BOUNDARY_UNCERTAINTY: f64 = 2.0;
 
-pub(crate) fn request_fingerprint(
+pub(crate) fn request_fingerprint_with_options(
     track: &Track,
     level: crate::recording_match::MatchLevel,
+    options: crate::recording_match::FlexibleMatchingOptions,
 ) -> String {
     let identity = json!({
         "id": track.id,
@@ -48,15 +49,24 @@ pub(crate) fn request_fingerprint(
         "artistCreditIds": track.provenance.get("artistCreditIds").cloned().unwrap_or(Value::Null),
         "recordingIdentity": track.provenance.get("identity").cloned().unwrap_or(Value::Null),
         "level": level,
+        "flexibleOptions": options,
         "evaluator": crate::recording_match::EVALUATOR_VERSION,
     });
     format!("{:x}", Sha256::digest(identity.to_string().as_bytes()))
 }
 
-pub(crate) fn asset_proof_is_eligible(
+pub(crate) fn request_fingerprint(
+    track: &Track,
+    level: crate::recording_match::MatchLevel,
+) -> String {
+    request_fingerprint_with_options(track, level, Default::default())
+}
+
+pub(crate) fn asset_proof_is_eligible_with_options(
     track: &Track,
     value: &Value,
     level: crate::recording_match::MatchLevel,
+    options: crate::recording_match::FlexibleMatchingOptions,
 ) -> bool {
     let Some(proof) = value.get("automaticExcerpt") else {
         return true;
@@ -136,7 +146,8 @@ pub(crate) fn asset_proof_is_eligible(
         && proof["schemaVersion"].as_u64() == Some(PROOF_SCHEMA as u64)
         && proof["policy"].as_str() == Some("flexible")
         && proof["evaluatorVersion"].as_str() == Some(crate::recording_match::EVALUATOR_VERSION)
-        && proof["requestFingerprint"].as_str() == Some(request_fingerprint(track, level).as_str())
+        && proof["requestFingerprint"].as_str()
+            == Some(request_fingerprint_with_options(track, level, options).as_str())
         && proof["approximate"].as_bool() == Some(true)
         && proof["relationship"].as_str() == Some("probable")
         && proof["source"]["provider"].as_str() == Some("youtube")
@@ -229,6 +240,14 @@ pub(crate) fn asset_proof_is_eligible(
             .as_u64()
             .is_some_and(|value| value > 0)
         && proof["catalogAssessment"]["action"].as_str() == Some("accept")
+}
+
+pub(crate) fn asset_proof_is_eligible(
+    track: &Track,
+    value: &Value,
+    level: crate::recording_match::MatchLevel,
+) -> bool {
+    asset_proof_is_eligible_with_options(track, value, level, Default::default())
 }
 
 pub(crate) fn asset_file_hash_matches(asset: &crate::models::LocalAsset) -> bool {
@@ -375,7 +394,11 @@ pub(crate) fn schedule(acquisition: Arc<AcquisitionManager>, track: Track, setti
         if !eligible(&track, &settings) {
             return;
         }
-        let request = request_fingerprint(&track, settings.matching_level);
+        let request = request_fingerprint_with_options(
+            &track,
+            settings.matching_level,
+            settings.flexible_matching,
+        );
         if pending_keys()
             .lock()
             .map(|mut keys| !keys.insert(request.clone()))
@@ -428,8 +451,11 @@ pub(crate) fn schedule(acquisition: Arc<AcquisitionManager>, track: Track, setti
                     if current_settings.matching_level
                         == crate::recording_match::MatchLevel::Flexible
                         && eligible(&current_track, &current_settings)
-                        && request_fingerprint(&current_track, current_settings.matching_level)
-                            == request =>
+                        && request_fingerprint_with_options(
+                            &current_track,
+                            current_settings.matching_level,
+                            current_settings.flexible_matching,
+                        ) == request =>
                 {
                     let mut failure_stage = "worker_start";
                     let mut failure_diagnostic = None;
@@ -1055,7 +1081,11 @@ async fn verify_and_publish(
     failure_diagnostic: &mut Option<Value>,
 ) -> Result<(), String> {
     let store = acquisition.alias_store();
-    let request = request_fingerprint(track, crate::recording_match::MatchLevel::Flexible);
+    let request = request_fingerprint_with_options(
+        track,
+        crate::recording_match::MatchLevel::Flexible,
+        settings.flexible_matching,
+    );
     if !eligible(track, settings) || *cancel.borrow() {
         return Err("Ineligible or cancelled".into());
     }
@@ -1353,7 +1383,11 @@ async fn verify_and_publish(
         .ok_or("Catalog track disappeared during excerpt verification")?;
     if current_settings.matching_level != crate::recording_match::MatchLevel::Flexible
         || !current_settings.background_source_preparation
-        || request_fingerprint(&current_track, current_settings.matching_level) != request
+        || request_fingerprint_with_options(
+            &current_track,
+            current_settings.matching_level,
+            current_settings.flexible_matching,
+        ) != request
         || *cancel.borrow()
     {
         let _ = tokio::fs::remove_file(&asset.path).await;
@@ -1396,12 +1430,16 @@ fn recover_pending_excerpt_publication(
     restore_requested_track_duration_for_excerpt_asset(&mut asset, track);
     let proof = &asset.track.provenance["automaticExcerpt"];
     if proof["requestFingerprint"].as_str() != Some(request)
-        || request_fingerprint(&asset.track, crate::recording_match::MatchLevel::Flexible)
-            != request
-        || !asset_proof_is_eligible(
+        || request_fingerprint_with_options(
+            &asset.track,
+            crate::recording_match::MatchLevel::Flexible,
+            settings.flexible_matching,
+        ) != request
+        || !asset_proof_is_eligible_with_options(
             track,
             &asset.track.provenance,
             crate::recording_match::MatchLevel::Flexible,
+            settings.flexible_matching,
         )
     {
         return Ok(false);
@@ -1413,7 +1451,11 @@ fn recover_pending_excerpt_publication(
     if current_settings.matching_level != crate::recording_match::MatchLevel::Flexible
         || !current_settings.background_source_preparation
         || !current_settings.streaming_fallback_enabled
-        || request_fingerprint(&current_track, current_settings.matching_level) != request
+        || request_fingerprint_with_options(
+            &current_track,
+            current_settings.matching_level,
+            current_settings.flexible_matching,
+        ) != request
     {
         return Ok(false);
     }
@@ -1444,7 +1486,11 @@ pub(crate) fn cached_asset(
     if settings.matching_level != crate::recording_match::MatchLevel::Flexible {
         return None;
     }
-    let request = request_fingerprint(track, settings.matching_level);
+    let request = request_fingerprint_with_options(
+        track,
+        settings.matching_level,
+        settings.flexible_matching,
+    );
     let cached = store.get_provider_cache(CACHE, &request).ok().flatten()?;
     if cached["schemaVersion"].as_u64() != Some(PROOF_SCHEMA as u64)
         || cached["policy"].as_str() != Some("flexible")
@@ -1456,7 +1502,12 @@ pub(crate) fn cached_asset(
     let asset_id = cached["assetId"].as_str()?;
     let asset = store.get_asset_by_id(asset_id).ok().flatten()?;
     if asset.hash != cached["assetHash"].as_str()?
-        || !asset_proof_is_eligible(track, &asset.track.provenance, settings.matching_level)
+        || !asset_proof_is_eligible_with_options(
+            track,
+            &asset.track.provenance,
+            settings.matching_level,
+            settings.flexible_matching,
+        )
         || !asset_file_hash_matches(&asset)
     {
         return None;
@@ -1473,7 +1524,11 @@ fn cached_work_is_suppressed(
     track: &Track,
     settings: &Settings,
 ) -> Result<bool, String> {
-    let request = request_fingerprint(track, settings.matching_level);
+    let request = request_fingerprint_with_options(
+        track,
+        settings.matching_level,
+        settings.flexible_matching,
+    );
     let Some(cached) = store.get_provider_cache(CACHE, &request)? else {
         return Ok(false);
     };
@@ -1492,6 +1547,33 @@ fn _deadline_for_background() -> PlaybackDeadline {
 mod tests {
     use super::*;
 
+    #[test]
+    fn excerpt_fingerprint_binds_flexible_permissions() {
+        let track = Track {
+            id: "catalog:test".into(),
+            title: "Song".into(),
+            artist: "Artist".into(),
+            ..Track::default()
+        };
+        let options = crate::recording_match::FlexibleMatchingOptions::default();
+        let key = request_fingerprint_with_options(
+            &track,
+            crate::recording_match::MatchLevel::Flexible,
+            options,
+        );
+        let changed = crate::recording_match::FlexibleMatchingOptions {
+            allow_other_mixes: true,
+            ..options
+        };
+        assert_ne!(
+            key,
+            request_fingerprint_with_options(
+                &track,
+                crate::recording_match::MatchLevel::Flexible,
+                changed
+            )
+        );
+    }
     #[test]
     fn soundtrack_caption_descriptors_are_optional_but_editions_remain_distinct() {
         assert!(album_captions_match(

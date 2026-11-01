@@ -25,8 +25,13 @@ fn preload(generation: u64, active: Arc<AtomicU64>) -> PreloadFixture {
             channels: 1,
             sample_rate: 48_000,
             samples_played: Arc::new(AtomicU64::new(19)),
+            voice_samples: 0,
+            silence_phase: 0,
+            aligning_after_silence: false,
+            alignment_phase: 0,
             generation,
             active_generation: active,
+            queued_successor_generation: Arc::new(AtomicU64::new(0)),
             base_position: Arc::new(AtomicU64::new(99f64.to_bits())),
             initial_position: 3.5,
             started: false,
@@ -81,6 +86,106 @@ impl PreloadFixture {
             &activation.cancel,
         )
     }
+}
+
+#[test]
+fn stereo_buffering_silence_preserves_channel_phase_at_start_and_mid_frame() {
+    let mut fixture = preload(1, Arc::new(AtomicU64::new(1)));
+    fixture.queue.channels = 2;
+    assert_eq!(fixture.queue.next(), Some(0.0));
+    fixture
+        .producer
+        .as_ref()
+        .unwrap()
+        .send(vec![0.25, 0.75])
+        .unwrap();
+    assert_eq!(fixture.queue.next(), Some(0.0));
+    assert_eq!(fixture.queue.next(), Some(0.25));
+    assert_eq!(fixture.queue.next(), Some(0.75));
+
+    fixture.producer.as_ref().unwrap().send(vec![0.5]).unwrap();
+    assert_eq!(fixture.queue.next(), Some(0.5));
+    assert_eq!(fixture.queue.next(), Some(0.0));
+    fixture.producer.as_ref().unwrap().send(vec![0.9]).unwrap();
+    assert_eq!(fixture.queue.next(), Some(0.0));
+    assert_eq!(fixture.queue.next(), Some(0.9));
+}
+
+#[test]
+fn contended_gapless_handoff_emits_a_complete_stereo_silence_frame() {
+    let active = Arc::new(AtomicU64::new(1));
+    let mut old = preload(1, active.clone());
+    old.queue.channels = 2;
+    drop(old.producer.take());
+    let mut incoming = preload(2, active);
+    incoming.queue.channels = 2;
+    incoming
+        .producer
+        .as_ref()
+        .unwrap()
+        .send(vec![0.25, 0.75])
+        .unwrap();
+    let slot = Arc::new(std::sync::Mutex::new(Some(QueuedCrossfade {
+        source: incoming.queue,
+        seconds: 2,
+    })));
+    let mut source = NativeCrossfadeSource::new(
+        old.queue,
+        slot.clone(),
+        Arc::new(AtomicBool::new(true)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    let lock = slot.lock().unwrap();
+    assert_eq!(source.next(), Some(0.0));
+    drop(lock);
+    assert_eq!(source.next(), Some(0.0));
+    assert_eq!(source.next(), Some(0.25));
+    assert_eq!(source.next(), Some(0.75));
+}
+
+#[test]
+fn fade_waits_until_odd_buffering_silence_reaches_stereo_boundary() {
+    let active = Arc::new(AtomicU64::new(1));
+    let mut old = preload(1, active.clone());
+    old.queue.channels = 2;
+    old.queue.sample_rate = 1;
+    old.queue.initial_position = 0.0;
+    old.queue.voice_samples = 4;
+    old.queue
+        .duration_bits
+        .store(4.0f64.to_bits(), Ordering::Release);
+    let mut incoming = preload(2, active.clone());
+    incoming.queue.channels = 2;
+    incoming.queue.sample_rate = 1;
+    incoming
+        .queue
+        .duration_bits
+        .store(4.0f64.to_bits(), Ordering::Release);
+    incoming
+        .producer
+        .as_ref()
+        .unwrap()
+        .send(vec![0.5; 8])
+        .unwrap();
+    let slot = Arc::new(std::sync::Mutex::new(Some(QueuedCrossfade {
+        source: incoming.queue,
+        seconds: 2,
+    })));
+    let available = Arc::new(AtomicBool::new(false));
+    let mut source = NativeCrossfadeSource::new(
+        old.queue,
+        slot,
+        available.clone(),
+        Arc::new(AtomicBool::new(false)),
+    );
+    assert_eq!(source.next(), Some(0.0));
+    available.store(true, Ordering::Release);
+    old.producer.as_ref().unwrap().send(vec![1.0; 8]).unwrap();
+    assert_eq!(source.next(), Some(0.0));
+    assert!(source.transition.is_none());
+    assert_eq!(active.load(Ordering::Acquire), 1);
+    assert_eq!(source.next(), Some(1.0));
+    assert_eq!(source.next(), Some(1.0));
 }
 
 #[test]
@@ -306,6 +411,7 @@ fn real_preload_producer_publishes_failure_before_disconnecting_its_pcm_channel(
         None,
         active.clone(),
         Arc::new(AtomicU64::new(0)),
+        Arc::new(AtomicU64::new(0)),
         Arc::new(AtomicU64::new(0f64.to_bits())),
         48_000,
         1,
@@ -317,6 +423,7 @@ fn real_preload_producer_publishes_failure_before_disconnecting_its_pcm_channel(
         0.0,
         None,
         Arc::new(std::sync::Mutex::new(None)),
+        None,
     );
     let deadline = Instant::now() + Duration::from_secs(3);
     while !player.empty() {
@@ -342,4 +449,425 @@ fn real_preload_producer_publishes_failure_before_disconnecting_its_pcm_channel(
         "zero PCM never reports Started; preload failure waits for worker adoption"
     );
     assert!(activation_rx.try_recv().is_err());
+}
+
+#[test]
+fn overlapping_voice_counts_only_the_active_occurrence_in_shared_playhead() {
+    let active = Arc::new(AtomicU64::new(1));
+    let shared = Arc::new(AtomicU64::new(0));
+    let mut old = preload(1, active.clone());
+    old.queue.samples_played = shared.clone();
+    old.queue.started = true;
+    old.queue.activated = true;
+    old.producer.as_ref().unwrap().send(vec![0.5, 0.5]).unwrap();
+    assert_eq!(old.queue.next(), Some(0.5));
+    assert_eq!(shared.load(Ordering::Relaxed), 1);
+
+    let mut incoming = preload(2, active.clone());
+    incoming.queue.samples_played = shared.clone();
+    incoming
+        .producer
+        .as_ref()
+        .unwrap()
+        .send(vec![0.25, 0.25])
+        .unwrap();
+    assert_eq!(incoming.queue.next(), Some(0.25));
+    assert_eq!(active.load(Ordering::Relaxed), 2);
+    assert_eq!(shared.load(Ordering::Relaxed), 1);
+    assert_eq!(old.queue.next(), Some(0.5));
+    assert_eq!(
+        shared.load(Ordering::Relaxed),
+        1,
+        "outgoing tail cannot advance the incoming clock"
+    );
+    assert_eq!(old.queue.voice_samples, 2);
+    assert_eq!(incoming.queue.next(), Some(0.25));
+    assert_eq!(shared.load(Ordering::Relaxed), 2);
+}
+
+#[test]
+fn actual_queued_sources_overlap_once_after_incoming_pcm_is_buffered() {
+    let active = Arc::new(AtomicU64::new(1));
+    let shared = Arc::new(AtomicU64::new(0));
+    let mut old = preload(1, active.clone());
+    old.queue.samples_played = shared.clone();
+    old.queue.sample_rate = 1;
+    old.queue.initial_position = 0.0;
+    old.queue
+        .decoder_session
+        .decode_thread_finished
+        .store(true, Ordering::Release);
+    old.queue.started = true;
+    old.queue.activated = true;
+    old.queue
+        .duration_bits
+        .store(6.0f64.to_bits(), Ordering::Release);
+    old.producer.as_ref().unwrap().send(vec![1.0; 6]).unwrap();
+    let mut incoming = preload(2, active.clone());
+    incoming.queue.samples_played = shared.clone();
+    incoming.queue.events = old.queue.events.clone();
+    old.queue
+        .queued_successor_generation
+        .store(2, Ordering::Release);
+    incoming.queue.queued_successor_generation = old.queue.queued_successor_generation.clone();
+    incoming.queue.sample_rate = 1;
+    incoming.queue.initial_position = 0.0;
+    incoming
+        .queue
+        .duration_bits
+        .store(6.0f64.to_bits(), Ordering::Release);
+    incoming
+        .producer
+        .as_ref()
+        .unwrap()
+        .send(vec![0.0; 6])
+        .unwrap();
+    let queued = Arc::new(std::sync::Mutex::new(Some(QueuedCrossfade {
+        source: incoming.queue,
+        seconds: 3,
+    })));
+    let mut source = NativeCrossfadeSource::new(
+        old.queue,
+        queued,
+        Arc::new(AtomicBool::new(true)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    assert_eq!(
+        source.by_ref().take(6).collect::<Vec<_>>(),
+        vec![1.0, 1.0, 1.0, 1.0, 0.5, 0.0]
+    );
+    assert_eq!(active.load(Ordering::Acquire), 2);
+    assert_eq!(
+        shared.load(Ordering::Relaxed),
+        3,
+        "outgoing overlap must not advance incoming clock"
+    );
+    assert_eq!(source.next(), Some(0.0));
+    let events = std::iter::from_fn(|| old.events.try_recv().ok()).collect::<Vec<_>>();
+    let overlap = events
+        .iter()
+        .position(|event| {
+            matches!(
+                event,
+                OutputEvent::CrossfadeStarted {
+                    from_generation: 1,
+                    to_generation: 2
+                }
+            )
+        })
+        .expect("overlap ownership event");
+    let started = events
+        .iter()
+        .position(|event| matches!(event, OutputEvent::Started { generation: 2, .. }))
+        .expect("incoming first PCM");
+    assert!(
+        overlap < started,
+        "overlap ownership precedes incoming/mixed reads"
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(event, OutputEvent::Started { generation: 2, .. }))
+            .count(),
+        1
+    );
+    assert!(
+        events
+            .iter()
+            .all(|event| !matches!(event, OutputEvent::GaplessCompleted { .. })),
+        "an overlap is not whole-recording clean EOF"
+    );
+}
+
+#[test]
+fn incomplete_preload_stays_gapless_without_starting_an_overlap() {
+    let active = Arc::new(AtomicU64::new(1));
+    let shared = Arc::new(AtomicU64::new(0));
+    let mut old = preload(1, active.clone());
+    old.queue.samples_played = shared.clone();
+    old.queue
+        .queued_successor_generation
+        .store(2, Ordering::Release);
+    old.queue.sample_rate = 1;
+    old.queue.initial_position = 0.0;
+    old.queue
+        .decoder_session
+        .decode_thread_finished
+        .store(true, Ordering::Release);
+    old.queue.started = true;
+    old.queue.activated = true;
+    old.queue
+        .duration_bits
+        .store(6.0f64.to_bits(), Ordering::Release);
+    old.producer.as_ref().unwrap().send(vec![1.0; 6]).unwrap();
+    drop(old.producer.take());
+    let mut incoming = preload(2, active.clone());
+    incoming.queue.samples_played = shared.clone();
+    incoming.queue.queued_successor_generation = old.queue.queued_successor_generation.clone();
+    incoming.queue.sample_rate = 1;
+    incoming
+        .queue
+        .duration_bits
+        .store(6.0f64.to_bits(), Ordering::Release);
+    incoming
+        .producer
+        .as_ref()
+        .unwrap()
+        .send(vec![0.25; 2])
+        .unwrap();
+    let queued = Arc::new(std::sync::Mutex::new(Some(QueuedCrossfade {
+        source: incoming.queue,
+        seconds: 3,
+    })));
+    let mut source = NativeCrossfadeSource::new(
+        old.queue,
+        queued,
+        Arc::new(AtomicBool::new(true)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    assert_eq!(source.by_ref().take(4).collect::<Vec<_>>(), vec![1.0; 4]);
+    assert_eq!(active.load(Ordering::Acquire), 1);
+    assert!(
+        incoming.events.try_recv().is_err(),
+        "prebuffering must not emit Started"
+    );
+    assert!(
+        incoming.activations.try_recv().is_err(),
+        "prebuffering must not adopt the next occurrence"
+    );
+    assert_eq!(
+        shared.load(Ordering::Acquire),
+        4,
+        "prebuffering cannot advance the active clock"
+    );
+    assert_eq!(source.by_ref().take(2).collect::<Vec<_>>(), vec![1.0; 2]);
+    assert_eq!(active.load(Ordering::Acquire), 1);
+    assert_eq!(source.next(), Some(0.25));
+    assert_eq!(active.load(Ordering::Acquire), 2);
+    let outgoing_events = std::iter::from_fn(|| old.events.try_recv().ok()).collect::<Vec<_>>();
+    assert!(
+        matches!(
+            outgoing_events.as_slice(),
+            [OutputEvent::GaplessCompleted {
+                from_generation: 1,
+                to_generation: 2,
+                position,
+            }] if *position == 6.0
+        ),
+        "the drained outgoing recording emits exactly one completion and no overlap events"
+    );
+}
+
+#[test]
+fn interrupting_an_overlap_cancels_both_decoders() {
+    let active = Arc::new(AtomicU64::new(1));
+    let mut old = preload(1, active.clone());
+    old.queue.sample_rate = 1;
+    old.queue.initial_position = 0.0;
+    old.queue
+        .decoder_session
+        .decode_thread_finished
+        .store(true, Ordering::Release);
+    old.queue.started = true;
+    old.queue.activated = true;
+    old.queue
+        .duration_bits
+        .store(6.0f64.to_bits(), Ordering::Release);
+    let old_cancel = old.queue.cancelled.clone();
+    old.producer.as_ref().unwrap().send(vec![1.0; 6]).unwrap();
+    let mut incoming = preload(2, active);
+    incoming.queue.sample_rate = 1;
+    incoming
+        .queue
+        .duration_bits
+        .store(6.0f64.to_bits(), Ordering::Release);
+    let next_cancel = incoming.queue.cancelled.clone();
+    incoming
+        .producer
+        .as_ref()
+        .unwrap()
+        .send(vec![0.0; 6])
+        .unwrap();
+    let queued = Arc::new(std::sync::Mutex::new(Some(QueuedCrossfade {
+        source: incoming.queue,
+        seconds: 3,
+    })));
+    let progress = Arc::new(AtomicBool::new(false));
+    let mut source = NativeCrossfadeSource::new(
+        old.queue,
+        queued,
+        Arc::new(AtomicBool::new(true)),
+        progress.clone(),
+    );
+    assert_eq!(source.by_ref().take(4).collect::<Vec<_>>(), vec![1.0; 4]);
+    assert!(progress.load(Ordering::Acquire));
+    drop(source);
+    assert!(old_cancel.load(Ordering::Acquire));
+    assert!(next_cancel.load(Ordering::Acquire));
+    assert!(!progress.load(Ordering::Acquire));
+}
+
+#[test]
+fn outgoing_starvation_does_not_mark_incoming_voice_buffering() {
+    let active = Arc::new(AtomicU64::new(1));
+    let mut old = preload(1, active.clone());
+    old.queue.sample_rate = 1;
+    old.queue.initial_position = 0.0;
+    old.queue.started = true;
+    old.queue.activated = true;
+    old.queue
+        .duration_bits
+        .store(6.0f64.to_bits(), Ordering::Release);
+    let old_buffering = old.queue.buffering.clone();
+    old.producer.as_ref().unwrap().send(vec![1.0; 3]).unwrap();
+    let mut incoming = preload(2, active.clone());
+    incoming.queue.sample_rate = 1;
+    incoming
+        .queue
+        .duration_bits
+        .store(6.0f64.to_bits(), Ordering::Release);
+    let incoming_buffering = incoming.queue.buffering.clone();
+    incoming
+        .producer
+        .as_ref()
+        .unwrap()
+        .send(vec![0.0; 3])
+        .unwrap();
+    let queued = Arc::new(std::sync::Mutex::new(Some(QueuedCrossfade {
+        source: incoming.queue,
+        seconds: 3,
+    })));
+    let mut source = NativeCrossfadeSource::new(
+        old.queue,
+        queued,
+        Arc::new(AtomicBool::new(true)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    assert_eq!(source.by_ref().take(4).count(), 4);
+    assert_eq!(
+        active.load(Ordering::Acquire),
+        1,
+        "unverified outgoing EOF must not start a fade"
+    );
+    assert!(old_buffering.load(Ordering::Acquire));
+    assert!(!incoming_buffering.load(Ordering::Acquire));
+}
+
+#[test]
+fn failed_but_buffered_preload_never_fades_the_healthy_outgoing_voice() {
+    let active = Arc::new(AtomicU64::new(1));
+    let mut old = preload(1, active.clone());
+    old.queue.sample_rate = 1;
+    old.queue.initial_position = 0.0;
+    old.queue
+        .decoder_session
+        .decode_thread_finished
+        .store(true, Ordering::Release);
+    old.queue.started = true;
+    old.queue.activated = true;
+    old.queue
+        .duration_bits
+        .store(6.0f64.to_bits(), Ordering::Release);
+    old.producer.as_ref().unwrap().send(vec![1.0; 6]).unwrap();
+    drop(old.producer.take());
+    let mut incoming = preload(2, active.clone());
+    incoming.queue.sample_rate = 1;
+    incoming
+        .queue
+        .duration_bits
+        .store(6.0f64.to_bits(), Ordering::Release);
+    incoming
+        .producer
+        .as_ref()
+        .unwrap()
+        .send(vec![0.0; 6])
+        .unwrap();
+    incoming.fail("decoder failed");
+    let queued = Arc::new(std::sync::Mutex::new(Some(QueuedCrossfade {
+        source: incoming.queue,
+        seconds: 3,
+    })));
+    let mut source = NativeCrossfadeSource::new(
+        old.queue,
+        queued,
+        Arc::new(AtomicBool::new(true)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    assert_eq!(source.by_ref().take(6).collect::<Vec<_>>(), vec![1.0; 6]);
+    assert_eq!(active.load(Ordering::Acquire), 1);
+    assert!(
+        old.events.try_recv().is_err(),
+        "failed decoder must not start an overlap"
+    );
+}
+
+#[test]
+fn crossfade_waits_for_decoded_tail_with_short_or_long_duration_metadata() {
+    for estimate in [6.0f64, 14.0] {
+        let active = Arc::new(AtomicU64::new(1));
+        let mut old = preload(1, active.clone());
+        old.queue.sample_rate = 1;
+        old.queue.initial_position = 0.0;
+        old.queue.started = true;
+        old.queue.activated = true;
+        old.queue
+            .duration_bits
+            .store(estimate.to_bits(), Ordering::Release);
+        old.producer
+            .as_ref()
+            .unwrap()
+            .send(vec![1., 1., 1., 1., 1., 1., 1., 1., 0., 0.])
+            .unwrap();
+        drop(old.producer.take());
+        let completion = old.queue.decoder_session.clone();
+        let duration = old.queue.duration_bits.clone();
+        let mut incoming = preload(2, active.clone());
+        incoming.queue.sample_rate = 1;
+        incoming
+            .queue
+            .duration_bits
+            .store(10.0f64.to_bits(), Ordering::Release);
+        incoming
+            .producer
+            .as_ref()
+            .unwrap()
+            .send(vec![0.; 10])
+            .unwrap();
+        let queued = Arc::new(std::sync::Mutex::new(Some(QueuedCrossfade {
+            source: incoming.queue,
+            seconds: 3,
+        })));
+        let mut source = NativeCrossfadeSource::new(
+            old.queue,
+            queued,
+            Arc::new(AtomicBool::new(true)),
+            Arc::new(AtomicBool::new(false)),
+        );
+        assert_eq!(source.by_ref().take(6).collect::<Vec<_>>(), vec![1.; 6]);
+        assert_eq!(
+            active.load(Ordering::Acquire),
+            1,
+            "metadata must not truncate outgoing PCM"
+        );
+        duration.store(10.0f64.to_bits(), Ordering::Release);
+        completion
+            .decode_thread_finished
+            .store(true, Ordering::Release);
+        assert_eq!(
+            source.by_ref().take(4).collect::<Vec<_>>(),
+            vec![1., 1., 0., 0.]
+        );
+        assert_eq!(
+            active.load(Ordering::Acquire),
+            2,
+            "actual EOF determines the transition"
+        );
+        let mut starts = 0;
+        while let Ok(event) = incoming.events.try_recv() {
+            if matches!(event, OutputEvent::Started { generation: 2, .. }) {
+                starts += 1;
+            }
+        }
+        assert_eq!(starts, 1);
+    }
 }

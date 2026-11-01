@@ -159,3 +159,372 @@ fn swing_remastered_2002_flexible_policy_qualification() {
         }
     }
 }
+
+#[test]
+fn flexible_options_gate_explicit_alternatives_independently() {
+    let track = Track {
+        artist: "Artist".into(),
+        title: "Song".into(),
+        duration_seconds: Some(200.0),
+        ..Track::default()
+    };
+    let candidate = |title: &str| Candidate {
+        provider: "youtube".into(),
+        id: "youtube:abcdefghijk".into(),
+        title: title.into(),
+        duration_seconds: Some(200.0),
+        source_metadata: Some(
+            json!({"track":title,"artists":["Artist"],"artistCount":1,"duration":200.0}),
+        ),
+        ..Candidate::default()
+    };
+    let defaults = FlexibleMatchingOptions::default();
+    for title in ["Song (Live)", "Song (Club Remix)"] {
+        let result = assess_with_options(
+            &track,
+            &candidate(title),
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &defaults,
+        );
+        assert_ne!(result.action, MatchAction::Accept, "{title}: {result:?}");
+    }
+    let enabled = FlexibleMatchingOptions {
+        allow_other_performances: true,
+        ..defaults
+    };
+    let live = assess_with_options(
+        &track,
+        &candidate("Song (Live)"),
+        MatchLevel::Flexible,
+        MatchStage::Resolved,
+        &enabled,
+    );
+    assert_eq!(live.action, MatchAction::Accept, "{live:?}");
+    assert_eq!(live.alternative_kind, Some(AlternativeKind::Performance));
+    let remix = assess_with_options(
+        &track,
+        &candidate("Song (Club Remix)"),
+        MatchLevel::Flexible,
+        MatchStage::Resolved,
+        &enabled,
+    );
+    assert_ne!(remix.action, MatchAction::Accept, "{remix:?}");
+    let balanced = assess_with_options(
+        &track,
+        &candidate("Song (Live)"),
+        MatchLevel::Balanced,
+        MatchStage::Resolved,
+        &enabled,
+    );
+    assert_ne!(balanced.action, MatchAction::Accept, "{balanced:?}");
+}
+
+#[test]
+fn flexible_combined_versions_require_each_permission() {
+    let track = Track {
+        artist: "Artist".into(),
+        title: "Song".into(),
+        duration_seconds: Some(200.0),
+        ..Track::default()
+    };
+    let title = "Song (Live Remix)";
+    let candidate = Candidate {
+        provider: "youtube".into(),
+        id: "youtube:abcdefghijk".into(),
+        title: title.into(),
+        duration_seconds: Some(200.0),
+        source_metadata: Some(
+            json!({"track":title,"artists":["Artist"],"artistCount":1,"duration":200.0}),
+        ),
+        ..Candidate::default()
+    };
+    for (performances, mixes, expected) in [
+        (false, false, false),
+        (true, false, false),
+        (false, true, false),
+        (true, true, true),
+    ] {
+        let options = FlexibleMatchingOptions {
+            allow_other_performances: performances,
+            allow_other_mixes: mixes,
+            ..Default::default()
+        };
+        let a = assess_with_options(
+            &track,
+            &candidate,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &options,
+        );
+        assert_eq!(
+            a.action == MatchAction::Accept,
+            expected,
+            "{performances} {mixes}: {a:?}"
+        );
+        if expected {
+            assert_eq!(a.alternative_kind, Some(AlternativeKind::Remix));
+        }
+    }
+}
+
+#[test]
+fn flexible_longer_alternative_requires_single_bound_recording() {
+    let track = Track {
+        artist: "Artist".into(),
+        title: "Song".into(),
+        duration_seconds: Some(200.0),
+        ..Track::default()
+    };
+    let candidate = Candidate {
+        provider: "monochrome".into(),
+        id: "monochrome:123".into(),
+        title: "Song (Live)".into(),
+        duration_seconds: Some(400.0),
+        source_metadata: Some(
+            json!({"provider":"monochrome","trackId":"123","catalogTitle":"Song (Live)","artistNames":["Artist"],"artistCount":1,"duration":400.0}),
+        ),
+        ..Candidate::default()
+    };
+    let mut options = FlexibleMatchingOptions {
+        allow_other_performances: true,
+        ..Default::default()
+    };
+    let test = |row: &Candidate, options: &FlexibleMatchingOptions| {
+        assess_with_options(
+            &track,
+            row,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            options,
+        )
+    };
+    assert_ne!(test(&candidate, &options).action, MatchAction::Accept);
+    options.allow_different_lengths = true;
+    assert_eq!(test(&candidate, &options).action, MatchAction::Accept);
+    let mut album = candidate.clone();
+    album.source_metadata.as_mut().unwrap()["isFullAlbum"] = json!(true);
+    assert_ne!(test(&album, &options).action, MatchAction::Accept);
+    let mut preview = candidate.clone();
+    preview.source_metadata.as_mut().unwrap()["isPreview"] = json!(true);
+    assert_ne!(test(&preview, &options).action, MatchAction::Accept);
+    let mut unbound = candidate.clone();
+    unbound.id = "monochrome:456".into();
+    assert_ne!(test(&unbound, &options).action, MatchAction::Accept);
+}
+
+#[test]
+fn flexible_other_artist_requires_explicit_permission_and_full_credit() {
+    let track = Track {
+        artist: "Artist".into(),
+        title: "Song".into(),
+        duration_seconds: Some(200.0),
+        provenance: json!({"workIds":["work-1"]}),
+        ..Track::default()
+    };
+    let mut row = Candidate {
+        provider: "monochrome".into(),
+        id: "monochrome:123".into(),
+        title: "Song".into(),
+        duration_seconds: Some(200.0),
+        source_metadata: Some(
+            json!({"provider":"monochrome","trackId":"123","catalogTitle":"Song","artistNames":["Other Artist"],"artistCount":1,"duration":200.0,"workId":"work-1"}),
+        ),
+        ..Candidate::default()
+    };
+    let mut options = FlexibleMatchingOptions::default();
+    let test = |c: &Candidate, o: &FlexibleMatchingOptions| {
+        assess_with_options(&track, c, MatchLevel::Flexible, MatchStage::Resolved, o)
+    };
+    assert_ne!(test(&row, &options).action, MatchAction::Accept);
+    options.allow_other_artists = true;
+    assert_eq!(test(&row, &options).action, MatchAction::Accept);
+    assert_eq!(
+        test(&row, &options).alternative_kind,
+        Some(AlternativeKind::OtherArtist)
+    );
+    row.source_metadata.as_mut().unwrap()["artistNames"] = json!([]);
+    assert_ne!(test(&row, &options).action, MatchAction::Accept);
+}
+
+#[test]
+fn flexible_release_choice_requires_release_permission() {
+    let track = Track {
+        artist: "Artist".into(),
+        title: "Song (Restored Edition '25)".into(),
+        duration_seconds: Some(200.0),
+        ..Track::default()
+    };
+    let row = Candidate {
+        provider: "monochrome".into(),
+        id: "monochrome:123".into(),
+        title: "Song (Remastered 2002)".into(),
+        duration_seconds: Some(200.0),
+        source_metadata: Some(
+            json!({"provider":"monochrome","trackId":"123","catalogTitle":"Song (Remastered 2002)","artistNames":["Artist"],"artistCount":1,"duration":200.0}),
+        ),
+        ..Candidate::default()
+    };
+    let mut options = FlexibleMatchingOptions::default();
+    let test = |level, o: &FlexibleMatchingOptions| {
+        assess_with_options(&track, &row, level, MatchStage::Resolved, o)
+    };
+    assert_eq!(
+        test(MatchLevel::Flexible, &options).action,
+        MatchAction::Accept
+    );
+    assert_eq!(
+        test(MatchLevel::Flexible, &options).alternative_kind,
+        Some(AlternativeKind::Release)
+    );
+    assert_ne!(
+        test(MatchLevel::Balanced, &options).action,
+        MatchAction::Accept
+    );
+    options.allow_other_releases = false;
+    assert_ne!(
+        test(MatchLevel::Flexible, &options).action,
+        MatchAction::Accept
+    );
+}
+
+#[test]
+fn cover_requires_other_artist_and_verified_work() {
+    let track = Track {
+        artist: "Artist".into(),
+        title: "Song".into(),
+        duration_seconds: Some(200.0),
+        provenance: json!({"workIds":["work-1"]}),
+        ..Track::default()
+    };
+    let row = Candidate {
+        provider: "monochrome".into(),
+        id: "monochrome:123".into(),
+        title: "Song (Cover)".into(),
+        duration_seconds: Some(200.0),
+        source_metadata: Some(
+            json!({"provider":"monochrome","trackId":"123","catalogTitle":"Song (Cover)","artistNames":["Other Artist"],"artistCount":1,"duration":200.0,"workId":"work-1"}),
+        ),
+        ..Candidate::default()
+    };
+    for (performance, artist, accepted) in [
+        (false, false, false),
+        (true, false, false),
+        (false, true, true),
+        (true, true, true),
+    ] {
+        let options = FlexibleMatchingOptions {
+            allow_other_performances: performance,
+            allow_other_artists: artist,
+            ..Default::default()
+        };
+        let a = assess_with_options(
+            &track,
+            &row,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &options,
+        );
+        assert_eq!(
+            a.action == MatchAction::Accept,
+            accepted,
+            "{performance}/{artist}: {a:?}"
+        );
+    }
+}
+
+#[test]
+fn live_cover_requires_both_artist_and_performance_permissions() {
+    let track = Track {
+        artist: "Artist".into(),
+        title: "Song".into(),
+        duration_seconds: Some(200.0),
+        provenance: json!({"workIds":["work-1"]}),
+        ..Track::default()
+    };
+    let row = Candidate {
+        provider: "monochrome".into(),
+        id: "monochrome:123".into(),
+        title: "Song (Live Cover)".into(),
+        duration_seconds: Some(200.0),
+        source_metadata: Some(
+            json!({"provider":"monochrome","trackId":"123","catalogTitle":"Song (Live Cover)","artistNames":["Other Artist"],"artistCount":1,"duration":200.0,"workId":"work-1"}),
+        ),
+        ..Candidate::default()
+    };
+    for (performance, artist, accepted) in [
+        (false, false, false),
+        (true, false, false),
+        (false, true, false),
+        (true, true, true),
+    ] {
+        let options = FlexibleMatchingOptions {
+            allow_other_performances: performance,
+            allow_other_artists: artist,
+            ..Default::default()
+        };
+        let a = assess_with_options(
+            &track,
+            &row,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &options,
+        );
+        assert_eq!(
+            a.action == MatchAction::Accept,
+            accepted,
+            "{performance}/{artist}: {a:?}"
+        );
+    }
+}
+
+#[test]
+fn broad_version_options_can_accept_fresh_complete_unannotated_source() {
+    let track = Track {
+        artist: "Artist".into(),
+        title: "Song".into(),
+        version: Some("Live Remix".into()),
+        duration_seconds: Some(200.0),
+        ..Track::default()
+    };
+    let row = Candidate {
+        provider: "youtube".into(),
+        id: "youtube:abcdefghijk".into(),
+        title: "Song".into(),
+        duration_seconds: Some(200.0),
+        source_metadata: Some(
+            json!({"provider":"youtube","resolvedProviderId":"abcdefghijk","sourceMetadataOrigin":"ytDlpCandidateMetadata","track":"Song","artists":["Artist"],"artistCount":1,"duration":200.0}),
+        ),
+        ..Candidate::default()
+    };
+    let broad = FlexibleMatchingOptions {
+        allow_other_releases: true,
+        allow_other_performances: true,
+        allow_other_mixes: true,
+        ..Default::default()
+    };
+    let test = |c: &Candidate, o: &FlexibleMatchingOptions| {
+        assess_with_options(&track, c, MatchLevel::Flexible, MatchStage::Resolved, o)
+    };
+    assert_eq!(
+        test(&row, &FlexibleMatchingOptions::default()).action,
+        MatchAction::Enrich
+    );
+    assert_eq!(test(&row, &broad).action, MatchAction::Accept);
+    assert_eq!(test(&row, &broad).alternative_kind, None);
+    let partial = FlexibleMatchingOptions {
+        allow_other_mixes: false,
+        ..broad
+    };
+    assert_ne!(test(&row, &partial).action, MatchAction::Accept);
+    for (field, value) in [
+        ("track", json!("Song (Unknown Session)")),
+        ("artists", json!(["Wrong Artist"])),
+        ("resolvedProviderId", json!("other-id")),
+        ("isPreview", json!(true)),
+    ] {
+        let mut bad = row.clone();
+        bad.source_metadata.as_mut().unwrap()[field] = value;
+        assert_ne!(test(&bad, &broad).action, MatchAction::Accept, "{field}");
+    }
+}

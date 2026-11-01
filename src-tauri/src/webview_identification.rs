@@ -42,7 +42,7 @@ pub fn snapshot_matches_playback(
 }
 
 #[derive(Clone)]
-struct RegisteredSource {
+pub(crate) struct RegisteredSource {
     generation: u64,
     track_id: String,
     source: AudioSource,
@@ -84,6 +84,19 @@ impl Default for Inner {
 pub struct WebViewIdentification(Arc<Mutex<Inner>>);
 
 impl WebViewIdentification {
+    pub(crate) fn snapshot_source(&self) -> Option<RegisteredSource> {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .source
+            .clone()
+    }
+    pub(crate) fn restore_source(&self, source: Option<RegisteredSource>) {
+        let mut inner = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        cancel_jobs(&mut inner);
+        inner.epoch = inner.epoch.wrapping_add(1);
+        inner.source = source;
+    }
     /// Check that the currently registered WebView source belongs to this exact
     /// playback generation and a direct YouTube media URL. The source URL stays
     /// private; callers receive only a boolean ownership result.

@@ -373,6 +373,8 @@ pub struct SoulseekProgress {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadJob {
+    #[serde(default)]
+    pub flexible_matching: crate::recording_match::FlexibleMatchingOptions,
     pub id: String,
     pub track: Track,
     pub candidate: Candidate,
@@ -419,6 +421,14 @@ pub struct Settings {
     pub live_bpm_enabled: bool,
     #[serde(default = "default_matching_level")]
     pub matching_level: crate::recording_match::MatchLevel,
+    #[serde(default)]
+    pub flexible_matching: crate::recording_match::FlexibleMatchingOptions,
+    #[serde(default)]
+    pub flexible_matching_notice_pending: bool,
+    #[serde(default)]
+    pub crossfade_enabled: bool,
+    #[serde(default = "default_crossfade_seconds")]
+    pub crossfade_seconds: u8,
     /// Separate consent for staged weak-metadata audio verification.
     #[serde(default)]
     pub download_audio_verification_enabled: bool,
@@ -476,10 +486,31 @@ pub struct Settings {
 fn default_playback_startup_timeout_seconds() -> u32 {
     20
 }
+fn default_crossfade_seconds() -> u8 {
+    5
+}
 fn default_matching_level() -> crate::recording_match::MatchLevel {
     crate::recording_match::MatchLevel::Balanced
 }
 impl Settings {
+    pub fn from_persisted_value(value: serde_json::Value) -> Result<Self, String> {
+        let legacy_flexible = value.get("flexibleMatching").is_none()
+            && value.get("matchingLevel").and_then(|v| v.as_str()) == Some("flexible");
+        let mut settings: Self = serde_json::from_value(value).map_err(|e| e.to_string())?;
+        if legacy_flexible {
+            settings.flexible_matching_notice_pending = true;
+        }
+        Ok(settings)
+    }
+    pub fn validate_playback_preferences(&self) -> Result<(), String> {
+        if !(1..=12).contains(&self.crossfade_seconds) {
+            return Err("Crossfade overlap must be between 1 and 12 seconds".into());
+        }
+        if self.flexible_matching.version != 1 {
+            return Err("Unsupported Flexible matching settings version".into());
+        }
+        Ok(())
+    }
     /// Old or manually edited settings must never create an unbounded deadline.
     pub fn playback_startup_timeout(&self) -> std::time::Duration {
         std::time::Duration::from_secs(match self.playback_startup_timeout_seconds {
@@ -534,6 +565,10 @@ impl Default for Settings {
             playback_diagnostics_enabled: false,
             live_bpm_enabled: false,
             matching_level: default_matching_level(),
+            flexible_matching: Default::default(),
+            flexible_matching_notice_pending: false,
+            crossfade_enabled: false,
+            crossfade_seconds: default_crossfade_seconds(),
             download_audio_verification_enabled: false,
             pause_on_source_open: false,
             source_open_at_position: false,
@@ -787,5 +822,44 @@ pub enum ReplacementDisposition {
 impl Default for ReplacementDisposition {
     fn default() -> Self {
         Self::Keep
+    }
+}
+
+#[cfg(test)]
+mod flexible_crossfade_settings_tests {
+    use super::*;
+    #[test]
+    fn old_flexible_settings_migrate_to_clear_safe_defaults() {
+        let mut raw = serde_json::to_value(Settings::default()).unwrap();
+        raw.as_object_mut().unwrap().remove("flexibleMatching");
+        raw["matchingLevel"] = serde_json::json!("flexible");
+        let migrated = Settings::from_persisted_value(raw).unwrap();
+        assert!(migrated.flexible_matching_notice_pending);
+        assert!(migrated.flexible_matching.allow_other_releases);
+        assert!(!migrated.flexible_matching.allow_other_artists);
+        assert!(!migrated.crossfade_enabled);
+        let again =
+            Settings::from_persisted_value(serde_json::to_value(migrated).unwrap()).unwrap();
+        assert_eq!(again.crossfade_seconds, 5);
+    }
+    #[test]
+    fn crossfade_overlap_validation_and_toggle_are_independent() {
+        for seconds in [0, 13, 255] {
+            let settings = Settings {
+                crossfade_seconds: seconds,
+                ..Settings::default()
+            };
+            assert!(settings.validate_playback_preferences().is_err());
+        }
+        for seconds in 1..=12 {
+            let settings = Settings {
+                crossfade_seconds: seconds,
+                ..Settings::default()
+            };
+            assert!(settings.validate_playback_preferences().is_ok());
+        }
+        let default = Settings::default();
+        assert!(!default.crossfade_enabled);
+        assert!(default.validate_playback_preferences().is_ok());
     }
 }

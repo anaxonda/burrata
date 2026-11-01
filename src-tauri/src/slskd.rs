@@ -2770,6 +2770,7 @@ mod tests {
         } = &mut recovered_source;
         *stored = Some(transfer_id.into());
         let job = crate::models::DownloadJob {
+            flexible_matching: Default::default(),
             id: batch_id.into(),
             track: crate::models::Track {
                 id: "slskd:recovery-recording".into(),

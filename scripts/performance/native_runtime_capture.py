@@ -1,0 +1,595 @@
+#!/usr/bin/env python3
+"""Capture a packaged Linux player's output in an already isolated audio server.
+
+Requires the reviewed private PipeWire controller and extracted Xvfb used by the
+local qualification environment. Never connects to the normal audio server.
+The payload can be an extracted DEB; that is runtime evidence, not an OS install.
+"""
+from pathlib import Path
+from contextlib import closing
+import argparse
+import hashlib
+import importlib.util
+import json
+import math
+import os
+import signal
+import shutil
+import sqlite3
+import struct
+import subprocess
+import sys
+import tempfile
+import time
+import uuid
+import wave
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'scripts/performance'))
+from run_isolated_memory import track_record
+
+
+def incident_cases_passed(runtime):
+    """Retain controller failures and require at least one completed case."""
+    cases = runtime.get('cases')
+    return bool(runtime.get('passed') is True and not runtime.get('error')
+                and isinstance(cases, list) and cases
+                and all(isinstance(case, dict) and case.get('passed') is True for case in cases))
+
+
+def run(args, **kwargs):
+    return subprocess.run([str(x) for x in args], check=True, capture_output=True, **kwargs)
+
+
+def host_baseline(audio):
+    snapshot=audio.host_snapshot()
+    query=subprocess.run(['pactl','-s',f'unix:/run/user/{os.getuid()}/pulse/native','list','short','sinks'],capture_output=True,text=True,timeout=3)
+    names=[line.split('\t')[1] for line in query.stdout.splitlines() if '\t' in line]
+    snapshot['testSinkPresent']=any(name.startswith(('burrata_native_','burrata_qual_')) for name in names)
+    snapshot['inventoryReadable']=query.returncode==0
+    return snapshot
+
+
+def seed(profile, resources, mode):
+    spec = importlib.util.spec_from_file_location('installed_smoke', ROOT / 'scripts/release/smoke-installed.py')
+    smoke = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(smoke)
+    for folder in ['data/org.burrata.discovery', 'fixture', 'config', 'cache', 'state', 'tmp']:
+        (profile / folder).mkdir(parents=True, exist_ok=True)
+    (profile / '.burrata-isolated-profile').write_text('burrata isolated memory run\n')
+    app_data = profile / 'data/org.burrata.discovery'
+    aac = smoke.build_native_audio_fixture(resources, smoke.TARGETS['linux'], dict(os.environ), profile, app_data)
+    records = []
+    for name, left, right, hint in [('first', 440, 660, 4), ('second', 880, 1100, 24)]:
+        path = profile / 'fixture' / f'{name}.wav'
+        with wave.open(str(path), 'wb') as out:
+            out.setnchannels(2);out.setsampwidth(2);out.setframerate(48000)
+            # Natural-end/seek cases retain two seconds of real trailing silence.
+            active = 12 if mode.startswith('crossfade') else 10
+            seconds=60 if mode=='live-analysis' and name=='first' else 12
+            noise_state=0x71f034
+            for start in range(0, seconds * 48000, 4096):
+                block = bytearray()
+                for i in range(start, min(start + 4096, seconds * 48000)):
+                    values = [int(6000 * math.sin(2 * math.pi * f * i / 48000)) if i < active * 48000 else 0 for f in (left, right)]
+                    if mode=='live-analysis' and name=='first':
+                        t=i/48000;phase=t%.5
+                        chord=sum(math.sin(2*math.pi*f*t) for f in [261.63,329.63,392])*0.18
+                        click=math.sin(2*math.pi*1200*phase)*math.exp(-phase*260)*.55 if phase<.012 else 0
+                        sample=int(max(-.95,min(.95,chord+click))*32767)
+                        values=[sample,sample]
+                    if mode.startswith('stereo-') and name=='first':
+                        noise_state=(noise_state*1664525+1013904223)&0xffffffff
+                        pulse=i>=48000 and i<480000 and (i-48000)%96000<3840
+                        noise=((noise_state>>8)/16777215*2-1)*.5 if pulse else 0
+                        values=[int((.04*math.sin(2*math.pi*f*i/48000)+noise)*32767) if i<480000 else 0 for f in [left,right]]
+                    block.extend(struct.pack('<hh', *values))
+                out.writeframesraw(block)
+        if mode.startswith('normalization-'):
+            tagged=path.with_suffix('.flac')
+            gain=-6 if name=='first' else -12
+            run([resources/'tools/x86_64-unknown-linux-gnu/ffmpeg','-nostdin','-v','error','-i',path,
+                 '-c:a','flac','-metadata',f'REPLAYGAIN_TRACK_GAIN={gain} dB',
+                 '-metadata','REPLAYGAIN_TRACK_PEAK=0.2','-metadata','REPLAYGAIN_ALBUM_GAIN=-9 dB',
+                 '-metadata','REPLAYGAIN_ALBUM_PEAK=0.2','-metadata','ALBUM=Qualification album',
+                 '-metadata','ALBUMARTIST=Synthetic qualification',tagged])
+            path=tagged
+        if mode in ['stereo-aac','stereo-opus','stereo-seek-opus'] and name=='first':
+            encoded=path.with_suffix('.m4a' if mode=='stereo-aac' else '.opus')
+            codec=['-c:a','aac','-b:a','256k'] if mode=='stereo-aac' else ['-c:a','libopus','-b:a','160k']
+            run([resources/'tools/x86_64-unknown-linux-gnu/ffmpeg','-nostdin','-v','error','-i',path,*codec,'-ar','48000',encoded]);path=encoded
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        track = track_record('local:' + digest, 'local', digest, 'Native runtime ' + name,
+                             'Synthetic qualification', hint, str(path), str(uuid.uuid4()), path.suffix.lstrip('.'))
+        if mode=='live-analysis' and name=='first':track['durationSeconds']=60
+        if mode.startswith('stereo-') and name=='first':track['durationSeconds']=12
+        track['provenance']['manualFields']={'durationSeconds':True}
+        if mode.startswith('normalization-'):track.update(album='Qualification album',albumArtist='Synthetic qualification')
+        records.append(track)
+    if mode == 'malformed-aac':
+        # Double packet timing/duration fields without changing encoded samples.
+        # Decoding must consume the actual samples rather than pad to this hint.
+        fixture = next((profile / 'native-audio').glob('*.m4a')) if (profile / 'native-audio').exists() else None
+        if fixture is None:
+            with sqlite3.connect(app_data / 'burrata.sqlite') as db:
+                fixture = Path(json.loads(db.execute('select metadata from catalog_listings where id=?', (aac['trackId'],)).fetchone()[0])['localPath'])
+        data = bytearray(fixture.read_bytes())
+        changed = []
+        def boxes(start, end):
+            offset = start
+            while offset + 8 <= end:
+                size = int.from_bytes(data[offset:offset+4], 'big')
+                kind = bytes(data[offset+4:offset+8])
+                if size < 8 or offset + size > end: break
+                if kind in [b'moov', b'trak', b'mdia', b'edts', b'minf', b'stbl']:
+                    boxes(offset + 8, offset + size)
+                elif kind==b'stts':
+                    entries=int.from_bytes(data[offset+12:offset+16],'big')
+                    for n in range(entries):
+                        at=offset+20+n*8
+                        before=int.from_bytes(data[at:at+4],'big')
+                        data[at:at+4]=(before*2).to_bytes(4,'big')
+                        changed.append({'box':'stts','before':before,'after':before*2})
+                elif kind in [b'mvhd', b'mdhd', b'tkhd', b'elst']:
+                    version = data[offset+8]
+                    at = offset + ((36 if version == 1 else 28) if kind==b'tkhd' else 16 if kind==b'elst' else (32 if version == 1 else 24))
+                    width = 8 if version == 1 else 4
+                    before = int.from_bytes(data[at:at+width], 'big')
+                    data[at:at+width] = (before*2).to_bytes(width, 'big')
+                    changed.append({'box':kind.decode(), 'before':before, 'after':before*2})
+                offset += size
+        boxes(0, len(data))
+        if len(changed) < 2: raise RuntimeError('AAC duration fixture was not patched')
+        fixture.write_bytes(data)
+        (profile / 'malformed-duration.json').write_text(json.dumps(changed, indent=2))
+        # Register the modified bytes with their real hash; only timing is bad.
+        (app_data / 'burrata.sqlite').unlink()
+        aac=smoke.register_native_audio_fixture(app_data,fixture,12,profile)
+    incidents = []
+    if mode in ['incidents','broken-download','recovery-baseline','broken-playable','decoder-recovery','full-incidents']:
+        sources = [Path('/tmp') / f'burrata-{name}-saved-track.json' for name in ['tainy','manana','veinte','amor']]
+        sources += [Path('/tmp') / f'burrata-django-candidate-{n}.json' for n in [4,5,6]]
+        incidents = [json.loads(path.read_text()) for path in sources]
+        if mode=='full-incidents':incidents=[incidents[4],incidents[6],incidents[5]]
+        if mode=='decoder-recovery':
+            incidents=incidents[:1]
+            controlled=profile/'fixture/controlled-decoder.opus'
+            ffmpeg=resources/'tools/x86_64-unknown-linux-gnu/ffmpeg'
+            run([ffmpeg,'-nostdin','-v','error','-stream_loop','-1','-i',records[0]['localPath'],'-t',str(incidents[0]['durationSeconds']),'-c:a','libopus','-b:a','32k','-vbr','off',controlled])
+            scratch=ROOT/'.cache/native-runtime-tmp'/profile.name;scratch.mkdir(parents=True,exist_ok=True)
+            wrapper=scratch/'ffmpeg-fail-once';flag=scratch/'decoder-fault-injected'
+            wrapper.write_text('#!/usr/bin/python3\nimport os,sys\nfrom pathlib import Path\nflag=Path('+repr(str(flag))+')\nif any(arg.endswith("controlled-decoder.opus") for arg in sys.argv) and "f32le" in sys.argv:\n try:\n  fd=os.open(flag,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600);os.close(fd);sys.stderr.write("Controlled decoder failure before PCM\\n");sys.exit(23)\n except FileExistsError:pass\nos.execv('+repr(str(ffmpeg))+',['+repr(str(ffmpeg))+',*sys.argv[1:]])\n')
+            wrapper.chmod(0o700)
+            incidents[0].update(localPath=str(controlled),localAvailability='available',assetId=str(uuid.uuid4()))
+        if mode in ['recovery-baseline','broken-playable']:
+            incidents=incidents[5:6]
+        if mode in ['broken-download','broken-playable']:
+            incidents=incidents[:1]
+            broken=profile/'fixture/broken-download.mp3';broken.write_bytes(b'not an audio stream: controlled fixture')
+            incidents[0].update(localPath=str(broken),localAvailability='available',assetId=str(uuid.uuid4()))
+    if mode in ['nipsey','full-nipsey','source-audition']:incidents=json.loads((ROOT/'scripts/performance/fixtures/nipsey-saved-tracks.json').read_text())
+    if mode=='source-audition':
+        incidents=incidents[:1]
+        controlled=profile/'fixture/audition-local.wav'
+        run([resources/'tools/x86_64-unknown-linux-gnu/ffmpeg','-nostdin','-v','error','-i',records[0]['localPath'],'-c:a','pcm_s16le','-metadata','comment=source audition control',controlled])
+        incidents[0].update(localPath=str(controlled),localAvailability='available',assetId=str(uuid.uuid4()))
+    db = sqlite3.connect(app_data / 'burrata.sqlite')
+    with db:
+        for track in records + incidents:
+            tid = track['id']
+            db.execute('insert into works(id,title,artist) values(?,?,?)', ('work:'+tid, track['title'], track['artist']))
+            db.execute('insert into recordings(id,work_id,version) values(?,?,?)', (tid, 'work:'+tid, track.get('version')))
+            db.execute('insert into catalog_listings(id,provider,provider_id,recording_id,source_url,metadata,updated_at) values(?,?,?,?,?,?,?)',
+                       (tid, track['provider'], track['providerId'], tid, track.get('sourceUrl',''), json.dumps(track), '2026-10-31T00:00:00Z'))
+            if track.get('localPath'):
+                path = Path(track['localPath'])
+                asset = {'id':track['assetId'],'recordingId':tid,'path':str(path),'hash':hashlib.sha256(path.read_bytes()).hexdigest(),
+                    'sourceCodec':path.suffix.lstrip('.'),'finalCodec':path.suffix.lstrip('.'),'sampleRate':48000,'channels':2,'bitDepth':16 if path.suffix=='.wav' else None,
+                    'durationSeconds':track['durationSeconds'],'sizeBytes':path.stat().st_size,
+                    'processing':'existing-local-file','track':track}
+                db.execute('insert into local_assets(id,recording_id,path,hash,payload) values(?,?,?,?,?)',
+                           (track['assetId'],tid,str(path),asset['hash'],json.dumps(asset)))
+        settings = dict(musicDirectory=str(profile/'fixture'),autoPreview=False,previewDelayMs=250,theme='dark',
+            ytDlpPath='yt-dlp',ffmpegPath='ffmpeg',ffprobePath='ffprobe',jsRuntimePath='node',playlistDirectories=[],
+            streamingFallbackEnabled=True,preferredStreamingSource='bandcamp' if mode in ['recovery-baseline','broken-playable'] else 'monochrome',streamingFallbackSources=['monochrome','youtube','soundcloud'] if mode in ['recovery-baseline','broken-playable'] else ['youtube','soundcloud','bandcamp'],
+            playbackDiagnosticsEnabled=True,playbackStartupTimeoutSeconds=20,liveBpmEnabled=mode=='live-analysis',
+            crossfadeEnabled=mode.startswith('crossfade'),crossfadeSeconds=2,
+            matchingLevel='balanced' if mode in ['nipsey','full-nipsey'] else 'flexible',flexibleMatching=dict(version=1,allowOtherReleases=True,
+                allowOtherPerformances=False,allowOtherMixes=False,allowOtherArtists=False,allowDifferentLengths=False))
+        if mode=='decoder-recovery':settings['ffmpegPath']=str(wrapper)
+        if mode=='source-audition':settings.update(preferredDownloadSource='youtube',downloadFallbackEnabled=False,downloadFallbackSources=[])
+        for key, value in [('application',settings),('playbackEngine.v1','native'),('releaseSetupComplete.v1',True),('radioRecognitionEnabled.v1',False)]:
+            db.execute('insert or replace into settings(key,value) values(?,?)',(key,json.dumps(value)))
+        if mode.startswith('normalization-'):
+            db.execute('insert or replace into settings(key,value) values(?,?)',('loudness.v1',json.dumps(dict(mode=mode.split('-')[1],targetLufs=-18,ceilingDbtp=-1,maximumBoostDb=6,albumTrackFallback=False,analyzeWhenIdle=False))))
+    db.close()
+    if mode in ['waveform','live-analysis']:
+        storage=app_data/'localstorage/tauri_localhost_0.localstorage';storage.parent.mkdir()
+        with sqlite3.connect(storage) as browser:
+            browser.execute('CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB NOT NULL ON CONFLICT FAIL)')
+            browser.execute('INSERT INTO ItemTable(key,value) VALUES(?,?)',('burrata.waveform-enabled.v1','true'.encode('utf-16-le')))
+    if mode=='migration':
+        queue={'tracks':[records[0],records[0]],'entryIds':['legacy-first','legacy-second'],'currentIndex':1,'repeat':'all'}
+        storage=app_data/'localstorage/tauri_localhost_0.localstorage';storage.parent.mkdir()
+        with sqlite3.connect(storage) as browser:
+            browser.execute('CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB NOT NULL ON CONFLICT FAIL)')
+            for key,value in [('burrata.playback-queue.v1',queue),('burrata.playback-position.v1',{'trackId':records[0]['id'],'entryId':'legacy-second','position':5,'savedAt':int(time.time()*1000)}),('burrata.playback-controls.v1',{'volume':.37,'shuffle':True})]:
+                browser.execute('INSERT INTO ItemTable(key,value) VALUES(?,?)',(key,json.dumps(value).encode('utf-16-le')))
+        stale_queue={'tracks':[records[1]],'entryIds':['stale-native'],'queueRevision':7}
+        stale_session={'index':0,'currentEntryId':'stale-native','queueRevision':7,'position':9,'volume':.88,'repeat':'off','shuffle':False,'finished':False}
+        with sqlite3.connect(app_data/'burrata.sqlite') as db:
+            for key,value in [('playbackEngine.v1','webview'),('nativePlaybackQueue.v1',stale_queue),('nativePlaybackSession.v1',stale_session)]:
+                db.execute('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)',(key,json.dumps(value)))
+    ids = [track['id'] for track in records]
+    if mode == 'duplicates': ids = [ids[0],ids[0]]
+    (profile/'fixture/runtime-cases.json').write_text(json.dumps(dict(ids=ids,aacId=aac['trackId'],incidents=incidents)))
+    return settings
+
+
+def summarize_capture(path, mode, start_seconds=0):
+    import numpy as np
+    pcm = np.fromfile(path,dtype='<f4',offset=max(0,int(start_seconds*48000))*8);pcm = pcm[:len(pcm)//2*2].reshape(-1,2)
+    window = 12000;bins=[]
+    for start in range(0,len(pcm)-window+1,window):
+        block=pcm[start:start+window];t=np.arange(window)/48000;w=np.hanning(window)
+        def tone(channel,f):return float(abs(np.dot(block[:,channel]*w,np.exp(-2j*np.pi*f*t)))*2/w.sum())
+        bins.append(dict(second=start/48000,rms=float(np.sqrt(np.mean(block**2))),firstLeft=tone(0,440),firstRight=tone(1,660),
+            secondLeft=tone(0,880),secondRight=tone(1,1100),
+            wrongLeft=max(tone(0,660),tone(0,1100)),wrongRight=max(tone(1,440),tone(1,880))))
+    first=[b for b in bins if min(b['firstLeft'],b['firstRight'])>.02]
+    second=[b for b in bins if min(b['secondLeft'],b['secondRight'])>.02]
+    overlap=[b for b in bins if min(b['firstLeft'],b['firstRight'],b['secondLeft'],b['secondRight'])>.01]
+    stereo=all(max(b['wrongLeft'],b['wrongRight'])<.01 for b in bins)
+    result=dict(frames=len(pcm),durationSeconds=len(pcm)/48000,peak=float(np.max(np.abs(pcm))) if len(pcm) else 0,
+        stereoSeparated=stereo,firstToneSeconds=len(first)*.25,secondToneSeconds=len(second)*.25,
+        firstToneStart=first[0]['second'] if first else None,secondToneStart=second[0]['second'] if second else None,
+        overlapSeconds=len(overlap)*.25,bins=bins)
+    def quiet_interval(start, end):
+        # Ignore quarter-second edge bins, but require a real quiet interval.
+        quiet = [b for b in bins if b['second'] >= start-1e-9 and b['second']+.25 <= end+1e-9]
+        return len(quiet) >= 3 and all(b['rms'] < .003 for b in quiet)
+    result['passed']=stereo and result['peak']<.99 and bool(first)
+    if mode in ['natural','duplicates']:
+        result['passed'] &= result['firstToneSeconds'] >= (19 if mode=='duplicates' else 9.5)
+        if mode=='natural':result['passed'] &= result['secondToneSeconds']>=9.5 and 11.5<=result['secondToneStart']-result['firstToneStart']<=12.5 and 11.5<=result['durationSeconds']-result['secondToneStart']<=14.2
+        else:
+            starts=[b['second'] for i,b in enumerate(first) if i==0 or b['second']-first[i-1]['second']>.5]
+            result['passed'] &= len(starts)==2 and 11.5<=starts[1]-starts[0]<=12.5 and 11.5<=result['durationSeconds']-starts[-1]<=14.2
+        if first:
+            # Each seeded recording has ten seconds of tone plus two seconds of
+            # actual silence. Duration alone cannot prove those samples survived.
+            anchors = [result['firstToneStart'], result['secondToneStart']] if mode=='natural' else starts
+            result['realTrailingSilence'] = bool(anchors) and all(anchor is not None and quiet_interval(anchor+10.5, anchor+11.5) for anchor in anchors)
+            result['passed'] &= result['realTrailingSilence'] and result['overlapSeconds']<=.25
+    elif mode=='seek':
+        # Seek targets10.5s, inside the real silent tail. Bound the pre-seek
+        # tone and require captured silence, not just an advancing native clock.
+        quiet_tail = result['durationSeconds']-(first[-1]['second']+.25) if first else 0
+        result['seekSilentTailSeconds'] = quiet_tail
+        result['seekTailQuiet'] = bool(first) and quiet_interval(first[-1]['second']+.5, result['durationSeconds'])
+        result['passed'] &= .75<=result['firstToneSeconds']<=2 and not second and 1.25<=quiet_tail<=3.25 and result['seekTailQuiet']
+    elif mode.startswith('crossfade'):
+        onset = result['secondToneStart']-result['firstToneStart'] if first and second else None
+        final_span = result['durationSeconds']-result['secondToneStart'] if second else 0
+        result['crossfadeOnsetSeconds'] = onset
+        result['crossfadeFinalSpanSeconds'] = final_span
+        result['passed'] &= 11<=result['firstToneSeconds']<=12.75 and 11<=result['secondToneSeconds']<=12.75 and 1.25<=result['overlapSeconds']<=2.5 and onset is not None and 9.5<=onset<=11 and 11.5<=final_span<=14.2
+    elif mode in ['aac','malformed-aac']:
+        result['passed'] &= 11<=result['firstToneSeconds']<=12.75 and not second and 11.5<=result['durationSeconds']-result['firstToneStart']<=14.2
+    return result
+
+
+
+def assess_normalization(bins, mode):
+    import numpy as np
+    gains={'off':[0,0],'track':[-6,-12],'album':[-9,-9]}[mode]
+    measured=[]
+    for left,right in [('firstLeft','firstRight'),('secondLeft','secondRight')]:
+        active=[b for b in bins if min(b[left],b[right])>.025]
+        measured.append([float(np.median([b[key] for b in active])) if active else 0 for key in [left,right]])
+    expected=[6000/32768*10**(gain/20) for gain in gains]
+    passed=all(abs(actual-target)<target*.05 for channels,target in zip(measured,expected) for actual in channels)
+    return dict(passed=passed,expectedGainDb=gains,expectedChannelAmplitudes=expected,measuredChannelAmplitudes=measured)
+
+
+
+def assess_audition_queue_checkpoint(profile):
+    """Read only the harness-owned disposable queue; API paths are redacted."""
+    profile = Path(profile).resolve(strict=True)
+    if (profile.parent != Path('/tmp') or not profile.name.startswith('burrata-launch.')
+            or (profile / '.burrata-isolated-profile').read_text() != 'burrata isolated memory run\n'):
+        raise ValueError('Disposable audition profile required')
+    fixture = json.loads((profile / 'fixture/runtime-cases.json').read_text())['incidents'][0]
+    expected = fixture.get('localPath')
+    if not expected or not Path(expected).resolve().is_relative_to(profile / 'fixture'):
+        return {'passed': False, 'reason': 'Missing owned local audition control path'}
+    database = profile / 'data/org.burrata.discovery/burrata.sqlite'
+    with closing(sqlite3.connect(database.resolve(strict=True).as_uri() + '?mode=ro', uri=True)) as db:
+        row = db.execute("SELECT value FROM settings WHERE key='nativePlaybackQueue.v1'").fetchone()
+    queue = json.loads(row[0]) if row else {}
+    tracks = queue.get('tracks') or []
+    retained = tracks[0] if tracks else {}
+    return {'passed': bool(fixture.get('id') and retained.get('id') == fixture['id']
+                           and retained.get('localPath') == expected),
+            'queuePresent': bool(tracks), 'expectedLocalPathPresent': True}
+
+
+def assess_source_audition_pcm(local, audition):
+    import numpy as np
+    def score(pcm):
+        window=12000;t=np.arange(window)/48000;w=np.hanning(window);scores=[]
+        for i in range(0,len(pcm)-window+1,window):
+            segment=pcm[i:i+window]
+            tone=lambda c,f:float(abs(np.dot(segment[:,c]*w,np.exp(-2j*np.pi*f*t)))*2/w.sum())
+            scores.append(max(min(tone(0,440),tone(1,660)),min(tone(0,660),tone(1,440))))
+        return float(np.median(scores)) if scores else 0
+    local_score,online_score=score(local),score(audition)
+    active=sum(float(np.sqrt(np.mean(audition[i:i+4800]**2)))>.0005 for i in range(0,len(audition)-4800,4800))*.1
+    return dict(activeAuditionSeconds=active,localControlToneMedianAmplitude=local_score,
+        auditionControlToneMedianAmplitude=online_score,passed=local_score>.1 and active>=9 and online_score<.03)
+
+
+
+def assess_full_recording_pcm(pcm, cases, capture_started_at_ms):
+    import numpy as np
+    assessed=[]
+    for index,original in enumerate(cases):
+        item=dict(original);first_ms=item.get('startedAtUnixMs');last_ms=item.get('endedAtUnixMs')
+        if last_ms is None and index+1<len(cases):
+            last_ms=cases[index+1].get('startedAtUnixMs')
+            item['endBoundarySource']='next occurrence first-playing timestamp'
+        else:item['endBoundarySource']='recorded occurrence boundary'
+        duration=item.get('decodedDuration',0);maximum=item.get('maximumPosition',0)
+        bounds=all(isinstance(value,(int,float)) and math.isfinite(value) for value in [first_ms,last_ms,duration,maximum])
+        active=0;finite=True
+        if bounds and last_ms>first_ms:
+            item['endedAtUnixMs']=last_ms
+            first=max(0,int((first_ms-capture_started_at_ms)/1000*48000));last=min(len(pcm),int((last_ms-capture_started_at_ms)/1000*48000))
+            for at in range(first,last-4800,4800):
+                block=pcm[at:at+4800];finite &= bool(np.isfinite(block).all())
+                active += .1 if float(np.sqrt(np.mean(block**2)))>.0005 else 0
+        item['capturedActiveSeconds']=round(active,3)
+        item['nearDecodedEnd']=bool(bounds and duration>30 and maximum>=duration-.75)
+        item['passed']=bool(item['nearDecodedEnd'] and finite and active>=duration*.75)
+        assessed.append(item)
+    return assessed
+
+
+
+def assess_stereo_markers(pcm, expected_markers):
+    import numpy as np
+    rate=48000
+    if len(pcm)<rate:return dict(passed=False,markers=[],reason='capture too short')
+    energy=np.convolve(np.mean(pcm**2,axis=1),np.ones(240)/240,mode='same')
+    active=np.flatnonzero(energy>.01);groups=[]
+    if len(active):
+        starts=np.r_[0,np.flatnonzero(np.diff(active)>480)+1];ends=np.r_[starts[1:]-1,len(active)-1]
+        groups=[(int(active[a]),int(active[b])+1) for a,b in zip(starts,ends) if 1200<=active[b]-active[a]<=9600]
+    markers=[]
+    for first,last in groups:
+        block=pcm[max(0,first-480):min(len(pcm),last+480)].astype(np.float64)
+        a=block[:,0]-block[:,0].mean();b=block[:,1]-block[:,1].mean()
+        size=1<<(2*len(a)-1).bit_length();corr=np.fft.irfft(np.fft.rfft(a,size)*np.conj(np.fft.rfft(b,size)),size)
+        lags=np.arange(-480,481);values=corr[lags%size];index=int(np.argmax(values))
+        coherence=float(values[index]/max(1e-20,np.sqrt(np.dot(a,a)*np.dot(b,b))))
+        markers.append(dict(second=first/rate,channelLagSamples=int(lags[index]),coherence=coherence))
+    spacings=[b['second']-a['second'] for a,b in zip(markers,markers[1:])]
+    timing=all(abs(value-2)<.03 for value in (spacings[1:] if expected_markers==3 else spacings))
+    passed=len(markers)==expected_markers and timing and all(abs(m['channelLagSamples'])<=2 and m['coherence']>.85 for m in markers)
+    return dict(passed=passed,markers=markers,spacingSeconds=spacings,toleranceSamples=2)
+
+
+def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--payload',type=Path,required=True)
+    parser.add_argument('--evidence',type=Path,required=True)
+    parser.add_argument('--mode',choices=['natural','duplicates','seek','crossfade','crossfade-pause','aac','malformed-aac','incidents','broken-download','recovery-baseline','broken-playable','decoder-recovery','radio','performance','migration','mpris','full-incidents','waveform','normalization-off','normalization-track','normalization-album','live-analysis','nipsey','full-nipsey','source-audition','stereo-wav','stereo-aac','stereo-opus','stereo-seek-opus'],required=True)
+    parser.add_argument('--build-profile',choices=['release','diagnostic'],default='release')
+    parser.add_argument('--controller',type=Path,default=Path('/tmp/burrata-queue-recovery-private-audio-controller.py'))
+    parser.add_argument('--xvfb',type=Path,default=Path('/tmp/burrata-private-xvfb/root/usr/bin/Xvfb'))
+    args=parser.parse_args()
+    payload=args.payload.resolve(strict=True);binary=payload/'usr/bin/burrata'
+    resources=next(payload.glob('usr/lib/*/resources'))
+    module=importlib.util.spec_from_file_location('private_audio',args.controller)
+    audio=importlib.util.module_from_spec(module);module.loader.exec_module(audio)
+    if audio.running_state().get('status')!='ready-private-no-sinks':raise RuntimeError('Private audio controller must already be ready')
+    profile=Path(tempfile.mkdtemp(prefix='burrata-launch.',dir='/tmp'))
+    settings=seed(profile,resources,args.mode)
+    # The app intentionally unpacks managed helpers in its data directory,
+    # overriding TMPDIR. Put disposable data on the workspace filesystem too.
+    scratch=ROOT/'.cache/native-runtime-tmp'/profile.name;scratch.mkdir(parents=True,exist_ok=True)
+    shutil.move(str(profile/'data'),str(scratch/'data'))
+    (profile/'data').symlink_to(scratch/'data',target_is_directory=True)
+    args.evidence.mkdir(parents=True,exist_ok=True)
+    children=[];result={'mode':args.mode,'buildProfile':args.build_profile,'profile':str(profile),'binarySha256':hashlib.sha256(binary.read_bytes()).hexdigest(),
+        'qualification':('Diagnostic dev build with custom protocol; not release qualification. ' if args.build_profile=='diagnostic' else '')+'Extracted DEB payload; private virtual output; physical hardware and OS install not tested',
+        'settings':settings,'hostBefore':host_baseline(audio)}
+    try:
+        env=audio.private_env();sink='burrata_native_'+uuid.uuid4().hex[:8]
+        module_id=run(['pactl','load-module','module-null-sink','sink_name='+sink,'rate=48000','channels=2'],env=env).stdout.decode().strip()
+        env.update(XDG_DATA_HOME=str(profile/'data'),XDG_CONFIG_HOME=str(profile/'config'),XDG_CACHE_HOME=str(profile/'cache'),
+            XDG_STATE_HOME=str(profile/'state'),BURRATA_APP_DATA=str(profile/'data/org.burrata.discovery'),
+            BURRATA_ISOLATED_MUSIC_ROOT=str(profile/'fixture'),GDK_BACKEND='x11',PULSE_SINK=sink,NO_AT_BRIDGE='1',
+            BURRATA_NATIVE_OUTPUT_QUALIFICATION='1')
+        env.pop('WAYLAND_DISPLAY',None);env.pop('SESSION_MANAGER',None)
+        alsa=profile/'config/alsa.conf';alsa.write_text('pcm.!default { type pulse server "'+env['PULSE_SERVER']+'" device "'+sink+'" }\nctl.!default { type pulse server "'+env['PULSE_SERVER']+'" }\n')
+        env['ALSA_CONFIG_PATH']=str(alsa)
+        scratch=ROOT/'.cache/native-runtime-tmp'/profile.name;scratch.mkdir(parents=True,exist_ok=True)
+        env['TMPDIR']=str(scratch)
+        display=next(n for n in range(90,120) if not Path(f'/tmp/.X{n}-lock').exists() and not Path(f'/tmp/.X11-unix/X{n}').exists())
+        env['DISPLAY']=':'+str(display)
+        def launch(command,log,extra=None):
+            child=subprocess.Popen([str(x) for x in command],env=extra or env,stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
+            children.append(child);return child
+        xvfb=launch([args.xvfb,env['DISPLAY'],'-screen','0','1280x900x24','-nolisten','tcp','-noreset'],
+            (profile/'xvfb.log').open('wb'),dict(env,LD_LIBRARY_PATH=str(args.xvfb.parent.parent/'lib')))
+        for _ in range(100):
+            if xvfb.poll() is not None:raise RuntimeError('Private display exited')
+            if Path(f'/tmp/.X11-unix/X{display}').exists():break
+            time.sleep(.05)
+        if args.mode=='malformed-aac':
+            with sqlite3.connect(profile/'data/org.burrata.discovery/burrata.sqlite') as db:
+                row=db.execute("select metadata from catalog_listings where metadata like '%Smoke AAC%'").fetchone()
+            source=Path(json.loads(row[0])['localPath'])
+            tools=resources/'tools/x86_64-unknown-linux-gnu'
+            probe=run([tools/'ffprobe','-v','error','-show_entries','stream=duration:format=duration','-of','json',source],env=env)
+            decoded=run([tools/'ffmpeg','-v','error','-i',source,'-ac','2','-ar','48000','-f','f32le','pipe:1'],env=env)
+            if float(json.loads(probe.stdout)['format']['duration'])<23 or not 11.8<len(decoded.stdout)/8/48000<12.2:
+                raise RuntimeError('Malformed AAC does not have independently verified contradictory duration')
+            result['malformedReference']={'container':json.loads(probe.stdout),'decodedSeconds':len(decoded.stdout)/8/48000,
+                'modifiedBoxes':json.loads((profile/'malformed-duration.json').read_text())}
+        if args.mode=='aac':
+            smoke_spec=importlib.util.spec_from_file_location('installed_tools',ROOT/'scripts/release/smoke-installed.py')
+            smoke=importlib.util.module_from_spec(smoke_spec);smoke_spec.loader.exec_module(smoke)
+            result['packagedTools']=smoke.bundled_tool_checks(resources,smoke.TARGETS['linux'],env)
+            result['packagedMedia']=smoke.bundled_media_checks(resources,smoke.TARGETS['linux'],env,profile)
+        app=launch(['dbus-run-session','--config-file='+str(audio.DBUS_CONF),'--',binary],(profile/'app.log').open('wb'))
+        for _ in range(300):
+            if app.poll() is not None:raise RuntimeError('Packaged app exited')
+            if (profile/'data/org.burrata.discovery/automation.json').exists():break
+            time.sleep(.1)
+        else:raise RuntimeError('Automation discovery timeout')
+        if args.mode in ['mpris','source-audition']:
+            pending=[app.pid];app_pid=None
+            for parent in pending:
+                try:
+                    for child in Path(f'/proc/{parent}/task/{parent}/children').read_text().split():
+                        pid=int(child);pending.append(pid)
+                        if Path(f'/proc/{pid}/exe').resolve()==binary.resolve():app_pid=pid
+                except OSError:pass
+            if app_pid is None:raise RuntimeError('Private app process not found for MPRIS')
+            entries=Path(f'/proc/{app_pid}/environ').read_bytes().split(b'\0')
+            selected={entry.split(b'=',1)[0]:entry.split(b'=',1)[1] for entry in entries if entry.startswith((b'DBUS_SESSION_BUS_ADDRESS=',b'XDG_DATA_HOME='))}
+            if selected.get(b'XDG_DATA_HOME',b'').decode()!=str(profile/'data'):raise RuntimeError('Private app profile mismatch')
+            address=selected.get(b'DBUS_SESSION_BUS_ADDRESS',b'').decode()
+            if not address.startswith('unix:path=/tmp/dbus-'):raise RuntimeError('App is not on a verified private bus')
+            env['BURRATA_QUAL_PRIVATE_DBUS']=address;result['privateMprisBusVerified']=True
+            env['BURRATA_QUAL_PRIVATE_APP_PID']=str(app_pid)
+            env['BURRATA_QUAL_PRIVATE_APP_EXE']=str(binary)
+            env['BURRATA_QUAL_PRIVATE_XVFB_PID']=str(xvfb.pid)
+        result['privateProbe']=audio.probe_private(env)
+        if result['privateProbe']['hardwareObjects']:raise RuntimeError('Private server exposed hardware')
+        capture_dir=ROOT/'.cache/native-runtime-captures';capture_dir.mkdir(parents=True,exist_ok=True)
+        capture=capture_dir/(profile.name+'.f32le');result['capturePath']=str(capture);capture_file=capture.open('wb')
+        recorder=subprocess.Popen(['parec','--device='+sink+'.monitor','--format=float32le','--rate=48000','--channels=2','--latency-msec=20'],
+            env=env,stdout=capture_file,stderr=(profile/'recorder.log').open('wb'),start_new_session=True)
+        children.append(recorder)
+        result['captureStartedAtUnixMs']=time.time()*1000
+        time.sleep(.3)
+        mcp=resources/'tools/x86_64-unknown-linux-gnu/burrata-mcp'
+        mode='aac' if args.mode=='malformed-aac' else 'incidents' if args.mode in ['broken-download','recovery-baseline','broken-playable','decoder-recovery','nipsey'] else args.mode
+        if mode=='performance':
+            result['profilerStartUnixMs']=time.time()*1000
+            profiler=launch(['python3',ROOT/'scripts/performance/profile_process.py','--pid',str(app.pid),
+                '--seconds','58','--interval','.5','--output',profile/'process-profile'],(profile/'profiler.log').open('wb'))
+        if args.mode=='aac':
+            gate=subprocess.run(['node',str(ROOT/'scripts/release/check-installed-native-audio.mjs'),str(mcp),
+                str(profile/'data/org.burrata.discovery/automation.json'),json.loads((profile/'fixture/runtime-cases.json').read_text())['aacId']],
+                cwd=ROOT,env=env,text=True,capture_output=True,timeout=100)
+            (profile/'native-content-gate.txt').write_text(gate.stdout+gate.stderr)
+            result['nativeContentGatePassed']=gate.returncode==0
+        control=subprocess.run(['node',str(ROOT/'scripts/performance/native_runtime_capture.mjs'),str(profile),str(mcp),mode],
+            cwd=ROOT,env=env,text=True,capture_output=True,timeout=900 if mode=='source-audition' else 960 if mode=='full-nipsey' else 560 if mode=='full-incidents' else 420 if mode=='incidents' else 120)
+        (profile/'controller.txt').write_text(control.stdout+control.stderr)
+        time.sleep(.4)
+        if recorder.poll() is not None:raise RuntimeError('Output recorder exited before completion; capture is unqualified')
+        recorder.terminate();recorder.wait(timeout=5);capture_file.close()
+        result['runtime']=json.loads((profile/'runtime-result.json').read_text())
+        if mode=='performance':
+            profiler.wait(timeout=25)
+            import numpy as np
+            rows=json.loads((profile/'process-profile/samples.json').read_text())
+            result['performance']=[]
+            for window in result['runtime']['windows']:
+                selected=[row for row in rows if row.get('kind')=='group' and window['startUnixMs']+500<=result['profilerStartUnixMs']+row['atSeconds']*1000<=window['endUnixMs']]
+                result['performance'].append(dict(phase=window['phase'],samples=len(selected),
+                    medianCpuPercentOneCore=float(np.median([row['cpuPercent'] for row in selected])),
+                    p95CpuPercentOneCore=float(np.percentile([row['cpuPercent'] for row in selected],95)),
+                    medianTreeRssBytes=int(np.median([row['rssBytes'] for row in selected]))))
+        if mode=='migration':
+            import numpy as np
+            pcm=np.fromfile(capture,dtype='<f4');peak=float(np.max(np.abs(pcm))) if len(pcm) else 0
+            result['pcm']={'peak':peak,'passed':len(pcm)>0 and peak<.000001}
+            with sqlite3.connect(profile/'data/org.burrata.discovery/burrata.sqlite') as db:
+                values={key:json.loads(value) for key,value in db.execute("SELECT key,value FROM settings WHERE key in ('playbackEngine.v1','nativePlaybackQueue.v1','nativePlaybackSession.v1')")}
+            result['migrationPersistence']={'engine':values.get('playbackEngine.v1'),'entries':values.get('nativePlaybackQueue.v1',{}).get('entryIds'),'position':values.get('nativePlaybackSession.v1',{}).get('position')}
+            result['pcm']['passed'] &= result['migrationPersistence']=={'engine':'native','entries':['legacy-first','legacy-second'],'position':5}
+        elif mode.startswith('stereo-'):
+            import numpy as np
+            pcm=np.fromfile(capture,dtype='<f4');pcm=pcm[:len(pcm)//2*2].reshape(-1,2)
+            result['pcm']=assess_stereo_markers(pcm,3 if mode=='stereo-seek-opus' else 5)
+        elif mode=='source-audition':
+            import numpy as np
+            pcm=np.fromfile(capture,dtype='<f4');pcm=pcm[:len(pcm)//2*2].reshape(-1,2)
+            test=result['runtime']
+            def segment(first,last):
+                start=max(0,int((test.get(first,result['captureStartedAtUnixMs'])-result['captureStartedAtUnixMs'])/1000*48000))
+                end=min(len(pcm),int((test.get(last,result['captureStartedAtUnixMs'])-result['captureStartedAtUnixMs'])/1000*48000))
+                return pcm[start:end]
+            result['pcm']=assess_source_audition_pcm(segment('localStartedAtUnixMs','localPausedAtUnixMs'),segment('auditionStartedAtUnixMs','auditionPausedAtUnixMs'))
+            result['auditionQueueCheckpoint']=assess_audition_queue_checkpoint(profile)
+            result['runtime']['passed'] &= result['auditionQueueCheckpoint']['passed']
+        elif mode=='full-nipsey':
+            import numpy as np
+            pcm=np.fromfile(capture,dtype='<f4');pcm=pcm[:len(pcm)//2*2].reshape(-1,2)
+            result['runtime']['cases']=assess_full_recording_pcm(pcm,result['runtime']['cases'],result['captureStartedAtUnixMs'])
+            result['runtime']['passed'] &= all(item['passed'] for item in result['runtime']['cases'])
+            result['pcm']={'passed':all(item['passed'] for item in result['runtime']['cases']), 'frames':len(pcm)}
+        elif mode=='live-analysis':
+            import numpy as np
+            pcm=np.fromfile(capture,dtype='<f4');pcm=pcm[:len(pcm)//2*2].reshape(-1,2)
+            rms=[float(np.sqrt(np.mean(pcm[:,channel]**2))) if len(pcm) else 0 for channel in [0,1]]
+            active=sum(float(np.sqrt(np.mean(pcm[i:i+4800]**2)))>.005 for i in range(0,len(pcm)-4800,4800))*.1
+            result['pcm']={'rmsByChannel':rms,'activeSeconds':active,'passed':min(rms)>.01 and active>=20}
+        elif mode not in ['incidents','radio','full-incidents']:
+            start=max(0,(result['runtime'].get('mainPlaybackStartedAtUnixMs',result['captureStartedAtUnixMs'])-result['captureStartedAtUnixMs'])/1000)
+            result['pcm']=summarize_capture(capture,'natural' if args.mode.startswith('normalization-') else args.mode,start)
+            if args.mode.startswith('normalization-'):
+                result['pcm']['normalization']=assess_normalization(result['pcm']['bins'],args.mode.split('-')[1])
+                result['pcm']['passed'] &= result['pcm']['normalization']['passed']
+        else:
+            import numpy as np
+            pcm=np.fromfile(capture,dtype='<f4');pcm=pcm[:len(pcm)//2*2].reshape(-1,2)
+            if mode=='full-incidents':
+                rms=float(np.sqrt(np.mean(pcm**2))) if len(pcm) else 0
+                active=sum(float(np.sqrt(np.mean(pcm[i:i+4800]**2)))>.0005 for i in range(0,len(pcm)-4800,4800))*.1
+                wanted=sum(track['durationSeconds'] for track in json.loads((profile/'fixture/runtime-cases.json').read_text())['incidents'][1:])
+                result['pcm']={'rms':rms,'activeSeconds':active,'expectedSuccessfulTrackSeconds':wanted,'passed':active>=wanted*.75}
+            if mode=='radio':
+                rms=float(np.sqrt(np.mean(pcm**2))) if len(pcm) else 0
+                active=sum(float(np.sqrt(np.mean(pcm[i:i+4800]**2)))>.0005 for i in range(0,len(pcm)-4800,4800))*.1
+                result['pcm']={'rms':rms,'activeSeconds':active,'passed':active>=45}
+            for item in result['runtime']['cases'] if mode=='incidents' else []:
+                start=max(0,int((item['startedAtUnixMs']-result['captureStartedAtUnixMs'])/1000*48000))
+                end=min(len(pcm),start+int(item['elapsedMs']/1000*48000))
+                block=pcm[start:end]
+                item['capturedRms']=float(np.sqrt(np.mean(block**2))) if len(block) else 0
+                item['capturedActiveSeconds']=sum(float(np.sqrt(np.mean(block[i:i+4800]**2)))>.0005 for i in range(0,len(block)-4800,4800))*.1
+                item['passed']=bool(item['passed'] and item['capturedActiveSeconds']>=4.5)
+            if mode=='incidents':result['runtime']['passed']=incident_cases_passed(result['runtime'])
+        if args.mode=='decoder-recovery':
+            result['decoderFaultInjected']=(scratch/'decoder-fault-injected').exists()
+            recovered=result['runtime']['cases'][0] if result['runtime']['cases'] else {}
+            result['maximumRecoveryObserved']=max((sample.get('recoveryCount',0) for sample in result['runtime']['samples']),default=0)
+            result['runtime']['passed'] &= result['decoderFaultInjected'] and result['maximumRecoveryObserved']>0 and not recovered.get('receiptError')
+        result['passed']=control.returncode==0 and result['runtime']['passed'] and result.get('pcm',{'passed':True})['passed'] and result.get('nativeContentGatePassed',True)
+        result['hostAfter']=host_baseline(audio)
+        before,after=result['hostBefore'],result['hostAfter']
+        result['hostInventoryChanged']=before.get('sinkNamesSha256')!=after.get('sinkNamesSha256')
+        if not all(item.get('available') and item.get('inventoryReadable') and not item.get('testSinkPresent') for item in [before,after]) or before.get('defaultSink')!=after.get('defaultSink'):
+            raise RuntimeError('Host default output or test isolation changed')
+    except Exception as error:
+        result['passed']=False;result['error']=str(error)
+    finally:
+        for child in reversed(children):
+            if child.poll() is None:
+                os.killpg(child.pid,signal.SIGTERM)
+                try:child.wait(timeout=5)
+                except subprocess.TimeoutExpired:os.killpg(child.pid,signal.SIGKILL);child.wait(timeout=3)
+        if 'module_id' in locals():run(['pactl','unload-module',module_id],env=env)
+        (args.evidence/(args.mode+'.json')).write_text(json.dumps(result,indent=2)+'\n')
+        print(json.dumps({key:result.get(key) for key in ['mode','passed','profile','error','binarySha256']}),flush=True)
+    return 0 if result['passed'] else 1
+
+
+if __name__=='__main__':sys.exit(main())

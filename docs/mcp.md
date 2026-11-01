@@ -107,18 +107,14 @@ with no arguments. To make cancellation possible, pass a caller-generated UUID a
 `captureId` and pass the exact same value to
 `cancel_playing_track_identification`; without a supplied ID, the request remains
 compatible with older callers but cannot be cancelled through MCP. The cancellation
-tool requires Control permission and accepts only that UUID. Both native and
-WebView identification paths use the same request ID; cancellation does not accept
-an arbitrary command or provider payload. Cancellation is scoped to that request and
-is remembered briefly if it reaches the backend just before its matching identify
-call.
-It identifies a short excerpt of the currently playing native or WebView track
-and returns the result separately; it does not change saved tags. The app chooses
-the validated source and current position, including chapter offsets. Pausing,
-seeking, or changing the track cancels or rejects an outdated result. Identification
-requires FFmpeg and SongRec and can take up to 60 seconds, so clients should allow
-that response time. Default-WebView capture has deterministic coverage and one successful live
-Poso excerpt; broader recognition qualification remains pending.
+tool requires Control permission and accepts only that UUID. Cancellation is
+scoped to the request and is remembered briefly if it reaches the backend just
+before its matching identify call; it accepts no arbitrary command or provider
+payload. Identification samples a short excerpt of the current Native playback
+occurrence and returns the result separately without changing saved tags.
+Pausing, seeking or changing the owner cancels or rejects an outdated result.
+Allow up to 60 seconds for recognition. An unavailable or unmatched result does
+not establish recording identity.
 
 `get_release_tracks` is now available in READ scope. Pass a release object returned
 by `get_artist_discography` and its artist identity; it returns saved, ordered tracks
@@ -175,27 +171,23 @@ selected instance, save the geometry with
 This complements visual inspection; it does not establish physical audibility
 or verify every responsive state from a single window size.
 
-`inspect_webview_media` is a read-only tool with no arguments and a five-second
-response bound. It samples the active audio element's current time, duration,
-paused/ready/network/error state and source-presence/stability booleans. Playback,
-session, generation, seek and queue-occurrence checks reject a sample if the
-player changes during inspection. It returns no media URL or local path. Native
-playback returns `applicable: false`. Repeated time progression is evidence that
-the WebView media element advances; it does not establish physical audibility or
-native mixer consumption.
+Use `playback_state` to inspect the Native playback owner, queue page, status and
+position. With playback problem recording enabled,
+`get_playback_diagnostics_report` returns bounded sanitized Native timeline and
+source events, including retained failures. The timeline records owner changes,
+sample-derived progress and qualified completion observations; it does not prove
+physical audibility. `inspect_native_output` is reserved for the explicitly
+enabled synthetic installed-artifact fixture, not general playback inspection.
 
-Diagnostic builds launched with `BURRATA_WEBVIEW_MEDIA_EVENT_TRACE=1` also return
-an optional bounded event history: up to64 play/playing/waiting/stalled/canplay/
-canplaythrough/seeking/seeked/ended/error samples, each with monotonic timestamp,
-media state and at most eight buffered ranges. The history resets with session,
-source generation, queue occurrence or seek serial. It records no source URL,
-path or title, performs no work on `timeupdate`, and leaves playback/readiness
-policy unchanged. The flag must be set before launching the isolated app; it
-uses a static startup script rather than an arbitrary-script MCP interface.
-The feature is disabled by default. Opted-in diagnostics also project bounded codec,
-MIME, format ID, video flag, expected byte length and direct/HLS stream kind.
-Missing or unsupported optional metadata becomes null; URLs, headers and paths
-are omitted. `BURRATA_PLAYBACK_TRACE=1` separately emits redacted upcoming-search
+The exported report uses `diagnosticRevision: 4`. It includes available platform
+and helper context and, when available, a SHA-256 identifying the on-disk app
+executable at export time. This is not a source-tree hash; avoid replacing the app
+while collecting a report. The report excludes raw PCM, media paths and full
+media URLs. Device identity, power/sleep/wake events and continuous PCM counters
+are not collected. Events are held in memory, so save a report before closing or
+restarting the app.
+
+`BURRATA_PLAYBACK_TRACE=1` separately emits redacted upcoming-search
 completion and observed candidate-cache hit/miss/waited-hit events, allowing
 preparation to be distinguished from actual foreground reuse.
 

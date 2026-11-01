@@ -203,6 +203,7 @@ mod tests {
 
     fn job(candidate: Candidate) -> DownloadJob {
         DownloadJob {
+            flexible_matching: Default::default(),
             id: "download-1".into(),
             track: crate::models::Track::default(),
             candidate,

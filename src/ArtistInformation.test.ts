@@ -21,3 +21,16 @@ it("attributes a Wikipedia biography and opens its article and license", async (
   expect(callMock).toHaveBeenCalledWith("open_external_url", {url:"https://creativecommons.org/licenses/by-sa/4.0/"});
   await unmount(instance); target.remove();
 });
+
+it("renders Discogs biography links safely and preserves paragraph breaks", async () => {
+  const target = document.createElement("div"); document.body.append(target);
+  const profile = { artist: {name:"Marty Robbins"}, biography:"First\r\n\r\n[url=https://en.wikipedia.org/wiki/Little_Jimmy_Dickens]Jimmy Dickens[/url] [a2118004] <script>bad</script>", biographySource:"Discogs", links:[] };
+  const instance = mount(ArtistInformation, {target, props:{track:{id:"2",artist:"Marty Robbins"},loadArtist:async()=>profile,onArtist:()=>{}}});
+  await tick(); await tick();
+  const paragraph = target.querySelector("p")!;
+  expect(paragraph.textContent).toContain("First\n\nJimmy Dickens Artist on Discogs <script>bad</script>");
+  expect(paragraph.querySelector("script")).toBeNull();
+  [...paragraph.querySelectorAll("button")].find(button => button.textContent === "Jimmy Dickens")!.click();
+  expect(callMock).toHaveBeenCalledWith("open_external_url", {url:"https://en.wikipedia.org/wiki/Little_Jimmy_Dickens"});
+  await unmount(instance); target.remove();
+});

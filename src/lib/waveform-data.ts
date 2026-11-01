@@ -179,3 +179,4 @@ export function waveformStatus(snapshot: WaveformSnapshot): string {
   if (!coverage.observedBins) return "No waveform audio observed yet; blank areas have not been analyzed.";
   return `Observed playback only · ${Math.round(coverage.fraction * 100)}% of the timeline sampled · blank areas have not been analyzed.`;
 }
+

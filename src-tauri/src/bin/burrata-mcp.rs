@@ -9,6 +9,21 @@ fn resources_from(executable: &std::path::Path) -> Result<PathBuf, String> {
         if ancestor.join("mcp/server.cjs").is_file() {
             return Ok(ancestor.to_path_buf());
         }
+        for relative in [
+            "Resources",
+            "resources",
+            "Resources/resources",
+            "resources/resources",
+            "../lib/Burrata/resources",
+            "../share/Burrata/resources",
+            "../lib/burrata/resources",
+            "../share/burrata/resources",
+        ] {
+            let resources = ancestor.join(relative);
+            if resources.join("mcp/server.cjs").is_file() {
+                return Ok(resources);
+            }
+        }
     }
     Err("Burrata MCP resources are missing".into())
 }
@@ -38,5 +53,68 @@ fn main() {
     if let Err(error) = result {
         eprintln!("Burrata MCP: {error}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    fn fixture(root: &Path, relative: &str) -> PathBuf {
+        let resources = root.join(relative);
+        std::fs::create_dir_all(resources.join("mcp")).unwrap();
+        std::fs::write(resources.join("mcp/server.cjs"), "fixture").unwrap();
+        resources
+    }
+
+    #[test]
+    fn console_mcp_resolves_extracted_linux_capitalized_resources() {
+        let directory = tempfile::tempdir().unwrap();
+        let resources = fixture(directory.path(), "usr/lib/Burrata/resources");
+        let executable = directory.path().join("usr/bin/burrata-mcp");
+        std::fs::create_dir_all(executable.parent().unwrap()).unwrap();
+        assert_eq!(
+            resources_from(&executable).unwrap().canonicalize().unwrap(),
+            resources.canonicalize().unwrap()
+        );
+    }
+
+    #[test]
+    fn console_mcp_keeps_resource_helper_macos_and_windows_layouts() {
+        for (relative, executable) in [
+            ("resources", "resources/tools/target/burrata-mcp"),
+            (
+                "Burrata.app/Contents/Resources",
+                "Burrata.app/Contents/MacOS/burrata-mcp",
+            ),
+            (
+                "Burrata.app/Contents/Resources/resources",
+                "Burrata.app/Contents/MacOS/burrata-mcp",
+            ),
+            (
+                "Program Files/Burrata/resources",
+                "Program Files/Burrata/burrata-mcp.exe",
+            ),
+            (
+                "Program Files/Burrata/resources/resources",
+                "Program Files/Burrata/burrata-mcp.exe",
+            ),
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let resources = fixture(directory.path(), relative);
+            let executable = directory.path().join(executable);
+            std::fs::create_dir_all(executable.parent().unwrap()).unwrap();
+            assert_eq!(
+                resources_from(&executable).unwrap().canonicalize().unwrap(),
+                resources.canonicalize().unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn console_mcp_rejects_missing_packaged_bridge() {
+        let directory = tempfile::tempdir().unwrap();
+        assert!(resources_from(&directory.path().join("usr/bin/burrata-mcp")).is_err());
     }
 }

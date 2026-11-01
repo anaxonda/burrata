@@ -67,6 +67,24 @@ fn public_corpus_records_expected_relationships_across_policy_levels() {
                 ));
             }
         }
+        if let Some(raw_options) = expected.get("flexibleOptIn") {
+            let options: recording_match::FlexibleMatchingOptions =
+                serde_json::from_value(raw_options.clone()).expect("valid opt-in options");
+            let assessment = recording_match::assess_with_options(
+                &request,
+                &candidate,
+                MatchLevel::Flexible,
+                MatchStage::Resolved,
+                &options,
+            );
+            if assessment.relationship != recording_match::MatchRelationship::Alternative
+                || assessment.action != recording_match::MatchAction::Accept
+            {
+                failures.push(format!(
+                    "{id} Flexible opt-in: expected accepted alternative, got {assessment:?}"
+                ));
+            }
+        }
         let actions = expected
             .get("actions")
             .and_then(Value::as_object)

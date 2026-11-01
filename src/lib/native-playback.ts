@@ -1,4 +1,4 @@
-import type { NativePlaybackSnapshot, Track, Candidate } from "./types";
+import type { NativePlaybackSnapshot, Track, Candidate, PlaybackTransition } from "./types";
 import type { LoudnessResourceIdentity } from "./loudness-normalization";
 import { classifyPlaybackFailure, type PlaybackFailure } from "./playback-failure";
 
@@ -16,7 +16,7 @@ export function playbackOperationTrace(): PlaybackOperationTrace {
 }
 export type NativeCommand = NativeCommandPayload & Partial<PlaybackOperationTrace>;
 type NativeCommandPayload =
-  | { action: "play"; tracks: Track[]; index: number; candidate?: Candidate; position?: number; loudnessAlbumResource?: LoudnessResourceIdentity | null }
+  | { action: "play"; tracks: Track[]; index: number; candidate?: Candidate; candidateOnly?: boolean; position?: number; loudnessAlbumResource?: LoudnessResourceIdentity | null }
   | { action: "queue"; tracks: Track[]; mode: "append" | "replace" | "next"; preserveCurrent?: boolean; loudnessAlbumResource?: LoudnessResourceIdentity | null }
   | { action: "next" | "previous" }
   | { action: "select" | "remove"; index: number; loudnessAlbumResource?: LoudnessResourceIdentity | null }
@@ -30,43 +30,6 @@ type NativeCommandPayload =
   | { action: "repeat"; mode: "off" | "all" | "one" }
   | { action: "restore"; tracks: Track[]; index: number; position: number; volume: number; repeat: string; shuffle: boolean; queueLoudnessContexts?: Record<string, LoudnessResourceIdentity> };
 
-export interface WebviewPlaybackHandoff {
-  handoffId: string;
-  sourceGeneration: number;
-  seekSerial: number;
-  targetPosition: number;
-  tracks: Track[];
-  entryIds: string[];
-  index: number;
-  sessionId: string;
-  entryId: string;
-  paused: boolean;
-  volume: number;
-  repeat: "off" | "all" | "one";
-  shuffle: boolean;
-  candidate: Candidate;
-  recorded: boolean;
-}
-
-/** Opaque Rust-retained source handoff. The source URL, headers, and keys stay native. */
-export interface ResolvedSourceHandoff {
-  handoffId: string;
-  sourceHandle: string;
-  sourceGeneration: number;
-  seekSerial: number;
-  targetPosition: number;
-  tracks: Track[];
-  entryIds: string[];
-  index: number;
-  sessionId: string;
-  entryId: string;
-  paused: boolean;
-  volume: number;
-  repeat: "off" | "all" | "one";
-  shuffle: boolean;
-  recorded: boolean;
-}
-
 export interface NativePositionEvent {
   generation: number;
   revision?: number;
@@ -78,6 +41,18 @@ export interface NativePositionEvent {
 }
 export type NativePlaybackEvent = (snapshot: NativePlaybackSnapshot) => void;
 export type NativeStateEvent = Omit<NativePlaybackSnapshot, "queue"> & { queue?: Track[] };
+
+/** Keep transition metadata bounded to occurrences owned by this queue. */
+export function nativePlaybackTransition(value: unknown, entryId: string | null | undefined, entryIds: string[] | undefined): PlaybackTransition | null {
+  if (!value || typeof value !== "object" || !entryIds) return null;
+  const raw = value as Record<string, unknown>;
+  const {fromEntryId, toEntryId, progress} = raw;
+  const safeId = (id: unknown): id is string => typeof id === "string" && id.length > 0 && id.length <= 128 && !/[\x00-\x1f\x7f]/.test(id);
+  if (!safeId(fromEntryId) || !safeId(toEntryId) || fromEntryId === toEntryId || entryId !== fromEntryId && entryId !== toEntryId ||
+      entryIds.filter(id => id === fromEntryId).length !== 1 || entryIds.filter(id => id === toEntryId).length !== 1 ||
+      typeof progress !== "number" || !Number.isFinite(progress) || progress < 0 || progress > 1) return null;
+  return {fromEntryId,toEntryId,progress};
+}
 
 /** Keep the native bridge small and injectable so its event ordering is testable. */
 export class NativePlaybackBridge {
@@ -160,6 +135,10 @@ export class NativePlaybackBridge {
   acceptSnapshot(snapshot: NativeStateEvent): boolean {
     snapshot = {...snapshot, failure:nativeSnapshotFailure(snapshot), paused:snapshot.status === "failed" || snapshot.paused};
     if (this.snapshot && snapshot.revision < this.snapshot.revision) return false;
+    const entryIds = snapshot.queueEntryIds ?? (this.snapshot && snapshot.queueRevision === this.snapshot.queueRevision ? this.snapshot.queueEntryIds : undefined);
+    const queue = Array.isArray(snapshot.queue) ? snapshot.queue : this.snapshot?.queue;
+    const owned = queue && entryIds && queue.length === entryIds.length && Number.isSafeInteger(snapshot.currentIndex) && entryIds[snapshot.currentIndex] === snapshot.entryId;
+    snapshot = {...snapshot, queueEntryIds:entryIds, transition:owned ? nativePlaybackTransition(snapshot.transition, snapshot.entryId, entryIds) : null};
     if (!Array.isArray(snapshot.queue)) {
       if (!this.snapshot || snapshot.queueRevision !== undefined && snapshot.queueRevision !== this.snapshot.queueRevision) {
         if (!this.pendingState || snapshot.revision >= this.pendingState.revision) this.pendingState = snapshot;
@@ -177,14 +156,6 @@ export class NativePlaybackBridge {
 
   command(command: NativeCommand): Promise<NativePlaybackSnapshot | void> {
     return this.invoke<NativePlaybackSnapshot | void>("playback_command", { command });
-  }
-
-  handoffWebview(request: WebviewPlaybackHandoff): Promise<NativePlaybackSnapshot> {
-    return this.invoke<NativePlaybackSnapshot>("handoff_webview_playback", {handoff:request as unknown as Record<string, unknown>});
-  }
-
-  handoffResolvedSource(request: ResolvedSourceHandoff): Promise<NativePlaybackSnapshot> {
-    return this.invoke<NativePlaybackSnapshot>("handoff_resolved_playback_source", {handoff:request as unknown as Record<string, unknown>});
   }
 
   dispose(): void {

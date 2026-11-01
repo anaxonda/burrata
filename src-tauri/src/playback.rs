@@ -219,6 +219,61 @@ fn seek_watchdog_waiting_for_audio(
         && current_epoch == watched_epoch
         && status == "buffering"
 }
+fn automation_start_still_owned(original: &Value, current: &Value) -> bool {
+    let Some(generation) = original["generation"].as_u64() else {
+        return false;
+    };
+    if current["generation"].as_u64() == Some(generation) {
+        return true;
+    }
+    // Recovery owns a new decoder generation, but retains the initiating
+    // operation/occurrence. A new play, queue transition or seek must still win.
+    current["generation"]
+        .as_u64()
+        .is_some_and(|next| next > generation)
+        && original.pointer("/diagnostics/operationId")
+            == current.pointer("/diagnostics/operationId")
+        && original["entryId"]
+            .as_str()
+            .is_some_and(|id| current["entryId"].as_str() == Some(id))
+        && original["seekSerial"] == current["seekSerial"]
+        && current
+            .pointer("/diagnostics/recoveryCount")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            > original
+                .pointer("/diagnostics/recoveryCount")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+}
+
+async fn wait_for_automation_start(
+    mut updates: watch::Receiver<Value>,
+    original: Value,
+) -> Result<(), String> {
+    loop {
+        let value = updates.borrow().clone();
+        if !automation_start_still_owned(&original, &value) {
+            return Err("Playback request was superseded".into());
+        }
+        match value["status"].as_str() {
+            Some("playing") => return Ok(()),
+            Some("failed") => {
+                return Err(value["playerMessage"]
+                    .as_str()
+                    .unwrap_or("Playback failed")
+                    .to_owned())
+            }
+            Some("paused" | "idle" | "ended") => return Err("Playback did not start".into()),
+            _ => {}
+        }
+        updates
+            .changed()
+            .await
+            .map_err(|_| "Player stopped".to_owned())?;
+    }
+}
+
 async fn wait_for_ready_seek_audio(
     mut updates: watch::Receiver<Value>,
     generation: u64,
@@ -506,6 +561,7 @@ struct Preloaded {
     loudness_status: crate::loudness_manager::LoudnessStatus,
     loudness_album_context: Option<crate::loudness::LoudnessResourceIdentity>,
     opus_decoder_capability: Option<ActiveOpusDecoderCapability>,
+    crossfade_seconds: Option<u8>,
 }
 
 /// Identity of one speculative preparation. Queue position and generation alone
@@ -554,6 +610,18 @@ fn cancel_preload_state(state: &mut State) {
     state.preload = None;
 }
 
+fn invalidate_preload_for_settings_change(state: &mut State) -> Option<(u64, Option<u64>, bool)> {
+    if !matches!(state.status.as_str(), "playing" | "paused")
+        || state.crossfade_transition.is_some()
+    {
+        return None;
+    }
+    let abandoned = state.preload.as_ref().map(|preload| preload.generation);
+    let result = (state.generation, abandoned, state.status == "playing");
+    cancel_preload_state(state);
+    Some(result)
+}
+
 fn fence_unresolved_preload_for_settings_change(state: &mut State, settings_changed: bool) -> bool {
     if settings_changed && state.preload.is_none() && state.preload_cancel.is_some() {
         cancel_preload_state(state);
@@ -592,6 +660,15 @@ struct NativeDecoderDiagnosticContext {
     decoder_started: Instant,
 }
 
+#[derive(Clone)]
+struct NativeCrossfadeTransition {
+    from_generation: u64,
+    to_generation: u64,
+    from_entry: String,
+    to_entry: String,
+    progress: f64,
+}
+
 struct State {
     revision: u64,
     generation: u64,
@@ -609,11 +686,13 @@ struct State {
     position: f64,
     duration: f64,
     duration_verified: bool,
+    crossfade_transition: Option<NativeCrossfadeTransition>,
     volume: f64,
     repeat: String,
     shuffle: bool,
     candidate: Option<Candidate>,
     explicit_source: bool,
+    preview_source_entry: Option<String>,
     quality: Value,
     loudness_status: crate::loudness_manager::LoudnessStatus,
     /// Exact configured decoder bytes/path authorized for this active source.
@@ -652,6 +731,7 @@ struct State {
     recurring_source_swaps: u8,
     failed_recurring_candidates: Vec<(String, String)>,
     replace_source_on_recovery: bool,
+    bypass_failed_local: bool,
     recovery_failure_generation: Option<u64>,
     failed_occurrence_ids: HashSet<String>,
     request_started: Instant,
@@ -700,11 +780,13 @@ impl Default for State {
             position: 0.,
             duration: 0.,
             duration_verified: false,
+            crossfade_transition: None,
             volume: 0.8,
             repeat: "off".into(),
             shuffle: false,
             candidate: None,
             explicit_source: false,
+            preview_source_entry: None,
             quality: json!({}),
             loudness_status: crate::loudness_manager::LoudnessStatus::off(),
             opus_decoder_capability: None,
@@ -741,6 +823,7 @@ impl Default for State {
             recurring_source_swaps: 0,
             failed_recurring_candidates: Vec::new(),
             replace_source_on_recovery: false,
+            bypass_failed_local: false,
             recovery_failure_generation: None,
             failed_occurrence_ids: HashSet::new(),
             request_started: Instant::now(),
@@ -806,6 +889,9 @@ impl State {
         .flatten()
         .collect::<Vec<_>>();
         let mut value = json!({"engine":if native{"native"}else{"webview"},"revision":self.revision,"queueRevision":self.queue_revision,"queuedOperationId":self.queued_operation_id,"generation":self.generation,"status":self.status,"trackId":self.track().map(|t|&t.id),"track":self.track(),"entryId":self.entries.get(self.index),"candidate":self.candidate,"currentIndex":if self.queue.is_empty(){-1}else{self.index as i64},"position":self.position,"duration":self.duration,"volume":self.volume,"repeat":self.repeat,"shuffle":self.shuffle,"paused":self.status!="playing","canSeek":self.station.is_none()&&self.duration>0.,"canVolume":true,"playerMessage":self.message,"quality":self.quality,"loudnessNormalization":self.loudness_status,"chapter":self.chapter(),"radioNowPlaying":self.radio_now,"radioHistory":self.radio_history,"seekSerial":self.seek_serial,"previewKind":"native","diagnostics":{"firstAudioMs":self.first_audio_ms,"sourceReadyMs":self.source_ready_ms,"seekFirstAudioMs":self.seek_first_audio_ms,"operationId":self.operation_id,"operationKind":self.operation_kind,"operationTrace":operation_trace,"clientStartedAtMs":self.operation_client_started_at_ms,"clickToIpcMs":self.operation_click_to_ipc_ms,"commandSerializedBytes":self.operation_command_bytes,"seekOperationId":self.seek_operation_id,"seekTrace":seek_trace,"seekClientStartedAtMs":self.seek_client_started_at_ms,"seekClickToIpcMs":self.seek_click_to_ipc_ms,"seekCommandSerializedBytes":self.seek_command_bytes,"seekOperationFirstAudioMs":self.seek_operation_first_audio_ms,"recoveryCount":self.recovery,"bufferingCount":self.buffering_count,"decoder":self.decoder_diagnostics,"lastBuffering":self.last_buffering,"lastRecovery":self.last_recovery,"lastLocalStorageFailure":self.last_local_storage_failure,"lastSourceFailure":self.last_source_failure,"lastSkippedTrackFailure":self.last_skipped_track_failure}});
+        value["transition"] = self.crossfade_transition.as_ref().filter(|transition| self.generation == transition.to_generation).map_or(Value::Null, |transition| json!({
+            "fromEntryId":transition.from_entry,"toEntryId":transition.to_entry,"progress":transition.progress
+        }));
         value["handoffId"] = self
             .handoff_id
             .as_ref()
@@ -1236,6 +1322,27 @@ async fn wait_for_steady_buffering_deadline(
     }
 }
 
+fn update_crossfade_progress(
+    state: &mut State,
+    from_generation: u64,
+    to_generation: u64,
+    progress: f64,
+) -> Option<bool> {
+    if state.generation != to_generation || !progress.is_finite() {
+        return None;
+    }
+    let transition = state.crossfade_transition.as_mut()?;
+    if transition.from_generation != from_generation || transition.to_generation != to_generation {
+        return None;
+    }
+    transition.progress = progress.clamp(0.0, 1.0);
+    let complete = transition.progress >= 1.0;
+    if complete {
+        state.crossfade_transition = None;
+    }
+    Some(complete)
+}
+
 fn clear_playback_failures(state: &mut State) {
     clear_current_source_failure(state);
     state.last_skipped_track_failure = None;
@@ -1243,6 +1350,7 @@ fn clear_playback_failures(state: &mut State) {
     clear_native_stall_history(state);
     state.healthy_output_since = None;
     state.replace_source_on_recovery = false;
+    state.bypass_failed_local = false;
 }
 
 fn clear_current_source_failure(state: &mut State) {
@@ -1308,7 +1416,7 @@ struct Inner {
     pending_native_sources: Mutex<HashMap<String, PendingNativeSource>>,
     persistence: Mutex<()>,
     commands: tokio::sync::Mutex<()>,
-    native: AtomicBool,
+    migration_pending: AtomicBool,
     output: NativeOutput,
     observed_analysis: Arc<crate::observed_analysis::ObservedAnalysis>,
     loudness_verification: Arc<crate::loudness_manager::LocalVerificationMemo>,
@@ -1561,6 +1669,39 @@ fn registered_source_with_opus_capability(
     source
 }
 
+fn gapless_completion_diagnostic(
+    state: &State,
+    from_generation: u64,
+    to_generation: u64,
+    position: f64,
+) -> Option<(Value, crate::playback_diagnostics::NativeDiagnosticMoment)> {
+    if state.generation != from_generation
+        || !matches!(state.status.as_str(), "playing" | "paused")
+        || !position.is_finite()
+        || position < 0.0
+        || state.crossfade_transition.is_some()
+        || !state.preload.as_ref().is_some_and(|next| {
+            next.generation == to_generation && state.entries.get(next.index) == Some(&next.entry)
+        })
+    {
+        return None;
+    }
+    let whole_recording = state.offset == 0.0 && state.end.is_none() && state.station.is_none();
+    let mut snapshot = state.snapshot(true, false);
+    snapshot["position"] = json!(position);
+    if whole_recording {
+        snapshot["duration"] = json!(position);
+    }
+    Some((
+        snapshot,
+        if whole_recording {
+            crate::playback_diagnostics::NativeDiagnosticMoment::CleanEof
+        } else {
+            crate::playback_diagnostics::NativeDiagnosticMoment::OutputEnded
+        },
+    ))
+}
+
 fn adopt_preloaded_opus_capability(state: &mut State, preload: &Preloaded) {
     state.opus_decoder_capability = preload.opus_decoder_capability.clone();
 }
@@ -1721,25 +1862,17 @@ impl PlaybackService {
         acquisition: Arc<AcquisitionManager>,
         history: Arc<PlaybackHistory>,
     ) -> Result<Arc<Self>, String> {
-        let native = std::env::var("BURRATA_PLAYBACK_ENGINE")
-            .ok()
-            .map(|v| v == "native")
-            .unwrap_or_else(|| {
-                store
-                    .get_json_preference(ENGINE_KEY)
-                    .ok()
-                    .flatten()
-                    .and_then(|v| v.as_str().map(|v| v == "native"))
-                    .unwrap_or(false)
-            });
+        let migration_pending = crate::native_session_migration::needs_legacy_session(&store)?;
         let (events_tx, mut events) = mpsc::unbounded_channel();
         let output = NativeOutput::new(events_tx)?;
-        let (updates, _) =
-            watch::channel(json!({"engine":if native{"native"}else{"webview"},"status":"idle"}));
+        let (updates, _) = watch::channel(json!({"engine":"native","status":"idle"}));
         let (audible, _) = watch::channel(false);
         let (radio_events, mut radio_rx) = mpsc::unbounded_channel();
         let mut state = State::default();
-        if let Some(mut saved) = store.get_json_preference(SESSION_KEY)? {
+        if let Some(mut saved) = store
+            .get_json_preference(SESSION_KEY)?
+            .filter(|_| !migration_pending)
+        {
             let merged = if saved.get("tracks").and_then(Value::as_array).is_none() {
                 match store.get_json_preference(QUEUE_KEY)? {
                     Some(queue) => merge_persisted_queue(&mut saved, &queue),
@@ -1767,7 +1900,7 @@ impl PlaybackService {
                 pending_native_sources: Mutex::new(HashMap::new()),
                 persistence: Mutex::new(()),
                 commands: tokio::sync::Mutex::new(()),
-                native: AtomicBool::new(native),
+                migration_pending: AtomicBool::new(migration_pending),
                 output,
                 loudness_verification: Arc::new(
                     crate::loudness_manager::LocalVerificationMemo::default(),
@@ -1797,7 +1930,7 @@ impl PlaybackService {
         Ok(service)
     }
     pub fn native_enabled(&self) -> bool {
-        self.inner.native.load(Ordering::Acquire)
+        true
     }
 
     pub fn loudness_settings(&self) -> Result<crate::loudness_manager::LoudnessSettings, String> {
@@ -2827,52 +2960,38 @@ impl PlaybackService {
             })
             .unwrap_or(0)
     }
-    /// Explicit user action: checkpoint both engine stores, then restart while
-    /// holding persistence serialization so an older session cannot overwrite it.
-    pub async fn restart_with_engine(
-        &self,
-        engine: crate::playback_engine_settings::Engine,
-        saved: Value,
-    ) -> Result<(), String> {
-        if std::env::var("BURRATA_PLAYBACK_ENGINE").is_ok() {
-            return Err("This launch uses a fixed audio engine".into());
-        }
+    /// Select the previously active engine's complete session. The engine key
+    /// becomes the durable migration receipt in the same SQLite transaction.
+    /// Legacy browser storage is deliberately left intact for interrupted retries.
+    pub async fn migrate_native_playback(&self, legacy: Value) -> Result<Value, String> {
         let _commands = self.inner.commands.lock().await;
         let _persistence = self
             .inner
             .persistence
             .lock()
             .map_err(|_| "Playback persistence unavailable")?;
-        let (queue, session) = engine_switch_checkpoint(&saved)?;
-        if self.native_enabled() {
-            let current = self
-                .inner
-                .state
-                .lock()
-                .map_err(|_| "Playback state unavailable")?;
-            if current.status == "playing"
-                || current.status == "resolving"
-                || current.status == "buffering"
-                || saved["entryIds"] != json!(current.entries)
-                || saved
-                    .get("queueLoudnessContexts")
-                    .cloned()
-                    .unwrap_or_else(|| json!({}))
-                    != json!(current.loudness_queue_contexts)
-                || saved["currentEntryId"] != json!(current.entries.get(current.index))
-                || saved["queueRevision"].as_u64() != Some(current.queue_revision)
-                || (saved["position"].as_f64().unwrap_or(-1.) - current.position).abs() > 0.05
-            {
-                return Err("Playback changed during engine switching. Try again.".into());
-            }
+        if !crate::native_session_migration::needs_legacy_session(&self.inner.store)? {
+            return Ok(self.snapshot());
         }
-        let selected = serde_json::to_value(engine).map_err(|_| "Invalid audio engine")?;
-        self.inner.store.save_playback_checkpoint_and_engine(
-            Some(&queue),
-            Some(&session),
-            Some(&selected),
-        )?;
-        self.inner.app.restart();
+        if legacy.is_null() {
+            return Ok(json!({"migrationRequired":true}));
+        }
+        let (queue, session) = engine_switch_checkpoint(&legacy)?;
+        let mut restored = State::default();
+        let mut saved = session.clone();
+        merge_persisted_queue(&mut saved, &queue)?;
+        restore_state(&mut restored, &saved)?;
+        crate::native_session_migration::commit(&self.inner.store, &queue, &session)?;
+        *self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| "Playback state unavailable")? = restored;
+        self.inner.migration_pending.store(false, Ordering::Release);
+        // Publish after releasing persistence: publish itself checkpoints state.
+        drop(_persistence);
+        self.publish();
+        Ok(self.snapshot())
     }
 
     /// Serialize a background file replacement with playback ownership. A new
@@ -2928,6 +3047,9 @@ impl PlaybackService {
     /// this reports that engine and revisions without exporting the native
     /// service's stale or partial queue as a replacement.
     pub fn checkpoint_for_backup(&self) -> Result<PlaybackBackupCheckpoint, String> {
+        if self.inner.migration_pending.load(Ordering::Acquire) {
+            return Err("Native playback session migration is pending".into());
+        }
         let _persistence = self
             .inner
             .persistence
@@ -3053,6 +3175,75 @@ impl PlaybackService {
                 estimate,
             }),
         }))
+    }
+
+    /// Installed-artifact proof: inspect only explicitly marked synthetic audio
+    /// after the real output callback consumed it. No PCM leaves the process.
+    pub async fn inspect_native_output(&self) -> Result<Value, String> {
+        if std::env::var("BURRATA_NATIVE_OUTPUT_QUALIFICATION").as_deref() != Ok("1") {
+            return Err("Native output qualification is disabled".into());
+        }
+        let (generation, track_id, serial) = {
+            let state = self
+                .inner
+                .state
+                .lock()
+                .map_err(|_| "Playback state unavailable")?;
+            let track = state.track().ok_or("No active synthetic fixture")?;
+            if state.status != "playing"
+                || track.provider != "local"
+                || track.provenance["synthetic"] != true
+            {
+                return Err(
+                    "Native output qualification requires a playing synthetic local fixture".into(),
+                );
+            }
+            (state.generation, track.id.clone(), state.seek_serial)
+        };
+        let tap = self.inner.output.tap();
+        let (rate, channels, pcm) =
+            tauri::async_runtime::spawn_blocking(move || tap.capture_pcm(generation, 3.0))
+                .await
+                .map_err(|_| "Native output probe failed")??;
+        let state = self
+            .inner
+            .state
+            .lock()
+            .map_err(|_| "Playback state unavailable")?;
+        if state.generation != generation
+            || state.seek_serial != serial
+            || state.track().map(|t| &t.id) != Some(&track_id)
+        {
+            return Err("Native output owner changed during qualification".into());
+        }
+        let mut measurements = Vec::new();
+        for channel in 0..channels as usize {
+            let samples: Vec<f32> = pcm
+                .iter()
+                .skip(channel)
+                .step_by(channels as usize)
+                .copied()
+                .collect();
+            let energy = samples.iter().map(|s| f64::from(*s).powi(2)).sum::<f64>()
+                / samples.len().max(1) as f64;
+            let tone = |hz: f64| {
+                let (mut re, mut im) = (0.0, 0.0);
+                for (i, sample) in samples.iter().enumerate() {
+                    let phase = std::f64::consts::TAU * hz * i as f64 / rate as f64;
+                    re += f64::from(*sample) * phase.cos();
+                    im += f64::from(*sample) * phase.sin();
+                }
+                2.0 * re.hypot(im) / samples.len().max(1) as f64
+            };
+            measurements
+                .push(json!({"rms":energy.sqrt(),"tone440":tone(440.0),"tone660":tone(660.0)}));
+        }
+        Ok(
+            json!({"engine":"native","trackId":track_id,"generation":generation,"seekSerial":serial,
+            "position":state.position,"sampleRate":rate,"channels":channels,
+            "capturedSeconds":pcm.len() as f64 / rate as f64 / channels as f64,"measurements":measurements,
+            "evidence":"PCM consumed by the Native output mixer"}),
+        )
     }
 
     /// Compatibility getter for clients that still request only live BPM.
@@ -3200,119 +3391,6 @@ impl PlaybackService {
         Ok(handle)
     }
 
-    /// Transfer the exact currently owned WebView occurrence to the native
-    /// decoder using the source held under `source_handle`. The handle is
-    /// consumed once and the queue/session/entry envelope is validated before
-    /// any native ownership change.
-    pub async fn handoff_webview_resolved_source(
-        &self,
-        handoff: ResolvedSourceHandoff,
-        source_is_current: impl FnOnce(&ResolvedSourceHandoff, &str) -> bool,
-    ) -> Result<Value, String> {
-        let _command = self.inner.commands.lock().await;
-        if self.native_enabled() {
-            return Err("Playback ownership has already transferred".into());
-        }
-        let track = validate_resolved_handoff_occurrence(&handoff)?;
-        self.validate_tracks(&handoff.tracks)?;
-        if !(0.0..=1.0).contains(&handoff.volume)
-            || !matches!(handoff.repeat.as_str(), "off" | "all" | "one")
-            || !handoff.target_position.is_finite()
-            || handoff.target_position < 0.0
-            || track
-                .duration_seconds
-                .is_some_and(|duration| handoff.target_position >= duration)
-        {
-            return Err("Native source handoff position or playback settings are invalid".into());
-        }
-        let now = Instant::now();
-        let (owner_matches, eligible, matching_level) = {
-            let mut pending = self
-                .inner
-                .pending_native_sources
-                .lock()
-                .map_err(|_| "Native playback source registry unavailable")?;
-            pending.retain(|_, source| source.expires_at > now);
-            let source = pending
-                .get(&handoff.source_handle)
-                .ok_or("Native playback source handle expired or was already used")?;
-            let eligible = source.resolved.source.cenc.as_ref().is_some_and(|cenc| {
-                cenc.has_registered_lease_for_input(&source.resolved.source.input)
-            }) && source.resolved.station.is_none()
-                && source
-                    .resolved
-                    .candidate
-                    .as_ref()
-                    .is_some_and(|candidate| candidate.provider == "monochrome")
-                && source
-                    .resolved
-                    .duration
-                    .or(track.duration_seconds)
-                    .is_some_and(|duration| {
-                        duration.is_finite() && duration > 0.0 && handoff.target_position < duration
-                    });
-            let owner_matches = pending_source_owner_matches(source, &handoff, track, now)
-                && pending_source_policy_matches(source, source.matching_level);
-            (owner_matches, eligible, source.matching_level)
-        };
-        let current_matching_level = self
-            .inner
-            .store
-            .settings()
-            .map_err(|_| "Playback matching policy unavailable")?
-            .matching_level;
-        if !eligible
-            || !owner_matches
-            || current_matching_level != matching_level
-            || !source_is_current(&handoff, &track.id)
-        {
-            return Err("Native source handoff no longer owns this playback occurrence".into());
-        }
-        let mut pending = self
-            .inner
-            .pending_native_sources
-            .lock()
-            .map_err(|_| "Native playback source registry unavailable")?;
-        let source =
-            take_pending_native_source(&mut pending, &handoff.source_handle, Instant::now())
-                .ok_or("Native playback source handle expired or was already used")?;
-        let candidate = source.resolved.candidate.clone();
-        let explicit_source = source.explicit_source;
-        {
-            let mut state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
-            state.queue = handoff.tracks;
-            state.entries = handoff.entry_ids;
-            state.index = handoff.index;
-            state.queue_revision = state.queue_revision.wrapping_add(1);
-            state.published_queue_revision = None;
-            state.session = handoff.session_id;
-            state.recorded = handoff.recorded;
-            state.volume = handoff.volume;
-            state.repeat = handoff.repeat;
-            state.shuffle = handoff.shuffle;
-            state.candidate = candidate.clone();
-            state.explicit_source = explicit_source;
-            state.handoff_id = Some(handoff.handoff_id);
-            state.pause_when_ready = handoff.paused;
-            state.request_started = Instant::now();
-            state.first_audio_ms = None;
-            state.source_ready_ms = None;
-            state.operation_source_ready_ms = None;
-            state.operation_first_audio_ms = None;
-            state.seek_serial = handoff.seek_serial;
-            state.seek_requested = Some(Instant::now());
-            state.seek_first_audio_ms = None;
-            state.recovery_deadline = None;
-            state.recovery = 0;
-            state.queued_operation_id = None;
-            state.queued_intent_epoch = state.queued_intent_epoch.wrapping_add(1);
-            state.revision = state.revision.wrapping_add(1);
-        }
-        drop(pending);
-        self.inner.native.store(true, Ordering::Release);
-        self.start_with_resolved_source(source.resolved, handoff.target_position, handoff.paused);
-        Ok(self.snapshot())
-    }
     pub fn snapshot_page(&self, offset: usize, limit: usize) -> Value {
         self.inner
             .state
@@ -3324,92 +3402,6 @@ impl PlaybackService {
         self.inner.updates.subscribe()
     }
 
-    /// Transfer a verified, currently playing WebView YouTube occurrence to the
-    /// native resolver without changing the queue/session identity.
-    pub async fn handoff_webview(
-        &self,
-        handoff: WebViewPlaybackHandoff,
-        source_is_current: impl FnOnce(u64, &str) -> bool,
-    ) -> Result<Value, String> {
-        let _command = self.inner.commands.lock().await;
-        if self.native_enabled() {
-            return Err("Playback ownership has already transferred".into());
-        }
-        let handoff_id = handoff.handoff_id.trim();
-        if handoff_id.is_empty()
-            || handoff_id.len() > 128
-            || handoff_id.chars().any(char::is_control)
-        {
-            return Err("Invalid playback handoff ID".into());
-        }
-        if handoff.session_id.trim().is_empty()
-            || handoff.session_id.len() > 128
-            || handoff.session_id.chars().any(char::is_control)
-            || handoff.entry_id.trim().is_empty()
-            || handoff.entry_id.len() > 200
-            || handoff.entry_id.chars().any(char::is_control)
-        {
-            return Err("Invalid playback session or queue occurrence".into());
-        }
-        if handoff.index >= handoff.tracks.len()
-            || handoff.entry_ids.len() != handoff.tracks.len()
-            || handoff.entry_ids.get(handoff.index) != Some(&handoff.entry_id)
-            || handoff.entry_ids.iter().any(|id| {
-                id.trim().is_empty() || id.len() > 200 || id.chars().any(char::is_control)
-            })
-            || handoff.entry_ids.iter().collect::<HashSet<_>>().len() != handoff.entry_ids.len()
-        {
-            return Err("Playback queue occurrence identity is inconsistent".into());
-        }
-        self.validate_tracks(&handoff.tracks)?;
-        let track = &handoff.tracks[handoff.index];
-        if exact_handoff_youtube_id(track, &handoff.candidate, handoff.target_position).is_none()
-            || !(0.0..=1.0).contains(&handoff.volume)
-            || !matches!(handoff.repeat.as_str(), "off" | "all" | "one")
-            || !source_is_current(handoff.source_generation, &track.id)
-        {
-            return Err(
-                "Playback handoff source does not match the current full YouTube recording".into(),
-            );
-        }
-        {
-            let mut state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
-            state.queue = handoff.tracks;
-            state.entries = handoff.entry_ids;
-            state.index = handoff.index;
-            state.queue_revision = state.queue_revision.wrapping_add(1);
-            state.published_queue_revision = None;
-            state.session = handoff.session_id;
-            state.recorded = handoff.recorded;
-            state.volume = handoff.volume;
-            state.repeat = handoff.repeat;
-            state.shuffle = handoff.shuffle;
-            state.candidate = Some(handoff.candidate.clone());
-            state.handoff_id = Some(handoff.handoff_id);
-            state.pause_when_ready = handoff.paused;
-            state.request_started = Instant::now();
-            state.first_audio_ms = None;
-            state.source_ready_ms = None;
-            state.operation_source_ready_ms = None;
-            state.operation_first_audio_ms = None;
-            state.seek_serial = handoff.seek_serial;
-            state.seek_requested = Some(Instant::now());
-            state.seek_first_audio_ms = None;
-            state.recovery_deadline = None;
-            state.recovery = 0;
-            state.queued_operation_id = None;
-            state.queued_intent_epoch = state.queued_intent_epoch.wrapping_add(1);
-            state.revision = state.revision.wrapping_add(1);
-        }
-        self.inner.native.store(true, Ordering::Release);
-        self.start_with_pause(
-            Some(handoff.candidate),
-            handoff.target_position,
-            true,
-            handoff.paused,
-        );
-        Ok(self.snapshot())
-    }
     fn publish(&self) {
         let (full, lite, queue_revision, include_queue) = {
             let mut s = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -3422,6 +3414,12 @@ impl PlaybackService {
                 include_queue,
             )
         };
+        if self.native_enabled() && crate::playback_diagnostics::is_enabled() {
+            crate::playback_diagnostics::record_native_snapshot(
+                &full,
+                crate::playback_diagnostics::NativeDiagnosticMoment::Snapshot,
+            );
+        }
         self.inner.updates.send_replace(lite);
         if self.native_enabled() {
             if self.inner.app.emit("native-playback-state", full).is_ok() && include_queue {
@@ -3448,6 +3446,7 @@ impl PlaybackService {
         s.generation_counter += 1;
         s.generation = s.generation_counter;
         s.output_ready = false;
+        s.crossfade_transition = None;
         s.opus_decoder_capability = None;
         s.pending_seek_generation = None;
         s.steady_http_stream = false;
@@ -3567,6 +3566,9 @@ impl PlaybackService {
         if !self.native_enabled() {
             return Err("Native playback is not enabled".into());
         }
+        if self.inner.migration_pending.load(Ordering::Acquire) {
+            return Err("Native playback session migration is pending".into());
+        }
         let action = command["action"]
             .as_str()
             .ok_or("Playback action is missing")?;
@@ -3656,6 +3658,10 @@ impl PlaybackService {
                             .map_err(|_| "Invalid audio candidate")
                     })
                     .transpose()?;
+                let candidate_only = command["candidateOnly"].as_bool().unwrap_or(false);
+                if candidate_only && candidate.is_none() {
+                    return Err("Source audition requires a selected audio candidate".into());
+                }
                 let position = positive(command.get("position"), 0.)?;
                 self.cancel();
                 self.change(|s| {
@@ -3671,6 +3677,7 @@ impl PlaybackService {
                     s.queued_intent_epoch = s.queued_intent_epoch.wrapping_add(1);
                     s.queued_operation_id = queued_operation_id.clone();
                     replace_play_queue(s, tracks, index);
+                    s.preview_source_entry = candidate_only.then(|| s.entries[s.index].clone());
                     s.loudness_queue_contexts.clear();
                     let queue_count = s.queue.len();
                     bind_loudness_context_to_queue_range(s, 0, queue_count, album_context.as_ref());
@@ -3719,9 +3726,6 @@ impl PlaybackService {
                 self.change(|s| {
                     if mode == "replace" {
                         clear_playback_failures(s);
-                        s.queue.clear();
-                        s.entries.clear();
-                        s.index = 0;
                         if !preserve {
                             s.status = "idle".into();
                             s.position = 0.;
@@ -3738,7 +3742,9 @@ impl PlaybackService {
                             s.message = "Queue ready".into();
                         }
                     }
-                    let at = if mode == "next" && !s.queue.is_empty() {
+                    let at = if mode == "replace" {
+                        0
+                    } else if mode == "next" && !s.queue.is_empty() {
                         s.index + 1
                     } else {
                         s.queue.len()
@@ -3746,10 +3752,14 @@ impl PlaybackService {
                     if mode == "replace" {
                         s.loudness_queue_contexts.clear();
                     }
-                    for (offset, track) in tracks.into_iter().enumerate() {
-                        s.queue.insert(at + offset, track);
-                        s.entries
-                            .insert(at + offset, uuid::Uuid::new_v4().to_string());
+                    if mode == "replace" {
+                        replace_queued_tracks(s, tracks, preserve);
+                    } else {
+                        for (offset, track) in tracks.into_iter().enumerate() {
+                            s.queue.insert(at + offset, track);
+                            s.entries
+                                .insert(at + offset, uuid::Uuid::new_v4().to_string());
+                        }
                     }
                     bind_loudness_context_to_queue_range(
                         s,
@@ -3800,7 +3810,16 @@ impl PlaybackService {
                 self.start(None, 0., false);
             }
             "pause" => {
-                self.clear_preload();
+                let crossfade_owned = {
+                    let s = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+                    s.crossfade_transition.is_some()
+                        || s.preload
+                            .as_ref()
+                            .is_some_and(|p| p.crossfade_seconds.is_some())
+                };
+                if !crossfade_owned {
+                    self.clear_preload();
+                }
                 let resolving = {
                     let s = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
                     ["resolving", "buffering"].contains(&s.status.as_str())
@@ -3893,6 +3912,7 @@ impl PlaybackService {
                     }
                     if continuing {
                         self.change(|s| {
+                            arm_paused_startup_resume(s, Instant::now());
                             if has_native_stall_history(s) {
                                 s.recovery_deadline = Some(Instant::now() + s.startup_budget);
                                 s.recovered_audio_since = None;
@@ -3917,10 +3937,21 @@ impl PlaybackService {
             }
             "seek" => {
                 let position = positive(command.get("position"), 0.)?;
-                let (duration, offset, station, ready, status, candidate, pause_when_ready) = {
+                let (
+                    duration,
+                    explicit_range,
+                    offset,
+                    station,
+                    ready,
+                    status,
+                    candidate,
+                    pause_when_ready,
+                ) = {
                     let s = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
                     (
                         s.duration,
+                        s.track()
+                            .is_some_and(|track| track.playback_range.is_some()),
                         s.offset,
                         s.station.is_some(),
                         s.output_ready,
@@ -3932,7 +3963,9 @@ impl PlaybackService {
                 if station {
                     return Err("Live radio cannot seek".into());
                 }
-                if duration > 0. && position > duration {
+                // Whole-recording duration can still be an estimate. Let the decoder
+                // seek beyond it; only an explicit chapter is a hard boundary.
+                if explicit_range && duration > 0. && position > duration {
                     return Err("Position exceeds track duration".into());
                 }
                 let mut seek_watchdog = None;
@@ -3950,6 +3983,7 @@ impl PlaybackService {
                     );
                     s.generation_counter += 1;
                     s.generation = s.generation_counter;
+                    s.crossfade_transition = None;
                     s.seek_watchdog_epoch = s.seek_watchdog_epoch.wrapping_add(1);
                     s.pending_seek_generation = Some(s.generation);
                     s.seek_requested = (status != "paused").then(Instant::now);
@@ -4276,9 +4310,13 @@ impl PlaybackService {
                 });
             if !resume {
                 s.explicit_source = candidate.is_some();
+                if candidate.is_none() {
+                    s.preview_source_entry = None;
+                }
                 clear_native_stall_history(&mut s);
                 s.healthy_output_since = None;
                 s.replace_source_on_recovery = false;
+                s.bypass_failed_local = false;
             }
             s.candidate = candidate.clone();
             s.steady_http_stream = false;
@@ -4318,7 +4356,20 @@ impl PlaybackService {
             *context = album_context;
         }
         self.inner.output.tap().supersede_older_subscribers(g);
-        let track = self.track_with_registered_chapter_asset(&track);
+        // Audition only the user-selected source, without replacing the library
+        // track or allowing its registered download to win this lookup. Keep
+        // the intent bound to the queue occurrence through seek/recovery.
+        let preview_candidate = {
+            let state = self.inner.state.lock().unwrap();
+            (state.preview_source_entry.as_ref() == state.entries.get(state.index))
+                .then(|| candidate.as_ref())
+                .flatten()
+        };
+        let track = if let Some(selected) = preview_candidate {
+            crate::playback_sources::selected_preview_track(&track, selected)
+        } else {
+            self.track_with_registered_chapter_asset(&track)
+        };
         self.publish();
         // This deadline includes reader/decoder readiness after URL resolution.
         // A successful first-audio event ends the watchdog permanently, so later
@@ -4711,7 +4762,28 @@ impl PlaybackService {
                 (None, None)
             }
         };
-        let deadline = restart_deadline(&self.inner.state.lock().unwrap());
+        let (deadline, bypass_local) = {
+            let state = self.inner.state.lock().unwrap();
+            (
+                restart_deadline(&state),
+                state.generation == g && state.bypass_failed_local,
+            )
+        };
+        if bypass_local {
+            return crate::playback_sources::resolve_remote_after_local_failure(
+                &self.inner.store,
+                &self.inner.acquisition,
+                track,
+                cancel,
+                operation_id,
+                seek_operation_id,
+                None,
+                crate::playback_sources::PlaybackDeadline::at(tokio::time::Instant::from_std(
+                    deadline,
+                )),
+            )
+            .await;
+        }
         // The source resolver binds reviewed online identities after validating
         // local assets, so downloaded recordings never need an online lookup.
         crate::playback_sources::resolve_with_trace_context_excluding_until(
@@ -4812,11 +4884,18 @@ impl PlaybackService {
             // Resolution exhausts its own attempts. A decoder transport failure
             // can still happen between successful preflight and first audio, so
             // permit a bounded refresh within the original startup deadline.
-            let can_recover = can_retry_failed_stream_at_stage(
-                &s,
-                message,
-                trigger == RecoveryTrigger::OutputFailed,
-            );
+            let local_fallback = settings
+                .as_ref()
+                .is_some_and(|settings| can_bypass_failed_local(&s, settings, message, trigger));
+            if local_fallback {
+                s.bypass_failed_local = true;
+            }
+            let can_recover = local_fallback
+                || can_retry_failed_stream_at_stage(
+                    &s,
+                    message,
+                    trigger == RecoveryTrigger::OutputFailed,
+                );
             let recurring_decision =
                 if can_recover && failure_counts_as_native_transport_stall(trigger, message) {
                     record_recurring_transport_stall(&mut s, Instant::now())
@@ -4936,6 +5015,7 @@ impl PlaybackService {
         s.pending_seek_generation = None;
         s.steady_http_stream = false;
         s.seek_watchdog_epoch = s.seek_watchdog_epoch.wrapping_add(1);
+        s.crossfade_transition = None;
         s.status = "failed".into();
         s.natural_queue_end = false;
         s.message = clean_error(error);
@@ -4947,6 +5027,70 @@ impl PlaybackService {
     async fn output_event(&self, event: OutputEvent) {
         let _command = self.inner.commands.lock().await;
         match event {
+            OutputEvent::GaplessCompleted {
+                from_generation,
+                to_generation,
+                position,
+            } => {
+                if !self.native_enabled() || !crate::playback_diagnostics::is_enabled() {
+                    return;
+                }
+                let observation = {
+                    let state = self.inner.state.lock().unwrap();
+                    gapless_completion_diagnostic(&state, from_generation, to_generation, position)
+                };
+                if let Some((snapshot, moment)) = observation {
+                    crate::playback_diagnostics::record_native_snapshot(&snapshot, moment);
+                }
+            }
+            OutputEvent::CrossfadeStarted {
+                from_generation,
+                to_generation,
+            } => {
+                let mut s = self.inner.state.lock().unwrap();
+                let valid = s.generation == from_generation
+                    && matches!(s.status.as_str(), "playing" | "paused")
+                    && s.preload.as_ref().is_some_and(|p| {
+                        p.generation == to_generation && s.entries.get(p.index) == Some(&p.entry)
+                    });
+                if !valid {
+                    return;
+                }
+                let Some(from_entry) = s.entries.get(s.index).cloned() else {
+                    return;
+                };
+                let Some(to_entry) = s.preload.as_ref().map(|p| p.entry.clone()) else {
+                    return;
+                };
+                // Stage ownership but publish only after Started adopts the incoming
+                // occurrence; consumers never see a transition on the old entry.
+                s.crossfade_transition = Some(NativeCrossfadeTransition {
+                    from_generation,
+                    to_generation,
+                    from_entry,
+                    to_entry,
+                    progress: 0.0,
+                });
+            }
+            OutputEvent::CrossfadeProgress {
+                from_generation,
+                to_generation,
+                progress,
+            } => {
+                let mut s = self.inner.state.lock().unwrap();
+                let Some(complete) =
+                    update_crossfade_progress(&mut s, from_generation, to_generation, progress)
+                else {
+                    return;
+                };
+                s.revision += 1;
+                let prepare = complete && s.status == "playing";
+                drop(s);
+                self.publish();
+                if prepare {
+                    self.prepare_next();
+                }
+            }
             OutputEvent::NormalizationSelected {
                 generation,
                 output_channels: _,
@@ -4979,7 +5123,7 @@ impl PlaybackService {
                 if s.generation != generation || matches!(s.status.as_str(), "idle" | "failed") {
                     return;
                 }
-                let pause_on_ready = s.pause_when_ready;
+                let pause_on_ready = s.pause_when_ready || s.status == "paused";
                 let restore_volume = s.volume;
                 let decoder_diagnostic = s.native_decoder_diagnostic.take();
                 self.inner
@@ -5052,7 +5196,16 @@ impl PlaybackService {
                 if !pause_on_ready {
                     self.record_started();
                     self.cache_current_artwork(generation);
-                    self.prepare_next();
+                    let crossfading = self
+                        .inner
+                        .state
+                        .lock()
+                        .unwrap()
+                        .crossfade_transition
+                        .is_some();
+                    if !crossfading {
+                        self.prepare_next();
+                    }
                 }
             }
             OutputEvent::Position {
@@ -5068,6 +5221,9 @@ impl PlaybackService {
                         return;
                     }
                     s.position = (seconds - s.offset).max(0.);
+                    if s.end.is_none() && s.station.is_none() {
+                        s.duration = s.duration.max(s.position);
+                    }
                     if s.recovery > 0 && s.recovered_audio_since.is_none() {
                         s.recovered_audio_since = Some((Instant::now(), s.position));
                     }
@@ -5109,6 +5265,15 @@ impl PlaybackService {
                         snapshot["chapter"] = lite;
                     }
                 });
+                if self.native_enabled() && crate::playback_diagnostics::is_enabled() {
+                    let snapshot = self.inner.updates.borrow();
+                    if snapshot["generation"].as_u64() == Some(generation) {
+                        crate::playback_diagnostics::record_native_snapshot(
+                            &snapshot,
+                            crate::playback_diagnostics::NativeDiagnosticMoment::Progress,
+                        );
+                    }
+                }
                 if save {
                     self.persist();
                 }
@@ -5160,14 +5325,26 @@ impl PlaybackService {
             }
             OutputEvent::Ended { generation } => {
                 if self.current(generation) {
-                    let premature = {
+                    let (premature, eof_snapshot) = {
                         let s = self.inner.state.lock().unwrap();
-                        if matches!(s.status.as_str(), "failed" | "paused" | "idle") {
+                        if matches!(s.status.as_str(), "failed" | "paused" | "idle" | "ended") {
                             return;
                         }
-                        ended_prematurely(&s)
+                        (
+                            ended_prematurely(&s),
+                            (self.native_enabled()
+                                && crate::playback_diagnostics::is_enabled()
+                                && s.generation == generation)
+                                .then(|| s.snapshot(true, false)),
+                        )
                     };
                     if premature {
+                        if let Some(eof_snapshot) = eof_snapshot {
+                            crate::playback_diagnostics::record_native_snapshot(
+                                &eof_snapshot,
+                                crate::playback_diagnostics::NativeDiagnosticMoment::PrematureEof,
+                            );
+                        }
                         self.recover_failure(
                             generation,
                             "Audio stream ended before the recording finished",
@@ -5179,7 +5356,7 @@ impl PlaybackService {
                             // A chapter/range end and a radio disconnect do not
                             // establish whole-track coverage.
                             (state.offset == 0.0 && state.end.is_none() && state.station.is_none())
-                                .then_some(state.duration)
+                                .then_some(state.position)
                         };
                         if let Some(duration) = duration {
                             let tap = self.inner.output.tap();
@@ -5191,12 +5368,27 @@ impl PlaybackService {
                         if !self.current(generation) {
                             return;
                         }
-                        {
+                        let eof_snapshot = {
                             let mut state = self.inner.state.lock().unwrap();
                             if state.generation != generation || state.status != "playing" {
                                 return;
                             }
+                            if state.station.is_none() && state.end.is_none() {
+                                state.duration = state.position;
+                            }
                             state.failed_occurrence_ids.clear();
+                            (self.native_enabled() && crate::playback_diagnostics::is_enabled())
+                                .then(|| state.snapshot(true, false))
+                        };
+                        if let Some(eof_snapshot) = eof_snapshot {
+                            crate::playback_diagnostics::record_native_snapshot(
+                                &eof_snapshot,
+                                if duration.is_some() {
+                                    crate::playback_diagnostics::NativeDiagnosticMoment::CleanEof
+                                } else {
+                                    crate::playback_diagnostics::NativeDiagnosticMoment::OutputEnded
+                                },
+                            );
                         }
                         self.advance(1, true);
                     }
@@ -5272,6 +5464,35 @@ impl PlaybackService {
             }
         }
     }
+    /// Refresh a not-yet-started preload after crossfade preferences change.
+    /// An already audible overlap keeps its latched configuration.
+    pub fn crossfade_settings_changed(&self) {
+        let service = self.clone();
+        tauri::async_runtime::spawn(async move {
+            let _command = service.inner.commands.lock().await;
+            let invalidated = {
+                let mut state = service
+                    .inner
+                    .state
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                invalidate_preload_for_settings_change(&mut state)
+            };
+            if let Some((generation, abandoned, reprepare)) = invalidated {
+                if let Some(abandoned) = abandoned {
+                    service.inner.observed_analysis.cancel_generation(abandoned);
+                }
+                let _ = service
+                    .inner
+                    .output
+                    .send(OutputCommand::ClearPreload { generation });
+                if reprepare {
+                    service.prepare_next();
+                }
+            }
+        });
+    }
+
     fn clear_preload(&self) {
         let mut s = self.inner.state.lock().unwrap();
         let abandoned_generation = s.preload.as_ref().map(|preload| preload.generation);
@@ -5316,7 +5537,11 @@ impl PlaybackService {
     fn prepare_next(&self) {
         let (owner, track, cancel) = {
             let mut s = self.inner.state.lock().unwrap();
-            if s.status != "playing" || s.station.is_some() || s.preload_cancel.is_some() {
+            if s.status != "playing"
+                || s.station.is_some()
+                || s.preload_cancel.is_some()
+                || s.crossfade_transition.is_some()
+            {
                 return;
             }
             let Some(index) = queue_next(s.queue.len(), s.index, &s.repeat, 1, true) else {
@@ -5576,6 +5801,28 @@ impl PlaybackService {
                 );
             }
             let opus_decoder_capability = active_opus_decoder_capability(&resolved.source);
+            let crossfade_seconds = service.inner.store.settings().ok().and_then(|settings| {
+                let eligible = settings.crossfade_enabled
+                    && s.repeat != "one"
+                    && owner.index != s.index
+                    && s.duration_verified
+                    && s.duration.is_finite()
+                    && s.duration > 0.0
+                    && s.station.is_none()
+                    && s.offset == 0.0
+                    && s.end.is_none()
+                    && s.quality["sourceKind"] != "approximateAlbumExcerpt"
+                    && resolved.quality["sourceKind"] != "approximateAlbumExcerpt"
+                    && s.track().is_some_and(|current| {
+                        current.provider != "radio" && current.playback_range.is_none()
+                    })
+                    && track.provider != "radio"
+                    && track.playback_range.is_none()
+                    && resolved.station.is_none()
+                    && offset == 0.0
+                    && end.is_none();
+                eligible.then_some(settings.crossfade_seconds)
+            });
             s.preload = Some(Preloaded {
                 preparation_trace: Some(trace.clone()),
                 generation,
@@ -5590,6 +5837,7 @@ impl PlaybackService {
                 loudness_status,
                 loudness_album_context: queue_album_context,
                 opus_decoder_capability,
+                crossfade_seconds,
             });
             let queued = service
                 .inner
@@ -5601,6 +5849,7 @@ impl PlaybackService {
                     position: offset,
                     end,
                     plan: loudness_plan,
+                    crossfade_seconds,
                 });
             if queued.is_err() {
                 service
@@ -5662,6 +5911,7 @@ impl PlaybackService {
         s.duration = range_duration.or(p.duration).unwrap_or(0.);
         s.candidate = p.candidate;
         s.explicit_source = false;
+        s.bypass_failed_local = false;
         s.recovery_deadline = None;
         s.recovered_audio_since = None;
         s.quality = p.quality;
@@ -5752,6 +6002,9 @@ impl PlaybackService {
         }
     }
     fn persist(&self) {
+        if self.inner.migration_pending.load(Ordering::Acquire) {
+            return;
+        }
         persist_playback_state(
             &self.inner.state,
             &self.inner.persistence,
@@ -6466,36 +6719,14 @@ impl PlaybackService {
         if !should_wait {
             return Ok(self.snapshot_page(0, 50));
         }
-        let generation = snapshot["generation"].as_u64().unwrap_or(0);
-        let mut updates = self.subscribe();
-        match tokio::time::timeout(Duration::from_secs(45), async {
-            loop {
-                let value = updates.borrow().clone();
-                if value["generation"].as_u64() != Some(generation) {
-                    return Err("Playback request was superseded".into());
-                }
-                match value["status"].as_str() {
-                    Some("playing") => return Ok(self.snapshot_page(0, 50)),
-                    Some("failed") => {
-                        return Err(value["playerMessage"]
-                            .as_str()
-                            .unwrap_or("Playback failed")
-                            .to_owned());
-                    }
-                    Some("paused" | "idle" | "ended") => {
-                        return Err("Playback did not start".into());
-                    }
-                    _ => {}
-                }
-                updates
-                    .changed()
-                    .await
-                    .map_err(|_| "Player stopped".to_owned())?;
-            }
-        })
+        match tokio::time::timeout(
+            Duration::from_secs(45),
+            wait_for_automation_start(self.subscribe(), snapshot),
+        )
         .await
         {
-            Ok(result) => result,
+            Ok(Ok(())) => Ok(self.snapshot_page(0, 50)),
+            Ok(Err(error)) => Err(error),
             Err(_) => Err("Playback timed out".into()),
         }
     }
@@ -7095,6 +7326,52 @@ fn record_recovery_facts(state: &mut State, trigger: RecoveryTrigger) {
         "decoderEvidence":"last_started_snapshot","decoder":decoder}));
 }
 
+fn can_bypass_failed_local(
+    state: &State,
+    settings: &crate::models::Settings,
+    message: &str,
+    trigger: RecoveryTrigger,
+) -> bool {
+    let Some(track) = state.track() else {
+        return false;
+    };
+    let failure = crate::playback_failure::classify(message);
+    let lower = message.to_ascii_lowercase();
+    let per_file_access = failure.category == crate::playback_failure::FailureCategory::Storage
+        && (lower.contains("permission denied") || lower.contains("local file"))
+        && ![
+            "disk full",
+            "no space",
+            "quota",
+            "read-only",
+            "readonly",
+            "database",
+            "temporary storage",
+        ]
+        .iter()
+        .any(|term| lower.contains(term));
+    let now = Instant::now();
+    trigger == RecoveryTrigger::OutputFailed
+        && !state.bypass_failed_local
+        && state.recovery < 2
+        && state.quality["sourceKind"] == "localAsset"
+        && crate::playback_sources::can_bypass_failed_local(track, state.explicit_source, settings)
+        && !matches!(
+            failure.category,
+            crate::playback_failure::FailureCategory::Cancelled
+                | crate::playback_failure::FailureCategory::Output
+        )
+        && (failure.category != crate::playback_failure::FailureCategory::Storage
+            || per_file_access)
+        && state
+            .recovery_deadline
+            .is_none_or(|deadline| now < deadline)
+        && state
+            .seek_requested
+            .is_none_or(|started| now < started + state.startup_budget)
+        && (state.first_audio_ms.is_some() || now < state.request_started + state.startup_budget)
+}
+
 fn can_retry_failed_stream(state: &State, message: &str) -> bool {
     can_retry_failed_stream_at_stage(state, message, false)
 }
@@ -7332,6 +7609,15 @@ fn restart_deadline(state: &State) -> Instant {
                 state.request_started + state.startup_budget
             }
         })
+}
+
+// Explicit Resume starts a new bounded opportunity after the user interrupted
+// startup. Automatic recovery never calls this helper and keeps its deadline.
+fn arm_paused_startup_resume(state: &mut State, resumed_at: Instant) {
+    if state.status == "paused" && !state.output_ready && state.first_audio_ms.is_none() {
+        state.request_started = resumed_at;
+        state.recovery_deadline = None;
+    }
 }
 
 // Paused seeks defer decoder latency until Resume, while receipt latency still
@@ -7649,9 +7935,9 @@ fn reset_failed_resume_diagnostics(state: &mut State) {
 }
 
 fn ended_prematurely(state: &State) -> bool {
-    state.station.is_some()
-        || !state.output_ready
-        || (state.duration_verified && state.duration > 0. && state.position + 1.5 < state.duration)
+    state.station.is_some() || !state.output_ready
+    // Decoder errors have their own failure event. Clean decoded EOF is
+    // authoritative even when a container/catalog duration was too long.
 }
 
 fn failed_track_next_index(
@@ -7713,6 +7999,25 @@ fn source_bounds_for_track(track: &Track, cropped_excerpt: bool) -> (f64, Option
     }
 }
 
+// Replacing the upcoming queue may retain the active decoder. Its selected
+// audition source must follow that retained playback onto the new occurrence.
+fn replace_queued_tracks(state: &mut State, tracks: Vec<Track>, preserve_current: bool) {
+    let preserve_preview = preserve_current
+        && state.preview_source_entry.is_some()
+        && state.preview_source_entry.as_ref() == state.entries.get(state.index)
+        && state
+            .track()
+            .is_some_and(|current| tracks.first().is_some_and(|next| next.id == current.id));
+    state.queue = tracks;
+    state.entries = state
+        .queue
+        .iter()
+        .map(|_| uuid::Uuid::new_v4().to_string())
+        .collect();
+    state.index = 0;
+    state.preview_source_entry = preserve_preview.then(|| state.entries[0].clone());
+}
+
 // A new play request must honor the existing shuffle preference, just as the
 // WebView engine does. Keep the selected occurrence and its preceding history.
 fn replace_play_queue(state: &mut State, tracks: Vec<Track>, index: usize) {
@@ -7742,6 +8047,7 @@ fn shuffle_upcoming(state: &mut State) {
 
 #[cfg(test)]
 mod tests {
+    include!("playback_paused_startup_resume_tests.rs");
     use super::*;
 
     #[test]
@@ -7922,6 +8228,83 @@ mod tests {
     }
 
     #[test]
+    fn gapless_diagnostic_keeps_old_owner_and_rejects_stale_or_overlapping_handoffs() {
+        let mut state = State::default();
+        state.generation = 7;
+        state.status = "playing".into();
+        let mut track = Track::default();
+        track.id = "old-recording".into();
+        track.duration_seconds = Some(4.0);
+        state.queue = vec![track, Track::default()];
+        state.entries = vec!["old-entry".into(), "next-entry".into()];
+        state.index = 0;
+        state.position = 10.0;
+        state.duration = 4.0;
+        state.preload = Some(Preloaded {
+            preparation_trace: None,
+            generation: 8,
+            index: 1,
+            entry: "next-entry".into(),
+            candidate: None,
+            quality: json!({}),
+            duration: Some(24.0),
+            steady_http_stream: false,
+            offset: 0.0,
+            end: None,
+            loudness_status: crate::loudness_manager::LoudnessStatus::off(),
+            loudness_album_context: None,
+            opus_decoder_capability: None,
+            crossfade_seconds: None,
+        });
+        let (snapshot, moment) = gapless_completion_diagnostic(&state, 7, 8, 12.0).unwrap();
+        assert!(matches!(
+            moment,
+            crate::playback_diagnostics::NativeDiagnosticMoment::CleanEof
+        ));
+        assert_eq!(snapshot["generation"], 7);
+        assert_eq!(snapshot["entryId"], "old-entry");
+        assert_eq!(snapshot["position"], 12.0);
+        assert_eq!(snapshot["duration"], 12.0);
+        assert_eq!(snapshot["track"]["durationSeconds"], 4.0);
+        assert_eq!(state.position, 10.0, "diagnostics never mutate playback");
+        assert_eq!(state.duration, 4.0);
+        assert!(gapless_completion_diagnostic(&state, 6, 8, 12.0).is_none());
+        assert!(gapless_completion_diagnostic(&state, 7, 9, 12.0).is_none());
+        assert!(gapless_completion_diagnostic(&state, 7, 8, f64::NAN).is_none());
+        state.entries[1] = "replaced-entry".into();
+        assert!(gapless_completion_diagnostic(&state, 7, 8, 12.0).is_none());
+        state.entries[1] = "next-entry".into();
+        state.offset = 6.0;
+        assert!(matches!(
+            gapless_completion_diagnostic(&state, 7, 8, 12.0).unwrap().1,
+            crate::playback_diagnostics::NativeDiagnosticMoment::OutputEnded
+        ));
+        state.offset = 0.0;
+        state.end = Some(12.0);
+        assert!(matches!(
+            gapless_completion_diagnostic(&state, 7, 8, 12.0).unwrap().1,
+            crate::playback_diagnostics::NativeDiagnosticMoment::OutputEnded
+        ));
+        state.end = None;
+        state.crossfade_transition = Some(NativeCrossfadeTransition {
+            from_generation: 7,
+            to_generation: 8,
+            from_entry: "old-entry".into(),
+            to_entry: "next-entry".into(),
+            progress: 0.5,
+        });
+        assert!(gapless_completion_diagnostic(&state, 7, 8, 12.0).is_none());
+        // Once the incoming occurrence is adopted, even a delayed old decoder
+        // completion cannot project clean EOF onto the new owner.
+        state.generation = 8;
+        state.index = 1;
+        state.crossfade_transition = None;
+        state.preload = None;
+        assert!(gapless_completion_diagnostic(&state, 7, 8, 12.0).is_none());
+        assert!(gapless_completion_diagnostic(&state, 8, 9, 12.0).is_none());
+    }
+
+    #[test]
     fn refresh_and_preload_adoption_preserve_the_exact_qualified_opus_decoder() {
         let capability = ActiveOpusDecoderCapability {
             executable_path: if cfg!(windows) {
@@ -7964,6 +8347,7 @@ mod tests {
             loudness_status: crate::loudness_manager::LoudnessStatus::off(),
             loudness_album_context: None,
             opus_decoder_capability: Some(capability.clone()),
+            crossfade_seconds: None,
         };
         state.opus_decoder_capability = None;
         adopt_preloaded_opus_capability(&mut state, &preload);
@@ -8278,6 +8662,7 @@ mod tests {
             loudness_status: crate::loudness_manager::LoudnessStatus::off(),
             loudness_album_context: None,
             opus_decoder_capability: None,
+            crossfade_seconds: None,
         });
         assert!(apply_normalization_selection(
             &mut state,
@@ -8408,6 +8793,41 @@ mod tests {
             AudioRange::WHOLE_FILE,
         )
         .is_err());
+    }
+
+    #[test]
+    fn replacing_queue_rekeys_audition_only_for_retained_current_playback() {
+        let current = Track {
+            id: "downloaded-recording".into(),
+            local_path: Some("/music/download.flac".into()),
+            ..Track::default()
+        };
+        let next = Track {
+            id: "next-recording".into(),
+            ..Track::default()
+        };
+        let mut state = State::default();
+        replace_play_queue(&mut state, vec![next.clone(), current.clone()], 1);
+        let old_entry = state.entries[1].clone();
+        state.preview_source_entry = Some(old_entry.clone());
+        replace_queued_tracks(&mut state, vec![current.clone(), next.clone()], true);
+        assert_ne!(state.entries[0], old_entry);
+        assert_eq!(state.preview_source_entry.as_ref(), state.entries.first());
+        assert_eq!(state.queue[0], current);
+
+        // A normal replacement of the same recording must not inherit audition.
+        replace_queued_tracks(&mut state, vec![current.clone()], false);
+        assert!(state.preview_source_entry.is_none());
+
+        state.preview_source_entry = Some(state.entries[0].clone());
+        replace_queued_tracks(&mut state, vec![next.clone()], true);
+        assert!(state.preview_source_entry.is_none());
+
+        // An audition owned by a different occurrence cannot follow the current.
+        replace_queued_tracks(&mut state, vec![current.clone(), next], false);
+        state.preview_source_entry = Some(state.entries[1].clone());
+        replace_queued_tracks(&mut state, vec![current], true);
+        assert!(state.preview_source_entry.is_none());
     }
 
     #[test]
@@ -8953,6 +9373,7 @@ mod tests {
             loudness_status: crate::loudness_manager::LoudnessStatus::off(),
             loudness_album_context: None,
             opus_decoder_capability: None,
+            crossfade_seconds: None,
         });
         let event = OutputEvent::DeviceLost {
             generation: 41,
@@ -9849,6 +10270,78 @@ mod tests {
             )
             .await
         );
+    }
+
+    fn automation_start_fixture() -> Value {
+        json!({"generation":1,"entryId":"first","seekSerial":0,"status":"resolving",
+            "diagnostics":{"operationId":"native-request","recoveryCount":0}})
+    }
+
+    #[tokio::test]
+    async fn automation_start_follows_owned_source_recovery_until_audio() {
+        // Restored paused sessions can legitimately have no prior operation ID.
+        for operation_id in [json!("native-request"), Value::Null] {
+            let mut original = automation_start_fixture();
+            original["diagnostics"]["operationId"] = operation_id;
+            let (tx, rx) = watch::channel(original.clone());
+            let pending = tokio::spawn(wait_for_automation_start(rx, original.clone()));
+            let mut recovery = original;
+            recovery["generation"] = json!(2);
+            recovery["diagnostics"]["recoveryCount"] = json!(1);
+            tx.send_replace(recovery.clone());
+            tokio::task::yield_now().await;
+            assert!(!pending.is_finished());
+            recovery["status"] = json!("playing");
+            tx.send_replace(recovery);
+            assert!(tokio::time::timeout(Duration::from_secs(1), pending)
+                .await
+                .unwrap()
+                .unwrap()
+                .is_ok());
+        }
+    }
+
+    #[tokio::test]
+    async fn automation_start_returns_owned_recovery_failure_instead_of_supersession() {
+        let original = automation_start_fixture();
+        let (tx, rx) = watch::channel(original.clone());
+        let mut failed = original.clone();
+        failed["generation"] = json!(2);
+        failed["diagnostics"]["recoveryCount"] = json!(1);
+        failed["status"] = json!("failed");
+        failed["playerMessage"] = json!("Fixture source expired");
+        tx.send_replace(failed);
+        assert_eq!(
+            wait_for_automation_start(rx, original).await.unwrap_err(),
+            "Fixture source expired"
+        );
+    }
+
+    #[test]
+    fn automation_start_rejects_new_commands_occurrences_and_seeks() {
+        let original = automation_start_fixture();
+        let mut recovery = original.clone();
+        recovery["generation"] = json!(2);
+        recovery["diagnostics"]["recoveryCount"] = json!(1);
+        assert!(automation_start_still_owned(&original, &recovery));
+        for pointer in [
+            "/diagnostics/operationId",
+            "/entryId",
+            "/seekSerial",
+            "/diagnostics/recoveryCount",
+            "/generation",
+        ] {
+            let mut replaced = recovery.clone();
+            *replaced.pointer_mut(pointer).unwrap() = match pointer {
+                "/diagnostics/operationId" | "/entryId" => json!("another-request"),
+                "/seekSerial" => json!(1),
+                _ => json!(0),
+            };
+            assert!(
+                !automation_start_still_owned(&original, &replaced),
+                "{pointer}"
+            );
+        }
     }
 
     #[test]
@@ -10927,6 +11420,156 @@ mod tests {
     }
 
     #[test]
+    fn crossfade_progress_rejects_stale_generations_and_clears_at_completion() {
+        let mut state = State::default();
+        state.generation = 9;
+        state.status = "playing".into();
+        state.crossfade_transition = Some(NativeCrossfadeTransition {
+            from_generation: 8,
+            to_generation: 9,
+            from_entry: "from".into(),
+            to_entry: "to".into(),
+            progress: 0.0,
+        });
+        assert_eq!(update_crossfade_progress(&mut state, 7, 9, 0.5), None);
+        assert_eq!(update_crossfade_progress(&mut state, 8, 10, 0.5), None);
+        assert_eq!(update_crossfade_progress(&mut state, 8, 9, f64::NAN), None);
+        assert_eq!(
+            update_crossfade_progress(&mut state, 8, 9, 0.5),
+            Some(false)
+        );
+        let snapshot = state.snapshot(true, false);
+        assert_eq!(
+            snapshot["transition"],
+            json!({"fromEntryId":"from","toEntryId":"to","progress":0.5})
+        );
+        assert_eq!(update_crossfade_progress(&mut state, 8, 9, 1.0), Some(true));
+        assert!(state.crossfade_transition.is_none());
+        assert_eq!(update_crossfade_progress(&mut state, 8, 9, 1.0), None);
+    }
+
+    #[test]
+    fn failed_catalog_local_decoder_gets_one_scoped_remote_attempt() {
+        let mut state = State::default();
+        let mut track = Track::default();
+        track.id = "spotify:track:one".into();
+        track.provider = "spotify".into();
+        track.source_url = "https://open.spotify.com/track/one".into();
+        track.local_path = Some("/registered/broken.wav".into());
+        state.queue = vec![track];
+        state.quality = json!({"sourceKind":"localAsset"});
+        let settings = crate::models::Settings::default();
+        assert!(can_bypass_failed_local(
+            &state,
+            &settings,
+            "decoder failed",
+            RecoveryTrigger::OutputFailed
+        ));
+        state.bypass_failed_local = true;
+        assert!(!can_bypass_failed_local(
+            &state,
+            &settings,
+            "decoder failed",
+            RecoveryTrigger::OutputFailed
+        ));
+        state.bypass_failed_local = false;
+        state.explicit_source = true;
+        assert!(!can_bypass_failed_local(
+            &state,
+            &settings,
+            "decoder failed",
+            RecoveryTrigger::OutputFailed
+        ));
+        state.explicit_source = false;
+        state.queue[0].provider = "local".into();
+        assert!(!can_bypass_failed_local(
+            &state,
+            &settings,
+            "decoder failed",
+            RecoveryTrigger::OutputFailed
+        ));
+        state.queue[0].provider = "spotify".into();
+        assert!(!can_bypass_failed_local(
+            &state,
+            &settings,
+            "output device unavailable",
+            RecoveryTrigger::OutputFailed
+        ));
+        assert!(!can_bypass_failed_local(
+            &state,
+            &settings,
+            "Cancelled",
+            RecoveryTrigger::OutputFailed
+        ));
+        for failure in [
+            "audio sink failed",
+            "CPAL failed",
+            "disk full",
+            "local file: no space left",
+            "read-only file system",
+        ] {
+            assert!(
+                !can_bypass_failed_local(&state, &settings, failure, RecoveryTrigger::OutputFailed),
+                "{failure}"
+            );
+        }
+        assert!(can_bypass_failed_local(
+            &state,
+            &settings,
+            "local file: permission denied",
+            RecoveryTrigger::OutputFailed
+        ));
+        state.request_started = Instant::now() - state.startup_budget - Duration::from_secs(1);
+        assert!(!can_bypass_failed_local(
+            &state,
+            &settings,
+            "decoder failed",
+            RecoveryTrigger::OutputFailed
+        ));
+        state.first_audio_ms = Some(20);
+        assert!(can_bypass_failed_local(
+            &state,
+            &settings,
+            "decoder failed",
+            RecoveryTrigger::OutputFailed
+        ));
+        state.recovery_deadline = Some(Instant::now() - Duration::from_millis(1));
+        assert!(!can_bypass_failed_local(
+            &state,
+            &settings,
+            "decoder failed",
+            RecoveryTrigger::OutputFailed
+        ));
+    }
+
+    #[test]
+    fn settings_change_cancels_paused_preparation_but_preserves_audible_transition() {
+        let (mut state, owner, receiver) = preparation_fixture();
+        state.status = "paused".into();
+        assert_eq!(
+            invalidate_preload_for_settings_change(&mut state),
+            Some((41, None, false))
+        );
+        assert!(*receiver.borrow());
+        assert!(state.preload_cancel.is_none());
+        assert!(!preload_preparation_is_current(&state, &owner));
+
+        let (mut state, _, receiver) = preparation_fixture();
+        state.status = "paused".into();
+        state.crossfade_transition = Some(NativeCrossfadeTransition {
+            from_generation: 40,
+            to_generation: 41,
+            from_entry: "from".into(),
+            to_entry: "to".into(),
+            progress: 0.5,
+        });
+        assert_eq!(invalidate_preload_for_settings_change(&mut state), None);
+        assert!(!*receiver.borrow());
+        assert!(state.preload_cancel.is_some());
+        assert_eq!(state.crossfade_transition.as_ref().unwrap().progress, 0.5);
+    }
+
+    #[test]
     fn exhausted_transport_and_decoder_failures_advance_once_but_system_failures_do_not() {
         let mut state = State::default();
         state.queue = vec![Track::default(), Track::default()];
@@ -11349,7 +11992,7 @@ mod tests {
     }
 
     #[test]
-    fn natural_end_uses_verified_duration_not_catalog_estimates() {
+    fn natural_end_uses_clean_decoded_eof_not_duration_estimates() {
         let mut state = State::default();
         state.output_ready = true;
         state.duration = 240.;
@@ -11360,8 +12003,8 @@ mod tests {
         );
         state.duration_verified = true;
         assert!(
-            ended_prematurely(&state),
-            "verified truncation must still recover"
+            !ended_prematurely(&state),
+            "decoder EOF must override malformed duration metadata"
         );
         state.position = 239.;
         assert!(!ended_prematurely(&state));
@@ -11858,8 +12501,11 @@ mod reliability_policy_tests {
         assert!(recovery_can_replace_source(2, false, &track, &settings));
         assert!(!recovery_can_replace_source(2, true, &track, &settings));
         track.provider = "youtube".into();
+        assert!(recovery_can_replace_source(2, false, &track, &settings));
+        track.provenance = json!({"explicitSourceLock":true});
         assert!(!recovery_can_replace_source(2, false, &track, &settings));
         track.provider = "spotify".into();
+        track.provenance = json!({});
         track.local_path = Some("fixture.flac".into());
         assert!(!recovery_can_replace_source(2, false, &track, &settings));
     }
@@ -11868,6 +12514,11 @@ mod reliability_policy_tests {
         let settings = crate::models::Settings::default();
         let pinned = Track {
             provider: "youtube".into(),
+            provenance: json!({"explicitSourceLock":true}),
+            ..Track::default()
+        };
+        let implicit_youtube = Track {
+            provider: "youtube".into(),
             ..Track::default()
         };
         let automatic = Track {
@@ -11875,6 +12526,14 @@ mod reliability_policy_tests {
             ..Track::default()
         };
         let pair = RecurringStallDecision::ReplaceSource;
+        assert!(!recurring_stall_requires_terminal_failure(
+            pair,
+            &implicit_youtube,
+            false,
+            Some(&settings),
+            false,
+            false
+        ));
         assert!(recurring_stall_requires_terminal_failure(
             pair,
             &pinned,
@@ -11984,6 +12643,11 @@ mod reliability_policy_tests {
         };
         let pinned = Track {
             provider: "youtube".into(),
+            provenance: json!({"explicitSourceLock":true}),
+            ..Track::default()
+        };
+        let implicit_youtube = Track {
+            provider: "youtube".into(),
             ..Track::default()
         };
         assert!(recovery_should_replace_source(
@@ -11994,6 +12658,14 @@ mod reliability_policy_tests {
         ));
         assert!(!recovery_should_replace_source(
             1, false, &pinned, &settings, true, 0
+        ));
+        assert!(recovery_should_replace_source(
+            1,
+            false,
+            &implicit_youtube,
+            &settings,
+            true,
+            0
         ));
         assert!(!recovery_should_replace_source(
             2,

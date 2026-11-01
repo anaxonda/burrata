@@ -2,15 +2,13 @@
   import { onMount } from "svelte";
   import InfoPopover from "./InfoPopover.svelte";
 
-  export type PlaybackDiagnosticsStatus = { enabled: boolean; eventCount: number; maxEvents: number };
+  export type PlaybackDiagnosticsStatus = { enabled: boolean; eventCount: number; maxEvents: number; droppedEvents?: number; nativeEventCount?: number; maxNativeEvents?: number; droppedNativeEvents?: number };
   type ExportResult = { cancelled: boolean; path?: string; eventCount?: number };
   type NativeCall = <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
-  let { enabled, onEnabledChange, call, getWebviewDiagnostics, onClearWebviewDiagnostics }: {
+  let { enabled, onEnabledChange, call }: {
     enabled: boolean;
     onEnabledChange: (enabled: boolean) => void | Promise<void>;
     call: NativeCall;
-    getWebviewDiagnostics?: () => unknown;
-    onClearWebviewDiagnostics?: () => void;
   } = $props();
 
   let status = $state<PlaybackDiagnosticsStatus | null>(null);
@@ -50,7 +48,6 @@
     working = true; error = ""; message = "";
     try {
       await call("clear_playback_diagnostics");
-      onClearWebviewDiagnostics?.();
       await refresh();
       message = "Playback diagnostic events cleared.";
     } catch (failure) { error = failure instanceof Error ? failure.message : String(failure); }
@@ -59,10 +56,9 @@
   async function exportReport() {
     working = true; error = ""; message = "";
     try {
-      const original = getWebviewDiagnostics?.() ?? null;
-      const webviewContext = browserPlayback === "not_tested" && alternateNetworkPlayback === "not_tested" && vpn === "unknown"
-        ? original : {...(original && typeof original === "object" ? original : {}), testerObservations:{browserPlayback,alternateNetworkPlayback,vpn}};
-      const result = await call<ExportResult>("export_playback_diagnostics", {webviewContext});
+      const testerObservations = browserPlayback === "not_tested" && alternateNetworkPlayback === "not_tested" && vpn === "unknown"
+        ? null : {browserPlayback,alternateNetworkPlayback,vpn};
+      const result = await call<ExportResult>("export_playback_diagnostics", {testerObservations});
       if (result?.cancelled) message = "Export cancelled.";
       else if (result?.path) message = `Exported ${result.eventCount ?? status?.eventCount ?? 0} playback diagnostic events to ${result.path}. No report was uploaded.`;
       else message = "Playback diagnostics exported.";
@@ -81,11 +77,11 @@
   <div><button class="export" type="button" disabled={working} onclick={() => void exportReport()}>{working ? "Working…" : "Export report…"}</button></div>
   <details class="report-details"><summary>Report details</summary>
     {#if loading}<p role="status">Loading diagnostics status…</p>
-    {:else if status}<p class="diagnostics-count" role="status">{status.eventCount} of {status.maxEvents} diagnostic events stored · {status.enabled ? "logging enabled" : "logging disabled"}</p>
+    {:else if status}<p class="diagnostics-count" role="status">{status.eventCount} of {status.maxEvents} source events stored{#if status.droppedEvents} · {status.droppedEvents} older source events dropped{/if} · {status.enabled ? "logging enabled" : "logging disabled"}{#if status.maxNativeEvents} · {status.nativeEventCount ?? 0} of {status.maxNativeEvents} Native timeline events{#if status.droppedNativeEvents} · {status.droppedNativeEvents} older Native events dropped{/if}{/if}</p>
     {:else}<p class="diagnostics-count">Diagnostics status is unavailable.</p>{/if}
     <div class="diagnostics-actions">
       <button type="button" disabled={working || loading} onclick={() => void refresh()}>Refresh status</button>
-      <button type="button" disabled={working || !status?.eventCount} onclick={() => void clearEvents()}>Clear diagnostic events</button>
+      <button type="button" disabled={working || !(status?.eventCount || status?.nativeEventCount)} onclick={() => void clearEvents()}>Clear diagnostic events</button>
     </div>
     <details><summary>Optional reproduction details</summary>
       <p>For the same failing source, record comparisons you have tried. These choices are included in the exported report.</p>

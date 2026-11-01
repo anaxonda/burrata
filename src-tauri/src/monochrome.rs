@@ -1009,11 +1009,25 @@ mod tests {
         assert_eq!(alternative.score, 0.49);
         assert_eq!(alternative.confidence, "low");
 
-        let assessment = crate::recording_match::assess(
+        let default_assessment = crate::recording_match::assess(
             &requested,
             alternative,
             crate::recording_match::MatchLevel::Flexible,
             crate::recording_match::MatchStage::Search,
+        );
+        assert_eq!(
+            default_assessment.action,
+            crate::recording_match::MatchAction::Reject
+        );
+        let assessment = crate::recording_match::assess_with_options(
+            &requested,
+            alternative,
+            crate::recording_match::MatchLevel::Flexible,
+            crate::recording_match::MatchStage::Search,
+            &crate::recording_match::FlexibleMatchingOptions {
+                allow_other_mixes: true,
+                ..Default::default()
+            },
         );
         assert_eq!(
             assessment.relationship,

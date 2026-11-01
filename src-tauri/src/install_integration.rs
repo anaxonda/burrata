@@ -354,12 +354,22 @@ fn mcp_launcher_candidates(current_exe: &Path, target: &str, windows: bool) -> V
     };
     let mut candidates = Vec::new();
     for ancestor in current_exe.ancestors() {
-        for root in ["tools", "Resources/tools", "resources/tools"] {
+        for root in [
+            "tools",
+            "Resources/tools",
+            "resources/tools",
+            "Resources/resources/tools",
+            "resources/resources/tools",
+        ] {
             candidates.push(ancestor.join(root).join(target).join(binary));
         }
         // Debian and RPM packages install Tauri resources beside the executable
         // under /usr/lib/<app>/resources or /usr/share/<app>/resources.
         for root in [
+            "../lib/Burrata/resources/tools",
+            "../share/Burrata/resources/tools",
+            "../lib/Burrata/tools",
+            "../share/Burrata/tools",
             "../lib/burrata/resources/tools",
             "../share/burrata/resources/tools",
             "../lib/burrata/tools",
@@ -416,6 +426,66 @@ mod tests {
         assert!(candidates
             .iter()
             .any(|path| path.ends_with("burrata-mcp.exe")));
+    }
+
+    #[test]
+    fn main_mcp_resolves_extracted_linux_and_desktop_resource_layouts() {
+        for (relative, executable, target, windows) in [
+            (
+                "usr/lib/Burrata/resources",
+                "usr/bin/burrata",
+                "x86_64-unknown-linux-gnu",
+                false,
+            ),
+            (
+                "Burrata.app/Contents/Resources",
+                "Burrata.app/Contents/MacOS/burrata",
+                "aarch64-apple-darwin",
+                false,
+            ),
+            (
+                "Burrata.app/Contents/Resources/resources",
+                "Burrata.app/Contents/MacOS/burrata",
+                "aarch64-apple-darwin",
+                false,
+            ),
+            (
+                "Program Files/Burrata/resources",
+                "Program Files/Burrata/burrata.exe",
+                "x86_64-pc-windows-msvc",
+                true,
+            ),
+            (
+                "Program Files/Burrata/resources/resources",
+                "Program Files/Burrata/burrata.exe",
+                "x86_64-pc-windows-msvc",
+                true,
+            ),
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let helper = directory
+                .path()
+                .join(relative)
+                .join("tools")
+                .join(target)
+                .join(if windows {
+                    "burrata-mcp.exe"
+                } else {
+                    "burrata-mcp"
+                });
+            fs::create_dir_all(helper.parent().unwrap()).unwrap();
+            fs::write(&helper, "fixture").unwrap();
+            let executable = directory.path().join(executable);
+            fs::create_dir_all(executable.parent().unwrap()).unwrap();
+            let selected = mcp_launcher_candidates(&executable, target, windows)
+                .into_iter()
+                .find(|candidate| candidate.is_file())
+                .unwrap();
+            assert_eq!(
+                selected.canonicalize().unwrap(),
+                helper.canonicalize().unwrap()
+            );
+        }
     }
 
     #[test]

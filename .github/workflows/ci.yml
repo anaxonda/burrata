@@ -70,8 +70,8 @@ jobs:
         run: |
           python scripts/release/test_smoke_installed.py
           python scripts/release/test_finalize_appimage.py
-      - name: Check installed WebView audio smoke protocol
-        run: node --test scripts/release/webview-audio-protocol.test.mjs
+      - name: Check installed Native audio smoke protocol
+        run: node --test scripts/release/native-audio-protocol.test.mjs
       - name: Check installer and supporting-download separation
         if: runner.os == 'Linux'
         run: python3 scripts/release/test-feed-assembly.py
@@ -258,7 +258,7 @@ jobs:
           installer="$(find src-tauri/target/x86_64-unknown-linux-gnu/release/bundle -type f -name '*.deb' -print -quit)"
           test -n "$installer"
           python3 scripts/release/smoke-installed.py --installer "$installer" --evidence .cache/release-smoke-evidence.json
-      - name: Smoke-test the AppImage launcher and bundled WebView audio
+      - name: Smoke-test the AppImage launcher and bundled Native audio
         run: |
           installer="$(find src-tauri/target/x86_64-unknown-linux-gnu/release/bundle -type f -name '*.AppImage' -print -quit)"
           test -n "$installer"

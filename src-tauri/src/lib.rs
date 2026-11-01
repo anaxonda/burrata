@@ -32,7 +32,6 @@ pub mod backup_state;
 pub mod bandcamp;
 mod bandcamp_fallback;
 pub mod browser_bridge;
-pub mod candidate_preview;
 mod collection_imports;
 pub mod collection_sources;
 mod compilation_excerpt;
@@ -74,6 +73,7 @@ pub mod monochrome_resolver;
 #[cfg(target_os = "linux")]
 pub mod mpris;
 pub mod native_output;
+mod native_session_migration;
 pub mod observed_analysis;
 mod opus_decoder_capability;
 #[cfg(feature = "experimental-opus")]
@@ -82,7 +82,6 @@ pub mod pcm_tap;
 pub mod playback;
 pub mod playback_diagnostics;
 mod playback_diagnostics_context;
-mod playback_engine_settings;
 pub mod playback_failure;
 pub mod playback_history;
 pub mod playback_radio;
@@ -399,130 +398,6 @@ async fn resolve_radio_station_artwork(
     radio::resolve_station_artwork(station_id, &state.store).await
 }
 
-#[tauri::command]
-async fn resolve_radio_station_playback_url(
-    state: State<'_, AppState>,
-    station_id: String,
-    request_generation: Option<u64>,
-    webview_capabilities: Option<webview_audio_transcode::WebviewAudioCapabilities>,
-    detailed: Option<bool>,
-    normalization_route_required: Option<bool>,
-) -> Result<serde_json::Value> {
-    let settings = state.store.settings()?;
-    let deadline = playback_sources::PlaybackDeadline::after(settings.playback_startup_timeout());
-    let registration = if let Some(generation) = request_generation {
-        state.webview_audio_transport.begin(generation)?;
-        state.webview_audio_transcoder.cancel_older_than(generation);
-        Some((
-            generation,
-            state
-                .playback_resolution
-                .lock()
-                .map_err(|_| "Playback resolver unavailable")?
-                .begin(generation)?,
-        ))
-    } else {
-        None
-    };
-    let (_idle, idle_cancel) = tokio::sync::watch::channel(false);
-    let cancel = registration
-        .as_ref()
-        .map(|(_, (_, cancel))| cancel.clone())
-        .unwrap_or(idle_cancel);
-    let operation = async {
-        let resolved = radio::resolve_station_playback_until(
-            station_id.clone(),
-            &state.store,
-            deadline.instant(),
-            cancel.clone(),
-        )
-        .await?;
-        let mut url = resolved.url;
-        let mut mime = resolved.mime_type;
-        let mut codec = resolved.codec;
-        let mut transport = "direct";
-        if let Some((generation, _)) = registration.as_ref() {
-            let source = native_output::AudioSource {
-                input: url.clone(),
-                ffmpeg: tools::executable(&settings.ffmpeg_path, "ffmpeg"),
-                headers: vec![],
-                decoder_hint: Some(native_output::AudioSourceDecoderHint {
-                    mime_type: mime.clone(),
-                    codec: codec.clone(),
-                    duration_seconds: None,
-                    content_length: None,
-                    has_video: false,
-                    decode_policy: crate::native_output::AudioSourceDecodePolicy::Automatic,
-                    decoder_fingerprint: None,
-                }),
-
-                cenc: None,
-            };
-            let convert = webview_audio_transcode::needs_live_ogg_conversion(
-                mime.as_deref(),
-                codec.as_deref(),
-                webview_capabilities.as_ref(),
-            );
-            if convert
-                || webview_audio_transport::needs_relay_for_normalization(
-                    &source,
-                    normalization_route_required.unwrap_or(false),
-                )
-            {
-                url = state
-                    .webview_audio_transport
-                    .register(
-                        *generation,
-                        &format!("radio:{station_id}"),
-                        &source,
-                        true,
-                        deadline,
-                        cancel.clone(),
-                    )
-                    .await?;
-                transport = "loopback-relay";
-            }
-            if convert {
-                url = state.webview_audio_transcoder.register(
-                    *generation,
-                    url,
-                    source.ffmpeg.clone(),
-                    deadline,
-                )?;
-                mime = Some("audio/mpeg".into());
-                codec = Some("mp3".into());
-                transport = "loopback-transcode";
-            }
-            state.webview_identification.register(
-                *generation,
-                format!("radio:{station_id}"),
-                source,
-                None,
-                true,
-                None,
-            );
-        }
-        if detailed.unwrap_or(false) {
-            Ok(
-                serde_json::json!({"url":url,"audioMimeType":mime,"audioCodec":codec,"sourceTransport":transport,"normalizationRoute":webview_audio_transport::normalization_route_capability(transport!="direct")}),
-            )
-        } else {
-            Ok(serde_json::Value::String(url))
-        }
-    };
-    let result = operation.await;
-    if let Some((generation, (stop, cancel))) = registration {
-        let mut gate = state
-            .playback_resolution
-            .lock()
-            .map_err(|_| "Playback resolver unavailable")?;
-        gate.finish(generation, &stop);
-        if gate.generation != generation || *cancel.borrow() {
-            return Err("Playback resolution was superseded".into());
-        }
-    }
-    result
-}
 #[tauri::command]
 async fn get_station_details(
     state: State<'_, AppState>,
@@ -2208,6 +2083,23 @@ struct PlaybackResolutionGate {
     active: Option<(u64, tokio::sync::watch::Sender<bool>)>,
     resolved_stream_source: Option<ResolvedStreamSourceBinding>,
     stream_source_cancelled: bool,
+    crossfade_pending: Option<CrossfadeSourceBinding>,
+    crossfade_rollback: Option<CrossfadeRollback>,
+}
+
+struct CrossfadeSourceBinding {
+    lease_id: String,
+    generation: u64,
+    track: Track,
+    source: crate::native_output::AudioSource,
+    candidate: Option<Candidate>,
+    local: bool,
+}
+struct CrossfadeRollback {
+    lease_id: String,
+    generation: u64,
+    stream_source: Option<ResolvedStreamSourceBinding>,
+    identification: Option<webview_identification::RegisteredSource>,
 }
 
 #[derive(Clone)]
@@ -2233,6 +2125,8 @@ impl PlaybackResolutionGate {
             previous.send_replace(true);
         }
         self.resolved_stream_source = None;
+        self.crossfade_pending = None;
+        self.crossfade_rollback = None;
         self.stream_source_cancelled = false;
         self.generation = generation;
         let (sender, receiver) = tokio::sync::watch::channel(false);
@@ -2246,6 +2140,8 @@ impl PlaybackResolutionGate {
         }
         self.generation = generation;
         self.resolved_stream_source = None;
+        self.crossfade_pending = None;
+        self.crossfade_rollback = None;
         self.stream_source_cancelled = true;
         if self
             .active
@@ -2263,6 +2159,8 @@ impl PlaybackResolutionGate {
             stop.send_replace(true);
         }
         self.resolved_stream_source = None;
+        self.crossfade_pending = None;
+        self.crossfade_rollback = None;
         self.stream_source_cancelled = true;
         // Return the relay fence without consuming the frontend's next request.
         self.generation.saturating_add(1)
@@ -2613,7 +2511,6 @@ pub(crate) struct AppState {
     playback_provider_session_status:
         std::sync::Mutex<managed_provider_session::ManagedProviderSessionStatus>,
     remote_playlists: Arc<remote_playlists::RemotePlaylistService>,
-    candidate_preview: Arc<candidate_preview::CandidatePreviewManager>,
     preview_warmup_cancel: std::sync::Mutex<Option<tokio::sync::watch::Sender<bool>>>,
     playback_resolution: Arc<std::sync::Mutex<PlaybackResolutionGate>>,
     webview_identification: webview_identification::WebViewIdentification,
@@ -2967,22 +2864,11 @@ fn set_automation_permissions(
     state.automation.set_permission_values(control, manage)
 }
 #[tauri::command]
-fn get_playback_engine_settings(
+async fn migrate_native_playback(
     state: State<'_, AppState>,
-) -> Result<playback_engine_settings::EngineSettings> {
-    playback_engine_settings::status(
-        &state.store,
-        state.playback.native_enabled(),
-        std::env::var("BURRATA_PLAYBACK_ENGINE").is_ok(),
-    )
-}
-#[tauri::command]
-async fn restart_with_playback_engine(
-    state: State<'_, AppState>,
-    engine: playback_engine_settings::Engine,
-    checkpoint: serde_json::Value,
-) -> Result<()> {
-    state.playback.restart_with_engine(engine, checkpoint).await
+    legacy: serde_json::Value,
+) -> Result<serde_json::Value> {
+    state.playback.migrate_native_playback(legacy).await
 }
 #[tauri::command]
 fn get_playback_snapshot(state: State<'_, AppState>) -> serde_json::Value {
@@ -3096,139 +2982,6 @@ mod webview_cenc_boundary_tests {
 }
 
 #[tauri::command]
-async fn handoff_resolved_playback_source(
-    state: State<'_, AppState>,
-    handoff: playback::ResolvedSourceHandoff,
-) -> Result<serde_json::Value> {
-    let automation = state.automation.clone();
-    let resolution = state.playback_resolution.clone();
-    state
-        .playback
-        .handoff_webview_resolved_source(handoff, move |request, track_id| {
-            let Ok(gate) = resolution.lock() else {
-                return false;
-            };
-            if gate.generation != request.source_generation {
-                return false;
-            }
-            let current = automation.playback_tracking_snapshot();
-            if current["engine"].as_str() == Some("native")
-                || current["status"].as_str() != Some("buffering")
-                || current["trackId"].as_str() != Some(track_id)
-                || current["sourceGeneration"].as_u64() != Some(request.source_generation)
-                || current["seekSerial"].as_u64() != Some(request.seek_serial)
-                || current["sessionId"].as_str() != Some(request.session_id.as_str())
-                || current["entryId"].as_str() != Some(request.entry_id.as_str())
-                || current["currentIndex"].as_u64() != Some(request.index as u64)
-            {
-                return false;
-            }
-            let expected = &request.tracks[request.index];
-            let mut revision = None;
-            for offset in (0..request.tracks.len()).step_by(200) {
-                let page = automation.playback_snapshot_page(offset, 200);
-                if page["queueTotal"].as_u64() != Some(request.tracks.len() as u64) {
-                    return false;
-                }
-                if let Some(previous) = &revision {
-                    if previous != &page["queueRevision"] {
-                        return false;
-                    }
-                } else {
-                    revision = Some(page["queueRevision"].clone());
-                }
-                let Some(rows) = page["queue"].as_array() else {
-                    return false;
-                };
-                let Some(ids) = page["queueEntryIds"].as_array() else {
-                    return false;
-                };
-                let length = (request.tracks.len() - offset).min(200);
-                if rows.len() != length || ids.len() != length {
-                    return false;
-                }
-                for index in 0..length {
-                    if rows[index]["id"].as_str()
-                        != Some(request.tracks[offset + index].id.as_str())
-                        || ids[index].as_str() != Some(request.entry_ids[offset + index].as_str())
-                    {
-                        return false;
-                    }
-                }
-                if (offset..offset + length).contains(&request.index)
-                    && !webview_handoff_track_matches(
-                        &current["track"],
-                        rows.get(request.index - offset),
-                        expected,
-                    )
-                {
-                    return false;
-                }
-            }
-            true
-        })
-        .await
-        .map_err(Into::into)
-}
-
-#[tauri::command]
-async fn handoff_webview_playback(
-    state: State<'_, AppState>,
-    handoff: playback::WebViewPlaybackHandoff,
-) -> Result<serde_json::Value> {
-    if state.playback.native_enabled() {
-        return Err("Playback ownership has already transferred".into());
-    }
-    let idx = handoff.index;
-    let expected_track_id = handoff
-        .tracks
-        .get(idx)
-        .map(|track| track.id.clone())
-        .ok_or_else(|| "Playback queue position is out of range".to_owned())?;
-    let expected_track = handoff.tracks[idx].clone();
-    let automation = state.automation.clone();
-    let identification = state.webview_identification.clone();
-    let expected_source_generation = handoff.source_generation;
-    let expected_seek_serial = handoff.seek_serial;
-    let expected_session = handoff.session_id.clone();
-    let expected_entry = handoff.entry_id.clone();
-    state
-        .playback
-        .handoff_webview(handoff, move |generation, track_id| {
-            let current = automation.playback_tracking_snapshot();
-            let queue = automation.playback_snapshot_page(idx, 1);
-            let queue_track = queue["queue"].as_array().and_then(|tracks| tracks.first());
-            let current_status = current["status"].as_str();
-            let active_webview_audio = if current_status == Some("paused") {
-                current["paused"].as_bool() == Some(true)
-            } else {
-                matches!(current_status, Some("playing" | "buffering"))
-                    && current["paused"].as_bool() == Some(false)
-            };
-            current["engine"].as_str() != Some("native")
-                && active_webview_audio
-                && current["trackId"]
-                    .as_str()
-                    .or_else(|| current["track"]["id"].as_str())
-                    == Some(expected_track_id.as_str())
-                && current["sourceGeneration"].as_u64() == Some(expected_source_generation)
-                && current["seekSerial"].as_u64() == Some(expected_seek_serial)
-                && current["sessionId"].as_str() == Some(expected_session.as_str())
-                && current["entryId"].as_str() == Some(expected_entry.as_str())
-                && current["currentIndex"].as_u64() == Some(idx as u64)
-                && webview_handoff_track_matches(&current["track"], queue_track, &expected_track)
-                && queue["queueEntryIds"]
-                    .as_array()
-                    .and_then(|ids| ids.first())
-                    .and_then(serde_json::Value::as_str)
-                    == Some(expected_entry.as_str())
-                && identification.matches_registered_youtube_source(generation, track_id)
-        })
-        .await
-        .map_err(Into::into)
-}
-
-#[tauri::command]
 fn automation_playback_state(
     state: State<'_, AppState>,
     playback: serde_json::Value,
@@ -3270,30 +3023,6 @@ fn automation_layout_complete(
     state
         .automation
         .complete_layout_request(&request_id, layout);
-}
-
-#[tauri::command]
-fn automation_stereo_diagnostic_complete(
-    state: State<'_, AppState>,
-    request_id: String,
-    track_id: String,
-    session_id: String,
-    source_generation: u64,
-    seek_serial: u64,
-    current_index: i64,
-    queue_total: u64,
-    entry_id: String,
-    queue_track_id: String,
-    capture: serde_json::Value,
-) -> Result<()> {
-    state.automation.complete_stereo_diagnostic_request(
-        &request_id,
-        serde_json::json!({
-            "trackId":track_id,"sessionId":session_id,"sourceGeneration":source_generation,
-            "seekSerial":seek_serial,"currentIndex":current_index,"queueTotal":queue_total,
-            "entryId":entry_id,"queueTrackId":queue_track_id,"capture":capture
-        }),
-    )
 }
 
 #[tauri::command]
@@ -3752,29 +3481,6 @@ fn import_browser_snapshot(
     let _ = app.emit("browser-imported", &result);
     Ok(result)
 }
-#[tauri::command]
-async fn start_candidate_preview(
-    state: State<'_, AppState>,
-    candidate: Candidate,
-    request_generation: Option<u64>,
-) -> Result<serde_json::Value> {
-    state
-        .candidate_preview
-        .start(&candidate, request_generation)
-        .await
-}
-#[tauri::command]
-fn candidate_preview_control(
-    state: State<'_, AppState>,
-    action: String,
-    value: Option<f64>,
-) -> Result<()> {
-    state.candidate_preview.control(&action, value)
-}
-#[tauri::command]
-fn stop_candidate_preview(state: State<'_, AppState>, session_id: Option<String>) -> Result<()> {
-    state.candidate_preview.stop_session(session_id.as_deref())
-}
 
 #[tauri::command]
 fn list_genres(provider_id: String) -> Result<Vec<Genre>> {
@@ -3861,159 +3567,6 @@ async fn get_track_details(state: State<'_, AppState>, track: Track) -> Result<T
     details.provenance["detailsFetchedAt"] = serde_json::json!(chrono::Utc::now().to_rfc3339());
     state.store.cache_track(&details)
 }
-#[tauri::command]
-async fn resolve_preview(
-    state: State<'_, AppState>,
-    track: Track,
-    request_generation: Option<u64>,
-) -> Result<serde_json::Value> {
-    let mut approximate_excerpt = None;
-    let mut local_asset_id = None;
-    let preview = if let Some(path) = &track.local_path {
-        if let Some(asset) = state.store.get_asset_by_path(path)? {
-            let settings = state.store.settings()?;
-            if !crate::compilation_excerpt::asset_proof_is_eligible(
-                &track,
-                &asset.track.provenance,
-                settings.matching_level,
-            ) || !crate::compilation_excerpt::asset_file_hash_matches(&asset)
-            {
-                metadata_preview(&track)
-            } else {
-                local_asset_id = Some(asset.id.clone());
-                if asset.track.provenance["automaticExcerpt"].is_object() {
-                    let proof = &asset.track.provenance["automaticExcerpt"];
-                    approximate_excerpt = Some(serde_json::json!({
-                        "label":"Approximate album excerpt",
-                        "source":{"provider":proof["source"]["provider"],"id":proof["source"]["id"]}
-                    }));
-                }
-                Preview {
-                    kind: "local".into(),
-                    url: state.local_audio.url_for(&asset.id)?,
-                    can_seek: true,
-                    can_volume: true,
-                    can_autoplay: true,
-                    is_excerpt: approximate_excerpt.is_some(),
-                }
-            }
-        } else {
-            metadata_preview(&track)
-        }
-    } else {
-        // Playback must not wait on a storefront metadata request. Missing previews
-        // are resolved by the player's YouTube/SoundCloud discovery flow instead.
-        metadata_preview(&track)
-    };
-    let mut value = serde_json::to_value(&preview).map_err(|error| error.to_string())?;
-    if let Some(marker) = approximate_excerpt {
-        if let Some(object) = value.as_object_mut() {
-            object.insert("approximateExcerpt".into(), marker);
-        }
-    }
-    if let Some(object) = value.as_object_mut() {
-        object.insert(
-            "assetId".into(),
-            local_asset_id
-                .as_ref()
-                .map_or(serde_json::Value::Null, |asset_id| {
-                    serde_json::json!(asset_id)
-                }),
-        );
-        object.insert(
-            "normalizationRoute".into(),
-            serde_json::json!(webview_audio_transport::normalization_route_capability(
-                preview.kind == "local"
-            )),
-        );
-    }
-    if let Some(generation) = request_generation {
-        let (stop, cancel) = {
-            let mut gate = state
-                .playback_resolution
-                .lock()
-                .map_err(|_| "Playback resolver unavailable")?;
-            let started = gate.begin(generation)?;
-            state.webview_identification.clear();
-            started
-        };
-        let source = if preview.kind == "local" {
-            if let Some(asset_id) = local_asset_id.as_deref() {
-                let asset = state
-                    .store
-                    .get_asset_by_id(asset_id)?
-                    .ok_or("Local audio is not registered in the library")?;
-                let settings = state.store.settings()?;
-                Some(crate::native_output::AudioSource {
-                    input: asset.path,
-                    ffmpeg: tools::executable(&settings.ffmpeg_path, "ffmpeg"),
-                    headers: vec![],
-                    decoder_hint: None,
-
-                    cenc: None,
-                })
-            } else {
-                None
-            }
-        } else if preview.kind == "audio" {
-            let trusted_preview = state
-                .store
-                .get_track(&track.id)?
-                .is_some_and(|stored| stored.preview_url.as_deref() == Some(preview.url.as_str()));
-            if trusted_preview && acquisition::validate_source_url(&preview.url, "direct").is_ok() {
-                Some(crate::native_output::AudioSource {
-                    input: preview.url.clone(),
-                    ffmpeg: tools::executable(&state.store.settings()?.ffmpeg_path, "ffmpeg"),
-                    headers: vec![],
-                    decoder_hint: None,
-
-                    cenc: None,
-                })
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-        let mut gate = state
-            .playback_resolution
-            .lock()
-            .map_err(|_| "Playback resolver unavailable")?;
-        gate.finish(generation, &stop);
-        if gate.generation == generation && !*cancel.borrow() {
-            if let Some(source) = source {
-                let bounds = track
-                    .playback_range
-                    .as_ref()
-                    .map(|r| (r.start_time, r.end_time));
-                state.webview_identification.register(
-                    generation,
-                    track.id.clone(),
-                    source,
-                    if preview.kind == "audio" {
-                        playing_track_detections::SourceIdentity::from_validated_url(
-                            "preview",
-                            &preview.url,
-                            None,
-                        )
-                    } else if preview.kind == "local" {
-                        local_asset_id.as_deref().and_then(|asset_id| {
-                            playing_track_detections::SourceIdentity::new("local", asset_id)
-                        })
-                    } else {
-                        None
-                    },
-                    false,
-                    bounds,
-                );
-                if let Some(object) = value.as_object_mut() {
-                    object.insert("sourceGeneration".into(), serde_json::json!(generation));
-                }
-            }
-        }
-    }
-    Ok(value)
-}
 
 /// Collect exact paths that the current Tauri scope does not already allow.
 /// Call this before adding per-file grants so the scope's allowed-pattern set
@@ -4077,6 +3630,29 @@ fn cancel_preview_warmup(slot: &std::sync::Mutex<Option<tokio::sync::watch::Send
 fn playback_request_budget(settings: &Settings, budget_ms: Option<u64>) -> std::time::Duration {
     let maximum_ms = settings.playback_startup_timeout().as_millis() as u64;
     std::time::Duration::from_millis(budget_ms.unwrap_or(maximum_ms).clamp(1, maximum_ms))
+}
+
+// This is source-bound extractor metadata, not a measurement of decoded PCM.
+fn youtube_aac_extractor_duration(
+    candidate: Option<&Candidate>,
+    quality: &serde_json::Value,
+) -> Option<f64> {
+    let candidate = candidate?;
+    let id = candidate.id.strip_prefix("youtube:")?;
+    if candidate.provider != "youtube"
+        || id.is_empty()
+        || quality["resolvedProviderId"].as_str() != Some(id)
+        || quality["mimeType"].as_str() != Some("audio/mp4")
+        || !quality["codec"]
+            .as_str()
+            .is_some_and(|codec| codec.eq_ignore_ascii_case("mp4a.40.2"))
+        || quality["formatHasVideo"] != false
+    {
+        return None;
+    }
+    quality["extractedDurationSeconds"]
+        .as_f64()
+        .filter(|duration| duration.is_finite() && *duration > 0.0 && *duration <= 86_400.0)
 }
 
 fn should_relay_seek_recovery_source(
@@ -4152,375 +3728,6 @@ fn playback_relay_required(
             source,
             normalization_route_required,
         )
-}
-
-#[tauri::command]
-async fn resolve_playback_track(
-    state: State<'_, AppState>,
-    track: Track,
-    request_generation: u64,
-    selected_candidate: Option<Candidate>,
-    budget_ms: Option<u64>,
-    failed_candidates: Option<Vec<playback_sources::FailedPlaybackCandidate>>,
-    refresh_candidate_fresh: Option<bool>,
-    refresh_candidate: Option<Candidate>,
-    seek_recovery: Option<bool>,
-    attempt_limit: Option<usize>,
-    webview_capabilities: Option<webview_audio_transcode::WebviewAudioCapabilities>,
-    normalization_route_required: Option<bool>,
-) -> Result<serde_json::Value> {
-    cancel_preview_warmup(&state.preview_warmup_cancel);
-    let failed_candidates = failed_candidates.unwrap_or_default();
-    playback_sources::validate_failed_candidates(&failed_candidates)?;
-    let settings = state.store.settings()?;
-    let explicit_source = playback_sources::source_resolution_is_pinned(
-        &track,
-        selected_candidate.is_some(),
-        &settings,
-        true,
-    );
-    let budget = playback_request_budget(&settings, budget_ms);
-    let (stop, cancel) = {
-        let mut gate = state
-            .playback_resolution
-            .lock()
-            .map_err(|_| "Playback resolver unavailable")?;
-        let started = gate.begin(request_generation)?;
-        state.webview_identification.clear();
-        started
-    };
-
-    state.webview_audio_transport.begin(request_generation)?;
-    state
-        .webview_audio_transcoder
-        .cancel_older_than(request_generation);
-    let deadline = playback_sources::PlaybackDeadline::after(budget);
-    // Keep the large resolver state machine off the Tauri command future's
-    // inline layout; this command is polled on the UI-facing invoke runtime.
-    let resolver = Box::pin(async {
-        if refresh_candidate_fresh.unwrap_or(false) {
-            let candidate =
-                refresh_candidate.ok_or("Fresh playback refresh requires the current candidate")?;
-            playback_sources::resolve_candidate_fresh_until(
-                &state.store,
-                &state.acquisition,
-                &track,
-                candidate,
-                selected_candidate.is_some(),
-                cancel.clone(),
-                request_generation,
-                deadline,
-                seek_recovery.unwrap_or(false),
-            )
-            .await
-        } else {
-            let limit = playback_sources::validate_candidate_attempt_limit(attempt_limit)?;
-            let selected_candidate = if selected_candidate.is_some() {
-                selected_candidate
-            } else {
-                playlist_sync::resolve_portable_playback_candidate(
-                    &state.store,
-                    &state.acquisition,
-                    &track,
-                    &settings,
-                    cancel.clone(),
-                )
-                .await?
-            };
-            playback_sources::resolve_with_trace_context_excluding_until_attempt_limit(
-                &state.store,
-                &state.acquisition,
-                &track,
-                selected_candidate,
-                cancel.clone(),
-                None,
-                None,
-                Some(request_generation),
-                &failed_candidates,
-                deadline,
-                limit,
-            )
-            .await
-        }
-    });
-    let resolved = resolve_with_shared_playback_deadline(deadline, &stop, &cancel, resolver).await;
-
-    let mut resolved = resolved?;
-    if resolved.source.cenc.is_some() {
-        let mut gate = state
-            .playback_resolution
-            .lock()
-            .map_err(|_| "Playback resolver unavailable")?;
-        gate.finish(request_generation, &stop);
-        if gate.generation != request_generation || gate.stream_source_cancelled || *cancel.borrow()
-        {
-            return Err("Playback resolution was superseded".into());
-        }
-        // Retain the encrypted input and its lease entirely in Rust. The
-        // WebView receives only a short-lived one-use handoff capability.
-        let source_handle = state.playback.register_native_resolved_source(
-            request_generation,
-            &track,
-            explicit_source,
-            resolved,
-        )?;
-        return Ok(serde_json::json!({
-            "transport":"native", "sourceHandle":source_handle,
-            "sourceGeneration":request_generation
-        }));
-    }
-    ensure_webview_compatible_source(&resolved.source)?;
-    if let Some(station) = resolved.station.as_ref() {
-        let transport = radio::resolve_station_playback_until(
-            station.id.clone(),
-            &state.store,
-            deadline.instant(),
-            cancel.clone(),
-        )
-        .await?;
-        resolved.source.input = transport.url;
-        resolved.source.decoder_hint = Some(native_output::AudioSourceDecoderHint {
-            mime_type: transport.mime_type.clone(),
-            codec: transport.codec.clone(),
-            duration_seconds: None,
-            content_length: None,
-            has_video: false,
-            decode_policy: crate::native_output::AudioSourceDecodePolicy::Automatic,
-            decoder_fingerprint: None,
-        });
-        resolved.quality["mimeType"] = serde_json::json!(transport.mime_type);
-        resolved.quality["codec"] = serde_json::json!(transport.codec);
-    }
-    let current_request = {
-        let mut gate = state
-            .playback_resolution
-            .lock()
-            .map_err(|_| "Playback resolver unavailable")?;
-        gate.finish(request_generation, &stop);
-        let current = gate.generation == request_generation && !*cancel.borrow();
-        if current {
-            let source = if let Some(asset_id) = resolved.quality["assetId"].as_str() {
-                let asset = state
-                    .store
-                    .get_asset_by_id(asset_id)?
-                    .ok_or("Resolved local asset is unavailable")?;
-                if asset.path != resolved.source.input {
-                    return Err("Resolved local asset changed during playback startup".into());
-                }
-                if !crate::compilation_excerpt::asset_file_hash_matches(&asset) {
-                    return Err(
-                        "Resolved excerpt contents no longer match their verified hash".into(),
-                    );
-                }
-                if asset.track.provenance["automaticExcerpt"].is_object()
-                    && !crate::compilation_excerpt::asset_proof_is_eligible(
-                        &track,
-                        &asset.track.provenance,
-                        state.store.settings()?.matching_level,
-                    )
-                {
-                    return Err("Matching policy changed during excerpt playback startup".into());
-                }
-                let settings = state.store.settings()?;
-                crate::native_output::AudioSource {
-                    input: asset.path,
-                    ffmpeg: tools::executable(&settings.ffmpeg_path, "ffmpeg"),
-                    headers: vec![],
-                    decoder_hint: None,
-
-                    cenc: None,
-                }
-            } else {
-                resolved.source.clone()
-            };
-            let bounds = track
-                .playback_range
-                .as_ref()
-                .map(|range| (range.start_time, range.end_time));
-            state.webview_identification.register(
-                request_generation,
-                track.id.clone(),
-                source,
-                resolved.candidate.as_ref().and_then(|candidate| {
-                    playing_track_detections::SourceIdentity::new(
-                        &candidate.provider,
-                        &candidate.id,
-                    )
-                    .map(|identity| identity.with_duration_seconds(candidate.duration_seconds))
-                }),
-                resolved.station.is_some(),
-                bounds,
-            );
-        }
-        current
-    };
-    if !current_request {
-        return Err("Playback resolution was superseded".into());
-    }
-
-    if webview_audio_transport::is_hls(&resolved.source) {
-        resolved.quality["mimeType"] = serde_json::json!("application/vnd.apple.mpegurl");
-    }
-    let resolved_asset_id = resolved.quality["assetId"].as_str();
-    let local_source = resolved_asset_id.is_some();
-    let seek_recovery_relay = should_relay_seek_recovery_source(
-        seek_recovery.unwrap_or(false),
-        &track,
-        resolved.candidate.as_ref(),
-        &resolved.source.input,
-        local_source,
-        resolved.station.is_some(),
-    );
-    let mut relayed = false;
-    let convert = resolved.station.is_some()
-        && webview_audio_transcode::needs_live_ogg_conversion(
-            resolved
-                .quality
-                .get("mimeType")
-                .and_then(serde_json::Value::as_str),
-            resolved
-                .quality
-                .get("codec")
-                .and_then(serde_json::Value::as_str),
-            webview_capabilities.as_ref(),
-        );
-    let mut url = if let Some(asset_id) = resolved_asset_id {
-        let asset = state
-            .store
-            .get_asset_by_id(asset_id)?
-            .ok_or("Verified excerpt asset is unavailable")?;
-        if asset.path != resolved.source.input {
-            return Err("Resolved local asset changed during playback startup".into());
-        }
-        if !crate::compilation_excerpt::asset_file_hash_matches(&asset) {
-            return Err("Resolved excerpt contents no longer match their verified hash".into());
-        }
-        if asset.track.provenance["automaticExcerpt"].is_object()
-            && !crate::compilation_excerpt::asset_proof_is_eligible(
-                &track,
-                &asset.track.provenance,
-                state.store.settings()?.matching_level,
-            )
-        {
-            return Err("Matching policy changed during excerpt playback startup".into());
-        }
-        if asset.hash != resolved.quality["hash"].as_str().unwrap_or_default() {
-            return Err("Verified excerpt asset changed after proof validation".into());
-        }
-        state.local_audio.url_for(&asset.id)?
-    } else if playback_relay_required(
-        &resolved.source,
-        convert,
-        seek_recovery_relay,
-        normalization_route_required.unwrap_or(false),
-    ) {
-        relayed = true;
-        state
-            .webview_audio_transport
-            .register(
-                request_generation,
-                &track.id,
-                &resolved.source,
-                resolved.station.is_some(),
-                deadline,
-                cancel.clone(),
-            )
-            .await?
-    } else {
-        resolved.source.input.clone()
-    };
-    if convert {
-        url = state.webview_audio_transcoder.register(
-            request_generation,
-            url,
-            resolved.source.ffmpeg.clone(),
-            deadline,
-        )?;
-        resolved.quality["mimeType"] = serde_json::json!("audio/mpeg");
-        resolved.quality["codec"] = serde_json::json!("mp3");
-        resolved.quality["bitrateKbps"] = serde_json::json!(192);
-    }
-    let duration = resolved.duration;
-    let can_seek = resolved.station.is_none()
-        && duration.is_some_and(|value| value.is_finite() && value > 0.0);
-    let provider = resolved
-        .candidate
-        .as_ref()
-        .map(|candidate| candidate.provider.as_str())
-        .unwrap_or(track.provider.as_str());
-    let title = resolved
-        .candidate
-        .as_ref()
-        .map(|candidate| candidate.title.as_str())
-        .unwrap_or(track.title.as_str());
-    let approximate_excerpt =
-        if resolved.quality["sourceKind"].as_str() == Some("approximateAlbumExcerpt") {
-            let proof = &resolved.quality["approximateExcerpt"];
-            Some(serde_json::json!({
-                "label": "Approximate album excerpt",
-                "source": {"provider":proof["source"]["provider"],"id":proof["source"]["id"]}
-            }))
-        } else {
-            None
-        };
-    let preview = serde_json::json!({
-        "kind": if local_source { "local" } else { "audio" },
-        "url": url,
-        "canSeek": can_seek,
-        "canVolume": true,
-        "canAutoplay": true,
-        "isExcerpt": track.playback_range.is_some() || approximate_excerpt.is_some(),
-        "approximateExcerpt": approximate_excerpt,
-        "provider": provider,
-        "title": title,
-        "durationSeconds": duration,
-        "matching": resolved.candidate.as_ref().and_then(|candidate| candidate.source_metadata.as_ref()).and_then(|metadata| metadata.get("matching")),
-        "audioMimeType": resolved.quality.get("mimeType").and_then(serde_json::Value::as_str),
-        "audioCodec": resolved.quality.get("codec").and_then(serde_json::Value::as_str),
-        "audioBitrateKbps": resolved.quality.get("bitrateKbps").and_then(serde_json::Value::as_f64),
-        "audioFormatId": resolved.quality.get("formatId").and_then(serde_json::Value::as_str),
-        "audioFormatHasVideo": resolved.quality.get("formatHasVideo").and_then(serde_json::Value::as_bool),
-        "audioExpectedContentLength": resolved.quality.get("expectedContentLength").and_then(serde_json::Value::as_u64),
-        "sourceHeaderPolicy": webview_header_policy(&resolved.source.headers),
-        "sourceTransport": if convert { "loopback-transcode" } else if relayed { "loopback-relay" } else { "direct" },
-        "normalizationRoute": playback_normalization_route(local_source, relayed, convert),
-        "seekRecoveryRelay": seek_recovery_relay,
-        "sourceGeneration": request_generation
-    });
-    {
-        let mut gate = state
-            .playback_resolution
-            .lock()
-            .map_err(|_| "Playback resolver unavailable")?;
-        if gate.generation != request_generation || gate.stream_source_cancelled || *cancel.borrow()
-        {
-            return Err("Playback resolution was superseded".into());
-        }
-        gate.resolved_stream_source = if resolved.source.cenc.is_none()
-            && resolved.station.is_none()
-            && track.playback_range.is_none()
-            && track.local_path.is_none()
-        {
-            resolved.candidate.as_ref().and_then(|candidate| {
-                let recording_identity =
-                    analysis_stream_selection::stream_media_identity_fingerprint(&track)?;
-                Some(ResolvedStreamSourceBinding {
-                    generation: request_generation,
-                    track_id: track.id.clone(),
-                    recording_identity,
-                    candidate: candidate.clone(),
-                })
-            })
-        } else {
-            None
-        };
-    }
-    Ok(serde_json::json!({
-        "preview": preview,
-        "candidate": resolved.candidate,
-        "quality": resolved.quality,
-        "durationSeconds": duration
-    }))
 }
 
 #[tauri::command]
@@ -5655,157 +4862,6 @@ fn cancel_playing_track_identification(state: State<'_, AppState>, capture_id: S
         .cancel_playing_track_identification(&capture_id)
 }
 
-#[tauri::command]
-async fn identify_webview_track(
-    state: State<'_, AppState>,
-    generation: u64,
-    track_id: String,
-    position_seconds: f64,
-) -> Result<playback::PlayingTrackIdentification> {
-    identify_webview_track_for(
-        &*state,
-        generation,
-        &track_id,
-        position_seconds,
-        None,
-        None,
-        None,
-    )
-    .await
-}
-
-#[tauri::command]
-async fn identify_webview_playing_pcm(
-    state: State<'_, AppState>,
-    capture_id: String,
-    track_id: String,
-    station_id: Option<String>,
-    session_id: String,
-    generation: u64,
-    seek_serial: u64,
-    chapter_id: Option<String>,
-    wav_base64: String,
-) -> Result<serde_json::Value> {
-    if track_id.is_empty()
-        || track_id.len() > 512
-        || session_id.is_empty()
-        || session_id.len() > 128
-        || chapter_id
-            .as_ref()
-            .is_some_and(|chapter| chapter.is_empty() || chapter.len() > 256)
-    {
-        return Err("Playback identity is invalid".into());
-    }
-    if station_id.as_ref().is_some_and(|station| {
-        station.is_empty()
-            || station.len() > 120
-            || track_id.as_str() != format!("radio:{station}").as_str()
-    }) {
-        return Err("Radio station identity does not match the current playback track".into());
-    }
-    let capture_job = state
-        .webview_identification
-        .begin_pcm_capture(capture_id.clone())?;
-    let cancelled = capture_job.cancellation();
-    let matches = || {
-        webview_radio_pcm::snapshot_matches(
-            &state.automation.playback_tracking_snapshot(),
-            &track_id,
-            &session_id,
-            generation,
-            seek_serial,
-            chapter_id.as_deref(),
-        )
-    };
-    if state.playback.native_enabled() || !matches() {
-        return Err("Playback changed before captured audio could be identified".into());
-    }
-    let bytes = webview_radio_pcm::decode_bounded_wav(&wav_base64)?;
-    if !matches() {
-        return Err("Playback changed before identification started".into());
-    }
-    let station = if let Some(station_id) = station_id.as_deref() {
-        radio::get_radio_stations_saved(&state.store)?
-            .into_iter()
-            .find(|station| station.id == station_id)
-            .ok_or("This station is no longer available")?
-    } else {
-        radio::RadioStation {
-            id: format!("webview:{generation}:{track_id}"),
-            name: "Currently playing audio".into(),
-            stream_url: String::new(),
-            source_url: String::new(),
-            provider: Some("webview-audio".into()),
-            country: None,
-            tags: None,
-            homepage_url: None,
-            favicon_url: None,
-            bitrate_kbps: None,
-            codec: None,
-            language: None,
-            is_custom: true,
-        }
-    };
-    let mut wav = tempfile::Builder::new()
-        .prefix("burrata-webview-audio-")
-        .suffix(".wav")
-        .tempfile()
-        .map_err(|error| format!("Could not prepare captured audio for identification: {error}"))?;
-    use std::io::Write;
-    wav.write_all(&bytes)
-        .and_then(|_| wav.flush())
-        .map_err(|error| format!("Could not write captured audio for identification: {error}"))?;
-    if *cancelled.borrow() {
-        return Err("Audio identification was cancelled".into());
-    }
-    let now_playing = recognize_webview_pcm(
-        state.webview_identification.clone(),
-        capture_id.clone(),
-        capture_job,
-        wav,
-        std::time::Duration::from_secs(60),
-        "Audio identification timed out",
-        move |path, cancellation| async move {
-            radio::recognize_captured_sample_cancellable(&station, &path, cancellation).await
-        },
-    )
-    .await?;
-    if *cancelled.borrow() {
-        return Err("Audio identification was cancelled".into());
-    }
-    if !matches() {
-        return Err("Playback changed during identification".into());
-    }
-    let note: String = if now_playing.is_some() {
-        "SongRec identified audio captured from current WebView playback; catalog identity is unverified.".into()
-    } else if station_id.is_some() {
-        "SongRec did not identify a track in the captured audio excerpt.".into()
-    } else {
-        "SongRec did not identify a track in the captured audio excerpt.".into()
-    };
-    if let Some(station_id) = station_id {
-        radio::record_played_radio_identification(&station_id, generation, now_playing.as_ref());
-        Ok(serde_json::json!({"nowPlaying":now_playing,"note":note}))
-    } else {
-        let identified = now_playing;
-        Ok(serde_json::to_value(playback::PlayingTrackIdentification {
-            track_id,
-            title: identified.as_ref().map(|item| item.title.clone()),
-            artist: identified.as_ref().map(|item| item.artist.clone()),
-            artwork_url: identified
-                .as_ref()
-                .and_then(|item| item.artwork_url.clone()),
-            note,
-            timing_anchor: None,
-            detection_metadata: None,
-            captured_audio_interval: None,
-            detection_source_identity: None,
-            detection_source_epoch: None,
-        })
-        .map_err(|error| error.to_string())?)
-    }
-}
-
 /// Keep the private WAV and registry job inside the worker until SongRec has
 /// reaped its child. Dropping a timed-out JoinHandle detaches that worker; it
 /// does not cancel it or release the file early.
@@ -5921,275 +4977,6 @@ mod webview_pcm_recognition_tests {
             "the worker-owned temporary WAV is cleaned after exit"
         );
     }
-}
-
-#[cfg(target_os = "linux")]
-#[tauri::command]
-async fn identify_webview_playing_output(
-    app: tauri::AppHandle,
-    state: State<'_, AppState>,
-    capture_id: String,
-    track_id: String,
-    station_id: Option<String>,
-    session_id: String,
-    generation: u64,
-    seek_serial: u64,
-    chapter_id: Option<String>,
-    capture_seconds: Option<usize>,
-    web_audio_graph_expected: Option<bool>,
-) -> Result<serde_json::Value> {
-    if track_id.is_empty()
-        || track_id.len() > 512
-        || session_id.is_empty()
-        || session_id.len() > 128
-        || chapter_id
-            .as_ref()
-            .is_some_and(|chapter| chapter.is_empty() || chapter.len() > 256)
-    {
-        return Err("Playback identity is invalid".into());
-    }
-    if station_id
-        .as_ref()
-        .is_some_and(|id| id.is_empty() || id.len() > 120 || track_id != format!("radio:{id}"))
-    {
-        return Err("Radio station identity does not match the current playback track".into());
-    }
-    let started = std::time::Instant::now();
-    let job = state
-        .webview_identification
-        .begin_pcm_capture(capture_id.clone())?;
-    let cancelled = job.cancellation();
-    let matches = || {
-        !state.playback.native_enabled()
-            && webview_radio_pcm::snapshot_matches(
-                &state.automation.playback_tracking_snapshot(),
-                &track_id,
-                &session_id,
-                generation,
-                seek_serial,
-                chapter_id.as_deref(),
-            )
-    };
-    if state.playback.native_enabled() || !matches() {
-        return Err("Playback changed before audio capture".into());
-    }
-    let app_root_pid = std::process::id();
-    let initial_status = tokio::time::timeout(
-        std::time::Duration::from_secs(2),
-        read_burrata_webview_audio_status(&app),
-    )
-    .await
-    .map_err(|_| "Timed out checking Burrata playback windows")??;
-    let (status_tx, status_rx) =
-        tokio::sync::watch::channel(Some((initial_status, std::time::Instant::now())));
-    let (stop_tx, mut stop_rx) = tokio::sync::oneshot::channel::<()>();
-    let status_app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        loop {
-            let value = read_burrata_webview_audio_status(&status_app)
-                .await
-                .ok()
-                .map(|s| (s, std::time::Instant::now()));
-            status_tx.send_replace(value);
-            tokio::select! {_=&mut stop_rx=>break,_=tokio::time::sleep(std::time::Duration::from_millis(300))=>{}}
-        }
-    });
-    let status = move || {
-        status_rx
-            .borrow()
-            .as_ref()
-            .filter(|(_, at)| at.elapsed() < std::time::Duration::from_secs(1))
-            .map(|(s, _)| *s)
-            .unwrap_or(linux_webview_output::ViewAudio {
-                main: false,
-                others: 0,
-                known: false,
-            })
-    };
-    let capture_budget = std::time::Duration::from_secs(60).saturating_sub(started.elapsed());
-    // Keep this command and its registry guard alive until the recorder child
-    // has been explicitly killed and reaped on cancellation or deadline.
-    let capture = linux_webview_output::capture_wav_seconds_cancellable(
-        app_root_pid,
-        capture_budget,
-        capture_seconds.unwrap_or(3),
-        status,
-        matches,
-        cancelled.clone(),
-        web_audio_graph_expected.unwrap_or(false),
-    )
-    .await;
-    let _ = stop_tx.send(());
-    let wav = capture?;
-    if *cancelled.borrow() || !matches() {
-        return Err("Playback changed after audio capture".into());
-    }
-    let station = if let Some(id) = station_id.as_deref() {
-        radio::get_radio_stations_saved(&state.store)?
-            .into_iter()
-            .find(|s| s.id == id)
-            .ok_or("This station is no longer available")?
-    } else {
-        radio::RadioStation {
-            id: format!("webview:{generation}:{track_id}"),
-            name: "Currently playing audio".into(),
-            stream_url: String::new(),
-            source_url: String::new(),
-            provider: Some("webview-audio".into()),
-            country: None,
-            tags: None,
-            homepage_url: None,
-            favicon_url: None,
-            bitrate_kbps: None,
-            codec: None,
-            language: None,
-            is_custom: true,
-        }
-    };
-    let mut tempfile = tempfile::Builder::new()
-        .prefix("burrata-webview-output-")
-        .suffix(".wav")
-        .tempfile()
-        .map_err(|e| format!("Could not prepare captured audio: {e}"))?;
-    use std::io::Write;
-    tempfile
-        .write_all(&wav)
-        .and_then(|_| tempfile.flush())
-        .map_err(|e| format!("Could not save captured audio: {e}"))?;
-    if *cancelled.borrow() || !matches() {
-        return Err("Playback changed before recognition".into());
-    }
-    let recognition_timeout = std::time::Duration::from_secs(60).saturating_sub(started.elapsed());
-    if recognition_timeout.is_zero() {
-        return Err("Audio identification exceeded its 60-second limit".into());
-    }
-    let identified = recognize_webview_pcm(
-        state.webview_identification.clone(),
-        capture_id.clone(),
-        job,
-        tempfile,
-        recognition_timeout,
-        "Audio identification exceeded its 60-second limit",
-        move |path, cancellation| async move {
-            radio::recognize_captured_sample_cancellable(&station, &path, cancellation).await
-        },
-    )
-    .await?;
-    if *cancelled.borrow() || !matches() {
-        return Err("Playback changed during identification".into());
-    }
-    let note = if identified.is_some() {
-        "SongRec identified the captured audio; catalog identity is unverified."
-    } else {
-        "No song was identified in the captured audio. Try again during a clear section of music."
-    };
-    if let Some(station_id) = station_id {
-        radio::record_played_radio_identification(&station_id, generation, identified.as_ref());
-        Ok(serde_json::json!({"nowPlaying":identified,"note":note}))
-    } else {
-        Ok(serde_json::to_value(playback::PlayingTrackIdentification {
-            track_id,
-            title: identified.as_ref().map(|m| m.title.clone()),
-            artist: identified.as_ref().map(|m| m.artist.clone()),
-            artwork_url: identified.as_ref().and_then(|m| m.artwork_url.clone()),
-            note: note.into(),
-            timing_anchor: None,
-            detection_metadata: None,
-            captured_audio_interval: None,
-            detection_source_identity: None,
-            detection_source_epoch: None,
-        })
-        .map_err(|e| e.to_string())?)
-    }
-}
-
-#[cfg(target_os = "linux")]
-async fn read_burrata_webview_audio_status(
-    app: &tauri::AppHandle,
-) -> Result<linux_webview_output::ViewAudio> {
-    use tauri::Manager;
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
-    // Every app WebView is created through WebviewWindowBuilder; child WebViews
-    // are unavailable without Tauri's disabled unstable feature.
-    let views = app.webview_windows();
-    if views.is_empty() {
-        return Err("No Burrata WebViews are available".into());
-    }
-    let labels = views
-        .keys()
-        .cloned()
-        .collect::<std::collections::BTreeSet<_>>();
-    let mut main = None;
-    let mut others = 0usize;
-    for (label, view) in views {
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        view.with_webview(move |webview| {
-            use webkit2gtk::WebViewExt;
-            let _ = tx.send(webview.inner().is_playing_audio());
-        })
-        .map_err(|_| "Could not inspect Burrata WebView audio state")?;
-        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        if remaining.is_zero() {
-            return Err("Timed out checking Burrata playback windows".into());
-        }
-        let playing = tokio::time::timeout(remaining, rx)
-            .await
-            .map_err(|_| "Timed out checking Burrata playback windows")?
-            .map_err(|_| "Could not inspect Burrata WebView audio state")?;
-        if label == "main" {
-            main = Some(playing)
-        } else if playing {
-            others += 1
-        }
-    }
-    if app
-        .webview_windows()
-        .keys()
-        .cloned()
-        .collect::<std::collections::BTreeSet<_>>()
-        != labels
-    {
-        return Err("Burrata WebViews changed while checking audio state".into());
-    }
-    Ok(linux_webview_output::ViewAudio {
-        main: main.ok_or("Main Burrata WebView is unavailable")?,
-        others,
-        known: true,
-    })
-}
-
-#[cfg(not(target_os = "linux"))]
-#[tauri::command]
-async fn identify_webview_playing_output(
-    app: tauri::AppHandle,
-    state: State<'_, AppState>,
-    capture_id: String,
-    track_id: String,
-    station_id: Option<String>,
-    session_id: String,
-    generation: u64,
-    seek_serial: u64,
-    chapter_id: Option<String>,
-    web_audio_graph_expected: Option<bool>,
-) -> Result<serde_json::Value> {
-    let _ = (
-        app,
-        state,
-        capture_id,
-        track_id,
-        station_id,
-        session_id,
-        generation,
-        seek_serial,
-        chapter_id,
-        web_audio_graph_expected,
-    );
-    Err("System output capture for WebView audio is available only on Linux".into())
-}
-
-#[tauri::command]
-fn cancel_webview_identification(state: State<'_, AppState>, capture_id: String) -> bool {
-    state.webview_identification.cancel_pcm_capture(&capture_id)
 }
 
 async fn identify_webview_track_for(
@@ -8444,7 +7231,7 @@ async fn translate_current_track_lyrics(
 async fn export_playback_diagnostics(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
-    webview_context: Option<serde_json::Value>,
+    tester_observations: Option<serde_json::Value>,
 ) -> Result<serde_json::Value> {
     use tauri_plugin_dialog::DialogExt;
     let settings = state.store.settings()?;
@@ -8453,16 +7240,38 @@ async fn export_playback_diagnostics(
         &state.playback.snapshot_page(0, 1),
         tools::target_triple(),
     );
-    if let Some(webview) = playback_diagnostics_context::project_webview(webview_context.as_ref()) {
-        if let Some(context) = playback_context.as_object_mut() {
-            context.insert("engine".into(), serde_json::json!("webview"));
-            if let Some(status) = webview.get("status") {
-                context.insert("status".into(), status.clone());
+    if let Some(observations) = tester_observations
+        .as_ref()
+        .and_then(serde_json::Value::as_object)
+    {
+        let mut safe = serde_json::Map::new();
+        for (key, allowed) in [
+            ("browserPlayback", &["not_tested", "works", "fails"][..]),
+            (
+                "alternateNetworkPlayback",
+                &["not_tested", "works", "fails"][..],
+            ),
+            ("vpn", &["unknown", "enabled", "disabled"][..]),
+        ] {
+            if let Some(value) = observations
+                .get(key)
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| allowed.contains(value))
+            {
+                safe.insert(key.into(), serde_json::json!(value));
             }
-            context.insert("webview".into(), webview);
+        }
+        if let Some(context) = playback_context.as_object_mut() {
+            context.insert("testerObservations".into(), serde_json::Value::Object(safe));
         }
     }
-    let count = diagnostics.status.event_count;
+    let count = diagnostics.status.event_count + diagnostics.status.native_event_count;
+    let binary_identity =
+        tauri::async_runtime::spawn_blocking(playback_diagnostics::current_executable_fingerprint)
+            .await
+            .unwrap_or_else(
+                |_| serde_json::json!({"status":"unavailable","reason":"worker_unavailable"}),
+            );
     #[cfg(target_os = "macos")]
     let os_version = {
         let mut command = tokio::process::Command::new("/usr/bin/sw_vers");
@@ -8494,7 +7303,14 @@ async fn export_playback_diagnostics(
         "customCaConfigured":configured(&["SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"]),
         "systemProxyChecked":false, "streamProbesUseProxy":false
     });
-    let report = serde_json::json!({"diagnosticRevision":3,"networkEnvironment":network_environment,"diagnosticCoverage":{"publicSourcePages":true,"redactedExtractorErrors":true,"streamAuthorizationIndicators":true,"externalComparisons":"not_run"},"appVersion":env!("CARGO_PKG_VERSION"),"platform":std::env::consts::OS,"osVersion":os_version,"architecture":std::env::consts::ARCH,"targetTriple":tools::target_triple(),"runtimePlayback":playback_context,"helpers":helpers,"settings":{"matchingLevel":settings.matching_level,"primaryStreamingSource":(["youtube","soundcloud","monochrome"].into_iter().find(|provider| *provider == settings.preferred_streaming_source)),"fallbackEnabled":settings.streaming_fallback_enabled,"fallbackSources":settings.streaming_fallback_sources.iter().filter(|provider| matches!(provider.as_str(),"youtube"|"soundcloud"|"monochrome")).take(3).collect::<Vec<_>>(),"fallbackDelayMs":settings.streaming_fallback_delay_ms,"startupTimeoutSeconds":settings.playback_startup_timeout_seconds,"bandcampFallbackEnabled":settings.bandcamp_fallback_enabled,"overridePlaylistTrackUrls":settings.override_playlist_track_urls},"playback":diagnostics});
+    let mut report = serde_json::json!({"diagnosticRevision":4,"networkEnvironment":network_environment,"diagnosticCoverage":{"publicSourcePages":true,"redactedExtractorErrors":true,"streamAuthorizationIndicators":true,"externalComparisons":"not_run"},"appVersion":env!("CARGO_PKG_VERSION"),"platform":std::env::consts::OS,"osVersion":os_version,"architecture":std::env::consts::ARCH,"targetTriple":tools::target_triple(),"runtimePlayback":playback_context,"helpers":helpers,"settings":{"matchingLevel":settings.matching_level,"primaryStreamingSource":(["youtube","soundcloud","monochrome"].into_iter().find(|provider| *provider == settings.preferred_streaming_source)),"fallbackEnabled":settings.streaming_fallback_enabled,"fallbackSources":settings.streaming_fallback_sources.iter().filter(|provider| matches!(provider.as_str(),"youtube"|"soundcloud"|"monochrome")).take(3).collect::<Vec<_>>(),"fallbackDelayMs":settings.streaming_fallback_delay_ms,"startupTimeoutSeconds":settings.playback_startup_timeout_seconds,"bandcampFallbackEnabled":settings.bandcamp_fallback_enabled,"overridePlaylistTrackUrls":settings.override_playlist_track_urls},"playback":diagnostics});
+    report["buildProvenance"] = serde_json::json!({"executable":binary_identity});
+    report["settings"]["flexibleMatching"] =
+        serde_json::to_value(settings.flexible_matching).unwrap_or(serde_json::Value::Null);
+    report["diagnosticCoverage"]["nativeTimeline"] = serde_json::json!(true);
+    report["diagnosticCoverage"]["physicalAudio"] = serde_json::json!("not_captured");
+    report["diagnosticCoverage"]["deviceIdentity"] = serde_json::json!("not_collected");
+    report["diagnosticCoverage"]["powerSleepWakeEvents"] = serde_json::json!("not_collected");
     tauri::async_runtime::spawn_blocking(move || {
         let picked = app
             .dialog()
@@ -8533,92 +7349,7 @@ async fn get_live_playback_estimates(
 ) -> Result<Option<playback::LivePlaybackEstimates>> {
     state.playback.live_playback_estimates().await
 }
-#[tauri::command]
-async fn estimate_webview_live_bpm(
-    state: State<'_, AppState>,
-    track_id: String,
-    generation: u64,
-    seek_serial: u64,
-    sample_rate: u32,
-    samples_base64: String,
-) -> Result<webview_live_bpm::Outcome> {
-    use webview_live_bpm::{matches_playing_owner, Outcome, OutcomeStatus, Owner};
-    let owner = Owner {
-        track_id,
-        generation,
-        seek_serial,
-    };
-    if owner.track_id.trim().is_empty() || owner.track_id.len() > 512 {
-        return Err("WebView live BPM track identity is invalid".into());
-    }
-    if !state.store.settings()?.live_bpm_enabled {
-        return Ok(Outcome::status(OutcomeStatus::Disabled));
-    }
-    if state.playback.native_enabled() {
-        return Ok(Outcome::status(OutcomeStatus::NativeActive));
-    }
-    let before = state.automation.playback_tracking_snapshot();
-    if !matches_playing_owner(&before, &owner) {
-        return Ok(Outcome::status(OutcomeStatus::OwnerMismatchBefore));
-    }
-    let samples = webview_live_bpm::decode_pcm16(sample_rate, &samples_base64)?;
-    let Some(worker_permit) = live_analysis_gate::try_acquire() else {
-        return Ok(Outcome::status(OutcomeStatus::NoEstimate));
-    };
-    let sample_window_seconds = samples.len() as f64 / sample_rate as f64;
-    let analysis_started = std::time::Instant::now();
-    let (estimate, key_estimate) = tauri::async_runtime::spawn_blocking(move || {
-        let _worker_permit = worker_permit;
-        (
-            live_bpm::estimate_interleaved_pcm(&samples, sample_rate, 1),
-            live_key::estimate_interleaved_pcm(&samples, sample_rate, 1),
-        )
-    })
-    .await
-    .map_err(|error| format!("WebView live BPM analysis worker stopped: {error}"))?;
-    let after = state.automation.playback_tracking_snapshot();
-    if state.playback.native_enabled()
-        || !state.store.settings()?.live_bpm_enabled
-        || !matches_playing_owner(&after, &owner)
-        || before.get("sessionId") != after.get("sessionId")
-    {
-        return Ok(Outcome::status(OutcomeStatus::OwnerChangedAfter));
-    }
-    let analysis_ms = analysis_started.elapsed().as_millis().min(u64::MAX as u128) as u64;
-    if estimate.is_none() && key_estimate.is_none() {
-        let mut outcome = Outcome::status(OutcomeStatus::NoEstimate);
-        outcome.sample_window_seconds = Some(sample_window_seconds);
-        outcome.analysis_ms = Some(analysis_ms);
-        return Ok(outcome);
-    }
-    Ok(Outcome {
-        status: OutcomeStatus::Success,
-        estimate: estimate.map(|estimate| {
-            serde_json::json!({
-                "trackId": owner.track_id.clone(),
-                "generation": owner.generation,
-                "seekSerial": owner.seek_serial,
-                "bpm": estimate.bpm,
-                "confidence": estimate.confidence,
-                "relatedTempoAlternativeBpm": estimate.related_tempo_alternative_bpm,
-                "windowSeconds": estimate.window_seconds,
-            })
-        }),
-        key_estimate: key_estimate.map(|estimate| {
-            serde_json::json!({
-                "trackId": owner.track_id.clone(),
-                "generation": owner.generation,
-                "seekSerial": owner.seek_serial,
-                "key": estimate.key,
-                "profileFit": estimate.profile_fit,
-                "profileMargin": estimate.profile_margin,
-                "windowSeconds": estimate.window_seconds,
-            })
-        }),
-        sample_window_seconds: Some(sample_window_seconds),
-        analysis_ms: Some(analysis_ms),
-    })
-}
+
 #[tauri::command]
 async fn get_playback_waveform(
     state: State<'_, AppState>,
@@ -8645,99 +7376,13 @@ fn get_cached_stream_analysis(
 }
 
 #[tauri::command]
-fn begin_webview_stream_analysis(
-    state: State<'_, AppState>,
-    session_id: String,
-    generation: u64,
-    recording_id: String,
-    provider: String,
-    source_id: String,
-    duration_seconds: f64,
-    initial_position_seconds: f64,
-    audio_variant: Option<stream_analysis::StreamAudioVariant>,
-) -> Result<()> {
-    state
-        .playback
-        .observed_analysis_manager()
-        .begin_webview_capture(
-            &session_id,
-            generation,
-            &recording_id,
-            &provider,
-            &source_id,
-            duration_seconds,
-            initial_position_seconds,
-            audio_variant.as_ref(),
-        )
-}
-
-#[tauri::command]
-fn push_webview_stream_analysis(
-    state: State<'_, AppState>,
-    session_id: String,
-    generation: u64,
-    end_position_seconds: f64,
-    sample_rate: u32,
-    samples_base64: String,
-) -> Result<()> {
-    use base64::Engine as _;
-    if samples_base64.len() > ((stream_analysis::KEY_PCM_RATE as usize * 2 + 2) / 3) * 4 {
-        return Err("WebView analysis PCM chunk exceeds its transport bound".into());
-    }
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(samples_base64)
-        .map_err(|_| "WebView analysis PCM chunk is malformed")?;
-    if bytes.is_empty()
-        || bytes.len() % 2 != 0
-        || bytes.len() > stream_analysis::KEY_PCM_RATE as usize * 2
-    {
-        return Err("WebView analysis PCM chunk exceeds its format or size bound".into());
-    }
-    let samples = bytes
-        .chunks_exact(2)
-        .map(|sample| i16::from_le_bytes([sample[0], sample[1]]) as f32 / 32768.0)
-        .collect::<Vec<_>>();
-    state
-        .playback
-        .observed_analysis_manager()
-        .push_webview_capture(
-            &session_id,
-            generation,
-            end_position_seconds,
-            sample_rate,
-            samples,
-        )
-}
-
-#[tauri::command]
-async fn finish_webview_stream_analysis(
-    state: State<'_, AppState>,
-    session_id: String,
-    generation: u64,
-    natural_end_position_seconds: f64,
-) -> Result<stream_analysis::WholeTrackAnalysis> {
-    let manager = state.playback.observed_analysis_manager();
-    tauri::async_runtime::spawn_blocking(move || {
-        manager.finish_webview_capture(&session_id, generation, natural_end_position_seconds)
-    })
-    .await
-    .map_err(|error| error.to_string())?
-}
-
-#[tauri::command]
-fn cancel_webview_stream_analysis(state: State<'_, AppState>, session_id: String) {
-    state
-        .playback
-        .observed_analysis_manager()
-        .cancel_webview_capture(&session_id);
-}
-#[tauri::command]
 fn save_settings(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
     settings: Settings,
 ) -> Result<()> {
     settings.validate_playback_startup_timeout()?;
+    settings.validate_playback_preferences()?;
     if !matches!(settings.theme.as_str(), "dark" | "light" | "system") {
         return Err("Invalid theme".into());
     }
@@ -8798,6 +7443,13 @@ fn save_settings(
         source_preparation::yield_to_playback();
     }
     state.store.save_settings(&settings)?;
+    if previous.crossfade_enabled != settings.crossfade_enabled
+        || previous.crossfade_seconds != settings.crossfade_seconds
+        || previous.matching_level != settings.matching_level
+        || previous.flexible_matching != settings.flexible_matching
+    {
+        state.playback.crossfade_settings_changed();
+    }
     playback_diagnostics::set_enabled(settings.playback_diagnostics_enabled);
     Ok(())
 }
@@ -10016,10 +8668,6 @@ pub fn run() {
             store.ensure_downloads_collection().map_err(std::io::Error::other)?;
             store.backfill_managed_downloads().map_err(std::io::Error::other)?;
             startup_mark("store.downloads_backfill.end");
-            #[cfg(target_os = "linux")]
-            if let Some(window) = app.get_webview_window("main") {
-                candidate_preview::enable_candidate_autoplay(&window).map_err(std::io::Error::other)?;
-            }
             let settings = store.settings().map_err(std::io::Error::other)?;
             playback_diagnostics::set_enabled(settings.playback_diagnostics_enabled);
             let history = Arc::new(playback_history::PlaybackHistory::open_with_barrier(
@@ -10138,7 +8786,6 @@ pub fn run() {
                 }
             });
             let token = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
-            let candidate_preview = candidate_preview::CandidatePreviewManager::new(app.handle().clone(), format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple()));
             let automation = automation::AutomationService::new(app.handle().clone(), store.clone(), acquisition.clone(), artists.clone(), connections.clone(), analysis.clone(), history.clone(), dir.clone());
             automation.set_autotag_manager(autotag.clone());
             let playback = playback::PlaybackService::new(app.handle().clone(), store.clone(), acquisition.clone(), history.clone()).map_err(std::io::Error::other)?;
@@ -10160,7 +8807,7 @@ pub fn run() {
                 Ok(service) => Some(service),
                 Err(error) => { diagnostics.push(format!("Desktop media controls unavailable: {error}")); None }
             };
-            let router = candidate_preview.router().merge(automation.router()).merge(local_audio.router()).merge(webview_audio_transport.router()).merge(webview_audio_transcoder.router());
+            let router = automation.router().merge(local_audio.router()).merge(webview_audio_transport.router()).merge(webview_audio_transcoder.router());
             startup_mark("browser_bridge.begin");
             let browser = browser_bridge::BrowserBridge::start(app.handle().clone(), store.clone(), dir.clone(), token, router).map_err(std::io::Error::other)?;
             startup_mark("browser_bridge.end");
@@ -10248,7 +8895,6 @@ pub fn run() {
             startup_mark("automation_endpoint.begin");
             automation.set_base_url(&browser.base_url()).map_err(std::io::Error::other)?;
             startup_mark("automation_endpoint.registered");
-            candidate_preview.set_base_url(browser.base_url());
             local_audio.set_base_url(browser.base_url());
             webview_audio_transport.set_base_url(browser.base_url());
             webview_audio_transcoder.set_base_url(browser.base_url());
@@ -10261,7 +8907,7 @@ pub fn run() {
             let sort_availability_backfill = Arc::new(SortAvailabilityBackfill::new(store.clone(), playback.clone(), playback_resolution.clone(), app.handle().clone()));
             let playback_provider_session_status = std::sync::Mutex::new(managed_provider_session.status());
             source_preparation::schedule_saved(acquisition.clone());
-            app.manage(AppState { discovery, autotag, store, _profile_lock: profile_lock, backup_manager, import_drops, directory_browser, automation, playback, _system_media: system_media, #[cfg(target_os = "linux")] _mpris: mpris, local_audio, webview_audio_transport, webview_audio_transcoder, acquisition, diagnostics: startup_diagnostics, browser, managed_provider_session, playback_provider_session_status, remote_playlists, candidate_preview, preview_warmup_cancel:std::sync::Mutex::new(None), playback_resolution, webview_identification: webview_identification::WebViewIdentification::default(), connections, artists, analysis, analysis_selection_jobs: analysis_selection::AnalysisSelectionJobs::new(), stream_analysis_selection_jobs: analysis_stream_selection::SelectedStreamAnalysisJobs::new(), loudness_analysis_jobs: Arc::default(), waveform_analysis_jobs: Arc::default(), history, playlist_watcher: std::sync::Mutex::new(playlist_watcher), provider_reads: Arc::new(provider_read_requests::ProviderReadRequests::default()), sort_availability_backfill, backup_frontend_preference_session_id });
+            app.manage(AppState { discovery, autotag, store, _profile_lock: profile_lock, backup_manager, import_drops, directory_browser, automation, playback, _system_media: system_media, #[cfg(target_os = "linux")] _mpris: mpris, local_audio, webview_audio_transport, webview_audio_transcoder, acquisition, diagnostics: startup_diagnostics, browser, managed_provider_session, playback_provider_session_status, remote_playlists, preview_warmup_cancel:std::sync::Mutex::new(None), playback_resolution, webview_identification: webview_identification::WebViewIdentification::default(), connections, artists, analysis, analysis_selection_jobs: analysis_selection::AnalysisSelectionJobs::new(), stream_analysis_selection_jobs: analysis_stream_selection::SelectedStreamAnalysisJobs::new(), loudness_analysis_jobs: Arc::default(), waveform_analysis_jobs: Arc::default(), history, playlist_watcher: std::sync::Mutex::new(playlist_watcher), provider_reads: Arc::new(provider_read_requests::ProviderReadRequests::default()), sort_availability_backfill, backup_frontend_preference_session_id });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -10273,16 +8919,16 @@ pub fn run() {
             list_track_files,set_preferred_track_file,set_remote_playlist_write_sync_enabled,remote_playlist_connection_status,connect_remote_playlist_provider,disconnect_remote_playlist_provider,list_remote_playlists,browse_remote_playlist,browse_remote_artist,browse_remote_artist_tracks,browse_remote_album_tracks,prepare_spotify_recording_crosswalk,search_remote_playlists,cancel_remote_read,repair_spotify_durations_public,cancel_public_spotify_duration_repair,public_spotify_duration_repair_running,list_remote_playlist_bindings,import_remote_playlists,get_remote_playlist_import_job,cancel_remote_playlist_import,refresh_remote_playlist_binding,get_remote_playlist_sync_preview,search_remote_playlist_writeback_candidates,apply_remote_playlist_sync_preview,get_managed_provider_session_status,start_managed_provider_login,start_managed_provider_background,stop_managed_provider_session,confirm_managed_provider_account,create_verification_playlist,create_youtube_handoff_pairing_code,
             inspect_backup, consume_import_drop, create_backup, estimate_backup, get_backup_job, get_active_backup_job, cancel_backup_job, restore_backup, get_restore_work_policy, review_restored_automatic_work, choose_backup_restore_root, get_backup_schedule, set_backup_schedule, choose_backup_schedule_destination, get_backup_frontend_preferences, ack_backup_frontend_preferences, get_backup_playback_restore, ack_backup_playback_restore,
             get_release_setup, complete_release_setup, get_radio_recognition, set_radio_recognition, choose_music_directory,
-            get_playback_engine_settings, restart_with_playback_engine, get_playback_snapshot, playback_command, handoff_webview_playback, handoff_resolved_playback_source,
+            migrate_native_playback, get_playback_snapshot, playback_command,
             get_browser_install_status, register_browser_host, unregister_browser_host,
             youtube_support_status,youtube_support_check,youtube_support_update,youtube_support_rollback,youtube_support_diagnose,
-            get_radio_stations, rename_radio_station, resolve_radio_station_playback_url, resolve_radio_station_artwork, get_station_details, poll_radio_station, identify_radio_station, get_mpv_status, open_in_mpv,
+            get_radio_stations, rename_radio_station,  resolve_radio_station_artwork, get_station_details, poll_radio_station, identify_radio_station, get_mpv_status, open_in_mpv,
             search_radio_stations, add_radio_station, add_custom_radio_station, edit_radio_station_url, get_radio_playlist_option, set_radio_playlist_option, list_radio_playlist_targets, remove_radio_station,
             get_radio_metadata,
             get_sidebar_layout,
             save_sidebar_layout,
             list_search_sources, register_chapter_track, search_source, poll_search_source, inspect_youtube_source, enrich_search_result, get_autotag_jobs, get_autotag_settings, save_autotag_settings, retry_autotag, repair_download_source_tags, review_autotag_candidate, apply_autotag_review, apply_recognition_review,
-            get_browser_status, get_automation_status, set_automation_permissions, automation_playback_state, automation_playback_complete, automation_queued_playback_accept, automation_queued_playback_update, automation_queued_playback_status, automation_identify_complete, set_automation_frontend_ready, automation_layout_complete, automation_stereo_diagnostic_complete, automation_search_ui_complete, automation_search_controls_complete, automation_player_panel_complete, automation_ui_navigation_complete,
+            get_browser_status, get_automation_status, set_automation_permissions, automation_playback_state, automation_playback_complete, automation_queued_playback_accept, automation_queued_playback_update, automation_queued_playback_status, automation_identify_complete, set_automation_frontend_ready, automation_layout_complete, automation_search_ui_complete, automation_search_controls_complete, automation_player_panel_complete, automation_ui_navigation_complete,
             request_browser_import,
             import_collection_url,
             preview_collection_import,
@@ -10293,17 +8939,12 @@ pub fn run() {
             list_browser_imports,
             load_browser_import,
             import_browser_snapshot,
-            start_candidate_preview,
-            candidate_preview_control,
-            stop_candidate_preview,
             list_genres,
             get_chart,
             list_snapshots,
             load_snapshot,
             get_chart_memberships,
             get_track_details,
-            resolve_preview,
-            resolve_playback_track,
             cancel_playback_resolution,
             list_tracks,
             list_favorite_track_ids,
@@ -10312,14 +8953,10 @@ pub fn run() {
             get_tracks,
             identify_playing_track,
             cancel_playing_track_identification,
-            identify_webview_track,
             get_playing_track_detections,
             get_saved_track_detections,
             set_playing_track_detection_enabled,
             detect_playing_track_segment,
-            identify_webview_playing_pcm,
-            identify_webview_playing_output,
-            cancel_webview_identification,
             set_favorite,
             set_disposition,
             update_track,
@@ -10360,13 +8997,8 @@ pub fn run() {
             get_settings,
             get_live_bpm,
             get_live_playback_estimates,
-            estimate_webview_live_bpm,
             get_playback_waveform,
             get_cached_stream_analysis,
-            begin_webview_stream_analysis,
-            push_webview_stream_analysis,
-            finish_webview_stream_analysis,
-            cancel_webview_stream_analysis,
             get_playback_diagnostics_status,
             set_playback_diagnostics_enabled,
             clear_playback_diagnostics,
@@ -10747,6 +9379,37 @@ mod managed_playback_session_invalidation_tests {
 #[cfg(test)]
 mod playback_request_budget_tests {
     use super::*;
+
+    #[test]
+    fn youtube_aac_duration_requires_same_fresh_extractor_source() {
+        let candidate = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:Vrk3cibQD1k".into(),
+            duration_seconds: Some(999.0),
+            ..Candidate::default()
+        };
+        let quality = serde_json::json!({"resolvedProviderId":"Vrk3cibQD1k", "extractedDurationSeconds":263.0, "mimeType":"audio/mp4", "codec":"mp4a.40.2", "formatHasVideo":false});
+        assert_eq!(
+            youtube_aac_extractor_duration(Some(&candidate), &quality),
+            Some(263.0)
+        );
+        for (key, value) in [
+            ("resolvedProviderId", serde_json::json!("other")),
+            ("extractedDurationSeconds", serde_json::Value::Null),
+            ("mimeType", serde_json::json!("audio/webm")),
+            ("codec", serde_json::json!("opus")),
+            ("formatHasVideo", serde_json::json!(true)),
+        ] {
+            let mut altered = quality.clone();
+            altered[key] = value;
+            assert_eq!(
+                youtube_aac_extractor_duration(Some(&candidate), &altered),
+                None,
+                "{key}"
+            );
+        }
+        assert_eq!(youtube_aac_extractor_duration(None, &quality), None);
+    }
     #[test]
     fn omitted_legacy_setting_keeps_twenty_second_startup_budget() {
         let mut legacy = serde_json::to_value(Settings::default()).unwrap();

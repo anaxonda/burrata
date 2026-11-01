@@ -166,7 +166,7 @@ describe("selected backup playback hydration", () => {
     ]));
     const fakeStorage = { ...storage, removeItem: (key: string) => storage.memory.delete(key) } as unknown as Storage;
     expect(consumeStartupPlaybackControls(fakeStorage)).toEqual({ volume: 0.7, shuffle: true });
-    expect(storage.memory.has("burrata.engine-switch-controls.v1")).toBe(false);
+    expect(storage.memory.has("burrata.engine-switch-controls.v1")).toBe(true);
     const setItem = storage.setItem;
     await applyPendingBackupPlaybackRestore(async () => handoff(), { ...storage, setItem }, async () => "deferred");
     expect(consumeStartupPlaybackControls(fakeStorage)).toEqual({ volume: 0, shuffle: true });

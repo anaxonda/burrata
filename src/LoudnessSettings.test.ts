@@ -18,7 +18,7 @@ describe("LoudnessSettings", () => {
     const target = document.createElement("div"); document.body.append(target);
     const instance = mount(LoudnessSettings, { target, props: {
       settings: { mode: "track", targetLufs: -18, ceilingDbtp: -1, maximumBoostDb: 6, albumTrackFallback: true, analyzeWhenIdle: false },
-      onSettingsSaved: vi.fn(), engine: "native",
+      onSettingsSaved: vi.fn(),
       playbackStatus: { mode: "off", status: "off", appliedGainDb: 0 },
     } as never });
     destroy = () => unmount(instance); await settle();
@@ -45,17 +45,16 @@ describe("LoudnessSettings", () => {
     const instance = mount(LoudnessSettings, { target, props: {
       settings: { mode: "album", targetLufs: -18, ceilingDbtp: -1, maximumBoostDb: 6, albumTrackFallback: true, analyzeWhenIdle: false }, onSettingsSaved: vi.fn(),
       playbackStatus: { appliedGainDb: 1.5, status: "album_fallback_track", measurementSource: "ReplayGain track tag" },
-      webviewRouteStatus: "Same-origin Web Audio route active.", engine: "webview",
     } as never });
     destroy = () => unmount(instance); await settle();
     expect(target.textContent).toContain("Using track gain because trusted album analysis is unavailable +1.5 dB");
     expect(target.querySelector('[role="status"]')?.textContent).toContain("ReplayGain track tag");
 
     unmount(instance);
-    const unavailable = mount(LoudnessSettings, { target, props: { settings: { mode: "track", targetLufs: -18, ceilingDbtp: -1, maximumBoostDb: 6, albumTrackFallback: true, analyzeWhenIdle: false }, onSettingsSaved: vi.fn(), engine: "webview", webviewRouteStatus: "Normalization is unavailable for this WebView audio source." } as never });
+    const unavailable = mount(LoudnessSettings, { target, props: { settings: { mode: "track", targetLufs: -18, ceilingDbtp: -1, maximumBoostDb: 6, albumTrackFallback: true, analyzeWhenIdle: false }, onSettingsSaved: vi.fn(), playbackStatus:{status:"unavailable",appliedGainDb:0,reason:"Normalization is unavailable for this audio source."} } as never });
     destroy = () => { unmount(unavailable); };
     await settle();
-    expect(target.textContent).toContain("unavailable for this WebView audio source");
+    expect(target.textContent).toContain("unavailable for this audio source");
   });
 
   it("persists opt-in idle analysis and exposes progress, cancellation, and retry controls", async () => {

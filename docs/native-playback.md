@@ -3,9 +3,18 @@
 Current failure instrumentation: `diagnostics.lastBuffering` retains finite reader/download/PCM facts from an actual empty PCM queue, tagged with generation and seek serial. It clears at new source/track, seek and preload-adoption boundaries; stale events do not replace it. Reader read/seek wait times and time since download progress expose input waiting alongside an empty production queue, but cannot independently separate network, storage and scheduling causes. `readInFlightMs`/`maxReadMs` and `seekInFlightMs`/`maxSeekMs` wrap the actual delegated operations; a null read wait does not exclude a blocked seek. Progress is reported after chunk storage writes, so a lack of progress alone does not prove a stalled network. `downloadedRangeEnd` is a range position, not cumulative network bytes. Existing decoder `bytesRead`/`bytesReceived` remain startup snapshots, rather than live throughput totals. The instrumentation does not change queue capacity, prefetch, fallback, cancellation or five-second verification gates.
 
 
-Native playback is implemented and in qualification. Keep it behind the internal `playbackEngine.v1` preference (`webview` by default) until the matrix below passes on clean macOS, Windows, and Linux machines. The build smoke override `BURRATA_PLAYBACK_ENGINE=native|webview` is internal and is not a public settings preview. Enable native playback by default only after the results have been reviewed. A manual external-player action remains available as a diagnostic fallback in the WebView UI.
+This candidate uses Native playback for all in-app audio; the desktop interface
+still uses the platform WebView. There is no playback-engine selector or engine
+preference override. Existing queue and control state migrates to Native. The
+dated qualification sections below describe earlier builds, not current engine
+selection or cross-platform acceptance.
 
-The implemented stack uses Rodio with Symphonia for decoding and output, plus `stream-download` for remote audio streams. FFmpeg is the fallback for HLS and HE-AAC streams that the native path cannot decode reliably. Qualification covers start, pause/resume, seek where supported, source retry, track changes, and gapless transitions. Crossfade, equalizer, and loudness normalization are deferred. The playback path does not depend on libmpv or a supervised media server/daemon.
+The stack uses Rodio with Symphonia for decoding and output, plus
+`stream-download` for remote audio and FFmpeg for supported fallback formats.
+Native owns pause/resume, seeking, source recovery, gapless transitions, optional
+crossfade and loudness normalization. Waveforms, analysis and listening history
+follow the Native playback owner. In-app playback does not depend on libmpv or a
+supervised media server.
 
 ## Build and automated checks
 
@@ -42,7 +51,10 @@ Compare native playback resource use and packaging impact with the pre-change ba
 
 ## Release status
 
-Promotion of native playback to the default remains on hold until clean-machine qualification is complete on macOS, Windows, and Linux, including device removal and sleep/wake. Public v0.1.3 uses WebView playback by default; its publication does not qualify the optional native engine. Publishing a new release is outside this qualification document.
+The current candidate uses Native playback exclusively. Clean-machine
+installation and physical-device checks, including device removal and sleep/wake,
+remain separate qualification gates on each supported platform. The dated results
+below retain their original scope and do not qualify the current candidate.
 
 ## Local Linux evidence — 2026-10-14
 

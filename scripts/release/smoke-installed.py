@@ -20,6 +20,7 @@ import sys
 import tempfile
 import time
 import uuid
+import stat
 
 
 TARGETS = {
@@ -31,7 +32,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 SCHEMA = ROOT / "src-tauri" / "src" / "schema.sql"
 # Budget 30s for explicit frontend readiness, three awaited playback controls
 # (45s each), the 10s clock-start deadline, final sample and IPC/process slack.
-WEBVIEW_AUDIO_CHECK_TIMEOUT_SECONDS = 220
+NATIVE_AUDIO_CHECK_TIMEOUT_SECONDS = 220
 
 
 class SmokeFailure(RuntimeError):
@@ -340,21 +341,21 @@ def bundled_media_checks(resource_root: pathlib.Path, target: str, env: dict[str
     }
 
 
-def build_webview_audio_fixture(resource_root: pathlib.Path, target: str,
+def build_native_audio_fixture(resource_root: pathlib.Path, target: str,
                                 env: dict[str, str], temp: pathlib.Path,
                                 app_data: pathlib.Path) -> dict[str, str | float]:
-    """Generate and register a short AAC asset for installed WebView playback."""
+    """Generate and register a short AAC asset for installed Native playback."""
     ext = ".exe" if sys.platform == "win32" else ""
     tools = resource_root / "tools" / target
     ffmpeg = tools / ("ffmpeg" + ext)
     ffprobe = tools / ("ffprobe" + ext)
     if not ffmpeg.is_file() or not ffprobe.is_file():
-        raise SmokeFailure("WebView audio setup", "packaged AAC encoder or probe is missing")
-    fixture_dir = temp / "webview-audio-fixture"
+        raise SmokeFailure("Native audio setup", "packaged AAC encoder or probe is missing")
+    fixture_dir = temp / "native-audio-fixture"
     fixture_dir.mkdir()
     audio = fixture_dir / "installed-smoke.m4a"
     run([ffmpeg, "-nostdin", "-hide_banner", "-v", "error", "-f", "lavfi",
-         "-i", "sine=frequency=440:duration=12:sample_rate=44100", "-ac", "2",
+         "-i", "aevalsrc=0.15*sin(2*PI*440*t)|0.12*sin(2*PI*660*t):s=48000:d=12", "-ac", "2",
          "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", audio],
         timeout=30, env=env)
     probed = run([ffprobe, "-v", "error", "-select_streams", "a:0", "-show_entries",
@@ -365,35 +366,35 @@ def build_webview_audio_fixture(resource_root: pathlib.Path, target: str,
         codec = info["streams"][0]["codec_name"]
         duration = float(info["format"]["duration"])
     except (ValueError, KeyError, IndexError, TypeError) as error:
-        raise SmokeFailure("WebView audio setup", "packaged ffprobe returned invalid AAC fixture metadata") from error
+        raise SmokeFailure("Native audio setup", "packaged ffprobe returned invalid AAC fixture metadata") from error
     if codec != "aac":
-        raise SmokeFailure("WebView audio setup", "packaged FFmpeg did not encode AAC")
+        raise SmokeFailure("Native audio setup", "packaged FFmpeg did not encode AAC")
     if not math.isfinite(duration) or not 11.5 <= duration <= 13.0:
-        raise SmokeFailure("WebView audio setup", "AAC fixture is too short for sustained playback qualification")
-    fixture = register_webview_audio_fixture(app_data, audio, duration, temp)
+        raise SmokeFailure("Native audio setup", "AAC fixture is too short for sustained playback qualification")
+    fixture = register_native_audio_fixture(app_data, audio, duration, temp)
     return {"trackId": fixture["trackId"], "codec": codec, "mimeType": "audio/mp4", "durationSeconds": fixture["durationSeconds"],
             "registered": "isolated local asset"}
 
 
-def register_webview_audio_fixture(app_data: pathlib.Path, audio_path: pathlib.Path,
+def register_native_audio_fixture(app_data: pathlib.Path, audio_path: pathlib.Path,
                                    duration_seconds: float, temp_root: pathlib.Path) -> dict[str, str | float]:
     """Register one generated AAC file in the smoke-owned, isolated app database."""
     root = temp_root.resolve(strict=True)
     path = audio_path.resolve(strict=True)
     if not path.is_relative_to(root) or path.suffix.lower() != ".m4a" or not path.is_file():
-        raise SmokeFailure("WebView audio setup", "AAC fixture must be a temporary smoke-owned M4A file")
+        raise SmokeFailure("Native audio setup", "AAC fixture must be a temporary smoke-owned M4A file")
     if not math.isfinite(duration_seconds) or not 3.5 <= duration_seconds <= 13.0:
-        raise SmokeFailure("WebView audio setup", "generated AAC fixture duration is outside the smoke bound")
+        raise SmokeFailure("Native audio setup", "generated AAC fixture duration is outside the smoke bound")
 
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     track_id = f"local:{digest}"
     asset_id = str(uuid.uuid4())
-    title = "Burrata Installed WebView Audio Fixture"
+    title = "Burrata Installed Native Audio Fixture"
     artist = "Burrata Test"
     track = {
         "id": track_id, "provider": "local", "providerId": digest,
         "sourceUrl": f"local:{digest}", "artist": artist, "title": title,
-        "version": "Smoke AAC", "album": "Installed WebView Smoke",
+        "version": "Smoke AAC", "album": "Installed Native Smoke",
         "albumArtist": None, "recordingDate": None, "trackNumber": None,
         "trackTotal": None, "discNumber": None, "discTotal": None,
         "remixers": [], "label": None, "genre": None, "normalizedGenre": None,
@@ -414,7 +415,7 @@ def register_webview_audio_fixture(app_data: pathlib.Path, audio_path: pathlib.P
     }
     database = app_data / "burrata.sqlite"
     if database.exists():
-        raise SmokeFailure("WebView audio setup", "smoke app database already exists")
+        raise SmokeFailure("Native audio setup", "smoke app database already exists")
     app_data.mkdir(parents=True, exist_ok=True)
     try:
         with closing(sqlite3.connect(database)) as connection:
@@ -435,144 +436,10 @@ def register_webview_audio_fixture(app_data: pathlib.Path, audio_path: pathlib.P
                 )
             integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
             if integrity != "ok":
-                raise SmokeFailure("WebView audio setup", "seeded smoke database failed integrity check")
+                raise SmokeFailure("Native audio setup", "seeded smoke database failed integrity check")
     except (OSError, sqlite3.Error) as error:
-        raise SmokeFailure("WebView audio setup", "could not register the local AAC fixture") from error
+        raise SmokeFailure("Native audio setup", "could not register the local AAC fixture") from error
     return {"trackId": track_id, "durationSeconds": duration_seconds, "codec": "aac", "mimeType": "audio/mp4"}
-
-
-def webview_audio_failure_category(error_code: int | None) -> str | None:
-    if error_code is None:
-        return None
-    return {1: "load_aborted", 2: "source_failure", 3: "decode_failure", 4: "unsupported_media"}.get(
-        error_code, "unknown_media_failure")
-
-
-def assess_webview_audio_progress(track_id: str, first: dict, second: dict) -> dict[str, float | str]:
-    samples = (first, second)
-    for sample in samples:
-        if sample.get("engine") != "webview" or sample.get("applicable") is not True:
-            raise SmokeFailure("WebView audio", "installed app did not expose WebView media inspection")
-        if sample.get("trackId") != track_id or sample.get("queueTrackId") != track_id:
-            raise SmokeFailure("WebView audio", "playback sample did not belong to the smoke fixture")
-        if sample.get("playbackStatus") != "playing" or sample.get("queueTotal") != 1:
-            raise SmokeFailure("WebView audio", "isolated playback queue was not the single playing fixture")
-        if not isinstance(sample.get("entryId"), str) or not sample["entryId"]:
-            raise SmokeFailure("WebView audio", "playback queue entry identity was missing")
-        if sample.get("previewKind") != "local":
-            raise SmokeFailure("WebView audio", "fixture did not use the registered local-audio route")
-        media = sample.get("media")
-        if not isinstance(media, dict) or media.get("present") is not True:
-            raise SmokeFailure("WebView audio", "WebView audio element was not present")
-        category = webview_audio_failure_category(media.get("errorCode"))
-        if category:
-            raise SmokeFailure("WebView audio", f"media element reported {category}")
-        if media.get("sourceStable") is not True or media.get("paused") is not False:
-            raise SmokeFailure("WebView audio", "audio source was unstable or playback was paused")
-        if not isinstance(media.get("readyState"), (int, float)) or media["readyState"] < 2:
-            raise SmokeFailure("WebView audio", "audio element did not reach a playable ready state")
-        if not isinstance(media.get("duration"), (int, float)) or not 11.5 <= media["duration"] <= 13.0:
-            raise SmokeFailure("WebView audio", "audio element reported an invalid fixture duration")
-        if not isinstance(media.get("currentTime"), (int, float)) or not math.isfinite(media["currentTime"]):
-            raise SmokeFailure("WebView audio", "audio element clock was unavailable")
-    if first["entryId"] != second["entryId"] or first.get("sourceGeneration") != second.get("sourceGeneration"):
-        raise SmokeFailure("WebView audio", "playback identity changed between media samples")
-    advance = second["media"]["currentTime"] - first["media"]["currentTime"]
-    if advance < 0.5:
-        raise SmokeFailure("WebView audio", "WebView audio clock did not advance by 0.5 seconds")
-    return {"engine": "webview", "previewKind": "local", "clockAdvanceSeconds": round(advance, 3)}
-
-
-def safe_webview_audio_diagnostics(payload: dict, track_id: str) -> dict:
-    """Retain only bounded synthetic-fixture media evidence, never source text."""
-    def number(value, maximum=1e9):
-        return value if isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value <= maximum and math.isfinite(value) else None
-
-    def sample(raw):
-        if not isinstance(raw, dict):
-            return None
-        media = raw.get("media") if isinstance(raw.get("media"), dict) else {}
-        result = {key: raw.get(key) if raw.get(key) in allowed else None for key, allowed in {
-            "engine": ("webview", "native"), "previewKind": ("local", "audio", "direct", "native", "external"),
-            "playbackStatus": ("idle", "resolving", "buffering", "playing", "paused", "ended", "failed"),
-        }.items()}
-        for key in ("trackId", "queueTrackId"):
-            result[key] = track_id if raw.get(key) == track_id else "[unexpected-track]"
-        entry = raw.get("entryId")
-        result["entryId"] = entry if isinstance(entry, str) and re.fullmatch(r"[a-zA-Z0-9_:.-]{1,200}", entry) and not re.search(r"token|secret|password|authorization|cookie", entry, re.I) else None
-        result["applicable"] = raw.get("applicable") if isinstance(raw.get("applicable"), bool) else None
-        for key in ("sourceGeneration", "seekSerial", "currentIndex", "queueTotal"):
-            result[key] = number(raw.get(key))
-        result["media"] = {key: media.get(key) if isinstance(media.get(key), bool) else None for key in (
-            "present", "paused", "ended", "seeking", "sourcePresent", "sourceStable",
-        )}
-        for key in ("currentTime", "duration"):
-            result["media"][key] = number(media.get(key))
-        for key, maximum in (("readyState", 4), ("networkState", 3), ("errorCode", 4)):
-            value = media.get(key)
-            result["media"][key] = value if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= maximum else None
-        result["media"]["volume"] = number(media.get("volume"), 1.0)
-        result["media"]["muted"] = media.get("muted") if isinstance(media.get("muted"), bool) else None
-        graph = media.get("webAudioGainGraph")
-        if isinstance(graph, dict):
-            attached = graph.get("attached") if isinstance(graph.get("attached"), bool) else None
-            context_state = graph.get("contextState")
-            safe_graph = {
-                "attached": attached,
-                "gainLinear": number(graph.get("gainLinear"), 2.0),
-                "userVolumeLinear": number(graph.get("userVolumeLinear"), 1.0),
-                "contextState": context_state if isinstance(context_state, str) and context_state in {
-                    "suspended", "running", "closed", "interrupted",
-                } else None,
-                "contextTimeSeconds": number(graph.get("contextTimeSeconds")),
-            }
-            if attached is False:
-                safe_graph.update({"gainLinear": None, "userVolumeLinear": None,
-                                   "contextState": None, "contextTimeSeconds": None})
-            result["media"]["webAudioGainGraph"] = safe_graph
-        else:
-            result["media"]["webAudioGainGraph"] = None
-        rpc = raw.get("rpcTiming")
-        if isinstance(rpc, dict):
-            started = number(rpc.get("requestStartedAtMs"), 120_000)
-            received = number(rpc.get("responseReceivedAtMs"), 120_000)
-            duration = number(rpc.get("durationMs"), 120_000)
-            if started is not None and received is not None and received >= started:
-                result["rpcTiming"] = {
-                    "requestStartedAtMs": started,
-                    "responseReceivedAtMs": received,
-                    "durationMs": duration if duration is not None and abs(duration - (received - started)) <= 2 else None,
-                }
-            else:
-                result["rpcTiming"] = {"requestStartedAtMs": started,
-                                       "responseReceivedAtMs": received, "durationMs": None}
-        for key in ("buffered", "seekable"):
-            ranges = media.get(key)
-            result["media"][key] = [[start, end] for row in ranges[:8]
-                if isinstance(row, list) and len(row) == 2
-                and (start := number(row[0])) is not None and (end := number(row[1])) is not None and end >= start] if isinstance(ranges, list) else []
-        return result
-
-    timing = payload.get("sampling") if isinstance(payload.get("sampling"), dict) else {}
-    result = {
-        "initialReady": sample(payload.get("initialReady")), "firstProgress": sample(payload.get("firstProgress")),
-        "first": sample(payload.get("first")), "second": sample(payload.get("second")),
-        "latest": sample(payload.get("latest")),
-        "postFailureSamples": [sample(raw) for raw in payload.get("postFailureSamples", [])[:3]]
-            if isinstance(payload.get("postFailureSamples"), list) else [],
-        "sampling": {key: number(timing.get(key), 120_000) for key in (
-            "initialReadyElapsedMs", "firstProgressElapsedMs", "firstSampleElapsedMs", "secondSampleElapsedMs", "latestSampleElapsedMs", "betweenSamplesWallMs", "totalElapsedMs", "validatedSteadyWindows",
-        )},
-    }
-    for key, allowed in {
-        "failurePhase": {"connect", "list_tools", "app_status", "initial_playback_state", "initial_media_sample", "mute", "start_playback", "startup_samples", "steady_sample", "cleanup_pause"},
-        "failureTool": {"get_app_status", "playback_state", "inspect_webview_media", "set_volume", "play_tracks", "pause_playback"},
-        "failureCode": {"TIMEOUT", "FRONTEND_NOT_READY", "STALE_MEDIA_SAMPLE", "PERMISSION_DENIED", "INVALID_ARGUMENT", "PLAYER_NOT_RUNNING", "REQUEST_TIMEOUT", "NETWORK_UNAVAILABLE", "RESULT_TOO_LARGE", "BURRATA_UNAVAILABLE", "MCP_CLIENT_TIMEOUT", "MCP_TRANSPORT_ERROR", "MCP_TOOL_ERROR"},
-    }.items():
-        value = payload.get(key)
-        if isinstance(value, str) and value in allowed:
-            result[key] = value
-    return result
 
 
 def safe_media_log_tail(path: pathlib.Path) -> list[str]:
@@ -596,69 +463,215 @@ def safe_media_log_tail(path: pathlib.Path) -> list[str]:
     return selected[-20:]
 
 
-def run_mcp_webview_audio(resource_root: pathlib.Path, target: str,
-                          discovery: pathlib.Path, env: dict[str, str],
-                          track_id: str) -> dict:
+def linux_private_monitor_context(app: pathlib.Path, app_process: subprocess.Popen,
+                                  audio_process: subprocess.Popen, env: dict[str, str],
+                                  temp: pathlib.Path) -> dict:
+    """Describe only the owned Linux null-output route; Node verifies the actual stream before unmute."""
+    if sys.platform != "linux" or app_process.poll() is not None or audio_process.poll() is not None:
+        raise SmokeFailure("Native audio", "private Linux app/server ownership is unavailable")
+    socket_path = temp / "pulse-runtime/native"
+    if env.get("PULSE_SERVER") != "unix:" + str(socket_path) or env.get("PULSE_SINK") != "burrata_smoke":
+        raise SmokeFailure("Native audio", "private Pulse environment does not match the owned server")
+    pactl, parec = shutil.which("pactl", path=env.get("PATH")), shutil.which("parec", path=env.get("PATH"))
+    if not pactl or not parec:
+        raise SmokeFailure("Native audio", "Linux post-gain smoke requires pulseaudio-utils (pactl and parec)")
+    executable = app.parent / "usr/bin/burrata" if app.name == "AppRun" else app
+    fields = pathlib.Path(f"/proc/{audio_process.pid}/stat").read_text().split(") ", 1)[1].split()
+    context = {"private": True, "uid": os.getuid(), "tempRoot": str(temp.resolve(strict=True)),
+               "socket": str(socket_path), "appExe": str(executable.resolve(strict=True)),
+               "appPgid": os.getpgid(app_process.pid), "pactl": pactl, "parec": parec,
+               "pulse": {"pid": audio_process.pid, "startTicks": fields[19],
+                         "exe": os.readlink(f"/proc/{audio_process.pid}/exe")},
+               "recordFile": str(temp / "native-monitor.f32le")}
+    return context
+
+
+def assess_private_monitor(path: pathlib.Path, control: dict) -> dict:
+    """Measure real private-monitor samples AFTER Player gain, never the in-process tap."""
+    if any(control.get(key) is not expected for key, expected in {
+            "verified": True, "isolatedVirtualOutput": True, "ownedAppStream": True,
+            "physicalHardware": False, "postPlayerGain": True, "remuteWhilePlaying": True}.items()):
+        raise SmokeFailure("Native audio", "private output route/unmute proof is incomplete")
+    advance = control.get("remuteClockAdvanceSeconds")
+    if isinstance(advance, bool) or not isinstance(advance, (int, float)) or not math.isfinite(advance) or advance < .5:
+        raise SmokeFailure("Native audio", "independent remute playback progress is missing")
+    rate, channels = 44100, 2
+    if control.get("sampleRate") != rate or control.get("channels") != channels:
+        raise SmokeFailure("Native audio", "private monitor format does not match the owned sink")
+    if path.is_symlink() or not path.is_file() or not 1 <= path.stat().st_size <= rate * channels * 4 * 10:
+        raise SmokeFailure("Native audio", "private monitor is missing, linked, empty or exceeds its bound")
+    data = path.read_bytes()
+    if len(data) % 8 or control.get("bytes") != len(data):
+        raise SmokeFailure("Native audio", "private monitor is incomplete")
+    frames = list(struct.iter_unpack("<ff", data))
+    if any(not math.isfinite(v) for frame in frames for v in frame):
+        raise SmokeFailure("Native audio", "private monitor contains nonfinite PCM")
+    unmute, remute = control.get("unmuteOffsetSeconds"), control.get("remuteOffsetSeconds")
+    if (isinstance(unmute, bool) or isinstance(remute, bool)
+            or not isinstance(unmute, (int, float)) or not isinstance(remute, (int, float))
+            or not math.isfinite(unmute) or not math.isfinite(remute)
+            or unmute < .25 or remute - unmute < 3.5):
+        raise SmokeFailure("Native audio", "private monitor control timing is incomplete")
+    bins = []
+    size = rate // 20  #50ms bins: exactly22cycles440Hz and33cycles660Hz.
+    for start in range(0, len(frames) - size + 1, size):
+        block = frames[start:start+size]
+        rms = [math.sqrt(sum(frame[c] ** 2 for frame in block) / size) for c in range(2)]
+        tone = []
+        for c, hz in [(0,440),(0,660),(1,440),(1,660)]:
+            re_part = sum(frame[c] * math.cos(math.tau * hz * i / rate) for i,frame in enumerate(block))
+            im_part = sum(frame[c] * math.sin(math.tau * hz * i / rate) for i,frame in enumerate(block))
+            tone.append(2 * math.hypot(re_part, im_part) / size)
+        active = (.025 < rms[0] < .25 and .025 < rms[1] < .25
+                  and tone[0] > .06 and tone[1] < tone[0] * .05
+                  and tone[3] > .05 and tone[2] < tone[3] * .05)
+        bins.append({"start":start/rate,"end":(start+size)/rate,"active":active,
+                     "quiet":max(rms) < .002})
+    initial = [b for b in bins if b["end"] <= unmute - .15]
+    audible = [b for b in bins if b["start"] >= unmute + .25 and b["end"] <= remute - .25]
+    quiet = [b for b in bins if b["start"] >= remute + .25]
+    if (len(initial) < 2 or not all(b["quiet"] for b in initial)
+            or len(audible) < 60 or not all(b["active"] for b in audible)
+            or len(quiet) < 10 or not all(b["quiet"] for b in quiet)):
+        raise SmokeFailure("Native audio", "post-gain monitor quiet/tone/continuity/remute evidence failed")
+    return {"source":"owned Linux Pulse monitor", "postPlayerGain":True,
+            "capturedSeconds":len(frames)/rate,"verifiedToneSeconds":len(audible)/20,
+            "initialQuietSeconds":len(initial)/20,"remuteQuietSeconds":len(quiet)/20,
+            "sampleRate":rate,"channels":channels,"physicalHardware":False}
+
+
+def linux_process_identity(pid: int) -> dict | None:
+    try:
+        root = pathlib.Path(f"/proc/{pid}")
+        fields = (root / "stat").read_text().split(") ", 1)[1].split()
+        return {"pid": pid, "state": fields[0], "pgid": int(fields[2]),
+                "sid": int(fields[3]), "start": int(fields[19]), "uid": root.stat().st_uid}
+    except (FileNotFoundError, ProcessLookupError):
+        return None
+
+
+def check_owned_group_rows(owner: dict, rows: list[dict]) -> list[dict]:
+    for row in rows:
+        if (row["pgid"] != owner["pid"] or row["sid"] != owner["pid"]
+                or row["uid"] != owner["uid"] or row["start"] < owner["start"]
+                or (row["pid"] == owner["pid"] and row["start"] != owner["start"])):
+            raise SmokeFailure("Native audio", "private checker process group identity changed; never signal foreign group")
+    return rows
+
+
+def owned_group_members(owner: dict) -> list[dict]:
+    rows = []
+    for entry in pathlib.Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            row = linux_process_identity(int(entry.name))
+        except PermissionError:
+            if entry.stat().st_uid == owner["uid"]:
+                raise SmokeFailure("Native audio", "private group membership cannot be verified")
+            continue
+        if row and row["pgid"] == owner["pid"]:
+            rows.append(row)
+    return check_owned_group_rows(owner, rows)
+
+
+def finish_owned_checker_group(process: subprocess.Popen, owner: dict) -> bool:
+    """Hold the unreaped leader PID until live descendants are gone, preventing PGID reuse."""
+    needed_signal = False
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        rows = owned_group_members(owner)
+        if not any(row["state"] != "Z" for row in rows):
+            break
+        leader = linux_process_identity(owner["pid"])
+        if not leader or any(leader[key] != owner[key] for key in ("pid", "pgid", "sid", "uid", "start")):
+            raise SmokeFailure("Native audio", "checker leader identity unavailable; never signal reused group")
+        # No poll/wait/communicate has reaped this leader, including when it is a zombie.
+        needed_signal = True
+        try:
+            os.killpg(owner["pid"], sig)
+        except ProcessLookupError:
+            pass
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            if not any(row["state"] != "Z" for row in owned_group_members(owner)):
+                break
+            time.sleep(.05)
+    if any(row["state"] != "Z" for row in owned_group_members(owner)):
+        raise SmokeFailure("Native audio", "owned checker descendants survived SIGKILL")
+    process.wait(timeout=3)  # Reap leader only AFTER all live group members are gone.
+    deadline = time.monotonic() + 3
+    while owned_group_members(owner) and time.monotonic() < deadline:
+        time.sleep(.05)  # PID1 reaps orphan zombies; no signals after leader reaping.
+    if owned_group_members(owner):
+        raise SmokeFailure("Native audio", "owned checker group did not fully disappear")
+    return needed_signal
+
+
+def run_private_audio_check(command: list, env: dict[str, str]) -> subprocess.CompletedProcess:
+    """Bound the complete owned session, including descendants after an exited leader."""
+    if sys.platform != "linux":
+        raise SmokeFailure("Native audio", "owned private checker group is Linux only")
+    # Temporary files avoid pipe EOF/communicate reaping the leader before group cleanup.
+    with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+        process = subprocess.Popen([os.fspath(value) for value in command], env=env,
+                                   stdin=subprocess.DEVNULL, stdout=stdout_file,
+                                   stderr=stderr_file, start_new_session=True)
+        owner = linux_process_identity(process.pid)
+        if not owner or owner["uid"] != os.getuid() or owner["pgid"] != process.pid or owner["sid"] != process.pid:
+            raise SmokeFailure("Native audio", "new checker group identity could not be established")
+        deadline = time.monotonic() + NATIVE_AUDIO_CHECK_TIMEOUT_SECONDS
+        timed_out = False
+        while True:
+            leader = linux_process_identity(process.pid)
+            if not leader or any(leader[key] != owner[key] for key in ("pid", "pgid", "sid", "uid", "start")):
+                raise SmokeFailure("Native audio", "checker leader identity changed before reaping")
+            if leader["state"] == "Z":
+                break
+            if (time.monotonic() >= deadline or os.fstat(stdout_file.fileno()).st_size > 1024*1024
+                    or os.fstat(stderr_file.fileno()).st_size > 1024*1024):
+                timed_out = True
+                break
+            time.sleep(.05)
+        # Brief natural-exit grace; leader remains unreaped so its session ID cannot be reused.
+        grace = time.monotonic() + .5
+        while not timed_out and any(row["state"] != "Z" for row in owned_group_members(owner)) and time.monotonic() < grace:
+            time.sleep(.05)
+        signalled = finish_owned_checker_group(process, owner)
+        if timed_out or signalled:
+            raise SmokeFailure("Native audio", "checker exceeded its bound or left live descendants; owned group terminated")
+        stdout_file.seek(0); stderr_file.seek(0)
+        return subprocess.CompletedProcess(command, process.returncode,
+                                           stdout_file.read(1024*1024), stderr_file.read(1024*1024))
+
+
+def run_mcp_native_audio(resource_root: pathlib.Path, target: str,
+                         discovery: pathlib.Path, env: dict[str, str], track_id: str, *, private_monitor: dict | None = None) -> dict:
     node = shutil.which("node")
     ext = ".exe" if sys.platform == "win32" else ""
     mcp = resource_root / "tools" / target / ("burrata-mcp" + ext)
     if not node or not mcp.is_file():
-        raise SmokeFailure("WebView audio", "installed MCP launcher or Node.js is unavailable")
-    result = run([node, ROOT / "scripts/release/check-installed-webview-audio.mjs",
-                  mcp, discovery, track_id], timeout=WEBVIEW_AUDIO_CHECK_TIMEOUT_SECONDS,
-                 env=env, check=False)
-    diagnostics = None
+        raise SmokeFailure("Native audio", "installed MCP launcher or Node.js is unavailable")
+    command = [node, ROOT / "scripts/release/check-installed-native-audio.mjs", mcp, discovery, track_id]
+    if private_monitor is not None:
+        if sys.platform != "linux":
+            raise SmokeFailure("Native audio", "private unmute/capture is Linux only")
+        config = pathlib.Path(private_monitor["tempRoot"]) / "private-monitor-config.json"
+        config.write_text(json.dumps(private_monitor), encoding="utf-8")
+        config.chmod(0o600)
+        command.append(config)
+    result = (run_private_audio_check(command, env) if private_monitor is not None
+              else run(command, timeout=NATIVE_AUDIO_CHECK_TIMEOUT_SECONDS, env=env, check=False))
     try:
         payload = json.loads(result.stdout.decode().strip().splitlines()[-1])
-        if not isinstance(payload, dict):
-            raise ValueError("expected diagnostic object")
-        diagnostics = safe_webview_audio_diagnostics(payload, track_id)
-        if payload.get("status") != "sampled":
-            category = payload.get("failureCategory")
-            messages = {
-                "source_failure": "loopback audio source could not be loaded",
-                "unsupported_media": "WebView does not support the generated AAC asset",
-                "decode_failure": "WebView failed to decode the generated AAC asset",
-                "mcp_failure": "installed MCP playback check failed",
-                "unsupported_smoke_tools": "installed MCP is missing a required smoke tool",
-                "smoke_permissions_unavailable": "isolated smoke MCP permissions are unavailable",
-                "webview_engine_unavailable": "installed app did not expose applicable WebView media",
-                "wrong_playback_track": "installed WebView played a different track",
-                "audio_not_ready": "WebView media did not become ready before the deadline",
-                "audio_clock_not_started": "WebView audio clock did not advance by 0.5 seconds before the startup deadline",
-                "audio_clock_not_stable": "WebView audio clock did not stabilize before the startup deadline",
-                "steady_clock_stalled": "WebView audio clock did not advance by 0.5 seconds during steady playback",
-                "playback_identity_changed": "playback identity changed during the audio check",
-                "steady_sample_too_early": "steady audio sample was captured before the measurement interval",
-                "audio_state_not_playing": "WebView media was not playing during the second sample",
-            }
-            detail = messages.get(category, "installed WebView audio check did not complete")
-            if category in messages:
-                detail = f"{detail} (category={category})"
-            if diagnostics and diagnostics.get("failurePhase"):
-                detail += f" at {diagnostics['failurePhase']}"
-                if diagnostics.get("failureTool"):
-                    detail += f" tool={diagnostics['failureTool']}"
-                if diagnostics.get("failureCode"):
-                    detail += f" code={diagnostics['failureCode']}"
-            raise SmokeFailure("WebView audio", detail)
-        if result.returncode != 0:
-            raise SmokeFailure("WebView audio", "installed MCP playback checker exited unsuccessfully")
-        samples = payload
-        assessment = assess_webview_audio_progress(track_id, samples["first"], samples["second"])
-        if diagnostics["sampling"].get("validatedSteadyWindows") != 3:
-            raise SmokeFailure("WebView audio", "installed audio check did not prove three steady clock windows")
-        if (diagnostics["sampling"].get("betweenSamplesWallMs") or 0) < 2700 or assessment["clockAdvanceSeconds"] < 1.5:
-            raise SmokeFailure("WebView audio", "installed audio check returned incomplete steady clock timing")
-        assessment["diagnostics"] = diagnostics
-        return assessment
-    except SmokeFailure as error:
-        error.diagnostics = diagnostics
-        raise
+        if result.returncode or payload.get("status") != "sampled" or payload.get("engine") != "native":
+            raise SmokeFailure("Native audio", "installed decoder/output consumption check failed")
+        if payload.get("channels") != 2 or payload.get("capturedSeconds", 0) < 2.9 or len(payload.get("measurements", [])) != 2:
+            raise SmokeFailure("Native audio", "installed output returned incomplete PCM evidence")
+        if private_monitor is not None:
+            payload["osOutput"] = assess_private_monitor(pathlib.Path(private_monitor["recordFile"]), payload.get("privateMonitorControl", {}))
+        return payload
     except (ValueError, IndexError, KeyError, TypeError) as error:
-        failure = SmokeFailure("WebView audio", "installed MCP returned invalid audio evidence")
-        failure.diagnostics = diagnostics
-        raise failure from error
+        raise SmokeFailure("Native audio", "installed MCP returned invalid Native audio evidence") from error
 
 
 def native_host_check(resource_root: pathlib.Path, target: str,
@@ -794,20 +807,39 @@ def wait_for_app(app_process: subprocess.Popen, discovery: pathlib.Path,
 
 
 def run_mcp_status(resource_root: pathlib.Path, target: str, discovery: pathlib.Path,
-                   env: dict[str, str]) -> dict:
+                   env: dict[str, str], *, command: pathlib.Path | None = None,
+                   command_args: tuple[str, ...] = ()) -> dict:
     ext = ".exe" if sys.platform == "win32" else ""
-    mcp = resource_root / "tools" / target / ("burrata-mcp" + ext)
+    mcp = command if command is not None else resource_root / "tools" / target / ("burrata-mcp" + ext)
     if not mcp.is_file():
         raise SmokeFailure("mcp", "packaged console MCP launcher is missing")
     node = shutil.which("node")
     if not node:
         raise SmokeFailure("mcp", "test runner Node.js is unavailable")
-    result = run([node, ROOT / "scripts/release/check-installed-mcp.mjs", mcp, discovery],
+    result = run([node, ROOT / "scripts/release/check-installed-mcp.mjs", mcp, discovery, *command_args],
                  timeout=30, env=env)
     try:
         return json.loads(result.stdout.decode().strip().splitlines()[-1])
     except (ValueError, IndexError) as error:
         raise SmokeFailure("mcp", "installed MCP client returned invalid evidence") from error
+
+
+def run_mcp_entrypoints(app: pathlib.Path, resource_root: pathlib.Path, target: str,
+                        discovery: pathlib.Path, env: dict[str, str]) -> dict:
+    """Exercise public app --mcp and any additional shipped console executable."""
+    result = {"applicationMcp": run_mcp_status(
+        resource_root, target, discovery, env, command=app, command_args=("--mcp",)),
+        "shippedConsole": []}
+    binary = "burrata-mcp.exe" if sys.platform == "win32" else "burrata-mcp"
+    # Native installers place helpers beside the app. AppImage's app is its
+    # AppRun wrapper, while the additional console command lives in usr/bin.
+    seen = set()
+    for console in [app.with_name(binary), app.parent / "usr/bin" / binary]:
+        if console.is_file() and console.resolve() not in seen:
+            seen.add(console.resolve())
+            result["shippedConsole"].append(run_mcp_status(
+                resource_root, target, discovery, env, command=console))
+    return result
 
 
 def stop_process(process: subprocess.Popen | None, temp: pathlib.Path) -> None:
@@ -910,11 +942,11 @@ def main() -> int:
         target = TARGETS[sys.platform]
         evidence["checks"]["packagedTools"] = bundled_tool_checks(resource_root, target, env)
         evidence["checks"]["mediaFixtures"] = bundled_media_checks(resource_root, target, env, temp)
-        audio_fixture = build_webview_audio_fixture(resource_root, target, env, temp, app_data)
-        evidence["checks"]["webviewAudioFixture"] = {
+        audio_fixture = build_native_audio_fixture(resource_root, target, env, temp, app_data)
+        evidence["checks"]["nativeAudioFixture"] = {
             key: value for key, value in audio_fixture.items() if key != "trackId"
         }
-        env["BURRATA_PLAYBACK_ENGINE"] = "webview"
+        env["BURRATA_NATIVE_OUTPUT_QUALIFICATION"] = "1"
         if sys.platform == "linux":
             audio_process = start_linux_audio(env, temp)
             evidence["checks"]["linuxAudioEndpoint"] = {"private": True, "maximumBlockMs": 50, "rewinds": False}
@@ -924,11 +956,14 @@ def main() -> int:
         evidence["checks"]["guiStartup"] = "automation discovery published"
         evidence["checks"]["nativeHost"] = native_host_check(resource_root, target, env)
         evidence["checks"]["mcp"] = run_mcp_status(resource_root, target, discovery, env)
+        evidence["checks"]["mcpEntrypoints"] = run_mcp_entrypoints(app, resource_root, target, discovery, env)
         if sys.platform == "linux":
             evidence["checks"]["linuxAudio"] = {"beforePlayback": linux_audio_diagnostics(env)}
-        evidence["checks"]["webviewAudio"] = run_mcp_webview_audio(
-            resource_root, target, discovery, env, str(audio_fixture["trackId"])
+        evidence["checks"]["nativeAudio"] = run_mcp_native_audio(
+            resource_root, target, discovery, env, str(audio_fixture["trackId"]),
+            private_monitor=linux_private_monitor_context(app, app_process, audio_process, env, temp) if sys.platform == "linux" else None
         )
+        evidence["checks"]["nativeAudio"]["proofScope"] = ("Linux private OS monitor after Player gain; no physical hardware" if sys.platform == "linux" else "Muted pre-Player-gain mixer PCM; no OS loopback/physical proof")
         evidence["status"] = "passed"
         print(json.dumps({"status": evidence["status"], "platform": sys.platform,
                           "checks": evidence["checks"]}, separators=(",", ":")))
@@ -936,16 +971,16 @@ def main() -> int:
     except SmokeFailure as error:
         evidence["failedStage"] = error.stage
         evidence["error"] = str(error)
-        if error.stage == "WebView audio" and error.diagnostics is not None:
-            evidence["checks"]["webviewAudio"] = {"status": "failed", "diagnostics": error.diagnostics}
+        if error.stage == "Native audio" and error.diagnostics is not None:
+            evidence["checks"]["nativeAudio"] = {"status": "failed", "diagnostics": error.diagnostics}
         print(f"Installed smoke failed at {error.stage}: {error}", file=sys.stderr)
         return 1
     finally:
         if sys.platform == "linux" and app_process is not None:
             evidence["checks"].setdefault("linuxAudio", {})["afterPlayback"] = linux_audio_diagnostics(env)
         stop_process(app_process, temp)
-        if evidence.get("failedStage") == "WebView audio":
-            evidence["checks"].setdefault("webviewAudio", {"status": "failed"})["mediaLogTail"] = {
+        if evidence.get("failedStage") == "Native audio":
+            evidence["checks"].setdefault("nativeAudio", {"status": "failed"})["mediaLogTail"] = {
                 "stderr": safe_media_log_tail(temp / "installed-app.stderr.log"),
                 "stdout": safe_media_log_tail(temp / "installed-app.stdout.log"),
             }

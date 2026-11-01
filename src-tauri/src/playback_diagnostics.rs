@@ -48,6 +48,12 @@ pub struct DiagnosticsStatus {
     pub event_count: usize,
     pub max_events: usize,
     pub dropped_events: u64,
+    #[serde(default)]
+    pub native_event_count: usize,
+    #[serde(default)]
+    pub max_native_events: usize,
+    #[serde(default)]
+    pub dropped_native_events: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -56,10 +62,251 @@ pub struct PlaybackDiagnosticsExport {
     pub schema_version: u32,
     pub status: DiagnosticsStatus,
     pub events: Vec<PlaybackDiagnosticEvent>,
+    #[serde(default)]
+    pub native_playback: Vec<NativePlaybackDiagnosticEvent>,
+    #[serde(default)]
+    pub native_coverage: Value,
 }
 
 fn ring() -> &'static Mutex<EventRing> {
     EVENTS.get_or_init(|| Mutex::new(EventRing::default()))
+}
+
+/// Separate bounded Native timeline: readiness is not EOF, and positions are
+/// decoder/output observations, not proof of physical audible output.
+const MAX_NATIVE_EVENTS: usize = 256;
+const MAX_NATIVE_EVENT_BYTES: usize = 4096;
+const NATIVE_PROGRESS_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+static NATIVE_EVENTS: OnceLock<Mutex<NativeEventRing>> = OnceLock::new();
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum NativeDiagnosticMoment {
+    Snapshot,
+    Progress,
+    CleanEof,
+    PrematureEof,
+    OutputEnded,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativePlaybackDiagnosticEvent {
+    pub sequence: u64,
+    pub at_unix_ms: i64,
+    pub elapsed_ms: u64,
+    pub moment: String,
+    pub playback: Value,
+}
+
+#[derive(Default)]
+struct NativeEventRing {
+    events: VecDeque<NativePlaybackDiagnosticEvent>,
+    dropped: u64,
+    sequence: u64,
+    started: Option<std::time::Instant>,
+    last: Option<(String, std::time::Instant)>,
+    epoch: u64,
+}
+fn native_ring() -> &'static Mutex<NativeEventRing> {
+    NATIVE_EVENTS.get_or_init(|| Mutex::new(NativeEventRing::default()))
+}
+#[derive(Clone, Copy)]
+struct NativeReservation {
+    epoch: u64,
+    sequence: u64,
+    elapsed_ms: u64,
+}
+fn invalidate_native_projections(ring: &mut NativeEventRing) {
+    ring.epoch = ring.epoch.wrapping_add(1);
+    ring.last = None;
+}
+fn clear_native(ring: &mut NativeEventRing) {
+    let epoch = ring.epoch.wrapping_add(1);
+    *ring = NativeEventRing {
+        epoch,
+        ..NativeEventRing::default()
+    };
+}
+fn native_admit(
+    ring: &mut NativeEventRing,
+    enabled: bool,
+    snapshot: &Value,
+    moment: NativeDiagnosticMoment,
+    now: std::time::Instant,
+) -> Option<NativeReservation> {
+    if !enabled || snapshot["engine"] != "native" {
+        return None;
+    }
+    // Fixed, bounded identity fields only; never serialize the full playback
+    // snapshot on every position callback, particularly with recording disabled.
+    let status = snapshot["status"]
+        .as_str()
+        .filter(|s| s.len() <= 16)
+        .unwrap_or("unknown");
+    let id = |value: &Value| {
+        value
+            .as_str()
+            .and_then(|s| uuid::Uuid::parse_str(s).ok())
+            .map(|id| id.to_string())
+    };
+    let key = format!(
+        "{:?}:{:?}:{:?}:{status}:{:?}:{:?}:{:?}:{:?}",
+        snapshot["generation"].as_u64(),
+        snapshot["seekSerial"].as_u64(),
+        snapshot["queueRevision"].as_u64(),
+        id(&snapshot["entryId"]),
+        id(&snapshot["transition"]["fromEntryId"]),
+        id(&snapshot["transition"]["toEntryId"]),
+        snapshot["diagnostics"]["recoveryCount"].as_u64()
+    );
+    let terminal = matches!(
+        moment,
+        NativeDiagnosticMoment::CleanEof
+            | NativeDiagnosticMoment::PrematureEof
+            | NativeDiagnosticMoment::OutputEnded
+    );
+    if !terminal
+        && ring.last.as_ref().is_some_and(|(previous, at)| {
+            previous == &key && now.saturating_duration_since(*at) < NATIVE_PROGRESS_INTERVAL
+        })
+    {
+        return None;
+    }
+    ring.sequence = ring.sequence.saturating_add(1);
+    let start = *ring.started.get_or_insert(now);
+    ring.last = Some((key, now));
+    Some(NativeReservation {
+        epoch: ring.epoch,
+        sequence: ring.sequence,
+        elapsed_ms: now
+            .saturating_duration_since(start)
+            .as_millis()
+            .min(u64::MAX as u128) as u64,
+    })
+}
+fn native_append(ring: &mut NativeEventRing, event: NativePlaybackDiagnosticEvent) {
+    if serde_json::to_vec(&event).map_or(true, |bytes| bytes.len() > MAX_NATIVE_EVENT_BYTES) {
+        ring.dropped = ring.dropped.saturating_add(1);
+        return;
+    }
+    let index = ring
+        .events
+        .iter()
+        .position(|stored| stored.sequence > event.sequence)
+        .unwrap_or(ring.events.len());
+    ring.events.insert(index, event);
+    if ring.events.len() > MAX_NATIVE_EVENTS {
+        ring.events.pop_front();
+        ring.dropped = ring.dropped.saturating_add(1);
+    }
+}
+fn native_publish(
+    ring: &mut NativeEventRing,
+    reservation: NativeReservation,
+    event: NativePlaybackDiagnosticEvent,
+) -> bool {
+    if ring.epoch != reservation.epoch || event.sequence != reservation.sequence {
+        return false;
+    }
+    native_append(ring, event);
+    true
+}
+pub(crate) fn record_native_snapshot(snapshot: &Value, moment: NativeDiagnosticMoment) {
+    if !is_enabled() {
+        return;
+    }
+    let now = std::time::Instant::now();
+    let Some(reservation) = native_ring()
+        .lock()
+        .ok()
+        .and_then(|mut ring| native_admit(&mut ring, is_enabled(), snapshot, moment, now))
+    else {
+        return;
+    };
+    // Projection happens outside the ring lock, and never acquires playback or
+    // watch locks. Export similarly releases each ring before reading playback.
+    let playback =
+        crate::playback_diagnostics_context::project(snapshot, crate::tools::target_triple());
+    let moment = match moment {
+        NativeDiagnosticMoment::Snapshot => "snapshot",
+        NativeDiagnosticMoment::Progress => "progress",
+        NativeDiagnosticMoment::CleanEof => "clean_eof",
+        NativeDiagnosticMoment::PrematureEof => "premature_eof",
+        NativeDiagnosticMoment::OutputEnded => "output_ended",
+    };
+    let event = NativePlaybackDiagnosticEvent {
+        sequence: reservation.sequence,
+        at_unix_ms: chrono::Utc::now().timestamp_millis(),
+        elapsed_ms: reservation.elapsed_ms,
+        moment: moment.into(),
+        playback,
+    };
+    if let Ok(mut ring) = native_ring().lock() {
+        if is_enabled() {
+            native_publish(&mut ring, reservation, event);
+        }
+    }
+}
+fn native_export() -> (Vec<NativePlaybackDiagnosticEvent>, Value) {
+    let (events, dropped) = native_ring()
+        .lock()
+        .map(|ring| {
+            (
+                ring.events.iter().cloned().collect::<Vec<_>>(),
+                ring.dropped,
+            )
+        })
+        .unwrap_or_default();
+    let coverage = serde_json::json!({"eventCount":events.len(),"maxEvents":MAX_NATIVE_EVENTS,"droppedEvents":dropped,"progressIntervalMs":NATIVE_PROGRESS_INTERVAL.as_millis(),"positionMeaning":"nativeConsumedAudioProgress","cleanEofMeaning":"verifiedWholeRecordingOutputEnd","bufferingCounters":"lastBufferingObservationOnly","continuousPcmCounters":"not_collected","physicalAudio":"not_captured","rawPcmIncluded":false,"deviceIdentity":"not_collected","powerSleepWakeEvents":"not_collected"});
+    (events, coverage)
+}
+
+/// Executed only on explicit export, in a blocking worker. Never include the
+/// executable path or arbitrary OS errors. This identifies the on-disk image at
+/// export time; reinstalling while the app runs should be avoided by the tester.
+pub(crate) fn current_executable_fingerprint() -> Value {
+    let Ok(path) = std::env::current_exe() else {
+        return serde_json::json!({"status":"unavailable","reason":"not_readable"});
+    };
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return serde_json::json!({"status":"unavailable","reason":"not_readable"});
+    };
+    let before = file.metadata().ok();
+    let result = fingerprint_reader(&mut file, 1_073_741_824);
+    let after = file.metadata().ok();
+    if let (Some(before), Some(after)) = (before, after) {
+        if before.len() != after.len() || before.modified().ok() != after.modified().ok() {
+            return serde_json::json!({"status":"unavailable","reason":"changed_during_read"});
+        }
+    }
+    match result {
+        Ok((sha256, bytes)) => {
+            serde_json::json!({"status":"collected","sha256":sha256,"bytes":bytes,"meaning":"onDiskExecutableAtExport"})
+        }
+        Err(reason) => serde_json::json!({"status":"unavailable","reason":reason}),
+    }
+}
+fn fingerprint_reader(
+    reader: &mut impl std::io::Read,
+    limit: u64,
+) -> Result<(String, u64), &'static str> {
+    use sha2::{Digest, Sha256};
+    let mut digest = Sha256::new();
+    let mut total = 0u64;
+    let mut buffer = [0u8; 65_536];
+    loop {
+        let count = reader.read(&mut buffer).map_err(|_| "not_readable")?;
+        if count == 0 {
+            break;
+        }
+        total = total.checked_add(count as u64).ok_or("too_large")?;
+        if total > limit {
+            return Err("too_large");
+        }
+        digest.update(&buffer[..count]);
+    }
+    Ok((format!("{:x}", digest.finalize()), total))
 }
 
 /// Keep only the numeric version, never arbitrary helper stdout suffixes.
@@ -83,6 +330,13 @@ pub(crate) fn numeric_helper_version(line: &str) -> Option<String> {
 
 pub fn set_enabled(enabled: bool) {
     ENABLED.store(enabled, Ordering::Release);
+    if !enabled {
+        // Invalidate projections admitted before disabling, without deleting
+        // already-recorded evidence. Re-enabling admits the next observation.
+        if let Ok(mut ring) = native_ring().lock() {
+            invalidate_native_projections(&mut ring);
+        }
+    }
 }
 
 pub fn is_enabled() -> bool {
@@ -91,14 +345,24 @@ pub fn is_enabled() -> bool {
 
 pub fn status() -> DiagnosticsStatus {
     let enabled = is_enabled();
+    let (native_event_count, dropped_native_events) = native_ring()
+        .lock()
+        .map(|r| (r.events.len(), r.dropped))
+        .unwrap_or_default();
     match ring().lock() {
         Ok(events) => DiagnosticsStatus {
+            native_event_count,
+            max_native_events: MAX_NATIVE_EVENTS,
+            dropped_native_events,
             enabled,
             event_count: events.events.len(),
             max_events: MAX_EVENTS,
             dropped_events: events.dropped_events,
         },
         Err(_) => DiagnosticsStatus {
+            native_event_count,
+            max_native_events: MAX_NATIVE_EVENTS,
+            dropped_native_events,
             enabled,
             event_count: 0,
             max_events: MAX_EVENTS,
@@ -113,14 +377,23 @@ pub fn clear() -> DiagnosticsStatus {
         events.events.clear();
         events.dropped_events = 0;
     }
+    if let Ok(mut native) = native_ring().lock() {
+        clear_native(&mut native);
+    }
     status()
 }
 
 pub fn export() -> PlaybackDiagnosticsExport {
     let enabled = is_enabled();
+    let (native_playback, native_coverage) = native_export();
+    let native_event_count = native_playback.len();
+    let dropped_native_events = native_coverage["droppedEvents"].as_u64().unwrap_or(0);
     let (status, events) = match ring().lock() {
         Ok(events) => (
             DiagnosticsStatus {
+                native_event_count,
+                max_native_events: MAX_NATIVE_EVENTS,
+                dropped_native_events,
                 enabled,
                 event_count: events.events.len(),
                 max_events: MAX_EVENTS,
@@ -130,6 +403,9 @@ pub fn export() -> PlaybackDiagnosticsExport {
         ),
         Err(_) => (
             DiagnosticsStatus {
+                native_event_count,
+                max_native_events: MAX_NATIVE_EVENTS,
+                dropped_native_events,
                 enabled,
                 event_count: 0,
                 max_events: MAX_EVENTS,
@@ -139,6 +415,8 @@ pub fn export() -> PlaybackDiagnosticsExport {
         ),
     };
     PlaybackDiagnosticsExport {
+        native_playback,
+        native_coverage,
         schema_version: 1,
         status,
         events,
@@ -945,6 +1223,7 @@ pub(crate) fn phase_is_allowed(value: &str) -> bool {
             | "settings_read_start"
             | "settings_read_end"
             | "identifier_lookup_end"
+            | "catalog_request_refresh"
             | "catalog_duration_lookup_start"
             | "catalog_duration_lookup_end"
             | "bandcamp_fallback_start"
@@ -1478,5 +1757,234 @@ mod helper_version_privacy_tests {
             None
         );
         assert_eq!(super::numeric_helper_version("SECRET=value"), None);
+    }
+}
+
+#[cfg(test)]
+mod native_timeline_tests {
+    use super::*;
+    use serde_json::json;
+    fn snapshot() -> Value {
+        serde_json::json!({"engine":"native","status":"playing","generation":1,"seekSerial":0,"entryId":uuid::Uuid::new_v4().to_string(),"position":12,"duration":24})
+    }
+    #[test]
+    fn disabled_native_recorder_has_no_observations_or_state_changes() {
+        let mut ring = NativeEventRing::default();
+        let value = snapshot();
+        assert!(native_admit(
+            &mut ring,
+            false,
+            &value,
+            NativeDiagnosticMoment::Snapshot,
+            std::time::Instant::now()
+        )
+        .is_none());
+        assert_eq!(ring.sequence, 0);
+        assert!(ring.events.is_empty());
+        assert!(ring.last.is_none());
+    }
+    #[test]
+    fn clearing_invalidates_an_observation_already_admitted_before_projection() {
+        let mut ring = NativeEventRing::default();
+        let value = snapshot();
+        let now = std::time::Instant::now();
+        let old = native_admit(
+            &mut ring,
+            true,
+            &value,
+            NativeDiagnosticMoment::Snapshot,
+            now,
+        )
+        .unwrap();
+        clear_native(&mut ring);
+        let event = |reservation: NativeReservation| NativePlaybackDiagnosticEvent {
+            sequence: reservation.sequence,
+            at_unix_ms: 0,
+            elapsed_ms: reservation.elapsed_ms,
+            moment: "snapshot".into(),
+            playback: json!({"engine":"native"}),
+        };
+        assert!(!native_publish(&mut ring, old, event(old)));
+        assert!(ring.events.is_empty());
+        assert_eq!(ring.sequence, 0);
+        let fresh = native_admit(
+            &mut ring,
+            true,
+            &value,
+            NativeDiagnosticMoment::Snapshot,
+            now,
+        )
+        .unwrap();
+        assert_ne!(old.epoch, fresh.epoch);
+        assert!(native_publish(&mut ring, fresh, event(fresh)));
+        assert_eq!(ring.events.len(), 1);
+    }
+
+    #[test]
+    fn disabling_invalidates_outstanding_projection_without_deleting_prior_evidence() {
+        let mut ring = NativeEventRing::default();
+        let value = snapshot();
+        let now = std::time::Instant::now();
+        let token = native_admit(
+            &mut ring,
+            true,
+            &value,
+            NativeDiagnosticMoment::Snapshot,
+            now,
+        )
+        .unwrap();
+        let event = |sequence| NativePlaybackDiagnosticEvent {
+            sequence,
+            at_unix_ms: 0,
+            elapsed_ms: 0,
+            moment: "snapshot".into(),
+            playback: json!({}),
+        };
+        native_append(&mut ring, event(0));
+        invalidate_native_projections(&mut ring);
+        assert!(!native_publish(&mut ring, token, event(token.sequence)));
+        assert_eq!(ring.events.len(), 1);
+        assert!(native_admit(
+            &mut ring,
+            false,
+            &value,
+            NativeDiagnosticMoment::Snapshot,
+            now
+        )
+        .is_none());
+        assert!(native_admit(
+            &mut ring,
+            true,
+            &value,
+            NativeDiagnosticMoment::Snapshot,
+            now
+        )
+        .is_some());
+    }
+
+    #[test]
+    fn native_progress_is_throttled_but_owner_changes_and_real_eof_are_immediate() {
+        let mut ring = NativeEventRing::default();
+        let mut value = snapshot();
+        let now = std::time::Instant::now();
+        assert!(native_admit(
+            &mut ring,
+            true,
+            &value,
+            NativeDiagnosticMoment::Snapshot,
+            now
+        )
+        .is_some());
+        value["position"] = json!(13);
+        assert!(native_admit(
+            &mut ring,
+            true,
+            &value,
+            NativeDiagnosticMoment::Progress,
+            now + std::time::Duration::from_secs(1)
+        )
+        .is_none());
+        assert!(native_admit(
+            &mut ring,
+            true,
+            &value,
+            NativeDiagnosticMoment::Progress,
+            now + std::time::Duration::from_secs(5)
+        )
+        .is_some());
+        value["seekSerial"] = json!(1);
+        assert!(native_admit(
+            &mut ring,
+            true,
+            &value,
+            NativeDiagnosticMoment::Snapshot,
+            now + std::time::Duration::from_millis(5100)
+        )
+        .is_some());
+        assert!(native_admit(
+            &mut ring,
+            true,
+            &value,
+            NativeDiagnosticMoment::CleanEof,
+            now + std::time::Duration::from_millis(5200)
+        )
+        .is_some());
+        assert!(native_admit(
+            &mut ring,
+            true,
+            &value,
+            NativeDiagnosticMoment::OutputEnded,
+            now + std::time::Duration::from_millis(5300)
+        )
+        .is_some());
+    }
+    #[test]
+    fn native_ring_is_bounded_and_retains_explicit_final_eof() {
+        let mut ring = NativeEventRing::default();
+        for sequence in 1..=MAX_NATIVE_EVENTS as u64 + 2 {
+            native_append(
+                &mut ring,
+                NativePlaybackDiagnosticEvent {
+                    sequence,
+                    at_unix_ms: 0,
+                    elapsed_ms: sequence,
+                    moment: if sequence == MAX_NATIVE_EVENTS as u64 + 2 {
+                        "clean_eof"
+                    } else {
+                        "progress"
+                    }
+                    .into(),
+                    playback: json!({"engine":"native","position":sequence}),
+                },
+            );
+        }
+        assert_eq!(ring.events.len(), MAX_NATIVE_EVENTS);
+        assert_eq!(ring.dropped, 2);
+        assert_eq!(ring.events.back().unwrap().moment, "clean_eof");
+        native_append(
+            &mut ring,
+            NativePlaybackDiagnosticEvent {
+                sequence: 9999,
+                at_unix_ms: 0,
+                elapsed_ms: 0,
+                moment: "snapshot".into(),
+                playback: json!({"arbitrary":"x".repeat(MAX_NATIVE_EVENT_BYTES)}),
+            },
+        );
+        assert_eq!(ring.dropped, 3);
+        assert_eq!(ring.events.back().unwrap().moment, "clean_eof");
+    }
+    #[test]
+    fn native_ring_orders_concurrent_projection_completions_by_admission() {
+        let mut ring = NativeEventRing::default();
+        for sequence in [2, 1] {
+            native_append(
+                &mut ring,
+                NativePlaybackDiagnosticEvent {
+                    sequence,
+                    at_unix_ms: 0,
+                    elapsed_ms: 0,
+                    moment: "snapshot".into(),
+                    playback: json!({}),
+                },
+            );
+        }
+        assert_eq!(
+            ring.events.iter().map(|e| e.sequence).collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+    }
+    #[test]
+    fn explicit_export_fingerprint_is_exact_streamed_and_bounded() {
+        let (hash, bytes) = fingerprint_reader(&mut std::io::Cursor::new(b"abc"), 3).unwrap();
+        assert_eq!(bytes, 3);
+        assert_eq!(
+            hash,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(
+            fingerprint_reader(&mut std::io::Cursor::new(b"abcd"), 3).unwrap_err(),
+            "too_large"
+        );
     }
 }

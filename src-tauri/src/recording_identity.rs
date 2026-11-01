@@ -702,6 +702,8 @@ pub fn parse_title(value: &str) -> ParsedRecordingTitle {
             "acoustic",
             "karaoke",
             "demo",
+            "cover",
+            "cover by ",
             "radio edit",
             "remix",
             "extended mix",
@@ -709,7 +711,8 @@ pub fn parse_title(value: &str) -> ParsedRecordingTitle {
         .iter()
         .any(|label| lower == *label || (label.ends_with(' ') && lower.starts_with(label)))
             || restored_edition_year(&lower)
-            || [" remix", " mix", " edit", " version"]
+            || remastered_year(&lower)
+            || [" remix", " mix", " edit", " version", " cover"]
                 .iter()
                 .any(|suffix| lower.ends_with(suffix))
         {
@@ -738,6 +741,13 @@ fn restored_edition_year(label: &str) -> bool {
         .or_else(|| year.strip_prefix('’'))
         .unwrap_or(year);
     matches!(year.len(), 2 | 4) && year.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn remastered_year(label: &str) -> bool {
+    let Some(year) = label.strip_prefix("remastered ") else {
+        return false;
+    };
+    year.len() == 4 && year.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 fn trailing_dash_version(value: &str) -> Option<(&str, &str)> {

@@ -34,7 +34,9 @@ export function consumeStartupPlaybackControls(storage?: ConsumableControlStorag
     if (!target) return null;
     const oneShotRaw = target.getItem(ENGINE_SWITCH_CONTROLS_KEY);
     const oneShot = oneShotRaw == null ? null : parsePlaybackControls(JSON.parse(oneShotRaw));
-    target.removeItem(ENGINE_SWITCH_CONTROLS_KEY);
+    // Keep the one-shot handoff until Native owns and persists the controls.
+    // An interrupted migration must be able to retry with the same volume.
+
     return oneShot ?? readPlaybackControls(target);
   } catch { return readPlaybackControls(storage); }
 }
@@ -45,6 +47,6 @@ export function persistPlaybackControlsWhenOwned(
   ownership: { desktop: boolean; hydrated: boolean; engineOwned: boolean },
 ): boolean {
   if (!ownership.desktop || !ownership.hydrated || !ownership.engineOwned || !parsePlaybackControls(controls)) return false;
-  try { writePlaybackControls(storage, controls); return true; }
+  try { writePlaybackControls(storage, controls); storage.removeItem(ENGINE_SWITCH_CONTROLS_KEY); return true; }
   catch { return false; }
 }

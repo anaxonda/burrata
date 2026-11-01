@@ -3,6 +3,8 @@
 
 #[path = "native_resample.rs"]
 mod continuous_resample;
+#[path = "native_crossfade.rs"]
+mod native_crossfade;
 #[path = "native_http.rs"]
 mod native_http;
 #[path = "native_storage_fault.rs"]
@@ -304,6 +306,24 @@ impl StartupPcmReserve {
         }
     }
 }
+// Keep the channel connected until completion/failure accounting is published.
+// Struct fields drop after this destructor, so EOF cannot race the finished flag.
+struct DecodeProducerCompletion {
+    session: Arc<DecoderSession>,
+    failed: Arc<AtomicBool>,
+    _sender: std_mpsc::SyncSender<Vec<f32>>,
+}
+impl Drop for DecodeProducerCompletion {
+    fn drop(&mut self) {
+        if thread::panicking() {
+            self.failed.store(true, Ordering::Release);
+        }
+        self.session
+            .decode_thread_finished
+            .store(true, Ordering::Release);
+    }
+}
+
 // A pilot consumer must not mistake sender-drop-before-error-publication for cleanEOF.
 struct ReserveProducerCompletion {
     _sender: std_mpsc::SyncSender<Vec<f32>>,
@@ -435,6 +455,7 @@ pub enum OutputCommand {
         position: f64,
         end: Option<f64>,
         plan: crate::loudness_manager::NativeNormalizationGainPlan,
+        crossfade_seconds: Option<u8>,
     },
     ClearPreload {
         generation: u64,
@@ -573,6 +594,21 @@ impl<T: std::io::Seek> std::io::Seek for TimedStreamReader<T> {
 
 #[derive(Debug, Clone)]
 pub enum OutputEvent {
+    // Diagnostic evidence only; never advances the queue.
+    GaplessCompleted {
+        from_generation: u64,
+        to_generation: u64,
+        position: f64,
+    },
+    CrossfadeStarted {
+        from_generation: u64,
+        to_generation: u64,
+    },
+    CrossfadeProgress {
+        from_generation: u64,
+        to_generation: u64,
+        progress: f64,
+    },
     NormalizationSelected {
         generation: u64,
         output_channels: u16,
@@ -755,7 +791,6 @@ impl Source for NativeDecoder {
 /// Only the decode worker takes `decoder`; the audio callback never locks it.
 #[derive(Default)]
 struct DecoderSession {
-    #[cfg(test)]
     decode_thread_finished: AtomicBool,
     #[cfg(test)]
     force_legacy_opus_probe: AtomicBool,
@@ -956,6 +991,10 @@ struct Playback {
     normalization_ramp_ms: Arc<AtomicU32>,
     normalization_plan: Option<crate::loudness_manager::NativeNormalizationGainPlan>,
     preload_normalization: Arc<std::sync::Mutex<Option<QueuedNormalizationControl>>>,
+    crossfade_queued: Arc<std::sync::Mutex<Option<QueuedCrossfade>>>,
+    queued_successor_generation: Arc<AtomicU64>,
+    crossfade_available: Arc<AtomicBool>,
+    crossfade_in_progress: Arc<AtomicBool>,
     paused: bool,
 }
 
@@ -1056,6 +1095,7 @@ struct Activation {
     duration: Option<f64>,
     decoder_diagnostics: Option<DecoderDiagnostics>,
     decode_failed: Arc<AtomicBool>,
+    buffering: Arc<AtomicBool>,
     live_metadata: ActiveMetadata,
     normalization_gain_target: Arc<AtomicU32>,
     normalization_ramp_ms: Arc<AtomicU32>,
@@ -1125,6 +1165,7 @@ fn run_worker(
         // to provide a resource-specific value before first output.
         let mut initial_gain_db = 0.0_f32;
         let mut normalization_plan = None;
+        let mut crossfade_seconds = None;
         let command = match command {
             Ok(OutputCommand::LoadWithNormalization {
                 generation,
@@ -1188,8 +1229,10 @@ fn run_worker(
                 position,
                 end,
                 plan,
+                crossfade_seconds: seconds,
             }) => {
                 normalization_plan = Some(plan);
+                crossfade_seconds = seconds;
                 Ok(OutputCommand::Preload {
                     generation,
                     next_generation,
@@ -1327,6 +1370,7 @@ fn run_worker(
                             position,
                             end,
                             current.active_generation.clone(),
+                            current.queued_successor_generation.clone(),
                             current.samples.clone(),
                             current.base_position.clone(),
                             current.sample_rate.load(Ordering::Relaxed),
@@ -1335,10 +1379,17 @@ fn run_worker(
                             tap.clone(),
                             current.activation_tx.clone(),
                             Arc::new(AtomicBool::new(false)),
-                            current.buffering.clone(),
+                            Arc::new(AtomicBool::new(false)),
                             selected_gain_db,
                             normalization_plan,
                             preload_normalization.clone(),
+                            crossfade_seconds.map(|seconds| {
+                                (
+                                    current.crossfade_queued.clone(),
+                                    current.crossfade_available.clone(),
+                                    seconds,
+                                )
+                            }),
                         ));
                         current.preload_normalization = preload_normalization;
                     }
@@ -1356,6 +1407,15 @@ fn run_worker(
                             cancel.store(true, Ordering::Relaxed);
                         }
                     }
+                    current
+                        .queued_successor_generation
+                        .store(0, Ordering::Release);
+                    current.crossfade_available.store(false, Ordering::Release);
+                    current
+                        .crossfade_queued
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .take();
                     current
                         .preload_normalization
                         .lock()
@@ -1655,12 +1715,14 @@ fn run_worker(
             }
         }
         if let Some(current) = player.as_mut() {
-            if let Some(event) = take_active_decode_failure(
-                current.generation,
-                &current.decoder_session,
-                &current.cancel,
-            ) {
-                let _ = events.send(event);
+            if !current.crossfade_in_progress.load(Ordering::Acquire) {
+                if let Some(event) = take_active_decode_failure(
+                    current.generation,
+                    &current.decoder_session,
+                    &current.cancel,
+                ) {
+                    let _ = events.send(event);
+                }
             }
             let is_buffering = current.buffering.load(Ordering::Relaxed);
             if is_buffering && !current.buffering_reported {
@@ -1871,6 +1933,7 @@ fn apply_activation(current: &mut Playback, activation: Activation) {
     current.end = activation.end;
     current.cancel = activation.cancel.clone();
     current.decode_failed = activation.decode_failed.clone();
+    current.buffering = activation.buffering;
     current.buffering_reported = false;
     current.source_duration = activation.duration;
     current.decoder_diagnostics = activation.decoder_diagnostics;
@@ -2065,21 +2128,22 @@ fn start_playback_with_reserve_policy_and_gain(
         cancel.clone(),
         source.clone(),
     );
+    decoder_session
+        .decode_thread_finished
+        .store(false, Ordering::Release);
     let decode_cancelled = cc.clone();
     let storage_faults = worker_session.storage_faults.clone();
+    let crossfade_in_progress = Arc::new(AtomicBool::new(false));
+    let overlap_for_decoder = crossfade_in_progress.clone();
+    let failure_session = decoder_session.clone();
     let spawned = thread::Builder::new()
         .name("burrata-audio-decode".into())
         .spawn(move || {
-            #[cfg(test)]
-            struct Finished(Arc<DecoderSession>);
-            #[cfg(test)]
-            impl Drop for Finished {
-                fn drop(&mut self) {
-                    self.0.decode_thread_finished.store(true, Ordering::Release);
-                }
-            }
-            #[cfg(test)]
-            let _finished = Finished(worker_session.clone());
+            let _completion = DecodeProducerCompletion {
+                session: worker_session.clone(),
+                failed: failed.clone(),
+                _sender: sample_tx.clone(),
+            };
             let _reserve_completion = reserve_target.map(|_| ReserveProducerCompletion {
                 _sender: sample_tx.clone(),
                 failed: failed.clone(),
@@ -2104,7 +2168,14 @@ fn start_playback_with_reserve_policy_and_gain(
             ) {
                 if !decode_cancelled.load(Ordering::Relaxed) {
                     if !failed.swap(true, Ordering::AcqRel) {
-                        if let Some(event) = decode_failure_event(
+                        if overlap_for_decoder.load(Ordering::Acquire) {
+                            if storage_faults.get().is_none() {
+                                *failure_session
+                                    .retained_failure
+                                    .lock()
+                                    .unwrap_or_else(|e| e.into_inner()) = Some(message);
+                            }
+                        } else if let Some(event) = decode_failure_event(
                             generation,
                             message,
                             &storage_faults,
@@ -2123,7 +2194,10 @@ fn start_playback_with_reserve_policy_and_gain(
             message: error.to_string(),
         });
     }
-    player.append(QueuedSamples {
+    let crossfade_queued = Arc::new(std::sync::Mutex::new(None));
+    let crossfade_available = Arc::new(AtomicBool::new(false));
+    let queued_successor_generation = Arc::new(AtomicU64::new(0));
+    let primary = QueuedSamples {
         reserve: reserve_target.map(StartupPcmReserve::new),
         reserve_diagnostics: None,
         decoder_session: decoder_session.clone(),
@@ -2132,8 +2206,13 @@ fn start_playback_with_reserve_policy_and_gain(
         channels: output_channels,
         sample_rate: output_rate,
         samples_played: samples.clone(),
+        voice_samples: 0,
+        silence_phase: 0,
+        aligning_after_silence: false,
+        alignment_phase: 0,
         generation,
         active_generation: active_generation.clone(),
+        queued_successor_generation: queued_successor_generation.clone(),
         base_position: base_position_bits.clone(),
         initial_position: base_position,
         started: false,
@@ -2160,7 +2239,13 @@ fn start_playback_with_reserve_policy_and_gain(
         normalization_ramp_total: 0,
         normalization_ramp_remaining: 0,
         exhausted: false,
-    });
+    };
+    player.append(NativeCrossfadeSource::new(
+        primary,
+        crossfade_queued.clone(),
+        crossfade_available.clone(),
+        crossfade_in_progress.clone(),
+    ));
     if !paused {
         player.play();
     }
@@ -2192,6 +2277,10 @@ fn start_playback_with_reserve_policy_and_gain(
         normalization_ramp_ms,
         normalization_plan: None,
         preload_normalization: Arc::new(std::sync::Mutex::new(None)),
+        crossfade_queued,
+        queued_successor_generation,
+        crossfade_available,
+        crossfade_in_progress,
         paused,
     }
 }
@@ -2203,6 +2292,7 @@ fn append_source(
     position: f64,
     end: Option<f64>,
     active_generation: Arc<AtomicU64>,
+    queued_successor_generation: Arc<AtomicU64>,
     samples_played: Arc<AtomicU64>,
     base_position: Arc<AtomicU64>,
     output_rate: u32,
@@ -2215,6 +2305,11 @@ fn append_source(
     initial_gain_db: f32,
     normalization_plan: Option<crate::loudness_manager::NativeNormalizationGainPlan>,
     preload_normalization_out: Arc<std::sync::Mutex<Option<QueuedNormalizationControl>>>,
+    crossfade_queue: Option<(
+        Arc<std::sync::Mutex<Option<QueuedCrossfade>>>,
+        Arc<AtomicBool>,
+        u8,
+    )>,
 ) -> Arc<AtomicBool> {
     let (tx, rx) = std_mpsc::sync_channel(16);
     let cancel = Arc::new(AtomicBool::new(false));
@@ -2252,13 +2347,15 @@ fn append_source(
     let decode_cancelled = cc.clone();
     let storage_faults = worker_session.storage_faults.clone();
     let failure_session = decoder_session.clone();
-    // Keep the channel connected until the retained error/failed flag is
-    // published. Otherwise a zero-PCM failure can race source activation.
-    let producer_lifetime = tx.clone();
     let spawned = thread::Builder::new()
         .name("burrata-audio-preload".into())
         .spawn(move || {
-            let _producer_lifetime = producer_lifetime;
+            let _completion = DecodeProducerCompletion {
+                session: worker_session.clone(),
+                failed: failed.clone(),
+                _sender: tx.clone(),
+            };
+
             if let Err(message) = decode_with_session_and_diagnostics(
                 src,
                 position,
@@ -2296,7 +2393,7 @@ fn append_source(
             Some(format!("Could not start the next-track decoder: {error}"));
         decode_failed.store(true, Ordering::Release);
     }
-    player.append(QueuedSamples {
+    let queued_source = QueuedSamples {
         reserve: None,
         reserve_diagnostics: None,
         decoder_session,
@@ -2305,8 +2402,13 @@ fn append_source(
         channels: output_channels,
         sample_rate: output_rate,
         samples_played,
+        voice_samples: 0,
+        silence_phase: 0,
+        aligning_after_silence: false,
+        alignment_phase: 0,
         generation,
         active_generation,
+        queued_successor_generation: queued_successor_generation.clone(),
         base_position,
         initial_position: position,
         started: false,
@@ -2333,8 +2435,32 @@ fn append_source(
         normalization_ramp_total: 0,
         normalization_ramp_remaining: 0,
         exhausted: false,
-    });
+    };
+    install_queued_reader(player, queued_source, crossfade_queue);
     cancel
+}
+
+fn install_queued_reader(
+    player: &Player,
+    queued_source: QueuedSamples,
+    crossfade_queue: Option<(
+        Arc<std::sync::Mutex<Option<QueuedCrossfade>>>,
+        Arc<AtomicBool>,
+        u8,
+    )>,
+) {
+    queued_source
+        .queued_successor_generation
+        .store(queued_source.generation, Ordering::Release);
+    if let Some((slot, available, seconds)) = crossfade_queue {
+        *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(QueuedCrossfade {
+            source: queued_source,
+            seconds,
+        });
+        available.store(true, Ordering::Release);
+    } else {
+        player.append(queued_source);
+    }
 }
 
 struct QueuedSamples {
@@ -2346,8 +2472,15 @@ struct QueuedSamples {
     channels: u16,
     sample_rate: u32,
     samples_played: Arc<AtomicU64>,
+    voice_samples: u64,
+    // Track the output lane and pad each buffering episode to a whole number
+    // of frames, including underruns in the middle of a decoded frame.
+    silence_phase: u16,
+    aligning_after_silence: bool,
+    alignment_phase: u16,
     generation: u64,
     active_generation: Arc<AtomicU64>,
+    queued_successor_generation: Arc<AtomicU64>,
     base_position: Arc<AtomicU64>,
     initial_position: f64,
     started: bool,
@@ -2396,7 +2529,7 @@ impl Iterator for QueuedSamples {
                             .synthetic_silence_samples
                             .fetch_add(1, Ordering::Relaxed);
                         self.buffering.store(true, Ordering::Relaxed);
-                        return Some(0.0);
+                        return Some(self.buffering_silence());
                     }
                     ReserveFill::Failed => {
                         if self.decode_failed.load(Ordering::Acquire) && !self.activated {
@@ -2425,11 +2558,17 @@ impl Iterator for QueuedSamples {
                 }
             }
         }
+        if !self.pending.is_empty() && self.aligning_after_silence {
+            if self.silence_phase != self.alignment_phase {
+                return Some(self.buffering_silence());
+            }
+            self.aligning_after_silence = false;
+        }
         if let Some(value) = self.pending.pop_front() {
             if !self.started {
                 self.begin_track();
             }
-            self.samples_played.fetch_add(1, Ordering::Relaxed);
+            self.note_voice_sample();
             self.buffering.store(false, Ordering::Relaxed);
             let output = self.apply_normalization_gain(value);
             self.push_tap_sample(output);
@@ -2441,12 +2580,18 @@ impl Iterator for QueuedSamples {
         match self.rx.try_recv() {
             Ok(block) => {
                 self.pending.extend(block);
+                if !self.pending.is_empty() && self.aligning_after_silence {
+                    if self.silence_phase != self.alignment_phase {
+                        return Some(self.buffering_silence());
+                    }
+                    self.aligning_after_silence = false;
+                }
                 let value = self.pending.pop_front();
                 if value.is_some() {
                     if !self.started {
                         self.begin_track();
                     }
-                    self.samples_played.fetch_add(1, Ordering::Relaxed);
+                    self.note_voice_sample();
                     self.buffering.store(false, Ordering::Relaxed);
                     if let Some(sample) = value {
                         let output = self.apply_normalization_gain(sample);
@@ -2462,7 +2607,7 @@ impl Iterator for QueuedSamples {
                     .synthetic_silence_samples
                     .fetch_add(1, Ordering::Relaxed);
                 self.buffering.store(true, Ordering::Relaxed);
-                Some(0.0)
+                Some(self.buffering_silence())
             }
             Err(std_mpsc::TryRecvError::Disconnected) => {
                 if !self.activated && self.decode_failed.load(Ordering::Acquire) {
@@ -2471,12 +2616,58 @@ impl Iterator for QueuedSamples {
                     self.activate();
                 }
                 self.exhausted = true;
+                self.observe_consumed_gapless_eof();
                 None
             }
         }
     }
 }
 impl QueuedSamples {
+    // Only a disconnected producer with all real PCM consumed can establish EOF.
+    // The successor hint scopes this diagnostic to queued handoff; final Ended
+    // retains ownership of the final occurrence's completion observation.
+    fn observe_consumed_gapless_eof(&self) {
+        let next_generation = self.queued_successor_generation.load(Ordering::Acquire);
+        if next_generation == 0 || next_generation == self.generation {
+            return;
+        }
+        if let Some(position) = self.clean_consumed_eof_position() {
+            let _ = self.events.send(OutputEvent::GaplessCompleted {
+                from_generation: self.generation,
+                to_generation: next_generation,
+                position,
+            });
+        }
+    }
+
+    fn clean_consumed_eof_position(&self) -> Option<f64> {
+        if !self.started
+            || !self.exhausted
+            || self.voice_samples == 0
+            || self.cancelled.load(Ordering::Acquire)
+            || self.decode_failed.load(Ordering::Acquire)
+            || !self
+                .decoder_session
+                .decode_thread_finished
+                .load(Ordering::Acquire)
+        {
+            return None;
+        }
+        let position = self.initial_position
+            + self.voice_samples as f64
+                / f64::from(self.sample_rate.max(1))
+                / f64::from(self.channels.max(1));
+        (position.is_finite() && position >= 0.0).then_some(position)
+    }
+
+    fn buffering_silence(&mut self) -> f32 {
+        if !self.aligning_after_silence {
+            self.alignment_phase = self.silence_phase;
+        }
+        self.aligning_after_silence = true;
+        self.silence_phase = (self.silence_phase + 1) % self.channels.max(1);
+        0.0
+    }
     fn apply_normalization_gain(&mut self, sample: f32) -> f32 {
         let target_bits = self.normalization_gain_target.load(Ordering::Acquire);
         if target_bits != self.normalization_seen_target {
@@ -2515,8 +2706,16 @@ impl QueuedSamples {
         }
     }
 
+    fn note_voice_sample(&mut self) {
+        self.silence_phase = (self.silence_phase + 1) % self.channels.max(1);
+        self.voice_samples = self.voice_samples.saturating_add(1);
+        if self.active_generation.load(Ordering::Relaxed) == self.generation {
+            self.samples_played.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
     fn push_tap_sample(&mut self, sample: f32) {
-        let played_samples = self.samples_played.load(Ordering::Relaxed) as f64;
+        let played_samples = self.voice_samples as f64;
         let frame_position = self.initial_position
             + played_samples / self.sample_rate.max(1) as f64 / self.channels.max(1) as f64;
         self.tap_writer
@@ -2558,6 +2757,7 @@ impl QueuedSamples {
             },
             decoder_diagnostics: self.start_diagnostics(),
             decode_failed: self.decode_failed.clone(),
+            buffering: self.buffering.clone(),
             live_metadata: ActiveMetadata {
                 rate: self.source_rate.clone(),
                 channels: self.source_channels.clone(),
@@ -2600,6 +2800,277 @@ impl QueuedSamples {
         });
     }
 }
+impl native_crossfade::Voice for QueuedSamples {
+    fn buffered_frames(&mut self) -> usize {
+        // Bound retained PCM to twelve seconds, the largest supported fade.
+        let maximum = self.sample_rate as usize * self.channels as usize * 12;
+        while self.pending.len() < maximum {
+            match self.rx.try_recv() {
+                Ok(block) => self.pending.extend(block),
+                Err(_) => break,
+            }
+        }
+        self.pending.len() / self.channels.max(1) as usize
+    }
+
+    fn read_frame(&mut self, output: &mut [f32]) -> Option<()> {
+        for sample in output {
+            *sample = self.next()?;
+        }
+        Some(())
+    }
+}
+
+/// Single rodio source that may overlap one already-decoded queued voice.
+/// Its per-voice pulls retain independent normalization and PCM tap writers.
+struct NativeCrossfadeSource {
+    primary: Option<QueuedSamples>,
+    queued: Arc<std::sync::Mutex<Option<QueuedCrossfade>>>,
+    available: Arc<AtomicBool>,
+    in_progress: Arc<AtomicBool>,
+    transition: Option<native_crossfade::TransitionMixer<QueuedSamples, QueuedSamples>>,
+    transition_event: Option<(u64, u64, UnboundedSender<OutputEvent>, u64)>,
+    frame: Vec<f32>,
+    frame_index: usize,
+    ended: bool,
+    channels: u16,
+    rate: u32,
+}
+
+struct QueuedCrossfade {
+    source: QueuedSamples,
+    seconds: u8,
+}
+
+impl NativeCrossfadeSource {
+    fn new(
+        primary: QueuedSamples,
+        queued: Arc<std::sync::Mutex<Option<QueuedCrossfade>>>,
+        available: Arc<AtomicBool>,
+        in_progress: Arc<AtomicBool>,
+    ) -> Self {
+        let channels = primary.channels;
+        let rate = primary.sample_rate;
+        Self {
+            primary: Some(primary),
+            queued,
+            available,
+            in_progress,
+            transition: None,
+            transition_event: None,
+            frame: vec![0.0; usize::from(channels)],
+            frame_index: usize::from(channels),
+            ended: false,
+            channels,
+            rate,
+        }
+    }
+
+    fn begin_if_ready(&mut self) {
+        use native_crossfade::Voice;
+        if !self.available.load(Ordering::Acquire) {
+            return;
+        }
+        let Some(primary) = self.primary.as_mut() else {
+            return;
+        };
+        let check_every = u64::from(self.channels.max(1)) * u64::from((self.rate / 200).max(1));
+        if primary.voice_samples % check_every != 0 || primary.silence_phase != 0 {
+            return;
+        }
+        let Ok(mut queued) = self.queued.try_lock() else {
+            return;
+        };
+        let Some(next) = queued.as_mut() else {
+            return;
+        };
+        if next.source.cancelled.load(Ordering::Acquire) {
+            queued.take();
+            self.available.store(false, Ordering::Release);
+            return;
+        }
+        // Failed preloads are retained for the normal selection/recovery path;
+        // never fade away a healthy outgoing voice into a known-bad decoder.
+        if next.source.decode_failed.load(Ordering::Acquire) {
+            return;
+        }
+        // Drain a bounded tail so the decoder can reach EOF before choosing the
+        // overlap boundary. Metadata alone must never discard outgoing PCM.
+        primary.buffered_frames();
+        if !primary
+            .decoder_session
+            .decode_thread_finished
+            .load(Ordering::Acquire)
+            || primary.decode_failed.load(Ordering::Acquire)
+        {
+            return;
+        }
+        let outgoing_duration = f64::from_bits(primary.duration_bits.load(Ordering::Acquire));
+        let incoming_duration = f64::from_bits(next.source.duration_bits.load(Ordering::Acquire));
+        let Some(frames) = native_crossfade::fade_frames(
+            next.seconds,
+            outgoing_duration,
+            incoming_duration,
+            self.rate,
+        ) else {
+            return;
+        };
+        let played_frames = primary.voice_samples / u64::from(self.channels.max(1));
+        let total_frames =
+            ((outgoing_duration - primary.initial_position).max(0.0) * f64::from(self.rate)) as u64;
+        if played_frames < total_frames.saturating_sub(frames)
+            || next.source.buffered_frames() < frames as usize
+        {
+            return;
+        }
+        // A producer can fail or be canceled while its buffered blocks are
+        // drained; recheck ownership immediately before claiming the voice.
+        if next.source.decode_failed.load(Ordering::Acquire)
+            || next.source.cancelled.load(Ordering::Acquire)
+        {
+            return;
+        }
+        let remaining = total_frames.saturating_sub(played_frames);
+        let frames = frames.min(remaining);
+        if frames < 2 {
+            return;
+        }
+        let next = queued.take().expect("queued source was checked");
+        self.available.store(false, Ordering::Release);
+        let primary = self.primary.take().expect("primary source was checked");
+        let from_generation = primary.generation;
+        let to_generation = next.source.generation;
+        let events = primary.events.clone();
+        self.in_progress.store(true, Ordering::Release);
+        let _ = events.send(OutputEvent::CrossfadeStarted {
+            from_generation,
+            to_generation,
+        });
+        self.transition_event = Some((from_generation, to_generation, events, 0));
+        self.transition = native_crossfade::TransitionMixer::new(
+            primary,
+            next.source,
+            usize::from(self.channels),
+            frames,
+        );
+    }
+}
+
+impl Iterator for NativeCrossfadeSource {
+    type Item = f32;
+    fn next(&mut self) -> Option<f32> {
+        if self.frame_index < self.frame.len() {
+            let sample = self.frame[self.frame_index];
+            self.frame_index += 1;
+            return Some(sample);
+        }
+        if self.transition.is_none() {
+            self.begin_if_ready();
+        }
+        if let Some(transition) = self.transition.as_mut() {
+            let (available, event) = transition.next_frame(&mut self.frame);
+            if let Some((from_generation, to_generation, events, emitted_frames)) =
+                self.transition_event.as_mut()
+            {
+                *emitted_frames += 1;
+                if *emitted_frames == 1
+                    || *emitted_frames % u64::from((self.rate / 4).max(1)) == 0
+                    || matches!(event, Some(native_crossfade::TransitionEvent::Finished))
+                {
+                    let _ = events.send(OutputEvent::CrossfadeProgress {
+                        from_generation: *from_generation,
+                        to_generation: *to_generation,
+                        progress: transition.progress(),
+                    });
+                }
+            }
+            if matches!(event, Some(native_crossfade::TransitionEvent::Finished)) {
+                self.in_progress.store(false, Ordering::Release);
+                self.transition_event = None;
+                let (outgoing, incoming) = self
+                    .transition
+                    .take()
+                    .expect("transition exists")
+                    .into_voices();
+                outgoing.cancelled.store(true, Ordering::Release);
+                self.primary = Some(incoming);
+            }
+            if available {
+                self.frame_index = 1;
+                return self.frame.first().copied();
+            }
+            self.in_progress.store(false, Ordering::Release);
+            self.ended = true;
+            return None;
+        }
+        let primary = self.primary.as_mut()?;
+        if let Some(sample) = primary.next() {
+            return Some(sample);
+        }
+        // If the incoming voice was not fully buffered in time, retain the
+        // original gapless behavior and start it only when the old voice ends.
+        let next = if self.available.load(Ordering::Acquire) {
+            let Ok(mut queued) = self.queued.try_lock() else {
+                // Retry only after an entire device frame, preserving the
+                // channel lane of the next occurrence under lock contention.
+                self.frame.fill(0.0);
+                self.frame_index = 1;
+                return Some(0.0);
+            };
+            let next = queued.take();
+            self.available.store(false, Ordering::Release);
+            next
+        } else {
+            None
+        };
+        if let Some(next) = next {
+            self.primary = Some(next.source);
+            return self.next();
+        }
+        self.ended = true;
+        None
+    }
+}
+
+impl Drop for NativeCrossfadeSource {
+    fn drop(&mut self) {
+        if let Some(primary) = self.primary.take() {
+            if !self.ended {
+                primary.cancelled.store(true, Ordering::Release);
+            }
+        }
+        if let Some(transition) = self.transition.take() {
+            let (outgoing, incoming) = transition.into_voices();
+            if !self.ended {
+                outgoing.cancelled.store(true, Ordering::Release);
+                incoming.cancelled.store(true, Ordering::Release);
+            }
+        }
+        if let Ok(mut slot) = self.queued.try_lock() {
+            if let Some(queued) = slot.take() {
+                queued.source.cancelled.store(true, Ordering::Release);
+            }
+        }
+        self.available.store(false, Ordering::Release);
+        self.in_progress.store(false, Ordering::Release);
+    }
+}
+
+impl Source for NativeCrossfadeSource {
+    fn current_span_len(&self) -> Option<usize> {
+        None
+    }
+    fn channels(&self) -> NonZeroU16 {
+        NonZeroU16::new(self.channels).unwrap()
+    }
+    fn sample_rate(&self) -> NonZeroU32 {
+        NonZeroU32::new(self.rate).unwrap()
+    }
+    fn total_duration(&self) -> Option<Duration> {
+        None
+    }
+}
+
 impl Source for QueuedSamples {
     fn current_span_len(&self) -> Option<usize> {
         None
@@ -2843,6 +3314,12 @@ fn decode_with_session_and_diagnostics(
                         Settings, StreamDownload,
                     };
                     let mut builder = stream_reqwest::Client::builder();
+                    #[cfg(test)]
+                    {
+                        builder = crate::acquisition::playback_test_transport::configure_native(
+                            builder, &uri,
+                        )?;
+                    }
                     // Test fixtures must not route literal loopback requests through host proxies.
                     #[cfg(test)]
                     if matches!(uri.host_str(), Some("127.0.0.1") | Some("[::1]")) {
@@ -3278,6 +3755,10 @@ fn decode_with_session_and_diagnostics(
         }
         let _ = tx.send(block);
     }
+    duration_out.store(
+        (decoded_samples as f64 / (output_rate as f64 * output_channels as f64)).to_bits(),
+        Ordering::Release,
+    );
     let _ = (samples, source.ffmpeg);
     Ok(())
 }
@@ -3756,6 +4237,7 @@ fn decode_ffmpeg_with_diagnostics(
             diagnostics.decoder_setup_ms = Some(ffmpeg_setup_started.elapsed().as_millis() as u64);
         }
     }
+    let mut decoded_sample_count = 0u64;
     let mut first_block_recorded = false;
     // stdout.read may block while ffmpeg waits on a stalled network response.
     // A small watcher can kill the child immediately when Load/Stop/Seek cancels it.
@@ -3817,6 +4299,7 @@ fn decode_ffmpeg_with_diagnostics(
         let aligned = carry.len() / 4 * 4;
         for sample_bytes in carry[..aligned].chunks_exact(4) {
             block.push(f32::from_le_bytes(sample_bytes.try_into().unwrap()));
+            decoded_sample_count += 1;
             if block.len() == 4096 {
                 if !first_block_recorded {
                     if let Some(diagnostics_out) = diagnostics_out.as_ref() {
@@ -3876,6 +4359,14 @@ fn decode_ffmpeg_with_diagnostics(
             .and_then(|worker| worker.join().ok())
             .unwrap_or_default();
         return Err(format!("ffmpeg exited with status {status}: {diagnostic}"));
+    }
+    if !cancelled.load(Ordering::Relaxed) {
+        duration_out.store(
+            (position.max(0.0)
+                + decoded_sample_count as f64 / (output_rate as f64 * output_channels as f64))
+                .to_bits(),
+            Ordering::Release,
+        );
     }
     Ok(())
 }
@@ -3960,8 +4451,13 @@ mod tests {
             channels,
             sample_rate,
             samples_played: Arc::new(AtomicU64::new(0)),
+            voice_samples: 0,
+            silence_phase: 0,
+            aligning_after_silence: false,
+            alignment_phase: 0,
             generation: 1,
             active_generation: Arc::new(AtomicU64::new(1)),
+            queued_successor_generation: Arc::new(AtomicU64::new(0)),
             base_position: Arc::new(AtomicU64::new(0.0f64.to_bits())),
             initial_position: 0.0,
             started: false,
@@ -3995,6 +4491,130 @@ mod tests {
             normalization_ramp_remaining: 0,
             exhausted: false,
         }
+    }
+
+    #[test]
+    fn decoder_producer_disconnect_follows_finished_and_failure_publication() {
+        for outcome in ["success", "error", "panic"] {
+            let session = Arc::new(DecoderSession::default());
+            let failed = Arc::new(AtomicBool::new(false));
+            let (sender, receiver) = std_mpsc::sync_channel(1);
+            let child_session = session.clone();
+            let child_failed = failed.clone();
+            let worker = thread::spawn(move || {
+                let _completion = DecodeProducerCompletion {
+                    session: child_session,
+                    failed: child_failed.clone(),
+                    _sender: sender.clone(),
+                };
+                drop(sender); // The decoder function has released its moved sender.
+                if outcome == "error" {
+                    child_failed.store(true, Ordering::Release);
+                }
+                if outcome == "panic" {
+                    panic!("controlled decoder panic");
+                }
+            });
+            assert!(matches!(
+                receiver.recv_timeout(Duration::from_secs(2)),
+                Err(std_mpsc::RecvTimeoutError::Disconnected)
+            ));
+            assert!(
+                session.decode_thread_finished.load(Ordering::Acquire),
+                "disconnect cannot precede finished publication"
+            );
+            assert_eq!(
+                failed.load(Ordering::Acquire),
+                outcome != "success",
+                "panic and error cannot qualify as clean EOF"
+            );
+            assert_eq!(worker.join().is_err(), outcome == "panic");
+        }
+    }
+
+    #[test]
+    fn gapless_completion_reports_consumed_pcm_before_incoming_started_once() {
+        let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
+        let mut outgoing = queued_gain_fixture(2, 2, 0.0);
+        outgoing.events = events.clone();
+        outgoing.pending = vec![0.2, 0.3, 0.2, 0.3, 0.2, 0.3, 0.2, 0.3, 0.0, 0.0, 0.0, 0.0].into();
+        outgoing
+            .duration_bits
+            .store(400.0f64.to_bits(), Ordering::Release);
+        outgoing
+            .decoder_session
+            .decode_thread_finished
+            .store(true, Ordering::Release);
+        let mut incoming = queued_gain_fixture(2, 2, 0.0);
+        incoming.generation = 2;
+        incoming.events = events;
+        incoming.pending = vec![0.4, 0.5].into();
+        incoming
+            .decoder_session
+            .decode_thread_finished
+            .store(true, Ordering::Release);
+        outgoing
+            .queued_successor_generation
+            .store(2, Ordering::Release);
+        let queued = Arc::new(std::sync::Mutex::new(Some(QueuedCrossfade {
+            source: incoming,
+            seconds: 0,
+        })));
+        let mut source = NativeCrossfadeSource::new(
+            outgoing,
+            queued,
+            Arc::new(AtomicBool::new(true)),
+            Arc::new(AtomicBool::new(false)),
+        );
+        let samples = source.by_ref().collect::<Vec<_>>();
+        assert_eq!(
+            samples.len(),
+            14,
+            "all outgoing PCM including silent tail and incoming PCM survive"
+        );
+        assert_eq!(&samples[8..12], &[0.0; 4]);
+        let events = std::iter::from_fn(|| received.try_recv().ok()).collect::<Vec<_>>();
+        assert!(
+            matches!(events.as_slice(), [OutputEvent::Started { generation: 1, .. }, OutputEvent::GaplessCompleted { from_generation: 1, to_generation: 2, position }, OutputEvent::Started { generation: 2, .. }] if *position == 3.0)
+        );
+        assert_eq!(source.next(), None);
+        assert!(
+            received.try_recv().is_err(),
+            "repeated pulls cannot duplicate completion"
+        );
+    }
+
+    include!("native_plain_queue_completion_tests.rs");
+
+    #[test]
+    fn gapless_completion_rejects_unfinished_failed_cancelled_or_unstarted_voices() {
+        let mut voice = queued_gain_fixture(2, 2, 0.0);
+        voice.started = true;
+        voice.exhausted = true;
+        voice.voice_samples = 12;
+        assert_eq!(voice.clean_consumed_eof_position(), None);
+        voice
+            .decoder_session
+            .decode_thread_finished
+            .store(true, Ordering::Release);
+        assert_eq!(voice.clean_consumed_eof_position(), Some(3.0));
+        voice.initial_position = 6.0;
+        assert_eq!(voice.clean_consumed_eof_position(), Some(9.0));
+        voice.cancelled.store(true, Ordering::Release);
+        assert_eq!(voice.clean_consumed_eof_position(), None);
+        voice.cancelled.store(false, Ordering::Release);
+        voice.decode_failed.store(true, Ordering::Release);
+        assert_eq!(voice.clean_consumed_eof_position(), None);
+        voice.decode_failed.store(false, Ordering::Release);
+        voice.started = false;
+        assert_eq!(voice.clean_consumed_eof_position(), None);
+        voice.started = true;
+        voice.exhausted = false;
+        assert_eq!(
+            voice.clean_consumed_eof_position(),
+            None,
+            "preload/overlap readiness is not EOF"
+        );
     }
 
     fn accept_loopback(
@@ -4267,8 +4887,13 @@ mod tests {
             channels: 1,
             sample_rate: 48_000,
             samples_played: Arc::new(AtomicU64::new(0)),
+            voice_samples: 0,
+            silence_phase: 0,
+            aligning_after_silence: false,
+            alignment_phase: 0,
             generation: 2,
             active_generation: active_generation.clone(),
+            queued_successor_generation: Arc::new(AtomicU64::new(0)),
             base_position: Arc::new(AtomicU64::new(0f64.to_bits())),
             initial_position: 0.,
             started: false,
@@ -5317,8 +5942,13 @@ mod tests {
             channels: 2,
             sample_rate: 48_000,
             samples_played: samples.clone(),
+            voice_samples: 0,
+            silence_phase: 0,
+            aligning_after_silence: false,
+            alignment_phase: 0,
             generation: 1,
             active_generation: Arc::new(AtomicU64::new(1)),
+            queued_successor_generation: Arc::new(AtomicU64::new(0)),
             base_position: Arc::new(AtomicU64::new(12f64.to_bits())),
             initial_position: 12.,
             started: true,
@@ -5414,6 +6044,84 @@ mod tests {
         wav.extend_from_slice(&data_len.to_le_bytes());
         wav.resize(44 + data_len as usize, 0);
         wav
+    }
+
+    #[test]
+    fn decoded_eof_preserves_stereo_trailing_silence_despite_bad_duration_and_seek() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("tail.wav");
+        let mut wav = pcm_wav(8_000, 2, 3);
+        for frame in 0..16_000usize {
+            for (channel, hz) in [440.0, 660.0].into_iter().enumerate() {
+                let sample =
+                    (10_000.0 * (std::f64::consts::TAU * hz * frame as f64 / 8_000.0).sin()) as i16;
+                let offset = 44 + (frame * 2 + channel) * 2;
+                wav[offset..offset + 2].copy_from_slice(&sample.to_le_bytes());
+            }
+        }
+        std::fs::write(&path, wav).unwrap();
+        for metadata_duration in [1.0, 8.0] {
+            for seek in [0.0, 0.5, 2.5] {
+                let duration = Arc::new(AtomicU64::new(f64::NAN.to_bits()));
+                let (tx, rx) = std_mpsc::sync_channel(64);
+                decode_with_session_and_diagnostics(
+                    AudioSource {
+                        input: path.to_string_lossy().into_owned(),
+                        ffmpeg: "ffmpeg".into(),
+                        headers: vec![],
+                        decoder_hint: Some(AudioSourceDecoderHint {
+                            duration_seconds: Some(metadata_duration),
+                            mime_type: None,
+                            codec: None,
+                            content_length: None,
+                            has_video: false,
+                            decode_policy: AudioSourceDecodePolicy::Automatic,
+                            decoder_fingerprint: None,
+                        }),
+                        cenc: None,
+                    },
+                    seek,
+                    None,
+                    8_000,
+                    2,
+                    tx,
+                    Arc::new(AtomicU64::new(0)),
+                    Arc::new(AtomicU32::new(0)),
+                    Arc::new(AtomicU32::new(0)),
+                    duration.clone(),
+                    None,
+                    Arc::new(AtomicBool::new(false)),
+                    Arc::new(DecoderSession::default()),
+                )
+                .unwrap();
+                let pcm: Vec<f32> = rx.into_iter().flatten().collect();
+                assert_eq!(pcm.len(), ((3.0 - seek) * 8_000.0 * 2.0) as usize);
+                assert!((f64::from_bits(duration.load(Ordering::Acquire)) - 3.0).abs() < 0.001);
+                assert!(
+                    pcm[pcm.len().saturating_sub(16_000)..]
+                        .iter()
+                        .all(|sample| sample.abs() < 0.0001),
+                    "valid trailing silence was lost"
+                );
+                let tone = |channel: usize, hz: f64| {
+                    pcm.iter()
+                        .skip(channel)
+                        .step_by(2)
+                        .take(8_000)
+                        .enumerate()
+                        .map(|(frame, sample)| {
+                            f64::from(*sample)
+                                * (std::f64::consts::TAU * hz * frame as f64 / 8_000.0).sin()
+                        })
+                        .sum::<f64>()
+                        .abs()
+                };
+                if seek < 2.0 {
+                    assert!(tone(0, 440.0) > 1000.0 && tone(0, 660.0) < 1.0);
+                    assert!(tone(1, 660.0) > 1000.0 && tone(1, 440.0) < 1.0);
+                }
+            }
+        }
     }
 
     #[test]
@@ -8531,3 +9239,7 @@ mod validation_handoff_diagnostic {
         eprintln!("{}", serde_json::to_string(&report).unwrap());
     }
 }
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "native_remote_recovery_composition_tests.rs"]
+mod remote_recovery_composition_tests;

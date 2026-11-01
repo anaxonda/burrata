@@ -410,3 +410,4 @@ it("keeps Backup & Restore out of the playlist import choices", async () => {
   expect(document.body.textContent).not.toContain("Playlist exports share tracks");
   expect(onChoose).not.toHaveBeenCalled();
 });
+

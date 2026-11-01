@@ -1560,62 +1560,32 @@ fn sanitize_playback_layout(report: Value) -> Result<Value, ToolError> {
 }
 
 fn sanitize_live_bpm_diagnostics(raw: &Value) -> Result<Value, ToolError> {
-    let number = |key: &str, maximum: f64| -> Result<f64, ToolError> {
-        raw.get(key)
-            .and_then(Value::as_f64)
-            .filter(|value| value.is_finite() && *value >= 0.0 && *value <= maximum)
-            .ok_or_else(|| ToolError::bad("Invalid live BPM diagnostic number"))
-    };
-    let optional_number = |key: &str, maximum: f64| -> Result<Value, ToolError> {
-        if raw.get(key).is_none_or(Value::is_null) {
-            Ok(Value::Null)
-        } else {
-            Ok(json!(number(key, maximum)?))
-        }
-    };
-    let mut result = json!({
-        "tapAttached":raw.get("tapAttached").and_then(Value::as_bool).ok_or_else(|| ToolError::bad("Invalid live BPM tap status"))?,
-        "pcmSeconds":number("pcmSeconds",12.01)?,
-        "firstBatchElapsedMs":optional_number("firstBatchElapsedMs",86_400_000.0)?,
-        "lastResponseMs":optional_number("lastResponseMs",120_000.0)?
-    });
-    for key in [
-        "batchCount",
-        "attempts",
-        "nullResponses",
-        "ownerMismatchBefore",
-        "ownerChangedAfter",
-        "resetCount",
-    ] {
-        let value = raw
-            .get(key)
-            .and_then(Value::as_u64)
-            .filter(|value| *value <= 65_535)
-            .ok_or_else(|| ToolError::bad("Invalid live BPM diagnostic count"))?;
-        result[key] = json!(value);
+    if raw.get("engine").and_then(Value::as_str) != Some("native") {
+        return Err(ToolError::bad("Invalid live BPM diagnostic engine"));
     }
-    for (key, allowed) in [
-        (
-            "lastOutcome",
-            &[
-                "success",
-                "no_estimate",
-                "owner_mismatch_before",
-                "owner_changed_after",
-                "disabled",
-                "native_active",
-                "error",
-            ][..],
-        ),
-        (
-            "lastResetReason",
-            &["owner_changed", "capture_gap", "invalid_batch", "disabled"][..],
-        ),
-    ] {
+    let status = raw
+        .get("status")
+        .and_then(Value::as_str)
+        .filter(|status| {
+            [
+                "warming",
+                "estimating",
+                "insufficient",
+                "unavailable",
+                "unsupported",
+                "waiting",
+            ]
+            .contains(status)
+        })
+        .ok_or_else(|| ToolError::bad("Invalid live BPM diagnostic status"))?;
+    let mut result = json!({"engine":"native", "status":status});
+    for key in ["generation", "seekSerial"] {
         result[key] = match raw.get(key) {
             None | Some(Value::Null) => Value::Null,
-            Some(Value::String(value)) if allowed.contains(&value.as_str()) => json!(value),
-            _ => return Err(ToolError::bad("Invalid live BPM diagnostic state")),
+            Some(value) => json!(value
+                .as_u64()
+                .filter(|value| *value <= 9_007_199_254_740_991)
+                .ok_or_else(|| ToolError::bad("Invalid live BPM diagnostic owner"))?),
         };
     }
     Ok(result)
@@ -1624,19 +1594,28 @@ fn sanitize_live_bpm_diagnostics(raw: &Value) -> Result<Value, ToolError> {
 #[cfg(test)]
 #[test]
 fn live_bpm_diagnostics_are_bounded_and_never_return_pcm_or_source_urls() {
-    let raw = json!({"tapAttached":true,"pcmSeconds":12.0,"batchCount":16,"firstBatchElapsedMs":1000,
-        "attempts":3,"nullResponses":2,"ownerMismatchBefore":0,"ownerChangedAfter":1,"lastOutcome":"no_estimate",
-        "lastResponseMs":25,"resetCount":1,"lastResetReason":"capture_gap","samples":[0.5],"sourceUrl":"https://private.invalid/token"});
+    let raw = json!({"engine":"native", "generation":0, "seekSerial":2, "status":"warming",
+        "samples":[0.5], "sourceUrl":"https://private.invalid/token"});
     let clean = sanitize_live_bpm_diagnostics(&raw).unwrap();
-    assert_eq!(clean["attempts"], 3);
-    assert!(clean.get("samples").is_none());
-    assert!(clean.get("sourceUrl").is_none());
-    let mut invalid = raw.clone();
-    invalid["pcmSeconds"] = json!(13.0);
-    assert!(sanitize_live_bpm_diagnostics(&invalid).is_err());
-    invalid = raw;
-    invalid["lastOutcome"] = json!("https://private.invalid/token");
-    assert!(sanitize_live_bpm_diagnostics(&invalid).is_err());
+    assert_eq!(
+        clean,
+        json!({"engine":"native", "generation":0, "seekSerial":2, "status":"warming"})
+    );
+    for (key, value) in [
+        ("engine", json!("webview")),
+        ("status", json!("https://private.invalid/token")),
+        ("generation", json!(-1)),
+        ("seekSerial", json!(9_007_199_254_740_992_u64)),
+    ] {
+        let mut invalid = raw.clone();
+        invalid[key] = value;
+        assert!(sanitize_live_bpm_diagnostics(&invalid).is_err());
+    }
+    assert_eq!(
+        sanitize_live_bpm_diagnostics(&json!({"engine":"native", "status":"waiting"})).unwrap()
+            ["generation"],
+        Value::Null
+    );
 }
 
 fn sanitize_waveform_diagnostics(raw: &Value) -> Result<Value, ToolError> {
@@ -1693,7 +1672,7 @@ fn sanitize_waveform_diagnostics(raw: &Value) -> Result<Value, ToolError> {
         "source",
         &["observed-playback", "local-analysis", "stream-analysis"],
     )?;
-    let route = nullable_string("route", &["same-origin-relay", "unsupported"])?;
+    let route = nullable_string("route", &["native"])?;
     let reason_code = nullable_string(
         "reasonCode",
         &[
@@ -1916,6 +1895,8 @@ fn sanitize_webview_media_inspection(raw: Value) -> Result<Value, ToolError> {
                 "stalled",
                 "canplay",
                 "canplaythrough",
+                "loadedmetadata",
+                "durationchange",
                 "seeking",
                 "seeked",
                 "watchdog-expired",
@@ -3124,6 +3105,36 @@ fn sanitize_recent_track_failures(raw: &Value, revision: Option<&Value>) -> Opti
     Some(json!(safe))
 }
 
+/// A transition belongs to the accepted queue and its current occurrence.
+/// Rebuild the small DTO so frontend metadata cannot leak through it.
+fn sanitize_playback_transition(
+    raw: &Value,
+    entry_id: Option<&str>,
+    ids: &[Value],
+) -> Option<Value> {
+    let object = raw.as_object()?;
+    let from = object.get("fromEntryId")?.as_str()?;
+    let to = object.get("toEntryId")?.as_str()?;
+    let safe = |id: &str| !id.is_empty() && id.len() <= 128 && !id.chars().any(char::is_control);
+    if !safe(from)
+        || !safe(to)
+        || from == to
+        || !matches!(entry_id, Some(id) if id == from || id == to)
+    {
+        return None;
+    }
+    if ids.iter().filter(|id| id.as_str() == Some(from)).count() != 1
+        || ids.iter().filter(|id| id.as_str() == Some(to)).count() != 1
+    {
+        return None;
+    }
+    let progress = object.get("progress")?.as_f64()?;
+    if !progress.is_finite() || !(0.0..=1.0).contains(&progress) {
+        return None;
+    }
+    Some(json!({"fromEntryId":from,"toEntryId":to,"progress":progress}))
+}
+
 fn replace_playback_fields(state: &mut WebViewPlaybackState, incoming: &mut Value) {
     // Capture the protocol's queue owner before removing transport fields.
     let failures = incoming
@@ -3139,6 +3150,24 @@ fn replace_playback_fields_with_history(
     failures: Option<Value>,
 ) {
     if let Some(object) = incoming.as_object_mut() {
+        let entry_id = object.get("entryId").and_then(Value::as_str);
+        let index_matches = object
+            .get("currentIndex")
+            .and_then(Value::as_u64)
+            .and_then(|i| usize::try_from(i).ok())
+            .and_then(|i| state.queue_entry_ids.get(i))
+            .and_then(Value::as_str)
+            == entry_id
+            && entry_id.is_some()
+            && state.queue_entry_ids.len() == state.queue.len();
+        let transition = if index_matches {
+            object
+                .get("transition")
+                .and_then(|raw| sanitize_playback_transition(raw, entry_id, &state.queue_entry_ids))
+        } else {
+            None
+        };
+        object.insert("transition".into(), transition.unwrap_or(Value::Null));
         if !object.get("diagnostics").is_some_and(Value::is_object) && failures.is_some() {
             object.insert("diagnostics".into(), json!({}));
         }
@@ -3659,22 +3688,9 @@ impl AutomationService {
         let Some(playback) = self.playback.get().cloned() else {
             return self.playback_updates.subscribe();
         };
-        let webview = self.playback_updates.subscribe();
-        let native = playback.subscribe();
-        let initial = if playback.native_enabled() {
-            native.borrow().clone()
-        } else {
-            webview.borrow().clone()
-        };
-        let (updates, receiver) = tokio::sync::watch::channel(initial);
-        tauri::async_runtime::spawn(forward_authoritative_playback_updates(
-            webview,
-            native,
-            updates,
-            move || playback.native_enabled(),
-        ));
-        receiver
+        playback.subscribe()
     }
+
     fn native_playback_enabled(&self) -> bool {
         self.playback
             .get()
@@ -3966,271 +3982,6 @@ impl AutomationService {
                 })
             }
         }
-    }
-    async fn inspect_webview_media(&self) -> Result<Value, ToolError> {
-        if self
-            .playback
-            .get()
-            .is_some_and(|playback| playback.native_enabled())
-        {
-            return Ok(
-                json!({"engine":"native","applicable":false,"reason":"webview_media_element_not_applicable"}),
-            );
-        }
-        if !self.frontend_ready.load(Ordering::Acquire) {
-            return Err(ToolError {
-                code: "FRONTEND_NOT_READY",
-                message: "The player UI is not ready".into(),
-            });
-        }
-        let snapshot = self.playback_snapshot_page(0, 1);
-        let track_id = snapshot["trackId"].as_str().map(str::to_owned);
-        let session_id = snapshot["sessionId"].as_str().map(str::to_owned);
-        let generation = snapshot["sourceGeneration"].as_u64();
-        let seek_serial = snapshot["seekSerial"].as_u64().unwrap_or(0);
-        let current_index = snapshot["currentIndex"].as_i64().unwrap_or(-1);
-        let queue_total = snapshot["queueTotal"].as_u64().unwrap_or(0);
-        let occurrence_page = if current_index >= 0 {
-            self.playback_snapshot_page(current_index as usize, 1)
-        } else {
-            Value::Null
-        };
-        let queue_track_id = occurrence_page["queue"]
-            .as_array()
-            .and_then(|items| items.first())
-            .and_then(|item| item["id"].as_str())
-            .map(str::to_owned);
-        let entry_id = occurrence_page["queueEntryIds"]
-            .as_array()
-            .and_then(|items| items.first())
-            .and_then(Value::as_str)
-            .map(str::to_owned);
-        let id = format!("webview-media:{}", Uuid::new_v4());
-        let (tx, rx) = oneshot::channel();
-        self.pending
-            .lock()
-            .map_err(|_| ToolError::failed("Media inspection is unavailable"))?
-            .insert(id.clone(), tx);
-        let _pending_guard = PendingPlaybackGuard::new(self, id.clone());
-        let request = json!({"requestId":id,"trackId":track_id,"sessionId":session_id,"sourceGeneration":generation,"seekSerial":seek_serial,"currentIndex":current_index,"queueTotal":queue_total,"entryId":entry_id,"queueTrackId":queue_track_id});
-        if let Err(error) = self.app.emit("automation-inspect-webview-media", request) {
-            self.remove_pending_playback(&id);
-            return Err(ToolError::failed(error.to_string()));
-        }
-        let raw = match tokio::time::timeout(Duration::from_secs(5), rx).await {
-            Ok(Ok(Ok(value))) => value,
-            Ok(Ok(Err(error))) => return Err(ToolError::failed(error)),
-            Ok(Err(_)) => {
-                return Err(ToolError::failed(
-                    "Media inspection response channel closed",
-                ));
-            }
-            Err(_) => {
-                self.remove_pending_playback(&id);
-                return Err(ToolError {
-                    code: "TIMEOUT",
-                    message: "WebView media inspection timed out".into(),
-                });
-            }
-        };
-        let after = self.playback_snapshot_page(0, 1);
-        let after_entry = if current_index >= 0 {
-            self.playback_snapshot_page(current_index as usize, 1)["queueEntryIds"]
-                .as_array()
-                .and_then(|items| items.first())
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-        } else {
-            None
-        };
-        let after_queue_track_id = if current_index >= 0 {
-            self.playback_snapshot_page(current_index as usize, 1)["queue"]
-                .as_array()
-                .and_then(|items| items.first())
-                .and_then(|item| item["id"].as_str())
-                .map(str::to_owned)
-        } else {
-            None
-        };
-        if !webview_media_identity_matches(
-            &snapshot,
-            &after,
-            &raw,
-            &json!(entry_id),
-            &json!(after_entry),
-        ) || raw["queueTrackId"] != json!(queue_track_id)
-            || after_queue_track_id != queue_track_id
-        {
-            return Err(ToolError {
-                code: "STALE_MEDIA_SAMPLE",
-                message: "Playback changed during WebView media inspection".into(),
-            });
-        }
-        Ok(raw)
-    }
-
-    async fn capture_webview_stereo_diagnostic(&self) -> Result<Value, ToolError> {
-        if !webview_stereo_diagnostic_environment_enabled()
-            || !webview_stereo_diagnostic_fixture_profile(&self.data_dir)
-        {
-            return Err(ToolError::failed("The bounded stereo diagnostic is unavailable outside its explicitly enabled private synthetic fixture."));
-        }
-        if self
-            .playback
-            .get()
-            .is_some_and(|playback| playback.native_enabled())
-        {
-            return Err(ToolError::failed(
-                "The stereo diagnostic requires the fixture's WebView playback engine.",
-            ));
-        }
-        if !self.frontend_ready.load(Ordering::Acquire) {
-            return Err(ToolError {
-                code: "FRONTEND_NOT_READY",
-                message: "The player UI is not ready".into(),
-            });
-        }
-        let snapshot = self.playback_snapshot_page(0, 1);
-        let track_id = snapshot["trackId"]
-            .as_str()
-            .ok_or_else(|| ToolError::failed("No active fixture track is available"))?;
-        let track = self
-            .store
-            .get_track(track_id)
-            .map_err(ToolError::failed)?
-            .ok_or_else(|| ToolError::failed("The active fixture track is unavailable"))?;
-        if track.provider != "local"
-            || track.provenance["fixture"] != "burrata-local-qualification-v1"
-            || !webview_stereo_diagnostic_fixture_track(&self.data_dir, track_id)
-        {
-            return Err(ToolError::failed(
-                "The stereo diagnostic is limited to the marked synthetic local fixture.",
-            ));
-        }
-        if snapshot["paused"] != false
-            || snapshot["volume"].as_f64().map_or(true, |volume| {
-                !volume.is_finite() || volume <= 0.0 || volume > 1.0
-            })
-        {
-            return Err(ToolError::failed("Play the paused synthetic fixture at a nonzero player volume before capturing its output."));
-        }
-        let generation = snapshot["sourceGeneration"]
-            .as_u64()
-            .ok_or_else(|| ToolError::failed("The active WebView source has no generation"))?;
-        let session_id = snapshot["sessionId"]
-            .as_str()
-            .filter(|value| !value.is_empty() && value.len() <= 128)
-            .map(str::to_owned)
-            .ok_or_else(|| {
-                ToolError::failed("The active WebView playback session is unavailable")
-            })?;
-        let seek_serial = snapshot["seekSerial"].as_u64().unwrap_or(0);
-        let current_index = snapshot["currentIndex"].as_i64().unwrap_or(-1);
-        if current_index < 0 || current_index >= 500 {
-            return Err(ToolError::failed(
-                "The active synthetic queue occurrence is invalid.",
-            ));
-        }
-        let queue_total = snapshot["queueTotal"]
-            .as_u64()
-            .filter(|count| (1..=500).contains(count))
-            .ok_or_else(|| ToolError::failed("The active synthetic queue size is invalid"))?;
-        if current_index as u64 >= queue_total {
-            return Err(ToolError::failed(
-                "The active synthetic queue index is outside its queue.",
-            ));
-        }
-        let occurrence = self.playback_snapshot_page(current_index as usize, 1);
-        let queue_track_id = occurrence["queue"]
-            .as_array()
-            .and_then(|items| items.first())
-            .and_then(|item| item["id"].as_str())
-            .map(str::to_owned);
-        let entry_id = occurrence["queueEntryIds"]
-            .as_array()
-            .and_then(|items| items.first())
-            .and_then(Value::as_str)
-            .map(str::to_owned);
-        if queue_track_id.as_deref() != Some(track_id)
-            || entry_id
-                .as_deref()
-                .map_or(true, |value| value.is_empty() || value.len() > 128)
-        {
-            return Err(ToolError::failed(
-                "The active synthetic queue occurrence is not stable.",
-            ));
-        }
-
-        let id = format!("webview-stereo-diagnostic:{}", Uuid::new_v4());
-        let (tx, rx) = oneshot::channel();
-        self.pending
-            .lock()
-            .map_err(|_| ToolError::failed("Stereo diagnostic is unavailable"))?
-            .insert(id.clone(), tx);
-        let _pending_guard = PendingPlaybackGuard::new(self, id.clone());
-        let request = json!({
-            "requestId":id,"trackId":track_id,"sessionId":session_id,
-            "sourceGeneration":generation,"seekSerial":seek_serial,"currentIndex":current_index,
-            "queueTotal":queue_total,"entryId":entry_id,"queueTrackId":queue_track_id,
-            "durationSeconds":WEBVIEW_STEREO_DIAGNOSTIC_MAX_SECONDS
-        });
-        if let Err(error) = self
-            .app
-            .emit("automation-capture-webview-stereo-diagnostic", request)
-        {
-            self.remove_pending_playback(&id);
-            return Err(ToolError::failed(error.to_string()));
-        }
-        let raw = match tokio::time::timeout(Duration::from_secs(12), rx).await {
-            Ok(Ok(Ok(value))) => value,
-            Ok(Ok(Err(error))) => return Err(ToolError::failed(error)),
-            Ok(Err(_)) => {
-                return Err(ToolError::failed(
-                    "Stereo diagnostic response channel closed",
-                ))
-            }
-            Err(_) => {
-                self.remove_pending_playback(&id);
-                return Err(ToolError {
-                    code: "TIMEOUT",
-                    message: "The bounded stereo diagnostic timed out".into(),
-                });
-            }
-        };
-        let capture = raw
-            .get("capture")
-            .cloned()
-            .ok_or_else(|| ToolError::failed("Stereo diagnostic result was incomplete"))?;
-        if capture["status"] == "complete" {
-            let after = self.playback_snapshot_page(0, 1);
-            let after_entry = self.playback_snapshot_page(current_index as usize, 1)
-                ["queueEntryIds"]
-                .as_array()
-                .and_then(|items| items.first())
-                .and_then(Value::as_str)
-                .map(str::to_owned);
-            let after_queue_track_id = self.playback_snapshot_page(current_index as usize, 1)
-                ["queue"]
-                .as_array()
-                .and_then(|items| items.first())
-                .and_then(|item| item["id"].as_str())
-                .map(str::to_owned);
-            if !webview_media_identity_matches(
-                &snapshot,
-                &after,
-                &raw,
-                &json!(entry_id),
-                &json!(after_entry),
-            ) || raw["queueTrackId"] != json!(queue_track_id)
-                || after_queue_track_id != queue_track_id
-            {
-                return Err(ToolError {
-                    code: "STALE_MEDIA_SAMPLE",
-                    message: "Playback changed during the stereo diagnostic".into(),
-                });
-            }
-        }
-        Ok(json!({"queueIndex":current_index,"capture":capture}))
     }
 
     pub(crate) fn complete_player_panel_request(&self, id: &str, panel: &str, status: &str) {
@@ -6822,13 +6573,14 @@ impl AutomationService {
                     .map_err(ToolError::failed)?
             }
             "inspect_playback_layout" => self.inspect_playback_layout().await?,
-            "inspect_webview_media" => {
+            "inspect_native_output" => {
                 require_no_arguments(&a, name)?;
-                self.inspect_webview_media().await?
-            }
-            "capture_webview_stereo_diagnostic" => {
-                require_no_arguments(&a, name)?;
-                self.capture_webview_stereo_diagnostic().await?
+                self.playback
+                    .get()
+                    .ok_or_else(|| ToolError::failed("Native playback unavailable"))?
+                    .inspect_native_output()
+                    .await
+                    .map_err(ToolError::failed)?
             }
             "get_live_bpm" => {
                 require_no_arguments(&a, name)?;
@@ -7023,25 +6775,7 @@ impl AutomationService {
             "get_playback_diagnostics_report" => {
                 require_no_arguments(&a, name)?;
                 let mut report = json!(crate::playback_diagnostics::export());
-                // The same read-only inspection used for media state also carries
-                // the opt-in startup history retained across manual retries.
-                // A missing frontend must not hide the backend diagnostic ring.
-                if !self
-                    .playback
-                    .get()
-                    .is_some_and(|playback| playback.native_enabled())
-                {
-                    match self.inspect_webview_media().await {
-                        Ok(media) => {
-                            report["webview"] = media
-                                .get("startupDiagnostics")
-                                .cloned()
-                                .unwrap_or(Value::Null);
-                            report["webviewInspectionStatus"] = json!("available");
-                        }
-                        Err(_) => report["webviewInspectionStatus"] = json!("unavailable"),
-                    }
-                }
+
                 report
             }
             "clear_playback_diagnostics" => json!(crate::playback_diagnostics::clear()),
@@ -7592,24 +7326,10 @@ fn stereo_diagnostic_sanitizer_bounds_pcm_and_drops_incomplete_samples() {
 
 #[cfg(test)]
 #[test]
-fn stereo_diagnostic_tool_is_control_scoped_and_has_no_arguments() {
-    assert_eq!(
-        tool_scope("capture_webview_stereo_diagnostic"),
-        Some("control")
-    );
-    assert!(require_no_arguments(&json!({}), "capture_webview_stereo_diagnostic").is_ok());
-    assert!(require_no_arguments(
-        &json!({"durationSeconds":4}),
-        "capture_webview_stereo_diagnostic"
-    )
-    .is_err());
-    let tool = tool_definitions()
-        .into_iter()
-        .find(|tool| tool["name"] == "capture_webview_stereo_diagnostic");
-    if webview_stereo_diagnostic_environment_enabled() {
-        assert_eq!(tool.unwrap()["inputSchema"]["properties"], json!({}));
-    } else {
-        assert!(tool.is_none());
+fn retired_browser_audio_tools_are_not_exposed() {
+    for name in ["inspect_webview_media", "capture_webview_stereo_diagnostic"] {
+        assert!(tool_definitions().iter().all(|tool| tool["name"] != name));
+        assert_eq!(tool_scope(name), None);
     }
 }
 
@@ -7896,7 +7616,7 @@ fn tool_scope(name: &str) -> Option<&'static str> {
         | "playback_state"
         | "capture_main_ui"
         | "inspect_playback_layout"
-        | "inspect_webview_media"
+        | "inspect_native_output"
         | "get_live_bpm"
         | "get_slskd_search"
         | "start_slskd_search"
@@ -7905,7 +7625,6 @@ fn tool_scope(name: &str) -> Option<&'static str> {
         | "get_catalog_release_download_status"
         | "get_local_playlist_download_status" => "read",
         "play_tracks"
-        | "capture_webview_stereo_diagnostic"
         | "play_tracks_queued"
         | "get_playback_operation"
         | "cancel_playback_operation"
@@ -8916,7 +8635,7 @@ fn tool_definitions() -> Vec<Value> {
  ("return_youtube_login_to_music","After completing Google sign-in, return the owned YouTube window to Music; requires the Google sign-in origin and a valid YouTube authentication cookie", "control"),
  ("start_managed_provider_background","Enable the confirmed provider session without reopening login", "control"),
  ("stop_managed_provider_session","Stop provider jobs and close the owned login window", "control"),
- ("search_library","Search local library", "read"),("list_tracks_page","Read one filtered and sorted page from a saved library view", "read"),("get_track","Get a library track", "read"),("library_stats","Get library counts", "read"),("list_playlists","List playlists and browser snapshot versions", "read"),("get_playlist","Get playlist tracks and browser versions", "read"),("search_tracks","Search catalog providers", "read"),("search_artists","Search artists", "read"),("get_artist_discography","Get paginated artist discography", "read"),("get_release_tracks","Get ordered tracks for an artist release", "read"),("get_artist_tracks","Get paginated recordings for an artist", "read"),("get_artist_collaborations","Get paginated artist relationships", "read"),("get_artist_profile","Get public artist profile and saved top tracks", "read"),("get_app_status","Get application and playback status", "read"),("capture_main_ui","Capture only the main Burrata UI as a bounded PNG, without desktop capture or focus changes", "read"),("inspect_playback_layout","Inspect visible player UI geometry and report layout overlaps; read-only, returns no playback metadata", "read"),("inspect_webview_media","Read current WebView audio-element state; read-only and not a physical-audibility measurement", "read"),("capture_webview_stereo_diagnostic","Capture a bounded stereo tap from the explicitly marked synthetic WebView fixture on the private qualification audio endpoint", "control"),("get_live_bpm","Read the opt-in approximate tempo estimate from the latest native playback PCM window; returns null when disabled or unavailable and never edits track metadata", "read"),("resize_app_window","Resize the main application in logical pixels", "control"),("get_song_radio","Get bounded YouTube autoplay Mix recommendations for a track; does not alter playback", "read"),("search_playback_history","Search recent playback history", "read"),("list_playback_history","List recent playback history", "read"),("get_playback_history_entry","Get a playback history entry by session ID", "read"),
+ ("search_library","Search local library", "read"),("list_tracks_page","Read one filtered and sorted page from a saved library view", "read"),("get_track","Get a library track", "read"),("library_stats","Get library counts", "read"),("list_playlists","List playlists and browser snapshot versions", "read"),("get_playlist","Get playlist tracks and browser versions", "read"),("search_tracks","Search catalog providers", "read"),("search_artists","Search artists", "read"),("get_artist_discography","Get paginated artist discography", "read"),("get_release_tracks","Get ordered tracks for an artist release", "read"),("get_artist_tracks","Get paginated recordings for an artist", "read"),("get_artist_collaborations","Get paginated artist relationships", "read"),("get_artist_profile","Get public artist profile and saved top tracks", "read"),("get_app_status","Get application and playback status", "read"),("capture_main_ui","Capture only the main Burrata UI as a bounded PNG, without desktop capture or focus changes", "read"),("inspect_playback_layout","Inspect visible player UI geometry and report layout overlaps; read-only, returns no playback metadata", "read"),("inspect_native_output","Inspect consumed PCM statistics for the explicitly enabled synthetic installed-artifact fixture", "read"),("get_live_bpm","Read the opt-in approximate tempo estimate from the latest native playback PCM window; returns null when disabled or unavailable and never edits track metadata", "read"),("resize_app_window","Resize the main application in logical pixels", "control"),("get_song_radio","Get bounded YouTube autoplay Mix recommendations for a track; does not alter playback", "read"),("search_playback_history","Search recent playback history", "read"),("list_playback_history","List recent playback history", "read"),("get_playback_history_entry","Get a playback history entry by session ID", "read"),
  ("discover_music","Search selected music sources with independent result pages", "read"),("poll_music_search","Poll a Soulseek discovery search", "read"),("inspect_source_chapters","Inspect source chapters and register stable chapter tracks", "read"),("get_autotag_status","Get paginated autotag review jobs", "read"),("retry_autotag","Retry an autotag job", "manage"),("repair_download_source_tags","Fill missing tags from the exact completed download source; local-only, no recognition or catalog lookup, identity remains unverified", "manage"),("review_autotag_candidate","Select a catalog candidate for autotag review", "manage"),("apply_autotag_review","Apply approved autotag fields", "manage"),("play_chapter","Play a registered chapter track", "control"),
  ("inspect_spotify_artist_page","Inspect fixed Spotify artist-list guard counts and enums without content or identifiers", "read"),
  ("inspect_spotify_profile_page","Inspect one bounded Spotify profile page or full-profile summary; returns ordered playlist-ID hashes and counts only", "read"),
@@ -8998,7 +8717,7 @@ fn tool_definitions() -> Vec<Value> {
  "search_tracks"=>(json!({"query":{"type":"string"},"providers":{"type":"array","items":{"type":"string","enum":["library","musicbrainz","youtube","soundcloud","bandcamp","soulseek","monochrome"]}}}),json!(["query"])),
  "search_artists"=>(json!({"query":{"type":"string"},"page":{"type":"integer","minimum":1,"maximum":200}}),json!(["query"])),"get_artist_discography"|"get_artist_tracks"|"get_artist_collaborations"=>(json!({"artist":{"type":"object","properties":{"provider":{"type":"string","enum":["musicbrainz","discogs"]},"id":{"type":"string"}},"required":["provider","id"],"additionalProperties":false},"cursor":{"type":"string"}}),json!(["artist"])),"get_artist_profile"=>(json!({"artist":{"type":"object","properties":{"provider":{"type":"string","enum":["musicbrainz","discogs"]},"id":{"type":"string"}},"required":["provider","id"],"additionalProperties":false}}),json!(["artist"])),"get_release_tracks"=>(json!({"release":release_ref_schema(),"artist":artist_ref_schema()}),json!(["release","artist"])),
  "playback_state"=>(json!({"offset":{"type":"integer","minimum":0,"maximum":1000000},"limit":{"type":"integer","minimum":1,"maximum":200}}),json!([])),
- "inspect_webview_media"|"capture_webview_stereo_diagnostic"|"get_live_bpm"|"get_acquisition_preferences"=>(json!({}),json!([])),
+ "inspect_native_output"|"get_live_bpm"|"get_acquisition_preferences"=>(json!({}),json!([])),
  "set_live_bpm_enabled"=>(json!({"enabled":{"type":"boolean"}}),json!(["enabled"])),
  "set_download_layout"=>(json!({"layout":{"type":"string","enum":["flat","artistAlbum","playlist"]}}),json!(["layout"])),
  "resize_app_window"=>(json!({"width":{"type":"integer","minimum":320,"maximum":7680},"height":{"type":"integer","minimum":240,"maximum":4320},"restoreMaximized":{"type":"boolean","description":"Whether to maximize the window after resizing; omitted preserves its prior maximized state."}}),json!(["width","height"])),
@@ -10614,16 +10333,6 @@ mod tests {
 
     #[test]
     fn webview_media_inspection_is_read_only_no_argument_and_sanitizes_element_fields() {
-        let tool = tool_definitions()
-            .into_iter()
-            .find(|tool| tool["name"] == "inspect_webview_media")
-            .unwrap();
-        assert_eq!(tool_scope("inspect_webview_media"), Some("read"));
-        assert_eq!(tool["scope"], "read");
-        assert_eq!(tool["inputSchema"]["properties"], json!({}));
-        assert_eq!(tool["inputSchema"]["required"], json!([]));
-        assert!(require_no_arguments(&json!({}), "inspect_webview_media").is_ok());
-        assert!(require_no_arguments(&json!({"command":"play"}), "inspect_webview_media").is_err());
         let sample = sanitize_webview_media_inspection(json!({
             "engine":"webview","applicable":true,"trackId":"t","sessionId":"s","sourceGeneration":7,"seekSerial":2,
             "currentIndex":0,"queueTotal":1,"entryId":null,"queueTrackId":"t","previewKind":"audio","currentSrc":"https://private.invalid/?token=secret",
@@ -11004,11 +10713,21 @@ mod tests {
             "snapshotPresent":true,"source":"observed-playback","complete":false,
             "generationMatches":true,"trackMatches":true,"durationMatches":true,
             "displayBindingMatches":true,"binCount":1200,"populatedBins":0,"coverageFraction":0.0,
-            "route":"unsupported","routeActive":false,"analyserAttached":false,
+            "route":"native","routeActive":false,"analyserAttached":false,
             "mediaVolume":1.0,"mediaMuted":false,"mediaGraphUserVolume":0.36,"sourceUrl":"https://private.invalid/token"
         });
         let sanitized = sanitize_waveform_diagnostics(&diagnostics).unwrap();
         assert_eq!(sanitized["reasonCode"], "unsupported-audio-route");
+        assert_eq!(sanitized["route"], "native");
+        for route in [
+            "same-origin-relay",
+            "unsupported",
+            "https://private.invalid",
+        ] {
+            let mut invalid = diagnostics.clone();
+            invalid["route"] = json!(route);
+            assert!(sanitize_waveform_diagnostics(&invalid).is_err());
+        }
         assert_eq!(sanitized["mediaGraphUserVolume"], 0.36);
         assert!(sanitized.get("sourceUrl").is_none());
         diagnostics["observedCache"] = json!({
@@ -12475,6 +12194,70 @@ mod tests {
         assert_eq!(current.page(0, 10)["queue"][0]["id"], "a");
     }
 
+    #[test]
+    fn publisher_transition_follows_queue_revision_and_ignores_stale_pulse() {
+        let mut protocol = PlaybackPublisherProtocol::default();
+        let mut state = WebViewPlaybackState::default();
+        let mut first = history_protocol_packet("page-a", 1, "q1", "h1", true, true);
+        first["queue"] = json!([{"id":"one"},{"id":"two"}]);
+        first["queueEntryIds"] = json!(["a", "b"]);
+        first["entryId"] = json!("b");
+        first["currentIndex"] = json!(1);
+        first["transition"] =
+            json!({"fromEntryId":"a","toEntryId":"b","progress":0.4,"extra":"secret"});
+        assert_eq!(
+            accept_playback_update(&mut protocol, &mut state, first),
+            (true, false)
+        );
+        assert_eq!(
+            state.watch_snapshot()["transition"],
+            json!({"fromEntryId":"a","toEntryId":"b","progress":0.4})
+        );
+        let mut stale = history_protocol_packet("page-a", 1, "q1", "h1", false, false);
+        stale["transition"] = Value::Null;
+        assert_eq!(
+            accept_playback_update(&mut protocol, &mut state, stale),
+            (false, false)
+        );
+        assert_eq!(state.fields["transition"]["progress"], json!(0.4));
+        let mut changed = history_protocol_packet("page-a", 2, "q2", "h2", true, true);
+        changed["entryId"] = json!("entry-a");
+        changed["currentIndex"] = json!(0);
+        changed["transition"] = json!({"fromEntryId":"a","toEntryId":"b","progress":0.9});
+        assert_eq!(
+            accept_playback_update(&mut protocol, &mut state, changed),
+            (true, false)
+        );
+        assert!(state.fields["transition"].is_null());
+    }
+    #[test]
+    fn transition_projection_requires_owned_entries_and_bounded_progress() {
+        let ids = vec![json!("a"), json!("b")];
+        let raw = json!({"fromEntryId":"a","toEntryId":"b","progress":0.5,"secret":"discard"});
+        let expected = json!({"fromEntryId":"a","toEntryId":"b","progress":0.5});
+        assert_eq!(
+            sanitize_playback_transition(&raw, Some("a"), &ids),
+            Some(expected.clone())
+        );
+        assert_eq!(
+            sanitize_playback_transition(&raw, Some("b"), &ids),
+            Some(expected)
+        );
+        assert!(sanitize_playback_transition(&raw, Some("stale"), &ids).is_none());
+        assert!(sanitize_playback_transition(
+            &raw,
+            Some("a"),
+            &[json!("a"), json!("a"), json!("b")]
+        )
+        .is_none());
+        for invalid in [
+            json!({"fromEntryId":"a","toEntryId":"a","progress":0.5}),
+            json!({"fromEntryId":"a","toEntryId":"b","progress":1.1}),
+            json!({"fromEntryId":"a","toEntryId":"c","progress":0.5}),
+        ] {
+            assert!(sanitize_playback_transition(&invalid, Some("a"), &ids).is_none());
+        }
+    }
     #[test]
     fn playback_state_pages_bound_queue_and_preserve_control_metadata() {
         let queue = (0..4500)

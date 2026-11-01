@@ -134,11 +134,16 @@ for ordinary Burrata setup.
 3. Return to **Playback reports** and select **Export report…**. Save the JSON **before closing or restarting Burrata**; events are held in memory.
 4. Include the track names and where you started them (Library, album, search or a direct link), plus the visible error. For a seek failure, include the requested position. Track names are excluded from the report, so supply those separately.
 
-The report is saved locally and is not uploaded automatically. It contains bounded
-player events and timings, sanitized source-failure categories and hashed track/source
-references. The expanded report in v0.1.8 also includes WebView startup/media-event
-history, playback settings, helper versions and the macOS version when available.
-It excludes credentials, full media URLs and raw helper errors.
+The report is saved locally and is not uploaded automatically. With playback
+problem recording enabled, it includes bounded Native owner, progress and
+qualified completion events, source-failure categories, hashed recording/source
+references, playback settings and available helper/platform context.
+`diagnosticRevision: 4` also includes an executable SHA-256 when available. That
+hash identifies the on-disk app at export time, not its source tree; avoid replacing
+the app while collecting evidence. The report excludes credentials, full media
+URLs, local media paths and raw audio. Device identity, power/sleep/wake events
+and continuous PCM counters are not collected, and the report does not establish
+physical audibility.
 
 If starting from Library fails while **Play album** works, capture both attempts in
 the same session. This helps distinguish source selection, extraction, access denial

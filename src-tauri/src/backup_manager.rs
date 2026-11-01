@@ -3428,16 +3428,10 @@ impl BackupManager {
         let staged_store = Store::open(&staged_database).map_err(|error| error.to_string())?;
         crate::restore_work_policy::pause_all_after_restore(&staged_store, &snapshot_id)?;
         preserve_current_machine_state(&self.store, &staged_store)?;
-        let native_playback_engine = match std::env::var("BURRATA_PLAYBACK_ENGINE").ok() {
-            Some(value) => value == "native",
-            None => {
-                staged_store
-                    .get_json_preference("playbackEngine.v1")?
-                    .as_ref()
-                    .and_then(serde_json::Value::as_str)
-                    == Some("native")
-            }
-        };
+        let native_playback_engine = true;
+        if options.include_playback {
+            staged_store.set_json_preference("playbackEngine.v1", &serde_json::json!("native"))?;
+        }
         if options.include_playback && !native_playback_engine {
             // Only WebView mode needs a frontend one-time handoff. Native mode
             // already reads these validated staged database rows on startup.

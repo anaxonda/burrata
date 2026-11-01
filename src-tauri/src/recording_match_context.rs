@@ -15,6 +15,7 @@ use std::{collections::HashMap, sync::Arc};
 /// the persisted profile expiry when each distinct name is first requested.
 #[derive(Default)]
 pub(crate) struct AssessmentContext {
+    flexible_options: recording_match::FlexibleMatchingOptions,
     artist_profiles: ArtistProfileLookupMemo,
     verified_artist_aliases:
         HashMap<(String, String), crate::artist_credit_aliases::VerifiedPlaybackArtistAliases>,
@@ -39,6 +40,12 @@ impl ArtistProfileLookupMemo {
 }
 
 impl AssessmentContext {
+    pub(crate) fn with_flexible_options(options: recording_match::FlexibleMatchingOptions) -> Self {
+        Self {
+            flexible_options: options,
+            ..Self::default()
+        }
+    }
     fn artist_profiles_for_name(&mut self, store: &Store, name: &str) -> Arc<[Value]> {
         self.artist_profiles.get_or_load(name, || {
             store
@@ -1371,7 +1378,13 @@ fn assess_with_aliases_and_context_impl(
             }
         }
     }
-    let mut best = recording_match::assess(&requested, candidate, level, stage);
+    let mut best = recording_match::assess_with_options(
+        &requested,
+        candidate,
+        level,
+        stage,
+        &context.flexible_options,
+    );
     let mut best_request = requested.clone();
     let early_folder_credit_assessment = if allow_folder_artist_fast_path
         && candidate_isrc(candidate).is_none()
@@ -1399,11 +1412,22 @@ fn assess_with_aliases_and_context_impl(
         }
         let next =
             if let Some(credits) = verified_credits.matching_credit_names(track, &variant.artist) {
-                recording_match::assess_with_primary_credit_override(
-                    variant, candidate, level, stage, &credits,
+                recording_match::assess_with_primary_credit_override_and_options(
+                    variant,
+                    candidate,
+                    level,
+                    stage,
+                    &credits,
+                    &context.flexible_options,
                 )
             } else {
-                recording_match::assess(variant, candidate, level, stage)
+                recording_match::assess_with_options(
+                    variant,
+                    candidate,
+                    level,
+                    stage,
+                    &context.flexible_options,
+                )
             };
         if priority(&next) < priority(&best) {
             best = next;
@@ -1430,12 +1454,13 @@ fn assess_with_aliases_and_context_impl(
     }) {
         let mut variant_request = best_request.clone();
         variant_request.artist = variant.release_artist_credit.clone();
-        let next = recording_match::assess_with_primary_credit_override(
+        let next = recording_match::assess_with_primary_credit_override_and_options(
             &variant_request,
             candidate,
             level,
             stage,
             &variant.release_artist_names,
+            &context.flexible_options,
         );
         let recording_credit_resolves_artist = next.dimensions.artists == Comparison::Agree
             && best.dimensions.artists != Comparison::Agree
@@ -1487,13 +1512,14 @@ fn assess_with_aliases_and_context_impl(
                 &mut lookup,
             )
         {
-            let mut next = recording_match::assess_with_scoped_artist_name_alias(
+            let mut next = recording_match::assess_with_scoped_artist_name_alias_and_options(
                 track,
                 candidate,
                 level,
                 stage,
                 &track.artist,
                 &variant.artist,
+                &context.flexible_options,
             );
             if let Some(evidence) = next.evidence.as_mut() {
                 evidence.scoped_artist_name_alias =
@@ -1581,12 +1607,13 @@ fn assess_with_aliases_and_context_impl(
                 variant_request.isrc = requested.isrc.clone();
                 let original_request_runtime = variant_request.duration_seconds;
                 variant_request.duration_seconds = Some(variant.duration_seconds);
-                let mut resolved = recording_match::assess_with_primary_credit_override(
+                let mut resolved = recording_match::assess_with_primary_credit_override_and_options(
                     &variant_request,
                     candidate,
                     level,
                     stage,
                     &variant.release_artist_names,
+                    &context.flexible_options,
                 );
                 let title_is_same_recording_gloss = resolved.dimensions.title
                     == Comparison::Unknown
@@ -1713,13 +1740,15 @@ fn assess_with_aliases_and_context_impl(
             occurrence_request.artist = variant.release_artist_credit.clone();
             occurrence_request.duration_seconds = Some(variant.duration_seconds);
             let original_request_runtime = track.duration_seconds;
-            let mut resolved = recording_match::assess_with_scoped_occurrence_title_and_credit(
-                &occurrence_request,
-                candidate,
-                level,
-                stage,
-                &variant.release_artist_names,
-            );
+            let mut resolved =
+                recording_match::assess_with_scoped_occurrence_title_and_credit_and_options(
+                    &occurrence_request,
+                    candidate,
+                    level,
+                    stage,
+                    &variant.release_artist_names,
+                    &context.flexible_options,
+                );
             if resolved.action == MatchAction::Reject
                 || resolved.dimensions.title != Comparison::Agree
                 || resolved.dimensions.artists != Comparison::Agree
@@ -1889,7 +1918,7 @@ pub(crate) fn assess_with_artist_credit_set_variant(
     known_isrc: Option<&str>,
     variant: &crate::recording_identity::VerifiedArtistCreditSetVariant,
 ) -> MatchAssessment {
-    let base = assess_with_aliases(
+    assess_with_artist_credit_set_variant_and_options(
         store,
         track,
         candidate,
@@ -1898,9 +1927,37 @@ pub(crate) fn assess_with_artist_credit_set_variant(
         aliases,
         isrc_aliases,
         known_isrc,
+        variant,
+        &recording_match::FlexibleMatchingOptions::default(),
+    )
+}
+
+pub(crate) fn assess_with_artist_credit_set_variant_and_options(
+    store: &Store,
+    track: &Track,
+    candidate: &Candidate,
+    level: MatchLevel,
+    stage: MatchStage,
+    aliases: &[Track],
+    isrc_aliases: &[Track],
+    known_isrc: Option<&str>,
+    variant: &crate::recording_identity::VerifiedArtistCreditSetVariant,
+    options: &recording_match::FlexibleMatchingOptions,
+) -> MatchAssessment {
+    let base = assess_with_aliases_and_context(
+        store,
+        track,
+        candidate,
+        level,
+        stage,
+        aliases,
+        isrc_aliases,
+        known_isrc,
+        &[],
+        &mut AssessmentContext::with_flexible_options(*options),
     );
-    let scoped = recording_match::assess_with_scoped_artist_credit_set_variant(
-        track, candidate, level, stage, variant,
+    let scoped = recording_match::assess_with_scoped_artist_credit_set_variant_and_options(
+        track, candidate, level, stage, variant, options,
     );
     if priority(&scoped) <= priority(&base) || base.action == MatchAction::Reject {
         scoped

@@ -69,7 +69,7 @@ export interface CandidatePreviewStatus {
   sessionId: string; sourceId: string; provider: string; paused: boolean; position: number; duration: number; canSeek: boolean; canVolume: boolean; error?: string | null; closed?: boolean;
 }
 export interface Preview {
-  matching?: {evaluatorVersion:string;level:"exact"|"balanced"|"flexible";assessment:{relationship:"exact"|"probable"|"alternative"|"unresolved"};resolvedRecording:{title:string;artist?:string|null;version?:string|null;sourceId:string}};
+  matching?: {evaluatorVersion:string;level:"exact"|"balanced"|"flexible";assessment:{relationship:"exact"|"probable"|"alternative"|"unresolved"};resolvedRecording:{title:string;artist?:string|null;version?:string|null;sourceId:string};requestedRecording?:{title?:string|null;artist?:string|null}};
   approximateExcerpt?: Pick<ApproximateExcerptProvenance, "label" | "source"> | null;
   sourceTransport?: string;
   sourceHeaderPolicy?: {headerCount:number;authorization:boolean;cookie:boolean;referer:boolean;origin:boolean;userAgent:boolean;other:boolean};
@@ -79,6 +79,8 @@ export interface Preview {
   sessionId?: string; provider?: string; title?: string;
   /** Resolved media duration in seconds, when the source has a stable duration. */
   durationSeconds?: number | null;
+  /** Provider-extracted duration bound to the resolved source, when available. */
+  sourceDurationSeconds?: number | null;
   kind: string;
   url: string;
   canSeek: boolean;
@@ -115,6 +117,7 @@ export interface NativePlaybackSnapshot {
   status: "idle" | "resolving" | "buffering" | "playing" | "paused" | "ended" | "failed";
   trackId: string | null;
   entryId?: string | null;
+  transition?: PlaybackTransition | null;
   track: Track | null;
   candidate: Candidate | null;
   queue: Track[];
@@ -131,7 +134,7 @@ export interface NativePlaybackSnapshot {
   shuffle: boolean;
   repeat: "off" | "all" | "one" | string;
   playerMessage: string;
-  quality: { formatId?: string; mimeType?: string; formatHasVideo?: boolean; expectedContentLength?: number; assetId?: string; codec?: string; bitrateKbps?: number; sampleRate?: number; channels?: number; bitDepth?: number; bitrateOrigin?: string; sourceKind?: string; label?: string; approximateExcerpt?: ApproximateExcerptProvenance };
+  quality: { matching?: Preview["matching"]; formatId?: string; mimeType?: string; formatHasVideo?: boolean; expectedContentLength?: number; assetId?: string; codec?: string; bitrateKbps?: number; sampleRate?: number; channels?: number; bitDepth?: number; bitrateOrigin?: string; sourceKind?: string; label?: string; approximateExcerpt?: ApproximateExcerptProvenance };
   chapter?: { title: string; startSeconds: number; endSeconds?: number } | null;
   radioNowPlaying?: { id: string; title: string; artist: string; stationName: string; metadata?: Record<string, unknown> | null } | null;
   radioHistory?: { id: string; track: Track; playedAt: string; stationName: string }[];
@@ -272,12 +275,26 @@ export interface PlaylistMirrorOptionsView {
   defaults: { includeMediaLinks: boolean; includeYtdlpSearch: boolean };
   globallyEnabled: boolean;
 }
+export interface FlexibleMatching {
+  version: 1;
+  allowOtherReleases: boolean;
+  allowOtherPerformances: boolean;
+  allowOtherMixes: boolean;
+  allowOtherArtists: boolean;
+  allowDifferentLengths: boolean;
+}
+export const DEFAULT_FLEXIBLE_MATCHING: FlexibleMatching = { version: 1, allowOtherReleases: true, allowOtherPerformances: false, allowOtherMixes: false, allowOtherArtists: false, allowDifferentLengths: false };
+export interface PlaybackTransition { fromEntryId: string; toEntryId: string; progress: number }
 export interface Settings {
   musicDirectory: string;
   autoPreview: boolean;
   playbackDiagnosticsEnabled?: boolean;
   liveBpmEnabled?: boolean;
   matchingLevel?: "exact" | "balanced" | "flexible";
+  flexibleMatching?: FlexibleMatching;
+  flexibleMatchingNoticePending?: boolean;
+  crossfadeEnabled?: boolean;
+  crossfadeSeconds?: number;
   downloadAudioVerificationEnabled?: boolean;
   embedLyricsOnDownload?: boolean;
   downloadLayout?: DownloadLayout;

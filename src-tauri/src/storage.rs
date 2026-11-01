@@ -1292,21 +1292,33 @@ impl Store {
     }
     pub fn settings(&self) -> Result<Settings> {
         let conn = self.lock_connection()?;
-        let mut s = conn
-            .prepare("SELECT value FROM settings WHERE key='application'")
+        let raw: Option<String> = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key='application'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
             .map_err(err)?;
-        let mut rows = s.query([]).map_err(err)?;
-        match rows.next().map_err(err)? {
-            Some(row) => {
-                let mut settings: Settings = decode(row.get(0).map_err(err)?)?;
-                normalize_streaming_fallback_policy(&mut settings)?;
-                Ok(settings)
-            }
-            None => Ok(Settings::default()),
+        let Some(raw) = raw else {
+            return Ok(Settings::default());
+        };
+        let value: serde_json::Value = decode(raw)?;
+        let migration = value.get("flexibleMatching").is_none();
+        let mut settings = Settings::from_persisted_value(value)?;
+        normalize_streaming_fallback_policy(&mut settings)?;
+        if migration {
+            conn.execute(
+                "UPDATE settings SET value=?1 WHERE key='application'",
+                [encode(&settings)?],
+            )
+            .map_err(err)?;
         }
+        Ok(settings)
     }
     pub fn save_settings(&self, settings: &Settings) -> Result<()> {
         settings.validate_playback_startup_timeout()?;
+        settings.validate_playback_preferences()?;
         let mut settings = settings.clone();
         normalize_streaming_fallback_policy(&mut settings)?;
         let encoded = encode(&settings)?;
@@ -1918,6 +1930,143 @@ impl Store {
             return Err("A bounded playback locator key is required".into());
         }
         self.write_retained_provider_cache(PLAYBACK_LOCATOR_CACHE_NAMESPACE, key, payload)
+    }
+
+    fn local_notice_file_stamp(path: &str) -> Option<(u64, u64, u32)> {
+        let metadata = std::fs::symlink_metadata(path).ok()?;
+        if !metadata.file_type().is_file() {
+            return None;
+        }
+        let modified = metadata
+            .modified()
+            .ok()?
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?;
+        Some((metadata.len(), modified.as_secs(), modified.subsec_nanos()))
+    }
+
+    /// Retain only a scorer-produced notice, separately from imported track metadata.
+    pub(crate) fn save_local_alternative_notice(
+        &self,
+        asset: &LocalAsset,
+        requested: &Track,
+        actual_title: &str,
+        assessment: &crate::recording_match::MatchAssessment,
+    ) -> Result<()> {
+        use crate::recording_match::{MatchAction, MatchRelationship};
+        let bounded = |text: &str| {
+            !text.trim().is_empty() && text.len() <= 512 && !text.chars().any(char::is_control)
+        };
+        if assessment.action != MatchAction::Accept
+            || assessment.relationship != MatchRelationship::Alternative
+            || !bounded(&asset.id)
+            || !bounded(&asset.hash)
+            || !bounded(&requested.id)
+            || !bounded(&asset.track.id)
+            || !bounded(actual_title)
+            || !bounded(&requested.title)
+            || !bounded(&requested.artist)
+        {
+            return Err("Invalid local alternative notice".into());
+        }
+        let stored = self
+            .get_asset_by_id(&asset.id)?
+            .ok_or("Local asset must be registered first")?;
+        if stored.hash != asset.hash || stored.track.id != asset.track.id {
+            return Err("Local asset binding changed".into());
+        }
+        let stamp =
+            Self::local_notice_file_stamp(&stored.path).ok_or("Local asset file is unavailable")?;
+        if crate::media::hash_file(std::path::Path::new(&stored.path))
+            .ok()
+            .as_deref()
+            != Some(stored.hash.as_str())
+            || Self::local_notice_file_stamp(&stored.path) != Some(stamp)
+        {
+            return Err("Local asset changed before notice publication".into());
+        }
+        let fingerprint = |track: &Track| {
+            crate::playback_sources::recording_identity_fingerprint(track)
+                .ok_or_else(|| "Missing recording fingerprint".to_owned())
+        };
+        let value = serde_json::json!({"schemaVersion":1,"assetId":asset.id,"assetHash":asset.hash,
+            "actualTrackId":asset.track.id,"actualFingerprint":fingerprint(&asset.track)?,
+            "requestedTrackId":requested.id,"requestedFingerprint":fingerprint(requested)?,
+            "requestedTitle":requested.title,"requestedArtist":requested.artist,"actualTitle":actual_title,
+            "alternativeKind":assessment.alternative_kind,"fileStamp":stamp});
+        self.write_retained_provider_cache(
+            "playback.local-alternative-notice.v1",
+            &asset.id,
+            &value,
+        )
+    }
+
+    /// Resolve a retained notice only against the registered asset and current recording identity.
+    pub(crate) fn local_alternative_notice(
+        &self,
+        asset: &LocalAsset,
+        requested: &Track,
+    ) -> Result<Option<serde_json::Value>> {
+        let Some(value) =
+            self.get_provider_cache("playback.local-alternative-notice.v1", &asset.id)?
+        else {
+            return Ok(None);
+        };
+        let Some(stored) = self.get_asset_by_id(&asset.id)? else {
+            return Ok(None);
+        };
+        let fingerprint =
+            |track: &Track| crate::playback_sources::recording_identity_fingerprint(track);
+        let actual_fingerprint = fingerprint(&stored.track);
+        let requested_fingerprint = fingerprint(requested);
+        let actual_bound = value["actualTrackId"].as_str() == Some(stored.track.id.as_str())
+            && value["actualFingerprint"].as_str() == actual_fingerprint.as_deref();
+        let current_bound = (value["requestedTrackId"].as_str() == Some(requested.id.as_str())
+            && value["requestedFingerprint"].as_str() == requested_fingerprint.as_deref())
+            || (value["actualTrackId"].as_str() == Some(requested.id.as_str())
+                && value["actualFingerprint"].as_str() == requested_fingerprint.as_deref());
+        let bounded = |text: Option<&str>| {
+            text.is_some_and(|s| {
+                !s.trim().is_empty() && s.len() <= 512 && !s.chars().any(char::is_control)
+            })
+        };
+        if value["schemaVersion"] != 1
+            || value["assetId"].as_str() != Some(asset.id.as_str())
+            || value["assetHash"].as_str() != Some(asset.hash.as_str())
+            || stored.hash != asset.hash
+            || stored.path != asset.path
+            || !actual_bound
+            || !current_bound
+            || !bounded(value["actualTitle"].as_str())
+            || !bounded(value["requestedTitle"].as_str())
+            || !bounded(value["requestedArtist"].as_str())
+        {
+            return Ok(None);
+        }
+        let Some(stamp) = Self::local_notice_file_stamp(&stored.path) else {
+            return Ok(None);
+        };
+        if serde_json::to_value(stamp).ok().as_ref() != Some(&value["fileStamp"]) {
+            return Ok(None);
+        }
+        let kind = value.get("alternativeKind").filter(|v| {
+            v.is_null()
+                || matches!(
+                    v.as_str(),
+                    Some("release" | "performance" | "remix" | "otherArtist")
+                )
+        });
+        let Some(kind) = kind else {
+            return Ok(None);
+        };
+        let mut assessment = serde_json::json!({"action":"accept","relationship":"alternative"});
+        if !kind.is_null() {
+            assessment["alternativeKind"] = kind.clone();
+        }
+        Ok(Some(
+            serde_json::json!({"assessment":assessment,"resolvedRecording":{"title":value["actualTitle"]},
+            "requestedRecording":{"title":value["requestedTitle"],"artist":value["requestedArtist"]}}),
+        ))
     }
 
     fn write_retained_provider_cache(
@@ -5122,16 +5271,18 @@ impl Store {
         if settings.matching_level != crate::recording_match::MatchLevel::Flexible
             || !settings.background_source_preparation
             || !settings.streaming_fallback_enabled
-            || crate::compilation_excerpt::request_fingerprint(
+            || crate::compilation_excerpt::request_fingerprint_with_options(
                 &asset.track,
                 crate::recording_match::MatchLevel::Flexible,
+                settings.flexible_matching,
             ) != request_fingerprint
             || asset.track.provenance["automaticExcerpt"]["requestFingerprint"].as_str()
                 != Some(request_fingerprint)
-            || !crate::compilation_excerpt::asset_proof_is_eligible(
+            || !crate::compilation_excerpt::asset_proof_is_eligible_with_options(
                 &asset.track,
                 &asset.track.provenance,
                 crate::recording_match::MatchLevel::Flexible,
+                settings.flexible_matching,
             )
         {
             return Err("Flexible excerpt request changed before asset publication".into());
@@ -5149,9 +5300,10 @@ impl Store {
             .transpose()?
             .map(|(track, _)| track);
         if current_track.is_none_or(|track| {
-            crate::compilation_excerpt::request_fingerprint(
+            crate::compilation_excerpt::request_fingerprint_with_options(
                 &track,
                 crate::recording_match::MatchLevel::Flexible,
+                settings.flexible_matching,
             ) != request_fingerprint
         }) {
             return Err("Catalog recording changed before excerpt publication".into());
@@ -7390,7 +7542,7 @@ fn hydrate_track_chunk(conn: &Connection, tracks: Vec<Track>) -> Result<Vec<Trac
             assets.entry(recording).or_default().push(asset);
         }
     }
-    let matching_level = current_matching_level(conn);
+    let matching_settings = current_matching_settings(conn);
     let selected = recordings
         .iter()
         .map(|recording| {
@@ -7401,7 +7553,7 @@ fn hydrate_track_chunk(conn: &Connection, tracks: Vec<Track>) -> Result<Vec<Trac
                 .find(|(track, _)| recording_for_id.get(&track.id) == Some(recording))
                 .map(|(track, _)| track);
             let rows = request
-                .map(|track| eligible_hydration_rows(rows, track, matching_level))
+                .map(|track| eligible_hydration_rows(rows, track, &matching_settings))
                 .unwrap_or_else(|| rows.to_vec());
             (recording.clone(), select_hydration_asset(&rows, preferred))
         })
@@ -7518,7 +7670,7 @@ fn load_hydration_asset(
         "SELECT value FROM settings WHERE key=('preferredAsset.' || (SELECT recording_id FROM catalog_listings WHERE id=?1))",
         [listing_id], |r| r.get(0)).optional().map_err(err)?;
     let preferred = preferred.map(decode::<String>).transpose()?;
-    let eligible = eligible_hydration_rows(&asset_rows, request, current_matching_level(conn));
+    let eligible = eligible_hydration_rows(&asset_rows, request, &current_matching_settings(conn));
     let row = select_hydration_asset(&eligible, preferred.as_deref());
     row.map(|row| {
         let analysis = conn.query_row(
@@ -7529,7 +7681,7 @@ fn load_hydration_asset(
     }).transpose()
 }
 
-fn current_matching_level(conn: &Connection) -> crate::recording_match::MatchLevel {
+fn current_matching_settings(conn: &Connection) -> Settings {
     conn.query_row(
         "SELECT value FROM settings WHERE key='application'",
         [],
@@ -7537,24 +7689,24 @@ fn current_matching_level(conn: &Connection) -> crate::recording_match::MatchLev
     )
     .ok()
     .and_then(|value| decode::<Settings>(value).ok())
-    .map(|settings| settings.matching_level)
     .unwrap_or_default()
 }
 
 fn eligible_hydration_rows(
     rows: &[AssetHydrationRow],
     request: &Track,
-    level: crate::recording_match::MatchLevel,
+    settings: &Settings,
 ) -> Vec<AssetHydrationRow> {
     rows.iter()
         .filter(|row| {
             serde_json::from_str::<LocalAsset>(&row.3)
                 .ok()
                 .is_some_and(|asset| {
-                    crate::compilation_excerpt::asset_proof_is_eligible(
+                    crate::compilation_excerpt::asset_proof_is_eligible_with_options(
                         request,
                         &asset.track.provenance,
-                        level,
+                        settings.matching_level,
+                        settings.flexible_matching,
                     )
                 })
         })
@@ -17064,5 +17216,116 @@ mod persisted_text_sort_index_proposal {
             store.get_json_preference(key).unwrap().unwrap(),
             serde_json::json!({})
         );
+    }
+}
+
+#[cfg(test)]
+mod local_alternative_notice_tests {
+    use super::*;
+    use crate::recording_match::{
+        AlternativeKind, Comparison, MatchAction, MatchAssessment, MatchDimensions,
+        MatchRelationship, ProofStrength,
+    };
+
+    #[test]
+    fn retained_notice_binds_registered_asset_and_both_recording_identities() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("notices.sqlite")).unwrap();
+        let request = Track {
+            id: "catalog:requested".into(),
+            provider: "catalog".into(),
+            provider_id: "requested".into(),
+            title: "Song".into(),
+            artist: "Artist".into(),
+            ..Track::default()
+        };
+        let actual = Track {
+            id: "youtube:actual".into(),
+            provider: "youtube".into(),
+            provider_id: "actual".into(),
+            title: "Song (Live)".into(),
+            artist: "Artist".into(),
+            ..Track::default()
+        };
+        let file = directory.path().join("song.flac");
+        std::fs::write(&file, b"registered audio").unwrap();
+        let asset = LocalAsset {
+            id: "asset-1".into(),
+            recording_id: actual.id.clone(),
+            path: file.to_string_lossy().into(),
+            hash: crate::media::hash_file(&file).unwrap(),
+            source_codec: "flac".into(),
+            final_codec: "flac".into(),
+            source_bitrate: None,
+            final_bitrate: None,
+            sample_rate: None,
+            channels: None,
+            bit_depth: None,
+            duration_seconds: None,
+            size_bytes: None,
+            bitrate_origin: None,
+            processing: "source".into(),
+            track: actual.clone(),
+        };
+        let assessment = MatchAssessment {
+            relationship: MatchRelationship::Alternative,
+            action: MatchAction::Accept,
+            alternative_kind: Some(AlternativeKind::Performance),
+            reasons: vec![],
+            dimensions: MatchDimensions {
+                title: Comparison::Agree,
+                artists: Comparison::Agree,
+                guests: Comparison::Unknown,
+                version: Comparison::Conflict,
+                runtime: Comparison::Agree,
+                isrc: Comparison::Unknown,
+                work: Comparison::Unknown,
+            },
+            proof_strength: ProofStrength::MetadataOnly,
+            evidence: None,
+        };
+        store.save_asset(&asset).unwrap();
+        assert!(store
+            .local_alternative_notice(&asset, &request)
+            .unwrap()
+            .is_none());
+        store
+            .save_local_alternative_notice(&asset, &request, "Song (Live)", &assessment)
+            .unwrap();
+        let notice = store
+            .local_alternative_notice(&asset, &request)
+            .unwrap()
+            .unwrap();
+        assert_eq!(notice["assessment"]["alternativeKind"], "performance");
+        assert_eq!(notice["requestedRecording"]["title"], "Song");
+        assert!(notice["resolvedRecording"].get("artist").is_none());
+        assert!(store
+            .local_alternative_notice(&asset, &actual)
+            .unwrap()
+            .is_some());
+        let mut changed_request = request.clone();
+        changed_request.title = "Other Song".into();
+        assert!(store
+            .local_alternative_notice(&asset, &changed_request)
+            .unwrap()
+            .is_none());
+        let mut changed_asset = asset.clone();
+        changed_asset.hash = "other-hash".into();
+        assert!(store
+            .local_alternative_notice(&changed_asset, &request)
+            .unwrap()
+            .is_none());
+        let mut forged = request;
+        forged.id = "catalog:other".into();
+        forged.provenance = serde_json::json!({"matching":{"assessment":{"action":"accept","alternativeKind":"performance"}}});
+        assert!(store
+            .local_alternative_notice(&asset, &forged)
+            .unwrap()
+            .is_none());
+        std::fs::write(&file, b"different audio").unwrap();
+        assert!(store
+            .local_alternative_notice(&asset, &actual)
+            .unwrap()
+            .is_none());
     }
 }

@@ -198,6 +198,7 @@ mod tests {
     fn weak() -> MatchAssessment {
         use Comparison::*;
         MatchAssessment {
+            alternative_kind: None,
             action: MatchAction::Enrich,
             relationship: MatchRelationship::Unresolved,
             reasons: vec![MatchReason::InsufficientEvidence],

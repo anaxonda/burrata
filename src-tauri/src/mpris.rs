@@ -1,8 +1,7 @@
 //! Linux MPRIS session-bus integration.
 //!
-//! The frontend remains the owner of the audio element. This service translates
-//! desktop media-key requests into the same acknowledged automation requests
-//! used by the app, and mirrors the latest frontend playback snapshot.
+//! Translates desktop media-key requests into acknowledged Native playback
+//! commands and mirrors the authoritative playback snapshot.
 
 use std::{
     collections::HashMap,

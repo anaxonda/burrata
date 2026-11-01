@@ -27,6 +27,7 @@ pub(super) struct SharedEvidenceRank {
     pub(super) action: MatchAction,
     pub(super) proof_strength: ProofStrength,
     pub(super) ambiguity_count: u16,
+    pub(super) alternative_category: u8,
 }
 
 impl SharedEvidenceRank {
@@ -90,6 +91,7 @@ impl SharedEvidenceRank {
                 .map(|evidence| evidence.proof_strength)
                 .unwrap_or(assessment.proof_strength),
             ambiguity_count,
+            alternative_category: 0,
         }
     }
 
@@ -159,7 +161,7 @@ pub(super) fn evaluate(
         level,
         MatchStage::Search,
     );
-    candidate_gate_result(&a)
+    candidate_gate_result(&a, track, candidate)
 }
 
 pub(super) fn evaluate_with_diagnostics(
@@ -187,10 +189,94 @@ pub(super) fn evaluate_with_diagnostics(
         reasons: a.reasons.clone(),
         dimensions: a.dimensions.clone(),
     };
-    (candidate_gate_result(&a), diagnostic)
+    (candidate_gate_result(&a, track, candidate), diagnostic)
 }
 
-fn candidate_gate_result(a: &MatchAssessment) -> CandidateGateResult {
+fn assessment_with_options(
+    store: &Store,
+    track: &Track,
+    aliases: &[Track],
+    isrc_aliases: &[Track],
+    known_isrc: Option<&str>,
+    candidate: &Candidate,
+    level: MatchLevel,
+    stage: MatchStage,
+    options: crate::recording_match::FlexibleMatchingOptions,
+) -> MatchAssessment {
+    let mut context =
+        crate::recording_match_context::AssessmentContext::with_flexible_options(options);
+    crate::recording_match_context::assess_with_aliases_and_context(
+        store,
+        track,
+        candidate,
+        level,
+        stage,
+        aliases,
+        isrc_aliases,
+        known_isrc,
+        &[],
+        &mut context,
+    )
+}
+pub(super) fn evaluate_with_options(
+    track: &Track,
+    aliases: &[Track],
+    isrc_aliases: &[Track],
+    known_isrc: Option<&str>,
+    candidate: &Candidate,
+    level: MatchLevel,
+    store: &Store,
+    options: crate::recording_match::FlexibleMatchingOptions,
+) -> CandidateGateResult {
+    let a = assessment_with_options(
+        store,
+        track,
+        aliases,
+        isrc_aliases,
+        known_isrc,
+        candidate,
+        level,
+        MatchStage::Search,
+        options,
+    );
+    candidate_gate_result(&a, track, candidate)
+}
+
+pub(super) fn evaluate_with_diagnostics_and_options(
+    track: &Track,
+    aliases: &[Track],
+    isrc_aliases: &[Track],
+    known_isrc: Option<&str>,
+    candidate: &Candidate,
+    level: MatchLevel,
+    store: &Store,
+    options: crate::recording_match::FlexibleMatchingOptions,
+) -> (CandidateGateResult, SharedGateDiagnostic) {
+    let a = assessment_with_options(
+        store,
+        track,
+        aliases,
+        isrc_aliases,
+        known_isrc,
+        candidate,
+        level,
+        MatchStage::Search,
+        options,
+    );
+    let diagnostic = SharedGateDiagnostic {
+        action: a.action,
+        relationship: a.relationship,
+        reasons: a.reasons.clone(),
+        dimensions: a.dimensions.clone(),
+    };
+    (candidate_gate_result(&a, track, candidate), diagnostic)
+}
+
+fn candidate_gate_result(
+    a: &MatchAssessment,
+    track: &Track,
+    candidate: &Candidate,
+) -> CandidateGateResult {
     let path = if !matches!(a.action, MatchAction::Inspect | MatchAction::Accept) {
         CandidateGatePath::Rejected
     } else {
@@ -204,24 +290,44 @@ fn candidate_gate_result(a: &MatchAssessment) -> CandidateGateResult {
             MatchRelationship::Unresolved => CandidateGatePath::PolicyInspect,
         }
     };
-    CandidateGateResult {
-        path,
-        shared: SharedEvidenceRank::from_assessment(a),
-    }
+    let mut shared = SharedEvidenceRank::from_assessment(a);
+    shared.alternative_category = recording_match::alternative_rank(a, track, candidate);
+    CandidateGateResult { path, shared }
 }
 pub(super) fn priority(
     _track: &Track,
     candidate: &Candidate,
     result: CandidateGateResult,
     _level: MatchLevel,
-) -> (u8, u8, u8, u16, u8, u8) {
+) -> (u8, u8, u8, u8, u64, u16, u8, u8) {
     let topic_priority =
         if crate::source_fallback::is_exact_versioned_topic_candidate(_track, candidate) {
             0
         } else {
             1
         };
-    shared_priority(result.shared, result.path, topic_priority)
+    let duration_delta = if _level == MatchLevel::Flexible {
+        match (_track.duration_seconds, candidate.duration_seconds) {
+            (Some(a), Some(b)) if a.is_finite() && b.is_finite() && a >= 0. && b >= 0. => {
+                ((a - b).abs() * 1000.).min(u64::MAX as f64) as u64
+            }
+            _ => u64::MAX,
+        }
+    } else {
+        0
+    };
+    let (relationship, action, proof, ambiguity, path, topic) =
+        shared_priority(result.shared, result.path, topic_priority);
+    (
+        relationship,
+        action,
+        result.shared.alternative_category,
+        proof,
+        duration_delta,
+        ambiguity,
+        path,
+        topic,
+    )
 }
 
 fn shared_priority(
@@ -444,9 +550,185 @@ pub(super) fn verify_with_discogs_credit_variant(
     })
 }
 
+pub(super) fn verify_with_discogs_credit_variant_and_options(
+    track: &Track,
+    aliases: &[Track],
+    isrc_aliases: &[Track],
+    known_isrc: Option<&str>,
+    candidate: &mut Candidate,
+    audio: &acquisition::PreviewAudio,
+    required: bool,
+    level: MatchLevel,
+    store: &Store,
+    discogs_credit_variant: Option<&crate::recording_identity::VerifiedArtistCreditSetVariant>,
+    options: crate::recording_match::FlexibleMatchingOptions,
+) -> Option<VerifiedRecordingProof> {
+    let mut resolved = candidate.clone();
+    // Public Bandcamp links carry a page URL before its numeric track ID is
+    // available. Bind that ID only after the page resolver returns it.
+    if resolved.provider == "bandcamp" && resolved.id.is_empty() {
+        crate::bandcamp::validate_track_page_url(&resolved.url).ok()?;
+        let id = audio.resolved_provider_id.as_deref()?;
+        if id.is_empty()
+            || id.len() > 20
+            || !id.bytes().all(|b| b.is_ascii_digit())
+            || id.parse::<u64>().ok()? == 0
+        {
+            return None;
+        }
+        resolved.id = format!("bandcamp:{id}");
+    }
+    if required && resolved.provider == "bandcamp" {
+        // This artist is returned by the fresh artist-hosted page, rather than
+        // inferred from an uploader caption. A matching display caption must
+        // never override a contradictory page artist.
+        let metadata = audio.source_metadata.as_ref()?;
+        let artist = metadata["artist"]
+            .as_str()
+            .or(metadata["channel"].as_str())
+            .or(metadata["uploader"].as_str())?;
+        let artist = crate::source_fallback::normalize_artist_credit(artist);
+        let agrees = |expected: &Track| {
+            !artist.is_empty()
+                && artist == crate::source_fallback::normalize_artist_credit(&expected.artist)
+        };
+        if !agrees(track)
+            && !aliases
+                .iter()
+                .filter(|variant| {
+                    valid_artist_alias_variant_with_proof(track, variant, isrc_aliases)
+                })
+                .any(agrees)
+        {
+            return None;
+        }
+    }
+    let extractor = matches!(
+        candidate.provider.as_str(),
+        "youtube" | "soundcloud" | "bandcamp"
+    );
+    let expected_id = resolved.id.split_once(':')?.1.to_owned();
+    if audio
+        .resolved_provider_id
+        .as_deref()
+        .is_some_and(|id| id != expected_id)
+    {
+        return None;
+    }
+    if extractor {
+        if audio.resolved_provider_id.as_deref() != Some(expected_id.as_str())
+            || audio.resolved_title.as_deref().is_none_or(str::is_empty)
+        {
+            return None;
+        }
+        resolved.source_metadata = audio.source_metadata.clone();
+        resolved.title = audio.resolved_title.clone()?;
+        resolved.duration_seconds = audio.duration_seconds;
+        resolved.uploader = audio
+            .source_metadata
+            .as_ref()
+            .and_then(|m| m["channel"].as_str().or(m["uploader"].as_str()))
+            .map(str::to_owned);
+    }
+    if let Some(chapters) = &audio.chapters {
+        resolved.chapters = Some(chapters.clone());
+    }
+    if !required {
+        *candidate = resolved;
+        return Some(VerifiedRecordingProof {
+            kind: RecordingProofKind::ExplicitSource,
+        });
+    }
+    let a = if let Some(variant) = discogs_credit_variant {
+        crate::recording_match_context::assess_with_artist_credit_set_variant_and_options(
+            store,
+            track,
+            &resolved,
+            level,
+            MatchStage::Resolved,
+            aliases,
+            isrc_aliases,
+            known_isrc,
+            variant,
+            &options,
+        )
+    } else {
+        assessment_with_options(
+            store,
+            track,
+            aliases,
+            isrc_aliases,
+            known_isrc,
+            &resolved,
+            level,
+            MatchStage::Resolved,
+            options,
+        )
+    };
+    if a.action != MatchAction::Accept {
+        return None;
+    }
+    let metadata = resolved.source_metadata.get_or_insert_with(|| json!({}));
+    if !metadata.is_object() {
+        *metadata = json!({});
+    }
+    let artist = metadata["artist"].as_str().map(str::to_owned).or_else(|| {
+        metadata["artistNames"]
+            .as_array()
+            .or_else(|| metadata["artists"].as_array())
+            .map(|names| {
+                names
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+    });
+    metadata["matching"] = json!({"evaluatorVersion":VERSION,"level":level,"assessment":a,"resolvedRecording":{"title":resolved.title,"artist":artist,"version":crate::recording_identity::parse_title(&resolved.title).version,"sourceId":resolved.id}});
+    // Persist observations without stream URLs, credentials or raw provider responses.
+    if let Some(identity) = recording_identity_fingerprint(track) {
+        let record = crate::storage::MatchingEvidenceRecord {
+            schema_version: 1,
+            evaluator_version: VERSION.into(),
+            requested_track_id: track.id.clone(),
+            requested_fingerprint: identity,
+            source_provider: resolved.provider.clone(),
+            source_id: expected_id.into(),
+            policy: level,
+            relationship: a.relationship,
+            evidence: json!({"matching":metadata["matching"],"title":resolved.title,"artist":metadata["artist"],"artists":metadata["artists"],"artistNames":metadata["artistNames"],"artistCount":metadata["artistCount"],"version":metadata["version"],"track":metadata["track"],"duration":resolved.duration_seconds,"isrc":metadata["isrc"],"identityMetadata":bounded_identity_metadata(metadata)}),
+        };
+        let _ = store.save_matching_evidence(&record);
+    }
+    *candidate = resolved;
+    Some(VerifiedRecordingProof {
+        kind: if extractor {
+            RecordingProofKind::VerifiedExtractor
+        } else {
+            RecordingProofKind::Recording
+        },
+    })
+}
+
 pub(super) fn request_fingerprint(track: &Track, level: MatchLevel) -> Option<String> {
     let evidence = json!({"requestedId":track.id,"requestedProvider":track.provider,"requestedProviderId":track.provider_id,"legacy":recording_identity_fingerprint(track)?,"identity":crate::recording_identity::RecordingIdentity::from_track(track),"album":track.album,"label":track.label});
     Some(fingerprint(&evidence.to_string(), level))
+}
+/// Bind every flexible permission to the resolver snapshot, so mappings from a
+/// broader policy cannot be reused after the user narrows it.
+pub(super) fn request_fingerprint_with_options(
+    track: &Track,
+    level: MatchLevel,
+    options: crate::recording_match::FlexibleMatchingOptions,
+) -> Option<String> {
+    let base = request_fingerprint(track, level)?;
+    if level != MatchLevel::Flexible {
+        return Some(base);
+    }
+    Some(fingerprint(
+        &format!("{base}:{}", serde_json::to_string(&options).ok()?),
+        level,
+    ))
 }
 pub(super) fn restore_evidence(
     store: &Store,
@@ -591,18 +873,104 @@ pub(super) fn cached_direct_allowed(
 mod tests {
     use super::*;
     #[test]
+    fn flexible_fingerprint_includes_each_permission_and_version() {
+        let track = Track {
+            id: "spotify:song".into(),
+            provider: "spotify".into(),
+            provider_id: "song".into(),
+            title: "Song".into(),
+            artist: "Artist".into(),
+            ..Track::default()
+        };
+        let base = crate::recording_match::FlexibleMatchingOptions::default();
+        let original =
+            request_fingerprint_with_options(&track, MatchLevel::Flexible, base).unwrap();
+        let variants = [
+            crate::recording_match::FlexibleMatchingOptions { version: 2, ..base },
+            crate::recording_match::FlexibleMatchingOptions {
+                allow_other_releases: !base.allow_other_releases,
+                ..base
+            },
+            crate::recording_match::FlexibleMatchingOptions {
+                allow_other_performances: !base.allow_other_performances,
+                ..base
+            },
+            crate::recording_match::FlexibleMatchingOptions {
+                allow_other_mixes: !base.allow_other_mixes,
+                ..base
+            },
+            crate::recording_match::FlexibleMatchingOptions {
+                allow_other_artists: !base.allow_other_artists,
+                ..base
+            },
+            crate::recording_match::FlexibleMatchingOptions {
+                allow_different_lengths: !base.allow_different_lengths,
+                ..base
+            },
+        ];
+        for variant in variants {
+            assert_ne!(
+                request_fingerprint_with_options(&track, MatchLevel::Flexible, variant).unwrap(),
+                original
+            );
+        }
+        assert_eq!(
+            request_fingerprint_with_options(&track, MatchLevel::Exact, base),
+            request_fingerprint(&track, MatchLevel::Exact)
+        );
+    }
+    #[test]
+    fn flexible_rank_prefers_category_then_proof_then_duration() {
+        let track = Track {
+            duration_seconds: Some(200.),
+            ..Track::default()
+        };
+        let candidate = |duration| Candidate {
+            duration_seconds: Some(duration),
+            ..Candidate::default()
+        };
+        let gate = |category, proof| CandidateGateResult {
+            path: CandidateGatePath::PolicyAlternative,
+            shared: SharedEvidenceRank {
+                relationship: MatchRelationship::Alternative,
+                action: MatchAction::Accept,
+                proof_strength: proof,
+                ambiguity_count: 0,
+                alternative_category: category,
+            },
+        };
+        let p =
+            |candidate: &Candidate, rank| priority(&track, candidate, rank, MatchLevel::Flexible);
+        assert!(
+            p(&candidate(230.), gate(1, ProofStrength::MetadataOnly))
+                < p(&candidate(200.), gate(2, ProofStrength::AudioFingerprint))
+        );
+        assert!(
+            p(
+                &candidate(230.),
+                gate(1, ProofStrength::RecordingIdentifier)
+            ) < p(&candidate(200.), gate(1, ProofStrength::MetadataOnly))
+        );
+        assert!(
+            p(&candidate(202.), gate(1, ProofStrength::MetadataOnly))
+                < p(&candidate(220.), gate(1, ProofStrength::MetadataOnly))
+        );
+    }
+    #[test]
     fn relationship_tier_precedes_topic_preference() {
         let alternative_topic = SharedEvidenceRank {
             relationship: MatchRelationship::Alternative,
             action: MatchAction::Inspect,
             proof_strength: ProofStrength::MetadataOnly,
             ambiguity_count: 0,
+            alternative_category: 0,
         };
         let exact_generic = SharedEvidenceRank {
             relationship: MatchRelationship::Exact,
             action: MatchAction::Accept,
             proof_strength: ProofStrength::MetadataOnly,
             ambiguity_count: 0,
+            alternative_category: 0,
         };
         assert!(
             shared_priority(exact_generic, CandidateGatePath::PolicyExact, 1,)
@@ -849,7 +1217,22 @@ mod tests {
             MatchLevel::Flexible,
             MatchStage::Search,
         );
-        let alternative_assessment = assessment(
+        let alternative_assessment = assessment_with_options(
+            &store,
+            &track,
+            &[],
+            &[],
+            None,
+            &alternative,
+            MatchLevel::Flexible,
+            MatchStage::Search,
+            crate::recording_match::FlexibleMatchingOptions {
+                allow_other_mixes: true,
+                ..Default::default()
+            },
+        );
+
+        let disabled = assessment(
             &store,
             &track,
             &[],
@@ -859,7 +1242,7 @@ mod tests {
             MatchLevel::Flexible,
             MatchStage::Search,
         );
-
+        assert_eq!(disabled.action, MatchAction::Reject);
         assert_eq!(same_assessment.relationship, MatchRelationship::Exact);
         assert_eq!(
             alternative_assessment.relationship,
@@ -914,7 +1297,7 @@ mod tests {
                 level,
                 MatchStage::Resolved,
             );
-            let alice_assessment = assessment(
+            let alice_assessment = assessment_with_options(
                 &store,
                 &request_without_version,
                 &[],
@@ -923,8 +1306,12 @@ mod tests {
                 &alice_remix,
                 level,
                 MatchStage::Resolved,
+                crate::recording_match::FlexibleMatchingOptions {
+                    allow_other_mixes: true,
+                    ..Default::default()
+                },
             );
-            let bob_assessment = assessment(
+            let bob_assessment = assessment_with_options(
                 &store,
                 &request_without_version,
                 &[],
@@ -933,6 +1320,10 @@ mod tests {
                 &bob_remix,
                 level,
                 MatchStage::Resolved,
+                crate::recording_match::FlexibleMatchingOptions {
+                    allow_other_mixes: true,
+                    ..Default::default()
+                },
             );
             let probable_assessment = assessment(
                 &store,
@@ -1009,7 +1400,7 @@ mod tests {
                 level,
                 MatchStage::Resolved,
             );
-            let conflict = assessment(
+            let default_conflict = assessment(
                 &store,
                 &request_for_live,
                 &[],
@@ -1019,6 +1410,22 @@ mod tests {
                 level,
                 MatchStage::Resolved,
             );
+            let conflict = assessment_with_options(
+                &store,
+                &request_for_live,
+                &[],
+                &[],
+                None,
+                &conflicting_version,
+                level,
+                MatchStage::Resolved,
+                crate::recording_match::FlexibleMatchingOptions {
+                    allow_other_mixes: true,
+                    allow_other_performances: true,
+                    ..Default::default()
+                },
+            );
+            assert_eq!(default_conflict.action, MatchAction::Reject);
             assert_eq!(missing.dimensions.version, Comparison::Unknown);
             assert_ne!(missing.dimensions.version, Comparison::Conflict);
             assert_eq!(conflict.dimensions.version, Comparison::Conflict);
@@ -1294,8 +1701,20 @@ mod tests {
         let t = request();
         let mut c = candidate();
         let mut a = audio("Song (Live)", json!(["Artist"]));
-        a.duration_seconds = Some(240.);
+        a.duration_seconds = Some(180.);
         assert!(verify(
+            &t,
+            &[],
+            &[],
+            None,
+            &mut c.clone(),
+            &a,
+            true,
+            MatchLevel::Flexible,
+            &s
+        )
+        .is_none());
+        assert!(verify_with_discogs_credit_variant_and_options(
             &t,
             &[],
             &[],
@@ -1304,7 +1723,12 @@ mod tests {
             &a,
             true,
             MatchLevel::Flexible,
-            &s
+            &s,
+            None,
+            crate::recording_match::FlexibleMatchingOptions {
+                allow_other_performances: true,
+                ..Default::default()
+            },
         )
         .is_some());
         assert_eq!(
@@ -1500,6 +1924,67 @@ pub(super) fn save_locator(
             "provider":provider,"providerId":id,"permanentUrl":url,"proof":proof}),
     );
 }
+pub(super) fn locator_with_options(
+    store: &Store,
+    track: &Track,
+    key: &str,
+    provider: &str,
+    level: MatchLevel,
+    options: crate::recording_match::FlexibleMatchingOptions,
+) -> Option<crate::storage::VerifiedPlaybackSource> {
+    if request_fingerprint_with_options(track, level, options).as_deref() != Some(key) {
+        return None;
+    }
+    let value = store
+        .get_provider_cache(LOCATORS, &format!("{key}:{provider}"))
+        .ok()??;
+    if level != MatchLevel::Flexible && value["schemaVersion"].as_u64() == Some(2) {
+        return locator(store, track, key, provider);
+    }
+    if value["schemaVersion"].as_u64() != Some(3)
+        || value["evaluatorVersion"].as_str() != Some(VERSION)
+        || value["requestFingerprint"].as_str() != Some(key)
+        || value["provider"].as_str() != Some(provider)
+        || value["matchingLevel"] != json!(level)
+        || value["flexibleOptions"] != json!(options)
+        || !value["proof"].is_object()
+    {
+        return None;
+    }
+    let source = crate::storage::VerifiedPlaybackSource {
+        provider: provider.into(),
+        provider_id: value["providerId"].as_str()?.into(),
+        permanent_url: value["permanentUrl"].as_str()?.into(),
+        verification_proof: Some(value["proof"].clone()),
+    };
+    remembered_candidate(track, &source)?;
+    Some(source)
+}
+pub(super) fn save_locator_with_options(
+    store: &Store,
+    track: &Track,
+    key: &str,
+    provider: &str,
+    id: &str,
+    url: &str,
+    proof: &Value,
+    level: MatchLevel,
+    options: crate::recording_match::FlexibleMatchingOptions,
+) {
+    if request_fingerprint_with_options(track, level, options).as_deref() != Some(key) {
+        return;
+    }
+    let source = crate::storage::VerifiedPlaybackSource {
+        provider: provider.into(),
+        provider_id: id.into(),
+        permanent_url: url.into(),
+        verification_proof: Some(proof.clone()),
+    };
+    if !proof.is_object() || remembered_candidate(track, &source).is_none() {
+        return;
+    }
+    let _ = store.set_retained_playback_locator(&format!("{key}:{provider}"), &json!({"schemaVersion":3,"evaluatorVersion":VERSION,"matchingLevel":level,"flexibleOptions":options,"requestFingerprint":key,"provider":provider,"providerId":id,"permanentUrl":url,"proof":proof}));
+}
 pub(super) fn invalidate_locator(
     store: &Store,
     track: &Track,
@@ -1539,6 +2024,58 @@ mod retained_locator_tests {
             &json!({"version":1,"kind":"recording"}),
         );
         key
+    }
+    #[test]
+    fn flexible_locator_is_bound_to_all_options() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("locator.sqlite")).unwrap();
+        let track = request();
+        let options = crate::recording_match::FlexibleMatchingOptions::default();
+        let key = request_fingerprint_with_options(&track, MatchLevel::Flexible, options).unwrap();
+        save_locator_with_options(
+            &store,
+            &track,
+            &key,
+            "youtube",
+            "abcdefghijk",
+            "https://www.youtube.com/watch?v=abcdefghijk",
+            &json!({"version":1,"kind":"recording"}),
+            MatchLevel::Flexible,
+            options,
+        );
+        assert!(locator_with_options(
+            &store,
+            &track,
+            &key,
+            "youtube",
+            MatchLevel::Flexible,
+            options
+        )
+        .is_some());
+        let narrowed = crate::recording_match::FlexibleMatchingOptions {
+            allow_other_releases: false,
+            ..options
+        };
+        assert!(locator_with_options(
+            &store,
+            &track,
+            &key,
+            "youtube",
+            MatchLevel::Flexible,
+            narrowed
+        )
+        .is_none());
+        let other =
+            request_fingerprint_with_options(&track, MatchLevel::Flexible, narrowed).unwrap();
+        assert!(locator_with_options(
+            &store,
+            &track,
+            &other,
+            "youtube",
+            MatchLevel::Flexible,
+            narrowed
+        )
+        .is_none());
     }
     #[test]
     fn locator_roundtrip_survives_restart_without_becoming_a_direct_acceptance() {

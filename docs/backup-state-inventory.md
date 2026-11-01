@@ -45,7 +45,17 @@ The generic `settings` table also has user-created records outside the top-level
 
 `playback-history.sqlite` has one `playback_history` row per session (`session_id`, timestamp, provider, serialized track, optional chapter). It preserves repeated plays. Include history as private personal data; do not turn it into a playlist during full backup or merge history rows with deduplication by recording. The separate `radioHistory.v1` preference is also personal listening history and is included through the bounded metadata projection above.
 
-Queue/session checkpoints, selected playback engine and related preferences are stored in `settings` (`nativePlaybackQueue.v1`, `nativePlaybackSession.v1`, `playbackEngine.v1`). The WebView also persists a queue snapshot and resume cursor in localStorage (`burrata.playback-queue.v1`, `burrata.playback-position.v1`). Treat these as one logical resumable playback component: prefer the latest internally consistent native checkpoint; serialize one canonical queue/session snapshot and restore it paused. Do not export engine-switch transient controls as authoritative user preference.
+Native queue/session checkpoints are stored in `settings`
+(`nativePlaybackQueue.v1`, `nativePlaybackSession.v1`). Older profiles may also
+contain `playbackEngine.v1` and legacy WebView localStorage queue/resume keys
+(`burrata.playback-queue.v1`, `burrata.playback-position.v1`). Treat them as one
+logical resumable playback component. For older profiles, the previously active
+engine selects the authoritative internally consistent session; do not select a
+competing session by freshness alone. Preserve duplicate occurrences, controls
+and album-normalization context. Commit Native state before recording migration
+completion, and retain legacy data until success. Exports use one canonical
+Native snapshot; restore paused. Engine-switch transient controls are not
+authoritative user preferences.
 
 ### Frontend localStorage
 

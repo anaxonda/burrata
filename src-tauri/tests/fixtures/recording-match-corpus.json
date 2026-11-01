@@ -174,11 +174,12 @@
         "relationship": "sourceBackedAlternativeFixture",
         "Exact": "Unresolved",
         "Balanced": "Unresolved",
-        "Flexible": "Alternative",
+        "Flexible": "Unresolved",
+        "flexibleOptIn": {"allowOtherPerformances": true},
         "actions": {
           "Exact": "Reject",
           "Balanced": "Reject",
-          "Flexible": "Accept"
+          "Flexible": "Reject"
         }
       }
     },

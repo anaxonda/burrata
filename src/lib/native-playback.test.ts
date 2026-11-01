@@ -1,11 +1,24 @@
 import { describe, expect, it, vi } from "vitest";
-import { NativePlaybackBridge, nativeSnapshotFailure, type ResolvedSourceHandoff } from "./native-playback";
+import { NativePlaybackBridge, nativeSnapshotFailure } from "./native-playback";
 import type { NativePlaybackSnapshot, Track } from "./types";
 
 const track: Track = { id:"a", provider:"local", providerId:"a", sourceUrl:"file:///a", artist:"Artist", title:"Track", favorite:false, provenance:{} };
 function snapshot(revision:number,generation=2):NativePlaybackSnapshot {
   return {engine:"native",revision,generation,status:"playing",trackId:"a",track,candidate:null,queue:[track],currentIndex:0,paused:false,position:0,duration:10,volume:.8,canSeek:true,canVolume:true,shuffle:false,repeat:"off",playerMessage:"",quality:{}};
 }
+
+describe("native transition ownership", () => {
+  it("forwards a bounded transition only for the current queue and rejects stale updates", () => {
+    const bridge = new NativePlaybackBridge(vi.fn(), vi.fn());
+    const initial = {...snapshot(5), entryId:"a", queue:[track,track], queueEntryIds:["a","b"], queueRevision:3, transition:{fromEntryId:"a",toEntryId:"b",progress:.5,private:"hidden"}};
+    expect(bridge.acceptSnapshot(initial)).toBe(true);
+    expect(bridge.snapshot?.transition).toEqual({fromEntryId:"a",toEntryId:"b",progress:.5});
+    expect(bridge.acceptSnapshot({...initial,revision:4,transition:null})).toBe(false);
+    expect(bridge.snapshot?.transition?.progress).toBe(.5);
+    expect(bridge.acceptSnapshot({...initial,revision:6,transition:{fromEntryId:"a",toEntryId:"c",progress:2}})).toBe(true);
+    expect(bridge.snapshot?.transition).toBeNull();
+  });
+});
 
 describe("NativePlaybackBridge", () => {
   it("retains the same queue array for state-only events and replaces it on queue changes", async () => {
@@ -58,26 +71,6 @@ describe("NativePlaybackBridge", () => {
     expect(positions).toEqual([5]);
     expect(bridge.snapshot).toMatchObject({revision:5,chapter:{title:"Verse"},quality:{codec:"FLAC"}});
     expect(invoke).toHaveBeenLastCalledWith("playback_command",{command:{action:"seek",position:5}});
-  });
-
-  it("sends only an opaque resolved-source handle in the native handoff envelope", async () => {
-    const invoke = vi.fn(async <T>() => snapshot(3) as T);
-    const bridge = new NativePlaybackBridge(
-      invoke as unknown as ConstructorParameters<typeof NativePlaybackBridge>[0],
-      vi.fn() as unknown as ConstructorParameters<typeof NativePlaybackBridge>[1],
-    );
-    const handoff: ResolvedSourceHandoff = {
-      handoffId:"handoff-uuid", sourceHandle:"opaque-uuid", sourceGeneration:7, seekSerial:2,
-      targetPosition:120, tracks:[track], entryIds:["entry-1"], index:0, sessionId:"session-1",
-      entryId:"entry-1", paused:false, volume:.8, repeat:"off", shuffle:false, recorded:false,
-    };
-    await bridge.handoffResolvedSource(handoff);
-    expect(invoke).toHaveBeenCalledWith("handoff_resolved_playback_source", {handoff});
-    const serialized = JSON.stringify(invoke.mock.calls[0]);
-    expect(serialized).not.toContain("127.0.0.1");
-    expect(serialized).not.toContain("secret-key");
-    expect(serialized).not.toContain("headers");
-    expect(serialized).not.toContain('"input"');
   });
 
   it("subscribes before fetching and keeps a newer event over the initial response", async () => {

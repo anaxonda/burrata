@@ -10,6 +10,8 @@ import plistlib
 import sqlite3
 import tempfile
 import unittest
+import math
+import struct
 
 
 SCRIPT = pathlib.Path(__file__).with_name("smoke-installed.py")
@@ -210,11 +212,11 @@ class MacosTransportSecurityTests(unittest.TestCase):
             patches.enter_context(patch.object(smoke, "install_macos",
                                                return_value=(executable, resources, str(app_bundle))))
             for name in ["run", "stop_process", "bundled_tool_checks", "bundled_media_checks",
-                         "wait_for_app", "native_host_check", "run_mcp_status", "run_mcp_webview_audio"]:
+                         "wait_for_app", "native_host_check", "run_mcp_status", "run_mcp_native_audio"]:
                 mocked = patches.enter_context(patch.object(smoke, name, return_value={}))
-                if name == "run_mcp_webview_audio" and audio_failure is not None:
+                if name == "run_mcp_native_audio" and audio_failure is not None:
                     mocked.side_effect = audio_failure
-            patches.enter_context(patch.object(smoke, "build_webview_audio_fixture",
+            patches.enter_context(patch.object(smoke, "build_native_audio_fixture",
                                                return_value={"trackId": "local:fixture"}))
             launch = patches.enter_context(patch.object(smoke, "launch_app"))
             status = smoke.main()
@@ -242,14 +244,14 @@ class MacosTransportSecurityTests(unittest.TestCase):
         app = self._write_bundle({"NSAppTransportSecurity": {"NSExceptionDomains": {
             "127.0.0.1": {"NSExceptionAllowsInsecureHTTPLoads": True},
         }}})
-        failure = smoke.SmokeFailure("WebView audio", "WebView audio clock did not advance by 0.5 seconds")
+        failure = smoke.SmokeFailure("Native audio", "Native audio clock did not advance by 0.5 seconds")
         failure.diagnostics = {"first": {"media": {"currentTime": 0.2}}, "second": {"media": {"currentTime": 0.2}}}
         status, evidence, _, _ = self._run_installed_bundle_smoke(app, audio_failure=failure)
         self.assertEqual(status, 1)
         self.assertEqual(evidence["status"], "failed")
-        self.assertEqual(evidence["checks"]["webviewAudio"]["status"], "failed")
-        self.assertEqual(evidence["checks"]["webviewAudio"]["diagnostics"], failure.diagnostics)
-        self.assertEqual(evidence["checks"]["webviewAudio"]["mediaLogTail"], {"stderr": [], "stdout": []})
+        self.assertEqual(evidence["checks"]["nativeAudio"]["status"], "failed")
+        self.assertEqual(evidence["checks"]["nativeAudio"]["diagnostics"], failure.diagnostics)
+        self.assertEqual(evidence["checks"]["nativeAudio"]["mediaLogTail"], {"stderr": [], "stdout": []})
 
     def test_main_rejects_broad_installed_bundle_ats_before_launch(self) -> None:
         app = self._write_bundle({
@@ -267,7 +269,7 @@ class MacosTransportSecurityTests(unittest.TestCase):
         self.assertEqual(launches, [])
 
 
-class InstalledWebviewAudioTests(unittest.TestCase):
+class InstalledNativeAudioTests(unittest.TestCase):
     def test_builder_requires_aac_long_enough_for_all_steady_windows(self) -> None:
         for duration in (4.0, 12.0):
             with self.subTest(duration=duration), tempfile.TemporaryDirectory() as directory:
@@ -289,27 +291,15 @@ class InstalledWebviewAudioTests(unittest.TestCase):
                 with patch.object(smoke, "run", side_effect=command):
                     if duration == 4.0:
                         with self.assertRaisesRegex(smoke.SmokeFailure, "too short"):
-                            smoke.build_webview_audio_fixture(root / "resources", target, {}, root, root / "data")
+                            smoke.build_native_audio_fixture(root / "resources", target, {}, root, root / "data")
                         self.assertFalse((root / "data/burrata.sqlite").exists())
                     else:
-                        result = smoke.build_webview_audio_fixture(root / "resources", target, {}, root, root / "data")
+                        result = smoke.build_native_audio_fixture(root / "resources", target, {}, root, root / "data")
                         self.assertEqual(result["durationSeconds"], 12.0)
 
-    @staticmethod
-    def _sample(track_id: str, current_time: float, *, error_code=None,
-                entry_id="smoke-entry", source_stable=True, paused=False) -> dict:
-        return {
-            "engine": "webview", "applicable": True, "trackId": track_id,
-            "queueTrackId": track_id, "queueTotal": 1, "entryId": entry_id,
-            "sourceGeneration": 3, "previewKind": "local", "playbackStatus": "playing",
-            "media": {"present": True, "currentTime": current_time, "duration": 12.0,
-                      "paused": paused, "readyState": 4, "networkState": 1,
-                      "errorCode": error_code, "sourcePresent": True,
-                      "sourceStable": source_stable},
-        }
 
     def test_fixture_registration_is_local_and_stores_track_asset_membership(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="burrata-webview-audio-") as directory:
+        with tempfile.TemporaryDirectory(prefix="burrata-native-audio-") as directory:
             root = pathlib.Path(directory)
             app_data = root / "data" / "org.burrata.discovery"
             audio = root / "fixture" / "tone.m4a"
@@ -323,7 +313,7 @@ class InstalledWebviewAudioTests(unittest.TestCase):
             connect = sqlite3.connect
             with patch.object(smoke.sqlite3, "connect",
                               side_effect=lambda *a, **kw: connect(*a, factory=TrackedConnection, **kw)):
-                fixture = smoke.register_webview_audio_fixture(app_data, audio, 4.0, root)
+                fixture = smoke.register_native_audio_fixture(app_data, audio, 4.0, root)
             self.assertEqual(closed, [True], "fixture registration must release its SQLite handle")
             with closing(sqlite3.connect(app_data / "burrata.sqlite")) as connection:
                 listing = connection.execute(
@@ -352,189 +342,105 @@ class InstalledWebviewAudioTests(unittest.TestCase):
                 self.skipTest(f"directory symlinks unavailable: {error}")
             audio = alias / "tone.m4a"
             audio.write_bytes(b"synthetic-aac-fixture")
-            smoke.register_webview_audio_fixture(alias / "data", audio, 4.0, alias)
+            smoke.register_native_audio_fixture(alias / "data", audio, 4.0, alias)
             with closing(sqlite3.connect(real / "data" / "burrata.sqlite")) as connection:
                 saved = pathlib.Path(connection.execute("SELECT path FROM local_assets").fetchone()[0])
             self.assertEqual(saved, audio.resolve(strict=True))
             self.assertTrue(saved.is_relative_to(alias.resolve(strict=True)))
 
-    def test_clock_progress_requires_same_playing_track_and_entry(self) -> None:
-        first = self._sample("local:fixture", 0.2)
-        second = self._sample("local:fixture", 0.9)
-        result = smoke.assess_webview_audio_progress("local:fixture", first, second)
-        self.assertGreaterEqual(result["clockAdvanceSeconds"], 0.5)
-
-        with self.assertRaises(smoke.SmokeFailure):
-            smoke.assess_webview_audio_progress("local:fixture", first,
-                                                self._sample("local:fixture", 0.3))
-        changed_entry = self._sample("local:fixture", 1.0, entry_id="other-entry")
-        with self.assertRaises(smoke.SmokeFailure):
-            smoke.assess_webview_audio_progress("local:fixture", first, changed_entry)
-        wrong_track = self._sample("local:other", 1.0)
-        with self.assertRaises(smoke.SmokeFailure):
-            smoke.assess_webview_audio_progress("local:fixture", first, wrong_track)
-
-    def test_source_failure_and_unsupported_media_are_distinct(self) -> None:
-        self.assertEqual(smoke.webview_audio_failure_category(2), "source_failure")
-        self.assertEqual(smoke.webview_audio_failure_category(4), "unsupported_media")
-        first = self._sample("local:fixture", 0.2, error_code=2)
-        with self.assertRaisesRegex(smoke.SmokeFailure, "source_failure"):
-            smoke.assess_webview_audio_progress("local:fixture", first,
-                                                self._sample("local:fixture", 0.9))
-        unsupported = self._sample("local:fixture", 0.2, error_code=4)
-        with self.assertRaisesRegex(smoke.SmokeFailure, "unsupported_media"):
-            smoke.assess_webview_audio_progress("local:fixture", unsupported,
-                                                self._sample("local:fixture", 0.9))
 
 
-class InstalledWebviewDiagnosticRetentionTests(unittest.TestCase):
-    def test_audio_checker_outer_timeout_covers_all_documented_gate_budgets(self):
-        with tempfile.TemporaryDirectory(prefix="burrata-audio-budget-") as directory:
+
+class InstalledMcpEntrypointTests(unittest.TestCase):
+    def test_status_checker_forwards_main_mcp_arguments(self):
+        with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
-            target = "synthetic-target"
-            tools = root / "tools" / target
-            tools.mkdir(parents=True)
-            (tools / ("burrata-mcp.exe" if smoke.sys.platform == "win32" else "burrata-mcp")).touch()
-            completed = subprocess.CompletedProcess([], 1, json.dumps({
-                "status": "failed", "failureCategory": "audio_not_ready",
-            }).encode(), b"")
-            with patch.object(smoke.shutil, "which", return_value="synthetic-node"), \
-                    patch.object(smoke, "run", return_value=completed) as runner:
+            app = root / "burrata"
+            app.write_bytes(b"fixture")
+            payload = {"initialized": True, "statusRunning": True}
+            completed = subprocess.CompletedProcess([], 0, json.dumps(payload).encode(), b"")
+            with patch.object(smoke.shutil, "which", return_value="node"), patch.object(smoke, "run", return_value=completed) as run:
+                self.assertEqual(smoke.run_mcp_status(root, "target", root / "automation.json", {},
+                                                     command=app, command_args=("--mcp",)), payload)
+            self.assertEqual(run.call_args.args[0][-3:], [app, root / "automation.json", "--mcp"])
+
+    def test_status_checker_retains_the_configured_resource_helper(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            helper = root / "tools/target" / ("burrata-mcp.exe" if smoke.sys.platform == "win32" else "burrata-mcp")
+            helper.parent.mkdir(parents=True)
+            helper.write_bytes(b"fixture")
+            completed = subprocess.CompletedProcess([], 0, b'{"initialized":true}', b"")
+            with patch.object(smoke.shutil, "which", return_value="node"), patch.object(smoke, "run", return_value=completed) as run:
+                smoke.run_mcp_status(root, "target", root / "automation.json", {})
+            self.assertEqual(run.call_args.args[0][-2:], [helper, root / "automation.json"])
+
+    def test_checks_linux_sibling_appimage_and_windows_shipped_commands(self):
+        for platform, application, console in [
+            ("linux", "usr/bin/burrata", "usr/bin/burrata-mcp"),
+            ("linux", "AppRun", "usr/bin/burrata-mcp"),
+            ("win32", "Burrata.exe", "burrata-mcp.exe"),
+        ]:
+            with self.subTest(platform=platform, application=application), tempfile.TemporaryDirectory() as directory:
+                root = pathlib.Path(directory)
+                app, helper = root / application, root / console
+                app.parent.mkdir(parents=True, exist_ok=True)
+                helper.parent.mkdir(parents=True, exist_ok=True)
+                app.write_bytes(b"fixture")
+                helper.write_bytes(b"fixture")
+                with patch.object(smoke.sys, "platform", platform), patch.object(smoke, "run_mcp_status", return_value={"initialized": True}) as status:
+                    result = smoke.run_mcp_entrypoints(app, root / "resources", "target", root / "automation.json", {})
+                self.assertEqual(status.call_count, 2)
+                self.assertEqual(status.call_args_list[0].kwargs, {"command": app, "command_args": ("--mcp",)})
+                self.assertEqual(status.call_args_list[1].kwargs, {"command": helper})
+                self.assertEqual(len(result["shippedConsole"]), 1)
+
+    def test_main_entrypoint_is_checked_when_no_extra_console_is_shipped(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            app = root / "Burrata.app/Contents/MacOS/burrata"
+            app.parent.mkdir(parents=True)
+            app.write_bytes(b"fixture")
+            with patch.object(smoke.sys, "platform", "darwin"), patch.object(smoke, "run_mcp_status", return_value={"initialized": True}) as status:
+                result = smoke.run_mcp_entrypoints(app, root / "resources", "target", root / "automation.json", {})
+            self.assertEqual(status.call_count, 1)
+            self.assertEqual(status.call_args.kwargs, {"command": app, "command_args": ("--mcp",)})
+            self.assertEqual(result["shippedConsole"], [])
+
+    def test_a_failed_shipped_console_cannot_be_hidden_by_working_resource_helper(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            app, helper = root / "burrata", root / "burrata-mcp"
+            app.write_bytes(b"fixture")
+            helper.write_bytes(b"fixture")
+            failure = smoke.SmokeFailure("mcp", "shipped command could not initialize")
+            with patch.object(smoke.sys, "platform", "linux"), patch.object(smoke, "run_mcp_status", side_effect=[{"initialized": True}, failure]):
                 with self.assertRaises(smoke.SmokeFailure):
-                    smoke.run_mcp_webview_audio(root, target, root / "automation.json", {}, "local:fixture")
+                    smoke.run_mcp_entrypoints(app, root / "resources", "target", root / "automation.json", {})
 
-        self.assertEqual(runner.call_args.kwargs["timeout"], smoke.WEBVIEW_AUDIO_CHECK_TIMEOUT_SECONDS)
-        # Frontend readiness + mute/play/pause Tauri ceilings + playback gate
-        # + inspection and steady-sample time + bounded IPC/process slack.
-        required = 30 + (3 * 45) + 10 + 5 + 1 + 20
-        self.assertGreaterEqual(smoke.WEBVIEW_AUDIO_CHECK_TIMEOUT_SECONDS, required)
 
-    def _run_payload(self, payload, returncode=0):
-        with tempfile.TemporaryDirectory(prefix="burrata-audio-evidence-") as directory:
+class InstalledNativeOutputEvidenceTests(unittest.TestCase):
+    def run_payload(self, payload):
+        with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             target = "synthetic-target"
             tools = root / "tools" / target
             tools.mkdir(parents=True)
-            (tools / ("burrata-mcp.exe" if smoke.sys.platform == "win32" else "burrata-mcp")).touch()
-            completed = subprocess.CompletedProcess([], returncode, json.dumps(payload).encode(), b"")
-            with patch.object(smoke.shutil, "which", return_value="synthetic-node"), patch.object(smoke, "run", return_value=completed):
-                return smoke.run_mcp_webview_audio(root, target, root / "automation.json", {}, "local:fixture")
+            (tools / ("burrata-mcp.exe" if smoke.sys.platform == "win32" else "burrata-mcp")).write_bytes(b"fixture")
+            result = subprocess.CompletedProcess([], 0, json.dumps(payload).encode(), b"")
+            with patch.object(smoke.shutil, "which", return_value="node"), patch.object(smoke, "run", return_value=result):
+                return smoke.run_mcp_native_audio(root, target, root / "automation.json", {}, "local:fixture")
 
-    def test_clock_failure_keeps_both_media_samples_and_actual_wall_timing(self) -> None:
-        first = InstalledWebviewAudioTests._sample("local:fixture", 0.2)
-        second = InstalledWebviewAudioTests._sample("local:fixture", 0.2)
-        for sample in (first, second):
-            sample["media"].update({"ended": False, "seeking": False, "buffered": [[0, 4]], "seekable": [[0, 4]]})
-        payload = {"status": "sampled", "first": first, "second": second, "latest": second,
-                   "sampling": {"firstSampleElapsedMs": 400, "secondSampleElapsedMs": 1325, "betweenSamplesWallMs": 925, "totalElapsedMs": 1330}}
-        with self.assertRaisesRegex(smoke.SmokeFailure, "did not advance by 0.5 seconds") as caught:
-            self._run_payload(payload)
-        diagnostics = caught.exception.diagnostics
-        self.assertEqual(diagnostics["first"]["media"]["currentTime"], 0.2)
-        self.assertEqual(diagnostics["second"]["media"]["currentTime"], 0.2)
-        self.assertEqual(diagnostics["sampling"]["betweenSamplesWallMs"], 925)
-        self.assertIs(diagnostics["second"]["media"]["ended"], False)
-        self.assertIs(diagnostics["second"]["media"]["seeking"], False)
-        self.assertEqual(diagnostics["second"]["media"]["buffered"], [[0, 4]])
+    def test_clock_or_launch_alone_cannot_pass(self):
+        for payload in [{"status":"sampled","engine":"native","position":100}, {"status":"failed"}, {"status":"sampled","engine":"webview"}]:
+            with self.assertRaises(smoke.SmokeFailure):
+                self.run_payload(payload)
 
-    def test_initial_readiness_and_first_clock_progress_survive_startup_failure(self) -> None:
-        initial = InstalledWebviewAudioTests._sample("local:fixture", 0.013834)
-        progress = InstalledWebviewAudioTests._sample("local:fixture", 0.61)
-        with self.assertRaisesRegex(smoke.SmokeFailure, "steady playback") as caught:
-            self._run_payload({"status": "failed", "failureCategory": "steady_clock_stalled",
-                               "initialReady": initial, "firstProgress": progress,
-                               "first": progress, "second": InstalledWebviewAudioTests._sample("local:fixture", 0.71),
-                               "sampling": {"initialReadyElapsedMs": 744.6, "firstProgressElapsedMs": 5400}}, 1)
-        self.assertEqual(caught.exception.diagnostics["initialReady"]["media"]["currentTime"], 0.013834)
-        self.assertEqual(caught.exception.diagnostics["firstProgress"]["media"]["currentTime"], 0.61)
-        self.assertEqual(caught.exception.diagnostics["sampling"]["initialReadyElapsedMs"], 744.6)
-        self.assertEqual(caught.exception.diagnostics["sampling"]["firstProgressElapsedMs"], 5400)
-
-    def test_passing_evidence_retains_startup_proof_and_steady_samples(self) -> None:
-        initial = InstalledWebviewAudioTests._sample("local:fixture", 0.013834)
-        first = InstalledWebviewAudioTests._sample("local:fixture", 0.61)
-        second = InstalledWebviewAudioTests._sample("local:fixture", 3.31)
-        evidence = self._run_payload({"status": "sampled", "initialReady": initial, "firstProgress": first,
-                                      "first": first, "second": second, "latest": second,
-                                      "sampling": {"initialReadyElapsedMs": 744.6, "firstProgressElapsedMs": 2200, "betweenSamplesWallMs": 2700, "validatedSteadyWindows": 3}})
-        self.assertEqual(evidence["clockAdvanceSeconds"], 2.7)
-        self.assertEqual(evidence["diagnostics"]["initialReady"]["media"]["currentTime"], 0.013834)
-        self.assertEqual(evidence["diagnostics"]["firstProgress"]["media"]["currentTime"], 0.61)
-        self.assertEqual(evidence["diagnostics"]["sampling"]["betweenSamplesWallMs"], 2700)
-
-    def test_one_steady_window_cannot_be_published_as_complete_evidence(self) -> None:
-        first = InstalledWebviewAudioTests._sample("local:fixture", 0.61)
-        second = InstalledWebviewAudioTests._sample("local:fixture", 1.51)
-        with self.assertRaisesRegex(smoke.SmokeFailure, "three steady clock windows"):
-            self._run_payload({"status": "sampled", "first": first, "second": second,
-                               "sampling": {"validatedSteadyWindows": 1}})
-
-    def test_early_media_error_retains_partial_latest_sample(self) -> None:
-        latest = InstalledWebviewAudioTests._sample("local:fixture", 0, error_code=4)
-        with self.assertRaisesRegex(smoke.SmokeFailure, "unsupported_media") as caught:
-            self._run_payload({"status": "failed", "failureCategory": "unsupported_media", "first": None, "second": None, "latest": latest}, 1)
-        self.assertIsNone(caught.exception.diagnostics["first"])
-        self.assertEqual(caught.exception.diagnostics["latest"]["media"]["errorCode"], 4)
-        self.assertIsNone(caught.exception.diagnostics["latest"]["media"]["ended"])
-
-    def test_retention_allows_only_bounded_media_fields_and_no_source_material(self) -> None:
-        sample = InstalledWebviewAudioTests._sample("https://private.invalid/?token=track-secret", 0.2, entry_id="token=entry-secret")
-        sample.update({"url": "https://private.invalid/?token=url-secret", "message": "Authorization: Bearer bearer-secret"})
-        sample["media"].update({"currentSrc": "file:///private/file-secret", "errorMessage": "password=error-secret", "buffered": [[0, 4]] * 100, "seekable": [[0, float("inf")], [False, 4], [0, 4]], "currentTime": float("nan")})
-        diagnostics = smoke.safe_webview_audio_diagnostics({"first": sample, "postFailureSamples": [sample] * 100, "sampling": {"totalElapsedMs": float("inf"), "url": "https://private.invalid"}}, "local:fixture")
-        self.assertEqual(len(diagnostics["postFailureSamples"]), 3)
-        encoded = json.dumps(diagnostics)
-        for secret in ("private.invalid", "track-secret", "entry-secret", "url-secret", "bearer-secret", "file-secret", "error-secret"):
-            self.assertNotIn(secret, encoded)
-        self.assertLess(len(encoded), 4000)
-        self.assertEqual(len(diagnostics["first"]["media"]["buffered"]), 8)
-        self.assertEqual(diagnostics["first"]["media"]["seekable"], [[0, 4]])
-        self.assertIsNone(diagnostics["first"]["media"]["currentTime"])
-        self.assertIsNone(diagnostics["sampling"]["totalElapsedMs"])
-
-    def test_retention_preserves_valid_web_audio_graph_and_rpc_timing(self) -> None:
-        sample = InstalledWebviewAudioTests._sample("local:fixture", 1.25)
-        sample["media"].update({
-            "volume": 1.0, "muted": False,
-            "webAudioGainGraph": {
-                "attached": True, "gainLinear": 1.0, "userVolumeLinear": 0.0,
-                "contextState": "running", "contextTimeSeconds": 12.75,
-            },
-        })
-        sample["rpcTiming"] = {
-            "requestStartedAtMs": 3_100.0, "responseReceivedAtMs": 3_145.5,
-            "durationMs": 45.5,
-        }
-        diagnostics = smoke.safe_webview_audio_diagnostics({"first": sample}, "local:fixture")
-        self.assertEqual(diagnostics["first"]["media"]["webAudioGainGraph"], {
-            "attached": True, "gainLinear": 1.0, "userVolumeLinear": 0.0,
-            "contextState": "running", "contextTimeSeconds": 12.75,
-        })
-        self.assertEqual(diagnostics["first"]["media"]["volume"], 1.0)
-        self.assertIs(diagnostics["first"]["media"]["muted"], False)
-        self.assertEqual(diagnostics["first"]["rpcTiming"], sample["rpcTiming"])
-
-    def test_retention_rejects_invalid_graph_and_rpc_values(self) -> None:
-        sample = InstalledWebviewAudioTests._sample("local:fixture", 1.25)
-        sample["media"]["webAudioGainGraph"] = {
-            "attached": True, "gainLinear": float("inf"), "userVolumeLinear": 2.0,
-            "contextState": "running token=secret", "contextTimeSeconds": 1e99,
-        }
-        sample["rpcTiming"] = {
-            "requestStartedAtMs": -1.0, "responseReceivedAtMs": 3e99,
-            "durationMs": "private/path",
-        }
-        diagnostics = smoke.safe_webview_audio_diagnostics({"first": sample}, "local:fixture")
-        encoded = json.dumps(diagnostics)
-        for secret in ("secret", "private", "path"):
-            self.assertNotIn(secret, encoded)
-        self.assertEqual(diagnostics["first"]["media"]["webAudioGainGraph"], {
-            "attached": True, "gainLinear": None, "userVolumeLinear": None,
-            "contextState": None, "contextTimeSeconds": None,
-        })
-        self.assertEqual(diagnostics["first"]["rpcTiming"], {
-            "requestStartedAtMs": None, "responseReceivedAtMs": None, "durationMs": None,
-        })
+    def test_requires_complete_native_stereo_measurements(self):
+        payload = {"status":"sampled","engine":"native","channels":2,"capturedSeconds":3,"measurements":[{"rms":.1},{"rms":.1}]}
+        self.assertEqual(self.run_payload(payload), payload)
+        payload["channels"] = 1
+        with self.assertRaises(smoke.SmokeFailure): self.run_payload(payload)
 
     def test_platform_log_tail_is_bounded_and_sensitive_lines_are_fully_redacted(self) -> None:
         with tempfile.TemporaryDirectory(prefix="burrata-audio-log-") as directory:
@@ -575,6 +481,93 @@ class LinuxAudioDiagnosticTests(unittest.TestCase):
         self.assertIs(diagnostics["sinkListingSucceeded"], False)
         self.assertEqual(diagnostics["sinkCount"], 0)
         self.assertNotIn("secret", json.dumps(diagnostics))
+
+
+class ActualMonitorAssessmentTests(unittest.TestCase):
+ @classmethod
+ def setUpClass(cls):
+  rate=44100;data=bytearray()
+  for i in range(int(5.4*rate)):
+   t=i/rate
+   left,right=(.15*math.sin(math.tau*440*t),.12*math.sin(math.tau*660*t)) if .4<=t<4.2 else (0,0)
+   data.extend(struct.pack('<ff',left,right))
+  cls.good=bytes(data)
+ def assess(self,data=None,change=None):
+  data=self.good if data is None else data
+  control={'verified':True,'isolatedVirtualOutput':True,'ownedAppStream':True,'physicalHardware':False,'postPlayerGain':True,'remuteWhilePlaying':True,'remuteClockAdvanceSeconds':1.0,'sampleRate':44100,'channels':2,'bytes':len(data),'unmuteOffsetSeconds':.4,'remuteOffsetSeconds':4.2}
+  if change:change(control)
+  with tempfile.TemporaryDirectory() as td:
+   p=pathlib.Path(td)/'monitor.f32le';p.write_bytes(data);return smoke.assess_private_monitor(p,control)
+ def test_actual_quiet_correct_stereo_remute_phases_pass(self):
+  report=self.assess();self.assertGreaterEqual(report['verifiedToneSeconds'],3);self.assertGreaterEqual(report['remuteQuietSeconds'],.5);self.assertIs(report['postPlayerGain'],True)
+ def test_muted_os_output_cannot_pass_on_good_mixer_tap_claim(self):
+  with self.assertRaises(smoke.SmokeFailure):self.assess(bytes(len(self.good)))
+ def test_swapped_lanes_fail(self):
+  data=b''.join(struct.pack('<ff',right,left) for left,right in struct.iter_unpack('<ff',self.good))
+  with self.assertRaises(smoke.SmokeFailure):self.assess(data)
+ def test_gap_in_required_contiguous_output_fails(self):
+  data=bytearray(self.good);data[int(2*44100)*8:int(2.1*44100)*8]=bytes(int(.1*44100)*8)
+  with self.assertRaises(smoke.SmokeFailure):self.assess(bytes(data))
+ def test_audible_initial_mute_or_final_remute_fails(self):
+  for start,end in [(0,.2),(4.5,5.4)]:
+   data=bytearray(self.good)
+   for i in range(int(start*44100),int(end*44100)):struct.pack_into('<ff',data,i*8,.1,.1)
+   with self.subTest(start=start),self.assertRaises(smoke.SmokeFailure):self.assess(bytes(data))
+ def test_wrong_tone_fails(self):
+  data=b''.join(struct.pack('<ff',(.15*math.sin(math.tau*880*i/44100) if .4<=i/44100<4.2 else 0),right) for i,(_,right) in enumerate(struct.iter_unpack('<ff',self.good)))
+  with self.assertRaises(smoke.SmokeFailure):self.assess(data)
+ def test_nonfinite_or_partial_frame_fails(self):
+  bad=bytearray(self.good);struct.pack_into('<f',bad,8000,float('nan'))
+  for data in [bytes(bad),self.good[:-1]]:
+   with self.assertRaises(smoke.SmokeFailure):self.assess(data)
+ def test_pre_tap_missing_route_timing_or_metadata_never_substitutes_for_os_capture(self):
+  for key in ['postPlayerGain','ownedAppStream','verified','physicalHardware','bytes','unmuteOffsetSeconds','remuteOffsetSeconds']:
+   with self.subTest(key=key),self.assertRaises(smoke.SmokeFailure):self.assess(change=lambda c:c.pop(key))
+ def test_invalid_nonfinite_marker_or_short_interval_fails(self):
+  for field,value in [('unmuteOffsetSeconds',float('nan')),('remuteOffsetSeconds',float('inf')),('unmuteOffsetSeconds',True),('remuteOffsetSeconds',2.0)]:
+   with self.assertRaises(smoke.SmokeFailure):self.assess(change=lambda c:c.__setitem__(field,value))
+ def test_file_and_byte_bounds(self):
+  with self.assertRaises(smoke.SmokeFailure):self.assess(b'')
+  with self.assertRaises(smoke.SmokeFailure):self.assess(bytes(44100*2*4*10+8))
+ def test_remute_requires_still_playing_progress_not_pause_only_silence(self):
+  for key,value in [('remuteWhilePlaying',False),('remuteWhilePlaying',None),('remuteClockAdvanceSeconds',None),('remuteClockAdvanceSeconds',float('nan')),('remuteClockAdvanceSeconds',0),('remuteClockAdvanceSeconds',True)]:
+   with self.subTest(key=key,value=value),self.assertRaises(smoke.SmokeFailure):self.assess(change=lambda c:c.__setitem__(key,value))
+ def test_nonlinux_private_mode_rejected_before_child_run(self):
+  with patch.object(smoke.sys,'platform','darwin'),patch.object(smoke.shutil,'which',return_value='node'),patch.object(pathlib.Path,'is_file',return_value=True),patch.object(smoke,'run') as run:
+   with self.assertRaises(smoke.SmokeFailure):smoke.run_mcp_native_audio(pathlib.Path('/r'),'target',pathlib.Path('/d'),{},'local:fixture',private_monitor={'tempRoot':'/tmp/fake'})
+   run.assert_not_called()
+@unittest.skipUnless(smoke.sys.platform == "linux", "Linux-only process-group recorder cleanup")
+class OwnedCheckerTimeoutTests(unittest.TestCase):
+ def test_exited_leader_and_term_ignoring_descendant_escalate_before_reaping(self):
+  owner=dict(pid=777,pgid=777,sid=777,uid=1000,start=100,state='Z')
+  descendant=dict(owner,pid=778,state='S',start=101)
+  phase={'value':0}; child=Mock(pid=777); clock=iter(range(100))
+  def rows(_):return [owner,descendant] if phase['value']<2 else ([] if phase['value']==3 else [owner])
+  def kill(pid,sig):
+   self.assertEqual(pid,777);child.wait.assert_not_called()
+   phase['value']=1 if sig==smoke.signal.SIGTERM else 2
+  def reap(**kw):
+   self.assertEqual(phase['value'],2);phase['value']=3
+  child.wait.side_effect=reap
+  with patch.object(smoke,'owned_group_members',side_effect=rows),patch.object(smoke,'linux_process_identity',return_value=owner),patch.object(smoke.os,'killpg',side_effect=kill) as signal_group,patch.object(smoke.time,'monotonic',side_effect=lambda:next(clock)),patch.object(smoke.time,'sleep'):
+   self.assertTrue(smoke.finish_owned_checker_group(child,owner))
+  self.assertEqual([c.args for c in signal_group.call_args_list],[(777,smoke.signal.SIGTERM),(777,smoke.signal.SIGKILL)])
+  child.wait.assert_called_once_with(timeout=3)
+ def test_reused_leader_never_signalled(self):
+  owner=dict(pid=777,pgid=777,sid=777,uid=1000,start=100,state='S')
+  with patch.object(smoke,'owned_group_members',return_value=[owner]),patch.object(smoke,'linux_process_identity',return_value=dict(owner,start=200)),patch.object(smoke.os,'killpg') as kill:
+   with self.assertRaises(smoke.SmokeFailure):smoke.finish_owned_checker_group(Mock(),owner)
+   kill.assert_not_called()
+ def test_foreign_session_or_uid_is_rejected(self):
+  owner=dict(pid=777,pgid=777,sid=777,uid=1000,start=100,state='S')
+  for change in [{'sid':1},{'uid':2},{'start':99}]:
+   with self.assertRaises(smoke.SmokeFailure):smoke.check_owned_group_rows(owner,[dict(owner,pid=778,**change)])
+ def test_clean_group_reaps_without_signal(self):
+  owner=dict(pid=777,pgid=777,sid=777,uid=1000,start=100,state='Z');child=Mock()
+  with patch.object(smoke,'owned_group_members',return_value=[]),patch.object(smoke.os,'killpg') as kill:
+   self.assertFalse(smoke.finish_owned_checker_group(child,owner));kill.assert_not_called();child.wait.assert_called_once()
+
+
 
 
 if __name__ == "__main__":

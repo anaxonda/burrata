@@ -49,3 +49,12 @@ deploy/slskd/data/
 # Generated synthetic regression inputs are required by clean test builds.
 !/src-tauri/tests/fixtures/aac-startup-fixture.m4a
 !/src-tauri/tests/fixtures/opus-fixture.ogg
+
+# Exact synthetic decoder gain/tag fixtures required by clean source builds.
+!/src-tauri/fixtures/opus-zero.ogg
+!/src-tauri/fixtures/opus-plus6.ogg
+!/src-tauri/fixtures/opus-r128-comment.ogg
+!/src-tauri/fixtures/opus-r128-single.ogg
+!/src-tauri/fixtures/opus-r128-duplicate-identical.ogg
+!/src-tauri/fixtures/opus-r128-duplicate-conflicting.ogg
+!/src-tauri/fixtures/opus-r128-invalid-whitespace.ogg

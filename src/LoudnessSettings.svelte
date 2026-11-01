@@ -3,12 +3,10 @@
   import InfoPopover from "./InfoPopover.svelte";
   import { call } from "./lib/api";
 
-  let { settings, onSettingsSaved, playbackStatus = null, webviewRouteStatus = null, engine = "webview", analysisJob = null, pendingAnalysisCount = 0, analysisMessage = "", onCancelAnalysis, onRetryAnalysis }: {
+  let { settings, onSettingsSaved, playbackStatus = null, analysisJob = null, pendingAnalysisCount = 0, analysisMessage = "", onCancelAnalysis, onRetryAnalysis }: {
     settings: Settings;
     onSettingsSaved: (settings: Settings) => void | Promise<void>;
     playbackStatus?: LoudnessPlaybackStatus | null;
-    webviewRouteStatus?: string | null;
-    engine?: "native" | "webview" | "mpv";
     analysisJob?: LoudnessAnalysisJobStatus | null;
     pendingAnalysisCount?: number;
     analysisMessage?: string;
@@ -40,8 +38,6 @@
 
   function statusMessage(): string {
     if (mode === "off") return "Off: playback levels are unchanged.";
-    if (engine === "mpv") return "Normalization is unavailable in external mpv playback.";
-    if (engine === "webview" && webviewRouteStatus && !webviewRouteStatus.toLowerCase().includes("route active")) return webviewRouteStatus;
     if (playbackStatus?.status === "off") return "Waiting for playback to select normalization.";
     if (!playbackStatus || playbackStatus.status === "unavailable") return playbackStatus?.reason ?? "Waiting for a trusted measurement for this audio source.";
     const source = loudnessMeasurementSourceLabel(playbackStatus.measurementSource);

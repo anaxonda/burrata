@@ -3634,6 +3634,7 @@ mod tests {
             ..crate::models::Candidate::default()
         };
         let mut assessment = crate::recording_match::MatchAssessment {
+            alternative_kind: None,
             action: crate::recording_match::MatchAction::Accept,
             relationship: crate::recording_match::MatchRelationship::Exact,
             proof_strength: crate::recording_match::ProofStrength::MetadataOnly,
@@ -3862,6 +3863,7 @@ mod tests {
             track,
         };
         let job = DownloadJob {
+            flexible_matching: Default::default(),
             id: "job-1".into(),
             track: asset.track.clone(),
             candidate,

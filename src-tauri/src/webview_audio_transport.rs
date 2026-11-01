@@ -192,6 +192,19 @@ struct Registry {
     generation: u64,
     epoch: u64,
     active: Option<Arc<Session>>,
+    secondary: Option<(
+        String,
+        u64,
+        watch::Sender<bool>,
+        Option<RegisteredNativeAudioLease>,
+        Option<String>,
+    )>,
+    promoted: Option<RegisteredNativeAudioLease>,
+    retired: Option<Arc<Session>>,
+    retired_promoted: Option<RegisteredNativeAudioLease>,
+    promoted_id: Option<String>,
+    retired_promoted_id: Option<String>,
+    promotion_open: bool,
 }
 #[derive(Default)]
 pub(crate) struct WebviewAudioTransport {
@@ -296,6 +309,14 @@ impl WebviewAudioTransport {
         }
         state.generation = generation;
         state.epoch += 1;
+        state.promotion_open = false;
+        if let Some((_, _, stop, _, _)) = state.secondary.take() {
+            stop.send_replace(true);
+        }
+        state.promoted.take();
+        state.promoted_id.take();
+        // A retiring crossfade voice is owned by its explicit release token;
+        // resolving a replacement for the incoming voice must not cut it off.
         if let Some(old) = state.active.take() {
             old.stop.send_replace(true);
         }
@@ -306,9 +327,161 @@ impl WebviewAudioTransport {
             if generation > state.generation {
                 state.generation = generation;
                 state.epoch += 1;
+                state.promotion_open = false;
+                if let Some((_, _, stop, _, _)) = state.secondary.take() {
+                    stop.send_replace(true);
+                }
+                state.promoted.take();
+                state.promoted_id.take();
+                state.retired_promoted_id.take();
+                state.retired_promoted.take();
+                if let Some(old) = state.retired.take() {
+                    old.stop.send_replace(true);
+                }
                 if let Some(old) = state.active.take() {
                     old.stop.send_replace(true);
                 }
+            }
+        }
+    }
+    pub(crate) fn begin_secondary(
+        &self,
+        request_id: String,
+    ) -> Result<(u64, watch::Receiver<bool>), String> {
+        let mut state = self
+            .registry
+            .lock()
+            .map_err(|_| "Audio transport unavailable")?;
+        if state.retired.is_some() || state.retired_promoted_id.is_some() {
+            return Err("Previous crossfade is still active".into());
+        }
+        if let Some((_, _, stop, _, _)) = state.secondary.take() {
+            stop.send_replace(true);
+        }
+        let (stop, cancel) = watch::channel(false);
+        let epoch = state.epoch;
+        state.secondary = Some((request_id, epoch, stop, None, None));
+        Ok((epoch, cancel))
+    }
+    pub(crate) fn commit_secondary(
+        &self,
+        request_id: &str,
+        epoch: u64,
+        lease: RegisteredNativeAudioLease,
+    ) -> Result<String, String> {
+        let mut state = self
+            .registry
+            .lock()
+            .map_err(|_| "Audio transport unavailable")?;
+        if state.epoch != epoch {
+            return Err("Crossfade was superseded".into());
+        }
+        let pending = state.secondary.as_mut().ok_or("Crossfade was cancelled")?;
+        if pending.0 != request_id || pending.1 != epoch || *pending.2.borrow() {
+            return Err("Crossfade was superseded".into());
+        }
+        let id = lease.0.id.clone();
+        pending.3 = Some(lease);
+        pending.4 = Some(id.clone());
+        Ok(id)
+    }
+    pub(crate) fn commit_secondary_local(
+        &self,
+        request_id: &str,
+        epoch: u64,
+    ) -> Result<String, String> {
+        let mut state = self
+            .registry
+            .lock()
+            .map_err(|_| "Audio transport unavailable")?;
+        if state.epoch != epoch {
+            return Err("Crossfade was superseded".into());
+        }
+        let pending = state.secondary.as_mut().ok_or("Crossfade was cancelled")?;
+        if pending.0 != request_id || pending.1 != epoch || *pending.2.borrow() {
+            return Err("Crossfade was superseded".into());
+        }
+        let id = uuid::Uuid::new_v4().to_string();
+        pending.4 = Some(id.clone());
+        Ok(id)
+    }
+    pub(crate) fn promote_secondary(
+        &self,
+        lease_id: &str,
+    ) -> Result<(Option<String>, u64), String> {
+        let mut state = self
+            .registry
+            .lock()
+            .map_err(|_| "Audio transport unavailable")?;
+        let valid = state
+            .secondary
+            .as_ref()
+            .is_some_and(|(_, epoch, stop, _, id)| {
+                *epoch == state.epoch && !*stop.borrow() && id.as_deref() == Some(lease_id)
+            });
+        if !valid || state.retired.is_some() || state.retired_promoted_id.is_some() {
+            return Err("Crossfade was superseded".into());
+        }
+        let (_, _, _, lease, id) = state.secondary.take().unwrap();
+        let previous = state.active.take();
+        let old_promoted = state.promoted.take();
+        let old_promoted_id = state.promoted_id.take();
+        let outgoing = previous
+            .as_ref()
+            .map(|session| session.id.clone())
+            .or_else(|| old_promoted_id.clone());
+        state.retired = previous;
+        state.retired_promoted = old_promoted;
+        state.retired_promoted_id = old_promoted_id;
+        state.promoted = lease;
+        state.promoted_id = id;
+        state.promotion_open = true;
+        state.epoch += 1;
+        Ok((outgoing, state.generation))
+    }
+    pub(crate) fn rollback_secondary(&self, id: &str) -> Result<(), String> {
+        let mut state = self
+            .registry
+            .lock()
+            .map_err(|_| "Audio transport unavailable")?;
+        if !state.promotion_open || state.promoted_id.as_deref() != Some(id) {
+            return Err("Crossfade was superseded".into());
+        }
+        state.promoted.take();
+        state.promoted_id = state.retired_promoted_id.take();
+        state.promoted = state.retired_promoted.take();
+        state.active = state.retired.take();
+        state.epoch += 1;
+        state.promotion_open = false;
+        Ok(())
+    }
+    pub(crate) fn release_secondary(&self, id: &str) {
+        if let Ok(mut state) = self.registry.lock() {
+            if state
+                .secondary
+                .as_ref()
+                .is_some_and(|(request, _, _, _, lease_id)| {
+                    request == id || lease_id.as_deref() == Some(id)
+                })
+            {
+                if let Some((_, _, stop, _, _)) = state.secondary.take() {
+                    stop.send_replace(true);
+                }
+            }
+            if state
+                .retired
+                .as_ref()
+                .is_some_and(|session| session.id == id)
+            {
+                if let Some(old) = state.retired.take() {
+                    old.stop.send_replace(true);
+                }
+                state.promotion_open = false;
+            }
+            if state.retired_promoted_id.as_deref() == Some(id) {
+                state.retired_promoted.take();
+                state.retired_promoted_id.take();
+                state.promotion_open = false;
             }
         }
     }
@@ -764,10 +937,11 @@ async fn direct_audio(
             state
                 .active
                 .as_ref()
-                .filter(|session| {
-                    session.id == id
-                        && session.generation == state.generation
-                        && equal_token(&session.token, &auth.token)
+                .filter(|session| session.id == id && equal_token(&session.token, &auth.token))
+                .or_else(|| {
+                    state.retired.as_ref().filter(|session| {
+                        session.id == id && equal_token(&session.token, &auth.token)
+                    })
                 })
                 .cloned()
         })
@@ -1204,6 +1378,114 @@ mod tests {
             allow_radio_http: false,
         });
         session
+    }
+
+    #[tokio::test]
+    async fn secondary_promotion_keeps_outgoing_until_release_and_fences_stale() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let upstream = server(
+            Router::new()
+                .route("/audio", get(upstream).head(upstream))
+                .with_state(calls),
+        )
+        .await;
+        let manager = WebviewAudioTransport::new();
+        let relay = server(manager.router()).await;
+        manager.set_base_url(relay.base.clone());
+        let old = fixture_register(&manager, 1, &source(format!("{}/audio", upstream.base)));
+        let (epoch, _) = manager.begin_secondary("first".into()).unwrap();
+        let lease = fixture_native_lease(&manager, &upstream, "/audio");
+        let next = lease.loopback_url().to_owned();
+        let id = manager.commit_secondary("first", epoch, lease).unwrap();
+        let (outgoing, _) = manager.promote_secondary(&id).unwrap();
+        let outgoing = outgoing.unwrap();
+        let client = reqwest::Client::new();
+        assert_eq!(
+            client.get(&old).send().await.unwrap().status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            client.get(&next).send().await.unwrap().status(),
+            StatusCode::OK
+        );
+        manager.release_secondary(&outgoing);
+        assert_eq!(
+            client.get(&old).send().await.unwrap().status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            client.get(&next).send().await.unwrap().status(),
+            StatusCode::OK
+        );
+        let (epoch, _) = manager.begin_secondary("stale".into()).unwrap();
+        let stale = fixture_native_lease(&manager, &upstream, "/audio");
+        manager.begin(2).unwrap();
+        assert!(manager.commit_secondary("stale", epoch, stale).is_err());
+    }
+
+    #[tokio::test]
+    async fn local_secondary_rollback_restores_outgoing_and_fences_old_promotions() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let upstream = server(
+            Router::new()
+                .route("/audio", get(upstream).head(upstream))
+                .with_state(calls),
+        )
+        .await;
+        let manager = WebviewAudioTransport::new();
+        let relay = server(manager.router()).await;
+        manager.set_base_url(relay.base.clone());
+        let old = fixture_register(&manager, 1, &source(format!("{}/audio", upstream.base)));
+        let (epoch, _) = manager.begin_secondary("local".into()).unwrap();
+        let id = manager.commit_secondary_local("local", epoch).unwrap();
+        let (outgoing, _) = manager.promote_secondary(&id).unwrap();
+        assert!(outgoing.is_some());
+        assert!(manager.rollback_secondary("wrong").is_err());
+        manager.rollback_secondary(&id).unwrap();
+        assert_eq!(
+            reqwest::Client::new()
+                .get(&old)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+        assert!(manager.rollback_secondary(&id).is_err());
+    }
+
+    #[tokio::test]
+    async fn incoming_recovery_keeps_retiring_relay_accessible() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let upstream = server(
+            Router::new()
+                .route("/audio", get(upstream).head(upstream))
+                .with_state(calls),
+        )
+        .await;
+        let manager = WebviewAudioTransport::new();
+        let relay = server(manager.router()).await;
+        manager.set_base_url(relay.base.clone());
+        let old = fixture_register(&manager, 1, &source(format!("{}/audio", upstream.base)));
+        let (epoch, _) = manager.begin_secondary("next".into()).unwrap();
+        let id = manager.commit_secondary_local("next", epoch).unwrap();
+        let (outgoing, _) = manager.promote_secondary(&id).unwrap();
+        let replacement =
+            fixture_register(&manager, 2, &source(format!("{}/audio", upstream.base)));
+        let client = reqwest::Client::new();
+        assert_eq!(
+            client.get(&old).send().await.unwrap().status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            client.get(&replacement).send().await.unwrap().status(),
+            StatusCode::OK
+        );
+        manager.release_secondary(&outgoing.unwrap());
+        assert_eq!(
+            client.get(&old).send().await.unwrap().status(),
+            StatusCode::NOT_FOUND
+        );
     }
     async fn fixture() -> (
         Arc<WebviewAudioTransport>,

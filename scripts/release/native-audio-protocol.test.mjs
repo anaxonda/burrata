@@ -1,0 +1,68 @@
+import {EventEmitter} from 'node:events';
+import {PassThrough} from 'node:stream';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {startBoundedMonitor} from './check-installed-native-audio.mjs';
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {assessNativeOutput,assessNativeProgress,assessPrivateLinuxRoute,unmuteVerifiedPrivateOutput,assessFrontendLayout} from './native-audio-protocol.mjs';
+const sample=()=>({engine:'native',trackId:'fixture',generation:1,seekSerial:0,position:4,capturedSeconds:3,sampleRate:48000,channels:2,measurements:[{rms:.1,tone440:.15,tone660:.001},{rms:.08,tone440:.001,tone660:.12}]});
+test('requires the expected consumed stereo content',()=>{assert.equal(assessNativeOutput(sample(),'fixture').engine,'native');});
+for(const [name,change] of Object.entries({silence:s=>s.measurements.forEach(c=>c.rms=0),wrongTone:s=>s.measurements[0].tone440=0,swappedLanes:s=>s.measurements.reverse(),mono:s=>s.channels=1,shortCapture:s=>s.capturedSeconds=.2,wrongOwner:s=>s.trackId='other'}))test(`rejects ${name} even when the playback clock advances`,()=>{let s=sample();change(s);s.position=100;assert.throws(()=>assessNativeOutput(s,'fixture'));});
+test('requires unchanged ownership and real progression',()=>{let first=sample(),second={...sample(),position:5};assessNativeProgress(first,second);assert.throws(()=>assessNativeProgress(first,{...second,generation:2}));assert.throws(()=>assessNativeProgress(first,first));});
+
+for (const [name, value] of Object.entries({missing:undefined, null:null, nan:NaN, infinity:Infinity, negativeInfinity:-Infinity, zero:0, negative:-48000, string:'48000', fractional:48000.5, beyondU32:0x1_0000_0000})) {
+  test(`rejects ${name} sample rate`, () => {
+    const malformed = sample();
+    if (value === undefined) delete malformed.sampleRate; else malformed.sampleRate = value;
+    assert.throws(() => assessNativeOutput(malformed, 'fixture'));
+  });
+}
+for (const [field, invalid] of Object.entries({
+  position:{missing:undefined, null:null, nan:NaN, infinity:Infinity, negativeInfinity:-Infinity, negative:-.1, string:'4'},
+  seekSerial:{missing:undefined, null:null, nan:NaN, infinity:Infinity, negativeInfinity:-Infinity, negative:-1, fractional:.5, string:'0', unsafe:Number.MAX_SAFE_INTEGER + 1},
+})) {
+  for (const [name, value] of Object.entries(invalid)) {
+    test(`rejects ${name} ${field} in output and either progress snapshot`, () => {
+      const malformed = sample();
+      if (value === undefined) delete malformed[field]; else malformed[field] = value;
+      assert.throws(() => assessNativeOutput(malformed, 'fixture'));
+      assert.throws(() => assessNativeProgress(malformed, {...sample(), position:5}));
+      assert.throws(() => assessNativeProgress(sample(), malformed));
+      // Equal missing/invalid fields must not bypass equality/NaN comparisons.
+      assert.throws(() => assessNativeProgress(malformed, {...malformed}));
+    });
+  }
+}
+test('accepts unsigned seek serial zero, fractional nonnegative positions, and valid device rates', () => {
+  for (const sampleRate of [8000, 44100, 48000, 96000]) {
+    assert.equal(assessNativeOutput({...sample(), sampleRate, position:0, seekSerial:0}, 'fixture').sampleRate, sampleRate);
+  }
+  assessNativeProgress({...sample(), position:.25, seekSerial:0}, {...sample(), position:.75, seekSerial:0});
+  assert.throws(() => assessNativeProgress(sample(), {...sample(), position:5, seekSerial:1}));
+});
+
+const config=()=>({private:true,uid:1000,tempRoot:'/tmp/own',socket:'/tmp/own/pulse-runtime/native',appExe:'/usr/bin/burrata',appPgid:42,pulse:{pid:7,exe:'/usr/bin/pulseaudio',startTicks:'123'}});
+const facts=()=>({platform:'linux',envServer:'unix:/tmp/own/pulse-runtime/native',envSink:'burrata_smoke',socket:{isSocket:true,uid:1000,canonical:true,parentMode:0o700},pulse:{pid:7,exe:'/usr/bin/pulseaudio',startTicks:'123',uid:1000,state:'S'},modules:[{index:1,name:'module-native-protocol-unix',argument:'socket=/tmp/own/pulse-runtime/native auth-anonymous=1'},{index:2,name:'module-null-sink',argument:'sink_name=burrata_smoke rate=44100 channels=2 norewinds=1'}],sinks:[{index:5,name:'burrata_smoke',driver:'module-null-sink.c',owner_module:2,monitor_source_name:'burrata_smoke.monitor',sample_specification:'float32le 2ch 44100Hz'}],inputs:[{sink:5,properties:{'application.process.id':'99'}}],app:{pid:99,pgid:42,exe:'/usr/bin/burrata',uid:1000,state:'S'}});
+test('only exact owned virtual route authorizes volume1',async()=>{const calls=[];await unmuteVerifiedPrivateOutput(config(),facts(),async(...args)=>calls.push(args));assert.deepEqual(calls,[['set_volume',{volume:1}]]);});
+const invalid={missingSinkAndInputIndex:f=>{delete f.sinks[0].index;delete f.inputs[0].sink;},missingModuleAndOwnerIndex:f=>{delete f.modules[1].index;delete f.sinks[0].owner_module;},mac:f=>f.platform='darwin',windows:f=>f.platform='win32',normalServer:f=>f.envServer='unix:/run/user/1000/pulse/native',normalSink:f=>f.envSink='speakers',socketNotSocket:f=>f.socket.isSocket=false,socketWrongUid:f=>f.socket.uid=2,socketAlias:f=>f.socket.canonical=false,publicDir:f=>f.socket.parentMode=0o755,pulseWrongPid:f=>f.pulse.pid=8,pulseReusedPid:f=>f.pulse.startTicks='124',pulseWrongExe:f=>f.pulse.exe='/tmp/unknown',pulseWrongUid:f=>f.pulse.uid=3,pulseStopped:f=>f.pulse.state='T',pulseMissingState:f=>delete f.pulse.state,hardwareModule:f=>f.modules.push({name:'module-alsa-sink'}),rewinds:f=>f.modules[1].argument=f.modules[1].argument.replace('norewinds=1','norewinds=0'),otherSocket:f=>f.modules[0].argument='socket=/run/pulse/native',hardwareDriver:f=>f.sinks[0].driver='module-alsa-sink.c',wrongMonitor:f=>f.sinks[0].monitor_source_name='default.monitor',wrongRate:f=>f.sinks[0].sample_specification='float32le 2ch 48000Hz',mono:f=>f.sinks[0].sample_specification='float32le 1ch 44100Hz',wrongModule:f=>f.sinks[0].owner_module=3,extraSink:f=>f.sinks.push({...f.sinks[0],index:6}),wrongInputSink:f=>f.inputs[0].sink=6,extraInput:f=>f.inputs.push(f.inputs[0]),wrongPid:f=>f.inputs[0].properties['application.process.id']='111',wrongGroup:f=>f.app.pgid=43,wrongAppExe:f=>f.app.exe='/usr/bin/not-burrata',wrongAppUid:f=>f.app.uid=5,deadApp:f=>f.app.state='Z',missingAppState:f=>delete f.app.state};
+for(const key of ['socket','pulse','modules','sinks','inputs','app'])invalid[`missing-${key}`]=f=>delete f[key];
+for(const [name,change] of Object.entries(invalid))test(`denies unmute: ${name}`,async()=>{const f=facts(),calls=[];change(f);await assert.rejects(unmuteVerifiedPrivateOutput(config(),f,async(...args)=>calls.push(args)));assert.equal(calls.length,0);});
+for(const [name,change] of Object.entries({notPrivate:c=>c.private=false,missingPulseExe:c=>delete c.pulse.exe,missingStart:c=>delete c.pulse.startTicks,outsideSocket:c=>c.socket='/run/private/native',missingAppExe:c=>delete c.appExe}))test(`denies invalid config ${name}`,()=>{const c=config();change(c);assert.throws(()=>assessPrivateLinuxRoute(c,facts()));});
+const frontend=()=>({structuredContent:{result:{viewport:{width:1280,height:800},elements:[{role:'footer',present:true,visible:true,width:1280,height:80}]}}});
+test('mounted frontend requires actual layout response',()=>assert.equal(assessFrontendLayout(frontend()).frontendMounted,true));
+for(const [name,response] of Object.entries({missing:undefined,backendOnly:{structuredContent:{result:{running:true,playback:{paused:true,queue:[]}}}},error:{isError:true,...frontend()},emptyViewport:{structuredContent:{result:{viewport:{width:0,height:0},elements:[]}}},noFooter:{structuredContent:{result:{viewport:{width:100,height:100},elements:[]}}}}))test(`no frontend proof from ${name}`,()=>assert.throws(()=>assessFrontendLayout(response)));
+function fakeChild(){const c=new EventEmitter();c.stdout=new PassThrough();c.stderr=new PassThrough();c.kills=[];c.kill=signal=>{c.kills.push(signal);queueMicrotask(()=>c.emit('close',null,signal));return true;};return c;}
+async function temporary(body){const root=fs.mkdtempSync(path.join(os.tmpdir(),'burrata-offline-recorder-'));try{await body(root);}finally{fs.rmSync(root,{recursive:true,force:true});}}
+test('recorder uses exact owned monitor and explicit record, with bounded output',async()=>temporary(async root=>{const child=fakeChild();let args;const recorder=startBoundedMonitor({tempRoot:root,recordFile:path.join(root,'native-monitor.f32le'),parec:'/fake/parec',socket:'/owned/native'},{spawnProcess:(command,a)=>{args=[command,...a];return child;},maxBytes:32});child.stdout.write(Buffer.alloc(16));assert.equal(await recorder.stop(),16);assert.equal(await recorder.stop(),16);assert.ok(args.includes('--record'));assert.ok(args.includes('--latency-msec=50'));assert.ok(args.includes('--device=burrata_smoke.monitor'));assert.ok(args.includes('--server=unix:/owned/native'));assert.deepEqual(child.kills,['SIGTERM']);}));
+test('recorder byte overflow fails and terminates only owned fake child',async()=>temporary(async root=>{const child=fakeChild();const rec=startBoundedMonitor({tempRoot:root,recordFile:path.join(root,'native-monitor.f32le'),parec:'/fake',socket:'/owned'},{spawnProcess:()=>child,maxBytes:16});child.stdout.write(Buffer.alloc(32));await assert.rejects(rec.failure,/byte bound/);await assert.rejects(rec.stop());assert.equal(fs.statSync(path.join(root,'native-monitor.f32le')).size,0);assert.ok(child.kills.every(x=>['SIGTERM','SIGKILL'].includes(x)));}));
+test('recorder timeout fails rather than passing empty capture',async()=>temporary(async root=>{const child=fakeChild();const rec=startBoundedMonitor({tempRoot:root,recordFile:path.join(root,'native-monitor.f32le'),parec:'/fake',socket:'/owned'},{spawnProcess:()=>child,timeoutMs:5});const hold=setTimeout(()=>{},50);await assert.rejects(rec.failure,/time bound/);clearTimeout(hold);await assert.rejects(rec.stop());}));
+test('unexpected recorder exit cannot pass',async()=>temporary(async root=>{const child=fakeChild();const rec=startBoundedMonitor({tempRoot:root,recordFile:path.join(root,'native-monitor.f32le'),parec:'/fake',socket:'/owned'},{spawnProcess:()=>child});child.emit('close',1,null);await assert.rejects(rec.failure,/ended/);await assert.rejects(rec.stop());}));
+
+import {remainingCheckTimeout,verifyRemuteWhilePlaying} from './native-audio-protocol.mjs';
+test('backend and frontend share one nonrenewing budget',()=>{const deadline=25000;assert.equal(remainingCheckTimeout(deadline,0),7000);assert.equal(remainingCheckTimeout(deadline,24000),1000);assert.throws(()=>remainingCheckTimeout(deadline,25000));});
+test('remute proves same playing owner and progress before Pause',async()=>{const calls=[];const result=await verifyRemuteWhilePlaying(sample(),'fixture',async()=>calls.push('quiet'),async()=>{calls.push('inspect');return {...sample(),position:5};},async()=>calls.push('pause'));assert.deepEqual(calls,['quiet','inspect','pause']);assert.equal(result.remuteWhilePlaying,true);assert.equal(result.remuteClockAdvanceSeconds,1);});
+for(const [name,change] of Object.entries({generation:s=>s.generation++,seek:s=>s.seekSerial++,track:s=>s.trackId='other',stalled:s=>s.position=4,missingPCM:s=>s.measurements=[]}))test(`remute rejects ${name} before Pause`,async()=>{let paused=false;await assert.rejects(verifyRemuteWhilePlaying(sample(),'fixture',async()=>{},async()=>{const s={...sample(),position:5};change(s);return s;},async()=>{paused=true;}));assert.equal(paused,false);});
+test('recorder SIGKILL awaits actual close and suppresses late data before descriptor close',async()=>temporary(async root=>{const child=fakeChild();let fdClosed=false,closeSent=false;child.kill=signal=>{child.kills.push(signal);child.stdout.write(Buffer.alloc(8));if(signal==='SIGKILL')setTimeout(()=>{assert.equal(fdClosed,false);closeSent=true;child.emit('close',null,signal);},15);return true;};const rec=startBoundedMonitor({tempRoot:root,recordFile:path.join(root,'native-monitor.f32le'),parec:'/fake',socket:'/owned'},{spawnProcess:()=>child,stopGraceMs:25,closeFile:fd=>{assert.equal(closeSent,true);fdClosed=true;fs.closeSync(fd);}});child.stdout.write(Buffer.alloc(16));await rec.stop();assert.equal(fdClosed,true);assert.equal(rec.bytes,16);assert.deepEqual(child.kills,['SIGTERM','SIGKILL']);assert.equal(fs.statSync(path.join(root,'native-monitor.f32le')).size,16);}));
+test('recorder cannot claim closure when SIGKILL receives no close',async()=>temporary(async root=>{const child=fakeChild();child.kill=signal=>{child.kills.push(signal);return true;};let closed=false;const rec=startBoundedMonitor({tempRoot:root,recordFile:path.join(root,'native-monitor.f32le'),parec:'/fake',socket:'/owned'},{spawnProcess:()=>child,stopGraceMs:5,closeFile:fd=>{closed=true;fs.closeSync(fd);}});await assert.rejects(rec.stop(),/did not close/);assert.equal(closed,false);child.stdout.write(Buffer.alloc(8));assert.equal(rec.bytes,0);child.emit('close');assert.equal(closed,true);}));

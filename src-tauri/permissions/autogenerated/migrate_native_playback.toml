@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-migrate-native-playback"
+description = "Enables the migrate_native_playback command without any pre-configured scope."
+commands.allow = ["migrate_native_playback"]
+
+[[permission]]
+identifier = "deny-migrate-native-playback"
+description = "Denies the migrate_native_playback command without any pre-configured scope."
+commands.deny = ["migrate_native_playback"]

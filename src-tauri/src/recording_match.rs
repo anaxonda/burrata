@@ -11,7 +11,32 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) const EVALUATOR_VERSION: &str = "14";
+pub(crate) const EVALUATOR_VERSION: &str = "16";
+
+/// Independently selected categories of alternatives for Flexible matching.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct FlexibleMatchingOptions {
+    pub version: u8,
+    pub allow_other_releases: bool,
+    pub allow_other_performances: bool,
+    pub allow_other_mixes: bool,
+    pub allow_other_artists: bool,
+    pub allow_different_lengths: bool,
+}
+
+impl Default for FlexibleMatchingOptions {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            allow_other_releases: true,
+            allow_other_performances: false,
+            allow_other_mixes: false,
+            allow_other_artists: false,
+            allow_different_lengths: false,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -75,6 +100,14 @@ pub enum MatchRelationship {
     Probable,
     Alternative,
     Unresolved,
+}
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum AlternativeKind {
+    Release,
+    Performance,
+    Remix,
+    OtherArtist,
 }
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -143,6 +176,8 @@ pub enum ProofStrength {
 pub struct MatchAssessment {
     pub relationship: MatchRelationship,
     pub action: MatchAction,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alternative_kind: Option<AlternativeKind>,
     pub reasons: Vec<MatchReason>,
     pub dimensions: MatchDimensions,
     #[serde(default)]
@@ -847,6 +882,19 @@ fn valid_musicbrainz_id(value: &str) -> bool {
         })
 }
 fn structured_primary_credits(track: &Track, fallback_artist: &str) -> Vec<String> {
+    if track.provenance["manualFields"]["artist"] == true {
+        // A user-edited artist supersedes the provider's older credit rows.
+        // Keep the display name atomic unless separately edited credits are
+        // present and demonstrably render the same complete name.
+        if track.provenance["manualFields"]["artistCredits"] == true {
+            if let Some(credits) = crate::recording_identity::declared_credit_names(track) {
+                return credits;
+            }
+        }
+        return (!fallback_artist.trim().is_empty())
+            .then(|| vec![fallback_artist.trim().to_owned()])
+            .unwrap_or_default();
+    }
     let identity = RecordingIdentity::from_track(track);
     let credits = identity
         .credits
@@ -1429,6 +1477,8 @@ struct ComparisonFacts {
     cover_evidence: bool,
     catalog_id_conflict: bool,
     preview_too_short: bool,
+    complete_single_recording: bool,
+    complete_fresh_extractor_recording: bool,
     restricted: bool,
     search_music_catalog: bool,
     unresolved_annotation: bool,
@@ -2174,7 +2224,8 @@ fn build_comparison(
                     .is_some_and(|id| candidate.id == format!("monochrome:{id}"))
                 && !names.is_empty()));
     let credits_complete = structured_credits_complete || caption_full_credits;
-    let request_credits_complete = request_identity.credits_complete
+    let request_credits_complete = (request_identity.credits_complete
+        && track.provenance["manualFields"]["artist"] != true)
         || track.provenance["performerCreditsComplete"] == true
             && track.provenance["manualFields"]["performerCreditsComplete"] == true
         || track.provenance["manualFields"]["artist"] == true && request_primary_credits.len() > 1;
@@ -2371,6 +2422,33 @@ fn build_comparison(
         cover_evidence,
         catalog_id_conflict,
         preview_too_short,
+        complete_single_recording: authoritative
+            && !candidate
+                .chapters
+                .as_ref()
+                .is_some_and(|chapters| !chapters.is_empty())
+            && meta["isPreview"].as_bool() != Some(true)
+            && meta["isFullAlbum"].as_bool() != Some(true)
+            && !["full album", "full concert", "full set", "medley"]
+                .iter()
+                .any(|phrase| norm(&candidate.title).contains(phrase)),
+        complete_fresh_extractor_recording: candidate.provider == "youtube"
+            && candidate.id.strip_prefix("youtube:").is_some_and(|id| {
+                !id.is_empty() && meta["resolvedProviderId"].as_str() == Some(id)
+            })
+            && matches!(
+                meta["sourceMetadataOrigin"].as_str(),
+                Some("ytDlpCandidateMetadata" | "ytDlpFullInfo")
+            )
+            && !candidate
+                .chapters
+                .as_ref()
+                .is_some_and(|chapters| !chapters.is_empty())
+            && meta["isPreview"].as_bool() != Some(true)
+            && meta["isFullAlbum"].as_bool() != Some(true)
+            && !["full album", "full concert", "full set", "medley"]
+                .iter()
+                .any(|phrase| norm(&candidate.title).contains(phrase)),
         restricted: candidate.permission == "restricted",
         search_music_catalog: meta["playbackMusicCatalogCandidate"].as_bool() == Some(true),
         unresolved_annotation,
@@ -2409,12 +2487,21 @@ pub fn assess_prepared(
     level: MatchLevel,
     stage: MatchStage,
 ) -> MatchAssessment {
+    assess_prepared_with_options(input, level, stage, &FlexibleMatchingOptions::default())
+}
+
+pub fn assess_prepared_with_options(
+    input: &PreparedMatchInput,
+    level: MatchLevel,
+    stage: MatchStage,
+    options: &FlexibleMatchingOptions,
+) -> MatchAssessment {
     let enabled = crate::diagnostic_metrics::is_enabled();
     let started = enabled.then(std::time::Instant::now);
     let cpu_started = enabled
         .then(crate::diagnostic_metrics::thread_cpu_time_ns)
         .flatten();
-    let assessment = assess_prepared_inner(input, level, stage);
+    let assessment = assess_prepared_inner(input, level, stage, options);
     if let Some(started) = started {
         crate::diagnostic_metrics::record_match_assess_elapsed(started.elapsed());
     }
@@ -2433,13 +2520,21 @@ fn assess_prepared_inner(
     input: &PreparedMatchInput,
     level: MatchLevel,
     stage: MatchStage,
+    options: &FlexibleMatchingOptions,
 ) -> MatchAssessment {
+    let safe_options = FlexibleMatchingOptions::default();
+    let options = if options.version == 1 {
+        options
+    } else {
+        &safe_options
+    };
     let facts = &input.facts;
     let policy = level.policy();
     if facts.request_identifier_conflict {
         return MatchAssessment {
             relationship: MatchRelationship::Unresolved,
             action: MatchAction::Enrich,
+            alternative_kind: None,
             reasons: vec![MatchReason::ConflictingRequestIdentifiers],
             dimensions: facts.dimensions.clone(),
             proof_strength: ProofStrength::MetadataOnly,
@@ -2490,6 +2585,8 @@ fn assess_prepared_inner(
         cover_evidence,
         catalog_id_conflict,
         preview_too_short,
+        complete_single_recording,
+        complete_fresh_extractor_recording,
         unresolved_annotation,
         empty_title,
         empty_artist,
@@ -2530,13 +2627,74 @@ fn assess_prepared_inner(
                     2.0_f64.max(a * 0.02)
                 }
         });
-    let alternative = policy.allow_identified_alternatives
-        && explicit_alt
-        && version != Comparison::Agree
+    let category_allowed = |version: &str| {
+        let v = norm(version);
+        let release = v.contains("remaster") || v.contains("restored edition");
+        let performance = ["live", "acoustic", "demo"]
+            .iter()
+            .any(|kind| v.split_whitespace().any(|word| word == *kind));
+        let cover = v.split_whitespace().any(|word| word == "cover");
+        let mix = ["remix", "mix", "edit", "instrumental", "karaoke"]
+            .iter()
+            .any(|kind| v.split_whitespace().any(|word| word == *kind));
+        (release || performance || mix || cover)
+            && (!release || options.allow_other_releases)
+            && (!performance || options.allow_other_performances)
+            && (!mix || options.allow_other_mixes)
+            && (!cover || options.allow_other_artists)
+    };
+    let version_alternative_allowed = version != Comparison::Conflict
+        || [requested_semantic.as_str(), actual_version.as_str()]
+            .iter()
+            .filter(|v| !v.is_empty())
+            .all(|v| category_allowed(v));
+    let artist_alternative_allowed = (artists != Comparison::Conflict
+        && guests != Comparison::Conflict)
+        || options.allow_other_artists;
+    let unknown_version_substitute = level == MatchLevel::Flexible
+        && stage == MatchStage::Resolved
+        && version_is_requested
+        && version == Comparison::Unknown
+        && actual_version.is_empty()
+        && options.allow_other_releases
+        && options.allow_other_performances
+        && options.allow_other_mixes
+        && (complete_single_recording || complete_fresh_extractor_recording)
+        && credits_complete
+        && artists == Comparison::Agree
+        && guests != Comparison::Conflict
         && title == Comparison::Agree
-        && (artists == Comparison::Agree || cover_evidence)
-        && (linked || (actual_kind != "cover" && !actual_kind.is_empty()) || cover_evidence)
-        && (requested_guests.is_empty()
+        && !unresolved_annotation
+        && !facts.parsing_incomplete
+        && isrc != Comparison::Conflict
+        && (runtime == Comparison::Agree || flexible_runtime_close);
+    let identified_alternative = unknown_version_substitute
+        || version == Comparison::Conflict
+        || artists == Comparison::Conflict
+        || guests == Comparison::Conflict
+        || (runtime == Comparison::Conflict
+            && !flexible_runtime_close
+            && options.allow_different_lengths);
+    let alternative = policy.allow_identified_alternatives
+        && identified_alternative
+        && version_alternative_allowed
+        && artist_alternative_allowed
+        && title == Comparison::Agree
+        && (!(artists == Comparison::Conflict
+            || guests == Comparison::Conflict
+            || actual_kind == "cover")
+            || linked
+            || cover_evidence)
+        && (artists == Comparison::Agree || options.allow_other_artists && credits_complete)
+        && (linked || explicit_alt || authoritative || credits_complete)
+        && (runtime == Comparison::Agree
+            || flexible_runtime_close
+            || options.allow_different_lengths
+                && complete_single_recording
+                && credits_complete
+                && candidate_runtime.is_some_and(|seconds| seconds > 30.0))
+        && (options.allow_other_artists && credits_complete
+            || requested_guests.is_empty()
             || guests == Comparison::Agree
             || guests == Comparison::Unknown);
     let mut reasons = Vec::new();
@@ -2597,7 +2755,7 @@ fn assess_prepared_inner(
         || preview_too_short
         || title == Comparison::Conflict
         || (artists == Comparison::Conflict && !alternative)
-        || guests == Comparison::Conflict
+        || (guests == Comparison::Conflict && !alternative)
         || (runtime == Comparison::Conflict
             && !alternative
             && !flexible_runtime_close
@@ -2711,17 +2869,14 @@ fn assess_prepared_inner(
     {
         MatchAction::Reject
     } else if stage == MatchStage::Search {
-        if title == Comparison::Agree && artists != Comparison::Conflict {
+        if title == Comparison::Agree && (artists != Comparison::Conflict || alternative) {
             MatchAction::Inspect
         } else {
             MatchAction::Reject
         }
     } else if requested_kind.is_empty() && !actual_kind.is_empty() && !alternative {
         MatchAction::Reject
-    } else if version_is_requested
-        && actual_version.is_empty()
-        && !policy.allow_missing_guest_evidence
-    {
+    } else if version_is_requested && actual_version.is_empty() && !unknown_version_substitute {
         MatchAction::Enrich
     } else if policy.require_structured_credits
         && version_is_requested
@@ -2808,9 +2963,38 @@ fn assess_prepared_inner(
     if relationship == MatchRelationship::Unresolved && reasons.is_empty() {
         reasons.push(MatchReason::InsufficientEvidence);
     }
+    let alternative_kind = if relationship != MatchRelationship::Alternative
+        || action != MatchAction::Accept
+        || unknown_version_substitute
+    {
+        None
+    } else if artists == Comparison::Conflict
+        || guests == Comparison::Conflict
+        || actual_kind == "cover"
+    {
+        Some(AlternativeKind::OtherArtist)
+    } else {
+        let versions = norm(&format!("{requested_semantic} {actual_version}"));
+        if ["remix", "mix", "edit", "instrumental", "karaoke"]
+            .iter()
+            .any(|word| versions.split_whitespace().any(|part| part == *word))
+        {
+            Some(AlternativeKind::Remix)
+        } else if ["live", "acoustic", "demo"]
+            .iter()
+            .any(|word| versions.split_whitespace().any(|part| part == *word))
+        {
+            Some(AlternativeKind::Performance)
+        } else if versions.contains("remaster") || versions.contains("restored edition") {
+            Some(AlternativeKind::Release)
+        } else {
+            None
+        }
+    };
     MatchAssessment {
         relationship,
         action,
+        alternative_kind,
         reasons,
         dimensions: facts.dimensions.clone(),
         proof_strength: facts.proof_strength,
@@ -2824,7 +3008,74 @@ pub fn assess(
     level: MatchLevel,
     stage: MatchStage,
 ) -> MatchAssessment {
-    assess_prepared(&prepare(track, candidate), level, stage)
+    assess_prepared_with_options(
+        &prepare(track, candidate),
+        level,
+        stage,
+        &FlexibleMatchingOptions::default(),
+    )
+}
+
+pub fn assess_with_options(
+    track: &Track,
+    candidate: &Candidate,
+    level: MatchLevel,
+    stage: MatchStage,
+    options: &FlexibleMatchingOptions,
+) -> MatchAssessment {
+    assess_prepared_with_options(&prepare(track, candidate), level, stage, options)
+}
+
+/// Order eligible alternatives before proof and runtime tie-breakers.
+pub(crate) fn alternative_rank(
+    assessment: &MatchAssessment,
+    track: &Track,
+    candidate: &Candidate,
+) -> u8 {
+    if assessment.relationship != MatchRelationship::Alternative {
+        return 0;
+    }
+    if assessment.dimensions.artists == Comparison::Conflict
+        || assessment.dimensions.guests == Comparison::Conflict
+    {
+        return 4;
+    }
+    let metadata = candidate.source_metadata.as_ref().unwrap_or(&Value::Null);
+    let title = metadata["track"]
+        .as_str()
+        .or(metadata["catalogTitle"].as_str())
+        .unwrap_or(&candidate.title);
+    let mut labels = parse_recording_text(title)
+        .semantic_versions()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    for field in ["version", "mix"] {
+        if let Some(value) = metadata[field].as_str() {
+            labels.push(value.to_owned());
+        }
+    }
+    if let Some(version) = track.version.as_deref() {
+        labels.push(version.to_owned());
+    }
+    labels.extend(
+        parse_recording_text(&track.title)
+            .semantic_versions()
+            .map(str::to_owned),
+    );
+    let text = norm(&labels.join(" "));
+    if ["remix", "mix", "edit", "instrumental", "karaoke"]
+        .iter()
+        .any(|word| text.split_whitespace().any(|part| part == *word))
+    {
+        3
+    } else if ["live", "acoustic", "demo", "cover"]
+        .iter()
+        .any(|word| text.split_whitespace().any(|part| part == *word))
+    {
+        2
+    } else {
+        1
+    }
 }
 
 /// Require a recognized result to agree with the currently playing catalog
@@ -2910,7 +3161,7 @@ pub(crate) fn assess_with_primary_credit_override(
     stage: MatchStage,
     primary_credit_override: &[String],
 ) -> MatchAssessment {
-    assess_prepared(
+    assess_prepared_with_options(
         &prepare_with_primary_credit_override(
             track,
             candidate,
@@ -2921,6 +3172,30 @@ pub(crate) fn assess_with_primary_credit_override(
         ),
         level,
         stage,
+        &FlexibleMatchingOptions::default(),
+    )
+}
+
+pub(crate) fn assess_with_primary_credit_override_and_options(
+    track: &Track,
+    candidate: &Candidate,
+    level: MatchLevel,
+    stage: MatchStage,
+    primary_credit_override: &[String],
+    options: &FlexibleMatchingOptions,
+) -> MatchAssessment {
+    assess_prepared_with_options(
+        &prepare_with_primary_credit_override(
+            track,
+            candidate,
+            Some(primary_credit_override),
+            false,
+            None,
+            None,
+        ),
+        level,
+        stage,
+        options,
     )
 }
 
@@ -2933,7 +3208,7 @@ pub(crate) fn assess_with_scoped_occurrence_title_and_credit(
     stage: MatchStage,
     primary_credit_override: &[String],
 ) -> MatchAssessment {
-    assess_prepared(
+    assess_prepared_with_options(
         &prepare_with_primary_credit_override(
             track,
             candidate,
@@ -2944,6 +3219,30 @@ pub(crate) fn assess_with_scoped_occurrence_title_and_credit(
         ),
         level,
         stage,
+        &FlexibleMatchingOptions::default(),
+    )
+}
+
+pub(crate) fn assess_with_scoped_occurrence_title_and_credit_and_options(
+    track: &Track,
+    candidate: &Candidate,
+    level: MatchLevel,
+    stage: MatchStage,
+    primary_credit_override: &[String],
+    options: &FlexibleMatchingOptions,
+) -> MatchAssessment {
+    assess_prepared_with_options(
+        &prepare_with_primary_credit_override(
+            track,
+            candidate,
+            Some(primary_credit_override),
+            true,
+            None,
+            None,
+        ),
+        level,
+        stage,
+        options,
     )
 }
 
@@ -2958,7 +3257,7 @@ pub(crate) fn assess_with_scoped_artist_name_alias(
     requested_name: &str,
     candidate_name: &str,
 ) -> MatchAssessment {
-    assess_prepared(
+    assess_prepared_with_options(
         &prepare_with_primary_credit_override(
             track,
             candidate,
@@ -2969,6 +3268,31 @@ pub(crate) fn assess_with_scoped_artist_name_alias(
         ),
         level,
         stage,
+        &FlexibleMatchingOptions::default(),
+    )
+}
+
+pub(crate) fn assess_with_scoped_artist_name_alias_and_options(
+    track: &Track,
+    candidate: &Candidate,
+    level: MatchLevel,
+    stage: MatchStage,
+    requested_name: &str,
+    candidate_name: &str,
+    options: &FlexibleMatchingOptions,
+) -> MatchAssessment {
+    assess_prepared_with_options(
+        &prepare_with_primary_credit_override(
+            track,
+            candidate,
+            None,
+            false,
+            Some((requested_name, candidate_name)),
+            None,
+        ),
+        level,
+        stage,
+        options,
     )
 }
 
@@ -2981,10 +3305,27 @@ pub(crate) fn assess_with_scoped_artist_credit_set_variant(
     stage: MatchStage,
     variant: &crate::recording_identity::VerifiedArtistCreditSetVariant,
 ) -> MatchAssessment {
-    assess_prepared(
+    assess_prepared_with_options(
         &prepare_with_primary_credit_override(track, candidate, None, false, None, Some(variant)),
         level,
         stage,
+        &FlexibleMatchingOptions::default(),
+    )
+}
+
+pub(crate) fn assess_with_scoped_artist_credit_set_variant_and_options(
+    track: &Track,
+    candidate: &Candidate,
+    level: MatchLevel,
+    stage: MatchStage,
+    variant: &crate::recording_identity::VerifiedArtistCreditSetVariant,
+    options: &FlexibleMatchingOptions,
+) -> MatchAssessment {
+    assess_prepared_with_options(
+        &prepare_with_primary_credit_override(track, candidate, None, false, None, Some(variant)),
+        level,
+        stage,
+        options,
     )
 }
 
@@ -2992,6 +3333,65 @@ pub(crate) fn assess_with_scoped_artist_credit_set_variant(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn manual_artist_supersedes_stale_provider_credits_without_weakening_identity() {
+        let requested = Track {
+            artist: "New Artist".into(),
+            title: "Song".into(),
+            duration_seconds: Some(200.0),
+            provenance: json!({"manualFields":{"artist":true},"catalog":{"provider":"spotify","verified":true,"artists":[{"name":"Old Artist"}],"artistCount":1}}),
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            provider: "youtube".into(),
+            title: "New Artist - Song".into(),
+            duration_seconds: Some(200.0),
+            ..Candidate::default()
+        };
+        let result = assess(
+            &requested,
+            &candidate,
+            MatchLevel::Balanced,
+            MatchStage::Resolved,
+        );
+        assert_eq!(result.action, MatchAction::Accept, "{result:?}");
+        for title in [
+            "Old Artist - Song",
+            "Different Artist - Song",
+            "New Artist - Song (Live)",
+            "New Artist - Song (Other Remix)",
+            "New Artist - Other Song",
+        ] {
+            let other = Candidate {
+                title: title.into(),
+                ..candidate.clone()
+            };
+            assert_ne!(
+                assess(
+                    &requested,
+                    &other,
+                    MatchLevel::Balanced,
+                    MatchStage::Resolved
+                )
+                .action,
+                MatchAction::Accept,
+                "{title}"
+            );
+        }
+        let mut atomic = requested.clone();
+        atomic.artist = "Earth, Wind & Fire".into();
+        assert_eq!(
+            structured_primary_credits(&atomic, &atomic.artist),
+            vec!["Earth, Wind & Fire"]
+        );
+        atomic.provenance["manualFields"]["artistCredits"] = json!(true);
+        atomic.provenance["artistCredits"] = json!([{"name":"Earth, Wind & Fire","role":"artist"}]);
+        assert_eq!(
+            structured_primary_credits(&atomic, &atomic.artist),
+            vec!["Earth, Wind & Fire"]
+        );
+    }
 
     #[test]
     fn youtube_caption_parses_featured_artist_from_artist_prefix() {
@@ -4356,7 +4756,7 @@ mod tests {
         assert_eq!(assessment.action, MatchAction::Accept);
     }
     #[test]
-    fn flexible_accepts_full_caption_when_request_duration_and_version_evidence_are_missing() {
+    fn flexible_enriches_when_requested_version_evidence_is_missing() {
         let mut t = track();
         t.duration_seconds = None;
         t.version = Some("Live Remix".into());
@@ -4373,7 +4773,7 @@ mod tests {
         assert_eq!(balanced.action, MatchAction::Enrich);
         assert_eq!(balanced.relationship, MatchRelationship::Unresolved);
         let flexible = assess(&t, &c, MatchLevel::Flexible, MatchStage::Resolved);
-        assert_eq!(flexible.action, MatchAction::Accept);
+        assert_eq!(flexible.action, MatchAction::Enrich);
         assert_eq!(flexible.relationship, MatchRelationship::Probable);
         assert_eq!(flexible.dimensions.version, Comparison::Unknown);
     }
@@ -4459,11 +4859,20 @@ mod tests {
         c.source_metadata.as_mut().unwrap()["track"] = json!("Song (Live)");
         c.source_metadata.as_mut().unwrap()["isrc"] = Value::Null;
         c.source_metadata.as_mut().unwrap()["workId"] = json!("work-1");
-        let a = assess(&t, &c, MatchLevel::Flexible, MatchStage::Resolved);
+        let options = FlexibleMatchingOptions {
+            allow_other_performances: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            assess(&t, &c, MatchLevel::Flexible, MatchStage::Resolved).action,
+            MatchAction::Reject
+        );
+        let a = assess_with_options(&t, &c, MatchLevel::Flexible, MatchStage::Resolved, &options);
         assert_eq!(a.relationship, MatchRelationship::Alternative);
         c.source_metadata.as_mut().unwrap()["workId"] = json!("other-work");
         assert_eq!(
-            assess(&t, &c, MatchLevel::Flexible, MatchStage::Resolved).relationship,
+            assess_with_options(&t, &c, MatchLevel::Flexible, MatchStage::Resolved, &options)
+                .relationship,
             MatchRelationship::Alternative
         );
         c.source_metadata
@@ -4473,12 +4882,14 @@ mod tests {
             .unwrap()
             .remove("workId");
         c.source_metadata.as_mut().unwrap()["isrc"] = json!("USZZZ2600001");
-        let alternative = assess(&t, &c, MatchLevel::Flexible, MatchStage::Resolved);
+        let alternative =
+            assess_with_options(&t, &c, MatchLevel::Flexible, MatchStage::Resolved, &options);
         assert_eq!(alternative.relationship, MatchRelationship::Alternative);
         assert_eq!(alternative.action, MatchAction::Accept);
         c.source_metadata.as_mut().unwrap()["artists"] = json!(["Different Artist"]);
         assert_eq!(
-            assess(&t, &c, MatchLevel::Flexible, MatchStage::Resolved).action,
+            assess_with_options(&t, &c, MatchLevel::Flexible, MatchStage::Resolved, &options)
+                .action,
             MatchAction::Reject
         );
     }
@@ -4543,18 +4954,36 @@ mod tests {
         c.source_metadata.as_mut().unwrap()["isrc"] = json!("USZZZ2600001");
         assert_eq!(
             assess(&t, &c, MatchLevel::Flexible, MatchStage::Resolved).action,
+            MatchAction::Reject
+        );
+        let options = FlexibleMatchingOptions {
+            allow_other_performances: true,
+            allow_different_lengths: true,
+            ..Default::default()
+        };
+        // A long alternative must be a bound, complete catalog track.
+        c.provider = "monochrome".into();
+        c.id = "monochrome:123".into();
+        c.source_metadata = Some(
+            json!({"provider":"monochrome","trackId":"123","catalogTitle":"Song (Live)","artistNames":["Main Artist"],"artistCount":1,"duration":260.,"isrc":"USZZZ2600001"}),
+        );
+        assert_eq!(
+            assess_with_options(&t, &c, MatchLevel::Flexible, MatchStage::Resolved, &options)
+                .action,
             MatchAction::Accept
         );
         c.duration_seconds = Some(20.);
         c.source_metadata.as_mut().unwrap()["duration"] = json!(20.);
         assert_eq!(
-            assess(&t, &c, MatchLevel::Flexible, MatchStage::Resolved).action,
+            assess_with_options(&t, &c, MatchLevel::Flexible, MatchStage::Resolved, &options)
+                .action,
             MatchAction::Reject
         );
         c.duration_seconds = Some(260.);
         c.source_metadata.as_mut().unwrap()["duration"] = json!(260.);
         c.permission = "restricted".into();
-        let denied = assess(&t, &c, MatchLevel::Flexible, MatchStage::Resolved);
+        let denied =
+            assess_with_options(&t, &c, MatchLevel::Flexible, MatchStage::Resolved, &options);
         assert_eq!(denied.action, MatchAction::Reject);
         assert!(denied.reasons.contains(&MatchReason::PermissionRestricted));
     }
@@ -4889,12 +5318,7 @@ mod stage_one_regressions {
     }
     #[test]
     fn unknown_annotations_remain_uncertain_in_all_modes_and_stages() {
-        for suffix in [
-            "[432Hz]",
-            "[Slowed + Reverb]",
-            "[Remastered 2024]",
-            "(Unclassified Edition)",
-        ] {
+        for suffix in ["[432Hz]", "[Slowed + Reverb]", "(Unclassified Edition)"] {
             let mut c = candidate();
             c.title = format!("Artist - Song {suffix}");
             c.source_metadata.as_mut().unwrap()["track"] = json!(c.title);
@@ -4929,6 +5353,12 @@ mod stage_one_regressions {
             cells(|level, stage| {
                 let a = assess(&request(), &c, level, stage);
                 if level == MatchLevel::Flexible {
+                    assert_eq!(a.action, MatchAction::Reject, "{caption} {a:?}");
+                    let options = FlexibleMatchingOptions {
+                        allow_other_performances: true,
+                        ..Default::default()
+                    };
+                    let a = assess_with_options(&request(), &c, level, stage, &options);
                     assert_eq!(
                         a.relationship,
                         MatchRelationship::Alternative,

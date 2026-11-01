@@ -1,0 +1,299 @@
+[
+  {
+    "album": "Prolific",
+    "albumArtist": null,
+    "artist": "Nipsey Hussle,Bino Rideaux",
+    "artworkUrl": "https://i.discogs.com/6-_UPWXbDd19Ie1LDj_lRqfzUYG1c60HxQSg-mp1N6w/rs:fit/g:sm/q:90/h:450/w:600/czM6Ly9kaXNjb2dz/LWRhdGFiYXNlLWlt/YWdlcy9SLTM4NTQ5/MjE0LTE3OTA1MjIw/NDAtMjgwNi5qcGVn.jpeg",
+    "assetId": null,
+    "bpm": null,
+    "catalogNumber": "075678583711",
+    "discNumber": null,
+    "discTotal": null,
+    "disposition": null,
+    "durationSeconds": null,
+    "favorite": false,
+    "genre": null,
+    "id": "catalog:discogs:46a5e4250d2cac2a720d5133d6b0d8386e48de8aeaea4224e2b94e03e9e60a47",
+    "isrc": null,
+    "key": null,
+    "label": "Atlantic Records",
+    "localAvailability": "none",
+    "normalizedGenre": null,
+    "previewUrl": null,
+    "provenance": {
+      "artistCredits": [
+        {
+          "artist": {
+            "id": "1195171",
+            "provider": "discogs"
+          },
+          "creditedAs": "Nipsey Hussle",
+          "joinPhrase": ",",
+          "name": "Nipsey Hussle",
+          "role": "Artist",
+          "sourceUrl": "https://www.discogs.com/release/38549214"
+        },
+        {
+          "artist": {
+            "id": "4908344",
+            "provider": "discogs"
+          },
+          "creditedAs": "Bino Rideaux",
+          "joinPhrase": "",
+          "name": "Bino Rideaux",
+          "role": "Artist",
+          "sourceUrl": "https://www.discogs.com/release/38549214"
+        }
+      ],
+      "audioCandidate": {
+        "artworkUrl": null,
+        "chapters": [],
+        "confidence": "review",
+        "durationSeconds": 198,
+        "formats": [],
+        "id": "youtube:rpCswezRrLs",
+        "official": false,
+        "permission": "unknown",
+        "provider": "youtube",
+        "reasons": [
+          "Music catalog locator; fresh recording identity verification required"
+        ],
+        "score": 0.7,
+        "sourceMetadata": {
+          "artistCount": 2,
+          "artists": [
+            "Nipsey Hussle",
+            "Bino Rideaux"
+          ],
+          "channel": "Nipsey Hussle",
+          "channelId": "UCzyMypIMUep5W0J3R3PC87Q",
+          "channelIsVerified": true,
+          "matching": {
+            "assessment": {
+              "action": "accept",
+              "dimensions": {
+                "artists": "agree",
+                "guests": "unknown",
+                "isrc": "unknown",
+                "runtime": "unknown",
+                "title": "agree",
+                "version": "unknown",
+                "work": "unknown"
+              },
+              "reasons": [
+                "titleAgrees",
+                "artistAgrees"
+              ],
+              "relationship": "probable"
+            },
+            "evaluatorVersion": "1",
+            "level": "balanced",
+            "resolvedRecording": {
+              "artist": "Nipsey Hussle, Bino Rideaux",
+              "sourceId": "youtube:rpCswezRrLs",
+              "title": "Bacc of the Bach",
+              "version": null
+            }
+          },
+          "provider": "youtube",
+          "track": "Bacc of the Bach",
+          "uploader": "Nipsey Hussle"
+        },
+        "title": "Bacc of the Bach",
+        "uploader": "Nipsey Hussle",
+        "url": "https://www.youtube.com/watch?v=rpCswezRrLs"
+      },
+      "audioMatchStatus": "played source; recording match unverified",
+      "candidateUrl": "https://www.youtube.com/watch?v=rpCswezRrLs",
+      "catalogProvider": "discogs",
+      "manualFields": {},
+      "mediumPosition": 1,
+      "occurrence": 1,
+      "parentTitle": null,
+      "releaseGroupId": null,
+      "releaseId": "38549214",
+      "representativeEdition": false,
+      "requestedReleaseSourceUrl": "https://www.discogs.com/release/38549214",
+      "sourceKind": "catalog",
+      "sourceUrl": "https://www.discogs.com/release/38549214",
+      "trackId": null,
+      "trackPosition": "15"
+    },
+    "provider": "catalog",
+    "providerId": "discogs:46a5e4250d2cac2a720d5133d6b0d8386e48de8aeaea4224e2b94e03e9e60a47",
+    "rank": null,
+    "recordingDate": null,
+    "releaseDate": "2026-08-14",
+    "remixers": null,
+    "sourceUrl": "https://www.discogs.com/release/38549214",
+    "title": "Bacc Of The Bach",
+    "trackNumber": null,
+    "trackTotal": null,
+    "version": null
+  },
+  {
+    "album": "Prolific",
+    "albumArtist": null,
+    "artist": "Nipsey Hussle,Bino Rideaux,Leon Thomas",
+    "artworkUrl": "https://i.discogs.com/6-_UPWXbDd19Ie1LDj_lRqfzUYG1c60HxQSg-mp1N6w/rs:fit/g:sm/q:90/h:450/w:600/czM6Ly9kaXNjb2dz/LWRhdGFiYXNlLWlt/YWdlcy9SLTM4NTQ5/MjE0LTE3OTA1MjIw/NDAtMjgwNi5qcGVn.jpeg",
+    "assetId": null,
+    "bpm": null,
+    "catalogNumber": "075678583711",
+    "discNumber": null,
+    "discTotal": null,
+    "disposition": null,
+    "durationSeconds": null,
+    "favorite": false,
+    "genre": null,
+    "id": "catalog:discogs:66f290f6c9605f6b62061304f6916b0ce6b59b475d758b94ce3831cf51255bda",
+    "isrc": null,
+    "key": null,
+    "label": "Atlantic Records",
+    "localAvailability": "none",
+    "normalizedGenre": null,
+    "previewUrl": null,
+    "provenance": {
+      "artistCredits": [
+        {
+          "artist": {
+            "id": "1195171",
+            "provider": "discogs"
+          },
+          "creditedAs": "Nipsey Hussle",
+          "joinPhrase": ",",
+          "name": "Nipsey Hussle",
+          "role": "Artist",
+          "sourceUrl": "https://www.discogs.com/release/38549214"
+        },
+        {
+          "artist": {
+            "id": "4908344",
+            "provider": "discogs"
+          },
+          "creditedAs": "Bino Rideaux",
+          "joinPhrase": ",",
+          "name": "Bino Rideaux",
+          "role": "Artist",
+          "sourceUrl": "https://www.discogs.com/release/38549214"
+        },
+        {
+          "artist": {
+            "id": "181208",
+            "provider": "discogs"
+          },
+          "creditedAs": "Leon Thomas",
+          "joinPhrase": "",
+          "name": "Leon Thomas",
+          "role": "Artist",
+          "sourceUrl": "https://www.discogs.com/release/38549214"
+        }
+      ],
+      "catalogProvider": "discogs",
+      "manualFields": {},
+      "mediumPosition": 1,
+      "occurrence": 1,
+      "parentTitle": null,
+      "releaseGroupId": null,
+      "releaseId": "38549214",
+      "representativeEdition": false,
+      "requestedReleaseSourceUrl": "https://www.discogs.com/release/38549214",
+      "sourceKind": "catalog",
+      "sourceUrl": "https://www.discogs.com/release/38549214",
+      "trackId": null,
+      "trackPosition": "11"
+    },
+    "provider": "catalog",
+    "providerId": "discogs:66f290f6c9605f6b62061304f6916b0ce6b59b475d758b94ce3831cf51255bda",
+    "rank": null,
+    "recordingDate": null,
+    "releaseDate": "2026-08-14",
+    "remixers": null,
+    "sourceUrl": "https://www.discogs.com/release/38549214",
+    "title": "Vibe With Me",
+    "trackNumber": null,
+    "trackTotal": null,
+    "version": null
+  },
+  {
+    "album": "Prolific",
+    "albumArtist": null,
+    "artist": "Nipsey Hussle,Bino Rideaux,James Fauntleroy II",
+    "artworkUrl": "https://i.discogs.com/6-_UPWXbDd19Ie1LDj_lRqfzUYG1c60HxQSg-mp1N6w/rs:fit/g:sm/q:90/h:450/w:600/czM6Ly9kaXNjb2dz/LWRhdGFiYXNlLWlt/YWdlcy9SLTM4NTQ5/MjE0LTE3OTA1MjIw/NDAtMjgwNi5qcGVn.jpeg",
+    "assetId": null,
+    "bpm": null,
+    "catalogNumber": "075678583711",
+    "discNumber": null,
+    "discTotal": null,
+    "disposition": null,
+    "durationSeconds": null,
+    "favorite": false,
+    "genre": null,
+    "id": "catalog:discogs:f291210ddf1699fb8c8acf29402edc7a0d95130a74f62cf5bf4cca01172fd2e7",
+    "isrc": null,
+    "key": null,
+    "label": "Atlantic Records",
+    "localAvailability": "none",
+    "normalizedGenre": null,
+    "previewUrl": null,
+    "provenance": {
+      "artistCredits": [
+        {
+          "artist": {
+            "id": "1195171",
+            "provider": "discogs"
+          },
+          "creditedAs": "Nipsey Hussle",
+          "joinPhrase": ",",
+          "name": "Nipsey Hussle",
+          "role": "Artist",
+          "sourceUrl": "https://www.discogs.com/release/38549214"
+        },
+        {
+          "artist": {
+            "id": "4908344",
+            "provider": "discogs"
+          },
+          "creditedAs": "Bino Rideaux",
+          "joinPhrase": ",",
+          "name": "Bino Rideaux",
+          "role": "Artist",
+          "sourceUrl": "https://www.discogs.com/release/38549214"
+        },
+        {
+          "artist": {
+            "id": "737282",
+            "provider": "discogs"
+          },
+          "creditedAs": "James Fauntleroy II",
+          "joinPhrase": "",
+          "name": "James Fauntleroy II",
+          "role": "Artist",
+          "sourceUrl": "https://www.discogs.com/release/38549214"
+        }
+      ],
+      "catalogProvider": "discogs",
+      "manualFields": {},
+      "mediumPosition": 1,
+      "occurrence": 1,
+      "parentTitle": null,
+      "releaseId": "38549214",
+      "representativeEdition": false,
+      "requestedReleaseSourceUrl": "https://www.discogs.com/release/38549214",
+      "sourceKind": "catalog",
+      "sourceUrl": "https://www.discogs.com/release/38549214",
+      "trackId": null,
+      "trackPosition": "2"
+    },
+    "provider": "catalog",
+    "providerId": "discogs:f291210ddf1699fb8c8acf29402edc7a0d95130a74f62cf5bf4cca01172fd2e7",
+    "rank": null,
+    "recordingDate": null,
+    "releaseDate": "2026-08-14",
+    "remixers": null,
+    "sourceUrl": "https://www.discogs.com/release/38549214",
+    "title": "Sacrifices",
+    "trackNumber": null,
+    "trackTotal": null,
+    "version": null
+  }
+]

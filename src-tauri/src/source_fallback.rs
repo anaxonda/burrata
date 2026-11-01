@@ -1852,6 +1852,7 @@ mod tests {
     }
     fn job() -> DownloadJob {
         DownloadJob {
+            flexible_matching: Default::default(),
             disposition: Default::default(),
             id: "test".into(),
             track: Track::default(),

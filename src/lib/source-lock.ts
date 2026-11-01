@@ -27,31 +27,23 @@ export function isCatalogSelection(track: Track): boolean {
  */
 export function hasExplicitSourceLock(
   track: Track,
-  options: { selectedCandidate?: Candidate | null; audioSearchResult?: boolean } = {},
+  options: { selectedCandidate?: Candidate | null; audioSearchResult?: boolean; overridePlaylistTrackUrls?: boolean } = {},
 ): boolean {
   const provenance = provenanceOf(track);
   const sourceKind = String(provenance.sourceKind ?? "").toLowerCase();
-  const catalogSelection = isCatalogSelection(track);
-  if (track.playbackRange || track.localPath || track.provider === "radio" ||
+  if (track.playbackRange || track.localPath || ["radio", "local", "upload", "slsk", "slskd"].includes(track.provider) ||
       provenance.userSelectedSource === true || provenance.explicitSourceLock === true ||
       ["youtuberadio", "upload", "uploaded", "localupload"].includes(sourceKind)) return true;
 
-  if (options.selectedCandidate && !isCatalogSelection(track)) return true;
+  if (options.selectedCandidate) return true;
 
   const playbackMode = provenance.playbackMode;
-  if (playbackMode === "source") return true;
-  if (playbackMode === "lookup") return false;
+  const manualFields = provenance.manualFields && typeof provenance.manualFields === "object"
+    ? provenance.manualFields as Record<string, unknown> : {};
+  const automaticBrowserSource = provenance.browserImport === true && provenance.captureProvider === "youtube" &&
+    playbackMode === "source" && manualFields.playbackMode !== true;
+  if (playbackMode === "source" && !automaticBrowserSource) return true;
+  if (playbackMode === "lookup" || (track.provider === "import" && options.overridePlaylistTrackUrls === true)) return false;
 
-  const audioCandidate = provenance.audioCandidate && typeof provenance.audioCandidate === "object"
-    ? provenance.audioCandidate as Record<string, unknown> : {};
-  const embeddedExactVideoSource = ["youtube", "soundcloud"].includes(String(audioCandidate.provider));
-  if ((sourceKind === "audiosearch" || options.audioSearchResult === true) &&
-      (!catalogSelection || embeddedExactVideoSource)) return true;
-
-  if (["youtube", "soundcloud"].includes(track.provider)) return true;
-
-  // A selected candidate on an ordinary/import row is an explicit source pick.
-  // Catalog identities retain fallback eligibility even when a source candidate
-  // was cached alongside the recording.
-  return Boolean(options.selectedCandidate && !catalogSelection);
+  return false;
 }

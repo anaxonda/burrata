@@ -124,10 +124,11 @@ async fn serve(store: &Store, id: &str, request_headers: &HeaderMap, head: bool)
         Ok(settings) => settings,
         Err(_) => return empty(StatusCode::INTERNAL_SERVER_ERROR),
     };
-    if !crate::compilation_excerpt::asset_proof_is_eligible(
+    if !crate::compilation_excerpt::asset_proof_is_eligible_with_options(
         &asset.track,
         &asset.track.provenance,
         settings.matching_level,
+        settings.flexible_matching,
     ) {
         return empty(StatusCode::NOT_FOUND);
     }
