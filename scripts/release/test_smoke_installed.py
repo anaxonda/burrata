@@ -570,5 +570,19 @@ class OwnedCheckerTimeoutTests(unittest.TestCase):
 
 
 
+
+class NativeCheckerFailureEvidenceTests(unittest.TestCase):
+ def test_static_failed_route_reason_reaches_smoke_failure_diagnostics(self):
+  with tempfile.TemporaryDirectory() as directory:
+   root=pathlib.Path(directory);target='test-target';tools=root/'tools'/target;tools.mkdir(parents=True);(tools/'burrata-mcp').write_text('fixture')
+   result=subprocess.CompletedProcess([],1,json.dumps({'status':'failed','error':'Owned private app route unavailable; never unmuted'}).encode(),b'ignored')
+   with patch.object(smoke.shutil,'which',return_value='/fake/node'),patch.object(smoke,'run',return_value=result):
+    with self.assertRaises(smoke.SmokeFailure) as caught:smoke.run_mcp_native_audio(root,target,root/'automation.json',{},'local:fixture')
+   self.assertEqual(caught.exception.diagnostics,{'checkerExitCode':1,'checkerReason':'Owned private app route unavailable; never unmuted'})
+ def test_untrusted_stdout_reason_paths_urls_and_tokens_are_not_exported(self):
+  for reason in ['https://private.invalid/?sig=secret','/home/person/private.wav','cookie=secret',{'token':'secret'},'Owned private app route unavailable; never unmuted\nsecret']:
+   evidence=smoke.native_checker_failure_evidence({'error':reason,'stdout':'secret'},1)
+   self.assertEqual(evidence,{'checkerExitCode':1,'checkerReason':'unrecognized_or_absent'})
+
 if __name__ == "__main__":
     unittest.main()

@@ -3588,7 +3588,7 @@ fn merge_playback_component(
         queue["queueLoudnessContexts"] =
             serde_json::to_value(&queue_loudness_contexts).map_err(err)?;
     }
-    let session = serde_json::json!({"tracks":tracks,"entryIds":archive.entry_ids,"index":if archive.current_index<0{0}else{archive.current_index},"currentEntryId":archive.current_entry_id,"queueRevision":archive.queue_revision,"position":archive.position_seconds,"volume":archive.volume,"repeat":archive.repeat,"shuffle":archive.shuffle,"finished":false});
+    let session = serde_json::json!({"tracks":tracks,"entryIds":archive.entry_ids,"index":if archive.current_index<0{0}else{archive.current_index},"currentEntryId":archive.current_entry_id,"queueRevision":archive.queue_revision,"position":archive.position_seconds,"volume":archive.volume,"repeat":archive.repeat,"shuffle":archive.shuffle,"finished":false,"queueLoudnessContexts":queue_loudness_contexts});
     tx.execute(
         "INSERT OR IGNORE INTO settings(key,value) VALUES('nativePlaybackQueue.v1',?1)",
         [serde_json::to_string(&queue).map_err(err)?],
@@ -3701,7 +3701,8 @@ fn preserve_current_playback_component(tx: &rusqlite::Transaction<'_>, path: &Pa
         "volume": archive.volume,
         "repeat": archive.repeat,
         "shuffle": archive.shuffle,
-        "finished": false
+        "finished": false,
+        "queueLoudnessContexts": queue_loudness_contexts
     });
     for (key, value) in [
         ("nativePlaybackQueue.v1", queue),
@@ -6533,6 +6534,112 @@ mod tests {
     }
 
     #[test]
+    fn staged_restore_sessions_keep_sanitized_album_contexts_in_replace_and_merge() {
+        let source = tempfile::tempdir().unwrap();
+        let (_, _, hash, _) = insert_fixture(source.path());
+        let prepared =
+            prepare_backup(source.path(), Uuid::new_v4(), BackupStateOptions::default()).unwrap();
+        let mut archive = playback_fixture(&["youtube:abc123", "youtube:abc123"], 0.31);
+        for track in &mut archive.queue {
+            track["assetId"] = serde_json::json!("asset-1");
+        }
+        // Duplicate occurrences of one registered file reproduce the actual paused restore.
+        // The resource is constructed by Rust, never a hand-authored checksum.
+        let member = crate::loudness::LoudnessAssetIdentity {
+            asset_id: "asset-1".into(),
+            file_hash: hash,
+            range: crate::loudness::AudioRange::WHOLE_FILE,
+        };
+        let resource = crate::loudness::LoudnessResourceIdentity::album(
+            vec![member.clone(), member],
+            vec![0.0],
+        );
+        resource.validate().unwrap();
+        let valid = serde_json::to_value(&resource).unwrap();
+        let first = archive.entry_ids[0].clone();
+        let second = archive.entry_ids[1].clone();
+        archive
+            .queue_loudness_contexts
+            .insert(first.clone(), valid.clone());
+        let mut invalid = valid.clone();
+        invalid["resourceKey"] = serde_json::json!("0".repeat(64));
+        archive
+            .queue_loudness_contexts
+            .insert(second.clone(), invalid);
+        archive
+            .queue_loudness_contexts
+            .insert("orphan-entry".into(), valid.clone());
+        let path = source.path().join("context-playback.json");
+        write_json(&path, &archive).unwrap();
+        for (mode, selected) in [
+            (RestoreMode::Replace, true),
+            (RestoreMode::Merge, true),
+            (RestoreMode::Merge, false),
+        ] {
+            let stage = tempfile::tempdir().unwrap();
+            let options = RestoreStateOptions {
+                mode,
+                snapshot_id: Uuid::new_v4().to_string(),
+                include_library: true,
+                include_playback: selected,
+                current_playback_snapshot: (!selected).then(|| path.clone()),
+                path_mappings: vec![PathMapping {
+                    root_key: "music".into(),
+                    destination: std::fs::canonicalize(source.path().join("Music")).unwrap(),
+                }],
+                ..RestoreStateOptions::default()
+            };
+            reconstruct_staged(
+                Some(&prepared.library_sqlite),
+                None,
+                None,
+                selected.then_some(path.as_path()),
+                stage.path(),
+                &options,
+            )
+            .unwrap();
+            let db = Connection::open(stage.path().join("burrata.sqlite")).unwrap();
+            let read = |key: &str| -> Value {
+                let raw: String = db
+                    .query_row("SELECT value FROM settings WHERE key=?1", [key], |row| {
+                        row.get(0)
+                    })
+                    .unwrap();
+                serde_json::from_str(&raw).unwrap()
+            };
+            let queue = read("nativePlaybackQueue.v1");
+            let session = read("nativePlaybackSession.v1");
+            assert!(
+                session["tracks"].is_array(),
+                "retain the existing self-contained session format"
+            );
+            assert_eq!(session["tracks"], queue["tracks"]);
+            assert_eq!(
+                session["queueLoudnessContexts"],
+                queue["queueLoudnessContexts"]
+            );
+            assert_eq!(session["queueLoudnessContexts"][&first], valid);
+            assert_eq!(
+                session["queueLoudnessContexts"].as_object().unwrap().len(),
+                1
+            );
+            assert!(
+                session["queueLoudnessContexts"].get(&second).is_none(),
+                "invalid key must remain rejected"
+            );
+            assert!(session["queueLoudnessContexts"]
+                .get("orphan-entry")
+                .is_none());
+            assert_eq!(queue["tracks"][0]["assetId"], "asset-1");
+            assert_eq!(
+                session["currentEntryId"],
+                archive.current_entry_id.clone().unwrap()
+            );
+            assert_eq!(session["position"], archive.position_seconds);
+        }
+    }
+
+    #[test]
     fn library_only_merge_preserves_current_playback_snapshot_paused() {
         let target = tempfile::tempdir().unwrap();
         insert_fixture(target.path());
@@ -9256,6 +9363,21 @@ mod tests {
             prepared_playback.queue_loudness_contexts["entry-1"]["resourceKey"]
         );
         assert!(queue["queueLoudnessContexts"]
+            .get("missing-entry")
+            .is_none());
+        let restored_session: Value = library
+            .query_row(
+                "SELECT value FROM settings WHERE key='nativePlaybackSession.v1'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .map(|raw| serde_json::from_str(&raw).unwrap())
+            .unwrap();
+        assert_eq!(
+            restored_session["queueLoudnessContexts"],
+            queue["queueLoudnessContexts"]
+        );
+        assert!(restored_session["queueLoudnessContexts"]
             .get("missing-entry")
             .is_none());
         let frontend: Value = library

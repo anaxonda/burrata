@@ -644,6 +644,29 @@ def run_private_audio_check(command: list, env: dict[str, str]) -> subprocess.Co
                                            stdout_file.read(1024*1024), stderr_file.read(1024*1024))
 
 
+def native_checker_failure_evidence(payload: dict, returncode: int) -> dict:
+    """Retain known static checker reasons, never arbitrary stdout, paths or URLs."""
+    allowed = {
+        "Owned private app route unavailable; never unmuted",
+        "Owned private Linux output route is not verified; remain muted",
+        "Private Pulse module listings disagree",
+        "Private Pulse sink monitor is ambiguous",
+        "Native session did not finish restoring playback ownership",
+        "Native output fixture did not reach the mixer",
+        "Native output did not capture the complete stereo fixture",
+        "Native output fixture tones or stereo lanes did not match",
+        "Native output ownership changed or consumption stalled",
+        "Private monitor cleanup or capture failed",
+        "Private monitor exceeded byte bound",
+        "Private monitor exceeded time bound",
+        "Owned private recorder did not close after SIGKILL",
+        "Owned private recorder closure not proven",
+    }
+    reason = payload.get("error")
+    return {"checkerExitCode": returncode,
+            "checkerReason": reason if isinstance(reason, str) and reason in allowed else "unrecognized_or_absent"}
+
+
 def run_mcp_native_audio(resource_root: pathlib.Path, target: str,
                          discovery: pathlib.Path, env: dict[str, str], track_id: str, *, private_monitor: dict | None = None) -> dict:
     node = shutil.which("node")
@@ -664,7 +687,9 @@ def run_mcp_native_audio(resource_root: pathlib.Path, target: str,
     try:
         payload = json.loads(result.stdout.decode().strip().splitlines()[-1])
         if result.returncode or payload.get("status") != "sampled" or payload.get("engine") != "native":
-            raise SmokeFailure("Native audio", "installed decoder/output consumption check failed")
+            failure = SmokeFailure("Native audio", "installed decoder/output consumption check failed")
+            failure.diagnostics = native_checker_failure_evidence(payload, result.returncode)
+            raise failure
         if payload.get("channels") != 2 or payload.get("capturedSeconds", 0) < 2.9 or len(payload.get("measurements", [])) != 2:
             raise SmokeFailure("Native audio", "installed output returned incomplete PCM evidence")
         if private_monitor is not None:

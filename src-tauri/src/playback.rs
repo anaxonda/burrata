@@ -12123,6 +12123,74 @@ mod tests {
     }
 
     #[test]
+    fn restored_self_contained_album_contexts_survive_bootstrap_publish_and_restart() {
+        let tracks = vec![
+            Track {
+                id: "duplicate".into(),
+                asset_id: Some("asset-1".into()),
+                ..Default::default()
+            };
+            2
+        ];
+        let member = crate::loudness::LoudnessAssetIdentity {
+            asset_id: "asset-1".into(),
+            file_hash: "a".repeat(64),
+            range: crate::loudness::AudioRange::WHOLE_FILE,
+        };
+        let resource = crate::loudness::LoudnessResourceIdentity::album(
+            vec![member.clone(), member],
+            vec![0.0],
+        );
+        resource.validate().unwrap();
+        let contexts = json!({"first": resource, "second": resource});
+        let mut saved = json!({"tracks":tracks,"entryIds":["first","second"],"queueRevision":23,
+                "currentEntryId":"second","index":1,"position":5.0,"volume":0.31,"repeat":"all","shuffle":true,
+                "queueLoudnessContexts":contexts});
+        // This is the self-contained-session branch used by PlaybackService::new:
+        // no queue merge occurs before restore_state when tracks are already present.
+        assert!(saved["tracks"].is_array());
+        let mut restored = State::default();
+        restore_state(&mut restored, &saved).unwrap();
+        assert_eq!(json!(restored.loudness_queue_contexts), contexts);
+        assert_eq!(
+            restored.snapshot(true, false)["queueLoudnessContexts"],
+            contexts
+        );
+        let state = Mutex::new(restored);
+        let checkpoint = std::cell::RefCell::new((Value::Null, Value::Null));
+        persist_playback_state(
+            &state,
+            &Mutex::new(()),
+            |queue, session| {
+                *checkpoint.borrow_mut() = (queue.unwrap().clone(), session.unwrap().clone());
+                Ok::<(), ()>(())
+            },
+            || {},
+        );
+        let (queue, mut session) = checkpoint.into_inner();
+        assert_eq!(queue["queueLoudnessContexts"], contexts);
+        assert!(
+            session.get("tracks").is_none(),
+            "normal publication keeps the existing compact session format"
+        );
+        merge_persisted_queue(&mut session, &queue).unwrap();
+        let mut restarted = State::default();
+        restore_state(&mut restarted, &session).unwrap();
+        assert_eq!(json!(restarted.loudness_queue_contexts), contexts);
+        assert_eq!(restarted.index, 1);
+        assert_eq!(restarted.position, 5.0);
+        assert_eq!(restarted.status, "paused");
+        // Explicit negative control reproduces the original writer's missing field.
+        saved
+            .as_object_mut()
+            .unwrap()
+            .remove("queueLoudnessContexts");
+        let mut original_bug = State::default();
+        restore_state(&mut original_bug, &saved).unwrap();
+        assert!(original_bug.loudness_queue_contexts.is_empty());
+    }
+
+    #[test]
     fn checkpoint_restore_rejects_mixed_revisions_and_invalid_occurrences() {
         let queue = json!({
             "tracks": vec![Track { id: "duplicate".into(), ..Track::default() }; 2],

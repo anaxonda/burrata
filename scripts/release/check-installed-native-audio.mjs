@@ -1,6 +1,6 @@
 import {Client} from '@modelcontextprotocol/client';
 import {StdioClientTransport} from '@modelcontextprotocol/client/stdio';
-import {assessNativeOutput,assessNativeProgress,assessPrivateLinuxRoute,unmuteVerifiedPrivateOutput,verifyRemuteWhilePlaying} from './native-audio-protocol.mjs';
+import {assessNativeOutput,assessNativeProgress,assessPrivateLinuxRoute,unmuteVerifiedPrivateOutput,verifyRemuteWhilePlaying,projectPulseModuleIds,projectPulseSinkMonitor} from './native-audio-protocol.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -16,11 +16,13 @@ export function collectPrivateFacts(config) {
   if (process.platform!=='linux') throw new Error('Private monitor is Linux only');
   const json=kind=>JSON.parse(execFileSync(config.pactl,['--server',`unix:${config.socket}`,'--format=json','list',kind],{env:process.env,timeout:2000,maxBuffer:1024*1024,stdio:['ignore','pipe','pipe']}).toString());
   const inputs=json('sink-inputs');
+  const modules=json('modules');
+  const shortModules=execFileSync(config.pactl,['--server',`unix:${config.socket}`,'list','short','modules'],{env:process.env,timeout:2000,maxBuffer:65536,stdio:['ignore','pipe','pipe']}).toString();
   const pid=Number(inputs[0]?.properties?.['application.process.id']);
   const socket=fs.lstatSync(config.socket),parent=path.dirname(config.socket);
   return {platform:process.platform,envServer:process.env.PULSE_SERVER,envSink:process.env.PULSE_SINK,
     socket:{isSocket:socket.isSocket(),uid:socket.uid,canonical:fs.realpathSync(parent)===parent,parentMode:fs.statSync(parent).mode&0o777},
-    pulse:procIdentity(config.pulse.pid),modules:json('modules'),sinks:json('sinks'),inputs,app:procIdentity(pid)};
+    pulse:procIdentity(config.pulse.pid),modules:projectPulseModuleIds(modules,shortModules),sinks:projectPulseSinkMonitor(json('sinks')),inputs,app:procIdentity(pid)};
 }
 
 /** Own only a bounded private-source recorder; injectable spawn enables no-device tests. */

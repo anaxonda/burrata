@@ -40,6 +40,40 @@ export function assessFrontendLayout(response) {
   return {frontendMounted:true, frontendProof:'frontend_ready plus real layout oneshot', viewport:layout.viewport};
 }
 
+/** pactl JSON can omit module IDs; join a separate short listing by exact name AND args. */
+export function projectPulseModuleIds(modules, shortListing) {
+  const fail=()=>{throw new Error('Private Pulse module listings disagree');};
+  if(!Array.isArray(modules)||modules.length!==2||typeof shortListing!=='string'||shortListing.length>65536)fail();
+  const lines=shortListing.replace(/\n$/,'').split('\n');
+  if(lines.length!==modules.length)fail();
+  const ids=new Set(),names=new Set();
+  const rows=lines.map(line=>{
+    const fields=line.split('\t');
+    if(fields.length<3||fields.length>4||! /^(0|[1-9]\d*)$/.test(fields[0])||!/^module-[a-z0-9-]+$/.test(fields[1]))fail();
+    const index=Number(fields[0]);
+    if(!Number.isSafeInteger(index)||index>0xffff_ffff||ids.has(index)||names.has(fields[1]))fail();
+    ids.add(index);names.add(fields[1]);return {index,name:fields[1],argument:fields[2]};
+  });
+  const seen=new Set();
+  return modules.map(module=>{
+    if(!module||typeof module.name!=='string'||typeof module.argument!=='string'||seen.has(module.name))fail();
+    seen.add(module.name);
+    const row=rows.find(row=>row.name===module.name&&row.argument===module.argument);
+    if(!row||('index' in module&&module.index!==row.index))fail();
+    return {...module,index:row.index};
+  });
+}
+/** PulseAudio uses monitor_source; accept a named alias only when it agrees. */
+export function projectPulseSinkMonitor(sinks) {
+  const fail=()=>{throw new Error('Private Pulse sink monitor is ambiguous');};
+  if(!Array.isArray(sinks)||sinks.length!==1)fail();
+  return sinks.map(sink=>{
+    const actual=sink?.monitor_source,alias=sink?.monitor_source_name;
+    if((actual!==undefined&&typeof actual!=='string')||(alias!==undefined&&typeof alias!=='string')||(!actual&&!alias)||(actual!==undefined&&alias!==undefined&&actual!==alias))fail();
+    return {...sink,monitor_source_name:actual??alias};
+  });
+}
+
 /** Fail closed before volume1: this must be the owned app on the owned virtual route. */
 export function assessPrivateLinuxRoute(config, facts) {
   const fail = () => { throw new Error('Owned private Linux output route is not verified; remain muted'); };
