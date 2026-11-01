@@ -943,7 +943,7 @@ class WindowsDiagnosticTests(unittest.TestCase):
         import copy,os
         from contextlib import chdir
         workflow=(SCRIPT.parents[2]/'.github/workflows/smoke-installed.yml').read_text()
-        block=workflow.split('      - name: Verify exact failed producer and download only its preserved NSIS\n',1)[1].split('      - name: Read only Windows audio services',1)[0]
+        block=workflow.split('      - name: Verify exact failed producer and download only its preserved NSIS\n',1)[1].split('      - name: Record endpoints before and after only standard Audio services',1)[0]
         program='\n'.join(line[10:] for line in block.split('        run: |\n',1)[1].splitlines())
         compile(program,'actual-workflow-producer-guard','exec')
         import ast
@@ -987,7 +987,12 @@ class WindowsDiagnosticTests(unittest.TestCase):
             with self.subTest(case=case),tempfile.TemporaryDirectory() as folder,chdir(folder),patch.dict(os.environ,env),patch.object(subprocess,'check_output',side_effect=api),patch.object(subprocess,'run') as download:
                 with self.assertRaises(AssertionError):exec(program,{})
                 download.assert_not_called()
-        self.assertNotIn('Start-Service',workflow);self.assertNotIn('Restart-Service',workflow)
+        self.assertIn("foreach($name in @('AudioEndpointBuilder','AudioSrv'))",workflow)
+        self.assertIn("if($config.StartMode -eq 'Disabled') {Set-Service -Name $name -StartupType Manual",workflow)
+        self.assertIn('$report.before=Read-AudioState',workflow);self.assertIn('$report.after=Read-AudioState',workflow)
+        self.assertEqual(workflow.count('Start-Service -Name $name'),1)
+        self.assertNotIn('Restart-Service',workflow);self.assertNotIn('Stop-Service',workflow)
+        self.assertNotIn('Automatic -ErrorAction',workflow)
         self.assertNotIn('GetDeviceId',workflow);self.assertNotIn('FriendlyName',workflow)
         self.assertIn("'qualificationStatus':'UNQUALIFIED'",workflow)
 

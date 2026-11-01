@@ -223,15 +223,11 @@ jobs:
           with installer.open('rb') as stream:installer_sha=hashlib.file_digest(stream,'sha256').hexdigest()
           proof={'diagnosticOnly':True,'qualificationStatus':'UNQUALIFIED','producerConclusion':'failure','producerRunId':run_id,'producerCommit':commit,'producerWorkflow':run['path'],'windowsBuildStepPassed':True,'artifactId':artifact_id,'artifactZipSha256':digest,'archiveDigestMatched':True,'inventorySource':'Derived from exact verified debug archive; no successful release inventory exists','inventory':[{'file':member.filename,'bytes':member.file_size,'sha256':installer_sha}]}
           (root/'producer-provenance.json').write_text(json.dumps(proof,indent=2)+'\n')
-      - name: Read only Windows audio services and default render endpoint
+      - name: Record endpoints before and after only standard Audio services
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $report=@{diagnosticOnly=$true;qualificationStatus='UNQUALIFIED';services=@{}}
-          foreach($name in @('AudioSrv','AudioEndpointBuilder')) {
-            try {$service=Get-Service -Name $name -ErrorAction Stop;$report.services[$name]=@{state=$service.Status.ToString()}}
-            catch {$report.services[$name]=@{state='unavailable';hresult=$_.Exception.HResult}}
-          }
+          $report=@{diagnosticOnly=$true;qualificationStatus='UNQUALIFIED';serviceActions=@{}}
           try {
             Add-Type -TypeDefinition @'
           using System;
@@ -257,10 +253,42 @@ jobs:
             }
           }
           '@ -ErrorAction Stop
-            $v=[RenderEndpointProbe]::Read()
-            $report.render=@{activationHresult=$v[0];enumerateActiveHresult=$v[1];countHresult=$v[2];activeRenderCount=$v[3];defaultConsoleHresult=$v[4];defaultConsoleExists=($v[5] -eq 1)}
-          } catch {$report.render=@{probeStatus='unavailable';hresult=$_.Exception.HResult}}
-          $report|ConvertTo-Json -Depth 5|Set-Content .cache/windows-diagnostic/os-audio.json
+          } catch {$report.probeCompilationHresult=$_.Exception.HResult}
+          function Read-AudioState {
+            $snapshot=@{services=@{}}
+            foreach($name in @('AudioEndpointBuilder','AudioSrv')) {
+              try {
+                $service=Get-Service -Name $name -ErrorAction Stop
+                $config=Get-CimInstance Win32_Service -Filter "Name='$name'" -ErrorAction Stop
+                $mode=$config.StartMode
+                if($mode -notin @('Auto','Manual','Disabled')) {$mode='other'}
+                $snapshot.services[$name]=@{state=$service.Status.ToString();startupMode=$mode}
+              } catch {$snapshot.services[$name]=@{state='unavailable';hresult=$_.Exception.HResult}}
+            }
+            try {
+              $v=[RenderEndpointProbe]::Read()
+              $snapshot.render=@{activationHresult=$v[0];enumerateActiveHresult=$v[1];countHresult=$v[2];activeRenderCount=$v[3];defaultConsoleHresult=$v[4];defaultConsoleExists=($v[5] -eq 1)}
+            } catch {$snapshot.render=@{probeStatus='unavailable';hresult=$_.Exception.HResult}}
+            return $snapshot
+          }
+          $report.before=Read-AudioState
+          foreach($name in @('AudioEndpointBuilder','AudioSrv')) {
+            $action=@{startupChanged=$false;startRequested=$false}
+            try {
+              $service=Get-Service -Name $name -ErrorAction Stop
+              if($service.Status -ne 'Running') {
+                $config=Get-CimInstance Win32_Service -Filter "Name='$name'" -ErrorAction Stop
+                if($config.StartMode -eq 'Disabled') {Set-Service -Name $name -StartupType Manual -ErrorAction Stop;$action.startupChanged=$true}
+                $action.startRequested=$true
+                Start-Service -Name $name -ErrorAction Stop
+                (Get-Service -Name $name).WaitForStatus('Running',[TimeSpan]::FromSeconds(15))
+              }
+              $action.result='running'
+            } catch {$action.result='failed';$action.hresult=$_.Exception.HResult}
+            $report.serviceActions[$name]=$action
+          }
+          $report.after=Read-AudioState
+          $report|ConvertTo-Json -Depth 7|Set-Content .cache/windows-diagnostic/os-audio.json
       - run: npm ci --ignore-scripts
       - name: Muted diagnostic only; retain failure before cleanup
         shell: bash
