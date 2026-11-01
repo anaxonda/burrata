@@ -56,26 +56,67 @@ export function startBoundedMonitor(config,{spawnProcess=spawn,maxBytes=44100*2*
     }};
 }
 
+const DIAGNOSTIC_STEPS=new Set(['connect','list_tools','restore_volume','mute','play_fixture','capture_first','capture_second','assess','snapshot']);
+const DIAGNOSTIC_TOOLS=new Set(['set_volume','play_tracks','pause_playback','inspect_native_output','get_app_status']);
+export function diagnosticCategory(value) {
+ const text=typeof value==='string'?value.slice(0,4096).toLowerCase():'';
+ if(/could not (?:re)?open audio output|no default.*device|no.*output.*device|device.*not available/.test(text))return 'output_device_unavailable';
+ if(/unsupported.*(?:format|config)|(?:format|config).*not supported/.test(text))return 'output_configuration';
+ if(/timed? ?out|timeout/.test(text))return 'timeout';
+ if(/connection closed|epipe|transport/.test(text))return 'transport';
+ if(/requires a playing synthetic|no active synthetic/.test(text))return 'fixture_not_playing';
+ if(/owner changed|ownership changed/.test(text))return 'owner_changed';
+ if(/qualification is disabled/.test(text))return 'qualification_disabled';
+ if(/decoder|decode|aac/.test(text))return 'decode';
+ return 'unclassified';
+}
+export function diagnosticState(value) {
+ const p=value?.playback??value??{},states=new Set(['idle','resolving','buffering','playing','paused','ended','failed']);
+ const out={engine:p.engine==='native'?'native':'other_or_missing',status:states.has(p.status)?p.status:'other_or_missing',messageCategory:diagnosticCategory(p.playerMessage??p.message),hasCurrentTrack:Boolean(p.currentTrack??p.trackId??p.track)};
+ const categories=new Set(['cancelled','timeout','network','rate_limited','source_access','source_unavailable','source_private','source_deleted','no_match','recording_identity_mismatch','unsupported_audio','output','storage','unknown']);
+ const stages=new Set(['resolver','extraction','transport','output','storage','unknown']);
+ out.failureCategory=categories.has(p.failure?.category)?p.failure.category:'unknown';out.failureStage=stages.has(p.failure?.stage)?p.failure.stage:'unknown';
+ for(const key of ['generation','seekSerial','position'])if(Number.isFinite(p[key])&&p[key]>=0)out[key]=p[key];
+ return out;
+}
+export function diagnosticFailure(step,tool,error,toolMessage='') {
+ return {step:DIAGNOSTIC_STEPS.has(step)?step:'unknown',tool:DIAGNOSTIC_TOOLS.has(tool)?tool:'none',rpcCode:Number.isSafeInteger(error?.code)?error.code:null,category:diagnosticCategory(toolMessage||error?.message)};
+}
+
 export async function main(args=process.argv.slice(2)) {
  const [command,discoveryPath,trackId,configPath]=args;
  if(!command||!discoveryPath||!/^local:[a-f0-9]{64}$/.test(trackId??''))throw new Error('usage: check-installed-native-audio.mjs MCP_COMMAND AUTOMATION_FILE LOCAL_FIXTURE_ID [PRIVATE_LINUX_CONFIG]');
  const config=configPath?JSON.parse(fs.readFileSync(configPath,'utf8')):null;
  if(config&&process.platform!=='linux')throw new Error('Private unmute/capture is prohibited outside Linux');
+ const diagnosticEnabled=process.env.BURRATA_WINDOWS_NATIVE_DIAGNOSTIC==='1';
+ if(diagnosticEnabled&&process.platform!=='win32')throw new Error('Windows diagnostic is Windows only');
+ let step='connect',tool='none',lastFailure=null;const events=[];
  const client=new Client({name:'burrata-installed-native-audio-smoke',version:'1.0.0'});
  const transport=new StdioClientTransport({command,args:[],env:{...process.env,BURRATA_AUTOMATION_FILE:discoveryPath},stderr:'pipe'});transport.stderr?.on('data',()=>{});
- async function call(name,args={},timeout=65000){const result=await client.callTool({name,arguments:args},{timeout});if(result.isError)throw new Error(`Native audio tool failed: ${name}`);return result.structuredContent?.result??result.structuredContent;}
+ async function call(name,args={},timeout=65000){
+  tool=name;
+  try {
+   const response=await client.callTool({name,arguments:args},{timeout});
+   if(response.isError){
+    const message=(response.content??[]).filter(x=>x.type==='text').slice(0,2).map(x=>String(x.text).slice(0,2048)).join(' ');
+    lastFailure=diagnosticFailure(step,name,null,message);throw Object.assign(new Error(`Native audio tool failed: ${name}`),{diagnostic:lastFailure});
+   }
+   if(diagnosticEnabled){events.push({step:DIAGNOSTIC_STEPS.has(step)?step:'unknown',tool:DIAGNOSTIC_TOOLS.has(name)?name:'none',result:'ok'});if(events.length>12)events.shift();}
+   return response.structuredContent?.result??response.structuredContent;
+  }catch(error){if(diagnosticEnabled){lastFailure=error.diagnostic??diagnosticFailure(step,name,error);events.push({...lastFailure,result:'failed'});if(events.length>12)events.shift();}throw error;}
+ }
  let monitor,result,unmuteAt,unmuteOffset,remuteOffset,route,remuteProof;
  const bytesPerSecond=44100*2*4;
  const recordedUntil=async seconds=>{while(monitor.bytes<seconds*bytesPerSecond)await checked(sleep(25));};
  const checked=promise=>monitor?Promise.race([promise,monitor.failure]):promise;
  try {
-  await client.connect(transport);const tools=await client.listTools();
+  await client.connect(transport);step='list_tools';const tools=await client.listTools();
   for(const name of ['play_tracks','pause_playback','inspect_native_output','set_volume'])if(!tools.tools.some(t=>t.name===name))throw new Error(`Required Native smoke tool missing: ${name}`);
-  const readyDeadline=performance.now()+30000;let ready=false;
+  step='restore_volume';const readyDeadline=performance.now()+30000;let ready=false;
   while(performance.now()<readyDeadline){try{await call('set_volume',{volume:0},3000);ready=true;break;}catch{await sleep(200);}}
   if(!ready)throw new Error('Native session did not finish restoring playback ownership');
-  await call('set_volume',{volume:0});await call('play_tracks',{trackIds:[trackId]});
-  const deadline=performance.now()+30000;let first;
+  step='mute';await call('set_volume',{volume:0});step='play_fixture';await call('play_tracks',{trackIds:[trackId]});
+  step='capture_first';const deadline=performance.now()+30000;let first;
   while(performance.now()<deadline){try{const sample=await checked(call('inspect_native_output'));assessNativeOutput(sample,trackId);first=sample;break;}catch(error){monitor?.assertHealthy();await checked(sleep(200));}}
   if(!first)throw new Error('Native output fixture did not reach the mixer');
   // Establish healthy source PCM while MUTED before starting the separate OS phase.
@@ -89,12 +130,19 @@ export async function main(args=process.argv.slice(2)) {
   }
   await checked(sleep(config?Math.max(1100,3800-(performance.now()-unmuteAt)):1100));
   if(config)await recordedUntil(unmuteOffset+3.8);
-  const second=await checked(call('inspect_native_output'));
+  step='capture_second';const second=await checked(call('inspect_native_output'));
   if(config){assessPrivateLinuxRoute(config,collectPrivateFacts(config));await checked(call('set_volume',{volume:0}));remuteOffset=monitor.bytes/bytesPerSecond;remuteProof=await verifyRemuteWhilePlaying(second,trackId,()=>recordedUntil(remuteOffset+1.0),()=>checked(call('inspect_native_output')),()=>checked(call('pause_playback')));await monitor.stop();}
-  const evidence=assessNativeOutput(second,trackId);assessNativeProgress(first,second);
+  step='assess';const evidence=assessNativeOutput(second,trackId);assessNativeProgress(first,second);
   result={status:'sampled',...evidence,clockAdvanceSeconds:second.position-first.position};
   if(config)result.privateMonitorControl={...route,sampleRate:44100,channels:2,bytes:monitor.bytes,unmuteOffsetSeconds:unmuteOffset,remuteOffsetSeconds:remuteOffset,postPlayerGain:true,...remuteProof};
- }catch(error){result={status:'failed',error:error.message};process.exitCode=1;}
+ }catch(error){
+  result={status:'failed',error:error.message};process.exitCode=1;
+  if(diagnosticEnabled){
+   const failure=error.diagnostic??diagnosticFailure(step,tool,error);let nativeState={status:'unavailable'};step='snapshot';
+   try{nativeState=diagnosticState(await call('get_app_status',{},5000));}catch(snapshotError){nativeState={status:'unavailable',failure:diagnosticFailure('snapshot','get_app_status',snapshotError)};}
+   result.windowsDiagnostic={diagnosticOnly:true,qualificationStatus:'UNQUALIFIED',muted:true,beforeCleanup:true,failure,lastToolFailure:lastFailure,nativeState,events:events.slice(-12)};
+  }
+ }
  finally {await call('set_volume',{volume:0},3000).catch(()=>{});await call('pause_playback',{},3000).catch(()=>{});if(monitor)await monitor.stop().catch(()=>{process.exitCode=1;result={status:'failed',error:'Private monitor cleanup or capture failed'};});await client.close().catch(()=>{});}
  process.stdout.write(JSON.stringify(result)+'\n');return result;
 }

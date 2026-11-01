@@ -1014,6 +1014,44 @@ def run_private_audio_check(command: list, env: dict[str, str]) -> subprocess.Co
                                            stdout_file.read(1024*1024), stderr_file.read(1024*1024))
 
 
+def sanitize_windows_diagnostic(value):
+    """Codes and scalar state only: never relay error text, paths, identities or payloads."""
+    if not isinstance(value, dict) or value.get('diagnosticOnly') is not True or value.get('qualificationStatus') != 'UNQUALIFIED':
+        return None
+    steps = {'connect','list_tools','restore_volume','mute','play_fixture','capture_first','capture_second','assess','snapshot'}
+    tools = {'set_volume','play_tracks','pause_playback','inspect_native_output','get_app_status'}
+    categories = {'output_device_unavailable','output_configuration','timeout','transport','fixture_not_playing','owner_changed','qualification_disabled','decode','unclassified'}
+    def failure(row):
+        row = row if isinstance(row, dict) else {}
+        code = row.get('rpcCode')
+        return {'step': row.get('step') if isinstance(row.get('step'),str) and row.get('step') in steps else 'unknown',
+                'tool': row.get('tool') if isinstance(row.get('tool'),str) and row.get('tool') in tools else 'none',
+                'category': row.get('category') if isinstance(row.get('category'),str) and row.get('category') in categories else 'unclassified',
+                'rpcCode': code if type(code) is int and -(2**31) <= code < 2**31 else None}
+    state = value.get('nativeState') if isinstance(value.get('nativeState'), dict) else {}
+    states = {'idle','resolving','buffering','playing','paused','ended','failed','unavailable'}
+    projected = {'engine': 'native' if state.get('engine') == 'native' else 'other_or_missing',
+                 'status': state.get('status') if isinstance(state.get('status'),str) and state.get('status') in states else 'other_or_missing',
+                 'messageCategory': state.get('messageCategory') if isinstance(state.get('messageCategory'),str) and state.get('messageCategory') in categories else 'unclassified',
+                 'hasCurrentTrack': state.get('hasCurrentTrack') is True}
+    failure_categories = {'cancelled','timeout','network','rate_limited','source_access','source_unavailable','source_private','source_deleted','no_match','recording_identity_mismatch','unsupported_audio','output','storage','unknown'}
+    failure_stages = {'resolver','extraction','transport','output','storage','unknown'}
+    projected['failureCategory'] = state.get('failureCategory') if isinstance(state.get('failureCategory'),str) and state['failureCategory'] in failure_categories else 'unknown'
+    projected['failureStage'] = state.get('failureStage') if isinstance(state.get('failureStage'),str) and state['failureStage'] in failure_stages else 'unknown'
+    for key in ('generation','seekSerial','position'):
+        number = state.get(key)
+        if type(number) in (int,float) and math.isfinite(number) and 0 <= number <= 2**53-1:
+            projected[key] = number
+    events = value.get('events') if isinstance(value.get('events'), list) else []
+    result = {'diagnosticOnly': True, 'qualificationStatus': 'UNQUALIFIED',
+              'muted': value.get('muted') is True, 'beforeCleanup': value.get('beforeCleanup') is True,
+              'failure': failure(value.get('failure')), 'nativeState': projected,
+              'events': [{**failure(row), 'result': 'ok' if isinstance(row,dict) and row.get('result') == 'ok' else 'failed'} for row in events[-12:]]}
+    if isinstance(value.get('lastToolFailure'),dict):
+        result['lastToolFailure'] = failure(value['lastToolFailure'])
+    return result
+
+
 def native_checker_failure_evidence(payload: dict, returncode: int) -> dict:
     """Retain known static checker reasons, never arbitrary stdout, paths or URLs."""
     allowed = {
@@ -1033,8 +1071,12 @@ def native_checker_failure_evidence(payload: dict, returncode: int) -> dict:
         "Owned private recorder closure not proven",
     }
     reason = payload.get("error")
-    return {"checkerExitCode": returncode,
-            "checkerReason": reason if isinstance(reason, str) and reason in allowed else "unrecognized_or_absent"}
+    result = {"checkerExitCode": returncode,
+              "checkerReason": reason if isinstance(reason, str) and reason in allowed else "unrecognized_or_absent"}
+    diagnostic = sanitize_windows_diagnostic(payload.get('windowsDiagnostic'))
+    if diagnostic is not None:
+        result['windowsDiagnostic'] = diagnostic
+    return result
 
 
 def run_mcp_native_audio(resource_root: pathlib.Path, target: str,
@@ -1294,13 +1336,18 @@ def main() -> int:
     parser.add_argument("--source-commit")
     parser.add_argument("--source-version")
     parser.add_argument("--harness-commit")
+    parser.add_argument("--windows-diagnostic", action="store_true", help="Muted Windows diagnosis only; never package qualification")
     args = parser.parse_args()
+    if args.windows_diagnostic and sys.platform != "win32":
+        parser.error("Windows diagnostic is Windows only")
     installer = args.installer.resolve()
     evidence_path = args.evidence.resolve()
     evidence: dict = {"schemaVersion": 1, "platform": sys.platform,
                       "target": TARGETS.get(sys.platform, "unknown"),
                       "installer": installer.name, "status": "failed", "checks": {},
                       "osSecurityPrompts": "not tested"}
+    if args.windows_diagnostic:
+        evidence.update(diagnosticOnly=True, qualificationStatus="UNQUALIFIED")
     if args.source_run_id:
         evidence["sourceRunId"] = args.source_run_id
     if args.source_commit:
@@ -1334,6 +1381,8 @@ def main() -> int:
     if sys.platform == "win32":
         (home / "webview2").mkdir()
     env = platform_environment(home, app_data)
+    if args.windows_diagnostic:
+        env["BURRATA_WINDOWS_NATIVE_DIAGNOSTIC"] = "1"
     try:
         if sys.platform == "linux":
             app, resource_root, package_name = install_linux(installer, temp)
@@ -1395,7 +1444,7 @@ def main() -> int:
                                            "postRuntimeVerify": True, "uninstalled": True,
                                            "packageAndRuntimePathsAbsent": True,
                                            "runtimeUid": os.geteuid()}
-        evidence["status"] = "passed"
+        evidence["status"] = "diagnostic_only" if args.windows_diagnostic else "passed"
         print(json.dumps({"status": evidence["status"], "platform": sys.platform,
                           "checks": evidence["checks"]}, separators=(",", ":")))
         return 0

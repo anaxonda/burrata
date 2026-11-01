@@ -937,5 +937,101 @@ class RpmRuntimeIdentityTests(unittest.TestCase):
             self.assertFalse(smoke.rpm_same_identity(actual, {**actual, credential: 0}))
 
 
+
+class WindowsDiagnosticTests(unittest.TestCase):
+    def test_actual_workflow_guard_rejects_wrong_failed_producer_or_artifact_before_download(self):
+        import copy,os
+        from contextlib import chdir
+        workflow=(SCRIPT.parents[2]/'.github/workflows/smoke-installed.yml').read_text()
+        block=workflow.split('      - name: Verify exact failed producer and download only its preserved NSIS\n',1)[1].split('      - name: Read only Windows audio services',1)[0]
+        program='\n'.join(line[10:] for line in block.split('        run: |\n',1)[1].splitlines())
+        compile(program,'actual-workflow-producer-guard','exec')
+        import ast
+        tree=ast.parse(program)
+        guard=next(node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name=='diagnostic_member_size')
+        namespace={};exec(compile(ast.Module(body=[guard],type_ignores=[]),'actual-member-bound','exec'),namespace)
+        member_ok=namespace['diagnostic_member_size']
+        self.assertTrue(member_ok(344839865))  # Legitimate uncompressed NSIS can exceed ZIP bytes.
+        self.assertTrue(member_ok(512*1024**2))
+        for size in [0,-1,True,512*1024**2+1]:self.assertFalse(member_ok(size))
+        self.assertIn('assert diagnostic_member_size(member.file_size)',program)
+        self.assertIn('0BD7A1BE-7A1A-44DB-8397-CC5392387B5E',workflow)
+        self.assertNotIn('0BD7A1BE-7A1A-44DB-8397-C0A3FCE8C576',workflow)
+        commit='3cf3b1a48709c4a102f7e06ac2ea6b15059b19b4'
+        run={'head_sha':commit,'path':'.github/workflows/release.yml','event':'workflow_dispatch','status':'completed','conclusion':'failure'}
+        jobs={'total_count':1,'jobs':[{'name':'build (x86_64-pc-windows-msvc, windows-2022, nsis, windows-x64)','status':'completed','steps':[{'name':'Build native installer','conclusion':'success'},{'name':'Smoke-test the installed desktop artifact','conclusion':'failure'}]}]}
+        artifact={'workflow_run':{'id':41349273407,'head_sha':commit},'name':'debug-installer-windows-x64-'+commit,'expired':False,'size_in_bytes':344839864,'digest':'sha256:301d6a5942b90043c52de1274f29a96030dcb3811eb1c30206900b786d0657f2'}
+        cases=['platform','rpm','runid','commit','head','workflow','event','status','successProducer','buildFailed','artifactOwner','artifactName','expired','digest','size']
+        for case in cases:
+            env={'PLATFORM':'windows-x64','RPM_ONLY':'false','SOURCE_RUN_ID':'41349273407','EXPECTED_COMMIT':commit}
+            rr,jj,aa=copy.deepcopy(run),copy.deepcopy(jobs),copy.deepcopy(artifact)
+            if case=='platform':env['PLATFORM']='linux-x64'
+            elif case=='rpm':env['RPM_ONLY']='true'
+            elif case=='runid':env['SOURCE_RUN_ID']='1'
+            elif case=='commit':env['EXPECTED_COMMIT']='a'*40
+            elif case=='head':rr['head_sha']='a'*40
+            elif case=='workflow':rr['path']='.github/workflows/other.yml'
+            elif case=='event':rr['event']='push'
+            elif case=='status':rr['status']='in_progress'
+            elif case=='successProducer':rr['conclusion']='success'
+            elif case=='buildFailed':jj['jobs'][0]['steps'][0]['conclusion']='failure'
+            elif case=='artifactOwner':aa['workflow_run']['id']=1
+            elif case=='artifactName':aa['name']='other'
+            elif case=='expired':aa['expired']=True
+            elif case=='digest':aa['digest']='sha256:'+'0'*64
+            elif case=='size':aa['size_in_bytes']=1
+            def api(command,**kwargs):
+                route=command[-1]
+                value=jj if '/jobs?' in route else aa if '/artifacts/' in route else rr
+                return json.dumps(value).encode()
+            with self.subTest(case=case),tempfile.TemporaryDirectory() as folder,chdir(folder),patch.dict(os.environ,env),patch.object(subprocess,'check_output',side_effect=api),patch.object(subprocess,'run') as download:
+                with self.assertRaises(AssertionError):exec(program,{})
+                download.assert_not_called()
+        self.assertNotIn('Start-Service',workflow);self.assertNotIn('Restart-Service',workflow)
+        self.assertNotIn('GetDeviceId',workflow);self.assertNotIn('FriendlyName',workflow)
+        self.assertIn("'qualificationStatus':'UNQUALIFIED'",workflow)
+
+    def test_diagnostic_projection_retains_codes_and_never_raw_payload(self):
+        canary='https://private.invalid/token/user-name/file-path'
+        raw={'diagnosticOnly':True,'qualificationStatus':'UNQUALIFIED','muted':True,'beforeCleanup':True,
+             'failure':{'step':'play_fixture','tool':'play_tracks','rpcCode':-32000,'category':'output_device_unavailable','message':canary},
+             'nativeState':{'engine':'native','status':'failed','messageCategory':'output_device_unavailable','position':0,'message':canary,'track':canary},
+             'events':[{'step':'mute','tool':'set_volume','result':'ok','raw':canary}]*30,'raw':canary}
+        projected=smoke.sanitize_windows_diagnostic(raw)
+        self.assertEqual(projected['failure'],{'step':'play_fixture','tool':'play_tracks','rpcCode':-32000,'category':'output_device_unavailable'})
+        self.assertEqual(len(projected['events']),12)
+        self.assertNotIn(canary,json.dumps(projected));self.assertTrue(projected['beforeCleanup'])
+        payload=smoke.native_checker_failure_evidence({'error':canary,'windowsDiagnostic':raw},1)
+        self.assertEqual(payload['checkerReason'],'unrecognized_or_absent');self.assertIn('windowsDiagnostic',payload)
+
+    def test_malformed_diagnostics_cannot_smuggle_strings_or_qualify(self):
+        for value in [None,True,{}, {'diagnosticOnly':True,'qualificationStatus':'passed'}]:
+            self.assertIsNone(smoke.sanitize_windows_diagnostic(value))
+        value={'diagnosticOnly':True,'qualificationStatus':'UNQUALIFIED','failure':{'step':[], 'tool':{},'category':['canary'],'rpcCode':True},'nativeState':{'status':{},'position':float('nan')},'events':[None]}
+        actual=smoke.sanitize_windows_diagnostic(value)
+        self.assertEqual(actual['failure'],{'step':'unknown','tool':'none','category':'unclassified','rpcCode':None})
+        self.assertNotIn('position',actual['nativeState']);self.assertNotIn('canary',json.dumps(actual))
+
+    def test_diagnostic_option_rejects_non_windows_before_install(self):
+        with patch.object(smoke.sys,'platform','linux'),patch.object(smoke.sys,'argv',[str(SCRIPT),'--windows-diagnostic','--installer','unused','--evidence','unused']),patch.object(smoke,'install_linux') as install:
+            with self.assertRaises(SystemExit):smoke.main()
+            install.assert_not_called()
+
+    def test_successful_diagnostic_execution_stays_unqualified(self):
+        with tempfile.TemporaryDirectory() as folder,ExitStack() as patches:
+            root=pathlib.Path(folder);installer=root/'test.exe';installer.write_bytes(b'never executed');evidence=root/'result.json'
+            patches.enter_context(patch.object(smoke.sys,'platform','win32'))
+            patches.enter_context(patch.object(smoke.sys,'argv',[str(SCRIPT),'--windows-diagnostic','--installer',str(installer),'--evidence',str(evidence)]))
+            patches.enter_context(patch.object(smoke,'install_windows',return_value=(root/'burrata.exe',root,str(root/'installed'))))
+            for name in ['stop_process','bundled_tool_checks','bundled_media_checks','wait_for_app','native_host_check','run_mcp_status','run_mcp_entrypoints']:
+                patches.enter_context(patch.object(smoke,name,return_value={}))
+            patches.enter_context(patch.object(smoke,'build_native_audio_fixture',return_value={'trackId':'local:fixture'}))
+            patches.enter_context(patch.object(smoke,'run_mcp_native_audio',return_value={'status':'sampled','engine':'native'}))
+            launch=patches.enter_context(patch.object(smoke,'launch_app'))
+            self.assertEqual(smoke.main(),0)
+            actual=json.loads(evidence.read_text());self.assertEqual(actual['status'],'diagnostic_only');self.assertEqual(actual['qualificationStatus'],'UNQUALIFIED');self.assertTrue(actual['diagnosticOnly'])
+            self.assertEqual(launch.call_args.args[1]['BURRATA_WINDOWS_NATIVE_DIAGNOSTIC'],'1')
+
+
 if __name__ == "__main__":
     unittest.main()
