@@ -16,6 +16,11 @@ on:
           - windows-x64
           - linux-x64
 
+      diagnostic_os_only:
+        description: Read only endpoint/PnP counts after approved standard services; no installer/app
+        type: boolean
+        required: false
+        default: false
       diagnostic_only:
         description: Diagnose only the pinned failed Windows installer; NEVER qualification
         type: boolean
@@ -48,7 +53,7 @@ permissions:
 
 jobs:
   smoke:
-    if: ${{ !inputs.rpm_only && !inputs.diagnostic_only }}
+    if: ${{ !inputs.rpm_only && !inputs.diagnostic_only && !inputs.diagnostic_os_only }}
     runs-on: ${{ inputs.platform == 'macos-arm64' && 'macos-15' || inputs.platform == 'windows-x64' && 'windows-2022' || 'ubuntu-22.04' }}
     steps:
       - uses: actions/checkout@v7
@@ -162,19 +167,30 @@ jobs:
       tag: ${{ inputs.rpm_tag }}
 
   windows-diagnostic:
-    if: inputs.diagnostic_only
+    if: inputs.diagnostic_only || inputs.diagnostic_os_only
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
       - uses: actions/setup-node@v6
+        if: ${{ !inputs.diagnostic_os_only }}
         with:
           node-version: '24.21.0'
       - uses: actions/setup-python@v6
+        if: ${{ !inputs.diagnostic_os_only }}
         with:
           python-version: '3.13'
+      - name: Require Windows diagnostic isolation
+        shell: pwsh
+        env:
+          PLATFORM: ${{ inputs.platform }}
+          RPM_ONLY: ${{ inputs.rpm_only }}
+          DIAGNOSTIC_ONLY: ${{ inputs.diagnostic_only }}
+        run: |
+          if($env:PLATFORM -ne 'windows-x64' -or $env:RPM_ONLY -ne 'false' -or $env:DIAGNOSTIC_ONLY -ne 'true') {throw 'Windows diagnostic-only isolation required'}
       - name: Verify exact failed producer and download only its preserved NSIS
+        if: ${{ !inputs.diagnostic_os_only }}
         shell: python
         env:
           GH_TOKEN: ${{ github.token }}
@@ -225,9 +241,12 @@ jobs:
           (root/'producer-provenance.json').write_text(json.dumps(proof,indent=2)+'\n')
       - name: Record endpoints before and after only standard Audio services
         shell: pwsh
+        env:
+          OS_ONLY: ${{ inputs.diagnostic_os_only }}
         run: |
           $ErrorActionPreference='Stop'
-          $report=@{diagnosticOnly=$true;qualificationStatus='UNQUALIFIED';serviceActions=@{}}
+          New-Item -ItemType Directory -Force .cache/windows-diagnostic|Out-Null
+          $report=@{diagnosticOnly=$true;qualificationStatus='UNQUALIFIED';serviceActions=@{};osOnly=($env:OS_ONLY -eq 'true');nativePlaybackAttempted=($env:OS_ONLY -ne 'true');installerDownloadRequested=($env:OS_ONLY -ne 'true')}
           try {
             Add-Type -TypeDefinition @'
           using System;
@@ -240,16 +259,21 @@ jobs:
             }
             [ComImport,Guid("0BD7A1BE-7A1A-44DB-8397-CC5392387B5E"),InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
             interface Collection {[PreserveSig] int GetCount(out uint count);}
+            static int[] Counts(Enumerator enumerator,uint mask) {
+              Collection devices=null;
+              try {int list=enumerator.EnumAudioEndpoints(0,mask,out devices);uint count=0;int result=list>=0?devices.GetCount(out count):list;return new int[]{list,result,(int)count};}
+              finally {if(devices!=null)Marshal.ReleaseComObject(devices);}
+            }
             public static int[] Read() {
-              object instance=null;Collection devices=null;IntPtr endpoint=IntPtr.Zero;
+              object instance=null;IntPtr endpoint=IntPtr.Zero;
               try {
                 instance=Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")));
-                var enumerator=(Enumerator)instance;int list=enumerator.EnumAudioEndpoints(0,1,out devices);
-                uint count=0;int countResult=list>=0?devices.GetCount(out count):list;
+                var enumerator=(Enumerator)instance;
+                var active=Counts(enumerator,1);var disabled=Counts(enumerator,2);var absent=Counts(enumerator,4);var unplugged=Counts(enumerator,8);var all=Counts(enumerator,15);
                 int primary=enumerator.GetDefaultAudioEndpoint(0,0,out endpoint);
-                return new int[]{0,list,countResult,(int)count,primary,endpoint!=IntPtr.Zero?1:0};
-              } catch(Exception error) {return new int[]{error.HResult,0,0,0,0,0};}
-              finally {if(endpoint!=IntPtr.Zero)Marshal.Release(endpoint);if(devices!=null)Marshal.ReleaseComObject(devices);if(instance!=null)Marshal.ReleaseComObject(instance);}
+                return new int[]{0,active[0],active[1],active[2],primary,endpoint!=IntPtr.Zero?1:0,disabled[0],disabled[1],disabled[2],absent[0],absent[1],absent[2],unplugged[0],unplugged[1],unplugged[2],all[0],all[1],all[2]};
+              } catch(Exception error) {var result=new int[18];result[0]=error.HResult;return result;}
+              finally {if(endpoint!=IntPtr.Zero)Marshal.Release(endpoint);if(instance!=null)Marshal.ReleaseComObject(instance);}
             }
           }
           '@ -ErrorAction Stop
@@ -267,8 +291,22 @@ jobs:
             }
             try {
               $v=[RenderEndpointProbe]::Read()
-              $snapshot.render=@{activationHresult=$v[0];enumerateActiveHresult=$v[1];countHresult=$v[2];activeRenderCount=$v[3];defaultConsoleHresult=$v[4];defaultConsoleExists=($v[5] -eq 1)}
+              $snapshot.render=@{activationHresult=$v[0];enumerateActiveHresult=$v[1];countHresult=$v[2];activeRenderCount=$v[3];defaultConsoleHresult=$v[4];defaultConsoleExists=($v[5] -eq 1);disabled=@{enumerateHresult=$v[6];countHresult=$v[7];count=$v[8]};notPresent=@{enumerateHresult=$v[9];countHresult=$v[10];count=$v[11]};unplugged=@{enumerateHresult=$v[12];countHresult=$v[13];count=$v[14]};all=@{enumerateHresult=$v[15];countHresult=$v[16];count=$v[17]}}
             } catch {$snapshot.render=@{probeStatus='unavailable';hresult=$_.Exception.HResult}}
+            $snapshot.pnp=@{}
+            foreach($class in @('AudioEndpoint','Media')) {
+              try {
+                $devices=@(Get-CimInstance Win32_PnPEntity -Filter "PNPClass='$class'" -ErrorAction Stop)
+                $codes=@{};$unknown=0
+                foreach($device in $devices) {
+                  $code=$device.ConfigManagerErrorCode
+                  if($null -eq $code -or $code -lt 0 -or $code -gt 65535) {$unknown++;continue}
+                  $key=([int]$code).ToString()
+                  if(-not $codes.ContainsKey($key)) {$codes[$key]=0};$codes[$key]++
+                }
+                $snapshot.pnp[$class]=@{count=$devices.Count;problemCodes=$codes;unknownProblemCodeCount=$unknown}
+              } catch {$snapshot.pnp[$class]=@{probeStatus='unavailable';hresult=$_.Exception.HResult}}
+            }
             return $snapshot
           }
           $report.before=Read-AudioState
@@ -290,7 +328,9 @@ jobs:
           $report.after=Read-AudioState
           $report|ConvertTo-Json -Depth 7|Set-Content .cache/windows-diagnostic/os-audio.json
       - run: npm ci --ignore-scripts
+        if: ${{ !inputs.diagnostic_os_only }}
       - name: Muted diagnostic only; retain failure before cleanup
+        if: ${{ !inputs.diagnostic_os_only }}
         shell: bash
         run: |
           python scripts/release/smoke-installed.py --windows-diagnostic \

@@ -993,6 +993,15 @@ class WindowsDiagnosticTests(unittest.TestCase):
         self.assertEqual(workflow.count('Start-Service -Name $name'),1)
         self.assertNotIn('Restart-Service',workflow);self.assertNotIn('Stop-Service',workflow)
         self.assertNotIn('Automatic -ErrorAction',workflow)
+        for mask in (1,2,4,8,15):self.assertIn('Counts(enumerator,'+str(mask)+')',workflow)
+        self.assertIn("foreach($class in @('AudioEndpoint','Media'))",workflow)
+        self.assertIn('problemCodes=$codes',workflow)
+        self.assertIn('ConfigManagerErrorCode',workflow)
+        self.assertNotIn('Enable-PnpDevice',workflow);self.assertNotIn('Disable-PnpDevice',workflow)
+        self.assertIn('if: ${{ !inputs.diagnostic_os_only }}',workflow)
+        self.assertIn("nativePlaybackAttempted=($env:OS_ONLY -ne 'true')",workflow)
+        self.assertIn("installerDownloadRequested=($env:OS_ONLY -ne 'true')",workflow)
+
         self.assertNotIn('GetDeviceId',workflow);self.assertNotIn('FriendlyName',workflow)
         self.assertIn("'qualificationStatus':'UNQUALIFIED'",workflow)
 
