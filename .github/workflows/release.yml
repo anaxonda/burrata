@@ -365,6 +365,15 @@ jobs:
           path: release-artifacts/
           if-no-files-found: error
           retention-days: 30
+      - name: Upload DEB only for manual Linux qualification
+        if: success() && github.event_name == 'workflow_dispatch' && needs.prepare.outputs.linux_only == 'true' && runner.os == 'Linux'
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-playback-deb-${{ needs.prepare.outputs.commit }}
+          path: release-artifacts/*.deb
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
       - name: Preserve installer for smoke diagnostics on failure
         if: failure()
         shell: bash
