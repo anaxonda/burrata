@@ -202,18 +202,24 @@ class RpmWorkflowTests(unittest.TestCase):
         self.assertNotIn('--privileged',rpm)
         self.assertNotIn('--no-sandbox',rpm)
 
-    def test_registered_diagnostic_bootstrap_preserves_deb_and_forwards_rpm(self):
-        text=(ROOT/'.github/workflows/diagnose-installed-linux.yml').read_text()
+    def test_registered_smoke_bootstrap_preserves_old_platform_rerun_and_forwards_rpm(self):
+        text=(ROOT/'.github/workflows/smoke-installed.yml').read_text()
         self.assertIn('      rpm_only:\n',text)
         option=text.split('      rpm_only:\n',1)[1].split('      rpm_version:',1)[0]
         self.assertIn('type: boolean',option);self.assertIn('default: false',option)
-        legacy=text.split('  replay-linux-smoke:\n',1)[1].split('\n  rpm-installed:',1)[0]
+        legacy=text.split('  smoke:\n',1)[1].split('\n  rpm-inputs:',1)[0]
         self.assertIn('    if: ${{ !inputs.rpm_only }}\n',legacy)
         legacy=legacy.replace('    if: ${{ !inputs.rpm_only }}\n','',1).rstrip()
-        self.assertEqual(hashlib.sha256(legacy.encode()).hexdigest(),'6bf4df863c81a34af6f055471562b6d4f3c347ee197b7b16ea05b302fbc4e8ca')
+        self.assertEqual(hashlib.sha256(legacy.encode()).hexdigest(),'d4b9904067734f3a7f35dad5a711e4486f34f2a06e78601a03ae8706a62c6d76')
         gate=text.split('  rpm-installed:\n',1)[1]
         self.assertIn('    if: inputs.rpm_only',gate)
         self.assertIn('uses: ./.github/workflows/qualify-rpm.yml',gate)
+        self.assertIn('needs: rpm-inputs',gate)
+        self.assertIn('run: test \"$RPM_PLATFORM\" = linux-x64',text)
+        command=text.split('      - name: Require the Linux RPM platform',1)[1].split('        run: ',1)[1].splitlines()[0]
+        for platform in ['linux-x64','macos-arm64','windows-x64']:
+            check=subprocess.run(['bash','-c',command],env={**os.environ,'RPM_PLATFORM':platform},capture_output=True)
+            self.assertEqual(check.returncode==0,platform=='linux-x64')
         self.assertNotIn('artifact_name',gate)
         for mapping in ['artifact_run_id: ${{ inputs.source_run_id }}','source_commit: ${{ inputs.expected_commit }}','version: ${{ inputs.rpm_version }}','tag: ${{ inputs.rpm_tag }}']:
             self.assertIn(mapping,gate)

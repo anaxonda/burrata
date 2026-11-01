@@ -16,12 +16,34 @@ on:
           - windows-x64
           - linux-x64
 
+      rpm_only:
+        description: Qualify the source run's real RPM (platform must be linux-x64)
+        type: boolean
+        required: false
+        default: false
+      expected_commit:
+        description: Exact artifact source commit (required when rpm_only)
+        type: string
+        required: false
+        default: ''
+      rpm_version:
+        description: Exact RPM version (required when rpm_only)
+        type: string
+        required: false
+        default: ''
+      rpm_tag:
+        description: Exact upstream inventory tag or build-COMMIT (required when rpm_only)
+        type: string
+        required: false
+        default: ''
+
 permissions:
   actions: read
   contents: read
 
 jobs:
   smoke:
+    if: ${{ !inputs.rpm_only }}
     runs-on: ${{ inputs.platform == 'macos-arm64' && 'macos-15' || inputs.platform == 'windows-x64' && 'windows-2022' || 'ubuntu-22.04' }}
     steps:
       - uses: actions/checkout@v7
@@ -111,3 +133,25 @@ jobs:
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 14
+
+  rpm-inputs:
+    if: inputs.rpm_only
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Require the Linux RPM platform
+        env:
+          RPM_PLATFORM: ${{ inputs.platform }}
+        run: test "$RPM_PLATFORM" = linux-x64
+
+  rpm-installed:
+    needs: rpm-inputs
+    if: inputs.rpm_only
+    uses: ./.github/workflows/qualify-rpm.yml
+    permissions:
+      actions: read
+      contents: read
+    with:
+      artifact_run_id: ${{ inputs.source_run_id }}
+      source_commit: ${{ inputs.expected_commit }}
+      version: ${{ inputs.rpm_version }}
+      tag: ${{ inputs.rpm_tag }}
