@@ -12153,7 +12153,7 @@ mod tests {
         restore_state(&mut restored, &saved).unwrap();
         assert_eq!(json!(restored.loudness_queue_contexts), contexts);
         assert_eq!(
-            restored.snapshot(true, false)["queueLoudnessContexts"],
+            restored.snapshot(true, true)["queueLoudnessContexts"],
             contexts
         );
         let state = Mutex::new(restored);
