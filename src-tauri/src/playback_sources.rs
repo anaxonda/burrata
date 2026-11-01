@@ -2635,6 +2635,7 @@ async fn try_direct_youtube_mapped_recovery_with<R, RF, V, VF>(
     cancel: watch::Receiver<bool>,
     trace: &SourceTrace,
     deadline: PlaybackDeadline,
+    separate_recovery_budget: bool,
     resolve: R,
     validate: V,
 ) -> Result<Option<acquisition::PreviewAudio>, String>
@@ -2662,7 +2663,7 @@ where
         trace,
         deadline,
         direct_youtube_recovery_deadline,
-        true,
+        separate_recovery_budget,
         resolve,
         validate,
     )
@@ -2756,6 +2757,11 @@ where
             }
         })?;
         let mut audio = resolved.audio;
+        if anchors.kind == RecordingProofKind::ExplicitSource
+            && audio.selected_format_id.as_deref() != Some("140")
+        {
+            return Err("Explicit preview transport format changed".into());
+        }
         let title_matches = audio.resolved_title.as_deref().is_some_and(|title| {
             valid_anchor_title(title)
                 && crate::matching::normalize(title) == crate::matching::normalize(&anchors.title)
@@ -3987,7 +3993,7 @@ async fn resolve_serial(
                     }
                     let audio = validate_or_recover_denied_source(
                         acquisition, track, &settings, &candidate, audio, proof,
-                        pinned, attempt_limit, cancel.clone(), trace, deadline,
+                        pinned, selected_candidate_present, attempt_limit, cancel.clone(), trace, deadline,
                     ).await?;
                     Ok::<_, String>((audio, proof))
             }.await;
@@ -4042,6 +4048,8 @@ async fn resolve_serial(
                         && attempt_limit > 1
                         && !transient_retry_attempted
                         && provider_attempt_count < attempt_limit
+                        && (!selected_candidate_present
+                            || trace.extraction_attempts_used() < attempt_limit)
                         && should_retry_same_candidate(&error) =>
                 {
                     trace.note_source_failure(&provider, &error, pinned);
@@ -5097,8 +5105,8 @@ struct VerifiedRecordingProof {
     kind: RecordingProofKind,
 }
 
-/// Anchors from a fresh YouTube source that passed an existing strong identity
-/// gate. This intentionally carries no artist credits or verified-channel claim.
+/// Fresh YouTube source facts. ExplicitSource authority is operation-local
+/// provider selection, never a persisted recording crosswalk or artist proof.
 #[derive(Clone, PartialEq)]
 struct VerifiedYoutubeRecordingAnchors {
     kind: RecordingProofKind,
@@ -5300,6 +5308,84 @@ fn fresh_denied_source_recovery_anchors(
     (anchors.kind == proof.kind).then_some(anchors)
 }
 
+/// Same-operation authority for an explicitly selected catalog preview. This
+/// is a provider-ID transport lock, never a catalog recording crosswalk.
+fn fresh_explicit_preview_transport_anchors(
+    track: &Track,
+    candidate: &Candidate,
+    audio: &acquisition::PreviewAudio,
+    proof: Option<VerifiedRecordingProof>,
+    explicitly_selected: bool,
+    pinned: bool,
+    attempt_limit: usize,
+    trace: &SourceTrace,
+    settings: &Settings,
+    direct_transport_enabled: bool,
+    deadline: PlaybackDeadline,
+) -> Option<VerifiedYoutubeRecordingAnchors> {
+    if !explicitly_selected
+        || !pinned
+        || track.provider != "catalog"
+        || proof?.kind != RecordingProofKind::ExplicitSource
+        || attempt_limit != 2
+        || trace.extraction_attempts_used() != 1
+        || !direct_youtube_foreground_context(trace)
+        || !direct_transport_enabled
+        || !acquisition::uses_managed_ytdlp(&settings.yt_dlp_path)
+        || direct_youtube_recovery_deadline(deadline).is_none()
+        || candidate.provider != "youtube"
+        || candidate.source.is_some()
+        || track.playback_range.is_some()
+        || audio.selected_format_id.as_deref() != Some("140")
+        || audio.selected_format_has_video
+        || candidate
+            .chapters
+            .as_ref()
+            .is_some_and(|chapters| !chapters.is_empty())
+        || audio
+            .chapters
+            .as_ref()
+            .is_some_and(|chapters| !chapters.is_empty())
+        || track.provenance["chapters"]
+            .as_array()
+            .is_some_and(|chapters| !chapters.is_empty())
+        || audio.provider_session.is_none()
+        || !audio.provider_session_current()
+    {
+        return None;
+    }
+    let id = candidate.id.strip_prefix("youtube:")?;
+    if !valid_youtube_video_id(id)
+        || acquisition::validate_source_url(&candidate.url, "youtube").is_err()
+        || acquisition::youtube_video_id(&candidate.url).as_deref() != Some(id)
+        || audio.resolved_provider_id.as_deref() != Some(id)
+        || audio.duration_seconds != candidate.duration_seconds
+        || audio.resolved_title.as_deref().is_none_or(|title| {
+            crate::matching::normalize(title) != crate::matching::normalize(&candidate.title)
+        })
+    {
+        return None;
+    }
+    let metadata = audio.source_metadata.as_ref()?;
+    let channel = metadata["channelId"].as_str()?;
+    let title = audio.resolved_title.as_deref()?;
+    let duration = audio.duration_seconds?;
+    if metadata["provider"].as_str() != Some("youtube")
+        || !valid_youtube_channel_id(channel)
+        || !valid_anchor_title(title)
+        || !valid_anchor_duration(duration)
+    {
+        return None;
+    }
+    Some(VerifiedYoutubeRecordingAnchors {
+        kind: RecordingProofKind::ExplicitSource,
+        video_id: id.to_owned(),
+        channel_id: channel.to_owned(),
+        title: title.to_owned(),
+        duration_seconds: duration,
+    })
+}
+
 fn recoverable_source_transport_status(error: &str) -> Option<u16> {
     // The shared failure classifier intentionally treats only 4xx/5xx as HTTP
     // failures. Read a redirect code here only from explicit status syntax; this
@@ -5342,11 +5428,25 @@ async fn validate_or_recover_denied_source(
     audio: acquisition::PreviewAudio,
     proof: Option<VerifiedRecordingProof>,
     pinned: bool,
+    explicitly_selected: bool,
     attempt_limit: usize,
     cancel: watch::Receiver<bool>,
     trace: &SourceTrace,
     deadline: PlaybackDeadline,
 ) -> Result<acquisition::PreviewAudio, String> {
+    let explicit = fresh_explicit_preview_transport_anchors(
+        track,
+        candidate,
+        &audio,
+        proof,
+        explicitly_selected,
+        pinned,
+        attempt_limit,
+        trace,
+        settings,
+        direct_youtube_enabled(),
+        deadline,
+    );
     let mut validation_trace = trace.clone();
     validation_trace.skip_youtube_forbidden_retry = fresh_denied_source_recovery_anchors(
         track,
@@ -5359,7 +5459,8 @@ async fn validate_or_recover_denied_source(
         trace,
         settings,
     )
-    .is_some();
+    .is_some()
+        || explicit.is_some();
     match acquisition
         .validate_playback_audio_traced(
             candidate,
@@ -5372,17 +5473,24 @@ async fn validate_or_recover_denied_source(
     {
         Ok(validated) => Ok(validated),
         Err(error) => {
-            let Some(anchors) = fresh_denied_source_recovery_anchors(
-                track,
-                candidate,
-                &audio,
-                proof,
-                &error,
-                pinned,
-                attempt_limit,
-                trace,
-                settings,
-            ) else {
+            let explicit = explicit.filter(|_| {
+                crate::playback_failure::classify(&error).http_status == Some(403)
+                    && audio.provider_session_current()
+            });
+            let explicitly_selected_recovery = explicit.is_some();
+            let Some(anchors) = explicit.or_else(|| {
+                fresh_denied_source_recovery_anchors(
+                    track,
+                    candidate,
+                    &audio,
+                    proof,
+                    &error,
+                    pinned,
+                    attempt_limit,
+                    trace,
+                    settings,
+                )
+            }) else {
                 return Err(error);
             };
             trace.event(
@@ -5399,6 +5507,9 @@ async fn validate_or_recover_denied_source(
                 cancel,
                 trace,
                 deadline,
+                // Explicit selection consumes the existing second extraction
+                // slot. Ordinary verified-source recovery keeps its old budget.
+                !explicitly_selected_recovery,
                 |id, budget, cancel| async move {
                     crate::youtube_direct_experiment::resolve_explicit_aac(&id, budget, cancel)
                         .await
@@ -5417,6 +5528,11 @@ async fn validate_or_recover_denied_source(
             );
             match recovered {
                 Some(mut recovered) => {
+                    if explicitly_selected_recovery && !audio.provider_session_current() {
+                        return Err(
+                            "Audio source provider session changed during resolution".into()
+                        );
+                    }
                     // ID, channel, title and duration matched the fresh identity
                     // above, and the new URL passed uncached access validation.
                     // Preserve that same-operation evidence for mapping writes.
@@ -6133,6 +6249,7 @@ async fn try_verified_candidate(
         audio,
         proof,
         false,
+        false,
         attempt_limit,
         cancel.clone(),
         trace,
@@ -6661,6 +6778,7 @@ fn linked_candidate_with_bandcamp(track: &Track, bandcamp_enabled: bool) -> Opti
 
 #[cfg(test)]
 mod tests {
+    include!("explicit_preview_transport_tests.rs");
     #[test]
     fn fresh_alias_lookup_is_bounded_to_one_plausible_candidate() {
         assert_eq!(
