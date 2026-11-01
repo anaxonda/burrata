@@ -869,10 +869,12 @@ class RpmRuntimeIdentityTests(unittest.TestCase):
         self.assertEqual(calls, [(100, smoke.signal.SIGTERM)])
 
     def test_actual_credential_change_is_rejected_without_signal(self):
-        registry, rows, _, root, calls, *_ = self.rig()
-        root(); rows[100]['uid'] = 0
-        with self.assertRaises(smoke.SmokeFailure): registry.stop_owned()
-        self.assertEqual(calls, [])
+        for uid in (0, 10001):
+            with self.subTest(uid=uid), patch.object(smoke.os, 'getuid', return_value=uid), patch.object(smoke.os, 'geteuid', return_value=uid):
+                registry, rows, _, root, calls, *_ = self.rig()
+                root(); rows[100]['uid'] += 1
+                with self.assertRaises(smoke.SmokeFailure): registry.stop_owned()
+                self.assertEqual(calls, [])
 
     def test_proc_enumeration_error_is_structured_before_runtime(self):
         with patch.object(pathlib.Path, 'glob', side_effect=PermissionError(13, 'private detail')):
