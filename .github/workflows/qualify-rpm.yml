@@ -1,0 +1,115 @@
+name: Installed Fedora RPM qualification
+
+on:
+  workflow_call:
+    inputs:
+      artifact_run_id: {required: true, type: string}
+      source_commit: {required: true, type: string}
+      version: {required: true, type: string}
+      tag: {required: true, type: string}
+  workflow_dispatch:
+    inputs:
+      artifact_run_id: {description: Successful release.yml run that built the RPM, required: true, type: string}
+      source_commit: {description: Exact upstream artifact commit (may differ from this harness commit), required: true, type: string}
+      version: {description: Exact RPM/application version, required: true, type: string}
+      tag: {description: Exact upstream inventory tag or build-COMMIT, required: true, type: string}
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  installed-rpm:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    container:
+      # Official Fedora44 linux/amd64 OCI manifest, resolved2026-11-01; no mutable latest tag.
+      image: registry.fedoraproject.org/fedora@sha256:7a04a2f9d11bba3ff8016ae79cc01ba49965578746c930702e141a3be1f8d4de
+      options: --cpus 2 --memory 4g --pids-limit 1024 --shm-size 512m
+    defaults:
+      run:
+        shell: bash
+    env:
+      ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
+      ARTIFACT_COMMIT: ${{ inputs.source_commit }}
+      ARTIFACT_VERSION: ${{ inputs.version }}
+      ARTIFACT_TAG: ${{ inputs.tag }}
+      HARNESS_COMMIT: ${{ github.sha }}
+    steps:
+      - name: Install test infrastructure (application dependencies remain RPM-resolved)
+        run: |
+          set -euo pipefail
+          dnf -y install git python3 sudo dbus-daemon pulseaudio pulseaudio-utils alsa-plugins-pulseaudio xorg-x11-server-Xvfb xorg-x11-xauth util-linux procps-ng findutils
+          useradd --create-home --uid 10001 qualifier
+          echo 'qualifier ALL=(root) NOPASSWD: /usr/bin/dnf' > /etc/sudoers.d/qualifier-rpm
+          chmod 0440 /etc/sudoers.d/qualifier-rpm
+          rpm -qa --queryformat '%{NEVRA}\n' | sort > /tmp/rpm-test-infrastructure.txt
+          test -z "${WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS:-}"
+          command -v xvfb-run
+          command -v parec
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24.21.0'
+      - run: npm ci --ignore-scripts
+      - name: Verify upstream workflow and artifact identity
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('fs');
+            const {ARTIFACT_RUN_ID:id, ARTIFACT_COMMIT:sha, ARTIFACT_VERSION:version, ARTIFACT_TAG:tag} = process.env;
+            if (!/^[1-9][0-9]*$/.test(id) || !Number.isSafeInteger(Number(id)) || !/^[a-f0-9]{40}$/.test(sha) || !/^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/.test(version) || ![ `v${version}`, `build-${sha}` ].includes(tag)) throw Error('Invalid upstream inputs');
+            if (`${context.repo.owner}/${context.repo.repo}` !== 'anaxonda/burrata') throw Error('Unexpected repository');
+            const repo = context.repo;
+            const {data:workflow} = await github.rest.actions.getWorkflow({...repo, workflow_id:'release.yml'});
+            const {data:run} = await github.rest.actions.getWorkflowRun({...repo, run_id:Number(id)});
+            if (run.workflow_id !== workflow.id || String(run.id) !== id || !/^[a-f0-9]{40}$/.test(run.head_sha) || run.repository.full_name !== 'anaxonda/burrata') throw Error('Upstream release workflow/source mismatch');
+            if (id === String(context.runId)) {
+              if (run.status !== 'in_progress') throw Error('Same-run qualification must follow the release build');
+            } else if (run.status !== 'completed' || run.conclusion !== 'success') throw Error('Cross-run upstream must have completed successfully');
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {...repo, run_id:Number(id), per_page:100});
+            const matches = artifacts.filter(a => a.name === `burrata-linux-x64-${sha}` && !a.expired);
+            if (matches.length !== 1 || matches[0].workflow_run?.head_sha !== run.head_sha || String(matches[0].workflow_run?.id) !== id) throw Error('Missing/ambiguous upstream Linux artifact');
+            fs.mkdirSync('.cache/rpm-output', {recursive:true});
+            fs.writeFileSync('.cache/rpm-output/rpm-artifact-provenance.json', JSON.stringify({verifiedReleaseWorkflowRun:true, repository:'anaxonda/burrata', runId:id, headSha:run.head_sha, artifactWorkflowHeadSha:matches[0].workflow_run.head_sha, artifactSourceCommit:sha, artifactId:matches[0].id, artifactDigest:matches[0].digest, harnessCommit:context.sha, image:'registry.fedoraproject.org/fedora@sha256:7a04a2f9d11bba3ff8016ae79cc01ba49965578746c930702e141a3be1f8d4de'}, null, 2));
+      - uses: actions/download-artifact@v5
+        with:
+          name: burrata-linux-x64-${{ inputs.source_commit }}
+          path: .cache/rpm-artifact
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.artifact_run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify exact downloaded RPM inventory
+        run: |
+          set -euo pipefail
+          python3 scripts/release/validate-rpm-artifact.py --artifact-root .cache/rpm-artifact --commit "$ARTIFACT_COMMIT" --tag "$ARTIFACT_TAG" --version "$ARTIFACT_VERSION" --output .cache/rpm-output/rpm-input.json
+          test "$(python3 -c 'import json;print(json.load(open("package.json"))["version"])')" = "$ARTIFACT_VERSION"
+          python3 scripts/release/test_smoke_installed.py
+          python3 scripts/release/test_rpm_artifact.py
+          node --test scripts/release/native-audio-protocol.test.mjs
+      - name: Install, verify and play the actual RPM as a nonroot user
+        run: |
+          set -euo pipefail
+          rpm_path="$(python3 -c 'import json;print(json.load(open(".cache/rpm-output/rpm-input.json"))["installer"])')"
+          printf 'pcm.!default { type pulse }\nctl.!default { type pulse }\n' > /home/qualifier/private-alsa.conf
+          chown -R qualifier:qualifier .cache/rpm-output
+          runuser -u qualifier -- env PATH="$PATH" HOME=/home/qualifier GDK_BACKEND=x11 ALSA_CONFIG_PATH=/home/qualifier/private-alsa.conf python3 scripts/release/smoke-installed.py --installer "$rpm_path" --evidence .cache/rpm-output/raw-rpm-smoke-evidence.json --source-run-id "$ARTIFACT_RUN_ID" --source-commit "$ARTIFACT_COMMIT" --source-version "$ARTIFACT_VERSION" --harness-commit "$HARNESS_COMMIT"
+          python3 scripts/release/validate-rpm-artifact.py --artifact-root .cache/rpm-artifact --commit "$ARTIFACT_COMMIT" --tag "$ARTIFACT_TAG" --version "$ARTIFACT_VERSION" --raw-evidence .cache/rpm-output/raw-rpm-smoke-evidence.json --provenance .cache/rpm-output/rpm-artifact-provenance.json --output .cache/rpm-output/rpm-smoke-evidence.json
+      - name: Preserve dependency/transaction versions
+        if: always()
+        run: |
+          mkdir -p .cache/rpm-output
+          cp /tmp/rpm-test-infrastructure.txt .cache/rpm-output/
+          rpm -qa --queryformat '%{NEVRA}\n' | sort > .cache/rpm-output/rpm-after.txt
+          dnf history info last > .cache/rpm-output/dnf-last-transaction.txt || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: burrata-rpm-smoke-${{ inputs.source_commit }}
+          path: .cache/rpm-output/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30

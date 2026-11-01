@@ -21,6 +21,7 @@ import tempfile
 import time
 import uuid
 import stat
+import platform
 
 
 TARGETS = {
@@ -118,7 +119,109 @@ def platform_environment(home: pathlib.Path, app_data: pathlib.Path) -> dict[str
     return env
 
 
-def install_linux(installer: pathlib.Path, temp: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path, str | None]:
+RPM_FORMAT = "%{NAME}\t%{VERSION}\t%{RELEASE}\t%{ARCH}\t%{EPOCHNUM}\n"
+
+
+class RpmInstallation:
+    def __init__(self, metadata: tuple[str, str, str, str, str]):
+        self.metadata = metadata
+        self.paths: list[pathlib.Path] = []
+
+    @property
+    def name(self) -> str:
+        return self.metadata[0]
+
+    @property
+    def nevra(self) -> str:
+        name, version, release, arch, epoch = self.metadata
+        return f"{name}-{epoch}:{version}-{release}.{arch}"
+
+
+def rpm_metadata(output: bytes) -> tuple[str, str, str, str, str]:
+    fields = output.decode("utf-8").removesuffix("\n").split("\t")
+    if (len(fields) != 5 or fields[0] not in {"burrata", "Burrata"}
+            or not all(re.fullmatch(r"[A-Za-z0-9._+~^-]+", value) for value in fields)
+            or fields[3] != "x86_64" or not re.fullmatch(r"0|[1-9][0-9]*", fields[4])):
+        raise SmokeFailure("RPM install", "invalid Burrata RPM identity or architecture")
+    return tuple(fields)
+
+
+def verify_rpm(package: RpmInstallation) -> None:
+    installed = run(["rpm", "-q", "--queryformat", RPM_FORMAT, package.name], check=False)
+    if installed.returncode or rpm_metadata(installed.stdout) != package.metadata:
+        raise SmokeFailure("RPM verify", "installed RPM identity differs; never remove an unrelated package")
+    verified = run(["rpm", "-V", package.name], check=False)
+    if verified.returncode or verified.stdout.strip() or verified.stderr.strip():
+        raise SmokeFailure("RPM verify", "installed RPM files do not match their database digests/attributes")
+
+
+def remove_rpm(package: RpmInstallation) -> None:
+    current = run(["rpm", "-q", "--queryformat", RPM_FORMAT, package.name], check=False)
+    if current.returncode == 1:
+        if any(path.exists() or path.is_symlink() for path in package.paths):
+            raise SmokeFailure("RPM cleanup", "RPM absent but recorded runtime paths remain")
+        return
+    if current.returncode or rpm_metadata(current.stdout) != package.metadata:
+        raise SmokeFailure("RPM cleanup", "RPM identity changed; never uninstall an unrelated package")
+    run(["sudo", "-n", "dnf", "-y", "--setopt=clean_requirements_on_remove=False",
+         "remove", package.nevra], timeout=300)
+    absent = run(["rpm", "-q", package.name], check=False)
+    if absent.returncode != 1 or any(path.exists() or path.is_symlink() for path in package.paths):
+        raise SmokeFailure("RPM cleanup", "installed package or owned runtime paths remain after removal")
+
+
+def verify_rpm_profile_stopped(temp: pathlib.Path) -> None:
+    for folder in pathlib.Path("/proc").glob("[0-9]*"):
+        try:
+            if folder.stat().st_uid != os.getuid():
+                continue
+            if str(temp).encode() in (folder / "cmdline").read_bytes() or str(temp).encode() in (folder / "environ").read_bytes():
+                raise SmokeFailure("RPM cleanup", "owned runtime profile processes remain")
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+
+
+def install_rpm(installer: pathlib.Path, temp: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path, RpmInstallation]:
+    distro = platform.freedesktop_os_release()
+    if sys.platform != "linux" or distro.get("ID") != "fedora" or os.geteuid() == 0:
+        raise SmokeFailure("RPM install", "RPM qualification requires an unprivileged user on Fedora")
+    package = RpmInstallation(rpm_metadata(run(["rpm", "-qp", "--queryformat", RPM_FORMAT, installer]).stdout))
+    expected_version = json.loads((ROOT / "package.json").read_text())["version"]
+    if package.metadata[1] != expected_version:
+        raise SmokeFailure("RPM install", "RPM version differs from the checked-out test source")
+    absent = run(["rpm", "-q", package.name], check=False)
+    if absent.returncode != 1:
+        raise SmokeFailure("RPM install", "RPM already installed or absence not proven; never replace it")
+    try:
+        run(["sudo", "-n", "dnf", "-y", "install", str(installer.resolve(strict=True))], timeout=600)
+        verify_rpm(package)
+        output = run(["rpm", "-ql", package.name]).stdout.decode().splitlines()
+        paths = [pathlib.Path(item) for item in output]
+        if len(set(output)) != len(paths) or any(not p.is_absolute() or ".." in p.parts for p in paths):
+            raise SmokeFailure("RPM install", "RPM file list is malformed")
+        apps = [p for p in paths if p == pathlib.Path("/usr/bin/burrata")]
+        bridges = [p for p in paths if p.as_posix().endswith("/resources/mcp/server.cjs")
+                   and (p.as_posix().startswith("/usr/lib/") or p.as_posix().startswith("/usr/lib64/"))]
+        if len(apps) != 1 or len(bridges) != 1:
+            raise SmokeFailure("RPM install", "RPM must own exactly one app and MCP resource tree")
+        for path in [apps[0], bridges[0]]:
+            if not path.is_file() or path.is_symlink() or path.resolve(strict=True) != path:
+                raise SmokeFailure("RPM install", "installed RPM runtime path is missing or redirected")
+            owner = rpm_metadata(run(["rpm", "-qf", "--queryformat", RPM_FORMAT, path]).stdout)
+            if owner != package.metadata:
+                raise SmokeFailure("RPM install", "runtime path is not owned by this exact RPM")
+        if not os.access(apps[0], os.X_OK):
+            raise SmokeFailure("RPM install", "installed RPM app is not executable")
+        package.paths = [apps[0], bridges[0]]
+        return apps[0], bridges[0].parent.parent, package
+    except BaseException:
+        remove_rpm(package)
+        raise
+
+
+def install_linux(installer: pathlib.Path, temp: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path, str | RpmInstallation | None]:
+    if installer.suffix.lower() == ".rpm":
+        return install_rpm(installer, temp)
     if installer.suffix.lower() == ".appimage":
         extracted = temp / "appimage"
         extracted.mkdir()
@@ -142,7 +245,7 @@ def install_linux(installer: pathlib.Path, temp: pathlib.Path) -> tuple[pathlib.
             raise SmokeFailure("AppImage linking", "bundled UI runtime has unresolved libraries or symbols")
         return app, mcp[0].parent.parent, None
     if installer.suffix.lower() != ".deb":
-        raise SmokeFailure("install", "Linux smoke requires a built DEB or AppImage")
+        raise SmokeFailure("install", "Linux smoke requires a built DEB, RPM or AppImage")
     package = run(["dpkg-deb", "-f", installer, "Package"]).stdout.decode().strip()
     if not package:
         raise SmokeFailure("install", "DEB did not declare a package name")
@@ -914,6 +1017,8 @@ def main() -> int:
     parser.add_argument("--evidence", type=pathlib.Path, required=True)
     parser.add_argument("--source-run-id")
     parser.add_argument("--source-commit")
+    parser.add_argument("--source-version")
+    parser.add_argument("--harness-commit")
     args = parser.parse_args()
     installer = args.installer.resolve()
     evidence_path = args.evidence.resolve()
@@ -925,6 +1030,13 @@ def main() -> int:
         evidence["sourceRunId"] = args.source_run_id
     if args.source_commit:
         evidence["sourceCommit"] = args.source_commit
+    if args.source_version:
+        evidence["sourceVersion"] = args.source_version
+    if args.harness_commit:
+        evidence["harnessCommit"] = args.harness_commit
+    if installer.suffix.lower() == ".rpm":
+        with installer.open("rb") as rpm_source:
+            evidence["installerSha256"] = hashlib.file_digest(rpm_source, "sha256").hexdigest()
     app_process = None
     audio_process = None
     package_name = None
@@ -989,6 +1101,22 @@ def main() -> int:
             private_monitor=linux_private_monitor_context(app, app_process, audio_process, env, temp) if sys.platform == "linux" else None
         )
         evidence["checks"]["nativeAudio"]["proofScope"] = ("Linux private OS monitor after Player gain; no physical hardware" if sys.platform == "linux" else "Muted pre-Player-gain mixer PCM; no OS loopback/physical proof")
+        if isinstance(package_name, RpmInstallation):
+            stop_process(app_process, temp)
+            app_process = None
+            stop_process(audio_process, temp)
+            audio_process = None
+            verify_rpm_profile_stopped(temp)
+            verify_rpm(package_name)
+            rpm_identity = package_name.nevra
+            rpm_version = package_name.metadata[1]
+            remove_rpm(package_name)
+            package_name = None
+            evidence["checks"]["rpm"] = {"installedIdentity": rpm_identity,
+                                           "installedVersion": rpm_version,
+                                           "postRuntimeVerify": True, "uninstalled": True,
+                                           "packageAndRuntimePathsAbsent": True,
+                                           "runtimeUid": os.geteuid()}
         evidence["status"] = "passed"
         print(json.dumps({"status": evidence["status"], "platform": sys.platform,
                           "checks": evidence["checks"]}, separators=(",", ":")))
@@ -1009,7 +1137,14 @@ def main() -> int:
                 "stderr": safe_media_log_tail(temp / "installed-app.stderr.log"),
                 "stdout": safe_media_log_tail(temp / "installed-app.stdout.log"),
             }
-        if sys.platform == "linux" and package_name:
+        rpm_cleanup_error = None
+        if isinstance(package_name, RpmInstallation):
+            try:
+                remove_rpm(package_name)
+            except SmokeFailure as error:
+                rpm_cleanup_error = error
+                evidence.update(status="failed", failedStage="RPM cleanup", error=str(error))
+        elif sys.platform == "linux" and package_name:
             run(["sudo", "-n", "apt-get", "remove", "-y", package_name], timeout=300, check=False)
         if sys.platform == "darwin" and mount:
             run(["hdiutil", "detach", "-quiet", mount], timeout=30, check=False)
@@ -1022,6 +1157,8 @@ def main() -> int:
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
         temp_obj.cleanup()
+        if rpm_cleanup_error is not None:
+            raise rpm_cleanup_error
 
 
 if __name__ == "__main__":

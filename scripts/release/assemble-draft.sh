@@ -16,6 +16,7 @@ PY
   done < <(find incoming -name artifact-inventory.json -type f)
   test "$found" = 1 || { echo "Required platform inventory missing or mismatched: $label" >&2; exit 1; }
 done
+python3 "$(dirname "${BASH_SOURCE[0]}")/validate-rpm-artifact.py" --incoming incoming --commit "$RELEASE_COMMIT" --tag "$RELEASE_TAG" --version "${RELEASE_TAG#v}"
 test -n "$(find incoming -name '*.xpi' -type f -print -quit)" || { echo 'Signed Firefox XPI is missing; unsigned extensions are not releasable' >&2; exit 1; }
 test -n "$(find incoming -name '*.zip' -type f -print -quit)" || { echo 'Chromium ZIP is missing' >&2; exit 1; }
 python3 - "$RELEASE_TAG" incoming <<'PY'

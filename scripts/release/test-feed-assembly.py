@@ -125,7 +125,7 @@ with tempfile.TemporaryDirectory(prefix="burrata-feed-fixture-") as temp:
             artifacts.append({"file": name, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()})
             installer_names.add(name)
         (directory / "artifact-inventory.json").write_text(json.dumps({
-            "tag": "v1.2.3", "commit": commit, "label": label,
+            "tag": "v1.2.3", "commit": commit, "label": label, "target": target,
             "artifacts": artifacts,
         }), encoding="utf-8")
         # Supporting source/license records must remain checksummed supporting
@@ -142,6 +142,28 @@ with tempfile.TemporaryDirectory(prefix="burrata-feed-fixture-") as temp:
                       for p in [extension_dir / "signed.xpi", extension_dir / "chromium.zip"]]
     }))
     env = dict(os.environ, RELEASE_TAG="v1.2.3", RELEASE_COMMIT=commit)
+    rpm_dir = incoming / f"burrata-rpm-smoke-{commit}"
+    rpm_dir.mkdir()
+    rpm_path = next(incoming.glob("*/installers/*.rpm"))
+    rpm_evidence = {"status":"passed", "sourceCommit":commit, "sourceVersion":"1.2.3", "sourceRunId":"123", "harnessCommit":"b"*40,
+                    "installerSha256":hashlib.sha256(rpm_path.read_bytes()).hexdigest(),
+                    "checks":{"rpm":{"postRuntimeVerify":True,"uninstalled":True,"packageAndRuntimePathsAbsent":True,"runtimeUid":10001,"installedVersion":"1.2.3"},
+                              "mcp":{"initialized":True,"statusRunning":True,"frontendMounted":True,"toolCount":132},"mcpEntrypoints":{"applicationMcp":{"initialized":True,"statusRunning":True,"frontendMounted":True,"toolCount":132},"shippedConsole":[{"initialized":True,"statusRunning":True,"frontendMounted":True,"toolCount":132}]},
+                              "nativeAudio":{"status":"sampled","engine":"native","channels":2,"capturedSeconds":3,
+                                             "osOutput":{"postPlayerGain":True,"physicalHardware":False,"verifiedToneSeconds":3.2,"remuteQuietSeconds":.75},
+                                             "privateMonitorControl":{"remuteWhilePlaying":True,"remuteClockAdvanceSeconds":1}}},
+                    "rpmArtifactProvenance":{"verifiedReleaseWorkflowRun":True,"repository":"anaxonda/burrata","headSha":commit,"artifactWorkflowHeadSha":commit,"artifactSourceCommit":commit,"runId":"123","harnessCommit":"b"*40,
+                                             "image":"registry.fedoraproject.org/fedora@sha256:7a04a2f9d11bba3ff8016ae79cc01ba49965578746c930702e141a3be1f8d4de"}}
+    rpm_record = rpm_dir / "rpm-smoke-evidence.json"
+    rpm_record.write_text(json.dumps(rpm_evidence))
+    # An advertised RPM cannot be published without successful matching install evidence.
+    rpm_record.unlink()
+    missing = subprocess.run(["bash", str(ASSEMBLER)], cwd=workspace, env=env, capture_output=True)
+    assert missing.returncode != 0
+    rpm_record.write_text(json.dumps({**rpm_evidence,"status":"failed"}))
+    failed_rpm = subprocess.run(["bash", str(ASSEMBLER)], cwd=workspace, env=env, capture_output=True)
+    assert failed_rpm.returncode != 0
+    rpm_record.write_text(json.dumps(rpm_evidence))
     damaged = next(incoming.glob("*/installers/*.deb"))
     original = damaged.read_bytes()
     damaged.write_bytes(b"incorrect installer")

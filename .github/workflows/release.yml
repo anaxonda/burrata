@@ -389,6 +389,19 @@ jobs:
           retention-days: 7
           compression-level: 0
 
+  rpm-installed:
+    needs: [prepare, build]
+    if: needs.prepare.outputs.extensions_only != 'true'
+    uses: ./.github/workflows/qualify-rpm.yml
+    permissions:
+      contents: read
+      actions: read
+    with:
+      artifact_run_id: ${{ format('{0}', github.run_id) }}
+      source_commit: ${{ needs.prepare.outputs.commit }}
+      version: ${{ needs.prepare.outputs.version }}
+      tag: ${{ needs.prepare.outputs.tag }}
+
   extension:
     needs: prepare
     if: needs.prepare.outputs.linux_only != 'true' && (needs.prepare.outputs.publish_draft == 'true' || needs.prepare.outputs.extensions_only == 'true')
@@ -429,7 +442,7 @@ jobs:
           retention-days: 30
 
   draft:
-    needs: [prepare, build, extension]
+    needs: [prepare, build, extension, rpm-installed]
     if: needs.prepare.outputs.publish_draft == 'true'
     runs-on: ubuntu-22.04
     permissions:

@@ -2,6 +2,7 @@
 """Execute release.yml's actual validation shell against offline Git fixtures."""
 from pathlib import Path
 import json
+import hashlib
 import os
 import re
 import shutil
@@ -183,6 +184,69 @@ class WorkflowSourceTests(unittest.TestCase):
         self.assertIn('matrix: ${{ fromJSON(needs.prepare.outputs.build_matrix) }}', workflow)
         self.assertIn("needs.prepare.outputs.linux_only != 'true' &&", workflow)
 
+
+
+class RpmWorkflowTests(unittest.TestCase):
+    def test_gate_is_required_for_draft_and_uses_same_build_artifact(self):
+        source=WORKFLOW.read_text();rpm=(ROOT/'.github/workflows/qualify-rpm.yml').read_text()
+        self.assertIn('needs: [prepare, build, extension, rpm-installed]',source)
+        gate=source.split('  rpm-installed:\n',1)[1].split('  extension:',1)[0]
+        self.assertIn('needs: [prepare, build]',gate)
+        self.assertIn('uses: ./.github/workflows/qualify-rpm.yml',gate)
+        self.assertIn("if: needs.prepare.outputs.extensions_only != 'true'",gate)
+        self.assertIn('source_commit: ${{ needs.prepare.outputs.commit }}',gate)
+        self.assertIn('run-id: ${{ inputs.artifact_run_id }}',rpm)
+        self.assertIn('name: burrata-linux-x64-${{ inputs.source_commit }}',rpm)
+        self.assertIn('runuser -u qualifier',rpm)
+        self.assertIn('test -z "${WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS:-}"',rpm)
+        self.assertNotIn('--privileged',rpm)
+        self.assertNotIn('--no-sandbox',rpm)
+
+    def test_registered_diagnostic_bootstrap_preserves_deb_and_forwards_rpm(self):
+        text=(ROOT/'.github/workflows/diagnose-installed-linux.yml').read_text()
+        self.assertIn('      rpm_only:\n',text)
+        option=text.split('      rpm_only:\n',1)[1].split('      rpm_version:',1)[0]
+        self.assertIn('type: boolean',option);self.assertIn('default: false',option)
+        legacy=text.split('  replay-linux-smoke:\n',1)[1].split('\n  rpm-installed:',1)[0]
+        self.assertIn('    if: ${{ !inputs.rpm_only }}\n',legacy)
+        legacy=legacy.replace('    if: ${{ !inputs.rpm_only }}\n','',1).rstrip()
+        self.assertEqual(hashlib.sha256(legacy.encode()).hexdigest(),'6bf4df863c81a34af6f055471562b6d4f3c347ee197b7b16ea05b302fbc4e8ca')
+        gate=text.split('  rpm-installed:\n',1)[1]
+        self.assertIn('    if: inputs.rpm_only',gate)
+        self.assertIn('uses: ./.github/workflows/qualify-rpm.yml',gate)
+        self.assertNotIn('artifact_name',gate)
+        for mapping in ['artifact_run_id: ${{ inputs.source_run_id }}','source_commit: ${{ inputs.expected_commit }}','version: ${{ inputs.rpm_version }}','tag: ${{ inputs.rpm_tag }}']:
+            self.assertIn(mapping,gate)
+
+    def upstream(self, **changes):
+        text=(ROOT/'.github/workflows/qualify-rpm.yml').read_text()
+        block=text.split('          script: |\n',1)[1].split('      - uses: actions/download-artifact',1)[0]
+        code=textwrap.dedent(block)
+        data={'id':'122','sha':'a'*40,'repo':'anaxonda/burrata','workflow':7,'status':'completed','conclusion':'success','artifactSha':'a'*40,'runSha':'a'*40,'expired':False,'duplicate':False,'contextRun':123}
+        data.update(changes)
+        wrapper="""const input=JSON.parse(process.argv[1]);const code=process.argv[2];let saved;
+const artifact={name:'burrata-linux-x64-'+input.sha,expired:input.expired,id:1,workflow_run:{id:Number(input.id),head_sha:input.artifactSha},digest:'sha256:fixture'};
+const github={rest:{actions:{getWorkflow:async()=>({data:{id:7}}),getWorkflowRun:async()=>({data:{id:Number(input.id),workflow_id:input.workflow,head_sha:input.runSha,status:input.status,conclusion:input.conclusion,repository:{full_name:input.repo}}}),listWorkflowRunArtifacts:()=>{}}},paginate:async()=>input.duplicate?[artifact,artifact]:[artifact]};
+const context={repo:{owner:'anaxonda',repo:'burrata'},runId:input.contextRun,sha:'b'.repeat(40)};
+const fakeProcess={env:{ARTIFACT_RUN_ID:input.id,ARTIFACT_COMMIT:input.sha,ARTIFACT_VERSION:'0.1.25',ARTIFACT_TAG:'build-'+input.sha}};
+const fakeRequire=()=>({mkdirSync:()=>{},writeFileSync:(p,v)=>saved=JSON.parse(v)});
+const Async=Object.getPrototypeOf(async function(){}).constructor;
+try{await new Async('github','context','process','require',code)(github,context,fakeProcess,fakeRequire);process.stdout.write(JSON.stringify(saved));}catch(e){process.stderr.write(e.message);process.exitCode=1;}
+"""
+        return subprocess.run(['node','--input-type=module','-e',wrapper,json.dumps(data),code],capture_output=True,text=True,timeout=5)
+
+    def test_actual_upstream_script_accepts_cross_run_distinct_harness_and_same_run(self):
+        result=self.upstream();self.assertEqual(result.returncode,0,result.stderr)
+        data=json.loads(result.stdout);self.assertEqual(data['headSha'],'a'*40);self.assertEqual(data['harnessCommit'],'b'*40)
+        result=self.upstream(runSha='c'*40,artifactSha='c'*40)
+        self.assertEqual(result.returncode,0,result.stderr)  # explicit source_ref differing from run head
+        result=self.upstream(id='123',status='in_progress',conclusion=None)
+        self.assertEqual(result.returncode,0,result.stderr)
+
+    def test_actual_upstream_script_rejects_foreign_failed_expired_ambiguous_sources(self):
+        for changes in [{'repo':'foreign/repo'},{'workflow':8},{'runSha':'c'*40},{'status':'in_progress'},{'conclusion':'failure'},{'artifactSha':'c'*40},{'expired':True},{'duplicate':True},{'sha':'--all'}]:
+            with self.subTest(changes=changes):
+                result=self.upstream(**changes);self.assertNotEqual(result.returncode,0);self.assertEqual(result.stdout,'')
 
 if __name__ == '__main__':
     unittest.main()

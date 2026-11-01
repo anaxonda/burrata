@@ -573,16 +573,141 @@ class OwnedCheckerTimeoutTests(unittest.TestCase):
 
 class NativeCheckerFailureEvidenceTests(unittest.TestCase):
  def test_static_failed_route_reason_reaches_smoke_failure_diagnostics(self):
-  with tempfile.TemporaryDirectory() as directory:
-   root=pathlib.Path(directory);target='test-target';tools=root/'tools'/target;tools.mkdir(parents=True);(tools/'burrata-mcp').write_text('fixture')
-   result=subprocess.CompletedProcess([],1,json.dumps({'status':'failed','error':'Owned private app route unavailable; never unmuted'}).encode(),b'ignored')
-   with patch.object(smoke.shutil,'which',return_value='/fake/node'),patch.object(smoke,'run',return_value=result):
-    with self.assertRaises(smoke.SmokeFailure) as caught:smoke.run_mcp_native_audio(root,target,root/'automation.json',{},'local:fixture')
-   self.assertEqual(caught.exception.diagnostics,{'checkerExitCode':1,'checkerReason':'Owned private app route unavailable; never unmuted'})
+  for platform,filename in [('linux','burrata-mcp'),('darwin','burrata-mcp'),('win32','burrata-mcp.exe')]:
+   with self.subTest(platform=platform),tempfile.TemporaryDirectory() as directory:
+    root=pathlib.Path(directory);target='test-target';tools=root/'tools'/target;tools.mkdir(parents=True);mcp=tools/filename;mcp.write_text('fixture')
+    result=subprocess.CompletedProcess([],1,json.dumps({'status':'failed','error':'Owned private app route unavailable; never unmuted'}).encode(),b'ignored')
+    with patch.object(smoke.sys,'platform',platform),patch.object(smoke.shutil,'which',return_value='/fake/node'),patch.object(smoke,'run',return_value=result) as runner:
+     with self.assertRaises(smoke.SmokeFailure) as caught:smoke.run_mcp_native_audio(root,target,root/'automation.json',{},'local:fixture')
+    runner.assert_called_once()
+    self.assertEqual(runner.call_args.args[0][2],mcp)
+    self.assertEqual(caught.exception.diagnostics,{'checkerExitCode':1,'checkerReason':'Owned private app route unavailable; never unmuted'})
  def test_untrusted_stdout_reason_paths_urls_and_tokens_are_not_exported(self):
   for reason in ['https://private.invalid/?sig=secret','/home/person/private.wav','cookie=secret',{'token':'secret'},'Owned private app route unavailable; never unmuted\nsecret']:
    evidence=smoke.native_checker_failure_evidence({'error':reason,'stdout':'secret'},1)
    self.assertEqual(evidence,{'checkerExitCode':1,'checkerReason':'unrecognized_or_absent'})
+
+
+@unittest.skipUnless(smoke.sys.platform == "linux", "Fedora RPM transactions and POSIX installed paths; portable Native checker tests remain unskipped")
+class RpmInstallationTests(unittest.TestCase):
+    metadata = b"burrata\t0.1.25\t1\tx86_64\t0\n"
+    runtime = ["/usr/bin/burrata", "/usr/lib/Burrata/resources/mcp/server.cjs"]
+
+    def fixture(self, directory, *, verify_bad=False, foreign_owner=False, install_bad=False, preinstalled=False, malformed_paths=False):
+        installer = pathlib.Path(directory) / "burrata.rpm"
+        installer.write_bytes(b"rpm fixture, never executed")
+        state = {"installed": preinstalled, "calls": []}
+        def run(args, **kwargs):
+            args = list(map(str, args)); state["calls"].append(args)
+            code, data = 0, b""
+            if args[:2] == ["rpm", "-qp"]: data = self.metadata
+            elif args[:2] == ["rpm", "-q"]:
+                code = 0 if state["installed"] else 1
+                data = self.metadata if code == 0 and "--queryformat" in args else b""
+            elif args[:2] == ["rpm", "-V"]:
+                code, data = (1, b"S.5....T. /usr/bin/burrata") if verify_bad else (0,b"")
+            elif args[:2] == ["rpm", "-ql"]: data = ("\n".join(self.runtime + ([self.runtime[0]] if malformed_paths else []))+"\n").encode()
+            elif args[:2] == ["rpm", "-qf"]: data = self.metadata.replace(b"0.1.25",b"9.9.9") if foreign_owner else self.metadata
+            elif args[:4] == ["sudo", "-n", "dnf", "-y"]:
+                if "install" in args:
+                    if install_bad:
+                        state['installed'] = install_bad == 'partial'
+                        raise smoke.SmokeFailure("command","DNF failed dependency resolution")
+                    state["installed"] = True
+                elif "remove" in args: state["installed"] = False
+                else: raise AssertionError(args)
+            else: raise AssertionError(args)
+            return subprocess.CompletedProcess(args, code, data, b"")
+        return installer,state,run
+
+    def patches(self, run):
+        original_is_file=pathlib.Path.is_file;original_resolve=pathlib.Path.resolve
+        stack=ExitStack()
+        stack.enter_context(patch.object(smoke.platform,'freedesktop_os_release',return_value={'ID':'fedora'}))
+        stack.enter_context(patch.object(smoke.os,'geteuid',return_value=10001))
+        stack.enter_context(patch.object(smoke,'run',side_effect=run))
+        stack.enter_context(patch.object(pathlib.Path,'is_file',lambda p: True if str(p) in self.runtime else original_is_file(p)))
+        stack.enter_context(patch.object(pathlib.Path,'resolve',lambda p,**kw: p if str(p) in self.runtime else original_resolve(p,**kw)))
+        stack.enter_context(patch.object(smoke.os,'access',return_value=True))
+        return stack
+
+    def test_real_transaction_exact_identity_file_ownership_verify_then_remove(self):
+        with tempfile.TemporaryDirectory() as folder:
+            installer,state,run=self.fixture(folder)
+            with self.patches(run):
+                app,resources,package=smoke.install_linux(installer,pathlib.Path(folder))
+                smoke.verify_rpm(package);smoke.remove_rpm(package)
+            self.assertEqual(str(app),self.runtime[0]);self.assertEqual(str(resources),'/usr/lib/Burrata/resources')
+            self.assertFalse(state['installed'])
+            calls=state['calls'];self.assertIn(['sudo','-n','dnf','-y','install',str(installer)],calls)
+            self.assertIn(['sudo','-n','dnf','-y','--setopt=clean_requirements_on_remove=False','remove','burrata-0:0.1.25-1.x86_64'],calls)
+            self.assertGreaterEqual(sum(c[:2]==['rpm','-V'] for c in calls),2)
+            self.assertEqual(sum(c[:2]==['rpm','-qf'] for c in calls),2)
+
+    def test_failed_install_does_not_claim_install_or_remove_foreign_package(self):
+        with tempfile.TemporaryDirectory() as folder:
+            installer,state,run=self.fixture(folder,install_bad=True)
+            with self.patches(run), self.assertRaises(smoke.SmokeFailure):smoke.install_rpm(installer,pathlib.Path(folder))
+            self.assertFalse(any('remove' in c for c in state['calls']))
+
+    def test_preexisting_package_is_never_replaced_or_uninstalled(self):
+        with tempfile.TemporaryDirectory() as folder:
+            installer,state,run=self.fixture(folder,preinstalled=True)
+            with self.patches(run), self.assertRaises(smoke.SmokeFailure):smoke.install_rpm(installer,pathlib.Path(folder))
+            self.assertFalse(any(c[0]=='sudo' for c in state['calls']))
+
+    def test_bad_verify_foreign_owner_or_duplicate_paths_fail_and_clean_owned_install(self):
+        for option in ['verify_bad','foreign_owner','malformed_paths']:
+            with self.subTest(option=option),tempfile.TemporaryDirectory() as folder:
+                installer,state,run=self.fixture(folder,**{option:True})
+                with self.patches(run),self.assertRaises(smoke.SmokeFailure):smoke.install_rpm(installer,pathlib.Path(folder))
+                self.assertFalse(state['installed'])
+
+    def test_foreign_nevra_never_uninstalled(self):
+        package=smoke.RpmInstallation(('burrata','0.1.25','1','x86_64','0'))
+        result=subprocess.CompletedProcess([],0,self.metadata.replace(b'0.1.25',b'0.1.24'),b'')
+        with patch.object(smoke,'run',return_value=result) as run,self.assertRaises(smoke.SmokeFailure):smoke.remove_rpm(package)
+        self.assertEqual(run.call_count,1)
+
+    def test_remove_failure_or_still_installed_is_not_success(self):
+        package=smoke.RpmInstallation(('burrata','0.1.25','1','x86_64','0'))
+        installed=subprocess.CompletedProcess([],0,self.metadata,b'')
+        with patch.object(smoke,'run',side_effect=[installed,smoke.SmokeFailure('command','remove failed')]),self.assertRaises(smoke.SmokeFailure):smoke.remove_rpm(package)
+        with patch.object(smoke,'run',return_value=installed),self.assertRaises(smoke.SmokeFailure):smoke.remove_rpm(package)
+
+    def test_partial_transaction_failure_cleans_only_matching_new_package(self):
+        with tempfile.TemporaryDirectory() as folder:
+            installer,state,run=self.fixture(folder,install_bad='partial')
+            with self.patches(run),self.assertRaises(smoke.SmokeFailure):smoke.install_rpm(installer,pathlib.Path(folder))
+            self.assertFalse(state['installed']);self.assertTrue(any('remove' in c for c in state['calls']))
+
+    def test_wrong_version_or_redirected_runtime_is_rejected(self):
+        with tempfile.TemporaryDirectory() as folder:
+            installer,state,run=self.fixture(folder)
+            with self.patches(run),patch.object(self,'metadata',self.metadata.replace(b'0.1.25',b'0.1.24')),self.assertRaises(smoke.SmokeFailure):smoke.install_rpm(installer,pathlib.Path(folder))
+            self.assertFalse(any(c[0]=='sudo' for c in state['calls']))
+        with tempfile.TemporaryDirectory() as folder:
+            installer,state,run=self.fixture(folder)
+            with self.patches(run),patch.object(pathlib.Path,'is_symlink',lambda p: str(p) in self.runtime),self.assertRaises(smoke.SmokeFailure):smoke.install_rpm(installer,pathlib.Path(folder))
+            self.assertFalse(state['installed'])
+
+    def test_foreign_epoch_is_not_uninstalled_and_absent_package_cannot_leave_paths(self):
+        package=smoke.RpmInstallation(('burrata','0.1.25','1','x86_64','0'))
+        # Distinct epoch is part of identity even when version/release/architecture agree.
+        result=subprocess.CompletedProcess([],0,self.metadata.replace(b'\t0\n',b'\t1\n'),b'')
+        with patch.object(smoke,'run',return_value=result) as run,self.assertRaises(smoke.SmokeFailure):smoke.remove_rpm(package)
+        self.assertEqual(run.call_count,1)
+        package.paths=[pathlib.Path('/usr/bin/burrata')]
+        with patch.object(smoke,'run',return_value=subprocess.CompletedProcess([],1,b'',b'')),patch.object(pathlib.Path,'exists',return_value=True),self.assertRaises(smoke.SmokeFailure):smoke.remove_rpm(package)
+
+    def test_wrong_distro_or_root_never_runs_package_manager(self):
+        for distro,uid in [({'ID':'debian'},10001),({'ID':'fedora'},0)]:
+            with patch.object(smoke.platform,'freedesktop_os_release',return_value=distro),patch.object(smoke.os,'geteuid',return_value=uid),patch.object(smoke,'run') as run,self.assertRaises(smoke.SmokeFailure):smoke.install_rpm(pathlib.Path('/tmp/app.rpm'),pathlib.Path('/tmp'))
+            run.assert_not_called()
+
+    def test_metadata_rejects_wrong_package_arch_multiline_empty_and_option_names(self):
+        for data in [b'foreign\t0.1.25\t1\tx86_64\n',self.metadata.replace(b'x86_64',b'aarch64'),self.metadata+self.metadata,b'--all\t0.1.25\t1\tx86_64\n',self.metadata.replace(b'\t1\t',b'\t\t')]:
+            with self.assertRaises(smoke.SmokeFailure):smoke.rpm_metadata(data)
 
 if __name__ == "__main__":
     unittest.main()
