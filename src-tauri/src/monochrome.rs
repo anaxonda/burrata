@@ -750,19 +750,46 @@ mod tests {
     async fn search_failures_are_sanitized_and_invalid_pages_can_retry() {
         use axum::{response::IntoResponse, routing::get, Router};
         use std::sync::atomic::{AtomicUsize, Ordering};
+        use tokio::io::AsyncReadExt;
 
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        drop(listener);
-        let refused =
-            Client::at_with_timeout(&format!("http://{address}"), Duration::from_millis(100))
-                .unwrap();
-        let error = refused.search("private title query").await.unwrap_err();
+        let failure_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let failure_address = failure_listener.local_addr().unwrap();
+        let failure_server = tokio::spawn(async move {
+            let accepted = tokio::time::timeout(Duration::from_secs(2), failure_listener.accept())
+                .await
+                .expect("transport fixture accept timed out")
+                .expect("transport fixture accept failed");
+            let (mut socket, _) = accepted;
+            let mut request = [0u8; 1];
+            let bytes_read =
+                tokio::time::timeout(Duration::from_secs(2), socket.read(&mut request))
+                    .await
+                    .expect("transport fixture read timed out")
+                    .expect("transport fixture read failed");
+            assert!(bytes_read > 0, "transport fixture received no request");
+            drop(socket);
+        });
+        let failed = Client::at_with_timeout(
+            &format!("http://{failure_address}"),
+            Duration::from_millis(100),
+        )
+        .unwrap();
+        let error = failed.search("private title query").await.unwrap_err();
+        failure_server.await.unwrap();
+        let safe_category = match error.as_str() {
+            "Monochrome search transport connect failed" => "connect",
+            "Monochrome search transport request failed" => "request",
+            "Monochrome search transport timeout failed" => "timeout",
+            _ => "unrecognized",
+        };
         assert!(
-            error.contains("transport connect failed")
-                || error.contains("transport request failed")
+            matches!(safe_category, "connect" | "request"),
+            "unexpected safe transport category: {safe_category}"
         );
-        assert!(!error.contains("private title query") && !error.contains(&address.to_string()));
+        assert!(
+            !error.contains("private title query") && !error.contains(&failure_address.to_string()),
+            "transport error contained private input"
+        );
 
         let stalled_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let stalled_address = stalled_listener.local_addr().unwrap();

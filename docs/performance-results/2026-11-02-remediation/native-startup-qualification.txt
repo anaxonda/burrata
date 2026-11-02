@@ -1,21 +1,35 @@
-Native startup and private audio qualification method
+# Native playback and startup qualification
 Date: 2026-11-02
 
-Scope
-- This harness measures first-track startup and verifies short native PCM output using isolated Linux app payloads and synthetic audio fixtures. It does not use a normal Burrata profile or establish physical-device behavior. Results identify the payload build profile; diagnostic evidence is not a release-build qualification.
-- The separate 0/100 pending-quality-assets condition inserts zero or 100 hash-valid fixture assets whose quality-facts hashes are stale. Normal full-file hash verification remains enabled.
+## Scope and method
 
-Capture phases and pass criteria
-- Startup is timed as its own phase and must finish within 20 seconds. A subsequent PCM phase lasts 5–6 seconds; these phases are recorded separately.
-- A case requires at least five seconds of playback progress tied to the same playback generation and at least 4.5 seconds of finite PCM captured from the private monitor. Provider identity, successful exit, and phase-window checks are also required.
-- The startup comparison uses at least 20 measured samples per build and condition, with three warmups excluded. Baseline/final payload and 0/100 condition order are interleaved. A separate two-track natural-completion capture is reported outside startup timing.
-- Captures use a fresh isolated profile and private virtual audio/display services. PCM evidence is an application output check in that private monitor; it is not physical output qualification.
+The candidate was installed and exercised in a private isolated Linux environment. The application used a private virtual audio monitor, X display, profile, and package database; no normal profile, host package database, or physical output device was used. PCM captures and detailed run evidence remain outside this source snapshot.
 
-Metrics and privacy
-- Sanitized database snapshots retain only connection mutex scopes, counts/totals/maxima, per-callsite wait/hold metrics when available, and an explicit SQLite-engine-busy-wait status. Baseline global wait counters remain measured; baseline per-callsite operations and hold counters are null/unavailable, not zero.
-- Optional idle IPC measurement observes only the registered WebView `ipc` signal for the target application process. It records numeric registration/count values, discards three one-second warmups, then reads 20 one-second buckets locally without MCP calls in the sampling loop. Payloads, URLs, and message contents are not inspected. Actual app idle counts remain pending.
-- Raw traces, PCM captures, profiles, fixture JSON, and detailed logs are kept outside the release source snapshot.
+Startup is measured separately from a following PCM phase. The startup phase must complete within 20 seconds; the PCM phase is 5–6 seconds. A reported-track case requires at least five seconds of same-generation playback progress and at least 4.5 seconds of finite PCM from the private monitor. Provider identity and successful process completion are checked as well. Baseline/final and 0/100 pending-quality-asset conditions are interleaved, with three warmups excluded. A two-track natural-completion capture is separate from startup timing.
 
-Harness verification
-- Native runtime capture tests: 30/30; startup qualification tests: 8/8; Node startup helper test passed. Python compilation, JavaScript syntax, and CLI help checks passed.
-- These harness results validate the measurement code. They do not constitute a completed baseline/final optimized package comparison or physical audio-output qualification.
+Database metrics are sanitized to connection mutex scopes, counts/totals/maxima, safe callsite labels, and explicit availability. Baseline global wait counters are retained; per-callsite operations and hold data absent from baseline are null/unavailable, never represented as zero. Reported-track failure evidence uses an allowlisted summary containing only category, outcome, and provider; raw reason strings, URLs, query text, and response bodies are omitted. The optional WebView IPC observer counts only the registered `ipc` signal for the target process. It reads numeric counter snapshots after three warmup seconds and twenty measured one-second buckets, without MCP calls or payload inspection during sampling.
+
+## Reproducible command scopes
+
+- Startup comparison: `python3 scripts/performance/native_startup_qualification.py --baseline-payload <private baseline payload> --final-payload <private candidate payload> --build-profile release --runs 20 --warmups 3 --evidence <private evidence directory> --scratch-root <private scratch directory>`. The optional idle IPC sample adds `--ipc-counter --ipc-counter-shim <private shim path>`.
+- Individual package behavior modes are `natural`, `duplicates`, `seek`, `crossfade-pause`, `stereo-seek-opus`, and `mpris`; reported live tracks use `incidents` with a sanitized schema-versioned fixture, a 20-second startup cap, and a separate 5–6 second PCM window.
+
+## Native and packaged behavior
+
+Native14 passed: 2,487 passed, 0 failed, 63 ignored in 92.34 seconds. Test-binary SHA-256: `770817d7ba1ec27f24d3c2e09db14659073c9404e21c5fc503c8d31dd417a039`.
+
+Private candidate-package captures passed six behavior checks: natural completion, duplicate-track handling, seek, crossfade/pause, stereo Opus seek, and MPRIS. Three YouTube playback cases and one Monochrome YouTube Swing 42 rescue case also passed. MPRIS evidence comes from the isolated D-Bus session; it does not qualify host desktop-player stop behavior or other OS session integration. These finite captures do not establish general provider recall or physical-device output.
+
+The monitor captures validate decoded application PCM in the isolated Linux environment. Physical macOS/Windows output, physical device removal/reconnect, and sleep/wake behavior remain unqualified unless separately performed and recorded.
+
+## Startup results and remaining failure
+
+Ninety-two individual checks passed, but the zero-pending-asset launch-p95 gate failed: baseline 370.058 ms, candidate 440.620 ms (+19.1%). Preserve this failure in release reporting. At 100 pending quality assets, launch p95 was 354.107 ms baseline and 347.704 ms candidate. Poll p95 at zero assets was 401.745 ms baseline and 502.397 ms candidate (+25.1%). First-audio p95 was 104 ms baseline and 86 ms candidate at zero assets, and 65 ms / 62 ms at 100 assets. The measured Wry IPC count was zero for both payloads over approximately 20 seconds; this is one quiet-window observation, not a claim that the app never sends IPC.
+
+A separate six-pair phase diagnostic did not reproduce a slow Store phase: median measured phase time was 266.7 ms baseline and 260.2 ms candidate. That small diagnostic does not erase or replace the original zero-asset p95 failure. The predeclared N=40 extension is pending. No source change is justified by that six-pair result alone.
+
+## Cross-platform status
+
+The c23f647 candidate workflow passed on Linux and macOS. Windows reported one failure in the closed-port transport test (2,367 passed, 1 failed, 58 ignored); the test-only deterministic loopback fixture correction is prepared, and a full three-platform rerun is pending. No production source changed in that correction.
+
+The final validation summary records the completed and pending gates. No public release has been made.

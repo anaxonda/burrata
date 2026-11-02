@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {idleIpcBucketsGate,parseIdleIpcCounter,safeStoreMutexMetrics,startupObservation,startupPauseGate} from './native_startup_capture_helpers.mjs';
+import {idleIpcBucketsGate,parseIdleIpcCounter,reportedErrorEvidence,safePlaybackFailureSummary,safeStoreMutexMetrics,startupObservation,startupPauseGate} from './native_startup_capture_helpers.mjs';
 
 const target='fixture-track';
 const playing={trackId:target,generation:4,status:'playing',position:3.2,diagnostics:{firstAudioMs:275}};
@@ -50,4 +50,35 @@ test('store mutex sanitizer preserves global baseline waits without inventing ho
   assert.equal(final.holdMetricsAvailable,true);
   assert.equal(final.operations['store.rs:21'].totalHoldNs,5);
   assert.equal(safeStoreMutexMetrics({diagnostics:{storeConnectionWait:{scope:'other'}}}),null);
+});
+
+test('reported failure summary keeps only allowlisted category, outcome, and provider',()=>{
+  const state={diagnostics:{recentTrackFailures:[
+    {trackId:target,category:'source_identity_mismatch',outcome:'queue_exhausted',provider:'youtube',
+      reason:'https://media.example/?token=test-fixture-credential-deadbeef00'},
+  ]}};
+  assert.deepEqual(safePlaybackFailureSummary(state,target),{
+    category:'source_identity_mismatch',outcome:'queue_exhausted',provider:'youtube',
+  });
+  assert.deepEqual(safePlaybackFailureSummary({diagnostics:{recentTrackFailures:[
+    {trackId:target,category:'unexpected',outcome:'unexpected',provider:'other',reason:'private'},
+  ]}},target),{category:null,outcome:null,provider:null});
+  assert.equal(safePlaybackFailureSummary({diagnostics:{recentTrackFailures:[]}},target),null);
+});
+
+test('reported error evidence drops arbitrary query, header, and response body text',()=>{
+  const arbitrary=[
+    'GET /resolve?token=test-fixture-credential-deadbeef00 HTTP/1.1',
+    'Authorization: Bearer test-fixture-credential-deadbeef00',
+    '{"requestHeaders":{"X-Account-Token":"test-fixture-credential-deadbeef00"},"body":"private response text"}',
+  ];
+  const state={playerMessage:arbitrary.join('\n'),diagnostics:{recentTrackFailures:[
+    {trackId:target,category:'source_identity_mismatch',outcome:'queue_exhausted',provider:'youtube',reason:arbitrary.join('\n')},
+  ]}};
+  const evidence=reportedErrorEvidence(arbitrary.join('\n'),state,target);
+  assert.deepEqual(evidence,{receiptFailed:true,failureEvidence:{
+    category:'source_identity_mismatch',outcome:'queue_exhausted',provider:'youtube',
+  }});
+  const serialized=JSON.stringify(evidence);
+  for(const value of arbitrary)assert.equal(serialized.includes(value),false);
 });

@@ -48,6 +48,22 @@ export function safeStoreMutexMetrics(status) {
     sqliteEngineBusyWait:'not_measured'};
 }
 
+export function safePlaybackFailureSummary(state, targetTrackId) {
+  const failures=state?.diagnostics?.recentTrackFailures;
+  if(!Array.isArray(failures))return null;
+  const categories=['no_audio_results','recording_identity_unverified','no_playable_match','source_identity_mismatch',
+    'unsupported_audio_stream','failed_with_reason'];
+  const failure=[...failures].reverse().find(item=>item?.trackId===targetTrackId);
+  if(!failure)return null;
+  return {category:categories.includes(failure.category)?failure.category:null,
+    outcome:['skipped','queue_exhausted'].includes(failure.outcome)?failure.outcome:null,
+    provider:['youtube','soundcloud','monochrome'].includes(failure.provider)?failure.provider:null};
+}
+
+export function reportedErrorEvidence(receiptError, state, targetTrackId) {
+  return {receiptFailed:Boolean(receiptError),failureEvidence:safePlaybackFailureSummary(state,targetTrackId)};
+}
+
 export function idleIpcBucketsGate(initial, warmups, measured, actualElapsedMs) {
   if(!initial||!Array.isArray(warmups)||warmups.length!==3
       ||!Array.isArray(measured)||measured.length!==20

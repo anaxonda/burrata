@@ -60,22 +60,51 @@
     "nodeStartupHelpers": "passed",
     "runtimeCaptureTests": "30/30",
     "startupQualificationTests": "8/8",
-    "nodeHelperTest": "passed"
+    "nodeHelperTest": "7/7"
   },
   "releaseQualification": {
-    "optimizedPackageInstall": "pending",
-    "actualAppIdleIpc": "pending",
-    "physicalAudioOutput": "pending",
+    "privateCandidateBehaviorCaptures": "passed: 6 playback behaviors, 3 YouTube cases, 1 Monochrome YouTube Swing 42 rescue",
+    "candidateWorkflowC23f": "Linux and macOS passed; Windows failed one test-only closed-port fixture; corrected fixture rerun pending",
+    "startupZeroAssetLaunchP95": {
+      "status": "failed",
+      "baselineMs": 370.058,
+      "candidateMs": 440.62,
+      "deltaPercent": 19.1
+    },
+    "startup100PendingAssetLaunchP95": {
+      "status": "passed",
+      "baselineMs": 354.107,
+      "candidateMs": 347.704
+    },
+    "startupZeroAssetPollP95": {
+      "baselineMs": 401.745,
+      "candidateMs": 502.397,
+      "deltaPercent": 25.1
+    },
+    "firstAudioP95Ms": {
+      "zeroAssets": {
+        "baseline": 104,
+        "candidate": 86
+      },
+      "hundredAssets": {
+        "baseline": 65,
+        "candidate": 62
+      }
+    },
+    "storePhaseDiagnosticSixPairsMs": {
+      "baselineMedian": 266.7,
+      "candidateMedian": 260.2,
+      "slowPhaseReproduced": false
+    },
+    "predeclaredN40Extension": "pending",
+    "idleWebviewIpc20Seconds": {
+      "baselineCount": 0,
+      "candidateCount": 0,
+      "scope": "target WebView ipc signal only"
+    },
     "nativeRustSuite": "passed",
-    "optimizedNativeStartupComparison": "pending",
-    "finalPackageInstall": "pending"
-  },
-  "nativeSuite13": {
-    "passed": 2487,
-    "failed": 0,
-    "ignored": 63,
-    "durationSeconds": 94.57,
-    "testBinarySha256": "5316a567d3cc1fc003558cc6613b5f076f7e09236c80306b94ab8eb431944791"
+    "physicalMacWindowsAudioDeviceSleepWake": "unqualified unless separately performed and documented",
+    "publication": "not performed"
   },
   "pairedFrontendCdp100": {
     "measuredColdAndWarmSamplesPerBuild": 100,
@@ -128,5 +157,18 @@
     ],
     "sameGenerationProgressMinSeconds": 5,
     "finitePrivateMonitorPcmMinSeconds": 4.5
+  },
+  "nativeSuite14": {
+    "passed": 2487,
+    "failed": 0,
+    "ignored": 63,
+    "durationSeconds": 92.34,
+    "testBinarySha256": "770817d7ba1ec27f24d3c2e09db14659073c9404e21c5fc503c8d31dd417a039",
+    "scope": "final native sources after synthetic fixture cleanup; no production source change from Native13"
+  },
+  "nativeStartupGates": {
+    "individualChecksPassed": 92,
+    "zeroAssetLaunchP95Gate": "failed (+19.1%); retain failure",
+    "hundredAssetLaunchP95Gate": "passed"
   }
 }

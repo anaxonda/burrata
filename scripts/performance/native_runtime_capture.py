@@ -925,7 +925,8 @@ def main():
         if not all(item.get('available') and item.get('inventoryReadable') and not item.get('testSinkPresent') for item in [before,after]) or before.get('defaultSink')!=after.get('defaultSink'):
             raise RuntimeError('Host default output or test isolation changed')
     except Exception as error:
-        result['passed']=False;result['error']=str(error)
+        result['passed']=False
+        result['error']='reported_capture_failed' if args.reported_tracks else str(error)
     finally:
         for child in reversed(children):
             if child.poll() is None:

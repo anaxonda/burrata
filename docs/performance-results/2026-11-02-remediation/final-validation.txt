@@ -1,22 +1,18 @@
 Final candidate validation — 2026-11-02
 
-Frontend and non-Cargo gates
-- Frontend: 152 files, 1,492/1,492 tests passed (final run, session 29663).
-- Extension: 98/98; MCP: 12/12; player: 5/5.
-- Repository contracts: 8/8; matching stage 5: 4/4 (14 cases × 3 modes × 2 stages). Secret audit: no supported patterns found; scanner regression tests 10/10; Rust formatting check passed.
-- Managed provider extension packaging generated both manifests at version 0.2.5 with expected host permissions.
-- `npm run check`: zero Svelte errors and warnings.
-- `npm run build`: passed; main bundle 970.32 kB raw / 299.98 kB gzip.
-- Release qualification harnesses: installed smoke 85/85; AppImage finalize 3/3; RPM artifact 11/11; workflow source 22/22.
-- Performance harnesses: native capture 30/30; capture result gate 3/3; startup qualification 8/8; Linux output/gain 3/3; cold-player overlap 5/5; VisionOS driver 9/9. Node startup helper test passed; Python compilation and `--help` commands, plus JavaScript syntax checks, passed.
-- IPC counter fixture passed disabled/wrong-process, failed/non-IPC registration, and successful IPC registration cases, including callback forwarding/destructor behavior against WebKitGTK 4.1. No Burrata app was launched for this prototype.
+Completed automated gates
+- Frontend: 152 files, 1,492/1,492 tests passed (session 29663). Extension 98/98; MCP 12/12; player 5/5. Repository contracts 8/8; matching stage 5 4/4 (14 cases × 3 modes × 2 stages).
+- Secret audit: no supported patterns found; regression tests 10/10. Rust formatting check passed.
+- Svelte check: zero errors and warnings. Production build passed; main bundle 970.32 kB raw / 299.98 kB gzip. Managed provider extension manifests generated at 0.2.5.
+- Release harnesses: installed smoke 85/85; AppImage finalize 3/3; RPM artifact 11/11; workflow source 22/22. Performance harnesses: native capture 30/30; capture gate 3/3; startup qualification 8/8; Linux output/gain 3/3; cold-player overlap 5/5; VisionOS driver 9/9. Node helper tests 7/7. Python compile/help, JavaScript syntax, JSON parsing, and `cargo fmt --check` passed.
 
-Native and runtime status
-- Native13: 2,487 passed, 0 failed, 63 ignored in 94.57 seconds. This verifies the two corrected Exact-action cells for unresolved relationships. Test-binary SHA-256: `5316a567d3cc1fc003558cc6613b5f076f7e09236c80306b94ab8eb431944791`.
-- Paired frontend CDP: 100 cold and 100 warm observations per build. Cold controls-ready p50/p95: 116.8/142.8 ms baseline, 104.7/133.6 ms candidate. Warm controls-ready p50/p95: 54.9/72.5 ms baseline, 55.0/72.9 ms candidate. Warm focus-plus-click p95: 4.7 ms baseline, 5.1 ms candidate (+8.5%); paired-bootstrap 95% interval -0.3 to +1.0 ms. The earlier 20-pair tail remains recorded separately (+28.9%). This is synthetic DOM readiness/interaction, not native startup or first audio.
-- Optimized native startup/package comparison, final package install qualification, actual app idle IPC counts, live-provider rerun, and physical audio-output qualification remain pending.
-- Linux frontend/test results do not qualify macOS or Windows physical audio output. No release publication or normal-profile install has occurred.
+Native and private package evidence
+- Native14: 2,487 passed, 0 failed, 63 ignored in 92.34 seconds. Test-binary SHA-256: `770817d7ba1ec27f24d3c2e09db14659073c9404e21c5fc503c8d31dd417a039`.
+- Isolated candidate package captures passed six playback behaviors: natural completion, duplicate-track handling, seek, crossfade/pause, stereo Opus seek, and MPRIS. Three YouTube playback cases and one Monochrome YouTube Swing 42 rescue case passed. MPRIS ran in an isolated D-Bus session; host desktop-player stop behavior is unqualified.
+- Native startup collection passed 92 individual checks, but the zero-pending-asset launch-p95 gate failed: baseline 370.058 ms, candidate 440.620 ms (+19.1%). Preserve this failure. At 100 pending quality assets launch p95 was 354.107 ms baseline and 347.704 ms candidate. Zero-asset poll p95 was 401.745 ms baseline and 502.397 ms candidate (+25.1%). First-audio p95 was 104/86 ms baseline/candidate at zero assets and 65/62 ms at 100 assets. Wry `ipc` signal count was zero for both payloads over approximately 20 seconds; this describes only that sampled window.
+- The separate six-pair phase diagnostic did not reproduce a slow Store phase (median 266.7 ms baseline, 260.2 ms candidate). The predeclared N=40 extension remains pending and does not replace the original failed gate.
+- Paired frontend CDP had 100 cold and 100 warm observations per build. Cold controls-ready p50/p95 was 116.8/142.8 ms baseline and 104.7/133.6 ms candidate; warm was 54.9/72.5 and 55.0/72.9 ms. Warm focus-plus-click p95 was 4.7 vs 5.1 ms (+8.5%); the paired bootstrap 95% interval was -0.3 to +1.0 ms. Keep the earlier 20-pair +28.9% tail result too. These are synthetic DOM checks, not native startup.
 
-Evidence boundary
-- Sanitized metadata fixtures are included for repository contract tests; no audio payloads, private profiles, raw captures, or detailed qualification logs are included.
-- Results above describe completed checks only. Remaining package, installation, timing, live-provider, and physical-output gates must pass before release qualification.
+Cross-platform and release boundary
+- Candidate workflow at c23f647 passed on Linux and macOS. Windows reported one test failure (2,367 passed, 1 failed, 58 ignored) in the closed-port transport fixture. A deterministic test-only loopback fixture correction is prepared; the full three-platform rerun is pending. No production logic changed in that correction.
+- The candidate has not been published. Physical macOS/Windows playback, device removal/reconnect, and sleep/wake remain unqualified unless separately performed and documented. Linux private-monitor PCM and provider captures are not physical output qualification.

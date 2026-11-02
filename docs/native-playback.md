@@ -55,7 +55,7 @@ Compare native playback resource use and packaging impact with the pre-change ba
 
 ## Release status
 
-For v0.1.27, qualification covers automated builds and tests on Linux, macOS, and Windows, plus isolated Linux package validation and private native PCM/live-provider checks. The [dated validation report](performance-results/2026-11-02-remediation/final-validation.txt) lists completed and pending checks. Physical macOS and Windows audio output, physical device removal/reconnect, and sleep/wake behavior remain unqualified unless separately performed and documented. Automated results and Linux qualification do not establish those physical outcomes. Previously published v0.1.24 used WebView playback; that artifact does not qualify this change. See [Native-only verification](native-only-verification.md).
+For v0.1.27, qualification covers automated builds and tests on Linux, macOS, and Windows, plus isolated Linux package and private PCM/provider checks. The [dated validation report](performance-results/2026-11-02-remediation/final-validation.txt) lists completed and pending results, including the zero-asset launch-p95 failure and Windows test-fixture rerun. Physical macOS/Windows audio output, physical device removal/reconnect, and sleep/wake remain unqualified unless separately performed and documented; automated CI and private Linux PCM/provider evidence do not establish those physical outcomes. Previously published v0.1.24 used WebView playback; that artifact does not qualify this change. See [Native-only verification](native-only-verification.md).
 
 ## Recovery and migration history — 2026-10-30
 

@@ -4,7 +4,7 @@ import {readFile, realpath, writeFile} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {auditionQueueMetadataRetained} from './source_audition_gates.mjs';
-import {idleIpcBucketsGate,parseIdleIpcCounter,safeStoreMutexMetrics,startupObservation,startupPauseGate} from './native_startup_capture_helpers.mjs';
+import {idleIpcBucketsGate,parseIdleIpcCounter,reportedErrorEvidence,safePlaybackFailureSummary,safeStoreMutexMetrics,startupObservation,startupPauseGate} from './native_startup_capture_helpers.mjs';
 import {Client} from '@modelcontextprotocol/client';
 import {StdioClientTransport} from '@modelcontextprotocol/client/stdio';
 
@@ -46,10 +46,11 @@ function safe(s, reported=false) {
     status:s.status,position:s.position,duration:s.duration,catalogDuration:s.track?.durationSeconds,paused:s.paused,
     transition:reported?Boolean(s.transition):s.transition,
     firstAudioMs:s.diagnostics?.firstAudioMs,recoveryCount:s.diagnostics?.recoveryCount,bufferingCount:s.diagnostics?.bufferingCount,seekSerial:s.seekSerial,
-    message:reported?safeDiagnosticText(s.playerMessage):s.playerMessage,
+    ...(!reported?{message:s.playerMessage}:{}),
     loudnessNormalization:reported?Boolean(s.loudnessNormalization):s.loudnessNormalization,
     candidate:s.candidate ? {provider:reported?(['youtube','soundcloud','monochrome'].includes(sourceProvider)?sourceProvider:null):sourceProvider,id:reported?safeDiagnosticText(s.candidate.id):s.candidate.id,
-      title:reported?safeDiagnosticText(s.candidate.title):s.candidate.title}:null};
+      title:reported?safeDiagnosticText(s.candidate.title):s.candidate.title}:null,
+    ...(reported?{failureEvidence:safePlaybackFailureSummary(s,s.trackId)}:{})};
 }
 try {
   await client.connect(transport);
@@ -64,7 +65,7 @@ try {
   if (!ready) throw Error('Native session restoration did not finish');
   for(let i=0;i<20;i++){
     try{await call('inspect_playback_layout',{},3000);report.layoutDiagnostic={passed:true};break;}
-    catch(error){report.layoutDiagnostic={passed:false,error:error.message};if(!error.message.includes('FRONTEND_NOT_READY'))break;await sleep(250);}
+    catch(error){report.layoutDiagnostic=spec.reportedTrackOptions?{passed:false,errorPresent:true}:{passed:false,error:error.message};if(!error.message.includes('FRONTEND_NOT_READY'))break;await sleep(250);}
   }
   if(mode!=='migration')await call('set_volume',{volume:1});
   try { report.storeMutexMetricsBefore=safeStoreMutexMetrics(await call('get_app_status',{},5000)); }
@@ -406,13 +407,13 @@ if(mode==='idle-ipc'){
         try{await call('pause_playback',{},5000);pausedReported=true;}catch{}
       }
       await receipt;
-      if(reported&&receiptError)receiptError=safeDiagnosticText(receiptError);
       const rawSourceProvider=last?.candidate?.provider??null;
       const sourceProvider=['youtube','soundcloud','monochrome'].includes(rawSourceProvider)?rawSourceProvider:null;
       const expectedSourceProvider=reported?.expectedSourceProvider??null;
       const sourceProviderPassed=expectedSourceProvider===null?sourceProvider!==null:sourceProvider===expectedSourceProvider;
+      const errorEvidence=reported?reportedErrorEvidence(receiptError,last,track.id):{receiptError};
       const item={trackId:track.id,title:track.title,passed:passed&&!receiptError&&sourceProviderPassed,
-        startedAtUnixMs,elapsedMs:performance.now()-started,receiptError,playbackGeneration,firstAudioMs,
+        startedAtUnixMs,elapsedMs:performance.now()-started,...errorEvidence,playbackGeneration,firstAudioMs,
         startupElapsedMs:startupObservedAt===null?null:startupObservedAt-started,
         ...(reported?{...reportedPcmTimes,pcmPhaseElapsedMs}:{}),state:safe(last,Boolean(reported)),
         ...(reported?{sourceProvider,expectedSourceProvider,sourceProviderPassed,
@@ -467,7 +468,7 @@ if(mode==='idle-ipc'){
     report.cases.push({finished,stable,once,decodedDuration,observed,entries,receiptError,last:safe(last)});
     await call('pause_playback');
   }
-} catch(e) {report.passed=false;report.error=e.message;}
+} catch(e) {report.passed=false;report.error=spec.reportedTrackOptions?'reported_track_capture_failed':e.message;}
 finally {
   try { report.storeMutexMetricsAfter=safeStoreMutexMetrics(await call('get_app_status',{},5000)); }
   catch { report.storeMutexMetricsAfter=null; }

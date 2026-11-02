@@ -1,8 +1,11 @@
 Remediation audit disposition — 2026-11-02
-Status: source fixes are integrated. Native13 passed: 2,487 passed, 0 failed,
-and 63 ignored in 94.57 seconds. The two corrected Exact-action expectations
-for unresolved relationships are verified. The final package, native-device
-output, and publication are not yet qualified.
+Status: Native14 passed (2,487 passed, 0 failed, 63 ignored). The isolated
+candidate package behavior captures passed. Startup collection passed 92
+individual checks, but the zero-pending-asset launch-p95 gate failed by 19.1%;
+the failure is retained below. The predeclared N=40 extension is pending. The
+current three-platform candidate rerun is pending after one Windows-only
+test-fixture failure; physical Mac/Windows output and device/sleep checks remain
+unqualified unless performed and recorded.
 
 Evidence basis: docs/audits/2026-11-02-project-audit.txt, integrated source,
 focused test results, and sanitized resolver/decoder summaries. Temporary raw
@@ -63,10 +66,12 @@ Production growth frequency was not measured; benchmark evidence is synthetic
 and documented in cache.txt.
 
 6. Startup hashing on an async worker — CONFIRMED source issue; hash work is
-deferred to bounded blocking work with playback priority. No final-vs-baseline
-native startup timing comparison has run. `native-startup-qualification.txt`
-records a passing baseline natural-playback preflight, but this is not a final
-build comparison or physical-output qualification.
+deferred to bounded blocking work with playback priority. The installed private
+candidate comparison passed 92 individual checks, but the zero-pending-asset
+launch-p95 gate failed: 370.058 ms baseline versus 440.620 ms candidate
+(+19.1%). At 100 pending quality assets p95 was 354.107 ms versus 347.704 ms.
+The predeclared N=40 extension is pending. This is a startup-policy failure;
+the isolated PCM and first-audio results below do not supersede it.
 
 7. Eager frontend bundle — CONFIRMED and measured. The latest reported
 production JS is 970.32 kB raw versus the 1,228.25 kB baseline (about 21.0%
@@ -112,26 +117,34 @@ failure context. Conformance tests passed in the integrated suite and matching
 stage 5. The focused native and matching tests passed.
 
 13. Serialized database access — ARCHITECTURAL OPPORTUNITY, not a confirmed
-latency regression. Store uses a mutex-guarded SQLite connection; no contention
-measurement justifies a read pool. Per-callsite wait/hold metrics and blocking
-isolation were added, but a final native quiet-window comparison has not run.
-Do not infer a database performance defect from file size or architecture alone.
+latency regression. Store uses a mutex-guarded SQLite connection. The separate
+six-pair phase diagnostic did not reproduce a slow Store phase (266.7 ms
+baseline median, 260.2 ms candidate median); this small run does not erase the
+zero-asset p95 failure or establish a need for a read pool. The predeclared
+N=40 extension is pending. Do not infer a database performance defect from
+file size or architecture alone.
 
 Native correctness status
-- Native10: 2,482 passed, 4 failed, 63 ignored. Native11 and Native12 each
-  passed 2,486 tests and left one corpus test failing; Native12 identified two
-  Exact-action expectations that needed Inspect for unresolved relationships.
-- The candidate corpus now expects Inspect for those two cases. Native13 passed
-  2,487 tests, with 0 failures and 63 ignored, in 94.57 seconds. Test-binary
-  SHA-256: `5316a567d3cc1fc003558cc6613b5f076f7e09236c80306b94ab8eb431944791`.
+- Native10: 2,482 passed, 4 failed, 63 ignored. Native11/12 each passed 2,486
+  tests and exposed stale corpus expectations. Native13 corrected those cells;
+  Native14 passed 2,487 tests, 0 failed, and 63 ignored in 92.34 seconds.
+- Native14 test-binary SHA-256:
+  `770817d7ba1ec27f24d3c2e09db14659073c9404e21c5fc503c8d31dd417a039`.
 - The producer projection preserves bounded current SoundCloud artist fields
-  only when fresh `info.id` matches. The missing-version case remains
-  `version=Unknown` and action `Enrich`; Flexible returns `Probable`, not an
-  automatic Accept.
-- `recording_match.rs` uses evaluator revision 21. Native13 verified the
-  corrected corpus fixture against the formatted candidate source.
+  only when fresh `info.id` matches. Missing-version remains `version=Unknown`
+  and action `Enrich`; Flexible returns `Probable`, not automatic Accept.
+- `recording_match.rs` uses evaluator revision 21. Native14 verifies the
+  corrected corpus fixture against formatted candidate source.
 
 Live provider and audio evidence
+- The isolated candidate package passed six playback behavior checks: natural
+  completion, duplicate-track handling, seek, crossfade/pause, stereo Opus seek,
+  and MPRIS. Three YouTube cases and one Monochrome YouTube Swing 42 rescue also
+  passed. These finite samples do not estimate provider recall or qualify
+  physical output. MPRIS evidence was confined to an isolated D-Bus session.
+- The optional target-WebView IPC counter observed zero `ipc` signals for both
+  payloads during one approximately 20-second window. This is only that sampled
+  interval, not a general claim about application IPC.
 - Exact Django Swing 42, Flexible YouTube, Native10: resolver selected
   `youtube:lK_BGCe3q6I`, fresh title and two artist rows agreed, runtime was 168
   seconds versus requested 165, and five seconds of stereo FFmpeg PCM decoded.
@@ -171,8 +184,9 @@ Unsupported or bounded claims
   provider outcomes, not as evidence of no result.
 
 Release boundary
-Native13 verified the corrected corpus action expectations against the
-formatted candidate source. The final package, private installation,
-native startup/idle IPC timing, frontend warm-interaction tail rerun, and physical
-audio output remain unqualified. No publish or remote playlist write was
-performed.
+Native14 and the listed private package behavior captures passed. The zero-asset
+launch-p95 gate remains failed (+19.1%) and the predeclared N=40 extension is
+pending. The c23f647 Windows-only test-fixture failure has a test-only correction
+prepared; the full three-platform rerun is pending. Physical Mac/Windows output,
+physical device removal/reconnect, and sleep/wake remain unqualified unless
+performed and documented. No public release or remote playlist write occurred.
