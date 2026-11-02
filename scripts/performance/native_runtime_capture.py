@@ -13,6 +13,7 @@ import importlib.util
 import json
 import math
 import os
+import re
 import signal
 import shutil
 import sqlite3
@@ -23,10 +24,103 @@ import tempfile
 import time
 import uuid
 import wave
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts/performance'))
 from run_isolated_memory import track_record
+
+STREAMING_PROVIDERS = {'youtube', 'soundcloud', 'monochrome'}
+REPORTED_TRACK_FIELDS = {
+    'id', 'provider', 'providerId', 'sourceUrl', 'artist', 'title', 'version', 'album', 'albumArtist',
+    'recordingDate', 'trackNumber', 'trackTotal', 'discNumber', 'discTotal', 'remixers', 'playbackRange',
+    'label', 'genre', 'normalizedGenre', 'durationSeconds', 'bpm', 'key', 'releaseDate', 'dateAdded',
+    'artworkUrl', 'isrc', 'catalogNumber', 'rank', 'previewUrl', 'favorite', 'disposition', 'localPath',
+    'localAvailability', 'assetId', 'provenance',
+}
+
+
+def _reject_sensitive_fixture_values(value, path='fixture'):
+    forbidden_key = re.compile(r'(?:access.?token|refresh.?token|authorization|cookie|password|secret|credential|api.?key)', re.I)
+    forbidden_text = re.compile(r'(?:\bbearer\s+[A-Za-z0-9._~-]{8,}|(?:access_token|refresh_token|token|api_key|apikey)=)', re.I)
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if forbidden_key.search(str(key)):
+                raise ValueError(f'{path} contains a credential-like field')
+            _reject_sensitive_fixture_values(child, f'{path}.{key}')
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            _reject_sensitive_fixture_values(child, f'{path}[{index}]')
+    elif isinstance(value, str) and forbidden_text.search(value):
+        raise ValueError(f'{path} contains credential-like text')
+
+
+def load_reported_track_fixture(source, private_destination):
+    """Validate and copy only sanitized remote catalog tracks into a disposable profile."""
+    source = Path(source)
+    if source.is_symlink():
+        raise ValueError('Reported-track fixture must not be a symlink')
+    source = source.resolve(strict=True)
+    if not source.is_file():
+        raise ValueError('Reported-track fixture must be a regular JSON file')
+    document = json.loads(source.read_text(encoding='utf-8'))
+    if not isinstance(document, dict) or set(document) != {'schemaVersion', 'tracks'} or document.get('schemaVersion') != 1:
+        raise ValueError('Reported-track fixture must contain schemaVersion 1 and tracks only')
+    tracks = document.get('tracks')
+    if not isinstance(tracks, list) or not 1 <= len(tracks) <= 8:
+        raise ValueError('Reported-track fixture needs between one and eight tracks')
+    _reject_sensitive_fixture_values(document)
+    sanitized = []
+    identifiers = set()
+    for index, original in enumerate(tracks):
+        if not isinstance(original, dict) or set(original) - REPORTED_TRACK_FIELDS:
+            raise ValueError(f'Reported track {index + 1} has unsupported fields')
+        for field in ('id', 'provider', 'providerId', 'sourceUrl', 'artist', 'title'):
+            value = original.get(field)
+            if not isinstance(value, str) or not value.strip() or any(ord(char) < 32 for char in value):
+                raise ValueError(f'Reported track {index + 1} is missing a valid {field}')
+        for field in ('id','provider','providerId','artist','title'):
+            text=original[field]
+            if '://' in text.lower() or re.search(r'\bwww\.',text,re.I):
+                raise ValueError(f'Reported track {index + 1} has an unsafe {field}')
+        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,255}',original['id']):
+            raise ValueError(f'Reported track {index + 1} has an unsafe ID')
+        if original.get('localPath') not in (None, '') or original.get('assetId') not in (None, ''):
+            raise ValueError(f'Reported track {index + 1} must not reference a local asset')
+        if original.get('localAvailability', 'none') != 'none':
+            raise ValueError(f'Reported track {index + 1} must be remote-only')
+        duration=original.get('durationSeconds')
+        if duration is not None and (not isinstance(duration,(int,float)) or not math.isfinite(duration) or duration<=0):
+            raise ValueError(f'Reported track {index + 1} has an invalid duration')
+        if not isinstance(original.get('favorite',False),bool):
+            raise ValueError(f'Reported track {index + 1} has an invalid favorite field')
+        if original['id'] in identifiers:
+            raise ValueError('Reported-track IDs must be unique')
+        identifiers.add(original['id'])
+        source_url = original['sourceUrl']
+        parsed_url=urlsplit(source_url)
+        if parsed_url.scheme not in {'http','https'} or not parsed_url.hostname or parsed_url.username or parsed_url.password:
+            raise ValueError(f'Reported track {index + 1} sourceUrl must be public HTTP(S) without credentials')
+        track = dict(original)
+        track.update(favorite=track.get('favorite',False),localPath=None,localAvailability='none',
+            assetId=None,previewUrl=None,artworkUrl=None)
+        sanitized.append(track)
+    destination = Path(private_destination)
+    destination.write_text(json.dumps({'schemaVersion': 1, 'tracks': sanitized}, ensure_ascii=False) + '\n', encoding='utf-8')
+    destination.chmod(0o600)
+    digest = hashlib.sha256(destination.read_bytes()).hexdigest()
+    return sanitized, digest
+
+
+def parse_streaming_fallback_sources(value, preferred):
+    if value is None or value == '':
+        return []
+    sources = [item.strip() for item in value.split(',')]
+    if any(item not in STREAMING_PROVIDERS for item in sources) or len(set(sources)) != len(sources):
+        raise ValueError('Fallback sources must be unique youtube, soundcloud, or monochrome names')
+    if preferred in sources:
+        raise ValueError('Fallback sources must not repeat the preferred streaming source')
+    return sources
 
 def scratch_roots():
     """Keep disposable runtime data off a nearly full home filesystem when requested."""
@@ -48,6 +142,23 @@ def incident_cases_passed(runtime):
                 and all(isinstance(case, dict) and case.get('passed') is True for case in cases))
 
 
+def reported_track_case_gate(playback_progress_passed, captured_active_seconds, finite_pcm,
+                             source_provider, expected_source_provider, startup_elapsed_ms,
+                             startup_timeout_ms, pcm_phase_elapsed_ms, pcm_phase_window_ms):
+    pcm_passed=bool(finite_pcm and isinstance(captured_active_seconds,(int,float))
+                    and math.isfinite(captured_active_seconds) and captured_active_seconds>=4.5)
+    provider_passed=(source_provider in STREAMING_PROVIDERS if expected_source_provider is None
+                     else source_provider==expected_source_provider)
+    startup_phase_passed=bool(isinstance(startup_elapsed_ms,(int,float)) and math.isfinite(startup_elapsed_ms)
+        and 0<=startup_elapsed_ms<=startup_timeout_ms)
+    pcm_phase_passed=bool(isinstance(pcm_phase_elapsed_ms,(int,float)) and math.isfinite(pcm_phase_elapsed_ms)
+        and 5000<=pcm_phase_elapsed_ms<=pcm_phase_window_ms+250)
+    return {'capturedPcmPassed':pcm_passed,'sourceProviderPassed':provider_passed,
+            'startupPhasePassed':startup_phase_passed,'pcmPhasePassed':pcm_phase_passed,
+            'passed':bool(playback_progress_passed and pcm_passed and provider_passed
+                and startup_phase_passed and pcm_phase_passed)}
+
+
 def run(args, **kwargs):
     return subprocess.run([str(x) for x in args], check=True, capture_output=True, **kwargs)
 
@@ -61,7 +172,7 @@ def host_baseline(audio):
     return snapshot
 
 
-def seed(profile, resources, mode):
+def seed(profile, resources, mode, args):
     spec = importlib.util.spec_from_file_location('installed_smoke', ROOT / 'scripts/release/smoke-installed.py')
     smoke = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(smoke)
@@ -69,6 +180,11 @@ def seed(profile, resources, mode):
         (profile / folder).mkdir(parents=True, exist_ok=True)
     (profile / '.burrata-isolated-profile').write_text('burrata isolated memory run\n')
     app_data = profile / 'data/org.burrata.discovery'
+    reported_track_digest = None
+    reported_tracks = []
+    if args.reported_tracks:
+        reported_tracks, reported_track_digest = load_reported_track_fixture(
+            args.reported_tracks, profile / 'fixture/reported-tracks.json')
     aac = smoke.build_native_audio_fixture(resources, smoke.TARGETS['linux'], dict(os.environ), profile, app_data)
     records = []
     for name, left, right, hint in [('first', 440, 660, 4), ('second', 880, 1100, 24)]:
@@ -158,7 +274,9 @@ def seed(profile, resources, mode):
         (app_data / 'burrata.sqlite').unlink()
         aac=smoke.register_native_audio_fixture(app_data,fixture,12,profile)
     incidents = []
-    if mode in ['incidents','broken-download','recovery-baseline','broken-playable','decoder-recovery','full-incidents']:
+    if args.reported_tracks:
+        incidents = reported_tracks
+    elif mode in ['incidents','broken-download','recovery-baseline','broken-playable','decoder-recovery','full-incidents']:
         sources = [Path('/tmp') / f'burrata-{name}-saved-track.json' for name in ['tainy','manana','veinte','amor']]
         sources += [Path('/tmp') / f'burrata-django-candidate-{n}.json' for n in [4,5,6]]
         incidents = [json.loads(path.read_text()) for path in sources]
@@ -201,13 +319,26 @@ def seed(profile, resources, mode):
                     'processing':'existing-local-file','track':track}
                 db.execute('insert into local_assets(id,recording_id,path,hash,payload) values(?,?,?,?,?)',
                            (track['assetId'],tid,str(path),asset['hash'],json.dumps(asset)))
+        reported_options=bool(args.reported_tracks)
+        if reported_options:
+            preferred_source=args.preferred_streaming_source or 'youtube'
+            fallback_sources=list(args.fallback_sources or [])
+            if args.disable_streaming_fallback and fallback_sources:
+                raise ValueError('--disable-streaming-fallback cannot be combined with --fallback-sources')
+            fallback_enabled=bool(fallback_sources) and not args.disable_streaming_fallback
+        else:
+            preferred_source='bandcamp' if mode in ['recovery-baseline','broken-playable'] else 'monochrome'
+            fallback_sources=['monochrome','youtube','soundcloud'] if mode in ['recovery-baseline','broken-playable'] else ['youtube','soundcloud','bandcamp']
+            fallback_enabled=True
         settings = dict(musicDirectory=str(profile/'fixture'),autoPreview=False,previewDelayMs=250,theme='dark',
             ytDlpPath='yt-dlp',ffmpegPath='ffmpeg',ffprobePath='ffprobe',jsRuntimePath='node',playlistDirectories=[],
-            streamingFallbackEnabled=True,preferredStreamingSource='bandcamp' if mode in ['recovery-baseline','broken-playable'] else 'monochrome',streamingFallbackSources=['monochrome','youtube','soundcloud'] if mode in ['recovery-baseline','broken-playable'] else ['youtube','soundcloud','bandcamp'],
-            playbackDiagnosticsEnabled=True,playbackStartupTimeoutSeconds=20,liveBpmEnabled=mode=='live-analysis',
+            streamingFallbackEnabled=fallback_enabled,preferredStreamingSource=preferred_source,streamingFallbackSources=fallback_sources,
+            playbackDiagnosticsEnabled=True,playbackStartupTimeoutSeconds=args.reported_track_startup_timeout_seconds if reported_options else 20,
+            liveBpmEnabled=mode=='live-analysis',
             crossfadeEnabled=mode.startswith('crossfade'),crossfadeSeconds=2,
-            matchingLevel='balanced' if mode in ['nipsey','full-nipsey'] else 'flexible',flexibleMatching=dict(version=1,allowOtherReleases=True,
-                allowOtherPerformances=False,allowOtherMixes=False,allowOtherArtists=False,allowDifferentLengths=False))
+            matchingLevel='flexible' if reported_options else 'balanced' if mode in ['nipsey','full-nipsey'] else 'flexible',flexibleMatching=dict(version=1,
+                allowOtherReleases=True,allowOtherPerformances=reported_options,allowOtherMixes=reported_options,
+                allowOtherArtists=False,allowDifferentLengths=reported_options,maxShorterBySeconds=30,maxLongerBySeconds=30))
         if mode=='decoder-recovery':settings['ffmpegPath']=str(wrapper)
         if mode=='source-audition':settings.update(preferredDownloadSource='youtube',downloadFallbackEnabled=False,downloadFallbackSources=[])
         for key, value in [('application',settings),('playbackEngine.v1','native'),('releaseSetupComplete.v1',True),('radioRecognitionEnabled.v1',False)]:
@@ -234,7 +365,21 @@ def seed(profile, resources, mode):
                 db.execute('INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)',(key,json.dumps(value)))
     ids = [track['id'] for track in records]
     if mode == 'duplicates': ids = [ids[0],ids[0]]
-    (profile/'fixture/runtime-cases.json').write_text(json.dumps(dict(ids=ids,aacId=aac['trackId'],incidents=incidents)))
+    runtime_cases=dict(ids=ids,aacId=aac['trackId'],incidents=incidents)
+    if reported_options:
+        runtime_cases['reportedTrackOptions']={
+            'fixtureSha256':reported_track_digest,
+            'expectedSourceProvider':args.expected_source_provider,
+            'preferredStreamingSource':preferred_source,
+            'streamingFallbackSources':fallback_sources,
+            'streamingFallbackEnabled':fallback_enabled,
+            'startupTimeoutSeconds':args.reported_track_startup_timeout_seconds,
+            'pcmPhaseWindowSeconds':args.reported_track_pcm_window_seconds,
+            'matchingPolicy':{'level':'flexible','allowOtherReleases':True,'allowOtherPerformances':True,
+                'allowOtherMixes':True,'allowOtherArtists':False,'allowDifferentLengths':True,
+                'maxShorterBySeconds':30,'maxLongerBySeconds':30},
+        }
+    (profile/'fixture/runtime-cases.json').write_text(json.dumps(runtime_cases))
     return settings
 
 def seed_pending_quality_assets(profile, count):
@@ -454,11 +599,42 @@ def main():
     parser.add_argument('--build-profile',choices=['release','diagnostic'],default='release')
     parser.add_argument('--pending-quality-assets', type=int, choices=[0, 100], default=0,
                         help='Seed 0 or 100 valid-hash assets missing quality facts')
+    parser.add_argument('--reported-tracks', type=Path,
+                        help='Optional sanitized schemaVersion=1 reported-track fixture; valid only with incidents mode')
+    parser.add_argument('--preferred-streaming-source', choices=sorted(STREAMING_PROVIDERS),
+                        help='Preferred provider for reported-track incidents (default: youtube)')
+    parser.add_argument('--fallback-sources',
+                        help='Comma-separated fallback provider list for reported-track incidents; empty disables fallback')
+    parser.add_argument('--disable-streaming-fallback', action='store_true',
+                        help='Disable provider fallback for reported-track incidents')
+    parser.add_argument('--expected-source-provider', choices=sorted(STREAMING_PROVIDERS),
+                        help='Require every reported-track case to use this actual provider')
+    parser.add_argument('--reported-track-startup-timeout-seconds', type=int, choices=range(5, 21), default=20,
+                        help='Reported-track first-audio startup cap (maximum 20 seconds)')
+    parser.add_argument('--reported-track-pcm-window-seconds', type=int, choices=range(5, 7), default=6,
+                        help='Maximum separate post-first-audio capture phase for reported tracks (5 or 6 seconds)')
     parser.add_argument('--ipc-counter',action='store_true',help='Enable PID-gated WebView ::ipc counting for idle-ipc only')
     parser.add_argument('--ipc-counter-shim',type=Path,help='Built private IPC counter shared object')
     parser.add_argument('--controller',type=Path,default=Path('/tmp/burrata-queue-recovery-private-audio-controller.py'))
     parser.add_argument('--xvfb',type=Path,default=Path('/tmp/burrata-private-xvfb/root/usr/bin/Xvfb'))
     args=parser.parse_args()
+    reported_options = [args.preferred_streaming_source, args.fallback_sources,
+                        args.disable_streaming_fallback, args.expected_source_provider]
+    if args.reported_tracks:
+        if args.mode != 'incidents':
+            parser.error('--reported-tracks is supported only with --mode incidents')
+        try:
+            if args.reported_tracks.is_symlink():
+                raise ValueError('--reported-tracks must not be a symlink')
+            args.reported_tracks = args.reported_tracks.resolve(strict=True)
+            if not args.reported_tracks.is_file():
+                raise ValueError('--reported-tracks must be a regular file')
+            args.fallback_sources = parse_streaming_fallback_sources(
+                args.fallback_sources, args.preferred_streaming_source or 'youtube')
+        except (OSError, ValueError) as error:
+            parser.error(str(error))
+    elif any(value not in (None, False) for value in reported_options) or args.reported_track_startup_timeout_seconds != 20 or args.reported_track_pcm_window_seconds != 6:
+        parser.error('reported-track provider/window options require --reported-tracks')
     if args.mode=='idle-ipc':
         if not args.ipc_counter or not args.ipc_counter_shim:
             parser.error('--mode idle-ipc requires --ipc-counter and --ipc-counter-shim')
@@ -475,7 +651,7 @@ def main():
     scratch_root, capture_root = scratch_roots()
     profile=Path(tempfile.mkdtemp(prefix='burrata-launch.',dir='/tmp'))
     ipc_counter_path=profile/'ipc-counter.json' if args.mode=='idle-ipc' else None
-    settings=seed(profile,resources,args.mode)
+    settings=seed(profile,resources,args.mode,args)
     pending_count=seed_pending_quality_assets(profile,args.pending_quality_assets)
     # The app intentionally unpacks managed helpers in its data directory,
     # overriding TMPDIR. Put disposable data on the workspace filesystem too.
@@ -486,6 +662,11 @@ def main():
     children=[];result={'mode':args.mode,'buildProfile':args.build_profile,'profile':str(profile),'binarySha256':hashlib.sha256(binary.read_bytes()).hexdigest(),
         'qualification':('Diagnostic dev build with custom protocol; not release qualification. ' if args.build_profile=='diagnostic' else '')+'Extracted DEB payload; private virtual output; physical hardware and OS install not tested',
         'settings':settings,'pendingQualityAssets':pending_count,'hostBefore':host_baseline(audio)}
+    if args.reported_tracks:
+        runtime_cases=json.loads((profile/'fixture/runtime-cases.json').read_text())
+        options=runtime_cases['reportedTrackOptions']
+        result['reportedTrackQualification']={**options,'tracks':[{'id':track['id'],'title':track['title'],'artist':track['artist']}
+            for track in runtime_cases['incidents']]}
     try:
         env=audio.private_env();sink='burrata_native_'+uuid.uuid4().hex[:8]
         module_id=run(['pactl','load-module','module-null-sink','sink_name='+sink,'rate=48000','channels=2'],env=env).stdout.decode().strip()
@@ -690,13 +871,46 @@ def main():
                 rms=float(np.sqrt(np.mean(pcm**2))) if len(pcm) else 0
                 active=sum(float(np.sqrt(np.mean(pcm[i:i+4800]**2)))>.0005 for i in range(0,len(pcm)-4800,4800))*.1
                 result['pcm']={'rms':rms,'activeSeconds':active,'passed':active>=45}
+            reported_track_run=bool(args.reported_tracks and mode=='incidents')
+            reported_track_options=(json.loads((profile/'fixture/runtime-cases.json').read_text())['reportedTrackOptions']
+                if reported_track_run else None)
             for item in result['runtime']['cases'] if mode=='incidents' else []:
-                start=max(0,int((item['startedAtUnixMs']-result['captureStartedAtUnixMs'])/1000*48000))
-                end=min(len(pcm),start+int(item['elapsedMs']/1000*48000))
+                if reported_track_run:
+                    phase_start=item.get('pcmPhaseStartedAtUnixMs')
+                    phase_end=item.get('pcmPhaseEndedAtUnixMs')
+                    start=max(0,int((phase_start-result['captureStartedAtUnixMs'])/1000*48000)) if isinstance(phase_start,(int,float)) else 0
+                    end=min(len(pcm),int((phase_end-result['captureStartedAtUnixMs'])/1000*48000)) if isinstance(phase_end,(int,float)) else start
+                else:
+                    start=max(0,int((item['startedAtUnixMs']-result['captureStartedAtUnixMs'])/1000*48000))
+                    end=min(len(pcm),start+int(item['elapsedMs']/1000*48000))
                 block=pcm[start:end]
                 item['capturedRms']=float(np.sqrt(np.mean(block**2))) if len(block) else 0
                 item['capturedActiveSeconds']=sum(float(np.sqrt(np.mean(block[i:i+4800]**2)))>.0005 for i in range(0,len(block)-4800,4800))*.1
-                item['passed']=bool(item['passed'] and item['capturedActiveSeconds']>=4.5)
+                if reported_track_run:
+                    gates=reported_track_case_gate(item['passed'],item['capturedActiveSeconds'],
+                        bool(len(block)>0 and np.isfinite(block).all()),item.get('sourceProvider'),
+                        item.get('expectedSourceProvider'),item.get('startupElapsedMs'),
+                        reported_track_options['startupTimeoutSeconds']*1000,
+                        item.get('pcmPhaseElapsedMs'),reported_track_options['pcmPhaseWindowSeconds']*1000)
+                    item.update(gates)
+                else:
+                    item['capturedPcmPassed']=bool(len(block)>0 and np.isfinite(block).all() and item['capturedActiveSeconds']>=4.5)
+                    item['passed']=bool(item['passed'] and item['capturedPcmPassed'])
+            if reported_track_run:
+                active=sum(item.get('capturedActiveSeconds',0) for item in result['runtime']['cases'])
+                expected_count=len(json.loads((profile/'fixture/runtime-cases.json').read_text())['incidents'])
+                result['pcm']={'scope':'private OS monitor PCM at final application output',
+                    'minimumActiveSecondsPerTrack':4.5,
+                    'pcmPhaseMinimumMs':5000,
+                    'startupTimeoutSeconds':reported_track_options['startupTimeoutSeconds'],
+                    'pcmPhaseWindowSeconds':reported_track_options['pcmPhaseWindowSeconds'],
+                    'cases':[{'trackId':item.get('trackId'),'capturedActiveSeconds':item.get('capturedActiveSeconds'),
+                        'capturedRms':item.get('capturedRms'),'startupPhasePassed':item.get('startupPhasePassed') is True,
+                        'pcmPhasePassed':item.get('pcmPhasePassed') is True,'passed':item.get('capturedPcmPassed') is True}
+                        for item in result['runtime']['cases']],
+                    'aggregateCapturedActiveSeconds':active,
+                    'passed':len(result['runtime']['cases'])==expected_count
+                        and all(item.get('capturedPcmPassed') is True for item in result['runtime']['cases'])}
             if mode=='incidents':result['runtime']['passed']=incident_cases_passed(result['runtime'])
         if args.mode=='decoder-recovery':
             result['decoderFaultInjected']=(scratch/'decoder-fault-injected').exists()

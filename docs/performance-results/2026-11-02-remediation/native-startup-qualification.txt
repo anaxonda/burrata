@@ -1,56 +1,21 @@
-Native startup and idle IPC qualification plan
+Native startup and private audio qualification method
 Date: 2026-11-02
 
-Purpose
-- Compare the optimized Linux CI DEBs for baseline v0.1.26 and candidate
-  v0.1.27. Use the exact downloaded CI artifacts, record their workflow run IDs
-  and SHA-256 values, and keep their extracted payloads separate.
-- The earlier manual DEBUG package is only a preflight; exclude it from startup
-  timing and release comparisons. This plan has not collected optimized-package
-  timing or idle IPC results.
+Scope
+- This harness measures first-track startup and verifies short native PCM output using isolated Linux app payloads and synthetic audio fixtures. It does not use a normal Burrata profile or establish physical-device behavior. Results identify the payload build profile; diagnostic evidence is not a release-build qualification.
+- The separate 0/100 pending-quality-assets condition inserts zero or 100 hash-valid fixture assets whose quality-facts hashes are stale. Normal full-file hash verification remains enabled.
 
-Startup procedure
-- Prepare the same synthetic 12-second fixture for each payload and use a
-  private profile, isolated display, and virtual audio server. Do not use a
-  normal Burrata profile or real media files.
-- Run at least 20 measured first-track samples per 0/100 pending-quality-asset
-  condition. The optional asset cohort uses 100 hash-valid hard links to one
-  synthetic file with stale quality-facts hashes; it measures repeated hash
-  verification and does not model 100 unique files or a slow disk.
-- Interleave baseline/candidate runs and alternate build and condition order.
-  Discard three warmups per build and condition. The startup gate binds first
-  audio to the first track and playback generation, requires three seconds of
-  playback before pausing, and validates captured stereo fixture PCM.
-- After timing, perform one separate full two-track natural-completion capture
-  per payload. Keep it out of startup medians. Do not flush global page cache or
-  claim a cold OS cache, same-process warm restart, physical output, or final
-  installed-package qualification.
-- Compare the same build profile on both sides. Use optimized release-profile
-  CI packages; diagnostic/debug packages are not comparable to release ones.
+Capture phases and pass criteria
+- Startup is timed as its own phase and must finish within 20 seconds. A subsequent PCM phase lasts 5–6 seconds; these phases are recorded separately.
+- A case requires at least five seconds of playback progress tied to the same playback generation and at least 4.5 seconds of finite PCM captured from the private monitor. Provider identity, successful exit, and phase-window checks are also required.
+- The startup comparison uses at least 20 measured samples per build and condition, with three warmups excluded. Baseline/final payload and 0/100 condition order are interleaved. A separate two-track natural-completion capture is reported outside startup timing.
+- Captures use a fresh isolated profile and private virtual audio/display services. PCM evidence is an application output check in that private monitor; it is not physical output qualification.
 
-Optional idle IPC procedure
-- Build the private WebKitGTK observer with
-  `scripts/performance/ipc_counter_build.sh <private-dir>/libipc_counter.so`.
-  The shim counts only the target Burrata process's Wry `::ipc` signal after
-  successful registration. It records numeric counters only; it does not
-  inspect payloads, commands, URLs, credentials, or audio.
-- For each payload, launch a fresh private app process and counter file. After
-  frontend readiness, discard three one-second warmup buckets, then read the
-  local counter file for 20 measured one-second buckets without MCP calls in
-  the sample loop. Require an attached observer before interpreting a count.
-  Report per-bucket deltas/rates and the total delta/rate.
-- The process uses an exec-in-place PID gate and a mode-0600 exclusive counter
-  file. A missing file or `registered: 0` indicates instrumentation failure,
-  not zero activity. MCP, plugin, and other IPC channels are outside this
-  measurement.
+Metrics and privacy
+- Sanitized database snapshots retain only connection mutex scopes, counts/totals/maxima, per-callsite wait/hold metrics when available, and an explicit SQLite-engine-busy-wait status. Baseline global wait counters remain measured; baseline per-callsite operations and hold counters are null/unavailable, not zero.
+- Optional idle IPC measurement observes only the registered WebView `ipc` signal for the target application process. It records numeric registration/count values, discards three one-second warmups, then reads 20 one-second buckets locally without MCP calls in the sampling loop. Payloads, URLs, and message contents are not inspected. Actual app idle counts remain pending.
+- Raw traces, PCM captures, profiles, fixture JSON, and detailed logs are kept outside the release source snapshot.
 
-Evidence boundary
-- The runtime harness records only bounded Store connection-mutex counts,
-  totals and maxima, plus an explicit `sqliteEngineBusyWait: not_measured`
-  marker. `get_app_status` snapshots themselves contribute a small amount of
-  lock activity. SQLite engine busy-handler wait is not measured.
-- Keep raw monitor captures, private profiles, extracted payloads, and detailed
-  logs in private evidence storage. Publish only concise sanitized summaries
-  with artifact hashes, run IDs, sample counts, medians/p95 values, and scope.
-- No optimized startup comparison, idle IPC window, package installation, or
-  physical output qualification is claimed by this preparation document.
+Harness verification
+- Native runtime capture tests: 30/30; startup qualification tests: 8/8; Node startup helper test passed. Python compilation, JavaScript syntax, and CLI help checks passed.
+- These harness results validate the measurement code. They do not constitute a completed baseline/final optimized package comparison or physical audio-output qualification.

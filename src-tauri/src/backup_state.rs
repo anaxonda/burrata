@@ -6153,7 +6153,7 @@ mod tests {
         store.save_library_album(album, vec![crate::models::Track {
             id:"spotify:library-one".into(),provider:"spotify".into(),provider_id:"library-one".into(),
             artist:"Main Artist, Guest".into(),title:"Saved song".into(),
-            provenance:json!({"artistCredits":[{"name":"Main Artist","providerId":"main"},{"name":"Guest","providerId":"guest"}],"accessToken":"secret-must-disappear"}),
+            provenance:json!({"artistCredits":[{"name":"Main Artist","providerId":"main"},{"name":"Guest","providerId":"guest"}],"accessToken":"test-fixture-credential-deadbeef00"}),
             ..Default::default()
         }],1).unwrap();
         assert_eq!(
@@ -6177,7 +6177,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert!(!raw.contains("secret-must-disappear"));
+        assert!(!raw.contains("test-fixture-credential-deadbeef00"));
         for mode in [RestoreMode::Merge, RestoreMode::Replace] {
             let target_dir = tempfile::tempdir().unwrap();
             let target_path = target_dir.path().join("burrata.sqlite");

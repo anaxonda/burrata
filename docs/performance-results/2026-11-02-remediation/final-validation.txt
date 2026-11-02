@@ -3,19 +3,20 @@ Final candidate validation — 2026-11-02
 Frontend and non-Cargo gates
 - Frontend: 152 files, 1,492/1,492 tests passed (final run, session 29663).
 - Extension: 98/98; MCP: 12/12; player: 5/5.
-- Repository contracts: 8/8; matching stage 5: 4/4 (14 cases × 3 modes × 2 stages).
+- Repository contracts: 8/8; matching stage 5: 4/4 (14 cases × 3 modes × 2 stages). Secret audit: no supported patterns found; scanner regression tests 10/10; Rust formatting check passed.
 - Managed provider extension packaging generated both manifests at version 0.2.5 with expected host permissions.
 - `npm run check`: zero Svelte errors and warnings.
 - `npm run build`: passed; main bundle 970.32 kB raw / 299.98 kB gzip.
 - Release qualification harnesses: installed smoke 85/85; AppImage finalize 3/3; RPM artifact 11/11; workflow source 22/22.
-- Performance harnesses: native capture 25/25; capture result gate 3/3; startup qualification 8/8; Linux output/gain 3/3; cold-player overlap 5/5; VisionOS driver 9/9. Node startup helper test passed; syntax and CLI help checks passed.
+- Performance harnesses: native capture 30/30; capture result gate 3/3; startup qualification 8/8; Linux output/gain 3/3; cold-player overlap 5/5; VisionOS driver 9/9. Node startup helper test passed; Python compilation and `--help` commands, plus JavaScript syntax checks, passed.
 - IPC counter fixture passed disabled/wrong-process, failed/non-IPC registration, and successful IPC registration cases, including callback forwarding/destructor behavior against WebKitGTK 4.1. No Burrata app was launched for this prototype.
 
 Native and runtime status
-- Native12: 2,486 passed, 1 failed, 63 ignored. The remaining corpus test exposed two stale Exact-action cells for unresolved relationships. Both now expect Inspect in the candidate fixture; Native13 verification is pending.
-- No final optimized package/install qualification, paired startup timing, actual app idle IPC counts, warm interaction-tail rerun, live-provider qualification, or physical audio-output qualification is complete.
+- Native13: 2,487 passed, 0 failed, 63 ignored in 94.57 seconds. This verifies the two corrected Exact-action cells for unresolved relationships. Test-binary SHA-256: `5316a567d3cc1fc003558cc6613b5f076f7e09236c80306b94ab8eb431944791`.
+- Paired frontend CDP: 100 cold and 100 warm observations per build. Cold controls-ready p50/p95: 116.8/142.8 ms baseline, 104.7/133.6 ms candidate. Warm controls-ready p50/p95: 54.9/72.5 ms baseline, 55.0/72.9 ms candidate. Warm focus-plus-click p95: 4.7 ms baseline, 5.1 ms candidate (+8.5%); paired-bootstrap 95% interval -0.3 to +1.0 ms. The earlier 20-pair tail remains recorded separately (+28.9%). This is synthetic DOM readiness/interaction, not native startup or first audio.
+- Optimized native startup/package comparison, final package install qualification, actual app idle IPC counts, live-provider rerun, and physical audio-output qualification remain pending.
 - Linux frontend/test results do not qualify macOS or Windows physical audio output. No release publication or normal-profile install has occurred.
 
 Evidence boundary
 - Sanitized metadata fixtures are included for repository contract tests; no audio payloads, private profiles, raw captures, or detailed qualification logs are included.
-- Results above describe completed checks only. Pending Native13 and runtime gates must pass before release qualification.
+- Results above describe completed checks only. Remaining package, installation, timing, live-provider, and physical-output gates must pass before release qualification.

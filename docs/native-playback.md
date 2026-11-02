@@ -31,7 +31,7 @@ python3 scripts/release/test-native-playback-contract.py
 cargo test --locked --manifest-path src-tauri/Cargo.toml
 ```
 
-The release workflow should run the focused contract on each native builder along with the full Rust tests. A passing CI result does not replace the manual device and stream qualification below.
+The release workflow runs the focused contract and full Rust tests on its native builders. These automated checks validate build and decode behavior; they do not establish physical-device behavior. Record any physical device and stream checks separately.
 
 ## Post-release hardware follow-up
 
@@ -47,21 +47,21 @@ Run on a clean supported OS install with no development media tools on `PATH`. R
 
 For each case, capture at least three cold starts and record time from Play to first audible audio, retry count and elapsed retry time, peak and steady-state process memory, and output device. Confirm expected behavior across pause/resume, rapid next/previous, source failure, reconnect, and application sleep/wake where applicable.
 
-Mandatory reliability checks on every OS include physically removing the active output device during playback, reconnecting it, and verifying recovery or a clear actionable error; and suspending/sleeping the machine during playback, waking it, and verifying recovery or a clear actionable error. Also repeat device removal while paused and while a stream is resolving. Do not infer these outcomes from CI or from another operating system.
+Physical reliability results are unqualified unless the checks are performed and recorded. When tested, remove and reconnect the active output during playback, repeat while paused and while a stream is resolving, and test suspend/sleep and wake behavior. Report the OS and device for each result; do not infer these outcomes from CI or another operating system.
 
 For HLS and HE-AAC sources, verify native decode first and then the FFmpeg fallback. Record which path handled the stream, startup latency, retries, audible continuity, and errors. Validate that unsupported or failed sources stop cleanly without leaving the queue or player state stuck.
 
-Compare native playback resource use and packaging impact with the pre-change baseline on the same runner and artifact format. Record installer size and installed application size, plus startup-to-first-audio, retries, and process memory under the same track and device conditions. Keep the measured baseline and qualification results with the internal release evidence. Do not claim that tests passed until the platform-specific runs are complete.
+Compare native playback resource use and packaging impact with the pre-change baseline on the same runner and artifact format. Record installer size, installed application size, startup-to-first-audio, retries, and process memory under the same track and device conditions. Keep completed results with the internal release evidence and mark unperformed platform-specific checks as unqualified.
 
 ## Release status
 
-Public release of this Native-only source remains blocked on clean packaged qualification on macOS, Windows and Linux, including device removal and sleep/wake. Previously published v0.1.24 used WebView playback; that artifact does not qualify this change. See [Native-only verification](native-only-verification.md).
+For v0.1.27, qualification covers automated builds and tests on Linux, macOS, and Windows, plus isolated Linux package validation and private native PCM/live-provider checks. The [dated validation report](performance-results/2026-11-02-remediation/final-validation.txt) lists completed and pending checks. Physical macOS and Windows audio output, physical device removal/reconnect, and sleep/wake behavior remain unqualified unless separately performed and documented. Automated results and Linux qualification do not establish those physical outcomes. Previously published v0.1.24 used WebView playback; that artifact does not qualify this change. See [Native-only verification](native-only-verification.md).
 
-## Current recovery and migration status — 2026-10-30
+## Recovery and migration history — 2026-10-30
 
 The previous engine preference is retained solely as the durable session-migration receipt. Startup selects the previously active session, commits its complete queue and controls in SQLite, and restores paused. A stale competing session cannot replace the active one. Legacy browser storage and old backup readers remain available; no browser audio engine runs. Native output failures use Native output/source recovery. Recording verification and explicit source locks remain mandatory.
 
-Historical candidates had Linux isolated PCM coverage for both engines, including stereo crossfade, pause and seek. That evidence is not macOS/Windows device qualification or packaged-artifact qualification. This Native-only source still needs those platform checks and reliable internal recovery without exposing engine implementation choices in normal settings.
+Historical candidates had Linux isolated PCM coverage for both engines, including stereo crossfade, pause and seek. That evidence did not qualify macOS/Windows device output or packaged artifacts. At the time, those platform checks and reliable internal recovery still needed work; this historical status does not define the v0.1.27 release boundary.
 
 Additional source recovery now attempts implicit saved links first and permits verified alternatives after source-specific failure; explicit source selections, source-mode locks, uploads, radio and chapter ranges retain their restrictions. One distinct provider can receive an extra bounded extraction attempt after eligible source failure, within the original deadline. Eligible catalog tracks with a failed local asset can retry online without deleting the file or rewriting the library. Manually edited artist names supersede stale provider credit rows. General stale title, duration and version refresh is not implemented: it needs same-recording identity proof and preservation of user edits.
 
@@ -90,7 +90,7 @@ Single observed starts were approximately 50–160 ms for downloaded tracks, 1.2
 
 YouTube returned intermittent preflight HTTP 403 responses during repeated tests. Resolution now permits one uncached alternate-format retry for the exact same video; it does not change a pinned recording. Catalog searches retain their bounded matching-provider fallback. CDN refusal must remain visible if fresh recovery fails.
 
-Still required: clean packaged installs, macOS/Windows builds and physical playback, the full 30-minute station runs, device removal, sleep/wake, repeatable cold-start measurements, and gapless audio-output measurements. These checks gate release of the current Native-only source; historical WebView releases do not satisfy them.
+Historical note: when these source-recovery results were recorded, clean packaged installs, cross-platform physical playback, full 30-minute station runs, device removal, sleep/wake, repeatable cold-start measurements, and gapless output measurements were still outstanding. This historical checklist is not the current v0.1.27 release status; see the Release status section above. Unperformed physical checks remain labeled unqualified.
 
 Responsive UI checks used Chrome at 960px and 800px, with the right player pane open and closed. The shared radio component stays within its pane, its history scrolls, and list actions remain visible. Main-library virtualized rows remain 60px high while titles wrap. At desktop half-width (960px), opening the player pane retains the resizable sidebar. Below 901px the sidebar uses the compact rail; both information and queue panes have resize controls where space permits. Selecting the already-current station is navigation only.
 

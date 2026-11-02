@@ -4,7 +4,7 @@ import {readFile, realpath, writeFile} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {auditionQueueMetadataRetained} from './source_audition_gates.mjs';
-import {idleIpcBucketsGate,parseIdleIpcCounter,startupObservation,startupPauseGate} from './native_startup_capture_helpers.mjs';
+import {idleIpcBucketsGate,parseIdleIpcCounter,safeStoreMutexMetrics,startupObservation,startupPauseGate} from './native_startup_capture_helpers.mjs';
 import {Client} from '@modelcontextprotocol/client';
 import {StdioClientTransport} from '@modelcontextprotocol/client/stdio';
 
@@ -32,27 +32,24 @@ async function captureUi(name) {
   if(!picture?.data)throw Error('App-owned UI capture unavailable');
   const path=`${profile}/${name}.png`;await writeFile(path,Buffer.from(picture.data,'base64'));return path;
 }
-async function state() { return call('playback_state',{offset:0,limit:10}); }
-function safe(s) {
-  return {generation:s.generation,trackId:s.trackId,entryId:s.entryId,entryIds:s.queueEntryIds,index:s.currentIndex,
-    status:s.status,position:s.position,duration:s.duration,catalogDuration:s.track?.durationSeconds,paused:s.paused,transition:s.transition,
-    firstAudioMs:s.diagnostics?.firstAudioMs,recoveryCount:s.diagnostics?.recoveryCount,bufferingCount:s.diagnostics?.bufferingCount,seekSerial:s.seekSerial,
-    message:s.playerMessage,loudnessNormalization:s.loudnessNormalization,candidate:s.candidate ? {provider:s.candidate.provider,id:s.candidate.id,title:s.candidate.title}:null};
+async function state(timeout=45000) { return call('playback_state',{offset:0,limit:10},timeout); }
+function safeDiagnosticText(value) {
+  if(typeof value!=='string')return null;
+  return value.replace(/https?:\/\/\S+/gi,'[redacted-url]')
+    .replace(/\b(?:bearer\s+)[A-Za-z0-9._~-]{8,}/gi,'[redacted-credential]')
+    .replace(/([?&](?:access_token|refresh_token|token|api_key|apikey)=)[^&#\s]*/gi,'$1[redacted]')
+    .replace(/[\u0000-\u001f\u007f]/g,' ').slice(0,300);
 }
-function safeStoreMutexMetrics(status) {
-  const metrics=status?.diagnostics?.storeConnectionWait;
-  if(!metrics || metrics.scope!=='global_store_connection_mutex')return null;
-  const number=value=>Number.isSafeInteger(value)&&value>=0?value:null;
-  const operations={};
-  if(metrics.operations && typeof metrics.operations==='object') {
-    for(const [name,value] of Object.entries(metrics.operations)) {
-      if(!/^[A-Za-z0-9_.:-]{1,100}$/.test(name)||!value||typeof value!=='object')continue;
-      operations[name]={lockCount:number(value.lockCount),totalWaitNs:number(value.totalWaitNs),maxWaitNs:number(value.maxWaitNs),
-        totalHoldNs:number(value.totalHoldNs),maxHoldNs:number(value.maxHoldNs)};
-    }
-  }
-  return {scope:metrics.scope,lockCount:number(metrics.lockCount),totalWaitNs:number(metrics.totalWaitNs),
-    maxWaitNs:number(metrics.maxWaitNs),operations,sqliteEngineBusyWait:'not_measured'};
+function safe(s, reported=false) {
+  const sourceProvider=s.candidate?.provider;
+  return {generation:s.generation,trackId:s.trackId,entryId:s.entryId,entryIds:s.queueEntryIds,index:s.currentIndex,
+    status:s.status,position:s.position,duration:s.duration,catalogDuration:s.track?.durationSeconds,paused:s.paused,
+    transition:reported?Boolean(s.transition):s.transition,
+    firstAudioMs:s.diagnostics?.firstAudioMs,recoveryCount:s.diagnostics?.recoveryCount,bufferingCount:s.diagnostics?.bufferingCount,seekSerial:s.seekSerial,
+    message:reported?safeDiagnosticText(s.playerMessage):s.playerMessage,
+    loudnessNormalization:reported?Boolean(s.loudnessNormalization):s.loudnessNormalization,
+    candidate:s.candidate ? {provider:reported?(['youtube','soundcloud','monochrome'].includes(sourceProvider)?sourceProvider:null):sourceProvider,id:reported?safeDiagnosticText(s.candidate.id):s.candidate.id,
+      title:reported?safeDiagnosticText(s.candidate.title):s.candidate.title}:null};
 }
 try {
   await client.connect(transport);
@@ -370,26 +367,64 @@ if(mode==='idle-ipc'){
     await call('pause_playback');
   } else if (mode === 'incidents') {
     for (const track of spec.incidents) {
+      const reported=spec.reportedTrackOptions??null;
+      const startupWindowMs=reported?reported.startupTimeoutSeconds*1000:45000;
+      const pcmWindowMs=reported?reported.pcmPhaseWindowSeconds*1000:0;
       const started=performance.now(), startedAtUnixMs=Date.now();let receiptError=null;
-      const receipt=call('play_tracks',{trackIds:[track.id]}).catch(e=>{receiptError=e.message;});
-      let anchor=null,last=null,passed=false;
-      while(performance.now()-started<45000) {
-        last=await state();
-        report.samples.push({ms:performance.now()-started,caseId:track.id,...safe(last)});
+      const receipt=call('play_tracks',{trackIds:[track.id]},reported?startupWindowMs+1000:45000).catch(e=>{receiptError=e.message;});
+      let anchor=null,playbackGeneration=null,firstAudioMs=null,last=null,passed=false;
+      let startupObservedAt=null,pcmPhaseStartedAt=null,pcmPhaseEndedAt=null,pcmPhaseElapsedMs=null,reportedPcmTimes={};
+      while(performance.now()-started<startupWindowMs) {
+        last=await state(reported?3000:45000);
+        report.samples.push({phase:reported?'startup':'legacy',ms:performance.now()-started,caseId:track.id,...safe(last,Boolean(reported))});
         if(last.trackId===track.id && last.status==='playing' && Number.isFinite(last.diagnostics?.firstAudioMs)) {
-          anchor ??= last.position;
-          if(last.position-anchor>=10){passed=true;break;}
+          if(anchor===null){anchor=last.position;playbackGeneration=last.generation;firstAudioMs=last.diagnostics.firstAudioMs;startupObservedAt=performance.now();}
+          if(last.generation!==playbackGeneration)break;
+          if(reported||last.position-anchor>=10){passed=true;break;}
         }
         if(last.trackId===track.id && ['failed','error','ended'].includes(last.status))break;
         await sleep(150);
       }
+      if(reported&&passed&&last?.generation===playbackGeneration){
+        pcmPhaseStartedAt=performance.now();
+        const pcmPhaseStartedAtUnixMs=Date.now(),pcmAnchor=last.position;
+        while(performance.now()-pcmPhaseStartedAt<pcmWindowMs){
+          last=await state(3000);
+          report.samples.push({phase:'pcm',ms:performance.now()-pcmPhaseStartedAt,caseId:track.id,...safe(last,true)});
+          if(last.trackId!==track.id||last.generation!==playbackGeneration||last.status!=='playing')break;
+          if(last.position-pcmAnchor>=5)break;
+          await sleep(150);
+        }
+        pcmPhaseEndedAt=performance.now();pcmPhaseElapsedMs=pcmPhaseEndedAt-pcmPhaseStartedAt;
+        const pcmPhaseEndedAtUnixMs=Date.now();
+        reportedPcmTimes={pcmPhaseStartedAtUnixMs,pcmPhaseEndedAtUnixMs};
+        passed=last?.trackId===track.id&&last?.generation===playbackGeneration&&last?.status==='playing'
+          &&last.position-pcmAnchor>=5&&pcmPhaseElapsedMs<=pcmWindowMs+250;
+      }
+      let pausedReported=false;
+      if(reported&&pcmPhaseStartedAt!==null){
+        try{await call('pause_playback',{},5000);pausedReported=true;}catch{}
+      }
       await receipt;
-      const item={trackId:track.id,title:track.title,passed:passed&&!receiptError,startedAtUnixMs,elapsedMs:performance.now()-started,receiptError,state:safe(last)};
+      if(reported&&receiptError)receiptError=safeDiagnosticText(receiptError);
+      const rawSourceProvider=last?.candidate?.provider??null;
+      const sourceProvider=['youtube','soundcloud','monochrome'].includes(rawSourceProvider)?rawSourceProvider:null;
+      const expectedSourceProvider=reported?.expectedSourceProvider??null;
+      const sourceProviderPassed=expectedSourceProvider===null?sourceProvider!==null:sourceProvider===expectedSourceProvider;
+      const item={trackId:track.id,title:track.title,passed:passed&&!receiptError&&sourceProviderPassed,
+        startedAtUnixMs,elapsedMs:performance.now()-started,receiptError,playbackGeneration,firstAudioMs,
+        startupElapsedMs:startupObservedAt===null?null:startupObservedAt-started,
+        ...(reported?{...reportedPcmTimes,pcmPhaseElapsedMs}:{}),state:safe(last,Boolean(reported)),
+        ...(reported?{sourceProvider,expectedSourceProvider,sourceProviderPassed,
+          preferredStreamingSource:reported.preferredStreamingSource,
+          fallbackUsed:sourceProvider!==null&&sourceProvider!==reported.preferredStreamingSource}: {})};
       report.cases.push(item);console.log(JSON.stringify(item));
-      await call('pause_playback');
-      // Export only the app's deliberately sanitized source report.
-      const trace=await call('get_playback_diagnostics_report').catch(()=>null);
-      if(trace)await writeFile(`${profile}/incident-source-${report.cases.length}.json`,JSON.stringify(trace,null,2));
+      if(!pausedReported)await call('pause_playback');
+      // Reported-track runs keep only the strict allowlisted status fields above.
+      if(!reported){
+        const trace=await call('get_playback_diagnostics_report').catch(()=>null);
+        if(trace)await writeFile(`${profile}/incident-source-${report.cases.length}.json`,JSON.stringify(trace,null,2));
+      }
     }
     report.passed=report.cases.length===spec.incidents.length && report.cases.every(c=>c.passed);
   } else {

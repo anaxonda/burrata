@@ -1,9 +1,8 @@
 Remediation audit disposition — 2026-11-02
-Status: source fixes are integrated; Native12 completed with 2,486 passed, 1
-failed, and 63 ignored. The remaining corpus test exposed two stale Exact-action
-expectations for unresolved relationships; both are corrected in the candidate
-fixture. Native13 verification is pending. No final release package,
-native-device output, or publication is qualified.
+Status: source fixes are integrated. Native13 passed: 2,487 passed, 0 failed,
+and 63 ignored in 94.57 seconds. The two corrected Exact-action expectations
+for unresolved relationships are verified. The final package, native-device
+output, and publication are not yet qualified.
 
 Evidence basis: docs/audits/2026-11-02-project-audit.txt, integrated source,
 focused test results, and sanitized resolver/decoder summaries. Temporary raw
@@ -74,12 +73,15 @@ production JS is 970.32 kB raw versus the 1,228.25 kB baseline (about 21.0%
 smaller). The earlier 958.16 kB figure in the frontend qualification summary is from a previous build
 and is superseded for this status. Final frontend tests and type checks passed;
 the final frontend suite passed 1,492 tests across 152 files. Chromium isolated DOM
-startup samples are in the frontend qualification summary: cold controls p50/p95 changed from 101.2/140.9 ms
-to 89.6/107.4 ms; warm from 42.7/56.6 ms to 41.6/55.4 ms. These measure DOM
-shell/controls and synthetic dispatch, not native startup or first audio. The
-warm synthetic-interaction p95 signal was 4.7 ms baseline versus 5.3 ms final;
-the alternating-order, separated-focus/click tail rerun is pending.
-Do not claim the interaction-tail question is closed.
+startup samples measure DOM shell/controls, not native startup or first audio.
+The 100-pair rerun includes 100 cold and 100 warm observations per build. Cold
+controls-ready p50/p95 changed from 116.8/142.8 ms to 104.7/133.6 ms; warm
+changed from 54.9/72.5 ms to 55.0/72.9 ms. Warm focus-plus-click p95 changed
+from 4.7 to 5.1 ms (+8.5%), within the 10% point-estimate gate. Its paired
+bootstrap 95% interval was -0.3 to +1.0 ms (relative -6.4% to +23.4%), so tail
+uncertainty remains. The earlier 20-pair run measured 4.5 versus 5.8 ms
+(+28.9%); retain both observations. These synthetic DOM results are not native
+startup or first audio.
 
 8. Occurrence checkbox/highlight mismatch — CONFIRMED reproduced and fixed.
 One occurrence-aware selected value now drives checkbox and row styling. Focused
@@ -116,17 +118,18 @@ isolation were added, but a final native quiet-window comparison has not run.
 Do not infer a database performance defect from file size or architecture alone.
 
 Native correctness status
-- Native10 full suite: 2,482 passed, 4 failed, 63 ignored. Native11 verified
-  the exact-refresh provider projection, Flexible missing-version expectation,
-  and composition-credit uncertainty corrections; its single remaining failure
-  was a corpus test with three stale expectations.
+- Native10: 2,482 passed, 4 failed, 63 ignored. Native11 and Native12 each
+  passed 2,486 tests and left one corpus test failing; Native12 identified two
+  Exact-action expectations that needed Inspect for unresolved relationships.
+- The candidate corpus now expects Inspect for those two cases. Native13 passed
+  2,487 tests, with 0 failures and 63 ignored, in 94.57 seconds. Test-binary
+  SHA-256: `5316a567d3cc1fc003558cc6613b5f076f7e09236c80306b94ab8eb431944791`.
 - The producer projection preserves bounded current SoundCloud artist fields
   only when fresh `info.id` matches. The missing-version case remains
   `version=Unknown` and action `Enrich`; Flexible returns `Probable`, not an
   automatic Accept.
-- `recording_match.rs` now uses evaluator revision 21. The corrected corpus JSON is in the candidate snapshot. Native13 must verify
-  it against the formatted candidate source before Native Rust tests can be
-  called green.
+- `recording_match.rs` uses evaluator revision 21. Native13 verified the
+  corrected corpus fixture against the formatted candidate source.
 
 Live provider and audio evidence
 - Exact Django Swing 42, Flexible YouTube, Native10: resolver selected
@@ -168,8 +171,8 @@ Unsupported or bounded claims
   provider outcomes, not as evidence of no result.
 
 Release boundary
-Native13 is required to verify the two corrected corpus action expectations
-against the formatted candidate source. The final package, private installation,
+Native13 verified the corrected corpus action expectations against the
+formatted candidate source. The final package, private installation,
 native startup/idle IPC timing, frontend warm-interaction tail rerun, and physical
 audio output remain unqualified. No publish or remote playlist write was
 performed.

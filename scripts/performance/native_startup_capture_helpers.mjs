@@ -29,6 +29,25 @@ export function parseIdleIpcCounter(text) {
   return {registered:value.registered,count:value.count};
 }
 
+export function safeStoreMutexMetrics(status) {
+  const metrics=status?.diagnostics?.storeConnectionWait;
+  if(!metrics || metrics.scope!=='global_store_connection_mutex')return null;
+  const number=value=>Number.isSafeInteger(value)&&value>=0?value:null;
+  const operations={};
+  const hasOperations=Boolean(metrics.operations && typeof metrics.operations==='object' && !Array.isArray(metrics.operations));
+  if(hasOperations) {
+    for(const [name,value] of Object.entries(metrics.operations)) {
+      if(!/^[A-Za-z0-9_.:-]{1,100}$/.test(name)||!value||typeof value!=='object')continue;
+      operations[name]={lockCount:number(value.lockCount),totalWaitNs:number(value.totalWaitNs),maxWaitNs:number(value.maxWaitNs),
+        totalHoldNs:number(value.totalHoldNs),maxHoldNs:number(value.maxHoldNs)};
+    }
+  }
+  return {scope:metrics.scope,lockCount:number(metrics.lockCount),totalWaitNs:number(metrics.totalWaitNs),
+    maxWaitNs:number(metrics.maxWaitNs),operations:hasOperations?operations:null,
+    holdMetricsAvailable:hasOperations&&Object.values(operations).some(value=>value.totalHoldNs!==null||value.maxHoldNs!==null),
+    sqliteEngineBusyWait:'not_measured'};
+}
+
 export function idleIpcBucketsGate(initial, warmups, measured, actualElapsedMs) {
   if(!initial||!Array.isArray(warmups)||warmups.length!==3
       ||!Array.isArray(measured)||measured.length!==20

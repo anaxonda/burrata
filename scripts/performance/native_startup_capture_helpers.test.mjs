@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {idleIpcBucketsGate,parseIdleIpcCounter,startupObservation,startupPauseGate} from './native_startup_capture_helpers.mjs';
+import {idleIpcBucketsGate,parseIdleIpcCounter,safeStoreMutexMetrics,startupObservation,startupPauseGate} from './native_startup_capture_helpers.mjs';
 
 const target='fixture-track';
 const playing={trackId:target,generation:4,status:'playing',position:3.2,diagnostics:{firstAudioMs:275}};
@@ -38,4 +38,16 @@ test('idle IPC buckets require exact fields, registration, monotonic counts, and
   assert.equal(idleIpcBucketsGate(initial,warmups,[...measured.slice(0,19),{...measured[19],registered:2}],23000),false);
   assert.equal(idleIpcBucketsGate({...initial,registered:0},warmups,measured,23000),false);
   assert.equal(idleIpcBucketsGate(initial,warmups,measured.slice(0,19),23000),false);
+});
+
+test('store mutex sanitizer preserves global baseline waits without inventing hold counters',()=>{
+  const baseline=safeStoreMutexMetrics({diagnostics:{storeConnectionWait:{scope:'global_store_connection_mutex',
+    lockCount:10,totalWaitNs:200,maxWaitNs:50,sqliteEngineBusyWait:'not_measured'}}});
+  assert.deepEqual(baseline,{scope:'global_store_connection_mutex',lockCount:10,totalWaitNs:200,maxWaitNs:50,
+    operations:null,holdMetricsAvailable:false,sqliteEngineBusyWait:'not_measured'});
+  const final=safeStoreMutexMetrics({diagnostics:{storeConnectionWait:{scope:'global_store_connection_mutex',
+    lockCount:2,totalWaitNs:3,maxWaitNs:2,operations:{'store.rs:21':{lockCount:2,totalWaitNs:3,maxWaitNs:2,totalHoldNs:5,maxHoldNs:4}}}}});
+  assert.equal(final.holdMetricsAvailable,true);
+  assert.equal(final.operations['store.rs:21'].totalHoldNs,5);
+  assert.equal(safeStoreMutexMetrics({diagnostics:{storeConnectionWait:{scope:'other'}}}),null);
 });

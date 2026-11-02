@@ -6,7 +6,74 @@ import json
 import sqlite3
 import unittest
 import numpy as np
-from native_runtime_capture import summarize_capture, assess_normalization, assess_source_audition_pcm, assess_full_recording_pcm, assess_stereo_markers, assess_audition_queue_checkpoint
+from native_runtime_capture import summarize_capture, assess_normalization, assess_source_audition_pcm, assess_full_recording_pcm, assess_stereo_markers, assess_audition_queue_checkpoint, load_reported_track_fixture, parse_streaming_fallback_sources, reported_track_case_gate
+
+
+class ReportedTrackFixtureTests(unittest.TestCase):
+    def track(self, **changes):
+        result={'id':'catalog:fixture:1','provider':'musicbrainz','providerId':'fixture-recording',
+            'sourceUrl':'https://musicbrainz.org/recording/fixture-recording','artist':'Fixture artist',
+            'title':'Fixture track','favorite':False,'localPath':None,'localAvailability':'none',
+            'assetId':None,'provenance':{'artistCredits':[{'name':'Fixture artist','role':'Artist'}]}}
+        result.update(changes)
+        return result
+
+    def write_fixture(self, folder, track):
+        path=Path(folder)/'tracks.json'
+        path.write_text(json.dumps({'schemaVersion':1,'tracks':[track]}))
+        return path
+
+    def test_reported_tracks_are_copied_into_private_safe_fixture(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source=self.write_fixture(folder,self.track(previewUrl='https://example.invalid/preview',artworkUrl='https://example.invalid/art'))
+            destination=Path(folder)/'private/reported-tracks.json';destination.parent.mkdir()
+            tracks,digest=load_reported_track_fixture(source,destination)
+            saved=json.loads(destination.read_text())
+            self.assertEqual(tracks[0]['id'],'catalog:fixture:1')
+            self.assertIsNone(saved['tracks'][0]['previewUrl'])
+            self.assertIsNone(saved['tracks'][0]['artworkUrl'])
+            self.assertEqual(saved['tracks'][0]['localAvailability'],'none')
+            self.assertEqual(len(digest),64)
+            self.assertEqual(destination.stat().st_mode & 0o777,0o600)
+
+    def test_reported_fixture_rejects_local_assets_tokens_and_unknown_fields(self):
+        invalid=[self.track(localPath='/home/user/music.wav',assetId='local:1'),
+                 self.track(provenance={'fixture':'access_token=test-fixture-credential-deadbeef00'}),
+                 self.track(extraField='not a Track field'),
+                 self.track(sourceUrl='file:///tmp/track'),
+                 self.track(id='catalog/invalid/identifier'),
+                 self.track(title='track://source')]
+        with tempfile.TemporaryDirectory() as folder:
+            destination=Path(folder)/'private.json'
+            for track in invalid:
+                source=self.write_fixture(folder,track)
+                with self.subTest(track=track):
+                    with self.assertRaises(ValueError):
+                        load_reported_track_fixture(source,destination)
+
+    def test_provider_fallback_list_is_bounded_to_unique_other_known_providers(self):
+        self.assertEqual(parse_streaming_fallback_sources('monochrome,soundcloud','youtube'),['monochrome','soundcloud'])
+        self.assertEqual(parse_streaming_fallback_sources('', 'youtube'),[])
+        for value in ('youtube','monochrome,monochrome','bandcamp','monochrome,unknown'):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    parse_streaming_fallback_sources(value,'youtube')
+
+    def test_reported_playback_requires_expected_provider_and_real_monitor_pcm(self):
+        passed=reported_track_case_gate(True,5.0,True,'youtube','youtube',19000,20000,5100,6000)
+        self.assertTrue(passed['passed'])
+        self.assertFalse(reported_track_case_gate(True,5.0,True,'monochrome','youtube',19000,20000,5100,6000)['passed'])
+        self.assertFalse(reported_track_case_gate(True,0,True,'youtube','youtube',19000,20000,5100,6000)['passed'])
+        self.assertFalse(reported_track_case_gate(True,5.0,False,'youtube','youtube',19000,20000,5100,6000)['passed'])
+        self.assertFalse(reported_track_case_gate(False,5.0,True,'youtube','youtube',19000,20000,5100,6000)['passed'])
+        self.assertTrue(reported_track_case_gate(True,5.0,True,'monochrome',None,19000,20000,5100,6000)['passed'])
+        self.assertFalse(reported_track_case_gate(True,5.0,True,None,None,19000,20000,5100,6000)['passed'])
+
+    def test_reported_startup_and_pcm_phases_keep_separate_caps(self):
+        self.assertTrue(reported_track_case_gate(True,4.5,True,'youtube','youtube',20000,20000,6000,6000)['passed'])
+        self.assertFalse(reported_track_case_gate(True,4.5,True,'youtube','youtube',20001,20000,6000,6000)['passed'])
+        self.assertFalse(reported_track_case_gate(True,4.5,True,'youtube','youtube',10000,20000,4999,6000)['passed'])
+        self.assertFalse(reported_track_case_gate(True,4.5,True,'youtube','youtube',10000,20000,6251,6000)['passed'])
 
 
 class CaptureGate(unittest.TestCase):
