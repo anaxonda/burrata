@@ -3,7 +3,7 @@
 Current failure instrumentation: `diagnostics.lastBuffering` retains finite reader/download/PCM facts from an actual empty PCM queue, tagged with generation and seek serial. It clears at new source/track, seek and preload-adoption boundaries; stale events do not replace it. Reader read/seek wait times and time since download progress expose input waiting alongside an empty production queue, but cannot independently separate network, storage and scheduling causes. `readInFlightMs`/`maxReadMs` and `seekInFlightMs`/`maxSeekMs` wrap the actual delegated operations; a null read wait does not exclude a blocked seek. Progress is reported after chunk storage writes, so a lack of progress alone does not prove a stalled network. `downloadedRangeEnd` is a range position, not cumulative network bytes. Existing decoder `bytesRead`/`bytesReceived` remain startup snapshots, rather than live throughput totals. The instrumentation does not change queue capacity, prefetch, fallback, cancellation or five-second verification gates.
 
 
-This candidate uses Native playback for all in-app audio; the desktop interface
+Burrata 0.1.25 uses Native playback for all in-app audio; the desktop interface
 still uses the platform WebView. There is no playback-engine selector or engine
 preference override. Existing queue and control state migrates to Native. The
 dated qualification sections below describe earlier builds, not current engine
@@ -18,7 +18,7 @@ supervised media server.
 
 ## Build and automated checks
 
-Native CI must build each target with the qualification path enabled and run its deterministic decode test. The contract script creates a one-second 48 kHz mono PCM WAV fixture locally and passes its path to `native_output::tests::decodes_generated_wav_without_audio_device` through `BURRATA_NATIVE_PLAYBACK_FIXTURE`; the test decodes and consumes samples without opening an audio output device. This is a build/decode check, not a claim that a physical device was exercised. Platform builds and manual qualification are still pending review.
+Native CI must build each target with the qualification path enabled and run its deterministic decode test. The contract script creates a one-second 48 kHz mono PCM WAV fixture locally and passes its path to `native_output::tests::decodes_generated_wav_without_audio_device` through `BURRATA_NATIVE_PLAYBACK_FIXTURE`; the test decodes and consumes samples without opening an audio output device. This is a build/decode check, not a claim that a physical device was exercised. Packaged results are recorded below; physical-device qualification remains separate.
 
 Run the focused contract locally with:
 
@@ -29,7 +29,7 @@ cargo test --locked --manifest-path src-tauri/Cargo.toml
 
 The release workflow should run the focused contract on each native builder along with the full Rust tests. A passing CI result does not replace the manual device and stream qualification below.
 
-## Manual acceptance matrix
+## Post-release hardware follow-up
 
 Run on a clean supported OS install with no development media tools on `PATH`. Record OS build, device model/driver, Burrata commit, selected source, and result for every case. Test both built-in and USB/Bluetooth output when available, and verify output selection and volume behavior.
 
@@ -51,10 +51,20 @@ Compare native playback resource use and packaging impact with the pre-change ba
 
 ## Release status
 
-The current candidate uses Native playback exclusively. Clean-machine
-installation and physical-device checks, including device removal and sleep/wake,
-remain separate qualification gates on each supported platform. The dated results
-below retain their original scope and do not qualify the current candidate.
+Burrata [v0.1.25](https://github.com/anaxonda/burrata/releases/tag/v0.1.25) is the Native-only public release from
+source `4f1e0a1caf18757312659590653bb1e2ee3f4fea`. The
+[release build](https://github.com/anaxonda/burrata/actions/runs/41391289691) qualified the Linux DEB and AppImage with
+packaged decoders and stereo PCM captured after player gain, and the RPM through
+real Fedora dependency installation, playback and removal. The macOS arm64 DMG
+passed its installed-app and Native mixer PCM checks. Windows installer, bundled
+helper, UI and MCP checks passed; **Windows Native audio output remains
+unverified**, explicitly deferred because the runner had no available output
+device. No Windows PCM or audible-output pass is claimed. Checksums, support
+updates and verification records are on the [support release](https://github.com/anaxonda/burrata/releases/tag/support-v0.1.25).
+
+These automated checks do not qualify physical speakers, output-device changes
+or OS sleep/wake. The affected Mac's doubled-duration and Library-only incidents
+remain post-release user follow-up; they have not been confirmed on that machine.
 
 ## Local Linux evidence — 2026-10-14
 
@@ -66,7 +76,7 @@ Single observed starts were approximately 50–160 ms for downloaded tracks, 1.2
 
 YouTube returned intermittent preflight HTTP 403 responses during repeated tests. Resolution now permits one uncached alternate-format retry for the exact same video; it does not change a pinned recording. Catalog searches retain their bounded matching-provider fallback. CDN refusal must remain visible if fresh recovery fails.
 
-Still required: clean packaged installs, macOS/Windows builds and physical playback, the full 30-minute station runs, device removal, sleep/wake, repeatable cold-start measurements, and gapless audio-output measurements. Native playback remains gated; these checks concern native-engine promotion, not the already published WebView-default v0.1.3 release.
+Still required: clean packaged installs, macOS/Windows builds and physical playback, the full 30-minute station runs, device removal, sleep/wake, repeatable cold-start measurements, and gapless audio-output measurements. This was the remaining matrix at that historical checkpoint; see the release status above for current results and continuing limits.
 
 Responsive UI checks used Chrome at 960px and 800px, with the right player pane open and closed. The shared radio component stays within its pane, its history scrolls, and list actions remain visible. Main-library virtualized rows remain 60px high while titles wrap. At desktop half-width (960px), opening the player pane retains the resizable sidebar. Below 901px the sidebar uses the compact rail; both information and queue panes have resize controls where space permits. Selecting the already-current station is navigation only.
 

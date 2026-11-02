@@ -63,10 +63,15 @@ use your distribution's AppImage instructions or the DEB/RPM package where
 compatible. AppImage is not guaranteed to run on every Linux system.
 
 Linux browser connections also need a usable desktop session and, for saved
-Spotify/YouTube accounts, an unlocked operating-system keyring. Packaged DEB,
-macOS DMG and Windows installers pass automated install/startup smoke tests;
-RPM/AppImage are built and checksummed but have no separate installed-app smoke.
-Downloaded-file OS security prompts have not been manually qualified on every OS.
+Spotify/YouTube accounts, an unlocked operating-system keyring. The
+[v0.1.25 release checks](https://github.com/anaxonda/burrata/actions/runs/41391289691) exercised DEB and AppImage playback with packaged decoders and stereo output
+captured after player gain. The RPM was installed with dependencies on Fedora,
+played, verified and removed. The macOS DMG passed installed-app and Native mixer
+PCM checks. Windows installation, decoders, UI and MCP passed; **Windows Native
+audio output remains unverified**, explicitly deferred because the runner had
+no output device. Physical speakers, device removal, sleep/wake and OS security
+prompts remain separate manual follow-up. The affected Mac duration/Library
+incidents still need the planned post-release retest.
 
 ## Optional browser extension
 
@@ -81,7 +86,7 @@ The same extension downloads work on all three systems:
 | Firefox | `firefox-extension-<extension-version>.xpi` | [Firefox steps](../extension/README.md#firefox) |
 | Chrome / Chromium / Edge | `chrome-extension-<extension-version>.zip` | [Chrome/Edge steps](../extension/README.md#chrome-chromium-and-edge) |
 
-The extension has its own version. Apps **0.1.8**, **0.1.7**, **0.1.6** and **0.1.5** package extension **0.2.3**; app **0.1.3** shipped extension **0.2.2**.
+The extension has its own version. App **0.1.25** packages extension **0.2.4**. Apps **0.1.8**, **0.1.7**, **0.1.6** and **0.1.5** package extension **0.2.3**; app **0.1.3** shipped extension **0.2.2**.
 Installing the extension alone is not enough: also use **Settings → Connections →
 Browser companion → Connect browser companion** in Burrata, then restart your
 browser. See the [complete companion guide](../extension/README.md#install).
