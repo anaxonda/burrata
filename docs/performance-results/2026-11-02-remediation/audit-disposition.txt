@@ -1,10 +1,9 @@
 Remediation audit disposition — 2026-11-02
-Status: source fixes are integrated; Native12 verification is pending. Native10
-reported 2,482 passed, 4 failed, and 63 ignored. Native11 reported 2,486 passed,
-1 failed, and 63 ignored; the remaining failure is a corpus expectation with
-three mismatched cells. The other three Native10 failures passed in Native11.
-The corpus update and formatting check are complete, but Native12 has not run.
-No final release package, native-device output, or publication is qualified.
+Status: source fixes are integrated; Native12 completed with 2,486 passed, 1
+failed, and 63 ignored. The remaining corpus test exposed two stale Exact-action
+expectations for unresolved relationships; both are corrected in the candidate
+fixture. Native13 verification is pending. No final release package,
+native-device output, or publication is qualified.
 
 Evidence basis: docs/audits/2026-11-02-project-audit.txt, integrated source,
 focused test results, and sanitized resolver/decoder summaries. Temporary raw
@@ -125,9 +124,9 @@ Native correctness status
   only when fresh `info.id` matches. The missing-version case remains
   `version=Unknown` and action `Enrich`; Flexible returns `Probable`, not an
   automatic Accept.
-- `recording_match.rs` now uses evaluator revision 21. The corrected corpus JSON
-  is in the candidate snapshot. Native12 must verify it against the formatted
-  candidate source before Native Rust tests can be called green.
+- `recording_match.rs` now uses evaluator revision 21. The corrected corpus JSON is in the candidate snapshot. Native13 must verify
+  it against the formatted candidate source before Native Rust tests can be
+  called green.
 
 Live provider and audio evidence
 - Exact Django Swing 42, Flexible YouTube, Native10: resolver selected
@@ -169,8 +168,8 @@ Unsupported or bounded claims
   provider outcomes, not as evidence of no result.
 
 Release boundary
-Native12 is required to verify the corrected corpus expectations against the
-formatted candidate source. The final package, private installation,
+Native13 is required to verify the two corrected corpus action expectations
+against the formatted candidate source. The final package, private installation,
 native startup/idle IPC timing, frontend warm-interaction tail rerun, and physical
 audio output remain unqualified. No publish or remote playlist write was
 performed.

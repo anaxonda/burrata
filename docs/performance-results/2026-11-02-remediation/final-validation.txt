@@ -12,10 +12,10 @@ Frontend and non-Cargo gates
 - IPC counter fixture passed disabled/wrong-process, failed/non-IPC registration, and successful IPC registration cases, including callback forwarding/destructor behavior against WebKitGTK 4.1. No Burrata app was launched for this prototype.
 
 Native and runtime status
-- Native11: 2,486 passed, 1 failed, 63 ignored. The remaining failure was three stale corpus expectations; the fixture correction and formatting are integrated. Native12 verification is pending.
+- Native12: 2,486 passed, 1 failed, 63 ignored. The remaining corpus test exposed two stale Exact-action cells for unresolved relationships. Both now expect Inspect in the candidate fixture; Native13 verification is pending.
 - No final optimized package/install qualification, paired startup timing, actual app idle IPC counts, warm interaction-tail rerun, live-provider qualification, or physical audio-output qualification is complete.
 - Linux frontend/test results do not qualify macOS or Windows physical audio output. No release publication or normal-profile install has occurred.
 
 Evidence boundary
 - Sanitized metadata fixtures are included for repository contract tests; no audio payloads, private profiles, raw captures, or detailed qualification logs are included.
-- Results above describe completed checks only. Pending Native12 and runtime gates must pass before release qualification.
+- Results above describe completed checks only. Pending Native13 and runtime gates must pass before release qualification.

@@ -13,6 +13,6 @@
   "productionBuild": {"passed": true, "mainBundleRawKB": 970.32, "mainBundleGzipKB": 299.98},
   "releaseHarnesses": {"installedSmoke": "85/85", "appImageFinalize": "3/3", "rpmArtifact": "11/11", "workflowSource": "22/22"},
   "performanceHarnesses": {"nativeCapture": "25/25", "captureResultGate": "3/3", "startupQualification": "8/8", "linuxOutputGain": "3/3", "coldPlayerOverlap": "5/5", "visionOSDriver": "9/9", "nodeStartupHelpers": "passed"},
-  "nativeSuite11": {"passed": 2486, "failed": 1, "ignored": 63, "failure": "corpus expectations updated; Native12 pending"},
-  "releaseQualification": {"native12": "pending", "optimizedPackageInstall": "pending", "pairedStartupTiming": "pending", "actualAppIdleIpc": "pending", "physicalAudioOutput": "pending"}
+  "nativeSuite12": {"passed": 2486, "failed": 1, "ignored": 63, "failure": "two stale Exact-action expectations for unresolved relationships; fixture corrected, Native13 pending"},
+  "releaseQualification": {"native13": "pending", "optimizedPackageInstall": "pending", "pairedStartupTiming": "pending", "actualAppIdleIpc": "pending", "physicalAudioOutput": "pending"}
 }
