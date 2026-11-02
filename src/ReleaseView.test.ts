@@ -79,6 +79,37 @@ describe("ReleaseView", () => {
     expect(onDownloadAlbum).toHaveBeenCalledWith([tracks[1],tracks[0]]);
   });
 
+  it("opens album actions by keyboard, returns focus on Escape, and selects Soulseek search", async () => {
+    const onSearchAlbumSoulseek = vi.fn();
+    const target = render({ onSearchAlbumSoulseek, soulseekSearchAvailable: true });
+    const menu = target.querySelector<HTMLDetailsElement>(".album-actions-menu")!;
+    const summary = menu.querySelector<HTMLElement>("summary")!;
+    summary.focus(); summary.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    summary.click(); await settle();
+    expect(menu.open).toBe(true);
+    const action = target.querySelector<HTMLButtonElement>('[type="button"]')!;
+    action.focus(); action.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(menu.open).toBe(false);
+    expect(document.activeElement).toBe(summary);
+    summary.click();
+    target.querySelector<HTMLButtonElement>('[aria-label^="Search album"]')!.click();
+    await settle();
+    expect(onSearchAlbumSoulseek).toHaveBeenCalledOnce();
+    expect(target.querySelector('[role="status"]')?.textContent).toContain("Opened Soulseek album search");
+  });
+
+  it("explains unavailable Soulseek configuration and exposes download callback failures", async () => {
+    const onDownloadAlbum = vi.fn().mockRejectedValue(new Error("music folder is unavailable"));
+    const target = render({ onDownloadAlbum, onSearchAlbumSoulseek: vi.fn(), soulseekSearchAvailable: false });
+    const menu = target.querySelector<HTMLDetailsElement>(".album-actions-menu")!;
+    menu.querySelector("summary")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(target.textContent).toContain("Enable and configure Soulseek in Settings → Connections.");
+    expect(target.querySelector<HTMLButtonElement>('[aria-label^="Search album"]')?.disabled).toBe(true);
+    target.querySelector<HTMLButtonElement>('[type="button"]')!.click(); await settle();
+    expect(onDownloadAlbum).toHaveBeenCalledOnce();
+    expect(target.querySelector('[role="status"]')?.textContent).toContain("Album download failed: music folder is unavailable");
+  });
+
   it("saves the full loaded album in track-number order, independent of filtering", async () => {
     const onSaveToLibrary = vi.fn(async () => {});
     const target = render({ onSaveToLibrary });

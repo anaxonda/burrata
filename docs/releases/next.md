@@ -1,22 +1,15 @@
-# Burrata 0.1.21
+# Burrata 0.1.27
 
-Changes since v0.1.11.
+Draft release notes. Final native, package, performance, live-provider, and physical audio qualification is pending.
 
-This release reduces background playlist and interface work, improves saved waveform handling, and makes sidebar filtering and playback progress easier to use.
+- Recording matching now parses feature and collaboration credits consistently across search and resolution, preserves unknown credit completeness, and keeps exact and balanced restoration distinctions. Flexible matching treats release, performance, mix, and length permissions independently; optional shorter and longer duration limits are configured separately in seconds.
+- Provider searches share bounded flight deadlines. Playback diagnostics report classified, bounded provider failures, while background acquisition and retries remain outside the playback-critical path.
+- Album actions can search Soulseek using the catalog release title and primary artist credit. The action opens an album search and does not start downloads or change playlists.
+- Track selection, virtualized scroll restoration, and playlist reordering handle duplicate occurrences and filtered order more reliably. Reorder failures are announced. Info, queue, and sidebar panels have clearer visual boundaries; playback information retains its state through startup updates.
+- Less-used views load on demand while route restoration waits for the view to mount. Album and artist views preserve their instance state. Integrated library saving reconciles local album tracks, with updated radio and queue flows.
 
-- Playlist synchronization tracks changes per collection and skips unchanged mirrors. Idle passes check file metadata and a session change journal before loading playlist state; they do not render mirrors or write unchanged state.
-- The backend watcher owns automatic startup synchronization. Requests are coalesced, the filesystem notification queue is bounded, and Linux mirroring runs at lower thread priority than normal UI and audio work.
-- Immutable mirror bodies remain separate from mutable sync state. Ordinary reconciliation reads reference headers; backups and snapshot viewing retain complete history. Browser archives load only the current snapshot and captures not already archived.
-- Local detection identity checks memoize hashes only after file timestamps have been quiet, so rapid same-size edits are reverified on filesystems with coarse timestamps.
-- Linux AppImage packaging selects a coherent GTK, WebKit and media runtime from the build environment. A minimal launcher and per-component relative library paths keep bundled libraries isolated from host commands. Linux qualification uses a private clocked virtual audio endpoint. Qualification checks unresolved symbols, launches both DEB and AppImage packages, and requires three consecutive steady audio-clock windows with a longer synthetic fixture.
-- Partitioned history files are included in change detection, so edited or deleted monthly mirrors are checked immediately when their metadata changes.
-- Exports query registered files for their own tracks instead of repeatedly hydrating the entire audio library. Targeted indexes support change tracking and those lookups.
-- Saved track detections load for visible queue rows and selected track information, with four concurrent reads and a bounded cache. Hidden queues no longer trigger one request for every track whenever playback changes.
-- Observed waveform persistence skips unchanged data and merges delayed database restores with newer session observations. Optional waveform polling stops when hidden or paused, retaining a final sample when its cache binding becomes ready.
-- The seek indicator animates locally between playback reports and stops extrapolating after one second without a fresh report. Seeking, buffering, pausing and changing tracks keep their authoritative positions.
-- Sidebar filtering includes playlist names and owners, radio names and countries, and loaded folder names. Unrelated sections no longer bury matching results.
-- Playback recovery better handles recurring stalls while preserving recording identity and matching rules. Diagnostic reports include additional redacted source-proof and redirect evidence.
+## Qualification status
 
-Metadata checks remain a fallback for missed filesystem events. A body verification runs periodically, and the explicit M3U sync action forces verification. Cold starts and deliberate verification can still perform substantial work on large libraries.
-
-Audio-device disconnections can still interrupt local playback. This release does not claim to resolve every driver-level failure. Hosted-runner installer checks do not replace physical-device qualification on an affected machine.
+- A scoped live check currently resolves and decodes 6 of 12 tracks from the Django release. This verifies resolver and decoder output only; it does not verify operating-system audio output or qualify the other six tracks. Other inspected candidates were rejected on identity evidence.
+- Halka remains ambiguous in legacy captures. Metadata captures do not establish source identity or delivered audio.
+- Physical Mac and Windows audio-output qualification is incomplete. Final native-suite, package, quiet-performance, live-provider, and release-artifact checks are still pending.

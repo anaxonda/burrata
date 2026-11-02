@@ -9,23 +9,31 @@ use std::collections::BTreeSet;
 /// still renders as this track's current artist text. This is grouping evidence,
 /// never a declaration that all performer credits or recording identity are known.
 pub(crate) fn declared_credit_names(track: &Track) -> Option<Vec<String>> {
-    let rows = track.provenance["artistCredits"]
-        .as_array()
-        .or_else(|| track.provenance["catalog"]["artists"].as_array())
-        .or_else(|| track.provenance["remoteCatalog"]["artistRefs"].as_array())?;
-    if rows.is_empty() || rows.len() > 32 {
-        return None;
+    let mut rows = None;
+    for value in [
+        &track.provenance["artistCredits"],
+        &track.provenance["catalog"]["artists"],
+        &track.provenance["remoteCatalog"]["artistRefs"],
+    ] {
+        match value {
+            Value::Null => continue,
+            Value::Array(values) if values.is_empty() => continue,
+            Value::Array(values) if values.len() <= 32 => {
+                rows = Some(values);
+                break;
+            }
+            _ => return None,
+        }
     }
+    let rows = rows?;
     let mut names = Vec::new();
     let mut joined = String::new();
     let mut has_join = false;
     for row in rows {
-        if row["role"].as_str().is_some_and(|role| {
-            !matches!(
-                role,
-                "artist" | "artist credit" | "primary" | "featured" | "performer"
-            )
-        }) {
+        if row["role"]
+            .as_str()
+            .is_some_and(|role| !is_performer_credit_role(role))
+        {
             return None;
         }
         let name = row["name"]
@@ -50,6 +58,43 @@ pub(crate) fn declared_credit_names(track: &Track) -> Option<Vec<String>> {
                 crate::matching::normalize_single_artist_name(&names.join(separator)) == expected
             }));
     agrees.then_some(names)
+}
+
+/// Normalize provider role labels once before deciding whether a credit names
+/// a performer, a primary act, a guest, or a non-performance contributor.
+pub(crate) fn normalize_credit_role(role: &str) -> String {
+    role.trim()
+        .to_ascii_lowercase()
+        .replace('_', " ")
+        .replace('-', " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+pub(crate) fn is_primary_performer_role(role: &str) -> bool {
+    matches!(
+        normalize_credit_role(role).as_str(),
+        "artist" | "artist credit" | "primary" | "main" | "main artist" | "performer"
+    )
+}
+
+pub(crate) fn is_guest_performer_role(role: &str) -> bool {
+    matches!(
+        normalize_credit_role(role).as_str(),
+        "featured" | "featured artist" | "guest" | "guest artist" | "additional performer"
+    )
+}
+
+pub(crate) fn is_performer_credit_role(role: &str) -> bool {
+    is_primary_performer_role(role) || is_guest_performer_role(role)
+}
+
+pub(crate) fn is_non_performer_credit_role(role: &str) -> bool {
+    matches!(
+        normalize_credit_role(role).as_str(),
+        "composer" | "conductor" | "lyricist" | "writer" | "producer" | "remixer"
+    )
 }
 
 /// Pure, source-scoped mapping of exact ordered provider credits to one fully
@@ -125,7 +170,7 @@ fn valid_musicbrainz_id(value: &str) -> bool {
 }
 
 /// Parsing behavior is versioned alongside evaluator/cache semantics.
-pub(crate) const PARSER_VERSION: &str = "3";
+pub(crate) const PARSER_VERSION: &str = "4";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -439,6 +484,7 @@ pub struct RecordingIdentity {
     pub identifier_conflict: bool,
     pub credits: Vec<RecordingCredit>,
     pub credits_complete: bool,
+    pub credits_uncertain: bool,
     pub recording_id: Option<String>,
     pub work_ids: Vec<String>,
     pub release_group_id: Option<String>,
@@ -461,20 +507,51 @@ impl RecordingIdentity {
         .filter_map(|(_, value)| value)
         .filter_map(normalize_isrc)
         .collect();
-        let refs = p["catalog"]["artists"]
-            .as_array()
-            .or_else(|| p["remoteCatalog"]["artistRefs"].as_array())
-            .or_else(|| p["artistCredits"].as_array());
+        let credit_sources = [
+            (
+                &p["catalog"]["artists"],
+                p["catalog"]["artistCount"].as_u64(),
+            ),
+            (
+                &p["remoteCatalog"]["artistRefs"],
+                p["remoteCatalog"]["artistCount"].as_u64(),
+            ),
+            (&p["artistCredits"], None),
+        ];
+        let mut refs = None;
+        let mut declared_credit_count = None;
+        let mut malformed_credit_source = false;
+        for (value, count) in credit_sources {
+            match value {
+                Value::Null => continue,
+                Value::Array(rows) if rows.is_empty() => continue,
+                Value::Array(rows) if rows.len() <= 32 => {
+                    refs = Some(rows);
+                    declared_credit_count = count;
+                    break;
+                }
+                _ => {
+                    malformed_credit_source = true;
+                    break;
+                }
+            }
+        }
         let mut credits = Vec::new();
-        let mut complete = refs.is_some_and(|r| !r.is_empty() && r.len() <= 32);
+        let mut complete = refs.is_some() && !malformed_credit_source;
+        let mut credits_uncertain = malformed_credit_source;
         for r in refs.into_iter().flatten().take(32) {
-            let name = r["name"]
-                .as_str()
-                .filter(|s| !s.trim().is_empty() && s.len() <= 512);
-            if let Some(name) = name {
+            let name = r["name"].as_str().filter(|s| {
+                !s.trim().is_empty() && s.len() <= 512 && !s.chars().any(char::is_control)
+            });
+            let role = match r.get("role") {
+                None | Some(Value::Null) => Some("artist"),
+                Some(Value::String(role)) if !role.trim().is_empty() => Some(role.as_str()),
+                Some(_) => None,
+            };
+            if let (Some(name), Some(role)) = (name, role) {
                 credits.push(RecordingCredit {
                     name: name.to_owned(),
-                    role: r["role"].as_str().unwrap_or("artist").to_owned(),
+                    role: role.to_owned(),
                     provider_id: r["id"]
                         .as_str()
                         .or_else(|| r["artist"]["id"].as_str())
@@ -482,19 +559,16 @@ impl RecordingIdentity {
                 });
             } else {
                 complete = false;
+                credits_uncertain = true;
             }
         }
-        let declared = p["catalog"]["artistCount"]
-            .as_u64()
-            .or_else(|| p["remoteCatalog"]["artistCount"].as_u64());
-        if declared.is_some_and(|n| n != credits.len() as u64) {
+        if declared_credit_count.is_some_and(|n| n != credits.len() as u64) {
             complete = false;
+            credits_uncertain = true;
         }
         // A provider's artist list is not necessarily a closed-world performer
-        // credit set. MusicBrainz recording credits are closed-world; another
-        // provider must explicitly declare completeness on the verified exact
-        // recording row. In particular, artistCount and Spotify artist refs
-        // alone only describe the provider's indexed artist list.
+        // credit set. A matching recording ID only binds identity; it does not
+        // claim that the artist-credit list contains every performer.
         let catalog = &p["catalog"];
         let source_recording_id = catalog["recordingId"]
             .as_str()
@@ -509,10 +583,11 @@ impl RecordingIdentity {
                 provider == track.provider
                     || provider == "musicbrainz" && track.provider == "catalog"
             });
-        let closed_world_source = catalog["provider"].as_str() == Some("musicbrainz")
-            && matches!(track.provider.as_str(), "musicbrainz" | "catalog");
-        complete &= exact_verified_source
-            && (closed_world_source || catalog["performerCreditsComplete"] == true);
+        // MusicBrainz artist credits describe the release's artist-credit
+        // rendering. They do not assert that every performer is listed.
+        // Completeness requires a separate explicit declaration bound to this
+        // verified recording.
+        complete &= exact_verified_source && catalog["performerCreditsComplete"] == true;
         // Contributor roles inform search; they never stand in for performer credits.
         for relation in p["recordingRelations"]
             .as_array()
@@ -548,6 +623,7 @@ impl RecordingIdentity {
             identifier_conflict: codes.len() > 1,
             credits,
             credits_complete: complete,
+            credits_uncertain,
             recording_id: bounded(&p["recordingId"]),
             work_ids: p["recordingRelations"]
                 .as_array()
@@ -623,6 +699,28 @@ pub struct ParsedRecordingTitle {
     pub version: Option<String>,
     pub soundtrack: Option<String>,
 }
+fn soundtrack_work(label: &str) -> Option<String> {
+    let trimmed = label.trim();
+    if !trimmed
+        .get(..5)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("from "))
+    {
+        return None;
+    }
+    let rest = trimmed[5..].trim();
+    for (open, close) in [("\"", "\""), ("'", "'"), ("“", "”"), ("‘", "’")] {
+        if let Some(inner) = rest
+            .strip_prefix(open)
+            .and_then(|value| value.strip_suffix(close))
+        {
+            let inner = inner.trim();
+            if !inner.is_empty() {
+                return Some(inner.to_owned());
+            }
+        }
+    }
+    None
+}
 fn game_level_difficulty(base: &str, label: &str) -> bool {
     let lower = base.trim().to_ascii_lowercase();
     let Some(after_level) = lower.strip_prefix("level ") else {
@@ -680,20 +778,29 @@ pub fn parse_title(value: &str) -> ParsedRecordingTitle {
         .or_else(|| value.strip_suffix(']').and_then(|s| s.rsplit_once('[')));
     if let Some((base, label)) = bracketed {
         let lower = label.to_ascii_lowercase();
-        if let Some(credit) = lower
-            .strip_prefix("feat. ")
-            .or_else(|| lower.strip_prefix("feat "))
-            .or_else(|| lower.strip_prefix("featuring "))
-            .or_else(|| lower.strip_prefix("w/").map(str::trim_start))
-        {
+        let feature_prefix = ["featuring", "feat.", "feat", "ft.", "ft", "w/"]
+            .iter()
+            .filter_map(|prefix| lower.strip_prefix(prefix))
+            .find(|rest| {
+                rest.is_empty()
+                    || rest
+                        .chars()
+                        .next()
+                        .is_some_and(|c| c.is_whitespace() || matches!(c, ':' | '-' | '–' | '—'))
+            });
+        if let Some(credit) = feature_prefix {
             let offset = label.len() - credit.len();
-            if !credit.trim().is_empty() {
+            let credit = label[offset..]
+                .trim()
+                .trim_start_matches(|c: char| matches!(c, ':' | '-' | '–' | '—'))
+                .trim();
+            if !credit.is_empty() {
                 result.title = base.trim().to_owned();
-                result.featured_credit = Some(label[offset..].trim().to_owned());
+                result.featured_credit = Some(credit.to_owned());
             }
-        } else if lower.starts_with("from \"") && lower.ends_with('"') {
+        } else if let Some(work) = soundtrack_work(label) {
             result.title = base.trim().to_owned();
-            result.soundtrack = Some(label.to_owned());
+            result.soundtrack = Some(work);
         } else if [
             "live",
             "live at ",
@@ -824,6 +931,15 @@ mod tests {
             assert!(parsed.version.is_none());
         }
         assert_eq!(parse_title("Diaraby (w/ )").title, "Diaraby (w/ )");
+        for raw in ["Song (ft. Guest)", "Song [FT Guest]", "Song (Feat: Guest)"] {
+            assert_eq!(parse_title(raw).featured_credit.as_deref(), Some("Guest"));
+        }
+        assert_eq!(
+            parse_title("Marion's Theme (From ‘Raiders of the Lost Ark’)")
+                .soundtrack
+                .as_deref(),
+            Some("Raiders of the Lost Ark")
+        );
     }
 
     #[test]
@@ -970,6 +1086,7 @@ mod tests {
         };
         let i = RecordingIdentity::from_track(&t);
         assert!(!i.credits_complete);
+        assert!(!i.credits_uncertain);
         assert_eq!(i.credits[0].role, "composer");
         assert_eq!(i.work_ids.len(), 1);
     }
@@ -1057,7 +1174,101 @@ mod tests {
             provenance: json!({"catalog":{"provider":"musicbrainz","verified":true,"recordingId":"recording-1","artistCount":1,"artists":[{"name":"Lead"}]}}),
             ..Default::default()
         };
-        assert!(RecordingIdentity::from_track(&verified_musicbrainz).credits_complete);
+        assert!(!RecordingIdentity::from_track(&verified_musicbrainz).credits_complete);
+        let mut explicit = verified_musicbrainz;
+        explicit.provenance["catalog"]["performerCreditsComplete"] = json!(true);
+        assert!(RecordingIdentity::from_track(&explicit).credits_complete);
+    }
+
+    #[test]
+    fn empty_credit_sources_are_absent_and_role_spellings_share_one_interpreter() {
+        let track = Track {
+            artist: "Lead & Guest".into(),
+            provenance: json!({
+                "catalog":{"artists":[],"artistCount":0},
+                "remoteCatalog":{"artistRefs":[
+                    {"name":"Lead","role":"Main_Artist","joinPhrase":" & "},
+                    {"name":"Guest","role":"Featured-Artist","joinPhrase":""}
+                ]}
+            }),
+            ..Default::default()
+        };
+        let identity = RecordingIdentity::from_track(&track);
+        assert_eq!(identity.credits.len(), 2);
+        assert_eq!(identity.credits[0].name, "Lead");
+        assert_eq!(identity.credits[1].name, "Guest");
+        assert_eq!(
+            declared_credit_names(&track).unwrap(),
+            vec!["Lead", "Guest"]
+        );
+        assert!(!identity.credits_uncertain);
+        assert!(is_primary_performer_role("MAIN_ARTIST"));
+        assert!(is_guest_performer_role("Featured-Artist"));
+        assert!(is_non_performer_credit_role("Lyricist"));
+    }
+
+    #[test]
+    fn malformed_higher_priority_credit_source_blocks_lower_priority_guessing() {
+        let track = Track {
+            provenance: json!({
+                "catalog":{"artists":"not-an-array"},
+                "remoteCatalog":{"artistRefs":[{"name":"Stale fallback"}]}
+            }),
+            ..Default::default()
+        };
+        let identity = RecordingIdentity::from_track(&track);
+        assert!(identity.credits.is_empty());
+        assert!(!identity.credits_complete);
+        assert!(identity.credits_uncertain);
+        assert!(declared_credit_names(&track).is_none());
+    }
+
+    #[test]
+    fn wrong_typed_roles_and_declared_credit_count_mismatch_are_uncertain() {
+        let wrong_role_type = Track {
+            provenance: json!({
+                "artistCredits":[{"name":"Lead","role":{"unexpected":"object"}}]
+            }),
+            ..Default::default()
+        };
+        assert!(RecordingIdentity::from_track(&wrong_role_type).credits_uncertain);
+
+        let count_mismatch = Track {
+            provenance: json!({
+                "catalog":{"artists":[{"name":"Lead"}],"artistCount":2}
+            }),
+            ..Default::default()
+        };
+        assert!(RecordingIdentity::from_track(&count_mismatch).credits_uncertain);
+
+        let oversized = Track {
+            provenance: json!({
+                "artistCredits":(0..33).map(|i| json!({"name":format!("Artist {i}")})).collect::<Vec<_>>()
+            }),
+            ..Default::default()
+        };
+        assert!(RecordingIdentity::from_track(&oversized).credits_uncertain);
+
+        let absent_credits = Track {
+            provenance: json!({
+                "catalog":{"artists":null},
+                "remoteCatalog":{"artistRefs":[]},
+                "artistCredits":null
+            }),
+            ..Default::default()
+        };
+        assert!(!RecordingIdentity::from_track(&absent_credits).credits_uncertain);
+
+        for malformed in [
+            json!({"artistCredits":""}),
+            json!({"catalog":{"artists":{}}}),
+        ] {
+            let track = Track {
+                provenance: malformed,
+                ..Default::default()
+            };
+            assert!(RecordingIdentity::from_track(&track).credits_uncertain);
+        }
     }
 }
 

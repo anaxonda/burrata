@@ -1189,6 +1189,9 @@ impl ArtistService {
                         PROFILE_TTL,
                     )
                     .await?;
+                if data["id"].as_str() == Some(artist.id.as_str()) {
+                    self.record_library_url_links("artist", "musicbrainz", &artist.id, &data);
+                }
                 let profile = parse_musicbrainz_artist(&data)
                     .ok_or("MusicBrainz artist response omitted its identity")?;
                 for relation in data["relations"].as_array().into_iter().flatten() {
@@ -1244,6 +1247,11 @@ impl ArtistService {
                         token,
                     )
                     .await?;
+                if data["id"].as_u64().map(|id| id.to_string()).as_deref()
+                    == Some(artist.id.as_str())
+                {
+                    self.record_library_url_links("artist", "discogs", &artist.id, &data);
+                }
                 let profile = parse_discogs_artist(&data)
                     .ok_or("Discogs artist response omitted its identity")?;
                 aliases = string_array(&data["aliases"]);
@@ -1858,7 +1866,29 @@ impl ArtistService {
                 .get("release")
                 .filter(|value| value.is_object())
                 .unwrap_or(&data);
-            return Ok(parse_monochrome_release_tracks(payload, artist, release));
+            let tracks = parse_monochrome_release_tracks(payload, artist, release);
+            let paged = payload.get("complete").and_then(Value::as_bool) == Some(false)
+                || payload.get("hasMore").and_then(Value::as_bool) == Some(true)
+                || payload
+                    .get("nextCursor")
+                    .is_some_and(|cursor| !cursor.is_null() && cursor.as_str() != Some(""));
+            let expected = if paged {
+                None
+            } else {
+                payload
+                    .get("numberOfTracks")
+                    .or_else(|| payload.get("trackCount"))
+                    .and_then(Value::as_u64)
+                    .and_then(|v| usize::try_from(v).ok())
+                    .or_else(|| release.track_count.map(|v| v as usize))
+                    .or_else(|| {
+                        payload
+                            .get("tracks")
+                            .and_then(Value::as_array)
+                            .map(Vec::len)
+                    })
+            };
+            return Ok(mark_library_album_snapshot(tracks, expected));
         }
         let edition = match release.release.provider.as_str() {
             "musicbrainz" => {
@@ -1893,20 +1923,27 @@ impl ArtistService {
                         &format!("release/{edition_id}"),
                         &[(
                             "inc",
-                            "artist-credits+labels+recordings+media+isrcs+release-groups".into(),
+                            "artist-credits+labels+recordings+media+isrcs+release-groups+url-rels"
+                                .into(),
                         )],
                         "artists.release-tracks.musicbrainz",
                         &edition_id,
                         LIST_TTL,
                     )
                     .await?;
+                if data["id"].as_str() == Some(edition_id.as_str()) {
+                    self.record_library_url_links("album", "musicbrainz", &edition_id, &data);
+                }
                 let selected_name = selected_artist_name_for_release(release, artist);
-                parse_musicbrainz_release_tracks(
-                    &data,
-                    &edition_id,
-                    &release.source_url,
-                    entity == "release-group",
-                    selected_name.as_deref(),
+                mark_library_album_snapshot(
+                    parse_musicbrainz_release_tracks(
+                        &data,
+                        &edition_id,
+                        &release.source_url,
+                        entity == "release-group",
+                        selected_name.as_deref(),
+                    ),
+                    musicbrainz_album_track_count(&data),
                 )
             }
             "discogs" => {
@@ -1970,12 +2007,15 @@ impl ArtistService {
                     (release.release.id.clone(), data)
                 };
                 let selected_name = selected_artist_name_for_release(release, artist);
-                parse_discogs_release_tracks(
-                    &data,
-                    &edition_id,
-                    &release.source_url,
-                    entity == "master",
-                    selected_name.as_deref(),
+                mark_library_album_snapshot(
+                    parse_discogs_release_tracks(
+                        &data,
+                        &edition_id,
+                        &release.source_url,
+                        entity == "master",
+                        selected_name.as_deref(),
+                    ),
+                    discogs_album_track_count(&data),
                 )
             }
             _ => return Err("Unsupported release provider".into()),
@@ -2348,6 +2388,122 @@ impl ArtistService {
         result
     }
 
+    /// Resolve public Spotify URL relations for an explicit Library save. This
+    /// never performs a name search or treats a release-group as an edition.
+    pub(crate) async fn resolve_library_spotify_link(
+        &self,
+        kind: &str,
+        id: &str,
+    ) -> Result<(), String> {
+        if !matches!(kind, "artist" | "album")
+            || id.len() != 22
+            || !id.bytes().all(|b| b.is_ascii_alphanumeric())
+        {
+            return Err("Invalid Spotify identity".into());
+        }
+        let resource = format!("https://open.spotify.com/{kind}/{id}");
+        let data = self
+            .musicbrainz_json(
+                "url",
+                &[
+                    ("resource", resource.clone()),
+                    (
+                        "inc",
+                        if kind == "artist" {
+                            "artist-rels".into()
+                        } else {
+                            "release-rels".into()
+                        },
+                    ),
+                ],
+                "library.spotify-url-relations",
+                &format!("{kind}:{id}"),
+                LIST_TTL,
+            )
+            .await?;
+        if data["resource"].as_str() != Some(resource.as_str()) {
+            return Err("Catalog URL identity does not match".into());
+        }
+        let target = if kind == "album" {
+            let normalized =
+                normalize_url_relations(&data).map_err(|_| "Incomplete catalog URL relations")?;
+            exact_release_id(&normalized, id)
+                .map_err(|_| "Album does not identify one exact edition")?
+        } else {
+            let ids = data["relations"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|r| r["target-type"].as_str() == Some("artist"))
+                .filter_map(|r| r["artist"]["id"].as_str())
+                .filter(|id| valid_crosswalk_mbid(id))
+                .collect::<std::collections::BTreeSet<_>>();
+            if ids.len() != 1 {
+                return Err("Artist URL does not identify one artist".into());
+            }
+            ids.first().unwrap().to_string()
+        };
+        self.store
+            .link_library_entities(kind, "spotify", id, "musicbrainz", &target)
+    }
+
+    fn record_library_url_links(&self, kind: &str, provider: &str, id: &str, data: &Value) {
+        let urls = data["relations"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|r| r["url"]["resource"].as_str())
+            .chain(
+                data["urls"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str),
+            );
+        for resource in urls {
+            let Ok(url) = reqwest::Url::parse(resource) else {
+                continue;
+            };
+            if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
+                continue;
+            }
+            let parts = url
+                .path()
+                .split('/')
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<_>>();
+            let (other, other_id) = match (url.host_str(), parts.as_slice()) {
+                (Some("open.spotify.com"), [entity, other])
+                    if *entity == kind
+                        && other.len() == 22
+                        && other.bytes().all(|b| b.is_ascii_alphanumeric()) =>
+                {
+                    ("spotify", (*other).to_owned())
+                }
+                (Some("musicbrainz.org"), [entity, other])
+                    if (*entity == "artist" && kind == "artist"
+                        || *entity == "release" && kind == "album")
+                        && valid_crosswalk_mbid(other) =>
+                {
+                    ("musicbrainz", (*other).to_owned())
+                }
+                (Some("www.discogs.com" | "discogs.com"), [entity, other])
+                    if *entity == "artist" && kind == "artist"
+                        || *entity == "release" && kind == "album" =>
+                {
+                    let number = other.split('-').next().unwrap_or("");
+                    if number.is_empty() || !number.bytes().all(|b| b.is_ascii_digit()) {
+                        continue;
+                    }
+                    ("discogs", number.to_owned())
+                }
+                _ => continue,
+            };
+            let _ = self
+                .store
+                .link_library_entities(kind, provider, id, other, &other_id);
+        }
+    }
     /// Resolve a verified Spotify album occurrence to one exact MusicBrainz release
     /// occurrence. The caller must supply the complete album snapshot produced by
     /// RemotePlaylistService after account, paging, album-echo, and position checks.
@@ -2402,6 +2558,13 @@ impl ArtistService {
         .map_err(|_| {
             "Spotify and MusicBrainz release occurrences do not safely align".to_owned()
         })?;
+        let _ = self.store.link_library_entities(
+            "album",
+            "spotify",
+            album_id,
+            "musicbrainz",
+            &occurrence.musicbrainz_release_id,
+        );
         let occurrence_count = spotify_track_occurrence_count(spotify_album, target_track_id);
         self.store.set_provider_cache(
             "artists.release-tracks.musicbrainz",
@@ -3233,6 +3396,61 @@ fn discogs_duration(value: Option<&str>) -> Option<f64> {
         [hours, minutes, seconds] => (*hours * 3600 + *minutes * 60 + *seconds) as f64,
         _ => return None,
     })
+}
+
+fn musicbrainz_album_track_count(data: &Value) -> Option<usize> {
+    let mut total = 0usize;
+    for medium in data.get("media")?.as_array()? {
+        let tracks = medium.get("tracks")?.as_array()?;
+        if medium
+            .get("track-offset")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            != 0
+        {
+            return None;
+        }
+        let count = match medium.get("track-count") {
+            Some(count) => usize::try_from(count.as_u64()?).ok()?,
+            None => tracks.len(),
+        };
+        total = total.checked_add(count)?;
+    }
+    Some(total)
+}
+
+fn discogs_album_track_count(data: &Value) -> Option<usize> {
+    let mut total = 0usize;
+    for row in data.get("tracklist")?.as_array()? {
+        if row["type_"].as_str() == Some("heading") {
+            continue;
+        }
+        let count = if let Some(children) = row
+            .get("sub_tracks")
+            .and_then(Value::as_array)
+            .filter(|v| !v.is_empty())
+        {
+            children
+                .iter()
+                .filter(|row| row["type_"].as_str() != Some("heading"))
+                .count()
+        } else {
+            1
+        };
+        total = total.checked_add(count)?;
+    }
+    Some(total)
+}
+
+fn mark_library_album_snapshot(mut tracks: Vec<Track>, expected: Option<usize>) -> Vec<Track> {
+    let complete = expected == Some(tracks.len()) && !tracks.is_empty();
+    for track in &mut tracks {
+        if !track.provenance.is_object() {
+            track.provenance = json!({});
+        }
+        track.provenance["libraryAlbumSnapshot"] = json!({"complete":complete,"total":expected});
+    }
+    tracks
 }
 
 pub(crate) fn parse_musicbrainz_release_tracks(
@@ -4428,6 +4646,84 @@ async fn discogs_rate_limit() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn library_album_completeness_uses_loaded_media_and_detects_skipped_rows() {
+        let mut data = json!({"title":"Album","media":[{"position":1,"track-count":2,"tracks":[{"position":1,"title":"One","recording":{"title":"One"}},{"position":2,"title":"Two","recording":{"title":"Two"}}]}]});
+        let tracks = parse_musicbrainz_release_tracks(
+            &data,
+            "11111111-1111-4111-8111-111111111111",
+            "https://musicbrainz.org/release-group/example",
+            true,
+            Some("Artist"),
+        );
+        let tracks = mark_library_album_snapshot(tracks, musicbrainz_album_track_count(&data));
+        assert_eq!(tracks.len(), 2);
+        assert_eq!(
+            tracks[0].provenance["libraryAlbumSnapshot"]["complete"],
+            true
+        );
+        data["media"][0]["tracks"][1]["title"] = json!("");
+        data["media"][0]["tracks"][1]["recording"]["title"] = json!("");
+        let partial = parse_musicbrainz_release_tracks(
+            &data,
+            "11111111-1111-4111-8111-111111111111",
+            "https://musicbrainz.org/release-group/example",
+            true,
+            Some("Artist"),
+        );
+        let partial = mark_library_album_snapshot(partial, musicbrainz_album_track_count(&data));
+        assert_eq!(partial.len(), 1);
+        assert_eq!(
+            partial[0].provenance["libraryAlbumSnapshot"]["complete"],
+            false
+        );
+        assert_eq!(
+            discogs_album_track_count(
+                &json!({"tracklist":[{"type_":"heading"},{"title":"Suite","sub_tracks":[{"title":"Part one"},{"title":"Part two"}]}]})
+            ),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn library_url_links_only_merge_matching_entity_kinds_and_exact_editions() {
+        use crate::storage::library::LibraryEntity;
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&dir.path().join("library.sqlite")).unwrap());
+        let service = ArtistService::new(store.clone()).unwrap();
+        let spotify = "aaaaaaaaaaaaaaaaaaaaaa";
+        let mbid = "11111111-1111-4111-8111-111111111111";
+        let artist: LibraryEntity = serde_json::from_value(
+            json!({"kind":"artist","name":"Fixture","provider":"spotify","providerId":spotify}),
+        )
+        .unwrap();
+        store.save_library_artist(artist).unwrap();
+        service.record_library_url_links("artist","musicbrainz",mbid,&json!({"relations":[{"url":{"resource":format!("https://open.spotify.com/album/{spotify}")}}]}));
+        assert!(store
+            .library_entity_status(&format!("artist:ref:musicbrainz:{mbid}"))
+            .unwrap()
+            .is_none());
+        service.record_library_url_links("artist","musicbrainz",mbid,&json!({"relations":[{"url":{"resource":format!("https://open.spotify.com/artist/{spotify}")}}]}));
+        assert!(
+            store
+                .library_entity_status(&format!("artist:ref:musicbrainz:{mbid}"))
+                .unwrap()
+                .unwrap()
+                .explicitly_saved
+        );
+        service.record_library_url_links("album","spotify",spotify,&json!({"relations":[{"url":{"resource":format!("https://musicbrainz.org/release-group/{mbid}")}}]}));
+        let conn = rusqlite::Connection::open(dir.path().join("library.sqlite")).unwrap();
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM library_entity_aliases WHERE kind='album'",
+                [],
+                |r| r.get::<_, usize>(0)
+            )
+            .unwrap(),
+            0
+        );
+    }
+
     #[tokio::test]
     async fn oversized_provider_response_remains_usable_without_cache() {
         use axum::{routing::get, Json, Router};

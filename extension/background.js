@@ -343,7 +343,7 @@ function connect(){
   port.onDisconnect.addListener(()=>disconnect(!enabled&&!waiters.length?'':api.runtime.lastError?.message||'Native host disconnected. Open Burrata and install its browser host.'));
 }
 function native(message){
-  const payload=message.type==='poll'?{...message,providerProtocolVersion:2,...(managedSessionId?{managedSessionId}:{})}:message.type==='heartbeat'?{...message,providerProtocolVersion:enabled?2:0,...(managedSessionId?{managedSessionId}:{})}:message;
+  const payload=message.type==='poll'?{...message,providerProtocolVersion:2,providerCapabilities:['structuredArtistCreditsV1'],...(managedSessionId?{managedSessionId}:{})}:message.type==='heartbeat'?{...message,providerProtocolVersion:enabled?2:0,providerCapabilities:['structuredArtistCreditsV1'],...(managedSessionId?{managedSessionId}:{})}:message;
   const run=()=>new Promise((resolve,reject)=>{
       try{if(new TextEncoder().encode(JSON.stringify(payload)).length>1024*1024)throw new Error('Capture exceeds the 1 MiB bridge limit. Import a smaller chart, playlist, or album.');connect();const limit=payload.type==='importAlbumCollection'?120000:payload.type==='providerResult'?90000:payload.type==='youtubeSessionHandoff'?45000:30000;const w={resolve,reject,timeout:setTimeout(()=>{port?.disconnect();disconnect(`Burrata did not reply within ${Math.round(limit/1000)} seconds.`);},limit)};waiters.push(w);port.postMessage(payload);}catch(e){reject(e);}
   });

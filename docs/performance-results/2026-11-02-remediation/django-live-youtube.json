@@ -1,0 +1,1463 @@
+{
+  "qualification": "Public search metadata only from running app; not final artifact or resolved audio qualification",
+  "captures": [
+    {
+      "query": "Django Reinhardt Swing 42",
+      "candidates": [
+        {
+          "confidence": "review",
+          "durationSeconds": 146,
+          "formats": [],
+          "id": "CCfvFjhwD-E",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Accords Parfaits",
+            "artist": "Django Reinhardt",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Swing 42",
+            "sourceGenres": []
+          },
+          "title": "Swing 42",
+          "uploader": "Django Reinhardt",
+          "url": "https://music.youtube.com/watch?v=CCfvFjhwD-E"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 148,
+          "formats": [],
+          "id": "AVgvKGkxDLc",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Djangology",
+            "artist": "Django Reinhardt, The Quintet of the Hot Club of France",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Swing 42 (Remastered 2002) (feat. Stéphane Grappelli)",
+            "sourceGenres": []
+          },
+          "title": "Swing 42 (Remastered 2002) (feat. Stéphane Grappelli)",
+          "uploader": "Django Reinhardt, The Quintet of the Hot Club of France",
+          "url": "https://music.youtube.com/watch?v=AVgvKGkxDLc"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 169,
+          "formats": [],
+          "id": "lK_BGCe3q6I",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "l'inoubliable",
+            "artist": "Django Reinhardt, Quintette du Hot Club de France",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Swing 42",
+            "sourceGenres": []
+          },
+          "title": "Swing 42",
+          "uploader": "Django Reinhardt, Quintette du Hot Club de France",
+          "url": "https://music.youtube.com/watch?v=lK_BGCe3q6I"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 170,
+          "formats": [],
+          "id": "owl9muM88NI",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Anthologie Django Reinhardt",
+            "artist": "Django Reinhardt",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Swing 42",
+            "sourceGenres": []
+          },
+          "title": "Swing 42",
+          "uploader": "Django Reinhardt",
+          "url": "https://music.youtube.com/watch?v=owl9muM88NI"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 167,
+          "formats": [],
+          "id": "TF3X_eIXiMc",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Swing 42 (Remastered 2024)",
+            "artist": "Django Reinhardt, Quintette du Hot Club de France",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Swing 42 (Remastered 2024) (feat. Hubert Rostaing)",
+            "sourceGenres": []
+          },
+          "title": "Swing 42 (Remastered 2024) (feat. Hubert Rostaing)",
+          "uploader": "Django Reinhardt, Quintette du Hot Club de France",
+          "url": "https://music.youtube.com/watch?v=TF3X_eIXiMc"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 169,
+          "formats": [],
+          "id": "HLrW9yhQ43A",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "The Ultimate Collection",
+            "artist": "Django Reinhardt",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Swing 42",
+            "sourceGenres": []
+          },
+          "title": "Swing 42",
+          "uploader": "Django Reinhardt",
+          "url": "https://music.youtube.com/watch?v=HLrW9yhQ43A"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 167,
+          "formats": [],
+          "id": "s9u9dz655-M",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Sultan Of Swing",
+            "artist": "Django Reinhardt",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Swing 42",
+            "sourceGenres": []
+          },
+          "title": "Swing 42",
+          "uploader": "Django Reinhardt",
+          "url": "https://music.youtube.com/watch?v=s9u9dz655-M"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 148,
+          "formats": [],
+          "id": "r1MP5ihQMLU",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Django Reinhardt from A to Z, Vol. 9",
+            "artist": "Django Reinhardt",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Swing 42",
+            "sourceGenres": []
+          },
+          "title": "Swing 42",
+          "uploader": "Django Reinhardt",
+          "url": "https://music.youtube.com/watch?v=r1MP5ihQMLU"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 166,
+          "formats": [],
+          "id": "i8vjEbC4Mts",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Django Swings Nuages 1934-1941 (73 Tunes)",
+            "artist": "Django Reinhardt",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Swing 42",
+            "sourceGenres": []
+          },
+          "title": "Swing 42",
+          "uploader": "Django Reinhardt",
+          "url": "https://music.youtube.com/watch?v=i8vjEbC4Mts"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 150,
+          "formats": [],
+          "id": "r49J5WjvZ1A",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "The Very Best of Django Reinhardt",
+            "artist": "Django Reinhardt",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Swing 42 (feat. Stéphane Grappelli) (feat. Stéphane Grappelli)",
+            "sourceGenres": []
+          },
+          "title": "Swing 42 (feat. Stéphane Grappelli) (feat. Stéphane Grappelli)",
+          "uploader": "Django Reinhardt",
+          "url": "https://music.youtube.com/watch?v=r49J5WjvZ1A"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 150,
+          "formats": [],
+          "id": "ygTrscIh0tU",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "My Best Songs - Django Reinhardt",
+            "artist": "Django Reinhardt, Stéphane Grappelli",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Swing 42",
+            "sourceGenres": []
+          },
+          "title": "Swing 42",
+          "uploader": "Django Reinhardt, Stéphane Grappelli",
+          "url": "https://music.youtube.com/watch?v=ygTrscIh0tU"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 168,
+          "formats": [],
+          "id": "HZyAnOhqCq0",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Le nouveau quintette - les années de guerre",
+            "artist": "Django Reinhardt",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Swing 42",
+            "sourceGenres": []
+          },
+          "title": "Swing 42",
+          "uploader": "Django Reinhardt",
+          "url": "https://music.youtube.com/watch?v=HZyAnOhqCq0"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 169,
+          "formats": [],
+          "id": "YYJ_ozwTQyo",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Swing from Paris",
+            "artist": "Django Reinhardt",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Swing 42",
+            "sourceGenres": []
+          },
+          "title": "Swing 42",
+          "uploader": "Django Reinhardt",
+          "url": "https://music.youtube.com/watch?v=YYJ_ozwTQyo"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 186,
+          "formats": [],
+          "id": "D8zA7h50RGw",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Babik joue Django (Babik Plays Django)",
+            "artist": "Babik Reinhardt",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Swing 42",
+            "sourceGenres": []
+          },
+          "title": "Swing 42",
+          "uploader": "Babik Reinhardt",
+          "url": "https://music.youtube.com/watch?v=D8zA7h50RGw"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 169,
+          "formats": [],
+          "id": "SKWJWhxpAgY",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Clasico",
+            "artist": "Adrien Moignard, Gonzalo Bergara",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Swing 42",
+            "sourceGenres": []
+          },
+          "title": "Swing 42",
+          "uploader": "Adrien Moignard, Gonzalo Bergara",
+          "url": "https://music.youtube.com/watch?v=SKWJWhxpAgY"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 241,
+          "formats": [],
+          "id": "1v2cj9OrUmo",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Stephane Grappelli and David Grisman Live",
+            "artist": "Stephane Grappelli, David Grisman",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Swing '42 (Live)",
+            "sourceGenres": []
+          },
+          "title": "Swing '42 (Live)",
+          "uploader": "Stephane Grappelli, David Grisman",
+          "url": "https://music.youtube.com/watch?v=1v2cj9OrUmo"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 211,
+          "formats": [],
+          "id": "hpshDUW_tEY",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Swing 42 (Live)",
+            "artist": "Swing 23",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Swing 42 (Live) (feat. Gustav Lundgren, Eva Slongo, Édouard Pennes & Julia Hornung)",
+            "sourceGenres": []
+          },
+          "title": "Swing 42 (Live) (feat. Gustav Lundgren, Eva Slongo, Édouard Pennes & Julia Hornung)",
+          "uploader": "Swing 23",
+          "url": "https://music.youtube.com/watch?v=hpshDUW_tEY"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 244,
+          "formats": [],
+          "id": "ZYk2c3F_zPo",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Dawg & T (Live)",
+            "artist": "David Grisman, Tony Rice",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Swing 42 (Live)",
+            "sourceGenres": []
+          },
+          "title": "Swing 42 (Live)",
+          "uploader": "David Grisman, Tony Rice",
+          "url": "https://music.youtube.com/watch?v=ZYk2c3F_zPo"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 159,
+          "formats": [],
+          "id": "H1wZY4vEYOw",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Caution Hot",
+            "artist": "Hot Club de Norvège, Jon Larsen, Adrien Moignard",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Swing 42 (feat. Ben Powell)",
+            "sourceGenres": []
+          },
+          "title": "Swing 42 (feat. Ben Powell)",
+          "uploader": "Hot Club de Norvège, Jon Larsen, Adrien Moignard",
+          "url": "https://music.youtube.com/watch?v=H1wZY4vEYOw"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 196,
+          "formats": [],
+          "id": "zeSwFGVAURo",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Django Festival 2",
+            "artist": "John Jorgenson",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Swing 42",
+            "sourceGenres": []
+          },
+          "title": "Swing 42",
+          "uploader": "John Jorgenson",
+          "url": "https://music.youtube.com/watch?v=zeSwFGVAURo"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "query": "Django Reinhardt Minor Swing",
+      "candidates": [
+        {
+          "confidence": "review",
+          "durationSeconds": 197,
+          "formats": [],
+          "id": "kt6ULcZxwRo",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "The Best Of Django Reinhardt",
+            "artist": "Django Reinhardt, Stéphane Grappelli, Quintette du Hot Club de France",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Minor Swing",
+            "sourceGenres": []
+          },
+          "title": "Minor Swing",
+          "uploader": "Django Reinhardt, Stéphane Grappelli, Quintette du Hot Club de France",
+          "url": "https://music.youtube.com/watch?v=kt6ULcZxwRo"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 194,
+          "formats": [],
+          "id": "HcPRk_MDIW0",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Blasts from the Past Vol. 3",
+            "artist": "Django Reinhardt & Stefan Grappelli, Stefan Grappelli",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Minor Swing",
+            "sourceGenres": []
+          },
+          "title": "Minor Swing",
+          "uploader": "Django Reinhardt & Stefan Grappelli, Stefan Grappelli",
+          "url": "https://music.youtube.com/watch?v=HcPRk_MDIW0"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 157,
+          "formats": [],
+          "id": "S5_r0Qtww4g",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Jazz Café - Guitar",
+            "artist": "Django Reinhardt",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Minor Swing",
+            "sourceGenres": []
+          },
+          "title": "Minor Swing",
+          "uploader": "Django Reinhardt",
+          "url": "https://music.youtube.com/watch?v=S5_r0Qtww4g"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 172,
+          "formats": [],
+          "id": "zfGGZlK6y1I",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Anthologie Django Reinhardt",
+            "artist": "Django Reinhardt",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Minor Swing",
+            "sourceGenres": []
+          },
+          "title": "Minor Swing",
+          "uploader": "Django Reinhardt",
+          "url": "https://music.youtube.com/watch?v=zfGGZlK6y1I"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 167,
+          "formats": [],
+          "id": "T6BAwO2SMKw",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "7days Presents: Django Reinhardt (Gypsy Swing)",
+            "artist": "Django Reinhardt",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Minor Swing (Version #2)",
+            "sourceGenres": []
+          },
+          "title": "Minor Swing (Version #2)",
+          "uploader": "Django Reinhardt",
+          "url": "https://music.youtube.com/watch?v=T6BAwO2SMKw"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 157,
+          "formats": [],
+          "id": "oHOX10LDBO8",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Django Reinhardt - 100 Ans De Jazz",
+            "artist": "Django Reinhardt",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Minor Swing",
+            "sourceGenres": []
+          },
+          "title": "Minor Swing",
+          "uploader": "Django Reinhardt",
+          "url": "https://music.youtube.com/watch?v=oHOX10LDBO8"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 150,
+          "formats": [],
+          "id": "0byVtV__ft8",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Django On The Radio - Transcribed Broadcasts (CD E - 1948-1953)",
+            "artist": "Django Reinhardt",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Minor Swing",
+            "sourceGenres": []
+          },
+          "title": "Minor Swing",
+          "uploader": "Django Reinhardt",
+          "url": "https://music.youtube.com/watch?v=0byVtV__ft8"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 170,
+          "formats": [],
+          "id": "9l404ZO9ivA",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Django Reinhardt from A to Z, Vol. 1",
+            "artist": "Django Reinhardt",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Minor Swing",
+            "sourceGenres": []
+          },
+          "title": "Minor Swing",
+          "uploader": "Django Reinhardt",
+          "url": "https://music.youtube.com/watch?v=9l404ZO9ivA"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 158,
+          "formats": [],
+          "id": "KiO_YDss7eU",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Tous les garçons et les filles",
+            "artist": "Django Reinhardt",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Minor Swing",
+            "sourceGenres": []
+          },
+          "title": "Minor Swing",
+          "uploader": "Django Reinhardt",
+          "url": "https://music.youtube.com/watch?v=KiO_YDss7eU"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 225,
+          "formats": [],
+          "id": "7qBZRXwjXWc",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Django Reinhardt NY Festival Allstars: Live At the Kennedy Center",
+            "artist": "Django Reinhardt NY Festival Allstars, Dorando Schmitt",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Minor Swing",
+            "sourceGenres": []
+          },
+          "title": "Minor Swing",
+          "uploader": "Django Reinhardt NY Festival Allstars, Dorando Schmitt",
+          "url": "https://music.youtube.com/watch?v=7qBZRXwjXWc"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 160,
+          "formats": [],
+          "id": "720nSAU4uRM",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Djangology",
+            "artist": "Django Reinhardt",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Minor Swing",
+            "sourceGenres": []
+          },
+          "title": "Minor Swing",
+          "uploader": "Django Reinhardt",
+          "url": "https://music.youtube.com/watch?v=720nSAU4uRM"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 422,
+          "formats": [],
+          "id": "JQ84NLjqHEE",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "The Django Reinhardt Festival - Gypsy Swing!",
+            "artist": "Dorado Schmitt, Babik Reinhardt, Angelo Debarre",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Minor Swing",
+            "sourceGenres": []
+          },
+          "title": "Minor Swing",
+          "uploader": "Dorado Schmitt, Babik Reinhardt, Angelo Debarre",
+          "url": "https://music.youtube.com/watch?v=JQ84NLjqHEE"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 222,
+          "formats": [],
+          "id": "XDLyEoK5ce8",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Les Enfants de Django - Live In Paris",
+            "artist": "Yorgui Loeffler, Samson Schmitt",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Minor Swing",
+            "sourceGenres": []
+          },
+          "title": "Minor Swing",
+          "uploader": "Yorgui Loeffler, Samson Schmitt",
+          "url": "https://music.youtube.com/watch?v=XDLyEoK5ce8"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 334,
+          "formats": [],
+          "id": "uyTFK6xuvNc",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Spirit of Django",
+            "artist": "Martin Taylor",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Minor Swing",
+            "sourceGenres": []
+          },
+          "title": "Minor Swing",
+          "uploader": "Martin Taylor",
+          "url": "https://music.youtube.com/watch?v=uyTFK6xuvNc"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 298,
+          "formats": [],
+          "id": "WUeMvEfky4Y",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Live at Dubai Opera Studio",
+            "artist": "The Gypsy Swing Project",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Minor Swing (Live)",
+            "sourceGenres": []
+          },
+          "title": "Minor Swing (Live)",
+          "uploader": "The Gypsy Swing Project",
+          "url": "https://music.youtube.com/watch?v=WUeMvEfky4Y"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 289,
+          "formats": [],
+          "id": "QhhnzFosIAw",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Erinnerungen",
+            "artist": "Häns'che Weiss Ensemble",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Minor Swing",
+            "sourceGenres": []
+          },
+          "title": "Minor Swing",
+          "uploader": "Häns'che Weiss Ensemble",
+          "url": "https://music.youtube.com/watch?v=QhhnzFosIAw"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 289,
+          "formats": [],
+          "id": "TZpmqx6-HcA",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Guitar Fiesta",
+            "artist": "Raphaël Fays, Bireli Lagrène, Gipsy Boys",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Minor Swing (Live, 2026 Remaster)",
+            "sourceGenres": []
+          },
+          "title": "Minor Swing (Live, 2026 Remaster)",
+          "uploader": "Raphaël Fays, Bireli Lagrène, Gipsy Boys",
+          "url": "https://music.youtube.com/watch?v=TZpmqx6-HcA"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 277,
+          "formats": [],
+          "id": "fQYEtV7ckNQ",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "MADEMOISELLE SWING",
+            "artist": "Isabelle Durand d'Eglantine, Coco Briaval",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Minor Swing",
+            "sourceGenres": []
+          },
+          "title": "Minor Swing",
+          "uploader": "Isabelle Durand d'Eglantine, Coco Briaval",
+          "url": "https://music.youtube.com/watch?v=fQYEtV7ckNQ"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 184,
+          "formats": [],
+          "id": "YvzimmGan5A",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "J'adore Rome (with Paolo Bernardi)",
+            "artist": "Paolo Bernardi",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Minor swing (with Paolo Bernardi)",
+            "sourceGenres": []
+          },
+          "title": "Minor swing (with Paolo Bernardi)",
+          "uploader": "Paolo Bernardi",
+          "url": "https://music.youtube.com/watch?v=YvzimmGan5A"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 159,
+          "formats": [],
+          "id": "9EAYc-JONcI",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Les maîtres du jazz manouche: Paris Swing Stories",
+            "artist": "Sacha Distel",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "Minor Swing",
+            "sourceGenres": []
+          },
+          "title": "Minor Swing",
+          "uploader": "Sacha Distel",
+          "url": "https://music.youtube.com/watch?v=9EAYc-JONcI"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "query": "Django Reinhardt I'll See You in My Dreams",
+      "candidates": [
+        {
+          "confidence": "review",
+          "durationSeconds": 172,
+          "formats": [],
+          "id": "XMdqohaw1zM",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "I ll See You In My Dreams (Django Reinhardt Backing Track In All Keys)",
+            "artist": "John's Backing Tracks",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "I ll See You In My Dreams (Django Reinhardt Backing Track - G)",
+            "sourceGenres": []
+          },
+          "title": "I ll See You In My Dreams (Django Reinhardt Backing Track - G)",
+          "uploader": "John's Backing Tracks",
+          "url": "https://music.youtube.com/watch?v=XMdqohaw1zM"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 172,
+          "formats": [],
+          "id": "zoOQpdmDmto",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "I ll See You In My Dreams (Django Reinhardt Backing Track In All Keys)",
+            "artist": "John's Backing Tracks",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "I ll See You In My Dreams (Django Reinhardt Backing Track - C)",
+            "sourceGenres": []
+          },
+          "title": "I ll See You In My Dreams (Django Reinhardt Backing Track - C)",
+          "uploader": "John's Backing Tracks",
+          "url": "https://music.youtube.com/watch?v=zoOQpdmDmto"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 154,
+          "formats": [],
+          "id": "Rkrvuszati8",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Django Reinhardt & Quintette du Hot Club de France",
+            "artist": "Django Reinhardt, Stephane Grappelli",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "I'll See You In My Dreams",
+            "sourceGenres": []
+          },
+          "title": "I'll See You In My Dreams",
+          "uploader": "Django Reinhardt, Stephane Grappelli",
+          "url": "https://music.youtube.com/watch?v=Rkrvuszati8"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 153,
+          "formats": [],
+          "id": "XCIHPymHILY",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Django's American Songbook Tunes (vol. 2)",
+            "artist": "Django Reinhardt",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "I'll See You In My Dreams",
+            "sourceGenres": []
+          },
+          "title": "I'll See You In My Dreams",
+          "uploader": "Django Reinhardt",
+          "url": "https://music.youtube.com/watch?v=XCIHPymHILY"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 150,
+          "formats": [],
+          "id": "yqaxpXmaTTY",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "After You've Gone",
+            "artist": "Django Reinhardt",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "I'll See You in My Dreams (feat. Stéphane Grapelli)",
+            "sourceGenres": []
+          },
+          "title": "I'll See You in My Dreams (feat. Stéphane Grapelli)",
+          "uploader": "Django Reinhardt",
+          "url": "https://music.youtube.com/watch?v=yqaxpXmaTTY"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 161,
+          "formats": [],
+          "id": "owqy_N36gVw",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Under Paris Skies",
+            "artist": "Pearl Django",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "I'll See You In My Dreams",
+            "sourceGenres": []
+          },
+          "title": "I'll See You In My Dreams",
+          "uploader": "Pearl Django",
+          "url": "https://music.youtube.com/watch?v=owqy_N36gVw"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 188,
+          "formats": [],
+          "id": "fiWomes79i4",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Clasico",
+            "artist": "Adrien Moignard, Gonzalo Bergara",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "I'll See You in My Dreams",
+            "sourceGenres": []
+          },
+          "title": "I'll See You in My Dreams",
+          "uploader": "Adrien Moignard, Gonzalo Bergara",
+          "url": "https://music.youtube.com/watch?v=fiWomes79i4"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 207,
+          "formats": [],
+          "id": "l4PGoUpBCTQ",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Django's Tiger",
+            "artist": "Jimmy Rosenberg, Hot Club de Norvège, Jon Larsen",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "I'll See You in My Dreams (feat. Andreas Öberg)",
+            "sourceGenres": []
+          },
+          "title": "I'll See You in My Dreams (feat. Andreas Öberg)",
+          "uploader": "Jimmy Rosenberg, Hot Club de Norvège, Jon Larsen",
+          "url": "https://music.youtube.com/watch?v=l4PGoUpBCTQ"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 192,
+          "formats": [],
+          "id": "2l_9kJLKmLU",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Backing Tracks, Vol. 3",
+            "artist": "Jazzing",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "I'll See You In My Dreams ( F ) Backing Track",
+            "sourceGenres": []
+          },
+          "title": "I'll See You In My Dreams ( F ) Backing Track",
+          "uploader": "Jazzing",
+          "url": "https://music.youtube.com/watch?v=2l_9kJLKmLU"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 207,
+          "formats": [],
+          "id": "F9FwBLc4Wn4",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Django's Discovery",
+            "artist": "Havana Swing",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "I'll See You in My Dreams",
+            "sourceGenres": []
+          },
+          "title": "I'll See You in My Dreams",
+          "uploader": "Havana Swing",
+          "url": "https://music.youtube.com/watch?v=F9FwBLc4Wn4"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 265,
+          "formats": [],
+          "id": "PjyN4DQ7ee0",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "The Nashville Tribute to Django Reinhardt: Gypsy Swing",
+            "artist": "Pickin' On Series",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "I'll See You In My Dreams",
+            "sourceGenres": []
+          },
+          "title": "I'll See You In My Dreams",
+          "uploader": "Pickin' On Series",
+          "url": "https://music.youtube.com/watch?v=PjyN4DQ7ee0"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 202,
+          "formats": [],
+          "id": "lm5kjCNGVfg",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Just the Way You Are",
+            "artist": "Biréli Lagrène Gipsy Project",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "I'll See You in My Dreams",
+            "sourceGenres": []
+          },
+          "title": "I'll See You in My Dreams",
+          "uploader": "Biréli Lagrène Gipsy Project",
+          "url": "https://music.youtube.com/watch?v=lm5kjCNGVfg"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 150,
+          "formats": [],
+          "id": "IqyWfFfdKT4",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Gipsy Summer",
+            "artist": "The Rosenberg Trio",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "I'll See You In My Dreams (Instrumental)",
+            "sourceGenres": []
+          },
+          "title": "I'll See You In My Dreams (Instrumental)",
+          "uploader": "The Rosenberg Trio",
+          "url": "https://music.youtube.com/watch?v=IqyWfFfdKT4"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 476,
+          "formats": [],
+          "id": "aOy4lkgTllU",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Django's Roots",
+            "artist": "Daniele Gregolin, Gabriele Boggio Ferraris",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "I'll See You in My Dreams",
+            "sourceGenres": []
+          },
+          "title": "I'll See You in My Dreams",
+          "uploader": "Daniele Gregolin, Gabriele Boggio Ferraris",
+          "url": "https://music.youtube.com/watch?v=aOy4lkgTllU"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 202,
+          "formats": [],
+          "id": "iygZOzwqViM",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Django Festival 6",
+            "artist": "Walter Coronda",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "I'll See You in My Dreams",
+            "sourceGenres": []
+          },
+          "title": "I'll See You in My Dreams",
+          "uploader": "Walter Coronda",
+          "url": "https://music.youtube.com/watch?v=iygZOzwqViM"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 185,
+          "formats": [],
+          "id": "BYMoo1qrKyA",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Good Morning Django!",
+            "artist": "Giò Belli Jazz Manouche Trio",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "I'll See You in My Dreams",
+            "sourceGenres": []
+          },
+          "title": "I'll See You in My Dreams",
+          "uploader": "Giò Belli Jazz Manouche Trio",
+          "url": "https://music.youtube.com/watch?v=BYMoo1qrKyA"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 159,
+          "formats": [],
+          "id": "zMHQ48lY-mc",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "The Very Best Of",
+            "artist": "Johnny Mercer",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "I'll See You in My Dreams (feat. The Pied Pipers)",
+            "sourceGenres": []
+          },
+          "title": "I'll See You in My Dreams (feat. The Pied Pipers)",
+          "uploader": "Johnny Mercer",
+          "url": "https://music.youtube.com/watch?v=zMHQ48lY-mc"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 184,
+          "formats": [],
+          "id": "Npx_iRKzxDw",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Guitar Genius",
+            "artist": "Jimmy Rosenberg, Angelo Debarre",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "I'll See You in My Dreams",
+            "sourceGenres": []
+          },
+          "title": "I'll See You in My Dreams",
+          "uploader": "Jimmy Rosenberg, Angelo Debarre",
+          "url": "https://music.youtube.com/watch?v=Npx_iRKzxDw"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 480,
+          "formats": [],
+          "id": "QoB8crA7M9g",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "I'll See You In My Dreams",
+            "artist": "Jumba David",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "I'll See You In My Dreams",
+            "sourceGenres": []
+          },
+          "title": "I'll See You In My Dreams",
+          "uploader": "Jumba David",
+          "url": "https://music.youtube.com/watch?v=QoB8crA7M9g"
+        },
+        {
+          "confidence": "review",
+          "durationSeconds": 262,
+          "formats": [],
+          "id": "zBtK5HyJ_bI",
+          "official": false,
+          "permission": "unknown",
+          "provider": "youtube",
+          "reasons": [
+            "YouTube Music result; source identity is unverified"
+          ],
+          "score": 0,
+          "sourceMetadata": {
+            "album": "Adrien Moignard Trio Live",
+            "artist": "Adrien Moignard",
+            "catalogVerified": false,
+            "provider": "youtube",
+            "song": "I'll See You In My Dreams",
+            "sourceGenres": []
+          },
+          "title": "I'll See You In My Dreams",
+          "uploader": "Adrien Moignard",
+          "url": "https://music.youtube.com/watch?v=zBtK5HyJ_bI"
+        }
+      ],
+      "warnings": []
+    }
+  ]
+}

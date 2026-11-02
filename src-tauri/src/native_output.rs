@@ -7996,7 +7996,7 @@ mod tests {
     /// Explicit isolated live reproduction: production resolver and decoder,
     /// without a device, mixer, GUI, or the normal application's Store/queue.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[ignore = "requires exact BURRATA_LIVE_TRACK_FIXTURE and BURRATA_LIVE_TRACK_OUTPUT; public network"]
+    #[ignore = "requires exact Track fixture/output and public network; optional match-level/provider selectors"]
     async fn live_reported_track_resolver_and_decode() {
         let fixture = std::env::var("BURRATA_LIVE_TRACK_FIXTURE")
             .expect("explicit exact Track fixture required");
@@ -8008,11 +8008,46 @@ mod tests {
             track.local_path.is_none(),
             "live catalog fixture must not reference normal local files"
         );
+        let mut settings = crate::models::Settings::default();
+        if let Ok(level) = std::env::var("BURRATA_LIVE_MATCH_LEVEL") {
+            settings.matching_level = serde_json::from_value(serde_json::Value::String(level))
+                .expect("BURRATA_LIVE_MATCH_LEVEL must be exact, balanced, or flexible");
+        }
+        let bool_option = |name: &str, default: bool| {
+            std::env::var(name).map_or(default, |value| match value.as_str() {
+                "1" | "true" => true,
+                "0" | "false" => false,
+                _ => panic!("{name} must be 1, 0, true, or false"),
+            })
+        };
+        settings.flexible_matching = crate::recording_match::FlexibleMatchingOptions {
+            version: 1,
+            allow_other_releases: bool_option("BURRATA_LIVE_ALLOW_OTHER_RELEASES", true),
+            allow_other_performances: bool_option("BURRATA_LIVE_ALLOW_OTHER_PERFORMANCES", true),
+            allow_other_mixes: bool_option("BURRATA_LIVE_ALLOW_OTHER_MIXES", true),
+            // Live qualification never broadens artist identity.
+            allow_other_artists: false,
+            allow_different_lengths: bool_option("BURRATA_LIVE_ALLOW_DIFFERENT_LENGTHS", true),
+            max_shorter_by_seconds: 30,
+            max_longer_by_seconds: 30,
+        };
+        let requested_provider = std::env::var("BURRATA_LIVE_PROVIDER")
+            .unwrap_or_else(|_| settings.preferred_streaming_source.clone());
+        assert!(
+            matches!(
+                requested_provider.as_str(),
+                "youtube" | "soundcloud" | "monochrome"
+            ),
+            "BURRATA_LIVE_PROVIDER must be youtube, soundcloud, or monochrome"
+        );
+        settings.preferred_streaming_source = requested_provider.clone();
+        // A provider-selector run qualifies exactly one selected source through
+        // the normal resolver path, with no hidden cross-provider fallback.
+        settings.streaming_fallback_enabled = false;
+        settings.streaming_fallback_sources.clear();
         let isolated = tempfile::tempdir().unwrap();
         let store = Arc::new(crate::Store::open(&isolated.path().join("isolated.sqlite")).unwrap());
-        store
-            .save_settings(&crate::models::Settings::default())
-            .unwrap();
+        store.save_settings(&settings).unwrap();
         store.save_track(&track).unwrap();
         let resources = std::env::var_os("BURRATA_LIVE_RESOURCES")
             .map(PathBuf::from)
@@ -8038,7 +8073,274 @@ mod tests {
         let result =
             crate::playback_sources::resolve(&store, &acquisition, &track, None, cancel).await;
         let resolve_ms = started.elapsed().as_secs_f64() * 1000.;
-        let mut report = serde_json::json!({"schemaVersion":1,"workload":"isolated_reported_track_resolver_and_decoder","platform":std::env::consts::OS,"build":if cfg!(debug_assertions){"debug"}else{"release"},"resolverBudgetMs":20000,"resolveMs":resolve_ms,"resolved":result.is_ok(),"scope":"production source resolver and first five seconds of decoder PCM; no mixer, device, GUI, normal library, or queue mutation"});
+        let resolver_budget_ms = crate::playback_sources::PLAYBACK_RESOLUTION_DEADLINE.as_millis();
+        let matching_level = settings.matching_level;
+        let flexible_matching = settings.flexible_matching;
+        let mut report = serde_json::json!({"schemaVersion":2,"workload":"isolated_reported_track_resolver_and_decoder","platform":std::env::consts::OS,"build":if cfg!(debug_assertions){"debug"}else{"release"},"resolverBudgetMs":resolver_budget_ms,"resolveMs":resolve_ms,"resolved":result.is_ok(),"requestedProvider":requested_provider,"providerFallbackEnabled":false,"matchingPolicy":{"level":matching_level,"flexible":{"allowOtherReleases":flexible_matching.allow_other_releases,"allowOtherPerformances":flexible_matching.allow_other_performances,"allowOtherMixes":flexible_matching.allow_other_mixes,"allowOtherArtists":flexible_matching.allow_other_artists,"allowDifferentLengths":flexible_matching.allow_different_lengths}},"scope":"production source resolver and first five seconds of decoder PCM; no mixer, device, GUI, normal library, or queue mutation"});
+        if result.is_err()
+            && std::env::var("BURRATA_LIVE_INSPECT_DIAGNOSTICS").is_ok_and(|value| value == "1")
+        {
+            // This is an explicitly opt-in second search and metadata
+            // inspection after the measured resolver has completed. It never
+            // changes resolver timings or outcome and shares one independent
+            // 25-second deadline across search, inspection, and fresh source
+            // metadata resolution. Search is capped at two queries/provider,
+            // three rows/query, and at most three inspected candidates.
+            const DIAGNOSTIC_SEARCH_BUDGET: Duration = Duration::from_secs(25);
+            let diagnostic_started = Instant::now();
+            let diagnostic_deadline =
+                crate::playback_sources::PlaybackDeadline::after(DIAGNOSTIC_SEARCH_BUDGET);
+            let (diagnostic_stop, diagnostic_cancel) = tokio::sync::watch::channel(false);
+            let diagnostic_search = acquisition.find_fresh_preview_candidates_cancelled(
+                &track,
+                std::slice::from_ref(&requested_provider),
+                &settings,
+                diagnostic_cancel,
+            );
+            tokio::pin!(diagnostic_search);
+            let (search_outcome, diagnostic_candidates) = tokio::select! {
+                result = &mut diagnostic_search => match result {
+                    Ok(candidates) => ("completed", Some(candidates)),
+                    Err(_) => ("search_failed", None),
+                },
+                _ = tokio::time::sleep_until(diagnostic_deadline.instant()) => {
+                    let _ = diagnostic_stop.send(true);
+                    ("timed_out", None)
+                }
+            };
+            let candidates = diagnostic_candidates.unwrap_or_default();
+            let safe_text = |value: Option<&str>, limit: usize| {
+                value
+                    .map(|value| {
+                        value
+                            .chars()
+                            .filter(|ch| !ch.is_control())
+                            .take(limit)
+                            .collect::<String>()
+                    })
+                    .filter(|value| {
+                        !value.trim().is_empty()
+                            && !value.contains("://")
+                            && !value.to_ascii_lowercase().contains("www.")
+                    })
+            };
+            let metadata_artist_names_present = |metadata: Option<&serde_json::Value>| {
+                metadata.is_some_and(|metadata| {
+                    metadata
+                        .get("artists")
+                        .or_else(|| metadata.get("artistNames"))
+                        .and_then(serde_json::Value::as_array)
+                        .is_some_and(|values| {
+                            values.iter().any(|value| {
+                                value.as_str().is_some_and(|name| !name.trim().is_empty())
+                            })
+                        })
+                        || metadata
+                            .get("artist")
+                            .and_then(serde_json::Value::as_str)
+                            .is_some_and(|name| !name.trim().is_empty())
+                })
+            };
+            let metadata_credit_roles_present = |metadata: Option<&serde_json::Value>| {
+                metadata.is_some_and(|metadata| {
+                    metadata
+                        .get("creditRoles")
+                        .or_else(|| metadata.get("artistCreditRoles"))
+                        .and_then(serde_json::Value::as_array)
+                        .is_some_and(|values| !values.is_empty())
+                })
+            };
+            let metadata_version_present = |metadata: Option<&serde_json::Value>| {
+                metadata.is_some_and(|metadata| {
+                    metadata
+                        .get("version")
+                        .or_else(|| metadata.get("mix"))
+                        .and_then(serde_json::Value::as_str)
+                        .is_some_and(|value| !value.trim().is_empty())
+                })
+            };
+            let safe_candidate_identity = |candidate: &crate::models::Candidate| {
+                let metadata = candidate.source_metadata.as_ref();
+                let artist_names = metadata
+                    .and_then(|value| value.get("artists").or_else(|| value.get("artistNames")))
+                    .and_then(serde_json::Value::as_array)
+                    .map(|values| {
+                        values
+                            .iter()
+                            .filter_map(serde_json::Value::as_str)
+                            .filter_map(|value| safe_text(Some(value), 180))
+                            .take(12)
+                            .collect::<Vec<_>>()
+                    })
+                    .filter(|values| !values.is_empty())
+                    .or_else(|| {
+                        metadata
+                            .and_then(|value| value.get("artist"))
+                            .and_then(serde_json::Value::as_str)
+                            .and_then(|value| safe_text(Some(value), 180))
+                            .map(|value| vec![value])
+                    });
+                let credit_roles = metadata
+                    .and_then(|value| {
+                        value
+                            .get("creditRoles")
+                            .or_else(|| value.get("artistCreditRoles"))
+                    })
+                    .and_then(serde_json::Value::as_array)
+                    .map(|values| {
+                        values
+                            .iter()
+                            .take(16)
+                            .filter_map(|value| {
+                                let name = value
+                                    .get("name")
+                                    .and_then(serde_json::Value::as_str)
+                                    .or_else(|| {
+                                        value.get("artist").and_then(serde_json::Value::as_str)
+                                    });
+                                let role = value
+                                    .get("role")
+                                    .and_then(serde_json::Value::as_str)
+                                    .or_else(|| {
+                                        value.get("type").and_then(serde_json::Value::as_str)
+                                    });
+                                Some(serde_json::json!({
+                                    "name": safe_text(name, 180)?,
+                                    "role": safe_text(role, 80)
+                                }))
+                            })
+                            .collect::<Vec<_>>()
+                    });
+                let version = metadata
+                    .and_then(|value| value.get("version").or_else(|| value.get("mix")))
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(|value| safe_text(Some(value), 180));
+                let public_id = candidate
+                    .id
+                    .chars()
+                    .filter(|ch| ch.is_ascii_alphanumeric() || matches!(ch, ':' | '_' | '-' | '.'))
+                    .take(128)
+                    .collect::<String>();
+                serde_json::json!({
+                    "publicId": (!public_id.is_empty()).then_some(public_id),
+                    "title": safe_text(Some(&candidate.title), 220),
+                    "artistNames": artist_names,
+                    "creditRoles": credit_roles,
+                    "version": version,
+                    "durationSeconds": candidate.duration_seconds.filter(|value| value.is_finite() && *value >= 0.),
+                    "candidateFieldsComplete": {
+                        "hasTitle": !candidate.title.trim().is_empty(),
+                        "hasArtistNames": metadata_artist_names_present(metadata),
+                        "hasCreditRoles": metadata_credit_roles_present(metadata),
+                        "hasVersion": metadata_version_present(metadata),
+                        "hasDuration": candidate.duration_seconds.is_some_and(|value| value.is_finite() && value > 0.)
+                    }
+                })
+            };
+            let mut candidate_rows = Vec::new();
+            let mut inspection_count = 0usize;
+            let mut audio_metadata_count = 0usize;
+            let mut diagnostic_outcome = search_outcome;
+            for search_candidate in candidates.into_iter().take(3) {
+                if diagnostic_deadline.remaining().is_zero() {
+                    diagnostic_outcome = "timed_out";
+                    break;
+                }
+                inspection_count += 1;
+                let inspection = crate::acquisition::inspect_candidate_cancelled_until(
+                    &track,
+                    &search_candidate,
+                    &settings,
+                    diagnostic_stop.subscribe(),
+                    diagnostic_deadline,
+                )
+                .await;
+                let Ok(inspected_candidate) = inspection else {
+                    candidate_rows.push(serde_json::json!({
+                        "searchCandidate": safe_candidate_identity(&search_candidate),
+                        "inspectionOutcome": if diagnostic_deadline.remaining().is_zero() { "timed_out" } else { "failed" }
+                    }));
+                    continue;
+                };
+                let audio = acquisition
+                    .extract_playback_audio_fresh_or_prepared_traced(
+                        &inspected_candidate,
+                        &settings,
+                        diagnostic_stop.subscribe(),
+                        false,
+                        crate::playback_sources::SourceTrace::new(None, None, None),
+                        diagnostic_deadline,
+                        None,
+                    )
+                    .await;
+                let Ok(audio) = audio else {
+                    candidate_rows.push(serde_json::json!({
+                        "searchCandidate": safe_candidate_identity(&search_candidate),
+                        "inspectedCandidate": safe_candidate_identity(&inspected_candidate),
+                        "inspectionOutcome": "completed",
+                        "audioMetadataOutcome": if diagnostic_deadline.remaining().is_zero() { "timed_out" } else { "failed" }
+                    }));
+                    continue;
+                };
+                audio_metadata_count += 1;
+                let mut resolved_candidate = inspected_candidate.clone();
+                if let Some(title) = audio.resolved_title.as_deref() {
+                    resolved_candidate.title = title.to_owned();
+                }
+                resolved_candidate.duration_seconds = audio
+                    .duration_seconds
+                    .or(resolved_candidate.duration_seconds);
+                resolved_candidate.source_metadata = audio.source_metadata.clone();
+                let assessment = crate::recording_match::assess_with_options(
+                    &track,
+                    &resolved_candidate,
+                    matching_level,
+                    crate::recording_match::MatchStage::Resolved,
+                    &flexible_matching,
+                );
+                let evidence = assessment.evidence.as_ref();
+                candidate_rows.push(serde_json::json!({
+                    "searchCandidate": safe_candidate_identity(&search_candidate),
+                    "inspectedCandidate": safe_candidate_identity(&inspected_candidate),
+                    "resolvedCandidate": safe_candidate_identity(&resolved_candidate),
+                    "inspectionOutcome": "completed",
+                    "audioMetadataOutcome": "completed",
+                    "assessment": {
+                        "stage": "resolved",
+                        "action": assessment.action,
+                        "relationship": assessment.relationship,
+                        "reasons": assessment.reasons,
+                        "dimensions": assessment.dimensions,
+                        "identifierConflict": evidence.map(|value| value.identifier_conflict),
+                        "completePerformerCredits": evidence.map(|value| value.complete_performer_credits),
+                        "requestedPerformerCreditsComplete": evidence.map(|value| value.requested_performer_credits_complete),
+                        "parsingIncomplete": evidence.map(|value| value.parsing_incomplete),
+                        "conflictingVersionObservations": evidence.map(|value| value.conflicting_version_observations)
+                    }
+                }));
+            }
+            if diagnostic_deadline.remaining().is_zero() {
+                diagnostic_outcome = "timed_out";
+                let _ = diagnostic_stop.send(true);
+            }
+            report["diagnosticSearch"] = serde_json::json!({
+                "enabled": true,
+                "separateFromResolver": true,
+                "budgetMs": DIAGNOSTIC_SEARCH_BUDGET.as_millis(),
+                "searchMs": diagnostic_started.elapsed().as_secs_f64() * 1000.,
+                "provider": requested_provider,
+                "outcome": diagnostic_outcome,
+                "maxQueriesPerProvider": 2,
+                "queryResultLimit": 3,
+                "inspectionLimit": 3,
+                "inspectionCount": inspection_count,
+                "audioMetadataCount": audio_metadata_count,
+                "assessmentStage": "resolved",
+                "assessmentBasis": "shared recording matcher with fresh extractor source metadata; no resolver alias enrichment or source access validation",
+                "candidateCountReported": candidate_rows.len(),
+                "candidates": candidate_rows
+            });
+        }
         let alias_context =
             crate::artist_credit_aliases::cached_verified_playback_artist_aliases(&store, &track);
         report["aliasProofState"] = serde_json::json!({
@@ -8117,7 +8419,8 @@ mod tests {
                             session,
                         )
                     });
-                    let deadline = Instant::now() + Duration::from_secs(20);
+                    let deadline =
+                        Instant::now() + crate::playback_sources::PLAYBACK_RESOLUTION_DEADLINE;
                     let mut first_pcm_ms = None;
                     let mut samples = 0usize;
                     while samples < 5 * 48_000 * 2 {

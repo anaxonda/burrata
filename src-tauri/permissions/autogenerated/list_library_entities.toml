@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-library-entities"
+description = "Enables the list_library_entities command without any pre-configured scope."
+commands.allow = ["list_library_entities"]
+
+[[permission]]
+identifier = "deny-list-library-entities"
+description = "Denies the list_library_entities command without any pre-configured scope."
+commands.deny = ["list_library_entities"]

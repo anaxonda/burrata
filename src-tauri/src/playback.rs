@@ -716,6 +716,8 @@ struct State {
     last_local_storage_failure: Option<Value>,
     last_source_failure: Option<Value>,
     last_skipped_track_failure: Option<Value>,
+    failure_attempt_generation: Option<u64>,
+    failure_provider_attempts: Vec<crate::playback_failure::ProviderAttemptSummary>,
     recent_track_failures: Vec<Value>,
     handoff_id: Option<String>,
     pause_when_ready: bool,
@@ -808,6 +810,8 @@ impl Default for State {
             last_local_storage_failure: None,
             last_source_failure: None,
             last_skipped_track_failure: None,
+            failure_attempt_generation: None,
+            failure_provider_attempts: Vec::new(),
             recent_track_failures: Vec::new(),
             handoff_id: None,
             pause_when_ready: false,
@@ -898,7 +902,16 @@ impl State {
             .map_or(Value::Null, |handoff_id| json!(handoff_id));
         value["naturalQueueEnd"] = json!(self.natural_queue_end);
         value["failure"] = if self.status == "failed" {
-            json!(crate::playback_failure::classify(&self.message))
+            let mut failure = crate::playback_failure::classify(&self.message);
+            if self.failure_attempt_generation == Some(self.generation) {
+                failure.provider_attempts = self
+                    .failure_provider_attempts
+                    .iter()
+                    .take(32)
+                    .cloned()
+                    .collect();
+            }
+            json!(failure)
         } else {
             Value::Null
         };
@@ -1889,10 +1902,15 @@ impl PlaybackService {
                 state.message = "Saved playback state could not be restored".into();
             }
         }
+        let observed_analysis = crate::observed_analysis::ObservedAnalysis::new(store.clone());
+        let analysis_event_app = app.clone();
+        observed_analysis.set_event_sink(Arc::new(move |payload| {
+            let _ = analysis_event_app.emit("stream-analysis-updated", payload);
+        }));
         let service = Arc::new(Self {
             inner: Arc::new(Inner {
                 app,
-                observed_analysis: crate::observed_analysis::ObservedAnalysis::new(store.clone()),
+                observed_analysis,
                 store,
                 acquisition,
                 history,
@@ -4786,7 +4804,8 @@ impl PlaybackService {
         }
         // The source resolver binds reviewed online identities after validating
         // local assets, so downloaded recordings never need an online lookup.
-        crate::playback_sources::resolve_with_trace_context_excluding_until(
+        let provider_attempts = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let result = crate::playback_sources::resolve_with_provider_attempt_collector(
             &self.inner.store,
             &self.inner.acquisition,
             track,
@@ -4795,10 +4814,30 @@ impl PlaybackService {
             operation_id,
             seek_operation_id,
             None,
-            &[],
             crate::playback_sources::PlaybackDeadline::at(tokio::time::Instant::from_std(deadline)),
+            provider_attempts.clone(),
         )
-        .await
+        .await;
+        if result.is_err() {
+            let attempts = provider_attempts
+                .lock()
+                .map(|items| items.clone())
+                .unwrap_or_default();
+            if let Ok(mut state) = self.inner.state.lock() {
+                if state.generation == g {
+                    if state.failure_attempt_generation != Some(g) {
+                        state.failure_attempt_generation = Some(g);
+                        state.failure_provider_attempts.clear();
+                    }
+                    state.failure_provider_attempts.extend(attempts);
+                    if state.failure_provider_attempts.len() > 32 {
+                        let excess = state.failure_provider_attempts.len() - 32;
+                        state.failure_provider_attempts.drain(0..excess);
+                    }
+                }
+            }
+        }
+        result
     }
     /// A queued chapter inherits its parent's path for immediate UI playback. If a
     /// chapter-specific excerpt has since been saved, prefer that registered asset.

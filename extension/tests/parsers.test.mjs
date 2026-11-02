@@ -21,6 +21,14 @@ test('Spotify merges virtualized rows and retains repeated occurrences',()=>{
  const make=(position,id)=>extract(doc(`<h1>My playlist</h1><p>3 songs</p><div data-testid="tracklist-row" aria-rowindex="${position}"><a href="/track/${id}">Song</a><a href="/artist/A">Artist</a><a href="/album/B">Album</a>3:10</div>`),'https://open.spotify.com/playlist/PL');
  const s=mergeSnapshots([make(1,'ABC'),make(2,'DEF'),make(3,'ABC'),make(1,'ABC')]);assert.deepEqual(s.entries.map(x=>x.position),[1,2,3]);assert.equal(s.complete,true);assert.equal(s.entries[0].rank,null);
 });
+test('Spotify captures optional structured artist links with rendering join phrases',()=>{
+ const page=doc('<h1>Playlist</h1><div data-testid="tracklist-row" aria-rowindex="1"><a href="/track/T">Song</a><a href="/artist/A">Artist A</a><a href="/artist/B">Artist B</a></div>');
+ const entry=extract(page,'https://open.spotify.com/playlist/PL').entries[0];
+ assert.deepEqual(entry.artistCredits,[
+  {name:'Artist A',role:'artist',providerId:'A',joinPhrase:', ',provenance:'spotifyRenderedArtistLink'},
+  {name:'Artist B',role:'artist',providerId:'B',joinPhrase:'',provenance:'spotifyRenderedArtistLink'}
+ ]);
+});
 test('Spotify converts grid row indexes to playlist positions when a header row exists',()=>{
  const page=doc(`<h1>My playlist</h1><p>2 songs</p><div role="grid"><div role="row" aria-rowindex="1"><div role="columnheader">#</div><div role="columnheader">Title</div></div><div data-testid="tracklist-row" role="row" aria-rowindex="2"><div role="gridcell">Song one</div><a href="/track/ONE">Song one</a><a href="/artist/A">Artist</a></div><div data-testid="tracklist-row" role="row" aria-rowindex="3"><div role="gridcell">Song two</div><a href="/track/TWO">Song two</a><a href="/artist/A">Artist</a></div></div>`);
  const s=extract(page,'https://open.spotify.com/playlist/PL');

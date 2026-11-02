@@ -46,6 +46,15 @@ deploy/slskd/data/
 # Local agent staging, test caches and isolated browser profiles
 .tmp/
 
+# Isolated qualification source copies, packages, profiles and raw monitor output.
+/docs/performance-results/**/.qualification-source/
+/docs/performance-results/**/.baseline-payload-extracted/
+/docs/performance-results/**/.baseline-artifacts/
+/docs/performance-results/**/.package-staging/
+/docs/performance-results/**/.final-package-staging/
+/docs/performance-results/**/.final-install-root/
+/docs/performance-results/**/*.f32le
+
 # Generated synthetic regression inputs are required by clean test builds.
 !/src-tauri/tests/fixtures/aac-startup-fixture.m4a
 !/src-tauri/tests/fixtures/opus-fixture.ogg

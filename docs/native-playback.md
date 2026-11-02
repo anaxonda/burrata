@@ -3,6 +3,10 @@
 Current failure instrumentation: `diagnostics.lastBuffering` retains finite reader/download/PCM facts from an actual empty PCM queue, tagged with generation and seek serial. It clears at new source/track, seek and preload-adoption boundaries; stale events do not replace it. Reader read/seek wait times and time since download progress expose input waiting alongside an empty production queue, but cannot independently separate network, storage and scheduling causes. `readInFlightMs`/`maxReadMs` and `seekInFlightMs`/`maxSeekMs` wrap the actual delegated operations; a null read wait does not exclude a blocked seek. Progress is reported after chunk storage writes, so a lack of progress alone does not prove a stalled network. `downloadedRangeEnd` is a range position, not cumulative network bytes. Existing decoder `bytesRead`/`bytesReceived` remain startup snapshots, rather than live throughput totals. The instrumentation does not change queue capacity, prefetch, fallback, cancellation or five-second verification gates.
 
 
+Native is the only playback engine in the current source. Tracks, radio and explicit source previews use the same Native service. The interface still uses a WebView. Engine selection, restart/switch commands, browser media inspection and automatic cross-engine failover have been removed. `BURRATA_PLAYBACK_ENGINE` no longer selects an engine. A manual external-player action remains available.
+
+The implemented stack uses Rodio with Symphonia for decoding and output, plus `stream-download` for remote audio streams. FFmpeg is the fallback for HLS and HE-AAC streams that the native path cannot decode reliably. Qualification covers start, pause/resume, seek where supported, source retry, track changes, and gapless transitions. Crossfade and loudness normalization use the Native output path; equalizer remains deferred. The playback path does not depend on libmpv or a supervised media server/daemon.
+
 Burrata 0.1.25 uses Native playback for all in-app audio; the desktop interface
 still uses the platform WebView. There is no playback-engine selector or engine
 preference override. Existing queue and control state migrates to Native. The
@@ -51,6 +55,16 @@ Compare native playback resource use and packaging impact with the pre-change ba
 
 ## Release status
 
+Public release of this Native-only source remains blocked on clean packaged qualification on macOS, Windows and Linux, including device removal and sleep/wake. Previously published v0.1.24 used WebView playback; that artifact does not qualify this change. See [Native-only verification](native-only-verification.md).
+
+## Current recovery and migration status — 2026-10-30
+
+The previous engine preference is retained solely as the durable session-migration receipt. Startup selects the previously active session, commits its complete queue and controls in SQLite, and restores paused. A stale competing session cannot replace the active one. Legacy browser storage and old backup readers remain available; no browser audio engine runs. Native output failures use Native output/source recovery. Recording verification and explicit source locks remain mandatory.
+
+Historical candidates had Linux isolated PCM coverage for both engines, including stereo crossfade, pause and seek. That evidence is not macOS/Windows device qualification or packaged-artifact qualification. This Native-only source still needs those platform checks and reliable internal recovery without exposing engine implementation choices in normal settings.
+
+Additional source recovery now attempts implicit saved links first and permits verified alternatives after source-specific failure; explicit source selections, source-mode locks, uploads, radio and chapter ranges retain their restrictions. One distinct provider can receive an extra bounded extraction attempt after eligible source failure, within the original deadline. Eligible catalog tracks with a failed local asset can retry online without deleting the file or rewriting the library. Manually edited artist names supersede stale provider credit rows. General stale title, duration and version refresh is not implemented: it needs same-recording identity proof and preservation of user edits.
+
 Burrata [v0.1.25](https://github.com/anaxonda/burrata/releases/tag/v0.1.25) is the Native-only public release from
 source `4f1e0a1caf18757312659590653bb1e2ee3f4fea`. The
 [release build](https://github.com/anaxonda/burrata/actions/runs/41391289691) qualified the Linux DEB and AppImage with
@@ -76,7 +90,7 @@ Single observed starts were approximately 50–160 ms for downloaded tracks, 1.2
 
 YouTube returned intermittent preflight HTTP 403 responses during repeated tests. Resolution now permits one uncached alternate-format retry for the exact same video; it does not change a pinned recording. Catalog searches retain their bounded matching-provider fallback. CDN refusal must remain visible if fresh recovery fails.
 
-Still required: clean packaged installs, macOS/Windows builds and physical playback, the full 30-minute station runs, device removal, sleep/wake, repeatable cold-start measurements, and gapless audio-output measurements. This was the remaining matrix at that historical checkpoint; see the release status above for current results and continuing limits.
+Still required: clean packaged installs, macOS/Windows builds and physical playback, the full 30-minute station runs, device removal, sleep/wake, repeatable cold-start measurements, and gapless audio-output measurements. These checks gate release of the current Native-only source; historical WebView releases do not satisfy them.
 
 Responsive UI checks used Chrome at 960px and 800px, with the right player pane open and closed. The shared radio component stays within its pane, its history scrolls, and list actions remain visible. Main-library virtualized rows remain 60px high while titles wrap. At desktop half-width (960px), opening the player pane retains the resizable sidebar. Below 901px the sidebar uses the compact rail; both information and queue panes have resize controls where space permits. Selecting the already-current station is navigation only.
 
@@ -88,7 +102,7 @@ Output recovery follow-up: CPAL buffer-underrun notifications no longer force a 
 
 Latency and queue follow-up: native playback no longer runs the legacy first-three-library-track preview warmups alongside actual queue preloading, including during startup. A rejected signed audio URL is evicted before fresh extraction; transient access checks use a bounded retry before requiring another extraction. Known-size direct audio also receives concurrent bounded beginning/end range validation to reject truncated responses before decoding.
 
-Initial source resolution owns its bounded retries; the session recovery loop applies after audio has actually started. A multi-item queue can skip up to three consecutive track-specific unavailable/denied/no-match failures, while global network/output errors stop with an error. Explicit retry after failure resets that attempt's timing and recovery budget. End-of-track checks use decoder-confirmed durations or chapter bounds rather than treating catalog estimates as exact, and the worker flushes its final sample position before reporting completion.
+Initial source resolution owns its bounded retries; the session recovery loop applies after audio has actually started. A multi-item queue can skip up to three consecutive track-specific unavailable/denied/no-match failures, while global network/output errors stop with an error. Explicit retry after failure resets that attempt's timing and recovery budget. Clean decoded EOF establishes completion, while explicit chapter bounds retain their range behavior; catalog or container duration estimates cannot truncate the outgoing crossfade tail, and the worker flushes its final sample position before reporting completion.
 
 Before these changes, one observed retry took 9.86 seconds. Sampling confirmed CPU bursts in Burrata and its yt-dlp/JavaScript helpers during extraction, reaching about 1.8 logical cores combined during a failed queue transition; idle GUI use was about 5% of one core. These are development observations, not a repeatable performance benchmark or a measured speedup. InnerTube work remains deferred.
 

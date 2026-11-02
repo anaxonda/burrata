@@ -1,0 +1,21 @@
+Final candidate validation — 2026-11-02
+
+Frontend and non-Cargo gates
+- Frontend: 152 files, 1,492/1,492 tests passed (final run, session 29663).
+- Extension: 98/98; MCP: 12/12; player: 5/5.
+- Repository contracts: 8/8; matching stage 5: 4/4 (14 cases × 3 modes × 2 stages).
+- Managed provider extension packaging generated both manifests at version 0.2.5 with expected host permissions.
+- `npm run check`: zero Svelte errors and warnings.
+- `npm run build`: passed; main bundle 970.32 kB raw / 299.98 kB gzip.
+- Release qualification harnesses: installed smoke 85/85; AppImage finalize 3/3; RPM artifact 11/11; workflow source 22/22.
+- Performance harnesses: native capture 25/25; capture result gate 3/3; startup qualification 8/8; Linux output/gain 3/3; cold-player overlap 5/5; VisionOS driver 9/9. Node startup helper test passed; syntax and CLI help checks passed.
+- IPC counter fixture passed disabled/wrong-process, failed/non-IPC registration, and successful IPC registration cases, including callback forwarding/destructor behavior against WebKitGTK 4.1. No Burrata app was launched for this prototype.
+
+Native and runtime status
+- Native11: 2,486 passed, 1 failed, 63 ignored. The remaining failure was three stale corpus expectations; the fixture correction and formatting are integrated. Native12 verification is pending.
+- No final optimized package/install qualification, paired startup timing, actual app idle IPC counts, warm interaction-tail rerun, live-provider qualification, or physical audio-output qualification is complete.
+- Linux frontend/test results do not qualify macOS or Windows physical audio output. No release publication or normal-profile install has occurred.
+
+Evidence boundary
+- Sanitized metadata fixtures are included for repository contract tests; no audio payloads, private profiles, raw captures, or detailed qualification logs are included.
+- Results above describe completed checks only. Pending Native12 and runtime gates must pass before release qualification.

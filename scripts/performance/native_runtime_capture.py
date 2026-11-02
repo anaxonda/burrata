@@ -28,6 +28,17 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts/performance'))
 from run_isolated_memory import track_record
 
+def scratch_roots():
+    """Keep disposable runtime data off a nearly full home filesystem when requested."""
+    configured = os.environ.get('BURRATA_NATIVE_RUNTIME_SCRATCH_ROOT')
+    root = Path(configured).resolve() if configured else ROOT / '.cache/native-runtime-tmp'
+    if configured and not root.is_relative_to(Path('/tmp')):
+        raise RuntimeError('Native runtime scratch override must remain under /tmp')
+    root.mkdir(parents=True, exist_ok=True)
+    capture_root = root.parent / 'native-runtime-captures'
+    capture_root.mkdir(parents=True, exist_ok=True)
+    return root, capture_root
+
 
 def incident_cases_passed(runtime):
     """Retain controller failures and require at least one completed case."""
@@ -101,6 +112,7 @@ def seed(profile, resources, mode):
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         track = track_record('local:' + digest, 'local', digest, 'Native runtime ' + name,
                              'Synthetic qualification', hint, str(path), str(uuid.uuid4()), path.suffix.lstrip('.'))
+        if mode=='startup' and name=='first':track['durationSeconds']=12
         if mode=='live-analysis' and name=='first':track['durationSeconds']=60
         if mode.startswith('stereo-') and name=='first':track['durationSeconds']=12
         track['provenance']['manualFields']={'durationSeconds':True}
@@ -225,6 +237,35 @@ def seed(profile, resources, mode):
     (profile/'fixture/runtime-cases.json').write_text(json.dumps(dict(ids=ids,aacId=aac['trackId'],incidents=incidents)))
     return settings
 
+def seed_pending_quality_assets(profile, count):
+    """Add hash-valid hard-linked assets whose quality-facts hash is stale."""
+    if count == 0:
+        return 0
+    app_data = profile / 'data/org.burrata.discovery'
+    pending_root = profile / 'fixture/quality-pending'
+    pending_root.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(app_data / 'burrata.sqlite') as db:
+        row = db.execute('SELECT payload FROM local_assets ORDER BY rowid LIMIT 1').fetchone()
+        if row is None:
+            raise RuntimeError('Startup fixture needs a registered local asset')
+        template = json.loads(row[0])
+        source = Path(template['path'])
+        if not source.is_file():
+            raise RuntimeError('Startup fixture source file is missing')
+        for index in range(count):
+            asset = json.loads(json.dumps(template))
+            asset_id = f'quality-pending-{index + 1:03d}'
+            path = pending_root / f'{asset_id}{source.suffix}'
+            os.link(source, path)
+            asset.update(id=asset_id, path=str(path))
+            asset['track']['localPath'] = str(path)
+            asset['track'].setdefault('provenance', {})['localAudioFactsHash'] = 'pending-fixture'
+            db.execute(
+                'INSERT INTO local_assets(id,recording_id,path,hash,payload) VALUES(?,?,?,?,?)',
+                (asset_id, asset['recordingId'], str(path), asset['hash'], json.dumps(asset)),
+            )
+    return count
+
 
 def summarize_capture(path, mode, start_seconds=0):
     import numpy as np
@@ -276,7 +317,33 @@ def summarize_capture(path, mode, start_seconds=0):
         result['passed'] &= 11<=result['firstToneSeconds']<=12.75 and 11<=result['secondToneSeconds']<=12.75 and 1.25<=result['overlapSeconds']<=2.5 and onset is not None and 9.5<=onset<=11 and 11.5<=final_span<=14.2
     elif mode in ['aac','malformed-aac']:
         result['passed'] &= 11<=result['firstToneSeconds']<=12.75 and not second and 11.5<=result['durationSeconds']-result['firstToneStart']<=14.2
+    elif mode=='startup':
+        result['startupPcmGate']=startup_pcm_gate(result)
+        result['passed'] &= result['startupPcmGate']['passed']
     return result
+
+
+def startup_pcm_gate(result):
+    """Require real stereo fixture tone and bounded post-gain monitor RMS."""
+    import numpy as np
+    bins=result.get('bins') if isinstance(result,dict) else None
+    bins=bins if isinstance(bins,list) else []
+    first=[b for b in bins if isinstance(b,dict)
+           and min(b.get('firstLeft',0),b.get('firstRight',0))>.02]
+    active_rms=[b['rms'] for b in first if isinstance(b.get('rms'),(int,float))
+                and math.isfinite(b['rms'])]
+    median_rms=float(np.median(active_rms)) if active_rms else None
+    checks={
+        'firstToneAtLeast2_5Seconds': isinstance(result.get('firstToneSeconds'),(int,float))
+            and result['firstToneSeconds']>=2.5,
+        'stereoSeparated': result.get('stereoSeparated') is True,
+        'notClipping': isinstance(result.get('peak'),(int,float))
+            and math.isfinite(result['peak']) and result['peak']<.99,
+        'postGainMonitorRmsInRange': median_rms is not None and .02<=median_rms<=.35,
+    }
+    return {'passed':all(checks.values()),'checks':checks,'firstToneBins':len(first),
+            'firstToneActiveRmsMedian':median_rms,'rmsRange':[.02,.35],
+            'captureStage':'private Pulse monitor after Player gain'}
 
 
 
@@ -383,38 +450,53 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--payload',type=Path,required=True)
     parser.add_argument('--evidence',type=Path,required=True)
-    parser.add_argument('--mode',choices=['natural','duplicates','seek','crossfade','crossfade-pause','aac','malformed-aac','incidents','broken-download','recovery-baseline','broken-playable','decoder-recovery','radio','performance','migration','mpris','full-incidents','waveform','normalization-off','normalization-track','normalization-album','live-analysis','nipsey','full-nipsey','source-audition','stereo-wav','stereo-aac','stereo-opus','stereo-seek-opus'],required=True)
+    parser.add_argument('--mode',choices=['startup','idle-ipc','natural','duplicates','seek','crossfade','crossfade-pause','aac','malformed-aac','incidents','broken-download','recovery-baseline','broken-playable','decoder-recovery','radio','performance','migration','mpris','full-incidents','waveform','normalization-off','normalization-track','normalization-album','live-analysis','nipsey','full-nipsey','source-audition','stereo-wav','stereo-aac','stereo-opus','stereo-seek-opus'],required=True)
     parser.add_argument('--build-profile',choices=['release','diagnostic'],default='release')
+    parser.add_argument('--pending-quality-assets', type=int, choices=[0, 100], default=0,
+                        help='Seed 0 or 100 valid-hash assets missing quality facts')
+    parser.add_argument('--ipc-counter',action='store_true',help='Enable PID-gated WebView ::ipc counting for idle-ipc only')
+    parser.add_argument('--ipc-counter-shim',type=Path,help='Built private IPC counter shared object')
     parser.add_argument('--controller',type=Path,default=Path('/tmp/burrata-queue-recovery-private-audio-controller.py'))
     parser.add_argument('--xvfb',type=Path,default=Path('/tmp/burrata-private-xvfb/root/usr/bin/Xvfb'))
     args=parser.parse_args()
+    if args.mode=='idle-ipc':
+        if not args.ipc_counter or not args.ipc_counter_shim:
+            parser.error('--mode idle-ipc requires --ipc-counter and --ipc-counter-shim')
+        args.ipc_counter_shim=args.ipc_counter_shim.resolve(strict=True)
+        if not args.ipc_counter_shim.is_file():
+            parser.error('--ipc-counter-shim must be a regular file')
+    elif args.ipc_counter or args.ipc_counter_shim:
+        parser.error('--ipc-counter options are valid only with --mode idle-ipc')
     payload=args.payload.resolve(strict=True);binary=payload/'usr/bin/burrata'
     resources=next(payload.glob('usr/lib/*/resources'))
     module=importlib.util.spec_from_file_location('private_audio',args.controller)
     audio=importlib.util.module_from_spec(module);module.loader.exec_module(audio)
     if audio.running_state().get('status')!='ready-private-no-sinks':raise RuntimeError('Private audio controller must already be ready')
+    scratch_root, capture_root = scratch_roots()
     profile=Path(tempfile.mkdtemp(prefix='burrata-launch.',dir='/tmp'))
+    ipc_counter_path=profile/'ipc-counter.json' if args.mode=='idle-ipc' else None
     settings=seed(profile,resources,args.mode)
+    pending_count=seed_pending_quality_assets(profile,args.pending_quality_assets)
     # The app intentionally unpacks managed helpers in its data directory,
     # overriding TMPDIR. Put disposable data on the workspace filesystem too.
-    scratch=ROOT/'.cache/native-runtime-tmp'/profile.name;scratch.mkdir(parents=True,exist_ok=True)
+    scratch=scratch_root/profile.name;scratch.mkdir(parents=True,exist_ok=True)
     shutil.move(str(profile/'data'),str(scratch/'data'))
     (profile/'data').symlink_to(scratch/'data',target_is_directory=True)
     args.evidence.mkdir(parents=True,exist_ok=True)
     children=[];result={'mode':args.mode,'buildProfile':args.build_profile,'profile':str(profile),'binarySha256':hashlib.sha256(binary.read_bytes()).hexdigest(),
         'qualification':('Diagnostic dev build with custom protocol; not release qualification. ' if args.build_profile=='diagnostic' else '')+'Extracted DEB payload; private virtual output; physical hardware and OS install not tested',
-        'settings':settings,'hostBefore':host_baseline(audio)}
+        'settings':settings,'pendingQualityAssets':pending_count,'hostBefore':host_baseline(audio)}
     try:
         env=audio.private_env();sink='burrata_native_'+uuid.uuid4().hex[:8]
         module_id=run(['pactl','load-module','module-null-sink','sink_name='+sink,'rate=48000','channels=2'],env=env).stdout.decode().strip()
         env.update(XDG_DATA_HOME=str(profile/'data'),XDG_CONFIG_HOME=str(profile/'config'),XDG_CACHE_HOME=str(profile/'cache'),
             XDG_STATE_HOME=str(profile/'state'),BURRATA_APP_DATA=str(profile/'data/org.burrata.discovery'),
             BURRATA_ISOLATED_MUSIC_ROOT=str(profile/'fixture'),GDK_BACKEND='x11',PULSE_SINK=sink,NO_AT_BRIDGE='1',
-            BURRATA_NATIVE_OUTPUT_QUALIFICATION='1')
+            BURRATA_NATIVE_OUTPUT_QUALIFICATION='1',BURRATA_DB_METRICS='1')
         env.pop('WAYLAND_DISPLAY',None);env.pop('SESSION_MANAGER',None)
         alsa=profile/'config/alsa.conf';alsa.write_text('pcm.!default { type pulse server "'+env['PULSE_SERVER']+'" device "'+sink+'" }\nctl.!default { type pulse server "'+env['PULSE_SERVER']+'" }\n')
         env['ALSA_CONFIG_PATH']=str(alsa)
-        scratch=ROOT/'.cache/native-runtime-tmp'/profile.name;scratch.mkdir(parents=True,exist_ok=True)
+        scratch=scratch_root/profile.name;scratch.mkdir(parents=True,exist_ok=True)
         env['TMPDIR']=str(scratch)
         display=next(n for n in range(90,120) if not Path(f'/tmp/.X{n}-lock').exists() and not Path(f'/tmp/.X11-unix/X{n}').exists())
         env['DISPLAY']=':'+str(display)
@@ -443,13 +525,29 @@ def main():
             smoke=importlib.util.module_from_spec(smoke_spec);smoke_spec.loader.exec_module(smoke)
             result['packagedTools']=smoke.bundled_tool_checks(resources,smoke.TARGETS['linux'],env)
             result['packagedMedia']=smoke.bundled_media_checks(resources,smoke.TARGETS['linux'],env,profile)
-        app=launch(['dbus-run-session','--config-file='+str(audio.DBUS_CONF),'--',binary],(profile/'app.log').open('wb'))
+        app_launched_at_unix_ms=time.time()*1000
+        app_command=['dbus-run-session','--config-file='+str(audio.DBUS_CONF),'--',binary]
+        app_environment=env
+        if args.mode=='idle-ipc':
+            wrapper=profile/'launch-ipc-counter-target.sh'
+            wrapper.write_text('#!/bin/sh\nBURRATA_IPC_COUNTER_PID=$$\nexport BURRATA_IPC_COUNTER_PID\nexec "$@"\n')
+            wrapper.chmod(0o700)
+            env['BURRATA_IPC_COUNTER_PATH']=str(ipc_counter_path.resolve())
+            app_environment=dict(env)
+            app_environment.update(BURRATA_IPC_COUNTER_ENABLE='1',BURRATA_IPC_COUNTER_PATH=str(ipc_counter_path.resolve()))
+            app_environment.pop('BURRATA_IPC_COUNTER_PID',None)
+            prior_preload=app_environment.get('LD_PRELOAD')
+            app_environment['LD_PRELOAD']=str(args.ipc_counter_shim)+((' '+prior_preload) if prior_preload else '')
+            app_command=['dbus-run-session','--config-file='+str(audio.DBUS_CONF),'--','/bin/sh',str(wrapper),str(binary)]
+        app=launch(app_command,(profile/'app.log').open('wb'),app_environment)
         for _ in range(300):
             if app.poll() is not None:raise RuntimeError('Packaged app exited')
             if (profile/'data/org.burrata.discovery/automation.json').exists():break
             time.sleep(.1)
         else:raise RuntimeError('Automation discovery timeout')
-        if args.mode in ['mpris','source-audition']:
+        result['appLaunchedAtUnixMs']=app_launched_at_unix_ms
+        result['automationReadyAtUnixMs']=time.time()*1000
+        if args.mode in ['mpris','source-audition','idle-ipc']:
             pending=[app.pid];app_pid=None
             for parent in pending:
                 try:
@@ -459,8 +557,15 @@ def main():
                 except OSError:pass
             if app_pid is None:raise RuntimeError('Private app process not found for MPRIS')
             entries=Path(f'/proc/{app_pid}/environ').read_bytes().split(b'\0')
-            selected={entry.split(b'=',1)[0]:entry.split(b'=',1)[1] for entry in entries if entry.startswith((b'DBUS_SESSION_BUS_ADDRESS=',b'XDG_DATA_HOME='))}
+            selected={entry.split(b'=',1)[0]:entry.split(b'=',1)[1] for entry in entries if entry.startswith((b'DBUS_SESSION_BUS_ADDRESS=',b'XDG_DATA_HOME=',b'BURRATA_IPC_COUNTER_PID=',b'BURRATA_IPC_COUNTER_PATH='))}
             if selected.get(b'XDG_DATA_HOME',b'').decode()!=str(profile/'data'):raise RuntimeError('Private app profile mismatch')
+            if args.mode=='idle-ipc':
+                counter_pid=selected.get(b'BURRATA_IPC_COUNTER_PID',b'').decode()
+                counter_file=selected.get(b'BURRATA_IPC_COUNTER_PATH',b'').decode()
+                result['ipcCounterTargetVerified']=counter_pid==str(app_pid) and counter_file==str(ipc_counter_path.resolve())
+                result['ipcCounterPath']=counter_file
+                if not result['ipcCounterTargetVerified']:
+                    raise RuntimeError('IPC counter PID/path is not bound to the private Burrata process')
             address=selected.get(b'DBUS_SESSION_BUS_ADDRESS',b'').decode()
             if not address.startswith('unix:path=/tmp/dbus-'):raise RuntimeError('App is not on a verified private bus')
             env['BURRATA_QUAL_PRIVATE_DBUS']=address;result['privateMprisBusVerified']=True
@@ -469,13 +574,14 @@ def main():
             env['BURRATA_QUAL_PRIVATE_XVFB_PID']=str(xvfb.pid)
         result['privateProbe']=audio.probe_private(env)
         if result['privateProbe']['hardwareObjects']:raise RuntimeError('Private server exposed hardware')
-        capture_dir=ROOT/'.cache/native-runtime-captures';capture_dir.mkdir(parents=True,exist_ok=True)
-        capture=capture_dir/(profile.name+'.f32le');result['capturePath']=str(capture);capture_file=capture.open('wb')
-        recorder=subprocess.Popen(['parec','--device='+sink+'.monitor','--format=float32le','--rate=48000','--channels=2','--latency-msec=20'],
-            env=env,stdout=capture_file,stderr=(profile/'recorder.log').open('wb'),start_new_session=True)
-        children.append(recorder)
-        result['captureStartedAtUnixMs']=time.time()*1000
-        time.sleep(.3)
+        capture=capture_root/(profile.name+'.f32le')
+        if args.mode!='idle-ipc':
+            result['capturePath']=str(capture);capture_file=capture.open('wb')
+            recorder=subprocess.Popen(['parec','--device='+sink+'.monitor','--format=float32le','--rate=48000','--channels=2','--latency-msec=20'],
+                env=env,stdout=capture_file,stderr=(profile/'recorder.log').open('wb'),start_new_session=True)
+            children.append(recorder)
+            result['captureStartedAtUnixMs']=time.time()*1000
+            time.sleep(.3)
         mcp=resources/'tools/x86_64-unknown-linux-gnu/burrata-mcp'
         mode='aac' if args.mode=='malformed-aac' else 'incidents' if args.mode in ['broken-download','recovery-baseline','broken-playable','decoder-recovery','nipsey'] else args.mode
         if mode=='performance':
@@ -492,8 +598,9 @@ def main():
             cwd=ROOT,env=env,text=True,capture_output=True,timeout=900 if mode=='source-audition' else 960 if mode=='full-nipsey' else 560 if mode=='full-incidents' else 420 if mode=='incidents' else 120)
         (profile/'controller.txt').write_text(control.stdout+control.stderr)
         time.sleep(.4)
-        if recorder.poll() is not None:raise RuntimeError('Output recorder exited before completion; capture is unqualified')
-        recorder.terminate();recorder.wait(timeout=5);capture_file.close()
+        if args.mode!='idle-ipc':
+            if recorder.poll() is not None:raise RuntimeError('Output recorder exited before completion; capture is unqualified')
+            recorder.terminate();recorder.wait(timeout=5);capture_file.close()
         result['runtime']=json.loads((profile/'runtime-result.json').read_text())
         if mode=='performance':
             profiler.wait(timeout=25)
@@ -541,6 +648,30 @@ def main():
             rms=[float(np.sqrt(np.mean(pcm[:,channel]**2))) if len(pcm) else 0 for channel in [0,1]]
             active=sum(float(np.sqrt(np.mean(pcm[i:i+4800]**2)))>.005 for i in range(0,len(pcm)-4800,4800))*.1
             result['pcm']={'rmsByChannel':rms,'activeSeconds':active,'passed':min(rms)>.01 and active>=20}
+        elif mode=='idle-ipc':
+            idle=result['runtime'].get('idleIpc') or {}
+            buckets=idle.get('measuredBuckets') if isinstance(idle.get('measuredBuckets'),list) else []
+            bucket_delta_total=sum(bucket.get('countDelta',-1) for bucket in buckets
+                                   if isinstance(bucket,dict) and isinstance(bucket.get('countDelta'),int))
+            measured_elapsed=sum(bucket.get('windowMs',0) for bucket in buckets
+                                 if isinstance(bucket,dict) and isinstance(bucket.get('windowMs'),(int,float)))
+            result['ipcCounterPassed']=bool(result.get('ipcCounterTargetVerified')
+                and isinstance(idle.get('registeredBefore'),int) and idle['registeredBefore']>=1
+                and idle.get('registeredAfter')==idle.get('registeredBefore')
+                and idle.get('warmupBucketCount')==3 and idle.get('measuredBucketCount')==20
+                and isinstance(idle.get('actualElapsedMs'),(int,float)) and idle['actualElapsedMs']>=20700
+                and isinstance(idle.get('measuredElapsedMs'),(int,float)) and idle['measuredElapsedMs']>=18000
+                and isinstance(idle.get('countDelta'),int) and idle['countDelta']>=0
+                and isinstance(idle.get('countBefore'),int) and isinstance(idle.get('countAfter'),int)
+                and idle['countAfter']>=idle['countBefore']
+                and idle['countDelta']==bucket_delta_total==idle['countAfter']-idle['countBefore']
+                and isinstance(idle.get('ratePerSecond'),(int,float))
+                and abs(idle['ratePerSecond']-(idle['countDelta']/(idle['measuredElapsedMs']/1000)))<1e-9
+                and isinstance(idle.get('measuredBuckets'),list) and len(idle['measuredBuckets'])==20
+                and abs(idle['measuredElapsedMs']-measured_elapsed)<1e-6
+                and all(isinstance(bucket.get('countDelta'),int) and bucket['countDelta']>=0
+                        and isinstance(bucket.get('windowMs'),(int,float)) and bucket['windowMs']>=900
+                        for bucket in idle.get('measuredBuckets',[])))
         elif mode not in ['incidents','radio','full-incidents']:
             start=max(0,(result['runtime'].get('mainPlaybackStartedAtUnixMs',result['captureStartedAtUnixMs'])-result['captureStartedAtUnixMs'])/1000)
             result['pcm']=summarize_capture(capture,'natural' if args.mode.startswith('normalization-') else args.mode,start)
@@ -573,6 +704,7 @@ def main():
             result['maximumRecoveryObserved']=max((sample.get('recoveryCount',0) for sample in result['runtime']['samples']),default=0)
             result['runtime']['passed'] &= result['decoderFaultInjected'] and result['maximumRecoveryObserved']>0 and not recovered.get('receiptError')
         result['passed']=control.returncode==0 and result['runtime']['passed'] and result.get('pcm',{'passed':True})['passed'] and result.get('nativeContentGatePassed',True)
+        if mode=='idle-ipc':result['passed'] &= result.get('ipcCounterPassed') is True
         result['hostAfter']=host_baseline(audio)
         before,after=result['hostBefore'],result['hostAfter']
         result['hostInventoryChanged']=before.get('sinkNamesSha256')!=after.get('sinkNamesSha256')

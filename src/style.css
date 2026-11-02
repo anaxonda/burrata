@@ -2465,3 +2465,20 @@ body .shared-track-list .more-menu a:focus-visible {
 .settings input[type="checkbox"] { width: 15px; height: 15px; }
 .recording-matching-card { display: grid; gap: 8px; }
 .recording-matching-card > small { display: block; color: var(--muted); font-size: 12px; }
+
+/* Keep the library navigation visibly distinct from the main content area. */
+.app-shell > .library-sidebar.library-sidebar,
+.app-shell > .sidebar {
+  background: color-mix(in srgb, var(--surface) 94%, var(--accent) 6%);
+  border-right-color: color-mix(in srgb, var(--line) 72%, var(--accent) 28%);
+  box-shadow:
+    inset -2px 0 0 color-mix(in srgb, var(--line) 42%, var(--accent) 58%),
+    6px 0 18px #0002;
+}
+.app-shell .library-sidebar.library-sidebar.drawer-open .library-scroll {
+  background: color-mix(in srgb, var(--surface) 94%, var(--accent) 6%);
+  border-right-color: color-mix(in srgb, var(--line) 72%, var(--accent) 28%);
+  box-shadow:
+    inset -2px 0 0 color-mix(in srgb, var(--line) 42%, var(--accent) 58%),
+    14px 0 34px #0003;
+}

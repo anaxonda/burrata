@@ -19,6 +19,7 @@
 
   let {
     tracks,
+    favoriteTrackIds,
     onVisibleTrack,
     currentIndex,
     paused = false,
@@ -68,6 +69,7 @@
     onAddToPlaylist,
   }: {
     tracks: Track[];
+    favoriteTrackIds?: string[];
     currentIndex: number;
     paused?: boolean;
     buffering?: boolean;
@@ -126,6 +128,7 @@
   } = $props();
 
   let panel: HTMLElement;
+  const favoriteIds = $derived(favoriteTrackIds ? new Set(favoriteTrackIds) : null);
   const visibleQueueRows = $derived(tracks.map((track,index)=>({track,index})).filter(({track})=>downloadAvailability === "all" || (downloadAvailability === "downloaded" ? isTrackDownloaded(track) : !isTrackDownloaded(track))));
   let selectedRows = $state<number[]>([]);
   let selectionAnchor = -1;
@@ -327,6 +330,7 @@
             <button onkeydown={event=>moveSelectionKey(event,index)} class="track-select" title={`${track.title}${track.artist ? ` · ${track.artist}` : ""}`} aria-label={index === currentIndex ? `${buffering ? "Buffering" : paused ? "Paused" : "Playing"} ${track.title}` : "Play " + track.title} onclick={event => { if(event.ctrlKey||event.metaKey||event.shiftKey)selectQueueRow(index,event);else onPlay(index); }}>
               <span class="track-index">{index === currentIndex ? buffering ? "…" : paused ? "Ⅱ" : "♫" : String(index + 1).padStart(2, "0")}</span>
               <span class="track-copy"><strong>{track.title}{track.version ? " (" + track.version + ")" : ""}</strong><small>{track.artist || "Unknown artist"}{track.album ? " · " + track.album : ""}</small></span>
+              {#if favoriteIds ? favoriteIds.has(track.id) : track.favorite}<span class="queue-favorite" role="img" aria-label="Favorited" title="In Liked Songs">♥</span>{/if}
               {#if duration!==null}<span class="track-duration">{time(duration)}</span>{/if}
             </button>
             <details class="queue-more"><summary onclick={event => toggleMoreMenu(event, `queue:${index}`)} aria-label={"More actions for " + track.title} aria-haspopup="menu" aria-expanded={activeMenuKey === `queue:${index}`} title="More actions">⋯</summary>{#if activeMenuKey === `queue:${index}`}<ActionMenu anchorRect={menuAnchor} playerHeight={menuPlayerHeight} label={"Actions for " + track.title} title={track.title} role="menu" class="queue-more-menu" onClose={closeOpenMenu}>
@@ -344,12 +348,13 @@
           </article>
           {#if trackDetections.length}
             <div class="chapter-children detection-children" aria-label={"Detected tracks for " + track.title}>
-              <div class="detection-child-heading"><span>Detected tracks</span>{#if onAddDetectionsToPlaylist}<button type="button" onclick={() => onAddDetectionsToPlaylist?.(trackDetections.map(detectedObservationTrack))}>Add all to playlist…</button>{/if}</div>
+              <div class="detection-child-heading"><span><span aria-hidden="true">♫</span> Detected tracks <small>{trackDetections.length}</small></span>{#if onAddDetectionsToPlaylist}<button type="button" onclick={() => onAddDetectionsToPlaylist?.(trackDetections.map(detectedObservationTrack))}>Add all to playlist…</button>{/if}</div>
               {#each trackDetections as observation (`${observation.detectedAtSeconds}:${observation.observedAt}`)}
                 {@const detectedTrack = detectedObservationTrack(observation)}
                 <div class="chapter-child detection-child">
                   <button class="chapter-child-play detection-seek" aria-label={`Seek to ${approximateDetectionTime(observation.detectedAtSeconds)} in ${track.title}`} onclick={() => onSeekDetection?.(track, observation, index)}><span>{approximateDetectionTime(observation.detectedAtSeconds)}</span></button>
                   <button class="detection-track-info" onclick={() => onInfoDetection?.(detectedTrack)}><strong>{observation.title}</strong><span>{observation.artist}</span></button>
+                  {#if favoriteIds?.has(detectedTrack.id)}<span class="queue-favorite" role="img" aria-label="Favorited" title="In Liked Songs">♥</span>{/if}
                   {#if onAddDetectionToPlaylist}<button class="detection-add" aria-label={`Add ${observation.title} by ${observation.artist} to playlist`} title="Add to playlist" onclick={() => onAddDetectionToPlaylist?.(detectedTrack)}>＋</button>{/if}
                 </div>
               {/each}
@@ -519,12 +524,17 @@
   .current .track-copy strong { color: var(--accent); }
   .track-copy small { color: var(--muted); font-size: 10px; }
   .track-duration { flex: 0 0 auto; padding-left: 4px; color: var(--muted); font-size: 9px; font-variant-numeric: tabular-nums; }
+  .queue-favorite { flex:0 0 auto; color:var(--accent); font-size:14px; line-height:1; }
   .queue-more { position:relative; flex:0 0 auto; }
   .queue-more summary,.radio-more { display:grid;place-items:center;list-style:none;width:40px;height:40px;padding:0;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--muted);font-size:23px;cursor:pointer;touch-action:manipulation; }
   .queue-more summary::-webkit-details-marker { display:none; }
   .queue-more summary:hover,.radio-more:hover { color:var(--accent);background:var(--raised); }
   .queue-more summary:focus-visible,.radio-more:focus-visible { outline:2px solid var(--accent);outline-offset:2px; }
   .chapter-children { margin: -2px 4px 6px 42px; padding: 4px 6px 6px; border-left: 1px solid var(--line); }
+  .detection-children { margin:4px 4px 12px 28px; padding:10px; border:1px solid color-mix(in srgb,var(--accent) 30%,var(--line)); border-left:3px solid var(--accent); border-radius:8px; background:color-mix(in srgb,var(--accent) 7%,var(--surface)); }
+  .detection-child { margin-top:5px; padding:3px; border-radius:6px; background:var(--surface); }
+  .detection-child-heading > span { color:var(--accent); }
+  .detection-child-heading small { display:inline-grid; place-items:center; min-width:17px; height:17px; margin-left:3px; padding:0 3px; border-radius:9px; background:var(--raised); font-size:9px; }
   .chapter-child { display: flex; align-items: center; gap: 3px; }
   .chapter-child-play { display: grid; flex: 1; grid-template-columns: 35px minmax(0,1fr) 35px; align-items: center; gap: 7px; padding: 6px 4px; background: transparent; color: var(--muted); text-align: left; }
   .chapter-child-play span { font-size: 9px; font-variant-numeric: tabular-nums; }

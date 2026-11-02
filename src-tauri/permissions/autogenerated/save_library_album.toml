@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-library-album"
+description = "Enables the save_library_album command without any pre-configured scope."
+commands.allow = ["save_library_album"]
+
+[[permission]]
+identifier = "deny-save-library-album"
+description = "Denies the save_library_album command without any pre-configured scope."
+commands.deny = ["save_library_album"]

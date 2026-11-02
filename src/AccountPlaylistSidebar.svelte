@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PlaylistArtwork from "./PlaylistArtwork.svelte";
   import { onDestroy, untrack } from "svelte";
   import { ProviderReadCancellation } from "./lib/provider-read-cancellation";
 
@@ -8,6 +9,7 @@
     title: string;
     url: string;
     ownerName?: string | null;
+    artworkUrl?: string | null;
     trackCount?: number | null;
     imported?: boolean;
   };
@@ -120,11 +122,11 @@
       <ul>
         {#each visibleItems as item (`${item.id}:${normalizePlaylistUrl(item.url)}`)}
           <li>
-            <button class="playlist-title" onclick={() => onOpen(item.url)}>{item.title}</button>
+            <button class="playlist-title" onclick={() => onOpen(item.url)}><span class="playlist-cover"><PlaylistArtwork coverUrl={item.artworkUrl} /></span><span class="playlist-copy"><strong>{item.title}</strong>
             <span class="playlist-detail">
               {#if item.ownerName}{item.ownerName}{/if}
               {#if typeof item.trackCount === "number"}{#if item.ownerName} · {/if}{item.trackCount} tracks{/if}
-            </span>
+            </span></span></button>
           </li>
         {/each}
       </ul>
@@ -137,6 +139,7 @@
 </section>
 
 <style>
+  .playlist-cover{display:block;width:34px;height:34px;flex:none;border-radius:7px;overflow:hidden}.playlist-title{display:flex;align-items:center;gap:8px;width:100%}.playlist-copy{display:grid;min-width:0}.playlist-copy strong{font-weight:560;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .account-playlists { display:grid; gap:7px; min-width:0; }
   header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
   .scope-label { color:var(--muted); font-size:10px; }

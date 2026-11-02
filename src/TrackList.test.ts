@@ -206,10 +206,13 @@ describe("TrackList", () => {
       selectionMode: true,
       selectionKeys: ["track-1:0", "track-1:1"],
       selectedTrackIds: ["track-1:1"],
+      selectedTrackId: "track-1",
       onSelect,
     });
     const checkboxes = [...target.querySelectorAll<HTMLInputElement>(".select-track")];
     expect(checkboxes.map((checkbox) => checkbox.checked)).toEqual([false, true]);
+    const rows = [...target.querySelectorAll<HTMLLIElement>("li[data-track-index]")];
+    expect(rows.map((row) => row.classList.contains("selected"))).toEqual([false, true]);
     const selectionEvent = new MouseEvent("click", { bubbles: true });
     checkboxes[1]!.dispatchEvent(selectionEvent);
     expect(onSelect).toHaveBeenCalledWith(duplicate, selectionEvent, 1);
@@ -337,6 +340,9 @@ describe("TrackList", () => {
     await tick();
     target.querySelector<HTMLButtonElement>(".invert-selection")!.click(); await tick();
     expect([...target.querySelectorAll<HTMLInputElement>('[aria-label="Select Song Title for playlist"]')].map(input => input.checked)).toEqual([false, true]);
+    expect([...target.querySelectorAll<HTMLLIElement>("li[data-track-index]")].map(row => row.classList.contains("selected"))).toEqual([false, true]);
+    target.querySelector<HTMLButtonElement>(".cancel-selection")!.click(); await tick();
+    expect([...target.querySelectorAll<HTMLLIElement>("li[data-track-index]")].map(row => row.classList.contains("selected"))).toEqual([false, false]);
   });
 
   it("passes the full listed occurrence scope to controlled selection inversion", async () => {
@@ -473,6 +479,109 @@ describe("TrackList", () => {
       .find(item => item.textContent?.includes("Track 8000"))!;
     row.querySelector<HTMLButtonElement>('[aria-label="Play Track 8000"]')!.click();
     expect(onPlay).toHaveBeenCalledWith(largeTracks[8000], largeTracks, 8000);
+  });
+
+  it("measures the viewport on mount and resize, including the selection toolbar in scroll geometry", async () => {
+    let observerCallback: ResizeObserverCallback | undefined;
+    globalThis.ResizeObserver = class {
+      constructor(callback: ResizeObserverCallback) { observerCallback = callback; }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+    const largeTracks: Track[] = Array.from({ length: 10_000 }, (_, index) => ({
+      ...tracks[0]!, id: `resize-${index}`, providerId: `resize-${index}`, title: `Resize ${index}`,
+    }));
+    const target = render({ tracks: largeTracks, selectionMode: true, onAddSelectedToPlaylist: vi.fn() });
+    const viewport = target.querySelector<HTMLDivElement>(".track-list-viewport")!;
+    const toolbar = target.querySelector<HTMLElement>(".playlist-selection-actions")!;
+    let height = 300;
+    Object.defineProperty(viewport, "clientHeight", { configurable: true, get: () => height });
+    Object.defineProperty(toolbar, "offsetHeight", { configurable: true, value: 60 });
+    await tick();
+    observerCallback?.([{ target: viewport } as unknown as ResizeObserverEntry], {} as ResizeObserver);
+    await tick();
+    const initialRows = target.querySelectorAll("li[data-track-index]").length;
+    expect(initialRows).toBeGreaterThan(12);
+    expect(initialRows).toBeLessThan(30);
+
+    height = 900;
+    observerCallback?.([{ target: viewport } as unknown as ResizeObserverEntry], {} as ResizeObserver);
+    await tick();
+    expect(target.querySelectorAll("li[data-track-index]").length).toBeGreaterThan(initialRows);
+
+    let scrollTop = 88 * 20 + 60;
+    Object.defineProperty(viewport, "scrollTop", { configurable: true, get: () => scrollTop, set: value => { scrollTop = value; } });
+    viewport.dispatchEvent(new Event("scroll"));
+    await tick();
+    const firstVisible = target.querySelector<HTMLLIElement>("li[data-track-index]")!;
+    expect(Number(firstVisible.dataset.trackIndex)).toBeLessThanOrEqual(20);
+    expect(Number(firstVisible.dataset.trackIndex)).toBeGreaterThanOrEqual(13);
+  });
+
+  it("keeps the list renderable when ResizeObserver is unavailable", async () => {
+    const original = globalThis.ResizeObserver;
+    Object.defineProperty(globalThis, "ResizeObserver", { configurable: true, value: undefined });
+    try {
+      const target = render({ tracks });
+      await tick();
+      expect(target.querySelectorAll("li[data-track-index]")).toHaveLength(tracks.length);
+    } finally {
+      Object.defineProperty(globalThis, "ResizeObserver", { configurable: true, value: original });
+    }
+  });
+
+  it("restores the virtual window to the saved scroll position without browser scroll anchoring", async () => {
+    const largeTracks: Track[] = Array.from({ length: 10_000 }, (_, index) => ({
+      ...tracks[0]!, id: `restore-${index}`, providerId: `restore-${index}`, title: `Restore ${index}`,
+    }));
+    const target = render({ tracks: largeTracks, initialScroll: 88 * 8_000 });
+    await tick();
+    const viewport = target.querySelector<HTMLElement>(".track-list-viewport")!;
+    expect(viewport.scrollTop).toBe(88 * 8_000);
+    expect(Number(target.querySelector<HTMLLIElement>("li[data-track-index]")?.dataset.trackIndex)).toBeGreaterThan(7_990);
+    expect(Number(target.querySelector<HTMLLIElement>("li[data-track-index]")?.dataset.trackIndex)).toBeLessThan(8_010);
+    expect(trackListSource).toMatch(/overflow-anchor\s*:\s*none/);
+  });
+
+  it("offers persisted-position keyboard move actions with boundary and failure announcements", async () => {
+    const rows: Track[] = [
+      { ...tracks[0]!, id: "repeat", provenance: { playlistPosition: 1 } },
+      { ...tracks[0]!, id: "repeat", provenance: { playlistPosition: 2 } },
+      { ...tracks[1]!, provenance: { playlistPosition: 3 } },
+    ];
+    const onReorder = vi.fn().mockResolvedValue(undefined);
+    const target = render({ tracks: rows, reorderable: true, onReorder, reorderCount: 3 });
+    const firstUp = target.querySelector<HTMLButtonElement>('[aria-label="Move Song Title up"]')!;
+    const firstDown = target.querySelector<HTMLButtonElement>('[aria-label="Move Song Title down"]')!;
+    expect(firstUp.disabled).toBe(true);
+    expect(firstDown.disabled).toBe(false);
+    firstDown.click(); await tick();
+    expect(onReorder).toHaveBeenCalledWith(0, 1);
+    await Promise.resolve(); await tick();
+    expect(target.querySelector('[aria-live="polite"]')?.textContent).toContain("Moved Song Title to position 2");
+
+    onReorder.mockRejectedValueOnce(new Error("offline"));
+    firstDown.click(); await Promise.resolve(); await tick();
+    expect(target.querySelector('[aria-live="polite"]')?.textContent).toContain("Could not move Song Title");
+    expect(target.querySelector('[aria-label="Move Other Song down"]')?.getAttribute("disabled")).toBe("");
+  });
+
+  it("disables reorder controls when listed occurrences are filtered or sorted", () => {
+    const filteredRows: Track[] = [
+      { ...tracks[0]!, provenance: { playlistPosition: 1 } },
+      { ...tracks[1]!, provenance: { playlistPosition: 3 } },
+    ];
+    const filteredTarget = render({ tracks: filteredRows, reorderable: true, onReorder: vi.fn(), reorderCount: 3 });
+    expect(filteredTarget.querySelector(".playlist-reorder-handle")).toBeNull();
+    resetRendered();
+    const rows: Track[] = [
+      { ...tracks[0]!, provenance: { playlistPosition: 2 } },
+      { ...tracks[1]!, provenance: { playlistPosition: 1 } },
+    ];
+    const target = render({ tracks: rows, reorderable: true, onReorder: vi.fn(), reorderCount: 3 });
+    expect(target.querySelector(".playlist-reorder-handle")).toBeNull();
+    expect(target.querySelector('[aria-label^="Move "]')).toBeNull();
   });
 });
 

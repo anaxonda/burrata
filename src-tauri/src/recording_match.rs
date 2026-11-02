@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) const EVALUATOR_VERSION: &str = "17";
+pub(crate) const EVALUATOR_VERSION: &str = "21";
 
 /// Independently selected categories of alternatives for Flexible matching.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -23,6 +23,10 @@ pub struct FlexibleMatchingOptions {
     pub allow_other_mixes: bool,
     pub allow_other_artists: bool,
     pub allow_different_lengths: bool,
+    /// Maximum runtime difference when the candidate is shorter than requested.
+    pub max_shorter_by_seconds: u16,
+    /// Maximum runtime difference when the candidate is longer than requested.
+    pub max_longer_by_seconds: u16,
 }
 
 impl Default for FlexibleMatchingOptions {
@@ -34,6 +38,8 @@ impl Default for FlexibleMatchingOptions {
             allow_other_mixes: false,
             allow_other_artists: false,
             allow_different_lengths: false,
+            max_shorter_by_seconds: 30,
+            max_longer_by_seconds: 30,
         }
     }
 }
@@ -130,8 +136,10 @@ pub enum MatchReason {
     GuestConflict,
     VersionAgrees,
     VersionConflict,
+    UnspecifiedVersionAllowed,
     RuntimeAgrees,
     RuntimeConflict,
+    DurationLimitExceeded,
     RuntimeVarianceAccepted,
     RecordingScopedRuntimeVariant,
     RecordingScopedTitleAlias,
@@ -222,12 +230,8 @@ fn field_artist_names(meta: &Value) -> Vec<String> {
                     if name.trim().is_empty() || name.len() > 512 {
                         return Vec::new();
                     }
-                    let role = value["role"].as_str().unwrap_or("artist").to_lowercase();
-                    // Composer and conductor credits describe the work, not its performers.
-                    if !matches!(
-                        role.as_str(),
-                        "composer" | "conductor" | "lyricist" | "writer" | "producer"
-                    ) {
+                    let role = value["role"].as_str().unwrap_or("artist");
+                    if crate::recording_identity::is_performer_credit_role(role) {
                         names.push(name.to_owned());
                     }
                 } else {
@@ -243,6 +247,75 @@ fn field_artist_names(meta: &Value) -> Vec<String> {
         .filter_map(|k| meta[*k].as_str())
         .map(str::to_owned)
         .collect()
+}
+
+fn explicit_performer_credit_completeness(candidate: &Candidate, meta: &Value) -> bool {
+    if meta["provider"].as_str() != Some(candidate.provider.as_str())
+        || meta["performerCreditsComplete"] != true
+        || field_artist_names(meta).is_empty()
+    {
+        return false;
+    }
+    match candidate.provider.as_str() {
+        "monochrome" => meta["trackId"].as_str().is_some_and(|id| {
+            candidate.id == format!("monochrome:{id}")
+                && meta["catalogTitle"]
+                    .as_str()
+                    .is_some_and(|title| !title.trim().is_empty())
+        }),
+        "youtube" => {
+            let id = candidate.id.strip_prefix("youtube:").unwrap_or_default();
+            !id.is_empty()
+                && meta["resolvedProviderId"].as_str() == Some(id)
+                && matches!(
+                    meta["sourceMetadataOrigin"].as_str(),
+                    Some("ytDlpCandidateMetadata" | "ytDlpFullInfo")
+                )
+        }
+        _ => false,
+    }
+}
+
+fn verified_musicbrainz_performer_credits_complete(
+    track: &Track,
+    candidate: &Candidate,
+    meta: &Value,
+) -> bool {
+    if !matches!(candidate.provider.as_str(), "catalog" | "musicbrainz")
+        || meta["provider"].as_str() != Some("musicbrainz")
+        || meta["verified"] != true
+        || meta["performerCreditsComplete"] != true
+        || field_artist_names(meta).is_empty()
+    {
+        return false;
+    }
+    let Some(recording_id) = meta["recordingId"].as_str() else {
+        return false;
+    };
+    uuid::Uuid::parse_str(recording_id).is_ok()
+        && track.provenance["recordingId"].as_str() == Some(recording_id)
+}
+
+fn verified_recording_binding(track: &Track, candidate: &Candidate, meta: &Value) -> bool {
+    let Some(recording_id) = meta["recordingId"].as_str() else {
+        return false;
+    };
+    if recording_id.is_empty() || track.provenance["recordingId"].as_str() != Some(recording_id) {
+        return false;
+    }
+    match candidate.provider.as_str() {
+        "catalog" | "musicbrainz" => {
+            meta["provider"].as_str() == Some("musicbrainz")
+                && meta["verified"] == true
+                && valid_musicbrainz_id(recording_id)
+                && candidate.id.split(':').next_back() == Some(recording_id)
+        }
+        "bandcamp" => {
+            meta["provider"].as_str() == Some("bandcamp")
+                && meta["recordingProof"].as_str() == Some("strongBound")
+        }
+        _ => false,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -585,8 +658,14 @@ fn accent_folded_covers_requested_credits(expected: &[String], actual: &[String]
 fn provider_version(meta: &Value) -> Option<String> {
     meta["version"]
         .as_str()
+        .filter(|value| !value.trim().is_empty())
         .map(str::to_owned)
-        .or_else(|| meta["mix"].as_str().map(str::to_owned))
+        .or_else(|| {
+            meta["mix"]
+                .as_str()
+                .filter(|value| !value.trim().is_empty())
+                .map(str::to_owned)
+        })
         .or_else(|| {
             caption_semantic_version(
                 meta["track"]
@@ -772,8 +851,26 @@ fn unresolved_candidate_gloss_matches_base_title(
 
 fn split_credits(value: &str) -> Vec<String> {
     let mut text = value.to_owned();
-    for marker in [" featuring ", " feat. ", " feat ", " ft. ", " ft "] {
-        text = text.replace(marker, ",");
+    for marker in [" featuring ", " feat. ", " feat ", " ft. ", " ft ", " w/"] {
+        let mut normalized = String::with_capacity(text.len());
+        let mut cursor = 0;
+        while cursor < text.len() {
+            let next = text[cursor..].char_indices().find_map(|(offset, _)| {
+                let start = cursor + offset;
+                let end = start.saturating_add(marker.len());
+                text.get(start..end)
+                    .filter(|slice| slice.eq_ignore_ascii_case(marker))
+                    .map(|_| start)
+            });
+            let Some(start) = next else {
+                normalized.push_str(&text[cursor..]);
+                break;
+            };
+            normalized.push_str(&text[cursor..start]);
+            normalized.push(',');
+            cursor = start + marker.len();
+        }
+        text = normalized;
     }
     text.split(',')
         .map(str::trim)
@@ -839,19 +936,9 @@ fn valid_artist_credit_set_alias(
     let expected = credits
         .iter()
         .filter(|credit| {
-            [
-                "artist",
-                "artist credit",
-                "performer",
-                "main artist",
-                "main",
-            ]
-            .iter()
-            .any(|role| {
-                credit["role"]
-                    .as_str()
-                    .is_some_and(|actual| actual.eq_ignore_ascii_case(role))
-            })
+            credit["role"]
+                .as_str()
+                .is_some_and(crate::recording_identity::is_primary_performer_role)
         })
         .collect::<Vec<_>>();
     if expected.len() != alias.requested_credits.len() {
@@ -900,12 +987,7 @@ fn structured_primary_credits(track: &Track, fallback_artist: &str) -> Vec<Strin
     let credits = identity
         .credits
         .into_iter()
-        .filter(|credit| {
-            matches!(
-                credit.role.to_ascii_lowercase().as_str(),
-                "artist" | "artist credit" | "performer"
-            )
-        })
+        .filter(|credit| crate::recording_identity::is_primary_performer_role(&credit.role))
         .map(|credit| credit.name)
         .filter(|name| !name.trim().is_empty())
         .collect::<Vec<_>>();
@@ -1273,7 +1355,20 @@ fn catalog_metadata_bound(candidate: &Candidate, meta: &Value) -> bool {
 }
 
 fn topic_metadata_complete(track: &Track, candidate: &Candidate, meta: &Value) -> bool {
-    if candidate.provider != "youtube" || meta["provider"].as_str() != Some("youtube") {
+    if candidate.provider != "youtube"
+        || meta["provider"].as_str() != Some("youtube")
+        || meta["identityMetadataUncertain"] == true
+    {
+        return false;
+    }
+    let video_id = candidate.id.strip_prefix("youtube:").unwrap_or_default();
+    if video_id.is_empty()
+        || meta["resolvedProviderId"].as_str() != Some(video_id)
+        || !matches!(
+            meta["sourceMetadataOrigin"].as_str(),
+            Some("ytDlpCandidateMetadata" | "ytDlpFullInfo")
+        )
+    {
         return false;
     }
     let channel = meta["channel"].as_str().unwrap_or_default();
@@ -1290,9 +1385,6 @@ fn topic_metadata_complete(track: &Track, candidate: &Candidate, meta: &Value) -
         || !channel_id
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
-        || !meta["artistCount"]
-            .as_u64()
-            .is_some_and(|n| n as usize == field_artist_names(meta).len())
     {
         return false;
     }
@@ -1312,6 +1404,17 @@ fn topic_metadata_complete(track: &Track, candidate: &Candidate, meta: &Value) -
             .iter()
             .any(|name| norm_artist(name) == norm_artist(credit))
     }) {
+        return false;
+    }
+    let expected_credit_keys = required
+        .iter()
+        .map(|credit| norm_artist(credit))
+        .collect::<std::collections::HashSet<_>>();
+    let actual_credit_keys = expanded_credits(&artists, &required)
+        .iter()
+        .map(|credit| norm_artist(credit))
+        .collect::<std::collections::HashSet<_>>();
+    if expected_credit_keys.is_empty() || expected_credit_keys != actual_credit_keys {
         return false;
     }
     let credit_line = norm(meta["descriptionCreditLine"].as_str().unwrap_or_default());
@@ -1459,6 +1562,7 @@ struct ComparisonFacts {
     artists_exact: Comparison,
     artists_flexible: Comparison,
     requested_guests: Vec<String>,
+    requested_performer_count: usize,
     names: Vec<String>,
     actual_version: String,
     requested_semantic: String,
@@ -1469,6 +1573,7 @@ struct ComparisonFacts {
     candidate_runtime: Option<f64>,
     authoritative: bool,
     credits_complete: bool,
+    verified_musicbrainz_credits_complete: bool,
     request_credits_complete: bool,
     exact_recording_bound: bool,
     topic_full: bool,
@@ -1818,9 +1923,10 @@ fn prepare_observations(
         }
     }
     let names = field_artist_names(meta);
-    let complete = meta["artistCount"]
-        .as_u64()
-        .is_some_and(|n| n as usize == names.len());
+    // Indexed artist arrays and counts are retrieval metadata, not a closed-
+    // world assertion about every credited performer on the recording.
+    // Monochrome IDs and artistCount are deliberately insufficient.
+    let complete = explicit_performer_credit_completeness(candidate, meta);
     for name in names {
         let key = norm_artist(&name);
         actual.performers.push(PerformerObservation {
@@ -1954,12 +2060,7 @@ pub fn compare_prepared(input: &PreparedMatchInput) -> ComparedEvidence {
         accent_folded_performer_match: facts.accent_folded_performer_match,
         scoped_artist_name_alias: None,
         scoped_artist_credit_set_alias: facts.scoped_artist_credit_set_alias.clone(),
-        parsing_incomplete: input
-            .request
-            .texts
-            .iter()
-            .chain(&input.candidate.texts)
-            .any(|text| text.parsed.parsing_incomplete),
+        parsing_incomplete: facts.parsing_incomplete,
         conflicting_version_observations: facts.conflicting_request_versions
             || facts.conflicting_candidate_versions,
         recording_scoped_runtime_variant: None,
@@ -1980,6 +2081,11 @@ fn build_comparison(
     verified_credit_set_alias: Option<&crate::recording_identity::VerifiedArtistCreditSetVariant>,
 ) -> ComparisonFacts {
     let request_identity = RecordingIdentity::from_track(track);
+    let manual_artist_override_supersedes_imported_credits =
+        track.provenance["manualFields"]["artist"] == true
+            && track.provenance["manualFields"]["artistCredits"] != true;
+    let request_credit_source_uncertain =
+        request_identity.credits_uncertain && !manual_artist_override_supersedes_imported_credits;
     let verified_credit_set_alias =
         verified_credit_set_alias.filter(|alias| valid_artist_credit_set_alias(track, alias));
     let source_metadata = candidate.source_metadata.as_ref().unwrap_or(&Value::Null);
@@ -2030,6 +2136,7 @@ fn build_comparison(
     let requested_version = track
         .version
         .as_deref()
+        .filter(|value| !value.trim().is_empty())
         .or(request_title.version.as_deref())
         .unwrap_or("");
     let observations = prepared_semantic_observations(
@@ -2089,10 +2196,17 @@ fn build_comparison(
     } else {
         Comparison::Conflict
     };
+    let identity_guests = RecordingIdentity::from_track(track)
+        .credits
+        .into_iter()
+        .filter(|credit| crate::recording_identity::is_guest_performer_role(&credit.role))
+        .map(|credit| credit.name)
+        .collect::<Vec<_>>();
     let mut requested_guests = request_title
         .featured_credit
         .clone()
         .into_iter()
+        .chain(identity_guests)
         .chain(guest_from_title(&track.title))
         .collect::<Vec<_>>();
     requested_guests.sort();
@@ -2101,6 +2215,13 @@ fn build_comparison(
         .filter(|credits| !credits.is_empty() && credits.len() <= 16)
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| structured_primary_credits(track, &comparison_artist));
+    let requested_performer_count = request_primary_credits
+        .iter()
+        .chain(requested_guests.iter())
+        .map(|credit| norm_artist(credit))
+        .filter(|credit| !credit.is_empty())
+        .collect::<std::collections::HashSet<_>>()
+        .len();
     // A named remixer may also appear as a catalog artist. When both sides
     // name the same remix, its version already identifies that credit; the
     // caption need only identify the remaining performers.
@@ -2144,18 +2265,68 @@ fn build_comparison(
     // no evidence and may fall back to an independent exact caption prefix;
     // a malformed non-null structure remains a blocker to avoid truncating it.
     let metadata_declares_artists = filename_observations.is_none()
-        && ["artists", "artistNames"]
-            .iter()
-            .any(|key| meta.get(*key).is_some_and(|value| !value.is_null()));
+        && (meta["identityMetadataUncertain"] == true
+            || ["artists", "artistNames"]
+                .iter()
+                .any(|key| meta.get(*key).is_some_and(|value| !value.is_null())));
     let mut caption_names = caption_artist_names(
         canonical_catalog.unwrap_or(caption_title),
         &comparison_artist,
         &requested_guests,
         Some(&comparison_credit_parts),
     );
-    let mut caption_full_credits = filename_observations.is_none()
+    // A fresh yt-dlp YouTube or SoundCloud caption can close credits only when its
+    // structured artist prefix and feature annotation parse to exactly the
+    // requested performer set. Public search display strings, stale catalog
+    // rows, and captions with contradictory structured artist metadata remain
+    // open-world evidence.
+    let fresh_caption_credits_complete = filename_observations.is_none()
+        && meta["identityMetadataUncertain"] != true
+        && canonical_catalog.is_none()
         && !caption_names.is_empty()
-        && request_credit_parts.len() > 1;
+        && matches!(candidate.provider.as_str(), "youtube" | "soundcloud")
+        && candidate
+            .id
+            .strip_prefix(&format!("{}:", candidate.provider))
+            .is_some_and(|id| !id.is_empty() && meta["resolvedProviderId"].as_str() == Some(id))
+        && matches!(
+            meta["sourceMetadataOrigin"].as_str(),
+            Some("ytDlpCandidateMetadata" | "ytDlpFullInfo")
+        )
+        && (!metadata_declares_artists || {
+            let parsed_structured = expanded_credits(&names, &comparison_credit_parts)
+                .iter()
+                .map(|name| norm_artist(name))
+                .collect::<std::collections::HashSet<_>>();
+            !parsed_structured.is_empty()
+                && parsed_structured.iter().all(|name| {
+                    caption_names
+                        .iter()
+                        .any(|credit| norm_artist(credit) == *name)
+                })
+        });
+    // A bound catalog row can also corroborate a full caption when both the
+    // structured artist rows and the explicitly parsed caption name exactly
+    // the same requested set. A flat array alone still cannot close credits.
+    let bound_caption_credits_complete = canonical_catalog.is_some()
+        && meta["identityMetadataUncertain"] != true
+        && !names.is_empty()
+        && !caption_names.is_empty()
+        && {
+            let mut structured = expanded_credits(&names, &comparison_credit_parts)
+                .iter()
+                .map(|name| norm_artist(name))
+                .collect::<Vec<_>>();
+            let mut caption = expanded_credits(&caption_names, &comparison_credit_parts)
+                .iter()
+                .map(|name| norm_artist(name))
+                .collect::<Vec<_>>();
+            structured.sort();
+            structured.dedup();
+            caption.sort();
+            caption.dedup();
+            structured == caption
+        };
     if let Some((_, credits)) = &title_first_caption {
         caption_names.extend(credits.iter().cloned());
     }
@@ -2175,12 +2346,6 @@ fn build_comparison(
     names = expanded_credits(&names, &comparison_credit_parts);
     let mut seen_credit_keys = std::collections::HashSet::new();
     names.retain(|name| seen_credit_keys.insert(norm_artist(name)));
-    caption_full_credits |= filename_observations.is_none()
-        && names.len() > 1
-        && comparison_credit_parts
-            .iter()
-            .map(|name| norm_artist(&name))
-            .all(|expected| names.iter().any(|name| norm_artist(name) == expected));
     let actual_guests = guest_from_title(raw_candidate);
     let mut guests = features_match(&requested_guests, &actual_guests);
     if !requested_guests.is_empty() && guests == Comparison::Unknown && !names.is_empty() {
@@ -2211,20 +2376,17 @@ fn build_comparison(
     if requested_guests.is_empty() {
         guests = Comparison::Unknown;
     }
-    let exact_recording_bound = meta["recordingId"]
-        .as_str()
-        .is_some_and(|id| !id.is_empty() && track.provenance["recordingId"].as_str() == Some(id));
+    let exact_recording_bound = verified_recording_binding(track, candidate, meta);
+    let verified_musicbrainz_credits_complete = filename_observations.is_none()
+        && verified_musicbrainz_performer_credits_complete(track, candidate, meta);
     let structured_credits_complete = filename_observations.is_none()
-        && (exact_recording_bound
-            || meta["artistCount"]
-                .as_u64()
-                .is_some_and(|n| n as usize == names.len())
-            || (meta["provider"].as_str() == Some("monochrome")
-                && meta["trackId"]
-                    .as_str()
-                    .is_some_and(|id| candidate.id == format!("monochrome:{id}"))
-                && !names.is_empty()));
-    let credits_complete = structured_credits_complete || caption_full_credits;
+        && (explicit_performer_credit_completeness(candidate, meta)
+            || verified_musicbrainz_credits_complete);
+    // Flat artist arrays and generic captions stay open-world. The narrowly
+    // validated full-caption case above is an explicit structure witness.
+    let credits_complete = structured_credits_complete
+        || fresh_caption_credits_complete
+        || bound_caption_credits_complete;
     let request_credits_complete = (request_identity.credits_complete
         && track.provenance["manualFields"]["artist"] != true)
         || track.provenance["performerCreditsComplete"] == true
@@ -2255,11 +2417,11 @@ fn build_comparison(
     };
     let mut artists = artist_comparison(MatchLevel::Balanced, false);
     let mut artists_flexible = artist_comparison(MatchLevel::Flexible, true);
-    let artists_exact = if structured_credits_complete {
-        artist_comparison(MatchLevel::Exact, false)
-    } else {
-        Comparison::Unknown
-    };
+    // Compare the performer evidence that is actually present even when it
+    // is not exhaustive. Closed-world completeness controls whether extra or
+    // missing credits can prove a conflict; it must not erase a known wrong
+    // performer (or an exact coverage match) from the comparison itself.
+    let artists_exact = artist_comparison(MatchLevel::Exact, false);
     let actual_kind = version_kind(&actual_version);
     let requested_kind = version_kind(&requested_semantic);
     let version = if conflicting_request_versions || conflicting_candidate_versions {
@@ -2404,6 +2566,7 @@ fn build_comparison(
         artists_exact,
         artists_flexible,
         requested_guests,
+        requested_performer_count,
         names,
         actual_version,
         requested_semantic,
@@ -2414,6 +2577,7 @@ fn build_comparison(
         candidate_runtime,
         authoritative,
         credits_complete,
+        verified_musicbrainz_credits_complete,
         request_credits_complete,
         exact_recording_bound,
         topic_full,
@@ -2434,6 +2598,7 @@ fn build_comparison(
                 .iter()
                 .any(|phrase| norm(&candidate.title).contains(phrase)),
         complete_fresh_extractor_recording: candidate.provider == "youtube"
+            && meta["provider"].as_str() == Some("youtube")
             && candidate.id.strip_prefix("youtube:").is_some_and(|id| {
                 !id.is_empty() && meta["resolvedProviderId"].as_str() == Some(id)
             })
@@ -2465,7 +2630,9 @@ fn build_comparison(
             .texts
             .iter()
             .chain(&candidate_evidence.texts)
-            .any(|text| text.parsed.parsing_incomplete),
+            .any(|text| text.parsed.parsing_incomplete)
+            || meta["identityMetadataUncertain"] == true
+            || request_credit_source_uncertain,
         unverified_credit_hint,
         missing_performers,
         extra_performers,
@@ -2577,6 +2744,7 @@ fn assess_prepared_inner(
         candidate_runtime,
         authoritative,
         credits_complete,
+        verified_musicbrainz_credits_complete,
         request_credits_complete,
         exact_recording_bound,
         topic_full,
@@ -2596,10 +2764,37 @@ fn assess_prepared_inner(
         ..
     } = facts.clone();
     let version_is_requested = !requested_semantic.is_empty();
+    // Explicit length alternatives are bounded independently in each direction.
+    // Missing/invalid target or candidate runtime cannot satisfy this exception.
+    let configured_length_alternative =
+        target_runtime
+            .zip(candidate_runtime)
+            .is_some_and(|(requested, candidate)| {
+                if !requested.is_finite()
+                    || !candidate.is_finite()
+                    || requested <= 0.0
+                    || candidate <= 0.0
+                {
+                    return false;
+                }
+                let delta = candidate - requested;
+                if delta < 0.0 {
+                    -delta <= f64::from(options.max_shorter_by_seconds)
+                } else {
+                    delta <= f64::from(options.max_longer_by_seconds)
+                }
+            });
     let flexible_runtime_close = policy.allow_missing_guest_evidence
         && target_runtime
             .zip(candidate_runtime)
-            .is_some_and(|(a, b)| (a - b).abs() <= 15.0_f64.max((a * 0.15).min(45.0)));
+            .is_some_and(|(a, b)| (a - b).abs() <= 15.0_f64.max((a * 0.15).min(45.0)))
+        && (!options.allow_different_lengths || configured_length_alternative);
+    let flexible_runtime_eligible = (runtime == Comparison::Agree || flexible_runtime_close)
+        && (!options.allow_different_lengths || configured_length_alternative);
+    let configured_length_conflict = level == MatchLevel::Flexible
+        && options.allow_different_lengths
+        && target_runtime.zip(candidate_runtime).is_some()
+        && !configured_length_alternative;
     let timing_near = target_runtime
         .zip(candidate_runtime)
         .is_some_and(|(a, b)| (a - b).abs() <= 2.0_f64.max((a * 0.03).min(8.0)));
@@ -2657,25 +2852,60 @@ fn assess_prepared_inner(
         && version_is_requested
         && version == Comparison::Unknown
         && actual_version.is_empty()
-        && options.allow_other_releases
-        && options.allow_other_performances
-        && options.allow_other_mixes
-        && (complete_single_recording || complete_fresh_extractor_recording)
-        && credits_complete
+        // Apply only the option categories named by the requested version.
+        // A restored/remastered release alternative must not require unrelated
+        // permissions for live performances and mixes.
+        && category_allowed(&requested_semantic)
+        && (complete_single_recording
+            || complete_fresh_extractor_recording
+            || exact_recording_bound)
+        && (exact_recording_bound || credits_complete)
         && artists == Comparison::Agree
         && guests != Comparison::Conflict
         && title == Comparison::Agree
         && !unresolved_annotation
         && !facts.parsing_incomplete
         && isrc != Comparison::Conflict
-        && (runtime == Comparison::Agree || flexible_runtime_close);
+        && flexible_runtime_eligible;
+    // When every version category is explicitly enabled, a fresh, source-ID
+    // bound single YouTube recording with exact known title/performer/runtime
+    // evidence may be accepted as an unspecified-version alternative. This
+    // does not claim its performer list is complete and does not unlock
+    // artist changes, missing runtime, or weakly sourced candidates.
+    let broad_unversioned_alternative = level == MatchLevel::Flexible
+        && stage == MatchStage::Resolved
+        && options.allow_other_releases
+        && options.allow_other_performances
+        && options.allow_other_mixes
+        && version_is_requested
+        && version == Comparison::Unknown
+        && actual_version.is_empty()
+        && facts.complete_fresh_extractor_recording
+        && title == Comparison::Agree
+        && artists == Comparison::Agree
+        && runtime == Comparison::Agree
+        && target_runtime.is_some()
+        && candidate_runtime.is_some()
+        && facts.missing_performers.is_empty()
+        && facts.extra_performers.is_empty()
+        && (requested_guests.is_empty() || guests == Comparison::Agree)
+        && !facts.request_identifier_conflict
+        && !catalog_id_conflict
+        && isrc != Comparison::Conflict
+        && !conflicting_request_versions
+        && !conflicting_candidate_versions
+        && !facts.parsing_incomplete
+        && !unresolved_annotation
+        && (!options.allow_different_lengths || configured_length_alternative);
     let identified_alternative = unknown_version_substitute
+        || broad_unversioned_alternative
         || version == Comparison::Conflict
         || artists == Comparison::Conflict
         || guests == Comparison::Conflict
         || (runtime == Comparison::Conflict
             && !flexible_runtime_close
-            && options.allow_different_lengths);
+            && options.allow_different_lengths
+            && configured_length_alternative);
     let alternative = policy.allow_identified_alternatives
         && identified_alternative
         && version_alternative_allowed
@@ -2687,12 +2917,17 @@ fn assess_prepared_inner(
             || linked
             || cover_evidence)
         && (artists == Comparison::Agree || options.allow_other_artists && credits_complete)
-        && (linked || explicit_alt || authoritative || credits_complete)
-        && (runtime == Comparison::Agree
-            || flexible_runtime_close
+        && (linked
+            || explicit_alt
+            || authoritative
+            || exact_recording_bound
+            || credits_complete
+            || broad_unversioned_alternative)
+        && (flexible_runtime_eligible
             || options.allow_different_lengths
                 && complete_single_recording
                 && credits_complete
+                && configured_length_alternative
                 && candidate_runtime.is_some_and(|seconds| seconds > 30.0))
         && (options.allow_other_artists && credits_complete
             || requested_guests.is_empty()
@@ -2730,6 +2965,12 @@ fn assess_prepared_inner(
             reasons.push(MatchReason::RuntimeVarianceAccepted);
         }
     }
+    if configured_length_conflict {
+        reasons.push(MatchReason::DurationLimitExceeded);
+    }
+    if broad_unversioned_alternative {
+        reasons.push(MatchReason::UnspecifiedVersionAllowed);
+    }
     if isrc == Comparison::Conflict {
         reasons.push(MatchReason::IsrcConflict);
     }
@@ -2754,6 +2995,7 @@ fn assess_prepared_inner(
     let hard_conflict = catalog_id_conflict
         || facts.restricted
         || preview_too_short
+        || configured_length_conflict
         || title == Comparison::Conflict
         || (artists == Comparison::Conflict && !alternative)
         || (guests == Comparison::Conflict && !alternative)
@@ -2782,10 +3024,12 @@ fn assess_prepared_inner(
         && guests != Comparison::Conflict
         && isrc != Comparison::Conflict
         && (version != Comparison::Conflict || alternative)
-        && (runtime == Comparison::Agree
-            || flexible_runtime_close
-            || target_runtime.is_none()
-                && candidate_runtime.is_some_and(|duration| duration > 30.0));
+        && ((!options.allow_different_lengths
+            && (runtime == Comparison::Agree
+                || flexible_runtime_close
+                || target_runtime.is_none()
+                    && candidate_runtime.is_some_and(|duration| duration > 30.0)))
+            || options.allow_different_lengths && configured_length_alternative);
     let full_credits = credits_complete && !names.is_empty();
     let balanced_catalog_ok =
         policy.allow_catalog_runtime_exception && authoritative && full_credits;
@@ -2856,6 +3100,21 @@ fn assess_prepared_inner(
     } else {
         MatchRelationship::Unresolved
     };
+    // In Exact mode, matching the known members of a multi-performer request
+    // does not prove that either side supplied the whole credit set. Preserve
+    // the artist dimension as Agree, but require a closed credit list or a
+    // strong recording identifier before calling that coverage Exact.
+    let multi_performer_request = facts.requested_performer_count > 1;
+    if level == MatchLevel::Exact
+        && relationship == MatchRelationship::Exact
+        && multi_performer_request
+        && !request_credits_complete
+        && !credits_complete
+        && !exact_recording_bound
+        && isrc != Comparison::Agree
+    {
+        relationship = MatchRelationship::Unresolved;
+    }
     if policy.require_structured_credits
         && (runtime == Comparison::Unknown && isrc != Comparison::Agree && !exact_recording_bound
             || version_is_requested && version == Comparison::Unknown)
@@ -2877,7 +3136,11 @@ fn assess_prepared_inner(
         }
     } else if requested_kind.is_empty() && !actual_kind.is_empty() && !alternative {
         MatchAction::Reject
-    } else if version_is_requested && actual_version.is_empty() && !unknown_version_substitute {
+    } else if version_is_requested
+        && actual_version.is_empty()
+        && !unknown_version_substitute
+        && !broad_unversioned_alternative
+    {
         MatchAction::Enrich
     } else if policy.require_structured_credits
         && version_is_requested
@@ -2964,9 +3227,13 @@ fn assess_prepared_inner(
     if relationship == MatchRelationship::Unresolved && reasons.is_empty() {
         reasons.push(MatchReason::InsufficientEvidence);
     }
+    let unknown_release_substitute = unknown_version_substitute
+        && (norm(&requested_semantic).contains("restored edition")
+            || norm(&requested_semantic).contains("remaster"));
     let alternative_kind = if relationship != MatchRelationship::Alternative
         || action != MatchAction::Accept
-        || unknown_version_substitute
+        || broad_unversioned_alternative
+        || unknown_version_substitute && !unknown_release_substitute
     {
         None
     } else if artists == Comparison::Conflict
@@ -3335,7 +3602,7 @@ mod tests {
     use super::*;
     use serde_json::json;
     #[test]
-    fn spanish_official_audio_keeps_missing_runtime_and_credit_requirements() {
+    fn spanish_official_audio_full_caption_supplies_source_bound_credit_completeness() {
         let track = Track {
             provider: "radio_song".into(),
             title: "Cumbia Sobre El Río".into(),
@@ -3351,7 +3618,7 @@ mod tests {
             uploader: Some("Dame Regional".into()),
             duration_seconds: Some(191.0),
             source_metadata: Some(
-                json!({"sourceMetadataOrigin":"ytDlpFullInfo", "resolvedProviderId":"1guXeejD3G4", "extractor":true, "catalogTitle":title, "track":title, "duration":191.0}),
+                json!({"provider":"youtube", "sourceMetadataOrigin":"ytDlpFullInfo", "resolvedProviderId":"1guXeejD3G4", "extractor":true, "catalogTitle":title, "track":title, "duration":191.0}),
             ),
             ..Candidate::default()
         };
@@ -3366,10 +3633,13 @@ mod tests {
         let observed = evaluate(&original);
         assert_eq!(observed.dimensions.title, Comparison::Agree);
         assert_eq!(observed.dimensions.artists, Comparison::Agree);
-        assert_ne!(
-            observed.action,
-            MatchAction::Accept,
-            "A neutral annotation cannot fabricate missing complete-credit evidence"
+        assert_eq!(observed.action, MatchAction::Accept);
+        assert!(
+            observed
+                .evidence
+                .as_ref()
+                .unwrap()
+                .complete_performer_credits
         );
         assert!(!observed
             .reasons
@@ -3377,6 +3647,7 @@ mod tests {
         let mut complete = original.clone();
         complete.source_metadata.as_mut().unwrap()["artists"] = json!([track.artist]);
         complete.source_metadata.as_mut().unwrap()["artistCount"] = json!(1);
+        complete.source_metadata.as_mut().unwrap()["performerCreditsComplete"] = json!(true);
         assert_eq!(evaluate(&complete).action, MatchAction::Accept);
         let with_title = |value: &str| {
             let mut candidate = complete.clone();
@@ -4132,12 +4403,16 @@ mod tests {
         let mut t = track();
         t.duration_seconds = None;
         t.isrc = None;
-        t.provenance["recordingId"] = json!("recording-proof-123");
+        let recording_id = "ec12bebd-e1b9-42ff-892b-4aa4825ac8ea";
+        t.provenance["recordingId"] = json!(recording_id);
         let mut c = cand();
+        c.id = format!("musicbrainz:{recording_id}");
+        c.source_metadata.as_mut().unwrap()["provider"] = json!("musicbrainz");
+        c.source_metadata.as_mut().unwrap()["verified"] = json!(true);
         c.duration_seconds = None;
         c.source_metadata.as_mut().unwrap()["duration"] = Value::Null;
         c.source_metadata.as_mut().unwrap()["isrc"] = Value::Null;
-        c.source_metadata.as_mut().unwrap()["recordingId"] = json!("recording-proof-123");
+        c.source_metadata.as_mut().unwrap()["recordingId"] = json!(recording_id);
         for level in [MatchLevel::Exact, MatchLevel::Balanced] {
             let assessment = assess(&t, &c, level, MatchStage::Resolved);
             assert_eq!(assessment.relationship, MatchRelationship::Exact);
@@ -4192,9 +4467,12 @@ mod tests {
         t.isrc = None;
         let c = Candidate {
             provider: "youtube".into(),
+            id: "youtube:caption-complete".into(),
             title: "Holger Czukay, Jah Wobble, Jaki Liebezeit - How Much Are They?".into(),
             duration_seconds: Some(289.0),
-            source_metadata: Some(json!({"provider":"youtube","artists":null,"channelId":"UCx"})),
+            source_metadata: Some(
+                json!({"provider":"youtube","resolvedProviderId":"caption-complete","sourceMetadataOrigin":"ytDlpCandidateMetadata","artists":null,"channelId":"UCx"}),
+            ),
             ..Candidate::default()
         };
         let balanced = assess(&t, &c, MatchLevel::Balanced, MatchStage::Resolved);
@@ -4213,11 +4491,12 @@ mod tests {
         t.duration_seconds = None;
         t.isrc = None;
         let candidate = |artist: &str, title: &str| Candidate {
+            id: "soundcloud:caption-composite".into(),
             provider: "soundcloud".into(),
             title: title.into(),
             duration_seconds: Some(139.0),
             source_metadata: Some(
-                json!({"provider":"soundcloud","artists":[artist],"artistCount":1}),
+                json!({"provider":"soundcloud","resolvedProviderId":"caption-composite","sourceMetadataOrigin":"ytDlpCandidateMetadata","artists":[artist],"artistCount":1}),
             ),
             ..Candidate::default()
         };
@@ -4268,13 +4547,16 @@ mod tests {
         t.isrc = None;
         let topic = Candidate {
             provider: "youtube".into(),
+            id: "youtube:MatthewTop1".into(),
             title: "John Denver - Matthew".into(),
             duration_seconds: Some(228.0),
             uploader: Some("John Denver - Topic".into()),
             source_metadata: Some(json!({
                 "provider":"youtube", "channel":"John Denver - Topic",
+                "resolvedProviderId":"MatthewTop1", "sourceMetadataOrigin":"ytDlpFullInfo",
                 "channelId":"UC-cnCe5zradDZlcI8YZboBg", "artist":"John Denver",
-                "artists":["John Denver"], "artistCount":1, "track":"Matthew",
+                "artists":["John Denver"], "artistCount":1,
+                "performerCreditsComplete":true, "track":"Matthew",
                 "descriptionCreditLine":"Matthew · John Denver", "duration":228.0
             })),
             ..Candidate::default()
@@ -4479,7 +4761,7 @@ mod tests {
             id: "monochrome:12345678901234567".into(),
             title: "Lucas Santtana & Arto Lindsay - Nighttime in the Backyard".into(),
             source_metadata: Some(
-                json!({"provider":"monochrome","trackId":"12345678901234567","catalogTitle":"Nighttime in the Backyard","artistNames":["Lucas Santtana","Arto Lindsay"],"artistCount":2}),
+                json!({"provider":"monochrome","trackId":"12345678901234567","catalogTitle":"Nighttime in the Backyard","artistNames":["Lucas Santtana","Arto Lindsay"],"artistCount":2,"performerCreditsComplete":true}),
             ),
             ..Candidate::default()
         };
@@ -4632,7 +4914,9 @@ mod tests {
         };
         for level in [MatchLevel::Balanced, MatchLevel::Flexible] {
             let assessment = assess(&request, &wrong_performer, level, MatchStage::Resolved);
-            assert_eq!(assessment.dimensions.artists, Comparison::Conflict);
+            // Monochrome ID/count plus a partial artist array cannot prove
+            // Patrick Watson is an exhaustive replacement for Patrick Wilson.
+            assert_eq!(assessment.dimensions.artists, Comparison::Unknown);
             assert_ne!(assessment.action, MatchAction::Accept);
             assert!(
                 !assessment
@@ -4649,7 +4933,7 @@ mod tests {
         unbound.source_metadata.as_mut().unwrap()["isrc"] = json!("USZZZ2600001");
         for level in [MatchLevel::Balanced, MatchLevel::Flexible] {
             let assessment = assess(&le_peuple_request, &unbound, level, MatchStage::Resolved);
-            assert_eq!(assessment.dimensions.artists, Comparison::Conflict);
+            assert_eq!(assessment.dimensions.artists, Comparison::Unknown);
             assert_eq!(assessment.dimensions.isrc, Comparison::Conflict);
             assert_ne!(assessment.action, MatchAction::Accept);
             assert!(
@@ -5038,13 +5322,14 @@ mod tests {
         let options = FlexibleMatchingOptions {
             allow_other_performances: true,
             allow_different_lengths: true,
+            max_longer_by_seconds: 60,
             ..Default::default()
         };
         // A long alternative must be a bound, complete catalog track.
         c.provider = "monochrome".into();
         c.id = "monochrome:123".into();
         c.source_metadata = Some(
-            json!({"provider":"monochrome","trackId":"123","catalogTitle":"Song (Live)","artistNames":["Main Artist"],"artistCount":1,"duration":260.,"isrc":"USZZZ2600001"}),
+            json!({"provider":"monochrome","trackId":"123","catalogTitle":"Song (Live)","artistNames":["Main Artist"],"artistCount":1,"performerCreditsComplete":true,"duration":260.,"isrc":"USZZZ2600001"}),
         );
         assert_eq!(
             assess_with_options(&t, &c, MatchLevel::Flexible, MatchStage::Resolved, &options)
@@ -5065,6 +5350,172 @@ mod tests {
             assess_with_options(&t, &c, MatchLevel::Flexible, MatchStage::Resolved, &options);
         assert_eq!(denied.action, MatchAction::Reject);
         assert!(denied.reasons.contains(&MatchReason::PermissionRestricted));
+    }
+
+    #[test]
+    fn flexible_duration_alternatives_obey_asymmetric_seconds_limits() {
+        let request = track();
+        let options = FlexibleMatchingOptions {
+            allow_other_performances: true,
+            allow_different_lengths: true,
+            max_shorter_by_seconds: 10,
+            max_longer_by_seconds: 45,
+            ..Default::default()
+        };
+        let mut candidate = cand();
+        candidate.provider = "monochrome".into();
+        candidate.id = "monochrome:duration-bound".into();
+        candidate.title = "Song (Live)".into();
+        candidate.source_metadata = Some(json!({
+            "provider":"monochrome",
+            "trackId":"duration-bound",
+            "catalogTitle":"Song (Live)",
+            "artistNames":["Main Artist"],
+            "performerCreditsComplete":true,
+            "duration":200.0,
+            "isrc":"USABC2600001"
+        }));
+
+        for (duration, expected) in [
+            (190.0, MatchAction::Accept),
+            (189.0, MatchAction::Reject),
+            (245.0, MatchAction::Accept),
+            (246.0, MatchAction::Reject),
+        ] {
+            candidate.duration_seconds = Some(duration);
+            candidate.source_metadata.as_mut().unwrap()["duration"] = json!(duration);
+            assert_eq!(
+                assess_with_options(
+                    &request,
+                    &candidate,
+                    MatchLevel::Flexible,
+                    MatchStage::Resolved,
+                    &options
+                )
+                .action,
+                expected,
+                "candidate runtime {duration} seconds"
+            );
+        }
+
+        let zero_tolerance = FlexibleMatchingOptions {
+            max_shorter_by_seconds: 0,
+            max_longer_by_seconds: 0,
+            ..options
+        };
+        candidate.duration_seconds = Some(201.0);
+        candidate.source_metadata.as_mut().unwrap()["duration"] = json!(201.0);
+        let zero_assessment = assess_with_options(
+            &request,
+            &candidate,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &zero_tolerance,
+        );
+        assert_eq!(
+            zero_assessment.action,
+            MatchAction::Reject,
+            "zero limits apply to the total delta, even inside the ordinary runtime tolerance"
+        );
+        assert_eq!(zero_assessment.dimensions.runtime, Comparison::Agree);
+        assert!(zero_assessment
+            .reasons
+            .contains(&MatchReason::DurationLimitExceeded));
+
+        candidate.duration_seconds = None;
+        candidate
+            .source_metadata
+            .as_mut()
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .remove("duration");
+        assert_ne!(
+            assess_with_options(
+                &request,
+                &candidate,
+                MatchLevel::Flexible,
+                MatchStage::Resolved,
+                &options,
+            )
+            .action,
+            MatchAction::Accept,
+            "unknown candidate duration cannot satisfy a configured length alternative"
+        );
+    }
+
+    #[test]
+    fn flexible_duration_caps_do_not_change_exact_or_balanced_and_cannot_be_bypassed_by_recording_id(
+    ) {
+        let request = track();
+        let mut candidate = cand();
+        candidate.duration_seconds = Some(201.0);
+        candidate.source_metadata.as_mut().unwrap()["duration"] = json!(201.0);
+        let options = FlexibleMatchingOptions {
+            allow_different_lengths: true,
+            max_shorter_by_seconds: 0,
+            max_longer_by_seconds: 0,
+            ..Default::default()
+        };
+        for level in [MatchLevel::Exact, MatchLevel::Balanced] {
+            assert_eq!(
+                assess_with_options(&request, &candidate, level, MatchStage::Resolved, &options)
+                    .action,
+                MatchAction::Accept,
+                "saved Flexible limits do not alter {level:?}"
+            );
+        }
+
+        let recording_id = "ec12bebd-e1b9-42ff-892b-4aa4825ac8ea";
+        let mut request = request;
+        request.provenance["recordingId"] = json!(recording_id);
+        let mut candidate = candidate;
+        candidate.id = format!("musicbrainz:{recording_id}");
+        candidate.provider = "musicbrainz".into();
+        candidate.source_metadata.as_mut().unwrap()["provider"] = json!("musicbrainz");
+        candidate.source_metadata.as_mut().unwrap()["verified"] = json!(true);
+        candidate.source_metadata.as_mut().unwrap()["recordingId"] = json!(recording_id);
+        candidate.duration_seconds = Some(250.0);
+        candidate.source_metadata.as_mut().unwrap()["duration"] = json!(250.0);
+        assert_eq!(
+            assess_with_options(
+                &request,
+                &candidate,
+                MatchLevel::Flexible,
+                MatchStage::Resolved,
+                &options,
+            )
+            .action,
+            MatchAction::Reject,
+            "same-recording IDs do not bypass an enabled, exceeded runtime cap"
+        );
+    }
+
+    #[test]
+    fn enabling_length_limits_does_not_require_complete_credits_for_in_bound_close_alternatives() {
+        let request = track();
+        let mut candidate = cand();
+        candidate.duration_seconds = Some(201.0);
+        candidate.source_metadata.as_mut().unwrap()["duration"] = json!(201.0);
+        candidate.source_metadata.as_mut().unwrap()["track"] = json!("Song (Live)");
+        let options = FlexibleMatchingOptions {
+            allow_other_performances: true,
+            allow_different_lengths: true,
+            max_shorter_by_seconds: 30,
+            max_longer_by_seconds: 30,
+            ..Default::default()
+        };
+        assert_eq!(
+            assess_with_options(
+                &request,
+                &candidate,
+                MatchLevel::Flexible,
+                MatchStage::Resolved,
+                &options,
+            )
+            .action,
+            MatchAction::Accept
+        );
     }
 }
 
@@ -5114,6 +5565,7 @@ mod complete_caption_credit_tests {
             let result = assess(&requested(), &candidate, MatchLevel::Balanced, stage);
             assert_eq!(result.dimensions.title, Comparison::Agree);
             assert_eq!(result.dimensions.artists, Comparison::Agree);
+            assert!(result.evidence.as_ref().unwrap().complete_performer_credits);
             assert_eq!(
                 result.action,
                 match stage {
@@ -5185,17 +5637,18 @@ mod complete_caption_credit_tests {
             "Nipsey Hussle & Bino Rideaux & Another Artist - Vibe With Me (feat. Leon Thomas) (Official Audio)",
             "Nipsey Hussle Tribute & Bino Rideaux - Vibe With Me (feat. Leon Thomas) (Official Audio)",
         ] {
-            assert_ne!(
-                assess(
-                    &requested(),
-                    &caption(text),
-                    MatchLevel::Balanced,
-                    MatchStage::Resolved
-                )
-                .action,
-                MatchAction::Accept,
-                "{text}"
+            let result = assess(
+                &requested(),
+                &caption(text),
+                MatchLevel::Balanced,
+                MatchStage::Resolved,
             );
+            assert_ne!(result.action, MatchAction::Accept, "{text}");
+            assert!(!result
+                .evidence
+                .as_ref()
+                .unwrap()
+                .complete_performer_credits, "{text}");
         }
     }
     #[test]
@@ -5357,6 +5810,7 @@ mod canonical_catalog_contradiction_tests {
         let result = assess(&track, &c, MatchLevel::Balanced, MatchStage::Resolved);
         assert_eq!(result.dimensions.title, Comparison::Agree);
         assert_eq!(result.dimensions.artists, Comparison::Agree);
+        assert!(result.evidence.as_ref().unwrap().complete_performer_credits);
         assert_eq!(result.action, MatchAction::Accept);
     }
 }
@@ -5658,7 +6112,7 @@ mod stage_one_regressions {
         c.id = "monochrome:1".into();
         c.duration_seconds = None;
         c.source_metadata = Some(
-            json!({"provider":"monochrome","trackId":"1","catalogTitle":"Song","artists":["Artist"],"artistCount":1}),
+            json!({"provider":"monochrome","trackId":"1","catalogTitle":"Song","artists":["Artist"],"artistCount":1,"performerCreditsComplete":true}),
         );
         for stage in [MatchStage::Search, MatchStage::Resolved] {
             let balanced = assess(&t, &c, MatchLevel::Balanced, stage);

@@ -509,6 +509,11 @@ impl Settings {
         if self.flexible_matching.version != 1 {
             return Err("Unsupported Flexible matching settings version".into());
         }
+        if self.flexible_matching.max_shorter_by_seconds > 3600
+            || self.flexible_matching.max_longer_by_seconds > 3600
+        {
+            return Err("Flexible duration limits must be between 0 and 3600 seconds".into());
+        }
         Ok(())
     }
     /// Old or manually edited settings must never create an unbounded deadline.
@@ -861,5 +866,35 @@ mod flexible_crossfade_settings_tests {
         let default = Settings::default();
         assert!(!default.crossfade_enabled);
         assert!(default.validate_playback_preferences().is_ok());
+    }
+
+    #[test]
+    fn old_flexible_length_boolean_keeps_bounded_defaults() {
+        let mut raw = serde_json::to_value(Settings::default()).unwrap();
+        raw["flexibleMatching"] = serde_json::json!({
+            "version": 1,
+            "allowDifferentLengths": true
+        });
+        let migrated = Settings::from_persisted_value(raw).unwrap();
+        assert!(migrated.flexible_matching.allow_different_lengths);
+        assert_eq!(migrated.flexible_matching.max_shorter_by_seconds, 30);
+        assert_eq!(migrated.flexible_matching.max_longer_by_seconds, 30);
+    }
+
+    #[test]
+    fn flexible_duration_limits_are_bounded() {
+        for seconds in [0, 1, 3600, 3601] {
+            let settings = Settings {
+                flexible_matching: crate::recording_match::FlexibleMatchingOptions {
+                    max_shorter_by_seconds: seconds,
+                    ..Default::default()
+                },
+                ..Settings::default()
+            };
+            assert_eq!(
+                settings.validate_playback_preferences().is_ok(),
+                seconds <= 3600
+            );
+        }
     }
 }

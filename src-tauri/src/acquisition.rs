@@ -2154,6 +2154,33 @@ async fn find_candidates_with_cancel_until_alias_detailed(
     alternate_artist: Option<String>,
     provider_query_cache: Option<&CandidateSearchCache>,
 ) -> Result<(Vec<Candidate>, bool), String> {
+    find_candidates_with_cancel_until_alias_detailed_traced(
+        track,
+        provider_ids,
+        settings,
+        cancel,
+        result_limit,
+        per_provider_timeout,
+        shared_deadline,
+        alternate_artist,
+        provider_query_cache,
+        None,
+    )
+    .await
+}
+
+async fn find_candidates_with_cancel_until_alias_detailed_traced(
+    track: &Track,
+    provider_ids: &[String],
+    settings: &Settings,
+    cancel: watch::Receiver<bool>,
+    result_limit: usize,
+    per_provider_timeout: Duration,
+    shared_deadline: Option<crate::playback_sources::PlaybackDeadline>,
+    alternate_artist: Option<String>,
+    provider_query_cache: Option<&CandidateSearchCache>,
+    trace: Option<crate::playback_sources::SourceTrace>,
+) -> Result<(Vec<Candidate>, bool), String> {
     if let Some(candidate) = track
         .provenance
         .get("audioCandidate")
@@ -2177,6 +2204,7 @@ async fn find_candidates_with_cancel_until_alias_detailed(
         futures_util::stream::iter(provider_ids.iter().cloned().map(|provider| {
             let cancel = cancel.clone();
             let alternate_artist = alternate_artist.clone();
+            let trace = trace.clone();
             async move {
                 search_provider_candidates(
                     &provider,
@@ -2189,6 +2217,7 @@ async fn find_candidates_with_cancel_until_alias_detailed(
                     alternate_artist,
                     provider_query_cache,
                     false,
+                    trace,
                 )
                 .await
             }
@@ -2318,13 +2347,24 @@ async fn search_provider_candidates(
     alternate_artist: Option<String>,
     provider_query_cache: Option<&CandidateSearchCache>,
     canonical_only: bool,
+    trace: Option<crate::playback_sources::SourceTrace>,
 ) -> (Vec<Candidate>, Vec<String>) {
     if provider == "monochrome" {
         let client = match crate::monochrome::Client::new() {
             Ok(client) => client,
             Err(error) => return (Vec::new(), vec![error]),
         };
-        let query_tracks = monochrome_search_tracks(track, alternate_artist.as_deref());
+        let alternatives = alternate_artist.clone().into_iter().collect::<Vec<_>>();
+        let query_texts = crate::search_plan::SearchPlan::for_track_with_release_policy(
+            track,
+            &alternatives,
+            flexible_other_release_search_enabled(settings),
+        )
+        .queries
+        .into_iter()
+        .take(2)
+        .map(|query| query.text)
+        .collect::<Vec<_>>();
         let provider_deadline = tokio::time::Instant::now() + per_provider_timeout;
         let deadline = shared_deadline
             .map(crate::playback_sources::PlaybackDeadline::instant)
@@ -2335,7 +2375,7 @@ async fn search_provider_candidates(
         };
         let mut candidates = Vec::new();
         let mut errors = Vec::new();
-        for query_track in query_tracks {
+        for query in query_texts {
             if *cancel.borrow() {
                 return (Vec::new(), vec!["Cancelled".into()]);
             }
@@ -2343,20 +2383,28 @@ async fn search_provider_candidates(
                 errors.push("Monochrome search timed out".into());
                 break;
             }
-            let query = crate::monochrome::search_query_for_track(&query_track);
             let cache_key = monochrome_playback_query_cache_key(&profile, &query);
             let load = || async {
-                let result =
-                    tokio::time::timeout_at(deadline, client.search_candidates_raw(&query))
-                        .await
-                        .map_err(|_| "Monochrome search timed out".to_owned())??;
-                let (candidates, row_count) = result;
+                let result = tokio::time::timeout_at(
+                    deadline,
+                    client.search_candidates_raw_with_diagnostics(
+                        &query,
+                        crate::monochrome::CANDIDATE_SEARCH_LIMIT,
+                    ),
+                )
+                .await
+                .map_err(|_| "Monochrome search timed out".to_owned())??;
+                let (candidates, diagnostics) = result;
                 // The adapter rejects malformed/missing `tracks` values and
-                // returns an empty vector only for a valid `tracks: []` page.
+                // rejects a nonempty page when all rows are invalid. Partial
+                // rows remain useful and carry only aggregate counts.
                 // Empty successful pages are cacheable negative results.
                 let completeness = ProviderQueryCompleteness::ReturnedPage {
-                    row_count,
-                    reached_limit: row_count >= crate::monochrome::CANDIDATE_SEARCH_LIMIT,
+                    row_count: diagnostics.raw_rows,
+                    parsed_count: diagnostics.parsed_rows,
+                    rejected_count: diagnostics.rejected_rows,
+                    reached_limit: diagnostics.raw_rows
+                        >= crate::monochrome::CANDIDATE_SEARCH_LIMIT,
                 };
                 Ok(ProviderQueryResponse {
                     candidates,
@@ -2365,7 +2413,12 @@ async fn search_provider_candidates(
             };
             let response = if let Some(cache) = provider_query_cache {
                 cache
-                    .get_or_search_provider_query(cache_key, cancel.clone(), load)
+                    .get_or_search_provider_query_until(
+                        cache_key,
+                        cancel.clone(),
+                        Some(deadline),
+                        load,
+                    )
                     .await
             } else {
                 tokio::select! {
@@ -2376,9 +2429,10 @@ async fn search_provider_candidates(
             };
             match response {
                 Ok(response) => {
+                    trace_provider_search_page(trace.as_ref(), provider, &response.completeness);
                     let mut rows = response.candidates;
                     for candidate in &mut rows {
-                        crate::monochrome::score_candidate_for_track(&query_track, candidate);
+                        crate::monochrome::score_candidate_for_track(track, candidate);
                         candidate
                             .reasons
                             .push("Download permission has not been established".into());
@@ -2411,7 +2465,11 @@ async fn search_provider_candidates(
         "soundcloud" => format!("scsearch{result_limit}"),
         _ => return (Vec::new(), Vec::new()),
     };
-    let queries = playback_search_queries(track, alternate_artist.as_deref());
+    let queries = playback_search_queries_with_release_policy(
+        track,
+        alternate_artist.as_deref(),
+        flexible_other_release_search_enabled(settings),
+    );
     let deadline = Instant::now() + per_provider_timeout;
     let mut candidates = Vec::new();
     let mut errors = Vec::new();
@@ -2493,10 +2551,6 @@ async fn search_provider_candidates(
                 });
             };
             let row_count = entries.len();
-            let completeness = ProviderQueryCompleteness::ReturnedPage {
-                row_count,
-                reached_limit: row_count >= result_limit,
-            };
             let candidates = entries
                 .iter()
                 .take(result_limit)
@@ -2510,6 +2564,17 @@ async fn search_provider_candidates(
                     .then_some(candidate)
                 })
                 .collect::<Vec<_>>();
+            let parsed_count = candidates.len();
+            let completeness = if row_count > 0 && parsed_count == 0 {
+                ProviderQueryCompleteness::Partial { row_count }
+            } else {
+                ProviderQueryCompleteness::ReturnedPage {
+                    row_count,
+                    parsed_count,
+                    rejected_count: row_count.min(result_limit).saturating_sub(parsed_count),
+                    reached_limit: row_count >= result_limit,
+                }
+            };
             Ok(ProviderQueryResponse {
                 candidates,
                 completeness,
@@ -2517,13 +2582,19 @@ async fn search_provider_candidates(
         };
         let loaded = if let Some(cache) = provider_query_cache {
             cache
-                .get_or_search_provider_query(query_key, cancel.clone(), load_rows)
+                .get_or_search_provider_query_until(
+                    query_key,
+                    cancel.clone(),
+                    Some(deadline.into()),
+                    load_rows,
+                )
                 .await
         } else {
             load_rows().await
         };
         match loaded {
             Ok(response) => {
+                trace_provider_search_page(trace.as_ref(), provider, &response.completeness);
                 if matches!(
                     &response.completeness,
                     ProviderQueryCompleteness::Partial { .. }
@@ -2856,36 +2927,61 @@ async fn search_audio_tracks_page_raw(
 }
 
 fn playback_search_queries(track: &Track, alternate_artist: Option<&str>) -> Vec<String> {
-    let query = search_query(track, true);
-    let fallback_query = search_query(track, false);
-    let mut queries = vec![query.clone()];
-    // Keep the existing two-call provider bound. A trusted cached identity
-    // variant occupies the old fallback slot and keeps the requested version.
-    if let Some(alias_query) = alternate_artist
-        .map(|artist| search_query_for_artist(track, artist, true))
-        .filter(|candidate| !candidate.is_empty() && candidate != &query)
-    {
-        queries.push(alias_query);
-    } else if !fallback_query.is_empty() && fallback_query != query {
-        queries.push(fallback_query);
-    }
-    // When an ordinary known-duration query has no other fallback, reserve
-    // its existing second slot for a precision query. It is issued only if
-    // the first page lacks a full recording match (provisionals are weaker).
+    playback_search_queries_with_release_policy(track, alternate_artist, false)
+}
+
+fn flexible_other_release_search_enabled(settings: &Settings) -> bool {
+    settings.matching_level == crate::recording_match::MatchLevel::Flexible
+        && settings.flexible_matching.allow_other_releases
+}
+
+fn playback_search_queries_with_release_policy(
+    track: &Track,
+    alternate_artist: Option<&str>,
+    allow_other_releases: bool,
+) -> Vec<String> {
+    let alternatives = alternate_artist
+        .map(str::to_owned)
+        .into_iter()
+        .collect::<Vec<_>>();
+    let plan = crate::search_plan::SearchPlan::for_track_with_release_policy(
+        track,
+        &alternatives,
+        allow_other_releases,
+    );
+    let mut queries = plan
+        .queries
+        .iter()
+        .take(2)
+        .map(|query| query.text.clone())
+        .collect::<Vec<_>>();
+    // Preserve the historical precision query when a known-duration search
+    // has no useful SearchPlan alternative. Render any separate version into
+    // the title, and leave versionless release retrieval to SearchPlan, which
+    // only enables that fallback for recognized release labels with explicit
+    // Flexible other-release permission.
     if queries.len() == 1 && track.duration_seconds.is_some() {
         let artist = matching::normalize(&track.artist);
-        let title = matching::normalize(&track.title);
+        let title = track.title.trim();
+        let parsed_title = crate::recording_identity::parse_title(title);
+        let separate_version = track
+            .version
+            .as_deref()
+            .map(str::trim)
+            .filter(|version| !version.is_empty())
+            .filter(|version| {
+                matching::normalize(parsed_title.version.as_deref().unwrap_or_default())
+                    != matching::normalize(version)
+            });
+        let title = separate_version
+            .map_or_else(|| title.to_owned(), |version| format!("{title} {version}"));
         if !artist.is_empty() && !title.is_empty() {
-            queries.push(format!("\"{artist}\" \"{title}\""));
+            let precision = format!("\"{artist}\" \"{title}\"");
+            if !queries.contains(&precision) {
+                queries.push(precision);
+            }
         }
     }
-    if queries.len() == 1 {
-        let folded = crate::recording_identity::search_fold(&query);
-        if folded != matching::normalize(&query) && !folded.is_empty() {
-            queries.push(folded);
-        }
-    }
-    queries.truncate(2);
     queries
 }
 
@@ -2952,6 +3048,8 @@ enum ProviderQueryCompleteness {
     /// recorded separately; neither case proves the provider had no more rows.
     ReturnedPage {
         row_count: usize,
+        parsed_count: usize,
+        rejected_count: usize,
         reached_limit: bool,
     },
     /// Use only when the adapter has authoritative evidence that no further
@@ -2964,6 +3062,31 @@ enum ProviderQueryCompleteness {
 impl ProviderQueryCompleteness {
     fn cacheable(&self) -> bool {
         !matches!(self, Self::Partial { .. })
+    }
+}
+
+fn trace_provider_search_page(
+    trace: Option<&crate::playback_sources::SourceTrace>,
+    provider: &str,
+    completeness: &ProviderQueryCompleteness,
+) {
+    let Some(trace) = trace else { return };
+    if let ProviderQueryCompleteness::ReturnedPage {
+        row_count,
+        parsed_count,
+        rejected_count,
+        ..
+    } = completeness
+    {
+        trace.event(
+            "playback_provider_search_page",
+            provider,
+            serde_json::json!({
+                "rowCount": row_count,
+                "parsedCount": parsed_count,
+                "rejectedCount": rejected_count,
+            }),
+        );
     }
 }
 
@@ -3279,6 +3402,88 @@ struct CandidateSearchCache {
     in_flight: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
 
+/// Owns a singleflight key for the complete lifetime of a cache lookup.
+/// Dropping an owner or waiter (including from timeout_at) releases its guard
+/// and prunes the registry once no other lookup still references the gate.
+struct SearchFlightLease<'a> {
+    flights: &'a Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    key: String,
+    gate: Arc<tokio::sync::Mutex<()>>,
+    guard: Option<tokio::sync::OwnedMutexGuard<()>>,
+    waited_for_gate: bool,
+}
+
+impl Drop for SearchFlightLease<'_> {
+    fn drop(&mut self) {
+        self.guard.take();
+        if let Ok(mut flights) = self.flights.lock() {
+            if flights.get(&self.key).is_some_and(|current| {
+                Arc::ptr_eq(current, &self.gate) && Arc::strong_count(current) == 2
+            }) {
+                flights.remove(&self.key);
+            }
+        }
+    }
+}
+
+async fn acquire_search_flight<'a>(
+    flights: &'a Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    key: &str,
+    cancel: watch::Receiver<bool>,
+    deadline: Option<tokio::time::Instant>,
+) -> Result<SearchFlightLease<'a>, String> {
+    if *cancel.borrow() {
+        return Err("Cancelled".into());
+    }
+    if deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
+        return Err("Playback candidate search timed out".into());
+    }
+    let gate = flights
+        .lock()
+        .map_err(|_| "Search cache lock poisoned")?
+        .entry(key.to_owned())
+        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+        .clone();
+    let mut flight = SearchFlightLease {
+        flights,
+        key: key.to_owned(),
+        gate,
+        guard: None,
+        waited_for_gate: false,
+    };
+    let acquired: Result<(tokio::sync::OwnedMutexGuard<()>, bool), String> = match flight
+        .gate
+        .clone()
+        .try_lock_owned()
+    {
+        Ok(guard) => Ok((guard, false)),
+        Err(_) => {
+            flight.waited_for_gate = true;
+            let lock = flight.gate.clone().lock_owned();
+            match deadline {
+                Some(deadline) => tokio::select! {
+                    biased;
+                    _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => Err("Cancelled".into()),
+                    _ = tokio::time::sleep_until(deadline) => Err("Playback candidate search timed out".into()),
+                    guard = lock => Ok((guard, true)),
+                },
+                None => tokio::select! {
+                    biased;
+                    _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => Err("Cancelled".into()),
+                    guard = lock => Ok((guard, true)),
+                },
+            }
+        }
+    };
+    let (guard, waited_for_gate) = acquired?;
+    flight.waited_for_gate = waited_for_gate;
+    flight.guard = Some(guard);
+    if deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
+        return Err("Playback candidate search timed out".into());
+    }
+    Ok(flight)
+}
+
 #[derive(Default)]
 struct InspectionCache {
     entries: Mutex<HashMap<String, (Instant, Candidate)>>,
@@ -3305,29 +3510,48 @@ impl InspectionCache {
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = Result<Candidate, String>>,
     {
-        let gate = self
-            .in_flight
-            .lock()
-            .map_err(|_| "Inspection cache lock poisoned")?
-            .entry(key.clone())
-            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
-            .clone();
-        let guard = gate.lock().await;
+        let (_tx, cancel) = idle_cancel();
+        self.get_or_inspect_until(key, cancel, None, inspect).await
+    }
+
+    async fn get_or_inspect_until<F, Fut>(
+        &self,
+        key: String,
+        cancel: watch::Receiver<bool>,
+        deadline: Option<tokio::time::Instant>,
+        inspect: F,
+    ) -> Result<Candidate, String>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<Candidate, String>>,
+    {
+        let _flight =
+            acquire_search_flight(&self.in_flight, &key, cancel.clone(), deadline).await?;
         if let Some(cached) = self.entries.lock().ok().and_then(|mut entries| {
             entries.retain(|_, (at, _)| at.elapsed() < INSPECTION_CACHE_TTL);
             entries.get(&key).map(|(_, candidate)| candidate.clone())
         }) {
-            drop(guard);
-            remove_flight_if_unused(&self.in_flight, &key, &gate);
+            if deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
+                return Err("Playback candidate search timed out".into());
+            }
             return Ok(cached);
         }
-        let candidate = match inspect().await {
+        let loaded = match deadline {
+            Some(deadline) => tokio::select! {
+                biased;
+                _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => Err("Cancelled".into()),
+                _ = tokio::time::sleep_until(deadline) => Err("Playback candidate search timed out".into()),
+                result = inspect() => result,
+            },
+            None => tokio::select! {
+                biased;
+                _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => Err("Cancelled".into()),
+                result = inspect() => result,
+            },
+        };
+        let candidate = match loaded {
             Ok(candidate) => candidate,
-            Err(error) => {
-                drop(guard);
-                remove_flight_if_unused(&self.in_flight, &key, &gate);
-                return Err(error);
-            }
+            Err(error) => return Err(error),
         };
         if let Ok(mut entries) = self.entries.lock() {
             entries.retain(|_, (at, _)| at.elapsed() < INSPECTION_CACHE_TTL);
@@ -3342,8 +3566,6 @@ impl InspectionCache {
             }
             entries.insert(key.clone(), (Instant::now(), candidate.clone()));
         }
-        drop(guard);
-        remove_flight_if_unused(&self.in_flight, &key, &gate);
         Ok(candidate)
     }
 }
@@ -3376,27 +3598,17 @@ impl RawAudioSearchCache {
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = Result<Vec<Track>, String>>,
     {
-        let gate = self
-            .in_flight
-            .lock()
-            .map_err(|_| "Audio search cache lock poisoned")?
-            .entry(key.clone())
-            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
-            .clone();
-        let guard = gate.lock().await;
+        let (_tx, cancel) = idle_cancel();
+        let _flight = acquire_search_flight(&self.in_flight, &key, cancel, None).await?;
         if let Some(tracks) = self.entries.lock().ok().and_then(|mut entries| {
             entries.retain(|_, value| value.cached_at.elapsed() < RAW_AUDIO_SEARCH_CACHE_TTL);
             entries.get(&key).map(|value| value.tracks.clone())
         }) {
-            drop(guard);
-            remove_flight_if_unused(&self.in_flight, &key, &gate);
             return Ok(tracks);
         }
         let tracks = match search().await {
             Ok(tracks) => tracks,
             Err(error) => {
-                drop(guard);
-                remove_flight_if_unused(&self.in_flight, &key, &gate);
                 return Err(error);
             }
         };
@@ -3420,8 +3632,6 @@ impl RawAudioSearchCache {
                 },
             );
         }
-        drop(guard);
-        remove_flight_if_unused(&self.in_flight, &key, &gate);
         Ok(tracks)
     }
 
@@ -3434,14 +3644,8 @@ impl RawAudioSearchCache {
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = Result<AudioSearchPage, String>>,
     {
-        let gate = self
-            .in_flight
-            .lock()
-            .map_err(|_| "Audio search cache lock poisoned")?
-            .entry(key.clone())
-            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
-            .clone();
-        let guard = gate.lock().await;
+        let (_tx, cancel) = idle_cancel();
+        let _flight = acquire_search_flight(&self.in_flight, &key, cancel, None).await?;
         if let Some(page) = self.entries.lock().ok().and_then(|mut entries| {
             entries.retain(|_, value| value.cached_at.elapsed() < RAW_AUDIO_SEARCH_CACHE_TTL);
             entries.get(&key).map(|value| AudioSearchPage {
@@ -3449,15 +3653,11 @@ impl RawAudioSearchCache {
                 entry_count: value.entry_count,
             })
         }) {
-            drop(guard);
-            remove_flight_if_unused(&self.in_flight, &key, &gate);
             return Ok(page);
         }
         let page = match search().await {
             Ok(page) => page,
             Err(error) => {
-                drop(guard);
-                remove_flight_if_unused(&self.in_flight, &key, &gate);
                 return Err(error);
             }
         };
@@ -3481,8 +3681,6 @@ impl RawAudioSearchCache {
                 },
             );
         }
-        drop(guard);
-        remove_flight_if_unused(&self.in_flight, &key, &gate);
         Ok(page)
     }
 }
@@ -3799,21 +3997,6 @@ fn preview_audio_cache_ttl_at(raw_url: &str, now: i64) -> Duration {
         .min(PREVIEW_AUDIO_CACHE_TTL)
 }
 
-fn remove_flight_if_unused(
-    flights: &Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
-    key: &str,
-    gate: &Arc<tokio::sync::Mutex<()>>,
-) {
-    if let Ok(mut in_flight) = flights.lock() {
-        if in_flight
-            .get(key)
-            .is_some_and(|current| Arc::ptr_eq(current, gate) && Arc::strong_count(current) == 2)
-        {
-            in_flight.remove(key);
-        }
-    }
-}
-
 impl CandidateSearchCache {
     /// Cache one exact provider request independently from matching level and
     /// recording policy. The namespace shares the existing search owner's
@@ -3829,29 +4012,27 @@ impl CandidateSearchCache {
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = Result<ProviderQueryResponse, String>>,
     {
+        self.get_or_search_provider_query_until(key, cancel, None, load)
+            .await
+    }
+
+    async fn get_or_search_provider_query_until<F, Fut>(
+        &self,
+        key: String,
+        cancel: watch::Receiver<bool>,
+        deadline: Option<tokio::time::Instant>,
+        load: F,
+    ) -> Result<ProviderQueryResponse, String>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<ProviderQueryResponse, String>>,
+    {
         const MAX_PROVIDER_QUERY_ENTRIES: usize = 256;
         const PROVIDER_QUERY_TTL: Duration = Duration::from_secs(5 * 60);
         let key = format!("provider-query:{key}");
+        let _flight =
+            acquire_search_flight(&self.in_flight, &key, cancel.clone(), deadline).await?;
         if *cancel.borrow() {
-            return Err("Cancelled".into());
-        }
-        let gate = self
-            .in_flight
-            .lock()
-            .map_err(|_| "Search cache lock poisoned")?
-            .entry(key.clone())
-            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
-            .clone();
-        let guard = tokio::select! {
-            guard = gate.lock() => guard,
-            _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => {
-                self.remove_flight_if_unused(&key, &gate);
-                return Err("Cancelled".into());
-            }
-        };
-        if *cancel.borrow() {
-            drop(guard);
-            self.remove_flight_if_unused(&key, &gate);
             return Err("Cancelled".into());
         }
         if let Some(response) = self
@@ -3863,26 +4044,29 @@ impl CandidateSearchCache {
                 entries.get(&key).map(|row| row.response.clone())
             })
         {
-            drop(guard);
-            self.remove_flight_if_unused(&key, &gate);
+            if deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
+                return Err("Playback candidate search timed out".into());
+            }
             return Ok(response);
         }
-        let loaded = tokio::select! {
-            biased;
-            _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => Err("Cancelled".into()),
-            response = load() => response,
+        let loaded = match deadline {
+            Some(deadline) => tokio::select! {
+                biased;
+                _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => Err("Cancelled".into()),
+                _ = tokio::time::sleep_until(deadline) => Err("Playback candidate search timed out".into()),
+                response = load() => response,
+            },
+            None => tokio::select! {
+                biased;
+                _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => Err("Cancelled".into()),
+                response = load() => response,
+            },
         };
         let response = match loaded {
             Ok(response) => response,
-            Err(error) => {
-                drop(guard);
-                self.remove_flight_if_unused(&key, &gate);
-                return Err(error);
-            }
+            Err(error) => return Err(error),
         };
         if *cancel.borrow() {
-            drop(guard);
-            self.remove_flight_if_unused(&key, &gate);
             return Err("Cancelled".into());
         }
         if response.completeness.cacheable() {
@@ -3922,8 +4106,6 @@ impl CandidateSearchCache {
                 }
             }
         }
-        drop(guard);
-        self.remove_flight_if_unused(&key, &gate);
         Ok(response)
     }
 
@@ -3998,6 +4180,29 @@ impl CandidateSearchCache {
             .map(|(candidates, _complete)| candidates)
     }
 
+    async fn get_or_search_cancelled_observed_decided_with_deadline<F, Fut>(
+        &self,
+        key: String,
+        cancel: watch::Receiver<bool>,
+        trace: Option<crate::playback_sources::SourceTrace>,
+        deadline: tokio::time::Instant,
+        load: F,
+    ) -> Result<Vec<Candidate>, String>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<(Vec<Candidate>, bool), String>>,
+    {
+        self.get_or_search_cancelled_observed_decided_with_completeness_until(
+            key,
+            cancel,
+            trace,
+            Some(deadline),
+            load,
+        )
+        .await
+        .map(|(candidates, _)| candidates)
+    }
+
     async fn get_or_search_cancelled_observed_decided_with_completeness<F, Fut>(
         &self,
         key: String,
@@ -4009,52 +4214,37 @@ impl CandidateSearchCache {
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = Result<(Vec<Candidate>, bool), String>>,
     {
+        self.get_or_search_cancelled_observed_decided_with_completeness_until(
+            key, cancel, trace, None, load,
+        )
+        .await
+    }
+
+    async fn get_or_search_cancelled_observed_decided_with_completeness_until<F, Fut>(
+        &self,
+        key: String,
+        cancel: watch::Receiver<bool>,
+        trace: Option<crate::playback_sources::SourceTrace>,
+        deadline: Option<tokio::time::Instant>,
+        load: F,
+    ) -> Result<(Vec<Candidate>, bool), String>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<(Vec<Candidate>, bool), String>>,
+    {
         if *cancel.borrow() {
             return Err("Cancelled".into());
         }
-        let gate = self
-            .in_flight
-            .lock()
-            .map_err(|_| "Search cache lock poisoned")?
-            .entry(key.clone())
-            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
-            .clone();
+        let flight = acquire_search_flight(&self.in_flight, &key, cancel.clone(), deadline).await?;
         let trace_enabled = trace.as_ref().is_some_and(|trace| trace.is_enabled());
-        let (guard, waited_for_gate) = if trace_enabled {
-            match gate.try_lock() {
-                Ok(guard) => (guard, false),
-                Err(_) => {
-                    let guard = tokio::select! {
-                        guard = gate.lock() => guard,
-                        _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => {
-                            self.remove_flight_if_unused(&key, &gate);
-                            return Err("Cancelled".into());
-                        }
-                    };
-                    (guard, true)
-                }
-            }
-        } else {
-            let guard = tokio::select! {
-                guard = gate.lock() => guard,
-                _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => {
-                    self.remove_flight_if_unused(&key, &gate);
-                    return Err("Cancelled".into());
-                }
-            };
-            (guard, false)
-        };
+        let waited_for_gate = flight.waited_for_gate;
         if *cancel.borrow() {
-            drop(guard);
-            self.remove_flight_if_unused(&key, &gate);
             return Err("Cancelled".into());
         }
         if let Some(cached) = self.entries.lock().ok().and_then(|mut entries| {
             entries.retain(|_, v| v.cached_at.elapsed() < SEARCH_CACHE_TTL);
             entries.get(&key).map(|v| v.candidates.clone())
         }) {
-            drop(guard);
-            self.remove_flight_if_unused(&key, &gate);
             if trace_enabled {
                 if let Some(trace) = &trace {
                     trace.event_scoped(
@@ -4069,16 +4259,30 @@ impl CandidateSearchCache {
             }
             // Only complete responses enter this cache. A loaded incomplete
             // response is returned to its caller and retried on the next call.
+            if deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
+                return Err("Playback candidate search timed out".into());
+            }
             return Ok((cached, true));
         }
         let cache_miss_observed_elapsed_ms = trace_enabled
             .then(|| trace.as_ref().map(|trace| trace.elapsed_ms()))
             .flatten();
-        let (candidates, cacheable) = match load().await {
+        let loaded = match deadline {
+            Some(deadline) => tokio::select! {
+                biased;
+                _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => Err("Cancelled".into()),
+                _ = tokio::time::sleep_until(deadline) => Err("Playback candidate search timed out".into()),
+                result = load() => result,
+            },
+            None => tokio::select! {
+                biased;
+                _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => Err("Cancelled".into()),
+                result = load() => result,
+            },
+        };
+        let (candidates, cacheable) = match loaded {
             Ok(result) => result,
             Err(error) => {
-                drop(guard);
-                self.remove_flight_if_unused(&key, &gate);
                 if trace_enabled {
                     if let Some(trace) = &trace {
                         trace.event_scoped(
@@ -4130,8 +4334,6 @@ impl CandidateSearchCache {
                 }
             }
         }
-        drop(guard);
-        self.remove_flight_if_unused(&key, &gate);
         if trace_enabled {
             if let Some(trace) = &trace {
                 trace.event_scoped(
@@ -4145,16 +4347,6 @@ impl CandidateSearchCache {
         }
         Ok((candidates, cacheable))
     }
-
-    fn remove_flight_if_unused(&self, key: &str, gate: &Arc<tokio::sync::Mutex<()>>) {
-        if let Ok(mut in_flight) = self.in_flight.lock() {
-            if in_flight.get(key).is_some_and(|current| {
-                Arc::ptr_eq(current, gate) && Arc::strong_count(current) == 2
-            }) {
-                in_flight.remove(key);
-            }
-        }
-    }
 }
 
 fn search_cache_key(
@@ -4164,16 +4356,71 @@ fn search_cache_key(
     result_limit: usize,
 ) -> String {
     serde_json::json!([
+        "completed-recording-search-v3",
+        crate::recording_match::EVALUATOR_VERSION,
+        settings.matching_level,
+        settings.flexible_matching,
+        completed_search_identity_fingerprint(track),
         track.artist,
         track.title,
         track.version,
+        track.label,
+        track.album,
+        track.source_url,
+        track.track_number,
+        track.disc_number,
         track.duration_seconds,
+        track.playback_range,
         provider_ids,
         result_limit,
         settings.yt_dlp_path,
         settings.js_runtime_path,
     ])
     .to_string()
+}
+
+/// Keep completed-result identity aligned with request fields consumed by
+/// recording_match::prepare and playback acceptance/source-lock policy. The
+/// allowlist includes raw provider-bound credit rows because their join
+/// phrases, malformed/empty distinctions, and manual ownership flags affect
+/// assessment even when their normalized display artist is unchanged.
+fn completed_search_identity_fingerprint(track: &Track) -> Value {
+    let provenance = &track.provenance;
+    let mut relevant = serde_json::Map::new();
+    for field in [
+        "manualFields",
+        "artistCredits",
+        "catalog",
+        "catalogProvider",
+        "remoteCatalog",
+        "recordingContext",
+        "recognitionIdentifiers",
+        "recordingId",
+        "recordingRelations",
+        "workIds",
+        "performerCreditsComplete",
+        "releaseId",
+        "sourceUrl",
+        "explicitSourceLock",
+        "userSelectedSource",
+        "sourceKind",
+    ] {
+        if let Some(value) = provenance.get(field) {
+            relevant.insert(field.to_owned(), value.clone());
+        }
+    }
+    if provenance["sourceKind"].as_str() == Some("audioSearch") {
+        if let Some(candidate) = provenance.get("audioCandidate") {
+            relevant.insert("audioCandidate".into(), candidate.clone());
+        }
+    }
+    serde_json::json!({
+        "provider": track.provider,
+        "providerId": track.provider_id,
+        "isrc": track.isrc,
+        "recordingIdentity": crate::recording_identity::RecordingIdentity::from_track(track),
+        "provenance": Value::Object(relevant),
+    })
 }
 
 fn optional_playback_research_budget(remaining: Duration) -> Duration {
@@ -4384,6 +4631,16 @@ pub(crate) async fn inspect_candidate_cancelled(
     cancel: watch::Receiver<bool>,
 ) -> Result<Candidate, String> {
     inspect_with_cancel(track, candidate, settings, cancel).await
+}
+
+pub(crate) async fn inspect_candidate_cancelled_until(
+    track: &Track,
+    candidate: &Candidate,
+    settings: &Settings,
+    cancel: watch::Receiver<bool>,
+    deadline: crate::playback_sources::PlaybackDeadline,
+) -> Result<Candidate, String> {
+    inspect_with_cancel_until(track, candidate, settings, cancel, Some(deadline)).await
 }
 
 pub async fn inspect_chapters(
@@ -5757,7 +6014,8 @@ fn preview_audio_from_metadata(
     }
     if !candidate.id.is_empty() {
         let resolved_id = info["id"].as_str().unwrap_or_default();
-        if candidate.id != format!("{}:{resolved_id}", candidate.provider) {
+        if resolved_id.is_empty() || candidate.id != format!("{}:{resolved_id}", candidate.provider)
+        {
             return Err("Source identity changed during audio resolution; select it again".into());
         }
     }
@@ -5814,7 +6072,13 @@ fn preview_audio_from_metadata(
             } else {
                 verified_youtube_channel_metadata(candidate, info)
             };
-            richer_metadata.or_else(|| youtube_identity_only_metadata(candidate, info))
+            resolved_extractor_identity_metadata(
+                candidate,
+                info,
+                richer_metadata.or_else(|| youtube_identity_only_metadata(candidate, info)),
+            )
+        } else if candidate.provider == "soundcloud" {
+            resolved_extractor_identity_metadata(candidate, info, None)
         } else {
             None
         },
@@ -6107,6 +6371,213 @@ fn topic_identity_metadata(candidate: &Candidate, info: &Value) -> Option<Value>
     }))
 }
 
+/// Attach the identity and bounded observations from the full extractor
+/// response after preview URL, provider ID, and individual-recording checks
+/// have succeeded. This keeps fresh evidence through PreviewAudio without
+/// promoting it to exhaustive performer credits or trusting uploader text.
+fn resolved_extractor_identity_metadata(
+    candidate: &Candidate,
+    info: &Value,
+    richer: Option<Value>,
+) -> Option<Value> {
+    let resolved_id = info["id"]
+        .as_str()
+        .filter(|id| !id.is_empty() && id.len() <= 256)?;
+    if candidate.id != format!("{}:{resolved_id}", candidate.provider)
+        || !matches!(candidate.provider.as_str(), "youtube" | "soundcloud")
+    {
+        return None;
+    }
+    let mut metadata = richer
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+    metadata.insert("provider".into(), Value::String(candidate.provider.clone()));
+    metadata.insert(
+        "resolvedProviderId".into(),
+        Value::String(resolved_id.to_owned()),
+    );
+    metadata.insert(
+        "sourceMetadataOrigin".into(),
+        Value::String("ytDlpFullInfo".into()),
+    );
+
+    let safe_text = |field: &str, limit: usize| {
+        info[field].as_str().and_then(|value| {
+            let value = value.trim();
+            (!value.is_empty()
+                && value.chars().count() <= limit
+                && !value.chars().any(char::is_control))
+            .then(|| value.to_owned())
+        })
+    };
+    let mut uncertain = false;
+    let fresh_artist_names = match info.get("artists") {
+        Some(Value::Array(values)) if values.len() <= 32 => {
+            let parsed = values
+                .iter()
+                .map(|value| {
+                    value.as_str().and_then(|name| {
+                        let name = name.trim();
+                        (!name.is_empty()
+                            && name.chars().count() <= 256
+                            && !name.chars().any(char::is_control))
+                        .then(|| name.to_owned())
+                    })
+                })
+                .collect::<Option<Vec<_>>>();
+            match parsed {
+                Some(names) if !names.is_empty() => Some(names),
+                Some(_) => None,
+                None => {
+                    uncertain = true;
+                    None
+                }
+            }
+        }
+        Some(Value::Array(_)) => {
+            uncertain = true;
+            None
+        }
+        Some(value) if !value.is_null() => {
+            uncertain = true;
+            None
+        }
+        _ => None,
+    };
+    let fresh_artist = safe_text("artist", 512);
+    if fresh_artist.is_none()
+        && info
+            .get("artist")
+            .is_some_and(|value| match value.as_str() {
+                Some(text) => !text.trim().is_empty(),
+                None => !value.is_null(),
+            })
+    {
+        uncertain = true;
+    }
+    let has_rich_artist_fields = ["artists", "artistNames", "artist"]
+        .iter()
+        .any(|field| metadata.get(*field).is_some_and(|value| !value.is_null()));
+    if candidate.provider == "soundcloud" && !has_rich_artist_fields {
+        // SoundCloud's fresh, ID-bound extractor fields describe this track's
+        // source caption. Keep them as open-world metadata, never as a
+        // completeness declaration.
+        if let Some(names) = fresh_artist_names.as_ref() {
+            metadata.insert("artistCount".into(), Value::from(names.len()));
+            metadata.insert("artists".into(), serde_json::json!(names));
+        } else if let Some(artist) = fresh_artist.as_ref() {
+            metadata.insert("artist".into(), Value::String(artist.clone()));
+        }
+    } else if fresh_artist_names.is_some() && !has_rich_artist_fields
+        || fresh_artist.is_some() && !has_rich_artist_fields
+    {
+        // Generic YouTube fields do not become a new credit proof path. If
+        // they cannot be retained by an existing validated metadata path,
+        // block caption fallback instead.
+        uncertain = true;
+    }
+    if let Some(names) = fresh_artist_names.as_ref() {
+        if let Some(Value::Array(rich_names)) = metadata.get("artists") {
+            let normalize = |values: &[Value]| {
+                let mut keys = values
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(|value| crate::matching::normalize(value))
+                    .collect::<Vec<_>>();
+                keys.sort();
+                keys.dedup();
+                keys
+            };
+            let mut raw_keys = names
+                .iter()
+                .map(|name| crate::matching::normalize(name))
+                .collect::<Vec<_>>();
+            raw_keys.sort();
+            raw_keys.dedup();
+            if normalize(rich_names) != raw_keys {
+                uncertain = true;
+            }
+        } else {
+            uncertain = true;
+        }
+    }
+    if let (Some(artist), Some(Value::Array(names))) =
+        (fresh_artist.as_ref(), metadata.get("artists"))
+    {
+        let artist_key = crate::matching::normalize(artist);
+        let rich_keys = names
+            .iter()
+            .filter_map(Value::as_str)
+            .map(|name| crate::matching::normalize(name))
+            .filter(|key| !key.is_empty())
+            .collect::<Vec<_>>();
+        let artist_is_known_primary = rich_keys.iter().any(|key| key == &artist_key);
+        let artist_corroborates_full_set = rich_keys
+            .iter()
+            .all(|key| artist_key.contains(key.as_str()));
+        if !artist_is_known_primary && !artist_corroborates_full_set {
+            uncertain = true;
+        }
+        if names.iter().filter_map(Value::as_str).any(|name| {
+            let name_key = crate::matching::normalize(name);
+            name_key.is_empty()
+        }) {
+            uncertain = true;
+        }
+    } else if fresh_artist.is_some() && has_rich_artist_fields {
+        let rich_artist = metadata.get("artist").and_then(Value::as_str).or_else(|| {
+            metadata
+                .get("artistNames")
+                .and_then(Value::as_array)
+                .map(|_| "")
+        });
+        if let Some(rich_artist) = rich_artist {
+            if !rich_artist.is_empty()
+                && crate::matching::normalize(rich_artist)
+                    != crate::matching::normalize(fresh_artist.as_deref().unwrap_or_default())
+            {
+                uncertain = true;
+            }
+        }
+    }
+    for (source, target, limit) in [
+        ("version", "version", 300),
+        ("mix", "mix", 300),
+        ("isrc", "isrc", 32),
+    ] {
+        if let Some(value) = safe_text(source, limit) {
+            metadata.insert(target.into(), Value::String(value));
+        } else if info.get(source).is_some_and(|value| match value.as_str() {
+            Some(text) => !text.trim().is_empty(),
+            None => !value.is_null(),
+        }) {
+            uncertain = true;
+        }
+    }
+    if let Some(duration) = info["duration"]
+        .as_f64()
+        .filter(|duration| duration.is_finite() && *duration > 0.0)
+    {
+        metadata.insert("duration".into(), serde_json::json!(duration));
+    } else if info.get("duration").is_some_and(|value| !value.is_null()) {
+        uncertain = true;
+    }
+    for field in ["isPreview", "isFullAlbum"] {
+        if let Some(value) = info[field].as_bool() {
+            metadata.insert(field.into(), Value::Bool(value));
+        }
+    }
+    if uncertain {
+        metadata.insert("identityMetadataUncertain".into(), Value::Bool(true));
+        metadata.remove("performerCreditsComplete");
+        metadata.remove("artists");
+        metadata.remove("artistNames");
+        metadata.remove("artist");
+        metadata.remove("artistCount");
+    }
+    Some(Value::Object(metadata))
+}
+
 fn preview_audio_format_selector(
     alternate_format: bool,
     allow_muxed_youtube: bool,
@@ -6180,12 +6651,25 @@ async fn inspect_with_cancel(
     settings: &Settings,
     cancel: watch::Receiver<bool>,
 ) -> Result<Candidate, String> {
+    inspect_with_cancel_until(track, candidate, settings, cancel, None).await
+}
+
+async fn inspect_with_cancel_until(
+    track: &Track,
+    candidate: &Candidate,
+    settings: &Settings,
+    cancel: watch::Receiver<bool>,
+    deadline: Option<crate::playback_sources::PlaybackDeadline>,
+) -> Result<Candidate, String> {
     let key = inspection_cache_key(candidate, settings);
     let cache = INSPECTION_CACHE.get_or_init(InspectionCache::default);
     let mut inspected = cache
-        .get_or_inspect(key, || {
-            inspect_metadata_with_cancel(candidate, settings, cancel)
-        })
+        .get_or_inspect_until(
+            key,
+            cancel.clone(),
+            deadline.map(|deadline| deadline.instant()),
+            || inspect_metadata_with_cancel(candidate, settings, cancel),
+        )
         .await?;
     matching::score_candidate(track, &mut inspected);
     if candidate.provider == "direct" {
@@ -6672,21 +7156,27 @@ impl AcquisitionManager {
         ])
         .to_string();
         let alternate_for_search = alternate_artist.clone();
-        cached_download_candidate_search(&self.inner.search_cache, key, cancel.clone(), || async {
-            let (candidates, complete) = find_candidates_with_cancel_until_alias_detailed(
-                track,
-                &providers,
-                settings,
-                cancel,
-                10,
-                PREVIEW_SEARCH_TIMEOUT,
-                Some(deadline),
-                alternate_for_search,
-                Some(&self.inner.search_cache),
-            )
-            .await?;
-            Ok((candidates, complete))
-        })
+        cached_download_candidate_search(
+            &self.inner.search_cache,
+            key,
+            cancel.clone(),
+            deadline,
+            || async {
+                let (candidates, complete) = find_candidates_with_cancel_until_alias_detailed(
+                    track,
+                    &providers,
+                    settings,
+                    cancel,
+                    10,
+                    PREVIEW_SEARCH_TIMEOUT,
+                    Some(deadline),
+                    alternate_for_search,
+                    Some(&self.inner.search_cache),
+                )
+                .await?;
+                Ok((candidates, complete))
+            },
+        )
         .await
     }
 
@@ -7468,18 +7958,28 @@ impl AcquisitionManager {
         cancel: watch::Receiver<bool>,
     ) -> Result<Vec<Candidate>, String> {
         let key = search_cache_key(track, provider_ids, settings, 3);
+        let deadline = crate::playback_sources::PlaybackDeadline::after(PREVIEW_SEARCH_TIMEOUT);
         self.inner
             .search_cache
-            .get_or_search_cancelled(key, cancel.clone(), || {
-                find_candidates_with_cancel(
-                    track,
-                    provider_ids,
-                    settings,
-                    cancel,
-                    3,
-                    PREVIEW_SEARCH_TIMEOUT,
-                )
-            })
+            .get_or_search_cancelled_observed_decided_with_deadline(
+                key,
+                cancel.clone(),
+                None,
+                deadline.instant(),
+                || async {
+                    find_candidates_with_cancel_until(
+                        track,
+                        provider_ids,
+                        settings,
+                        cancel,
+                        3,
+                        PREVIEW_SEARCH_TIMEOUT,
+                        Some(deadline),
+                    )
+                    .await
+                    .map(|candidates| (candidates, true))
+                },
+            )
             .await
     }
 
@@ -7596,6 +8096,7 @@ impl AcquisitionManager {
             None,
             Some(&self.inner.search_cache),
             true,
+            None,
         )
         .await;
         if *cancel.borrow() {
@@ -7636,10 +8137,11 @@ impl AcquisitionManager {
             let found = self
                 .inner
                 .search_cache
-                .get_or_search_cancelled_observed_decided_with_completeness(
+                .get_or_search_cancelled_observed_decided_with_completeness_until(
                     key,
                     cancel.clone(),
                     None,
+                    Some(deadline.instant()),
                     || async {
                         find_candidates_with_cancel_until_alias_detailed(
                             &search_track,
@@ -7713,61 +8215,71 @@ impl AcquisitionManager {
         } else {
             None
         };
+        let query_trace = trace.clone();
         self.inner
             .search_cache
-            .get_or_search_cancelled_observed_decided(key, cancel.clone(), trace, || async {
-                let search_flat = || async {
-                    find_candidates_with_cancel_until_alias_detailed(
-                        &search_track,
-                        provider_ids,
-                        settings,
-                        cancel.clone(),
-                        PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT,
-                        PREVIEW_SEARCH_TIMEOUT,
-                        Some(deadline),
-                        alternate_artist.clone(),
-                        Some(&self.inner.search_cache),
-                    )
-                    .await
-                };
-                let (found, flat_complete) = if let Some(flat_key) = flat_key {
-                    self.inner
-                        .search_cache
-                        .get_or_search_cancelled_observed_decided_with_completeness(
-                            flat_key,
+            .get_or_search_cancelled_observed_decided_with_deadline(
+                key,
+                cancel.clone(),
+                trace,
+                deadline.instant(),
+                || async {
+                    let search_flat = || async {
+                        find_candidates_with_cancel_until_alias_detailed_traced(
+                            &search_track,
+                            provider_ids,
+                            settings,
                             cancel.clone(),
-                            None,
-                            search_flat,
+                            PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT,
+                            PREVIEW_SEARCH_TIMEOUT,
+                            Some(deadline),
+                            alternate_artist.clone(),
+                            Some(&self.inner.search_cache),
+                            query_trace.clone(),
                         )
-                        .await?
-                } else {
-                    search_flat().await?
-                };
-                let (completed, catalog_complete) =
-                    complete_playback_candidate_search_observed_with_level(
-                        &search_track,
-                        provider_ids,
-                        alternate_artist.as_deref(),
-                        found,
-                        cancel.clone(),
-                        deadline,
-                        || async {
-                            let query = format!("{} {}", search_track.artist, search_track.title);
-                            let items = crate::youtube_music::search_playback_candidates(
-                                &query,
-                                10,
+                        .await
+                    };
+                    let (found, flat_complete) = if let Some(flat_key) = flat_key {
+                        self.inner
+                            .search_cache
+                            .get_or_search_cancelled_observed_decided_with_completeness_until(
+                                flat_key,
                                 cancel.clone(),
-                                deadline,
+                                None,
+                                Some(deadline.instant()),
+                                search_flat,
                             )
-                            .await?;
-                            Ok(playback_music_catalog_candidates(&search_track, items))
-                        },
-                        observe_flat_batch,
-                        settings.matching_level,
-                    )
-                    .await?;
-                Ok((completed, flat_complete && catalog_complete))
-            })
+                            .await?
+                    } else {
+                        search_flat().await?
+                    };
+                    let (completed, catalog_complete) =
+                        complete_playback_candidate_search_observed_with_level(
+                            &search_track,
+                            provider_ids,
+                            alternate_artist.as_deref(),
+                            found,
+                            cancel.clone(),
+                            deadline,
+                            || async {
+                                let query =
+                                    format!("{} {}", search_track.artist, search_track.title);
+                                let items = crate::youtube_music::search_playback_candidates(
+                                    &query,
+                                    10,
+                                    cancel.clone(),
+                                    deadline,
+                                )
+                                .await?;
+                                Ok(playback_music_catalog_candidates(&search_track, items))
+                            },
+                            observe_flat_batch,
+                            settings.matching_level,
+                        )
+                        .await?;
+                    Ok((completed, flat_complete && catalog_complete))
+                },
+            )
             .await
     }
 
@@ -9871,6 +10383,7 @@ async fn cached_download_candidate_search<F, Fut>(
     cache: &CandidateSearchCache,
     key: String,
     cancel: watch::Receiver<bool>,
+    deadline: crate::playback_sources::PlaybackDeadline,
     load: F,
 ) -> Result<Vec<Candidate>, String>
 where
@@ -9878,7 +10391,13 @@ where
     Fut: std::future::Future<Output = Result<(Vec<Candidate>, bool), String>>,
 {
     cache
-        .get_or_search_cancelled_observed_decided(key, cancel, None, load)
+        .get_or_search_cancelled_observed_decided_with_deadline(
+            key,
+            cancel,
+            None,
+            deadline.instant(),
+            load,
+        )
         .await
 }
 
@@ -13047,18 +13566,18 @@ mod tests {
         };
         assert_eq!(
             playback_search_queries(&track, None),
-            vec!["john denver matthew", "\"john denver\" \"matthew\""]
+            vec!["John Denver Matthew", "\"john denver\" \"Matthew\""]
         );
         let alias = playback_search_queries(&track, Some("Verified Name"));
         assert_eq!(alias.len(), 2);
-        assert_eq!(alias[1], "verified name matthew");
+        assert_eq!(matching::normalize(&alias[1]), "verified name matthew");
         let missing = Track {
             duration_seconds: None,
             ..track.clone()
         };
         assert_eq!(
             playback_search_queries(&missing, None),
-            vec!["john denver matthew"]
+            vec!["John Denver Matthew"]
         );
         let make = |title: &str, duration| Candidate {
             provider: "youtube".into(),
@@ -13082,6 +13601,32 @@ mod tests {
     }
 
     #[test]
+    fn legacy_precision_query_preserves_live_remix_unknown_and_separate_version() {
+        let cases = [
+            ("Song (Live)", None, "live"),
+            ("Song (Live Remix)", None, "live remix"),
+            ("Song (Studio Session)", None, "studio session"),
+            ("Song", Some("Live"), "live"),
+        ];
+        for (title, version, expected_context) in cases {
+            let track = Track {
+                title: title.into(),
+                version: version.map(str::to_owned),
+                artist: "Performer".into(),
+                duration_seconds: Some(220.0),
+                ..Track::default()
+            };
+            let queries = playback_search_queries_with_release_policy(&track, None, true);
+            assert_eq!(queries.len(), 2, "{title} {version:?}");
+            assert!(
+                matching::normalize(&queries[1]).contains(expected_context),
+                "precision query must retain {expected_context:?}: {:?}",
+                queries[1]
+            );
+        }
+    }
+
+    #[test]
     fn alias_query_uses_second_existing_slot_keeps_version_and_stays_within_two_calls() {
         let track = Track {
             artist: "Le Mystère Des Voix Bulgares".into(),
@@ -13092,12 +13637,17 @@ mod tests {
         let queries =
             playback_search_queries(&track, Some("Bulgarian State Radio Female Vocal Choir"));
         assert_eq!(queries.len(), 2);
-        assert!(queries[0].contains("live"));
-        assert!(queries[1].contains("bulgarian state radio female vocal choir"));
-        assert!(queries[1].contains("live"));
+        assert!(matching::normalize(&queries[0]).contains("live"));
+        assert!(
+            matching::normalize(&queries[1]).contains("bulgarian state radio female vocal choir")
+        );
+        assert!(matching::normalize(&queries[1]).contains("live"));
         let fallback = playback_search_queries(&track, None);
-        assert_eq!(fallback.len(), 2);
-        assert!(!fallback[1].contains("live"));
+        assert_eq!(
+            fallback,
+            vec!["Le Mystère Des Voix Bulgares Duda E Bolna Legnada Live"]
+        );
+        assert!(matching::normalize(&fallback[0]).contains("live"));
         let unversioned = Track {
             version: None,
             ..track
@@ -13149,9 +13699,9 @@ mod tests {
         assert_eq!(alternate, "Lakis Halkias");
         let queries = playback_search_queries(&track, Some(&alternate));
         assert_eq!(queries.len(), 2);
-        assert!(queries[0].contains("lakis chalkias"));
-        assert!(queries[1].contains("lakis halkias"));
-        assert!(queries[1].contains("live"));
+        assert!(matching::normalize(&queries[0]).contains("lakis chalkias"));
+        assert!(matching::normalize(&queries[1]).contains("lakis halkias"));
+        assert!(matching::normalize(&queries[1]).contains("live"));
         assert_eq!(track.artist, "Lakis Chalkias");
     }
 
@@ -13165,6 +13715,7 @@ mod tests {
             &cache,
             "download-partial-search".into(),
             cancel.clone(),
+            crate::playback_sources::PlaybackDeadline::after(Duration::from_secs(2)),
             || async {
                 calls.fetch_add(1, Ordering::SeqCst);
                 Ok((
@@ -13184,6 +13735,7 @@ mod tests {
             &cache,
             "download-partial-search".into(),
             cancel,
+            crate::playback_sources::PlaybackDeadline::after(Duration::from_secs(2)),
             || async {
                 calls.fetch_add(1, Ordering::SeqCst);
                 Ok((
@@ -13406,6 +13958,218 @@ mod tests {
     }
 
     #[test]
+    fn full_info_projection_keeps_captured_django_evidence_for_flexible_assessment() {
+        let capture: Value = serde_json::from_str(include_str!(
+            "../../docs/performance-results/2026-11-02-remediation/django-parisian-source-capture.json"
+        ))
+        .unwrap();
+        let request: Track = serde_json::from_value(capture["tracks"][0].clone()).unwrap();
+        let candidate = Candidate {
+            id: "youtube:lK_BGCe3q6I".into(),
+            provider: "youtube".into(),
+            title: "Swing 42".into(),
+            duration_seconds: Some(169.0),
+            source_metadata: Some(serde_json::json!({
+                "provider":"youtube",
+                "song":"Swing 42",
+                "album":"l'inoubliable",
+                "artist":"Django Reinhardt, Quintette du Hot Club de France"
+            })),
+            ..Candidate::default()
+        };
+        let extractor_info = serde_json::json!({
+            "id":"lK_BGCe3q6I",
+            "title":"Swing 42",
+            "track":"Swing 42",
+            "artist":"Django Reinhardt, Quintette du Hot Club de France",
+            "artists":["Django Reinhardt","Quintette du Hot Club de France"],
+            "channel_id":"UC1234567890123456789012",
+            "channel":"Django Reinhardt - Topic",
+            "uploader":"Django Reinhardt - Topic",
+            "description":"Swing 42 · Django Reinhardt · Quintette du Hot Club de France",
+            "duration":168.0,
+            "url":"https://rr1.googlevideo.com/videoplayback",
+            "ext":"webm","protocol":"https","format_id":"251",
+            "acodec":"opus","vcodec":"none"
+        });
+
+        // This runs the same validated projection used by preview resolution;
+        // it does not stamp identity fields onto a matcher-only fixture.
+        let audio = preview_audio_from_metadata(&candidate, &extractor_info).unwrap();
+        let mut resolved = candidate.clone();
+        resolved.source_metadata = audio.source_metadata.clone();
+        resolved.title = audio.resolved_title.clone().unwrap();
+        resolved.duration_seconds = audio.duration_seconds;
+        resolved.chapters = audio.chapters.clone();
+        let metadata = resolved.source_metadata.as_ref().unwrap();
+        assert_eq!(metadata["resolvedProviderId"], "lK_BGCe3q6I");
+        assert_eq!(metadata["sourceMetadataOrigin"], "ytDlpFullInfo");
+        assert_eq!(metadata["duration"], 168.0);
+        assert_eq!(
+            metadata["artists"],
+            serde_json::json!(["Django Reinhardt", "Quintette du Hot Club de France"])
+        );
+        assert_ne!(metadata["performerCreditsComplete"], true);
+
+        let options = crate::recording_match::FlexibleMatchingOptions {
+            allow_other_releases: true,
+            allow_other_performances: true,
+            allow_other_mixes: true,
+            allow_different_lengths: true,
+            max_shorter_by_seconds: 30,
+            max_longer_by_seconds: 30,
+            ..Default::default()
+        };
+        let assessment = crate::recording_match::assess_with_options(
+            &request,
+            &resolved,
+            crate::recording_match::MatchLevel::Flexible,
+            crate::recording_match::MatchStage::Resolved,
+            &options,
+        );
+        assert_eq!(
+            assessment.action,
+            crate::recording_match::MatchAction::Accept
+        );
+        assert_eq!(
+            assessment.relationship,
+            crate::recording_match::MatchRelationship::Alternative
+        );
+        assert_eq!(
+            assessment.dimensions.version,
+            crate::recording_match::Comparison::Unknown
+        );
+        assert!(!assessment.evidence.unwrap().complete_performer_credits);
+
+        let mut primary_and_empty_version = extractor_info.clone();
+        primary_and_empty_version["artist"] = serde_json::json!("Django Reinhardt");
+        primary_and_empty_version["version"] = serde_json::json!("");
+        primary_and_empty_version["mix"] = serde_json::json!("Remix");
+        let primary_audio =
+            preview_audio_from_metadata(&candidate, &primary_and_empty_version).unwrap();
+        let primary_metadata = primary_audio.source_metadata.as_ref().unwrap();
+        assert_eq!(primary_metadata["artists"], metadata["artists"]);
+        assert_eq!(primary_metadata["mix"], "Remix");
+        assert!(primary_metadata.get("version").is_none());
+        assert_ne!(primary_metadata["identityMetadataUncertain"], true);
+        let mut primary_candidate = resolved.clone();
+        primary_candidate.source_metadata = primary_audio.source_metadata;
+        let forbidden_mix_options = crate::recording_match::FlexibleMatchingOptions {
+            allow_other_mixes: false,
+            ..options
+        };
+        let forbidden_mix = crate::recording_match::assess_with_options(
+            &request,
+            &primary_candidate,
+            crate::recording_match::MatchLevel::Flexible,
+            crate::recording_match::MatchStage::Resolved,
+            &forbidden_mix_options,
+        );
+        assert_eq!(
+            forbidden_mix.dimensions.version,
+            crate::recording_match::Comparison::Conflict
+        );
+        assert_ne!(
+            forbidden_mix.action,
+            crate::recording_match::MatchAction::Accept
+        );
+
+        let mut wrong_source = candidate.clone();
+        wrong_source.id = "youtube:different-video".into();
+        assert!(preview_audio_from_metadata(&wrong_source, &extractor_info).is_err());
+
+        let mut annotated_info = extractor_info.clone();
+        annotated_info["version"] = serde_json::json!("Remastered 2002");
+        annotated_info["mix"] = serde_json::json!("Live");
+        let annotated_audio = preview_audio_from_metadata(&candidate, &annotated_info).unwrap();
+        let annotated_metadata = annotated_audio.source_metadata.as_ref().unwrap();
+        assert_eq!(annotated_metadata["version"], "Remastered 2002");
+        assert_eq!(annotated_metadata["mix"], "Live");
+        let mut annotated_candidate = resolved.clone();
+        annotated_candidate.source_metadata = annotated_audio.source_metadata;
+        let annotated = crate::recording_match::assess_with_options(
+            &request,
+            &annotated_candidate,
+            crate::recording_match::MatchLevel::Flexible,
+            crate::recording_match::MatchStage::Resolved,
+            &options,
+        );
+        assert_eq!(
+            annotated.dimensions.version,
+            crate::recording_match::Comparison::Conflict
+        );
+        assert!(annotated.evidence.unwrap().conflicting_version_observations);
+        assert_ne!(
+            annotated.action,
+            crate::recording_match::MatchAction::Accept
+        );
+
+        let mut malformed_info = extractor_info.clone();
+        malformed_info["artists"] = serde_json::json!(["Django Reinhardt", null]);
+        malformed_info["artist"] = serde_json::json!("Django Reinhardt");
+        let malformed_audio = preview_audio_from_metadata(&candidate, &malformed_info).unwrap();
+        let malformed_metadata = malformed_audio.source_metadata.unwrap();
+        assert_eq!(malformed_metadata["identityMetadataUncertain"], true);
+        assert!(malformed_metadata.get("artists").is_none());
+        assert!(malformed_metadata.get("artist").is_none());
+        let mut malformed_candidate = resolved.clone();
+        malformed_candidate.source_metadata = Some(malformed_metadata);
+        let uncertain = crate::recording_match::assess_with_options(
+            &request,
+            &malformed_candidate,
+            crate::recording_match::MatchLevel::Flexible,
+            crate::recording_match::MatchStage::Resolved,
+            &options,
+        );
+        assert_ne!(
+            uncertain.action,
+            crate::recording_match::MatchAction::Accept
+        );
+        assert!(uncertain.evidence.unwrap().parsing_incomplete);
+
+        let mut contradictory_info = extractor_info.clone();
+        contradictory_info["artist"] = serde_json::json!("Django Reinhardt only");
+        let contradictory_audio =
+            preview_audio_from_metadata(&candidate, &contradictory_info).unwrap();
+        let contradictory_metadata = contradictory_audio.source_metadata.unwrap();
+        assert_eq!(contradictory_metadata["identityMetadataUncertain"], true);
+        assert!(contradictory_metadata.get("artists").is_none());
+    }
+
+    #[test]
+    fn soundcloud_full_info_artist_fields_are_kept_only_for_the_resolved_id() {
+        let candidate = Candidate {
+            id: "soundcloud:12345".into(),
+            provider: "soundcloud".into(),
+            ..Candidate::default()
+        };
+        let info = serde_json::json!({
+            "id":"12345",
+            "title":"Song",
+            "track":"Song",
+            "artist":"Artist",
+            "artists":["Artist","Featured Artist"],
+            "duration":180.0,
+            "url":"https://cf-media.sndcdn.com/track.mp3",
+            "ext":"mp3","protocol":"https","format_id":"mp3",
+            "acodec":"mp3","vcodec":"none"
+        });
+        let audio = preview_audio_from_metadata(&candidate, &info).unwrap();
+        let metadata = audio.source_metadata.unwrap();
+        assert_eq!(metadata["provider"], "soundcloud");
+        assert_eq!(metadata["resolvedProviderId"], "12345");
+        assert_eq!(metadata["sourceMetadataOrigin"], "ytDlpFullInfo");
+        assert_eq!(
+            metadata["artists"],
+            serde_json::json!(["Artist", "Featured Artist"])
+        );
+        assert_ne!(metadata["performerCreditsComplete"], true);
+        let mut wrong_source = candidate;
+        wrong_source.id = "soundcloud:54321".into();
+        assert!(preview_audio_from_metadata(&wrong_source, &info).is_err());
+    }
+
+    #[test]
     fn topic_proof_uses_fresh_channel_fields_not_candidate_hints() {
         let stale_topic = Candidate {
             id: "youtube:PIJ6QOUnuCg".into(),
@@ -13513,7 +14277,7 @@ mod tests {
     }
 
     #[test]
-    fn unverified_youtube_channel_id_is_retained_only_as_an_equality_fact() {
+    fn unverified_youtube_identity_blocks_unretained_raw_credit_fallback() {
         let ordinary = Candidate {
             id: "youtube:hghqd1eBTYQ".into(),
             provider: "youtube".into(),
@@ -13530,17 +14294,16 @@ mod tests {
             "channel_is_verified":false,"artists":["Wrong Artist"],
         });
         let audio = preview_audio_from_metadata(&ordinary, &unverified).unwrap();
-        assert_eq!(
-            audio.source_metadata,
-            Some(serde_json::json!({
-                "provider":"youtube",
-                "channelId":"UC1234567890123456789012"
-            }))
-        );
         let metadata = audio.source_metadata.unwrap();
+        assert_eq!(metadata["provider"], "youtube");
+        assert_eq!(metadata["resolvedProviderId"], "hghqd1eBTYQ");
+        assert_eq!(metadata["sourceMetadataOrigin"], "ytDlpFullInfo");
+        assert_eq!(metadata["duration"], 225.0);
+        assert_eq!(metadata["identityMetadataUncertain"], true);
         assert!(metadata.get("channelIsVerified").is_none());
         assert!(metadata.get("channel").is_none());
         assert!(metadata.get("uploader").is_none());
+        assert!(metadata.get("artist").is_none());
         assert!(metadata.get("artists").is_none());
         assert!(verified_youtube_channel_metadata(&ordinary, &unverified).is_none());
 
@@ -13734,6 +14497,120 @@ mod tests {
         );
     }
 
+    #[test]
+    fn completed_cache_key_tracks_identity_evidence_without_hashing_arbitrary_provenance() {
+        let settings = Settings::default();
+        let providers = vec!["youtube".to_owned()];
+        let track = Track {
+            title: "Recording".into(),
+            artist: "Performer".into(),
+            isrc: Some("USABC1234567".into()),
+            provenance: serde_json::json!({"displayOnly":{"source":"one"}}),
+            ..Default::default()
+        };
+        let key = playback_candidate_search_cache_key(&track, &providers, &settings, &[]);
+        let mut unrelated_provenance = track.clone();
+        unrelated_provenance.provenance["displayOnly"]["source"] = "two".into();
+        assert_eq!(
+            key,
+            playback_candidate_search_cache_key(&unrelated_provenance, &providers, &settings, &[])
+        );
+        let mut changed_isrc = track;
+        changed_isrc.isrc = Some("GBXYZ9876543".into());
+        assert_ne!(
+            key,
+            playback_candidate_search_cache_key(&changed_isrc, &providers, &settings, &[])
+        );
+        let mut conflicting_identifiers = Track {
+            title: "Recording".into(),
+            artist: "Performer".into(),
+            isrc: Some("USABC1234567".into()),
+            provenance: serde_json::json!({
+                "remoteCatalog":{"isrc":"GBXYZ9876543"},
+                "manualFields":{}
+            }),
+            ..Default::default()
+        };
+        let conflict_key = playback_candidate_search_cache_key(
+            &conflicting_identifiers,
+            &providers,
+            &settings,
+            &[],
+        );
+        conflicting_identifiers.provenance["manualFields"]["isrc"] = serde_json::json!(true);
+        assert_ne!(
+            conflict_key,
+            playback_candidate_search_cache_key(
+                &conflicting_identifiers,
+                &providers,
+                &settings,
+                &[]
+            )
+        );
+    }
+
+    #[test]
+    fn completed_cache_key_distinguishes_credit_boundaries_manual_ownership_and_source_locks() {
+        let settings = Settings::default();
+        let providers = vec!["youtube".to_owned()];
+        let display = "Alpha & Beta";
+        let composite = Track {
+            title: "Recording".into(),
+            artist: display.into(),
+            provenance: serde_json::json!({
+                "artistCredits":[{"name":"Alpha & Beta","role":"artist","joinPhrase":""}]
+            }),
+            ..Default::default()
+        };
+        let separate_credits = Track {
+            provenance: serde_json::json!({
+                "artistCredits":[
+                    {"name":"Alpha","role":"artist","joinPhrase":" & "},
+                    {"name":"Beta","role":"artist","joinPhrase":""}
+                ]
+            }),
+            ..composite.clone()
+        };
+        let key = playback_candidate_search_cache_key(&composite, &providers, &settings, &[]);
+        assert_ne!(
+            key,
+            playback_candidate_search_cache_key(&separate_credits, &providers, &settings, &[])
+        );
+        let mut malformed_credits = separate_credits.clone();
+        malformed_credits.provenance["artistCredits"] = serde_json::json!({"unexpected":"shape"});
+        let mut empty_credits = separate_credits.clone();
+        empty_credits.provenance["artistCredits"] = serde_json::json!([]);
+        assert_ne!(
+            playback_candidate_search_cache_key(&malformed_credits, &providers, &settings, &[]),
+            playback_candidate_search_cache_key(&empty_credits, &providers, &settings, &[])
+        );
+
+        let mut user_owned = separate_credits.clone();
+        user_owned.provenance["manualFields"] = serde_json::json!({"artist":true});
+        assert_ne!(
+            playback_candidate_search_cache_key(&separate_credits, &providers, &settings, &[]),
+            playback_candidate_search_cache_key(&user_owned, &providers, &settings, &[])
+        );
+
+        let mut locked = separate_credits.clone();
+        locked.provenance["explicitSourceLock"] = serde_json::json!(true);
+        assert_ne!(
+            playback_candidate_search_cache_key(&separate_credits, &providers, &settings, &[]),
+            playback_candidate_search_cache_key(&locked, &providers, &settings, &[])
+        );
+        let mut different_raw_provider_id = separate_credits.clone();
+        different_raw_provider_id.provider_id = "catalog:other-recording".into();
+        assert_ne!(
+            playback_candidate_search_cache_key(&separate_credits, &providers, &settings, &[]),
+            playback_candidate_search_cache_key(
+                &different_raw_provider_id,
+                &providers,
+                &settings,
+                &[]
+            )
+        );
+    }
+
     #[tokio::test]
     async fn raw_provider_query_cache_is_mode_independent_but_reassesses_rows() {
         let cache = CandidateSearchCache::default();
@@ -13782,6 +14659,8 @@ mod tests {
                     candidates: vec![row.clone()],
                     completeness: ProviderQueryCompleteness::ReturnedPage {
                         row_count: 1,
+                        parsed_count: 1,
+                        rejected_count: 0,
                         reached_limit: false,
                     },
                 })
@@ -13795,6 +14674,8 @@ mod tests {
                     candidates: vec![Candidate::default()],
                     completeness: ProviderQueryCompleteness::ReturnedPage {
                         row_count: 1,
+                        parsed_count: 1,
+                        rejected_count: 0,
                         reached_limit: false,
                     },
                 })
@@ -13807,6 +14688,8 @@ mod tests {
             second.completeness,
             ProviderQueryCompleteness::ReturnedPage {
                 row_count: 1,
+                parsed_count: 1,
+                rejected_count: 0,
                 reached_limit: false,
             }
         );
@@ -13880,6 +14763,8 @@ mod tests {
                         candidates: vec![oversized.clone()],
                         completeness: ProviderQueryCompleteness::ReturnedPage {
                             row_count: 1,
+                            parsed_count: 1,
+                            rejected_count: 0,
                             reached_limit: false,
                         },
                     })
@@ -13987,6 +14872,380 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cache_waiter_deadline_and_dropped_flights_preserve_owner_and_prune_keys() {
+        let cache = Arc::new(CandidateSearchCache::default());
+        let (_owner_cancel_tx, owner_cancel) = idle_cancel();
+        let owner_cache = cache.clone();
+        let (owner_started_tx, owner_started_rx) = tokio::sync::oneshot::channel();
+        let owner = tokio::spawn(async move {
+            owner_cache
+                .get_or_search_cancelled_observed_decided_with_deadline(
+                    "deadline-owner".into(),
+                    owner_cancel,
+                    None,
+                    tokio::time::Instant::now() + Duration::from_secs(2),
+                    || async move {
+                        let _ = owner_started_tx.send(());
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        Ok((
+                            vec![Candidate {
+                                id: "owner-result".into(),
+                                ..Default::default()
+                            }],
+                            true,
+                        ))
+                    },
+                )
+                .await
+        });
+        let _ = owner_started_rx.await;
+        let (_waiter_cancel_tx, waiter_cancel) = idle_cancel();
+        let started = tokio::time::Instant::now();
+        let waiter = cache
+            .get_or_search_cancelled_observed_decided_with_deadline(
+                "deadline-owner".into(),
+                waiter_cancel,
+                None,
+                tokio::time::Instant::now() + Duration::from_millis(20),
+                || async { panic!("waiter must not start the owner loader") },
+            )
+            .await;
+        assert_eq!(waiter.unwrap_err(), "Playback candidate search timed out");
+        assert!(started.elapsed() < Duration::from_millis(90));
+        let (_rescue_cancel_tx, rescue_cancel) = idle_cancel();
+        let rescue = cache
+            .get_or_search_cancelled_observed_decided_with_deadline(
+                "third-provider-rescue".into(),
+                rescue_cancel,
+                None,
+                tokio::time::Instant::now() + Duration::from_millis(50),
+                || async {
+                    Ok((
+                        vec![Candidate {
+                            id: "rescue-result".into(),
+                            ..Default::default()
+                        }],
+                        true,
+                    ))
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(rescue[0].id, "rescue-result");
+        assert_eq!(owner.await.unwrap().unwrap()[0].id, "owner-result");
+
+        // A waiter future dropped while blocked must leave the active owner's
+        // gate intact; that owner still publishes its successful result.
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let owner_cache = cache.clone();
+        let (_owner_cancel_tx, owner_cancel) = idle_cancel();
+        let owner = tokio::spawn(async move {
+            owner_cache
+                .get_or_search_cancelled_observed_decided_with_deadline(
+                    "dropped-waiter".into(),
+                    owner_cancel,
+                    None,
+                    tokio::time::Instant::now() + Duration::from_secs(2),
+                    || async move {
+                        let _ = started_tx.send(());
+                        let _ = release_rx.await;
+                        Ok((
+                            vec![Candidate {
+                                id: "surviving-owner".into(),
+                                ..Default::default()
+                            }],
+                            true,
+                        ))
+                    },
+                )
+                .await
+        });
+        let _ = started_rx.await;
+        let waiter_cache = cache.clone();
+        let (_waiter_cancel_tx, waiter_cancel) = idle_cancel();
+        let waiter = tokio::spawn(async move {
+            waiter_cache
+                .get_or_search_cancelled_observed_decided_with_deadline(
+                    "dropped-waiter".into(),
+                    waiter_cancel,
+                    None,
+                    tokio::time::Instant::now() + Duration::from_secs(1),
+                    || async { panic!("blocked waiter must not invoke loader") },
+                )
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let waiting = cache
+                    .in_flight
+                    .lock()
+                    .unwrap()
+                    .get("dropped-waiter")
+                    .is_some_and(|gate| Arc::strong_count(gate) >= 5);
+                if waiting {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("waiter should register on the active gate before it is dropped");
+        waiter.abort();
+        let _ = waiter.await;
+        assert!(cache
+            .in_flight
+            .lock()
+            .unwrap()
+            .contains_key("dropped-waiter"));
+        let _ = release_tx.send(());
+        assert_eq!(owner.await.unwrap().unwrap()[0].id, "surviving-owner");
+
+        // Check expiry before cache lookup: a warm entry cannot bypass an
+        // already exhausted request allocation.
+        let (_cancel_tx, cancel) = idle_cancel();
+        cache
+            .get_or_search_cancelled("expired-hit".into(), cancel.clone(), || async {
+                Ok(vec![Candidate {
+                    id: "warm".into(),
+                    ..Default::default()
+                }])
+            })
+            .await
+            .unwrap();
+        let expired = cache
+            .get_or_search_cancelled_observed_decided_with_deadline(
+                "expired-hit".into(),
+                cancel,
+                None,
+                tokio::time::Instant::now() - Duration::from_millis(1),
+                || async { panic!("expired request must not serve even a warm result") },
+            )
+            .await;
+        assert_eq!(expired.unwrap_err(), "Playback candidate search timed out");
+
+        let (_cancel_tx, cancel) = idle_cancel();
+        for index in 0..32 {
+            let cache = cache.clone();
+            let cancel = cancel.clone();
+            let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+            let future = tokio::spawn(async move {
+                cache
+                    .get_or_search_cancelled_observed_decided_with_deadline(
+                        format!("dropped-unique-{index}"),
+                        cancel,
+                        None,
+                        tokio::time::Instant::now() + Duration::from_secs(1),
+                        || async move {
+                            let _ = started_tx.send(());
+                            std::future::pending::<Result<(Vec<Candidate>, bool), String>>().await
+                        },
+                    )
+                    .await
+            });
+            let _ = started_rx.await;
+            future.abort();
+            let _ = future.await;
+        }
+        assert!(cache.in_flight.lock().unwrap().is_empty());
+    }
+
+    /// Manual before/after contention probe. Run this exact filter in the
+    /// final tree and an instrumented copy of the remediation baseline. The
+    /// baseline uses the same fixture, but has no waiter deadline, so its
+    /// waiter returns after the 45 ms owner completes; the final path is
+    /// expected to return at its 20 ms foreground deadline while preserving
+    /// the owner result.
+    #[tokio::test]
+    #[ignore = "manual cache contention benchmark; run before/after on coordinated target"]
+    async fn benchmark_candidate_search_cache_waiter_contention() {
+        const WARMUPS: usize = 3;
+        const SAMPLES: usize = 20;
+        const OWNER_WORK: Duration = Duration::from_millis(45);
+        const WAITER_BUDGET: Duration = Duration::from_millis(20);
+
+        let cache = Arc::new(CandidateSearchCache::default());
+        let mut latencies_us = Vec::with_capacity(SAMPLES);
+        let mut observations = Vec::with_capacity(SAMPLES);
+
+        for index in 0..(WARMUPS + SAMPLES) {
+            let key = format!("cache-contention-benchmark-{index}");
+            let owner_key = key.clone();
+            let owner_cache = cache.clone();
+            let (_owner_cancel_tx, owner_cancel) = idle_cancel();
+            let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+            let owner = tokio::spawn(async move {
+                owner_cache
+                    .get_or_search_cancelled_observed_decided_with_deadline(
+                        owner_key,
+                        owner_cancel,
+                        None,
+                        tokio::time::Instant::now() + Duration::from_secs(2),
+                        || async move {
+                            let _ = started_tx.send(());
+                            tokio::time::sleep(OWNER_WORK).await;
+                            Ok((
+                                vec![Candidate {
+                                    id: format!("owner-result-{index}"),
+                                    ..Default::default()
+                                }],
+                                true,
+                            ))
+                        },
+                    )
+                    .await
+            });
+            started_rx.await.expect("owner loader should start");
+
+            let (_waiter_cancel_tx, waiter_cancel) = idle_cancel();
+            let started = tokio::time::Instant::now();
+            let waiter = cache
+                .get_or_search_cancelled_observed_decided_with_deadline(
+                    key.clone(),
+                    waiter_cancel,
+                    None,
+                    started + WAITER_BUDGET,
+                    || async { panic!("contending waiter must not become loader owner") },
+                )
+                .await;
+            let waiter_us = started.elapsed().as_micros();
+            let retained_after_waiter = cache.in_flight.lock().unwrap().len();
+            let owner_result = owner.await.expect("owner task should complete").unwrap();
+            let registry_after_owner = cache.in_flight.lock().unwrap().len();
+            assert_eq!(
+                owner_result[0].id,
+                format!("owner-result-{index}"),
+                "waiter timeout must not cancel owner work"
+            );
+            assert_eq!(
+                waiter.unwrap_err(),
+                "Playback candidate search timed out",
+                "foreground waiter should return at its absolute deadline"
+            );
+            assert_eq!(
+                retained_after_waiter, 1,
+                "owner gate should remain registered"
+            );
+            assert_eq!(registry_after_owner, 0, "completed flight should be pruned");
+
+            if index >= WARMUPS {
+                latencies_us.push(waiter_us);
+                observations.push(serde_json::json!({
+                    "sample": index - WARMUPS + 1,
+                    "waiter_us": waiter_us,
+                    "registry_after_waiter_cancel": retained_after_waiter,
+                    "registry_after_owner": registry_after_owner,
+                    "owner_completed": true
+                }));
+            }
+        }
+
+        latencies_us.sort_unstable();
+        let percentile = |percent: usize| latencies_us[(latencies_us.len() - 1) * percent / 100];
+        println!(
+            "CACHE_CONTENTION_BENCHMARK {}",
+            serde_json::json!({
+                "warmups": WARMUPS,
+                "samples": observations,
+                "waiter_us_p50": percentile(50),
+                "waiter_us_p95": percentile(95),
+                "waiter_us_max": latencies_us.last().copied().unwrap_or_default(),
+                "owner_work_ms": OWNER_WORK.as_millis(),
+                "waiter_budget_ms": WAITER_BUDGET.as_millis()
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn provider_query_deadline_waiter_leaves_owner_and_raw_rows_usable() {
+        let cache = Arc::new(CandidateSearchCache::default());
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let owner_cache = cache.clone();
+        let (_owner_cancel_tx, owner_cancel) = idle_cancel();
+        let owner = tokio::spawn(async move {
+            owner_cache
+                .get_or_search_provider_query_until(
+                    "raw-owner".into(),
+                    owner_cancel,
+                    Some(tokio::time::Instant::now() + Duration::from_secs(2)),
+                    || async move {
+                        let _ = started_tx.send(());
+                        let _ = release_rx.await;
+                        Ok(ProviderQueryResponse {
+                            candidates: vec![Candidate {
+                                id: "raw-owner-row".into(),
+                                ..Default::default()
+                            }],
+                            completeness: ProviderQueryCompleteness::ReturnedPage {
+                                row_count: 1,
+                                parsed_count: 1,
+                                rejected_count: 0,
+                                reached_limit: false,
+                            },
+                        })
+                    },
+                )
+                .await
+        });
+        let _ = started_rx.await;
+        let (_waiter_cancel_tx, waiter_cancel) = idle_cancel();
+        let waiter = cache
+            .get_or_search_provider_query_until(
+                "raw-owner".into(),
+                waiter_cancel,
+                Some(tokio::time::Instant::now() + Duration::from_millis(20)),
+                || async { panic!("raw query waiter must not start a second request") },
+            )
+            .await;
+        assert_eq!(waiter.unwrap_err(), "Playback candidate search timed out");
+        let _ = release_tx.send(());
+        let owner = owner.await.unwrap().unwrap();
+        assert_eq!(owner.candidates[0].id, "raw-owner-row");
+        assert!(cache.in_flight.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn inspection_deadline_waiter_leaves_owner_loader_usable() {
+        let cache = Arc::new(InspectionCache::default());
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let owner_cache = cache.clone();
+        let (_owner_cancel_tx, owner_cancel) = idle_cancel();
+        let owner = tokio::spawn(async move {
+            owner_cache
+                .get_or_inspect_until(
+                    "inspection-owner".into(),
+                    owner_cancel,
+                    Some(tokio::time::Instant::now() + Duration::from_secs(2)),
+                    || async move {
+                        let _ = started_tx.send(());
+                        let _ = release_rx.await;
+                        Ok(Candidate {
+                            id: "inspected-owner".into(),
+                            ..Default::default()
+                        })
+                    },
+                )
+                .await
+        });
+        let _ = started_rx.await;
+        let (_waiter_cancel_tx, waiter_cancel) = idle_cancel();
+        let waiter = cache
+            .get_or_inspect_until(
+                "inspection-owner".into(),
+                waiter_cancel,
+                Some(tokio::time::Instant::now() + Duration::from_millis(20)),
+                || async { panic!("inspection waiter must not start a duplicate inspection") },
+            )
+            .await;
+        assert_eq!(waiter.unwrap_err(), "Playback candidate search timed out");
+        let _ = release_tx.send(());
+        assert_eq!(owner.await.unwrap().unwrap().id, "inspected-owner");
+        assert!(cache.in_flight.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
     async fn partial_provider_query_rows_are_not_cached_as_complete() {
         let cache = CandidateSearchCache::default();
         let (_tx, cancel) = idle_cancel();
@@ -14020,6 +15279,8 @@ mod tests {
                     }],
                     completeness: ProviderQueryCompleteness::ReturnedPage {
                         row_count: 1,
+                        parsed_count: 1,
+                        rejected_count: 0,
                         reached_limit: false,
                     },
                 })
@@ -14045,6 +15306,8 @@ mod tests {
                         candidates: Vec::new(),
                         completeness: ProviderQueryCompleteness::ReturnedPage {
                             row_count: 0,
+                            parsed_count: 0,
+                            rejected_count: 0,
                             reached_limit: false,
                         },
                     })
@@ -14135,6 +15398,8 @@ mod tests {
                         }],
                         completeness: ProviderQueryCompleteness::ReturnedPage {
                             row_count: 1,
+                            parsed_count: 1,
+                            rejected_count: 0,
                             reached_limit: false,
                         },
                     })
@@ -14166,6 +15431,50 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(cached.candidates[0].id, "owner");
+    }
+
+    #[test]
+    fn flexible_other_release_query_drops_only_recognized_release_labels() {
+        let mut settings = Settings::default();
+        settings.matching_level = crate::recording_match::MatchLevel::Flexible;
+        settings.flexible_matching.allow_other_releases = false;
+        let remaster = Track {
+            title: "Song (Remastered 2011)".into(),
+            artist: "Performer".into(),
+            ..Default::default()
+        };
+        let without_permission = playback_search_queries_with_release_policy(
+            &remaster,
+            None,
+            flexible_other_release_search_enabled(&settings),
+        );
+        assert_eq!(without_permission, ["Performer Song (Remastered 2011)"]);
+
+        settings.flexible_matching.allow_other_releases = true;
+        let with_permission = playback_search_queries_with_release_policy(
+            &remaster,
+            None,
+            flexible_other_release_search_enabled(&settings),
+        );
+        assert_eq!(with_permission.len(), 2);
+        assert!(with_permission[0].contains("Remastered 2011"));
+        assert_eq!(with_permission[1], "Performer Song");
+
+        settings.matching_level = crate::recording_match::MatchLevel::Balanced;
+        let strict = playback_search_queries_with_release_policy(
+            &remaster,
+            None,
+            flexible_other_release_search_enabled(&settings),
+        );
+        assert_eq!(strict.len(), 1);
+
+        settings.matching_level = crate::recording_match::MatchLevel::Flexible;
+        let live = Track {
+            title: "Song (Live)".into(),
+            ..remaster
+        };
+        let live_queries = playback_search_queries_with_release_policy(&live, None, true);
+        assert_eq!(live_queries, ["Performer Song (Live)"]);
     }
 
     #[cfg(unix)]
@@ -14937,10 +16246,10 @@ mod tests {
             title: "A Specific Song".into(),
             ..Default::default()
         };
-        let found = find_candidates(&track, &["youtube".into()], &settings)
+        let error = find_candidates(&track, &["youtube".into()], &settings)
             .await
-            .unwrap();
-        assert!(found.is_empty());
+            .unwrap_err();
+        assert!(error.contains("incomplete search response"));
     }
     #[test]
     fn chapter_label_artist_and_title_are_unverified_and_conservative() {
@@ -17101,10 +18410,10 @@ printf 'BURRATA_FILE "%s"\n' "$destination"
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn empty_exact_version_search_retries_without_version_and_keeps_low_match_uncertain() {
+    async fn empty_exact_version_search_keeps_the_version_constraint() {
         let output = r#"{"entries":[{"id":"x","url":"https://www.youtube.com/watch?v=x","title":"Artist One - Night Drive (Radio Edit)","duration":360,"uploader":"Artist One"}]}"#;
         let script = format!(
-            "case \"$*\" in *extended\\ mix*) echo '{{\"entries\":[]}}' ;; *) echo '{}' ;; esac",
+            "lower=$(printf '%s' \"$*\" | tr '[:upper:]' '[:lower:]'); case \"$lower\" in *extended\\ mix*) echo '{{\"entries\":[]}}' ;; *) echo '{}' ;; esac",
             output
         );
         let (_directory, settings) = fake_tool(&script);
@@ -17118,13 +18427,10 @@ printf 'BURRATA_FILE "%s"\n' "$destination"
         let found = find_candidates(&track, &["youtube".into()], &settings)
             .await
             .unwrap();
-        assert_eq!(found.len(), 1);
-        assert_eq!(found[0].confidence, "low");
-        assert_eq!(found[0].permission, "unknown");
-        assert!(found[0]
-            .reasons
-            .iter()
-            .any(|reason| reason.contains("conflicts with catalog")));
+        // Every planned query retains the requested Extended Mix version. A
+        // versionless retry could surface a different recording as though it
+        // were a candidate for the explicitly versioned request.
+        assert!(found.is_empty());
     }
 
     #[test]

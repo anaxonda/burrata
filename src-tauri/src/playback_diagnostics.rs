@@ -720,6 +720,7 @@ fn bool_key(key: &str) -> bool {
     matches!(
         key,
         "accepted"
+            | "retryable"
             | "ok"
             | "cancelled"
             | "deadline"
@@ -777,6 +778,8 @@ fn number_key(key: &str) -> bool {
         "streamExpirySecondsRemaining"
             | "helperExitCode"
             | "elapsedMs"
+            | "observedElapsedMs"
+            | "phaseElapsedMs"
             | "durationMs"
             | "budgetMs"
             | "recoveryAttemptsUsed"
@@ -789,6 +792,9 @@ fn number_key(key: &str) -> bool {
             | "waiterCount"
             | "flightWaiters"
             | "resultCount"
+            | "rowCount"
+            | "parsedCount"
+            | "rejectedCount"
             | "observedElapsedMs"
             | "responseCount"
             | "fileCount"
@@ -1009,6 +1015,7 @@ fn enum_values(key: &str) -> Option<&'static [&'static str]> {
             "unsupported_audio",
             "output",
             "storage",
+            "parser",
             "unknown",
             "complete",
             "unavailable",
@@ -1067,6 +1074,7 @@ fn enum_values(key: &str) -> Option<&'static [&'static str]> {
         "confidenceClass" => Some(&["high", "review", "low", "unknown"]),
         "permissionClass" => Some(&["restricted", "unknown", "allowed", "other"]),
         "providerClass" => Some(&["youtube", "soundcloud", "monochrome", "bandcamp", "other"]),
+        "attemptPhase" => Some(&["search", "parser", "transport", "extraction", "other"]),
         "authority" => Some(&["musicbrainz", "discogs", "spotify", "other"]),
         "identity" => Some(&["complete", "incomplete"]),
         "scope" => Some(&["candidatesEvaluatedBeforeForegroundCap"]),
@@ -1078,6 +1086,12 @@ fn enum_values(key: &str) -> Option<&'static [&'static str]> {
             "shazamAppleExact",
         ]),
         "stage" => Some(&[
+            "resolver",
+            "extraction",
+            "transport",
+            "output",
+            "storage",
+            "unknown",
             "request",
             "visitor",
             "player",
@@ -1248,6 +1262,8 @@ pub(crate) fn phase_is_allowed(value: &str) -> bool {
             | "artist_alias_hydration"
             | "alias_search_start"
             | "provider_start"
+            | "provider_attempt"
+            | "playback_provider_search_page"
             | "provider_cooldown"
             | "monochrome_resolver_end"
             | "monochrome_client_setup_start"
@@ -1657,6 +1673,7 @@ mod tests {
             "playback_candidate_search_cache_miss",
             "playback_candidate_search_cache_hit",
             "playback_candidate_search_cache_waited_hit",
+            "playback_provider_search_page",
             "preview_audio_cache_hit",
             "preview_audio_cache_miss",
             "preview_audio_lookup_start",
@@ -1673,6 +1690,9 @@ mod tests {
             "waitedForGate":true,
             "observedElapsedMs":14.0,
             "resultCount":3,
+            "rowCount":4,
+            "parsedCount":3,
+            "rejectedCount":1,
             "role":"head",
             "codec":"opus",
             "container":"webm",
@@ -1695,6 +1715,9 @@ mod tests {
             "waitedForGate",
             "observedElapsedMs",
             "resultCount",
+            "rowCount",
+            "parsedCount",
+            "rejectedCount",
             "role",
             "codec",
             "container",

@@ -3,7 +3,7 @@
 //! Source pages only provide an ordered tracklist. They do not trigger media
 //! acquisition; imported metadata remains tied to its original page.
 use crate::{
-    browser_bridge::{BrowserEntry, BrowserSnapshot},
+    browser_bridge::{BrowserArtistCredit, BrowserEntry, BrowserSnapshot},
     connections::ConnectionManager,
 };
 use futures_util::{stream, StreamExt};
@@ -264,8 +264,20 @@ fn parse_shazam_csv(body: &str) -> Result<Vec<BrowserEntry>, String> {
                 s.starts_with("https://www.shazam.com/") || s.starts_with("https://shazam.com/")
             })
             .map(str::to_owned);
+        let artist_url = artist_url_i
+            .and_then(|i| row.get(i))
+            .and_then(|s| crate::import_metadata::public_url(s).ok());
         let entry = BrowserEntry {
-            metadata: serde_json::json!({"artistUrl":artist_url_i.and_then(|i|row.get(i)).and_then(|s|crate::import_metadata::public_url(s).ok())}),
+            metadata: serde_json::json!({"artistUrl":artist_url}),
+            artist_credits: artist_url.as_ref().map(|_| {
+                vec![BrowserArtistCredit {
+                    name: artist.into(),
+                    role: Some("artist".into()),
+                    provider_id: None,
+                    join_phrase: Some(String::new()),
+                    provenance: Some("shazamChartCsvArtistUrl".into()),
+                }]
+            }),
             provider_id: None,
             source_url: entry_url,
             artist: artist.into(),
@@ -457,8 +469,16 @@ async fn import_lastfm(
                 .and_then(|s| s.parse::<f64>().ok())
                 .filter(|n| *n > 0.0);
             let track_url = value_str(&row["url"]).and_then(|s| normalize_lastfm_track_url(&s));
+            let artist_credit = BrowserArtistCredit {
+                name: artist.clone(),
+                role: Some("artist".into()),
+                provider_id: value_str(&row["artist"]["mbid"]).filter(|id| !id.is_empty()),
+                join_phrase: Some(String::new()),
+                provenance: Some("lastFmApiArtistObject".into()),
+            };
             entries.push(BrowserEntry {
                 metadata: serde_json::json!({"musicbrainzId":value_str(&row["mbid"]),"artistUrl":value_str(&row["artist"]["url"]),"plays":value_str(&row["playcount"]).and_then(|v|v.parse::<u64>().ok()),"listeners":value_str(&row["listeners"]).and_then(|v|v.parse::<u64>().ok())}),
+                artist_credits: Some(vec![artist_credit]),
                 provider_id: value_str(&row["mbid"]).filter(|s| !s.is_empty()),
                 source_url: track_url,
                 artist,
@@ -692,8 +712,22 @@ fn parse_lastfm_public_chart(html: &str) -> Option<BrowserSnapshot> {
             .filter(|u| u.host_str() == Some("www.last.fm") && u.scheme() == "https")
             .map(|u| u.to_string());
         let position = (entries.len() + 1) as u32;
+        let artist_anchor = row.select(&artist_selector).next();
+        let artist_credits = artist_anchor
+            .and_then(|node| node.value().attr("href"))
+            .filter(|href| !href.trim().is_empty())
+            .map(|_| {
+                vec![BrowserArtistCredit {
+                    name: artist.clone(),
+                    role: Some("artist".into()),
+                    provider_id: None,
+                    join_phrase: Some(String::new()),
+                    provenance: Some("lastFmRenderedArtistLink".into()),
+                }]
+            });
         entries.push(BrowserEntry {
             metadata: serde_json::json!({"artistUrl":row.select(&artist_selector).next().and_then(|n|n.value().attr("href")).and_then(|s|Url::parse("https://www.last.fm").ok()?.join(s).ok()).map(|u|u.to_string())}),
+            artist_credits,
             provider_id: None,
             source_url: track_url,
             artist,
@@ -810,6 +844,7 @@ pub(crate) async fn import_bandcamp(input: &str) -> Result<BrowserSnapshot, Stri
                     .unwrap_or(entries.len() as u64 + 1));
                 m
             },
+            artist_credits: None,
             provider_id: row["track_id"].as_u64().map(|id| id.to_string()),
             source_url: track_url,
             artist: artist.to_owned(),

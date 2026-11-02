@@ -36,6 +36,18 @@ function render(props: Record<string, unknown> = {}) {
 }
 
 describe("PlaybackQueuePanel", () => {
+  it("shows hearts for saved favorites including duplicate queue occurrences", async () => {
+    const other = {...track, id:"not-favorite", title:"Other track"};
+    const target = render({tracks:[track, other, track], favoriteTrackIds:[track.id]}); await tick();
+    const rows = [...target.querySelectorAll("article")];
+    expect(rows.map(row => Boolean(row.querySelector('[aria-label="Favorited"]')))).toEqual([true,false,true]);
+  });
+
+  it("uses embedded favorite state when no saved favorite list is supplied", async () => {
+    const target = render({tracks:[{...track, favorite:true}]}); await tick();
+    expect(target.querySelector('.track-select [aria-label="Favorited"]')?.textContent).toBe("♥");
+  });
+
   it("requests saved row data only when a queue row enters the viewport", async () => {
     let notify!: IntersectionObserverCallback;
     const nodes: Element[] = [];

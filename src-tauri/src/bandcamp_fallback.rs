@@ -688,6 +688,7 @@ fn shared_policy_assessment(
     if let Some(binding) = binding {
         requested.provenance["recordingId"] = json!(binding);
         metadata["recordingId"] = json!(binding);
+        metadata["recordingProof"] = json!("strongBound");
     }
     evaluated.title = title.to_owned();
     evaluated.duration_seconds = duration;

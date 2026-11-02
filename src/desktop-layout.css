@@ -1,6 +1,14 @@
 /* One persistent desktop shell, including split-screen and phone widths. */
 .app-shell { position:relative; }
 .player-panel-host { position:relative;grid-column:3;grid-row:1;min-height:0;min-width:0;display:flex;flex-direction:column;overflow:hidden;background:var(--surface);border-left:1px solid var(--line); }
+.app-shell .player-panel-host.fullscreen-queue { position:fixed; z-index:56; inset:0 0 var(--player-height,96px) auto; grid-column:auto; grid-row:auto; box-sizing:border-box; width:min(var(--info-panel-width,340px),calc(100vw - 64px)); box-shadow:-12px 0 32px #0004; animation:fullscreen-queue-enter 200ms ease-out; }
+@keyframes fullscreen-queue-enter { from { transform:translateX(100%); } to { transform:translateX(0); } }
+@media (prefers-reduced-motion:reduce) { .app-shell .player-panel-host.fullscreen-queue { animation:none; } }
+@media (min-width:701px) {
+  .app-shell:has(.fullscreen-queue) .now-playing-view { right:min(var(--info-panel-width,340px),calc(100vw - 64px)); }
+  .app-shell:has(.fullscreen-queue) .now-playing-view > header > button { right:calc(min(var(--info-panel-width,340px),calc(100vw - 64px)) + 28px); }
+  .app-shell:has(.fullscreen-queue) .now-playing-view .artwork-menu { right:calc(min(var(--info-panel-width,340px),calc(100vw - 64px)) + 82px); }
+}
 .player-panel-tabs { display:flex;gap:6px;padding:10px;border-bottom:1px solid var(--line);flex:0 0 auto; }
 .player-panel-tabs button { background:transparent;color:var(--muted);padding:7px 10px; }
 .player-panel-tabs button.active { color:var(--text);background:var(--raised); }

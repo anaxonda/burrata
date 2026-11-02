@@ -44,6 +44,7 @@ pub struct ObservedAnalysis {
     session_only: Mutex<SessionOnlyStreamAnalysisResults>,
     captures: Mutex<HashMap<u64, ActiveCapture>>,
     webview_captures: Mutex<HashMap<String, WebviewCaptureSession>>,
+    event_sink: Mutex<Option<Arc<dyn Fn(serde_json::Value) + Send + Sync>>>,
 }
 
 struct ActiveCapture {
@@ -151,7 +152,51 @@ impl ObservedAnalysis {
             session_only: Mutex::new(SessionOnlyStreamAnalysisResults::default()),
             captures: Mutex::new(HashMap::new()),
             webview_captures: Mutex::new(HashMap::new()),
+            event_sink: Mutex::new(None),
         })
+    }
+
+    pub fn set_event_sink(&self, sink: Arc<dyn Fn(serde_json::Value) + Send + Sync>) {
+        if let Ok(mut current) = self.event_sink.lock() {
+            *current = Some(sink);
+        }
+    }
+
+    fn emit_stream_update(
+        &self,
+        generation: u64,
+        track_id: &str,
+        provider: &str,
+        source_id: &str,
+        resource: &AnalysisResource,
+        state: &str,
+        analysis: Option<&WholeTrackAnalysis>,
+    ) {
+        let Some(sink) = self.event_sink.lock().ok().and_then(|sink| sink.clone()) else {
+            return;
+        };
+        let (source_identity_sha256, audio_variant_sha256) = match resource {
+            AnalysisResource::Stream {
+                source_identity_sha256,
+                audio_variant_sha256,
+                ..
+            } => (
+                Some(source_identity_sha256.clone()),
+                audio_variant_sha256.clone(),
+            ),
+            AnalysisResource::RegisteredAsset { .. } => (None, None),
+        };
+        sink(serde_json::json!({
+            "generation": generation,
+            "trackId": track_id,
+            "provider": provider,
+            "sourceId": source_id,
+            "state": state,
+            "resourceIdentity": resource.cache_identity().ok(),
+            "sourceIdentitySha256": source_identity_sha256,
+            "audioVariantSha256": audio_variant_sha256,
+            "analysis": analysis,
+        }));
     }
 
     /// Start an explicit capture from the current WebView source. The caller
@@ -553,17 +598,28 @@ impl ObservedAnalysis {
         // A generation may be reused by a resolver refresh. Revoke any prior
         // capture/result for it before binding a new source owner.
         self.cancel_generation(generation);
-        if self
+        if let Some(record) = self
             .cache
             .lock()
             .ok()
             .and_then(|cache| cache.get(&resource).cloned())
-            .is_some()
         {
+            if let Some(candidate) = candidate {
+                self.emit_stream_update(
+                    generation,
+                    &track.id,
+                    &candidate.provider,
+                    &candidate.id,
+                    &resource,
+                    "completed",
+                    Some(&record),
+                );
+            }
             return;
         }
+        let event_resource = resource.clone();
         let Ok(mut capture) =
-            WholeTrackCapture::new(generation, resource, duration, initial_position)
+            WholeTrackCapture::new(generation, resource.clone(), duration, initial_position)
         else {
             return;
         };
@@ -576,7 +632,25 @@ impl ObservedAnalysis {
         let Some(owner) = self.register_capture(generation, resource_identity, cancel) else {
             return;
         };
+        if let Some(candidate) = candidate {
+            self.emit_stream_update(
+                generation,
+                &track.id,
+                &candidate.provider,
+                &candidate.id,
+                &resource,
+                "started",
+                None,
+            );
+        }
         let manager = self.clone();
+        let event_track_id = track.id.clone();
+        let event_provider = candidate
+            .map(|candidate| candidate.provider.clone())
+            .unwrap_or_default();
+        let event_source_id = candidate
+            .map(|candidate| candidate.id.clone())
+            .unwrap_or_default();
         tauri::async_runtime::spawn(async move {
             let mut superseded_deadline: Option<tokio::time::Instant> = None;
             loop {
@@ -629,13 +703,28 @@ impl ObservedAnalysis {
                         // Key estimation is CPU work; do not run it on the audio
                         // worker or async runtime. Cache commits remain serialized.
                         let commit_manager = manager.clone();
+                        let track_id = event_track_id.clone();
+                        let provider = event_provider.clone();
+                        let source_id = event_source_id.clone();
+                        let resource = event_resource.clone();
                         let _ = tauri::async_runtime::spawn_blocking(move || {
                             let Ok(record) =
                                 capture.finish(duration_seconds, chrono::Utc::now().to_rfc3339())
                             else {
                                 return;
                             };
-                            commit_manager.commit_owned(generation, owner, record);
+                            let completed_record = record.clone();
+                            if commit_manager.commit_owned(generation, owner, record) {
+                                commit_manager.emit_stream_update(
+                                    generation,
+                                    &track_id,
+                                    &provider,
+                                    &source_id,
+                                    &resource,
+                                    "completed",
+                                    Some(&completed_record),
+                                );
+                            }
                         })
                         .await;
                         break;
@@ -652,6 +741,50 @@ impl ObservedAnalysis {
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn stream_update_event_is_generation_scoped_and_contains_no_url() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&directory.path().join("stream-event.sqlite")).unwrap());
+        let observed = ObservedAnalysis::new(store);
+        let events = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+        let event_sink = events.clone();
+        observed.set_event_sink(Arc::new(move |payload| {
+            event_sink.lock().unwrap().push(payload);
+        }));
+        let resource = AnalysisResource::Stream {
+            recording_id: "fixture:recording-1".into(),
+            provider: "youtube".into(),
+            source_identity_sha256: crate::stream_analysis::stream_source_identity_digest(
+                "youtube",
+                "youtube:fixture-video-1",
+            )
+            .unwrap(),
+            audio_variant_sha256: None,
+        };
+
+        observed.emit_stream_update(
+            42,
+            "fixture:recording-1",
+            "youtube",
+            "youtube:fixture-video-1",
+            &resource,
+            "started",
+            None,
+        );
+
+        let events = events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["generation"], 42);
+        assert_eq!(events[0]["trackId"], "fixture:recording-1");
+        assert_eq!(events[0]["provider"], "youtube");
+        assert_eq!(events[0]["sourceId"], "youtube:fixture-video-1");
+        assert_eq!(events[0]["state"], "started");
+        assert!(events[0]["resourceIdentity"].as_str().is_some());
+        assert!(events[0]["sourceIdentitySha256"].as_str().is_some());
+        assert!(events[0]["analysis"].is_null());
+        assert!(!events[0].to_string().contains("https://"));
+    }
 
     fn session_only_fixture_record() -> WholeTrackAnalysis {
         use crate::stream_analysis::{

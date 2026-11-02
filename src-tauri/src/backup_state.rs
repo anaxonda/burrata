@@ -394,6 +394,18 @@ const LIBRARY_TABLES: &[TableSpec] = &[
         name: "analysis_cache_record_refs",
         columns: &["namespace", "cache_key", "recording_id"],
     },
+    TableSpec {
+        name: "library_entity_saves",
+        columns: &["id", "kind", "payload", "explicit_saved"],
+    },
+    TableSpec {
+        name: "library_entity_aliases",
+        columns: &["id", "kind", "left_ref", "right_ref"],
+    },
+    TableSpec {
+        name: "library_album_reconciliation",
+        columns: &["local_ref", "catalog_ref", "state", "payload"],
+    },
 ];
 
 // Durable, user-authored settings. Unknown settings are excluded by design.
@@ -1299,6 +1311,8 @@ fn sanitize_library_snapshot(path: &Path, snapshot_id: Uuid) -> Result<BackupSta
     let tx = conn.unchecked_transaction().map_err(err)?;
     let mut summary = BackupStateSummary::default();
     for table in [
+        "library_entity_tracks",
+        "library_entities",
         "provider_cache",
         "preview_sources",
         "acquisition_candidates",
@@ -1406,6 +1420,7 @@ fn sanitize_table(
                 | "chart_entries"
                 | "browser_sources"
                 | "browser_imports"
+                | "library_album_reconciliation"
         )
     {
         return Err(format!(
@@ -2139,7 +2154,7 @@ fn merge_library(
     let user_version: i64 = source
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .map_err(err)?;
-    if !(1..=14).contains(&user_version) {
+    if !(1..=15).contains(&user_version) {
         return Err("Unsupported library backup schema version".into());
     }
     // Reject archive-defined views, virtual tables, and shadow tables, even if
@@ -2226,6 +2241,63 @@ fn merge_library(
     }
     // Keep durable browser-source definitions with the sanitized snapshot that
     // they point at; unrelated chart/provider cache tables remain excluded.
+    if table_exists(source, "library_entity_aliases")? {
+        let spec = LIBRARY_TABLES
+            .iter()
+            .find(|s| s.name == "library_entity_aliases")
+            .unwrap();
+        merge_simple_table(source, target, spec.name, spec, &[], summary)?;
+    }
+    if table_exists(source, "library_album_reconciliation")? {
+        let spec = LIBRARY_TABLES
+            .iter()
+            .find(|s| s.name == "library_album_reconciliation")
+            .unwrap();
+        merge_simple_table(source, target, spec.name, spec, &[], summary)?;
+    }
+    if table_exists(source, "library_entity_saves")? {
+        for mut row in read_rows(
+            source,
+            "library_entity_saves",
+            &["id", "kind", "payload", "explicit_saved"],
+        )? {
+            if let Some(raw) = row.get("payload").and_then(sql_text) {
+                let mut payload = parse_bounded_json(raw)?;
+                if let Some(ids) = payload
+                    .get_mut("savedTrackIds")
+                    .and_then(Value::as_array_mut)
+                {
+                    for id in ids {
+                        if let Some(mapped) = id.as_str().and_then(|id| listing_id_mapping.get(id))
+                        {
+                            *id = Value::String(mapped.clone());
+                        }
+                    }
+                }
+                row.insert(
+                    "payload".into(),
+                    SqlValue::Text(serde_json::to_string(&payload).map_err(err)?),
+                );
+            }
+            insert_values(
+                target,
+                "library_entity_saves",
+                &["id", "kind", "payload", "explicit_saved"],
+                &row,
+                true,
+            )?;
+            if row.get("explicit_saved").and_then(sql_integer).unwrap_or(1) != 0 {
+                if let Some(id) = text(&row, "id") {
+                    target
+                        .execute(
+                            "UPDATE library_entity_saves SET explicit_saved=1 WHERE id=?1",
+                            [id],
+                        )
+                        .map_err(err)?;
+                }
+            }
+        }
+    }
     merge_simple_table(
         source,
         target,
@@ -5556,6 +5628,118 @@ fn sanitize_manual_provenance(value: &Value) -> Value {
             clean.insert(key.into(), value);
         }
     }
+    if let Some(ids) = object.get("embeddedIdentifiers").and_then(Value::as_object) {
+        let mut embedded = Map::new();
+        for key in [
+            "musicbrainzReleaseId",
+            "musicbrainzReleaseGroupId",
+            "musicbrainzArtistId",
+            "musicbrainzReleaseArtistId",
+            "musicbrainzRecordingId",
+        ] {
+            if let Some(id) = ids
+                .get(key)
+                .and_then(Value::as_str)
+                .filter(|id| crate::spotify_mb_crosswalk::valid_mbid(id))
+            {
+                embedded.insert(key.into(), Value::String(id.to_ascii_lowercase()));
+            }
+        }
+        if !embedded.is_empty() {
+            clean.insert("embeddedIdentifiers".into(), Value::Object(embedded));
+        }
+    }
+    // Public catalog identities are durable Library grouping metadata. Preserve
+    // only bounded identity/credit fields, never provider caches or credentials.
+    for key in [
+        "catalogProvider",
+        "releaseId",
+        "albumId",
+        "artistId",
+        "recordingId",
+    ] {
+        if let Some(value) = object
+            .get(key)
+            .and_then(Value::as_str)
+            .filter(|v| !v.is_empty() && v.len() <= 512)
+        {
+            clean.insert(key.into(), sanitize_json(&Value::String(value.to_owned())));
+        }
+    }
+    for key in ["libraryAlbum", "recordingContext"] {
+        if let Some(value) = object.get(key).and_then(Value::as_object) {
+            let fields = if key == "libraryAlbum" {
+                &["provider", "id"][..]
+            } else {
+                &["albumId"][..]
+            };
+            let mut identity = Map::new();
+            for field in fields {
+                if let Some(value) = value
+                    .get(*field)
+                    .and_then(Value::as_str)
+                    .filter(|v| v.len() <= 512)
+                {
+                    identity.insert(
+                        (*field).into(),
+                        sanitize_json(&Value::String(value.to_owned())),
+                    );
+                }
+            }
+            if !identity.is_empty() {
+                clean.insert(key.into(), Value::Object(identity));
+            }
+        }
+    }
+    if let Some(credits) = object
+        .get("artistCredits")
+        .and_then(Value::as_array)
+        .filter(|v| v.len() <= 100)
+    {
+        let safe = credits
+            .iter()
+            .filter_map(|credit| {
+                let name = credit
+                    .get("name")?
+                    .as_str()
+                    .filter(|v| !v.is_empty() && v.len() <= 4096)?;
+                let mut row = Map::new();
+                row.insert(
+                    "name".into(),
+                    sanitize_json(&Value::String(name.to_owned())),
+                );
+                for key in ["role", "providerId"] {
+                    if let Some(value) = credit
+                        .get(key)
+                        .and_then(Value::as_str)
+                        .filter(|v| v.len() <= 512)
+                    {
+                        row.insert(key.into(), sanitize_json(&Value::String(value.to_owned())));
+                    }
+                }
+                if let Some(artist) = credit.get("artist").and_then(Value::as_object) {
+                    let mut identity = Map::new();
+                    for key in ["provider", "id"] {
+                        if let Some(value) = artist
+                            .get(key)
+                            .and_then(Value::as_str)
+                            .filter(|v| v.len() <= 512)
+                        {
+                            identity.insert(
+                                key.into(),
+                                sanitize_json(&Value::String(value.to_owned())),
+                            );
+                        }
+                    }
+                    if identity.len() == 2 {
+                        row.insert("artist".into(), Value::Object(identity));
+                    }
+                }
+                Some(Value::Object(row))
+            })
+            .collect();
+        clean.insert("artistCredits".into(), Value::Array(safe));
+    }
     if let Some(binding) = object
         .get("portablePlaybackSource")
         .and_then(sanitize_portable_playback_source)
@@ -5929,6 +6113,131 @@ mod tests {
     use super::*;
     use rusqlite::Connection;
     use sha2::Digest;
+
+    #[test]
+    fn library_artist_album_saves_and_featured_membership_survive_backup_merge() {
+        use crate::storage::library::LibraryEntity;
+        use serde_json::json;
+        let source_dir = tempfile::tempdir().unwrap();
+        let source_path = source_dir.path().join("burrata.sqlite");
+        let store = Store::open(&source_path).unwrap();
+        let album: LibraryEntity = serde_json::from_value(json!({
+            "kind":"album","name":"Saved album","artist":"Main Artist",
+            "provider":"spotify","providerId":"album-one","totalTracks":1
+        }))
+        .unwrap();
+        let artist: LibraryEntity = serde_json::from_value(json!({
+            "kind":"artist","name":"Empty saved artist","artist":"",
+            "provider":"spotify","providerId":"empty-artist"
+        }))
+        .unwrap();
+        store.save_library_artist(artist).unwrap();
+        store
+            .link_library_entities(
+                "artist",
+                "spotify",
+                "empty-artist",
+                "musicbrainz",
+                "native-empty",
+            )
+            .unwrap();
+        store
+            .link_library_entities(
+                "album",
+                "spotify",
+                "album-one",
+                "musicbrainz",
+                "native-album",
+            )
+            .unwrap();
+        store.save_library_album(album, vec![crate::models::Track {
+            id:"spotify:library-one".into(),provider:"spotify".into(),provider_id:"library-one".into(),
+            artist:"Main Artist, Guest".into(),title:"Saved song".into(),
+            provenance:json!({"artistCredits":[{"name":"Main Artist","providerId":"main"},{"name":"Guest","providerId":"guest"}],"accessToken":"secret-must-disappear"}),
+            ..Default::default()
+        }],1).unwrap();
+        assert_eq!(
+            store
+                .list_library_entities("album", None, "", 200, 0)
+                .unwrap()
+                .total,
+            1
+        );
+        {
+            let conn = Connection::open(&source_path).unwrap();
+            conn.execute("INSERT INTO library_album_reconciliation VALUES('album:ref:local:fixture','album:ref:musicbrainz:native-album','rejected',?1)",[json!({"localFingerprint":"fixture","embeddedRef":"album:ref:musicbrainz:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}).to_string()]).unwrap();
+        }
+        drop(store);
+        sanitize_library_snapshot(&source_path, Uuid::new_v4()).unwrap();
+        let archive = open_archive_db(&source_path).unwrap();
+        let raw: String = archive
+            .query_row(
+                "SELECT metadata FROM catalog_listings WHERE id='spotify:library-one'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(!raw.contains("secret-must-disappear"));
+        for mode in [RestoreMode::Merge, RestoreMode::Replace] {
+            let target_dir = tempfile::tempdir().unwrap();
+            let target_path = target_dir.path().join("burrata.sqlite");
+            drop(Store::open(&target_path).unwrap());
+            let mut target = Connection::open(&target_path).unwrap();
+            let tx = target.transaction().unwrap();
+            merge_library(
+                &archive,
+                &tx,
+                &RestoreStateOptions {
+                    mode,
+                    ..Default::default()
+                },
+                &mut RestoreStateSummary::default(),
+                &mut HashMap::new(),
+                &mut HashMap::new(),
+                &mut HashMap::new(),
+            )
+            .unwrap();
+            tx.commit().unwrap();
+            drop(target);
+            let restored = Store::open(&target_path).unwrap();
+            {
+                let conn = Connection::open(&target_path).unwrap();
+                let choice:(String,String)=conn.query_row("SELECT catalog_ref,state FROM library_album_reconciliation WHERE local_ref='album:ref:local:fixture'",[],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();
+                assert_eq!(
+                    choice,
+                    (
+                        "album:ref:musicbrainz:native-album".into(),
+                        "rejected".into()
+                    )
+                );
+            }
+            let albums = restored
+                .list_library_entities("album", None, "", 200, 0)
+                .unwrap();
+            assert_eq!(albums.total, 1);
+            assert!(albums.items[0].explicitly_saved);
+            assert_eq!(albums.items[0].track_count, 1);
+            assert_eq!(albums.items[0].id, "album:ref:musicbrainz:native-album");
+            let artists = restored
+                .list_library_entities("artist", None, "", 200, 0)
+                .unwrap();
+            let guest = artists.items.iter().find(|a| a.name == "Guest").unwrap();
+            assert_eq!(
+                restored
+                    .list_library_entities("album", Some(&guest.id), "", 200, 0)
+                    .unwrap()
+                    .total,
+                1
+            );
+            let empty = artists
+                .items
+                .iter()
+                .find(|a| a.name == "Empty saved artist")
+                .unwrap();
+            assert!(empty.explicitly_saved);
+            assert_eq!(empty.track_count, 0);
+        }
+    }
 
     #[test]
     fn backup_merge_remaps_waveform_cache_asset_and_preserves_verified_library_ref() {

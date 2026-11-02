@@ -36,6 +36,38 @@ function render(call: (command: string, args: Record<string, unknown>) => Promis
 }
 
 describe("SpotifyArtist pagination", () => {
+  it("fetches every album page before saving and keeps playlist and partial-save actions available", async () => {
+    const release = album("whole-album", "Whole album");
+    const first = track("first", "First"), second = track("second", "Second");
+    const save = vi.fn(async () => {}), playlist = vi.fn(), partial = vi.fn();
+    const call = vi.fn(async (command: string, args: Record<string, unknown>) => {
+      if (command === "browse_remote_album_tracks") return { album: release, tracks: args.cursor ? [second] : [first], total: 2, nextCursor: args.cursor ? null : "next" };
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const target = render(call, undefined, "whole-album", { initialAlbumId: "whole-album", onSaveCompleteAlbum: save, onSaveToLibrary: partial, onAddAlbumToPlaylist: playlist });
+    await settle();
+    const saveButton = [...target.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Save album')!;
+    expect(saveButton).toBeTruthy();
+    expect([...target.querySelectorAll('button')].some(b => b.textContent === 'Add to playlist')).toBe(true);
+    expect([...target.querySelectorAll('button')].some(b => b.textContent === 'Save loaded tracks')).toBe(true);
+    saveButton.click(); await settle();
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ providerId: 'whole-album', totalTracks: 2 }), [first, second], 2);
+    expect(partial).not.toHaveBeenCalled();
+    expect(playlist).not.toHaveBeenCalled();
+  });
+
+  it("leaves the library unchanged when a full album save receives a repeated page", async () => {
+    const release = album("repeated-album", "Repeated album");
+    const first = track("first", "First");
+    const save = vi.fn(async () => {});
+    const call = vi.fn(async () => ({ album: release, tracks: [first], total: 3, nextCursor: "same-cursor" }));
+    const target = render(call, undefined, release.id, { initialAlbumId: release.id, onSaveCompleteAlbum: save });
+    await settle();
+    [...target.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent === 'Save album')!.click(); await settle();
+    expect(save).not.toHaveBeenCalled();
+    expect(target.querySelector('[role="alert"]')?.textContent).toContain('repeated or invalid tracks page');
+  });
+
   it("offers explicit MusicBrainz discovery for the exact Spotify artist name only after user activation", async () => {
     const id = "explicit-provider-search";
     const name = "Artist Name (Remastered)";

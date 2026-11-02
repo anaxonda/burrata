@@ -11,6 +11,8 @@
     disabledReason = "",
     retentionLimitReached = false,
     markersEnabled = false,
+    keepEnabledForQueue = false,
+    onKeepEnabledForQueueToggle,
     interactive = true,
     onToggle,
     onMarkersToggle,
@@ -25,6 +27,8 @@
     disabledReason?: string;
     retentionLimitReached?: boolean;
     markersEnabled?: boolean;
+    keepEnabledForQueue?: boolean;
+    onKeepEnabledForQueueToggle?: (enabled: boolean) => void;
     interactive?: boolean;
     onToggle: (enabled: boolean) => void;
     onMarkersToggle?: (enabled: boolean) => void;
@@ -59,10 +63,14 @@
       <button type="button" aria-label="About track detection" title="About track detection" aria-expanded={helpOpen} aria-controls="track-detection-help-copy" onclick={() => helpOpen = !helpOpen}><span aria-hidden="true">i</span></button>
       {#if helpOpen}<div id="track-detection-help-copy" class="detection-help-copy" role="note">
         <p>Detection looks for songs inside a continuous recording. Times are approximate; supplied chapters remain separate.</p>
-        <p>When enabled, short audio samples are sent to the recognition service. Detection is opt-in for this recording.</p>
+        <p>When enabled, short audio samples are sent to the recognition service. Detection is opt-in for this recording. Enable “Keep on through queue” to continue detection on following recordings during this session.</p>
       </div>{/if}
     </div>
   </div>
+    {#if onKeepEnabledForQueueToggle}<label class="detection-queue-toggle">
+      <input type="checkbox" checked={keepEnabledForQueue} disabled={!enabled || Boolean(disabledReason)} onchange={(event) => onKeepEnabledForQueueToggle?.(event.currentTarget.checked)} />
+      <span>Keep on through queue</span>
+    </label>{/if}
     {#if onMarkersToggle}<label class="detection-markers-toggle" title="Show approximate song markers on the seek bar">
       <input type="checkbox" checked={markersEnabled} onchange={(event) => onMarkersToggle?.(event.currentTarget.checked)} />
       <span>Show approximate song markers</span>
@@ -106,6 +114,8 @@
   .detection-toggle { display:flex; flex-direction:row; margin:0; color:var(--text); align-items:center; gap:7px; min-height:32px; font-size:12px; font-weight:600; cursor:pointer; }
   .detection-toggle input { width:16px; height:16px; margin:0; accent-color:var(--accent); }
   .detection-toggle input:disabled { cursor:not-allowed; }
+  .detection-queue-toggle { display:flex; flex-direction:row; align-items:center; gap:6px; min-height:28px; margin:0 0 0 23px; color:var(--muted); font-size:11px; cursor:pointer; }
+  .detection-queue-toggle input { flex:0 0 auto; width:14px; height:14px; margin:0; accent-color:var(--accent); }
   .detection-markers-toggle { display:flex; flex-direction:row; margin:0; align-items:center; gap:6px; min-height:28px; color:var(--muted); font-size:11px; cursor:pointer; }
   .detection-markers-toggle input { flex:0 0 auto; width:14px; height:14px; margin:0; accent-color:var(--accent); }
   .detection-help { position:static; flex:0 0 auto; }

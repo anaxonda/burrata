@@ -129,6 +129,7 @@
   let enrichmentStarted = new Set<string>();
   let lastQueryProp = "";
   let initialized = $state(false);
+  let navigationRestorePending = $state(false);
   let lastPresetRequestId = 0;
   let presetRequestPending = $state(false);
   let continueSearch = $state(false);
@@ -189,6 +190,9 @@
       if (sourceChoice !== "all" && sourceChoice !== "custom" && !validOnline([sourceChoice]).length) sourceChoice = "all";
     }
     if (initialQuery !== lastQueryProp) { lastQueryProp = initialQuery; text = initialQuery; }
+  });
+  $effect(() => {
+    if (!navigationSnapshotKey && !navigationRestorePending) navigationReady = true;
   });
   $effect(() => {
     if (!initialized) return;
@@ -357,7 +361,7 @@
     return key;
   }
   export async function restoreNavigationSnapshot(key:string):Promise<void> {
-    const epoch=++navigationRestoreEpoch;navigationReady=false;
+    const epoch=++navigationRestoreEpoch;navigationReady=false;navigationRestorePending=true;
     lazyArtworkScope++;lazyArtworkQueue=[];lazyArtworkScheduled=new Set();
     cancelAutomationSearch();generation++;collectionRequest++;clearCollectionDeadline();
     providerReads.cancelAll();collectionReads.cancelAll();void cancelSoulseek();
@@ -398,7 +402,7 @@
       for(const id of Object.keys(rowsBySource))scheduleInitialMusicBrainzArtwork(id,lazyArtworkScope);
       await tick();if(!current())return;
       requestAnimationFrame(()=>{if(current()&&searchElement)searchElement.scrollTop=saved.scroll;});
-    } finally {if(epoch===navigationRestoreEpoch)navigationReady=true;}
+    } finally {if(epoch===navigationRestoreEpoch){navigationRestorePending=false;navigationReady=true;}}
   }
 
   function sourceEnabled(id: string) { const source = sources.find(item => item.id === id); return Boolean(source) && (id !== "spotify" || source?.enabled === true) && source?.enabled !== false && sourceCapabilities[id] !== false && sourceCapabilities[id] !== "disconnected"; }

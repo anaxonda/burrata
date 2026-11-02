@@ -84,7 +84,7 @@
       },
       "expected": {
         "relationship": "sourceBackedRecordingFixture",
-        "Exact": "Exact",
+        "Exact": "Unresolved",
         "Balanced": "Exact",
         "Flexible": "Exact",
         "actions": {
@@ -220,7 +220,7 @@
       },
       "expected": {
         "relationship": "sourceBackedRecordingFixture",
-        "Exact": "Exact",
+        "Exact": "Unresolved",
         "Balanced": "Exact",
         "Flexible": "Exact",
         "actions": {
@@ -316,11 +316,11 @@
       },
       "expected": {
         "relationship": "sourceBackedRecordingFixture",
-        "Exact": "Exact",
+        "Exact": "Unresolved",
         "Balanced": "Exact",
         "Flexible": "Exact",
         "actions": {
-          "Exact": "Accept",
+          "Exact": "Inspect",
           "Balanced": "Accept",
           "Flexible": "Accept"
         }
@@ -353,11 +353,11 @@
       },
       "expected": {
         "relationship": "sourceBackedRecordingFixture",
-        "Exact": "Unresolved",
+        "Exact": "Exact",
         "Balanced": "Exact",
         "Flexible": "Exact",
         "actions": {
-          "Exact": "Inspect",
+          "Exact": "Accept",
           "Balanced": "Accept",
           "Flexible": "Accept"
         }
@@ -390,7 +390,7 @@
       },
       "expected": {
         "relationship": "sourceBackedRecordingFixture",
-        "Exact": "Unresolved",
+        "Exact": "Exact",
         "Balanced": "Exact",
         "Flexible": "Exact",
         "actions": {
@@ -559,11 +559,11 @@
       },
       "expected": {
         "relationship": "sourceBackedRecordingFixture",
-        "Exact": "Exact",
+        "Exact": "Unresolved",
         "Balanced": "Exact",
         "Flexible": "Exact",
         "actions": {
-          "Exact": "Accept",
+          "Exact": "Inspect",
           "Balanced": "Accept",
           "Flexible": "Accept"
         }

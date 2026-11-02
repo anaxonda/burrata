@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-local-album-matches"
+description = "Enables the list_local_album_matches command without any pre-configured scope."
+commands.allow = ["list_local_album_matches"]
+
+[[permission]]
+identifier = "deny-list-local-album-matches"
+description = "Denies the list_local_album_matches command without any pre-configured scope."
+commands.deny = ["list_local_album_matches"]

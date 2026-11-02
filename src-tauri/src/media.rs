@@ -3847,6 +3847,59 @@ pub(crate) async fn export_mp3_with_layout(
     result
 }
 
+fn apply_local_library_tags(track: &mut Track, tag: Option<&Tag>) {
+    let Some(tag) = tag else {
+        return;
+    };
+    track.album_artist = tag
+        .get_string(&ItemKey::AlbumArtist)
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_owned);
+    track.track_number = tag.track().filter(|v| *v > 0);
+    track.track_total = tag.track_total().filter(|v| *v > 0);
+    track.disc_number = tag.disk().filter(|v| *v > 0);
+    track.disc_total = tag.disk_total().filter(|v| *v > 0);
+    let mut ids = serde_json::Map::new();
+    for (name, key) in [
+        ("musicbrainzReleaseId", ItemKey::MusicBrainzReleaseId),
+        (
+            "musicbrainzReleaseGroupId",
+            ItemKey::MusicBrainzReleaseGroupId,
+        ),
+        ("musicbrainzArtistId", ItemKey::MusicBrainzArtistId),
+        (
+            "musicbrainzReleaseArtistId",
+            ItemKey::MusicBrainzReleaseArtistId,
+        ),
+        ("musicbrainzRecordingId", ItemKey::MusicBrainzRecordingId),
+    ] {
+        let values = tag.get_strings(&key).map(str::trim).collect::<Vec<_>>();
+        if !values.is_empty()
+            && values
+                .iter()
+                .all(|v| crate::spotify_mb_crosswalk::valid_mbid(v))
+        {
+            let unique = values
+                .into_iter()
+                .map(str::to_ascii_lowercase)
+                .collect::<std::collections::BTreeSet<_>>();
+            if unique.len() == 1 {
+                ids.insert(
+                    name.into(),
+                    serde_json::Value::String(unique.first().unwrap().clone()),
+                );
+            }
+        }
+    }
+    if !ids.is_empty() {
+        if !track.provenance.is_object() {
+            track.provenance = serde_json::json!({});
+        }
+        track.provenance["embeddedIdentifiers"] = serde_json::Value::Object(ids);
+    }
+}
+
 pub async fn inspect_local_file(path: &Path, settings: &Settings) -> Result<Track, String> {
     let info = probe(path, settings).await?;
     let path = path.to_path_buf();
@@ -3859,7 +3912,9 @@ pub async fn inspect_local_file(path: &Path, settings: &Settings) -> Result<Trac
             text(ItemKey::RecordingDate),
             date_kind_marker(text(ItemKey::Comment)).as_deref(),
         );
-        Ok(Track { id: format!("local:{}", hash_file(&path)?), provider: "local".into(), provider_id: path.to_string_lossy().into(), source_url: String::new(), artist: tag.and_then(|t| t.artist()).map(|s| s.into_owned()).unwrap_or_default(), title: tag.and_then(|t| t.title()).map(|s| s.into_owned()).unwrap_or_else(|| path.file_stem().unwrap_or_default().to_string_lossy().into()), album: tag.and_then(|t| t.album()).map(|s| s.into_owned()), genre: tag.and_then(|t| t.genre()).map(|s| s.into_owned()), label: text(ItemKey::Label), bpm: text(ItemKey::Bpm).or_else(|| text(ItemKey::Unknown("BPM".into()))).or_else(|| text(ItemKey::IntegerBpm)).and_then(|s| s.parse::<f64>().ok()).filter(|bpm| bpm.is_finite() && *bpm > 0.0 && *bpm <= 1000.0), key: text(ItemKey::InitialKey), release_date, recording_date, isrc: text(ItemKey::Isrc), catalog_number: text(ItemKey::CatalogNumber), duration_seconds: Some(info.duration), local_path: Some(path.to_string_lossy().into()), provenance: serde_json::json!({"source":"local file tags", "codec":info.codec, "bitrateKbps":info.bitrate}), ..Track::default() })
+        let mut track=Track { id: format!("local:{}", hash_file(&path)?), provider: "local".into(), provider_id: path.to_string_lossy().into(), source_url: String::new(), artist: tag.and_then(|t| t.artist()).map(|s| s.into_owned()).unwrap_or_default(), title: tag.and_then(|t| t.title()).map(|s| s.into_owned()).unwrap_or_else(|| path.file_stem().unwrap_or_default().to_string_lossy().into()), album: tag.and_then(|t| t.album()).map(|s| s.into_owned()), genre: tag.and_then(|t| t.genre()).map(|s| s.into_owned()), label: text(ItemKey::Label), bpm: text(ItemKey::Bpm).or_else(|| text(ItemKey::Unknown("BPM".into()))).or_else(|| text(ItemKey::IntegerBpm)).and_then(|s| s.parse::<f64>().ok()).filter(|bpm| bpm.is_finite() && *bpm > 0.0 && *bpm <= 1000.0), key: text(ItemKey::InitialKey), release_date, recording_date, isrc: text(ItemKey::Isrc), catalog_number: text(ItemKey::CatalogNumber), duration_seconds: Some(info.duration), local_path: Some(path.to_string_lossy().into()), provenance: serde_json::json!({"source":"local file tags", "codec":info.codec, "bitrateKbps":info.bitrate}), ..Track::default() };
+        apply_local_library_tags(&mut track,tag);
+        Ok(track)
     }).await.map_err(|e| e.to_string())?
 }
 
@@ -3899,6 +3954,47 @@ pub async fn open_in_file_manager(path: &Path) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn local_library_tags_preserve_album_order_and_only_unambiguous_release_ids() {
+        use super::*;
+        let mut tag = Tag::new(TagType::VorbisComments);
+        tag.insert_text(ItemKey::AlbumArtist, "Album Artist".into());
+        tag.set_track(2);
+        tag.set_track_total(12);
+        tag.set_disk(1);
+        tag.set_disk_total(2);
+        tag.insert_text(
+            ItemKey::MusicBrainzReleaseId,
+            "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA".into(),
+        );
+        tag.insert_text(ItemKey::MusicBrainzRecordingId, "not-a-release-id".into());
+        let mut track = Track::default();
+        apply_local_library_tags(&mut track, Some(&tag));
+        assert_eq!(track.album_artist.as_deref(), Some("Album Artist"));
+        assert_eq!(
+            (
+                track.track_number,
+                track.track_total,
+                track.disc_number,
+                track.disc_total
+            ),
+            (Some(2), Some(12), Some(1), Some(2))
+        );
+        assert_eq!(
+            track.provenance["embeddedIdentifiers"]["musicbrainzReleaseId"],
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        );
+        assert!(track.provenance["embeddedIdentifiers"]
+            .get("musicbrainzRecordingId")
+            .is_none());
+        tag.push_unchecked(lofty::tag::TagItem::new(
+            ItemKey::MusicBrainzReleaseId,
+            lofty::tag::ItemValue::Text("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb".into()),
+        ));
+        let mut multiple = Track::default();
+        apply_local_library_tags(&mut multiple, Some(&tag));
+        assert!(multiple.provenance.get("embeddedIdentifiers").is_none());
+    }
     #[test]
     fn folder_file_tags_enrich_only_the_actual_source_and_preserve_manual_fields() {
         use super::*;

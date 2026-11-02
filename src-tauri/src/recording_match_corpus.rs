@@ -61,6 +61,20 @@ fn public_corpus_records_expected_relationships_across_policy_levels() {
                 .unwrap_or_else(|| panic!("{id} missing expected {key} relationship"));
             let assessment =
                 recording_match::assess(&request, &candidate, level, MatchStage::Resolved);
+            if level == MatchLevel::Exact
+                && matches!(
+                    id,
+                    "chart-mike-dunn-dj-tai-494"
+                        | "masaki-untitled-dub-347"
+                        | "larry-labirt-corey-holmes-330"
+                )
+            {
+                assert_eq!(
+                    assessment.dimensions.artists,
+                    recording_match::Comparison::Agree,
+                    "the exact-mode credit-completeness requirement must preserve known coverage"
+                );
+            }
             if assessment.relationship != expected_relationship(value) {
                 failures.push(format!(
                     "{id} {key}: expected relationship {value}, got {assessment:?}"

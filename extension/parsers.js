@@ -32,6 +32,14 @@ function rowMetadata(row,base){
  const links=selector=>[...row.querySelectorAll(selector)].map(a=>pageLink(a.getAttribute('href'),base)).filter(Boolean);
  return {artistUrls:[...new Set(links('a[href*="/artist/"]'))],albumUrl:links('a[href*="/album/"],a[href*="/release/"]')[0]||null,labelUrl:links('a[href*="/label/"]')[0]||null,remixers:[...row.querySelectorAll('.remixers a,.remixer a')].map(a=>a.textContent.trim()).filter(Boolean)};
 }
+function renderedArtistCredits(row,base,provider){
+ const anchors=[...row.querySelectorAll('a[href*="/artist/"]')].filter(a=>a.textContent.trim());
+ const credits=anchors.map((anchor,index)=>{
+  let providerId=null;try{const path=new URL(anchor.getAttribute('href'),base).pathname;providerId=path.match(/\/artist\/([^/]+)/)?.[1]||null;}catch{/* keep explicit name without a parsed ID */}
+  return {name:anchor.textContent.trim(),role:'artist',providerId,joinPhrase:index<anchors.length-1?', ':'',provenance:`${provider}RenderedArtistLink`};
+ });
+ return credits.length&&credits.length<=32?credits:null;
+}
 function bandcampArtwork(data,doc,base){
  const raw=data.art_url||(typeof data.art==='string'&&/^https:/.test(data.art)?data.art:null)||doc.querySelector('meta[property="og:image"]')?.getAttribute('content');
  if(raw)return pageLink(raw,base);
@@ -477,7 +485,7 @@ export function extract(doc, url) {
       const accessiblePosition=ariaIndex && !(hasHeader && ariaIndex===1) ? ariaIndex-(hasHeader?1:0) : null;
       const explicit=rankNumber(text(row,'[data-testid="tracklist-row-position"]')) || rankNumber(row.querySelector('[role="gridcell"]')?.textContent.trim()) || accessiblePosition;
       if(!id||!artist||!explicit)continue;
-      entries.push(entry(id,sourceUrl,artist,a.textContent.trim(),explicit,{metadata:{...rowMetadata(row,url),availability:row.getAttribute('aria-disabled')==='true'?'unavailable':'available'},artworkUrl:link(row.querySelector('img')?.getAttribute('src'),url),album:text(row,'a[href*="/album/"]'),durationSeconds:time(text(row,'[aria-colindex="5"]') || [...row.querySelectorAll('[role="gridcell"]')].at(-1)?.textContent || row.textContent)}));
+      entries.push(entry(id,sourceUrl,artist,a.textContent.trim(),explicit,{artistCredits:renderedArtistCredits(row,url,'spotify'),metadata:{...rowMetadata(row,url),availability:row.getAttribute('aria-disabled')==='true'?'unavailable':'available'},artworkUrl:link(row.querySelector('img')?.getAttribute('src'),url),album:text(row,'a[href*="/album/"]'),durationSeconds:time(text(row,'[aria-colindex="5"]') || [...row.querySelectorAll('[role="gridcell"]')].at(-1)?.textContent || row.textContent)}));
     }
   }
   let title=text(doc,'main h1,[role="main"] h1')||text(doc,'h1')||doc.title;
@@ -491,7 +499,7 @@ export function extract(doc, url) {
   const count=provider==='spotify' ? metadataText.match(/\b([\d,]+)\s+(?:songs?|tracks?)\b/i) : title.match(/\btop[\s-]+(\d+)\b/i) || doc.title.match(/\btop[\s-]+(\d+)\b/i) || new URL(url).pathname.match(/\/top-(\d+)\/?$/i);
   const expectedTotal=count?num(count[1].replaceAll(',','')):null;
   if(provider==='traxsource')entries=entries.map(e=>({...e,position:e.rank||e.position}));
-  entries=entries.map(e=>Object.fromEntries(Object.entries({...e,...(albumArtwork?{artworkUrl:albumArtwork,album:title}:{})}).map(([k,v])=>[k,typeof v==='string'?v.slice(0,2000):typeof v==='number'?(Number.isFinite(v)?v:null):k==='metadata'?v:null])));
+  entries=entries.map(e=>Object.fromEntries(Object.entries({...e,...(albumArtwork?{artworkUrl:albumArtwork,album:title}:{})}).map(([k,v])=>[k,typeof v==='string'?v.slice(0,2000):typeof v==='number'?(Number.isFinite(v)?v:null):k==='metadata'||k==='artistCredits'?v:null])));
   return {schemaVersion:1,provider,kind:provider==='spotify'?spotifyKind:'chart',title,sourceUrl,capturedAt:new Date().toISOString(),complete:false,expectedTotal,warnings:[],entries};
 }
 export function mergeSnapshots(snapshots) {

@@ -50,6 +50,19 @@ function render(props: Record<string, unknown>) {
 }
 
 describe("ArtistPage", () => {
+  it("saves a verified complete release when its album card has no reported track count", async () => {
+    const ref=artist('complete-library-artist','Complete Artist');
+    const album=release('complete-library-album','Complete Record','https://musicbrainz.org/release/complete','Album');
+    const songs:Track[]=[{id:'catalog:complete',provider:'catalog',providerId:'complete',sourceUrl:'',artist:'Complete Artist',title:'Song',favorite:false,provenance:{libraryAlbumSnapshot:{complete:true,total:1}}}];
+    const save=vi.fn(async()=>{}),playlist=vi.fn();
+    const target=render({initialArtistRef:ref.artist,initialSection:'releases',onSaveAlbumToLibrary:save,onAddAlbumToPlaylist:playlist,getArtistProfile:async()=>profile(ref,emptyReleasePage(ref.artist.id,[album])),getReleaseTracks:async()=>songs});
+    await settle();
+    [...target.querySelectorAll<HTMLButtonElement>('.release-actions button')].find(button=>button.textContent?.trim()==='Save album')!.click();await settle();
+    expect(save).toHaveBeenCalledWith(songs,album);
+    expect(playlist).not.toHaveBeenCalled();
+    expect(target.querySelector('.album-save-status')?.textContent).toContain('Album saved to library');
+  });
+
   it("lets a host with global navigation hide the duplicate search-results button", async () => {
     const ref = artist("host-navigation", "Host Artist");
     const target = render({ initialArtistRef: ref.artist, showSearchResultsButton: false,
@@ -77,6 +90,37 @@ describe("ArtistPage", () => {
     const titles = [...target.querySelectorAll(".release-tracklist li")].map(item => item.textContent);
     expect(titles.filter(title => title?.includes("Caleb Meyer"))).toHaveLength(2);
     expect(titles.filter(title => title?.includes("Time (The Revelator)"))).toHaveLength(2);
+  });
+  it("supports keyboard album menu actions and announces download callback failures", async () => {
+    const ref = artist("django", "Django Reinhardt");
+    const album = release("django-release", "The Parisian Series", "https://musicbrainz.org/release/django-release", "Album");
+    album.trackCount = 1;
+    album.credits = [{ name: ref.name, artist: ref.artist, role: "artist credit", sourceUrl: ref.sourceUrl }];
+    const songs: Track[] = [{ id: "django-song", provider: "catalog", providerId: "recording-1", sourceUrl: album.sourceUrl,
+      artist: ref.name, title: "Swing 42", album: album.title, durationSeconds: 165, favorite: false, provenance: {} }];
+    const onDownloadAlbum = vi.fn().mockRejectedValue(new Error("music folder is unavailable"));
+    const onSearchAlbumSoulseek = vi.fn();
+    const target = render({ initialArtistRef: ref.artist, initialSection: "releases", onDownloadAlbum,
+      onSearchAlbumSoulseek, soulseekSearchAvailable: true,
+      getArtistProfile: async () => profile(ref, emptyReleasePage(ref.artist.id, [album])),
+      getReleaseTracks: async () => songs });
+    await settle();
+    const menu = target.querySelector<HTMLDetailsElement>(".release-menu")!;
+    const summary = menu.querySelector<HTMLElement>("summary")!;
+    summary.focus(); summary.click();
+    expect(menu.open).toBe(true);
+    const search = menu.querySelector<HTMLButtonElement>('[aria-label="Search album The Parisian Series on Soulseek"]')!;
+    search.focus(); search.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(menu.open).toBe(false);
+    expect(document.activeElement).toBe(summary);
+    summary.click(); search.click(); await settle();
+    expect(onSearchAlbumSoulseek).toHaveBeenCalledWith(album);
+    expect(target.querySelector('[role="status"]')?.textContent).toContain("Opened Soulseek album search");
+    summary.click();
+    menu.querySelector<HTMLButtonElement>('[aria-label="Download album The Parisian Series"]')!.click();
+    await settle();
+    expect(onDownloadAlbum).toHaveBeenCalledWith(songs, album);
+    expect(target.querySelector('[role="status"]')?.textContent).toContain("Album download failed: music folder is unavailable");
   });
   it("deduplicates the same Monochrome edition returned in both albums and releases before keyed rendering", async () => {
     const ref = { provider: "monochrome" as const, id: "154167137894666240" };
@@ -615,11 +659,10 @@ describe("ArtistPage", () => {
     expect(target.querySelector(".expanded-tracks")?.textContent).not.toContain("First");
     target.querySelector<HTMLButtonElement>('[aria-label="Save album Save Record to library"]')!.click();
     await settle();
-    expect(onSaveAlbumToLibrary).toHaveBeenCalledOnce();
-    expect(onSaveAlbumToLibrary).toHaveBeenCalledWith(songs, album);
+    expect(onSaveAlbumToLibrary).not.toHaveBeenCalled();
     expect(onPlayTrack).not.toHaveBeenCalled();
     expect(onQueueTracks).not.toHaveBeenCalled();
-    expect(target.querySelector(".album-save-status")?.textContent).toContain("3 of 4 source tracks available");
+    expect(target.querySelector(".album-save-status")?.textContent).toContain("complete album tracklist is unavailable");
   });
 
   it("ignores duplicate and stale save requests when the selected edition changes", async () => {

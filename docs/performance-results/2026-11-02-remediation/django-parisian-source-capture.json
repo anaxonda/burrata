@@ -1,0 +1,933 @@
+{
+  "capturedDate": "2026-11-02",
+  "source": "Connected MusicBrainz release-group read resolved to release 4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+  "qualification": "Request metadata only; no provider audio verified",
+  "total": 12,
+  "tracks": [
+    {
+      "album": "The Parisian Series: Django Reinhardt (Restored Edition '25)",
+      "albumArtist": null,
+      "artist": "Django Reinhardt & Quintette du Hot Club de France",
+      "artworkUrl": "https://coverartarchive.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9/front-250",
+      "assetId": null,
+      "bpm": null,
+      "catalogNumber": "MR250015",
+      "discNumber": 1,
+      "discTotal": null,
+      "disposition": null,
+      "durationSeconds": 165,
+      "favorite": false,
+      "genre": null,
+      "id": "catalog:musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:1:1:ec12bebd-e1b9-42ff-892b-4aa4825ac8ea",
+      "isrc": null,
+      "key": null,
+      "label": "Mouton Records",
+      "localAvailability": "none",
+      "normalizedGenre": null,
+      "previewUrl": null,
+      "provenance": {
+        "artistCredits": [
+          {
+            "artist": {
+              "id": "650bf385-6f6d-4992-a3b9-779d144920a4",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Django Reinhardt",
+            "joinPhrase": " & ",
+            "name": "Django Reinhardt",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9"
+          },
+          {
+            "artist": {
+              "id": "ee55e4e8-807d-49b1-8470-d1c0898ed7cb",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Quintette du Hot Club de France",
+            "joinPhrase": "",
+            "name": "Quintette du Hot Club de France",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9"
+          }
+        ],
+        "artworkAlternates": [
+          "https://coverartarchive.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9/front-250",
+          "https://coverartarchive.org/release-group/9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c/front-250"
+        ],
+        "catalogProvider": "musicbrainz",
+        "manualFields": {},
+        "mediumPosition": 1,
+        "occurrence": 1,
+        "recordingId": "ec12bebd-e1b9-42ff-892b-4aa4825ac8ea",
+        "releaseGroupId": "9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c",
+        "releaseId": "4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+        "representativeEdition": true,
+        "requestedReleaseSourceUrl": "https://musicbrainz.org/release-group/9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c",
+        "sourceKind": "catalog",
+        "sourceMediumPosition": 1,
+        "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+        "trackGuid": "41cfc6b8-6b5d-449a-8f4d-db84c1f3422a",
+        "trackPosition": "1",
+        "trackPositionOrdinal": 1
+      },
+      "provider": "catalog",
+      "providerId": "musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:1:1:ec12bebd-e1b9-42ff-892b-4aa4825ac8ea",
+      "rank": null,
+      "recordingDate": null,
+      "releaseDate": "2025-02-17",
+      "remixers": null,
+      "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+      "title": "Swing 42 (Restored Edition '25)",
+      "trackNumber": 1,
+      "trackTotal": null,
+      "version": null
+    },
+    {
+      "album": "The Parisian Series: Django Reinhardt (Restored Edition '25)",
+      "albumArtist": null,
+      "artist": "Django Reinhardt & Stéphane Grappelli",
+      "artworkUrl": "https://coverartarchive.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9/front-250",
+      "assetId": null,
+      "bpm": null,
+      "catalogNumber": "MR250015",
+      "discNumber": 1,
+      "discTotal": null,
+      "disposition": null,
+      "durationSeconds": 195,
+      "favorite": false,
+      "genre": null,
+      "id": "catalog:musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:2:1:2e5ce3b7-28b8-4cba-9867-5fc1c7a44d75",
+      "isrc": null,
+      "key": null,
+      "label": "Mouton Records",
+      "localAvailability": "none",
+      "normalizedGenre": null,
+      "previewUrl": null,
+      "provenance": {
+        "artistCredits": [
+          {
+            "artist": {
+              "id": "650bf385-6f6d-4992-a3b9-779d144920a4",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Django Reinhardt",
+            "joinPhrase": " & ",
+            "name": "Django Reinhardt",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9"
+          },
+          {
+            "artist": {
+              "id": "bfc03211-a3a2-4700-8fa3-00968c02c5d0",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Stéphane Grappelli",
+            "joinPhrase": "",
+            "name": "Stéphane Grappelli",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9"
+          }
+        ],
+        "artworkAlternates": [
+          "https://coverartarchive.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9/front-250",
+          "https://coverartarchive.org/release-group/9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c/front-250"
+        ],
+        "catalogProvider": "musicbrainz",
+        "manualFields": {},
+        "mediumPosition": 1,
+        "occurrence": 1,
+        "recordingId": "2e5ce3b7-28b8-4cba-9867-5fc1c7a44d75",
+        "releaseGroupId": "9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c",
+        "releaseId": "4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+        "representativeEdition": true,
+        "requestedReleaseSourceUrl": "https://musicbrainz.org/release-group/9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c",
+        "sourceKind": "catalog",
+        "sourceMediumPosition": 1,
+        "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+        "trackGuid": "81ba08e6-bde5-4d73-9501-3aab8e92c8b3",
+        "trackPosition": "2",
+        "trackPositionOrdinal": 2
+      },
+      "provider": "catalog",
+      "providerId": "musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:2:1:2e5ce3b7-28b8-4cba-9867-5fc1c7a44d75",
+      "rank": null,
+      "recordingDate": null,
+      "releaseDate": "2025-02-17",
+      "remixers": null,
+      "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+      "title": "Minor Swing (Restored Edition '25)",
+      "trackNumber": 2,
+      "trackTotal": null,
+      "version": null
+    },
+    {
+      "album": "The Parisian Series: Django Reinhardt (Restored Edition '25)",
+      "albumArtist": null,
+      "artist": "Django Reinhardt & Quintette du Hot Club de France",
+      "artworkUrl": "https://coverartarchive.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9/front-250",
+      "assetId": null,
+      "bpm": null,
+      "catalogNumber": "MR250015",
+      "discNumber": 1,
+      "discTotal": null,
+      "disposition": null,
+      "durationSeconds": 172,
+      "favorite": false,
+      "genre": null,
+      "id": "catalog:musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:3:1:b5cbfbf2-ab9c-4bfc-80b9-68353bd59153",
+      "isrc": null,
+      "key": null,
+      "label": "Mouton Records",
+      "localAvailability": "none",
+      "normalizedGenre": null,
+      "previewUrl": null,
+      "provenance": {
+        "artistCredits": [
+          {
+            "artist": {
+              "id": "650bf385-6f6d-4992-a3b9-779d144920a4",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Django Reinhardt",
+            "joinPhrase": " & ",
+            "name": "Django Reinhardt",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9"
+          },
+          {
+            "artist": {
+              "id": "ee55e4e8-807d-49b1-8470-d1c0898ed7cb",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Quintette du Hot Club de France",
+            "joinPhrase": "",
+            "name": "Quintette du Hot Club de France",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9"
+          }
+        ],
+        "artworkAlternates": [
+          "https://coverartarchive.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9/front-250",
+          "https://coverartarchive.org/release-group/9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c/front-250"
+        ],
+        "catalogProvider": "musicbrainz",
+        "manualFields": {},
+        "mediumPosition": 1,
+        "occurrence": 1,
+        "recordingId": "b5cbfbf2-ab9c-4bfc-80b9-68353bd59153",
+        "releaseGroupId": "9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c",
+        "releaseId": "4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+        "representativeEdition": true,
+        "requestedReleaseSourceUrl": "https://musicbrainz.org/release-group/9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c",
+        "sourceKind": "catalog",
+        "sourceMediumPosition": 1,
+        "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+        "trackGuid": "ea7b04c5-b63f-4ac9-a1ae-59552e3be99b",
+        "trackPosition": "3",
+        "trackPositionOrdinal": 3
+      },
+      "provider": "catalog",
+      "providerId": "musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:3:1:b5cbfbf2-ab9c-4bfc-80b9-68353bd59153",
+      "rank": null,
+      "recordingDate": null,
+      "releaseDate": "2025-02-17",
+      "remixers": null,
+      "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+      "title": "Brazil (Restored Edition '25)",
+      "trackNumber": 3,
+      "trackTotal": null,
+      "version": null
+    },
+    {
+      "album": "The Parisian Series: Django Reinhardt (Restored Edition '25)",
+      "albumArtist": null,
+      "artist": "Django Reinhardt",
+      "artworkUrl": "https://coverartarchive.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9/front-250",
+      "assetId": null,
+      "bpm": null,
+      "catalogNumber": "MR250015",
+      "discNumber": 1,
+      "discTotal": null,
+      "disposition": null,
+      "durationSeconds": 199,
+      "favorite": false,
+      "genre": null,
+      "id": "catalog:musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:4:1:26a7d378-0cf5-4d10-9cfe-27a5dd821c89",
+      "isrc": null,
+      "key": null,
+      "label": "Mouton Records",
+      "localAvailability": "none",
+      "normalizedGenre": null,
+      "previewUrl": null,
+      "provenance": {
+        "artistCredits": [
+          {
+            "artist": {
+              "id": "650bf385-6f6d-4992-a3b9-779d144920a4",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Django Reinhardt",
+            "joinPhrase": "",
+            "name": "Django Reinhardt",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9"
+          }
+        ],
+        "artworkAlternates": [
+          "https://coverartarchive.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9/front-250",
+          "https://coverartarchive.org/release-group/9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c/front-250"
+        ],
+        "catalogProvider": "musicbrainz",
+        "manualFields": {},
+        "mediumPosition": 1,
+        "occurrence": 1,
+        "recordingId": "26a7d378-0cf5-4d10-9cfe-27a5dd821c89",
+        "releaseGroupId": "9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c",
+        "releaseId": "4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+        "representativeEdition": true,
+        "requestedReleaseSourceUrl": "https://musicbrainz.org/release-group/9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c",
+        "sourceKind": "catalog",
+        "sourceMediumPosition": 1,
+        "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+        "trackGuid": "805fabf4-2760-47d6-9630-6b4c444da0e4",
+        "trackPosition": "4",
+        "trackPositionOrdinal": 4
+      },
+      "provider": "catalog",
+      "providerId": "musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:4:1:26a7d378-0cf5-4d10-9cfe-27a5dd821c89",
+      "rank": null,
+      "recordingDate": null,
+      "releaseDate": "2025-02-17",
+      "remixers": null,
+      "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+      "title": "I Can't Believe That You're in Love With Me (Restored Edition '25)",
+      "trackNumber": 4,
+      "trackTotal": null,
+      "version": null
+    },
+    {
+      "album": "The Parisian Series: Django Reinhardt (Restored Edition '25)",
+      "albumArtist": null,
+      "artist": "Django Reinhardt & Coleman Hawkins",
+      "artworkUrl": "https://coverartarchive.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9/front-250",
+      "assetId": null,
+      "bpm": null,
+      "catalogNumber": "MR250015",
+      "discNumber": 1,
+      "discTotal": null,
+      "disposition": null,
+      "durationSeconds": 196,
+      "favorite": false,
+      "genre": null,
+      "id": "catalog:musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:5:1:078741e5-6a67-411e-b071-80ccc96586d2",
+      "isrc": null,
+      "key": null,
+      "label": "Mouton Records",
+      "localAvailability": "none",
+      "normalizedGenre": null,
+      "previewUrl": null,
+      "provenance": {
+        "artistCredits": [
+          {
+            "artist": {
+              "id": "650bf385-6f6d-4992-a3b9-779d144920a4",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Django Reinhardt",
+            "joinPhrase": " & ",
+            "name": "Django Reinhardt",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9"
+          },
+          {
+            "artist": {
+              "id": "5c8cb181-38fe-4300-8153-650b2ed0258f",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Coleman Hawkins",
+            "joinPhrase": "",
+            "name": "Coleman Hawkins",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9"
+          }
+        ],
+        "artworkAlternates": [
+          "https://coverartarchive.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9/front-250",
+          "https://coverartarchive.org/release-group/9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c/front-250"
+        ],
+        "catalogProvider": "musicbrainz",
+        "manualFields": {},
+        "mediumPosition": 1,
+        "occurrence": 1,
+        "recordingId": "078741e5-6a67-411e-b071-80ccc96586d2",
+        "releaseGroupId": "9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c",
+        "releaseId": "4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+        "representativeEdition": true,
+        "requestedReleaseSourceUrl": "https://musicbrainz.org/release-group/9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c",
+        "sourceKind": "catalog",
+        "sourceMediumPosition": 1,
+        "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+        "trackGuid": "87795ce7-f16b-45b2-b6a8-321115a42563",
+        "trackPosition": "5",
+        "trackPositionOrdinal": 5
+      },
+      "provider": "catalog",
+      "providerId": "musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:5:1:078741e5-6a67-411e-b071-80ccc96586d2",
+      "rank": null,
+      "recordingDate": null,
+      "releaseDate": "2025-02-17",
+      "remixers": null,
+      "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+      "title": "Out of Nowhere (Restored Edition '25)",
+      "trackNumber": 5,
+      "trackTotal": null,
+      "version": null
+    },
+    {
+      "album": "The Parisian Series: Django Reinhardt (Restored Edition '25)",
+      "albumArtist": null,
+      "artist": "Django Reinhardt & Rex Stewart",
+      "artworkUrl": "https://coverartarchive.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9/front-250",
+      "assetId": null,
+      "bpm": null,
+      "catalogNumber": "MR250015",
+      "discNumber": 1,
+      "discTotal": null,
+      "disposition": null,
+      "durationSeconds": 146,
+      "favorite": false,
+      "genre": null,
+      "id": "catalog:musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:6:1:659bb1ca-42ce-4f3f-af53-2f32fd154777",
+      "isrc": null,
+      "key": null,
+      "label": "Mouton Records",
+      "localAvailability": "none",
+      "normalizedGenre": null,
+      "previewUrl": null,
+      "provenance": {
+        "artistCredits": [
+          {
+            "artist": {
+              "id": "650bf385-6f6d-4992-a3b9-779d144920a4",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Django Reinhardt",
+            "joinPhrase": " & ",
+            "name": "Django Reinhardt",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9"
+          },
+          {
+            "artist": {
+              "id": "1892127b-90d1-4fa6-b685-3fd68c247a9a",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Rex Stewart",
+            "joinPhrase": "",
+            "name": "Rex Stewart",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9"
+          }
+        ],
+        "artworkAlternates": [
+          "https://coverartarchive.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9/front-250",
+          "https://coverartarchive.org/release-group/9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c/front-250"
+        ],
+        "catalogProvider": "musicbrainz",
+        "manualFields": {},
+        "mediumPosition": 1,
+        "occurrence": 1,
+        "recordingId": "659bb1ca-42ce-4f3f-af53-2f32fd154777",
+        "releaseGroupId": "9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c",
+        "releaseId": "4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+        "representativeEdition": true,
+        "requestedReleaseSourceUrl": "https://musicbrainz.org/release-group/9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c",
+        "sourceKind": "catalog",
+        "sourceMediumPosition": 1,
+        "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+        "trackGuid": "87ffa6c2-7743-4c7e-93b5-150ec7a3d63e",
+        "trackPosition": "6",
+        "trackPositionOrdinal": 6
+      },
+      "provider": "catalog",
+      "providerId": "musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:6:1:659bb1ca-42ce-4f3f-af53-2f32fd154777",
+      "rank": null,
+      "recordingDate": null,
+      "releaseDate": "2025-02-17",
+      "remixers": null,
+      "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+      "title": "Montmartre (Restored Edition '25)",
+      "trackNumber": 6,
+      "trackTotal": null,
+      "version": null
+    },
+    {
+      "album": "The Parisian Series: Django Reinhardt (Restored Edition '25)",
+      "albumArtist": null,
+      "artist": "Django Reinhardt, Benny Carter & Coleman Hawkins and His All-Star Jam Band",
+      "artworkUrl": "https://coverartarchive.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9/front-250",
+      "assetId": null,
+      "bpm": null,
+      "catalogNumber": "MR250015",
+      "discNumber": 1,
+      "discTotal": null,
+      "disposition": null,
+      "durationSeconds": 216,
+      "favorite": false,
+      "genre": null,
+      "id": "catalog:musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:7:1:dec1f666-91fe-4b12-9ed4-b28455d1a2d1",
+      "isrc": null,
+      "key": null,
+      "label": "Mouton Records",
+      "localAvailability": "none",
+      "normalizedGenre": null,
+      "previewUrl": null,
+      "provenance": {
+        "artistCredits": [
+          {
+            "artist": {
+              "id": "650bf385-6f6d-4992-a3b9-779d144920a4",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Django Reinhardt",
+            "joinPhrase": ", ",
+            "name": "Django Reinhardt",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9"
+          },
+          {
+            "artist": {
+              "id": "25cf5731-bed9-4604-97a4-8b9655de1a30",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Benny Carter",
+            "joinPhrase": " & ",
+            "name": "Benny Carter",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9"
+          },
+          {
+            "artist": {
+              "id": "fed2c6c5-a216-4e4a-b980-17d5efbfb7ec",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Coleman Hawkins and His All-Star Jam Band",
+            "joinPhrase": "",
+            "name": "Coleman Hawkins and His All-Star Jam Band",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9"
+          }
+        ],
+        "artworkAlternates": [
+          "https://coverartarchive.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9/front-250",
+          "https://coverartarchive.org/release-group/9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c/front-250"
+        ],
+        "catalogProvider": "musicbrainz",
+        "manualFields": {},
+        "mediumPosition": 1,
+        "occurrence": 1,
+        "recordingId": "dec1f666-91fe-4b12-9ed4-b28455d1a2d1",
+        "releaseGroupId": "9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c",
+        "releaseId": "4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+        "representativeEdition": true,
+        "requestedReleaseSourceUrl": "https://musicbrainz.org/release-group/9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c",
+        "sourceKind": "catalog",
+        "sourceMediumPosition": 1,
+        "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+        "trackGuid": "e8d5958b-82b7-4f60-b2b2-42b2216243af",
+        "trackPosition": "7",
+        "trackPositionOrdinal": 7
+      },
+      "provider": "catalog",
+      "providerId": "musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:7:1:dec1f666-91fe-4b12-9ed4-b28455d1a2d1",
+      "rank": null,
+      "recordingDate": null,
+      "releaseDate": "2025-02-17",
+      "remixers": null,
+      "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+      "title": "Honeysuckle Rose (Restored Edition '25)",
+      "trackNumber": 7,
+      "trackTotal": null,
+      "version": null
+    },
+    {
+      "album": "The Parisian Series: Django Reinhardt (Restored Edition '25)",
+      "albumArtist": null,
+      "artist": "Django Reinhardt & Quintette du Hot Club de France",
+      "artworkUrl": "https://coverartarchive.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9/front-250",
+      "assetId": null,
+      "bpm": null,
+      "catalogNumber": "MR250015",
+      "discNumber": 1,
+      "discTotal": null,
+      "disposition": null,
+      "durationSeconds": 165,
+      "favorite": false,
+      "genre": null,
+      "id": "catalog:musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:8:1:a529e51a-78c9-4d7a-921a-1db717c51c92",
+      "isrc": null,
+      "key": null,
+      "label": "Mouton Records",
+      "localAvailability": "none",
+      "normalizedGenre": null,
+      "previewUrl": null,
+      "provenance": {
+        "artistCredits": [
+          {
+            "artist": {
+              "id": "650bf385-6f6d-4992-a3b9-779d144920a4",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Django Reinhardt",
+            "joinPhrase": " & ",
+            "name": "Django Reinhardt",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9"
+          },
+          {
+            "artist": {
+              "id": "ee55e4e8-807d-49b1-8470-d1c0898ed7cb",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Quintette du Hot Club de France",
+            "joinPhrase": "",
+            "name": "Quintette du Hot Club de France",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9"
+          }
+        ],
+        "artworkAlternates": [
+          "https://coverartarchive.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9/front-250",
+          "https://coverartarchive.org/release-group/9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c/front-250"
+        ],
+        "catalogProvider": "musicbrainz",
+        "manualFields": {},
+        "mediumPosition": 1,
+        "occurrence": 1,
+        "recordingId": "a529e51a-78c9-4d7a-921a-1db717c51c92",
+        "releaseGroupId": "9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c",
+        "releaseId": "4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+        "representativeEdition": true,
+        "requestedReleaseSourceUrl": "https://musicbrainz.org/release-group/9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c",
+        "sourceKind": "catalog",
+        "sourceMediumPosition": 1,
+        "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+        "trackGuid": "1024761a-eb83-42dd-a79a-b494b79ff641",
+        "trackPosition": "8",
+        "trackPositionOrdinal": 8
+      },
+      "provider": "catalog",
+      "providerId": "musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:8:1:a529e51a-78c9-4d7a-921a-1db717c51c92",
+      "rank": null,
+      "recordingDate": null,
+      "releaseDate": "2025-02-17",
+      "remixers": null,
+      "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+      "title": "All of Me (Restored Edition '25)",
+      "trackNumber": 8,
+      "trackTotal": null,
+      "version": null
+    },
+    {
+      "album": "The Parisian Series: Django Reinhardt (Restored Edition '25)",
+      "albumArtist": null,
+      "artist": "Django Reinhardt & Benny Carter",
+      "artworkUrl": "https://coverartarchive.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9/front-250",
+      "assetId": null,
+      "bpm": null,
+      "catalogNumber": "MR250015",
+      "discNumber": 1,
+      "discTotal": null,
+      "disposition": null,
+      "durationSeconds": 195,
+      "favorite": false,
+      "genre": null,
+      "id": "catalog:musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:9:1:57edd3ab-3ae1-468f-9c77-2bbd2c28f259",
+      "isrc": null,
+      "key": null,
+      "label": "Mouton Records",
+      "localAvailability": "none",
+      "normalizedGenre": null,
+      "previewUrl": null,
+      "provenance": {
+        "artistCredits": [
+          {
+            "artist": {
+              "id": "650bf385-6f6d-4992-a3b9-779d144920a4",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Django Reinhardt",
+            "joinPhrase": " & ",
+            "name": "Django Reinhardt",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9"
+          },
+          {
+            "artist": {
+              "id": "25cf5731-bed9-4604-97a4-8b9655de1a30",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Benny Carter",
+            "joinPhrase": "",
+            "name": "Benny Carter",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9"
+          }
+        ],
+        "artworkAlternates": [
+          "https://coverartarchive.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9/front-250",
+          "https://coverartarchive.org/release-group/9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c/front-250"
+        ],
+        "catalogProvider": "musicbrainz",
+        "manualFields": {},
+        "mediumPosition": 1,
+        "occurrence": 1,
+        "recordingId": "57edd3ab-3ae1-468f-9c77-2bbd2c28f259",
+        "releaseGroupId": "9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c",
+        "releaseId": "4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+        "representativeEdition": true,
+        "requestedReleaseSourceUrl": "https://musicbrainz.org/release-group/9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c",
+        "sourceKind": "catalog",
+        "sourceMediumPosition": 1,
+        "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+        "trackGuid": "ec932b99-78cc-4d71-982c-876b9811a1fa",
+        "trackPosition": "9",
+        "trackPositionOrdinal": 9
+      },
+      "provider": "catalog",
+      "providerId": "musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:9:1:57edd3ab-3ae1-468f-9c77-2bbd2c28f259",
+      "rank": null,
+      "recordingDate": null,
+      "releaseDate": "2025-02-17",
+      "remixers": null,
+      "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+      "title": "Farewell Blues (Restored Edition '25)",
+      "trackNumber": 9,
+      "trackTotal": null,
+      "version": null
+    },
+    {
+      "album": "The Parisian Series: Django Reinhardt (Restored Edition '25)",
+      "albumArtist": null,
+      "artist": "Django Reinhardt",
+      "artworkUrl": "https://coverartarchive.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9/front-250",
+      "assetId": null,
+      "bpm": null,
+      "catalogNumber": "MR250015",
+      "discNumber": 1,
+      "discTotal": null,
+      "disposition": null,
+      "durationSeconds": 150,
+      "favorite": false,
+      "genre": null,
+      "id": "catalog:musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:10:1:d800a241-d440-473e-83cf-4d42f7ea5e2f",
+      "isrc": null,
+      "key": null,
+      "label": "Mouton Records",
+      "localAvailability": "none",
+      "normalizedGenre": null,
+      "previewUrl": null,
+      "provenance": {
+        "artistCredits": [
+          {
+            "artist": {
+              "id": "650bf385-6f6d-4992-a3b9-779d144920a4",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Django Reinhardt",
+            "joinPhrase": "",
+            "name": "Django Reinhardt",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9"
+          }
+        ],
+        "artworkAlternates": [
+          "https://coverartarchive.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9/front-250",
+          "https://coverartarchive.org/release-group/9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c/front-250"
+        ],
+        "catalogProvider": "musicbrainz",
+        "manualFields": {},
+        "mediumPosition": 1,
+        "occurrence": 1,
+        "recordingId": "d800a241-d440-473e-83cf-4d42f7ea5e2f",
+        "releaseGroupId": "9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c",
+        "releaseId": "4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+        "representativeEdition": true,
+        "requestedReleaseSourceUrl": "https://musicbrainz.org/release-group/9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c",
+        "sourceKind": "catalog",
+        "sourceMediumPosition": 1,
+        "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+        "trackGuid": "c0f912ae-2061-48ac-af2b-ef66fdb71f75",
+        "trackPosition": "10",
+        "trackPositionOrdinal": 10
+      },
+      "provider": "catalog",
+      "providerId": "musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:10:1:d800a241-d440-473e-83cf-4d42f7ea5e2f",
+      "rank": null,
+      "recordingDate": null,
+      "releaseDate": "2025-02-17",
+      "remixers": null,
+      "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+      "title": "I'll See You in My Dreams (Restored Edition '25)",
+      "trackNumber": 10,
+      "trackTotal": null,
+      "version": null
+    },
+    {
+      "album": "The Parisian Series: Django Reinhardt (Restored Edition '25)",
+      "albumArtist": null,
+      "artist": "Django Reinhardt & Stéphane Grappelli",
+      "artworkUrl": "https://coverartarchive.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9/front-250",
+      "assetId": null,
+      "bpm": null,
+      "catalogNumber": "MR250015",
+      "discNumber": 1,
+      "discTotal": null,
+      "disposition": null,
+      "durationSeconds": 171,
+      "favorite": false,
+      "genre": null,
+      "id": "catalog:musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:11:1:366cf3c2-35b4-4190-bdeb-a3115da588d8",
+      "isrc": null,
+      "key": null,
+      "label": "Mouton Records",
+      "localAvailability": "none",
+      "normalizedGenre": null,
+      "previewUrl": null,
+      "provenance": {
+        "artistCredits": [
+          {
+            "artist": {
+              "id": "650bf385-6f6d-4992-a3b9-779d144920a4",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Django Reinhardt",
+            "joinPhrase": " & ",
+            "name": "Django Reinhardt",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9"
+          },
+          {
+            "artist": {
+              "id": "bfc03211-a3a2-4700-8fa3-00968c02c5d0",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Stéphane Grappelli",
+            "joinPhrase": "",
+            "name": "Stéphane Grappelli",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9"
+          }
+        ],
+        "artworkAlternates": [
+          "https://coverartarchive.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9/front-250",
+          "https://coverartarchive.org/release-group/9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c/front-250"
+        ],
+        "catalogProvider": "musicbrainz",
+        "manualFields": {},
+        "mediumPosition": 1,
+        "occurrence": 1,
+        "recordingId": "366cf3c2-35b4-4190-bdeb-a3115da588d8",
+        "releaseGroupId": "9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c",
+        "releaseId": "4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+        "representativeEdition": true,
+        "requestedReleaseSourceUrl": "https://musicbrainz.org/release-group/9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c",
+        "sourceKind": "catalog",
+        "sourceMediumPosition": 1,
+        "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+        "trackGuid": "11ffdf06-44cf-4d31-810a-13d5d6930630",
+        "trackPosition": "11",
+        "trackPositionOrdinal": 11
+      },
+      "provider": "catalog",
+      "providerId": "musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:11:1:366cf3c2-35b4-4190-bdeb-a3115da588d8",
+      "rank": null,
+      "recordingDate": null,
+      "releaseDate": "2025-02-17",
+      "remixers": null,
+      "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+      "title": "Swinging With Django (Restored Edition '25)",
+      "trackNumber": 11,
+      "trackTotal": null,
+      "version": null
+    },
+    {
+      "album": "The Parisian Series: Django Reinhardt (Restored Edition '25)",
+      "albumArtist": null,
+      "artist": "Django Reinhardt & Quintette du Hot Club de France",
+      "artworkUrl": "https://coverartarchive.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9/front-250",
+      "assetId": null,
+      "bpm": null,
+      "catalogNumber": "MR250015",
+      "discNumber": 1,
+      "discTotal": null,
+      "disposition": null,
+      "durationSeconds": 150,
+      "favorite": false,
+      "genre": null,
+      "id": "catalog:musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:12:1:f16876d3-9a83-4382-9b24-cf2f523feef1",
+      "isrc": null,
+      "key": null,
+      "label": "Mouton Records",
+      "localAvailability": "none",
+      "normalizedGenre": null,
+      "previewUrl": null,
+      "provenance": {
+        "artistCredits": [
+          {
+            "artist": {
+              "id": "650bf385-6f6d-4992-a3b9-779d144920a4",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Django Reinhardt",
+            "joinPhrase": " & ",
+            "name": "Django Reinhardt",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9"
+          },
+          {
+            "artist": {
+              "id": "ee55e4e8-807d-49b1-8470-d1c0898ed7cb",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Quintette du Hot Club de France",
+            "joinPhrase": "",
+            "name": "Quintette du Hot Club de France",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9"
+          }
+        ],
+        "artworkAlternates": [
+          "https://coverartarchive.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9/front-250",
+          "https://coverartarchive.org/release-group/9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c/front-250"
+        ],
+        "catalogProvider": "musicbrainz",
+        "manualFields": {},
+        "mediumPosition": 1,
+        "occurrence": 1,
+        "recordingId": "f16876d3-9a83-4382-9b24-cf2f523feef1",
+        "releaseGroupId": "9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c",
+        "releaseId": "4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+        "representativeEdition": true,
+        "requestedReleaseSourceUrl": "https://musicbrainz.org/release-group/9cd10e01-9cd2-4e5e-b1e5-bb9b46a6645c",
+        "sourceKind": "catalog",
+        "sourceMediumPosition": 1,
+        "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+        "trackGuid": "58f700f8-8e7f-4f6d-a6dd-36b6cdb21d4b",
+        "trackPosition": "12",
+        "trackPositionOrdinal": 12
+      },
+      "provider": "catalog",
+      "providerId": "musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:12:1:f16876d3-9a83-4382-9b24-cf2f523feef1",
+      "rank": null,
+      "recordingDate": null,
+      "releaseDate": "2025-02-17",
+      "remixers": null,
+      "sourceUrl": "https://musicbrainz.org/release/4d654402-6a53-46c5-bf68-26c19e4d0fa9",
+      "title": "Belleville (Restored Edition '25)",
+      "trackNumber": 12,
+      "trackTotal": null,
+      "version": null
+    }
+  ]
+}

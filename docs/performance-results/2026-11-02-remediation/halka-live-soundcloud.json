@@ -1,0 +1,130 @@
+{
+  "capturedDate": "2026-11-02",
+  "source": "connected running app public provider search; not final-source artifact",
+  "query": "Sunidhi Chauhan Divya Kumar Halka Halka",
+  "provider": "soundcloud",
+  "qualification": "Retrieved metadata only; identity/delivered media/native output not verified",
+  "warnings": [],
+  "candidates": [
+    {
+      "artworkUrl": "https://i1.sndcdn.com/artworks-000376758843-3r1xap-original.jpg",
+      "confidence": "review",
+      "durationSeconds": 247.466,
+      "formats": [],
+      "id": "soundcloud:474216888",
+      "official": false,
+      "permission": "unknown",
+      "provider": "soundcloud",
+      "reasons": [
+        "Direct source result; track identity has not been verified",
+        "Download permission has not been established"
+      ],
+      "score": 0.8,
+      "sourceMetadata": {
+        "artistCount": 1,
+        "artists": [
+          "Divya Kumar,Sunidhi Chauhan"
+        ],
+        "catalogTitle": "Halka Halka - Fanney Khan Song",
+        "duration": 247.466,
+        "extractor": true,
+        "plays": 1119979,
+        "resolvedProviderId": "474216888",
+        "sourceMetadataOrigin": "ytDlpCandidateMetadata",
+        "track": "Halka Halka - Fanney Khan Song"
+      },
+      "title": "Halka Halka - Fanney Khan Song",
+      "uploader": "TheBeatsBud",
+      "url": "https://soundcloud.com/mateo-atkinson-331925851/halka-halka-fanney-khan-song"
+    },
+    {
+      "artworkUrl": "https://i1.sndcdn.com/artworks-000388217541-1as54m-original.jpg",
+      "confidence": "review",
+      "durationSeconds": 267.775,
+      "formats": [],
+      "id": "soundcloud:484836207",
+      "official": false,
+      "permission": "unknown",
+      "provider": "soundcloud",
+      "reasons": [
+        "Direct source result; track identity has not been verified",
+        "Download permission has not been established"
+      ],
+      "score": 0.8,
+      "sourceMetadata": {
+        "catalogTitle": "Halka Halka - Sunidhi Chauhan | Divya Kumar | Amit Trivedi",
+        "duration": 267.775,
+        "extractor": true,
+        "plays": 54800,
+        "resolvedProviderId": "484836207",
+        "sourceMetadataOrigin": "ytDlpCandidateMetadata",
+        "track": "Halka Halka - Sunidhi Chauhan | Divya Kumar | Amit Trivedi"
+      },
+      "title": "Halka Halka - Sunidhi Chauhan | Divya Kumar | Amit Trivedi",
+      "uploader": "Ni rj",
+      "url": "https://soundcloud.com/nirjmusic/halka-halka-sunidhi-chauhan"
+    },
+    {
+      "artworkUrl": "https://i1.sndcdn.com/artworks-000403692153-ok448c-original.jpg",
+      "confidence": "review",
+      "durationSeconds": 247.466,
+      "formats": [],
+      "id": "soundcloud:498500037",
+      "official": false,
+      "permission": "unknown",
+      "provider": "soundcloud",
+      "reasons": [
+        "Direct source result; track identity has not been verified",
+        "Download permission has not been established"
+      ],
+      "score": 0.8,
+      "sourceMetadata": {
+        "artistCount": 1,
+        "artists": [
+          "Sunidhi Chauhan, Divya Kumar"
+        ],
+        "catalogTitle": "Halka Halka By Fanney Khan",
+        "duration": 247.466,
+        "extractor": true,
+        "plays": 2754,
+        "resolvedProviderId": "498500037",
+        "sourceMetadataOrigin": "ytDlpCandidateMetadata",
+        "track": "Halka Halka By Fanney Khan"
+      },
+      "title": "Halka Halka By Fanney Khan",
+      "uploader": "muhammad abdullah",
+      "url": "https://soundcloud.com/muhammad-abdullah-428584640/halka-halka-by-fanney-khan"
+    },
+    {
+      "artworkUrl": "https://i1.sndcdn.com/artworks-000381399681-wrcqox-original.jpg",
+      "confidence": "review",
+      "durationSeconds": 247.507,
+      "formats": [],
+      "id": "soundcloud:478635393",
+      "official": false,
+      "permission": "unknown",
+      "provider": "soundcloud",
+      "reasons": [
+        "Direct source result; track identity has not been verified",
+        "Download permission has not been established"
+      ],
+      "score": 0.8,
+      "sourceMetadata": {
+        "artistCount": 1,
+        "artists": [
+          "Sunidhi Chauhan, Divya Kumar"
+        ],
+        "catalogTitle": "Halka Halka",
+        "duration": 247.507,
+        "extractor": true,
+        "plays": 201,
+        "resolvedProviderId": "478635393",
+        "sourceMetadataOrigin": "ytDlpCandidateMetadata",
+        "track": "Halka Halka"
+      },
+      "title": "Halka Halka",
+      "uploader": "Bilal Rao",
+      "url": "https://soundcloud.com/bilal-rao-918970534/halka-halka"
+    }
+  ]
+}

@@ -861,6 +861,7 @@ mod tests {
         let original = Track {
             id: "radio_song:exact-recognition-fixture".into(),
             provider: "radio_song".into(),
+            provider_id: "exact-recognition-fixture".into(),
             artist: "Celso Piña y Su Ronda Bogotá".into(),
             title: "Cumbia Sobre El Río".into(),
             isrc: Some("QZDQH1814866".into()),

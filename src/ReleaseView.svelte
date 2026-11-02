@@ -14,13 +14,14 @@
 
   let {
     release, tracks = [], loading = false, error = "", onPlay = () => {}, onQueue = () => {}, onQueueAlbum,
-    onDownload = () => {}, onDownloadAlbum, onAnalyzeLoudness, onPlayAlbum, onAddAlbumToPlaylist, onSaveToLibrary, onArtist, onContext, onPlaylist, onAddSelectedToPlaylist, onFavorite,
+    onDownload = () => {}, onDownloadAlbum, onSearchAlbumSoulseek, soulseekSearchAvailable = false, onAnalyzeLoudness, onPlayAlbum, onAddAlbumToPlaylist, onSaveToLibrary, onSaveCompleteAlbum, onArtist, onContext, onPlaylist, onAddSelectedToPlaylist, onFavorite,
     playingTrack, bufferingTrack, playingTrackId = "", bufferingTrackId = "", paused = false,
   }: {
     release: ArtistReleaseRef & { artworkUrl?: string | null };
     tracks?: Track[]; loading?: boolean; error?: string;
     onPlay?: (track: Track, tracks: Track[], index: number) => void;
-    onQueue?: (tracks: Track[], mode: "next" | "append") => void; onQueueAlbum?: (tracks: Track[], resource: LoudnessResourceIdentity | null) => void; onDownload?: (track: Track) => void; onDownloadAlbum?: (tracks: Track[], onReceipt?: (receipt: unknown) => void | Promise<void>) => unknown | Promise<unknown>; onAnalyzeLoudness?: (tracks: Track[], gapSeconds: number) => Promise<{ jobId: string; playbackTracks: Track[] }>; onPlayAlbum?: (tracks: Track[], resource: LoudnessResourceIdentity | null) => void | Promise<void>; onAddAlbumToPlaylist?: (tracks: Track[], title: string) => void | Promise<void>; onSaveToLibrary?: (tracks: Track[]) => Promise<void>;
+    onQueue?: (tracks: Track[], mode: "next" | "append") => void; onQueueAlbum?: (tracks: Track[], resource: LoudnessResourceIdentity | null) => void; onDownload?: (track: Track) => void; onDownloadAlbum?: (tracks: Track[], onReceipt?: (receipt: unknown) => void | Promise<void>) => unknown | Promise<unknown>; onSearchAlbumSoulseek?: () => unknown | Promise<unknown>; soulseekSearchAvailable?: boolean; onAnalyzeLoudness?: (tracks: Track[], gapSeconds: number) => Promise<{ jobId: string; playbackTracks: Track[] }>; onPlayAlbum?: (tracks: Track[], resource: LoudnessResourceIdentity | null) => void | Promise<void>; onAddAlbumToPlaylist?: (tracks: Track[], title: string) => void | Promise<void>; onSaveToLibrary?: (tracks: Track[]) => Promise<void>;
+    onSaveCompleteAlbum?: (tracks: Track[], release: ArtistReleaseRef) => Promise<void>;
     onArtist?: (track: Track) => void; onContext?: (track: Track, event: MouseEvent) => void; onPlaylist?: (track: Track) => void; onAddSelectedToPlaylist?: (tracks: Track[]) => void | Promise<void>; onFavorite?: (track: Track) => void;
     playingTrack?: Track | null; bufferingTrack?: Track | null;
     playingTrackId?: string; bufferingTrackId?: string; paused?: boolean;
@@ -41,6 +42,8 @@
   let savingToLibrary = $state(false);
   let saveLibraryError = $state("");
   let saveLibraryNotice = $state("");
+  let albumActionStatus = $state("");
+  let albumActions = $state<HTMLDetailsElement | null>(null);
   let loudnessAnalysisJobId = $state("");
   let loudnessAnalysisState = $state<"idle" | "running" | "completed" | "failed" | "cancelled">("idle");
   let loudnessAnalysisProgress = $state("");
@@ -96,9 +99,38 @@
     syncLoudnessSnapshot(`${snapshot.identity}:${snapshot.revision}`);
   });
   export function captureLoadedAlbumSnapshot() { return loadedAlbumSnapshot(); }
-  function downloadAlbum() {
+  function closeAlbumActions(event: KeyboardEvent) {
+    if (event.key !== "Escape" || !albumActions?.open || !albumActions.contains(event.target as Node)) return;
+    event.preventDefault();
+    albumActions.open = false;
+    albumActions.querySelector<HTMLElement>("summary")?.focus();
+  }
+  async function downloadAlbum() {
     if (!onDownloadAlbum || loading || !albumTracks.length) return;
-    return onDownloadAlbum(albumTracks);
+    albumActionStatus = "Preparing album download…";
+    try {
+      const receipt = await onDownloadAlbum(albumTracks);
+      const result = receipt && typeof receipt === "object" ? receipt as { status?: string; requestedCount?: number; queuedJobs?: unknown[]; failed?: Array<{reason?:string}>; skipped?: unknown[] } : null;
+      if (result?.status === "failed" || result?.status === "busy" || result?.status === "empty") {
+        throw new Error(result.failed?.[0]?.reason || (result.status === "busy" ? "Another album batch is already running." : "No album tracks could be prepared."));
+      }
+      albumActionStatus = result
+        ? `Album request finished: ${result.queuedJobs?.length ?? 0} queued${result.skipped?.length ? `, ${result.skipped.length} need review` : ""}.`
+        : "Album download request sent.";
+      if (albumActions) albumActions.open = false;
+    } catch (failure) {
+      albumActionStatus = `Album download failed: ${failure instanceof Error ? failure.message : String(failure)}`;
+    }
+  }
+  async function searchAlbumSoulseek() {
+    if (!onSearchAlbumSoulseek || !soulseekSearchAvailable) return;
+    try {
+      await onSearchAlbumSoulseek();
+      albumActionStatus = "Opened Soulseek album search.";
+      if (albumActions) albumActions.open = false;
+    } catch (failure) {
+      albumActionStatus = `Soulseek album search failed: ${failure instanceof Error ? failure.message : String(failure)}`;
+    }
   }
   export function downloadLoadedAlbum(expectedIdentity: string, expectedRevision: string, onReceipt?: (receipt: unknown) => void | Promise<void>) {
     const snapshot = loadedAlbumSnapshot();
@@ -194,16 +226,17 @@
     loudnessAnalysisProgress = "Album analysis cancelled.";
     if (jobId) await call("cancel_loudness_analysis", { jobId }).catch(() => {});
   }
-  async function saveAlbumToLibrary() {
-    if (!onSaveToLibrary || !albumTracks.length || savingToLibrary) return;
+  async function saveAlbumToLibrary(complete = false) {
+    if ((!onSaveToLibrary && !onSaveCompleteAlbum) || !albumTracks.length || savingToLibrary) return;
     const identity = saveReleaseIdentity;
     syncSaveReleaseIdentity(identity);
     const generation = ++saveReleaseGeneration;
     const isCurrentSave = () => generation === saveReleaseGeneration && identity === saveReleaseIdentity;
     savingToLibrary = true; saveLibraryError = ""; saveLibraryNotice = "";
     try {
-      await onSaveToLibrary(albumTracks);
-      if (isCurrentSave()) saveLibraryNotice = "Album tracks saved to Library.";
+      if (complete && onSaveCompleteAlbum) await onSaveCompleteAlbum(albumTracks, release);
+      else await onSaveToLibrary?.(albumTracks);
+      if (isCurrentSave()) saveLibraryNotice = complete ? "Album saved to Library." : "Album tracks saved to Library.";
     } catch (reason) {
       if (isCurrentSave()) saveLibraryError = reason instanceof Error ? reason.message : String(reason || "Could not save tracks to Library.");
     } finally {
@@ -211,6 +244,8 @@
     }
   }
 </script>
+
+<svelte:window onkeydown={closeAlbumActions} />
 
 <section bind:this={releaseElement} class="release-view" aria-label={`${release.title} release`}>
   <header class="release-hero">
@@ -220,7 +255,7 @@
       <h1>{release.title}</h1>
       {#if artists.length}<p class="artists">{#each artists as artist, i}<span>{#if i > 0}<span aria-hidden="true"> · </span>{/if}{#if tracks[0] && onArtist}<button onclick={() => onArtist?.(tracks[0])}>{artist}</button>{:else}{artist}{/if}</span>{/each}</p>{/if}
       <p class="release-meta">{#if release.year}{release.year}{:else if release.releaseDate}{release.releaseDate}{/if}{#if release.label}<span> · {release.label}</span>{/if}{#if release.country}<span> · {territoryLabel(release.country)}</span>{/if}</p>
-      <div class="hero-actions"><button class="primary" disabled={!tracks.length || loading} onclick={playAlbum}>▶ Play album</button><button disabled={!tracks.length || loading} onclick={queueAlbum}>＋ Queue album</button>{#if onDownloadAlbum}<button disabled={!tracks.length || loading} onclick={() => void downloadAlbum()}>↓ Download album</button>{/if}{#if onAddAlbumToPlaylist}<button class="add-album-playlist" disabled={!albumTracks.length || loading} onclick={() => void onAddAlbumToPlaylist?.(albumTracks, release.title)}>Add to playlist</button>{:else if onSaveToLibrary}<button class="save-album" disabled={!tracks.length || loading || savingToLibrary} onclick={() => void saveAlbumToLibrary()}>{savingToLibrary ? "Saving to Library…" : saveAlbumButtonLabel}</button>{/if}</div>
+      <div class="hero-actions"><button class="primary" disabled={!tracks.length || loading} onclick={playAlbum}>▶ Play album</button><button disabled={!tracks.length || loading} onclick={queueAlbum}>＋ Queue album</button>{#if onDownloadAlbum || onSearchAlbumSoulseek}<details class="album-actions-menu" bind:this={albumActions}><summary aria-label={`More album actions for ${release.title}`}>More album actions</summary><div class="album-actions-content" role="group" aria-label={`Album actions for ${release.title}`}>{#if onDownloadAlbum}<button type="button" disabled={!tracks.length || loading} onclick={() => void downloadAlbum()}>↓ Download album</button>{/if}{#if onSearchAlbumSoulseek}<button type="button" aria-label={`Search album ${release.title} on Soulseek`} disabled={!soulseekSearchAvailable} title={!soulseekSearchAvailable ? "Enable and configure Soulseek in Settings → Connections to search albums." : undefined} onclick={() => void searchAlbumSoulseek()}>Search album on Soulseek</button>{#if !soulseekSearchAvailable}<small>Enable and configure Soulseek in Settings → Connections.</small>{/if}{/if}</div></details>{/if}{#if onAddAlbumToPlaylist}<button class="add-album-playlist" disabled={!albumTracks.length || loading} onclick={() => void onAddAlbumToPlaylist?.(albumTracks, release.title)}>Add to playlist</button>{/if}{#if onSaveCompleteAlbum}<button disabled={!tracks.length || loading || savingToLibrary} onclick={() => void saveAlbumToLibrary(true)}>Save album</button>{/if}{#if onSaveToLibrary}<button class="save-album" disabled={!tracks.length || loading || savingToLibrary} onclick={() => void saveAlbumToLibrary()}>{savingToLibrary ? "Saving to Library…" : onSaveCompleteAlbum ? "Save loaded tracks" : saveAlbumButtonLabel}</button>{/if}</div>{#if albumActionStatus}<p class="album-action-status" role="status">{albumActionStatus}</p>{/if}
       {#if onAnalyzeLoudness}<section class="album-loudness-analysis" aria-label="Album loudness analysis">
         <p class="album-programme-boundary">Measures the release with no added inter-track silence, matching the album queue programme definition.</p>
         <button disabled={!onAnalyzeLoudness || albumTracks.length < 2 || loading || loudnessAnalysisState === "running"} onclick={() => void analyzeAlbumLoudness()}>{loudnessAnalysisState === "running" ? "Analyzing album…" : loudnessAlbumResource ? "Reanalyze album loudness" : "Analyze album loudness"}</button>
@@ -245,6 +280,7 @@
 <style>
   .release-view{display:flex;flex-direction:column;gap:1rem;min-width:0;min-height:0;height:100%;overflow:auto;padding:1rem;color:var(--text,#eee);background:var(--panel,#17191c);border-radius:12px}.release-view button,.release-view input,.release-view select{font:inherit;color:inherit;background:var(--surface,#202328);border:1px solid var(--border,#454a50);border-radius:7px;padding:.5rem .65rem}.release-view button{cursor:pointer}.release-view button:disabled{opacity:.5;cursor:default}.release-hero{display:flex;align-items:flex-end;gap:1.15rem;padding:.6rem 0 1rem;border-bottom:1px solid var(--border,#383d43)}.cover{width:clamp(120px,20vw,190px);height:clamp(120px,20vw,190px);flex:none;object-fit:cover;border-radius:9px;box-shadow:0 8px 24px #0005}.placeholder{display:grid;place-items:center;background:linear-gradient(145deg,#2b4039,#20242a);color:var(--accent,#67c3a5);font-size:4rem}.hero-copy{min-width:0}.eyebrow{margin:0;color:var(--muted,#a3a8ae);font-size:.75rem;text-transform:uppercase;letter-spacing:.1em}.hero-copy h1{margin:.35rem 0;font-size:clamp(1.6rem,4vw,2.65rem);line-height:1.1}.artists,.release-meta{margin:.35rem 0;color:var(--muted,#a3a8ae)}.artists button{border:0;background:none;padding:0;color:var(--text,#eee);text-decoration:underline}.hero-actions{display:flex;gap:.45rem;margin-top:.85rem;flex-wrap:wrap}.primary{background:var(--accent,#4c78c8)!important;border-color:var(--accent,#4c78c8)!important;color:var(--base,#101412)!important}.track-heading{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:.75rem}.track-heading h2{margin:0;font-size:1.1rem}.track-heading h2 span{color:var(--muted,#a3a8ae);font-size:.8rem;font-weight:400}.track-controls{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;min-width:0}.release-view .track-controls input,.release-view .track-controls select{height:34px;min-height:34px;box-sizing:border-box;padding:.3rem .5rem;font-size:.8rem}.track-controls input{min-width:6.75rem}.track-controls select{color-scheme:dark}.release-view button:focus-visible,.release-view input:focus-visible,.release-view select:focus-visible{outline:2px solid var(--accent,#b8ec8c);outline-offset:2px}.error{color:#ff9b9b}.muted{color:var(--muted,#a3a8ae)}
   .album-loudness-analysis{display:flex;align-items:end;gap:.45rem;flex-wrap:wrap;margin-top:.55rem}.album-loudness-analysis p{flex-basis:100%;margin:0;color:var(--muted,#a3a8ae);font-size:.78rem}
+  .album-actions-menu{position:relative}.album-actions-menu summary{cursor:pointer;list-style:none}.album-actions-menu summary::-webkit-details-marker{display:none}.album-actions-content{position:absolute;z-index:5;top:calc(100% + 4px);right:0;display:grid;gap:.35rem;min-width:210px;padding:.5rem;background:var(--panel,#17191c);border:1px solid var(--border,#454a50);border-radius:8px;box-shadow:0 8px 22px #0008}.album-actions-content small{max-width:220px;color:var(--muted,#a3a8ae);font-size:.75rem}.album-action-status{margin:0;color:var(--muted,#a3a8ae);font-size:.82rem}
   @media(max-width:620px){.release-view{padding:.7rem}.release-hero{align-items:center;gap:.75rem}.cover{width:105px;height:105px}.hero-actions button{padding:.4rem .5rem}.track-heading{align-items:flex-start;flex-direction:column}.track-controls{width:100%}.track-controls input{flex:1;min-width:0}}
   .release-view .hero-actions button{box-sizing:border-box;min-height:34px;height:auto;padding:.3rem .6rem;font-size:.8rem;line-height:1.2}
   .release-view .track-controls select{appearance:none;-webkit-appearance:none;box-sizing:border-box;display:block;height:34px;min-height:34px;max-height:34px;padding:0 30px 0 9px;font-size:12px;line-height:18px;text-align:left;background-image:linear-gradient(45deg,transparent 50%,var(--muted,#a3a8ae) 50%),linear-gradient(135deg,var(--muted,#a3a8ae) 50%,transparent 50%);background-position:calc(100% - 14px) 50%,calc(100% - 10px) 50%;background-size:4px 4px;background-repeat:no-repeat}

@@ -323,5 +323,76 @@
       "retryable": true
     },
     "skip": false
+  },
+  {
+    "reason": "Monochrome search transport connect failed",
+    "failure": {
+      "category": "network",
+      "stage": "transport",
+      "scope": "global",
+      "retryable": true
+    },
+    "skip": false
+  },
+  {
+    "reason": "Monochrome search transport body failed",
+    "failure": {
+      "category": "network",
+      "stage": "transport",
+      "scope": "global",
+      "retryable": true
+    },
+    "skip": false
+  },
+  {
+    "reason": "Monochrome search transport request failed",
+    "failure": {
+      "category": "network",
+      "stage": "transport",
+      "scope": "global",
+      "retryable": true
+    },
+    "skip": false
+  },
+  {
+    "reason": "Monochrome search transport timeout failed",
+    "failure": {
+      "category": "timeout",
+      "stage": "transport",
+      "scope": "global",
+      "retryable": true
+    },
+    "skip": false
+  },
+  {
+    "reason": "Invalid Monochrome catalog track rows",
+    "failure": {
+      "category": "parser",
+      "stage": "resolver",
+      "scope": "source",
+      "retryable": true
+    },
+    "skip": false
+  },
+  {
+    "reason": "HTTP 200; HTTP 503",
+    "failure": {
+      "category": "unknown",
+      "stage": "unknown",
+      "scope": "unknown",
+      "retryable": false,
+      "httpStatus": 200
+    },
+    "skip": false
+  },
+  {
+    "reason": "HTTP 600 unavailable",
+    "failure": {
+      "category": "unknown",
+      "stage": "unknown",
+      "scope": "unknown",
+      "retryable": false
+    },
+    "skip": false
   }
 ]

@@ -281,9 +281,14 @@ export interface FlexibleMatching {
   allowOtherPerformances: boolean;
   allowOtherMixes: boolean;
   allowOtherArtists: boolean;
+  /** Legacy toggle retained for persisted settings; gates duration limits. */
   allowDifferentLengths: boolean;
+  /** Maximum accepted candidate duration below the request, in seconds. */
+  maxShorterBySeconds?: number;
+  /** Maximum accepted candidate duration above the request, in seconds. */
+  maxLongerBySeconds?: number;
 }
-export const DEFAULT_FLEXIBLE_MATCHING: FlexibleMatching = { version: 1, allowOtherReleases: true, allowOtherPerformances: false, allowOtherMixes: false, allowOtherArtists: false, allowDifferentLengths: false };
+export const DEFAULT_FLEXIBLE_MATCHING: FlexibleMatching = { version: 1, allowOtherReleases: true, allowOtherPerformances: false, allowOtherMixes: false, allowOtherArtists: false, allowDifferentLengths: false, maxShorterBySeconds: 30, maxLongerBySeconds: 30 };
 export interface PlaybackTransition { fromEntryId: string; toEntryId: string; progress: number }
 export interface Settings {
   musicDirectory: string;

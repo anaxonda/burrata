@@ -22,6 +22,7 @@ fn safe_failure_code(error: &str) -> &'static str {
         C::UnsupportedAudio => "UNSUPPORTED_AUDIO",
         C::Output => "OUTPUT",
         C::Storage => "STORAGE",
+        C::Parser => "PARSER",
         C::Unknown => "UNKNOWN",
     }
 }

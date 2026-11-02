@@ -110,6 +110,7 @@ mod recording_match_context;
 mod recording_match_corpus;
 pub mod remote_playlists;
 pub mod restore_work_policy;
+pub(crate) mod search_plan;
 mod shutdown_signal;
 pub mod sidebar_layout;
 pub mod slskd;
@@ -1846,6 +1847,190 @@ struct SaveLibraryTracksResult {
 }
 
 #[tauri::command]
+async fn list_local_album_matches(
+    state: State<'_, AppState>,
+    local_album_id: String,
+    query: Option<String>,
+) -> Result<storage::local_albums::LocalAlbumMatchPage> {
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || {
+        store.local_album_matches(&local_album_id, query.as_deref().unwrap_or(""))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+async fn set_local_album_match(
+    state: State<'_, AppState>,
+    local_album_id: String,
+    target_album_id: String,
+    decision: String,
+    token: Option<String>,
+) -> Result<Option<storage::library::LibraryEntity>> {
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || {
+        let _permit = store.try_library_write()?;
+        store.set_local_album_match(
+            &local_album_id,
+            &target_album_id,
+            &decision,
+            token.as_deref(),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn get_library_entity(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Option<storage::library::LibraryEntity>> {
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || store.library_saved_entity_status(&id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn get_playlist_artwork(
+    state: State<'_, AppState>,
+    collection_ids: Vec<String>,
+) -> Result<std::collections::HashMap<String, Vec<String>>> {
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || store.playlist_artwork(&collection_ids))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn list_library_entities(
+    state: State<'_, AppState>,
+    kind: String,
+    artist_id: Option<String>,
+    query: Option<String>,
+    limit: usize,
+    offset: usize,
+) -> Result<storage::library::LibraryEntityPage> {
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || {
+        store.list_library_entities(
+            &kind,
+            artist_id.as_deref(),
+            query.as_deref().unwrap_or(""),
+            limit,
+            offset,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn list_library_entity_tracks(
+    state: State<'_, AppState>,
+    id: String,
+    query: Option<String>,
+    sort: Option<String>,
+    descending: Option<bool>,
+    availability: Option<String>,
+    min_duration: Option<f64>,
+    max_duration: Option<f64>,
+    limit: usize,
+    offset: usize,
+) -> Result<storage::library::LibraryTrackPage> {
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || {
+        store.list_library_entity_tracks(
+            &id,
+            query.as_deref().unwrap_or(""),
+            sort.as_deref().unwrap_or("sourceOrder"),
+            descending.unwrap_or(false),
+            availability.as_deref().unwrap_or("all"),
+            min_duration,
+            max_duration,
+            limit,
+            offset,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn save_library_artist(
+    state: State<'_, AppState>,
+    entry: storage::library::LibraryEntity,
+) -> Result<storage::library::LibraryEntity> {
+    if entry.provider.as_deref() == Some("spotify") {
+        if let Some(id) = entry.provider_id.as_deref() {
+            if let Some(mbid) =
+                artist_alias_discovery::cached_spotify_musicbrainz_artist(&state.store, id)
+            {
+                let _ = state.store.link_library_entities(
+                    "artist",
+                    "spotify",
+                    id,
+                    "musicbrainz",
+                    &mbid,
+                );
+            }
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(8),
+                state.artists.resolve_library_spotify_link("artist", id),
+            )
+            .await;
+        }
+    }
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || {
+        let _permit = store.try_library_write()?;
+        store.save_library_artist(entry)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn remove_library_entity_save(state: State<'_, AppState>, id: String) -> Result<()> {
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || {
+        let _permit = store.try_library_write()?;
+        store.remove_library_entity_save(&id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn save_library_album(
+    state: State<'_, AppState>,
+    entry: storage::library::LibraryEntity,
+    tracks: Vec<Track>,
+    expected_count: usize,
+) -> Result<storage::library::LibraryEntity> {
+    if entry.provider.as_deref() == Some("spotify") {
+        if let Some(id) = entry.provider_id.as_deref() {
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(8),
+                state.artists.resolve_library_spotify_link("album", id),
+            )
+            .await;
+        }
+    }
+    let store = state.store.clone();
+    let to_prepare = tracks.clone();
+    let saved = tokio::task::spawn_blocking(move || {
+        let _permit = store.try_library_write()?;
+        store.save_library_album(entry, tracks, expected_count)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    source_preparation::schedule(state.acquisition.clone(), to_prepare);
+    Ok(saved)
+}
+
+#[tauri::command]
 async fn save_library_tracks(
     state: State<'_, AppState>,
     tracks: Vec<Track>,
@@ -2513,6 +2698,7 @@ pub(crate) struct AppState {
     remote_playlists: Arc<remote_playlists::RemotePlaylistService>,
     preview_warmup_cancel: std::sync::Mutex<Option<tokio::sync::watch::Sender<bool>>>,
     playback_resolution: Arc<std::sync::Mutex<PlaybackResolutionGate>>,
+    startup_readiness: Arc<std::sync::atomic::AtomicBool>,
     webview_identification: webview_identification::WebViewIdentification,
     connections: Arc<connections::ConnectionManager>,
     artists: Arc<artists::ArtistService>,
@@ -3013,6 +3199,11 @@ fn playback_snapshot_track_id(snapshot: &serde_json::Value) -> Option<String> {
 #[tauri::command]
 fn set_automation_frontend_ready(state: State<'_, AppState>, ready: bool) {
     state.automation.set_frontend_ready(ready);
+    if ready {
+        state
+            .startup_readiness
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
 }
 #[tauri::command]
 fn automation_layout_complete(
@@ -3315,6 +3506,49 @@ fn create_youtube_handoff_pairing_code(
 fn request_browser_import(state: State<'_, AppState>, url: String) -> Result<String> {
     state.browser.request_import(&url)
 }
+
+fn beatport_browser_artist_credits(
+    track: &models::Track,
+) -> Option<Vec<browser_bridge::BrowserArtistCredit>> {
+    let artists = track.provenance["raw"]["artists"].as_array()?;
+    if artists.is_empty() || artists.len() > 32 {
+        return None;
+    }
+    let mut credits = Vec::with_capacity(artists.len());
+    for (index, row) in artists.iter().enumerate() {
+        let identity = row.get("artist").unwrap_or(row);
+        let name = row["name"]
+            .as_str()
+            .or(identity["name"].as_str())
+            .or(identity["artist_name"].as_str())?
+            .trim();
+        if name.is_empty() || name.len() > 512 || name.chars().any(char::is_control) {
+            return None;
+        }
+        let role = row["role"]["name"]
+            .as_str()
+            .or(row["role"].as_str())
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or("artist");
+        let provider_id = row["id"]
+            .as_str()
+            .or(identity["id"].as_str())
+            .map(str::to_owned);
+        credits.push(browser_bridge::BrowserArtistCredit {
+            name: name.to_owned(),
+            role: Some(role.to_owned()),
+            provider_id,
+            join_phrase: Some(if index + 1 < artists.len() {
+                ", ".to_owned()
+            } else {
+                String::new()
+            }),
+            provenance: Some("beatportCatalogArtistRow".into()),
+        });
+    }
+    Some(credits)
+}
+
 pub(crate) async fn read_collection_snapshot(
     url: &str,
     connections: &connections::ConnectionManager,
@@ -3328,6 +3562,7 @@ pub(crate) async fn read_collection_snapshot(
             .enumerate()
             .map(|(index, t)| browser_bridge::BrowserEntry {
                 metadata: serde_json::json!({"remixers":t.remixers.clone().map(serde_json::to_value).and_then(std::result::Result::ok).unwrap_or_else(||t.provenance["remixers"].clone())}),
+                artist_credits: beatport_browser_artist_credits(&t),
                 provider_id: Some(t.provider_id),
                 source_url: Some(t.source_url),
                 artist: t.artist,
@@ -8812,77 +9047,91 @@ pub fn run() {
             let browser = browser_bridge::BrowserBridge::start(app.handle().clone(), store.clone(), dir.clone(), token, router).map_err(std::io::Error::other)?;
             startup_mark("browser_bridge.end");
             let managed_provider_session = managed_provider_session::ManagedProviderSession::new(app.handle().clone(), browser.clone(), dir);
+            let playback_resolution = Arc::new(std::sync::Mutex::new(PlaybackResolutionGate::default()));
+            let startup_readiness = Arc::new(std::sync::atomic::AtomicBool::new(false));
             {
                 let facts_store = store.clone();
                 let facts_app = app.handle().clone();
+                let readiness = startup_readiness.clone();
+                let foreground_playback = playback_resolution.clone();
+                let playback_state = playback.clone();
                 tauri::async_runtime::spawn(async move {
                     let perf_trace = std::env::var_os("BURRATA_PERF_TRACE").is_some();
                     let worker_started = std::time::Instant::now();
-                    let Ok(settings) = facts_store.settings() else { return };
-                    let select_started = std::time::Instant::now();
-                    let assets = facts_store
-                        .list_assets_needing_quality_facts(100)
-                        .unwrap_or_default();
+                    // The UI readiness signal starts deferred maintenance. A bounded
+                    // fallback keeps headless/API-only launches from starving forever.
+                    let readiness_deadline = tokio::time::Instant::now()
+                        + std::time::Duration::from_secs(30);
+                    while !readiness.load(std::sync::atomic::Ordering::Acquire)
+                        && tokio::time::Instant::now() < readiness_deadline
+                    {
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    }
+                    let selection_store = facts_store.clone();
+                    let selected = tokio::task::spawn_blocking(move || {
+                        let settings = selection_store.settings()?;
+                        let assets = selection_store.list_assets_needing_quality_facts(100)?;
+                        Ok::<_, String>((settings, assets))
+                    }).await;
+                    let Ok(Ok((settings, assets))) = selected else { return };
                     if perf_trace {
-                        eprintln!(
-                            "[perf] quality_facts.select assets={} elapsed_ms={}",
-                            assets.len(),
-                            select_started.elapsed().as_millis()
-                        );
+                        eprintln!("[perf] quality_facts.select assets={} elapsed_ms={}", assets.len(), worker_started.elapsed().as_millis());
                     }
                     for (index, asset) in assets.into_iter().enumerate() {
+                        // Yield to any active foreground resolution before starting
+                        // another disk read. Each blocking job handles one asset only.
+                        loop {
+                            let resolution_active = foreground_playback
+                                .lock()
+                                .map(|gate| gate.has_current_resolution())
+                                .unwrap_or(true);
+                            let playback_updates = playback_state.subscribe();
+                            let foreground_active = resolution_active
+                                || {
+                                    let snapshot = playback_updates.borrow();
+                                    snapshot
+                                        .get("status")
+                                        .and_then(serde_json::Value::as_str)
+                                        .is_some_and(|status| matches!(status, "resolving" | "buffering" | "playing"))
+                                };
+                            if !foreground_active { break; }
+                            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                        }
+                        tokio::task::yield_now().await;
                         let item = index + 1;
-                        let path = Path::new(&asset.path);
-                        if !path.is_file() {
-                            if perf_trace {
-                                eprintln!("[perf] quality_facts.item item={} outcome=missing", item);
-                            }
-                            continue;
-                        }
+                        let asset_for_hash = asset.clone();
                         let hash_started = std::time::Instant::now();
-                        let hash_matches =
-                            media::hash_file(path).ok().as_deref() == Some(asset.hash.as_str());
+                        let hashed = tokio::task::spawn_blocking(move || {
+                            let path = Path::new(&asset_for_hash.path);
+                            path.is_file()
+                                && media::hash_file(path).ok().as_deref() == Some(asset_for_hash.hash.as_str())
+                        }).await;
+                        let hash_matches = matches!(hashed, Ok(true));
                         if perf_trace {
-                            eprintln!(
-                                "[perf] quality_facts.hash item={} matches={} elapsed_ms={}",
-                                item,
-                                hash_matches,
-                                hash_started.elapsed().as_millis()
-                            );
+                            eprintln!("[perf] quality_facts.hash item={} matches={} elapsed_ms={}", item, hash_matches, hash_started.elapsed().as_millis());
                         }
-                        if !hash_matches {
-                            continue;
-                        }
+                        if !hash_matches { continue; }
                         let inspect_started = std::time::Instant::now();
-                        if let Ok(facts) = media::inspect_quality_facts(path, &settings).await {
-                            let saved = facts_store
-                                .save_asset_quality_facts(&asset.id, &asset.hash, &facts)
-                                .is_ok();
+                        if let Ok(facts) = media::inspect_quality_facts(Path::new(&asset.path), &settings).await {
+                            let save_store = facts_store.clone();
+                            let asset_id = asset.id.clone();
+                            let expected_hash = asset.hash.clone();
+                            let saved = tokio::task::spawn_blocking(move || {
+                                save_store.save_asset_quality_facts(&asset_id, &expected_hash, &facts).is_ok()
+                            }).await.unwrap_or(false);
                             if saved {
                                 let _ = facts_app.emit("asset-facts-updated", &asset.id);
                             }
                             if perf_trace {
-                                eprintln!(
-                                    "[perf] quality_facts.inspect item={} saved={} elapsed_ms={}",
-                                    item,
-                                    saved,
-                                    inspect_started.elapsed().as_millis()
-                                );
+                                eprintln!("[perf] quality_facts.inspect item={} saved={} elapsed_ms={}", item, saved, inspect_started.elapsed().as_millis());
                             }
                         } else if perf_trace {
-                            eprintln!(
-                                "[perf] quality_facts.inspect item={} outcome=error elapsed_ms={}",
-                                item,
-                                inspect_started.elapsed().as_millis()
-                            );
+                            eprintln!("[perf] quality_facts.inspect item={} outcome=error elapsed_ms={}", item, inspect_started.elapsed().as_millis());
                         }
                         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                     }
                     if perf_trace {
-                        eprintln!(
-                            "[perf] quality_facts.total elapsed_ms={}",
-                            worker_started.elapsed().as_millis()
-                        );
+                        eprintln!("[perf] quality_facts.total elapsed_ms={}", worker_started.elapsed().as_millis());
                     }
                 });
             }
@@ -8903,11 +9152,10 @@ pub fn run() {
             // playback analysis uses resource-bound caches; explicit tagging
             // and newly acquired-file processing keep their separate actions.
             let startup_diagnostics = Arc::new(std::sync::Mutex::new(diagnostics));
-            let playback_resolution = Arc::new(std::sync::Mutex::new(PlaybackResolutionGate::default()));
             let sort_availability_backfill = Arc::new(SortAvailabilityBackfill::new(store.clone(), playback.clone(), playback_resolution.clone(), app.handle().clone()));
             let playback_provider_session_status = std::sync::Mutex::new(managed_provider_session.status());
             source_preparation::schedule_saved(acquisition.clone());
-            app.manage(AppState { discovery, autotag, store, _profile_lock: profile_lock, backup_manager, import_drops, directory_browser, automation, playback, _system_media: system_media, #[cfg(target_os = "linux")] _mpris: mpris, local_audio, webview_audio_transport, webview_audio_transcoder, acquisition, diagnostics: startup_diagnostics, browser, managed_provider_session, playback_provider_session_status, remote_playlists, preview_warmup_cancel:std::sync::Mutex::new(None), playback_resolution, webview_identification: webview_identification::WebViewIdentification::default(), connections, artists, analysis, analysis_selection_jobs: analysis_selection::AnalysisSelectionJobs::new(), stream_analysis_selection_jobs: analysis_stream_selection::SelectedStreamAnalysisJobs::new(), loudness_analysis_jobs: Arc::default(), waveform_analysis_jobs: Arc::default(), history, playlist_watcher: std::sync::Mutex::new(playlist_watcher), provider_reads: Arc::new(provider_read_requests::ProviderReadRequests::default()), sort_availability_backfill, backup_frontend_preference_session_id });
+            app.manage(AppState { discovery, autotag, store, _profile_lock: profile_lock, backup_manager, import_drops, directory_browser, automation, playback, _system_media: system_media, #[cfg(target_os = "linux")] _mpris: mpris, local_audio, webview_audio_transport, webview_audio_transcoder, acquisition, diagnostics: startup_diagnostics, browser, managed_provider_session, playback_provider_session_status, remote_playlists, preview_warmup_cancel:std::sync::Mutex::new(None), playback_resolution, startup_readiness, webview_identification: webview_identification::WebViewIdentification::default(), connections, artists, analysis, analysis_selection_jobs: analysis_selection::AnalysisSelectionJobs::new(), stream_analysis_selection_jobs: analysis_stream_selection::SelectedStreamAnalysisJobs::new(), loudness_analysis_jobs: Arc::default(), waveform_analysis_jobs: Arc::default(), history, playlist_watcher: std::sync::Mutex::new(playlist_watcher), provider_reads: Arc::new(provider_read_requests::ProviderReadRequests::default()), sort_availability_backfill, backup_frontend_preference_session_id });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -8949,6 +9197,7 @@ pub fn run() {
             list_tracks,
             list_favorite_track_ids,
             list_tracks_page,
+            list_local_album_matches, set_local_album_match, get_library_entity, get_playlist_artwork, list_library_entities, list_library_entity_tracks, save_library_artist, save_library_album, remove_library_entity_save,
             list_track_prefix,
             get_tracks,
             identify_playing_track,

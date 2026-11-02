@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-library-entity-tracks"
+description = "Enables the list_library_entity_tracks command without any pre-configured scope."
+commands.allow = ["list_library_entity_tracks"]
+
+[[permission]]
+identifier = "deny-list-library-entity-tracks"
+description = "Denies the list_library_entity_tracks command without any pre-configured scope."
+commands.deny = ["list_library_entity_tracks"]

@@ -160,7 +160,7 @@ export function fullStreamAnalysisOutcome(
     ? "completed" : "failed";
 }
 
-async function sourceIdentitySha256(provider: string, sourceId: string): Promise<string> {
+export async function streamSourceIdentitySha256(provider: string, sourceId: string): Promise<string> {
   const input = new TextEncoder().encode(`${provider}\n${sourceId.trim()}`);
   const hash = await crypto.subtle.digest("SHA-256", input);
   return [...new Uint8Array(hash)].map(value => value.toString(16).padStart(2, "0")).join("");
@@ -182,7 +182,7 @@ export async function verifiedStreamWaveform(
       !Number.isFinite(analysis.durationSeconds) || !Number.isFinite(waveform.durationSeconds) ||
       Math.abs(analysis.durationSeconds - resource.durationSeconds) > Math.max(0.05, resource.durationSeconds * 0.001) ||
       Math.abs(waveform.durationSeconds - analysis.durationSeconds) > 0.01 || !isCompleteStreamMediaWaveform(analysis)) return null;
-  const digest = await sourceIdentitySha256(resource.provider, resource.sourceId);
+  const digest = await streamSourceIdentitySha256(resource.provider, resource.sourceId);
   if (identity.sourceIdentitySha256 !== digest) return null;
   // Resource ownership is the provider recording/upload identity. Audio URLs
   // and ordinary representation refreshes can change encoding metadata while

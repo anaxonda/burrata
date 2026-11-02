@@ -1702,6 +1702,9 @@ fn parse_artist_tracks_page(
             row["entryId"] = json!(format!("artist-{artist_id}-{position}"));
             let entry = parse_remote_entry(&row, "spotify", "artist")?;
             let mut track = entry_to_track("spotify", &entry, position);
+            if let Some(credits) = explicit_remote_artist_credits(&row, "spotify") {
+                track.provenance["artistCredits"] = json!(credits);
+            }
             track.provenance["remotePlaylist"] = json!(false);
             track.provenance["artistId"] = json!(artist_id);
             track.provenance["positionScope"] = json!("artist");
@@ -2661,6 +2664,9 @@ impl RemotePlaylistService {
                 let remote =
                     parse_remote_entry(&row, "spotify", &occurrence_id)?;
                 let mut track = entry_to_track("spotify", &remote, position);
+                if let Some(credits) = explicit_remote_artist_credits(item, "spotify") {
+                    track.provenance["artistCredits"] = json!(credits);
+                }
                 track.album = Some(album.title.clone());
                 track.provenance["albumId"] = json!(album_id);
                 track.provenance["position"] = json!(ordinal);
@@ -5276,6 +5282,9 @@ impl RemotePlaylistService {
                 .enumerate()
                 .map(|(index, entry)| BrowserEntry {
                     metadata: serde_json::json!({"availability":if entry.available {"available"} else {"unavailable"}}),
+                    artist_credits: tracks.get(index)
+                        .and_then(|track| track.provenance.get("artistCredits"))
+                        .and_then(|value| serde_json::from_value(value.clone()).ok()),
                     provider_id: entry.available.then(|| entry.track_id.clone()),
                     source_url: (!entry.url.is_empty()).then(|| entry.url.clone()),
                     artist: entry.artist.clone(),
@@ -6701,6 +6710,9 @@ fn parse_browse_tracks(entries: &[Value], provider: &str, page_key: &str) -> Res
             let occurrence_key = format!("{page_key}:{index}");
             let remote = parse_remote_entry(entry, provider, &occurrence_key)?;
             let mut track = entry_to_track(provider, &remote, index);
+            if let Some(credits) = explicit_remote_artist_credits(entry, provider) {
+                track.provenance["artistCredits"] = json!(credits);
+            }
             if let Some(position) = entry
                 .get("position")
                 .and_then(Value::as_u64)
@@ -6714,6 +6726,54 @@ fn parse_browse_tracks(entries: &[Value], provider: &str, page_key: &str) -> Res
             Ok(track)
         })
         .collect()
+}
+
+/// Preserve only provider-supplied structured credits. The flattened artist
+/// display string is deliberately never split into inferred credit rows.
+fn explicit_remote_artist_credits(
+    value: &Value,
+    provider: &str,
+) -> Option<Vec<crate::browser_bridge::BrowserArtistCredit>> {
+    let rows = value
+        .get("artistCredits")
+        .or_else(|| value.get("artistRefs"))?
+        .as_array()?;
+    if rows.is_empty() || rows.len() > 100 {
+        return None;
+    }
+    let credits = rows
+        .iter()
+        .map(|row| {
+            let name = row.get("name")?.as_str()?.trim();
+            if name.is_empty() || name.len() > 512 {
+                return None;
+            }
+            let provider_id = row
+                .get("providerId")
+                .or_else(|| row.get("id"))
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty() && id.len() <= 256)
+                .map(str::to_owned);
+            let row_provider = row.get("provider").and_then(Value::as_str);
+            let provider_id = match (provider_id, row_provider) {
+                (Some(id), Some(source)) if source == provider => Some(id),
+                (Some(_), Some(_)) => None,
+                (id, None) => id,
+                (None, Some(_)) => None,
+            };
+            Some(crate::browser_bridge::BrowserArtistCredit {
+                name: name.to_owned(),
+                role: row.get("role").and_then(Value::as_str).map(str::to_owned),
+                provider_id,
+                join_phrase: row
+                    .get("joinPhrase")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                provenance: Some("remoteProviderStructuredCredits".into()),
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(credits)
 }
 /// A provider may omit duration on a later page capture even when the app already
 /// knows it. Keep that catalog metadata when refreshing an otherwise untouched copy.
@@ -7637,6 +7697,7 @@ mod tests {
                         "trackId":"abcdefghijklmnopqrstuv",
                         "title":format!("Occurrence {}", offset + index + 1),
                         "artist":"Fixture Artist",
+                        "artistRefs":[{"provider":"spotify","id":"bbbbbbbbbbbbbbbbbbbbbb","name":"Fixture Artist"},{"provider":"spotify","id":"cccccccccccccccccccccc","name":"Guest Artist"}],
                         "durationSeconds":180,
                         "url":"https://open.spotify.com/track/abcdefghijklmnopqrstuv",
                         "playCount":if offset == 0 && index == 0 { json!(0) } else { Value::Null },
@@ -7736,6 +7797,14 @@ mod tests {
         );
         assert_eq!(first_track.provenance["plays"], 0);
         assert_eq!(first_track.provenance["views"], 7);
+        assert_eq!(
+            first_track.provenance["artistCredits"][0]["providerId"],
+            "bbbbbbbbbbbbbbbbbbbbbb"
+        );
+        assert_eq!(
+            first_track.provenance["artistCredits"][1]["name"],
+            "Guest Artist"
+        );
         assert_eq!(
             first_track.provenance["remoteEntryId"],
             "album_aaaaaaaaaaaaaaaaaaaaaa_0"
@@ -9729,6 +9798,7 @@ mod tests {
             warnings: vec![],
             entries: vec![BrowserEntry {
                 metadata: serde_json::Value::Null,
+                artist_credits: None,
                 provider_id: Some(track_id.into()),
                 source_url: Some(url.clone()),
                 artist: "Fixture artist".into(),

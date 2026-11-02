@@ -4,6 +4,7 @@ import {readFile, realpath, writeFile} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {auditionQueueMetadataRetained} from './source_audition_gates.mjs';
+import {idleIpcBucketsGate,parseIdleIpcCounter,startupObservation,startupPauseGate} from './native_startup_capture_helpers.mjs';
 import {Client} from '@modelcontextprotocol/client';
 import {StdioClientTransport} from '@modelcontextprotocol/client/stdio';
 
@@ -38,6 +39,21 @@ function safe(s) {
     firstAudioMs:s.diagnostics?.firstAudioMs,recoveryCount:s.diagnostics?.recoveryCount,bufferingCount:s.diagnostics?.bufferingCount,seekSerial:s.seekSerial,
     message:s.playerMessage,loudnessNormalization:s.loudnessNormalization,candidate:s.candidate ? {provider:s.candidate.provider,id:s.candidate.id,title:s.candidate.title}:null};
 }
+function safeStoreMutexMetrics(status) {
+  const metrics=status?.diagnostics?.storeConnectionWait;
+  if(!metrics || metrics.scope!=='global_store_connection_mutex')return null;
+  const number=value=>Number.isSafeInteger(value)&&value>=0?value:null;
+  const operations={};
+  if(metrics.operations && typeof metrics.operations==='object') {
+    for(const [name,value] of Object.entries(metrics.operations)) {
+      if(!/^[A-Za-z0-9_.:-]{1,100}$/.test(name)||!value||typeof value!=='object')continue;
+      operations[name]={lockCount:number(value.lockCount),totalWaitNs:number(value.totalWaitNs),maxWaitNs:number(value.maxWaitNs),
+        totalHoldNs:number(value.totalHoldNs),maxHoldNs:number(value.maxHoldNs)};
+    }
+  }
+  return {scope:metrics.scope,lockCount:number(metrics.lockCount),totalWaitNs:number(metrics.totalWaitNs),
+    maxWaitNs:number(metrics.maxWaitNs),operations,sqliteEngineBusyWait:'not_measured'};
+}
 try {
   await client.connect(transport);
   let ready=false;
@@ -54,7 +70,71 @@ try {
     catch(error){report.layoutDiagnostic={passed:false,error:error.message};if(!error.message.includes('FRONTEND_NOT_READY'))break;await sleep(250);}
   }
   if(mode!=='migration')await call('set_volume',{volume:1});
-if(mode==='source-audition'){
+  try { report.storeMutexMetricsBefore=safeStoreMutexMetrics(await call('get_app_status',{},5000)); }
+  catch { report.storeMutexMetricsBefore=null; }
+if(mode==='idle-ipc'){
+    const counterPath=process.env.BURRATA_IPC_COUNTER_PATH;
+    if(!counterPath)throw Error('Idle IPC counter path is unavailable');
+    const readCounter=async()=>parseIdleIpcCounter(await readFile(counterPath,'utf8'));
+    const before=await readCounter();
+    if(!before)throw Error('Idle IPC counter output is missing or malformed at window start');
+    const startedAtUnixMs=Date.now(),started=performance.now();
+    let previous=before;
+    const collectBucket=async index=>{
+      const bucketStarted=performance.now();
+      await sleep(1000);
+      let current=null;
+      try{current=await readCounter();}catch{}
+      const windowMs=performance.now()-bucketStarted;
+      const bucket={index,registered:current?.registered??null,count:current?.count??null,windowMs,
+        countDelta:current?current.count-previous.count:null,
+        ratePerSecond:current?((current.count-previous.count)/(windowMs/1000)):null};
+      if(current)previous=current;
+      return bucket;
+    };
+    const warmupBuckets=[];
+    for(let i=1;i<=3;i++)warmupBuckets.push(await collectBucket(i));
+    const measuredStartedAtUnixMs=Date.now(),measuredStarted=performance.now();
+    const measuredBuckets=[];
+    for(let i=1;i<=20;i++)measuredBuckets.push(await collectBucket(i));
+    const endedAtUnixMs=Date.now(),actualElapsedMs=performance.now()-started;
+    const measuredElapsedMs=measuredBuckets.reduce((sum,bucket)=>sum+bucket.windowMs,0);
+    const validDeltas=measuredBuckets.every(bucket=>Number.isSafeInteger(bucket.countDelta)&&bucket.countDelta>=0);
+    const countDelta=validDeltas?measuredBuckets.reduce((sum,bucket)=>sum+bucket.countDelta,0):null;
+    report.idleIpc={scope:'Wry ::ipc signal count for the PID-gated Burrata process only',
+      method:'3 discarded one-second warmup buckets, then 20 measured one-second local counter-file reads; no MCP calls during sampling',
+      registeredBefore:before.registered,registeredAfter:previous.registered,
+      countBefore:before.count,countAfter:previous.count,countDelta,
+      warmupBucketCount:warmupBuckets.length,measuredBucketCount:measuredBuckets.length,
+      windowStartedAtUnixMs:startedAtUnixMs,measuredWindowStartedAtUnixMs:measuredStartedAtUnixMs,
+      windowEndedAtUnixMs:endedAtUnixMs,actualElapsedMs,measuredElapsedMs,
+      ratePerSecond:countDelta===null||measuredElapsedMs<=0?null:countDelta/(measuredElapsedMs/1000),
+      warmupBuckets,measuredBuckets};
+    report.passed=idleIpcBucketsGate(before,warmupBuckets,measuredBuckets,actualElapsedMs);
+    report.cases.push({passed:report.passed,idleIpc:report.idleIpc});
+  } else if(mode==='startup'){
+    const targetTrackId=spec.ids[0],startedAtUnixMs=Date.now(),started=performance.now();
+    let receiptError=null,observation=null,last=null;
+    report.mainPlaybackStartedAtUnixMs=startedAtUnixMs;
+    const receipt=call('play_tracks',{trackIds:[targetTrackId]}).catch(error=>{receiptError=error.message;});
+    while(performance.now()-started<60000){
+      last=await state();
+      report.samples.push({ms:performance.now()-started,...safe(last)});
+      observation=startupObservation(last,targetTrackId);
+      if(observation)break;
+      if(last.trackId===targetTrackId&&['failed','error','ended'].includes(last.status))break;
+      await sleep(80);
+    }
+    await receipt;
+    let paused=null;
+    try{await call('pause_playback');paused=await state();}catch{}
+    report.startupObservation=observation;
+    report.pausedState=paused?safe(paused):null;
+    report.targetTrackId=targetTrackId;
+    report.captureScope='first fixture track first-audio startup and at least 3 seconds of playback; no queue-completion claim';
+    report.passed=!receiptError&&startupPauseGate(observation,paused,targetTrackId);
+    report.cases.push({passed:report.passed,receiptError,observation,paused:paused?safe(paused):null});
+  } else if(mode==='source-audition'){
     // X11 interaction is restricted to this harness's verified private Xvfb
     // and this exact app process. Never targets the normal desktop/display.
     const appPid=process.env.BURRATA_QUAL_PRIVATE_APP_PID,xPid=process.env.BURRATA_QUAL_PRIVATE_XVFB_PID;
@@ -354,6 +434,10 @@ if(mode==='source-audition'){
   }
 } catch(e) {report.passed=false;report.error=e.message;}
 finally {
+  try { report.storeMutexMetricsAfter=safeStoreMutexMetrics(await call('get_app_status',{},5000)); }
+  catch { report.storeMutexMetricsAfter=null; }
+  report.storeMutexMetricsScope='global Store connection mutex only; SQLite engine busy-handler wait is not measured';
+  report.storeMutexMetricsInterpretation='Cumulative counters; get_app_status snapshots include their own settings-lock access.';
   await writeFile(`${profile}/runtime-result.json`,JSON.stringify(report,null,2));
   await client.close().catch(()=>{});
 }

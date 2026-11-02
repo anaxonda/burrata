@@ -69,8 +69,25 @@ pub struct BrowserEntry {
     pub artwork_url: Option<String>,
     pub isrc: Option<String>,
     pub catalog_number: Option<String>,
+    /// Optional, explicitly rendered artist links. This field is absent from
+    /// older extension snapshots and is never treated as a complete credit set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artist_credits: Option<Vec<BrowserArtistCredit>>,
     #[serde(default)]
     pub metadata: Value,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BrowserArtistCredit {
+    pub name: String,
+    #[serde(default)]
+    pub role: Option<String>,
+    #[serde(default)]
+    pub provider_id: Option<String>,
+    #[serde(default)]
+    pub join_phrase: Option<String>,
+    #[serde(default)]
+    pub provenance: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -102,6 +119,8 @@ pub struct BrowserStatus {
     pub last_seen: Option<String>,
     #[serde(default)]
     pub provider_protocol_version: Option<u32>,
+    #[serde(default)]
+    pub provider_capabilities: Vec<String>,
     pub host_name: String,
 }
 #[derive(Debug, Clone, Serialize)]
@@ -142,12 +161,16 @@ enum NativeRequest {
         provider_protocol_version: Option<u32>,
         #[serde(default, rename = "managedSessionId")]
         managed_session_id: Option<String>,
+        #[serde(default, rename = "providerCapabilities")]
+        provider_capabilities: Vec<String>,
     },
     Poll {
         #[serde(default, rename = "providerProtocolVersion")]
         provider_protocol_version: Option<u32>,
         #[serde(default, rename = "managedSessionId")]
         managed_session_id: Option<String>,
+        #[serde(default, rename = "providerCapabilities")]
+        provider_capabilities: Vec<String>,
     },
     Status {
         #[serde(rename = "requestId")]
@@ -519,7 +542,8 @@ pub fn validate_snapshot(s: &BrowserSnapshot) -> Result<Chart, String> {
         } else {
             entry_url.map(|u| u.to_string()).unwrap_or_default()
         };
-        tracks.push(Track { id, provider, provider_id, source_url: canonical_source, artist:e.artist.trim().into(), title:e.title.trim().into(), version:e.version.clone(), album:e.album.clone(), label:e.label.clone(), genre:e.genre.clone(), duration_seconds:e.duration_seconds, bpm:e.bpm, key:e.key.clone(), release_date:e.release_date.clone(), artwork_url:e.artwork_url.clone(), isrc:e.isrc.clone(), catalog_number:e.catalog_number.clone(), album_artist:e.metadata["albumArtist"].as_str().map(str::to_owned), track_number:e.metadata["trackNumber"].as_u64().map(|n|n as u32), disc_number:e.metadata["discNumber"].as_u64().map(|n|n as u32), remixers:e.metadata["remixers"].as_array().map(|v|v.iter().filter_map(|v|v.as_str().map(str::to_owned)).collect()), rank:if s.kind == "chart" { e.rank } else { None }, provenance:json!({"sourceKind":s.kind,"browserImport":true,"captureProvider":s.provider,"sourceUrl":source.as_str(),"rawPageTitle":s.raw_page_title,"position":e.position,"playlistPosition":if matches!(s.kind.as_str(),"playlist"|"collection") {Some(e.position)} else {None},"albumPosition":if s.kind=="album" {Some(e.position)} else {None},"occurrencePositions":[e.position],"rawCaptures":[e],"capturedAt":s.captured_at,"identity":"unverified browser capture","importMetadata":e.metadata,"fieldSources":crate::import_metadata::field_sources(e,&s.provider,&s.captured_at,source.as_str()),"sourceContext":crate::import_metadata::source_context(&s.provider,&source.to_string(),&s.kind,&s.captured_at),"playbackMode":if s.provider=="youtube" {"source"} else {"lookup"}}), ..Track::default() });
+        let artist_credits = validated_browser_artist_credits(e);
+        tracks.push(Track { id, provider, provider_id, source_url: canonical_source, artist:e.artist.trim().into(), title:e.title.trim().into(), version:e.version.clone(), album:e.album.clone(), label:e.label.clone(), genre:e.genre.clone(), duration_seconds:e.duration_seconds, bpm:e.bpm, key:e.key.clone(), release_date:e.release_date.clone(), artwork_url:e.artwork_url.clone(), isrc:e.isrc.clone(), catalog_number:e.catalog_number.clone(), album_artist:e.metadata["albumArtist"].as_str().map(str::to_owned), track_number:e.metadata["trackNumber"].as_u64().map(|n|n as u32), disc_number:e.metadata["discNumber"].as_u64().map(|n|n as u32), remixers:e.metadata["remixers"].as_array().map(|v|v.iter().filter_map(|v|v.as_str().map(str::to_owned)).collect()), rank:if s.kind == "chart" { e.rank } else { None }, provenance:json!({"sourceKind":s.kind,"browserImport":true,"captureProvider":s.provider,"sourceUrl":source.as_str(),"rawPageTitle":s.raw_page_title,"position":e.position,"playlistPosition":if matches!(s.kind.as_str(),"playlist"|"collection") {Some(e.position)} else {None},"albumPosition":if s.kind=="album" {Some(e.position)} else {None},"occurrencePositions":[e.position],"rawCaptures":[e],"capturedAt":s.captured_at,"identity":"unverified browser capture","artistCredits":artist_credits,"importMetadata":e.metadata,"fieldSources":crate::import_metadata::field_sources(e,&s.provider,&s.captured_at,source.as_str()),"sourceContext":crate::import_metadata::source_context(&s.provider,&source.to_string(),&s.kind,&s.captured_at),"playbackMode":if s.provider=="youtube" {"source"} else {"lookup"}}), ..Track::default() });
     }
     let mut chart = Chart {
         id: uuid::Uuid::new_v4().to_string(),
@@ -536,6 +560,46 @@ pub fn validate_snapshot(s: &BrowserSnapshot) -> Result<Chart, String> {
         chart.warning = Some(warnings.join("; "));
     }
     Ok(chart)
+}
+
+/// Empty or malformed optional credit payloads stay unknown. Even a valid
+/// ordered list from rendered browser links is not a closed-world assertion.
+fn validated_browser_artist_credits(entry: &BrowserEntry) -> Option<Vec<Value>> {
+    let credits = entry.artist_credits.as_ref()?;
+    if credits.is_empty() || credits.len() > 32 {
+        return None;
+    }
+    let mut validated = Vec::with_capacity(credits.len());
+    for credit in credits {
+        let name = credit.name.trim();
+        if name.is_empty()
+            || name.len() > 512
+            || name.chars().any(char::is_control)
+            || credit.role.as_deref().is_some_and(|value| {
+                value.is_empty() || value.len() > 64 || value.chars().any(char::is_control)
+            })
+            || credit.provider_id.as_deref().is_some_and(|value| {
+                value.is_empty() || value.len() > 128 || value.chars().any(char::is_control)
+            })
+            || credit
+                .join_phrase
+                .as_deref()
+                .is_some_and(|value| value.len() > 64 || value.chars().any(char::is_control))
+            || credit.provenance.as_deref().is_some_and(|value| {
+                value.is_empty() || value.len() > 128 || value.chars().any(char::is_control)
+            })
+        {
+            return None;
+        }
+        validated.push(json!({
+            "name": name,
+            "role": credit.role.as_deref().unwrap_or("artist"),
+            "providerId": credit.provider_id,
+            "joinPhrase": credit.join_phrase,
+            "provenance": credit.provenance.as_deref().unwrap_or("browserRenderedArtistLink")
+        }));
+    }
+    Some(validated)
 }
 
 /// Expand deduplicated browser playlist/album tracks into their captured ordered occurrences.
@@ -594,6 +658,7 @@ struct BridgeState {
         ),
     >,
     provider_protocol_version: Option<u32>,
+    provider_capabilities: Vec<String>,
     expected_managed_session: Option<String>,
     managed_session_seen: Option<(String, Instant)>,
     seen: Option<(Instant, String)>,
@@ -703,6 +768,7 @@ impl BrowserBridge {
                 active: HashMap::new(),
                 provider_operations: HashMap::new(),
                 provider_protocol_version: None,
+                provider_capabilities: Vec::new(),
                 expected_managed_session: None,
                 managed_session_seen: None,
                 seen: None,
@@ -743,6 +809,7 @@ impl BrowserBridge {
             pending_count: s.active.len() + s.provider_operations.len(),
             last_seen: s.seen.as_ref().map(|(_, date)| date.clone()),
             provider_protocol_version: s.provider_protocol_version,
+            provider_capabilities: s.provider_capabilities.clone(),
             host_name: "org.burrata.browser".into(),
         }
     }
@@ -958,6 +1025,7 @@ impl BrowserBridge {
         &self,
         version: Option<u32>,
         managed_session_id: Option<&str>,
+        capabilities: &[String],
     ) -> bool {
         let mut state = self.inner.lock().unwrap();
         if state.expected_managed_session.as_deref() != managed_session_id {
@@ -965,6 +1033,12 @@ impl BrowserBridge {
         }
         state.seen = Some((Instant::now(), chrono::Utc::now().to_rfc3339()));
         state.provider_protocol_version = version;
+        state.provider_capabilities = capabilities
+            .iter()
+            .filter(|capability| capability.as_str() == "structuredArtistCreditsV1")
+            .cloned()
+            .take(8)
+            .collect();
         if let Some(id) = managed_session_id {
             state.managed_session_seen = Some((id.to_owned(), Instant::now()));
         }
@@ -1164,11 +1238,16 @@ async fn heartbeat_route(
     let NativeRequest::Heartbeat {
         provider_protocol_version,
         managed_session_id,
+        provider_capabilities,
     } = r
     else {
         return (StatusCode::BAD_REQUEST, error("Expected heartbeat request"));
     };
-    if !b.seen_provider_protocol(provider_protocol_version, managed_session_id.as_deref()) {
+    if !b.seen_provider_protocol(
+        provider_protocol_version,
+        managed_session_id.as_deref(),
+        &provider_capabilities,
+    ) {
         return (
             StatusCode::FORBIDDEN,
             error("Browser session is not authorized for this bridge"),
@@ -1187,11 +1266,16 @@ async fn poll_route(
     let NativeRequest::Poll {
         provider_protocol_version,
         managed_session_id,
+        provider_capabilities,
     } = r
     else {
         return (StatusCode::BAD_REQUEST, error("Expected poll request"));
     };
-    if !b.seen_provider_protocol(provider_protocol_version, managed_session_id.as_deref()) {
+    if !b.seen_provider_protocol(
+        provider_protocol_version,
+        managed_session_id.as_deref(),
+        &provider_capabilities,
+    ) {
         return (
             StatusCode::FORBIDDEN,
             error("Browser session is not authorized for this bridge"),
@@ -2013,6 +2097,79 @@ mod tests {
         )));
     }
     #[test]
+    fn optional_structured_artist_credits_round_trip_without_closing_completeness() {
+        let mut old = snapshot();
+        let chart = validate_snapshot(&old).unwrap();
+        assert!(chart.tracks[0].provenance["artistCredits"].is_null());
+
+        old.entries[0].artist_credits = Some(vec![BrowserArtistCredit {
+            name: "Artist".into(),
+            role: Some("artist".into()),
+            provider_id: Some("A".into()),
+            join_phrase: Some(String::new()),
+            provenance: Some("spotifyRenderedArtistLink".into()),
+        }]);
+        let chart = validate_snapshot(&old).unwrap();
+        assert_eq!(
+            chart.tracks[0].provenance["artistCredits"][0]["name"],
+            "Artist"
+        );
+        assert_eq!(
+            chart.tracks[0].provenance["artistCredits"][0]["providerId"],
+            "A"
+        );
+        assert_eq!(
+            chart.tracks[0].provenance["artistCredits"][0]["joinPhrase"],
+            ""
+        );
+        assert_eq!(
+            chart.tracks[0].provenance["artistCredits"][0]["provenance"],
+            "spotifyRenderedArtistLink"
+        );
+        assert!(
+            !crate::recording_identity::RecordingIdentity::from_track(&chart.tracks[0])
+                .credits_complete
+        );
+
+        old.entries[0].artist_credits = Some(vec![BrowserArtistCredit {
+            name: "\u{0001}".into(),
+            role: Some("artist".into()),
+            provider_id: None,
+            join_phrase: None,
+            provenance: None,
+        }]);
+        let chart = validate_snapshot(&old).unwrap();
+        assert!(chart.tracks[0].provenance["artistCredits"].is_null());
+    }
+
+    #[test]
+    fn extension_capability_is_optional_for_older_heartbeats_and_snapshots() {
+        let old: NativeRequest = serde_json::from_value(json!({"type":"heartbeat"})).unwrap();
+        assert!(
+            matches!(old, NativeRequest::Heartbeat { provider_capabilities, .. } if provider_capabilities.is_empty())
+        );
+        let advertised: NativeRequest = serde_json::from_value(json!({
+            "type":"heartbeat", "providerProtocolVersion":2,
+            "providerCapabilities":["structuredArtistCreditsV1"]
+        }))
+        .unwrap();
+        assert!(
+            matches!(advertised, NativeRequest::Heartbeat { provider_capabilities, .. } if provider_capabilities == ["structuredArtistCreditsV1"])
+        );
+        let status = BrowserStatus {
+            connected: false,
+            pending_count: 0,
+            last_seen: None,
+            provider_protocol_version: None,
+            provider_capabilities: Vec::new(),
+            host_name: "org.burrata.browser".into(),
+        };
+        assert_eq!(
+            serde_json::to_value(status).unwrap()["providerCapabilities"],
+            json!([])
+        );
+    }
+    #[test]
     fn raw_page_title_is_retained_in_track_provenance() {
         let mut imported = snapshot();
         imported.raw_page_title = Some("Jazz music and merch on Bandcamp".into());
@@ -2351,6 +2508,7 @@ mod tests {
             &NativeRequest::Poll {
                 provider_protocol_version: Some(2),
                 managed_session_id: None,
+                provider_capabilities: vec!["structuredArtistCreditsV1".into()],
             },
         )
         .await;
@@ -2363,6 +2521,7 @@ mod tests {
                 &NativeRequest::Poll {
                     provider_protocol_version: Some(2),
                     managed_session_id: None,
+                    provider_capabilities: vec![],
                 }
             )
             .await["ok"],

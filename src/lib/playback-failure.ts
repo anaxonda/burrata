@@ -6,12 +6,26 @@ export const FIXED_RESOLVER_FAILURES = {
   missingDurationIdentityUnverified: "Audio results were found, but the saved recording has no duration and no source provided enough verified identity evidence. Open the catalog source or choose another source.",
 } as const;
 
-export type FailureCategory = "cancelled" | "timeout" | "network" | "rate_limited" | "source_access" | "source_unavailable" | "source_private" | "source_deleted" | "no_match" | "recording_identity_mismatch" | "unsupported_audio" | "output" | "storage" | "unknown";
+export type FailureCategory = "cancelled" | "timeout" | "network" | "rate_limited" | "source_access" | "source_unavailable" | "source_private" | "source_deleted" | "no_match" | "recording_identity_mismatch" | "unsupported_audio" | "output" | "storage" | "parser" | "unknown";
+export type FailureStage = "resolver" | "extraction" | "transport" | "output" | "storage" | "unknown";
 export interface PlaybackFailure {
   category: FailureCategory;
-  stage: "resolver" | "extraction" | "transport" | "output" | "storage" | "unknown";
+  stage: FailureStage;
   scope: "recording" | "source" | "global" | "operation" | "unknown";
   retryable: boolean;
+  httpStatus?: number;
+  providerAttempts?: ProviderAttemptSummary[];
+}
+
+/** Sanitized Rust provider-attempt summary used by playback diagnostics. */
+export interface ProviderAttemptSummary {
+  providerClass: "youtube" | "soundcloud" | "monochrome" | "bandcamp" | "other";
+  attemptPhase: "search" | "parser" | "transport" | "extraction" | "other";
+  stage: FailureStage;
+  category: FailureCategory;
+  retryable: boolean;
+  observedElapsedMs: number;
+  phaseElapsedMs?: number;
   httpStatus?: number;
 }
 
@@ -20,12 +34,17 @@ export function classifyPlaybackFailure(reason: string): PlaybackFailure {
   const message = reason.trim().toLowerCase();
   const has = (...patterns: string[]) => patterns.some(value => message.includes(value));
   const statuses = [...message.matchAll(/(?:http error |http status |http |status code |status )(\d{3})(?!\d)/g)];
-  const httpStatus = statuses.map(match => Number(match[1])).find(value => value >= 400 && value <= 599);
+  // Keep the first explicit status, matching Rust. This matters for composed
+  // recovery messages such as "HTTP 200; HTTP 503".
+  const httpStatus = statuses.map(match => Number(match[1])).find(value => value >= 200 && value <= 599);
   const failure = (category: FailureCategory, stage: PlaybackFailure["stage"], scope: PlaybackFailure["scope"], retryable: boolean, status: number | null | undefined = httpStatus): PlaybackFailure => ({category, stage, scope, retryable, ...(status == null ? {} : {httpStatus: status})});
   if (reason === FIXED_RESOLVER_FAILURES.noAudioResults || /^no playable audio match was found(?: for |[.:]|$)/.test(message)) return failure("no_match", "resolver", "recording", false, null);
   if (reason === FIXED_RESOLVER_FAILURES.recordingIdentityUnverified || reason === FIXED_RESOLVER_FAILURES.missingDurationIdentityUnverified || reason === "Verified source identity mismatch" || ["the resolved audio source identity does not match this recording", "source identity changed during audio resolution; select it again", "source identity changed during inspection; select it again"].includes(message)) return failure("recording_identity_mismatch", "resolver", "recording", false, null);
   if (message === "this source has no supported audio stream") return failure("unsupported_audio", "resolver", "recording", false, null);
+  if (message.startsWith("invalid monochrome catalog")) return failure("parser", "resolver", "source", true);
   if (has("cancel", "superseded")) return failure("cancelled", "resolver", "operation", false);
+  if (message.includes("transport timeout failed")) return failure("timeout", "transport", "global", true);
+  if (has("transport connect failed", "transport body failed", "transport request failed")) return failure("network", "transport", "global", true);
   if (has("timed out", "timeout", "deadline")) return failure("timeout", "resolver", "operation", true);
   if (has("storage", "disk full", "no space left", "read-only file system", "readonly database", "database is locked", "permission denied", "local audio is not registered", "local file", "os error 28", "disk quota exceeded", "os error 122", "helper_unpack_failed", "storage_unavailable")) return failure("storage", "storage", "global", true);
   if (has("output device", "audio output", "audio device", "audio sink", "cpal")) return failure("output", "output", "global", true);

@@ -796,6 +796,7 @@ fn bounded_identity_metadata(metadata: &Value) -> Value {
         "channel",
         "channelId",
         "channelIsVerified",
+        "performerCreditsComplete",
         "catalog",
         "catalogTitle",
         "catalogArtist",
@@ -803,10 +804,13 @@ fn bounded_identity_metadata(metadata: &Value) -> Value {
         "duration",
         "isPreview",
         "isrc",
+        "identityMetadataUncertain",
         "label",
         "mix",
         "playbackMusicCatalogCandidate",
         "recordingId",
+        "resolvedProviderId",
+        "sourceMetadataOrigin",
         "title",
         "track",
         "trackId",
@@ -905,6 +909,14 @@ mod tests {
             },
             crate::recording_match::FlexibleMatchingOptions {
                 allow_different_lengths: !base.allow_different_lengths,
+                ..base
+            },
+            crate::recording_match::FlexibleMatchingOptions {
+                max_shorter_by_seconds: base.max_shorter_by_seconds + 1,
+                ..base
+            },
+            crate::recording_match::FlexibleMatchingOptions {
+                max_longer_by_seconds: base.max_longer_by_seconds + 1,
                 ..base
             },
         ];
@@ -1039,6 +1051,8 @@ mod tests {
             duration_seconds: Some(180.0),
             source_metadata: Some(json!({
                 "provider":"youtube",
+                "resolvedProviderId":"vqDoiUMuqQA",
+                "sourceMetadataOrigin":"ytDlpFullInfo",
                 "channel":"Nipsey Hussle",
                 "channelId":"UC1234567890123456789012",
                 "channelIsVerified":true
@@ -1270,14 +1284,14 @@ mod tests {
             id: "monochrome:catalog-1".into(),
             provider: "monochrome".into(),
             title: "Song".into(),
-            duration_seconds: Some(185.0),
+            duration_seconds: Some(180.0),
             source_metadata: Some(json!({
                 "provider":"monochrome",
                 "trackId":"catalog-1",
                 "catalogTitle":"Song",
-                "artistNames":["Artist"],
-                "artistCount":1,
-                "duration":185.0
+                "artistNames":["Artist", "Unrequested Performer"],
+                "artistCount":2,
+                "duration":180.0
             })),
             ..Candidate::default()
         };
@@ -1430,7 +1444,11 @@ mod tests {
             assert_ne!(missing.dimensions.version, Comparison::Conflict);
             assert_eq!(conflict.dimensions.version, Comparison::Conflict);
             if level == MatchLevel::Flexible {
+                // Flexible can recognize the otherwise matching recording,
+                // but a missing requested version still requires enrichment
+                // and is never auto-accepted.
                 assert_eq!(missing.relationship, MatchRelationship::Probable);
+                assert_eq!(missing.action, MatchAction::Enrich);
                 assert_eq!(conflict.relationship, MatchRelationship::Alternative);
             } else {
                 assert_eq!(missing.action, MatchAction::Enrich);
@@ -1808,7 +1826,7 @@ mod tests {
         };
         for (level, expected_action) in [
             (MatchLevel::Exact, MatchAction::Inspect),
-            (MatchLevel::Balanced, MatchAction::Accept),
+            (MatchLevel::Balanced, MatchAction::Enrich),
             (MatchLevel::Flexible, MatchAction::Accept),
         ] {
             let checked = assessment(

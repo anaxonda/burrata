@@ -76,6 +76,7 @@ import { trackSource } from "./lib/source-link";
     trackDetectionView = null, trackDetectionStatus = "", trackDetectionDisabledReason = "",
     trackDetectionAvailable = false, onTrackDetectionToggle, onTrackDetectionSeek, onTrackDetectionOpen, onTrackDetectionAddToPlaylist, onTrackDetectionsAddToPlaylist,
     trackDetectionMarkersEnabled = false, onTrackDetectionMarkersToggle,
+    trackDetectionKeepEnabledForQueue = false, onTrackDetectionKeepEnabledForQueueToggle,
     onAnalyzeLoudness, onCancelLoudnessAnalysis, onRetryLoudnessAnalysis,
   }: {
     track: Track;
@@ -135,6 +136,8 @@ import { trackSource } from "./lib/source-link";
     trackDetectionDisabledReason?: string;
     trackDetectionAvailable?: boolean;
     onTrackDetectionToggle?: (enabled: boolean) => void;
+    trackDetectionKeepEnabledForQueue?: boolean;
+    onTrackDetectionKeepEnabledForQueueToggle?: (enabled: boolean) => void;
     trackDetectionMarkersEnabled?: boolean;
     onTrackDetectionMarkersToggle?: (enabled: boolean) => void;
     onTrackDetectionSeek?: (seconds: number) => void;
@@ -383,6 +386,8 @@ import { trackSource } from "./lib/source-link";
         status={trackDetectionStatus}
         disabledReason={trackDetectionDisabledReason}
         retentionLimitReached={trackDetectionView?.retentionLimitReached ?? false}
+        keepEnabledForQueue={trackDetectionKeepEnabledForQueue}
+        onKeepEnabledForQueueToggle={onTrackDetectionKeepEnabledForQueueToggle}
         markersEnabled={trackDetectionMarkersEnabled}
         interactive={trackDetectionAvailable}
         onToggle={(enabled) => onTrackDetectionToggle?.(enabled)}

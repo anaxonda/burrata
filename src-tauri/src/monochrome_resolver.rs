@@ -879,31 +879,20 @@ mod tests {
             &resolver_requested_track(),
             &exact_response,
             MatchLevel::Exact,
-        )
-        .unwrap();
-        assert_eq!(exact.assessment.action, MatchAction::Accept);
-        assert_eq!(
-            exact.assessment.proof_strength,
-            crate::recording_match::ProofStrength::MetadataOnly
         );
+        // The resolver's echoed ISRC is not independent proof, and its
+        // composite artist display does not establish a closed performer set.
+        assert_eq!(exact.err(), Some(ResolverMatchFailure::MatchRejected));
 
         let response =
             resolver_match_response("Alvafro", &["Latin Mafia & Fred again.."], "GBAHS2600508");
         for level in [MatchLevel::Balanced, MatchLevel::Flexible] {
-            let assessed =
-                assess_playback_resource(&resolver_requested_track(), &response, level).unwrap();
-            assert_eq!(assessed.candidate.id, "monochrome:B0HCDL81N4");
-            assert_eq!(assessed.candidate.provider, "monochrome");
-            assert_eq!(assessed.candidate.duration_seconds, None);
-            assert_eq!(assessed.assessment.action, MatchAction::Accept);
-            // Resolver's echo is carried only under its explicit metadata name;
-            // it is never an ISRC/recordingIdentifier observation for proof.
-            let meta = assessed.candidate.source_metadata.unwrap();
-            assert_eq!(meta["resolverEchoedIsrc"], "GBAHS2600508");
-            assert!(meta.get("isrc").is_none());
-            assert!(
-                assessed.assessment.proof_strength
-                    != crate::recording_match::ProofStrength::RecordingIdentifier
+            // The echoed ISRC is not independent proof, and the resolver
+            // supplies no duration or closed-world performer declaration.
+            // Title/artist metadata alone must not authorize playback.
+            assert_eq!(
+                assess_playback_resource(&resolver_requested_track(), &response, level).err(),
+                Some(ResolverMatchFailure::MatchRejected)
             );
         }
     }

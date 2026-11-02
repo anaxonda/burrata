@@ -772,3 +772,21 @@ footer.player .player-artwork-options > button[aria-pressed="true"] { color: var
 .download-tools > summary { display:grid; place-items:center; min-width:32px; min-height:32px; border:1px solid var(--line); border-radius:7px; list-style:none; }
 .download-tools > summary::-webkit-details-marker { display:none; }
 .download-tools > button { position:absolute; left:0; top:calc(100% + 5px); z-index:40; min-width:210px; padding:10px 12px; background:var(--surface); box-shadow:0 8px 22px #0005; text-align:left; }
+
+/* Give the right-side information and queue area a clear panel boundary. */
+.app-shell .player-panel-host {
+  background: color-mix(in srgb, var(--raised) 90%, var(--accent) 10%);
+  border-left-color: color-mix(in srgb, var(--line) 50%, var(--accent) 50%);
+  box-shadow:
+    inset 2px 0 0 color-mix(in srgb, var(--line) 38%, var(--accent) 62%),
+    -8px 0 24px #0002;
+}
+.app-shell .player-panel-host .playing-info,
+.app-shell .player-panel-host .playback-queue-panel {
+  background: color-mix(in srgb, var(--surface) 92%, var(--accent) 8%);
+}
+.app-shell .player-panel-host.fullscreen-queue {
+  box-shadow:
+    inset 2px 0 0 color-mix(in srgb, var(--line) 38%, var(--accent) 62%),
+    -12px 0 32px #0004;
+}

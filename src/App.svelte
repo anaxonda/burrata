@@ -2,12 +2,43 @@
   import { dismissDetails } from "./lib/dismiss-details";
 
   import { hasExplicitSourceLock } from "./lib/source-lock";
-  import PlaybackDiagnosticsSettings from "./PlaybackDiagnosticsSettings.svelte";
+  const loadLibraryBrowser = () => import("./LibraryBrowser.svelte").then(module => module.default);
+  import { initialLibraryBrowserState, releaseLibraryEntity, saveCompleteLibraryAlbum, completeLibraryAlbumTrackCount, type LibraryBrowserState, type LibraryEntity } from "./lib/library";
+  let libraryBrowser = $state<LibraryBrowserState>(initialLibraryBrowserState());
+  function navigateLibraryBrowser(next: LibraryBrowserState) { rememberRoute(); libraryBrowser = next; }
+  async function saveTracksToLibrary(items: Track[]) { await call("save_library_tracks", { tracks: items }); requestLocalPrefixRefresh(undefined, true); }
+  async function saveReleaseToLibrary(items: Track[], release: ArtistReleaseRef) {
+    await saveCompleteLibraryAlbum(call, releaseLibraryEntity(release, items[0]?.albumArtist ?? items[0]?.artist ?? ""), items, completeLibraryAlbumTrackCount(items, release.trackCount));
+    requestLocalPrefixRefresh(undefined, true);
+  }
+  async function browseLibraryEntity(entry: LibraryEntity) {
+    if (entry.provider === "local") {
+      const canonical = entry.id.match(/^(?:album|artist):ref:(spotify|musicbrainz|discogs|monochrome):(.+)$/);
+      if (canonical) entry = { ...entry, provider: canonical[1], providerId: canonical[2] };
+    }
+    if (entry.provider === "spotify" && entry.providerId) {
+      if (entry.kind === "album") await openSpotifyAlbum(entry.providerId, entry.name);
+      else await openSpotifyTrackArtist({ provider: "spotify", id: entry.providerId, name: entry.name });
+    } else if (entry.kind === "artist" && entry.providerId && ["musicbrainz", "discogs", "monochrome"].includes(entry.provider ?? "")) {
+      await discoverArtistRef({ provider: entry.provider as ArtistRef["provider"], id: entry.providerId });
+    } else if (entry.kind === "album" && entry.providerId && ["musicbrainz", "discogs", "monochrome"].includes(entry.provider ?? "")) {
+      const owner = navigationRequest;
+      const page = await call<{ tracks: Track[] }>("list_library_entity_tracks", { id: entry.id, limit: 1, offset: 0 });
+      if (owner !== navigationRequest || libraryBrowser.entity?.id !== entry.id) return;
+      const target = page.tracks[0] ? trackAlbumTarget(page.tracks[0]) : null;
+      if (target?.kind === "catalog") await openSearchAlbum({ ...target.release, trackCount: entry.totalTracks }, target.artist);
+      else {
+        const sourceUrl = entry.sourceUrl || (entry.provider === "musicbrainz" ? `https://musicbrainz.org/release/${entry.providerId}` : entry.provider === "discogs" ? `https://www.discogs.com/release/${entry.providerId}` : `https://tracks.monochrome.st/releases/${entry.providerId}`);
+        await call("open_external_url", { url: sourceUrl });
+      }
+    } else await browseArtistProvider(entry.kind === "artist" ? entry.name : entry.artist, "musicbrainz");
+  }
   import LibraryCleanup from "./LibraryCleanup.svelte";
-  import BackupRestore, { type BackupInspection, type BackupMediaEstimate, type BackupMediaRootPreview, type BackupProgress, type BackupSchedule, type SettingsImportPreview, type SettingsImportSelection } from "./BackupRestore.svelte";
-  import RestoreWorkReview from "./RestoreWorkReview.svelte";
-  import ImportHub, { type ImportChoice } from "./ImportHub.svelte";
-  import ImportSources from "./ImportSources.svelte";
+  import type { BackupInspection, BackupMediaEstimate, BackupMediaRootPreview, BackupProgress, BackupSchedule, SettingsImportPreview, SettingsImportSelection } from "./BackupRestore.svelte";
+  import type { ImportChoice } from "./ImportHub.svelte";
+  import type { DirectoryBrowserLocation, DirectoryBrowserSnapshot } from "./DirectoryBrowser.svelte";
+  import type { SearchKind, SearchRow } from "./SearchPanel.svelte";
+  import LazyView from "./LazyView.svelte";
   import {
     applyBackupFrontendPreferences,
     type BackupFrontendPreferenceAck,
@@ -41,7 +72,7 @@ import { PLAYING_TRACK_DETECTION_INTERVAL_MS, activeDetectedTrack, playingTrackD
   import type { WaveformSnapshot } from "./lib/waveform-data";
   import * as waveformData from "./lib/waveform-data";
 
-  import { claimAutomaticStreamMediaAnalysis, fullStreamAnalysisOutcome, isCompleteStreamMediaWaveform, streamMediaResourceKey, streamMediaTrackContext, verifiedStreamWaveform, type StreamMediaResource, type StreamAudioVariant } from "./lib/stream-media-analysis";
+  import { claimAutomaticStreamMediaAnalysis, fullStreamAnalysisOutcome, isCompleteStreamMediaWaveform, streamAudioVariantSha256, streamMediaResourceKey, streamMediaTrackContext, streamSourceIdentitySha256, verifiedStreamWaveform, type StreamMediaResource, type StreamAudioVariant } from "./lib/stream-media-analysis";
   import { isStreamMediaAnalysisPaused } from "./lib/stream-analysis-policy";
 import { ObservedWaveformCache, prepareObservedWaveformBinding, type PreparedObservedWaveformBinding } from "./lib/observed-waveform-cache";
   import { QueueRadioController, queueRadioSeedKey } from "./lib/queue-radio";
@@ -55,7 +86,7 @@ import { ObservedWaveformCache, prepareObservedWaveformBinding, type PreparedObs
   import SourcePresets from "./SourcePresets.svelte";
   import {playlistTitle} from "./lib/playlist-title";
   import { runPeriodicPlaylistSyncFallback } from "./lib/playlist-sync-fallback";
-  import RadioView, {type RadioStation,type RadioTrackMetadata} from "./RadioView.svelte";
+  import type { RadioStation, RadioTrackMetadata } from "./RadioView.svelte";
   import PlaybackQuality from "./PlaybackQuality.svelte";
   import LoudnessSettings from "./LoudnessSettings.svelte";
   import FlexibleMatchingSettings from "./FlexibleMatchingSettings.svelte";
@@ -69,14 +100,23 @@ import { ObservedWaveformCache, prepareObservedWaveformBinding, type PreparedObs
   import DownloadSourceChooser from "./DownloadSourceChooser.svelte";
 
   import BrowserConnections from "./BrowserConnections.svelte";
-  import RemotePlaylists from "./RemotePlaylists.svelte";
-  import RemotePlaylistDetail from "./RemotePlaylistDetail.svelte";
-  import DirectoryBrowser, { type DirectoryBrowserSnapshot } from "./DirectoryBrowser.svelte";
+
   import { normalizeSpotifyUserProfileUrl } from "./lib/spotify-profile-url";
   import PlaylistSync from "./PlaylistSync.svelte";
   import PortablePlaylist from "./PortablePlaylist.svelte";
   import PortableHistory from "./PortableHistory.svelte";
   import AccountPlaylistSettings from "./AccountPlaylistSettings.svelte";
+  const loadBackupRestore = () => import("./BackupRestore.svelte").then(module => module.default);
+  const loadImportHub = () => import("./ImportHub.svelte").then(module => module.default);
+  const loadImportSources = () => import("./ImportSources.svelte").then(module => module.default);
+  const loadRestoreWorkReview = () => import("./RestoreWorkReview.svelte").then(module => module.default);
+  const loadPlaybackDiagnosticsSettings = () => import("./PlaybackDiagnosticsSettings.svelte").then(module => module.default);
+  const loadDirectoryBrowser = () => import("./DirectoryBrowser.svelte").then(module => module.default);
+  const loadSearchPanel = () => import("./SearchPanel.svelte").then(module => module.default);
+  const loadArtistPage = () => import("./ArtistPage.svelte").then(module => module.default);
+  const loadRadioView = () => import("./RadioView.svelte").then(module => module.default);
+  const loadRemotePlaylists = () => import("./RemotePlaylists.svelte").then(module => module.default);
+  const loadRemotePlaylistDetail = () => import("./RemotePlaylistDetail.svelte").then(module => module.default);
   import type {PlaylistSection} from "./lib/playlist-sections";
   const DOWNLOADS_PLAYLIST_ID="00000000-0000-4000-8000-000000000001";
   let sidebarLayout=$state<{sections:PlaylistSection[];assignments:Record<string,string>;names?:Record<string,string>;showAccountPlaylists?:{spotify?:boolean;youtube?:boolean}}>({sections:[],assignments:{}});
@@ -152,7 +192,6 @@ import { ObservedWaveformCache, prepareObservedWaveformBinding, type PreparedObs
   import {providerNavigationSnapshots} from "./lib/provider-navigation-snapshots";
   import { sortTracks, filterTracks, parseDurationBound, playableDuration, type TrackSortField, type SortDirection } from "./lib/track-sort";
   import SpotifyArtist from "./SpotifyArtist.svelte";
-  import SearchPanel, { type SearchKind } from "./SearchPanel.svelte";
   import SoulseekWishlist from "./SoulseekWishlist.svelte";
   import SoulseekDownloadPolicy from "./SoulseekDownloadPolicy.svelte";
   import DownloadWatches from "./DownloadWatches.svelte";
@@ -181,7 +220,6 @@ import { ObservedWaveformCache, prepareObservedWaveformBinding, type PreparedObs
   import ConnectionsSetup from "./ConnectionsSetup.svelte";
   import LocalPlaylistFiles from "./LocalPlaylistFiles.svelte";
   import MetadataReview from "./MetadataReview.svelte";
-  import ArtistPage from "./ArtistPage.svelte";
 
   import SeekSlider from "./SeekSlider.svelte";
   import FallbackSettings from "./FallbackSettings.svelte";
@@ -266,6 +304,23 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     chart = $state<Chart | null>(null),
     snapshots = $state<Chart[]>([]);
   let nativeArtistComponent = $state<{captureNavigationSnapshot:(key:string)=>string;restoreNavigationSnapshot:(key:string)=>Promise<void>}|undefined>();
+  type NativeArtistPageInstance = NonNullable<typeof nativeArtistComponent>;
+  const pendingNativeArtistResolvers = new Set<(instance: NativeArtistPageInstance | null) => void>();
+  function captureNativeArtistInstance(instance: unknown) {
+    nativeArtistComponent = instance as NativeArtistPageInstance;
+    for (const resolve of pendingNativeArtistResolvers) resolve(nativeArtistComponent);
+    pendingNativeArtistResolvers.clear();
+  }
+  function clearNativeArtistInstance() {
+    nativeArtistComponent = undefined;
+    for (const resolve of pendingNativeArtistResolvers) resolve(null);
+    pendingNativeArtistResolvers.clear();
+  }
+  function waitForNativeArtistInstance(): Promise<NativeArtistPageInstance | null> {
+    if (nativeArtistComponent) return Promise.resolve(nativeArtistComponent);
+    return new Promise(resolve => pendingNativeArtistResolvers.add(resolve));
+  }
+
   let spotifyArtistComponent = $state<{captureNavigationSnapshot:(key:string)=>string}|undefined>();
   let spotifyNavigationSnapshotKey = $state<string|null>(null);
   let searchComponent = $state<{
@@ -275,6 +330,23 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     setAutomationContinueSearch:(revision:string,enabled:boolean,expiresAtMs:number)=>Promise<unknown>;
     playAutomationSearchResult:(revision:string,occurrenceToken:string,expiresAtMs:number)=>unknown;
   }|undefined>();
+  type SearchPanelInstance = NonNullable<typeof searchComponent>;
+  const pendingSearchPanelResolvers = new Set<(instance: SearchPanelInstance | null) => void>();
+  function captureSearchPanelInstance(instance: unknown) {
+    searchComponent = instance as SearchPanelInstance;
+    for (const resolve of pendingSearchPanelResolvers) resolve(searchComponent);
+    pendingSearchPanelResolvers.clear();
+  }
+  function clearSearchPanelInstance() {
+    searchComponent = undefined;
+    for (const resolve of pendingSearchPanelResolvers) resolve(null);
+    pendingSearchPanelResolvers.clear();
+  }
+  function waitForSearchPanelInstance(): Promise<SearchPanelInstance | null> {
+    if (searchComponent) return Promise.resolve(searchComponent);
+    return new Promise(resolve => pendingSearchPanelResolvers.add(resolve));
+  }
+
   let searchNavigationSnapshotKey = $state<string|null>(null);
   let navigationSnapshotSequence = 0;
   let directoryBrowserVisited = $state(false);
@@ -351,6 +423,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     waveform?: { analyzerVersion: string; binCount: number; durationSeconds: number; bins: Array<{ min: number; max: number } | null>; scope: "wholeTrack"; complete: boolean; measuredAt: string } | null;
   };
   type SelectedAnalysisResult = { assetId: string; recordingId: string; status: string; analysis: WholeTrackAnalysisDto | null; error?: string | null; kind?: "asset" | "stream"; sourceProvider?: string | null; sourceId?: string | null };
+  type StreamAnalysisUpdatedEvent = { generation: number; trackId: string; resourceIdentity: string; sourceIdentitySha256: string; audioVariantSha256?: string | null; provider: string; sourceId: string; state: "started" | "completed" | "cancelled"; analysis?: WholeTrackAnalysisDto | null };
   type SelectedAnalysisJob = { jobId: string; state: string; total: number; completed: number; results: SelectedAnalysisResult[] };
   let selectedAnalysisJob = $state<SelectedAnalysisJob | null>(null);
   let selectedAnalysisKind = $state<"asset" | "stream">("asset");
@@ -555,6 +628,9 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
   let localWaveformAnalysisOwnerKey = $state("");
   let cachedStreamAnalysis = $state<WholeTrackAnalysisDto | null>(null);
   let cachedStreamAnalysisOwnerKey = $state("");
+  let cachedStreamAnalysisLookupOwnerKey = "";
+  let cachedStreamAnalysisEventsReady = $state(false);
+  let cachedStreamAnalysisEventRevision = 0;
   let pendingCreatedPlaylist = $state<{ collection: Collection; generation: number } | null>(null);
   let settings = $state<Settings>({
     musicDirectory: "",
@@ -743,6 +819,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
   async function openSearchAlbum(release:ArtistReleaseRef, artistHint?:ArtistRef|null) {
     rememberRoute();
     if (view !== "search") await navigate("search", false);
+    clearSearchPanelInstance();
     const request=++searchReleaseRequest;
     searchRelease=release;searchReleaseTracks=[];searchReleaseError="";searchReleaseBusy=true;
     try {
@@ -755,6 +832,26 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       const rows=await getReleaseTracks(release,artist);
       if(request===searchReleaseRequest&&view==="search"&&searchRelease?.sourceUrl===release.sourceUrl&&searchRelease.release.id===release.release.id)searchReleaseTracks=rows;
     }catch(failure){if(request===searchReleaseRequest)searchReleaseError=String(failure);}finally{if(request===searchReleaseRequest)searchReleaseBusy=false;}
+  }
+  const soulseekAlbumSearchAvailable = $derived.by(() => {
+    const source = availableSources.find(item => item.id === "soulseek");
+    return Boolean(source && source.enabled !== false && (!source.kinds?.length || source.kinds.includes("album")));
+  });
+  async function openSoulseekAlbumSearch(release: ArtistReleaseRef) {
+    const credits = release.credits.filter(credit => credit.name.trim());
+    const artist = credits.find(credit => /^(?:artist|primary artist|main artist|performer)$/i.test(credit.role.trim())) ?? credits.find(credit => credit.artist) ?? credits[0];
+    if (!artist?.name.trim()) throw new Error("This release has no credited artist name to search.");
+    if (!soulseekAlbumSearchAvailable) throw new Error("Soulseek is not enabled. Configure it in Settings → Connections and retry.");
+    rememberRoute();
+    await navigate("search", false);
+    searchNavigationSnapshotKey = null;
+    query = `${release.title.trim()} ${artist.name.trim()}`.trim();
+    catalogSearchSource = "soulseek";
+    catalogSearchKind = "albums";
+    catalogSearchRequest++;
+    searchRelease = null;
+    searchReleaseTracks = [];
+    searchReleaseRequest++;
   }
   type TrackAlbumTarget = { kind: "spotify"; albumId: string } | { kind: "catalog"; release: ArtistReleaseRef; artist: ArtistRef } | { kind: "search"; album: string; artist: string };
   let trackAlbumLookupRequest = 0;
@@ -999,6 +1096,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
   });
   let playingTrackDetectionOwner = $state<PlayingTrackDetectionOwner | null>(null);
   let playingTrackDetectionBusy = $state(false);
+  let keepTrackDetectionForQueue = $state(false);
   let playingTrackDetectionStatus = $state("");
   let playingTrackDetectionDisabledReason = $state("");
   let playingTrackDetectionCaptureId: string | null = null;
@@ -1091,7 +1189,10 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       if(Date.now()-lastPlayingTrackDetectionReadAt<1000)return;
       lastPlayingTrackDetectionReadAt=Date.now();
       try {
-        const result=await call<PlayingTrackDetectionView>("get_playing_track_detections",{...owner});
+        let result=await call<PlayingTrackDetectionView>("get_playing_track_detections",{...owner});
+        if (trackDetectionOwnerIsCurrent(owner) && keepTrackDetectionForQueue && !result.enabled) {
+          result=await call<PlayingTrackDetectionView>("set_playing_track_detection_enabled",{...owner,enabled:true});
+        }
         if(trackDetectionOwnerIsCurrent(owner)){
           playingTrackDetectionView=result;
           playingTrackDetectionNeedsRead=false;
@@ -1110,6 +1211,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     if(Date.now()-lastPlayingTrackDetectionAt>=PLAYING_TRACK_DETECTION_INTERVAL_MS) await runPlayingTrackDetection(owner);
   }
   async function togglePlayingTrackDetection(enabled:boolean) {
+    if (!enabled) keepTrackDetectionForQueue=false;
     const owner=currentPlayingTrackDetectionOwner();
     if(!owner||!desktop())return;
     if(!enabled)cancelPlayingTrackDetection();
@@ -1381,7 +1483,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
   let spotifyArtistSearchFallback = $state<SpotifyArtistSearchFallback | null>(null);
   let artistScroll = $state(0);
   let artistSection = $state<"overview" | "releases" | "tracks" | "collaborations" | "local">("overview");
-  type Route = { searchReleaseSnapshotKey?:string|null; searchNavigationSnapshotKey?:string|null; nativeArtistSnapshotKey?:string|null; spotifyNavigationSnapshotKey?:string|null; directorySnapshot?: DirectoryBrowserSnapshot; directoryLocation?: {rootId:string;relativePath:string}|null; view: View; collectionId: string; provider: string; genreUrl: string; query: string; filter: string; localFilter: "all" | "local" | "not-local"; sort: string; descending: boolean; librarySource: string; searchCategory: string; searchMode: typeof searchMode; importId?: string; artistName: string; artistRef: ArtistRef | null; artistTrack: Track | null; artistSection: typeof artistSection; artistScroll: number; loadedTrackCount?:number; durationMinimum?:string; durationMaximum?:string; spotifyArtistId?:string; spotifyAlbumId?:string; spotifyArtistSearchFallback?: SpotifyArtistSearchFallback | null; remoteOwner?:string; remotePlaylistUrl?:string; chartId?: string; historyQuery?: string; historyProvider?: string; historyStationId?: string; historyFrom?: string; historyTo?: string; historyOrder?: string; historySortField?: TrackSortField; historySortDirection?: SortDirection; historyMinDuration?: string; historyMaxDuration?: string; historyDownloadAvailability?: "all" | "downloaded" | "not-downloaded"; historyLoadedCount?: number; historyScroll?: number; historyFocusedSessionId?: string | null; focusedPlaylistRowKey?: string | null; selected: Track | null; scroll: number };
+  type Route = { libraryBrowser?: LibraryBrowserState; searchReleaseSnapshotKey?:string|null; searchNavigationSnapshotKey?:string|null; nativeArtistSnapshotKey?:string|null; spotifyNavigationSnapshotKey?:string|null; directorySnapshot?: DirectoryBrowserSnapshot; directoryLocation?: {rootId:string;relativePath:string}|null; view: View; collectionId: string; provider: string; genreUrl: string; query: string; filter: string; localFilter: "all" | "local" | "not-local"; sort: string; descending: boolean; librarySource: string; searchCategory: string; searchMode: typeof searchMode; importId?: string; artistName: string; artistRef: ArtistRef | null; artistTrack: Track | null; artistSection: typeof artistSection; artistScroll: number; loadedTrackCount?:number; durationMinimum?:string; durationMaximum?:string; spotifyArtistId?:string; spotifyAlbumId?:string; spotifyArtistSearchFallback?: SpotifyArtistSearchFallback | null; remoteOwner?:string; remotePlaylistUrl?:string; chartId?: string; historyQuery?: string; historyProvider?: string; historyStationId?: string; historyFrom?: string; historyTo?: string; historyOrder?: string; historySortField?: TrackSortField; historySortDirection?: SortDirection; historyMinDuration?: string; historyMaxDuration?: string; historyDownloadAvailability?: "all" | "downloaded" | "not-downloaded"; historyLoadedCount?: number; historyScroll?: number; historyFocusedSessionId?: string | null; focusedPlaylistRowKey?: string | null; selected: Track | null; scroll: number };
   let backRoutes = $state<Route[]>([]), forwardRoutes = $state<Route[]>([]);
   let restoringRoute = $state(false);
   let routeRestorationEpoch = 0;
@@ -1515,6 +1617,8 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
   const waveformGeneration = $derived(nativeSnapshot?.generation ?? null);
   const cachedStreamAnalysisTrackId = $derived(playingTrack?.id ?? null);
   const cachedStreamAnalysisGeneration = $derived(nativeSnapshot?.engine === "native" ? nativeSnapshot.generation : null);
+  const cachedStreamAnalysisResource = $derived(currentStreamMediaResource());
+  const cachedStreamAnalysisCurrentOwnerKey = $derived(`${cachedStreamAnalysisTrackId ?? ""}:${cachedStreamAnalysisGeneration ?? ""}:${cachedStreamAnalysisResource?.key ?? ""}`);
   const cachedStreamAnalysisEligible = $derived.by(() => {
     const track = playingTrack;
     const provider = track?.provider;
@@ -1524,6 +1628,57 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       ["buffering", "playing", "paused", "ended"].includes(nativeSnapshot.status) &&
       !radioTrack && !track?.playbackRange;
   });
+  async function readCachedStreamAnalysis(trackId: string, generation: number, resource: ActiveStreamMediaResource, expectedRevision?: number) {
+    try {
+      const result = await call<WholeTrackAnalysisDto | null>("get_cached_stream_analysis", { trackId, generation });
+      const active = currentStreamMediaResource();
+      if (expectedRevision !== undefined && cachedStreamAnalysisEventRevision !== expectedRevision) return;
+      if (!result || active?.key !== resource.key || playingTrack?.id !== trackId || nativeSnapshot?.generation !== generation) return;
+      const digest = await streamSourceIdentitySha256(resource.provider, resource.sourceId);
+      const activeVariantDigest = await streamAudioVariantSha256(resource.audioVariant);
+      if (expectedRevision !== undefined && cachedStreamAnalysisEventRevision !== expectedRevision) return;
+      if (currentStreamMediaResource()?.key !== resource.key || playingTrack?.id !== trackId ||
+          nativeSnapshot?.generation !== generation || result.scope !== "wholeTrack" || result.resource?.kind !== "stream" ||
+          result.resource.recordingId !== trackId || result.resource.provider !== resource.provider ||
+          result.resource.sourceIdentitySha256 !== digest || (result.resource.audioVariantSha256 ?? null) !== activeVariantDigest || !Number.isFinite(result.durationSeconds) ||
+          !(8 <= result.durationSeconds && result.durationSeconds <= 900) || (!result.bpm && !result.key)) return;
+      cachedStreamAnalysis = result;
+      cachedStreamAnalysisOwnerKey = `${trackId}:${generation}:${resource.key}`;
+    } catch {
+      // An optional cache read must not interrupt playback or track changes.
+    }
+  }
+  async function applyStreamAnalysisUpdated(event: StreamAnalysisUpdatedEvent) {
+    const resource = currentStreamMediaResource();
+    if (!resource || event.trackId !== playingTrack?.id || event.generation !== nativeSnapshot?.generation ||
+        event.provider !== resource.provider || event.sourceId !== resource.sourceId || !event.resourceIdentity) return;
+    const digest = await streamSourceIdentitySha256(resource.provider, resource.sourceId);
+    const activeVariantDigest = await streamAudioVariantSha256(resource.audioVariant);
+    if (currentStreamMediaResource()?.key !== resource.key || playingTrack?.id !== event.trackId ||
+        nativeSnapshot?.generation !== event.generation || event.sourceIdentitySha256 !== digest ||
+        (event.audioVariantSha256 ?? null) !== activeVariantDigest) return;
+    // Only an event proven to belong to the active resource may fence a cache
+    // read. Unrelated stale events must not strand the current initial lookup.
+    const revision = ++cachedStreamAnalysisEventRevision;
+    const ownerKey = `${event.trackId}:${event.generation}:${resource.key}`;
+    if (event.state === "started") {
+      cachedStreamAnalysis = null;
+      cachedStreamAnalysisOwnerKey = ownerKey;
+      return;
+    }
+    if (event.analysis) {
+      const analysis = event.analysis;
+      if (analysis.scope === "wholeTrack" && analysis.resource?.kind === "stream" &&
+          analysis.resource.recordingId === event.trackId && analysis.resource.provider === event.provider &&
+          analysis.resource.sourceIdentitySha256 === event.sourceIdentitySha256 &&
+          (analysis.resource.audioVariantSha256 ?? null) === activeVariantDigest && (analysis.bpm || analysis.key)) {
+        cachedStreamAnalysis = analysis;
+        cachedStreamAnalysisOwnerKey = ownerKey;
+        return;
+      }
+    }
+    await readCachedStreamAnalysis(event.trackId, event.generation, resource, revision);
+  }
   const waveformLocalAssetId = $derived(nativeSnapshot?.quality?.sourceKind === "localAsset" ? nativeSnapshot.quality.assetId ?? null : null);
   const playbackWaveformForDisplay = $derived.by(() => {
     if (playbackWaveform?.source === "local-analysis") {
@@ -2568,7 +2723,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       ? "—"
       : `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
   function captureRoute(): Route {
-    return { searchReleaseSnapshotKey:view === "search" && searchRelease ? captureSearchRelease() : null, searchNavigationSnapshotKey:view === "search" && !searchRelease ? searchComponent?.captureNavigationSnapshot(`route-search:${++navigationSnapshotSequence}`) : null, nativeArtistSnapshotKey:view === "artist" && !spotifyArtistId && !spotifyAlbumId ? nativeArtistComponent?.captureNavigationSnapshot(`route-catalog:${++navigationSnapshotSequence}`) : null, spotifyNavigationSnapshotKey:view === "artist" && (spotifyArtistId || spotifyAlbumId) ? spotifyArtistComponent?.captureNavigationSnapshot(`route-artist:${++navigationSnapshotSequence}`) : null, directorySnapshot:view === "directory-browser" ? directoryBrowser?.getSnapshot() : undefined, directoryLocation:directoryLocation ? {...directoryLocation}:null, view, collectionId, provider, genreUrl, query, filter, localFilter, sort, descending, librarySource, searchCategory, searchMode, importId: view === "charts" ? activeBrowserImport?.id : undefined, artistName: activeArtistName, artistRef: activeArtistRef, artistTrack: activeArtistTrack, artistSection, artistScroll, loadedTrackCount:tracks.length,durationMinimum,durationMaximum,spotifyArtistId, spotifyAlbumId, spotifyArtistSearchFallback, remoteOwner, remotePlaylistUrl, chartId: view === "charts" ? chart?.id : undefined, historyQuery, historyProvider, historyStationId, historyFrom, historyTo, historyOrder, historySortField, historySortDirection, historyMinDuration, historyMaxDuration, historyDownloadAvailability, historyLoadedCount: view === "history" ? historyItems.length : undefined, historyScroll: view === "history" ? historyScroll : undefined, historyFocusedSessionId, focusedPlaylistRowKey, selected, scroll: table?.scrollTop ?? 0 };
+    return { libraryBrowser: { ...libraryBrowser }, searchReleaseSnapshotKey:view === "search" && searchRelease ? captureSearchRelease() : null, searchNavigationSnapshotKey:view === "search" && !searchRelease ? searchComponent?.captureNavigationSnapshot(`route-search:${++navigationSnapshotSequence}`) : null, nativeArtistSnapshotKey:view === "artist" && !spotifyArtistId && !spotifyAlbumId ? nativeArtistComponent?.captureNavigationSnapshot(`route-catalog:${++navigationSnapshotSequence}`) : null, spotifyNavigationSnapshotKey:view === "artist" && (spotifyArtistId || spotifyAlbumId) ? spotifyArtistComponent?.captureNavigationSnapshot(`route-artist:${++navigationSnapshotSequence}`) : null, directorySnapshot:view === "directory-browser" ? directoryBrowser?.getSnapshot() : undefined, directoryLocation:directoryLocation ? {...directoryLocation}:null, view, collectionId, provider, genreUrl, query, filter, localFilter, sort, descending, librarySource, searchCategory, searchMode, importId: view === "charts" ? activeBrowserImport?.id : undefined, artistName: activeArtistName, artistRef: activeArtistRef, artistTrack: activeArtistTrack, artistSection, artistScroll, loadedTrackCount:tracks.length,durationMinimum,durationMaximum,spotifyArtistId, spotifyAlbumId, spotifyArtistSearchFallback, remoteOwner, remotePlaylistUrl, chartId: view === "charts" ? chart?.id : undefined, historyQuery, historyProvider, historyStationId, historyFrom, historyTo, historyOrder, historySortField, historySortDirection, historyMinDuration, historyMaxDuration, historyDownloadAvailability, historyLoadedCount: view === "history" ? historyItems.length : undefined, historyScroll: view === "history" ? historyScroll : undefined, historyFocusedSessionId, focusedPlaylistRowKey, selected, scroll: table?.scrollTop ?? 0 };
   }
   function rememberRoute(overrides: Partial<Route> = {}) {
     routeRestorationEpoch++; restoringRoute = false;
@@ -2592,6 +2747,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       searchRelease=restoredRelease?.release??null;searchReleaseTracks=restoredRelease?.tracks??[];searchReleaseBusy=false;
       if(route.searchReleaseSnapshotKey&&!restoredRelease)searchNavigationSnapshotKey=`expired:${route.searchReleaseSnapshotKey}`;
       searchReleaseError=restoredRelease?.needsReload?"Previous album tracks were evicted from memory. Return to search and reopen the album to reload them.":restoredRelease?.error??"";
+      libraryBrowser = route.libraryBrowser ? { ...route.libraryBrowser } : initialLibraryBrowserState();
       directoryLocation = route.directoryLocation ? {...route.directoryLocation} : null;
       if (route.view === "directory-browser") directoryBrowserVisited = true;
       collectionId = route.collectionId; provider = route.provider; genreUrl = route.genreUrl; query = route.query;
@@ -2601,8 +2757,9 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       const restoreIsCurrent = () => restoredControlsMatch() && restorationEpoch === routeRestorationEpoch && navigationRequest === expectedNavigationRequest && view === route.view && collectionId === route.collectionId && provider === route.provider;
       if (!restoreIsCurrent()) return false;
       if (route.view === "artist" && !route.spotifyArtistId && !route.spotifyAlbumId && route.nativeArtistSnapshotKey) {
-        await tick();if (!restoreIsCurrent()) return false;
-        await nativeArtistComponent?.restoreNavigationSnapshot(route.nativeArtistSnapshotKey);
+        const readyArtistPage=await waitForNativeArtistInstance();
+        if (!restoreIsCurrent() || !readyArtistPage) return false;
+        await readyArtistPage.restoreNavigationSnapshot(route.nativeArtistSnapshotKey);
         if (!restoreIsCurrent()) return false;
       }
       if(route.view==="search"&&restoredRelease){
@@ -2610,10 +2767,11 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
         if(restoredRelease.controls)await searchReleaseComponent?.restoreNavigationState(restoredRelease.controls);
         if(!restoreIsCurrent())return false;
       }
-      if (route.view === "search" && !restoredRelease && searchNavigationSnapshotKey) {
+    if (route.view === "search" && !restoredRelease && searchNavigationSnapshotKey) {
         const effectiveSearchKey=searchNavigationSnapshotKey;
-        await tick();if (!restoreIsCurrent()) return false;
-        await searchComponent?.restoreNavigationSnapshot(effectiveSearchKey);
+        const readySearchPanel=await waitForSearchPanelInstance();
+        if (!restoreIsCurrent() || !readySearchPanel) return false;
+        await readySearchPanel.restoreNavigationSnapshot(effectiveSearchKey);
         if (!restoreIsCurrent()) return false;
       }
       if (route.view === "directory-browser" && route.directorySnapshot) {
@@ -2834,7 +2992,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     await browseProviderCharts(row.sourceId);
   }
   async function chooseLibrarySource(source: string) {
-    rememberRoute(); librarySource = source;
+    rememberRoute(); librarySource = source; libraryBrowser = initialLibraryBrowserState();
     await navigate("library", false);
   }
   async function syncMirrors() {
@@ -3480,31 +3638,17 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
   $effect(() => {
     const trackId = cachedStreamAnalysisTrackId;
     const generation = cachedStreamAnalysisGeneration;
-    const ownerKey = `${trackId ?? ""}:${generation ?? ""}`;
+    const resource = cachedStreamAnalysisResource;
+    const ownerKey = `${trackId ?? ""}:${generation ?? ""}:${resource?.key ?? ""}`;
     if (cachedStreamAnalysisOwnerKey !== ownerKey) {
       cachedStreamAnalysisOwnerKey = ownerKey;
       cachedStreamAnalysis = null;
     }
-    if (!trackId || generation === null || !cachedStreamAnalysisEligible) return;
-    let active = true;
-    let inFlight = false;
-    const poll = async () => {
-      if (!active || inFlight) return;
-      inFlight = true;
-      try {
-        const result = await call<WholeTrackAnalysisDto | null>("get_cached_stream_analysis", { trackId, generation });
-        if (!active || !result || playingTrack?.id !== trackId || nativeSnapshot?.generation !== generation || !true) return;
-        if (result.scope !== "wholeTrack" || result.resource?.kind !== "stream" || result.resource.recordingId !== trackId ||
-            !Number.isFinite(result.durationSeconds) || !(8 <= result.durationSeconds && result.durationSeconds <= 900) ||
-            (!result.bpm && !result.key)) return;
-        cachedStreamAnalysis = result;
-      } catch {
-        // An optional cache read must not interrupt playback or track changes.
-      } finally { inFlight = false; }
-    };
-    void poll();
-    const timer = window.setInterval(() => void poll(), 2200);
-    return () => { active = false; window.clearInterval(timer); };
+    if (!trackId || generation === null || !resource || !cachedStreamAnalysisEligible || !cachedStreamAnalysisEventsReady ||
+        cachedStreamAnalysisLookupOwnerKey === ownerKey) return;
+    cachedStreamAnalysisLookupOwnerKey = ownerKey;
+    const revision = untrack(() => cachedStreamAnalysisEventRevision);
+    void readCachedStreamAnalysis(trackId, generation, resource, revision);
   });
   const chaptersByTrack = $derived(Object.fromEntries(queueTracks.map(track=>[track.id,track.playbackRange ? [] : candidateForQueue(track)?.chapters ?? (track.id===playingTrack?.id ? playingCandidate?.chapters ?? [] : [])])));
   const chapterRangesByTrack = $derived(Object.fromEntries(queueTracks.map(track=>{
@@ -3570,7 +3714,12 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     `${view}:${view === "collections" ? collectionId : ""}`;
   async function navigate(next: View, recordRoute = true) {
     if (recordRoute && (next !== view || !["library", "favorites", "history", "downloads", "settings"].includes(next))) rememberRoute();
-    if (next === "search" && !restoringRoute) {searchNavigationSnapshotKey = null;searchRelease=null;searchReleaseRequest++;}
+    if (next !== "search") clearSearchPanelInstance();
+    if (next !== "artist") clearNativeArtistInstance();
+    if (next === "search" && !restoringRoute) {
+      if (searchRelease) clearSearchPanelInstance();
+      searchNavigationSnapshotKey = null;searchRelease=null;searchReleaseRequest++;
+    }
     if(next!=="search")searchReleaseRequest++;
     setNotice("");
     contexts.set(activeContext, {
@@ -4352,7 +4501,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     await run(async () => { const result = await call<{permissions: {control: boolean; manage: boolean}}>("set_automation_permissions", { ...automationPermissions }); automationPermissions = result.permissions; });
   }
   function openPlayerPanel(panel: "info" | "queue" | "downloads" | null, track?: Track) {
-    showFullNowPlaying = false;
+    if (panel === "info" || panel === "downloads") showFullNowPlaying = false;
     infoTrack = panel === "info" ? track ?? null : null;
     showPlayingInfo = panel === "info"; showQueue = panel === "queue"; showDownloads = panel === "downloads";
   }
@@ -4373,9 +4522,10 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       if (request === trackLibrarySummaryRequest) trackLibrarySummaryLoading = false;
     }
   }
+  const visibleSummaryTrackId = $derived(showPlayingInfo ? (infoTrack ?? playingTrack)?.id ?? null : null);
   $effect(() => {
     const request = ++trackLibrarySummaryRequest;
-    const trackId = showPlayingInfo ? (infoTrack ?? playingTrack)?.id ?? null : null;
+    const trackId = visibleSummaryTrackId;
     if (!desktop() || !trackId) {
       trackLibrarySummary = null;
       trackLibrarySummaryTrackId = null;
@@ -4402,7 +4552,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     if (desktop() && (!backupHydrationReady || !playbackControlsOwned)) return;
     const target = e.target instanceof Element ? e.target : null;
     if (target?.closest("dialog[open]")) return;
-    if (e.key === "Escape" && showFullNowPlaying) { e.preventDefault(); showFullNowPlaying = false; return; }
+    if (e.key === "Escape" && showFullNowPlaying) { e.preventDefault(); if (showQueue) openPlayerPanel(null); else showFullNowPlaying = false; return; }
     if (showFullNowPlaying && e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) { e.preventDefault(); showFullNowPlaying = false; return; }
     const slot=playlistShortcut(e); if(slot>=0){e.preventDefault();void invokePlaylistShortcut(slot).catch(failure=>error=String(failure));return;}
     if (e.key === "Escape" && view === "history" && target?.closest(".history-advanced-filters")) {
@@ -6168,14 +6318,14 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     await movePlaylistEntry(from, from + direction);
   }
   async function movePlaylistEntry(from: number, to: number) {
-    if (playlistReordering || localPageLoading || view !== "collections" || !collectionId) return;
-    if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to < 0 || from === to || to >= playlistMoveLimit) return;
+    if (playlistReordering || localPageLoading || view !== "collections" || !collectionId) throw new Error("Playlist order could not be changed in the current view.");
+    if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to < 0 || from === to || to >= playlistMoveLimit) throw new Error("Playlist move is outside the saved playlist order.");
     const targetId = collectionId, targetContext = activeContext, movedTrack = selected;
     playlistReordering = true;
-    try { await run(async () => {
+    try {
       const editedId = await call<string>("move_playlist_entry", { collectionId: targetId, from, to });
       collections = await call<Collection[]>("list_collections");
-      if (view !== "collections" || collectionId !== targetId || activeContext !== targetContext) return;
+      if (view !== "collections" || collectionId !== targetId || activeContext !== targetContext) throw new Error("Playlist changed before the new order could be shown.");
       if (editedId && editedId !== targetId) {
         collectionId = editedId; activeContext = contextKey(); tracks = []; localPageTotal = 0;
         setNotice("Created a local playlist copy with the new order.");
@@ -6190,7 +6340,10 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
         }
       }
       requestLocalPrefixRefresh(undefined, true);
-    }); } finally { playlistReordering = false; }
+    } catch (failure) {
+      error = String(failure);
+      throw failure;
+    } finally { playlistReordering = false; }
   }
   async function removePlaylistTrack(track: Track) {
     if (view !== "collections" || !collectionId) return;
@@ -6584,6 +6737,8 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
         extraListeners.push(fn);
         return true;
       }).catch((e) => { error = String(e); return false; });
+    void register<StreamAnalysisUpdatedEvent>("stream-analysis-updated", event => { void applyStreamAnalysisUpdated(event); })
+      .then(ready => { if (!disposed) cachedStreamAnalysisEventsReady = ready; });
     register<BackupCheckpointRequest>("backup-checkpoint-request", request => {
       if (!backupHydrationReady) return;
       void respondToBackupCheckpoint(
@@ -7057,6 +7212,91 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     start(backupFrontendHydration);
     return () => { canceled = true; attempt++; retryBackupStartup = null; cleanup?.(); };
   });
+
+
+  const artistPageProps = $derived({
+    onTrackAlbum: (track: Track) => void openTrackAlbum(track), showSearchResultsButton: false,
+    playingTrack, bufferingTrack: playbackLoading ? playingTrack : null, paused,
+    activeTrack: activeArtistTrack, artistName: activeArtistName, initialArtistRef: activeArtistRef,
+    initialSection: artistSection, initialScroll: artistScroll,
+    onScroll: (position: number) => artistScroll = position,
+    onSectionChange: (section: string) => { if (artistSection !== section) { rememberRoute(); if (!restoringRoute) artistScroll = 0; } artistSection = section as typeof artistSection; },
+    onArtistSelected: (artist: ArtistRef | null, name: string) => { if (activeArtistRef?.id === artist?.id && activeArtistRef?.provider === artist?.provider) return; rememberRoute(); if (!restoringRoute) artistScroll = 0; activeArtistRef = artist; if (name) activeArtistName = name; },
+    localTracks: [], onLoadLocalAssetsPage: getArtistLocalAssetsPage,
+    searchArtists, getArtistProfile, getArtistReleases, getReleaseTracks, getArtistTracks,
+    getArtistCollaborations, resolveRecordingMetadata, onApplyMetadata: applyArtistMetadata,
+    onPlayTrack: playArtistTrack, onAddAlbumToPlaylist: addAlbumToPlaylist, onSaveAlbumToLibrary: saveReleaseToLibrary, onSaveLoadedTracks: saveTracksToLibrary,
+    onBrowseArtistProvider: browseArtistProvider, onDownloadAlbum: (items: Track[]) => queueSelected(items),
+    onSearchAlbumSoulseek: (release: ArtistReleaseRef) => openSoulseekAlbumSearch(release), soulseekSearchAvailable: soulseekAlbumSearchAvailable,
+    onQueueTracks: queueArtistTracks,
+    onTrackContext: (track: Track, event: MouseEvent) => { actionAnchor = { x: event.clientX, y: event.clientY }; actionTrack = track; void matchArtistPlaybackSources([track]).then(([matched]) => { if (actionTrack === track && matched) actionTrack = matched; }).catch(failure => { error = String(failure); }); },
+    onDownloadTrack: (track: Track) => openDownloadChooser(track), onFavoriteTrack: (track: Track) => void favorite(track),
+    onAddTrackToPlaylist: addArtistTrack, onAddSelectedToPlaylist: addTracksToPlaylist, onArtistNavigate: discoverArtistRef,
+  });
+
+  const searchPanelProps = $derived({
+    startupReadStorage: backupStartupReadStorage,
+    searchArtists: (value: string) => searchArtists(value, 1).then(page => page.results),
+    loadArtistProfile: loadArtistProfileArtwork,
+    onTrackAlbum: (track: Track) => void openTrackAlbum(track),
+    navigationSnapshotKey: searchNavigationSnapshotKey,
+    automationSearch, automationSearchCancelled,
+    onAutomationSearchComplete: completeAutomationSearch,
+    playingTrack, bufferingTrack: playbackLoading ? playingTrack : null,
+    playingTrackId: playingTrack?.id ?? "", bufferingTrackId: playbackLoading ? playingTrack?.id ?? "" : "",
+    paused, onRemoteResult: (row: SearchRow) => void openRemoteSearchResult(row),
+    onAddRemotePlaylist: addRemoteSearchPlaylist,
+    onPlaylistTracks: addTracksToPlaylist, onQueueTracks: queueArtistTracks,
+    onFavorite: (track: Track) => void favorite(track), availableSources, query,
+    searchPreset: catalogSearchRequest ? { sourceId: catalogSearchSource, kind: catalogSearchKind, requestId: catalogSearchRequest } : undefined,
+    onQueryChange: (value: string) => query = value, sourceCapabilities,
+    onArtist: (artist: ArtistRef) => void discoverArtistRef(artist),
+    onArtistTrack: (track: Track) => void discoverArtist(track),
+    onAlbum: (release: ArtistReleaseRef) => void openSearchAlbum(release),
+    onPlay: (track: Track, list?: Track[], index?: number) => void startPreview(track, false, false, list ?? [track], index ?? 0),
+    onDownload: (track: Track) => void openDownloadChooser(track),
+    onDownloadTracks: (items: Track[]) => void queueSelected(items, undefined, "slskd"),
+    onNext: (track: Track) => queueArtistTracks([track], "next"),
+    onQueue: (track: Track) => queueArtistTracks([track], "append"),
+    onContext: (track: Track, event?: MouseEvent) => { actionTrack = track; actionAnchor = event ? { x: event.clientX, y: event.clientY } : null; },
+    onPlayChapter: playChapter, onQueueChapter: queueChapter,
+    onDownloadChapter: (parent: Track, candidate: Candidate, chapter: Chapter) => void downloadChapter(parent, candidate, chapter),
+    onInfoChapter: (parent: Track, candidate: Candidate, chapter: Chapter) => { const virtual = virtualChapterTrack(parent, candidate, chapter); if (virtual) searchMoreInfo(virtual, candidate, chapter.title); },
+  });
+  const radioViewProps = $derived({
+    onAddSelectedToPlaylist: addTracksToPlaylist, onTrackAlbum: (track: Track) => void openTrackAlbum(track),
+    currentStationMetadata: (playingTrack?.provenance as { radioMetadata?: RadioTrackMetadata } | undefined)?.radioMetadata ?? null,
+    onIdentifyPlayingStation: () => identifyPlayingRadio(), identifyingPlayingStation: radioRecognizing,
+    playingTrack, bufferingTrack: playbackLoading ? playingTrack : null,
+    onInfoTrack: (track: Track) => openPlayerPanel("info", track),
+    onOpenHistory: (stationId: string) => { historyQuery = ""; historyProvider = "radio"; historyStationId = stationId; historyFrom = ""; historyTo = ""; historyOrder = "newest"; void navigate("history"); },
+    favoriteTrackIds, onPlayTrack: (track: Track, list: Track[], index: number) => void startPreview(track, false, false, list, index),
+    onDownloadTrack: (track: Track) => void openDownloadChooser(track), onFavoriteTrack: (track: Track) => void favorite(track),
+    onQueueTracks: queueArtistTracks, onAddTrackToPlaylist: addArtistTrack,
+    savedStations: radioStations, stationNames: Object.fromEntries(radioStations.map(station => [station.id, station.name])),
+    onAddClosed: () => showAddRadio = false, selectedStationId: selectedRadioStationId, showAdd: showAddRadio,
+    onStationsChanged: (stations: RadioStation[]) => { const added = stations.find(station => !radioStations.some(existing => existing.id === station.id)); radioStations = stations; if (added) selectedRadioStationId = added.id; else if (!stations.some(station => station.id === selectedRadioStationId)) selectedRadioStationId = stations[0]?.id ?? ""; },
+    onPlayStation: playRadioStation, onArtist: (track: Track) => void discoverArtist(track),
+    onTrackContext: (track: Track, event: MouseEvent) => { actionTrack = track; actionAnchor = { x: event.clientX, y: event.clientY }; void matchArtistPlaybackSources([track]).then(([matched]) => { if (actionTrack === track && matched) actionTrack = matched; }).catch(failure => { error = String(failure); }); },
+    playingStationId: !paused ? playingRadioStation?.id ?? "" : "",
+  });
+  const remotePlaylistDetailProps = $derived({
+    playingTrack, bufferingTrack: playbackLoading ? playingTrack : null, provider, playlistUrl: remotePlaylistUrl, call,
+    onBrowseOwner: openRemoteOwnerProfile, onAddSelectedToPlaylist: addTracksToPlaylist,
+    onBack: () => { if (backRoutes.length) void travelRoute("back"); else remotePlaylistUrl = ""; },
+    onImported: remotePlaylistsImported,
+    playingTrackId: playingTrack?.id ?? "", bufferingTrackId: playbackLoading ? playingTrack?.id ?? "" : "", paused,
+    onPlay: async (track: Track, list: Track[], index: number) => { await startPreview(track, false, false, list, index); },
+    onQueue: (track: Track) => queueArtistTracks([track], "append"), onNext: (track: Track) => queueArtistTracks([track], "next"), onQueueTracks: queueArtistTracks,
+    onDownload: openDownloadChooser, onFavorite: favorite, onPlaylist: addArtistTrack, onArtist: discoverArtist,
+    onAlbum: (track: Track) => void openTrackAlbum(track), onInfo: (track: Track) => void openPlayerPanel("info", track),
+    onContext: (track: Track, event: MouseEvent) => { actionTrack = track; actionAnchor = { x: event.clientX, y: event.clientY }; },
+  });
+  const remotePlaylistsProps = $derived({
+    call, initialProvider: provider, initialOwner: remoteOwner, profileOnly: true,
+    onOpenPlaylist: (source: "spotify" | "youtube", url: string) => void openRemotePlaylist(source, url),
+    onBrowseOwner: openRemoteOwnerProfile, onImported: remotePlaylistsImported,
+  });
 </script>
 
 <svelte:window onkeydown={keyboard} onpointerdown={dismissHistoryFiltersOutside} ondragover={preventFileDropNavigation} ondrop={preventFileDropNavigation} bind:innerWidth={screenWidth} />
@@ -7083,7 +7323,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
   <LibrarySidebar inert={showFullNowPlaying} {call} showAccountPlaylists={sidebarLayout.showAccountPlaylists} onRemotePlaylist={(source,url) => void openRemotePlaylist(source,url)} compact={screenWidth<=900} favoritesPlaylistId={playlistPreferences.favoritesPlaylistId} playlistNames={sidebarLayout.names??{}} onRadioContext={(station,event)=>radioActions={station,anchor:{x:event.clientX,y:event.clientY}}} {radioStations} activeRadioStationId={selectedRadioStationId} onRadioStation={(station)=>{showAddRadio=false;selectedRadioStationId=station.id;void navigate("radio");if(playingRadioStation?.id!==station.id)playRadioStation(station);}} onAddRadio={()=>{showAddRadio=true;void navigate("radio");}} width={sidebarWidth} onWidthChange={(width)=>saveLayoutWidth("sidebar",width)} {view} collections={namedCollections} browserImports={sidebarImports} {localPlaylistIds} activeSource="all" activeCollectionId={view === "collections" || view === "charts" ? collectionId : ""}
     onDirectoryBrowser={() => { directoryBrowserVisited = true; if (view !== "directory-browser") void navigate("directory-browser"); }}
     selectedFolder={view === "directory-browser" ? directoryLocation : null} rootsRevision={directoryRootsRevision} onSelectFolder={browseFolder} onRootsChanged={() => directoryRootsRevision++}
-    onNavigate={(next) => { if (next === "library") { if (view !== "library" || librarySource !== "all") void chooseLibrarySource("all"); } else if (view !== next) void navigate(next as View); }}
+    onNavigate={(next) => { if (next === "library") { if (view === "library" && (libraryBrowser.tab !== "tracks" || libraryBrowser.entity)) navigateLibraryBrowser(initialLibraryBrowserState()); if (view !== "library" || librarySource !== "all") void chooseLibrarySource("all"); } else if (view !== next) void navigate(next as View); }}
     onPlaylist={(id) => void openPlaylist(id)} onPlaylistContext={(id, event) => { const collection = namedCollections.find(item => item.id === id)??(["favorites","history"].includes(id)?{id,name:sidebarLayout.names?.[id]??(id==="favorites"?"Liked Songs":"History"),trackCount:0}:null); if (collection) playlistActions = { collection, anchor: { x: event.clientX, y: event.clientY } }; }} onSource={(source) => source === "spotify" || source === "youtube" ? void searchProviderPlaylists(source) : void browseProviderCharts(source)}
     sections={sidebarLayout.sections} assignments={sidebarLayout.assignments} onCreateSection={createSection} onRenameSection={renameSection} onDeleteSection={deleteSection} onMovePlaylist={movePlaylistToSection} onCreatePlaylist={(sectionId)=>void createNewPlaylist(sectionId)}
     onImport={() => void createNewPlaylist()} onSettings={() => void navigate("settings")} onDownloads={() => { openPlayerPanel("downloads"); void refreshJobs(); }}
@@ -7136,13 +7376,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
         and access local files.
       </div>{/if}
     {#if directoryBrowserVisited}<div hidden={view !== "directory-browser"} aria-hidden={view !== "directory-browser"}>
-      <DirectoryBrowser onTrackAlbum={(track) => void openTrackAlbum(track)} bind:this={directoryBrowser} {call} location={directoryLocation} rootRegistryRevision={directoryRootsRevision} onLocationChange={(location, context) => { if (context?.reason === "user") { rememberRoute({directorySnapshot:context.previousSnapshot,directoryLocation:context.previousSnapshot.location}); } directoryLocation = location; }} onRootsChanged={() => directoryRootsRevision++} onPlayFile={(_file, track) => void startPreview(track, false, false, [track], 0)}
-        {playingTrack} bufferingTrack={playbackLoading ? playingTrack : null} {paused}
-        onDownload={openDownloadChooser} onFavorite={favorite}
-        onQueue={(track) => queueArtistTracks([track], "append")} onNext={(track) => queueArtistTracks([track], "next")}
-        onPlaylist={addArtistTrack} onArtist={discoverArtist} onInfo={(track) => openPlayerPanel("info", track)}
-        onContext={(track, event) => { actionTrack = track; actionAnchor = { x: event.clientX, y: event.clientY }; }}
-        onAddSelectedToPlaylist={addTracksToPlaylist} />
+      <LazyView loader={loadDirectoryBrowser} label="directory browser" onInstance={(instance) => directoryBrowser = instance as typeof directoryBrowser} componentProps={{ onTrackAlbum: (track: Track) => void openTrackAlbum(track), call, location: directoryLocation, rootRegistryRevision: directoryRootsRevision, onLocationChange: (location: DirectoryBrowserLocation | null, context: { reason?: string; previousSnapshot: DirectoryBrowserSnapshot } | null) => { if (context?.reason === "user") rememberRoute({directorySnapshot:context.previousSnapshot,directoryLocation:context.previousSnapshot.location}); directoryLocation = location; }, onRootsChanged: () => directoryRootsRevision++, onPlayFile: (_file: unknown, track: Track) => void startPreview(track, false, false, [track], 0), playingTrack, bufferingTrack: playbackLoading ? playingTrack : null, paused, onDownload: openDownloadChooser, onFavorite: favorite, onQueue: (track: Track) => queueArtistTracks([track], "append"), onNext: (track: Track) => queueArtistTracks([track], "next"), onPlaylist: addArtistTrack, onArtist: discoverArtist, onInfo: (track: Track) => openPlayerPanel("info", track), onContext: (track: Track, event: MouseEvent) => { actionTrack = track; actionAnchor = { x: event.clientX, y: event.clientY }; }, onAddSelectedToPlaylist: addTracksToPlaylist }} />
     </div>{/if}
     {#if error || playbackQueueSaveError}<div class="banner error" role="alert" aria-live="assertive">
         {[error, playbackQueueSaveError].filter(Boolean).join(" ")}<button aria-label="Dismiss error" onclick={() => { error = ""; playbackQueueSaveError = ""; }}
@@ -7165,11 +7399,11 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       }}>
         <button type="button" class="import-dialog-close" aria-label="Close import" title="Close import" onclick={closeImportDialog}>×</button>
       {#if importChoice === null}
-        <section class="import-panel"><ImportHub onChoose={(choice) => { importChoice = choice; if (choice === "playlist-file") importKind = "m3u"; else if (choice === "paste-playlist") importKind = "tracklist"; }} /></section>
+        <section class="import-panel"><LazyView loader={loadImportHub} label="import choices" componentProps={{ onChoose: (choice: ImportChoice) => { importChoice = choice; if (choice === "playlist-file") importKind = "m3u"; else if (choice === "paste-playlist") importKind = "tracklist"; } }} /></section>
       {:else if importChoice === "restore-backup"}
-        <section class="import-panel"><button type="button" onclick={returnToImportChoices}>← Import choices</button>{#if desktop()}{#key droppedBackupPreview?.previewId ?? "backup-picker"}<BackupRestore inspectBackup={inspectBackupForUi} createBackup={createBackupForUi} restoreBackup={restoreBackupForUi} chooseMediaRoot={chooseBackupMediaRoot} estimateBackup={estimateBackupForUi} cancelJob={cancelBackupJob} loadActiveBackupJob={loadActiveBackupJob} subscribeBackupProgress={subscribeBackupProgress} loadSchedule={loadBackupSchedule} saveSchedule={saveBackupSchedule} chooseScheduleDestination={chooseBackupScheduleDestination} exportSettings={exportBackupSettings} inspectSettings={inspectBackupSettings} applySettings={applyBackupSettings} previewRestore={previewBackupRestore} allowReplace={true} initialPreview={droppedBackupPreview} />{/key}{:else}<p>Backups require the Burrata desktop app.</p>{/if}</section>
+        <section class="import-panel"><button type="button" onclick={returnToImportChoices}>← Import choices</button>{#if desktop()}{#key droppedBackupPreview?.previewId ?? "backup-picker"}<LazyView loader={loadBackupRestore} label="backup restore" componentProps={{ inspectBackup: inspectBackupForUi, createBackup: createBackupForUi, restoreBackup: restoreBackupForUi, chooseMediaRoot: chooseBackupMediaRoot, estimateBackup: estimateBackupForUi, cancelJob: cancelBackupJob, loadActiveBackupJob, subscribeBackupProgress, loadSchedule: loadBackupSchedule, saveSchedule: saveBackupSchedule, chooseScheduleDestination: chooseBackupScheduleDestination, exportSettings: exportBackupSettings, inspectSettings: inspectBackupSettings, applySettings: applyBackupSettings, previewRestore: previewBackupRestore, allowReplace: true, initialPreview: droppedBackupPreview }} />{/key}{:else}<p>Backups require the Burrata desktop app.</p>{/if}</section>
       {:else if importChoice !== "import-url"}
-        <section class="import-panel"><button type="button" onclick={returnToImportChoices}>← Import choices</button><ImportSources choice={importChoice} {call} {collections} currentCollectionId={importTargetCollectionId} desktop={desktop()} onApply={applySourceImport} onPortableImported={async (created) => { collections = await call<Collection[]>("list_collections"); await openPlaylist(created.id); importChoice = null; }} onBackupSelected={() => { if (droppedBackupPreview) return; importChoice = "restore-backup"; setNotice("Select the backup in Restore Backup to review its contents."); }} onBackupPreview={openDroppedBackupPreview} onClose={returnToImportChoices} /></section>
+        <section class="import-panel"><button type="button" onclick={returnToImportChoices}>← Import choices</button><LazyView loader={loadImportSources} label="import sources" componentProps={{ choice: importChoice, call, collections, currentCollectionId: importTargetCollectionId, desktop: desktop(), onApply: applySourceImport, onPortableImported: async (created: Collection) => { collections = await call<Collection[]>("list_collections"); await openPlaylist(created.id); importChoice = null; }, onBackupSelected: () => { if (droppedBackupPreview) return; importChoice = "restore-backup"; setNotice("Select the backup in Restore Backup to review its contents."); }, onBackupPreview: openDroppedBackupPreview, onClose: returnToImportChoices }} /></section>
       {:else}
       <section class="import-panel">
         <button type="button" onclick={() => importChoice = null}>← Import choices</button>
@@ -7215,36 +7449,12 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       {/if}
       </dialog>
     {/if}
+    {#if view === "library"}<nav class="library-view-tabs" aria-label="Library views">{#each [["tracks", "Tracks"], ["artists", "Artists"], ["albums", "Albums"]] as [tab, label]}<button aria-pressed={libraryBrowser.tab === tab} onclick={() => navigateLibraryBrowser({ ...initialLibraryBrowserState(), tab: tab as LibraryBrowserState["tab"] })}>{label}</button>{/each}</nav>{/if}
     {#if autotagReviewId && currentTagJob && currentTagAsset}<section class="autotag-page"><button onclick={()=>{autotagReviewId=null;autotagReviewAsset=null;}}>← Back</button><AutotagReview job={currentTagJob} asset={currentTagAsset} onReview={(assetId,providerId)=>call<AutotagJob>("review_autotag_candidate",{assetId,providerId})} onApply={async(assetId,fieldKeys)=>{await call("apply_autotag_review",{assetId,fieldKeys});autotagReviewAsset=await call<LocalAsset|null>("get_asset_by_id",{assetId});await loadAutotagState();}} onApplyRecognition={async(assetId,fieldKeys)=>{await call("apply_recognition_review",{assetId,fieldKeys});autotagReviewAsset=await call<LocalAsset|null>("get_asset_by_id",{assetId});await loadAutotagState();}} onRepairSource={desktop()?recoverDownloadSourceTags:undefined} onRetry={async(assetId)=>{await call("retry_autotag",{assetId});await loadAutotagState();}} /></section>
     {:else if view === "artist"}
       <section class="artist-page-host">
-        {#if spotifyArtistId || spotifyAlbumId}<SpotifyArtist onTrackAlbum={(track) => void openTrackAlbum(track)} bind:this={spotifyArtistComponent} navigationSnapshotKey={spotifyNavigationSnapshotKey} artistId={spotifyArtistId || spotifyAlbumId} initialAlbumId={spotifyAlbumId || null} searchArtistFallback={spotifyArtistSearchFallback} call={spotifyArtistCall} playingTrack={playingTrack} bufferingTrack={playbackLoading?playingTrack:null} {paused} onPlay={playArtistTrack} onPlaylist={addArtistTrack} onAddSelectedToPlaylist={addTracksToPlaylist} onAddAlbumToPlaylist={addAlbumToPlaylist} onBrowseArtistProvider={browseArtistProvider} onFavorite={(track)=>void favorite(track)} onDownload={(track)=>void openDownloadChooser(track)} onNext={(track)=>queueArtistTracks([track],"next")} onQueue={(track)=>queueArtistTracks([track],"append")} onArtist={(track)=>void discoverArtist(track)} onContext={(track,event)=>{actionTrack=track;actionAnchor={x:event.clientX,y:event.clientY};void matchArtistPlaybackSources([track]).then(([matched])=>{if(actionTrack===track&&matched)actionTrack=matched;}).catch(failure=>{error=String(failure);});}} onAlbumOpening={()=>rememberRoute()} initialScroll={artistScroll} onScroll={(value)=>artistScroll=value}/>{:else}
-        <ArtistPage onTrackAlbum={(track) => void openTrackAlbum(track)} showSearchResultsButton={false} bind:this={nativeArtistComponent} playingTrack={playingTrack} bufferingTrack={playbackLoading?playingTrack:null} {paused}
-          activeTrack={activeArtistTrack}
-          artistName={activeArtistName}
-          initialArtistRef={activeArtistRef}
-          initialSection={artistSection} initialScroll={artistScroll} onScroll={(position) => (artistScroll = position)} onSectionChange={(section) => { if (artistSection !== section) { rememberRoute(); if (!restoringRoute) artistScroll = 0; } artistSection = section; }}
-          onArtistSelected={(artist, name) => { if (activeArtistRef?.id === artist?.id && activeArtistRef?.provider === artist?.provider) return; rememberRoute(); if (!restoringRoute) artistScroll = 0; activeArtistRef = artist; if (name) activeArtistName = name; }}
-          localTracks={[]}
-          onLoadLocalAssetsPage={getArtistLocalAssetsPage}
-          {searchArtists}
-          {getArtistProfile}
-          {getArtistReleases}
-          {getReleaseTracks}
-          {getArtistTracks}
-          {getArtistCollaborations}
-          {resolveRecordingMetadata}
-          onApplyMetadata={applyArtistMetadata}
-          onPlayTrack={playArtistTrack}
-          onAddAlbumToPlaylist={addAlbumToPlaylist}
-          onBrowseArtistProvider={browseArtistProvider}
-          onDownloadAlbum={(items)=>void queueSelected(items)}
-          onQueueTracks={queueArtistTracks}
-          onTrackContext={(track, event) => { actionAnchor = { x: event.clientX, y: event.clientY }; actionTrack = track; void matchArtistPlaybackSources([track]).then(([matched]) => { if (actionTrack === track && matched) actionTrack = matched; }).catch(failure => { error = String(failure); }); }}
-          onDownloadTrack={(track) => openDownloadChooser(track)}
-          onFavoriteTrack={(track)=>void favorite(track)} onAddTrackToPlaylist={addArtistTrack} onAddSelectedToPlaylist={addTracksToPlaylist}
-          onArtistNavigate={discoverArtistRef}
-        />{/if}
+        {#if spotifyArtistId || spotifyAlbumId}<SpotifyArtist onSaveCompleteAlbum={async (entry, items, expected) => { await saveCompleteLibraryAlbum(call, entry, items, expected); requestLocalPrefixRefresh(undefined, true); }} onSaveToLibrary={saveTracksToLibrary} onTrackAlbum={(track) => void openTrackAlbum(track)} bind:this={spotifyArtistComponent} navigationSnapshotKey={spotifyNavigationSnapshotKey} artistId={spotifyArtistId || spotifyAlbumId} initialAlbumId={spotifyAlbumId || null} searchArtistFallback={spotifyArtistSearchFallback} call={spotifyArtistCall} playingTrack={playingTrack} bufferingTrack={playbackLoading?playingTrack:null} {paused} onPlay={playArtistTrack} onPlaylist={addArtistTrack} onAddSelectedToPlaylist={addTracksToPlaylist} onAddAlbumToPlaylist={addAlbumToPlaylist} onBrowseArtistProvider={browseArtistProvider} onFavorite={(track)=>void favorite(track)} onDownload={(track)=>void openDownloadChooser(track)} onNext={(track)=>queueArtistTracks([track],"next")} onQueue={(track)=>queueArtistTracks([track],"append")} onArtist={(track)=>void discoverArtist(track)} onContext={(track,event)=>{actionTrack=track;actionAnchor={x:event.clientX,y:event.clientY};void matchArtistPlaybackSources([track]).then(([matched])=>{if(actionTrack===track&&matched)actionTrack=matched;}).catch(failure=>{error=String(failure);});}} onAlbumOpening={()=>rememberRoute()} initialScroll={artistScroll} onScroll={(value)=>artistScroll=value}/>{:else}
+        <LazyView loader={loadArtistPage} label="artist" componentProps={artistPageProps} onInstance={captureNativeArtistInstance} />{/if}
       </section>
     {:else if view === "settings"}
       <section class="settings" aria-label="Settings">
@@ -7315,7 +7525,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
         </section>
         <HistoryMirrorSettings {call} desktop={desktop()} />
         <RestoredPlaylistSyncSettings {call} desktop={desktop()} />
-        <RestoreWorkReview onReviewed={updateStreamMediaAnalysisRestorePolicy} />
+        <LazyView loader={loadRestoreWorkReview} label="restore review" componentProps={{ onReviewed: updateStreamMediaAnalysisRestorePolicy }} />
         <section class="settings-basic-card" aria-labelledby="library-settings-title">
           <h2 id="library-settings-title">Music folder</h2><p>Completed downloads are saved here after validation and tagging.</p>
           <label>Download destination<input bind:value={settings.musicDirectory} placeholder="/home/you/Music/DJ" /></label>
@@ -7323,7 +7533,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
           {#if settings.musicDirectory !== persistedMusicDirectory}<button onclick={()=>void saveSettingsFields(["musicDirectory"],"Music folder saved.")}>Save music folder</button>{/if}
         </section>
         <LocalPlaylistFiles mode="settings" {settings} onChange={(value) => (settings = value)} onSave={() => void saveSettingsFields(["playlistDirectories"],"Playlist folders saved.")} />
-        {#if desktop()}<BackupRestore inspectBackup={inspectBackupForUi} createBackup={createBackupForUi} restoreBackup={restoreBackupForUi} chooseMediaRoot={chooseBackupMediaRoot} estimateBackup={estimateBackupForUi} cancelJob={cancelBackupJob} loadActiveBackupJob={loadActiveBackupJob} subscribeBackupProgress={subscribeBackupProgress} loadSchedule={loadBackupSchedule} saveSchedule={saveBackupSchedule} chooseScheduleDestination={chooseBackupScheduleDestination} exportSettings={exportBackupSettings} inspectSettings={inspectBackupSettings} applySettings={applyBackupSettings} previewRestore={previewBackupRestore} allowReplace={true} />{/if}
+        {#if desktop()}<LazyView loader={loadBackupRestore} label="backup settings" componentProps={{ inspectBackup: inspectBackupForUi, createBackup: createBackupForUi, restoreBackup: restoreBackupForUi, chooseMediaRoot: chooseBackupMediaRoot, estimateBackup: estimateBackupForUi, cancelJob: cancelBackupJob, loadActiveBackupJob, subscribeBackupProgress, loadSchedule: loadBackupSchedule, saveSchedule: saveBackupSchedule, chooseScheduleDestination: chooseBackupScheduleDestination, exportSettings: exportBackupSettings, inspectSettings: inspectBackupSettings, applySettings: applyBackupSettings, previewRestore: previewBackupRestore, allowReplace: true }} />{/if}
         {/if}
         {#if settingsCategory === "playback"}<label class="settings-option"><input type="checkbox" bind:checked={includeRadioHistory} onchange={()=>void run(()=>call("set_radio_history_setting",{enabled:includeRadioHistory}))}/><span><strong>Include radio songs in playback history</strong><small>Save identified songs you hear with their station and listening time.</small></span></label>{/if}
         {#if settingsCategory === "playback"}
@@ -7341,7 +7551,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
               onMediaStart={() => { const resource = currentStreamMediaResource(); if (resource) { attemptedStreamMediaAnalysis.add(resource.key); void startStreamMediaAnalysis(resource); } }}
               onMediaCancel={() => void cancelStreamMediaAnalysis()}
 
-              cachedResult={cachedStreamAnalysis && cachedStreamAnalysisOwnerKey === `${playingTrack?.id ?? ""}:${nativeSnapshot?.generation ?? ""}` ? `Whole-track analysis${cachedStreamAnalysis.bpm ? ` · ${cachedStreamAnalysis.bpm.bpm.toFixed(1)} BPM${cachedStreamAnalysis.bpm.relatedTempoAlternativeBpm ? ` (tempo alternative ${cachedStreamAnalysis.bpm.relatedTempoAlternativeBpm.toFixed(1)})` : ""}` : ""}${cachedStreamAnalysis.key ? ` · ${cachedStreamAnalysis.key.key}` : ""}` : ""}
+              cachedResult={cachedStreamAnalysis && cachedStreamAnalysisOwnerKey === cachedStreamAnalysisCurrentOwnerKey ? `Whole-track analysis${cachedStreamAnalysis.bpm ? ` · ${cachedStreamAnalysis.bpm.bpm.toFixed(1)} BPM${cachedStreamAnalysis.bpm.relatedTempoAlternativeBpm ? ` (tempo alternative ${cachedStreamAnalysis.bpm.relatedTempoAlternativeBpm.toFixed(1)})` : ""}` : ""}${cachedStreamAnalysis.key ? ` · ${cachedStreamAnalysis.key.key}` : ""}` : ""}
 
               localEligible={Boolean(waveformEnabled && waveformLocalAssetId)}
               localBusy={Boolean(localWaveformAnalysisJobId)}
@@ -7364,7 +7574,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
         {#if settingsCategory === "downloads"}<AutotagSetup {...autotagSettings} onConfigureAcoustId={()=>void configureAcoustId()} acoustIdConfigured={autotagSettings.acoustidConfigured} onChanged={(change)=>autotagSettings={...autotagSettings,...change}} onSave={()=>void run(async()=>{autotagSettings=await call("save_autotag_settings",{enabled:autotagSettings.enabled,shazamFallback:autotagSettings.shazamFallback});})} />
         {/if}{#if settingsCategory === "connections"}<AccountPlaylistSettings value={sidebarLayout.showAccountPlaylists} onChange={(value) => void persistSidebar({...sidebarLayout,showAccountPlaylists:value})} /><BrowserConnections {call} onWriteSyncChange={(provider,enabled)=>remotePlaylistWriteSyncEnabled={...remotePlaylistWriteSyncEnabled,[provider]:enabled}} onChanged={() => { void call<typeof availableSources>("list_search_sources").then(sources => availableSources = sources).catch(() => {}); }} onBrowse={(source)=>void searchProviderPlaylists(source)} /><ConnectionsSetup onChanged={(status) => { slskdEnabled = status.settings.slskd.enabled; lyricsTranslationLanguage=status.settings.lyricsTranslation?.targetLanguage ?? "en";lyricsTranslationEnabled=status.settings.lyricsTranslation?.enabled===true; lyricsTranslationCredentialPresent=status.settings.lyricsTranslation?.provider === "googleFree" || status.settings.lyricsTranslation?.provider === "auto" || status.lyricsTranslationCredential?.present===true; sourceCapabilities={soulseek:slskdEnabled,discogs:status.settings.discogsEnabled}; void call<typeof availableSources>("list_search_sources").then(sources=>availableSources=sources).catch(()=>{}); void loadAutotagState().catch(()=>{}); }} />
         {/if}{#if settingsCategory === "advanced"}<div class="settings-details-body">
-          <PlaybackDiagnosticsSettings {call} enabled={settings.playbackDiagnosticsEnabled === true} onEnabledChange={savePlaybackDiagnosticsEnabled}  />
+          <LazyView loader={loadPlaybackDiagnosticsSettings} label="playback diagnostics settings" componentProps={{ call, enabled: settings.playbackDiagnosticsEnabled === true, onEnabledChange: savePlaybackDiagnosticsEnabled }} />
           <ToolSetup {settings} {dependencies} onChange={(value)=>(settings=value)} onCheck={()=>void run(async()=>(dependencies=await call<Dependency[]>("check_dependencies")))} onSave={()=>void saveSettingsFields(["ytDlpPath","ffmpegPath","ffprobePath","jsRuntimePath"],"Tool paths saved.")} checking={busy>0} />
         </div>
         {/if}{#if settingsCategory === "integrations"}<details class="settings-advanced" open><summary><strong>Assistant permissions</strong><span>Control access to your player and library</span></summary>
@@ -7372,17 +7582,14 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
         </details>{/if}
       </section>
     {:else if view === "search"}
-      {#if searchRelease}<ReleaseView bind:this={searchReleaseComponent} playingTrack={playingTrack} bufferingTrack={playbackLoading?playingTrack:null} {paused} release={searchRelease} tracks={searchReleaseTracks} loading={searchReleaseBusy} error={searchReleaseError} onAddAlbumToPlaylist={addAlbumToPlaylist} onAnalyzeLoudness={prepareReleaseLoudnessAnalysis} onPlayAlbum={playReleaseAlbum} onQueueAlbum={(items,resource)=>queueArtistTracks(items,"append",resource)} onPlay={playArtistTrack} onQueue={queueArtistTracks} onDownload={(track)=>void openDownloadChooser(track)} onDownloadAlbum={(items,onReceipt)=>queueSelected(items,onReceipt as ((receipt:AlbumBatchReceipt)=>void|Promise<void>)|undefined)} onFavorite={(track)=>void favorite(track)} onArtist={(track)=>void discoverArtist(track)} onPlaylist={(track)=>void addArtistTrack(track)} onAddSelectedToPlaylist={addTracksToPlaylist} onContext={(track,event)=>{actionTrack=track;actionAnchor={x:event.clientX,y:event.clientY};}} />{:else}
-      <SearchPanel startupReadStorage={backupStartupReadStorage} searchArtists={(value)=>searchArtists(value,1).then(page=>page.results)} loadArtistProfile={loadArtistProfileArtwork} onTrackAlbum={(track) => void openTrackAlbum(track)} bind:this={searchComponent} navigationSnapshotKey={searchNavigationSnapshotKey} {automationSearch} {automationSearchCancelled} onAutomationSearchComplete={completeAutomationSearch} playingTrack={playingTrack} bufferingTrack={playbackLoading?playingTrack:null} playingTrackId={playingTrack?.id??""} bufferingTrackId={playbackLoading?playingTrack?.id??"":""} {paused} onRemoteResult={(row)=>void openRemoteSearchResult(row)} onAddRemotePlaylist={addRemoteSearchPlaylist} onPlaylistTracks={addTracksToPlaylist} onQueueTracks={queueArtistTracks} onFavorite={(track)=>void favorite(track)} {availableSources} {query} searchPreset={catalogSearchRequest ? {sourceId:catalogSearchSource,kind:catalogSearchKind,requestId:catalogSearchRequest} : undefined} onQueryChange={(value)=>query=value} {sourceCapabilities} onArtist={(artist)=>void discoverArtistRef(artist)} onArtistTrack={(track)=>void discoverArtist(track)} onAlbum={(release)=>void openSearchAlbum(release)} onPlay={(track,list,index)=>void startPreview(track,false,false,list??[track],index??0)} onDownload={(track)=>void openDownloadChooser(track)} onDownloadTracks={(items)=>void queueSelected(items,undefined,"slskd")} onNext={(track)=>queueArtistTracks([track],"next")} onQueue={(track)=>queueArtistTracks([track],"append")} onContext={(track,event)=>{actionTrack=track;actionAnchor=event ? {x:event.clientX,y:event.clientY}:null;}} onPlayChapter={playChapter} onQueueChapter={queueChapter} onDownloadChapter={(parent,candidate,chapter)=>void downloadChapter(parent,candidate,chapter)} onInfoChapter={(parent,candidate,chapter)=>{const virtual=virtualChapterTrack(parent,candidate,chapter);if(virtual)searchMoreInfo(virtual,candidate,chapter.title);}} />{/if}
+      {#if searchRelease}<ReleaseView onSaveCompleteAlbum={saveReleaseToLibrary} onSaveToLibrary={saveTracksToLibrary} bind:this={searchReleaseComponent} playingTrack={playingTrack} bufferingTrack={playbackLoading?playingTrack:null} {paused} release={searchRelease} tracks={searchReleaseTracks} loading={searchReleaseBusy} error={searchReleaseError} onAddAlbumToPlaylist={addAlbumToPlaylist} onAnalyzeLoudness={prepareReleaseLoudnessAnalysis} onPlayAlbum={playReleaseAlbum} onQueueAlbum={(items,resource)=>queueArtistTracks(items,"append",resource)} onPlay={playArtistTrack} onQueue={queueArtistTracks} onDownload={(track)=>void openDownloadChooser(track)} onDownloadAlbum={(items,onReceipt)=>queueSelected(items,onReceipt as ((receipt:AlbumBatchReceipt)=>void|Promise<void>)|undefined)} onSearchAlbumSoulseek={() => openSoulseekAlbumSearch(searchRelease!)} soulseekSearchAvailable={soulseekAlbumSearchAvailable} onFavorite={(track)=>void favorite(track)} onArtist={(track)=>void discoverArtist(track)} onPlaylist={(track)=>void addArtistTrack(track)} onAddSelectedToPlaylist={addTracksToPlaylist} onContext={(track,event)=>{actionTrack=track;actionAnchor={x:event.clientX,y:event.clientY};}} />{:else}
+<LazyView loader={loadSearchPanel} label="search" componentProps={searchPanelProps} onInstance={captureSearchPanelInstance} />{/if}
     {:else if view === "radio"}
-      <RadioView onAddSelectedToPlaylist={addTracksToPlaylist} onTrackAlbum={(track) => void openTrackAlbum(track)} currentStationMetadata={(playingTrack?.provenance as {radioMetadata?:RadioTrackMetadata}|undefined)?.radioMetadata ?? null} onIdentifyPlayingStation={()=>identifyPlayingRadio()} identifyingPlayingStation={radioRecognizing} playingTrack={playingTrack} bufferingTrack={playbackLoading?playingTrack:null} onInfoTrack={(track)=>openPlayerPanel("info",track)} onOpenHistory={(stationId)=>{historyQuery="";historyProvider="radio";historyStationId=stationId;historyFrom="";historyTo="";historyOrder="newest";void navigate("history");}} {favoriteTrackIds} onPlayTrack={(track,list,index)=>void startPreview(track,false,false,list,index)} onDownloadTrack={(track)=>void openDownloadChooser(track)} onFavoriteTrack={(track)=>void favorite(track)} onQueueTracks={queueArtistTracks} onAddTrackToPlaylist={addArtistTrack} savedStations={radioStations} stationNames={Object.fromEntries(radioStations.map(station=>[station.id,station.name]))} onAddClosed={()=>showAddRadio=false} selectedStationId={selectedRadioStationId} showAdd={showAddRadio} onStationsChanged={(stations)=>{const added=stations.find(station=>!radioStations.some(existing=>existing.id===station.id));radioStations=stations;if(added)selectedRadioStationId=added.id;else if(!stations.some(station=>station.id===selectedRadioStationId))selectedRadioStationId=stations[0]?.id??"";}} onPlayStation={playRadioStation} onArtist={(track)=>void discoverArtist(track)} onTrackContext={(track,event)=>{actionTrack=track;actionAnchor={x:event.clientX,y:event.clientY};void matchArtistPlaybackSources([track]).then(([matched])=>{if(actionTrack===track&&matched)actionTrack=matched;}).catch(failure=>{error=String(failure);});}} playingStationId={!paused ? playingRadioStation?.id??"" : ""} />
+      <LazyView loader={loadRadioView} label="radio" componentProps={radioViewProps} />
     {:else if view === "source-browser"}
       {#if provider==="spotify" || provider==="youtube"}{#key `${provider}:${remoteOwner}:${remotePlaylistUrl}`}
-        {#if remotePlaylistUrl}<RemotePlaylistDetail playingTrack={playingTrack} bufferingTrack={playbackLoading?playingTrack:null} {provider} playlistUrl={remotePlaylistUrl} {call} onBrowseOwner={openRemoteOwnerProfile} onAddSelectedToPlaylist={addTracksToPlaylist} onBack={() => { if(backRoutes.length) void travelRoute("back"); else remotePlaylistUrl = ""; }} onImported={remotePlaylistsImported}
-          playingTrackId={playingTrack?.id ?? ""} bufferingTrackId={playbackLoading ? playingTrack?.id ?? "" : ""} {paused}
-          onPlay={async (track,list,index) => { await startPreview(track,false,false,list,index); }} onQueue={(track) => queueArtistTracks([track],"append")} onNext={(track) => queueArtistTracks([track],"next")} onQueueTracks={queueArtistTracks}
-          onDownload={openDownloadChooser} onFavorite={favorite} onPlaylist={addArtistTrack} onArtist={discoverArtist} onAlbum={(track) => void openTrackAlbum(track)} onInfo={(track) => openPlayerPanel("info",track)} onContext={(track,event) => {actionTrack=track;actionAnchor={x:event.clientX,y:event.clientY};}} />
-        {:else if remoteOwner}<RemotePlaylists {call} initialProvider={provider} initialOwner={remoteOwner} profileOnly onOpenPlaylist={(source,url) => void openRemotePlaylist(source,url)} onBrowseOwner={openRemoteOwnerProfile} onImported={remotePlaylistsImported} />
+        {#if remotePlaylistUrl}<LazyView loader={loadRemotePlaylistDetail} label="remote playlist" componentProps={remotePlaylistDetailProps} />
+        {:else if remoteOwner}<LazyView loader={loadRemotePlaylists} label="remote playlists" componentProps={remotePlaylistsProps} />
         {:else}<section class="provider-search-fallback"><h2>Search {provider === "spotify" ? "Spotify" : "YouTube"} playlists</h2><p>Use main Search to find public playlists. Saved account playlists stay in the sidebar.</p><button class="primary" onclick={() => void searchProviderPlaylists(provider as "spotify" | "youtube")}>Search playlists</button></section>{/if}
       {/key}{:else}<SourcePresets {provider} onImport={importPreset} onOpen={(url)=>void run(()=>call("open_external_url",{url}))} />{/if}
     {:else if view === "directory-browser"}
@@ -7462,6 +7669,8 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
           <p>Choose a recording, compare its sources, then start a download.</p>
         </div>{/if}
       </section>
+    {:else if view === "library" && (libraryBrowser.tab !== "tracks" || libraryBrowser.entity)}
+      <LazyView loader={loadLibraryBrowser} label="library" componentProps={{ browserState: libraryBrowser, call, onNavigate: navigateLibraryBrowser, onStateChange: (next: LibraryBrowserState) => libraryBrowser = next, onBrowse: (entry: LibraryEntity) => void run(() => browseLibraryEntity(entry)), onPlay: playArtistTrack, onQueue: queueArtistTracks, onDownload: (track: Track) => void openDownloadChooser(track), onFavorite: (track: Track) => void favorite(track), onPlaylist: (track: Track) => void addArtistTrack(track), onArtist: (track: Track) => void discoverArtist(track), onAlbum: (track: Track) => void openTrackAlbum(track), onContext: (track: Track, event: MouseEvent) => { actionTrack = track; actionAnchor = { x: event.clientX, y: event.clientY }; }, onAddSelectedToPlaylist: (items: Track[]) => void addTracksToPlaylist(items), playingTrack, bufferingTrack: playbackLoading ? playingTrack : null, paused }} />
     {:else}
       <div class="toolbar" class:chart-toolbar={view === "charts"} class:library-toolbar={view === "library"} class:empty-library-toolbar={view === "library" && !showCreatePlaylist}>
         {#if view === "charts" && !activeBrowserImport}<select
@@ -7641,7 +7850,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
             onscroll={(e) => (scrollTop = e.currentTarget.scrollTop)}
           >
             {#if virtualized && startRow > 0}<div class="track-list-virtual-spacer" aria-hidden="true" style={`height:${startRow * rowHeight}px`}></div>{/if}
-            <TrackList playbackFailed={nativePlaybackStatus === "failed"} reorderable={view === "collections" && sort === "rank" && !descending && !filter.trim() && localFilter === "all" && !durationMinimum && !durationMaximum && !playlistReordering && !localPageLoading} onReorder={movePlaylistEntry} onInvertSelection={() => {if(view === "collections") selectedLocalOccurrences = invertSelection(localOccurrenceRows.map(row=>row.key),selectedLocalOccurrences); else {checked=invertSelection(sorted.map(track=>track.id),checked);mergeConfirmed=false;}}} onAlbum={(track) => void openTrackAlbum(track)} tracks={virtualized ? visibleTracks : sorted} focusedRowKey={view === "collections" ? focusedPlaylistRowKey : null} listLabel="Recordings" presentation="playlist" playingTrack={playingTrack} bufferingTrack={playbackLoading ? playingTrack : null} {paused} selectionMode={view === "collections" ? localPlaylistSelectionMode : batchSelectionMode} selectedTrackId={selected?.id} selectedTrackIds={view === "collections" ? selectedLocalOccurrences : checked} selectionKeys={view === "collections" ? localOccurrenceRows.slice(virtualized ? startRow : 0, virtualized ? endRow : sorted.length).map(row => row.key) : undefined} selectionLabel={(track, index) => view === "collections" ? `Select occurrence ${(virtualized ? startRow : 0) + index + 1}: ${track.title} for playlist` : `Select ${track.title}`} trackTitle={(track) => [track.title, bpmAnnotation(track), analysisAnnotation(track, "key")].filter(Boolean).join("\n")} position={(_, index) => (virtualized ? startRow : 0) + index + 1} meta={(track) => [track.bpm != null ? `${analysisAnnotation(track, "bpm") ? "≈" : ""}${String(track.bpm)} BPM` : "", track.key ? `${analysisAnnotation(track, "key") ? "≈" : ""}${track.key}` : "", !track.album && track.label ? track.label : "", track.localAvailability === "available" || (!track.localAvailability && track.localPath) ? "Downloaded" : "", track.disposition === "shortlist" ? "Shortlisted" : "", rowDownloadFeedback[track.id] ?? ""].filter(Boolean).join(" · ")} onPlay={(track, _window, index) => select(track, "click", (virtualized ? startRow : 0) + index)} onRowSelect={(track, event) => selectTrackRow(track, event)} onFavorite={favorite} onDownload={(track) => void openDownloadChooser(track, undefined, undefined, currentSavedPlaylistContext())} onArtist={(track) => void discoverArtist(track)} onContext={(track, event) => { actionTrack = track; const rect = event.type === "contextmenu" ? null : (event.currentTarget as HTMLElement).getBoundingClientRect(); actionAnchor = rect ? { x: rect.right, y: rect.bottom } : { x: event.clientX, y: event.clientY }; }} onSelect={(track, event, index) => { const checkedNow = (event.currentTarget as HTMLInputElement).checked; if (view === "collections") toggleLocalOccurrence((virtualized ? startRow : 0) + index, checkedNow); else { checked = checkedNow ? [...new Set([...checked, track.id])] : checked.filter(id => id !== track.id); mergeConfirmed = false; } }} virtualizationThreshold={100000} />
+            <TrackList playbackFailed={nativePlaybackStatus === "failed"} reorderable={view === "collections" && sort === "rank" && !descending && !filter.trim() && localFilter === "all" && !durationMinimum && !durationMaximum && !playlistReordering && !localPageLoading} reorderCount={view === "collections" ? playlistMoveLimit : undefined} onReorder={movePlaylistEntry} onInvertSelection={() => {if(view === "collections") selectedLocalOccurrences = invertSelection(localOccurrenceRows.map(row=>row.key),selectedLocalOccurrences); else {checked=invertSelection(sorted.map(track=>track.id),checked);mergeConfirmed=false;}}} onAlbum={(track) => void openTrackAlbum(track)} tracks={virtualized ? visibleTracks : sorted} focusedRowKey={view === "collections" ? focusedPlaylistRowKey : null} listLabel="Recordings" presentation="playlist" playingTrack={playingTrack} bufferingTrack={playbackLoading ? playingTrack : null} {paused} selectionMode={view === "collections" ? localPlaylistSelectionMode : batchSelectionMode} selectedTrackId={selected?.id} selectedTrackIds={view === "collections" ? selectedLocalOccurrences : checked} selectionKeys={view === "collections" ? localOccurrenceRows.slice(virtualized ? startRow : 0, virtualized ? endRow : sorted.length).map(row => row.key) : undefined} selectionLabel={(track, index) => view === "collections" ? `Select occurrence ${(virtualized ? startRow : 0) + index + 1}: ${track.title} for playlist` : `Select ${track.title}`} trackTitle={(track) => [track.title, bpmAnnotation(track), analysisAnnotation(track, "key")].filter(Boolean).join("\n")} position={(_, index) => (virtualized ? startRow : 0) + index + 1} meta={(track) => [track.bpm != null ? `${analysisAnnotation(track, "bpm") ? "≈" : ""}${String(track.bpm)} BPM` : "", track.key ? `${analysisAnnotation(track, "key") ? "≈" : ""}${track.key}` : "", !track.album && track.label ? track.label : "", track.localAvailability === "available" || (!track.localAvailability && track.localPath) ? "Downloaded" : "", track.disposition === "shortlist" ? "Shortlisted" : "", rowDownloadFeedback[track.id] ?? ""].filter(Boolean).join(" · ")} onPlay={(track, _window, index) => select(track, "click", (virtualized ? startRow : 0) + index)} onRowSelect={(track, event) => selectTrackRow(track, event)} onFavorite={favorite} onDownload={(track) => void openDownloadChooser(track, undefined, undefined, currentSavedPlaylistContext())} onArtist={(track) => void discoverArtist(track)} onContext={(track, event) => { actionTrack = track; const rect = event.type === "contextmenu" ? null : (event.currentTarget as HTMLElement).getBoundingClientRect(); actionAnchor = rect ? { x: rect.right, y: rect.bottom } : { x: event.clientX, y: event.clientY }; }} onSelect={(track, event, index) => { const checkedNow = (event.currentTarget as HTMLInputElement).checked; if (view === "collections") toggleLocalOccurrence((virtualized ? startRow : 0) + index, checkedNow); else { checked = checkedNow ? [...new Set([...checked, track.id])] : checked.filter(id => id !== track.id); mergeConfirmed = false; } }} virtualizationThreshold={100000} />
             {#if virtualized && endRow < sorted.length}<div class="track-list-virtual-spacer" aria-hidden="true" style={`height:${(sorted.length - endRow) * rowHeight}px`}></div>{/if}
             {#if !sorted.length}<div class="empty">
                 <span>♫</span>
@@ -8043,13 +8252,13 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       </dialog>
     </div>{/if}
   {#if showDownloads}<DownloadActivity onViewAll={() => { openPlayerPanel(null); void navigate("downloads"); }} onFindSource={(job) => void openDownloadChooser(job.track)} tagStatuses={downloadTagStatuses} onReviewTags={(id)=>void openAutotagReview(id)} jobs={jobs.filter(job=>!(job.track.provenance as Record<string,unknown>)?.deferredSoulseekWatchId)} onClose={() => (showDownloads = false)} onRefresh={() => void refreshJobs()} onCancel={(jobId) => void run(async () => { await call("cancel_download", {jobId}); await refreshJobs(); })} onRetry={(jobId) => void run(async () => { await call("retry_download", {jobId}); await refreshJobs(); })} onShowFile={(path) => void run(() => call("open_in_file_manager", {path}))} />{/if}
-  {#if showPlayingInfo || showQueue}<section class="player-panel-host" aria-label="Player panel">{#if showQueue}
+  {#if showPlayingInfo || showQueue}<section class="player-panel-host" class:fullscreen-queue={showFullNowPlaying && showQueue} aria-label="Player panel">{#if showQueue}
   <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions (Keyboard and pointer splitter.) -->
   <div class="queue-panel-resize" role="separator" tabindex="0" aria-label="Resize queue panel" aria-orientation="vertical" aria-valuemin="280" aria-valuemax="420" aria-valuenow={infoPanelWidth} onpointerdown={resizeQueuePanel} onkeydown={(event)=>{if(event.key==="ArrowLeft"||event.key==="ArrowRight"){event.preventDefault();saveLayoutWidth("info",infoPanelWidth+(event.key==="ArrowLeft"?10:-10));}}}></div>{/if}<nav class="player-panel-tabs"><button class:active={showPlayingInfo} onclick={()=>openPlayerPanel("info")}>Now playing</button><button class:active={showQueue} onclick={()=>openPlayerPanel("queue")}>Queue</button><button aria-label="Close player panel" onclick={()=>openPlayerPanel(null)}>×</button></nav>
   {#if showPlayingInfo && (infoTrack || playingTrack)}{@const shownTrack = infoTrack || playingTrack!}{@const shownActionTrack = shownTrack.id===playingTrack?.id ? playbackActionTrack??shownTrack : shownTrack}<PlayingInfo loadRecording={recordingInformation.load} onRecordingRelease={(release,artist) => void browseRecordingRelease(release,artist)} loadArtist={loadNowPlayingArtist} onArtistRef={(artist) => {openPlayerPanel(null);void discoverArtistRef(artist);}} onAlbum={trackAlbumTarget(shownActionTrack) ? () => {openPlayerPanel(null);void openTrackAlbum(shownActionTrack);} : undefined} stationName={shownTrack.id===playingTrack?.id ? playingRadioStation?.name ?? "" : ""} liveBpm={shownTrack.id===playingTrack?.id && !paused ? liveBpmEstimate : null} liveKey={shownTrack.id===playingTrack?.id && !paused ? liveKeyEstimate : null} lastLiveBpm={shownTrack.id===playingTrack?.id ? lastLiveBpm : null} lastLiveKey={shownTrack.id===playingTrack?.id ? lastLiveKey : null} liveBpmStatus={shownTrack.id===playingTrack?.id ? settings.liveBpmEnabled !== true ? "disabled" : paused ? "paused" : liveBpmPollStatus : undefined} liveBpmStatusReason={shownTrack.id===playingTrack?.id ? liveBpmPollReason : null} artworkDisplayUrl={artworkDisplayUrls[shownTrack.artworkUrl ?? ""]} onArtworkError={(track,failedUrl)=>void recoverDisplayArtwork(track,failedUrl)} onFavorite={()=>void favorite(shownTrack.id===playingTrack?.id?(playbackActionTrack??shownTrack):shownTrack)} favorite={(shownTrack.id===playingTrack?.id?(playbackActionTrack??shownTrack):shownTrack).favorite} docked={true} activeChapter={shownTrack.id===playingTrack?.id ? activeChapter?.title : undefined} panelWidth={infoPanelWidth} onPanelWidthChange={(width)=>saveLayoutWidth("info",width)} onPlay={()=>{if(shownTrack.id===playingTrack?.id)void toggleCurrentPlayback();else void startPreview(shownTrack);}} onOpenMpv={mpvAvailable?()=>void openTrackInMpv(shownTrack):undefined} onIdentifyRadio={shownTrack.id===playingTrack?.id&&(playingRadioStation||true||preview?.sourceGeneration!==undefined)?()=>void (radioRecognizing?cancelRadioIdentification():identifyPlayingTrack()):undefined} onCancelIdentifyRadio={!playingRadioStation ? () => cancelRadioIdentification() : undefined} identifyProgress={radioIdentifyProgress} identifyingRadio={radioRecognizing} loudnessStatus={shownTrack.id === playingTrack?.id ? (nativeSnapshot as (NativePlaybackSnapshot & {
     loudnessNormalization?: LoudnessPlaybackStatus;
-}) | null)?.loudnessNormalization ?? null : null} loudnessMode={loudnessSettings.mode} loudnessAnalysisJob={loudnessAnalysisJob} pendingLoudnessAnalysisCount={pendingLoudnessAssetIds.length} loudnessAnalysisMessage={loudnessAnalysisMessage} onAnalyzeLoudness={trackAsset(shownActionTrack) || shownActionTrack.localPath ? () => void analyzeLoudnessTracks([shownActionTrack]) : undefined} onCancelLoudnessAnalysis={cancelLoudnessAnalysis} onRetryLoudnessAnalysis={retryQueuedLoudnessAnalysis} analysisEstimate={shownTrack.id===playingTrack?.id ? currentPlaybackAnalysisEstimate : null} analysisStatus={shownTrack.id===playingTrack?.id ? currentLocalAnalysisStatus || streamMediaAnalysisStatus : ""} trackDetectionView={shownTrack.id===playingTrack?.id && currentPlayingTrackDetectionOwner()!==null ? playingTrackDetectionView : savedDetectionViewsByTrack[shownTrack.id] ?? null} trackDetectionStatus={shownTrack.id===playingTrack?.id ? playingTrackDetectionStatus : ""} trackDetectionDisabledReason={shownTrack.id===playingTrack?.id ? playingTrackDetectionDisabledReason : ""} trackDetectionAvailable={desktop() && shownTrack.id===playingTrack?.id && currentPlayingTrackDetectionOwner()!==null} onTrackDetectionToggle={togglePlayingTrackDetection} trackDetectionMarkersEnabled={detectionMarkersEnabled} onTrackDetectionMarkersToggle={(enabled)=>detectionMarkersEnabled=enabled} onTrackDetectionSeek={(seconds)=>{if(shownTrack.id===playingTrack?.id)seekChapter(seconds);else void (async()=>{await startPreview(shownTrack);if(playingTrack?.id===shownTrack.id)seekChapter(seconds);})();}} onTrackDetectionOpen={(track)=>void startPreview(track)} onTrackDetectionAddToPlaylist={(track)=>void addArtistTrack(track,false)} onTrackDetectionsAddToPlaylist={(tracks)=>void addTracksToPlaylist(tracks)} track={shownTrack} trackLibrarySummary={trackLibrarySummaryTrackId === shownTrack.id ? trackLibrarySummary : null} trackLibrarySummaryLoading={trackLibrarySummaryLoading && trackLibrarySummaryTrackId === shownTrack.id} trackLibrarySummaryRequested={trackLibrarySummaryTrackId === shownTrack.id} asset={trackAsset(shownTrack)} availableFiles={filesForTrack(shownTrack)} preferredAssetId={shownTrack.assetId??null} onPreferredFile={(assetId)=>void preferTrackFile(shownTrack,assetId)} streamQuality={shownTrack.id === playingTrack?.id && ((preview?.kind === "native" ? nativeSnapshot?.quality?.sourceKind !== "localAsset" : preview?.kind === "audio" || !playingTrack?.localPath)) ? { codec: nativeSnapshot?.quality?.codec ?? preview?.audioCodec, bitrateKbps: nativeSnapshot?.quality?.bitrateKbps ?? preview?.audioBitrateKbps, sampleRate: nativeSnapshot?.quality?.sampleRate, channels: nativeSnapshot?.quality?.channels, bitrateOrigin: nativeSnapshot?.quality?.bitrateOrigin, live: Boolean(playingRadioStation) } : undefined} onUpgrade={()=>void openDownloadChooser(shownActionTrack)} onRadio={() => { showPlayingInfo = false; void startSongRadio(shownActionTrack); }} radioBusy={radioBusy === shownTrack.id} candidate={shownTrack.id === playingTrack?.id ? playingCandidate : null} onClose={() => { showPlayingInfo = false; infoTrack = null; }} onArtist={() => { showPlayingInfo = false; void discoverArtist(shownActionTrack); }} onDownload={() => { showPlayingInfo = false; void openDownloadChooser(shownActionTrack); }} onPlaylist={() => { showPlayingInfo = false; void addArtistTrack(shownActionTrack); }} onHistoryOccurrence={(sessionId)=>void openHistoryOccurrence(sessionId)} onPlaylistMembership={(playlistId,trackId)=>void openPlaylistMembership(playlistId,trackId)} onMoreInfo={() => searchMoreInfo(shownTrack,shownTrack.id===playingTrack?.id?playingCandidate:null,shownTrack.id===playingTrack?.id?activeChapter?.title:undefined)} />{/if}
-  {#if showQueue}<PlaybackQueuePanel onVisibleTrack={loadSavedTrackDetections} {detectionsByTrack} onSeekDetection={(parent,observation,index)=>{void (async()=>{if(parent.id!==playingTrack?.id)await startPreview(parent,true,false,queueTracks,index);if(playingTrack?.id===parent.id)seekChapter(observation.detectedAtSeconds);})();}} onInfoDetection={(track)=>void startPreview(track)} onAddDetectionToPlaylist={(track)=>void addArtistTrack(track,false)} onAddDetectionsToPlaylist={(tracks)=>void addTracksToPlaylist(tracks)} queueRevision={nativeSnapshot?.queueRevision} onInteractionMove={queueUiMove??undefined} interactionSignal={queueUiController?.signal} paused={paused} buffering={playbackLoading} activePlaybackTrack={playbackActionTrack} {chapterRangesByTrack} radioNowPlaying={currentRadioSong} radioStationName={playingRadioStation?.name??""} radioHistory={previousRadioQueue} {radioRecognizing} radioIdentifyProgress={radioIdentifyProgress} onIdentifyRadio={playingRadioStation?()=>void (radioRecognizing?cancelRadioIdentification():identifyPlayingRadio()):undefined} onCancelIdentifyRadio={undefined} onIdentifyCurrent={playingTrack && !playingRadioStation ? () => void (radioRecognizing ? cancelRadioIdentification() : identifyPlayingTrack()) : undefined} onCancelIdentifyCurrent={()=>cancelRadioIdentification()} identifyingCurrentAudio={radioRecognizing} onPlayRadioTrack={(track)=>void startPreview(track)} onDownloadRadioTrack={(track)=>void openDownloadChooser(track)} onFavoriteRadioTrack={(track)=>void favorite(track)} onArtistRadioTrack={(track)=>void discoverArtist(track)} onInfoRadioTrack={(track)=>openPlayerPanel("info",track)} onContextRadioTrack={(track)=>{actionTrack=track;actionAnchor=null;}} onInfoTrack={(track)=>openPlayerPanel("info",track)} onAddToPlaylist={(track)=>void addArtistTrack(track,false)} {chaptersByTrack} onPlayChapter={(parent,chapter)=>{const candidate=candidateForQueue(parent);if(candidate)playChapter(parent,candidate,chapter);}} onQueueChapter={(parent,chapter)=>{const candidate=candidateForQueue(parent);if(candidate)queueChapter(parent,candidate,chapter,"append");}} onAddChapterToPlaylist={(parent,chapter)=>void addChapterToPlaylist(parent,chapter)} onDownloadChapter={(parent,chapter)=>{const candidate=candidateForQueue(parent);if(candidate)void downloadChapter(parent,candidate,chapter);}} onInfoChapter={(parent,chapter)=>{const candidate=candidateForQueue(parent);if(candidate){const virtual=virtualChapterTrack(parent,candidate,chapter);if(virtual)searchMoreInfo(virtual,candidate,chapter.title);}}} onQueueAllChapters={(parent,chapters)=>queueAllChapters(parent,chapters)} onInspectChapters={(parent)=>void inspectQueueChapters(parent)} tracks={queueTracks} currentIndex={queueIndex} chapters={playingCandidate?.chapters ?? []} {position} chapterPosition={playingTrack?.playbackRange ? chapterAbsolutePosition(playingTrack, position) : position} {repeatMode} {shuffleEnabled} onClose={() => openPlayerPanel(null)} onPlay={playQueueIndex} onMove={moveQueueItem} onSortUpcoming={sortUpcoming} onRemove={removeQueueItem} onRemoveMany={removeQueueItems} onSeek={seekChapter} onToggleShuffle={toggleShuffle} onCycleRepeat={cycleRepeat} />{/if}
+}) | null)?.loudnessNormalization ?? null : null} loudnessMode={loudnessSettings.mode} loudnessAnalysisJob={loudnessAnalysisJob} pendingLoudnessAnalysisCount={pendingLoudnessAssetIds.length} loudnessAnalysisMessage={loudnessAnalysisMessage} onAnalyzeLoudness={trackAsset(shownActionTrack) || shownActionTrack.localPath ? () => void analyzeLoudnessTracks([shownActionTrack]) : undefined} onCancelLoudnessAnalysis={cancelLoudnessAnalysis} onRetryLoudnessAnalysis={retryQueuedLoudnessAnalysis} analysisEstimate={shownTrack.id===playingTrack?.id ? currentPlaybackAnalysisEstimate : null} analysisStatus={shownTrack.id===playingTrack?.id ? currentLocalAnalysisStatus || streamMediaAnalysisStatus : ""} trackDetectionView={shownTrack.id===playingTrack?.id && currentPlayingTrackDetectionOwner()!==null ? playingTrackDetectionView : savedDetectionViewsByTrack[shownTrack.id] ?? null} trackDetectionStatus={shownTrack.id===playingTrack?.id ? playingTrackDetectionStatus : ""} trackDetectionDisabledReason={shownTrack.id===playingTrack?.id ? playingTrackDetectionDisabledReason : ""} trackDetectionAvailable={desktop() && shownTrack.id===playingTrack?.id && currentPlayingTrackDetectionOwner()!==null} onTrackDetectionToggle={togglePlayingTrackDetection} trackDetectionKeepEnabledForQueue={keepTrackDetectionForQueue} onTrackDetectionKeepEnabledForQueueToggle={(enabled)=>keepTrackDetectionForQueue=enabled} trackDetectionMarkersEnabled={detectionMarkersEnabled} onTrackDetectionMarkersToggle={(enabled)=>detectionMarkersEnabled=enabled} onTrackDetectionSeek={(seconds)=>{if(shownTrack.id===playingTrack?.id)seekChapter(seconds);else void (async()=>{await startPreview(shownTrack);if(playingTrack?.id===shownTrack.id)seekChapter(seconds);})();}} onTrackDetectionOpen={(track)=>void startPreview(track)} onTrackDetectionAddToPlaylist={(track)=>void addArtistTrack(track,false)} onTrackDetectionsAddToPlaylist={(tracks)=>void addTracksToPlaylist(tracks)} track={shownTrack} trackLibrarySummary={trackLibrarySummaryTrackId === shownTrack.id ? trackLibrarySummary : null} trackLibrarySummaryLoading={trackLibrarySummaryLoading && trackLibrarySummaryTrackId === shownTrack.id} trackLibrarySummaryRequested={trackLibrarySummaryTrackId === shownTrack.id} asset={trackAsset(shownTrack)} availableFiles={filesForTrack(shownTrack)} preferredAssetId={shownTrack.assetId??null} onPreferredFile={(assetId)=>void preferTrackFile(shownTrack,assetId)} streamQuality={shownTrack.id === playingTrack?.id && ((preview?.kind === "native" ? nativeSnapshot?.quality?.sourceKind !== "localAsset" : preview?.kind === "audio" || !playingTrack?.localPath)) ? { codec: nativeSnapshot?.quality?.codec ?? preview?.audioCodec, bitrateKbps: nativeSnapshot?.quality?.bitrateKbps ?? preview?.audioBitrateKbps, sampleRate: nativeSnapshot?.quality?.sampleRate, channels: nativeSnapshot?.quality?.channels, bitrateOrigin: nativeSnapshot?.quality?.bitrateOrigin, live: Boolean(playingRadioStation) } : undefined} onUpgrade={()=>void openDownloadChooser(shownActionTrack)} onRadio={() => { showPlayingInfo = false; void startSongRadio(shownActionTrack); }} radioBusy={radioBusy === shownTrack.id} candidate={shownTrack.id === playingTrack?.id ? playingCandidate : null} onClose={() => { showPlayingInfo = false; infoTrack = null; }} onArtist={() => { showPlayingInfo = false; void discoverArtist(shownActionTrack); }} onDownload={() => { showPlayingInfo = false; void openDownloadChooser(shownActionTrack); }} onPlaylist={() => { showPlayingInfo = false; void addArtistTrack(shownActionTrack); }} onHistoryOccurrence={(sessionId)=>void openHistoryOccurrence(sessionId)} onPlaylistMembership={(playlistId,trackId)=>void openPlaylistMembership(playlistId,trackId)} onMoreInfo={() => searchMoreInfo(shownTrack,shownTrack.id===playingTrack?.id?playingCandidate:null,shownTrack.id===playingTrack?.id?activeChapter?.title:undefined)} />{/if}
+  {#if showQueue}<PlaybackQueuePanel {favoriteTrackIds} onVisibleTrack={loadSavedTrackDetections} {detectionsByTrack} onSeekDetection={(parent,observation,index)=>{void (async()=>{if(parent.id!==playingTrack?.id)await startPreview(parent,true,false,queueTracks,index);if(playingTrack?.id===parent.id)seekChapter(observation.detectedAtSeconds);})();}} onInfoDetection={(track)=>void startPreview(track)} onAddDetectionToPlaylist={(track)=>void addArtistTrack(track,false)} onAddDetectionsToPlaylist={(tracks)=>void addTracksToPlaylist(tracks)} queueRevision={nativeSnapshot?.queueRevision} onInteractionMove={queueUiMove??undefined} interactionSignal={queueUiController?.signal} paused={paused} buffering={playbackLoading} activePlaybackTrack={playbackActionTrack} {chapterRangesByTrack} radioNowPlaying={currentRadioSong} radioStationName={playingRadioStation?.name??""} radioHistory={previousRadioQueue} {radioRecognizing} radioIdentifyProgress={radioIdentifyProgress} onIdentifyRadio={playingRadioStation?()=>void (radioRecognizing?cancelRadioIdentification():identifyPlayingRadio()):undefined} onCancelIdentifyRadio={undefined} onIdentifyCurrent={playingTrack && !playingRadioStation ? () => void (radioRecognizing ? cancelRadioIdentification() : identifyPlayingTrack()) : undefined} onCancelIdentifyCurrent={()=>cancelRadioIdentification()} identifyingCurrentAudio={radioRecognizing} onPlayRadioTrack={(track)=>void startPreview(track)} onDownloadRadioTrack={(track)=>void openDownloadChooser(track)} onFavoriteRadioTrack={(track)=>void favorite(track)} onArtistRadioTrack={(track)=>void discoverArtist(track)} onInfoRadioTrack={(track)=>openPlayerPanel("info",track)} onContextRadioTrack={(track)=>{actionTrack=track;actionAnchor=null;}} onInfoTrack={(track)=>openPlayerPanel("info",track)} onAddToPlaylist={(track)=>void addArtistTrack(track,false)} {chaptersByTrack} onPlayChapter={(parent,chapter)=>{const candidate=candidateForQueue(parent);if(candidate)playChapter(parent,candidate,chapter);}} onQueueChapter={(parent,chapter)=>{const candidate=candidateForQueue(parent);if(candidate)queueChapter(parent,candidate,chapter,"append");}} onAddChapterToPlaylist={(parent,chapter)=>void addChapterToPlaylist(parent,chapter)} onDownloadChapter={(parent,chapter)=>{const candidate=candidateForQueue(parent);if(candidate)void downloadChapter(parent,candidate,chapter);}} onInfoChapter={(parent,chapter)=>{const candidate=candidateForQueue(parent);if(candidate){const virtual=virtualChapterTrack(parent,candidate,chapter);if(virtual)searchMoreInfo(virtual,candidate,chapter.title);}}} onQueueAllChapters={(parent,chapters)=>queueAllChapters(parent,chapters)} onInspectChapters={(parent)=>void inspectQueueChapters(parent)} tracks={queueTracks} currentIndex={queueIndex} chapters={playingCandidate?.chapters ?? []} {position} chapterPosition={playingTrack?.playbackRange ? chapterAbsolutePosition(playingTrack, position) : position} {repeatMode} {shuffleEnabled} onClose={() => openPlayerPanel(null)} onPlay={playQueueIndex} onMove={moveQueueItem} onSortUpcoming={sortUpcoming} onRemove={removeQueueItem} onRemoveMany={removeQueueItems} onSeek={seekChapter} onToggleShuffle={toggleShuffle} onCycleRepeat={cycleRepeat} />{/if}
   </section>{/if}
   {#if spotifyTrackArtistChoices.length}<div class="modal-backdrop"><dialog use:activateDownloadDialog={() => spotifyTrackArtistChoices = []} tabindex="-1" class="download-dialog playlist-picker-dialog spotify-track-artist-chooser" aria-label="Choose Spotify artist"><h2>Choose Spotify artist</h2><p>This track credits multiple Spotify artists.</p>{#each spotifyTrackArtistChoices as artist (artist.id)}<button type="button" aria-label={`Open Spotify artist ${artist.name}`} onclick={() => void openSpotifyTrackArtist(artist)}>{artist.name}</button>{/each}<button type="button" onclick={() => spotifyTrackArtistChoices = []}>Cancel</button></dialog></div>{/if}
   {#if showReleaseSetup}<dialog open class="download-dialog release-onboarding" aria-label="Welcome to Burrata"><ReleaseSetup onboarding onSettingsChanged={()=>void call<Settings>("get_settings").then(value=>settings={...value,matchingLevel:value.matchingLevel??"balanced",playbackStartupTimeoutSeconds:value.playbackStartupTimeoutSeconds??20})} onComplete={()=>showReleaseSetup=false}/></dialog>{/if}
@@ -8061,11 +8270,11 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
   {#if showFullNowPlaying && playingTrack}
     <NowPlayingView onSeek={seekChapter} track={expandedPlayingTrack ?? playingTrack} lyricsTrack={currentLyricsTrack ?? playingTrack} absolutePosition={position} loadLyrics={()=>call("get_current_track_lyrics",{visibleTrack:currentVisibleLyricsTrack()})} findLyrics={()=>call("search_current_track_lyric_candidates",{visibleTrack:currentVisibleLyricsTrack()})} chooseLyrics={(scopeId,candidateId)=>call("select_current_track_lyric_candidate",{visibleTrack:currentVisibleLyricsTrack(),scopeId,candidateId})} saveLyrics={async(sourceHash)=>{const result=await call("save_current_track_lyrics_to_file",{visibleTrack:currentVisibleLyricsTrack(),sourceHash});await refreshCurrentAssetFiles();return result;}} exportLyrics={(sourceHash,text)=>call("export_current_track_lyrics_text",{visibleTrack:currentVisibleLyricsTrack(),sourceHash,text})} translationLanguage={lyricsTranslationLanguage} changeTranslationLanguage={changeLyricsTranslationLanguage} translationEnabled={lyricsTranslationEnabled} translationCredentialPresent={lyricsTranslationCredentialPresent} translateLyrics={translateCurrentTrackLyrics} syncLyrics={playingTrack && currentLyricsTrack?.id === playingTrack.id && nativeSnapshot?.status === "playing" && !paused && !playingRadioStation && !playingTrack.playbackRange && !nativeSnapshot?.chapter ? () => syncLyricsWithAudio(playingTrack!.id) : undefined} syncScope={JSON.stringify([playingTrack?.id??null,nativeSnapshot?.generation??null,seekSerial,playbackQueue.entryIds[queueIndex]??null])} title={activeRecordingMatch?.assessment.relationship === "alternative" ? activeRecordingMatch.resolvedRecording.title : playingTitle}
       artworkUrl={artworkDisplayUrls[(expandedPlayingTrack ?? playingTrack).artworkUrl ?? ""]} sourceArtworkUrl={originalArtworkSource((expandedPlayingTrack ?? playingTrack).artworkUrl)} detectedArtworkUrl={activeDetectedArtwork} artworkMode={fullscreenArtworkMode} onArtworkModeChange={(mode)=>fullscreenArtworkMode=mode} bottom={playerHeight}
-      nextTrack={queueTracks[queueIndex + 1] ?? (repeatMode === "all" ? queueTracks[0] : null) ?? null} context={playingRadioStation?.name ?? "Now playing"}
+      queueOpen={showQueue} nextTrack={queueTracks[queueIndex + 1] ?? (repeatMode === "all" ? queueTracks[0] : null) ?? null} context={playingRadioStation?.name ?? "Now playing"}
       loadRecording={recordingInformation.load} onRecordingRelease={(release,artist) => void browseRecordingRelease(release,artist)} loadArtist={loadNowPlayingArtist} onArtistRef={(artist) => {showFullNowPlaying=false;void discoverArtistRef(artist);}} onClose={() => showFullNowPlaying = false}
       onArtist={() => { showFullNowPlaying = false; const track = expandedPlayingTrack ?? playingTrack!; void discoverArtist(activeRecordingMatch?.assessment.relationship === "alternative" ? {...track,provider:"unknown",providerId:""} : track); }}
       onAlbum={activeRecordingMatch?.assessment.relationship !== "alternative" && trackAlbumTarget(playbackActionTrack ?? playingTrack) ? () => { showFullNowPlaying = false; void openTrackAlbum(playbackActionTrack ?? playingTrack!); } : undefined}
-      onQueue={() => { showFullNowPlaying = false; openPlayerPanel("queue"); }} onFavorite={() => void favorite(playbackActionTrack ?? playingTrack!)} />
+      onQueue={() => openPlayerPanel("queue")} onFavorite={() => void favorite(playbackActionTrack ?? playingTrack!)} />
   {/if}
   {#if showFullscreenLyrics && playingTrack}
     <LyricsPanel bottomInset={playerHeight} onSeek={seekChapter} track={currentLyricsTrack ?? playingTrack} absolutePosition={position} fullscreenRequested={true} onFullscreenClose={()=>{showFullscreenLyrics=false;void tick().then(()=>lyricsButton?.focus());}}

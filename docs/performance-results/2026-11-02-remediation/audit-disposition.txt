@@ -1,0 +1,176 @@
+Remediation audit disposition — 2026-11-02
+Status: source fixes are integrated; Native12 verification is pending. Native10
+reported 2,482 passed, 4 failed, and 63 ignored. Native11 reported 2,486 passed,
+1 failed, and 63 ignored; the remaining failure is a corpus expectation with
+three mismatched cells. The other three Native10 failures passed in Native11.
+The corpus update and formatting check are complete, but Native12 has not run.
+No final release package, native-device output, or publication is qualified.
+
+Evidence basis: docs/audits/2026-11-02-project-audit.txt, integrated source,
+focused test results, and sanitized resolver/decoder summaries. Temporary raw
+logs and private captures are excluded from this release snapshot. This file
+distinguishes source findings, policy findings, test results, and unsupported
+runtime claims. Existing dirty workspace changes were preserved.
+
+Disposition by finding
+
+1. Cache wait deadline — CONFIRMED source defect; implementation present.
+Playback cache waits and loads now honor the absolute provider/request deadline;
+RAII flight ownership keeps a waiter timeout from cancelling the owner and
+prunes dropped/finished gates. Native10 passed
+`cache_waiter_deadline_and_dropped_flights_preserve_owner_and_prune_keys`,
+`provider_query_deadline_waiter_leaves_owner_and_raw_rows_usable`, and
+`inspection_deadline_waiter_leaves_owner_loader_usable` in
+focused native test results. The synthetic contention probe reports p95
+21,221 µs for a 20 ms waiter against 45 ms owner work, versus 46,356 µs without
+the waiter deadline (-54.22%). This is a bounded cache-wait result, not a general
+playback speedup; see the cache qualification summary.
+
+2. Lost transport cause — CONFIRMED source defect; sanitized typed failure
+categories and bounded provider-attempt evidence are implemented. Native
+failure-classifier, Monochrome transport/page, and provider-attempt privacy
+tests passed in the integrated suite. Live timeouts below remain provider
+attempt outcomes, not evidence that a requested recording is absent. No proxy
+policy change is supported by the evidence.
+
+3. Narrow retrieval — CONFIRMED query-policy limitation; recall impact was
+initially unmeasured, and Native10 now supplies a bounded production sample.
+SearchPlan keeps canonical evidence and allows a bounded release-label fallback;
+Flexible final matching retains strict identity/version/artist/runtime guards.
+The read-only Django catalog contains 12 tracks in
+`django-parisian-source-capture.json`. In isolated Native10 Flexible YouTube
+resolver/decoder runs, 6 of 12 requests resolved and decoded five seconds of
+FFmpeg PCM: Swing 42, Brazil, Farewell Blues, I Can't Believe That You're in
+Love with Me, I'll See You in My Dreams, and Montmartre. Their sanitized reports
+are `django-swing-42-flexible-youtube-native10.report.json`,
+`django-brazil-flexible-youtube-native10.report.json`,
+`django-farewell-blues-flexible-youtube-native10.report.json`,
+`django-i-can-t-believe-that-you-re-in-love-with-me-flexible-youtube-native10.report.json`,
+`django-i-ll-see-you-in-my-dreams-flexible-youtube-native10.report.json`, and
+`django-montmartre-flexible-youtube-native10.report.json` in private qualification evidence, not included here. Each report is limited to an isolated
+production resolver and first five seconds of FFmpeg decoding; it does not prove
+native device output, full-track playback, or behavior for the other six rows.
+This is partial live-provider evidence, not a cohort-wide recall estimate.
+
+4. Invalid-all provider rows cached as empty — CONFIRMED parser/cache defect;
+fixed. Valid-empty, mixed-valid/invalid, and invalid-all pages are distinct;
+nonempty invalid-all pages error rather than becoming a cached negative.
+`monochrome::tests::search_pages_distinguish_empty_valid_partial_and_invalid_all`
+passed in focused native tests.
+
+5. Flight registry cleanup on cancellation/drop — CONFIRMED cleanup gap;
+fixed with RAII flight leases. Drop/deadline tests passed in Native10 and the
+repeated-key benchmark returned the registry to zero after owners completed.
+Production growth frequency was not measured; benchmark evidence is synthetic
+and documented in cache.txt.
+
+6. Startup hashing on an async worker — CONFIRMED source issue; hash work is
+deferred to bounded blocking work with playback priority. No final-vs-baseline
+native startup timing comparison has run. `native-startup-qualification.txt`
+records a passing baseline natural-playback preflight, but this is not a final
+build comparison or physical-output qualification.
+
+7. Eager frontend bundle — CONFIRMED and measured. The latest reported
+production JS is 970.32 kB raw versus the 1,228.25 kB baseline (about 21.0%
+smaller). The earlier 958.16 kB figure in the frontend qualification summary is from a previous build
+and is superseded for this status. Final frontend tests and type checks passed;
+the final frontend suite passed 1,492 tests across 152 files. Chromium isolated DOM
+startup samples are in the frontend qualification summary: cold controls p50/p95 changed from 101.2/140.9 ms
+to 89.6/107.4 ms; warm from 42.7/56.6 ms to 41.6/55.4 ms. These measure DOM
+shell/controls and synthetic dispatch, not native startup or first audio. The
+warm synthetic-interaction p95 signal was 4.7 ms baseline versus 5.3 ms final;
+the alternating-order, separated-focus/click tail rerun is pending.
+Do not claim the interaction-tail question is closed.
+
+8. Occurrence checkbox/highlight mismatch — CONFIRMED reproduced and fixed.
+One occurrence-aware selected value now drives checkbox and row styling. Focused
+TrackList/ArtistPage tests and the wider frontend suite passed; see the UI qualification summary and
+focused frontend test results.
+
+9. Stale virtual viewport measurement — CONFIRMED resize issue; fixed with
+ResizeObserver and toolbar-aware viewport geometry. Scroll anchoring is disabled
+inside the virtual list to preserve restored positions. The 10,000-row visual
+fixture covered widths 350, 430, 560, 640, and 641 px. No variable-row-height
+drift was established; rows remain fixed-height. See the UI qualification summary and the saved
+tracklist screenshots.
+
+10. Pointer-only reorder — CONFIRMED accessibility gap; keyboard Move up/Move
+down controls and failure announcements are implemented. Duplicate-occurrence,
+boundary, filtered/sorted, and failure cases are covered by TrackList tests and
+the 10,000-row visual fixture (the UI qualification summary).
+
+11. Completed analysis polling — CONFIRMED 2.2-second polling path; replaced by
+owner-scoped initial loading and resource/generation-validated events. App
+integration and stale-event/variant tests passed, including 296/296 in the full
+App integration file. Packaged WebView runtime qualification is not claimed;
+see the frontend qualification summary and focused frontend test results.
+
+12. Rust/TypeScript failure classification mismatch — CONFIRMED contract gap;
+both sides now select the first explicit 200–599 status and preserve structured
+failure context. Conformance tests passed in the integrated suite and matching
+stage 5. The focused native and matching tests passed.
+
+13. Serialized database access — ARCHITECTURAL OPPORTUNITY, not a confirmed
+latency regression. Store uses a mutex-guarded SQLite connection; no contention
+measurement justifies a read pool. Per-callsite wait/hold metrics and blocking
+isolation were added, but a final native quiet-window comparison has not run.
+Do not infer a database performance defect from file size or architecture alone.
+
+Native correctness status
+- Native10 full suite: 2,482 passed, 4 failed, 63 ignored. Native11 verified
+  the exact-refresh provider projection, Flexible missing-version expectation,
+  and composition-credit uncertainty corrections; its single remaining failure
+  was a corpus test with three stale expectations.
+- The producer projection preserves bounded current SoundCloud artist fields
+  only when fresh `info.id` matches. The missing-version case remains
+  `version=Unknown` and action `Enrich`; Flexible returns `Probable`, not an
+  automatic Accept.
+- `recording_match.rs` now uses evaluator revision 21. The corrected corpus JSON
+  is in the candidate snapshot. Native12 must verify it against the formatted
+  candidate source before Native Rust tests can be called green.
+
+Live provider and audio evidence
+- Exact Django Swing 42, Flexible YouTube, Native10: resolver selected
+  `youtube:lK_BGCe3q6I`, fresh title and two artist rows agreed, runtime was 168
+  seconds versus requested 165, and five seconds of stereo FFmpeg PCM decoded.
+  Resolver took 9.09 s; decode took 0.40 s. Report:
+  the private sanitized resolver report.
+- Across the 12-track Django sample, 6/12 Flexible YouTube runs decoded five
+  seconds; the six other requests did not resolve/qualify in that run. No claim
+  is made that they are unavailable or wrong recordings.
+- Halka Flexible/YouTube ended `recording_identity_unverified` before decode;
+  Halka Balanced/SoundCloud ended `source_unavailable`; Halka Balanced/
+  Monochrome timed out at its 20 s resolver budget. Detailed reports remain
+  in private qualification evidence.
+- Django Swing 42 Balanced/YouTube remained `recording_identity_unverified`;
+  Balanced/SoundCloud was `source_unavailable`; Balanced/Monochrome timed out
+  at the 20 s budget. Flexible YouTube resolved and decoded as above. These are
+  provider-specific outcomes, not proof that other providers lack the recording.
+- The capture harness uses a temporary SQLite store and decodes FFmpeg PCM in
+  process. It does not launch Burrata, use the normal profile, test the queue or
+  mixer, or verify a physical output device. The public search captures remain
+  metadata only; the positive Swing 42 result is the separate Native10 fresh
+  resolution report.
+
+Unsupported or bounded claims
+- The Monochrome timeout does not prove absence of a matching track; the
+  SoundCloud `source_unavailable` result does not prove identity mismatch.
+- A search row, provider ID, title, duration, or artist count alone does not
+  prove a recording match or exhaustive performer credits.
+- Six successful Django resolver/decoder rows do not qualify the remaining
+  tracks or general provider recall.
+- Five seconds of FFmpeg PCM is not full-track completion, native playback, or
+  physical audio-output verification.
+- The frontend DOM timings are not Tauri/WebView startup or time-to-first-audio.
+- Windows and macOS qualification remain separate; Linux test/decoder success
+  does not qualify those platforms.
+- The original audit's carriage-return glyph has no captured cause. The
+  reported Monochrome connection failure was reproduced as timeout/unavailable
+  provider outcomes, not as evidence of no result.
+
+Release boundary
+Native12 is required to verify the corrected corpus expectations against the
+formatted candidate source. The final package, private installation,
+native startup/idle IPC timing, frontend warm-interaction tail rerun, and physical
+audio output remain unqualified. No publish or remote playlist write was
+performed.

@@ -24,6 +24,26 @@ pub(crate) const SOURCE_IDENTITY_REJECTED: &str = "Audio results were found, but
 pub(crate) const SOURCE_MISSING_DURATION: &str = "Audio results were found, but the saved recording has no duration and no source provided enough verified identity evidence. Open the catalog source or choose another source.";
 const SOURCE_COMPETING_VERSIONS: &str = "Several distinct versions match this recording, and the catalog does not identify which one was requested. Open the catalog source to specify the version or choose a source manually.";
 
+/// Store methods use a synchronous rusqlite connection. Resolver callers run on
+/// Tokio's multithread runtime, so isolate the settings read from async timers
+/// while preserving the single-connection mutex and profile-lock ordering.
+fn store_settings_blocking(store: &Store) -> Result<Settings, String> {
+    run_store_on_blocking_worker(|| store.settings())
+}
+
+fn run_store_on_blocking_worker<T>(operation: impl FnOnce() -> T) -> T {
+    let is_multithread_runtime = tokio::runtime::Handle::try_current()
+        .is_ok_and(|handle| handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread);
+    if is_multithread_runtime {
+        tokio::task::block_in_place(operation)
+    } else {
+        // Tokio's current-thread runtime (used by lightweight resolver tests)
+        // cannot hand off a borrowed Store to spawn_blocking. Production Tauri
+        // uses the multithread runtime and takes the branch above.
+        operation()
+    }
+}
+
 pub(crate) const EXTRACTION_ATTEMPTS_EXHAUSTED: &str = "Playback extraction attempts exhausted";
 
 /// Preserve meaningful failure evidence across providers. Provider APIs still
@@ -245,6 +265,8 @@ pub(crate) struct SourceTrace {
     event_provider: Option<&'static str>,
     extraction_attempts: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     attempted_sources: std::sync::Arc<std::sync::Mutex<Vec<FailedPlaybackCandidate>>>,
+    provider_attempts:
+        std::sync::Arc<std::sync::Mutex<Vec<crate::playback_failure::ProviderAttemptSummary>>>,
     source_rescue: std::sync::Arc<std::sync::Mutex<(Option<String>, bool)>>,
     pub(crate) skip_youtube_forbidden_retry: bool,
     recovery_attempts: std::sync::Arc<std::sync::atomic::AtomicUsize>,
@@ -283,6 +305,7 @@ impl SourceTrace {
             event_provider: None,
             extraction_attempts: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             attempted_sources: Default::default(),
+            provider_attempts: Default::default(),
             source_rescue: Default::default(),
             skip_youtube_forbidden_retry: false,
             recovery_attempts: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
@@ -332,12 +355,88 @@ impl SourceTrace {
             .is_ok()
     }
 
+    fn record_provider_attempt(
+        &self,
+        provider: &str,
+        error: &str,
+        stage: crate::playback_failure::FailureStage,
+        phase: crate::playback_failure::ProviderAttemptPhase,
+        phase_elapsed_ms: Option<u64>,
+    ) {
+        let mut failure = if phase == crate::playback_failure::ProviderAttemptPhase::Extraction {
+            crate::playback_failure::classify_extractor_failure(error)
+        } else {
+            crate::playback_failure::classify(error)
+        };
+        if error.starts_with("Invalid Monochrome catalog") {
+            failure.category = crate::playback_failure::FailureCategory::Parser;
+            failure.stage = crate::playback_failure::FailureStage::Resolver;
+            failure.scope = crate::playback_failure::FailureScope::Source;
+            failure.retryable = true;
+        } else if failure.stage == crate::playback_failure::FailureStage::Unknown {
+            failure.stage = stage;
+        }
+        let summary = crate::playback_failure::ProviderAttemptSummary {
+            provider: match provider {
+                "youtube" => crate::playback_failure::PlaybackProvider::Youtube,
+                "soundcloud" => crate::playback_failure::PlaybackProvider::Soundcloud,
+                "monochrome" => crate::playback_failure::PlaybackProvider::Monochrome,
+                "bandcamp" => crate::playback_failure::PlaybackProvider::Bandcamp,
+                _ => crate::playback_failure::PlaybackProvider::Other,
+            },
+            phase: if failure.category == crate::playback_failure::FailureCategory::Parser {
+                crate::playback_failure::ProviderAttemptPhase::Parser
+            } else if failure.stage == crate::playback_failure::FailureStage::Transport {
+                crate::playback_failure::ProviderAttemptPhase::Transport
+            } else {
+                phase
+            },
+            stage: failure.stage,
+            category: failure.category,
+            retryable: failure.retryable,
+            observed_elapsed_ms: self.elapsed_ms().min(u64::MAX as u128) as u64,
+            phase_elapsed_ms,
+            http_status: failure.http_status,
+        };
+        if let Ok(mut attempts) = self.provider_attempts.lock() {
+            if attempts.len() == 32 {
+                attempts.remove(0);
+            }
+            attempts.push(summary.clone());
+        }
+        self.event(
+            "provider_attempt",
+            provider,
+            serde_json::to_value(summary).unwrap_or_default(),
+        );
+    }
+
     fn note_source_failure(&self, provider: &str, error: &str, pinned: bool) {
+        self.note_source_failure_timed(provider, error, pinned, None);
+    }
+
+    fn note_source_failure_timed(
+        &self,
+        provider: &str,
+        error: &str,
+        pinned: bool,
+        phase_elapsed_ms: Option<u64>,
+    ) {
         use crate::playback_failure::{FailureCategory, FailureScope};
         // This method is called only for one attempted candidate, never for a
         // whole-recording resolver outcome. The extractor classifier narrows
         // even canonical identity/no-match errors to that candidate's source.
         let failure = crate::playback_failure::classify_extractor_failure(error);
+        // Keep one sanitized event per attempted provider source. The summary
+        // contains only closed-vocabulary classification, elapsed time, and
+        // an optional status; never include the extractor's raw error string.
+        self.record_provider_attempt(
+            provider,
+            error,
+            crate::playback_failure::FailureStage::Extraction,
+            crate::playback_failure::ProviderAttemptPhase::Extraction,
+            phase_elapsed_ms,
+        );
         let source_specific = failure.scope == FailureScope::Source
             && matches!(
                 failure.category,
@@ -771,7 +870,8 @@ pub(crate) async fn resolve_with_trace_context_excluding(
     webview_generation: Option<u64>,
     failed: &[FailedPlaybackCandidate],
 ) -> Result<ResolvedSource, String> {
-    let deadline = PlaybackDeadline::after(store.settings()?.playback_startup_timeout());
+    let deadline =
+        PlaybackDeadline::after(store_settings_blocking(store)?.playback_startup_timeout());
     within_shared_deadline(
         deadline,
         Box::pin(resolve_with_trace_context_excluding_until(
@@ -845,6 +945,7 @@ pub(crate) async fn resolve_with_trace_context_excluding_until_attempt_limit(
         attempt_limit,
         None,
         false,
+        None,
     )
     .await
 }
@@ -871,7 +972,7 @@ pub(crate) async fn resolve_remote_after_local_failure(
     webview_generation: Option<u64>,
     deadline: PlaybackDeadline,
 ) -> Result<ResolvedSource, String> {
-    if !can_bypass_failed_local(track, false, &store.settings()?) {
+    if !can_bypass_failed_local(track, false, &store_settings_blocking(store)?) {
         return Err("This local source cannot be replaced automatically".into());
     }
     resolve_with_trace_context_excluding_until_attempt_limit_with_handoff(
@@ -888,6 +989,7 @@ pub(crate) async fn resolve_remote_after_local_failure(
         2,
         None,
         true,
+        None,
     )
     .await
 }
@@ -921,8 +1023,45 @@ pub(crate) async fn resolve_for_preload_until(
                 2,
                 Some(handoff),
                 false,
+                None,
             ),
         ),
+    )
+    .await
+}
+
+/// Playback-state entrypoint that retains bounded attempt summaries for the
+/// same operation. The caller owns the collector, so attempts cannot leak
+/// between concurrent tracks or playback generations.
+pub(crate) async fn resolve_with_provider_attempt_collector(
+    store: &Store,
+    acquisition: &AcquisitionManager,
+    track: &Track,
+    selected: Option<Candidate>,
+    cancel: watch::Receiver<bool>,
+    native_operation_id: Option<String>,
+    native_seek_operation_id: Option<String>,
+    webview_generation: Option<u64>,
+    deadline: PlaybackDeadline,
+    provider_attempts: std::sync::Arc<
+        std::sync::Mutex<Vec<crate::playback_failure::ProviderAttemptSummary>>,
+    >,
+) -> Result<ResolvedSource, String> {
+    resolve_with_trace_context_excluding_until_attempt_limit_with_handoff(
+        store,
+        acquisition,
+        track,
+        selected,
+        cancel,
+        native_operation_id,
+        native_seek_operation_id,
+        webview_generation,
+        &[],
+        deadline,
+        2,
+        None,
+        false,
+        Some(provider_attempts),
     )
     .await
 }
@@ -941,6 +1080,9 @@ async fn resolve_with_trace_context_excluding_until_attempt_limit_with_handoff(
     attempt_limit: usize,
     preparation_handoff: Option<tokio::time::Instant>,
     bypass_local: bool,
+    provider_attempts: Option<
+        std::sync::Arc<std::sync::Mutex<Vec<crate::playback_failure::ProviderAttemptSummary>>>,
+    >,
 ) -> Result<ResolvedSource, String> {
     if (native_operation_id
         .as_deref()
@@ -958,6 +1100,9 @@ async fn resolve_with_trace_context_excluding_until_attempt_limit_with_handoff(
         native_seek_operation_id,
         webview_generation,
     );
+    if let Some(provider_attempts) = provider_attempts {
+        trace.provider_attempts = provider_attempts;
+    }
     if let Some(handoff) = preparation_handoff {
         trace = trace.with_preparation_handoff(handoff);
     }
@@ -1005,7 +1150,7 @@ pub(crate) async fn resolve_candidate_fresh_until(
         _ = wait_for_cancellation(cancel.clone()) => Err("Cancelled".into()),
         result = async {
             if *cancel.borrow() { return Err("Cancelled".into()); }
-            let settings = store.settings()?;
+            let settings = store_settings_blocking(store)?;
             if candidate.provider == "bandcamp" && !explicitly_pinned
                 && crate::bandcamp_fallback::eligible(track, &settings, false, 2) {
                 return crate::bandcamp_fallback::refresh(store, acquisition, track, &candidate,
@@ -1267,7 +1412,7 @@ async fn resolve_inner(
     }
     trace.event("settings_read_start", &track.provider, json!({}));
     let settings_started = Instant::now();
-    let settings = store.settings()?;
+    let settings = store_settings_blocking(store)?;
     trace.event(
         "settings_read_end",
         &track.provider,
@@ -1541,7 +1686,9 @@ where
     F: FnOnce(Track) -> Fut,
     Fut: std::future::Future<Output = Result<T, String>> + Send,
 {
-    let prepared_track = reconcile_stale_local_asset(store, incoming, explicit_source)?;
+    let prepared_track = run_store_on_blocking_worker(|| {
+        reconcile_stale_local_asset(store, incoming, explicit_source)
+    })?;
     let source_url = prepared_track
         .playback_range
         .as_ref()
@@ -3517,6 +3664,7 @@ async fn resolve_serial(
             && (!global_attempt_cap || total_candidate_attempts < attempt_limit)
         {
             trace.event("search_start", &provider, json!({}));
+            let provider_search_started = Instant::now();
             #[cfg(feature = "playback-early-candidate-experiment")]
             let early_enabled = total_candidate_attempts == 0
                 && provider_attempt_count == 0
@@ -3585,6 +3733,18 @@ async fn resolve_serial(
                 }
                 Err(error) => {
                     trace.event("search_end", &provider, json!({"ok":false}));
+                    trace.record_provider_attempt(
+                        &provider,
+                        &error,
+                        crate::playback_failure::FailureStage::Resolver,
+                        crate::playback_failure::ProviderAttemptPhase::Search,
+                        Some(
+                            provider_search_started
+                                .elapsed()
+                                .as_millis()
+                                .min(u64::MAX as u128) as u64,
+                        ),
+                    );
                     failures.record(error);
                     continue;
                 }
@@ -3895,6 +4055,7 @@ async fn resolve_serial(
                     });
                 }
             }
+            let extraction_attempt_started = Instant::now();
             trace.event(
                 "extract_and_validate_start",
                 &provider,
@@ -4060,7 +4221,17 @@ async fn resolve_serial(
                             || trace.extraction_attempts_used() < attempt_limit)
                         && should_retry_same_candidate(&error) =>
                 {
-                    trace.note_source_failure(&provider, &error, pinned);
+                    trace.note_source_failure_timed(
+                        &provider,
+                        &error,
+                        pinned,
+                        Some(
+                            extraction_attempt_started
+                                .elapsed()
+                                .as_millis()
+                                .min(u64::MAX as u128) as u64,
+                        ),
+                    );
                     transient_retry_attempted = true;
                     alias_pass.attempted(&provider);
                     provider_attempt_count += 1;
@@ -4078,6 +4249,7 @@ async fn resolve_serial(
                         .filter(|_| {
                             crate::playback_failure::classify(&error).http_status != Some(403)
                         });
+                    let fresh_retry_started = Instant::now();
                     match acquisition
                         .extract_playback_audio_fresh_or_prepared_traced(
                             &candidate,
@@ -4176,7 +4348,18 @@ async fn resolve_serial(
                             });
                         }
                         Err(retry_error) => {
-                            trace.note_source_failure(&provider, &retry_error, pinned);
+                            trace.note_source_failure_timed(
+                                &provider,
+                                &retry_error,
+                                pinned,
+                                Some(
+                                    fresh_retry_started
+                                        .elapsed()
+                                        .as_millis()
+                                        .min(u64::MAX as u128)
+                                        as u64,
+                                ),
+                            );
                             failures.record(retry_error);
                             if pinned {
                                 break;
@@ -4190,7 +4373,17 @@ async fn resolve_serial(
                         &provider,
                         json!({"attempt":attempt+1,"ok":false,"sourcePageUrl":candidate.url,"sourceFingerprint":source_diagnostic_fingerprint(&candidate),"trackFingerprint":recording_identity_fingerprint(track)}),
                     );
-                    trace.note_source_failure(&provider, &error, pinned);
+                    trace.note_source_failure_timed(
+                        &provider,
+                        &error,
+                        pinned,
+                        Some(
+                            extraction_attempt_started
+                                .elapsed()
+                                .as_millis()
+                                .min(u64::MAX as u128) as u64,
+                        ),
+                    );
                     failures.record(error);
                 }
             }
@@ -6447,7 +6640,8 @@ pub(crate) async fn recover_with_trace_context(
     native_seek_operation_id: Option<String>,
     webview_generation: Option<u64>,
 ) -> Result<ResolvedSource, String> {
-    let deadline = PlaybackDeadline::after(store.settings()?.playback_startup_timeout());
+    let deadline =
+        PlaybackDeadline::after(store_settings_blocking(store)?.playback_startup_timeout());
     recover_with_trace_context_until(
         store,
         acquisition,
@@ -6515,7 +6709,7 @@ async fn recover_inner(
     if *cancel.borrow() {
         return Err("Cancelled".into());
     }
-    let settings = store.settings()?;
+    let settings = store_settings_blocking(store)?;
     if candidate.provider == "monochrome"
         && candidate
             .source_metadata
@@ -7712,6 +7906,42 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn provider_attempt_collector_is_bounded_and_contains_no_raw_error() {
+        let events = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+        let sink = events.clone();
+        let trace = SourceTrace::new(None, None, None).with_test_sink(Arc::new(move |event| {
+            sink.lock().unwrap().push(event);
+        }));
+        for _ in 0..36 {
+            trace.note_source_failure(
+                "youtube",
+                "HTTP 503 https://secret.invalid/video?token=secret",
+                false,
+            );
+        }
+        let attempts = trace.provider_attempts.lock().unwrap();
+        assert_eq!(attempts.len(), 32);
+        assert!(attempts
+            .iter()
+            .all(|attempt| attempt.category == crate::playback_failure::FailureCategory::Network));
+        assert!(attempts
+            .iter()
+            .all(|attempt| attempt.provider == crate::playback_failure::PlaybackProvider::Youtube));
+        drop(attempts);
+        let separate_operation = SourceTrace::new(None, None, None);
+        assert!(separate_operation
+            .provider_attempts
+            .lock()
+            .unwrap()
+            .is_empty());
+        let encoded = serde_json::to_string(&*events.lock().unwrap()).unwrap();
+        assert!(!encoded.contains("secret.invalid") && !encoded.contains("token=secret"));
+        assert!(encoded.contains("provider_attempt"));
+        assert!(encoded.contains("\"providerClass\":\"youtube\""));
+        assert!(encoded.contains("\"attemptPhase\":\"transport\""));
+    }
 
     #[test]
     fn local_approximate_excerpt_uses_measured_asset_duration_without_changing_catalog_track() {
@@ -12106,7 +12336,8 @@ mod tests {
             bitrate_kbps: None,
             duration_seconds: Some(228.0),
             source_metadata: Some(json!({
-                "provider":"youtube", "channel":"John Denver - Topic",
+                "provider":"youtube", "resolvedProviderId":"uZGRATckoBM",
+                "sourceMetadataOrigin":"ytDlpFullInfo", "channel":"John Denver - Topic",
                 "channelId":"UC-cnCe5zradDZlcI8YZboBg", "channelIsVerified":true,
                 "artist":"John Denver", "artists":["John Denver"], "artistCount":1,
                 "track":"Matthew", "descriptionCreditLine":"Matthew · John Denver",

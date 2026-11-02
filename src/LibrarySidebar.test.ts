@@ -21,6 +21,55 @@ function render(props: Record<string, unknown> = {}) {
 }
 
 describe("LibrarySidebar provider presets", () => {
+  it("loads playlist artwork in one batch and preserves playlist navigation", async () => {
+    const onPlaylist=vi.fn();
+    const call=vi.fn(async(command:string)=> command==='get_playlist_artwork' ? { one:[1,2,3,4].map(i=>`https://example.test/${i}.jpg`),two:['https://example.test/single.jpg'] } : []);
+    const target=render({call,onPlaylist,collections:[{id:'one',name:'Collage playlist',trackCount:4},{id:'two',name:'Single cover playlist',trackCount:1}]});
+    await settle();
+    const requests=call.mock.calls.filter(([command])=>command==='get_playlist_artwork');
+    expect(requests).toHaveLength(1);
+    expect(call).toHaveBeenCalledWith('get_playlist_artwork',{collectionIds:['one','two']});
+    const row=[...target.querySelectorAll<HTMLButtonElement>('.collection-card')].find(row=>row.textContent?.includes('Collage playlist'))!;
+    expect(row.querySelectorAll('.collage img')).toHaveLength(4);
+    row.click();expect(onPlaylist).toHaveBeenCalledWith('one');
+  });
+
+  it("shows saved station icons from either favicon field and keeps station actions", async () => {
+    const onRadioStation = vi.fn();
+    const onRadioContext = vi.fn();
+    const stations = [
+      { id: "modern", name: "Modern FM", faviconUrl: "https://example.com/modern.png", favicon: "https://example.com/old.png" },
+      { id: "legacy", name: "Legacy FM", faviconUrl: "", favicon: "https://example.com/legacy.png" },
+    ];
+    const target = render({ view: "radio", activeRadioStationId: "modern", radioStations: stations, onRadioStation, onRadioContext });
+    await settle();
+    const buttons = [...target.querySelectorAll<HTMLButtonElement>(".radio-section .playlist-card")];
+    expect(buttons.map(button => button.querySelector("img")?.getAttribute("src"))).toEqual([
+      "https://example.com/modern.png", "https://example.com/legacy.png",
+    ]);
+    expect(buttons[0].classList.contains("active")).toBe(true);
+    expect(buttons[0].querySelector("img")?.alt).toBe("");
+    buttons[0].click();
+    expect(onRadioStation).toHaveBeenCalledWith(stations[0]);
+    buttons[1].dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    expect(onRadioContext).toHaveBeenCalledWith(stations[1], expect.any(MouseEvent));
+  });
+
+  it("falls back to a radio symbol for missing or broken station icons", async () => {
+    const target = render({ radioStations: [
+      { id: "missing", name: "No Logo FM" },
+      { id: "broken", name: "Broken Logo FM", faviconUrl: "https://example.com/broken.png" },
+    ] });
+    await settle();
+    const buttons = [...target.querySelectorAll<HTMLButtonElement>(".radio-section .playlist-card")];
+    expect(buttons[0].querySelector(".radio-station-placeholder")?.textContent).toBe("◉");
+    buttons[1].querySelector("img")!.dispatchEvent(new Event("error"));
+    await settle();
+    expect(buttons[1].querySelector("img")).toBeNull();
+    expect(buttons[1].querySelector(".radio-station-placeholder")?.textContent).toBe("◉");
+    expect(buttons[1].textContent).toContain("Broken Logo FM");
+  });
+
   it("filters radio and playlists together without unrelated sections burying matches", async () => {
     const target = render({ collections: [{id:"bg", name:"north", trackCount:13}], radioStations: [
       {id:"north", name:"South Radio", country:"Southland"}, {id:"bg-radio", name:"Harbor FM", country:"Northland"}

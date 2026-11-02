@@ -5,7 +5,8 @@ use crate::models::*;
 use icu_normalizer::ComposingNormalizerBorrowed;
 use rusqlite::{functions::FunctionFlags, params, Connection, OptionalExtension, Transaction};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
+    ops::{Deref, DerefMut},
     path::Path,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -14,6 +15,13 @@ use std::{
     time::Instant,
 };
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
+
+#[path = "storage_library.rs"]
+pub mod library;
+#[path = "storage_local_albums.rs"]
+pub mod local_albums;
+#[path = "storage_playlist_artwork.rs"]
+mod playlist_artwork;
 
 /// A dedicated retained cache for stable source locators, never stream URLs.
 pub(crate) const PLAYBACK_LOCATOR_CACHE_NAMESPACE: &str = "playback.matching-locators.v2";
@@ -173,7 +181,7 @@ impl StoreRestoreFreeze {
 impl Drop for StoreRestoreFreeze {
     fn drop(&mut self) {
         if self.armed {
-            if let Ok(connection) = self.store.connection.lock() {
+            if let Ok(connection) = self.store.lock_connection() {
                 let _ = connection.execute_batch("PRAGMA query_only=OFF;");
             }
         }
@@ -185,9 +193,18 @@ struct ConnectionWaitMetrics {
     lock_count: AtomicU64,
     total_wait_ns: AtomicU64,
     max_wait_ns: AtomicU64,
+    operations: Mutex<BTreeMap<String, ConnectionOperationMetrics>>,
+}
+#[derive(Default, Clone, Copy)]
+struct ConnectionOperationMetrics {
+    lock_count: u64,
+    total_wait_ns: u64,
+    max_wait_ns: u64,
+    total_hold_ns: u64,
+    max_hold_ns: u64,
 }
 impl ConnectionWaitMetrics {
-    fn record(&self, wait_ns: u64) {
+    fn record_wait(&self, operation: &str, wait_ns: u64) {
         self.lock_count
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
                 Some(value.saturating_add(1))
@@ -199,6 +216,45 @@ impl ConnectionWaitMetrics {
             })
             .ok();
         self.max_wait_ns.fetch_max(wait_ns, Ordering::Relaxed);
+        if let Ok(mut operations) = self.operations.lock() {
+            let metrics = operations.entry(operation.to_string()).or_default();
+            metrics.lock_count = metrics.lock_count.saturating_add(1);
+            metrics.total_wait_ns = metrics.total_wait_ns.saturating_add(wait_ns);
+            metrics.max_wait_ns = metrics.max_wait_ns.max(wait_ns);
+        }
+    }
+    fn record_hold(&self, operation: &str, hold_ns: u64) {
+        if let Ok(mut operations) = self.operations.lock() {
+            let metrics = operations.entry(operation.to_string()).or_default();
+            metrics.total_hold_ns = metrics.total_hold_ns.saturating_add(hold_ns);
+            metrics.max_hold_ns = metrics.max_hold_ns.max(hold_ns);
+        }
+    }
+}
+
+struct MeasuredConnectionGuard<'a> {
+    guard: MutexGuard<'a, Connection>,
+    metrics: Option<&'a ConnectionWaitMetrics>,
+    operation: String,
+    acquired_at: Instant,
+}
+impl Deref for MeasuredConnectionGuard<'_> {
+    type Target = Connection;
+    fn deref(&self) -> &Self::Target {
+        &self.guard
+    }
+}
+impl DerefMut for MeasuredConnectionGuard<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.guard
+    }
+}
+impl Drop for MeasuredConnectionGuard<'_> {
+    fn drop(&mut self) {
+        if let Some(metrics) = self.metrics {
+            let hold_ns = self.acquired_at.elapsed().as_nanos().min(u64::MAX as u128) as u64;
+            metrics.record_hold(&self.operation, hold_ns);
+        }
     }
 }
 
@@ -784,7 +840,7 @@ impl Store {
         let version: i64 = conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .map_err(err)?;
-        if version > 14 {
+        if version > 15 {
             return Err("Database was created by a newer Burrata version".into());
         }
         if version == 0 {
@@ -1005,6 +1061,7 @@ impl Store {
             )
             .map_err(err)?;
         }
+        library::initialize(&conn)?;
         // Cache budget checks and LRU eviction intentionally exclude library
         // rows. This partial covering index keeps those writes from scanning
         // protected payload pages as the cache grows.
@@ -1213,7 +1270,7 @@ impl Store {
         if !Arc::ptr_eq(&self.library_barrier, &permit.barrier) {
             return Err("Restore permit belongs to another library profile".into());
         }
-        let connection = self.connection.lock().map_err(err)?;
+        let connection = self.lock_connection()?;
         operation(&connection)
     }
     pub(crate) fn freeze_for_restore(
@@ -1240,31 +1297,50 @@ impl Store {
                 .map_err(err)
         })
     }
-    fn lock_connection(&self) -> Result<MutexGuard<'_, Connection>> {
-        self.lock_connection_inner(None)
+    #[track_caller]
+    fn lock_connection(&self) -> Result<MeasuredConnectionGuard<'_>> {
+        let caller = std::panic::Location::caller();
+        let operation = format!(
+            "{}:{}",
+            caller.file().rsplit('/').next().unwrap_or(caller.file()),
+            caller.line()
+        );
+        self.lock_connection_inner(&operation, None)
     }
     #[cfg(test)]
     fn lock_connection_observed(
         &self,
         on_attempt: &dyn Fn(Instant),
-    ) -> Result<MutexGuard<'_, Connection>> {
-        self.lock_connection_inner(Some(on_attempt))
+    ) -> Result<MeasuredConnectionGuard<'_>> {
+        self.lock_connection_inner("test_observed", Some(on_attempt))
     }
     fn lock_connection_inner(
         &self,
+        operation: &str,
         on_attempt: Option<&dyn Fn(Instant)>,
-    ) -> Result<MutexGuard<'_, Connection>> {
-        if !self.connection_metrics_enabled {
-            return self.connection.lock().map_err(err);
-        }
+    ) -> Result<MeasuredConnectionGuard<'_>> {
         let started = Instant::now();
         if let Some(on_attempt) = on_attempt {
             on_attempt(started);
         }
-        let result = self.connection.lock();
+        if !self.connection_metrics_enabled {
+            let guard = self.connection.lock().map_err(err)?;
+            return Ok(MeasuredConnectionGuard {
+                guard,
+                metrics: None,
+                operation: operation.to_string(),
+                acquired_at: Instant::now(),
+            });
+        }
+        let result = self.connection.lock().map_err(err)?;
         let wait_ns = started.elapsed().as_nanos().min(u64::MAX as u128) as u64;
-        self.connection_wait_metrics.record(wait_ns);
-        result.map_err(err)
+        self.connection_wait_metrics.record_wait(operation, wait_ns);
+        Ok(MeasuredConnectionGuard {
+            guard: result,
+            metrics: Some(&self.connection_wait_metrics),
+            operation: operation.to_string(),
+            acquired_at: Instant::now(),
+        })
     }
 
     /// Run a read-only snapshot operation while holding the library connection
@@ -1286,6 +1362,15 @@ impl Store {
                 "lockCount": self.connection_wait_metrics.lock_count.load(Ordering::Relaxed),
                 "totalWaitNs": self.connection_wait_metrics.total_wait_ns.load(Ordering::Relaxed),
                 "maxWaitNs": self.connection_wait_metrics.max_wait_ns.load(Ordering::Relaxed),
+                "operations": self.connection_wait_metrics.operations.lock().map(|operations| {
+                    operations.iter().map(|(operation, metrics)| (operation.clone(), serde_json::json!({
+                        "lockCount": metrics.lock_count,
+                        "totalWaitNs": metrics.total_wait_ns,
+                        "maxWaitNs": metrics.max_wait_ns,
+                        "totalHoldNs": metrics.total_hold_ns,
+                        "maxHoldNs": metrics.max_hold_ns
+                    }))).collect::<serde_json::Map<String, serde_json::Value>>()
+                }).unwrap_or_default(),
                 "sqliteEngineBusyWait": "not_measured"
             })
         })
@@ -1533,7 +1618,7 @@ impl Store {
         field: &str,
         expected: &str,
     ) -> Result<bool> {
-        let mut connection = self.connection.lock().map_err(err)?;
+        let mut connection = self.lock_connection()?;
         let raw: Option<String> = connection
             .query_row("SELECT value FROM settings WHERE key=?1", [key], |row| {
                 row.get(0)
@@ -15321,7 +15406,7 @@ mod tests {
         assert_eq!(
             c.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
                 .unwrap(),
-            14
+            15
         );
         let occurrence_column: bool = c.query_row(
             "SELECT EXISTS(SELECT 1 FROM pragma_table_info('playlist_ordered_entries') WHERE name='occurrence_id')",
@@ -15412,6 +15497,14 @@ mod tests {
                 .execute_batch(&format!("DROP INDEX \"{}\"", name.replace('"', "\"\"")))
                 .unwrap();
         }
+        // These post-v7 projection triggers also refer to the membership column.
+        let triggers: Vec<String> = legacy.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='catalog_listings' AND sql LIKE '%in_library%'").unwrap()
+            .query_map([], |row| row.get(0)).unwrap().collect::<rusqlite::Result<_>>().unwrap();
+        for name in triggers {
+            legacy
+                .execute_batch(&format!("DROP TRIGGER \"{}\"", name.replace('"', "\"\"")))
+                .unwrap();
+        }
         legacy
             .execute_batch(
                 "DROP TABLE analysis_cache_record_refs;
@@ -15432,7 +15525,7 @@ mod tests {
             connection
                 .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
                 .unwrap(),
-            14
+            15
         );
         drop(connection);
         let migrated_occurrences = migrated
@@ -16791,6 +16884,20 @@ mod tests {
         let minimum_wait_ns = minimum_wait.as_nanos() as u64;
         assert!(metrics["totalWaitNs"].as_u64().unwrap() >= minimum_wait_ns);
         assert!(metrics["maxWaitNs"].as_u64().unwrap() >= minimum_wait_ns);
+        let operations = metrics["operations"].as_object().unwrap();
+        let operation_lock_count: u64 = operations
+            .values()
+            .map(|operation| operation["lockCount"].as_u64().unwrap())
+            .sum();
+        let total_operation_hold_ns: u64 = operations
+            .values()
+            .map(|operation| operation["totalHoldNs"].as_u64().unwrap())
+            .sum();
+        assert_eq!(operation_lock_count, 3);
+        assert!(total_operation_hold_ns > 0);
+        assert!(operations
+            .values()
+            .any(|operation| { operation["maxHoldNs"].as_u64().unwrap() > 0 }));
         assert_eq!(metrics["sqliteEngineBusyWait"], "not_measured");
     }
 

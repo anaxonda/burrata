@@ -24,12 +24,64 @@ fn default_http_client() -> Result<reqwest::Client, String> {
 }
 
 fn build_http_client() -> Result<reqwest::Client, String> {
+    build_http_client_with_timeout(Duration::from_secs(15))
+}
+
+fn build_http_client_with_timeout(timeout: Duration) -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
-        .timeout(Duration::from_secs(15))
+        .timeout(timeout)
         .build()
-        .map_err(|e| e.to_string())
+        .map_err(|_| "Monochrome HTTP client setup failed".into())
+}
+
+/// Translate reqwest's predicates into a bounded diagnostic token. Never
+/// retain Display output: reqwest errors may embed the request URL.
+fn transport_error_summary(error: &reqwest::Error) -> &'static str {
+    if error.is_timeout() {
+        "timeout"
+    } else if error.is_connect() {
+        "connect"
+    } else if error.is_body() || error.is_decode() {
+        "body"
+    } else {
+        "request"
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct SearchPageDiagnostics {
+    pub(crate) raw_rows: usize,
+    pub(crate) parsed_rows: usize,
+    pub(crate) rejected_rows: usize,
+}
+
+fn parse_search_page(
+    data: &Value,
+    base: &str,
+    limit: usize,
+) -> Result<(Vec<(Track, Candidate)>, SearchPageDiagnostics), String> {
+    let raw_tracks = data
+        .get("tracks")
+        .and_then(Value::as_array)
+        .ok_or("Invalid Monochrome catalog tracks response")?;
+    let raw_rows = raw_tracks.len();
+    let rows = raw_tracks
+        .iter()
+        .take(limit)
+        .filter_map(|raw| catalog_entry(raw, base))
+        .collect::<Vec<_>>();
+    if raw_rows > 0 && rows.is_empty() {
+        return Err("Invalid Monochrome catalog track rows".into());
+    }
+    let considered = raw_rows.min(limit);
+    let diagnostics = SearchPageDiagnostics {
+        raw_rows,
+        parsed_rows: rows.len(),
+        rejected_rows: considered.saturating_sub(rows.len()),
+    };
+    Ok((rows, diagnostics))
 }
 
 static DEFAULT_COOLDOWN: std::sync::OnceLock<Arc<Mutex<Option<Instant>>>> =
@@ -72,6 +124,14 @@ impl Client {
             cooldown: Arc::new(Mutex::new(None)),
         })
     }
+    #[cfg(test)]
+    fn at_with_timeout(base: &str, timeout: Duration) -> Result<Self, String> {
+        Ok(Self {
+            base: base.trim_end_matches('/').into(),
+            http: build_http_client_with_timeout(timeout)?,
+            cooldown: Arc::new(Mutex::new(None)),
+        })
+    }
     pub(crate) fn check_cooldown(&self) -> Result<(), String> {
         if self
             .cooldown
@@ -111,7 +171,12 @@ impl Client {
             .query(&[("q", query), ("limit", limit.as_str())])
             .send()
             .await
-            .map_err(|_| "Monochrome catalog connection failed")?;
+            .map_err(|error| {
+                format!(
+                    "Monochrome catalog transport {} failed",
+                    transport_error_summary(&error)
+                )
+            })?;
         self.observe_rate_limit(&response);
         if !response.status().is_success() {
             return Err(format!(
@@ -151,7 +216,12 @@ impl Client {
             .header(reqwest::header::ACCEPT, "application/json")
             .send()
             .await
-            .map_err(|_| "Monochrome catalog connection failed")?;
+            .map_err(|error| {
+                format!(
+                    "Monochrome catalog transport {} failed",
+                    transport_error_summary(&error)
+                )
+            })?;
         self.observe_rate_limit(&response);
         if !response.status().is_success() {
             return Err(format!(
@@ -170,7 +240,12 @@ impl Client {
         let mut body = Vec::new();
         let mut stream = response.bytes_stream();
         while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|_| "Monochrome catalog response failed")?;
+            let chunk = chunk.map_err(|error| {
+                format!(
+                    "Monochrome catalog transport {} failed",
+                    transport_error_summary(&error)
+                )
+            })?;
             if body.len() + chunk.len() > max_bytes {
                 return Err("Monochrome catalog response is too large".into());
             }
@@ -238,21 +313,32 @@ impl Client {
         query: &str,
         requested_limit: usize,
     ) -> Result<(Vec<Candidate>, usize), String> {
-        let (rows, raw_count) = self.search_with_limit(query, requested_limit).await?;
+        let (candidates, diagnostics) = self
+            .search_candidates_raw_with_diagnostics(query, requested_limit)
+            .await?;
+        Ok((candidates, diagnostics.raw_rows))
+    }
+
+    pub(crate) async fn search_candidates_raw_with_diagnostics(
+        &self,
+        query: &str,
+        requested_limit: usize,
+    ) -> Result<(Vec<Candidate>, SearchPageDiagnostics), String> {
+        let (rows, diagnostics) = self.search_page_with_limit(query, requested_limit).await?;
         Ok((
             rows.into_iter().map(|(_, candidate)| candidate).collect(),
-            raw_count,
+            diagnostics,
         ))
     }
 
-    /// Fetch the bounded playback search page represented by
-    /// [`Client::search_cache_profile`].
     pub(crate) async fn search_candidates_raw(
         &self,
         query: &str,
     ) -> Result<(Vec<Candidate>, usize), String> {
-        self.search_candidates_raw_with_limit(query, CANDIDATE_SEARCH_LIMIT)
-            .await
+        let (candidates, diagnostics) = self
+            .search_candidates_raw_with_diagnostics(query, CANDIDATE_SEARCH_LIMIT)
+            .await?;
+        Ok((candidates, diagnostics.raw_rows))
     }
 
     /// Fetch one public Tracks API result batch, with the endpoint's documented
@@ -262,6 +348,15 @@ impl Client {
         query: &str,
         requested_limit: usize,
     ) -> Result<(Vec<(Track, Candidate)>, usize), String> {
+        let (rows, diagnostics) = self.search_page_with_limit(query, requested_limit).await?;
+        Ok((rows, diagnostics.raw_rows))
+    }
+
+    async fn search_page_with_limit(
+        &self,
+        query: &str,
+        requested_limit: usize,
+    ) -> Result<(Vec<(Track, Candidate)>, SearchPageDiagnostics), String> {
         if query.trim().is_empty() || query.chars().count() > 500 {
             return Err("Enter a search of 1–500 characters".into());
         }
@@ -276,7 +371,12 @@ impl Client {
             .query(&[("q", query), ("limit", limit_parameter.as_str())])
             .send()
             .await
-            .map_err(|_| "Monochrome search connection failed")?;
+            .map_err(|error| {
+                format!(
+                    "Monochrome search transport {} failed",
+                    transport_error_summary(&error)
+                )
+            })?;
         self.observe_rate_limit(&response);
         if !response.status().is_success() {
             return Err(format!(
@@ -287,7 +387,12 @@ impl Client {
         let mut body = Vec::new();
         let mut stream = response.bytes_stream();
         while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|_| "Monochrome search response failed")?;
+            let chunk = chunk.map_err(|error| {
+                format!(
+                    "Monochrome search transport {} failed",
+                    transport_error_summary(&error)
+                )
+            })?;
             if body.len() + chunk.len() > 2 * 1024 * 1024 {
                 return Err("Monochrome search response is too large".into());
             }
@@ -295,17 +400,10 @@ impl Client {
         }
         let data: Value =
             serde_json::from_slice(&body).map_err(|_| "Invalid Monochrome catalog response")?;
-        let raw_tracks = data
-            .get("tracks")
-            .and_then(Value::as_array)
-            .ok_or("Invalid Monochrome catalog tracks response")?;
-        let raw_count = raw_tracks.len();
-        let rows = raw_tracks
-            .iter()
-            .take(limit)
-            .filter_map(|raw| catalog_entry(raw, &self.base))
-            .collect();
-        Ok((rows, raw_count))
+        let (rows, diagnostics) = parse_search_page(&data, &self.base, limit)?;
+        // Keep provider and parse counts available to callers without exposing
+        // any query, row content, or body text in diagnostics.
+        Ok((rows, diagnostics))
     }
     pub async fn candidates(&self, track: &Track) -> Result<Vec<Candidate>, String> {
         let query = search_query_for_track(track);
@@ -377,7 +475,12 @@ impl Client {
             .header(reqwest::header::RANGE, "bytes=0-63")
             .send()
             .await
-            .map_err(|_| "Monochrome audio connection failed")?;
+            .map_err(|error| {
+                format!(
+                    "Monochrome audio transport {} failed",
+                    transport_error_summary(&error)
+                )
+            })?;
         self.observe_rate_limit(&response);
         if !response.status().is_success() {
             return Err(format!(
@@ -391,7 +494,12 @@ impl Client {
             let Some(chunk) = stream.next().await else {
                 break;
             };
-            let chunk = chunk.map_err(|_| "Monochrome audio probe failed")?;
+            let chunk = chunk.map_err(|error| {
+                format!(
+                    "Monochrome audio transport {} failed",
+                    transport_error_summary(&error)
+                )
+            })?;
             prefix.extend_from_slice(&chunk[..chunk.len().min(64 - prefix.len())]);
         }
         let format = audio_format(&prefix)?;
@@ -638,6 +746,150 @@ fn audio_format(prefix: &[u8]) -> Result<AudioFormat, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn search_failures_are_sanitized_and_invalid_pages_can_retry() {
+        use axum::{response::IntoResponse, routing::get, Router};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let refused =
+            Client::at_with_timeout(&format!("http://{address}"), Duration::from_millis(100))
+                .unwrap();
+        let error = refused.search("private title query").await.unwrap_err();
+        assert!(
+            error.contains("transport connect failed")
+                || error.contains("transport request failed")
+        );
+        assert!(!error.contains("private title query") && !error.contains(&address.to_string()));
+
+        let stalled_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let stalled_address = stalled_listener.local_addr().unwrap();
+        let stalled_server = tokio::spawn(async move {
+            let (_socket, _) = stalled_listener.accept().await.unwrap();
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        });
+        let stalled = Client::at_with_timeout(
+            &format!("http://{stalled_address}"),
+            Duration::from_millis(40),
+        )
+        .unwrap();
+        assert!(stalled
+            .search("title")
+            .await
+            .unwrap_err()
+            .contains("transport timeout failed"));
+        stalled_server.abort();
+
+        let retry_count = Arc::new(AtomicUsize::new(0));
+        let seen = retry_count.clone();
+        let retry_app = Router::new().route(
+            "/search/tracks",
+            get(move || {
+                let seen = seen.clone();
+                async move {
+                    if seen.fetch_add(1, Ordering::SeqCst) == 0 {
+                        (axum::http::StatusCode::OK, "not-json").into_response()
+                    } else {
+                        (axum::http::StatusCode::OK, r#"{"tracks":[]}"#).into_response()
+                    }
+                }
+            }),
+        );
+        let retry_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let retry_client =
+            Client::at(&format!("http://{}", retry_listener.local_addr().unwrap())).unwrap();
+        let retry_server =
+            tokio::spawn(async move { axum::serve(retry_listener, retry_app).await.unwrap() });
+        assert_eq!(
+            retry_client.search("title").await.unwrap_err(),
+            "Invalid Monochrome catalog response"
+        );
+        assert!(retry_client.search("title").await.unwrap().is_empty());
+        assert_eq!(retry_count.load(Ordering::SeqCst), 2);
+        retry_server.abort();
+
+        for (status, expected) in [(429, "HTTP 429"), (503, "HTTP 503")] {
+            let app = Router::new().fallback(get(move || async move {
+                (
+                    axum::http::StatusCode::from_u16(status).unwrap(),
+                    "unavailable",
+                )
+            }));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let client = Client::at(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+            let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+            assert!(client.search("title").await.unwrap_err().contains(expected));
+            server.abort();
+        }
+
+        let body_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let body_address = body_listener.local_addr().unwrap();
+        let body_server = tokio::spawn(async move {
+            let (mut socket, _) = body_listener.accept().await.unwrap();
+            use tokio::io::AsyncWriteExt;
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 40\r\nConnection: close\r\n\r\n{")
+                .await
+                .unwrap();
+        });
+        let body_client = Client::at_with_timeout(
+            &format!("http://{body_address}"),
+            Duration::from_millis(200),
+        )
+        .unwrap();
+        assert!(body_client
+            .search("title")
+            .await
+            .unwrap_err()
+            .contains("transport body failed"));
+        body_server.abort();
+    }
+
+    #[test]
+    fn search_pages_distinguish_empty_valid_partial_and_invalid_all() {
+        let empty = parse_search_page(&json!({"tracks": []}), BASE, 12).unwrap();
+        assert!(empty.0.is_empty());
+        assert_eq!(
+            empty.1,
+            SearchPageDiagnostics {
+                raw_rows: 0,
+                parsed_rows: 0,
+                rejected_rows: 0
+            }
+        );
+
+        let valid = json!({"trackId":"155142501534011392","title":"Song","artistNames":["Artist"],"duration":200000});
+        let full = parse_search_page(&json!({"tracks": [valid.clone()]}), BASE, 12).unwrap();
+        assert_eq!(full.0.len(), 1);
+        assert_eq!(
+            full.1,
+            SearchPageDiagnostics {
+                raw_rows: 1,
+                parsed_rows: 1,
+                rejected_rows: 0
+            }
+        );
+
+        let mixed =
+            parse_search_page(&json!({"tracks": [valid, {"trackId": null}]}), BASE, 12).unwrap();
+        assert_eq!(mixed.0.len(), 1);
+        assert_eq!(
+            mixed.1,
+            SearchPageDiagnostics {
+                raw_rows: 2,
+                parsed_rows: 1,
+                rejected_rows: 1
+            }
+        );
+        assert_eq!(
+            parse_search_page(&json!({"tracks": [{"trackId": null}]}), BASE, 12).unwrap_err(),
+            "Invalid Monochrome catalog track rows"
+        );
+        assert!(parse_search_page(&json!({"results": []}), BASE, 12).is_err());
+    }
+
     #[test]
     fn catalog_keeps_complete_credits_and_canonical_isrc() {
         let mut raw = json!({"trackId":"155142501534011392","title":"Song","artistNames":["Artist","Guest"],"duration":200000,"isrc":"US-QX9-13-00108"});

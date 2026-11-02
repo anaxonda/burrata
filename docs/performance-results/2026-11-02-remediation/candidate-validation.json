@@ -1,0 +1,18 @@
+{
+  "date": "2026-11-02",
+  "candidate": "0.1.27",
+  "extension": "0.2.5",
+  "frontend": {"files": 152, "passed": 1492, "failed": 0, "session": 29663},
+  "extensionTests": {"passed": 98, "failed": 0},
+  "mcpTests": {"passed": 12, "failed": 0},
+  "playerTests": {"passed": 5, "failed": 0},
+  "repositoryContracts": {"passed": 8, "failed": 0},
+  "matchingStage5": {"passed": 4, "failed": 0, "cases": 14, "modes": 3, "stages": 2},
+  "managedExtension": {"version": "0.2.5", "manifestsGenerated": 2},
+  "svelteCheck": {"errors": 0, "warnings": 0},
+  "productionBuild": {"passed": true, "mainBundleRawKB": 970.32, "mainBundleGzipKB": 299.98},
+  "releaseHarnesses": {"installedSmoke": "85/85", "appImageFinalize": "3/3", "rpmArtifact": "11/11", "workflowSource": "22/22"},
+  "performanceHarnesses": {"nativeCapture": "25/25", "captureResultGate": "3/3", "startupQualification": "8/8", "linuxOutputGain": "3/3", "coldPlayerOverlap": "5/5", "visionOSDriver": "9/9", "nodeStartupHelpers": "passed"},
+  "nativeSuite11": {"passed": 2486, "failed": 1, "ignored": 63, "failure": "corpus expectations updated; Native12 pending"},
+  "releaseQualification": {"native12": "pending", "optimizedPackageInstall": "pending", "pairedStartupTiming": "pending", "actualAppIdleIpc": "pending", "physicalAudioOutput": "pending"}
+}

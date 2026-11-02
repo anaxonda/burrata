@@ -1,15 +1,18 @@
 <script lang="ts">
+  import { untrack, onMount } from "svelte";
+  import PlaylistArtwork from "./PlaylistArtwork.svelte";
   import burrataLogo from "./assets/branding/burrata.png";
   import {playlistTitle} from "./lib/playlist-title";
   import type {RadioStation} from "./RadioView.svelte";
   import ProviderLogo from "./ProviderLogo.svelte";
+  import StationArtwork from "./StationArtwork.svelte";
   import AccountPlaylistSidebar from "./AccountPlaylistSidebar.svelte";
   import PlaylistSections from "./PlaylistSections.svelte";
   import FolderTree from "./FolderTree.svelte";
   import {PLAYLIST_SECTION_DRAG_TYPE,type PlaylistSection} from "./lib/playlist-sections";
   const downloadsId="00000000-0000-4000-8000-000000000001";
 
-  type Collection = { id: string; name: string; trackCount: number; sourceProvider?: string; sourceUrl?: string; provenance?: unknown; ownerName?: string | null; ownerId?: string | null };
+  type Collection = { id: string; name: string; trackCount: number; artworkUrl?: string | null; sourceProvider?: string; sourceUrl?: string; provenance?: unknown; ownerName?: string | null; ownerId?: string | null };
   type BrowserImport = { id: string; provider: string; title: string; collectionId: string; sourceUrl: string; ownerName?: string | null; ownerId?: string | null };
 
   let {
@@ -67,6 +70,31 @@
     compact?: boolean;
     onWidthChange?: (width: number) => void;
   } = $props();
+  let playlistArtwork = $state<Record<string, string[]>>({});
+  let artworkRequest = 0;
+  async function loadPlaylistArtwork(ids: string[]) {
+    if (!call) return;
+    const request = ++artworkRequest;
+    const next: Record<string, string[]> = {};
+    try {
+      for (let offset = 0; offset < ids.length; offset += 200) {
+        const result = await call<Record<string, string[]>>("get_playlist_artwork", { collectionIds: ids.slice(offset, offset + 200) });
+        if (request !== artworkRequest) return;
+        for (const id of ids.slice(offset, offset + 200)) if (Array.isArray(result?.[id])) next[id] = result[id];
+      }
+      if (request === artworkRequest) playlistArtwork = next;
+    } catch { /* Artwork is optional; preserve usable playlist navigation. */ }
+  }
+  $effect(() => {
+    const ids = collections.filter(item => item.trackCount > 0 && !isTopPlaylist(item.id)).map(item => item.id);
+    untrack(() => void loadPlaylistArtwork(ids));
+    return () => { artworkRequest++; };
+  });
+  onMount(() => {
+    const refresh = () => void loadPlaylistArtwork(collections.filter(item => item.trackCount > 0 && !isTopPlaylist(item.id)).map(item => item.id));
+    window.addEventListener("library-changed", refresh);
+    return () => { artworkRequest++; window.removeEventListener("library-changed", refresh); };
+  });
   let drawerOpen = $state(false);
   let playlistFilter = $state("");
   let resizing = $state(false);
@@ -184,7 +212,7 @@
       <div class="source-playlists">
         {#each radioStations.filter(station => matchesPlaylist(station.name, station.country, "Radio")) as station (station.id)}
           <button class="playlist-card" class:active={view==="radio" && activeRadioStationId===station.id} onclick={()=>{onRadioStation(station);closeDrawer();}} oncontextmenu={(event)=>{if(onRadioContext){event.preventDefault();onRadioContext(station,event);closeDrawer();}}} title={station.name}>
-            <span class="playlist-glyph" aria-hidden="true">◉</span><span class="playlist-copy"><strong>{station.name}</strong><small>{station.country || "Live radio"}</small></span>
+            <span class="playlist-glyph radio-glyph" aria-hidden="true"><StationArtwork src={station.faviconUrl || station.favicon} alt="" fallbackLabel={`${station.name} station artwork`} imageClass="radio-station-icon" placeholderClass="radio-station-placeholder" symbol="◉" /></span><span class="playlist-copy"><strong>{station.name}</strong><small>{station.country || "Live radio"}</small></span>
           </button>
         {/each}
         <button class="browse-source" aria-label="Add radio station" onclick={()=>{onAddRadio();closeDrawer();}}>＋ Add station</button>
@@ -208,12 +236,12 @@
         {#if matchesPlaylist(playlistNames[downloadsId], collections.find(item=>item.id===downloadsId)?.name, "Downloads")}<button class="playlist-card" class:active={activeCollectionId===downloadsId || view === "downloads"} onclick={()=>{onPlaylist(downloadsId);closeDrawer();}} oncontextmenu={(event)=>{event.preventDefault();onPlaylistContext?.(downloadsId,event);}}><span class="playlist-glyph" aria-hidden="true">↓</span><span class="playlist-copy"><strong>{playlistNames[downloadsId]??collections.find(item=>item.id===downloadsId)?.name??"Downloads"}</strong><small>{collections.find(item=>item.id===downloadsId)?.trackCount??0} tracks</small></span>{#if activeJobs>0}<span class="jobs-count" aria-label={`${activeJobs} active download jobs`}>{activeJobs}</span>{/if}</button>{/if}
         {#each filteredPersonalCollections as collection (collection.id)}
           <button draggable="true" ondragstart={(event)=>dragPlaylist(event,collection.id)} class="playlist-card collection-card" class:active={activeCollectionId === collection.id} onclick={() => { onPlaylist(collection.id); closeDrawer(); }} oncontextmenu={(event) => { if (onPlaylistContext) { event.preventDefault(); onPlaylistContext(collection.id, event); closeDrawer(); } }}>
-            <span class="playlist-glyph collection-glyph" class:liked={collection.id===favoritesPlaylistId} aria-hidden="true">{collection.id===favoritesPlaylistId?"♥":"▤"}</span>
+            <span class="playlist-glyph collection-glyph" class:liked={collection.id===favoritesPlaylistId} aria-hidden="true"><PlaylistArtwork coverUrl={collection.artworkUrl} urls={playlistArtwork[collection.id] ?? []} fallback={collection.id===favoritesPlaylistId?"♥":"▤"} /></span>
             <span class="playlist-copy"><strong>{collection.name}</strong><small>{collection.trackCount} {collection.trackCount === 1 ? "track" : "tracks"}</small></span>
           </button>
         {/each}
       </div>
-      <PlaylistSections showUnsorted={false} filterActive={Boolean(playlistFilter.trim())} {sections} {assignments} collections={collections.filter(item=>!isTopPlaylist(item.id) && matchesPlaylist(item.name, item.ownerName, item.ownerId))} {activeCollectionId} onPlaylist={(id)=>{onPlaylist(id);closeDrawer();}} onPlaylistContext={(id,event)=>onPlaylistContext?.(id,event)} {onCreateSection} {onRenameSection} {onDeleteSection} {onMovePlaylist} {onCreatePlaylist}/>
+      <PlaylistSections showUnsorted={false} filterActive={Boolean(playlistFilter.trim())} {sections} {assignments} artworkById={playlistArtwork} collections={collections.filter(item=>!isTopPlaylist(item.id) && matchesPlaylist(item.name, item.ownerName, item.ownerId))} {activeCollectionId} onPlaylist={(id)=>{onPlaylist(id);closeDrawer();}} onPlaylistContext={(id,event)=>onPlaylistContext?.(id,event)} {onCreateSection} {onRenameSection} {onDeleteSection} {onMovePlaylist} {onCreatePlaylist}/>
       <div class="source-groups" aria-label="Imported playlists by source">
         {#each sourceGroups as source (source.id)}
           <details class="source-group" open={source.count > 0}>
@@ -227,13 +255,13 @@
               {#each source.imports.filter(matchesImportedPlaylist) as imported (imported.id)}
                 {@const collection = collections.find((item) => item.id === imported.collectionId)}
                 <button draggable="true" ondragstart={(event)=>dragPlaylist(event,imported.collectionId)} class="playlist-card collection-card imported-card" class:active={activeCollectionId === imported.collectionId} onclick={() => { onPlaylist(imported.collectionId); closeDrawer(); }} oncontextmenu={(event) => { if (onPlaylistContext) { event.preventDefault(); onPlaylistContext(imported.collectionId, event); closeDrawer(); } }}>
-                  <span class="playlist-glyph collection-glyph" aria-hidden="true">▤</span>
+                  <span class="playlist-glyph collection-glyph" aria-hidden="true"><PlaylistArtwork coverUrl={collection?.artworkUrl} urls={playlistArtwork[imported.collectionId] ?? []} /></span>
                   <span class="playlist-copy"><strong>{playlistTitle(playlistNames[imported.collectionId] || imported.title || collection?.name || "Imported playlist",imported.provider)}</strong><small>{collection?.trackCount ?? 0} {(collection?.trackCount ?? 0) === 1 ? "track" : "tracks"}</small></span>
                 </button>
               {/each}
               {#each source.collections.filter(collection => matchesSourceCollection(collection, source.label)) as collection (collection.id)}
                 <button draggable="true" ondragstart={(event)=>dragPlaylist(event,collection.id)} class="playlist-card collection-card imported-card" class:active={activeCollectionId === collection.id} onclick={() => { onPlaylist(collection.id); closeDrawer(); }} oncontextmenu={(event) => { if (onPlaylistContext) { event.preventDefault(); onPlaylistContext(collection.id, event); closeDrawer(); } }}>
-                  <span class="playlist-glyph collection-glyph" aria-hidden="true">▤</span>
+                  <span class="playlist-glyph collection-glyph" aria-hidden="true"><PlaylistArtwork coverUrl={collection.artworkUrl} urls={playlistArtwork[collection.id] ?? []} /></span>
                   <span class="playlist-copy"><strong>{collection.name}</strong><small>{collection.trackCount} {collection.trackCount === 1 ? "track" : "tracks"}</small></span>
                 </button>
               {/each}
@@ -364,6 +392,7 @@
   .playlist-glyph.liked { background: linear-gradient(145deg, #6546a6, #b8499b); color: #fff; }
   .playlist-glyph.history { background: color-mix(in srgb, var(--accent) 16%, var(--raised)); color: var(--accent); font-size: 20px; }
   .collection-glyph { color: var(--muted); }
+  .radio-glyph :global(.radio-station-icon) { display:block; width:100%; height:100%; object-fit:contain; border-radius:inherit; }
   .playlist-copy { display: grid; min-width: 0; gap: 3px; }
   .playlist-copy strong { overflow: hidden; color: var(--text); font-size: 11px; font-weight: 590; text-overflow: ellipsis; white-space: nowrap; }
   .playlist-copy small { color: var(--muted); font-size: 10px; }

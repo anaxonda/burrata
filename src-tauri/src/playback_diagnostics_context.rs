@@ -301,9 +301,16 @@ pub(crate) fn project(snapshot: &Value, target_triple: &str) -> Value {
             context.insert("lastRecovery".into(), Value::Object(safe));
         }
     }
-    if let Some(failure) = snapshot.get("failure").and_then(|v| {
+    if let Some(mut failure) = snapshot.get("failure").and_then(|v| {
         serde_json::from_value::<crate::playback_failure::PlaybackFailure>(v.clone()).ok()
     }) {
+        failure.provider_attempts.truncate(32);
+        for attempt in &mut failure.provider_attempts {
+            attempt.observed_elapsed_ms = attempt.observed_elapsed_ms.min(86_400_000);
+            attempt.phase_elapsed_ms = attempt
+                .phase_elapsed_ms
+                .map(|elapsed| elapsed.min(86_400_000));
+        }
         context.insert(
             "failure".into(),
             serde_json::to_value(failure).unwrap_or(Value::Null),

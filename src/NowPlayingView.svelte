@@ -9,7 +9,7 @@
   import type { Track } from "./lib/types";
   import { fullscreenArtworkUpgradeCandidates } from "./lib/fullscreen-artwork";
   import type { ArtistProfile, ArtistRef } from "./lib/artist-types";
-  let { track, lyricsTrack = track, absolutePosition = 0, loadLyrics, findLyrics, chooseLyrics, saveLyrics, exportLyrics, translationLanguage, changeTranslationLanguage, syncLyrics, syncScope, translationEnabled = false, translationCredentialPresent = false, translateLyrics, onSeek, nextTrack = null, title, artworkUrl, sourceArtworkUrl, detectedArtworkUrl = null, artworkMode = "set", onArtworkModeChange, bottom = 100, context = "Now playing", loadArtist, loadRecording, onRecordingRelease, onClose, onArtist, onArtistRef, onAlbum, onQueue, onFavorite }: {
+  let { track, lyricsTrack = track, absolutePosition = 0, loadLyrics, findLyrics, chooseLyrics, saveLyrics, exportLyrics, translationLanguage, changeTranslationLanguage, syncLyrics, syncScope, translationEnabled = false, translationCredentialPresent = false, translateLyrics, onSeek, nextTrack = null, title, artworkUrl, sourceArtworkUrl, detectedArtworkUrl = null, artworkMode = "set", onArtworkModeChange, bottom = 100, context = "Now playing", loadArtist, loadRecording, onRecordingRelease, onClose, onArtist, onArtistRef, onAlbum, onQueue, queueOpen = false, onFavorite }: {
     track: Track; nextTrack?: Track | null; title: string; artworkUrl?: string | null; sourceArtworkUrl?: string | null; bottom?: number; context?: string;
     detectedArtworkUrl?: string | null; artworkMode?: "set" | "detected" | "both"; onArtworkModeChange?: (mode: "set" | "detected" | "both") => void;
     onSeek?: (seconds: number) => void;
@@ -19,7 +19,7 @@
     loadArtist: (track: Track) => Promise<ArtistProfile | null>;
     loadRecording?: (track: Track) => Promise<RecordingInformationResult>;
     onRecordingRelease?: (release:RecordingReleaseInfo, artist:ArtistRef|null) => void; onClose: () => void; onArtist: () => void; onArtistRef?: (artist: ArtistRef) => void;
-    onAlbum?: () => void; onQueue: () => void; onFavorite: () => void;
+    onAlbum?: () => void; onQueue: () => void; queueOpen?: boolean; onFavorite: () => void;
   } = $props();
   const credits = $derived.by(() => {
     const provenance = track.provenance && typeof track.provenance === "object" ? track.provenance as Record<string, unknown> : {};
@@ -39,7 +39,7 @@
     return () => { if (previous instanceof HTMLElement && previous.isConnected) previous.focus(); };
   });
 </script>
-<svelte:window onkeydown={(event) => { if (event.key === "Escape" && !event.defaultPrevented) { event.preventDefault(); onClose(); } }} />
+<svelte:window onkeydown={(event) => { if (event.key === "Escape" && !queueOpen && !event.defaultPrevented) { event.preventDefault(); onClose(); } }} />
 <section class="now-playing-view" style:bottom={`${Math.max(0,Number.isFinite(bottom)?bottom:0)}px`} aria-label="Expanded Now Playing">
   <header><div><small>{context === "Now playing" ? "NOW PLAYING" : "PLAYING FROM"}</small>{#if context !== "Now playing"}<strong>{context}</strong>{/if}</div>{#if detectedArtworkUrl && onArtworkModeChange}<details use:dismissDetails class="artwork-menu" bind:this={artworkMenu}><summary aria-label="Fullscreen artwork options" title="Artwork display">⋯</summary><div class="artwork-choice" role="group" aria-label="Artwork display"><strong class="artwork-choice-heading">Artwork display</strong><label><input type="radio" name="fullscreen-artwork" checked={artworkMode === "set"} onchange={() => { onArtworkModeChange?.("set"); if (artworkMenu) artworkMenu.open = false; }} /> Set artwork</label><label><input type="radio" name="fullscreen-artwork" checked={artworkMode === "detected"} onchange={() => { onArtworkModeChange?.("detected"); if (artworkMenu) artworkMenu.open = false; }} /> Detected track</label><label><input type="radio" name="fullscreen-artwork" checked={artworkMode === "both"} onchange={() => { onArtworkModeChange?.("both"); if (artworkMenu) artworkMenu.open = false; }} /> Side by side</label></div></details>{/if}<button bind:this={closeButton!} onclick={onClose} aria-label="Close full-screen Now Playing" title="Close (Escape)">⤢</button></header>
   <div class="content">

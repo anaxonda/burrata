@@ -17,7 +17,7 @@
 
   let {
     tracks, orderedRows, onPlay, onDownload, onFavorite, onNext, onQueue, onPlaylist, onArtist, onAlbum, onInfo,
-    onContext, onSelect, onRowSelect, onAddSelectedToPlaylist, onInvertSelection, selectionContext, selectionKeys, selectionTracks, selectionTrackKeys, selectedTrackIds = [], selectedTrackId, focusedRowKey, selectionLabel, trackTitle, selectionMode: controlledSelectionMode, position, meta, timestamp, playingTrack, bufferingTrack, playingTrackId = "", bufferingTrackId = "", paused = false, playbackFailed = false, listLabel = "Tracks", initialScroll, onScroll, virtualizationThreshold = 200, presentation = "default", reorderable = false, onReorder,
+    onContext, onSelect, onRowSelect, onAddSelectedToPlaylist, onInvertSelection, selectionContext, selectionKeys, selectionTracks, selectionTrackKeys, selectedTrackIds = [], selectedTrackId, focusedRowKey, selectionLabel, trackTitle, selectionMode: controlledSelectionMode, position, meta, timestamp, playingTrack, bufferingTrack, playingTrackId = "", bufferingTrackId = "", paused = false, playbackFailed = false, listLabel = "Tracks", initialScroll, onScroll, virtualizationThreshold = 200, presentation = "default", reorderable = false, reorderCount, onReorder,
   }: {
     tracks: Track[];
     orderedRows?: Array<{ kind: "track"; key: string; trackIndex: number } | { kind: "status"; key: string; title: string; detail: string }>;
@@ -60,6 +60,8 @@
     presentation?: "default" | "playlist";
     /** Enable local playlist drag reorder only when the parent is showing source order without filters. */
     reorderable?: boolean;
+    /** Total persisted playlist occurrence count when tracks contains only a virtual window. */
+    reorderCount?: number;
     /** Called with zero-based persisted occurrence indices (not track IDs). */
     onReorder?: (from: number, to: number) => void | Promise<void>;
     virtualizationThreshold?: number;
@@ -70,12 +72,20 @@
   let scrollTop = $state(0);
   let viewportHeight = $state(560);
   let scrollElement: HTMLDivElement;
+  let selectionToolbar = $state<HTMLDivElement>();
   let draggedPlaylistPosition = $state<number | null>(null);
   let reorderingPlaylist = $state(false);
+  let reorderAnnouncement = $state("");
   const canReorderPlaylist = $derived.by(() => {
     if (!reorderable || !onReorder) return false;
     const positions = tracks.map(track => playlistPosition(track));
-    return positions.every((value): value is number => value !== null) && new Set(positions).size === positions.length;
+    if (!positions.length || !positions.every((value): value is number => value !== null)) return false;
+    if (new Set(positions).size !== positions.length) return false;
+    const first = positions[0]!;
+    const count = reorderCount ?? tracks.length;
+    return Number.isInteger(count) && count > 0 && first >= 1 && positions.every((value, index) =>
+      value === first + index && value <= count,
+    );
   });
   const rowHeight = $derived(presentation === "playlist" ? 60 : 88);
   const displayRows = $derived(orderedRows ?? tracks.map((track, trackIndex) => ({ kind: "track" as const, key: `${track.id}:${trackIndex}`, trackIndex })));
@@ -143,9 +153,14 @@
   }
   function updateViewport(event: Event) {
     const viewport = event.currentTarget as HTMLDivElement;
-    scrollTop = viewport.scrollTop;
-    viewportHeight = viewport.clientHeight || 560;
-    onScroll?.(scrollTop);
+    updateViewportDimensions();
+    onScroll?.(viewport.scrollTop);
+  }
+  function updateViewportDimensions() {
+    if (!scrollElement) return;
+    const toolbarHeight = selectionToolbar?.offsetHeight ?? 0;
+    scrollTop = Math.max(0, scrollElement.scrollTop - toolbarHeight);
+    viewportHeight = Math.max(1, (scrollElement.clientHeight || 560) - toolbarHeight);
   }
   function handleRowClick(node: HTMLOListElement) {
     const onClick = (event: MouseEvent) => {
@@ -161,12 +176,20 @@
     return { destroy: () => node.removeEventListener("click", onClick) };
   }
   $effect(() => {
+    if (!scrollElement) return;
+    updateViewportDimensions();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => updateViewportDimensions());
+    observer.observe(scrollElement);
+    if (selectionToolbar) observer.observe(selectionToolbar);
+    return () => observer.disconnect();
+  });
+  $effect(() => {
     if (initialScroll === undefined) return;
     const target = initialScroll;
     if (scrollElement && scrollElement.scrollTop !== target) {
       scrollElement.scrollTop = target;
-      scrollTop = target;
-      viewportHeight = scrollElement.clientHeight || 560;
+      updateViewportDimensions();
     }
   });
   $effect(() => {
@@ -175,9 +198,9 @@
     const index = displayRows.findIndex(row => row.key === key);
     if (index < 0) return;
     if (virtualized) {
-      const target = Math.max(0, index * rowHeight - rowHeight * 2);
+      const target = Math.max(0, (selectionToolbar?.offsetHeight ?? 0) + index * rowHeight - rowHeight * 2);
       if (scrollElement.scrollTop !== target) scrollElement.scrollTop = target;
-      scrollTop = target;
+      updateViewportDimensions();
     }
     requestAnimationFrame(() => {
       const row = [...scrollElement.querySelectorAll<HTMLLIElement>("li[data-row-key]")]
@@ -191,6 +214,21 @@
     if (onContext) { onContext(track, event); return; }
     const bounds = event.type === "contextmenu" ? null : (event.currentTarget as HTMLElement).getBoundingClientRect();
     menu = {track, index, event, anchor: bounds ? {x: bounds.right, y: bounds.bottom} : {x: event.clientX, y: event.clientY}};
+  }
+  async function movePlaylistOccurrence(track: Track, fromPosition: number, destination: number) {
+    const count = reorderCount ?? tracks.length;
+    if (!canReorderPlaylist || reorderingPlaylist) return;
+    if (destination < 0 || destination >= count || destination === fromPosition - 1) return;
+    reorderingPlaylist = true;
+    reorderAnnouncement = "";
+    try {
+      await onReorder?.(fromPosition - 1, destination);
+      reorderAnnouncement = `Moved ${track.title} to position ${destination + 1}.`;
+    } catch {
+      reorderAnnouncement = `Could not move ${track.title}. The playlist order was not changed.`;
+    } finally {
+      reorderingPlaylist = false;
+    }
   }
   const sourceOpener = getContext<SourceOpener | undefined>(SOURCE_OPENER);
   let sourceOpenFailure = $state("");
@@ -211,7 +249,7 @@
 
 <div class:virtualized class:playlist={presentation === "playlist"} style:--track-row-height={`${rowHeight}px`} class="track-list-viewport" bind:this={scrollElement} onscroll={updateViewport}>
 {#if sourceOpenFailure}<p role="alert">{sourceOpenFailure}</p>{/if}
-  {#if onAddSelectedToPlaylist || (onSelect && controlledSelectionMode === undefined) || (onInvertSelection && showSelection)}<div class="playlist-selection-actions" role="group" aria-label="Track selection">
+  {#if onAddSelectedToPlaylist || (onSelect && controlledSelectionMode === undefined) || (onInvertSelection && showSelection)}<div class="playlist-selection-actions" role="group" aria-label="Track selection" bind:this={selectionToolbar}>
   {#if showSelection}
     <span>{onAddSelectedToPlaylist ? (selectedPlaylistTracks.length ? `${selectedPlaylistTracks.length} tracks selected` : `${tracks.length} visible tracks`) : `${selectedTrackIds.length} tracks selected`}</span>
     {#if onAddSelectedToPlaylist}<button type="button" onclick={selectAllPlaylistRows} disabled={!tracks.length}>Select visible</button>{/if}
@@ -222,6 +260,7 @@
     <button type="button" class="start-selection" aria-label="Select tracks" onclick={() => selectionMode = true}>Select</button>
   {/if}
 </div>{/if}
+{#if reorderable}<div class="sr-only" aria-live="polite" aria-atomic="true">{reorderAnnouncement}</div>{/if}
 <ol class="shared-track-list" aria-label={listLabel} use:handleRowClick>
   {#if virtualized && visibleRange.start > 0}<li class="virtual-spacer" aria-hidden="true" style={`height:${visibleRange.start * rowHeight}px`}></li>{/if}
   {#each visibleRows as displayRow, visibleIndex (displayRow.key)}
@@ -236,14 +275,19 @@
     {@const buffering = !failed && (bufferingTrack ? sameTrackIdentity(track, bufferingTrack) : track.id === bufferingTrackId)}
     {@const duration = playableDuration(track)}
     {@const occurrencePosition = playlistPosition(track)}
-    <li data-track-index={index} data-row-key={displayRow.key} class:focused-history-occurrence={focusedRowKey === displayRow.key} class:current class:buffering class:failed class:paused={current && paused} class:selected={selectedTrackIds.includes(track.id) || selectedTrackId === track.id} class:playlist-drop-target={draggedPlaylistPosition !== null && draggedPlaylistPosition !== occurrencePosition} title={timestamp?.(track, index)?.full} aria-current={focusedRowKey === displayRow.key ? "location" : current ? "true" : undefined} oncontextmenu={(event) => openActions(track, index, event)} ondragover={(event) => { if (canReorderPlaylist && draggedPlaylistPosition !== null && occurrencePosition !== null && draggedPlaylistPosition !== occurrencePosition) { event.preventDefault(); if (event.dataTransfer) event.dataTransfer.dropEffect = "move"; } }} ondrop={(event) => { event.preventDefault(); if (!canReorderPlaylist || draggedPlaylistPosition === null || occurrencePosition === null) return; const fromPosition = draggedPlaylistPosition; const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect(); const after = event.clientY >= bounds.top + bounds.height / 2; const destination = playlistDropIndex(fromPosition, occurrencePosition, after); draggedPlaylistPosition = null; if (destination !== null) { reorderingPlaylist = true; void Promise.resolve(onReorder?.(fromPosition - 1, destination)).finally(() => reorderingPlaylist = false); } }}>
-      {#if showSelection && (onSelect || onAddSelectedToPlaylist)}<input class="select-track" type="checkbox" checked={selectedTrackIds.includes(track.id) || selectedTrackIds.includes(selectionKeys?.[index] ?? "") || selectedForPlaylist.includes(selectionKey(track,index))} aria-label={selectionLabel?.(track,index) ?? (onAddSelectedToPlaylist ? `Select ${track.title} for playlist` : `Select ${track.title}`)} onclick={(event) => { event.stopPropagation(); if (onSelect) onSelect(track, event, index); }} onchange={(event) => { event.stopPropagation(); if (onAddSelectedToPlaylist) togglePlaylistSelection(selectionKey(track,index)); }} />{/if}
-      {#if canReorderPlaylist}<button type="button" class="playlist-reorder-handle" draggable={!reorderingPlaylist} disabled={reorderingPlaylist} aria-label={`Reorder ${track.title} at position ${occurrencePosition}`} title="Drag to reorder this playlist item" ondragstart={(event) => { if (occurrencePosition === null) { event.preventDefault(); return; } draggedPlaylistPosition = occurrencePosition; event.dataTransfer?.setData("text/plain", "burrata-playlist-row"); if (event.dataTransfer) event.dataTransfer.effectAllowed = "move"; }} ondragend={() => draggedPlaylistPosition = null}>⠿</button>{/if}
-      {#if position || presentation === "playlist"}<div class="position-slot"><span class="track-position row-number">{position?.(track, index) ?? index + 1}</span>{#if presentation === "playlist" && onPlay}<button class="position-play row-play" class:buffering aria-busy={buffering} class:paused={current && paused} aria-label={buffering ? `Buffering ${track.title}` : `Play ${track.title}`} title={buffering ? "Buffering audio" : "Play audio"} onclick={() => onPlay?.(track, tracks, index)}>{#if buffering}<BufferingSpinner />{:else}▶{/if}</button>{/if}</div>{/if}
-      <span class="artwork placeholder" aria-hidden="true"><ArtworkImage urls={trackArtworkSources(track)} /></span>
+    {#snippet playbackStatus()}
       {#if current || buffering && presentation !== "playlist"}<span class="playback-state table-playback-state" class:status-buffering={buffering} class:status-buffering-has-play={buffering && presentation !== "playlist" && Boolean(onPlay)} role="status" aria-label={`${failed ? "Unavailable" : buffering ? "Buffering" : paused ? "Paused" : "Playing"} ${track.title}`} title={`${failed ? "Unavailable" : buffering ? "Buffering" : paused ? "Paused" : "Playing"} · ${track.title}`} aria-live="polite">
         {#if failed}!{:else if buffering}{#if presentation !== "playlist" || !onPlay}<BufferingSpinner />{/if}{:else if paused}Ⅱ{:else}<svg class="playback-playing-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 11v3M8 8v6M12 5v9M16 9v5"/></svg>{/if}
       </span>{/if}
+    {/snippet}
+    {@const rowSelectionKey = selectionKey(track, index)}
+    {@const selectedOccurrence = selectedTrackIds.includes(track.id) || selectedTrackIds.includes(rowSelectionKey) || selectedForPlaylist.includes(rowSelectionKey) || (!showSelection && selectedTrackId === track.id)}
+    <li data-track-index={index} data-row-key={displayRow.key} class:focused-history-occurrence={focusedRowKey === displayRow.key} class:current class:buffering class:failed class:paused={current && paused} class:selected={selectedOccurrence} class:playlist-drop-target={draggedPlaylistPosition !== null && draggedPlaylistPosition !== occurrencePosition} title={timestamp?.(track, index)?.full} aria-current={focusedRowKey === displayRow.key ? "location" : current ? "true" : undefined} oncontextmenu={(event) => openActions(track, index, event)} ondragover={(event) => { if (canReorderPlaylist && draggedPlaylistPosition !== null && occurrencePosition !== null && draggedPlaylistPosition !== occurrencePosition) { event.preventDefault(); if (event.dataTransfer) event.dataTransfer.dropEffect = "move"; } }} ondrop={(event) => { event.preventDefault(); if (!canReorderPlaylist || draggedPlaylistPosition === null || occurrencePosition === null) return; const fromPosition = draggedPlaylistPosition; const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect(); const after = event.clientY >= bounds.top + bounds.height / 2; const destination = playlistDropIndex(fromPosition, occurrencePosition, after); draggedPlaylistPosition = null; if (destination !== null) void movePlaylistOccurrence(track, fromPosition, destination); }}>
+      {#if showSelection && (onSelect || onAddSelectedToPlaylist)}<input class="select-track" type="checkbox" checked={selectedOccurrence} aria-label={selectionLabel?.(track,index) ?? (onAddSelectedToPlaylist ? `Select ${track.title} for playlist` : `Select ${track.title}`)} onclick={(event) => { event.stopPropagation(); if (onSelect) onSelect(track, event, index); }} onchange={(event) => { event.stopPropagation(); if (onAddSelectedToPlaylist) togglePlaylistSelection(selectionKey(track,index)); }} />{/if}
+      {#if canReorderPlaylist}<button type="button" class="playlist-reorder-handle" draggable={!reorderingPlaylist} disabled={reorderingPlaylist} aria-label={`Reorder ${track.title} at position ${occurrencePosition}`} title="Drag to reorder this playlist item" ondragstart={(event) => { if (occurrencePosition === null) { event.preventDefault(); return; } draggedPlaylistPosition = occurrencePosition; event.dataTransfer?.setData("text/plain", "burrata-playlist-row"); if (event.dataTransfer) event.dataTransfer.effectAllowed = "move"; }} ondragend={() => draggedPlaylistPosition = null}>⠿</button><button type="button" class="playlist-move" aria-label={`Move ${track.title} up`} title="Move up" disabled={reorderingPlaylist || occurrencePosition === 1} onclick={() => occurrencePosition && void movePlaylistOccurrence(track, occurrencePosition, occurrencePosition - 2)}>↑</button><button type="button" class="playlist-move" aria-label={`Move ${track.title} down`} title="Move down" disabled={reorderingPlaylist || occurrencePosition === (reorderCount ?? tracks.length)} onclick={() => occurrencePosition && void movePlaylistOccurrence(track, occurrencePosition, occurrencePosition)}>↓</button>{/if}
+      {#if position || presentation === "playlist"}<div class="position-slot"><span class="track-position row-number">{position?.(track, index) ?? index + 1}</span>{#if presentation === "playlist" && onPlay}<button class="position-play row-play" class:buffering aria-busy={buffering} class:paused={current && paused} aria-label={buffering ? `Buffering ${track.title}` : `Play ${track.title}`} title={buffering ? "Buffering audio" : "Play audio"} onclick={() => onPlay?.(track, tracks, index)}>{#if buffering}<BufferingSpinner />{:else}▶{/if}</button>{/if}{#if presentation === "playlist"}{@render playbackStatus()}{/if}</div>{/if}
+      <span class="artwork placeholder" aria-hidden="true"><ArtworkImage urls={trackArtworkSources(track)} /></span>
+      {#if presentation !== "playlist"}{@render playbackStatus()}{/if}
       <div class="track-copy">
         <button class="track-title" aria-label={`Play ${track.title}`} title={trackTitle?.(track, index) ?? track.title} onclick={(event) => { if (event.shiftKey || event.ctrlKey || event.metaKey) onRowSelect?.(track, event, index); else onPlay?.(track, tracks, index); }}>
           <strong>{track.title}{#if track.version}<small>{" "}({track.version})</small>{/if}</strong>
@@ -286,16 +330,16 @@
 
 <style>
   li.failed .playback-state { color:var(--danger,#f99b82); }
-  .track-list-viewport{min-width:0}.track-list-viewport.virtualized{max-height:70vh;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}.track-list-viewport.virtualized .shared-track-list li:not(.virtual-spacer){box-sizing:border-box;height:var(--track-row-height,88px);max-height:var(--track-row-height,88px);overflow:hidden}.track-list-viewport.virtualized .track-subtitle{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;white-space:normal;overflow:hidden;text-overflow:ellipsis}.track-list-viewport.virtualized .track-time{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.track-list-viewport .virtual-spacer{display:block;padding:0!important;border:0!important;pointer-events:none}
+  .track-list-viewport{min-width:0}.track-list-viewport.virtualized{max-height:70vh;overflow:auto;overflow-anchor:none;overscroll-behavior:contain;scrollbar-gutter:stable}.track-list-viewport.virtualized .shared-track-list li:not(.virtual-spacer){box-sizing:border-box;height:var(--track-row-height,88px);max-height:var(--track-row-height,88px);overflow:hidden}.track-list-viewport.virtualized .track-subtitle{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;white-space:normal;overflow:hidden;text-overflow:ellipsis}.track-list-viewport.virtualized .track-time{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.track-list-viewport .virtual-spacer{display:block;padding:0!important;border:0!important;pointer-events:none}
   .shared-track-list{list-style:none;margin:0;padding:0;min-width:0;container-type:inline-size}.shared-track-list li{display:flex;align-items:center;gap:12px;min-width:0;padding:8px 4px;border-bottom:1px solid var(--line);transition:background 120ms ease}.shared-track-list li:hover{background:color-mix(in srgb,var(--raised) 72%,transparent)}.shared-track-list li.current{background:color-mix(in srgb,var(--accent) 12%,transparent)}.shared-track-list li.focused-history-occurrence{outline:2px solid var(--accent);outline-offset:-2px;background:color-mix(in srgb,var(--accent) 16%,var(--surface))}.track-position{flex:0 0 24px;text-align:right;color:var(--muted);font-size:12px}.playback-state{display:grid;place-items:center;flex:0 0 22px;color:var(--accent);font-size:15px;font-weight:700}.playback-state.status-buffering-has-play{display:none}.artwork{flex:0 0 42px;width:42px;height:42px;object-fit:cover;border-radius:5px;background:var(--raised)}.placeholder{display:grid;place-items:center;color:var(--muted)}.track-copy{display:flex;flex:1;flex-direction:column;gap:3px;min-width:0}.track-title{display:block;max-width:100%;min-width:0;padding:0;border:0;background:transparent;color:var(--text);text-align:left}.track-title strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:600}.track-title small{color:var(--muted);font-weight:400}.track-subtitle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:11px}.artist-link,.album-link{padding:0;border:0;background:transparent;color:inherit;text-decoration:underline;text-underline-offset:2px;font:inherit;cursor:pointer}.track-time{color:var(--muted);font-size:10px}.duration{flex:0 0 38px;text-align:right;color:var(--muted);font-size:11px}.row-actions{display:flex;flex:0 0 auto;align-items:center;gap:4px}.icon-action,.more-trigger{display:grid;place-items:center;width:36px;height:36px;padding:0;border:1px solid var(--line);border-radius:50%;background:transparent;color:var(--muted);font-size:18px;cursor:pointer;touch-action:manipulation}.icon-action:hover,.more-trigger:hover{color:var(--accent);border-color:var(--accent)}.icon-action.play{color:var(--accent)}.icon-action.favorite.active{color:#f1768d}.icon-action.play.buffering{display:grid;place-items:center;opacity:1}
   .position-slot{position:relative;display:flex;flex:0 0 24px;align-items:center;justify-content:flex-end}.position-play{position:absolute;inset:0;display:none;padding:0;border:0;background:var(--surface);color:var(--accent);cursor:pointer}.playlist .position-play.buffering{display:grid;place-items:center;position:absolute;z-index:1;box-sizing:border-box;opacity:1;border:0;border-radius:50%;background:var(--surface);color:var(--accent)}
-  .playlist-reorder-handle{display:grid;flex:0 0 28px;place-items:center;width:28px;height:32px;padding:0;border:0;border-radius:4px;background:transparent;color:var(--muted);font-size:18px;cursor:grab;touch-action:none}.playlist-reorder-handle:active{cursor:grabbing}.playlist-reorder-handle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.playlist-drop-target{border-top-color:var(--accent)!important}
+  .playlist-reorder-handle{display:grid;flex:0 0 28px;place-items:center;width:28px;height:32px;padding:0;border:0;border-radius:4px;background:transparent;color:var(--muted);font-size:18px;cursor:grab;touch-action:none}.playlist-reorder-handle:active{cursor:grabbing}.playlist-reorder-handle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.playlist-move{display:grid;flex:0 0 24px;place-items:center;width:24px;height:28px;padding:0;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--muted);font:inherit;cursor:pointer}.playlist-move:disabled{opacity:.45;cursor:default}.playlist-move:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.playlist-drop-target{border-top-color:var(--accent)!important}
   @media(min-width:641px){
     .playlist .shared-track-list li:not(.virtual-spacer){position:relative;box-sizing:border-box;height:60px;max-height:60px;gap:12px;padding:7px 10px;overflow:hidden}
     .playlist .artwork{flex-basis:36px;width:36px;height:36px;border-radius:4px}
     .playlist .track-copy{gap:0}.playlist .track-title strong{font-size:12px;line-height:1.5}.playlist .track-subtitle{margin-top:3px;font-size:10px;line-height:1.5;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .playlist .track-position{font-size:11px}.playlist .position-slot{flex-basis:24px}.playlist li:hover .position-play,.playlist .position-play:focus-visible{display:block}.playlist li:hover .position-slot .track-position{visibility:hidden}
-    .playlist li.current .position-slot .track-position{visibility:hidden}.playlist .playback-state{position:absolute;left:10px;width:24px;background:transparent;font-size:12px;pointer-events:none}.playlist li:hover .playback-state{opacity:0}.playlist .row-actions{gap:4px}.playlist .row-actions>.play{display:none}.playlist .icon-action,.playlist .more-trigger{width:28px;height:28px;border:0;border-radius:4px;font-size:17px}
+    .playlist li.current .position-slot .track-position{visibility:hidden}.playlist .playback-state{position:absolute;left:0;width:24px;background:transparent;font-size:12px;pointer-events:none}.playlist li:hover .playback-state{opacity:0}.playlist .row-actions{gap:4px}.playlist .row-actions>.play{display:none}.playlist .icon-action,.playlist .more-trigger{width:28px;height:28px;border:0;border-radius:4px;font-size:17px}
     .playlist .playlist-time{flex:0 1 190px;min-width:0;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:10px}.playlist .duration{font-size:11px}
   }
   @media(max-width:640px){.shared-track-list li{gap:7px}.track-position{flex-basis:18px;font-size:10px}.artwork{flex-basis:36px;width:36px;height:36px}.duration{display:none}.track-title strong{font-size:12px}.track-subtitle{font-size:10px}.row-actions{gap:2px}.playlist .row-actions>.play{display:none}}

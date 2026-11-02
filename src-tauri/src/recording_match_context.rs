@@ -604,7 +604,7 @@ mod tests {
             &mut AssessmentContext::default(),
         );
         assert_eq!(balanced.relationship, MatchRelationship::Probable);
-        assert_eq!(balanced.action, MatchAction::Accept);
+        assert_eq!(balanced.action, MatchAction::Enrich);
         let evidence = balanced.evidence.as_ref().unwrap();
         assert_eq!(evidence.dimensions.title, Comparison::Agree);
         assert_eq!(evidence.dimensions.artists, Comparison::Agree);

@@ -18,6 +18,19 @@ function render(props: Record<string, unknown> = {}) {
 }
 
 describe("PlayingTrackDetections", () => {
+  it.each([false, true])("offers queue continuation as a sub-option when detection is enabled: %s", async (enabled) => {
+    const onKeepEnabledForQueueToggle = vi.fn();
+    const target = render({ enabled, onKeepEnabledForQueueToggle }); await tick();
+    const option = target.querySelector<HTMLInputElement>('.detection-queue-toggle input')!;
+    expect(option.checked).toBe(false);
+    expect(option.disabled).toBe(!enabled);
+    expect(option.closest('label')?.textContent).toContain("Keep on through queue");
+    if (enabled) {
+      option.checked=true; option.dispatchEvent(new Event("change", {bubbles:true}));
+      expect(onKeepEnabledForQueueToggle).toHaveBeenCalledWith(true);
+    }
+  });
+
   it("selects artwork for the latest detection at the current source position", () => {
     const items = [
       {title:"First",artist:"A",detectedAtSeconds:10,capturedStartSeconds:8,capturedEndSeconds:12,observedAt:"",artworkUrl:"https://example.test/first.jpg"},

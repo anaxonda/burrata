@@ -1,5 +1,5 @@
 export type PlaylistSection = { id: string; name: string };
-export type PlaylistCollection = { id: string; name: string; trackCount: number };
+export type PlaylistCollection = { id: string; name: string; trackCount: number; artworkUrl?: string | null };
 export type PlaylistSectionAssignments = Record<string, string>;
 export const PLAYLIST_SECTION_DRAG_TYPE = "application/x-burrata-playlist-id";
 

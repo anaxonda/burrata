@@ -17,6 +17,7 @@ pub enum FailureCategory {
     UnsupportedAudio,
     Output,
     Storage,
+    Parser,
     Unknown,
 }
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -47,6 +48,47 @@ pub struct PlaybackFailure {
     pub retryable: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub http_status: Option<u16>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub provider_attempts: Vec<ProviderAttemptSummary>,
+}
+
+/// Safe per-provider attempt detail shared with the frontend diagnostic DTO.
+/// Callers populate only fixed enums, bounded elapsed time, and HTTP status.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderAttemptSummary {
+    #[serde(rename = "providerClass")]
+    pub provider: PlaybackProvider,
+    #[serde(rename = "attemptPhase")]
+    pub phase: ProviderAttemptPhase,
+    pub stage: FailureStage,
+    pub category: FailureCategory,
+    pub retryable: bool,
+    pub observed_elapsed_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase_elapsed_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub http_status: Option<u16>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlaybackProvider {
+    Youtube,
+    Soundcloud,
+    Monochrome,
+    Bandcamp,
+    Other,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderAttemptPhase {
+    Search,
+    Parser,
+    Transport,
+    Extraction,
+    Other,
 }
 fn failure(
     category: FailureCategory,
@@ -61,6 +103,7 @@ fn failure(
         scope,
         retryable,
         http_status,
+        provider_attempts: Vec::new(),
     }
 }
 fn has_any(message: &str, patterns: &[&str]) -> bool {
@@ -131,8 +174,24 @@ pub fn classify(reason: &str) -> PlaybackFailure {
     if message == "this source has no supported audio stream" {
         return failure(UnsupportedAudio, Stage::Resolver, Recording, false, None);
     }
+    if message.starts_with("invalid monochrome catalog") {
+        return failure(Parser, Stage::Resolver, Source, true, status);
+    }
     if has_any(&message, &["cancel", "superseded"]) {
         return failure(Cancelled, Stage::Resolver, Operation, false, status);
+    }
+    if message.contains("transport timeout failed") {
+        return failure(Timeout, Stage::Transport, Global, true, status);
+    }
+    if has_any(
+        &message,
+        &[
+            "transport connect failed",
+            "transport body failed",
+            "transport request failed",
+        ],
+    ) {
+        return failure(Network, Stage::Transport, Global, true, status);
     }
     if message.contains("native http byte range: http ") {
         if let Some(status) = status {
@@ -613,5 +672,31 @@ mod tests {
                 case["skip"].as_bool().unwrap()
             );
         }
+    }
+
+    #[test]
+    fn provider_attempt_summary_has_only_the_shared_safe_dto_fields() {
+        let summary = ProviderAttemptSummary {
+            provider: PlaybackProvider::Monochrome,
+            phase: ProviderAttemptPhase::Transport,
+            stage: FailureStage::Transport,
+            category: FailureCategory::Timeout,
+            retryable: true,
+            observed_elapsed_ms: 120,
+            phase_elapsed_ms: Some(40),
+            http_status: None,
+        };
+        assert_eq!(
+            serde_json::to_value(summary).unwrap(),
+            serde_json::json!({
+                "providerClass": "monochrome",
+                "attemptPhase": "transport",
+                "stage": "transport",
+                "category": "timeout",
+                "retryable": true,
+                "observedElapsedMs": 120,
+                "phaseElapsedMs": 40
+            })
+        );
     }
 }

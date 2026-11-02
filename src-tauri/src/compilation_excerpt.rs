@@ -1146,13 +1146,15 @@ async fn verify_and_publish(
         if *cancel.borrow() {
             return Err("Cancelled".into());
         }
-        let inspected = tokio::time::timeout(
-            Duration::from_secs(25),
-            crate::acquisition::inspect_candidate_cancelled(
+        let inspection_deadline = PlaybackDeadline::after(Duration::from_secs(25));
+        let inspected = tokio::time::timeout_at(
+            inspection_deadline.instant(),
+            crate::acquisition::inspect_candidate_cancelled_until(
                 &query,
                 &listed,
                 settings,
                 cancel.clone(),
+                inspection_deadline,
             ),
         )
         .await;
