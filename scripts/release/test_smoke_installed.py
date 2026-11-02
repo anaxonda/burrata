@@ -623,6 +623,12 @@ class RpmInstallationTests(unittest.TestCase):
     def patches(self, run):
         original_is_file=pathlib.Path.is_file;original_resolve=pathlib.Path.resolve
         stack=ExitStack()
+        # Pin the source version alongside this fixture's RPM metadata. A real
+        # package.json version bump must not turn an install/cleanup test into
+        # an unrelated version-mismatch test (covered separately below).
+        source=pathlib.Path(stack.enter_context(tempfile.TemporaryDirectory()))
+        (source/'package.json').write_text(json.dumps({'version':'0.1.25'}))
+        stack.enter_context(patch.object(smoke,'ROOT',source))
         stack.enter_context(patch.object(smoke.platform,'freedesktop_os_release',return_value={'ID':'fedora'}))
         stack.enter_context(patch.object(smoke.os,'geteuid',return_value=10001))
         stack.enter_context(patch.object(smoke,'run',side_effect=run))
