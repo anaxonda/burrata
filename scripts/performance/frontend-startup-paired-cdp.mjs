@@ -4,10 +4,12 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 
-const [baselineValue, finalValue, outputPath] = process.argv.slice(2);
+const [baselineValue, finalValue, outputPath, cyclesValue = "20"] = process.argv.slice(2);
 if (!baselineValue || !finalValue || !outputPath) {
-  throw new Error("usage: node frontend-startup-paired-cdp.mjs <baseline-dist> <final-dist> <output-json>");
+  throw new Error("usage: node frontend-startup-paired-cdp.mjs <baseline-dist> <final-dist> <output-json> [paired-cycles=20]");
 }
+const cycleCount = Number(cyclesValue);
+if (!Number.isInteger(cycleCount) || cycleCount < 2) throw new Error("paired-cycles must be an integer of at least 2");
 const roots = { baseline: path.resolve(baselineValue), final: path.resolve(finalValue) };
 const mime = new Map([[".html", "text/html"], [".js", "text/javascript"], [".css", "text/css"], [".png", "image/png"], [".svg", "image/svg+xml"], [".woff2", "font/woff2"]]);
 
@@ -139,7 +141,7 @@ try {
   }
   const samples = [];
   const cycles = [];
-  for (let cycle = 0; cycle < 20; cycle++) {
+  for (let cycle = 0; cycle < cycleCount; cycle++) {
     const order = cycle % 2 === 0 ? ["baseline", "final"] : ["final", "baseline"];
     cycles.push({ cycle: cycle + 1, order: [...order] });
     for (const build of order) {
@@ -170,10 +172,10 @@ try {
     baselineRoot: roots.baseline,
     finalRoot: roots.final,
     excludedWarmupsPerBuild: 3,
-    measuredCycles: 20,
-    measuredSamplesPerBuild: 40,
+    measuredCycles: cycleCount,
+    measuredSamplesPerBuild: cycleCount * 2,
     sampling: "Cycles alternate baseline-first and final-first. Each build is measured cold after a browser cache clear, then warm immediately without an intervening cache clear.",
-    scope: "Static production bundle DOM readiness to .app-shell and core playback controls, then programmatic focus and synthetic click dispatch. This does not measure native playback startup or first audio.",
+    scope: "Static production bundle DOM readiness to .app-shell and core playback controls, then inline programmatic focus and synthetic click dispatch in the original MutationObserver callback. This does not measure native playback startup or first audio.",
     cycles, summary, samples,
   };
   await fs.writeFile(outputPath, JSON.stringify(result, null, 2) + "\n");
