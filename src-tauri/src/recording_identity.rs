@@ -201,6 +201,7 @@ pub fn parse_recording_text(value: &str) -> ParsedRecordingText {
                 label_key.as_str(),
                 "audio"
                     | "official audio"
+                    | "audio oficial"
                     | "official video"
                     | "official music video"
                     | "official lyric video"
@@ -773,6 +774,26 @@ fn trailing_dash_version(value: &str) -> Option<(&str, &str)> {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn spanish_official_audio_is_only_a_neutral_presentation_label() {
+        let parsed = parse_recording_text("Song (Audio Oficial)");
+        assert_eq!(parsed.base_title, "Song");
+        assert_eq!(parsed.annotations[0].kind, AnnotationKind::Presentation);
+        let live = parse_recording_text("Song (Audio Oficial) (Live)");
+        assert!(live
+            .annotations
+            .iter()
+            .any(|a| a.kind == AnnotationKind::SemanticVersion));
+        assert!(!parse_recording_text("Song (Audio Oficial Remix)")
+            .annotations
+            .iter()
+            .any(|a| a.kind == AnnotationKind::Presentation));
+        assert!(parse_recording_text("Song (Audio Oficial) (Unknown Label)")
+            .annotations
+            .iter()
+            .any(|a| a.kind == AnnotationKind::Unresolved));
+    }
+
     #[test]
     fn reported_titles_preserve_guests_versions_and_work_names() {
         let t = parse_title("Turtledove (Epiros) [feat. Michalis Zambas]");

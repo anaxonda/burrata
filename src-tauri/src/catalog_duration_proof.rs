@@ -299,6 +299,329 @@ fn materialize(original: &Track, proof: &Value, account: &str) -> Option<Prepare
         verified_artist_variants,
     })
 }
+// Public exact-ID evidence for older recognition favorites that saved no runtime.
+// The Shazam ID is not an Apple ID: only a fresh, explicitly typed action links them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum RecognitionCatalogRequest {
+    Shazam(String),
+    Apple(String),
+}
+fn positive_catalog_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 20
+        && value.bytes().all(|byte| byte.is_ascii_digit())
+        && value.parse::<u64>().is_ok_and(|id| id > 0)
+}
+fn recognition_catalog_key(track: &Track) -> Option<&str> {
+    if !eligible(track) || !track.provenance.is_object() || recognized_isrc(track).is_none() {
+        return None;
+    }
+    track.provenance["recognitionIdentifiers"]["shazamId"]
+        .as_str()
+        .filter(|id| positive_catalog_id(id))
+}
+fn same_recognition_title(track: &Track, title: &str) -> bool {
+    use crate::recording_identity::{parse_recording_text, AnnotationKind};
+    let parsed = parse_recording_text(title);
+    let requested = parse_recording_text(&track.title);
+    let versions = |text: &crate::recording_identity::ParsedRecordingText| {
+        text.semantic_versions()
+            .map(crate::matching::normalize_version)
+            .collect::<Vec<_>>()
+    };
+    !title.is_empty()
+        && title.len() <= 512
+        && !parsed.parsing_incomplete
+        && !parsed
+            .annotations
+            .iter()
+            .any(|a| a.kind == AnnotationKind::Unresolved)
+        && crate::matching::normalize(title) == crate::matching::normalize(&track.title)
+        && versions(&parsed) == versions(&requested)
+        && track.version.as_deref().is_none_or(|version| {
+            let version = crate::matching::normalize_version(version);
+            version.is_empty() || versions(&parsed).contains(&version)
+        })
+}
+#[derive(Debug)]
+struct RecognitionCatalogLink {
+    track_id: String,
+    artist_id: u64,
+    album_id: u64,
+    album: String,
+}
+fn recognition_catalog_link(original: &Track, fresh: &Value) -> Option<RecognitionCatalogLink> {
+    let key = recognition_catalog_key(original)?;
+    if fresh["key"].as_str()? != key
+        || fresh["isrc"].as_str().and_then(isrc) != recognized_isrc(original)
+        || !same_recognition_title(original, fresh["title"].as_str()?)
+        || crate::matching::normalize(fresh["subtitle"].as_str()?)
+            != crate::matching::normalize(&original.artist)
+        || fresh["hub"]["type"] != "APPLEMUSIC"
+    {
+        return None;
+    }
+    let actions = fresh["hub"]["actions"].as_array()?;
+    if actions.len() > 16 {
+        return None;
+    }
+    let mut ids = HashSet::new();
+    for action in actions {
+        if action["type"] == "applemusicplay" {
+            let id = action["id"].as_str()?;
+            if action["name"] != "apple" || !positive_catalog_id(id) {
+                return None;
+            }
+            ids.insert(id.to_owned());
+        }
+    }
+    if ids.len() != 1 {
+        return None;
+    }
+    // Conflicting explicit HTTPS song links cannot be ignored in favor of the typed action.
+    if let Some(options) = fresh["hub"]["options"].as_array() {
+        if options.len() > 16 {
+            return None;
+        }
+        for option in options {
+            if let Some(actions) = option["actions"].as_array() {
+                if actions.len() > 16 {
+                    return None;
+                }
+                for action in actions {
+                    let identifiers =
+                        crate::recording_identity::RecognitionIdentifiers::from_songrec(
+                            &json!({"hub":{"options":[{"actions":[action]}]}}),
+                        );
+                    if let Some(url) = identifiers.apple_music_url {
+                        let url = reqwest::Url::parse(&url).ok()?;
+                        let linked = url
+                            .query_pairs()
+                            .find(|(k, _)| k == "i")
+                            .map(|(_, id)| id.into_owned())
+                            .or_else(|| url.path_segments()?.next_back().map(str::to_owned))?;
+                        if !ids.contains(&linked) {
+                            return None;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let artists = fresh["artists"].as_array()?;
+    if artists.len() != 1 {
+        return None;
+    }
+    let artist_id = artists[0]["adamid"]
+        .as_str()
+        .filter(|id| positive_catalog_id(id))?
+        .parse()
+        .ok()?;
+    let album_id = fresh["albumadamid"]
+        .as_str()
+        .filter(|id| positive_catalog_id(id))?
+        .parse()
+        .ok()?;
+    let mut albums = HashSet::new();
+    let sections = fresh["sections"].as_array()?;
+    if sections.len() > 32 {
+        return None;
+    }
+    for section in sections {
+        if section["metadata"]
+            .as_array()
+            .is_some_and(|rows| rows.len() > 64)
+        {
+            return None;
+        }
+        for metadata in section["metadata"].as_array().into_iter().flatten() {
+            if metadata["title"] == "Album" {
+                let album = metadata["text"].as_str()?;
+                if album.is_empty() || album.len() > 512 {
+                    return None;
+                }
+                albums.insert(album.to_owned());
+            }
+        }
+    }
+    if albums.len() != 1 {
+        return None;
+    }
+    let album = albums.into_iter().next()?;
+    if original.album.as_deref().is_some_and(|saved| {
+        crate::matching::normalize(saved) != crate::matching::normalize(&album)
+    }) {
+        return None;
+    }
+    Some(RecognitionCatalogLink {
+        track_id: ids.into_iter().next()?,
+        artist_id,
+        album_id,
+        album,
+    })
+}
+fn materialize_recognition_duration(
+    original: &Track,
+    link: &RecognitionCatalogLink,
+    raw: &Value,
+) -> Option<PreparedCatalogDuration> {
+    let rows = raw["results"].as_array()?;
+    if raw["resultCount"].as_u64() != Some(1) || rows.len() != 1 {
+        return None;
+    }
+    let row = &rows[0];
+    if row["wrapperType"] != "track"
+        || row["kind"] != "song"
+        || row["trackId"].as_u64()?.to_string() != link.track_id
+        || row["artistId"].as_u64()? != link.artist_id
+        || row["collectionId"].as_u64()? != link.album_id
+        || !same_recognition_title(original, row["trackName"].as_str()?)
+        || crate::matching::normalize(row["artistName"].as_str()?)
+            != crate::matching::normalize(&original.artist)
+        || crate::matching::normalize(row["collectionName"].as_str()?)
+            != crate::matching::normalize(&link.album)
+    {
+        return None;
+    }
+    let duration = row["trackTimeMillis"].as_f64()? / 1000.0;
+    if !duration.is_finite() || !(1.0..=86400.0).contains(&duration) {
+        return None;
+    }
+    // Apple lookup has no ISRC field. The fresh same-key/same-ISRC typed link
+    // supplies authority for this duration only, never new recording identifiers.
+    let mut track = original.clone();
+    track.duration_seconds = Some(duration);
+    let source_fingerprint = format!(
+        "{:x}",
+        Sha256::digest(
+            format!(
+                "shazam:{}|apple:{}|artist:{}|album:{}",
+                recognition_catalog_key(original)?,
+                link.track_id,
+                link.artist_id,
+                link.album_id
+            )
+            .as_bytes()
+        )
+    );
+    track.provenance["playbackCatalogDurationProof"] = json!({"version":1,"originalFingerprint":identity(original),"provider":"shazamAppleExact","sourceFingerprint":source_fingerprint,"checkedAt":chrono::Utc::now().timestamp()});
+    Some(PreparedCatalogDuration {
+        track,
+        original_fingerprint: identity(original),
+        verified_artist_variants: Vec::new(),
+    })
+}
+const RECOGNITION_CATALOG_BODY_LIMIT: usize = 512 * 1024;
+fn validate_recognition_response(status: u16, length: Option<u64>) -> Result<()> {
+    if status != 200 || length.is_some_and(|n| n > RECOGNITION_CATALOG_BODY_LIMIT as u64) {
+        return Err("Exact recognition catalog response is unavailable".into());
+    }
+    Ok(())
+}
+fn append_recognition_chunk(bytes: &mut Vec<u8>, chunk: &[u8]) -> Result<()> {
+    if bytes.len().saturating_add(chunk.len()) > RECOGNITION_CATALOG_BODY_LIMIT {
+        return Err("Exact recognition catalog response exceeds size limit".into());
+    }
+    bytes.extend_from_slice(chunk);
+    Ok(())
+}
+async fn recognition_catalog_body(response: reqwest::Response) -> Result<Value> {
+    validate_recognition_response(response.status().as_u16(), response.content_length())?;
+    let mut stream = response.bytes_stream();
+    let mut bytes = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|_| "Exact recognition catalog response is unavailable")?;
+        append_recognition_chunk(&mut bytes, &chunk)?;
+    }
+    serde_json::from_slice(&bytes).map_err(|_| "Invalid exact recognition catalog response".into())
+}
+async fn fetch_recognition_catalog(
+    client: &reqwest::Client,
+    request: RecognitionCatalogRequest,
+) -> Result<Value> {
+    let request = match request {
+        RecognitionCatalogRequest::Shazam(id) => client
+            .get(format!(
+                "https://amp.shazam.com/discovery/v5/en/US/android/-/track/{id}"
+            ))
+            .query(&[("shazamapiversion", "v3"), ("video", "v3")]),
+        RecognitionCatalogRequest::Apple(id) => client
+            .get("https://itunes.apple.com/lookup")
+            .query(&[("id", id)]),
+    };
+    let response = request
+        .send()
+        .await
+        .map_err(|_| "Exact recognition catalog request is unavailable")?;
+    recognition_catalog_body(response).await
+}
+// SQLite reads are synchronous. Recheck the same deadline and cancellation
+// AFTER the saved-record fence as well as before it; a slow fence must never
+// authorize another request or publish a proof after its opportunity expires.
+fn recognition_catalog_checkpoint<Current>(
+    cancel: &tokio::sync::watch::Receiver<bool>,
+    deadline: tokio::time::Instant,
+    current: &Current,
+) -> Result<bool>
+where
+    Current: Fn() -> Result<bool>,
+{
+    if *cancel.borrow() || tokio::time::Instant::now() >= deadline {
+        return Ok(false);
+    }
+    let unchanged = current()?;
+    Ok(unchanged && !*cancel.borrow() && tokio::time::Instant::now() < deadline)
+}
+
+// Production orchestration seam: tests inject JSON responses, not a mirror of
+// the authority checks, and can edit the saved record while a request is pending.
+async fn prepare_recognition_duration_with_fetch<F, Fut, Current>(
+    original: &Track,
+    cancel: tokio::sync::watch::Receiver<bool>,
+    deadline: tokio::time::Instant,
+    current: Current,
+    mut fetch: F,
+) -> Result<Option<PreparedCatalogDuration>>
+where
+    F: FnMut(RecognitionCatalogRequest) -> Fut,
+    Fut: std::future::Future<Output = Result<Value>>,
+    Current: Fn() -> Result<bool>,
+{
+    let Some(key) = recognition_catalog_key(original) else {
+        return Ok(None);
+    };
+    if *cancel.borrow() {
+        return Err("Cancelled".into());
+    }
+    if !recognition_catalog_checkpoint(&cancel, deadline, &current)? {
+        return Ok(None);
+    }
+    let work = async {
+        let fresh = fetch(RecognitionCatalogRequest::Shazam(key.to_owned())).await?;
+        if !recognition_catalog_checkpoint(&cancel, deadline, &current)? {
+            return Ok(None);
+        }
+        let Some(link) = recognition_catalog_link(original, &fresh) else {
+            return Ok(None);
+        };
+        let raw = fetch(RecognitionCatalogRequest::Apple(link.track_id.clone())).await?;
+        if !recognition_catalog_checkpoint(&cancel, deadline, &current)? {
+            return Ok(None);
+        }
+        let prepared = materialize_recognition_duration(original, &link, &raw);
+        Ok(
+            (!*cancel.borrow() && tokio::time::Instant::now() < deadline)
+                .then_some(prepared)
+                .flatten(),
+        )
+    };
+    tokio::select! {
+        biased;
+        _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => Err("Cancelled".into()),
+        result = tokio::time::timeout_at(deadline, work) => result.map_err(|_| "Exact recognition catalog lookup exceeded its opportunity".to_owned())?,
+    }
+}
+
 impl RemotePlaylistService {
     async fn catalog_duration_account(&self) -> Result<CachedAccount> {
         if self.load_state()?.forgotten_providers.contains("spotify")
@@ -337,6 +660,53 @@ impl RemotePlaylistService {
             started,
             json!({"recognizedIsrc":recognized_isrc(original).is_some(),"budgetMs":deadline.saturating_duration_since(tokio::time::Instant::now()).as_millis()}),
         );
+        // Both public exact-ID hops and any Spotify fallback spend this same
+        // catalog opportunity; the public branch never grants a fresh budget.
+        if recognition_catalog_key(original).is_some() {
+            let saved_at_start = self.store.get_track(&original.id)?;
+            let current = || -> Result<bool> {
+                let saved = self.store.get_track(&original.id)?;
+                Ok(saved == saved_at_start
+                    && saved.as_ref().is_none_or(|track| {
+                        identity(track) == identity(original)
+                            && track.provenance["manualFields"]
+                                == original.provenance["manualFields"]
+                            && track.provenance["recognitionIdentifiers"]
+                                == original.provenance["recognitionIdentifiers"]
+                    }))
+            };
+            let client = reqwest::Client::builder()
+                .no_proxy()
+                .redirect(reqwest::redirect::Policy::none())
+                .user_agent("Burrata/0.1 (public recording metadata)")
+                .build()
+                .map_err(|_| "Exact recognition catalog client is unavailable")?;
+            let public_deadline =
+                deadline.min(tokio::time::Instant::now() + std::time::Duration::from_secs(2));
+            let public = prepare_recognition_duration_with_fetch(
+                original,
+                cancel.clone(),
+                public_deadline,
+                &current,
+                |request| fetch_recognition_catalog(&client, request),
+            )
+            .await;
+            // This last saved-record read can itself consume the remaining
+            // opportunity. Check cancellation and the ORIGINAL catalog deadline
+            // after it, before either accepting public evidence or falling back.
+            let unchanged = current()?;
+            if *cancel.borrow() {
+                return Err("Cancelled".into());
+            }
+            if !unchanged || tokio::time::Instant::now() >= deadline {
+                return Ok(None);
+            }
+            if tokio::time::Instant::now() < public_deadline {
+                if let Ok(Some(prepared)) = public {
+                    return Ok(Some(prepared));
+                }
+            }
+        }
         await_crosswalk_step(deadline, cancel.clone(), async {
             let before = match self.catalog_duration_account().await {
                 Ok(value) => value,
@@ -485,6 +855,431 @@ impl RemotePlaylistService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Minimal public provider fields retained from the reported old favorite;
+    // no artwork, preview URL, source credentials or invented artistRefs.
+    fn recognized_fixture() -> (Track, Value, Value) {
+        let original = Track {
+            id: "radio_song:exact-recognition-fixture".into(),
+            provider: "radio_song".into(),
+            artist: "Celso Piña y Su Ronda Bogotá".into(),
+            title: "Cumbia Sobre El Río".into(),
+            isrc: Some("QZDQH1814866".into()),
+            provenance: json!({"recognitionIdentifiers":{"shazamId":"53751717","isrc":"QZDQH1814866"}}),
+            ..Track::default()
+        };
+        let shazam = json!({"key":"53751717","isrc":"QZDQH1814866","title":"Cumbia Sobre El Río","subtitle":"Celso Piña y Su Ronda Bogotá","hub":{"type":"APPLEMUSIC","actions":[{"name":"apple","type":"applemusicplay","id":"1489872779"}]},"artists":[{"id":"42","adamid":"269782436"}],"albumadamid":"1489872777","sections":[{"metadata":[{"title":"Album","text":"10 Éxitos A Bailar Cumbia"}]}]});
+        let apple = json!({"resultCount":1,"results":[{"wrapperType":"track","kind":"song","trackId":1489872779u64,"artistId":269782436u64,"collectionId":1489872777u64,"artistName":"Celso Piña y Su Ronda Bogotá","trackName":"Cumbia Sobre El Río","collectionName":"10 Éxitos A Bailar Cumbia","trackTimeMillis":190000}]});
+        (original, shazam, apple)
+    }
+    #[tokio::test]
+    async fn exact_recognition_orchestration_uses_only_two_typed_ids_and_preserves_original() {
+        let (original, shazam, apple) = recognized_fixture();
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("test.sqlite")).unwrap();
+        store.save_track(&original).unwrap();
+        let saved = store.get_track(&original.id).unwrap();
+        let calls = std::sync::Mutex::new(Vec::new());
+        let (_stop, cancel) = tokio::sync::watch::channel(false);
+        let prepared = prepare_recognition_duration_with_fetch(
+            &original,
+            cancel,
+            tokio::time::Instant::now() + std::time::Duration::from_secs(1),
+            || Ok(store.get_track(&original.id)? == saved),
+            |request| {
+                calls.lock().unwrap().push(request.clone());
+                let value = match request {
+                    RecognitionCatalogRequest::Shazam(_) => shazam.clone(),
+                    RecognitionCatalogRequest::Apple(_) => apple.clone(),
+                };
+                async { Ok(value) }
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec![
+                RecognitionCatalogRequest::Shazam("53751717".into()),
+                RecognitionCatalogRequest::Apple("1489872779".into())
+            ]
+        );
+        assert_eq!(prepared.track.duration_seconds, Some(190.0));
+        assert_eq!(
+            prepared.track.provenance["playbackCatalogDurationProof"]["sourceFingerprint"],
+            "940f036f8845b56e66fa3a35d5a40155a2beef9c04ffcc5a49ed05dd32c88cf3"
+        );
+        let mut expected = original.clone();
+        expected.duration_seconds = Some(190.0);
+        expected.provenance["playbackCatalogDurationProof"] =
+            prepared.track.provenance["playbackCatalogDurationProof"].clone();
+        assert_eq!(prepared.track, expected);
+        assert_eq!(prepared.original_fingerprint, identity(&original));
+        assert!(prepared.verified_artist_variants.is_empty());
+        assert_eq!(store.get_track(&original.id).unwrap(), saved);
+        assert!(original.duration_seconds.is_none());
+        // This production seam has no account or provider bridge argument.
+    }
+    #[tokio::test]
+    async fn refused_shazam_identity_never_issues_apple_request() {
+        let (original, shazam, _) = recognized_fixture();
+        for field in [
+            "key",
+            "isrc",
+            "title",
+            "subtitle",
+            "hub",
+            "typedName",
+            "typedType",
+            "typedId",
+            "ambiguous",
+            "artist",
+            "album",
+            "albumName",
+            "conflictingLink",
+        ] {
+            let mut fresh = shazam.clone();
+            match field {
+                "key" => fresh["key"] = json!("999"),
+                "isrc" => fresh["isrc"] = json!("USABC2600001"),
+                "title" => fresh["title"] = json!("Cumbia Sobre El Río (Live)"),
+                "subtitle" => fresh["subtitle"] = json!("Another Artist"),
+                "hub" => fresh["hub"]["type"] = json!("OTHER"),
+                "typedName" => fresh["hub"]["actions"][0]["name"] = json!("other"),
+                "typedType" => fresh["hub"]["actions"][0]["type"] = json!("uri"),
+                "typedId" => fresh["hub"]["actions"][0]["id"] = json!("0"),
+                "ambiguous" => fresh["hub"]["actions"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!({"name":"apple","type":"applemusicplay","id":"987"})),
+                "artist" => fresh["artists"] = json!([]),
+                "album" => fresh["albumadamid"] = json!("invalid"),
+                "albumName" => fresh["sections"][0]["metadata"] = json!([]),
+                _ => {
+                    fresh["hub"]["options"] =
+                        json!([{"actions":[{"uri":"https://music.apple.com/us/song/123"}]}])
+                }
+            }
+            let calls = std::sync::atomic::AtomicUsize::new(0);
+            let (_stop, cancel) = tokio::sync::watch::channel(false);
+            let result = prepare_recognition_duration_with_fetch(
+                &original,
+                cancel,
+                tokio::time::Instant::now() + std::time::Duration::from_secs(1),
+                || Ok(true),
+                |request| {
+                    assert!(matches!(request, RecognitionCatalogRequest::Shazam(_)));
+                    calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let fresh = fresh.clone();
+                    async { Ok(fresh) }
+                },
+            )
+            .await
+            .unwrap();
+            assert!(result.is_none(), "{field}");
+            assert_eq!(
+                calls.load(std::sync::atomic::Ordering::SeqCst),
+                1,
+                "{field}"
+            );
+        }
+    }
+    #[test]
+    fn exact_recognition_apple_rejects_id_credit_version_album_and_duration_conflicts() {
+        let (original, shazam, apple) = recognized_fixture();
+        let link = recognition_catalog_link(&original, &shazam).unwrap();
+        for field in [
+            "trackId",
+            "artistId",
+            "collectionId",
+            "artistName",
+            "trackName",
+            "collectionName",
+            "kind",
+            "duration",
+            "count",
+            "extra",
+        ] {
+            let mut raw = apple.clone();
+            match field {
+                "trackId" | "artistId" | "collectionId" => raw["results"][0][field] = json!(987),
+                "artistName" => raw["results"][0][field] = json!("Other Artist"),
+                "trackName" => raw["results"][0][field] = json!("Cumbia Sobre El Río (Remix)"),
+                "collectionName" => raw["results"][0][field] = json!("Another Album"),
+                "kind" => raw["results"][0][field] = json!("album"),
+                "duration" => raw["results"][0]["trackTimeMillis"] = json!(0),
+                "count" => raw["resultCount"] = json!(2),
+                _ => raw["results"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(apple["results"][0].clone()),
+            }
+            assert!(
+                materialize_recognition_duration(&original, &link, &raw).is_none(),
+                "{field}"
+            );
+        }
+    }
+    #[tokio::test]
+    async fn recognition_manual_asset_range_and_missing_key_guards_make_no_requests() {
+        let (original, _, _) = recognized_fixture();
+        for field in [
+            "title",
+            "artist",
+            "durationSeconds",
+            "asset",
+            "local",
+            "chapters",
+            "key",
+            "duration",
+            "isrc",
+            "range",
+        ] {
+            let mut changed = original.clone();
+            match field {
+                "title" | "artist" | "durationSeconds" => {
+                    changed.provenance["manualFields"] = json!({});
+                    changed.provenance["manualFields"][field] = json!(true)
+                }
+                "asset" => changed.asset_id = Some("asset".into()),
+                "local" => changed.local_path = Some("/owned/track.wav".into()),
+                "chapters" => changed.provenance["chapters"] = json!([{"startTime":0}]),
+                "key" => changed.provenance["recognitionIdentifiers"]["shazamId"] = Value::Null,
+                "duration" => changed.duration_seconds = Some(191.0),
+                "isrc" => changed.isrc = Some("USABC2600001".into()),
+                _ => {
+                    changed.playback_range = Some(crate::models::PlaybackRange {
+                        parent_track_id: "parent".into(),
+                        chapter_id: "chapter".into(),
+                        source_url: "https://example.test/recording".into(),
+                        start_time: 0.0,
+                        end_time: 30.0,
+                        parent_title: original.title.clone(),
+                        parent_duration_seconds: Some(190.0),
+                    });
+                }
+            }
+            let (_stop, cancel) = tokio::sync::watch::channel(false);
+            assert!(
+                prepare_recognition_duration_with_fetch(
+                    &changed,
+                    cancel,
+                    tokio::time::Instant::now() + std::time::Duration::from_secs(1),
+                    || Ok(true),
+                    |_| async {
+                        panic!("ineligible request reached HTTP seam");
+                        #[allow(unreachable_code)]
+                        Ok(Value::Null)
+                    }
+                )
+                .await
+                .unwrap()
+                .is_none(),
+                "{field}"
+            );
+        }
+    }
+    #[tokio::test]
+    async fn recognition_orchestration_aborts_concurrent_manual_edits_before_or_after_apple() {
+        let (original, shazam, apple) = recognized_fixture();
+        for (edit_after, edit_field) in [
+            (1usize, "manual"),
+            (2, "manual"),
+            (1, "recognition"),
+            (2, "identity"),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let store = Store::open(&dir.path().join("test.sqlite")).unwrap();
+            store.save_track(&original).unwrap();
+            let saved = store.get_track(&original.id).unwrap();
+            let calls = std::sync::atomic::AtomicUsize::new(0);
+            let (_stop, cancel) = tokio::sync::watch::channel(false);
+            let result = prepare_recognition_duration_with_fetch(
+                &original,
+                cancel,
+                tokio::time::Instant::now() + std::time::Duration::from_secs(1),
+                || Ok(store.get_track(&original.id)? == saved),
+                |request| {
+                    let n = calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                    if n == edit_after {
+                        let mut edited = original.clone();
+                        match edit_field {
+                            "manual" => edited.provenance["manualFields"] = json!({"title":true}),
+                            "recognition" => {
+                                edited.provenance["recognitionIdentifiers"]["shazamId"] =
+                                    json!("999")
+                            }
+                            _ => edited.title = "Edited title".into(),
+                        }
+                        store.save_track(&edited).unwrap();
+                    }
+                    let value = match request {
+                        RecognitionCatalogRequest::Shazam(_) => shazam.clone(),
+                        RecognitionCatalogRequest::Apple(_) => apple.clone(),
+                    };
+                    async { Ok(value) }
+                },
+            )
+            .await
+            .unwrap();
+            assert!(result.is_none());
+            assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), edit_after);
+            assert_ne!(store.get_track(&original.id).unwrap(), saved);
+        }
+    }
+    #[tokio::test]
+    async fn recognition_saved_record_fence_cannot_publish_after_deadline_or_cancel() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let (original, shazam, apple) = recognized_fixture();
+        for cancel_in_fence in [false, true] {
+            let (stop, cancel) = tokio::sync::watch::channel(false);
+            let fences = AtomicUsize::new(0);
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(500);
+            let result = prepare_recognition_duration_with_fetch(
+                &original,
+                cancel,
+                deadline,
+                || {
+                    if fences.fetch_add(1, Ordering::SeqCst) == 2 {
+                        if cancel_in_fence {
+                            stop.send_replace(true);
+                        } else {
+                            // Model a synchronous SQLite read finishing just
+                            // after expiry, without yielding to Tokio's timer.
+                            std::thread::sleep(
+                                deadline.saturating_duration_since(tokio::time::Instant::now())
+                                    + std::time::Duration::from_millis(1),
+                            );
+                        }
+                    }
+                    Ok(true)
+                },
+                |request| {
+                    let value = match request {
+                        RecognitionCatalogRequest::Shazam(_) => shazam.clone(),
+                        RecognitionCatalogRequest::Apple(_) => apple.clone(),
+                    };
+                    async move { Ok(value) }
+                },
+            )
+            .await;
+            assert_eq!(fences.load(Ordering::SeqCst), 3);
+            assert!(
+                !matches!(result, Ok(Some(_))),
+                "late/canceled proof escaped the saved-record fence"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn recognition_second_hop_has_no_new_deadline_and_is_dropped_on_expiry() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct PendingRequest(std::sync::Arc<AtomicUsize>);
+        impl Drop for PendingRequest {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        let (original, shazam, _) = recognized_fixture();
+        let calls = AtomicUsize::new(0);
+        let dropped = std::sync::Arc::new(AtomicUsize::new(0));
+        let (_stop, cancel) = tokio::sync::watch::channel(false);
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(10);
+        let result = prepare_recognition_duration_with_fetch(
+            &original,
+            cancel,
+            deadline,
+            || Ok(true),
+            |request| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                let shazam = shazam.clone();
+                let dropped = dropped.clone();
+                async move {
+                    match request {
+                        RecognitionCatalogRequest::Shazam(_) => Ok(shazam),
+                        RecognitionCatalogRequest::Apple(_) => {
+                            let _request = PendingRequest(dropped);
+                            std::future::pending::<Result<Value>>().await
+                        }
+                    }
+                }
+            },
+        )
+        .await;
+        assert!(result.unwrap_err().contains("opportunity"));
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert_eq!(dropped.load(Ordering::SeqCst), 1);
+        assert!(tokio::time::Instant::now() >= deadline);
+    }
+
+    #[test]
+    fn exact_recognition_http_rejects_partial_redirect_and_oversize_responses() {
+        assert!(validate_recognition_response(200, None).is_ok());
+        for status in [206, 301, 302, 307, 308, 403, 500] {
+            assert!(validate_recognition_response(status, Some(100)).is_err());
+        }
+        assert!(validate_recognition_response(200, Some(512 * 1024 + 1)).is_err());
+        let mut bytes = vec![0; RECOGNITION_CATALOG_BODY_LIMIT - 1];
+        append_recognition_chunk(&mut bytes, &[1]).unwrap();
+        assert!(append_recognition_chunk(&mut bytes, &[2]).is_err());
+        assert_eq!(bytes.len(), RECOGNITION_CATALOG_BODY_LIMIT);
+    }
+
+    #[tokio::test]
+    async fn recognition_requests_keep_one_deadline_and_drop_pending_work_on_cancel() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let (original, _, _) = recognized_fixture();
+        let calls = AtomicUsize::new(0);
+        let (_stop, cancel) = tokio::sync::watch::channel(false);
+        assert!(prepare_recognition_duration_with_fetch(
+            &original,
+            cancel,
+            tokio::time::Instant::now() - std::time::Duration::from_secs(1),
+            || Ok(true),
+            |_| async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(Value::Null)
+            }
+        )
+        .await
+        .unwrap()
+        .is_none());
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        let (stop, cancel) = tokio::sync::watch::channel(false);
+        let entered = std::sync::Arc::new(tokio::sync::Notify::new());
+        let observed = entered.clone();
+        let future = prepare_recognition_duration_with_fetch(
+            &original,
+            cancel,
+            tokio::time::Instant::now() + std::time::Duration::from_secs(1),
+            || Ok(true),
+            |_| {
+                let entered = entered.clone();
+                async move {
+                    entered.notify_one();
+                    std::future::pending::<Result<Value>>().await
+                }
+            },
+        );
+        let cancel_task = async {
+            observed.notified().await;
+            stop.send_replace(true);
+        };
+        let (result, ()) = tokio::join!(future, cancel_task);
+        assert_eq!(result.unwrap_err(), "Cancelled");
+        let (_stop, cancel) = tokio::sync::watch::channel(false);
+        assert!(prepare_recognition_duration_with_fetch(
+            &original,
+            cancel,
+            tokio::time::Instant::now() + std::time::Duration::from_millis(5),
+            || Ok(true),
+            |_| std::future::pending::<Result<Value>>()
+        )
+        .await
+        .unwrap_err()
+        .contains("opportunity"));
+    }
+
     fn track() -> Track {
         Track {
             id: "radio_song:fixture".into(),

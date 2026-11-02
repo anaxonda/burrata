@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) const EVALUATOR_VERSION: &str = "16";
+pub(crate) const EVALUATOR_VERSION: &str = "17";
 
 /// Independently selected categories of alternatives for Flexible matching.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -310,6 +310,7 @@ fn strip_caption_presentation(mut raw: &str) -> &str {
             norm(label).as_str(),
             "audio"
                 | "official audio"
+                | "audio oficial"
                 | "official video"
                 | "official music video"
                 | "official lyric video"
@@ -3333,6 +3334,84 @@ pub(crate) fn assess_with_scoped_artist_credit_set_variant_and_options(
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn spanish_official_audio_keeps_missing_runtime_and_credit_requirements() {
+        let track = Track {
+            provider: "radio_song".into(),
+            title: "Cumbia Sobre El Río".into(),
+            artist: "Celso Piña y Su Ronda Bogotá".into(),
+            isrc: Some("QZDQH1814866".into()),
+            ..Track::default()
+        };
+        let title = "Celso Piña Y Su Ronda Bogotá - Cumbia Sobre El Río (Audio Oficial)";
+        let original = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:1guXeejD3G4".into(),
+            title: title.into(),
+            uploader: Some("Dame Regional".into()),
+            duration_seconds: Some(191.0),
+            source_metadata: Some(
+                json!({"sourceMetadataOrigin":"ytDlpFullInfo", "resolvedProviderId":"1guXeejD3G4", "extractor":true, "catalogTitle":title, "track":title, "duration":191.0}),
+            ),
+            ..Candidate::default()
+        };
+        let evaluate = |candidate: &Candidate| {
+            assess(
+                &track,
+                candidate,
+                MatchLevel::Balanced,
+                MatchStage::Resolved,
+            )
+        };
+        let observed = evaluate(&original);
+        assert_eq!(observed.dimensions.title, Comparison::Agree);
+        assert_eq!(observed.dimensions.artists, Comparison::Agree);
+        assert_ne!(
+            observed.action,
+            MatchAction::Accept,
+            "A neutral annotation cannot fabricate missing complete-credit evidence"
+        );
+        assert!(!observed
+            .reasons
+            .contains(&MatchReason::UnresolvedAnnotation));
+        let mut complete = original.clone();
+        complete.source_metadata.as_mut().unwrap()["artists"] = json!([track.artist]);
+        complete.source_metadata.as_mut().unwrap()["artistCount"] = json!(1);
+        assert_eq!(evaluate(&complete).action, MatchAction::Accept);
+        let with_title = |value: &str| {
+            let mut candidate = complete.clone();
+            candidate.title = value.into();
+            candidate.source_metadata.as_mut().unwrap()["track"] = json!(value);
+            candidate.source_metadata.as_mut().unwrap()["catalogTitle"] = json!(value);
+            candidate
+        };
+        assert_eq!(
+            evaluate(&with_title(
+                &title.replace("Audio Oficial", "Official Audio")
+            ))
+            .action,
+            MatchAction::Accept
+        );
+        for suffix in [
+            "(Audio Oficial) (Live)",
+            "(Audio Oficial Remix)",
+            "(Audio Oficial) (Unknown Label)",
+            "(Audio Oficial) (Club Remix)",
+        ] {
+            assert_ne!(
+                evaluate(&with_title(&title.replace("(Audio Oficial)", suffix))).action,
+                MatchAction::Accept,
+                "{suffix}"
+            );
+        }
+        let mut wrong_artist =
+            with_title(&title.replace("Celso Piña Y Su Ronda Bogotá", "Different Artist"));
+        wrong_artist.source_metadata.as_mut().unwrap()["artists"] = json!(["Different Artist"]);
+        assert_ne!(evaluate(&wrong_artist).action, MatchAction::Accept);
+        let mut wrong_isrc = complete;
+        wrong_isrc.source_metadata.as_mut().unwrap()["isrc"] = json!("USRC17607839");
+        assert_ne!(evaluate(&wrong_isrc).action, MatchAction::Accept);
+    }
 
     #[test]
     fn manual_artist_supersedes_stale_provider_credits_without_weakening_identity() {

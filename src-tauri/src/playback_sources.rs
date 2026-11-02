@@ -32,6 +32,7 @@ pub(crate) const EXTRACTION_ATTEMPTS_EXHAUSTED: &str = "Playback extraction atte
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum ResolutionFailureKind {
     NoResults,
+    ProviderSearchDeadline,
     IdentityRejected,
     SourceOrSearch,
     Retryable,
@@ -56,6 +57,13 @@ impl ResolutionFailure {
             || lower.starts_with("no playable audio match was found")
         {
             ResolutionFailureKind::NoResults
+        } else if message == "Playback candidate search timed out" {
+            // Acquisition receives a provider opportunity, not necessarily the
+            // whole operation deadline. Keep this failure visible if it is the
+            // only evidence, but do not erase completed identity assessments.
+            // The final resolver normalization still enforces the real shared
+            // deadline and cancellation, regardless of this error priority.
+            ResolutionFailureKind::ProviderSearchDeadline
         } else if [
             SOURCE_IDENTITY_REJECTED,
             SOURCE_MISSING_DURATION,
@@ -1351,7 +1359,7 @@ async fn resolve_inner(
                 && deadline.remaining() > Duration::from_secs(8)
             {
                 let started = Instant::now();
-                trace.event("catalog_duration_lookup_start", "other", json!({"catalogProvider":"spotify"}));
+                trace.event("catalog_duration_lookup_start", "other", json!({"catalogProvider":"independentCatalog"}));
                 let prepared = acquisition.prepare_catalog_duration_track(
                     &effective_track,
                     cancel.clone(),
@@ -1368,7 +1376,7 @@ async fn resolve_inner(
                         effective_trace.catalog_artist_variants = verified_artist_variants;
                     }
                 }
-                trace.event("catalog_duration_lookup_end", "other", json!({"catalogProvider":"spotify","accepted":effective_trace.catalog_duration_enriched,"durationMs":started.elapsed().as_millis()}));
+                trace.event("catalog_duration_lookup_end", "other", json!({"catalogProvider":if effective_trace.catalog_duration_enriched {effective_track.provenance["playbackCatalogDurationProof"]["provider"].as_str().unwrap_or("independentCatalog")}else{"independentCatalog"},"accepted":effective_trace.catalog_duration_enriched,"catalogDurationSeconds":if effective_trace.catalog_duration_enriched {effective_track.duration_seconds}else{None},"sourceFingerprint":if effective_trace.catalog_duration_enriched {effective_track.provenance["playbackCatalogDurationProof"]["sourceFingerprint"].clone()}else{Value::Null},"durationMs":started.elapsed().as_millis()}));
             }
             let background_allowed = automatic_source
                 && !*cancel.borrow()
@@ -7766,6 +7774,134 @@ mod tests {
             .kind,
             ResolutionFailureKind::NoResults
         );
+    }
+
+    #[test]
+    fn provider_search_timeout_keeps_completed_identity_rejection() {
+        let identity = "The resolved audio source identity does not match this recording";
+        let search_timeout = "Playback candidate search timed out";
+        for (first, second) in [(identity, search_timeout), (search_timeout, identity)] {
+            let mut failures = SerialResolutionFailures {
+                had_results: true,
+                ..Default::default()
+            };
+            failures.record(first.into());
+            failures.record(second.into());
+            assert_eq!(failures.finish(true), identity);
+        }
+        let mut only_timeout = SerialResolutionFailures::default();
+        only_timeout.record(search_timeout.into());
+        assert_eq!(only_timeout.finish(true), search_timeout);
+        assert_eq!(
+            merge_resolution_errors(search_timeout.into(), SOURCE_NO_RESULTS.into()),
+            search_timeout,
+            "an incomplete search must not become an empty-results claim"
+        );
+        for terminal in [
+            PLAYBACK_DEADLINE_MESSAGE,
+            "Cancelled",
+            "Audio source storage operation failed",
+            "Audio extraction timed out",
+        ] {
+            assert_eq!(
+                merge_resolution_errors(search_timeout.into(), terminal.into()),
+                terminal
+            );
+            assert_eq!(
+                merge_resolution_errors(terminal.into(), search_timeout.into()),
+                terminal
+            );
+        }
+        assert_eq!(
+            ResolutionFailure::new("Unrecognized provider search timeout".into()).kind,
+            ResolutionFailureKind::Deadline,
+            "only the acquisition-owned fixed outcome receives provider-local priority"
+        );
+    }
+
+    #[tokio::test]
+    async fn provider_search_timeout_and_identity_use_real_parallel_failure_merging() {
+        let identity = "The resolved audio source identity does not match this recording";
+        for early_preferred in [true, false] {
+            let deadline = PlaybackDeadline::after(Duration::from_secs(1));
+            let preferred = async move {
+                tokio::time::sleep(Duration::from_millis(if early_preferred { 1 } else { 4 }))
+                    .await;
+                Err::<u8, _>("Playback candidate search timed out".to_owned())
+            };
+            let fallback = async move {
+                tokio::time::sleep(Duration::from_millis(if early_preferred { 4 } else { 1 }))
+                    .await;
+                let mut failures = SerialResolutionFailures {
+                    had_results: true,
+                    ..Default::default()
+                };
+                failures.record(identity.into());
+                failures.record("Playback candidate search timed out".into());
+                Err(failures.finish(true))
+            };
+            let result = prefer_with_grace(
+                Box::pin(preferred),
+                Box::pin(fallback),
+                Duration::from_millis(10),
+            )
+            .await;
+            assert!(!deadline.remaining().is_zero());
+            assert_eq!(
+                normalize_resolver_deadline(result, deadline, false).unwrap_err(),
+                identity
+            );
+        }
+    }
+
+    #[test]
+    fn provider_search_priority_cannot_hide_actual_deadline_or_cancellation() {
+        let result = || {
+            Err::<u8, _>(merge_resolution_errors(
+                "Playback candidate search timed out".into(),
+                "The resolved audio source identity does not match this recording".into(),
+            ))
+        };
+        let expired = PlaybackDeadline::at(tokio::time::Instant::now() - Duration::from_secs(1));
+        assert_eq!(
+            normalize_resolver_deadline(result(), expired, false).unwrap_err(),
+            PLAYBACK_DEADLINE_MESSAGE
+        );
+        assert_eq!(
+            normalize_resolver_deadline(result(), expired, true).unwrap_err(),
+            "Cancelled"
+        );
+        let live = PlaybackDeadline::after(Duration::from_secs(1));
+        assert_eq!(
+            normalize_resolver_deadline(result(), live, true).unwrap_err(),
+            "Cancelled"
+        );
+    }
+
+    #[tokio::test]
+    async fn available_provider_still_wins_over_provider_search_timeout() {
+        for preferred_succeeds in [true, false] {
+            let preferred = async move {
+                if preferred_succeeds {
+                    Ok(17u8)
+                } else {
+                    Err("Playback candidate search timed out".into())
+                }
+            };
+            let fallback = async move {
+                if preferred_succeeds {
+                    Err("Playback candidate search timed out".into())
+                } else {
+                    Ok(17u8)
+                }
+            };
+            assert_eq!(
+                prefer_with_grace(Box::pin(preferred), Box::pin(fallback), Duration::ZERO)
+                    .await
+                    .unwrap(),
+                17
+            );
+        }
     }
 
     #[tokio::test]

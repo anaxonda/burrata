@@ -1070,7 +1070,13 @@ fn enum_values(key: &str) -> Option<&'static [&'static str]> {
         "authority" => Some(&["musicbrainz", "discogs", "spotify", "other"]),
         "identity" => Some(&["complete", "incomplete"]),
         "scope" => Some(&["candidatesEvaluatedBeforeForegroundCap"]),
-        "catalogProvider" => Some(&["spotify", "musicbrainz", "discogs"]),
+        "catalogProvider" => Some(&[
+            "spotify",
+            "musicbrainz",
+            "discogs",
+            "independentCatalog",
+            "shazamAppleExact",
+        ]),
         "stage" => Some(&[
             "request",
             "visitor",
@@ -1533,6 +1539,8 @@ mod tests {
     fn candidate_identity_evidence_retains_only_public_links_and_fixed_proof_kinds() {
         let safe = sanitize_details(json!({
             "proofKind":"verified_extractor",
+            "catalogProvider":"shazamAppleExact",
+            "appleTrackId":"private catalog locator",
             "candidateRows":[{
                 "catalogDurationSeconds":120.093,
                 "candidateDurationSeconds":240,
@@ -1541,6 +1549,17 @@ mod tests {
             }]
         }));
         assert_eq!(safe["proofKind"], "verified_extractor");
+        assert_eq!(safe["catalogProvider"], "shazamAppleExact");
+        assert!(safe.get("appleTrackId").is_none());
+        assert_eq!(
+            sanitize_details(json!({"catalogProvider":"independentCatalog"}))["catalogProvider"],
+            "independentCatalog"
+        );
+        assert!(sanitize_details(
+            json!({"catalogProvider":"https://private.invalid/?token=secret"})
+        )
+        .get("catalogProvider")
+        .is_none());
         assert_eq!(safe["candidateRows"][0]["catalogDurationSeconds"], 120.093);
         assert_eq!(safe["candidateRows"][0]["candidateDurationSeconds"], 240);
         assert_eq!(

@@ -184,6 +184,22 @@ class WorkflowSourceTests(unittest.TestCase):
         self.assertIn('matrix: ${{ fromJSON(needs.prepare.outputs.build_matrix) }}', workflow)
         self.assertIn("needs.prepare.outputs.linux_only != 'true' &&", workflow)
 
+    def test_manual_deb_upload_covers_full_matrix_and_linux_only(self):
+        step = WORKFLOW.read_text().split('name: Upload DEB only for manual Linux qualification\n', 1)[1].split('      - ', 1)[0]
+        condition = re.search(r'^        if: (.+)$', step, re.MULTILINE).group(1)
+        self.assertIn('path: release-artifacts/installers/*.deb', step)
+        for linux_only in (False, True):
+            for success, event, runner, expected in (
+                (True, 'workflow_dispatch', 'Linux', True),
+                (False, 'workflow_dispatch', 'Linux', False),
+                (True, 'push', 'Linux', False),
+                (True, 'workflow_dispatch', 'Windows', False),
+                (True, 'workflow_dispatch', 'macOS', False),
+            ):
+                with self.subTest(linux_only=linux_only, success=success, event=event, runner=runner):
+                    expression = condition.replace('success()', repr(success)).replace('github.event_name', repr(event)).replace('runner.os', repr(runner)).replace('needs.prepare.outputs.linux_only', repr(str(linux_only).lower())).replace('&&', ' and ')
+                    self.assertIs(eval(expression, {'__builtins__': {}}, {}), expected)
+
 
 
 class RpmWorkflowTests(unittest.TestCase):
