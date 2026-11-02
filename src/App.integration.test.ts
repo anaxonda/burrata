@@ -6688,6 +6688,34 @@ describe("native playback frontend", () => {
     expect(mocks.call).not.toHaveBeenCalledWith("playback_command", { command: expect.objectContaining({ action: "select" }) });
   });
 
+  it.each(["soundcloud", "youtube"] as const)("keeps a downloaded %s Library row implicit when only the registered file made it authoritative", async provider => {
+    const providerId = provider === "soundcloud" ? "219610160" : "abcdefghijk";
+    const url = provider === "soundcloud" ? "https://soundcloud.com/fixture/remembered" : "https://www.youtube.com/watch?v=abcdefghijk";
+    const candidate: Candidate = { ...youtubeCandidate(savedTrack), id: `${provider}:${providerId}`, provider, url, title: "Remembered Source" };
+    const downloaded: Track = { ...savedTrack, id: `${provider}:${providerId}`, provider, providerId, sourceUrl: url,
+      title: "Remembered Source", artist: "", localPath: "/registered/corrupt.m4a", assetId: "registered-source-asset", localAvailability: "available",
+      provenance: { sourceKind: "audioSearch", identity: "unverified source search result", manualFields: {}, audioCandidate: candidate } };
+    const original = JSON.stringify(downloaded);
+    savedChartTracks = [downloaded];
+    mountNative(makeNativeSnapshot()); await settle();
+    document.querySelector<HTMLButtonElement>(`[aria-label="Play ${downloaded.title}"]`)!.click(); await settle();
+    const playCall = mocks.call.mock.calls.find(([command, args]) => command === "playback_command"
+      && (args as { command?: { action?: string } } | undefined)?.command?.action === "play");
+    expect(playCall?.[1]).toMatchObject({ command: { candidate: undefined, tracks: [downloaded] } });
+    expect(JSON.stringify(downloaded)).toBe(original);
+    expect(mocks.call.mock.calls.some(([command]) => ["update_track", "save_track", "delete_asset"].includes(String(command)))).toBe(false);
+  });
+
+  it.each(["userSelectedSource", "explicitSourceLock", "sourceMode"] as const)("preserves explicit %s candidate intent on a downloaded Library row", async lock => {
+    const candidate: Candidate = { ...youtubeCandidate(savedTrack), id: "soundcloud:219610160", provider: "soundcloud", url: "https://soundcloud.com/fixture/remembered" };
+    const provenance = {sourceKind:"audioSearch",audioCandidate:candidate,...(lock === "sourceMode" ? {playbackMode:"source"} : {[lock]:true})};
+    const downloaded: Track = {...savedTrack,localPath:"/registered/corrupt.m4a",assetId:"registered-asset",provenance};
+    savedChartTracks=[downloaded];mountNative(makeNativeSnapshot());await settle();
+    document.querySelector<HTMLButtonElement>(`[aria-label="Play ${downloaded.title}"]`)!.click();await settle();
+    const playCall=mocks.call.mock.calls.find(([command,args])=>command==="playback_command"&&(args as {command?:{action?:string}})?.command?.action==="play");
+    expect(playCall?.[1]).toMatchObject({command:{candidate,tracks:[downloaded]}});
+  });
+
   it("does not pin a remembered Monochrome candidate when starting a catalog track", async () => {
     const candidate: Candidate = { ...youtubeCandidate(savedTrack), id: "monochrome:remembered", provider: "monochrome",
       url: "https://tracks.monochrome.st/track/remembered" };

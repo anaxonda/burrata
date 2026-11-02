@@ -370,7 +370,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: native-playback-deb-${{ needs.prepare.outputs.commit }}
-          path: release-artifacts/*.deb
+          path: release-artifacts/installers/*.deb
           if-no-files-found: error
           retention-days: 7
           compression-level: 0

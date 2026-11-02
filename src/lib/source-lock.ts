@@ -27,11 +27,13 @@ export function isCatalogSelection(track: Track): boolean {
  */
 export function hasExplicitSourceLock(
   track: Track,
-  options: { selectedCandidate?: Candidate | null; audioSearchResult?: boolean; overridePlaylistTrackUrls?: boolean } = {},
+  options: { selectedCandidate?: Candidate | null; audioSearchResult?: boolean; overridePlaylistTrackUrls?: boolean; localPathPins?: boolean } = {},
 ): boolean {
   const provenance = provenanceOf(track);
   const sourceKind = String(provenance.sourceKind ?? "").toLowerCase();
-  if (track.playbackRange || track.localPath || ["radio", "local", "upload", "slsk", "slskd"].includes(track.provider) ||
+  // A registered file may win local playback without selecting its remembered
+  // online candidate. Native candidate forwarding opts out of that file-only pin.
+  if (track.playbackRange || (options.localPathPins !== false && track.localPath) || ["radio", "local", "upload", "slsk", "slskd"].includes(track.provider) ||
       provenance.userSelectedSource === true || provenance.explicitSourceLock === true ||
       ["youtuberadio", "upload", "uploaded", "localupload"].includes(sourceKind)) return true;
 

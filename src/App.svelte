@@ -4003,7 +4003,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
   }
 
   function sourceIsAuthoritative(track: Track): boolean {
-    return hasExplicitSourceLock(track, {selectedCandidate:queueCandidates[track.id],audioSearchResult:audioSearchTrackIds.has(track.id),overridePlaylistTrackUrls:settings.overridePlaylistTrackUrls === true});
+    return hasExplicitSourceLock(track, {selectedCandidate:queueCandidates[track.id],audioSearchResult:audioSearchTrackIds.has(track.id),overridePlaylistTrackUrls:settings.overridePlaylistTrackUrls === true,localPathPins:false});
   }
 
   onMount(() => () => {

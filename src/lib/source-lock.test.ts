@@ -6,6 +6,18 @@ const candidate = { id: "monochrome:12345678901234567", provider: "monochrome", 
 const track: Track = { id: "monochrome:12345678901234567", provider: "monochrome", providerId: "12345678901234567", sourceUrl: "https://tracks.monochrome.st/track/12345678901234567", artist: "Artist", title: "Song", favorite: false, provenance: {} };
 
 describe("source lock classification", () => {
+  it.each(["soundcloud", "youtube"])("separates a registered %s file preference from an explicit online candidate pin", provider => {
+    const downloaded = { ...track, provider, localPath: "/registered/corrupt.m4a", assetId: "registered-asset", provenance: {sourceKind:"audioSearch",audioCandidate:candidate} };
+    expect(hasExplicitSourceLock(downloaded)).toBe(true);
+    expect(hasExplicitSourceLock(downloaded,{localPathPins:false})).toBe(false);
+    expect(hasExplicitSourceLock(downloaded,{localPathPins:false,selectedCandidate:candidate})).toBe(true);
+    for(const provenance of [{sourceKind:"audioSearch",userSelectedSource:true},{explicitSourceLock:true},{playbackMode:"source"},{sourceKind:"youtubeRadio"},{sourceKind:"upload"},{sourceKind:"uploaded"},{sourceKind:"localUpload"}])
+      expect(hasExplicitSourceLock({...downloaded,provenance},{localPathPins:false})).toBe(true);
+    for(const provider of ["radio","local","upload","slsk","slskd"])
+      expect(hasExplicitSourceLock({...downloaded,provider},{localPathPins:false})).toBe(true);
+    expect(hasExplicitSourceLock({...downloaded,playbackRange:{parentTrackId:track.id,chapterId:"c",sourceUrl:track.sourceUrl,startTime:0,endTime:20,parentTitle:"Set"}},{localPathPins:false})).toBe(true);
+  });
+
   it("distinguishes explicit selections from cached catalog links", () => {
     expect(isCatalogSelection(track)).toBe(true);
     expect(hasExplicitSourceLock(track, { selectedCandidate: candidate })).toBe(true);
