@@ -1033,5 +1033,101 @@ class WindowsDiagnosticTests(unittest.TestCase):
             self.assertEqual(launch.call_args.args[1]['BURRATA_WINDOWS_NATIVE_DIAGNOSTIC'],'1')
 
 
+class WindowsAudioOutputDeferralTests(unittest.TestCase):
+    def output_failure(self):
+        error = smoke.SmokeFailure("Native audio", "output fixture failed")
+        error.diagnostics = {"windowsDiagnostic": {
+            "diagnosticOnly": True, "qualificationStatus": "UNQUALIFIED", "muted": True, "beforeCleanup": True,
+            "failure": {"step": "play_fixture", "tool": "play_tracks", "category": "output_device_unavailable"},
+            "nativeState": {"engine": "native", "status": "failed", "messageCategory": "output_device_unavailable",
+                            "failureCategory": "output", "failureStage": "output", "hasCurrentTrack": True}, "events": []}}
+        return error
+
+    def test_only_explicit_windows_exact_output_unavailable_can_defer(self):
+        with patch.object(smoke.sys, "platform", "win32"):
+            error = self.output_failure()
+            actual = smoke.defer_windows_audio_output_failure(error, True)
+            self.assertEqual(actual["status"], "deferred")
+            self.assertEqual(actual["verificationStatus"], "UNVERIFIED")
+            self.assertEqual(actual["originalCheckStatus"], "failed")
+            self.assertNotIn("capturedSeconds", actual)
+            self.assertIsNone(smoke.defer_windows_audio_output_failure(error, False))
+            for group, key, value in [("failure", "category", "decode"), ("failure", "category", "output_configuration"),
+                                      ("failure", "category", "timeout"), ("failure", "step", "capture_first"),
+                                      ("failure", "tool", "inspect_native_output"), ("nativeState", "engine", "other"),
+                                      ("nativeState", "failureCategory", "network"), ("nativeState", "failureStage", "transport"),
+                                      ("nativeState", "status", "playing"), ("nativeState", "hasCurrentTrack", False),
+                                      ("nativeState", "messageCategory", "decode")]:
+                with self.subTest(group=group, key=key, value=value):
+                    changed = self.output_failure(); changed.diagnostics["windowsDiagnostic"][group][key] = value
+                    self.assertIsNone(smoke.defer_windows_audio_output_failure(changed, True))
+            for key in ["beforeCleanup", "muted", "diagnosticOnly"]:
+                changed = self.output_failure(); changed.diagnostics["windowsDiagnostic"][key] = False
+                self.assertIsNone(smoke.defer_windows_audio_output_failure(changed, True))
+            self.assertIsNone(smoke.defer_windows_audio_output_failure(smoke.SmokeFailure("install", "failed"), True))
+        for platform in ["linux", "darwin"]:
+            with patch.object(smoke.sys, "platform", platform):
+                self.assertIsNone(smoke.defer_windows_audio_output_failure(self.output_failure(), True))
+
+    def run_mock_windows(self, *, opt_in=True, category="output_device_unavailable", earlier_failure=None):
+        with tempfile.TemporaryDirectory() as folder, ExitStack() as patches:
+            root=pathlib.Path(folder); installer=root/"test.exe"; installer.write_bytes(b"not executed"); evidence=root/"result.json"
+            argv=[str(SCRIPT),"--installer",str(installer),"--evidence",str(evidence)]
+            if opt_in: argv.append("--defer-windows-audio-output")
+            patches.enter_context(patch.object(smoke.sys,"platform","win32")); patches.enter_context(patch.object(smoke.sys,"argv",argv))
+            patches.enter_context(patch.object(smoke,"install_windows",return_value=(root/"burrata.exe",root,str(root/"installed"))))
+            calls={}
+            for name in ["bundled_tool_checks","bundled_media_checks","wait_for_app","native_host_check","run_mcp_status","run_mcp_entrypoints"]:
+                calls[name]=patches.enter_context(patch.object(smoke,name,return_value={"checked":True}))
+            if earlier_failure: calls[earlier_failure].side_effect=smoke.SmokeFailure("MCP", "required check failed")
+            patches.enter_context(patch.object(smoke,"build_native_audio_fixture",return_value={"trackId":"local:fixture"}))
+            launch=patches.enter_context(patch.object(smoke,"launch_app")); stop=patches.enter_context(patch.object(smoke,"stop_process"))
+            failure=self.output_failure(); failure.diagnostics["windowsDiagnostic"]["failure"]["category"]=category
+            audio=patches.enter_context(patch.object(smoke,"run_mcp_native_audio",side_effect=failure))
+            code=smoke.main(); result=json.loads(evidence.read_text())
+            return code,result,{k:v.call_count for k,v in calls.items()},audio.call_count,launch.call_args.args[1],stop.call_count
+
+    def test_main_attempts_audio_preserves_all_other_checks_and_cleanup_without_pcm_pass(self):
+        code,result,calls,audio,env,stops=self.run_mock_windows()
+        self.assertEqual(code,0); self.assertEqual(audio,1); self.assertGreater(stops,0)
+        self.assertTrue(all(count==1 for count in calls.values()))
+        self.assertEqual(env["BURRATA_WINDOWS_NATIVE_DIAGNOSTIC"],"1")
+        self.assertEqual(result["status"],"passed_with_deferred_checks")
+        self.assertEqual(result["qualificationStatus"],"WINDOWS_NATIVE_AUDIO_OUTPUT_UNVERIFIED")
+        self.assertEqual(result["deferredChecks"],["nativeAudio"])
+        self.assertEqual(result["checks"]["nativeAudio"]["status"],"deferred")
+        self.assertNotIn("capturedSeconds",result["checks"]["nativeAudio"])
+
+    def test_main_without_optin_other_audio_failures_and_required_mcp_failure_still_fail(self):
+        for options in [{"opt_in":False},{"category":"decode"},{"category":"output_configuration"},{"category":"timeout"},{"earlier_failure":"run_mcp_entrypoints"}]:
+            with self.subTest(options=options):
+                code,result,_,_,_,stops=self.run_mock_windows(**options)
+                self.assertEqual(code,1); self.assertEqual(result["status"],"failed"); self.assertGreater(stops,0)
+                self.assertNotIn("deferredChecks",result)
+
+    def test_flag_rejects_other_platforms_or_diagnostic_only_before_install(self):
+        for platform,extra in [("linux",[]),("darwin",[]),("win32",["--windows-diagnostic"])]:
+            with self.subTest(platform=platform),patch.object(smoke.sys,"platform",platform),patch.object(smoke.sys,"argv",[str(SCRIPT),"--installer","unused","--evidence","unused","--defer-windows-audio-output",*extra]),patch.object(smoke,"install_windows") as install:
+                with self.assertRaises(SystemExit):smoke.main()
+                install.assert_not_called()
+
+    @unittest.skipUnless(__import__("shutil").which("bash") and smoke.sys.platform != "win32", "actual workflow Bash evaluation runs on POSIX")
+    def test_actual_workflow_passes_optin_only_on_windows(self):
+        import re,os
+        text=(SCRIPT.parents[2]/".github/workflows/release.yml").read_text()
+        block=re.search(r"          smoke_extra=\(\)\n(.*?)\n      - name: Smoke-test the AppImage",text,re.S).group(0).split("\n      - name:")[0]
+        block="smoke_extra=()\n"+"\n".join(line[10:] for line in block.splitlines()[1:])
+        with tempfile.TemporaryDirectory() as folder:
+            root=pathlib.Path(folder); shim=root/"python3";shim.write_text('#!/bin/sh\nprintf \'%s\\n\' "$@"\n');shim.chmod(0o700)
+            self.assertIn("DEFER_WINDOWS_AUDIO_OUTPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.defer_windows_audio_output || false }}",text)
+            definition=text.split("      defer_windows_audio_output:\n",1)[1].split("      extensions_only:",1)[0]
+            self.assertIn("type: boolean",definition); self.assertIn("default: false",definition)
+            for platform in ["Windows","Linux","macOS"]:
+                for enabled in ["true","false"]:
+                    with self.subTest(platform=platform,enabled=enabled):
+                        output=subprocess.run(["bash","-c",block],env={**os.environ,"PATH":str(root)+os.pathsep+os.environ.get("PATH",""),"RUNNER_OS":platform,"DEFER_WINDOWS_AUDIO_OUTPUT":enabled,"installer":"fixture.exe"},capture_output=True,check=True,text=True).stdout.splitlines()
+                        self.assertEqual(output.count("--defer-windows-audio-output"),int(platform=="Windows" and enabled=="true"))
+
+
 if __name__ == "__main__":
     unittest.main()

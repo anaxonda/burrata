@@ -208,8 +208,8 @@ class RpmWorkflowTests(unittest.TestCase):
         option=text.split('      rpm_only:\n',1)[1].split('      rpm_version:',1)[0]
         self.assertIn('type: boolean',option);self.assertIn('default: false',option)
         legacy=text.split('  smoke:\n',1)[1].split('\n  rpm-inputs:',1)[0]
-        self.assertIn('    if: ${{ !inputs.rpm_only }}\n',legacy)
-        legacy=legacy.replace('    if: ${{ !inputs.rpm_only }}\n','',1).rstrip()
+        self.assertIn('    if: ${{ !inputs.rpm_only && !inputs.diagnostic_only }}\n',legacy)
+        legacy=legacy.replace('    if: ${{ !inputs.rpm_only && !inputs.diagnostic_only }}\n','',1).rstrip()
         self.assertEqual(hashlib.sha256(legacy.encode()).hexdigest(),'d4b9904067734f3a7f35dad5a711e4486f34f2a06e78601a03ae8706a62c6d76')
         gate=text.split('  rpm-installed:\n',1)[1]
         self.assertIn('    if: inputs.rpm_only',gate)

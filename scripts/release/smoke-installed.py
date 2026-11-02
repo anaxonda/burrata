@@ -1079,6 +1079,30 @@ def native_checker_failure_evidence(payload: dict, returncode: int) -> dict:
     return result
 
 
+
+def defer_windows_audio_output_failure(error: SmokeFailure, enabled: bool) -> dict | None:
+    """Explicit platform deferral, never synthesized playback or PCM success."""
+    if not enabled or sys.platform != "win32" or error.stage != "Native audio":
+        return None
+    details = error.diagnostics if isinstance(error.diagnostics, dict) else {}
+    diagnostic = sanitize_windows_diagnostic(details.get("windowsDiagnostic"))
+    if diagnostic is None:
+        return None
+    failure, state = diagnostic["failure"], diagnostic["nativeState"]
+    if not (diagnostic["muted"] and diagnostic["beforeCleanup"]
+            and failure["step"] == "play_fixture" and failure["tool"] == "play_tracks"
+            and failure["category"] == "output_device_unavailable"
+            and state["engine"] == "native" and state["status"] == "failed"
+            and state["messageCategory"] == "output_device_unavailable"
+            and state["failureCategory"] == "output" and state["failureStage"] == "output"
+            and state["hasCurrentTrack"]):
+        return None
+    return {"status": "deferred", "verificationStatus": "UNVERIFIED",
+            "originalCheckStatus": "failed", "reasonCode": "output_device_unavailable",
+            "reason": "Windows Native audio output verification explicitly deferred because no output device was available",
+            "proofScope": "Windows Native audio output and PCM consumption remain unverified",
+            "diagnostics": {"windowsDiagnostic": diagnostic}}
+
 def run_mcp_native_audio(resource_root: pathlib.Path, target: str,
                          discovery: pathlib.Path, env: dict[str, str], track_id: str, *, private_monitor: dict | None = None) -> dict:
     node = shutil.which("node")
@@ -1337,7 +1361,10 @@ def main() -> int:
     parser.add_argument("--source-version")
     parser.add_argument("--harness-commit")
     parser.add_argument("--windows-diagnostic", action="store_true", help="Muted Windows diagnosis only; never package qualification")
+    parser.add_argument("--defer-windows-audio-output", action="store_true", help="Windows only: explicitly defer unavailable output devices; never report audio verified")
     args = parser.parse_args()
+    if args.defer_windows_audio_output and (sys.platform != "win32" or args.windows_diagnostic):
+        parser.error("Windows audio output deferral requires Windows and cannot be combined with diagnostic-only mode")
     if args.windows_diagnostic and sys.platform != "win32":
         parser.error("Windows diagnostic is Windows only")
     installer = args.installer.resolve()
@@ -1381,7 +1408,7 @@ def main() -> int:
     if sys.platform == "win32":
         (home / "webview2").mkdir()
     env = platform_environment(home, app_data)
-    if args.windows_diagnostic:
+    if args.windows_diagnostic or args.defer_windows_audio_output:
         env["BURRATA_WINDOWS_NATIVE_DIAGNOSTIC"] = "1"
     try:
         if sys.platform == "linux":
@@ -1425,11 +1452,19 @@ def main() -> int:
         evidence["checks"]["mcpEntrypoints"] = run_mcp_entrypoints(app, resource_root, target, discovery, env)
         if sys.platform == "linux":
             evidence["checks"]["linuxAudio"] = {"beforePlayback": linux_audio_diagnostics(env)}
-        evidence["checks"]["nativeAudio"] = run_mcp_native_audio(
-            resource_root, target, discovery, env, str(audio_fixture["trackId"]),
-            private_monitor=linux_private_monitor_context(app, app_process, audio_process, env, temp) if sys.platform == "linux" else None
-        )
-        evidence["checks"]["nativeAudio"]["proofScope"] = ("Linux private OS monitor after Player gain; no physical hardware" if sys.platform == "linux" else "Muted pre-Player-gain mixer PCM; no OS loopback/physical proof")
+        try:
+            evidence["checks"]["nativeAudio"] = run_mcp_native_audio(
+                resource_root, target, discovery, env, str(audio_fixture["trackId"]),
+                private_monitor=linux_private_monitor_context(app, app_process, audio_process, env, temp) if sys.platform == "linux" else None
+            )
+        except SmokeFailure as error:
+            deferred = defer_windows_audio_output_failure(error, args.defer_windows_audio_output)
+            if deferred is None:
+                raise
+            evidence["checks"]["nativeAudio"] = deferred
+            evidence.update(qualificationStatus="WINDOWS_NATIVE_AUDIO_OUTPUT_UNVERIFIED", deferredChecks=["nativeAudio"])
+        if evidence["checks"]["nativeAudio"].get("status") != "deferred":
+            evidence["checks"]["nativeAudio"]["proofScope"] = ("Linux private OS monitor after Player gain; no physical hardware" if sys.platform == "linux" else "Muted pre-Player-gain mixer PCM; no OS loopback/physical proof")
         if isinstance(package_name, RpmInstallation):
             evidence["checks"]["rpmRuntimeCleanup"] = verify_rpm_profile_stopped(temp, rpm_registry)
             app_process = None
@@ -1444,7 +1479,8 @@ def main() -> int:
                                            "postRuntimeVerify": True, "uninstalled": True,
                                            "packageAndRuntimePathsAbsent": True,
                                            "runtimeUid": os.geteuid()}
-        evidence["status"] = "diagnostic_only" if args.windows_diagnostic else "passed"
+        evidence["status"] = ("passed_with_deferred_checks" if evidence.get("deferredChecks")
+                              else "diagnostic_only" if args.windows_diagnostic else "passed")
         print(json.dumps({"status": evidence["status"], "platform": sys.platform,
                           "checks": evidence["checks"]}, separators=(",", ":")))
         return 0
@@ -1474,7 +1510,7 @@ def main() -> int:
             audio_process = None
         else:
             stop_process(app_process, temp)
-        if evidence.get("failedStage") == "Native audio":
+        if evidence.get("failedStage") == "Native audio" or evidence["checks"].get("nativeAudio", {}).get("status") == "deferred":
             evidence["checks"].setdefault("nativeAudio", {"status": "failed"})["mediaLogTail"] = {
                 "stderr": safe_media_log_tail(temp / "installed-app.stderr.log"),
                 "stdout": safe_media_log_tail(temp / "installed-app.stdout.log"),
