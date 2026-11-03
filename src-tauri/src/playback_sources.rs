@@ -1213,7 +1213,7 @@ pub(crate) async fn resolve_candidate_fresh_until(
             bind_linked_soundcloud_provider_id(&mut candidate, &audio);
             include_candidate_aliases(&mut aliases,track,&candidate,Some(&audio));
             let requires_identity_check = !pinned || candidate.provider == "bandcamp";
-            if verify_with_playback_alias_context_traced(track, &aliases, &mut candidate, &audio, requires_identity_check, settings.matching_level, store, settings.flexible_matching, Some(trace)).is_none() {
+            if verify_with_playback_alias_context_traced(track, &aliases, &mut candidate, &audio, requires_identity_check, settings.matching_level, store, settings.flexible_matching, Some(&trace)).is_none() {
                 return Err("The refreshed audio source identity does not match this recording".into());
             }
             let audio = acquisition.validate_playback_audio_traced(
@@ -6820,7 +6820,7 @@ async fn recover_inner(
         settings.matching_level,
         store,
         settings.flexible_matching,
-        Some(trace),
+        Some(&trace),
     )
     .is_none()
     {
