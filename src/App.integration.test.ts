@@ -23,6 +23,7 @@ vi.mock("svelte", async () => {
 
 import App from "./App.svelte";
 
+const nativeRadioSongHash = "a".repeat(64);
 const savedTrack: Track = {
   id: "recording-1", provider: "beatport", providerId: "1",
   sourceUrl: "https://example.test/track/1", artist: "Visible Artist",
@@ -9008,7 +9009,7 @@ describe("native playback frontend", () => {
 
   it("uses canonical radio metadata and retains older repeats in native radio history", async () => {
     const stationTrack:Track={...savedTrack,id:"station-radio",provider:"radio",providerId:"station-1",title:"Station Feed",artist:"Radio Station",provenance:{sourceKind:"radio",stationId:"station-1"}};
-    const currentRadioTrack:Track={...savedTrack,id:"radio_song:canonical-song",providerId:"canonical-song",title:"Current Song",artist:"Radio Artist",provider:"radio_song"};
+    const currentRadioTrack:Track={...savedTrack,id:`radio_song:${nativeRadioSongHash}`,providerId:nativeRadioSongHash,title:"Current Song",artist:"Radio Artist",provider:"radio_song"};
     mountNative(makeNativeSnapshot({
       revision:40,generation:8,status:"playing",trackId:stationTrack.id,track:stationTrack,queue:[stationTrack],currentIndex:0,paused:false,
       radioNowPlaying:{id:currentRadioTrack.id,title:currentRadioTrack.title,artist:currentRadioTrack.artist,stationName:"Test Station",metadata:{stationId:"station-1",title:currentRadioTrack.title,artist:currentRadioTrack.artist,sourceUrl:"https://example.test/song",metadataConfidence:"high"}},
@@ -9035,8 +9036,9 @@ describe("native playback frontend", () => {
       title: "Station Feed", artist: "Radio Station", provenance: { sourceKind: "radio", stationId: "station-1" },
     };
     const currentRadioTrack: Track = {
-      ...savedTrack, id: "radio_song:canonical-song", provider: "radio_song", providerId: "canonical-song",
-      title: "Identified Song", artist: "Identified Artist",
+      ...savedTrack, id: `radio_song:${nativeRadioSongHash}`, provider: "radio_song", providerId: nativeRadioSongHash,
+      title: "Identified Song", artist: "Identified Artist", sourceUrl: "", isrc: "USABC1234567",
+      provenance: {sourceKind: "radioSong", radioStationId: "station-1", recognitionIdentifiers: {isrc: "US-ABC-12-34567"}},
     };
     savedChartTracks = [savedTrack, currentRadioTrack];
     radioStationState = [{ id: "station-1", name: "Test Station", streamUrl: "https://radio.example/live", sourceUrl: "https://radio.example", provider: "radio_paradise", isCustom: false }];
@@ -9045,8 +9047,8 @@ describe("native playback frontend", () => {
       queue: [stationTrack], currentIndex: 0, paused: false,
       radioNowPlaying: {
         id: currentRadioTrack.id, title: currentRadioTrack.title, artist: currentRadioTrack.artist,
-        stationName: "Test Station",
-        metadata: { stationId: "station-1", title: currentRadioTrack.title, artist: currentRadioTrack.artist, sourceUrl: "https://example.test/song", metadataConfidence: "high" },
+        stationName: "Test Station", track: currentRadioTrack,
+        metadata: { stationId: "station-1", title: currentRadioTrack.title, artist: currentRadioTrack.artist, sourceUrl: "https://example.test/song", metadataConfidence: "high", identifiers: {isrc: "US-ABC-12-34567"} },
       },
     });
     mountNative(snapshot);
@@ -9059,7 +9061,7 @@ describe("native playback frontend", () => {
     addFavorite.click();
     await settle();
     expect(mocks.call).toHaveBeenCalledWith("set_favorite", {
-      track: expect.objectContaining({ id: currentRadioTrack.id, provider: "radio_song", providerId: "canonical-song" }),
+      track: expect.objectContaining({ id: currentRadioTrack.id, provider: "radio_song", providerId: nativeRadioSongHash, sourceUrl: "", isrc: "USABC1234567", provenance: expect.objectContaining({sourceKind: "radioSong", recognitionIdentifiers: {isrc: "US-ABC-12-34567"}}) }),
       value: true,
     });
     expect(favoriteTrackIds.has(currentRadioTrack.id)).toBe(true);

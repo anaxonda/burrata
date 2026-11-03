@@ -76,7 +76,7 @@ import { PLAYING_TRACK_DETECTION_INTERVAL_MS, activeDetectedTrack, playingTrackD
   import { isStreamMediaAnalysisPaused } from "./lib/stream-analysis-policy";
 import { ObservedWaveformCache, prepareObservedWaveformBinding, type PreparedObservedWaveformBinding } from "./lib/observed-waveform-cache";
   import { QueueRadioController, queueRadioSeedKey } from "./lib/queue-radio";
-  import { radioSongTrackIdentity } from "./lib/radio-song-identity";
+  import { radioSongTrackFromSnapshot } from "./lib/radio-song-identity";
   import { sameTrackIdentity } from "./lib/track-identity";
   import { PendingSortAvailabilityRefresh, sortAvailabilityIsPending } from "./lib/pending-sort-availability";
   import { applyLocalTrackPage, requestLocalTrackPage, type LocalTrackPage } from "./lib/local-track-page";
@@ -1805,7 +1805,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     const snapshotTrack = snapshot.track ? {...snapshot.track,favorite:favoriteTrackIds.includes(snapshot.track.id)} : null;
     const oldTrack = playingTrack?.id;
     if(oldTrack !== snapshotTrack?.id) { currentRadioSong=null; radioOccurrence=null; }
-    const radio = snapshot.radioNowPlaying as {id?:string;title?:string;artist?:string;stationName?:string;metadata?:RadioTrackMetadata|null}|null|undefined;
+    const radio = snapshot.radioNowPlaying as {id?:string;title?:string;artist?:string;stationName?:string;track?:Track|null;metadata?:RadioTrackMetadata|null}|null|undefined;
     const radioMetadata = radio?.metadata;
     playingTrack = snapshotTrack && radioMetadata ? {
       ...snapshotTrack,
@@ -1814,9 +1814,9 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       sourceUrl:radioMetadata.sourceUrl || snapshotTrack.sourceUrl,
       provenance:{...(snapshotTrack.provenance as Record<string,unknown>),radioStationName:radio?.stationName,radioMetadata,radioStationId:radioMetadata.stationId},
     } : snapshotTrack;
-    const radioSongIdentity = typeof radio?.id === "string" ? radioSongTrackIdentity(radio.id) : null;
-    currentRadioSong = snapshotTrack && radioSongIdentity && radioMetadata && playingTrack
-      ? { ...playingTrack, ...radioSongIdentity, favorite: favoriteTrackIds.includes(radioSongIdentity.id) }
+    const radioSong = typeof radio?.id === "string" ? radioSongTrackFromSnapshot({...radio, id: radio.id}) : null;
+    currentRadioSong = snapshotTrack && isStationPlaybackTrack(snapshotTrack) && radioSong
+      ? { ...radioSong, favorite: favoriteTrackIds.includes(radioSong.id) }
       : null;
     radioQueueHistory = (snapshot.radioHistory ?? []).flatMap((item) => {
       if (!item || typeof item !== "object") return [];

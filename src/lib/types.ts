@@ -136,7 +136,7 @@ export interface NativePlaybackSnapshot {
   playerMessage: string;
   quality: { matching?: Preview["matching"]; formatId?: string; mimeType?: string; formatHasVideo?: boolean; expectedContentLength?: number; assetId?: string; codec?: string; bitrateKbps?: number; sampleRate?: number; channels?: number; bitDepth?: number; bitrateOrigin?: string; sourceKind?: string; label?: string; approximateExcerpt?: ApproximateExcerptProvenance };
   chapter?: { title: string; startSeconds: number; endSeconds?: number } | null;
-  radioNowPlaying?: { id: string; title: string; artist: string; stationName: string; metadata?: Record<string, unknown> | null } | null;
+  radioNowPlaying?: { id: string; title: string; artist: string; stationName: string; track?: Track | null; metadata?: Record<string, unknown> | null } | null;
   radioHistory?: { id: string; track: Track; playedAt: string; stationName: string }[];
 }
 export interface LiveBpmEstimate {

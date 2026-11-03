@@ -655,6 +655,39 @@ fn accent_folded_covers_requested_credits(expected: &[String], actual: &[String]
     used_accent_variant
 }
 
+/// One-to-one accent-insensitive coverage used only when a validated caption
+/// and uploader independently corroborate the requested act. This does not
+/// create a general artist alias: the caller also requires exact title,
+/// matching runtime, nonconflicting edition, and a source-ID-bound caption.
+fn search_folded_covers_requested_credits(expected: &[String], actual: &[String]) -> bool {
+    if expected.is_empty() || actual.is_empty() {
+        return false;
+    }
+    let mut expected_seen = std::collections::HashSet::new();
+    let mut matched_actual = std::collections::HashSet::new();
+    for requested in expected {
+        let requested_key = norm_artist(requested);
+        let folded_key = crate::recording_identity::search_fold(requested);
+        if requested_key.is_empty() || folded_key.is_empty() {
+            return false;
+        }
+        if !expected_seen.insert(requested_key) {
+            continue;
+        }
+        let matches = actual
+            .iter()
+            .enumerate()
+            .filter(|(_, candidate)| {
+                crate::recording_identity::search_fold(candidate) == folded_key
+            })
+            .collect::<Vec<_>>();
+        if matches.len() != 1 || !matched_actual.insert(matches[0].0) {
+            return false;
+        }
+    }
+    true
+}
+
 fn provider_version(meta: &Value) -> Option<String> {
     meta["version"]
         .as_str()
@@ -2731,7 +2764,7 @@ fn build_comparison(
         && runtime == Comparison::Agree
         && version != Comparison::Conflict
         && !request_credits_complete
-        && accent_folded_covers_requested_credits(&request_credit_parts, &names);
+        && search_folded_covers_requested_credits(&request_credit_parts, &names);
     if accent_folded_performer_match {
         artists = Comparison::Agree;
         artists_flexible = Comparison::Agree;
@@ -2789,7 +2822,28 @@ fn build_comparison(
         .iter()
         .map(|s| norm_artist(s))
         .collect::<Vec<_>>();
-    let actual = names.iter().map(|s| norm_artist(s)).collect::<Vec<_>>();
+    let mut actual = names.iter().map(|s| norm_artist(s)).collect::<Vec<_>>();
+    if request_corroborated_caption_artist_match {
+        // Preserve provider spelling in `names` and evidence, but compare the
+        // single uploader-and-caption-verified accent variant as the request
+        // credit. This closes missing/extra bookkeeping only for the same
+        // request-scoped path that already passed title, runtime, version,
+        // source-ID and uploader checks above.
+        for requested in &expected {
+            let folded = crate::recording_identity::search_fold(requested);
+            let matches = actual
+                .iter()
+                .enumerate()
+                .filter(|(_, candidate)| {
+                    crate::recording_identity::search_fold(candidate) == folded
+                })
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            if matches.len() == 1 {
+                actual[matches[0]] = requested.clone();
+            }
+        }
+    }
     let mut credit_aliases = verified_name_alias
         .map(|(requested, candidate)| vec![(norm_artist(requested), norm_artist(candidate))])
         .unwrap_or_default();

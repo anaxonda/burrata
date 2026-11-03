@@ -575,6 +575,33 @@ pub(super) fn refresh(conn: &Connection) -> Result<()> {
                     .insert(entry.id.clone());
             }
         }
+        let mut explicit_album_track_ids =
+            HashMap::<String, std::collections::HashSet<String>>::new();
+        let mut saved_track_listings = HashMap::<String, Option<String>>::new();
+        for entry in saved.iter().filter(|entry| entry.kind == "album") {
+            let track_ids = explicit_album_track_ids
+                .entry(entry.id.clone())
+                .or_default();
+            for saved_track_id in &entry.saved_track_ids {
+                if !saved_track_listings.contains_key(saved_track_id) {
+                    let listing: Option<String> = conn
+                        .query_row(
+                            "SELECT c.id FROM catalog_listings l JOIN catalog_listings c ON c.id=l.recording_id AND c.id=c.recording_id WHERE l.id=?1 AND c.in_library=1",
+                            [saved_track_id],
+                            |row| row.get(0),
+                        )
+                        .optional()
+                        .map_err(err)?;
+                    saved_track_listings.insert(saved_track_id.clone(), listing);
+                }
+                if let Some(listing) = saved_track_listings
+                    .get(saved_track_id)
+                    .and_then(Option::as_ref)
+                {
+                    track_ids.insert(listing.clone());
+                }
+            }
+        }
         conn.execute_batch("DELETE FROM library_local_album_tracks; DELETE FROM library_artist_albums; DELETE FROM library_entity_tracks; DELETE FROM library_entities;")
             .map_err(err)?;
         for entry in saved.iter().filter(|e| e.explicitly_saved) {
@@ -602,6 +629,19 @@ pub(super) fn refresh(conn: &Connection) -> Result<()> {
                     params![entry.id, entry.kind, encode(&entry)?],
                 )
                 .map_err(err)?;
+                // An explicit album save carries the authoritative ordered
+                // occurrences for those listings. Do not also add the
+                // track-derived `libraryAlbum` membership: its track-number
+                // position is a second row for the same occurrence and
+                // inflates counts. Unlisted tracks with the same verified
+                // album identity remain eligible for the grouped projection.
+                if entry.kind == "album"
+                    && explicit_album_track_ids
+                        .get(&entry.id)
+                        .is_some_and(|ids| ids.contains(&track.id))
+                {
+                    continue;
+                }
                 let position = i64::from(track.disc_number.unwrap_or(1)) * 1_000_000
                     + i64::from(track.track_number.unwrap_or(999_999));
                 conn.execute(
@@ -615,16 +655,16 @@ pub(super) fn refresh(conn: &Connection) -> Result<()> {
         // position, instead of doubling the tracklist for two provider saves.
         for album in saved.iter().filter(|e| e.kind == "album") {
             for (position, id) in album.saved_track_ids.iter().enumerate() {
-                let listing:Option<String>=conn.query_row("SELECT c.id FROM catalog_listings l JOIN catalog_listings c ON c.id=l.recording_id AND c.id=c.recording_id WHERE l.id=?1 AND c.in_library=1",[id],|r|r.get(0)).optional().map_err(err)?;
-                if let Some(listing) = listing {
-                    conn.execute(
-                        "INSERT OR IGNORE INTO library_entities VALUES(?1,'album',?2)",
-                        params![album.id, encode(album)?],
-                    )
-                    .map_err(err)?;
-                    conn.execute("INSERT INTO library_entity_tracks SELECT ?1,?2,?3 WHERE NOT EXISTS(SELECT 1 FROM library_entity_tracks WHERE entity_id=?1 AND position=?3)",params![album.id,listing,position as i64]).map_err(err)?;
-                    conn.execute("INSERT OR IGNORE INTO library_artist_albums SELECT a.entity_id,?1 FROM library_entity_tracks a JOIN library_entities artist ON artist.id=a.entity_id AND artist.kind='artist' WHERE a.listing_id=?2",params![album.id,listing]).map_err(err)?;
-                }
+                let Some(listing) = saved_track_listings.get(id).and_then(Option::as_ref) else {
+                    continue;
+                };
+                conn.execute(
+                    "INSERT OR IGNORE INTO library_entities VALUES(?1,'album',?2)",
+                    params![album.id, encode(album)?],
+                )
+                .map_err(err)?;
+                conn.execute("INSERT INTO library_entity_tracks SELECT ?1,?2,?3 WHERE NOT EXISTS(SELECT 1 FROM library_entity_tracks WHERE entity_id=?1 AND position=?3)",params![album.id,listing,position as i64]).map_err(err)?;
+                conn.execute("INSERT OR IGNORE INTO library_artist_albums SELECT a.entity_id,?1 FROM library_entity_tracks a JOIN library_entities artist ON artist.id=a.entity_id AND artist.kind='artist' WHERE a.listing_id=?2",params![album.id,listing]).map_err(err)?;
             }
         }
         conn.execute("INSERT OR IGNORE INTO library_artist_albums SELECT a.entity_id,b.entity_id FROM library_entity_tracks a JOIN library_entities artist ON artist.id=a.entity_id AND artist.kind='artist' JOIN library_entity_tracks b ON b.listing_id=a.listing_id JOIN library_entities album ON album.id=b.entity_id AND album.kind='album'",[]).map_err(err)?;

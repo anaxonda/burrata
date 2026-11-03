@@ -6102,12 +6102,7 @@ impl PlaybackService {
         let station = s.station.as_ref().unwrap();
         s.radio_now = metadata
             .as_ref()
-            .map(|m| {
-                json!({
-                    "id":crate::playback_history::radio_song_track(station,m).id,
-                    "title":m.title,"artist":m.artist,"stationName":station.name,"metadata":m
-                })
-            })
+            .map(|m| radio_now_playing_snapshot_value(station, m))
             .unwrap_or(Value::Null);
         s.radio_history = history;
         s.revision += 1;
@@ -6781,6 +6776,21 @@ fn positive(value: Option<&Value>, default: f64) -> Result<f64, String> {
         return Err("Playback value must be finite and nonnegative".into());
     }
     Ok(value)
+}
+fn radio_now_playing_snapshot_value(
+    station: &crate::radio::RadioStation,
+    metadata: &crate::radio::RadioTrackMetadata,
+) -> Value {
+    let track = crate::playback_history::radio_song_track(station, metadata);
+    let id = track.id.clone();
+    json!({
+        "id": id,
+        "track": track,
+        "title": metadata.title,
+        "artist": metadata.artist,
+        "stationName": station.name,
+        "metadata": metadata,
+    })
 }
 fn same_radio_song(current: &Value, identified: &crate::radio::RadioTrackMetadata) -> bool {
     let metadata = &current["metadata"];
@@ -12361,6 +12371,63 @@ mod tests {
         assert!(same_radio_song(&current, &metadata));
         let other_station = json!({"artist":"Artist Name","title":"Current Song","metadata":{"stationId":"station-2"}});
         assert!(!same_radio_song(&other_station, &metadata));
+    }
+
+    #[test]
+    fn native_radio_now_playing_embeds_the_canonical_radio_song_track() {
+        let station = crate::radio::RadioStation {
+            id: "station-1".into(),
+            name: "Test FM".into(),
+            stream_url: "https://radio.example/live".into(),
+            source_url: "https://radio.example".into(),
+            provider: None,
+            country: None,
+            tags: None,
+            homepage_url: Some("https://radio.example".into()),
+            favicon_url: None,
+            bitrate_kbps: None,
+            codec: None,
+            language: None,
+            is_custom: false,
+        };
+        let metadata = crate::radio::RadioTrackMetadata {
+            identifiers: Some(crate::recording_identity::RecognitionIdentifiers {
+                isrc: Some("us-abc-23-12345".into()),
+                shazam_id: Some("123456".into()),
+                apple_music_url: None,
+            }),
+            station_id: station.id.clone(),
+            artist: "Artist Name".into(),
+            title: "Current Song".into(),
+            album: Some("Test Album".into()),
+            year: Some("2024".into()),
+            artwork_url: Some("https://radio.example/cover.jpg".into()),
+            source_url: String::new(),
+            observed_at: Some("2026-11-02T12:00:00Z".into()),
+            metadata_confidence: "SongRec fingerprint".into(),
+        };
+
+        let now_playing = radio_now_playing_snapshot_value(&station, &metadata);
+        let canonical = crate::playback_history::radio_song_track(&station, &metadata);
+        assert_eq!(now_playing["id"], canonical.id);
+        assert_eq!(
+            now_playing["track"],
+            serde_json::to_value(&canonical).unwrap()
+        );
+        assert_eq!(now_playing["track"]["provider"], "radio_song");
+        assert_eq!(now_playing["track"]["providerId"], canonical.provider_id);
+        assert_eq!(now_playing["track"]["isrc"], "USABC2312345");
+        assert_eq!(now_playing["track"]["sourceUrl"], "");
+        assert_eq!(
+            now_playing["track"]["provenance"]["sourceKind"],
+            "radioSong"
+        );
+        assert_eq!(
+            now_playing["track"]["provenance"]["recognitionIdentifiers"]["shazamId"],
+            "123456"
+        );
+        assert!(now_playing["track"]["provenance"]["radioStreamUrl"].is_null());
+        assert!(now_playing["track"]["provenance"]["stationId"].is_null());
     }
     #[test]
     fn native_sort_values_match_shared_normalization_fixtures() {
