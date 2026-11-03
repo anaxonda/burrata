@@ -776,6 +776,7 @@ beforeEach(() => {
       case "get_settings":
         if (holdStartupCalls) return new Promise(() => {});
         return { musicDirectory: configuredMusicDirectory, ...(configuredPlaylistMirroringEnabled === undefined ? {} : { playlistMirroringEnabled: configuredPlaylistMirroringEnabled }), preferredDownloadSource: configuredPreferredDownloadSource, preferredStreamingSource: configuredPreferredStreamingSource, overridePlaylistTrackUrls, streamingFallbackEnabled, streamingFallbackSources, streamingFallbackPolicyVersion: 1, bandcampFallbackEnabled: streamingFallbackSources.includes("bandcamp"), downloadFallbackEnabled, downloadFallbackSources, pauseOnSourceOpen: configuredPauseOnSourceOpen, sourceOpenAtPosition: configuredSourceOpenAtPosition, playbackDiagnosticsEnabled: false, autoPreview: false, previewDelayMs: 250, theme: "dark", ytDlpPath: "yt-dlp", ffmpegPath: "ffmpeg", ffprobePath: "ffprobe", jsRuntimePath: "deno" };
+      case "get_release_setup": return { setupComplete: true, musicDirectory: configuredMusicDirectory, radioRecognition: true, mcpCommand: [], browser: { browsers: [] }, toolPaths: [] };
       case "get_playlist_mirror_options": {
         const collectionId = String(args?.collectionId ?? "");
         const options = playlistMirrorOptionsById[collectionId] ?? { included: true, includeMediaLinks: null, includeYtdlpSearch: null };
@@ -6970,6 +6971,22 @@ describe("native playback frontend", () => {
     const originalCall = mocks.call.getMockImplementation()!;
     let resolveInitialCache: ((value: unknown) => void) | undefined;
     let cacheReadCount = 0;
+    let digestCalls = 0;
+    let pendingDigests = 0;
+    const nativeDigest = crypto.subtle.digest.bind(crypto.subtle);
+    vi.spyOn(crypto.subtle, "digest").mockImplementation(async (algorithm, data) => {
+      digestCalls++;
+      pendingDigests++;
+      try { return await nativeDigest(algorithm, data); }
+      finally { pendingDigests--; }
+    });
+    const waitForAnalysisDigests = async (previousCalls: number) => {
+      await vi.waitFor(() => {
+        expect(digestCalls).toBeGreaterThan(previousCalls);
+        expect(pendingDigests).toBe(0);
+      });
+      await settle();
+    };
     mocks.call.mockImplementation((command, args) => {
       if (command === "get_cached_stream_analysis") {
         cacheReadCount++;
@@ -6987,8 +7004,9 @@ describe("native playback frontend", () => {
       sourceId: candidate.id, state: "started",
     } });
     await settle();
+    const beforeCacheDigest = digestCalls;
     resolveInitialCache!(analysis);
-    await settle();
+    await waitForAnalysisDigests(beforeCacheDigest);
     eventHandlers.get("automation-ui-navigation")?.({ event: "automation-ui-navigation", id: 2, payload: {
       requestId: "stream-analysis-event-settings", target: { kind: "view", view: "settings", settingsCategory: "playback" },
     } });
@@ -6997,28 +7015,31 @@ describe("native playback frontend", () => {
     expect(document.body.textContent).toContain("Whole-track analysis · 95.1 BPM");
     expect(cacheReadCount).toBe(1);
 
+    let beforeEventDigest = digestCalls;
     eventHandlers.get("stream-analysis-updated")?.({ event: "stream-analysis-updated", id: 2, payload: {
       generation: 33, trackId: track.id, resourceIdentity: "different-audio-variant",
       sourceIdentitySha256: digest, audioVariantSha256: "a".repeat(64), provider: candidate.provider,
       sourceId: candidate.id, state: "started",
     } });
-    await settle();
+    await waitForAnalysisDigests(beforeEventDigest);
     expect(document.body.textContent).toContain("Whole-track analysis · 95.1 BPM");
 
+    beforeEventDigest = digestCalls;
     eventHandlers.get("stream-analysis-updated")?.({ event: "stream-analysis-updated", id: 3, payload: {
       generation: 33, trackId: track.id, resourceIdentity: "resource-cache-key",
       sourceIdentitySha256: digest, audioVariantSha256: null, provider: candidate.provider,
       sourceId: candidate.id, state: "started",
     } });
-    await settle();
+    await waitForAnalysisDigests(beforeEventDigest);
     expect(document.body.textContent).not.toContain("Whole-track analysis · 95.1 BPM");
 
+    beforeEventDigest = digestCalls;
     eventHandlers.get("stream-analysis-updated")?.({ event: "stream-analysis-updated", id: 4, payload: {
       generation: 33, trackId: track.id, resourceIdentity: "resource-cache-key",
       sourceIdentitySha256: digest, audioVariantSha256: null, provider: candidate.provider,
       sourceId: candidate.id, state: "completed", analysis,
     } });
-    await settle();
+    await waitForAnalysisDigests(beforeEventDigest);
     expect(document.body.textContent).toContain("Whole-track analysis · 95.1 BPM");
     expect(cacheReadCount).toBe(1);
 

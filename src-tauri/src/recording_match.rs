@@ -4159,16 +4159,18 @@ mod tests {
         };
         let live_caption = "Amame (Live) - Maryto y su Salson";
         let wrong_version = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:LiveVers001".into(),
+            url: "https://www.youtube.com/watch?v=LiveVers001".into(),
             title: "Maryto y su Salson (Live)".into(),
             source_metadata: Some(json!({
                 "sourceMetadataOrigin":"ytDlpFullInfo",
-                "resolvedProviderId":"live-caption-fixture",
+                "resolvedProviderId":"LiveVers001",
                 "track":live_caption,
                 "catalogTitle":live_caption,
                 "duration":240.0,
                 "uploader":official
             })),
-            id: "youtube:live-caption-fixture".into(),
             uploader: Some(official.into()),
             duration_seconds: Some(240.0),
             ..Candidate::default()
