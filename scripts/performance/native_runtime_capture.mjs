@@ -5,7 +5,7 @@ import {closeSync, constants as fsConstants, openSync, writeSync} from 'node:fs'
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {auditionQueueMetadataRetained} from './source_audition_gates.mjs';
-import {idleIpcBucketsGate,parseIdleIpcCounter,reportedErrorEvidence,safePlaybackFailureSummary,safeReportedLibraryRowLookup,safeReportedPlaybackDiagnosticExport,safeStartupDiagnosticExport,safeStartupMarkerMetrics,safeStoreMutexMetrics,startupObservation,startupPauseGate} from './native_startup_capture_helpers.mjs';
+import {idleIpcBucketsGate,parseIdleIpcCounter,reportedErrorEvidence,reportedPcmPhaseComplete,safePlaybackFailureSummary,safeReportedLibraryRowLookup,safeReportedPlaybackDiagnosticExport,safeStartupDiagnosticExport,safeStartupMarkerMetrics,safeStoreMutexMetrics,startupObservation,startupPauseGate} from './native_startup_capture_helpers.mjs';
 import {Client} from '@modelcontextprotocol/client';
 import {StdioClientTransport} from '@modelcontextprotocol/client/stdio';
 
@@ -459,14 +459,15 @@ if(mode==='idle-ipc'){
           last=await state(3000);
           report.samples.push({phase:'pcm',ms:performance.now()-pcmPhaseStartedAt,caseId:track.id,...safe(last,true)});
           if(last.trackId!==track.id||last.generation!==playbackGeneration||last.status!=='playing')break;
-          if(last.position-pcmAnchor>=5)break;
+          if(reportedPcmPhaseComplete(performance.now()-pcmPhaseStartedAt,last.position-pcmAnchor))break;
           await sleep(150);
         }
         pcmPhaseEndedAt=performance.now();pcmPhaseElapsedMs=pcmPhaseEndedAt-pcmPhaseStartedAt;
         const pcmPhaseEndedAtUnixMs=Date.now();
         reportedPcmTimes={pcmPhaseStartedAtUnixMs,pcmPhaseEndedAtUnixMs};
         passed=last?.trackId===track.id&&last?.generation===playbackGeneration&&last?.status==='playing'
-          &&last.position-pcmAnchor>=5&&pcmPhaseElapsedMs<=pcmWindowMs+250;
+          &&reportedPcmPhaseComplete(pcmPhaseElapsedMs,last.position-pcmAnchor)
+          &&pcmPhaseElapsedMs<=pcmWindowMs+250;
       }
       let pausedReported=false;
       if(reported&&pcmPhaseStartedAt!==null){

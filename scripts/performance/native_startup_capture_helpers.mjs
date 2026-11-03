@@ -18,6 +18,11 @@ export function startupPauseGate(observation, pausedState, targetTrackId) {
     &&Number.isFinite(pausedState?.position)&&pausedState.position>=3;
 }
 
+export function reportedPcmPhaseComplete(elapsedMs, playheadDeltaSeconds) {
+  return Number.isFinite(elapsedMs)&&elapsedMs>=5000
+    &&Number.isFinite(playheadDeltaSeconds)&&playheadDeltaSeconds>=5;
+}
+
 const STARTUP_OPERATION_PHASES=new Set(['ipc_received','source_ready','first_audio']);
 const STARTUP_OPERATION_KINDS=new Set(['startup','transition','pause','resume','seek','volume']);
 const STARTUP_PLAYBACK_STATUSES=new Set(['idle','resolving','playing','paused','buffering','ended','failed','stopped']);

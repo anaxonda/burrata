@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {idleIpcBucketsGate,parseIdleIpcCounter,reportedErrorEvidence,safePlaybackFailureSummary,safeReportedLibraryRowLookup,safeReportedPlaybackDiagnosticExport,safeStartupDiagnosticExport,safeStartupMarkerMetrics,safeStoreMutexMetrics,startupObservation,startupPauseGate} from './native_startup_capture_helpers.mjs';
+import {idleIpcBucketsGate,parseIdleIpcCounter,reportedErrorEvidence,reportedPcmPhaseComplete,safePlaybackFailureSummary,safeReportedLibraryRowLookup,safeReportedPlaybackDiagnosticExport,safeStartupDiagnosticExport,safeStartupMarkerMetrics,safeStoreMutexMetrics,startupObservation,startupPauseGate} from './native_startup_capture_helpers.mjs';
 
 const target='fixture-track';
 const playing={trackId:target,generation:4,status:'playing',position:3.2,diagnostics:{firstAudioMs:275}};
@@ -34,6 +34,18 @@ test('startup pause gate retains the same track and generation',()=>{
   assert.equal(startupPauseGate(observation,paused,target),true);
   assert.equal(startupPauseGate(observation,{...paused,generation:5},target),false);
   assert.equal(startupPauseGate(observation,{...paused,trackId:'different-track'},target),false);
+});
+
+test('reported PCM phase requires both five seconds elapsed and five seconds of playhead progress',()=>{
+  assert.equal(reportedPcmPhaseComplete(4996.089,5),false);
+  assert.equal(reportedPcmPhaseComplete(5000,5),true);
+  assert.equal(reportedPcmPhaseComplete(6000,4.999),false);
+  assert.equal(reportedPcmPhaseComplete(Infinity,5),false);
+  assert.equal(reportedPcmPhaseComplete(NaN,5),false);
+  assert.equal(reportedPcmPhaseComplete('5000',5),false);
+  assert.equal(reportedPcmPhaseComplete(5000,Infinity),false);
+  assert.equal(reportedPcmPhaseComplete(5000,NaN),false);
+  assert.equal(reportedPcmPhaseComplete(5000,'5'),false);
 });
 
 test('opt-in startup diagnostics retain only bounded numeric and enum timing fields',()=>{
