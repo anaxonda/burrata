@@ -70,6 +70,20 @@ it("forwards lyrics seeking and the player bottom inset",async()=>{
  expect(document.querySelector<HTMLElement>('[aria-label="Fullscreen lyrics"]')?.style.bottom).toBe("123px");
 });
 
+it("keeps the full artwork and readable track details inside the inset-aware scroll panel",async()=>{
+ setup({bottom:88});await tick();
+ const panel=document.querySelector<HTMLElement>(".now-playing-view")!;
+ expect(panel.style.bottom).toBe("88px");
+ expect(panel.style.getPropertyValue("--player-inset")).toBe("88px");
+ const hero=panel.querySelector<HTMLElement>(".hero")!;
+ expect(hero.querySelector(".hero-art")).not.toBeNull();
+ expect(hero.querySelector(".recording h1")?.textContent).toBe(track.title);
+ expect(panel.querySelector(".favorite")).not.toBeNull();
+ expect(hero.nextElementSibling?.classList.contains("cards")).toBe(true);
+ expect(panel.querySelector(".cards .artist-card")).not.toBeNull();
+ expect(panel.querySelector(".cards .right-cards")).not.toBeNull();
+});
+
 it("dismisses the artwork menu before Escape exits Now Playing",async()=>{
  const props=setup({detectedArtworkUrl:"https://example.test/detected.jpg",onArtworkModeChange:vi.fn()});await tick();
  const menu=document.querySelector<HTMLDetailsElement>('.artwork-menu')!;

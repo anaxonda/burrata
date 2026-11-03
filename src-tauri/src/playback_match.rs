@@ -1210,6 +1210,49 @@ mod tests {
         }
     }
     #[test]
+    fn live_amame_search_candidate_is_eligible_for_bounded_inspection() {
+        let (_dir, store) = store();
+        let track = Track {
+            id: "spotify:6wu6sIm3bL3KKRVXfNoaAl".into(),
+            provider: "spotify".into(),
+            provider_id: "6wu6sIm3bL3KKRVXfNoaAl".into(),
+            title: "Ámame".into(),
+            artist: "Maryto y su Salsón".into(),
+            duration_seconds: Some(237.257),
+            ..Track::default()
+        };
+        // Read-only provider search returned this exact raw candidate and
+        // yt-dlp candidate metadata. Its Artist field is not provider data;
+        // the parsed list row inferred `Amame` from this caption.
+        let candidate = Candidate {
+            id: "youtube:StdOHMvDlas".into(),
+            provider: "youtube".into(),
+            title: "Amame - Maryto y su Salson".into(),
+            uploader: Some("Maryto y su Salson Oficial".into()),
+            duration_seconds: Some(240.0),
+            source_metadata: Some(json!({
+                "catalogTitle":"Amame - Maryto y su Salson",
+                "duration":240.0,
+                "extractor":true,
+                "resolvedProviderId":"StdOHMvDlas",
+                "sourceMetadataOrigin":"ytDlpCandidateMetadata",
+                "track":"Amame - Maryto y su Salson"
+            })),
+            ..Candidate::default()
+        };
+        let gate = evaluate(
+            &track,
+            &[],
+            &[],
+            None,
+            &candidate,
+            MatchLevel::Exact,
+            &store,
+        );
+        assert_ne!(gate.path, CandidateGatePath::Rejected);
+        assert_eq!(gate.path, CandidateGatePath::PolicyExact);
+    }
+    #[test]
     fn flexible_shared_rank_keeps_same_recording_ahead_of_version_alternative() {
         let (_dir, store) = store();
         let track = Track {

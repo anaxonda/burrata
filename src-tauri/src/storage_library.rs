@@ -4,6 +4,8 @@ use super::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+const LIBRARY_PROJECTION_REVISION: i64 = 2;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LibraryEntity {
@@ -62,6 +64,8 @@ pub(super) fn initialize(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS library_local_album_listing ON library_local_album_tracks(local_listing_id);
         CREATE INDEX IF NOT EXISTS library_local_album_asset ON library_local_album_tracks(asset_id);
         INSERT OR IGNORE INTO library_entity_state VALUES(1,1);
+        CREATE TABLE IF NOT EXISTS library_entity_projection_revision(id INTEGER PRIMARY KEY CHECK(id=1),revision INTEGER NOT NULL);
+        INSERT OR IGNORE INTO library_entity_projection_revision VALUES(1,0);
         CREATE TRIGGER IF NOT EXISTS library_entities_listing_insert AFTER INSERT ON catalog_listings WHEN NEW.in_library=1 BEGIN UPDATE library_entity_state SET dirty=1; END;
         DROP TRIGGER IF EXISTS library_entities_listing_update;
         CREATE TRIGGER library_entities_listing_update AFTER UPDATE OF metadata,in_library,recording_id ON catalog_listings WHEN NEW.in_library=1 OR OLD.in_library=1 BEGIN UPDATE library_entity_state SET dirty=1; END;
@@ -81,10 +85,29 @@ pub(super) fn initialize(conn: &Connection) -> Result<()> {
         CREATE TRIGGER IF NOT EXISTS library_entities_reconcile_update AFTER UPDATE ON library_album_reconciliation BEGIN UPDATE library_entity_state SET dirty=1; END;
         CREATE TRIGGER IF NOT EXISTS library_entities_reconcile_delete AFTER DELETE ON library_album_reconciliation BEGIN UPDATE library_entity_state SET dirty=1; END;
         PRAGMA user_version=15; COMMIT;").map_err(err)?;
-    if !had_artist_albums || !had_local_bindings {
+    conn.execute_batch("BEGIN IMMEDIATE;").map_err(err)?;
+    let projection_revision: i64 = conn
+        .query_row(
+            "SELECT revision FROM library_entity_projection_revision WHERE id=1",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(err)?;
+    if !had_artist_albums
+        || !had_local_bindings
+        || projection_revision != LIBRARY_PROJECTION_REVISION
+    {
         conn.execute("UPDATE library_entity_state SET dirty=1", [])
             .map_err(err)?;
     }
+    if projection_revision != LIBRARY_PROJECTION_REVISION {
+        conn.execute(
+            "UPDATE library_entity_projection_revision SET revision=?1 WHERE id=1",
+            [LIBRARY_PROJECTION_REVISION],
+        )
+        .map_err(err)?;
+    }
+    conn.execute_batch("COMMIT;").map_err(err)?;
     Ok(())
 }
 
@@ -180,6 +203,68 @@ fn string_at<'a>(value: &'a Value, paths: &[&str]) -> Option<&'a str> {
             .and_then(Value::as_str)
             .filter(|v| !v.trim().is_empty())
     })
+}
+
+fn has_artist_identity_evidence(provenance: &Value) -> bool {
+    string_at(
+        provenance,
+        &[
+            "/catalog/artist/id",
+            "/artist/id",
+            "/artistId",
+            "/embeddedIdentifiers/musicbrainzArtistId",
+        ],
+    )
+    .is_some()
+}
+
+fn artist_credit_identity<'a>(
+    provider: Option<&'a str>,
+    id: Option<&'a str>,
+) -> (Option<&'a str>, Option<&'a str>) {
+    if provider.is_some_and(|value| value.eq_ignore_ascii_case("discogs"))
+        && id.is_some_and(|value| value.trim() == "0")
+    {
+        // Discogs uses 0 as a placeholder for contributor credits without a
+        // real artist identity. Keep the credited name, but don't let it
+        // create a provider reference that can merge unrelated artists.
+        (None, None)
+    } else {
+        (provider, id)
+    }
+}
+
+/// Weak title and filename guesses are useful for playback search, but should
+/// not create permanent artist rows in the Library projection.
+fn artist_fallback_is_trustworthy(track: &Track) -> bool {
+    let provenance = &track.provenance;
+    if provenance.pointer("/manualFields/artist") == Some(&json!(true))
+        || has_artist_identity_evidence(provenance)
+    {
+        return true;
+    }
+
+    let artist_source = string_at(provenance, &["/artistSource"]);
+    if artist_source == Some("inferred_from_title") {
+        return false;
+    }
+
+    // Audio search candidates often contain a complete video title parsed as
+    // an artist. Keep their track metadata, but don't project that guess as an
+    // artist identity until explicit credits or user/catalog evidence exists.
+    if string_at(provenance, &["/sourceKind"]) == Some("audioSearch")
+        && string_at(provenance, &["/identity"])
+            .is_some_and(|identity| identity.starts_with("unverified"))
+    {
+        return false;
+    }
+
+    // A bare track index from a peer filename is a common parser miss. The
+    // provenance check keeps actual numeric stage names from being removed
+    // when supplied by a catalog, embedded artist ID, or the user.
+    let filename_number = artist_source == Some("filename")
+        && track.artist.trim().chars().all(|ch| ch.is_ascii_digit());
+    !filename_number
 }
 
 /// Only catalog services may publish an edge, after checking an exact public
@@ -349,11 +434,13 @@ pub(super) fn track_entities(track: &Track) -> Vec<LibraryEntity> {
                 .or_else(|| (track.provider == "spotify").then_some("spotify"));
             let id = string_at(credit, &["/artist/id", "/artistId", "/providerId", "/id"]);
             if let Some(name) = name {
+                let (provider, id) = artist_credit_identity(provider, id);
                 result.push(entity("artist", name, track, provider, id));
             }
         }
     }
-    if result.is_empty() && !track.artist.trim().is_empty() {
+    if result.is_empty() && !track.artist.trim().is_empty() && artist_fallback_is_trustworthy(track)
+    {
         let provider = string_at(p, &["/catalog/artist/provider", "/artist/provider"])
             .or_else(|| (track.provider == "spotify").then_some("spotify"));
         let embedded = if track.provider == "local"
@@ -468,14 +555,6 @@ pub(super) fn refresh(conn: &Connection) -> Result<()> {
                 let entries = track_entities(&track)
                     .into_iter()
                     .map(&canonical)
-                    .filter(|entry| {
-                        entry.kind != "album"
-                            || !saved.iter().any(|album| {
-                                album.kind == "album"
-                                    && album.saved_track_ids.contains(&track.id)
-                                    && normalized(&album.name) == normalized(&entry.name)
-                            })
-                    })
                     .collect::<Vec<_>>();
                 (track, entries)
             })
@@ -639,6 +718,23 @@ impl Store {
         limit: usize,
         offset: usize,
     ) -> Result<LibraryEntityPage> {
+        self.list_library_entities_filtered(
+            kind, artist_id, query, None, None, "name", false, limit, offset,
+        )
+    }
+
+    pub fn list_library_entities_filtered(
+        &self,
+        kind: &str,
+        artist_id: Option<&str>,
+        query: &str,
+        source: Option<&str>,
+        year: Option<&str>,
+        sort: &str,
+        descending: bool,
+        limit: usize,
+        offset: usize,
+    ) -> Result<LibraryEntityPage> {
         if !matches!(kind, "artist" | "album") {
             return Err("Unknown library entity kind".into());
         }
@@ -650,22 +746,35 @@ impl Store {
                 .get(id)
                 .map_or_else(|| id.to_owned(), |refs| refs[0].clone())
         });
-        let filter = "e.kind=?1 AND instr(unicode_lower(json_extract(e.payload,'$.name') || ' ' || json_extract(e.payload,'$.artist')),?2)>0 AND (?3 IS NULL OR EXISTS(SELECT 1 FROM library_artist_albums membership WHERE membership.artist_id=?3 AND membership.album_id=e.id))";
+        let filter = "e.kind=?1 AND instr(unicode_lower(json_extract(e.payload,'$.name') || ' ' || json_extract(e.payload,'$.artist') || ' ' || COALESCE(json_extract(e.payload,'$.releaseDate'),'') || ' ' || COALESCE(json_extract(e.payload,'$.provider'),'')),?2)>0 AND (?3 IS NULL OR EXISTS(SELECT 1 FROM library_artist_albums membership WHERE membership.artist_id=?3 AND membership.album_id=e.id)) AND (?4 IS NULL OR (?4='__metadata__' AND json_extract(e.payload,'$.provider') IS NULL) OR unicode_lower(COALESCE(json_extract(e.payload,'$.provider'),''))=unicode_lower(?4)) AND (?5 IS NULL OR substr(COALESCE(json_extract(e.payload,'$.releaseDate'),''),1,4)=?5)";
         let query = normalized(query);
+        let source = source.filter(|value| !value.trim().is_empty());
+        let year = year
+            .filter(|value| value.len() == 4 && value.bytes().all(|byte| byte.is_ascii_digit()));
+        let order = match sort {
+            "artist" => "unicode_lower(json_extract(e.payload,'$.artist'))",
+            "year" => "COALESCE(json_extract(e.payload,'$.releaseDate'),'')",
+            "source" => "unicode_lower(COALESCE(json_extract(e.payload,'$.provider'),''))",
+            "tracks" => "(SELECT COUNT(*) FROM library_entity_tracks t WHERE t.entity_id=e.id)",
+            _ => "unicode_lower(json_extract(e.payload,'$.name'))",
+        };
+        let direction = if descending { "DESC" } else { "ASC" };
         let total = conn
             .query_row(
                 &format!("SELECT COUNT(*) FROM library_entities e WHERE {filter}"),
-                params![kind, query, artist_id],
+                params![kind, query, artist_id, source, year],
                 |r| r.get(0),
             )
             .map_err(err)?;
-        let mut stmt = conn.prepare(&format!("SELECT e.payload,COALESCE(json_extract(e.payload,'$.explicitlySaved'),0),(SELECT COUNT(*) FROM library_entity_tracks t WHERE t.entity_id=e.id),(SELECT COUNT(*) FROM library_artist_albums membership WHERE membership.artist_id=e.id) FROM library_entities e WHERE {filter} ORDER BY unicode_lower(json_extract(e.payload,'$.name')),e.id LIMIT ?4 OFFSET ?5")).map_err(err)?;
+        let mut stmt = conn.prepare(&format!("SELECT e.payload,COALESCE(json_extract(e.payload,'$.explicitlySaved'),0),(SELECT COUNT(*) FROM library_entity_tracks t WHERE t.entity_id=e.id),(SELECT COUNT(*) FROM library_artist_albums membership WHERE membership.artist_id=e.id) FROM library_entities e WHERE {filter} ORDER BY {order} {direction},unicode_lower(json_extract(e.payload,'$.name')),e.id LIMIT ?6 OFFSET ?7")).map_err(err)?;
         let rows = stmt
             .query_map(
                 params![
                     kind,
                     query,
                     artist_id,
+                    source,
+                    year,
                     limit.clamp(1, 200) as i64,
                     offset as i64
                 ],
@@ -942,6 +1051,218 @@ mod tests {
     }
 
     #[test]
+    fn artist_projection_rejects_unverified_title_and_numeric_filename_guesses() {
+        let mut filename_index = track("filename-index");
+        filename_index.album = None;
+        filename_index.artist = "01".into();
+        filename_index.provenance = json!({
+            "artistSource": "filename",
+            "identity": "unverified peer filename"
+        });
+        assert!(track_entities(&filename_index)
+            .iter()
+            .all(|entity| entity.kind != "artist"));
+
+        let mut title_inference = track("title-inference");
+        title_inference.album = None;
+        title_inference.artist = "\"500 Miles\"".into();
+        title_inference.provenance = json!({
+            "sourceKind": "audioSearch",
+            "artistSource": "inferred_from_title",
+            "identity": "unverified source search result"
+        });
+        assert!(track_entities(&title_inference)
+            .iter()
+            .all(|entity| entity.kind != "artist"));
+
+        let mut playlist_title = track("playlist-title");
+        playlist_title.album = None;
+        playlist_title.artist = "06 Miami 2017 (Billy Joel Cover)".into();
+        playlist_title.provenance = json!({
+            "sourceKind": "audioSearch",
+            "identity": "unverified playlist audio source"
+        });
+        assert!(track_entities(&playlist_title)
+            .iter()
+            .all(|entity| entity.kind != "artist"));
+    }
+
+    #[test]
+    fn artist_projection_keeps_numeric_and_composite_names_with_explicit_evidence() {
+        let mut manual_numeric_name = track("manual-numeric-name");
+        manual_numeric_name.album = None;
+        manual_numeric_name.artist = "01".into();
+        manual_numeric_name.provenance =
+            json!({"artistSource":"filename","manualFields":{"artist":true}});
+        let artist = track_entities(&manual_numeric_name)
+            .into_iter()
+            .find(|entity| entity.kind == "artist")
+            .expect("manual numeric stage name remains visible");
+        assert_eq!(artist.name, "01");
+
+        let mut credited_numeric_name = track("credited-numeric-name");
+        credited_numeric_name.album = None;
+        credited_numeric_name.artist = "Fallback".into();
+        credited_numeric_name.provenance = json!({
+            "artistCredits":[{"name":"10","artist":{"provider":"musicbrainz","id":"numeric-stage"}}]
+        });
+        let credited = track_entities(&credited_numeric_name)
+            .into_iter()
+            .find(|entity| entity.kind == "artist")
+            .expect("provider-backed numeric credit remains visible");
+        assert_eq!(credited.name, "10");
+        assert_eq!(credited.provider_id.as_deref(), Some("numeric-stage"));
+
+        let mut composite_band = track("composite-band");
+        composite_band.album = None;
+        composite_band.artist = "Earth, Wind & Fire".into();
+        composite_band.provenance = json!({"manualFields":{"artist":true}});
+        let band = track_entities(&composite_band)
+            .into_iter()
+            .find(|entity| entity.kind == "artist")
+            .expect("atomic composite band credit remains visible");
+        assert_eq!(band.name, "Earth, Wind & Fire");
+    }
+
+    #[test]
+    fn discogs_placeholder_artist_id_does_not_split_a_valid_credit_identity() {
+        let (_dir, store) = db();
+        let mut credited = track("discogs-placeholder-credit");
+        credited.artist = "Unknown artist".into();
+        credited.provenance = json!({
+            "artistCredits":[
+                {"name":"Gillian Welch","role":"Artist","artist":{"provider":"discogs","id":"255403"}},
+                {"name":"Gillian Welch","role":"Written By","artist":{"provider":"discogs","id":"0"}}
+            ]
+        });
+        store.save_library_tracks(&[credited.clone()]).unwrap();
+
+        let artists = store
+            .list_library_entities("artist", None, "", 200, 0)
+            .unwrap();
+        assert_eq!(artists.total, 1);
+        let artist = &artists.items[0];
+        assert_eq!(artist.name, "Gillian Welch");
+        assert_eq!(artist.provider.as_deref(), Some("discogs"));
+        assert_eq!(artist.provider_id.as_deref(), Some("255403"));
+        assert_eq!(artist.track_count, 1);
+        assert_eq!(artist.album_count, 1);
+
+        let albums = store
+            .list_library_entities("album", Some(&artist.id), "", 200, 0)
+            .unwrap();
+        assert_eq!(
+            albums.total, 1,
+            "the valid performer keeps album membership"
+        );
+
+        let conn = store.lock_connection().unwrap();
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM library_entities WHERE id='artist:ref:discogs:0'",
+                [],
+                |row| row.get::<_, usize>(0),
+            )
+            .unwrap(),
+            0,
+            "placeholder Discogs ID 0 must not create an artist identity",
+        );
+        let stored: String = conn
+            .query_row(
+                "SELECT metadata FROM catalog_listings WHERE id=?1",
+                [&credited.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let stored_track: Track = decode(stored).unwrap();
+        assert_eq!(
+            stored_track.provenance["artistCredits"][1]["role"],
+            "Written By"
+        );
+        assert_eq!(
+            stored_track.provenance["artistCredits"][1]["artist"]["id"],
+            "0"
+        );
+    }
+
+    #[test]
+    fn projection_revision_rebuilds_clean_old_artist_rows_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("library.sqlite");
+        let mut old_track = track("old-filename-artist");
+        old_track.album = None;
+        old_track.artist = "01".into();
+        old_track.provenance = json!({
+            "artistSource": "filename",
+            "identity": "unverified peer filename"
+        });
+
+        {
+            let store = Store::open(&path).unwrap();
+            store.save_library_tracks(&[old_track.clone()]).unwrap();
+            let stale_artist = entity("artist", "01", &old_track, None, None)
+                .validate()
+                .unwrap();
+            let conn = store.lock_connection().unwrap();
+            conn.execute(
+                "INSERT INTO library_entities(id,kind,payload) VALUES(?1,'artist',?2)",
+                params![stale_artist.id, encode(&stale_artist).unwrap()],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO library_entity_tracks(entity_id,listing_id,position) VALUES(?1,?2,1)",
+                params![stale_artist.id, old_track.id],
+            )
+            .unwrap();
+            // Model a clean projection built by the prior evaluator.
+            conn.execute("UPDATE library_entity_state SET dirty=0", [])
+                .unwrap();
+            conn.execute(
+                "UPDATE library_entity_projection_revision SET revision=0 WHERE id=1",
+                [],
+            )
+            .unwrap();
+        }
+
+        let reopened = Store::open(&path).unwrap();
+        {
+            let conn = reopened.lock_connection().unwrap();
+            assert_eq!(
+                conn.query_row(
+                    "SELECT dirty FROM library_entity_state WHERE id=1",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+                1,
+                "a clean projection from an older evaluator must be rebuilt",
+            );
+        }
+        assert_eq!(
+            reopened
+                .list_library_entities("artist", None, "", 200, 0)
+                .unwrap()
+                .total,
+            0,
+            "the weak filename-derived artist should disappear during rebuild",
+        );
+        drop(reopened);
+
+        let reopened_again = Store::open(&path).unwrap();
+        let conn = reopened_again.lock_connection().unwrap();
+        assert_eq!(
+            conn.query_row(
+                "SELECT dirty FROM library_entity_state WHERE id=1",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            0,
+            "the current evaluator revision must not dirty the projection on every open",
+        );
+    }
+
+    #[test]
     fn saved_groups_exclude_cached_tracks_and_follow_edits_and_cleanup() {
         let (_dir, store) = db();
         let cached = track("cached");
@@ -960,6 +1281,23 @@ mod tests {
             .unwrap();
         assert_eq!(albums.total, 1);
         assert_eq!(albums.items[0].track_count, 1);
+        assert_eq!(
+            store
+                .list_library_entities_filtered(
+                    "album",
+                    None,
+                    "",
+                    Some("__metadata__"),
+                    None,
+                    "name",
+                    false,
+                    200,
+                    0,
+                )
+                .unwrap()
+                .total,
+            1
+        );
         {
             let conn = store.lock_connection().unwrap();
             conn.execute(
@@ -1156,6 +1494,112 @@ mod tests {
                 .unwrap()
                 .total,
             1
+        );
+    }
+
+    #[test]
+    fn saved_album_does_not_hide_an_unlinked_same_title_release_using_a_shared_track() {
+        let (_dir, store) = db();
+        let mut shared = track("shared-recording");
+        shared.release_date = Some("1998-01-01".into());
+        shared.provenance =
+            json!({"catalog":{"release":{"provider":"musicbrainz","id":"other-edition"}}});
+        let saved = store
+            .save_library_album(
+                entity(
+                    "album",
+                    "Same title",
+                    &shared,
+                    Some("spotify"),
+                    Some("saved-edition"),
+                ),
+                vec![shared.clone()],
+                1,
+            )
+            .unwrap();
+
+        // The saved release and listing metadata can legitimately describe two
+        // unlinked editions of the same recording. Keep the listing's catalog
+        // release evidence while retaining the explicit save as its own entity.
+        {
+            let conn = store.lock_connection().unwrap();
+            let raw: String = conn
+                .query_row(
+                    "SELECT metadata FROM catalog_listings WHERE id=?1",
+                    [&shared.id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            let mut listing: Track = decode(raw).unwrap();
+            listing
+                .provenance
+                .as_object_mut()
+                .unwrap()
+                .remove("libraryAlbum");
+            conn.execute(
+                "UPDATE catalog_listings SET metadata=?2 WHERE id=?1",
+                params![shared.id, encode(&listing).unwrap()],
+            )
+            .unwrap();
+        }
+
+        let albums = store
+            .list_library_entities("album", None, "", 200, 0)
+            .unwrap();
+        assert_eq!(albums.total, 2);
+        assert!(albums.items.iter().any(|album| album.id == saved.id));
+        assert!(albums
+            .items
+            .iter()
+            .any(|album| album.id == "album:ref:musicbrainz:other-edition"));
+        assert_eq!(
+            store
+                .list_library_entities("album", None, "1998", 200, 0)
+                .unwrap()
+                .total,
+            2
+        );
+        assert_eq!(
+            store
+                .list_library_entities("album", None, "musicbrainz", 200, 0)
+                .unwrap()
+                .total,
+            1
+        );
+        assert_eq!(
+            store
+                .list_library_entities_filtered(
+                    "album",
+                    None,
+                    "",
+                    Some("spotify"),
+                    Some("1998"),
+                    "year",
+                    false,
+                    200,
+                    0,
+                )
+                .unwrap()
+                .total,
+            1
+        );
+        assert_eq!(
+            store
+                .list_library_entities_filtered(
+                    "album",
+                    None,
+                    "",
+                    None,
+                    Some("1998"),
+                    "source",
+                    true,
+                    200,
+                    0,
+                )
+                .unwrap()
+                .items[0]
+                .id,
+            saved.id
         );
     }
 

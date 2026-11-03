@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) const EVALUATOR_VERSION: &str = "21";
+pub(crate) const EVALUATOR_VERSION: &str = "23";
 
 /// Independently selected categories of alternatives for Flexible matching.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -1519,6 +1519,184 @@ fn caption_artist_names(
     }
     Vec::new()
 }
+
+#[derive(Debug, Clone)]
+struct RequestCorroboratedCaptionOrientation {
+    title: String,
+    artist: String,
+}
+
+fn uploader_matches_request_artist(uploader: &str, requested_artist: &str) -> bool {
+    let requested = crate::recording_identity::search_fold(requested_artist);
+    if requested.is_empty() {
+        return false;
+    }
+    let uploader = crate::matching::normalize_single_artist_name(uploader);
+    if uploader.is_empty() {
+        return false;
+    }
+    if crate::recording_identity::search_fold(&uploader) == requested {
+        return true;
+    }
+    for suffix in [" official", " oficial", " topic"] {
+        if let Some(base) = uploader.strip_suffix(suffix) {
+            if !base.trim().is_empty()
+                && crate::recording_identity::search_fold(base.trim()) == requested
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Orient a title-first provider caption only when the right-hand credit is
+/// the exact requested act, the source uploader independently corroborates
+/// that act, and the left-hand text matches the requested title. This is a
+/// request-scoped interpretation; it never rewrites provider metadata/cache.
+fn request_corroborated_caption_orientation(
+    track: &Track,
+    candidate: &Candidate,
+    meta: &Value,
+) -> Option<RequestCorroboratedCaptionOrientation> {
+    if !matches!(candidate.provider.as_str(), "youtube" | "soundcloud")
+        || meta["provider"]
+            .as_str()
+            .is_some_and(|provider| provider != candidate.provider)
+        || meta["identityMetadataUncertain"] == true
+        || !matches!(
+            meta["sourceMetadataOrigin"].as_str(),
+            Some("ytDlpCandidateMetadata" | "ytDlpFullInfo")
+        )
+    {
+        return None;
+    }
+    let provider_id = candidate
+        .id
+        .strip_prefix(&format!("{}:", candidate.provider))?;
+    if provider_id.is_empty() || meta["resolvedProviderId"].as_str() != Some(provider_id) {
+        return None;
+    }
+    // A structured provider credit list has its own orientation and remains
+    // authoritative. This rule is for otherwise unstructured captions only.
+    for key in ["artists", "artistNames"] {
+        if let Some(value) = meta.get(key).filter(|value| !value.is_null()) {
+            match value.as_array() {
+                // Providers sometimes serialize no credits as an empty list.
+                // Empty is absence; nonempty arrays remain authoritative and
+                // malformed shapes remain a blocker to alternate parsing.
+                Some(values) if values.is_empty() => {}
+                Some(_) | None => return None,
+            }
+        }
+    }
+    let requested_artist = track.artist.trim();
+    let requested_artist_key = crate::recording_identity::search_fold(requested_artist);
+    if requested_artist_key.is_empty()
+        || matches!(
+            requested_artist_key.as_str(),
+            "unknown" | "unknown artist" | "n a"
+        )
+    {
+        return None;
+    }
+    let uploader_values = [
+        candidate.uploader.as_deref(),
+        meta["uploader"].as_str(),
+        meta["channel"].as_str(),
+    ]
+    .into_iter()
+    .flatten()
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+    .collect::<Vec<_>>();
+    if uploader_values.is_empty()
+        || uploader_values
+            .iter()
+            .any(|uploader| !uploader_matches_request_artist(uploader, requested_artist))
+    {
+        return None;
+    }
+
+    let track_caption = meta["track"]
+        .as_str()
+        .filter(|value| !value.trim().is_empty());
+    let catalog_caption = meta["catalogTitle"]
+        .as_str()
+        .filter(|value| !value.trim().is_empty());
+    if track_caption
+        .zip(catalog_caption)
+        .is_some_and(|(left, right)| {
+            crate::matching::normalize(left) != crate::matching::normalize(right)
+        })
+    {
+        return None;
+    }
+    let caption = track_caption
+        .or(catalog_caption)
+        .unwrap_or(&candidate.title);
+    if caption.trim().is_empty() || caption.len() > 2048 {
+        return None;
+    }
+
+    let requested_title = parse_title(&track.title).title;
+    let requested_title_key = title_key(&requested_title);
+    if requested_title_key.is_empty() {
+        return None;
+    }
+    let mut matches = Vec::new();
+    for separator in [" - ", " – ", " — ", " | "] {
+        for (index, _) in caption.match_indices(separator) {
+            let left = caption[..index].trim();
+            let right = caption[index + separator.len()..].trim();
+            if left.is_empty() || right.is_empty() {
+                continue;
+            }
+            let right_artist_matches =
+                crate::recording_identity::search_fold(right) == requested_artist_key;
+            let left_title_matches = crate::recording_identity::search_fold(&title_key(left))
+                == crate::recording_identity::search_fold(&requested_title_key);
+            if !right_artist_matches || !left_title_matches {
+                continue;
+            }
+            // Refuse this alternate reading if the same boundary also supports
+            // the ordinary artist-first orientation. That protects short or
+            // identical artist/title captions from ambiguous reinterpretation.
+            let left_artist_matches =
+                crate::recording_identity::search_fold(left) == requested_artist_key;
+            let right_title_matches = crate::recording_identity::search_fold(&title_key(right))
+                == crate::recording_identity::search_fold(&requested_title_key);
+            if left_artist_matches && right_title_matches {
+                continue;
+            }
+            matches.push(RequestCorroboratedCaptionOrientation {
+                title: left.to_owned(),
+                artist: right.to_owned(),
+            });
+        }
+    }
+    matches.dedup_by(|a, b| {
+        title_key(&a.title) == title_key(&b.title)
+            && crate::matching::normalize_single_artist_name(&a.artist)
+                == crate::matching::normalize_single_artist_name(&b.artist)
+    });
+    if matches.len() != 1 {
+        return None;
+    }
+    let orientation = matches.remove(0);
+    // A singular provider artist field can itself be the caption parser's
+    // mistaken left-side value. Ignore only that value or the corroborated
+    // right-side artist; any third artist remains a contradiction.
+    if field_artist_names(meta).iter().any(|name| {
+        crate::recording_identity::search_fold(name)
+            != crate::recording_identity::search_fold(&orientation.title)
+            && crate::recording_identity::search_fold(name) != requested_artist_key
+    }) {
+        return None;
+    }
+    Some(orientation)
+}
+
 fn bound_catalog_title(raw: &str, requested: &str, meta: &Value, label: Option<&str>) -> String {
     if title_key(raw) == title_key(requested) {
         return raw.to_owned();
@@ -1578,6 +1756,7 @@ struct ComparisonFacts {
     exact_recording_bound: bool,
     topic_full: bool,
     contextual_game_title: bool,
+    caption_orientation_requires_full_info: bool,
     linked: bool,
     explicit_alt: bool,
     cover_evidence: bool,
@@ -1736,6 +1915,10 @@ fn prepare_observations(
     } else {
         source_metadata
     };
+    let caption_orientation = filename_observations
+        .is_none()
+        .then(|| request_corroborated_caption_orientation(track, candidate, meta))
+        .flatten();
     let known_label = track.label.as_deref().or(meta["label"].as_str());
     let parse_text = |raw: &str| {
         let mut parsed = parse_recording_text(raw);
@@ -1906,6 +2089,28 @@ fn prepare_observations(
             parsed: parse_text(&candidate.title),
         });
     }
+    if let Some(orientation) = &caption_orientation {
+        actual.texts.push(TextObservation {
+            origin: origin(
+                "sourceMetadata.requestCorroboratedCaptionTitle",
+                &candidate_group,
+                EvidenceAuthority::UploaderCaption,
+            ),
+            parsed: parse_text(&orientation.title),
+        });
+        let key = norm_artist(&orientation.artist);
+        actual.performers.push(PerformerObservation {
+            origin: origin(
+                "sourceMetadata.requestCorroboratedCaptionArtist",
+                &candidate_group,
+                EvidenceAuthority::UploaderCaption,
+            ),
+            name: orientation.artist.clone(),
+            normalized_key: (!key.is_empty()).then_some(key),
+            role: "performer".into(),
+            complete: false,
+        });
+    }
     for field in ["track", "catalogTitle", "version", "mix"] {
         if let Some(text) = meta[field].as_str() {
             actual.texts.push(TextObservation {
@@ -1922,7 +2127,11 @@ fn prepare_observations(
             });
         }
     }
-    let names = field_artist_names(meta);
+    let names = if caption_orientation.is_some() {
+        Vec::new()
+    } else {
+        field_artist_names(meta)
+    };
     // Indexed artist arrays and counts are retrieval metadata, not a closed-
     // world assertion about every credited performer on the recording.
     // Monochrome IDs and artistCount are deliberately insufficient.
@@ -2096,6 +2305,10 @@ fn build_comparison(
     } else {
         source_metadata
     };
+    let caption_orientation = filename_observations
+        .is_none()
+        .then(|| request_corroborated_caption_orientation(track, candidate, meta))
+        .flatten();
     let caption_title = filename_observations
         .as_ref()
         .map(|observations| observations.normalized_title.as_str())
@@ -2116,15 +2329,30 @@ fn build_comparison(
         title_first_filename_caption(track, &observations.normalized_title)
     });
     let known_label = track.label.as_deref().or(meta["label"].as_str());
-    let contextual_title = contextual_game_level_title(track, raw_candidate).or_else(|| {
+    let contextual_candidate = caption_orientation
+        .as_ref()
+        .map(|orientation| orientation.title.as_str())
+        .unwrap_or(raw_candidate);
+    let contextual_title = contextual_game_level_title(track, contextual_candidate).or_else(|| {
         if canonical_catalog.is_none() {
-            contextual_game_level_title(track, caption_title)
+            contextual_game_level_title(
+                track,
+                caption_orientation
+                    .as_ref()
+                    .map(|orientation| orientation.title.as_str())
+                    .unwrap_or(caption_title),
+            )
         } else {
             None
         }
     });
     let contextual_game_title = contextual_title.is_some();
     let candidate_title = contextual_title
+        .or_else(|| {
+            caption_orientation
+                .as_ref()
+                .map(|orientation| orientation.title.clone())
+        })
         .or_else(|| title_first_caption.as_ref().map(|(title, _)| title.clone()))
         .unwrap_or_else(|| {
             if canonical_catalog.is_some() {
@@ -2149,7 +2377,21 @@ fn build_comparison(
         prepared_semantic_observations(request_evidence, &wanted_title, &track.title, known_label);
     let conflicting_candidate_versions = observations.len() > 1;
     let conflicting_request_versions = request_observations.len() > 1;
-    let mut actual_version = candidate_version(meta, &candidate_title, known_label);
+    let mut actual_version = if let Some(orientation) = &caption_orientation {
+        meta["version"]
+            .as_str()
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| {
+                meta["mix"]
+                    .as_str()
+                    .filter(|value| !value.trim().is_empty())
+            })
+            .map(str::to_owned)
+            .or_else(|| caption_semantic_version(&orientation.title))
+            .unwrap_or_default()
+    } else {
+        candidate_version(meta, &candidate_title, known_label)
+    };
     if !conflicting_candidate_versions && observations.len() == 1 {
         actual_version = observations[0].clone();
     }
@@ -2191,7 +2433,11 @@ fn build_comparison(
         Comparison::Agree
     } else if empty_title || unresolved_annotation {
         Comparison::Unknown
-    } else if title_key(&request_title.title) == title_key(&candidate_title) {
+    } else if title_key(&request_title.title) == title_key(&candidate_title)
+        || caption_orientation.is_some()
+            && crate::recording_identity::search_fold(&title_key(&request_title.title))
+                == crate::recording_identity::search_fold(&title_key(&candidate_title))
+    {
         Comparison::Agree
     } else {
         Comparison::Conflict
@@ -2256,7 +2502,9 @@ fn build_comparison(
                 .unwrap_or_else(|| credit.clone())
         })
         .collect::<Vec<_>>();
-    let mut names = if filename_observations.is_some() {
+    let mut names = if let Some(orientation) = &caption_orientation {
+        expanded_credits(&[orientation.artist.clone()], &comparison_credit_parts)
+    } else if filename_observations.is_some() {
         Vec::new()
     } else {
         field_artist_names(meta)
@@ -2269,12 +2517,16 @@ fn build_comparison(
             || ["artists", "artistNames"]
                 .iter()
                 .any(|key| meta.get(*key).is_some_and(|value| !value.is_null())));
-    let mut caption_names = caption_artist_names(
-        canonical_catalog.unwrap_or(caption_title),
-        &comparison_artist,
-        &requested_guests,
-        Some(&comparison_credit_parts),
-    );
+    let mut caption_names = if caption_orientation.is_some() {
+        Vec::new()
+    } else {
+        caption_artist_names(
+            canonical_catalog.unwrap_or(caption_title),
+            &comparison_artist,
+            &requested_guests,
+            Some(&comparison_credit_parts),
+        )
+    };
     // A fresh yt-dlp YouTube or SoundCloud caption can close credits only when its
     // structured artist prefix and feature annotation parse to exactly the
     // requested performer set. Public search display strings, stale catalog
@@ -2421,7 +2673,7 @@ fn build_comparison(
     // is not exhaustive. Closed-world completeness controls whether extra or
     // missing credits can prove a conflict; it must not erase a known wrong
     // performer (or an exact coverage match) from the comparison itself.
-    let artists_exact = artist_comparison(MatchLevel::Exact, false);
+    let mut artists_exact = artist_comparison(MatchLevel::Exact, false);
     let actual_kind = version_kind(&actual_version);
     let requested_kind = version_kind(&requested_semantic);
     let version = if conflicting_request_versions || conflicting_candidate_versions {
@@ -2470,9 +2722,24 @@ fn build_comparison(
         && version != Comparison::Conflict
         && !request_credits_complete
         && accent_folded_covers_requested_credits(&request_credit_parts, &names);
+    // A title-first caption can establish the performer spelling when its
+    // right-hand credit and independent uploader both match the request. Keep
+    // the accent-fold allowance request-scoped and require title, runtime, and
+    // edition agreement before it affects any matching level.
+    let request_corroborated_caption_artist_match = caption_orientation.is_some()
+        && title == Comparison::Agree
+        && runtime == Comparison::Agree
+        && version != Comparison::Conflict
+        && !request_credits_complete
+        && accent_folded_covers_requested_credits(&request_credit_parts, &names);
     if accent_folded_performer_match {
         artists = Comparison::Agree;
         artists_flexible = Comparison::Agree;
+    }
+    if request_corroborated_caption_artist_match {
+        artists = Comparison::Agree;
+        artists_flexible = Comparison::Agree;
+        artists_exact = Comparison::Agree;
     }
     let work_ids = [meta["workId"].as_str(), meta["work_id"].as_str()]
         .into_iter()
@@ -2582,6 +2849,8 @@ fn build_comparison(
         exact_recording_bound,
         topic_full,
         contextual_game_title,
+        caption_orientation_requires_full_info: caption_orientation.is_some()
+            && meta["sourceMetadataOrigin"].as_str() != Some("ytDlpFullInfo"),
         linked,
         explicit_alt,
         cover_evidence,
@@ -3195,6 +3464,12 @@ fn assess_prepared_inner(
             MatchRelationship::Unresolved => MatchAction::Inspect,
         }
     };
+    if stage == MatchStage::Resolved
+        && facts.caption_orientation_requires_full_info
+        && action != MatchAction::Reject
+    {
+        action = MatchAction::Enrich;
+    }
     let uncertainty = facts.parsing_incomplete
         || unresolved_annotation && !unresolved_gloss_identity
         || empty_title
@@ -3601,6 +3876,307 @@ pub(crate) fn assess_with_scoped_artist_credit_set_variant_and_options(
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn uploader_corroborated_caption_orientation_is_request_scoped_and_keeps_identity_guards() {
+        let request = Track {
+            provider: "spotify".into(),
+            provider_id: "6wu6sIm3bL3KKRVXfNoaAl".into(),
+            title: "Ámame".into(),
+            artist: "Maryto y su Salsón".into(),
+            duration_seconds: Some(237.257),
+            ..Track::default()
+        };
+        let caption = "Amame - Maryto y su Salson";
+        let official = "Maryto y su Salson Oficial";
+        let reversed = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:StdOHMvDlas".into(),
+            title: caption.into(),
+            uploader: Some(official.into()),
+            duration_seconds: Some(240.0),
+            source_metadata: Some(json!({
+                "sourceMetadataOrigin":"ytDlpCandidateMetadata",
+                "resolvedProviderId":"StdOHMvDlas",
+                "track":caption,
+                "catalogTitle":caption,
+                "duration":240.0
+            })),
+            ..Candidate::default()
+        };
+        let raw_candidate = reversed.clone();
+        let search_assessment = assess(&request, &reversed, MatchLevel::Exact, MatchStage::Search);
+        assert_eq!(
+            search_assessment.action,
+            MatchAction::Inspect,
+            "{search_assessment:?}"
+        );
+        assert_eq!(search_assessment.dimensions.title, Comparison::Agree);
+        assert_eq!(search_assessment.dimensions.artists, Comparison::Agree);
+        // The user-visible search row is the same occurrence after its
+        // caption parser emits the reversed title/artist fields.
+        let mut parsed_search_row = reversed.clone();
+        parsed_search_row.title = "Maryto y su Salson".into();
+        parsed_search_row.source_metadata.as_mut().unwrap()["artist"] = json!("Amame");
+        assert_eq!(
+            assess(
+                &request,
+                &parsed_search_row,
+                MatchLevel::Exact,
+                MatchStage::Search
+            )
+            .action,
+            MatchAction::Inspect
+        );
+        assert_eq!(
+            assess(
+                &request,
+                &parsed_search_row,
+                MatchLevel::Exact,
+                MatchStage::Resolved
+            )
+            .action,
+            MatchAction::Enrich
+        );
+        let assessment = assess(&request, &reversed, MatchLevel::Exact, MatchStage::Resolved);
+        assert_eq!(assessment.action, MatchAction::Enrich, "{assessment:?}");
+        assert_eq!(
+            assessment.dimensions.title,
+            Comparison::Agree,
+            "{assessment:?}"
+        );
+        assert_eq!(
+            assessment.dimensions.artists,
+            Comparison::Agree,
+            "{assessment:?}"
+        );
+        assert_eq!(
+            assessment.dimensions.runtime,
+            Comparison::Agree,
+            "{assessment:?}"
+        );
+        assert_eq!(assessment.dimensions.version, Comparison::Unknown);
+        assert_eq!(reversed.source_metadata, raw_candidate.source_metadata);
+        let mut resolved = reversed.clone();
+        resolved.source_metadata.as_mut().unwrap()["sourceMetadataOrigin"] = json!("ytDlpFullInfo");
+        let assessment = assess(&request, &resolved, MatchLevel::Exact, MatchStage::Resolved);
+        assert_eq!(assessment.action, MatchAction::Accept, "{assessment:?}");
+
+        // This reproduces the live candidate metadata, which has an empty
+        // credit list and no singular parsed artist field. Empty provider
+        // arrays are absence and still permit the corroborated title caption.
+        let mut empty_credits = reversed.clone();
+        empty_credits.source_metadata.as_mut().unwrap()["artists"] = json!([]);
+        let empty_credit_search = assess(
+            &request,
+            &empty_credits,
+            MatchLevel::Exact,
+            MatchStage::Search,
+        );
+        assert_eq!(empty_credit_search.action, MatchAction::Inspect);
+        assert_eq!(empty_credit_search.dimensions.artists, Comparison::Agree);
+        let mut empty_credits_resolved = empty_credits.clone();
+        empty_credits_resolved.source_metadata.as_mut().unwrap()["sourceMetadataOrigin"] =
+            json!("ytDlpFullInfo");
+        assert_eq!(
+            assess(
+                &request,
+                &empty_credits_resolved,
+                MatchLevel::Exact,
+                MatchStage::Resolved
+            )
+            .action,
+            MatchAction::Accept
+        );
+
+        let mut parsed_artist = reversed.clone();
+        parsed_artist.source_metadata.as_mut().unwrap()["artist"] = json!("Amame");
+        parsed_artist.source_metadata.as_mut().unwrap()["sourceMetadataOrigin"] =
+            json!("ytDlpFullInfo");
+        assert_eq!(
+            assess(
+                &request,
+                &parsed_artist,
+                MatchLevel::Exact,
+                MatchStage::Resolved
+            )
+            .action,
+            MatchAction::Accept
+        );
+
+        // Malformed arrays and contradictory structured artist data stay
+        // authoritative blockers, even if the caption and uploader agree.
+        let mut malformed_artists = reversed.clone();
+        malformed_artists.source_metadata.as_mut().unwrap()["artists"] = json!("Amame");
+        assert_ne!(
+            assess(
+                &request,
+                &malformed_artists,
+                MatchLevel::Exact,
+                MatchStage::Resolved
+            )
+            .action,
+            MatchAction::Accept
+        );
+        let mut contradictory_artists = reversed.clone();
+        contradictory_artists.source_metadata.as_mut().unwrap()["artists"] =
+            json!(["Different Artist"]);
+        assert_eq!(
+            assess(
+                &request,
+                &contradictory_artists,
+                MatchLevel::Exact,
+                MatchStage::Resolved
+            )
+            .action,
+            MatchAction::Reject
+        );
+
+        // The same title in normal artist-first orientation still matches from
+        // independent provider artist metadata without invoking the alternate.
+        let normal = Candidate {
+            title: "Ámame".into(),
+            source_metadata: Some(json!({
+                "sourceMetadataOrigin":"ytDlpCandidateMetadata",
+                "resolvedProviderId":"normal-caption-fixture",
+                "track":"Maryto y su Salson - Ámame",
+                "catalogTitle":"Ámame",
+                "artistNames":["Maryto y su Salsón"],
+                "duration":240.0
+            })),
+            id: "youtube:normal-caption-fixture".into(),
+            duration_seconds: Some(240.0),
+            ..Candidate::default()
+        };
+        assert_eq!(
+            assess(
+                &request,
+                &normal,
+                MatchLevel::Balanced,
+                MatchStage::Resolved
+            )
+            .action,
+            MatchAction::Accept
+        );
+
+        // The right-hand caption and uploader must both corroborate the
+        // requested artist. A different uploader does not orient the caption.
+        let mut wrong_uploader = reversed.clone();
+        wrong_uploader.uploader = Some("Different Artist Official".into());
+        wrong_uploader.source_metadata.as_mut().unwrap()["uploader"] =
+            json!("Different Artist Official");
+        assert_eq!(
+            assess(
+                &request,
+                &wrong_uploader,
+                MatchLevel::Balanced,
+                MatchStage::Resolved
+            )
+            .action,
+            MatchAction::Reject
+        );
+        assert_eq!(
+            assess(
+                &request,
+                &wrong_uploader,
+                MatchLevel::Balanced,
+                MatchStage::Search
+            )
+            .action,
+            MatchAction::Reject
+        );
+        let wrong_artist_request = Track {
+            artist: "Different Artist".into(),
+            ..request.clone()
+        };
+        assert_eq!(
+            assess(
+                &wrong_artist_request,
+                &reversed,
+                MatchLevel::Balanced,
+                MatchStage::Resolved
+            )
+            .action,
+            MatchAction::Reject
+        );
+
+        let wrong_version_request = Track {
+            version: Some("Studio Recording".into()),
+            ..request.clone()
+        };
+        let live_caption = "Amame (Live) - Maryto y su Salson";
+        let wrong_version = Candidate {
+            title: "Maryto y su Salson (Live)".into(),
+            source_metadata: Some(json!({
+                "sourceMetadataOrigin":"ytDlpCandidateMetadata",
+                "resolvedProviderId":"live-caption-fixture",
+                "track":live_caption,
+                "catalogTitle":live_caption,
+                "duration":240.0,
+                "uploader":official
+            })),
+            id: "youtube:live-caption-fixture".into(),
+            uploader: Some(official.into()),
+            duration_seconds: Some(240.0),
+            ..Candidate::default()
+        };
+        let wrong_version_assessment = assess(
+            &wrong_version_request,
+            &wrong_version,
+            MatchLevel::Balanced,
+            MatchStage::Resolved,
+        );
+        assert_eq!(
+            wrong_version_assessment.dimensions.version,
+            Comparison::Conflict
+        );
+        assert_eq!(wrong_version_assessment.action, MatchAction::Reject);
+        assert_eq!(
+            assess(
+                &wrong_version_request,
+                &wrong_version,
+                MatchLevel::Balanced,
+                MatchStage::Search
+            )
+            .action,
+            MatchAction::Reject
+        );
+
+        // Whole band names remain atomic, and ordinary internal dashes remain
+        // part of the requested title when the reversed caption is corroborated.
+        let band_request = Track {
+            title: "September - At Dawn".into(),
+            artist: "Earth, Wind & Fire".into(),
+            duration_seconds: Some(210.0),
+            ..Track::default()
+        };
+        let band_caption = "September - At Dawn - Earth, Wind & Fire";
+        let band = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:band-caption-fixture".into(),
+            title: "Earth, Wind & Fire".into(),
+            uploader: Some("Earth, Wind & Fire Official".into()),
+            duration_seconds: Some(210.0),
+            source_metadata: Some(json!({
+                "sourceMetadataOrigin":"ytDlpCandidateMetadata",
+                "resolvedProviderId":"band-caption-fixture",
+                "track":band_caption,
+                "catalogTitle":band_caption,
+                "duration":210.0,
+                "uploader":"Earth, Wind & Fire Official"
+            })),
+            ..Candidate::default()
+        };
+        let band_assessment = assess(
+            &band_request,
+            &band,
+            MatchLevel::Exact,
+            MatchStage::Resolved,
+        );
+        assert_eq!(band_assessment.dimensions.title, Comparison::Agree);
+        assert_eq!(band_assessment.dimensions.artists, Comparison::Agree);
+        assert_eq!(band_assessment.action, MatchAction::Accept);
+    }
+
     #[test]
     fn spanish_official_audio_full_caption_supplies_source_bound_credit_completeness() {
         let track = Track {

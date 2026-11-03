@@ -18,6 +18,45 @@ export interface LibraryEntity {
   aliases?: string[];
 }
 export interface LibraryEntityPage { items: LibraryEntity[]; total: number }
+export interface LibraryEntityGroup { key: string; entries: LibraryEntity[] }
+export type LibraryEntityLayout = 'grid' | 'list';
+export interface LibraryEntityLayouts { artistLayout: LibraryEntityLayout; albumLayout: LibraryEntityLayout }
+const libraryEntityLayoutsKey = 'burrata.library-browser-layouts.v1';
+export function readLibraryEntityLayouts(): LibraryEntityLayouts {
+  const defaults: LibraryEntityLayouts = { artistLayout: 'grid', albumLayout: 'grid' };
+  try {
+    if (typeof localStorage === 'undefined') return defaults;
+    const value: unknown = JSON.parse(localStorage.getItem(libraryEntityLayoutsKey) ?? 'null');
+    if (!value || typeof value !== 'object') return defaults;
+    const stored = value as Record<string, unknown>;
+    return {
+      artistLayout: stored.artistLayout === 'list' ? 'list' : 'grid',
+      albumLayout: stored.albumLayout === 'list' ? 'list' : 'grid',
+    };
+  } catch { return defaults; }
+}
+export function saveLibraryEntityLayouts(layouts: LibraryEntityLayouts): void {
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(libraryEntityLayoutsKey, JSON.stringify({
+      artistLayout: layouts.artistLayout === 'list' ? 'list' : 'grid',
+      albumLayout: layouts.albumLayout === 'list' ? 'list' : 'grid',
+    }));
+  } catch { /* Layout preference is optional when browser storage is unavailable. */ }
+}
+function libraryLabelKey(value: string): string { return value.trim().toLocaleLowerCase().replace(/\s+/g, ' '); }
+/** Group matching album titles/artists and artist names for presentation only. Entity IDs remain independent. */
+export function groupLibraryEntities(items: readonly LibraryEntity[]): LibraryEntityGroup[] {
+  const groups = new Map<string, LibraryEntity[]>();
+  for (const item of items) {
+    const key = item.kind === 'album'
+      ? `album\u0000${libraryLabelKey(item.artist)}\u0000${libraryLabelKey(item.name)}`
+      : `${item.kind}\u0000${libraryLabelKey(item.name)}`;
+    const group = groups.get(key) ?? [];
+    group.push(item);
+    groups.set(key, group);
+  }
+  return [...groups].map(([key, entries]) => ({ key, entries }));
+}
 export interface LibraryBrowserState {
   tab: 'tracks' | 'artists' | 'albums';
   entity: LibraryEntity | null;
@@ -28,10 +67,16 @@ export interface LibraryBrowserState {
   availability: string;
   minDuration: string;
   maxDuration: string;
+  entitySource: string;
+  entityYear: string;
+  entitySort: 'name' | 'artist' | 'year' | 'source' | 'tracks';
+  entityDescending: boolean;
+  artistLayout: LibraryEntityLayout;
+  albumLayout: LibraryEntityLayout;
   scroll: number;
   loadedCount: number;
 }
-export const initialLibraryBrowserState = (): LibraryBrowserState => ({ tab: 'tracks', entity: null, section: 'albums', query: '', sort: 'sourceOrder', descending: false, availability: 'all', minDuration: '', maxDuration: '', scroll: 0, loadedCount: 200 });
+export const initialLibraryBrowserState = (): LibraryBrowserState => ({ tab: 'tracks', entity: null, section: 'albums', query: '', sort: 'sourceOrder', descending: false, availability: 'all', minDuration: '', maxDuration: '', entitySource: '', entityYear: '', entitySort: 'name', entityDescending: false, ...readLibraryEntityLayouts(), scroll: 0, loadedCount: 200 });
 export function releaseLibraryEntity(release: ArtistReleaseRef, artist = ''): LibraryEntity {
   return { id: '', kind: 'album', name: release.title, artist: release.credits.map(c => c.name).join(', ') || artist,
     provider: release.release.provider, providerId: release.release.id, sourceUrl: release.sourceUrl,

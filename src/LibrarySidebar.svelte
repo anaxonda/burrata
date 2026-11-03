@@ -21,7 +21,7 @@
     onDirectoryBrowser = () => {},
     selectedFolder = null, rootsRevision = 0, onSelectFolder = () => {}, onRootsChanged = () => {},
     playlistNames={}, onRadioContext,
-    radioStations=[], activeRadioStationId="", onRadioStation=()=>{}, onAddRadio=()=>{},
+    radioStations=[], activeRadioStationId="", playingRadioStationId="", onRadioStation=()=>{}, onAddRadio=()=>{},
     sections=[], assignments={}, onCreateSection=()=>{}, onRenameSection=()=>{}, onDeleteSection=()=>{}, onMovePlaylist=()=>{}, onCreatePlaylist=()=>{},
     collections,
     browserImports,
@@ -50,7 +50,7 @@
     onSelectFolder?: (location: { rootId: string; relativePath: string } | null) => void;
     onRootsChanged?: () => void;
     view: string;playlistNames?:Record<string,string>;onRadioContext?:(station:RadioStation,event:MouseEvent)=>void;
-    radioStations?:RadioStation[];activeRadioStationId?:string;onRadioStation?:(station:RadioStation)=>void;onAddRadio?:()=>void;
+    radioStations?:RadioStation[];activeRadioStationId?:string;playingRadioStationId?:string;onRadioStation?:(station:RadioStation)=>void;onAddRadio?:()=>void;
     sections?:PlaylistSection[];assignments?:Record<string,string>;
     onCreateSection?:(name:string)=>void;onRenameSection?:(id:string,name:string)=>void;onDeleteSection?:(id:string)=>void;onMovePlaylist?:(id:string,sectionId:string|null)=>void;onCreatePlaylist?:(sectionId?:string)=>void;
     collections: Collection[];
@@ -71,6 +71,29 @@
     onWidthChange?: (width: number) => void;
   } = $props();
   let playlistArtwork = $state<Record<string, string[]>>({});
+  let recoveredStationArtwork = $state<Record<string, string>>({});
+  const stationArtworkRequests = new Set<string>();
+  function stationArtworkIdentity(station: RadioStation) {
+    return JSON.stringify([station.id, station.streamUrl, station.faviconUrl || station.favicon || "", station.homepageUrl || ""]);
+  }
+  async function recoverStationArtwork(station: RadioStation) {
+    if (!call) return;
+    const identity = stationArtworkIdentity(station);
+    if (stationArtworkRequests.has(identity) || recoveredStationArtwork[identity]) return;
+    stationArtworkRequests.add(identity);
+    try {
+      const image = await call<string | null>("resolve_radio_station_artwork", { stationId: station.id });
+      if (stationArtworkIdentity(station) === identity && image?.startsWith("data:image/png;base64,")) {
+        recoveredStationArtwork = { ...recoveredStationArtwork, [identity]: image };
+      }
+    } catch { /* A missing station icon stays a clean placeholder. */ }
+  }
+  $effect(() => {
+    const stations = radioStations;
+    for (const station of stations) {
+      if (!(station.faviconUrl || station.favicon)) untrack(() => void recoverStationArtwork(station));
+    }
+  });
   let artworkRequest = 0;
   async function loadPlaylistArtwork(ids: string[]) {
     if (!call) return;
@@ -181,8 +204,13 @@
 <svelte:window onkeydown={(event) => { if (event.key === "Escape" && drawerOpen) closeDrawer(); }} />
 
 <aside {inert} class:drawer-open={drawerOpen} class:resizing class:compact class="library-sidebar" style={`--sidebar-width:${Math.max(minWidth, Math.min(maxWidth, width))}px`} aria-label="Library navigation">
-  <div class="library-brand" aria-label="Burrata">
-    <img class="brand-mark" src={burrataLogo} alt="" width="30" height="30" /><span>burrata</span>
+  <div class="library-topbar">
+    <div class="library-brand" aria-label="Burrata">
+      <img class="brand-mark" src={burrataLogo} alt="" width="30" height="30" /><span>burrata</span>
+    </div>
+    <button type="button" class="header-settings" class:active={view === "settings"} title="Settings" aria-label="Settings" onclick={() => { onSettings(); closeDrawer(); }}>
+      <span aria-hidden="true">⚙</span>
+    </button>
   </div>
 
   <button class="rail-toggle" aria-label={drawerOpen ? "Close library menu" : "Expand library menu"} aria-expanded={drawerOpen} aria-controls="library-sidebar-content" title={drawerOpen ? "Close library menu" : "Expand library menu"} onclick={toggleDrawer}>
@@ -211,8 +239,8 @@
       <summary class="source-heading"><span class="source-mark" aria-hidden="true">◉</span><span class="source-name">Radio</span><small>{radioStations.filter(station => matchesPlaylist(station.name, station.country, "Radio")).length}</small><span class="disclosure" aria-hidden="true">⌄</span></summary>
       <div class="source-playlists">
         {#each radioStations.filter(station => matchesPlaylist(station.name, station.country, "Radio")) as station (station.id)}
-          <button class="playlist-card" class:active={view==="radio" && activeRadioStationId===station.id} onclick={()=>{onRadioStation(station);closeDrawer();}} oncontextmenu={(event)=>{if(onRadioContext){event.preventDefault();onRadioContext(station,event);closeDrawer();}}} title={station.name}>
-            <span class="playlist-glyph radio-glyph" aria-hidden="true"><StationArtwork src={station.faviconUrl || station.favicon} alt="" fallbackLabel={`${station.name} station artwork`} imageClass="radio-station-icon" placeholderClass="radio-station-placeholder" symbol="◉" /></span><span class="playlist-copy"><strong>{station.name}</strong><small>{station.country || "Live radio"}</small></span>
+          <button class="playlist-card" class:active={(view==="radio" && activeRadioStationId===station.id) || playingRadioStationId===station.id} class:playing={playingRadioStationId===station.id} aria-current={playingRadioStationId===station.id ? "true" : undefined} onclick={()=>{onRadioStation(station);closeDrawer();}} oncontextmenu={(event)=>{if(onRadioContext){event.preventDefault();onRadioContext(station,event);closeDrawer();}}} title={station.name}>
+            <span class="playlist-glyph radio-glyph" aria-hidden="true"><StationArtwork src={recoveredStationArtwork[stationArtworkIdentity(station)] || station.faviconUrl || station.favicon} onImageError={() => void recoverStationArtwork(station)} alt="" fallbackLabel={`${station.name} station artwork`} imageClass="radio-station-icon" placeholderClass="radio-station-placeholder" symbol="◉" /></span><span class="playlist-copy"><strong>{station.name}</strong><small>{playingRadioStationId===station.id ? "Playing · " : ""}{station.country || "Live radio"}</small></span>
           </button>
         {/each}
         <button class="browse-source" aria-label="Add radio station" onclick={()=>{onAddRadio();closeDrawer();}}>＋ Add station</button>
@@ -273,11 +301,6 @@
         {/each}
       </div>
     </section>
-    <div class="sidebar-scroll-end">
-      <button class:active={view === "settings"} title="Settings" aria-label="Settings" onclick={() => { onSettings(); closeDrawer(); }}>
-        <span aria-hidden="true">⚙</span><span>Settings</span>
-      </button>
-    </div>
   </div>
   <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions (Focusable window splitter provides keyboard resizing.) -->
   <div tabindex="0" class="sidebar-resize" role="separator" aria-label="Resize library sidebar" aria-orientation="vertical" aria-valuemin={minWidth} aria-valuemax={maxWidth} aria-valuenow={width} onpointerdown={startResize} onkeydown={(event) => { if (event.key === "ArrowLeft") { event.preventDefault(); setWidth(width - 10); } else if (event.key === "ArrowRight") { event.preventDefault(); setWidth(width + 10); } }}></div>
@@ -298,17 +321,22 @@
   .sidebar-resize { position:absolute; z-index:3; top:0; right:-4px; width:8px; height:100%; padding:0; border:0; background:transparent; cursor:col-resize; touch-action:none; }
   .sidebar-resize:hover,.sidebar-resize:focus-visible { background:color-mix(in srgb,var(--accent) 35%,transparent); outline:0; }
   .resizing { user-select:none; }
+  .library-topbar { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:0 8px 26px; }
   .library-brand {
     display: flex;
     align-items: center;
     gap: 10px;
-    margin: 0 8px 26px;
+    min-width:0;
     color: var(--text);
     text-decoration: none;
     font-size: 20px;
     font-weight: 760;
     letter-spacing: -0.8px;
   }
+  .header-settings { display:grid;place-items:center;flex:none;width:34px;height:34px;padding:0;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--muted);font-size:18px; }
+  .header-settings:hover { background:var(--raised);color:var(--text); }
+  .header-settings.active { background:var(--raised);color:var(--accent); }
+  .header-settings:focus-visible { outline:2px solid var(--accent);outline-offset:2px; }
   .brand-mark {
     display: block;
     flex: none;
@@ -344,11 +372,6 @@
   .sidebar-filter-dropdown > summary span:nth-child(2) { flex:1; }
   .sidebar-filter-dropdown > summary small { color:var(--accent); font-size:9px; }
   .sidebar-filter-dropdown > .playlist-filter-label { margin:7px 0 0; padding:0 2px; }
-  .sidebar-scroll-end { margin-top:16px; padding:10px 0 4px; border-top:1px solid var(--line); }
-  .sidebar-scroll-end button { display:flex; align-items:center; gap:10px; width:100%; min-height:36px; padding:0 10px; border:0; border-radius:8px; background:transparent; color:var(--muted); text-align:left; font-size:12px; }
-  .sidebar-scroll-end button:hover { background:var(--raised); color:var(--text); }
-  .sidebar-scroll-end button.active { color:var(--accent); background:var(--raised); }
-  .sidebar-scroll-end button span:first-child { width:20px; text-align:center; font-size:17px; }
   .sidebar-section-title {
     display: flex;
     align-items: center;
@@ -388,6 +411,7 @@
   .playlist-card { display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; padding: 6px 8px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text); text-align: left; }
   .playlist-card:hover { background: var(--raised); }
   .playlist-card.active { border-color: color-mix(in srgb, var(--accent) 25%, transparent); background: color-mix(in srgb, var(--raised) 78%, var(--accent) 8%); }
+  .playlist-card.playing { border-color: color-mix(in srgb, var(--accent) 58%, transparent); background: color-mix(in srgb, var(--raised) 68%, var(--accent) 16%); }
   .playlist-glyph { display: grid; place-items: center; flex: 0 0 34px; width: 34px; height: 34px; border-radius: 7px; background: var(--raised); color: var(--muted); font-size: 15px; }
   .playlist-glyph.liked { background: linear-gradient(145deg, #6546a6, #b8499b); color: #fff; }
   .playlist-glyph.history { background: color-mix(in srgb, var(--accent) 16%, var(--raised)); color: var(--accent); font-size: 20px; }
@@ -401,9 +425,11 @@
   .drawer-heading { display:none; }
   .library-sidebar.compact { width:64px!important;grid-row:1;grid-column:1;min-width:0;min-height:0;padding:12px 6px;overflow:visible;position:relative;z-index:10; }
   .compact .sidebar-resize { display:none; }
-  .compact .library-brand { justify-content:center;margin:0 0 12px; }
+  .compact .library-topbar { justify-content:space-between;gap:0;margin:0 0 12px; }
+  .compact .library-brand { justify-content:center;flex:1;margin:0; }
   .compact .library-brand>span:last-child,.compact .nav-label,.compact .rail-toggle-label { display:none; }
-  .compact .brand-mark { width:34px;height:34px; }
+  .compact .brand-mark { width:26px;height:26px; }
+  .compact .header-settings { width:26px;height:30px;font-size:16px; }
   .compact .rail-toggle { display:grid;place-items:center;width:48px;height:40px;margin:0 auto 8px;border:1px solid var(--line);border-radius:9px;background:var(--raised);color:var(--text);font-size:19px; }
   .compact .library-primary { grid-template-columns:1fr;gap:5px; }
   .compact .library-primary button { justify-content:center;width:48px;min-height:44px;margin:auto;padding:0; }
@@ -421,7 +447,8 @@
   }
   @media (min-width: 801px) and (max-width: 1099px) {
     .library-sidebar { padding: 18px 9px 10px; }
-    .library-brand { margin: 0 5px 18px; font-size: 18px; }
+    .library-topbar { margin:0 5px 18px; }
+    .library-brand { font-size: 18px; }
     .playlist-card { gap: 7px; padding: 5px 5px; }
     .playlist-glyph { flex-basis: 29px; width: 29px; height: 29px; }
     .library-primary button { gap: 8px; padding: 0 8px; }
@@ -431,9 +458,11 @@
   @media (max-width: 900px) {
     .library-sidebar { grid-row: 1; grid-column: 1; min-width: 0; min-height: 0; padding: 12px 6px; overflow: visible; position: relative; z-index: 10; }
     .sidebar-resize { display:none; }
-    .library-brand { justify-content: center; margin: 0 0 12px; }
+    .library-topbar { margin:0 0 12px; }
+    .library-brand { justify-content:center; }
     .library-brand > span:last-child,.nav-label,.rail-toggle-label { display: none; }
-    .brand-mark { width: 34px; height: 34px; }
+    .brand-mark { width: 26px; height: 26px; }
+    .header-settings { width:26px;height:30px;font-size:16px; }
     .rail-toggle { display: grid; place-items: center; width: 48px; height: 40px; margin: 0 auto 8px; border: 1px solid var(--line); border-radius: 9px; background: var(--raised); color: var(--text); font-size: 19px; }
     .library-primary { grid-template-columns: 1fr; gap: 5px; }
     .library-primary button { justify-content: center; width: 48px; min-height: 44px; margin: auto; padding: 0; }

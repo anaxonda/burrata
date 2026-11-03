@@ -26,6 +26,15 @@ class StartupDiagnosticCliTests(unittest.TestCase):
                 self.assertEqual(error.exception.code, 2)
                 self.assertIn('choose only one startup diagnostics option', stderr.getvalue())
 
+    def test_reported_track_diagnostics_require_a_reported_fixture(self):
+        with patch('sys.argv', ['native_runtime_capture.py', '--payload', '/tmp/not-used-payload',
+                '--evidence', '/tmp/not-used-evidence', '--mode', 'incidents',
+                '--reported-track-diagnostics']), redirect_stderr(StringIO()) as stderr:
+            with self.assertRaises(SystemExit) as error:
+                capture.main()
+            self.assertEqual(error.exception.code, 2)
+            self.assertIn('--reported-track-diagnostics requires --reported-tracks', stderr.getvalue())
+
 
 class StartupPerformanceTraceTests(unittest.TestCase):
     def test_only_fixed_startup_and_quality_worker_timing_lines_are_projected(self):

@@ -75,7 +75,13 @@ pub(crate) fn normalize_credit_role(role: &str) -> String {
 pub(crate) fn is_primary_performer_role(role: &str) -> bool {
     matches!(
         normalize_credit_role(role).as_str(),
-        "artist" | "artist credit" | "primary" | "main" | "main artist" | "performer"
+        "artist"
+            | "artist credit"
+            | "primary"
+            | "primary artist"
+            | "main"
+            | "main artist"
+            | "performer"
     )
 }
 
@@ -546,6 +552,13 @@ impl RecordingIdentity {
             let role = match r.get("role") {
                 None | Some(Value::Null) => Some("artist"),
                 Some(Value::String(role)) if !role.trim().is_empty() => Some(role.as_str()),
+                Some(Value::String(_))
+                    if crate::artist_credit_aliases::is_legacy_discogs_roleless_primary_credit(
+                        track, r,
+                    ) =>
+                {
+                    Some("artist")
+                }
                 Some(_) => None,
             };
             if let (Some(name), Some(role)) = (name, role) {
@@ -1203,8 +1216,48 @@ mod tests {
         );
         assert!(!identity.credits_uncertain);
         assert!(is_primary_performer_role("MAIN_ARTIST"));
+        assert!(is_primary_performer_role("Primary Artist"));
         assert!(is_guest_performer_role("Featured-Artist"));
         assert!(is_non_performer_credit_role("Lyricist"));
+    }
+
+    #[test]
+    fn roleless_discogs_primary_credit_has_raw_and_hydrated_identity_parity() {
+        let raw = Track {
+            provider: "catalog".into(),
+            provider_id: "discogs:fixture".into(),
+            artist: "Unknown artist".into(),
+            provenance: json!({
+                "catalogProvider":"discogs",
+                "artistCredits":[
+                    {"name":"Gillian Welch","role":"","artist":{"id":"255403","provider":"discogs"}},
+                    {"name":"David Rawlings","role":"Written By","artist":{"id":"0","provider":"discogs"}}
+                ]
+            }),
+            ..Track::default()
+        };
+        let hydrated_credit = &raw.provenance["artistCredits"][0];
+        assert!(
+            crate::artist_credit_aliases::is_legacy_discogs_roleless_primary_credit(
+                &raw,
+                hydrated_credit
+            )
+        );
+        let raw_identity = RecordingIdentity::from_track(&raw);
+        let mut hydrated = raw.clone();
+        hydrated.artist = "Gillian Welch".into();
+        assert!(
+            crate::artist_credit_aliases::is_legacy_discogs_roleless_primary_credit(
+                &hydrated,
+                hydrated_credit
+            )
+        );
+        let hydrated_identity = RecordingIdentity::from_track(&hydrated);
+        assert_eq!(raw_identity.credits, hydrated_identity.credits);
+        assert_eq!(raw_identity.credits[0].name, "Gillian Welch");
+        assert_eq!(raw_identity.credits[0].role, "artist");
+        assert!(!raw_identity.credits_uncertain);
+        assert!(!hydrated_identity.credits_uncertain);
     }
 
     #[test]

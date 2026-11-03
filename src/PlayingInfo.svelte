@@ -14,7 +14,6 @@
   import type { PlayingTrackDetectionView } from "./lib/playing-track-detection";
   import { detectedObservationTrack } from "./lib/detected-track";
 import { trackSource } from "./lib/source-link";
-  import StationInfo from "./StationInfo.svelte";
   import type { Track, Candidate, LocalAsset, LiveBpmEstimate, LiveKeyEstimate } from "./lib/types";
   import type { TrackLibrarySummary } from "./lib/track-library-summary";
   import { loudnessMeasurementSourceLabel, type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus } from "./lib/loudness-normalization";
@@ -63,6 +62,7 @@ import { trackSource } from "./lib/source-link";
     panelWidth = 340,
     onPanelWidthChange,
     stationName = "",
+    stationUrl: suppliedStationUrl = "",
     liveBpm = null,
     liveKey = null,
     liveBpmStatus,
@@ -113,6 +113,7 @@ import { trackSource } from "./lib/source-link";
     panelWidth?: number;
     onPanelWidthChange?: (width: number) => void;
     stationName?: string;
+    stationUrl?: string;
     liveBpm?: LiveBpmEstimate | null;
     liveKey?: LiveKeyEstimate | null;
     liveBpmStatus?: "disabled" | "unsupported" | "paused" | "warming" | "estimating" | "insufficient" | "unavailable" | "waiting";
@@ -166,7 +167,6 @@ import { trackSource } from "./lib/source-link";
   }
 
   const sourceOpener = getContext<SourceOpener | undefined>(SOURCE_OPENER);
-  const sourcePage = $derived(!candidate?.url ? trackSource(track) : null);
   let sourceOpenError = $state("");
   async function openAudioSource(event: MouseEvent, url: string) {
     event.preventDefault();
@@ -218,11 +218,24 @@ import { trackSource } from "./lib/source-link";
     const provenance = track.provenance && typeof track.provenance === "object" ? track.provenance as Record<string, unknown> : {};
     const streamUrl = safeHttpUrl(provenance.radioStreamUrl);
     const isRadio = provenance.sourceKind === "radio" || Boolean(streamUrl);
-    return { isRadio, streamUrl, stationUrl: isRadio ? safeHttpUrl(track.sourceUrl) : "" };
+    const stationUrl = isRadio
+      ? safeHttpUrl(suppliedStationUrl)
+        || safeHttpUrl(provenance.radioStationUrl)
+        || safeHttpUrl(provenance.radioHomepageUrl)
+        || safeHttpUrl(provenance.stationUrl)
+        || safeHttpUrl(provenance.homepageUrl)
+        || trackSource(track)?.url
+        || ""
+      : "";
+    return { isRadio, stationUrl };
   });
   const displayedStationName = $derived.by(() => {
     const provenance = track.provenance && typeof track.provenance === "object" ? track.provenance as Record<string, unknown> : {};
     return stationName.trim() || (typeof provenance.radioStationName === "string" ? provenance.radioStationName : "") || track.title;
+  });
+  const sourcePage = $derived.by(() => {
+    if (radioLinks.isRadio) return radioLinks.stationUrl ? { url: radioLinks.stationUrl, label: displayedStationName } : null;
+    return !candidate?.url ? trackSource(track) : null;
   });
   const views = $derived(metadataCount(track,candidate,["views", "viewCount", "view_count"]));
   const plays = $derived(metadataCount(track,candidate,["plays", "playCount", "play_count", "playcount"]));
@@ -412,15 +425,11 @@ import { trackSource } from "./lib/source-link";
       {#if onRetryLoudnessAnalysis && pendingLoudnessAnalysisCount && (!loudnessAnalysisJob || loudnessAnalysisJob.status === "failed" || loudnessAnalysisJob.status === "cancelled")}<button type="button" onclick={onRetryLoudnessAnalysis}>Retry selected analysis</button>{/if}
     </section>{/if}
 
-    {#if radioLinks.isRadio && (radioLinks.stationUrl || radioLinks.streamUrl)}
-      <StationInfo {track} stationName={displayedStationName} stationUrl={radioLinks.stationUrl} streamUrl={radioLinks.streamUrl} />
-    {/if}
-
     <dl>
       {#if views !== null}<div><dt>Views</dt><dd>{formatCount(views)}</dd></div>{/if}
       {#if plays !== null}<div><dt>Source plays</dt><dd>{formatCount(plays)}</dd></div>{/if}
       {#if catalogProvider && catalogProvider !== "catalog"}<div><dt>Metadata source</dt><dd>{providerLabel(catalogProvider)}</dd></div>{/if}
-      {#if sourcePage}<div><dt>Source</dt><dd><a href={sourcePage.url} target="_blank" rel="noopener noreferrer" onclick={event => void openAudioSource(event, sourcePage!.url)}>Open {sourcePage.label} ↗</a></dd></div>{/if}
+      {#if sourcePage}<div class:radio-source={radioLinks.isRadio}><dt>Source</dt><dd><a href={sourcePage.url} target="_blank" rel="noopener noreferrer" onclick={event => void openAudioSource(event, sourcePage!.url)}>{radioLinks.isRadio ? `${displayedStationName} ↗` : `Open ${sourcePage.label} ↗`}</a></dd></div>{/if}
       {#if candidate?.provider}<div><dt>Audio provider</dt><dd>{providerLabel(candidate.provider)}</dd></div>{/if}
       {#if candidate?.title}<div><dt>Audio source</dt><dd title={candidate.title}>{#if candidate.url && /^https:\/\//i.test(candidate.url)}<a href={candidate.url} target="_blank" rel="noopener noreferrer" onclick={event => void openAudioSource(event, candidate!.url!)}>{candidate.title} ↗</a>{:else}{candidate.title}{/if}</dd></div>{/if}
       {#if candidate?.uploader}<div><dt>Uploader</dt><dd title={candidate.uploader}>{candidate.uploader}</dd></div>{/if}
@@ -476,7 +485,7 @@ import { trackSource } from "./lib/source-link";
   .artist-link { display: block; width: 100%; min-width: 0; max-width: 100%; padding: 2px 0; overflow: visible; overflow-wrap: anywhere; white-space: normal; text-overflow: clip; background: transparent; color: var(--accent); text-align: left; font-size: 15px; }
   .unknown-artist { margin:2px 0; color:var(--muted); font-size:13px; }
   .chapter { display:grid; gap:3px; margin:9px 0 0; font-size:11px; }.chapter span { color:var(--muted); }.chapter strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:550; }
-  .album-link{background:transparent;border:0;padding:0;text-align:left;text-decoration:underline;cursor:pointer}
+  .album-link{display:block;width:100%;min-width:0;max-width:100%;overflow:visible;overflow-wrap:anywhere;white-space:normal;text-overflow:clip;background:transparent;border:0;padding:0;text-align:left;text-decoration:underline;cursor:pointer}
   .album { margin: 5px 0 0; overflow-wrap: anywhere; color: var(--muted); font-size: 12px; }
   .downloaded-badge { display:flex;align-items:center;gap:6px;align-self:flex-start;margin:14px 0 0;padding:5px 9px;border:1px solid color-mix(in srgb,var(--accent) 55%,var(--line));border-radius:999px;color:var(--accent);font-size:11px;font-weight:650; }
   .downloaded-badge span { display:grid;place-items:center;width:16px;height:16px;border-radius:50%;background:color-mix(in srgb,var(--accent) 20%,transparent);font-size:11px; }
@@ -507,6 +516,7 @@ import { trackSource } from "./lib/source-link";
   dl > div { display: flex; justify-content: space-between; gap: 10px; min-width: 0; padding: 8px 0; border-bottom: 1px solid var(--line); }
   dt { flex: 0 0 auto; color: var(--muted); font-size: 11px; }
   dd { min-width: 0; margin: 0; overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+  .radio-source dd,.radio-source dd a { overflow: visible; overflow-wrap: anywhere; text-overflow: clip; white-space: normal; }
   .last-measurement { display:block; color:var(--muted); font-size:9px; font-weight:400; white-space:normal; }
   .actions { display: flex; flex-wrap: wrap; align-self: stretch; width: 100%; min-width: 0; max-width: 100%; gap: 8px; margin-top: auto; padding-top: 17px; }
   .actions button { min-width: 0; max-width: 100%; min-height: 40px; padding: 8px 12px; overflow-wrap: anywhere; white-space: normal; touch-action:manipulation; }

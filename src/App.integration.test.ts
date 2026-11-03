@@ -2790,7 +2790,9 @@ describe("saved recording navigation", () => {
     remoteBindingState=[{bindingId:"local-order",provider:"spotify",collectionId:"linked-working",sourceCollectionId:"collection-full",url:"https://open.spotify.com/playlist/11223344556677889900aa",canEdit:true}];
     mockCollectionRows=[{...collectionTrack,id:"duplicate",title:"Repeated",provenance:{playlistPosition:1}},{...collectionTrack,id:"duplicate",title:"Repeated",provenance:{playlistPosition:2}},{...collectionTrack,id:"last",title:"Last",provenance:{playlistPosition:3}}];
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();await refreshSidebarBrowserImports();collectionCard("Linked Spotify").click();await settle();await settle();
-    const handle=document.querySelector<HTMLButtonElement>('[aria-label="Reorder Repeated at position 2"]')!;
+    expect(document.querySelector('.playlist-reorder-handle')).toBeNull();
+    document.querySelector<HTMLButtonElement>('[aria-label="Select playlist tracks"]')!.click();await settle();
+    const handle=document.querySelector<HTMLButtonElement>('[aria-label^="Reorder Repeated at position 2;"]')!;
     expect(handle).not.toBeNull();
     const transfer={setData:vi.fn(),effectAllowed:"",dropEffect:""};
     const start=new Event("dragstart",{bubbles:true,cancelable:true});Object.defineProperty(start,"dataTransfer",{value:transfer});handle.dispatchEvent(start);await settle();
@@ -2798,7 +2800,6 @@ describe("saved recording navigation", () => {
     vi.spyOn(target,"getBoundingClientRect").mockReturnValue({top:0,height:100,bottom:100,left:0,right:100,width:100,x:0,y:0,toJSON(){}});
     const drop=new Event("drop",{bubbles:true,cancelable:true});Object.defineProperty(drop,"dataTransfer",{value:transfer});Object.defineProperty(drop,"clientY",{value:90});target.dispatchEvent(drop);await settle();
     expect(mocks.call).toHaveBeenCalledWith("move_playlist_entry",{collectionId:"linked-working",from:1,to:2});
-    document.querySelector<HTMLButtonElement>('[aria-label="Select playlist tracks"]')!.click();await settle();
     const first=document.querySelector<HTMLInputElement>('[aria-label^="Select occurrence 1:"]')!;first.click();await settle();
     document.querySelector<HTMLButtonElement>(".desktop-track-list .invert-selection")!.click();await settle();
     const selected=[...document.querySelectorAll<HTMLInputElement>('.desktop-track-list .select-track')].map(input=>input.checked);
@@ -2806,7 +2807,7 @@ describe("saved recording navigation", () => {
     expect(mocks.call.mock.calls.some(([command])=>["apply_remote_playlist_sync_preview","create_verification_playlist","connect_remote_playlist_provider"].includes(command))).toBe(false);
   });
 
-  it("moves a selected playlist occurrence by its original position under title sorting and filtering", async () => {
+  it("hides playlist reorder controls under title sorting and filtering", async () => {
     delayedBrowserImports = Promise.resolve([]);
     mockCollectionRows = [
       {...collectionTrack,id:"playlist-z",title:"Zebra Recording",provenance:{playlistPosition:1}},
@@ -2831,10 +2832,9 @@ describe("saved recording navigation", () => {
     selectedRow.click();
     await settle();
     await chooseTrackAction("Select for batch actions", "Aardvark Recording");
-    [...document.querySelectorAll<HTMLButtonElement>("button")].find(button=>button.textContent?.trim()==="Move up")!.click();
-    await settle();
-    expect(mocks.call).toHaveBeenCalledWith("move_playlist_entry", {collectionId:"collection-full",from:2,to:1});
-    expect(mocks.call).toHaveBeenCalledWith("list_track_prefix", expect.objectContaining({view:"collections",collectionId:"collection-full",query:"Aardvark",sortField:"title",limit:1}));
+    expect(document.querySelector('.playlist-reorder-handle')).toBeNull();
+    expect([...document.querySelectorAll<HTMLButtonElement>("button")].some(button => /^(Move up|Move down)$/.test(button.textContent?.trim() ?? ""))).toBe(false);
+    expect(mocks.call.mock.calls.some(([command]) => command === "move_playlist_entry")).toBe(false);
     expect(mocks.call.mock.calls.some(([command]) => command === "list_tracks")).toBe(false);
     expect(document.querySelector(".shared-track-list")?.textContent).toContain("Aardvark Recording");
   });
@@ -3106,7 +3106,7 @@ describe("saved recording navigation", () => {
       }
       return original(command, args);
     });
-    [...document.querySelectorAll<HTMLButtonElement>(".sidebar-scroll-end button")].find(button => button.textContent?.includes("Settings"))!.click();
+    document.querySelector<HTMLButtonElement>('.library-sidebar [aria-label="Settings"]')!.click();
     await settle();
     deferSources = true;
     document.querySelector<HTMLButtonElement>('[aria-label="Go back"]')!.click();
@@ -4877,7 +4877,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    [...document.querySelectorAll<HTMLButtonElement>(".sidebar-scroll-end button")].find((button) => button.textContent?.includes("Settings"))!.click();
+    document.querySelector<HTMLButtonElement>('.library-sidebar [aria-label="Settings"]')!.click();
     await settle();
     [...document.querySelectorAll<HTMLButtonElement>(".settings-nav button")].find((button) => button.textContent?.trim() === "Playback")!.click();
     await settle();
@@ -5591,7 +5591,7 @@ describe("saved recording navigation", () => {
     configuredPreferredStreamingSource="monochrome";
     streamingFallbackSources = ["youtube", "soundcloud", "bandcamp"];
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
-    [...document.querySelectorAll<HTMLButtonElement>(".sidebar-scroll-end button")].find(item=>item.textContent?.includes("Settings"))!.dispatchEvent(new MouseEvent("click",{bubbles:true}));await settle();
+    document.querySelector<HTMLButtonElement>('.library-sidebar [aria-label="Settings"]')!.dispatchEvent(new MouseEvent("click",{bubbles:true}));await settle();
     [...document.querySelectorAll<HTMLButtonElement>('.settings-nav button')].find(item=>item.textContent?.trim()==="Playback")!.click();await settle();
     const source=document.querySelector('[aria-label="Streaming fallback 1"]') as HTMLSelectElement;
     source.value="soundcloud";source.dispatchEvent(new Event("change",{bubbles:true}));await settle();
@@ -5608,7 +5608,7 @@ describe("saved recording navigation", () => {
 
   it("can disable saved-radio preparation without changing streaming fallback", async () => {
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
-    [...document.querySelectorAll<HTMLButtonElement>(".sidebar-scroll-end button")].find(item=>item.textContent?.includes("Settings"))!.click();await settle();
+    document.querySelector<HTMLButtonElement>('.library-sidebar [aria-label="Settings"]')!.click();await settle();
     [...document.querySelectorAll<HTMLButtonElement>('.settings-nav button')].find(item=>item.textContent?.trim()==="Playback")!.click();await settle();
     const preparation=document.querySelector<HTMLInputElement>('[aria-label="Prepare saved radio songs"]')!;
     expect(preparation.checked).toBe(true);
@@ -5621,7 +5621,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    document.querySelector<HTMLButtonElement>(".sidebar-scroll-end button[aria-label='Settings']")?.click();
+    document.querySelector<HTMLButtonElement>('.library-sidebar [aria-label="Settings"]')?.click();
     await settle();
     [...document.querySelectorAll<HTMLButtonElement>(".settings-nav button")]
       .find((item) => item.textContent?.trim() === "General")!.click();
@@ -5642,7 +5642,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    document.querySelector<HTMLButtonElement>(".sidebar-scroll-end button[aria-label='Settings']")?.click();
+    document.querySelector<HTMLButtonElement>('.library-sidebar [aria-label="Settings"]')?.click();
     await settle();
     [...document.querySelectorAll<HTMLButtonElement>(".settings-nav button")]
       .find((item) => item.textContent?.trim() === "Library")!.click();
@@ -5674,7 +5674,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    document.querySelector<HTMLButtonElement>(".sidebar-scroll-end button[aria-label='Settings']")?.click();
+    document.querySelector<HTMLButtonElement>('.library-sidebar [aria-label="Settings"]')?.click();
     await settle();
     [...document.querySelectorAll<HTMLButtonElement>(".settings-nav button")]
       .find((item) => item.textContent?.trim() === "Library")!.click();
@@ -5726,7 +5726,7 @@ describe("saved recording navigation", () => {
   it("saves playback preferences without saving an unfinished music-folder edit", async () => {
     configuredMusicDirectory="/saved/music";
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
-    [...document.querySelectorAll<HTMLButtonElement>(".sidebar-scroll-end button")].find(item=>item.textContent?.includes("Settings"))!.dispatchEvent(new MouseEvent("click",{bubbles:true}));await settle();
+    document.querySelector<HTMLButtonElement>('.library-sidebar [aria-label="Settings"]')!.dispatchEvent(new MouseEvent("click",{bubbles:true}));await settle();
     [...document.querySelectorAll<HTMLButtonElement>('.settings-nav button')].find(item=>item.textContent?.trim()==="Library")!.click();await settle();
     const folder=document.querySelector('input[placeholder="/home/you/Music/DJ"]') as HTMLInputElement;
     folder.value="/unsaved/music";folder.dispatchEvent(new Event("input",{bubbles:true}));
@@ -5754,7 +5754,7 @@ describe("saved recording navigation", () => {
       return original(command, args);
     });
     const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); }; await settle();
-    document.querySelector<HTMLButtonElement>('.sidebar-scroll-end button[aria-label="Settings"]')!.click(); await settle();
+    document.querySelector<HTMLButtonElement>('.library-sidebar [aria-label="Settings"]')!.click(); await settle();
     [...document.querySelectorAll<HTMLButtonElement>(".settings-nav button")].find(button => button.textContent?.trim() === "Library")!.click(); await settle();
     const folder = document.querySelector<HTMLInputElement>('input[placeholder="/home/you/Music/DJ"]')!;
     folder.value = "/unsaved/music"; folder.dispatchEvent(new Event("input", { bubbles: true }));
@@ -5774,7 +5774,7 @@ describe("saved recording navigation", () => {
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
     try {
       const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); }; await settle();
-      document.querySelector<HTMLButtonElement>('.sidebar-scroll-end button[aria-label="Settings"]')!.click(); await settle();
+      document.querySelector<HTMLButtonElement>('.library-sidebar [aria-label="Settings"]')!.click(); await settle();
       [...document.querySelectorAll<HTMLButtonElement>(".settings-nav button")].find(button => button.textContent?.trim() === "Downloads")!.click(); await settle();
       [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim() === "Set up connection")!.click(); await settle();
       expect(document.querySelector('.settings-nav [aria-current="page"]')?.textContent).toBe("Connections");
@@ -5792,7 +5792,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle();
-    [...document.querySelectorAll<HTMLButtonElement>(".sidebar-scroll-end button")].find((item) => item.textContent?.includes("Settings"))!
+    document.querySelector<HTMLButtonElement>('.library-sidebar [aria-label="Settings"]')!
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
     [...document.querySelectorAll<HTMLButtonElement>('.settings-nav button')].find((item) => item.textContent?.trim()==="Library")!.click();
@@ -5843,7 +5843,7 @@ describe("saved recording navigation", () => {
     expect(mocks.call).toHaveBeenCalledWith("start_loudness_analysis", { assetIds: ["asset-cancel"] });
     expect(document.body.textContent).toContain("Analyzing loudness…");
 
-    [...document.querySelectorAll<HTMLButtonElement>(".sidebar-scroll-end button")].find(button => button.textContent?.includes("Settings"))!.click();
+    document.querySelector<HTMLButtonElement>('.library-sidebar [aria-label="Settings"]')!.click();
     await settle();
     [...document.querySelectorAll<HTMLButtonElement>(".settings-nav button")].find(button => button.textContent?.trim() === "Playback")!.click();
     await settle();
@@ -8666,8 +8666,10 @@ describe("native playback frontend", () => {
     emitNative(makeNativeSnapshot({revision:2,status:"paused",track:liveTrack,trackId:liveTrack.id,queue:[liveTrack],currentIndex:0,
       paused:true,position:0,duration:0}));
     await settle();
-    expect([...document.querySelectorAll<HTMLElement>(".player-scrubber .time")].map((item) => item.textContent)).toEqual(["0:00"]);
+    expect([...document.querySelectorAll<HTMLElement>(".player-scrubber .time")].map((item) => item.textContent)).toEqual([]);
+    expect(document.querySelector(".radio-live-meta .time")?.textContent).toBe("0:00");
     expect(document.querySelector(".radio-live-label")?.textContent).toBe("Live radio");
+    expect(document.querySelector("#burrata-playback-controls")?.classList.contains("radio-live")).toBe(true);
     expect(document.querySelector('[aria-label="Playback position"]')).toBeNull();
     expect(document.querySelector('[aria-label="Playback position, waveform"]')).toBeNull();
   });
@@ -8856,11 +8858,16 @@ describe("native playback frontend", () => {
     expect(footerInfo.querySelector('a[href="https://radio.example/"]')).not.toBeNull();
     expect(footerInfo.querySelector('a[href="https://radio.example/main"]')).not.toBeNull();
     document.querySelector<HTMLButtonElement>('[aria-label="Show playing track information"]')!.click();await settle();
-    const panelInfo=document.querySelector(".player-panel-host .station-info")!;
-    expect(panelInfo.querySelector("summary")?.getAttribute("aria-label")).toBe("Station information for Main Mix");
-    panelInfo.querySelector("summary")!.dispatchEvent(new MouseEvent("click",{bubbles:true}));await settle();
-    expect(panelInfo.querySelector('a[href="https://radio.example/"]')).not.toBeNull();
-    expect(panelInfo.querySelector('a[href="https://radio.example/main"]')).not.toBeNull();
+    await vi.waitFor(() => expect(document.querySelector('[aria-label="Playing track information"]')).not.toBeNull());
+    const panelInfo=document.querySelector('[aria-label="Playing track information"]')!;
+    const sourceRow=Array.from(panelInfo.querySelectorAll("dl > div")).find(row=>row.querySelector("dt")?.textContent==="Source")!;
+    const stationLink=sourceRow.querySelector<HTMLAnchorElement>("a")!;
+    expect(stationLink.textContent).toBe("Main Mix ↗");
+    expect(stationLink.getAttribute("href")).toBe("https://radio.example/");
+    expect(panelInfo.querySelector(".station-info")).toBeNull();
+    stationLink.dispatchEvent(new MouseEvent("click",{bubbles:true,cancelable:true}));await settle();
+    expect(mocks.call).toHaveBeenCalledWith("open_external_url",{url:"https://radio.example/"});
+    expect(document.querySelector(".player-track-title")?.textContent).toBe("Overnight selection");
     expect(mocks.call.mock.calls.some(([command])=>command==="playback_command")).toBe(false);
     expect(mocks.call.mock.calls.some(([command])=>command==="resolve_preview"||command==="resolve_candidate_audio")).toBe(false);
   });
@@ -9001,7 +9008,7 @@ describe("native playback frontend", () => {
 
   it("uses canonical radio metadata and retains older repeats in native radio history", async () => {
     const stationTrack:Track={...savedTrack,id:"station-radio",provider:"radio",providerId:"station-1",title:"Station Feed",artist:"Radio Station",provenance:{sourceKind:"radio",stationId:"station-1"}};
-    const currentRadioTrack:Track={...savedTrack,id:"canonical-radio-song",title:"Current Song",artist:"Radio Artist",provider:"radio_song"};
+    const currentRadioTrack:Track={...savedTrack,id:"radio_song:canonical-song",providerId:"canonical-song",title:"Current Song",artist:"Radio Artist",provider:"radio_song"};
     mountNative(makeNativeSnapshot({
       revision:40,generation:8,status:"playing",trackId:stationTrack.id,track:stationTrack,queue:[stationTrack],currentIndex:0,paused:false,
       radioNowPlaying:{id:currentRadioTrack.id,title:currentRadioTrack.title,artist:currentRadioTrack.artist,stationName:"Test Station",metadata:{stationId:"station-1",title:currentRadioTrack.title,artist:currentRadioTrack.artist,sourceUrl:"https://example.test/song",metadataConfidence:"high"}},
@@ -9012,6 +9019,7 @@ describe("native playback frontend", () => {
     }));
     await settle();
     expect(document.querySelector(".player-track-title")?.textContent).toBe("Current Song");
+    expect(document.querySelector(".radio-status-copy")?.textContent).toBe("Test Station");
     expect(mocks.call.mock.calls.some(([command])=>command==="poll_radio_station")).toBe(false);
     document.querySelector<HTMLButtonElement>('[aria-label="Show playback queue and chapters"]')!.click();
     await settle();
@@ -9020,6 +9028,79 @@ describe("native playback frontend", () => {
     await settle();
     expect(document.querySelector(".playback-queue-panel .radio-history")?.textContent).toContain("Earlier Repeat");
   });
+
+  it("favorites the canonical current native radio song and keeps it favorited through a stale snapshot", async () => {
+    const stationTrack: Track = {
+      ...savedTrack, id: "station-radio", provider: "radio", providerId: "station-1",
+      title: "Station Feed", artist: "Radio Station", provenance: { sourceKind: "radio", stationId: "station-1" },
+    };
+    const currentRadioTrack: Track = {
+      ...savedTrack, id: "radio_song:canonical-song", provider: "radio_song", providerId: "canonical-song",
+      title: "Identified Song", artist: "Identified Artist",
+    };
+    savedChartTracks = [savedTrack, currentRadioTrack];
+    radioStationState = [{ id: "station-1", name: "Test Station", streamUrl: "https://radio.example/live", sourceUrl: "https://radio.example", provider: "radio_paradise", isCustom: false }];
+    const snapshot = makeNativeSnapshot({
+      revision: 50, generation: 20, status: "playing", trackId: stationTrack.id, track: stationTrack,
+      queue: [stationTrack], currentIndex: 0, paused: false,
+      radioNowPlaying: {
+        id: currentRadioTrack.id, title: currentRadioTrack.title, artist: currentRadioTrack.artist,
+        stationName: "Test Station",
+        metadata: { stationId: "station-1", title: currentRadioTrack.title, artist: currentRadioTrack.artist, sourceUrl: "https://example.test/song", metadataConfidence: "high" },
+      },
+    });
+    mountNative(snapshot);
+    await settle();
+
+    expect(document.querySelector(".radio-status-copy")?.textContent).toBe("Test Station");
+    expect(document.querySelector('.radio-section [aria-current="true"]')?.textContent).toContain("Test Station");
+    const addFavorite = document.querySelector<HTMLButtonElement>('[aria-label="Add playing track to favorites"]')!;
+    expect(addFavorite.disabled).toBe(false);
+    addFavorite.click();
+    await settle();
+    expect(mocks.call).toHaveBeenCalledWith("set_favorite", {
+      track: expect.objectContaining({ id: currentRadioTrack.id, provider: "radio_song", providerId: "canonical-song" }),
+      value: true,
+    });
+    expect(favoriteTrackIds.has(currentRadioTrack.id)).toBe(true);
+
+    emitNative({
+      ...snapshot,
+      revision: 51,
+      track: { ...stationTrack, favorite: false, title: "Stale station title" },
+      queue: [{ ...stationTrack, favorite: false, title: "Stale station title" }],
+    });
+    await settle();
+    const removeFavorite = document.querySelector<HTMLButtonElement>('[aria-label="Remove playing track from favorites"]')!;
+    expect(removeFavorite.disabled).toBe(false);
+    expect(removeFavorite.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it.each(["radio_song:", "radio_song:radio_song:canonical-song"])(
+    "disables favorite for malformed current native radio identity %s",
+    async (id) => {
+      const stationTrack: Track = {
+        ...savedTrack, id: "station-radio", provider: "radio", providerId: "station-1",
+        title: "Station Feed", artist: "Radio Station", provenance: { sourceKind: "radio", stationId: "station-1" },
+      };
+      radioStationState = [{ id: "station-1", name: "Test Station", streamUrl: "https://radio.example/live", sourceUrl: "https://radio.example", provider: "radio_paradise", isCustom: false }];
+      mountNative(makeNativeSnapshot({
+        revision: 60, generation: 21, status: "playing", trackId: stationTrack.id, track: stationTrack,
+        queue: [stationTrack], currentIndex: 0, paused: false,
+        radioNowPlaying: {
+          id, title: "Identified Song", artist: "Identified Artist", stationName: "Test Station",
+          metadata: { stationId: "station-1", title: "Identified Song", artist: "Identified Artist", sourceUrl: "https://example.test/song", metadataConfidence: "high" },
+        },
+      }));
+      await settle();
+
+      const favoriteButton = document.querySelector<HTMLButtonElement>('[aria-label="Add playing track to favorites"]')!;
+      expect(favoriteButton.disabled).toBe(true);
+      favoriteButton.click();
+      await settle();
+      expect(mocks.call.mock.calls.some(([command]) => command === "set_favorite")).toBe(false);
+    },
+  );
 });
 
 describe("authoritative startup folder status",()=>{
@@ -9174,7 +9255,7 @@ describe("remote occurrence save wiring", () => {
 
 it("does not expose an audio engine selector in playback settings", async () => {
   const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
-  [...document.querySelectorAll<HTMLButtonElement>(".sidebar-scroll-end button")].find(button=>button.textContent?.includes("Settings"))!.click();await settle();
+  document.querySelector<HTMLButtonElement>('.library-sidebar [aria-label="Settings"]')!.click();await settle();
   [...document.querySelectorAll<HTMLButtonElement>(".settings-nav button")].find(button=>button.textContent?.trim()==="Playback")!.click();await settle();
   expect(document.querySelector('select[aria-label="Audio playback engine"]')).toBeNull();
   expect(document.body.textContent).not.toContain("Apply and restart");

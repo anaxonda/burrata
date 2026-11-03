@@ -405,6 +405,7 @@ def seed(profile, resources, mode, args):
             'preferredStreamingSource':preferred_source,
             'streamingFallbackSources':fallback_sources,
             'streamingFallbackEnabled':fallback_enabled,
+            'reportedTrackDiagnostics':args.reported_track_diagnostics,
             'startupTimeoutSeconds':args.reported_track_startup_timeout_seconds,
             'pcmPhaseWindowSeconds':args.reported_track_pcm_window_seconds,
             'matchingPolicy':{'level':'flexible','allowOtherReleases':True,'allowOtherPerformances':True,
@@ -659,6 +660,8 @@ def main():
                         help='Seed 0 or 100 valid-hash assets missing quality facts')
     parser.add_argument('--reported-tracks', type=Path,
                         help='Optional sanitized schemaVersion=1 reported-track fixture; valid only with incidents mode')
+    parser.add_argument('--reported-track-diagnostics', action='store_true',
+                        help='Opt in to a sanitized private Library-row lookup and playback phase/provider trace for reported-track incidents')
     parser.add_argument('--preferred-streaming-source', choices=sorted(STREAMING_PROVIDERS),
                         help='Preferred provider for reported-track incidents (default: youtube)')
     parser.add_argument('--fallback-sources',
@@ -701,6 +704,10 @@ def main():
                 args.fallback_sources, args.preferred_streaming_source or 'youtube')
         except (OSError, ValueError) as error:
             parser.error(str(error))
+        if args.reported_track_diagnostics and args.mode != 'incidents':
+            parser.error('--reported-track-diagnostics is supported only with --mode incidents')
+    elif args.reported_track_diagnostics:
+        parser.error('--reported-track-diagnostics requires --reported-tracks')
     elif any(value not in (None, False) for value in reported_options) or args.reported_track_startup_timeout_seconds != 20 or args.reported_track_pcm_window_seconds != 6:
         parser.error('reported-track provider/window options require --reported-tracks')
     if args.mode=='idle-ipc':
@@ -734,7 +741,10 @@ def main():
         runtime_cases=json.loads((profile/'fixture/runtime-cases.json').read_text())
         options=runtime_cases['reportedTrackOptions']
         result['reportedTrackQualification']={**options,'tracks':[{'id':track['id'],'title':track['title'],'artist':track['artist']}
-            for track in runtime_cases['incidents']]}
+            for track in runtime_cases['incidents']],
+            'libraryRowLookupEnabled':args.reported_track_diagnostics,
+            'playbackDiagnosticsEnabledInPrivateProfile':settings.get('playbackDiagnosticsEnabled') is True,
+            'directTrackObjectPlaybackQualification':'not_run'}
     try:
         env=audio.private_env();sink='burrata_native_'+uuid.uuid4().hex[:8]
         module_id=run(['pactl','load-module','module-null-sink','sink_name='+sink,'rate=48000','channels=2'],env=env).stdout.decode().strip()
@@ -891,6 +901,8 @@ def main():
         if args.schedstat_diagnostic:
             control_command.append('--schedstat-diagnostic')
             env['BURRATA_SCHEDSTAT_MARKER_PATH']=str(schedstat_markers)
+        if args.reported_track_diagnostics:
+            control_command.append('--reported-track-diagnostics')
         control=subprocess.run(control_command,
             cwd=ROOT,env=env,text=True,capture_output=True,timeout=900 if mode=='source-audition' else 960 if mode=='full-nipsey' else 560 if mode=='full-incidents' else 420 if mode=='incidents' else 120)
         (profile/'controller.txt').write_text(control.stdout+control.stderr)

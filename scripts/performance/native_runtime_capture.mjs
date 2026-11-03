@@ -5,7 +5,7 @@ import {closeSync, constants as fsConstants, openSync, writeSync} from 'node:fs'
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {auditionQueueMetadataRetained} from './source_audition_gates.mjs';
-import {idleIpcBucketsGate,parseIdleIpcCounter,reportedErrorEvidence,safePlaybackFailureSummary,safeStartupDiagnosticExport,safeStartupMarkerMetrics,safeStoreMutexMetrics,startupObservation,startupPauseGate} from './native_startup_capture_helpers.mjs';
+import {idleIpcBucketsGate,parseIdleIpcCounter,reportedErrorEvidence,safePlaybackFailureSummary,safeReportedLibraryRowLookup,safeReportedPlaybackDiagnosticExport,safeStartupDiagnosticExport,safeStartupMarkerMetrics,safeStoreMutexMetrics,startupObservation,startupPauseGate} from './native_startup_capture_helpers.mjs';
 import {Client} from '@modelcontextprotocol/client';
 import {StdioClientTransport} from '@modelcontextprotocol/client/stdio';
 
@@ -14,10 +14,12 @@ const startupDiagnosticsEnabled=captureOptions.includes('--startup-diagnostics')
   ||captureOptions.includes('--startup-diagnostics-no-console-trace')
   ||captureOptions.includes('--schedstat-diagnostic');
 const schedstatDiagnosticEnabled=captureOptions.includes('--schedstat-diagnostic');
-if(captureOptions.some(option=>!['--startup-diagnostics','--startup-diagnostics-no-console-trace','--schedstat-diagnostic'].includes(option))
+const reportedTrackDiagnosticsEnabled=captureOptions.includes('--reported-track-diagnostics');
+if(captureOptions.some(option=>!['--startup-diagnostics','--startup-diagnostics-no-console-trace','--schedstat-diagnostic','--reported-track-diagnostics'].includes(option))
     ||new Set(captureOptions).size!==captureOptions.length
     ||captureOptions.length>1
-    ||(startupDiagnosticsEnabled&&mode!=='startup'))throw Error('Unsupported native capture option');
+    ||(startupDiagnosticsEnabled&&mode!=='startup')
+    ||(reportedTrackDiagnosticsEnabled&&mode!=='incidents'))throw Error('Unsupported native capture option');
 if (!/^\/tmp\/burrata-launch\.[A-Za-z0-9_-]+$/.test(profile) || await realpath(profile) !== profile
     || await readFile(`${profile}/.burrata-isolated-profile`, 'utf8') !== 'burrata isolated memory run\n') {
   throw Error('Disposable profile required');
@@ -86,6 +88,8 @@ function safe(s, reported=false) {
 }
 try {
   await client.connect(transport);
+  if(reportedTrackDiagnosticsEnabled!==Boolean(spec.reportedTrackOptions?.reportedTrackDiagnostics))
+    throw Error('Reported-track diagnostics option did not match the private fixture settings');
   let ready=false;
   for (let i=0;i<120;i++) {
     try {
@@ -415,6 +419,22 @@ if(mode==='idle-ipc'){
   } else if (mode === 'incidents') {
     for (const track of spec.incidents) {
       const reported=spec.reportedTrackOptions??null;
+      let libraryRowLookup=null;
+      if(reportedTrackDiagnosticsEnabled){
+        try {
+          const page=await call('list_tracks_page',{view:'library',query:track.title,provider:track.provider,limit:200,offset:0},5000);
+          libraryRowLookup=safeReportedLibraryRowLookup(track,page);
+        } catch {
+          libraryRowLookup=safeReportedLibraryRowLookup(track,null);
+          libraryRowLookup.lookupSucceeded=false;
+        }
+        if(libraryRowLookup.lookupSucceeded!==false)libraryRowLookup.lookupSucceeded=true;
+        if(!libraryRowLookup.matched){
+          report.cases.push({trackId:track.id,title:track.title,passed:false,startedAtUnixMs:Date.now(),
+            libraryRowLookup,lookupOnlyFailure:true});
+          continue;
+        }
+      }
       const startupWindowMs=reported?reported.startupTimeoutSeconds*1000:45000;
       const pcmWindowMs=reported?reported.pcmPhaseWindowSeconds*1000:0;
       const started=performance.now(), startedAtUnixMs=Date.now();let receiptError=null;
@@ -453,6 +473,17 @@ if(mode==='idle-ipc'){
         try{await call('pause_playback',{},5000);pausedReported=true;}catch{}
       }
       await receipt;
+      if(!pausedReported)await call('pause_playback').catch(()=>{});
+      let reportedPlaybackDiagnostics=null;
+      if(reportedTrackDiagnosticsEnabled){
+        const capturedAtUnixMs=Date.now();
+        try {
+          const diagnostics=await call('get_playback_diagnostics_report',{},5000);
+          reportedPlaybackDiagnostics=safeReportedPlaybackDiagnosticExport(diagnostics,startedAtUnixMs,capturedAtUnixMs);
+        } catch {
+          reportedPlaybackDiagnostics=safeReportedPlaybackDiagnosticExport(null,startedAtUnixMs,capturedAtUnixMs);
+        }
+      }
       const rawSourceProvider=last?.candidate?.provider??null;
       const sourceProvider=['youtube','soundcloud','monochrome'].includes(rawSourceProvider)?rawSourceProvider:null;
       const expectedSourceProvider=reported?.expectedSourceProvider??null;
@@ -462,11 +493,12 @@ if(mode==='idle-ipc'){
         startedAtUnixMs,elapsedMs:performance.now()-started,...errorEvidence,playbackGeneration,firstAudioMs,
         startupElapsedMs:startupObservedAt===null?null:startupObservedAt-started,
         ...(reported?{...reportedPcmTimes,pcmPhaseElapsedMs}:{}),state:safe(last,Boolean(reported)),
+        ...(libraryRowLookup?{libraryRowLookup}:{}),
+        ...(reportedPlaybackDiagnostics?{playbackDiagnostics:reportedPlaybackDiagnostics}:{}),
         ...(reported?{sourceProvider,expectedSourceProvider,sourceProviderPassed,
           preferredStreamingSource:reported.preferredStreamingSource,
           fallbackUsed:sourceProvider!==null&&sourceProvider!==reported.preferredStreamingSource}: {})};
       report.cases.push(item);console.log(JSON.stringify(item));
-      if(!pausedReported)await call('pause_playback');
       // Reported-track runs keep only the strict allowlisted status fields above.
       if(!reported){
         const trace=await call('get_playback_diagnostics_report').catch(()=>null);

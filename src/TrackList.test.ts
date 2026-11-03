@@ -55,6 +55,23 @@ describe("TrackList", () => {
     expect(target.querySelectorAll('li[aria-current="location"]')).toHaveLength(1);
   });
 
+  it("uses global row keys for a previrtualized slice with duplicate track IDs", async () => {
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 1; });
+    const repeated = { ...tracks[0]! };
+    const target = render({
+      tracks: [repeated, { ...repeated }],
+      rowKeys: ["track-1:999", "track-1:1000"],
+      selectionKeys: ["selection-occurrence-0", "selection-occurrence-1"],
+      focusedRowKey: "track-1:1000",
+    });
+    await tick();
+    const rows = [...target.querySelectorAll<HTMLLIElement>("li[data-track-index]")];
+    expect(rows.map(row => row.getAttribute("data-row-key"))).toEqual(["track-1:999", "track-1:1000"]);
+    expect(rows.map(row => row.classList.contains("focused-history-occurrence"))).toEqual([false, true]);
+    expect(rows[1]?.getAttribute("aria-current")).toBe("location");
+    expect(document.activeElement).toBe(rows[1]?.querySelector("button.track-title"));
+  });
+
   it("calculates final persisted indexes for before/after drops without identifying rows by track ID", () => {
     expect(playlistDropIndex(2, 4, true)).toBe(3);
     expect(playlistDropIndex(4, 2, false)).toBe(1);
@@ -72,8 +89,10 @@ describe("TrackList", () => {
       { ...tracks[1], provenance: { playlistPosition: 3 } },
     ];
     const onReorder = vi.fn();
-    const target = render({ tracks: rows, reorderable: true, onReorder });
-    const handle = target.querySelector<HTMLButtonElement>('[aria-label="Reorder Song Title at position 2"]')!;
+    const target = render({ tracks: rows, presentation: "playlist", onPlay: vi.fn(), onAddSelectedToPlaylist: vi.fn(), reorderable: true, onReorder });
+    expect(target.querySelector(".playlist-reorder-handle")).toBeNull();
+    target.querySelector<HTMLButtonElement>(".start-selection")!.click(); await tick();
+    const handle = target.querySelector<HTMLButtonElement>('[aria-label^="Reorder Song Title at position 2"]')!;
     const data = { setData: vi.fn(), effectAllowed: "", dropEffect: "" } as unknown as DataTransfer;
     const dragStart = new Event("dragstart", { bubbles: true, cancelable: true });
     Object.defineProperty(dragStart, "dataTransfer", { value: data });
@@ -226,6 +245,8 @@ describe("TrackList", () => {
     expect(status.getAttribute("aria-label")).toBe("Unavailable Song Title");
     expect(status.textContent).toBe("!");
     expect(status.querySelector(".playback-playing-icon")).toBeNull();
+    expect(status.querySelector(".buffering-spinner")).toBeNull();
+    expect(target.querySelector(".icon-action.play.buffering")).toBeNull();
     target.querySelector<HTMLButtonElement>(".track-title")!.click();
     expect(onPlay).toHaveBeenCalledWith(tracks[0],tracks,0);
   });
@@ -240,6 +261,7 @@ describe("TrackList", () => {
     expect(playingIcon?.querySelectorAll("path")).toHaveLength(1);
     expect(status.textContent?.trim()).toBe("");
     expect(status.getAttribute("aria-label")).toBe("Playing Song Title");
+    expect(status.querySelector(".buffering-spinner")).toBeNull();
     target.querySelector<HTMLButtonElement>('.track-title[aria-label="Play Song Title"]')!.click();
     expect(onPlay).toHaveBeenCalledWith(tracks[0], tracks, 0);
 
@@ -248,6 +270,7 @@ describe("TrackList", () => {
     status = pausedTarget.querySelector<HTMLElement>(".playback-state")!;
     expect(status.textContent).toBe("Ⅱ");
     expect(status.getAttribute("aria-label")).toBe("Paused Song Title");
+    expect(status.querySelector(".buffering-spinner")).toBeNull();
 
     resetRendered();
     const bufferingTarget = render({ playingTrackId: "track-1", bufferingTrackId: "track-1", onPlay });
@@ -289,6 +312,8 @@ describe("TrackList", () => {
     expect(row.querySelectorAll(".buffering-spinner")).toHaveLength(1);
     expect(loadingButton.getAttribute("aria-busy")).toBe("true");
     expect(loadingButton.getAttribute("aria-label")).toBe("Buffering Song Title");
+    expect(trackListSource).toMatch(/\.icon-action\.play\.buffering::before\s*\{[^}]*animation:\s*track-row-buffering/);
+    if (presentation === "playlist") expect(trackListSource).toMatch(/\.playlist li\.buffering \.position-play\s*\{\s*display:\s*grid\s*\}/);
     expect(spinner.getAttribute("viewBox")).toBe("0 0 20 20");
     expect(spinner.querySelectorAll("circle, path")).toHaveLength(2);
 
@@ -460,6 +485,11 @@ describe("TrackList", () => {
     expect(trackListSource).toMatch(/BufferingSpinner/);
     expect(bufferingSpinnerSource).toMatch(/prefers-reduced-motion\s*:\s*reduce/);
     expect(bufferingSpinnerSource).toMatch(/animation\s*:\s*none/);
+    expect(trackListSource).toMatch(/prefers-reduced-motion\s*:\s*reduce/);
+    expect(trackListSource).toMatch(/\.icon-action\.play\.buffering::before\s*\{[^}]*animation:\s*track-row-buffering/);
+    expect(trackListSource).toMatch(/\.playback-state\.status-buffering-has-play\s*\{[^}]*position:\s*absolute/);
+    expect(trackListSource).toMatch(/playback-state\.status-buffering-has-play\s*\{position:relative;width:22px/);
+    expect(trackListSource).not.toMatch(/\.playback-state\.status-buffering-has-play\s*\{\s*display:\s*none/);
   });
 
   it("bounds a 10k row list and preserves full-list play indexes after scrolling", async () => {
@@ -544,27 +574,48 @@ describe("TrackList", () => {
     expect(trackListSource).toMatch(/overflow-anchor\s*:\s*none/);
   });
 
-  it("offers persisted-position keyboard move actions with boundary and failure announcements", async () => {
+  it("offers keyboard and drag reorder only in Select mode, without arrow buttons", async () => {
     const rows: Track[] = [
       { ...tracks[0]!, id: "repeat", provenance: { playlistPosition: 1 } },
       { ...tracks[0]!, id: "repeat", provenance: { playlistPosition: 2 } },
       { ...tracks[1]!, provenance: { playlistPosition: 3 } },
     ];
     const onReorder = vi.fn().mockResolvedValue(undefined);
-    const target = render({ tracks: rows, reorderable: true, onReorder, reorderCount: 3 });
-    const firstUp = target.querySelector<HTMLButtonElement>('[aria-label="Move Song Title up"]')!;
-    const firstDown = target.querySelector<HTMLButtonElement>('[aria-label="Move Song Title down"]')!;
-    expect(firstUp.disabled).toBe(true);
-    expect(firstDown.disabled).toBe(false);
-    firstDown.click(); await tick();
+    const target = render({ tracks: rows, presentation: "playlist", onPlay: vi.fn(), onAddSelectedToPlaylist: vi.fn(), reorderable: true, onReorder, reorderCount: 3 });
+    expect(target.querySelectorAll(".playlist-reorder-handle")).toHaveLength(0);
+    expect(target.querySelector('[aria-label^="Move "]')).toBeNull();
+    target.querySelector<HTMLButtonElement>(".start-selection")!.click(); await tick();
+    const handles = [...target.querySelectorAll<HTMLButtonElement>(".playlist-reorder-handle")];
+    expect(handles).toHaveLength(3);
+    expect(target.querySelector('[aria-label^="Move "]')).toBeNull();
+
+    const arrow = (handle: HTMLButtonElement, key: "ArrowUp" | "ArrowDown") => {
+      const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+      handle.dispatchEvent(event);
+      return event;
+    };
+    expect(arrow(handles[0]!, "ArrowUp").defaultPrevented).toBe(true);
+    await tick();
+    expect(onReorder).not.toHaveBeenCalled();
+
+    expect(handles[0]!.getAttribute("aria-keyshortcuts")).toBe("ArrowUp ArrowDown");
+    expect(arrow(handles[0]!, "ArrowDown").defaultPrevented).toBe(true);
+    await tick();
     expect(onReorder).toHaveBeenCalledWith(0, 1);
     await Promise.resolve(); await tick();
     expect(target.querySelector('[aria-live="polite"]')?.textContent).toContain("Moved Song Title to position 2");
 
     onReorder.mockRejectedValueOnce(new Error("offline"));
-    firstDown.click(); await Promise.resolve(); await tick();
+    arrow(handles[0]!, "ArrowDown"); await Promise.resolve(); await tick();
     expect(target.querySelector('[aria-live="polite"]')?.textContent).toContain("Could not move Song Title");
-    expect(target.querySelector('[aria-label="Move Other Song down"]')?.getAttribute("disabled")).toBe("");
+
+    const last = handles[2]!;
+    arrow(last, "ArrowDown"); await tick();
+    expect(onReorder).toHaveBeenCalledTimes(2);
+
+    target.querySelector<HTMLButtonElement>(".cancel-selection")!.click(); await tick();
+    expect(target.querySelectorAll(".playlist-reorder-handle")).toHaveLength(0);
+    expect(target.querySelector('[aria-label^="Move "]')).toBeNull();
   });
 
   it("disables reorder controls when listed occurrences are filtered or sorted", () => {
@@ -598,6 +649,23 @@ it("uses compact numbered playlist rows without putting listening dates on a thi
     row.querySelector<HTMLButtonElement>(".position-play")!.click();
     expect(onPlay).toHaveBeenCalledWith(tracks[0], tracks, 0);
     await tick();
+  });
+
+  it.each([
+    ["available", "Downloaded"],
+    ["missing", "Missing file"],
+    ["none", null],
+    ["", null],
+    [undefined, null],
+  ] as const)("shows only known local file availability %s", (availability, expected) => {
+    const target = render({ tracks: [{ ...tracks[0]!, localAvailability: availability }] });
+    const badge = target.querySelector<HTMLElement>(".local-asset-status");
+    if (expected) {
+      expect(badge?.textContent).toBe(expected);
+      expect(badge?.classList.contains("local-asset-missing")).toBe(expected === "Missing file");
+    } else {
+      expect(badge).toBeNull();
+    }
   });
 
   it("keeps compact playlist virtualization aligned with its 60 pixel rows", async () => {

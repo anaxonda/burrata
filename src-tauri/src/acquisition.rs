@@ -2961,20 +2961,12 @@ fn playback_search_queries_with_release_policy(
     // only enables that fallback for recognized release labels with explicit
     // Flexible other-release permission.
     if queries.len() == 1 && track.duration_seconds.is_some() {
-        let artist = matching::normalize(&track.artist);
-        let title = track.title.trim();
-        let parsed_title = crate::recording_identity::parse_title(title);
-        let separate_version = track
-            .version
-            .as_deref()
-            .map(str::trim)
-            .filter(|version| !version.is_empty())
-            .filter(|version| {
-                matching::normalize(parsed_title.version.as_deref().unwrap_or_default())
-                    != matching::normalize(version)
-            });
-        let title = separate_version
-            .map_or_else(|| title.to_owned(), |version| format!("{title} {version}"));
+        // Build precision from the SearchPlan's vetted identity fields. The
+        // raw display artist can be a placeholder or a manually hidden value;
+        // using it here would bypass SearchPlan's fail-closed checks.
+        let planned = &plan.queries[0];
+        let artist = matching::normalize(&planned.artist);
+        let title = planned.title.trim();
         if !artist.is_empty() && !title.is_empty() {
             let precision = format!("\"{artist}\" \"{title}\"");
             if !queries.contains(&precision) {
@@ -13598,6 +13590,43 @@ mod tests {
         assert!(crate::source_fallback::playback_recording_matches(
             &track, &precise
         ));
+    }
+
+    #[test]
+    fn precision_queries_use_the_vetted_artist_for_raw_and_hydrated_discogs_rows() {
+        let raw = Track {
+            id: "catalog:discogs:fixture".into(),
+            provider: "catalog".into(),
+            provider_id: "discogs:fixture".into(),
+            title: "April The 14th Part 1".into(),
+            artist: "Unknown artist".into(),
+            version: Some("Studio Recording".into()),
+            duration_seconds: Some(221.0),
+            provenance: serde_json::json!({
+                "catalogProvider":"discogs",
+                "artistCredits":[
+                    {"name":"Gillian Welch","role":"","artist":{"id":"255403","provider":"discogs"}},
+                    {"name":"David Rawlings","role":"Written By","artist":{"id":"0","provider":"discogs"}}
+                ]
+            }),
+            ..Track::default()
+        };
+        let expected_first = "Gillian Welch April The 14th Part 1 Studio Recording";
+        let expected_precision = "\"gillian welch\" \"April The 14th Part 1 Studio Recording\"";
+        let raw_queries = playback_search_queries(&raw, None);
+        assert_eq!(raw_queries, vec![expected_first, expected_precision]);
+
+        let mut hydrated = raw.clone();
+        hydrated.artist = "Gillian Welch".into();
+        let hydrated_queries = playback_search_queries(&hydrated, None);
+        assert_eq!(hydrated_queries, raw_queries);
+        assert!(raw_queries
+            .iter()
+            .all(|query| !query.to_lowercase().contains("unknown artist")));
+
+        let mut manual_unknown = raw;
+        manual_unknown.provenance["manualFields"] = serde_json::json!({"artist":true});
+        assert!(playback_search_queries(&manual_unknown, None).is_empty());
     }
 
     #[test]

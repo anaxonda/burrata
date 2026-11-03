@@ -55,6 +55,23 @@ describe("LibrarySidebar provider presets", () => {
     expect(onRadioContext).toHaveBeenCalledWith(stations[1], expect.any(MouseEvent));
   });
 
+  it("keeps the playing radio highlighted outside Radio, independently of the selected station", async () => {
+    const stations = [
+      { id: "playing", name: "Playing Radio", country: "United States" },
+      { id: "selected", name: "Selected Radio", country: "France" },
+    ];
+    const target = render({ view: "library", radioStations: stations, activeRadioStationId: "selected", playingRadioStationId: "playing" });
+    await settle();
+    const buttons = [...target.querySelectorAll<HTMLButtonElement>(".radio-section .playlist-card")];
+    expect(buttons[0].classList.contains("playing")).toBe(true);
+    expect(buttons[0].classList.contains("active")).toBe(true);
+    expect(buttons[0].getAttribute("aria-current")).toBe("true");
+    expect(buttons[0].textContent).toContain("Playing · United States");
+    expect(buttons[1].classList.contains("playing")).toBe(false);
+    expect(buttons[1].classList.contains("active")).toBe(false);
+    expect(buttons[1].hasAttribute("aria-current")).toBe(false);
+  });
+
   it("falls back to a radio symbol for missing or broken station icons", async () => {
     const target = render({ radioStations: [
       { id: "missing", name: "No Logo FM" },
@@ -68,6 +85,28 @@ describe("LibrarySidebar provider presets", () => {
     expect(buttons[1].querySelector("img")).toBeNull();
     expect(buttons[1].querySelector(".radio-station-placeholder")?.textContent).toBe("◉");
     expect(buttons[1].textContent).toContain("Broken Logo FM");
+  });
+
+  it("recovers missing or failed station artwork in the sidebar", async () => {
+    const image = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/3S8AAAAASUVORK5CYII=";
+    const call = vi.fn(async (command: string) => command === "resolve_radio_station_artwork" ? image : null);
+    const stations = [
+      { id: "no-favicon", name: "No Favicon Radio", homepageUrl: "https://radio.example/" },
+      { id: "bad-favicon", name: "Bad Favicon Radio", faviconUrl: "https://radio.example/bad.png", homepageUrl: "https://radio.example/" },
+    ];
+    const target = render({ call, radioStations: stations });
+    await settle();
+    const buttons = [...target.querySelectorAll<HTMLButtonElement>(".radio-section .playlist-card")];
+    const artworkCalls = () => call.mock.calls.filter(([command]) => command === "resolve_radio_station_artwork");
+    expect(artworkCalls()).toHaveLength(1);
+    expect(call).toHaveBeenCalledWith("resolve_radio_station_artwork", { stationId: "no-favicon" });
+    expect(buttons[0].querySelector("img")?.getAttribute("src")).toBe(image);
+
+    buttons[1].querySelector("img")!.dispatchEvent(new Event("error"));
+    await settle();
+    expect(artworkCalls()).toHaveLength(2);
+    expect(artworkCalls()[artworkCalls().length - 1]).toEqual(["resolve_radio_station_artwork", { stationId: "bad-favicon" }]);
+    expect(buttons[1].querySelector("img")?.getAttribute("src")).toBe(image);
   });
 
   it("filters radio and playlists together without unrelated sections burying matches", async () => {
@@ -135,14 +174,21 @@ describe("LibrarySidebar provider presets", () => {
     expect(target.textContent).toContain("Imported Mix");
   });
 
-  it("keeps Downloads in the playlist list, removes its duplicate footer shortcut, and places Settings at the scroll end", async () => {
+  it("keeps Downloads in the playlist list and places icon-only Settings beside the brand", async () => {
     const onPlaylist = vi.fn();
     const onDownloads = vi.fn();
-    const target = render({ collections: [{ id: "00000000-0000-4000-8000-000000000001", name: "Downloads", trackCount: 5 }], onPlaylist, onDownloads, activeJobs: 2 });
+    const onSettings = vi.fn();
+    const target = render({ view: "settings", collections: [{ id: "00000000-0000-4000-8000-000000000001", name: "Downloads", trackCount: 5 }], onPlaylist, onDownloads, onSettings, activeJobs: 2 });
     await settle();
     expect(target.querySelector(".library-footer")).toBeNull();
-    expect(target.querySelector(".sidebar-scroll-end button[aria-label='Settings']")).not.toBeNull();
-    expect(target.querySelector(".library-scroll")?.contains(target.querySelector(".sidebar-scroll-end"))).toBe(true);
+    const settings = target.querySelector<HTMLButtonElement>(".library-topbar button[aria-label='Settings']")!;
+    expect(settings).not.toBeNull();
+    expect(settings.title).toBe("Settings");
+    expect(settings.classList.contains("active")).toBe(true);
+    expect(settings.querySelector("span")?.getAttribute("aria-hidden")).toBe("true");
+    expect(target.querySelector(".sidebar-scroll-end")).toBeNull();
+    settings.click();
+    expect(onSettings).toHaveBeenCalledTimes(1);
     const downloads = [...target.querySelectorAll<HTMLButtonElement>(".built-in-playlists .playlist-card")]
       .find((button) => button.textContent?.includes("Downloads"))!;
     expect(downloads).toBeDefined();
@@ -151,6 +197,23 @@ describe("LibrarySidebar provider presets", () => {
     downloads.click();
     expect(onPlaylist).toHaveBeenCalledWith("00000000-0000-4000-8000-000000000001");
     expect(onDownloads).not.toHaveBeenCalled();
+  });
+
+  it("keeps header Settings available in compact mode and closes the drawer after navigation", async () => {
+    const onSettings = vi.fn();
+    const target = render({ compact: true, onSettings });
+    await settle();
+    const sidebar = target.querySelector<HTMLElement>(".library-sidebar")!;
+    const settings = target.querySelector<HTMLButtonElement>(".header-settings")!;
+    expect(settings.getAttribute("aria-label")).toBe("Settings");
+    expect(settings.title).toBe("Settings");
+    target.querySelector<HTMLButtonElement>(".rail-toggle")!.click();
+    await settle();
+    expect(sidebar.classList.contains("drawer-open")).toBe(true);
+    settings.click();
+    await settle();
+    expect(onSettings).toHaveBeenCalledTimes(1);
+    expect(sidebar.classList.contains("drawer-open")).toBe(false);
   });
 
   it("highlights Downloads while viewing the full jobs page even when no collection is selected", async () => {

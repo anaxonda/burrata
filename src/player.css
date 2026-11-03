@@ -790,3 +790,93 @@ footer.player .player-artwork-options > button[aria-pressed="true"] { color: var
     inset 2px 0 0 color-mix(in srgb, var(--line) 38%, var(--accent) 62%),
     -12px 0 32px #0004;
 }
+
+/* Live radio has no seek control, so keep elapsed/live status with track info. */
+footer.player.radio-live {
+  grid-template-rows: auto;
+  min-height: 0;
+  padding-block: 3px;
+  row-gap: 0;
+}
+
+footer.player.radio-live > .now-playing {
+  min-height: 42px;
+  grid-row: 1;
+}
+
+footer.player.radio-live > .now-playing > .station-info,
+footer.player.radio-live .player-scrubber {
+  display: none;
+}
+
+footer.player.radio-live .player-transport,
+footer.player.radio-live .player-right {
+  grid-row: 1;
+}
+
+footer.player.radio-live .player-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+footer.player.radio-live .radio-live-meta {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 500;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+footer.player.radio-live .radio-live-meta .time {
+  font-variant-numeric: tabular-nums;
+}
+
+footer.player.radio-live .radio-live-label {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+@media (max-width: 719px) {
+  footer.player.radio-live {
+    grid-template-rows: minmax(36px, auto) 32px auto;
+    gap: 2px 6px;
+    padding-top: 3px;
+    padding-bottom: calc(3px + env(safe-area-inset-bottom));
+  }
+
+  footer.player.radio-live > .now-playing {
+    min-height: 36px;
+    grid-row: 1;
+  }
+
+  footer.player.radio-live .player-status {
+    min-height: 9px;
+    gap: 4px;
+  }
+
+  footer.player.radio-live .radio-live-meta {
+    font-size: 8px;
+  }
+
+  footer.player.radio-live .player-right {
+    grid-row: 2;
+  }
+
+  footer.player.radio-live .player-error {
+    grid-row: 3;
+  }
+}
+
+@media (max-width: 360px) {
+  footer.player.radio-live {
+    padding-inline: 6px;
+    column-gap: 4px;
+  }
+}
+
+footer.player.radio-live .radio-status-copy { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

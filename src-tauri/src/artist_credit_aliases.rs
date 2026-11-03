@@ -15,6 +15,137 @@ const SPOTIFY_RECORDING_CREDIT_RAW_CACHE: &str =
 const SPOTIFY_RECORDING_CREDIT_PROFILE_CACHE: &str =
     "artists.spotify-recording-credit-crosswalk.musicbrainz-artist";
 const MAX_CREDIT_ARTISTS: usize = 16;
+const MAX_RECOVERABLE_DISCOGS_CREDITS: usize = 32;
+const MAX_RECOVERABLE_CREDIT_TEXT: usize = 512;
+
+fn discogs_credit_source_is_eligible(track: &Track) -> bool {
+    track.provider == "catalog"
+        && track.provenance["catalogProvider"] == "discogs"
+        && track.provenance["manualFields"]["artist"] != true
+        && track.provenance["manualFields"]["artistCredits"] != true
+        && track.provenance["artistCredits"]
+            .as_array()
+            .is_some_and(|credits| {
+                !credits.is_empty() && credits.len() <= MAX_RECOVERABLE_DISCOGS_CREDITS
+            })
+}
+
+fn recoverable_credit_text(value: &Value) -> Option<&str> {
+    value.as_str().map(str::trim).filter(|text| {
+        !text.is_empty()
+            && text.len() <= MAX_RECOVERABLE_CREDIT_TEXT
+            && !text.chars().any(char::is_control)
+    })
+}
+
+fn discogs_artist_field_is_placeholder(track: &Track) -> bool {
+    matches!(
+        track.artist.trim().to_lowercase().as_str(),
+        "" | "unknown artist"
+    )
+}
+
+/// True only for a legacy Discogs primary artist credit that omitted `role`.
+/// This evidence is used as a derived view and never rewrites Track provenance.
+pub(crate) fn is_legacy_discogs_roleless_primary_credit(track: &Track, credit: &Value) -> bool {
+    if !discogs_credit_source_is_eligible(track) {
+        return false;
+    }
+    if credit
+        .get("role")
+        .is_some_and(|role| role.as_str() != Some(""))
+    {
+        return false;
+    }
+    let Some(name) = recoverable_credit_text(&credit["name"]) else {
+        return false;
+    };
+    let provider = credit["artist"]["provider"].as_str().unwrap_or_default();
+    let id = credit["artist"]["id"].as_str().unwrap_or_default().trim();
+    !name.is_empty()
+        && provider.eq_ignore_ascii_case("discogs")
+        && !id.is_empty()
+        && id != "0"
+        && id.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+pub(crate) fn legacy_discogs_roleless_primary_performer_names(
+    track: &Track,
+) -> Option<Vec<String>> {
+    let credits = track.provenance["artistCredits"].as_array()?;
+    let mut names = Vec::new();
+    for credit in credits {
+        if !is_legacy_discogs_roleless_primary_credit(track, credit) {
+            continue;
+        }
+        let name = recoverable_credit_text(&credit["name"])?;
+        if !names
+            .iter()
+            .any(|known: &String| known.eq_ignore_ascii_case(name))
+        {
+            names.push(name.to_owned());
+        }
+    }
+    (!names.is_empty()).then_some(names)
+}
+
+/// Returns a read-only recovery for placeholder Discogs artist fields. Explicit
+/// performer roles and the legacy roleless primary identity are accepted;
+/// guest and nonperformer credits remain in provenance but do not drive search.
+pub(crate) fn recovered_discogs_performer_artist(track: &Track) -> Option<String> {
+    if !discogs_credit_source_is_eligible(track) || !discogs_artist_field_is_placeholder(track) {
+        return None;
+    }
+    let credits = track.provenance["artistCredits"].as_array()?;
+    if credits.is_empty() || credits.len() > MAX_RECOVERABLE_DISCOGS_CREDITS {
+        return None;
+    }
+    let mut names = Vec::new();
+    for credit in credits {
+        let Some(name) = recoverable_credit_text(&credit["name"]) else {
+            continue;
+        };
+        if is_legacy_discogs_roleless_primary_credit(track, credit) {
+            if !names
+                .iter()
+                .any(|known: &String| known.eq_ignore_ascii_case(name))
+            {
+                names.push(name.to_owned());
+            }
+            continue;
+        }
+        let Some(role_value) = credit.get("role") else {
+            continue;
+        };
+        let Some(role) = recoverable_credit_text(role_value) else {
+            continue;
+        };
+        let role = role
+            .trim()
+            .to_lowercase()
+            .replace('-', " ")
+            .replace('_', " ");
+        let provider = credit["artist"]["provider"].as_str().unwrap_or_default();
+        let id = credit["artist"]["id"].as_str().unwrap_or_default().trim();
+        if (!provider.is_empty() && !provider.eq_ignore_ascii_case("discogs"))
+            || (provider.eq_ignore_ascii_case("discogs")
+                && !id.is_empty()
+                && (id == "0" || !id.bytes().all(|byte| byte.is_ascii_digit())))
+        {
+            continue;
+        }
+        if !crate::recording_identity::is_primary_performer_role(&role) {
+            continue;
+        }
+        if !names
+            .iter()
+            .any(|known: &String| known.eq_ignore_ascii_case(name))
+        {
+            names.push(name.to_owned());
+        }
+    }
+    (!names.is_empty()).then(|| names.join(", "))
+}
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -636,6 +767,11 @@ pub(crate) fn verified_discogs_credit_refs(
         let id = credit["artist"]["id"].as_str()?;
         if id.is_empty() || id.len() > 20 || !id.bytes().all(|c| c.is_ascii_digit()) {
             return None;
+        }
+        if id == "0" {
+            // Discogs uses zero as a placeholder on contributor credits. It
+            // is not an artist identity and must not enter an alias proof.
+            continue;
         }
         refs.push((id.to_owned(), credit["name"].as_str()?.to_owned()));
     }
@@ -2007,6 +2143,133 @@ mod tests {
     }
 
     #[test]
+    fn legacy_discogs_roleless_primary_evidence_survives_hydration() {
+        let mut raw = Track::default();
+        raw.provider = "catalog".into();
+        raw.artist = "Unknown artist".into();
+        raw.provenance = json!({
+            "catalogProvider":"discogs",
+            "artistCredits":[{"name":"Gillian Welch","role":"","artist":{"provider":"discogs","id":"255403"}}]
+        });
+        let raw_credit = &raw.provenance["artistCredits"][0];
+        assert!(is_legacy_discogs_roleless_primary_credit(&raw, raw_credit));
+        assert_eq!(
+            legacy_discogs_roleless_primary_performer_names(&raw),
+            Some(vec!["Gillian Welch".to_owned()])
+        );
+        assert_eq!(
+            recovered_discogs_performer_artist(&raw),
+            Some("Gillian Welch".to_owned())
+        );
+        let raw_identity = crate::recording_identity::RecordingIdentity::from_track(&raw);
+        assert_eq!(raw_identity.credits.len(), 1);
+        assert!(!raw_identity.credits_uncertain);
+        assert!(crate::recording_identity::is_primary_performer_role(
+            &raw_identity.credits[0].role
+        ));
+
+        let mut hydrated = raw.clone();
+        hydrated.artist = "Gillian Welch".into();
+        let hydrated_credit = &hydrated.provenance["artistCredits"][0];
+        assert!(is_legacy_discogs_roleless_primary_credit(
+            &hydrated,
+            hydrated_credit
+        ));
+        assert_eq!(
+            legacy_discogs_roleless_primary_performer_names(&hydrated),
+            Some(vec!["Gillian Welch".to_owned()])
+        );
+        assert_eq!(recovered_discogs_performer_artist(&hydrated), None);
+        let hydrated_identity = crate::recording_identity::RecordingIdentity::from_track(&hydrated);
+        assert_eq!(hydrated_identity.credits, raw_identity.credits);
+        assert_eq!(
+            hydrated_identity.credits_uncertain,
+            raw_identity.credits_uncertain
+        );
+    }
+
+    #[test]
+    fn discogs_primary_artist_is_recoverable_but_vocals_only_is_not_primary() {
+        let mut primary = Track::default();
+        primary.provider = "catalog".into();
+        primary.artist = "Unknown artist".into();
+        primary.provenance = json!({
+            "catalogProvider":"discogs",
+            "artistCredits":[{"name":"Gillian Welch","role":"Primary Artist","artist":{"provider":"discogs","id":"255403"}}]
+        });
+        assert_eq!(
+            recovered_discogs_performer_artist(&primary),
+            Some("Gillian Welch".to_owned())
+        );
+        let primary_identity = crate::recording_identity::RecordingIdentity::from_track(&primary);
+        assert!(crate::recording_identity::is_primary_performer_role(
+            &primary_identity.credits[0].role
+        ));
+        let mut hydrated_primary = primary.clone();
+        hydrated_primary.artist = "Gillian Welch".into();
+        let hydrated_identity =
+            crate::recording_identity::RecordingIdentity::from_track(&hydrated_primary);
+        assert_eq!(hydrated_identity.credits, primary_identity.credits);
+
+        let mut vocals = primary;
+        vocals.provenance["artistCredits"][0]["role"] = json!("Vocals");
+        assert_eq!(recovered_discogs_performer_artist(&vocals), None);
+        let vocals_identity = crate::recording_identity::RecordingIdentity::from_track(&vocals);
+        assert!(!crate::recording_identity::is_primary_performer_role(
+            &vocals_identity.credits[0].role
+        ));
+    }
+
+    #[test]
+    fn discogs_artist_recovery_rejects_oversized_or_unbounded_credit_sets() {
+        let credit = json!({
+            "name":"Gillian Welch",
+            "role":"",
+            "artist":{"provider":"discogs","id":"255403"}
+        });
+        let mut oversized = Track::default();
+        oversized.provider = "catalog".into();
+        oversized.artist = "Unknown artist".into();
+        oversized.provenance = json!({
+            "catalogProvider":"discogs",
+            "artistCredits":(0..33).map(|_| credit.clone()).collect::<Vec<_>>()
+        });
+        assert_eq!(
+            legacy_discogs_roleless_primary_performer_names(&oversized),
+            None
+        );
+        assert_eq!(recovered_discogs_performer_artist(&oversized), None);
+
+        for invalid_name in ["x".repeat(513), "Lead\nArtist".to_owned()] {
+            let mut malformed = Track::default();
+            malformed.provider = "catalog".into();
+            malformed.artist = "Unknown artist".into();
+            malformed.provenance = json!({
+                "catalogProvider":"discogs",
+                "artistCredits":[{
+                    "name":invalid_name,
+                    "role":"Primary Artist",
+                    "artist":{"provider":"discogs","id":"255403"}
+                }]
+            });
+            assert_eq!(recovered_discogs_performer_artist(&malformed), None);
+        }
+
+        let mut malformed_role = Track::default();
+        malformed_role.provider = "catalog".into();
+        malformed_role.artist = "Unknown artist".into();
+        malformed_role.provenance = json!({
+            "catalogProvider":"discogs",
+            "artistCredits":[{
+                "name":"Gillian Welch",
+                "role":"Primary Artist".repeat(100),
+                "artist":{"provider":"discogs","id":"255403"}
+            }]
+        });
+        assert_eq!(recovered_discogs_performer_artist(&malformed_role), None);
+    }
+
+    #[test]
     fn discogs_exact_occurrence_binds_each_performer_alias_without_inventing_names() {
         let fixture: Value = serde_json::from_str(include_str!(
             "../fixtures/discogs-prolific-credit-identity.json"
@@ -2095,6 +2358,35 @@ mod tests {
         saved.artist = "Nipsey Hussle,Bino Rideaux".into();
         saved.provenance["manualFields"] = json!({"artist":true});
         assert!(!cached_verified_playback_artist_aliases(&store, &saved).has_verified_credit_sets());
+    }
+
+    #[test]
+    fn discogs_placeholder_artist_zero_is_not_an_identity_proof() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../fixtures/discogs-prolific-credit-identity.json"
+        ))
+        .unwrap();
+        let mut raw = fixture["release"].clone();
+        raw["tracklist"][0]["artists"][0]["id"] = json!(0);
+        let track = crate::artists::parse_discogs_release_tracks(
+            &raw,
+            "38549214",
+            "https://www.discogs.com/release/38549214",
+            false,
+            None,
+        )
+        .remove(0);
+        let dir = tempdir().unwrap();
+        let store = Store::open(&dir.path().join("discogs-placeholder.sqlite")).unwrap();
+        store
+            .set_retained_provider_cache(DISCOGS_ALIAS_RELEASE_CACHE, "38549214", &raw)
+            .unwrap();
+
+        let refs = verified_discogs_credit_refs(&store, &track).unwrap();
+        assert!(!refs.iter().any(|(id, _)| id == "0"));
+        assert_eq!(refs.len(), 2, "other valid performers keep their proof");
+        assert!(refs.iter().any(|(id, _)| id == "4908344"));
+        assert!(refs.iter().any(|(id, _)| id == "737282"));
     }
 
     fn fixture_track() -> Track {

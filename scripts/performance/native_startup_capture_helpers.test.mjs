@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {idleIpcBucketsGate,parseIdleIpcCounter,reportedErrorEvidence,safePlaybackFailureSummary,safeStartupDiagnosticExport,safeStartupMarkerMetrics,safeStoreMutexMetrics,startupObservation,startupPauseGate} from './native_startup_capture_helpers.mjs';
+import {idleIpcBucketsGate,parseIdleIpcCounter,reportedErrorEvidence,safePlaybackFailureSummary,safeReportedLibraryRowLookup,safeReportedPlaybackDiagnosticExport,safeStartupDiagnosticExport,safeStartupMarkerMetrics,safeStoreMutexMetrics,startupObservation,startupPauseGate} from './native_startup_capture_helpers.mjs';
 
 const target='fixture-track';
 const playing={trackId:target,generation:4,status:'playing',position:3.2,diagnostics:{firstAudioMs:275}};
@@ -83,6 +83,45 @@ test('opt-in startup diagnostics retain only bounded numeric and enum timing fie
   const serialized=JSON.stringify(result);
   for(const value of ['private-id','private-operation-id','private-resolution','private-track','https://secret','private body','private text','private codec','/private/file'])
     assert.equal(serialized.includes(value),false);
+});
+
+test('reported-track Library lookup keeps only the matching saved row identity and public metadata',()=>{
+  const track={id:'spotify:fixture123',title:'Ámame',artist:'Maryto y su Salsón',durationSeconds:237.257};
+  const result=safeReportedLibraryRowLookup(track,{total:2,items:[
+    {id:'spotify:other',title:'Other',artist:'Maryto',provider:'spotify',providerId:'other'},
+    {id:track.id,title:track.title,artist:track.artist,album:'Ámame',durationSeconds:237.257,
+      provider:'spotify',providerId:'fixture123',sourceUrl:'https://private.invalid/?token=should-not-escape',provenance:{private:'value'}},
+  ]});
+  assert.equal(result.scope,'read-only saved Library page lookup before play_tracks');
+  assert.equal(result.matched,true);
+  assert.equal(result.titleMatches,true);
+  assert.equal(result.artistMatches,true);
+  assert.equal(result.durationMatches,true);
+  assert.deepEqual(result.row,{id:track.id,provider:'spotify',providerId:'fixture123',title:'Ámame',artist:'Maryto y su Salsón',album:'Ámame',durationSeconds:237.257});
+  assert.equal(JSON.stringify(result).includes('should-not-escape'),false);
+  assert.equal(JSON.stringify(result).includes('private.invalid'),false);
+});
+
+test('reported playback diagnostics retain bounded provider phases and omit raw diagnostic data',()=>{
+  const start=1_800_000_000_000;
+  const result=safeReportedPlaybackDiagnosticExport({
+    status:{enabled:true,eventCount:4,droppedEvents:0},
+    events:[
+      {resolutionId:'550e8400-e29b-41d4-a716-446655440000',atUnixMs:start,elapsedMs:10,phase:'provider_attempt',provider:'monochrome',
+        details:{attempt:1,attemptPhase:'search',durationMs:10,retryable:true,category:'timeout',query:'private query',sourcePageUrl:'https://private.invalid'}},
+      {atUnixMs:start+10,elapsedMs:15,phase:'provider_attempt',provider:'youtube',details:{attempt:2,outcome:'failed',raw:'private'}},
+      {atUnixMs:start-100,elapsedMs:5,phase:'provider_attempt',provider:'youtube',details:{attempt:0}},
+      {atUnixMs:start+20,elapsedMs:20,phase:'not a phase',provider:'youtube',details:{attempt:3}},
+    ],
+    nativePlayback:[{playback:{private:'must not be copied'}}],
+  },start,start+15);
+  assert.equal(result.enabled,true);
+  assert.equal(result.events.length,2);
+  assert.deepEqual(result.events[0],{atUnixMs:start,elapsedMs:10,phase:'provider_attempt',provider:'monochrome',
+    resolutionId:'550e8400-e29b-41d4-a716-446655440000',details:{attempt:1,attemptPhase:'search',durationMs:10,retryable:true,category:'timeout'}});
+  assert.deepEqual(result.events[1].details,{attempt:2,outcome:'failed'});
+  assert.equal(JSON.stringify(result).includes('private'),false);
+  assert.equal(JSON.stringify(result).includes('private.invalid'),false);
 });
 
 test('opt-in startup diagnostics reject unknown phases, wrong generations, and invalid timings',()=>{

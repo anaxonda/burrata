@@ -190,6 +190,89 @@ export function safePlaybackFailureSummary(state, targetTrackId) {
     provider:['youtube','soundcloud','monochrome'].includes(failure.provider)?failure.provider:null};
 }
 
+const REPORTED_DIAGNOSTIC_PROVIDERS = new Set(['youtube','soundcloud','monochrome','bandcamp','musicbrainz','spotify','slskd','discogs','local','import','radio','other']);
+const REPORTED_DIAGNOSTIC_PHASE = /^[a-z][a-z0-9_]{0,79}$/;
+const REPORTED_DIAGNOSTIC_NUMBER_KEYS = new Set([
+  'attempt','attemptCount','attemptsUsed','elapsedMs','observedElapsedMs','phaseElapsedMs','durationMs','budgetMs',
+  'httpStatus','resultCount','rowCount','candidateCount','cacheHits','cacheMisses','remainingQuerySlots',
+  'recoveryAttemptsUsed','sharedExtractionAttemptsUsed','sharedExtractionAttemptsRemaining','streamExpirySecondsRemaining',
+  'waiterCount','flightWaiters','responseCount','addressCount','expectedDelayMs','status','count',
+]);
+const REPORTED_DIAGNOSTIC_BOOLEAN_KEYS = new Set([
+  'attempted','retryable','accepted','deadline','cancelled','reused','hasResults','localSource','background','joined','ok',
+  'rateLimited','selected','completed','abandoned','waitedForGate','sameSearchRow','providerIdMatches',
+  'requestedTitlePhrasePresent','canonicalArtistPhrasePresent','descriptiveDurationWithinFiveSeconds',
+  'recordingCanonicalMatch','recordingVerifiedAliasMatch','topicCanonicalMatch','topicVerifiedAliasMatch',
+]);
+const REPORTED_DIAGNOSTIC_ENUM_KEYS = new Map([
+  ['category',new Set(['cancelled','timeout','network','rate_limited','source_access','source_unavailable','source_private','source_deleted','no_match','recording_identity_mismatch','unsupported_audio','output','storage','parser','unknown','complete','unavailable','redirect','decoder','probe'])],
+  ['outcome',new Set(['success','completed','failed','cancelled','deadline','abandoned','aborted','rate_limited','http_error','response_limit','invalid_json','unique_exact_name_profile','no_exact_name_owner','ambiguous','no_verified_evidence'])],
+  ['attemptPhase',new Set(['search','parser','transport','extraction','other'])],
+  ['stage',new Set(['resolver','extraction','transport','output','storage','unknown','request','visitor','player','parse','stream','before_lookup','waiting_for_worker','after_wait'])],
+  ['errorClass',new Set(['timeout','connect','request','body','other'])],
+  ['providerClass',new Set(['youtube','soundcloud','monochrome','bandcamp','other'])],
+  ['runtime',new Set(['native','webview','extractor','resolver','direct','other'])],
+  ['reason',new Set(['cdn_destination_changed','insufficient_time','recovery_budget_exhausted','ordinary_resolution_succeeded','ineligible','no_artist_identity_block','distinct_semantic_versions','source_binding_mismatch','unsupported_or_unmatched','negative_cache'])],
+]);
+
+function safeReportedDiagnosticDetails(value) {
+  if(!value||typeof value!=='object'||Array.isArray(value))return {};
+  const result={};
+  for(const [key,item] of Object.entries(value)) {
+    if(REPORTED_DIAGNOSTIC_NUMBER_KEYS.has(key)&&Number.isSafeInteger(item)&&item>=0)result[key]=Math.min(item,86_400_000);
+    else if(REPORTED_DIAGNOSTIC_BOOLEAN_KEYS.has(key)&&typeof item==='boolean')result[key]=item;
+    else if(REPORTED_DIAGNOSTIC_ENUM_KEYS.get(key)?.has(item))result[key]=item;
+  }
+  return result;
+}
+
+export function safeReportedLibraryRowLookup(track, page) {
+  const id=typeof track?.id==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(track.id)?track.id:null;
+  const items=Array.isArray(page?.items)?page.items:[];
+  const row=id?items.find(item=>item?.id===id):null;
+  const safeText=value=>typeof value==='string'
+    ?value.replace(/https?:\/\/\S+/gi,'[redacted-url]').replace(/[\u0000-\u001f\u007f]/g,' ').slice(0,200):null;
+  const safeRow=row?{
+    id,
+    provider:typeof row.provider==='string'&&REPORTED_DIAGNOSTIC_PROVIDERS.has(row.provider)?row.provider:'other',
+    providerId:typeof row.providerId==='string'&&/^[A-Za-z0-9._:-]{1,255}$/.test(row.providerId)?row.providerId:null,
+    title:safeText(row.title),artist:safeText(row.artist),album:safeText(row.album),
+    durationSeconds:Number.isFinite(row.durationSeconds)&&row.durationSeconds>0&&row.durationSeconds<=86400?row.durationSeconds:null,
+  }:null;
+  return {
+    scope:'read-only saved Library page lookup before play_tracks',view:'library',
+    requestedTrackId:id,matched:Boolean(row),total:Number.isSafeInteger(page?.total)&&page.total>=0?Math.min(page.total,1_000_000):null,
+    requestedTitle:safeText(track?.title),requestedArtist:safeText(track?.artist),row:safeRow,
+    titleMatches:Boolean(row)&&row.title===track?.title,artistMatches:Boolean(row)&&row.artist===track?.artist,
+    durationMatches:Boolean(row)&&Number.isFinite(row.durationSeconds)&&Number.isFinite(track?.durationSeconds)
+      &&Math.abs(row.durationSeconds-track.durationSeconds)<0.01,
+  };
+}
+
+export function safeReportedPlaybackDiagnosticExport(report, sinceUnixMs, untilUnixMs) {
+  const status=report?.status&&typeof report.status==='object'?report.status:{};
+  const events=Array.isArray(report?.events)?report.events:[];
+  const boundedCount=value=>Number.isSafeInteger(value)&&value>=0?Math.min(value,1_000_000):null;
+  const safeUnixMs=value=>Number.isSafeInteger(value)&&value>=1_000_000_000_000&&value<=9_000_000_000_000?value:null;
+  return {
+    scope:'sanitized playback phase/provider events from one isolated reported-track case',
+    reportAvailable:Boolean(report&&typeof report==='object'&&report.status&&typeof report.status==='object'),
+    enabled:status.enabled===true,eventCount:boundedCount(status.eventCount),droppedEvents:boundedCount(status.droppedEvents),
+    window:{sinceUnixMs:safeUnixMs(sinceUnixMs),untilUnixMs:safeUnixMs(untilUnixMs)},
+    events:events.filter(event=>safeUnixMs(event?.atUnixMs)!==null&&event.atUnixMs>=sinceUnixMs&&event.atUnixMs<=untilUnixMs)
+      .slice(0,2000).flatMap(event=>{
+        const phase=typeof event.phase==='string'&&REPORTED_DIAGNOSTIC_PHASE.test(event.phase)?event.phase:null;
+        const provider=typeof event.provider==='string'&&REPORTED_DIAGNOSTIC_PROVIDERS.has(event.provider)?event.provider:null;
+        const elapsedMs=Number.isSafeInteger(event.elapsedMs)&&event.elapsedMs>=0?Math.min(event.elapsedMs,86_400_000):null;
+        if(!phase||!provider||elapsedMs===null)return [];
+        const resolutionId=typeof event.resolutionId==='string'&&/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(event.resolutionId)
+          ?event.resolutionId:null;
+        return [{atUnixMs:event.atUnixMs,elapsedMs,phase,provider,...(resolutionId?{resolutionId}:{}),
+          details:safeReportedDiagnosticDetails(event.details)}];
+      }),
+  };
+}
+
 export function reportedErrorEvidence(receiptError, state, targetTrackId) {
   return {receiptFailed:Boolean(receiptError),failureEvidence:safePlaybackFailureSummary(state,targetTrackId)};
 }

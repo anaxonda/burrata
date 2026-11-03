@@ -7728,6 +7728,9 @@ fn apply_hydration_metadata(
         }
     }
     track.provenance["manualFields"] = serde_json::Value::Object(manual_fields.clone());
+    if let Some(artist) = crate::artist_credit_aliases::recovered_discogs_performer_artist(&track) {
+        track.artist = artist;
+    }
     Ok((track, manual))
 }
 
@@ -11151,6 +11154,77 @@ mod tests {
             ))
             .unwrap();
         assert_eq!(store.list_tracks("library", None).unwrap().len(), 5);
+    }
+
+    #[test]
+    fn radio_identified_track_favorites_accept_canonical_identity_and_reject_malformed_pairs() {
+        let (_dir, store) = db();
+        let station = crate::radio::RadioStation {
+            id: "test-station".into(),
+            name: "Test Station".into(),
+            stream_url: "https://radio.example/stream".into(),
+            source_url: "https://radio.example".into(),
+            provider: None,
+            country: None,
+            tags: None,
+            homepage_url: None,
+            favicon_url: None,
+            bitrate_kbps: None,
+            codec: None,
+            language: None,
+            is_custom: false,
+        };
+        let metadata = crate::radio::RadioTrackMetadata {
+            identifiers: None,
+            station_id: station.id.clone(),
+            artist: "Artist from radio".into(),
+            title: "Identified Song".into(),
+            album: None,
+            year: None,
+            artwork_url: None,
+            source_url: String::new(),
+            observed_at: None,
+            metadata_confidence: "fingerprint".into(),
+        };
+        let identified = crate::playback_history::radio_song_track(&station, &metadata);
+        assert!(identified.id.starts_with("radio_song:"));
+        assert_eq!(
+            identified.id,
+            format!("{}:{}", identified.provider, identified.provider_id)
+        );
+
+        store.set_favorite(&identified, true).unwrap();
+        assert_eq!(
+            store.list_favorite_track_ids().unwrap(),
+            [identified.id.clone()]
+        );
+        assert_eq!(
+            store.list_tracks("favorites", None).unwrap()[0].id,
+            identified.id
+        );
+
+        // This matches the former UI bug: the complete listing ID is copied
+        // into provider_id, producing radio_song:radio_song:<hash>.
+        let mut duplicated_provider_prefix = identified.clone();
+        duplicated_provider_prefix.provider_id = duplicated_provider_prefix.id.clone();
+        assert_eq!(
+            store
+                .set_favorite(&duplicated_provider_prefix, true)
+                .unwrap_err()
+                .to_string(),
+            "Invalid track identity"
+        );
+
+        let mut mismatched_provider = identified.clone();
+        mismatched_provider.provider = "radio".into();
+        assert_eq!(
+            store
+                .set_favorite(&mismatched_provider, true)
+                .unwrap_err()
+                .to_string(),
+            "Invalid track identity"
+        );
+        assert_eq!(store.list_favorite_track_ids().unwrap(), [identified.id]);
     }
 
     #[test]
@@ -15108,6 +15182,120 @@ mod tests {
         assert_eq!(hydrated.artist, "Catalog Artist");
         assert_eq!(hydrated.title, "Chosen Title");
         assert!(hydrated.provenance["manualFields"].get("album").is_none());
+    }
+
+    #[test]
+    fn discogs_unknown_artist_hydrates_from_performer_credits_without_touching_manual_values() {
+        let (_directory, store) = db();
+        let mut source = track("discogs-credit-recovery", "April The 14th Part 1");
+        source.id = "catalog:discogs:credit-recovery".into();
+        source.provider = "catalog".into();
+        source.provider_id = "discogs:credit-recovery".into();
+        source.artist = "Unknown artist".into();
+        source.provenance = serde_json::json!({
+            "sourceKind":"catalog",
+            "catalogProvider":"discogs",
+            "artistCredits":[
+                {"name":"Gillian Welch","role":"","artist":{"provider":"discogs","id":"255403"}},
+                {"name":"Gillian Welch","role":"Written By","artist":{"provider":"discogs","id":"0"}},
+                {"name":"David Rawlings","role":"Written By","artist":{"provider":"discogs","id":"0"}}
+            ]
+        });
+        store.save_track(&source).unwrap();
+
+        let hydrated = store.get_track(&source.id).unwrap().unwrap();
+        assert_eq!(hydrated.artist, "Gillian Welch");
+        assert_eq!(
+            hydrated.provenance["artistCredits"][2]["name"],
+            "David Rawlings"
+        );
+
+        let stored: String = store
+            .connection
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT metadata FROM catalog_listings WHERE id=?1",
+                [&source.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let stored_track: Track = decode(stored).unwrap();
+        assert_eq!(stored_track.artist, "Unknown artist");
+        assert_eq!(
+            stored_track.provenance["artistCredits"][1]["artist"]["id"],
+            "0"
+        );
+
+        let mut manual = source.clone();
+        manual.id = "catalog:discogs:manual-artist".into();
+        manual.provider_id = "discogs:manual-artist".into();
+        manual.artist = "User's Artist Choice".into();
+        manual.provenance["manualFields"]["artist"] = serde_json::json!(true);
+        store.save_track(&manual).unwrap();
+        assert_eq!(
+            store.get_track(&manual.id).unwrap().unwrap().artist,
+            "User's Artist Choice"
+        );
+
+        let mut composer_only = source.clone();
+        composer_only.id = "catalog:discogs:composer-only".into();
+        composer_only.provider_id = "discogs:composer-only".into();
+        composer_only.provenance["artistCredits"] = serde_json::json!([
+            {"name":"David Rawlings","role":"Written By","artist":{"provider":"discogs","id":"0"}}
+        ]);
+        store.save_track(&composer_only).unwrap();
+        assert_eq!(
+            store.get_track(&composer_only.id).unwrap().unwrap().artist,
+            "Unknown artist"
+        );
+    }
+
+    #[test]
+    fn discogs_artist_fallback_rejects_guest_malformed_and_manual_credit_sets() {
+        let mut guest_only = track("guest-only", "Song");
+        guest_only.provider = "catalog".into();
+        guest_only.artist = "Unknown artist".into();
+        guest_only.provenance = serde_json::json!({
+            "catalogProvider":"discogs",
+            "artistCredits":[{"name":"Guest Singer","role":"Featuring","artist":{"provider":"discogs","id":"123"}}]
+        });
+        assert_eq!(
+            crate::artist_credit_aliases::recovered_discogs_performer_artist(&guest_only),
+            None
+        );
+        assert_eq!(guest_only.artist, "Unknown artist");
+
+        let mut malformed = track("malformed-credits", "Song");
+        malformed.provider = "catalog".into();
+        malformed.artist = "Unknown artist".into();
+        malformed.provenance = serde_json::json!({
+            "catalogProvider":"discogs",
+            "artistCredits":[
+                {"name":"Ambiguous Artist","role":{"unexpected":"object"},"artist":{"provider":"discogs","id":"255403"}},
+                {"name":"Cross-provider Guess","role":"Artist","artist":{"provider":"spotify","id":"123"}},
+                {"name":"Composer","role":"Written By","artist":{"provider":"discogs","id":"0"}}
+            ]
+        });
+        assert_eq!(
+            crate::artist_credit_aliases::recovered_discogs_performer_artist(&malformed),
+            None
+        );
+        assert_eq!(malformed.artist, "Unknown artist");
+
+        let mut manual = track("manual-credit-artist", "Song");
+        manual.provider = "catalog".into();
+        manual.artist = "Unknown artist".into();
+        manual.provenance = serde_json::json!({
+            "catalogProvider":"discogs",
+            "manualFields":{"artist":true},
+            "artistCredits":[{"name":"Gillian Welch","role":"Artist","artist":{"provider":"discogs","id":"255403"}}]
+        });
+        assert_eq!(
+            crate::artist_credit_aliases::recovered_discogs_performer_artist(&manual),
+            None
+        );
+        assert_eq!(manual.artist, "Unknown artist");
     }
 
     #[test]

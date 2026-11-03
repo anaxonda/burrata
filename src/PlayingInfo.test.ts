@@ -29,26 +29,40 @@ function render(track: Track, extra: Record<string, unknown> = {}) {
 async function settle() { for (let i = 0; i < 6; i++) await Promise.resolve(); await tick(); }
 
 describe("PlayingInfo internet-radio links", () => {
-  it("keeps station links behind an accessible station-name disclosure", async () => {
+  it("shows the station name as the Source row link without a separate station line", async () => {
     const target = render(radioTrack); await settle();
-    const details = target.querySelector(".station-info")!;
-    expect(details.querySelector("summary")?.getAttribute("aria-label")).toBe("Station information for Custom Jazz");
-    expect((details as HTMLDetailsElement).open).toBe(false);
-    details.querySelector("summary")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    await settle();
-    expect(details.textContent).toContain("Station website");
-    expect(details.querySelector('a[href="https://station.example/about"]')?.getAttribute("rel")).toBe("noopener noreferrer");
-    expect(details.textContent).toContain("Stream URL");
-    expect(details.querySelector('a[href="https://stream.example/live.mp3"]')).not.toBeNull();
+    const sourceRow = Array.from(target.querySelectorAll("dl > div")).find(row => row.querySelector("dt")?.textContent === "Source")!;
+    const sourceLink = sourceRow.querySelector<HTMLAnchorElement>("a")!;
+    expect(sourceLink.textContent).toBe("Custom Jazz ↗");
+    expect(sourceLink.getAttribute("href")).toBe("https://station.example/about");
+    expect(sourceLink.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(target.querySelector(".station-info")).toBeNull();
     expect(target.textContent).not.toContain("example-implementation-secret");
     expect(target.textContent).not.toContain("rawResponse");
     expect(callMock).not.toHaveBeenCalled();
+  });
+
+  it("prefers the supplied station URL, then provenance, then the track source", async () => {
+    const cases = [
+      { props: { stationUrl: "https://supplied.example/home", stationName: "Provided Station" }, provenance: {}, expected: "https://supplied.example/home", label: "Provided Station ↗" },
+      { props: { stationUrl: "javascript:alert(1)" }, provenance: { radioStationUrl: "https://provenance.example/home" }, expected: "https://provenance.example/home" },
+      { props: {}, provenance: {}, expected: "https://station.example/about" },
+    ];
+    for (const item of cases) {
+      const target = render({ ...radioTrack, provenance: { ...(radioTrack.provenance as Record<string, unknown>), ...item.provenance } }, item.props);
+      await settle();
+      const sourceLink = Array.from(target.querySelectorAll("dl > div")).find(row => row.querySelector("dt")?.textContent === "Source")?.querySelector("a");
+      expect(sourceLink?.getAttribute("href")).toBe(item.expected);
+      if (item.label) expect(sourceLink?.textContent).toBe(item.label);
+      destroy?.(); destroy = undefined; document.body.innerHTML = "";
+    }
   });
 
   it("does not render or open unsafe stream and station URLs", async () => {
     const track = { ...radioTrack, sourceUrl: "javascript:alert(1)", provenance: { sourceKind: "radio", radioStreamUrl: "file:///etc/passwd" } };
     const target = render(track); await settle();
     expect(target.querySelector(".station-info")).toBeNull();
+    expect(Array.from(target.querySelectorAll("dl > div")).find(row => row.querySelector("dt")?.textContent === "Source")).toBeUndefined();
     expect(callMock).not.toHaveBeenCalled();
   });
 });
@@ -336,6 +350,18 @@ describe("PlayingInfo compact metadata", () => {
     expect(target.querySelector("h2")?.textContent).toContain("Untitled recording");
   });
 
+  it("preserves the full long album title on its narrow track information link", async () => {
+    const album = "An Extremely Long Album Name With A Continuous TitlePartThatMustWrapAtNarrowWidths";
+    const onAlbum = vi.fn();
+    const target = render({ ...radioTrack, album }, { onAlbum });
+    await settle();
+    const link = target.querySelector<HTMLButtonElement>(".album-link")!;
+    expect(link.textContent).toBe(album);
+    expect(link.closest(".hero-copy")).not.toBeNull();
+    link.click();
+    expect(onAlbum).toHaveBeenCalledOnce();
+  });
+
   it("keeps one download action and removes the duplicate quality-upgrade action", async () => {
     const target = render(radioTrack); await settle();
     expect(target.querySelectorAll(".actions .download")).toHaveLength(1);
@@ -373,7 +399,7 @@ describe("saved track detections in inactive track information", () => {
     expect(target.textContent).toContain("Detected song");
     expect(target.querySelector('.detected-tracks input[type="checkbox"]')).toBeNull();
     expect(target.querySelector(".detection-markers-toggle")).toBeNull();
-    expect(target.querySelector('dl a[href="https://station.example/about"]')?.textContent).toContain("Open source");
+    expect(target.querySelector('dl a[href="https://station.example/about"]')?.textContent).toContain("Custom Jazz");
     expect(target.querySelector('.detected-tracks .detection-time')).not.toBeNull();
     expect(onToggle).not.toHaveBeenCalled();
     expect(onMarkersToggle).not.toHaveBeenCalled();

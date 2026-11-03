@@ -1909,15 +1909,23 @@ async fn list_library_entities(
     kind: String,
     artist_id: Option<String>,
     query: Option<String>,
+    source: Option<String>,
+    year: Option<String>,
+    sort: Option<String>,
+    descending: Option<bool>,
     limit: usize,
     offset: usize,
 ) -> Result<storage::library::LibraryEntityPage> {
     let store = state.store.clone();
     tokio::task::spawn_blocking(move || {
-        store.list_library_entities(
+        store.list_library_entities_filtered(
             &kind,
             artist_id.as_deref(),
             query.as_deref().unwrap_or(""),
+            source.as_deref(),
+            year.as_deref(),
+            sort.as_deref().unwrap_or("name"),
+            descending.unwrap_or(false),
             limit,
             offset,
         )

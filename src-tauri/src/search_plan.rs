@@ -22,6 +22,8 @@ pub(crate) enum SearchQueryReason {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SearchQuery {
     pub(crate) text: String,
+    pub(crate) artist: String,
+    pub(crate) title: String,
     pub(crate) reason: SearchQueryReason,
 }
 
@@ -51,7 +53,33 @@ fn push_query(
     {
         return;
     }
-    queries.push(SearchQuery { text, reason });
+    queries.push(SearchQuery {
+        text,
+        artist: artist.to_owned(),
+        title: title.to_owned(),
+        reason,
+    });
+}
+
+fn placeholder_artist(value: &str) -> bool {
+    matches!(
+        crate::matching::normalize(value).as_str(),
+        "" | "unknown" | "unknown artist" | "unknownartist" | "n a" | "na" | "not available"
+    )
+}
+
+fn primary_performer_credit(track: &Track) -> Option<String> {
+    let identity = crate::recording_identity::RecordingIdentity::from_track(track);
+    let primary = identity
+        .credits
+        .iter()
+        .find(|credit| crate::recording_identity::is_primary_performer_role(&credit.role))
+        .map(|credit| credit.name.clone())
+        .filter(|name| !placeholder_artist(name));
+    primary.or_else(|| {
+        crate::artist_credit_aliases::legacy_discogs_roleless_primary_performer_names(track)
+            .and_then(|names| names.into_iter().next())
+    })
 }
 
 impl SearchPlan {
@@ -102,33 +130,45 @@ impl SearchPlan {
     ) -> Self {
         let mut queries = Vec::with_capacity(MAX_SEARCH_QUERIES);
         let rendered_title = search_title(track);
-        push_query(
-            &mut queries,
-            &track.artist,
-            &rendered_title,
-            SearchQueryReason::CanonicalIdentity,
-        );
+        let lead = primary_performer_credit(track);
+        let canonical_artist = if placeholder_artist(&track.artist) {
+            (!track.provenance["manualFields"]["artist"]
+                .as_bool()
+                .unwrap_or(false))
+            .then_some(lead.clone())
+            .flatten()
+        } else {
+            Some(track.artist.clone())
+        };
+        let canonical_reason = if canonical_artist
+            .as_deref()
+            .is_some_and(|artist| artist != track.artist)
+        {
+            SearchQueryReason::PrimaryPerformer
+        } else {
+            SearchQueryReason::CanonicalIdentity
+        };
+        if let Some(artist) = canonical_artist.as_deref() {
+            push_query(&mut queries, artist, &rendered_title, canonical_reason);
+        }
 
         let release_fallback = allow_other_releases
             .then(|| search_title_without_release(track))
             .flatten();
         if let Some(fallback_title) = release_fallback {
-            let identity = crate::recording_identity::RecordingIdentity::from_track(track);
-            let lead = identity
-                .credits
-                .iter()
-                .find(|credit| crate::recording_identity::is_primary_performer_role(&credit.role))
-                .map(|credit| credit.name.as_str());
-            push_query(
-                &mut queries,
-                verified_artist_alternatives
-                    .first()
-                    .map(String::as_str)
-                    .or(lead)
-                    .unwrap_or(&track.artist),
-                &fallback_title,
-                SearchQueryReason::ReleaseContextFallback,
-            );
+            if let Some(artist) = verified_artist_alternatives
+                .first()
+                .map(String::as_str)
+                .or(lead.as_deref())
+                .or(canonical_artist.as_deref())
+            {
+                push_query(
+                    &mut queries,
+                    artist,
+                    &fallback_title,
+                    SearchQueryReason::ReleaseContextFallback,
+                );
+            }
         } else {
             for alternative in verified_artist_alternatives.iter().take(2) {
                 push_query(
@@ -144,12 +184,6 @@ impl SearchPlan {
         }
 
         if queries.len() < MAX_SEARCH_QUERIES {
-            let identity = crate::recording_identity::RecordingIdentity::from_track(track);
-            let lead = identity
-                .credits
-                .iter()
-                .find(|credit| crate::recording_identity::is_primary_performer_role(&credit.role))
-                .map(|credit| credit.name.as_str());
             let fallback_title = search_title_without_soundtrack(track);
             let reason = if fallback_title != rendered_title {
                 SearchQueryReason::SoundtrackContextFallback
@@ -158,22 +192,21 @@ impl SearchPlan {
             } else {
                 SearchQueryReason::CanonicalIdentity
             };
-            push_query(
-                &mut queries,
-                lead.unwrap_or(&track.artist),
-                &fallback_title,
-                reason,
-            );
+            if let Some(artist) = lead.as_deref().or(canonical_artist.as_deref()) {
+                push_query(&mut queries, artist, &fallback_title, reason);
+            }
         }
         if queries.len() < MAX_SEARCH_QUERIES {
             for alternative in verified_title_alternatives.iter().take(2) {
                 let title = search_title_with_alternative(track, alternative);
-                push_query(
-                    &mut queries,
-                    &track.artist,
-                    &title,
-                    SearchQueryReason::VerifiedTitleAlternative,
-                );
+                if let Some(artist) = canonical_artist.as_deref() {
+                    push_query(
+                        &mut queries,
+                        artist,
+                        &title,
+                        SearchQueryReason::VerifiedTitleAlternative,
+                    );
+                }
                 if queries.len() == MAX_SEARCH_QUERIES {
                     break;
                 }
@@ -386,6 +419,210 @@ mod tests {
         assert_eq!(plan.queries.len(), 2);
         assert_eq!(plan.queries[1].reason, SearchQueryReason::PrimaryPerformer);
         assert_eq!(plan.queries[1].text, "Lead Song");
+    }
+
+    #[test]
+    fn placeholder_artist_uses_a_structured_primary_performer_as_the_first_query() {
+        let track = Track {
+            id: "catalog:discogs:fixture".into(),
+            provider: "catalog".into(),
+            provider_id: "discogs:fixture".into(),
+            title: "April The 14th Part 1".into(),
+            artist: "Unknown artist".into(),
+            duration_seconds: Some(221.0),
+            version: Some("Studio Recording".into()),
+            provenance: json!({
+                "catalogProvider":"discogs",
+                "artistCredits":[
+                    {"name":"Gillian Welch","role":"","artist":{"id":"255403","provider":"discogs"}},
+                    {"name":"David Rawlings","role":"Written By","artist":{"id":"0","provider":"discogs"}}
+                ]
+            }),
+            ..Track::default()
+        };
+        let original = track.clone();
+        let plan = SearchPlan::for_track(&track, &["Gillian Welch verified spelling".into()]);
+
+        assert_eq!(plan.queries.len(), MAX_SEARCH_QUERIES);
+        assert_eq!(plan.queries[0].reason, SearchQueryReason::PrimaryPerformer);
+        assert_eq!(
+            plan.queries[0].text,
+            "Gillian Welch April The 14th Part 1 Studio Recording"
+        );
+        assert_eq!(
+            plan.queries[1].reason,
+            SearchQueryReason::VerifiedArtistAlternative
+        );
+        assert_eq!(
+            plan.queries[1].text,
+            "Gillian Welch verified spelling April The 14th Part 1 Studio Recording"
+        );
+        assert!(plan
+            .queries
+            .iter()
+            .all(|query| !query.text.contains("Unknown artist")
+                && !query.text.contains("David Rawlings")));
+
+        // The same structured primary performer used to build the query is
+        // still available to final source acceptance for an unhydrated queue
+        // row. A correct recording with matching duration and version passes.
+        let correct_candidate = crate::models::Candidate {
+            provider: "youtube".into(),
+            id: "youtube:correct-fixture".into(),
+            title: "April The 14th Part 1".into(),
+            duration_seconds: Some(221.0),
+            source_metadata: Some(json!({
+                "provider":"youtube",
+                "track":"April The 14th Part 1",
+                "catalogTitle":"April The 14th Part 1",
+                "artistNames":["Gillian Welch"],
+                "version":"Studio Recording"
+            })),
+            ..crate::models::Candidate::default()
+        };
+        let correct_assessment = crate::recording_match::assess(
+            &track,
+            &correct_candidate,
+            crate::recording_match::MatchLevel::Balanced,
+            crate::recording_match::MatchStage::Resolved,
+        );
+        assert_eq!(
+            correct_assessment.dimensions.artists,
+            crate::recording_match::Comparison::Agree
+        );
+        assert_eq!(
+            correct_assessment.action,
+            crate::recording_match::MatchAction::Accept,
+            "correct structured primary performer should validate: {correct_assessment:?}"
+        );
+
+        let mut missing_display_artist = track.clone();
+        missing_display_artist.artist.clear();
+        let missing_artist_plan = SearchPlan::for_track(&missing_display_artist, &[]);
+        assert_eq!(missing_artist_plan.queries.len(), 1);
+        assert_eq!(
+            missing_artist_plan.queries[0].text,
+            "Gillian Welch April The 14th Part 1 Studio Recording"
+        );
+
+        // Retrieval uses the primary credit, while final source acceptance
+        // still evaluates the unchanged request and rejects a different act.
+        let wrong_artist = crate::models::Candidate {
+            provider: "youtube".into(),
+            id: "youtube:wrong-artist-fixture".into(),
+            title: "April The 14th Part 1".into(),
+            duration_seconds: Some(221.0),
+            source_metadata: Some(json!({
+                "provider":"youtube",
+                "track":"April The 14th Part 1",
+                "catalogTitle":"April The 14th Part 1",
+                "artistNames":["Different Artist"],
+                "version":"Studio Recording"
+            })),
+            ..crate::models::Candidate::default()
+        };
+        let assessment = crate::recording_match::assess(
+            &track,
+            &wrong_artist,
+            crate::recording_match::MatchLevel::Balanced,
+            crate::recording_match::MatchStage::Resolved,
+        );
+        assert_eq!(
+            assessment.dimensions.artists,
+            crate::recording_match::Comparison::Conflict
+        );
+        assert_eq!(
+            assessment.action,
+            crate::recording_match::MatchAction::Reject
+        );
+
+        let wrong_version = crate::models::Candidate {
+            source_metadata: Some(json!({
+                "provider":"youtube",
+                "track":"April The 14th Part 1",
+                "catalogTitle":"April The 14th Part 1",
+                "artistNames":["Gillian Welch"],
+                "version":"Live"
+            })),
+            ..correct_candidate.clone()
+        };
+        let assessment = crate::recording_match::assess(
+            &track,
+            &wrong_version,
+            crate::recording_match::MatchLevel::Balanced,
+            crate::recording_match::MatchStage::Resolved,
+        );
+        assert_eq!(
+            assessment.dimensions.version,
+            crate::recording_match::Comparison::Conflict
+        );
+        assert_eq!(
+            assessment.action,
+            crate::recording_match::MatchAction::Reject
+        );
+
+        assert_eq!(track, original);
+    }
+
+    #[test]
+    fn absent_artist_search_skips_placeholders_and_composer_only_credits() {
+        for artist in ["", "Unknown artist", "Unknownartist", "N/A"] {
+            let track = Track {
+                title: "April The 14th Part 1".into(),
+                artist: artist.into(),
+                provenance: json!({
+                    "artistCredits":[{"name":"Gillian Welch","role":"writer"}]
+                }),
+                ..Track::default()
+            };
+            let plan = SearchPlan::for_track(&track, &[]);
+            assert!(plan.queries.is_empty(), "{artist:?}: {plan:?}");
+            assert!(!plan
+                .queries
+                .iter()
+                .any(|query| query.text.contains("April The 14th Part 1")));
+        }
+
+        let missing = Track {
+            title: "April The 14th Part 1".into(),
+            artist: "Unknown artist".into(),
+            ..Track::default()
+        };
+        let no_title_only = SearchPlan::for_track_with_alternatives(
+            &missing,
+            &[],
+            &["Verified title spelling".into()],
+        );
+        assert!(no_title_only.queries.is_empty());
+
+        let invalid_discogs_credit = Track {
+            provider: "catalog".into(),
+            title: "April The 14th Part 1".into(),
+            artist: "Unknown artist".into(),
+            provenance: json!({
+                "catalogProvider":"discogs",
+                "artistCredits":[{"name":"Unknown Artist Alias","role":"","artist":{"id":"0","provider":"discogs"}}]
+            }),
+            ..Track::default()
+        };
+        assert!(SearchPlan::for_track(&invalid_discogs_credit, &[])
+            .queries
+            .is_empty());
+
+        let manually_overridden = Track {
+            provider: "catalog".into(),
+            title: "April The 14th Part 1".into(),
+            artist: "Unknown artist".into(),
+            provenance: json!({
+                "catalogProvider":"discogs",
+                "manualFields":{"artist":true},
+                "artistCredits":[{"name":"Gillian Welch","role":"","artist":{"id":"255403","provider":"discogs"}}]
+            }),
+            ..Track::default()
+        };
+        assert!(SearchPlan::for_track(&manually_overridden, &[])
+            .queries
+            .is_empty());
     }
 
     #[test]
