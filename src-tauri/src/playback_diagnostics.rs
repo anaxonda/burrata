@@ -1681,7 +1681,7 @@ mod tests {
 
         let mut payload = event(1);
         payload["phase"] = json!("candidate_gate_evidence_rows");
-        payload["details"] = details;
+        payload["details"] = serde_json::Value::Object(details);
         let native_event = sanitize_event(payload).expect("candidate evidence is exported");
         assert_eq!(
             native_event.details["counts"]["candidatesEvaluatedBeforeForegroundCap"],
