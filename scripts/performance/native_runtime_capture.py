@@ -123,6 +123,34 @@ def parse_streaming_fallback_sources(value, preferred):
         raise ValueError('Fallback sources must not repeat the preferred streaming source')
     return sources
 
+
+def reported_track_matching_policy(level='flexible', duration_policy='bounded',
+                                   max_shorter_seconds=30, max_longer_seconds=30):
+    """Return the reported-track matching settings and their truthful metadata."""
+    return {
+        'level': level,
+        'allowOtherReleases': True,
+        'allowOtherPerformances': True,
+        'allowOtherMixes': True,
+        'allowOtherArtists': False,
+        'allowDifferentLengths': duration_policy == 'bounded',
+        'maxShorterBySeconds': max_shorter_seconds,
+        'maxLongerBySeconds': max_longer_seconds,
+        'durationPolicy': duration_policy,
+    }
+
+
+def reported_track_matching_settings(policy):
+    """Settings payload consumed by the app, derived from reported-track policy."""
+    return policy['level'], dict(version=1,
+        allowOtherReleases=policy['allowOtherReleases'],
+        allowOtherPerformances=policy['allowOtherPerformances'],
+        allowOtherMixes=policy['allowOtherMixes'],
+        allowOtherArtists=policy['allowOtherArtists'],
+        allowDifferentLengths=policy['allowDifferentLengths'],
+        maxShorterBySeconds=policy['maxShorterBySeconds'],
+        maxLongerBySeconds=policy['maxLongerBySeconds'])
+
 def scratch_roots():
     """Keep disposable runtime data off a nearly full home filesystem when requested."""
     configured = os.environ.get('BURRATA_NATIVE_RUNTIME_SCRATCH_ROOT')
@@ -362,15 +390,27 @@ def seed(profile, resources, mode, args):
             preferred_source='bandcamp' if mode in ['recovery-baseline','broken-playable'] else 'monochrome'
             fallback_sources=['monochrome','youtube','soundcloud'] if mode in ['recovery-baseline','broken-playable'] else ['youtube','soundcloud','bandcamp']
             fallback_enabled=True
+        matching_policy = reported_track_matching_policy(
+            getattr(args, 'reported_track_matching_level', None) or 'flexible',
+            getattr(args, 'reported_track_duration_policy', None) or 'bounded',
+            getattr(args, 'reported_track_max_shorter_seconds', None)
+            if getattr(args, 'reported_track_max_shorter_seconds', None) is not None else 30,
+            getattr(args, 'reported_track_max_longer_seconds', None)
+            if getattr(args, 'reported_track_max_longer_seconds', None) is not None else 30)
         settings = dict(musicDirectory=str(profile/'fixture'),autoPreview=False,previewDelayMs=250,theme='dark',
             ytDlpPath='yt-dlp',ffmpegPath='ffmpeg',ffprobePath='ffprobe',jsRuntimePath='node',playlistDirectories=[],
             streamingFallbackEnabled=fallback_enabled,preferredStreamingSource=preferred_source,streamingFallbackSources=fallback_sources,
             playbackDiagnosticsEnabled=True,playbackStartupTimeoutSeconds=args.reported_track_startup_timeout_seconds if reported_options else 20,
             liveBpmEnabled=mode=='live-analysis',
             crossfadeEnabled=mode.startswith('crossfade'),crossfadeSeconds=2,
-            matchingLevel='flexible' if reported_options else 'balanced' if mode in ['nipsey','full-nipsey'] else 'flexible',flexibleMatching=dict(version=1,
-                allowOtherReleases=True,allowOtherPerformances=reported_options,allowOtherMixes=reported_options,
-                allowOtherArtists=False,allowDifferentLengths=reported_options,maxShorterBySeconds=30,maxLongerBySeconds=30))
+            matchingLevel=matching_policy['level'] if reported_options else 'balanced' if mode in ['nipsey','full-nipsey'] else 'flexible',flexibleMatching=dict(version=1,
+                allowOtherReleases=matching_policy['allowOtherReleases'] if reported_options else True,
+                allowOtherPerformances=matching_policy['allowOtherPerformances'] if reported_options else False,
+                allowOtherMixes=matching_policy['allowOtherMixes'] if reported_options else False,
+                allowOtherArtists=False,
+                allowDifferentLengths=matching_policy['allowDifferentLengths'] if reported_options else False,
+                maxShorterBySeconds=matching_policy['maxShorterBySeconds'] if reported_options else 30,
+                maxLongerBySeconds=matching_policy['maxLongerBySeconds'] if reported_options else 30))
         if mode=='decoder-recovery':settings['ffmpegPath']=str(wrapper)
         if mode=='source-audition':settings.update(preferredDownloadSource='youtube',downloadFallbackEnabled=False,downloadFallbackSources=[])
         for key, value in [('application',settings),('playbackEngine.v1','native'),('releaseSetupComplete.v1',True),('radioRecognitionEnabled.v1',False)]:
@@ -408,9 +448,7 @@ def seed(profile, resources, mode, args):
             'reportedTrackDiagnostics':args.reported_track_diagnostics,
             'startupTimeoutSeconds':args.reported_track_startup_timeout_seconds,
             'pcmPhaseWindowSeconds':args.reported_track_pcm_window_seconds,
-            'matchingPolicy':{'level':'flexible','allowOtherReleases':True,'allowOtherPerformances':True,
-                'allowOtherMixes':True,'allowOtherArtists':False,'allowDifferentLengths':True,
-                'maxShorterBySeconds':30,'maxLongerBySeconds':30},
+            'matchingPolicy':matching_policy,
         }
     (profile/'fixture/runtime-cases.json').write_text(json.dumps(runtime_cases))
     return settings
@@ -674,6 +712,14 @@ def main():
                         help='Reported-track first-audio startup cap (maximum 20 seconds)')
     parser.add_argument('--reported-track-pcm-window-seconds', type=int, choices=range(5, 7), default=6,
                         help='Maximum separate post-first-audio capture phase for reported tracks (5 or 6 seconds)')
+    parser.add_argument('--reported-track-matching-level', choices=['exact', 'balanced', 'flexible'],
+                        help='Recording match level for reported-track incidents (default: flexible)')
+    parser.add_argument('--reported-track-duration-policy', choices=['bounded', 'existing'],
+                        help='Duration matching for reported tracks: bounded allows a duration difference within the configured caps; existing keeps the normal duration rule (default: bounded)')
+    parser.add_argument('--reported-track-max-shorter-seconds', type=int, choices=range(0, 3601),
+                        help='Maximum seconds the matched recording may be shorter (0..3600; default: 30)')
+    parser.add_argument('--reported-track-max-longer-seconds', type=int, choices=range(0, 3601),
+                        help='Maximum seconds the matched recording may be longer (0..3600; default: 30)')
     parser.add_argument('--ipc-counter',action='store_true',help='Enable PID-gated WebView ::ipc counting for idle-ipc only')
     parser.add_argument('--ipc-counter-shim',type=Path,help='Built private IPC counter shared object')
     parser.add_argument('--startup-diagnostics',action='store_true',
@@ -708,8 +754,11 @@ def main():
             parser.error('--reported-track-diagnostics is supported only with --mode incidents')
     elif args.reported_track_diagnostics:
         parser.error('--reported-track-diagnostics requires --reported-tracks')
-    elif any(value not in (None, False) for value in reported_options) or args.reported_track_startup_timeout_seconds != 20 or args.reported_track_pcm_window_seconds != 6:
-        parser.error('reported-track provider/window options require --reported-tracks')
+    elif (any(value not in (None, False) for value in reported_options)
+          or args.reported_track_startup_timeout_seconds != 20 or args.reported_track_pcm_window_seconds != 6
+          or args.reported_track_matching_level is not None or args.reported_track_duration_policy is not None
+          or args.reported_track_max_shorter_seconds is not None or args.reported_track_max_longer_seconds is not None):
+        parser.error('reported-track provider/window/matching options require --reported-tracks')
     if args.mode=='idle-ipc':
         if not args.ipc_counter or not args.ipc_counter_shim:
             parser.error('--mode idle-ipc requires --ipc-counter and --ipc-counter-shim')

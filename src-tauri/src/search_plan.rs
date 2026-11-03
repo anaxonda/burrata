@@ -231,7 +231,10 @@ fn search_title(track: &Track) -> String {
     if crate::matching::normalize(title_version) == crate::matching::normalize(version) {
         title.to_owned()
     } else {
-        format!("{title} {version}")
+        format!(
+            "{title} {}",
+            crate::matching::strip_trailing_display_runtime(version)
+        )
     }
 }
 
@@ -249,7 +252,15 @@ fn search_title_with_alternative(track: &Track, alternative: &str) -> String {
                     .unwrap_or_default(),
             ) != crate::matching::normalize(value)
     });
-    separate_version.map_or_else(|| title.to_owned(), |version| format!("{title} {version}"))
+    separate_version.map_or_else(
+        || title.to_owned(),
+        |version| {
+            format!(
+                "{title} {}",
+                crate::matching::strip_trailing_display_runtime(version)
+            )
+        },
+    )
 }
 
 fn release_label(value: &str) -> bool {
@@ -401,6 +412,43 @@ mod tests {
             plan.queries[0].text,
             "Artist A, Artist B Song (Soundtrack Version)"
         );
+    }
+
+    #[test]
+    fn retrieval_query_drops_only_trailing_version_runtime_and_keeps_mix_name() {
+        let track = Track {
+            title: "Lady Soul".into(),
+            artist: "Envie, Oscar P".into(),
+            version: Some("Oscar P Dub (6:07)".into()),
+            duration_seconds: Some(367.0),
+            ..Track::default()
+        };
+        let original_version = track.version.clone();
+        let plan = SearchPlan::for_track(&track, &[]);
+
+        assert_eq!(plan.queries[0].text, "Envie, Oscar P Lady Soul Oscar P Dub");
+        assert_eq!(track.version, original_version);
+        assert_eq!(track.version.as_deref(), Some("Oscar P Dub (6:07)"));
+    }
+
+    #[test]
+    fn retrieval_query_keeps_meaningful_version_and_nonterminal_clock_text() {
+        for version in [
+            "Extended Mix",
+            "Remix 2",
+            "Extended Mix (6:60)",
+            "Dub (6:07) Live",
+            "Main Version (6:07) (Live)",
+        ] {
+            let track = Track {
+                title: "Song".into(),
+                artist: "Artist".into(),
+                version: Some(version.into()),
+                ..Track::default()
+            };
+            let query = &SearchPlan::for_track(&track, &[]).queries[0].text;
+            assert!(query.ends_with(version), "{version}: {query}");
+        }
     }
 
     #[test]

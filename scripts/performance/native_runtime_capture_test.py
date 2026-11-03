@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 import numpy as np
 import native_runtime_capture as capture
-from native_runtime_capture import summarize_capture, assess_normalization, assess_source_audition_pcm, assess_full_recording_pcm, assess_stereo_markers, assess_audition_queue_checkpoint, load_reported_track_fixture, parse_streaming_fallback_sources, reported_track_case_gate, safe_startup_performance_trace
+from native_runtime_capture import summarize_capture, assess_normalization, assess_source_audition_pcm, assess_full_recording_pcm, assess_stereo_markers, assess_audition_queue_checkpoint, load_reported_track_fixture, parse_streaming_fallback_sources, reported_track_case_gate, safe_startup_performance_trace, reported_track_matching_policy, reported_track_matching_settings
 
 
 class StartupDiagnosticCliTests(unittest.TestCase):
@@ -110,6 +110,48 @@ class ReportedTrackFixtureTests(unittest.TestCase):
                 with self.subTest(track=track):
                     with self.assertRaises(ValueError):
                         load_reported_track_fixture(source,destination)
+
+    def test_reported_matching_defaults_preserve_flexible_bounded_behavior(self):
+        policy=reported_track_matching_policy()
+        level,settings=reported_track_matching_settings(policy)
+        self.assertEqual(level,'flexible')
+        self.assertEqual(settings,{'version':1,'allowOtherReleases':True,'allowOtherPerformances':True,
+            'allowOtherMixes':True,'allowOtherArtists':False,'allowDifferentLengths':True,
+            'maxShorterBySeconds':30,'maxLongerBySeconds':30})
+        self.assertEqual(policy['durationPolicy'],'bounded')
+
+    def test_reported_matching_policies_apply_with_known_and_missing_duration_metadata(self):
+        bounded=reported_track_matching_policy('balanced','bounded',0,3600)
+        existing=reported_track_matching_policy('exact','existing',7,9)
+        for duration in (182.5,None):
+            with self.subTest(duration=duration), tempfile.TemporaryDirectory() as folder:
+                source=self.write_fixture(folder,self.track(durationSeconds=duration) if duration is not None else self.track())
+                loaded,_=load_reported_track_fixture(source,Path(folder)/'private.json')
+                self.assertEqual(loaded[0].get('durationSeconds'),duration)
+                self.assertTrue(reported_track_matching_settings(bounded)[1]['allowDifferentLengths'])
+                self.assertEqual(reported_track_matching_settings(bounded)[1]['maxShorterBySeconds'],0)
+                self.assertEqual(reported_track_matching_settings(bounded)[1]['maxLongerBySeconds'],3600)
+                self.assertFalse(reported_track_matching_settings(existing)[1]['allowDifferentLengths'])
+                self.assertEqual(reported_track_matching_settings(existing)[0],'exact')
+
+    def test_matching_options_are_restricted_to_reported_track_runs_and_safe_bounds(self):
+        base=['native_runtime_capture.py','--payload','/tmp/not-used-payload','--evidence','/tmp/not-used-evidence','--mode','incidents']
+        for option in (['--reported-track-matching-level','exact'],
+                       ['--reported-track-duration-policy','existing'],
+                       ['--reported-track-max-shorter-seconds','0'],
+                       ['--reported-track-max-longer-seconds','3600']):
+            with self.subTest(option=option), patch('sys.argv',base+option), redirect_stderr(StringIO()) as stderr:
+                with self.assertRaises(SystemExit) as error:
+                    capture.main()
+                self.assertEqual(error.exception.code,2)
+                self.assertIn('require --reported-tracks',stderr.getvalue())
+        for option in (['--reported-track-max-shorter-seconds','-1'],
+                       ['--reported-track-max-longer-seconds','3601']):
+            with self.subTest(option=option), patch('sys.argv',base+['--reported-tracks','/tmp/no-fixture.json']+option), redirect_stderr(StringIO()) as stderr:
+                with self.assertRaises(SystemExit) as error:
+                    capture.main()
+                self.assertEqual(error.exception.code,2)
+                self.assertIn('invalid choice',stderr.getvalue())
 
     def test_provider_fallback_list_is_bounded_to_unique_other_known_providers(self):
         self.assertEqual(parse_streaming_fallback_sources('monochrome,soundcloud','youtube'),['monochrome','soundcloud'])

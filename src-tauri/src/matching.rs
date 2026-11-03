@@ -121,6 +121,21 @@ pub fn parse_strict_version_runtime(value: &str) -> Option<(String, f64)> {
     Some((label.to_owned(), parse_display_runtime(runtime)?))
 }
 
+/// Remove a well-formed trailing `(m:ss)` display runtime from a retrieval
+/// string while preserving the rest of the text byte-for-byte. Catalogs often
+/// append the track length to a version label (`Oscar P Dub (6:07)`); the
+/// runtime belongs in duration metadata, not in provider search terms.
+pub fn strip_trailing_display_runtime(value: &str) -> &str {
+    let Some((prefix, runtime)) = split_balanced_trailing_parenthetical(value) else {
+        return value;
+    };
+    if parse_display_runtime(runtime).is_some() {
+        prefix
+    } else {
+        value
+    }
+}
+
 /// Build a transient matching view for legacy/imported titles that contain a known
 /// display version and runtime. This clone is never persisted and respects manual tags.
 pub fn ephemeral_playback_identity(track: &Track) -> Cow<'_, Track> {
@@ -595,6 +610,25 @@ mod tests {
         assert_eq!(normalize_version("Main Vox(5:25)"), "main vox");
         assert_eq!(normalize_version("Afro Mix (7:41)"), "afro mix");
         assert_eq!(normalize_version("Remix 2"), "remix 2");
+    }
+
+    #[test]
+    fn retrieval_runtime_suffix_stripping_requires_a_valid_balanced_clock() {
+        assert_eq!(
+            strip_trailing_display_runtime("Oscar P Dub (6:07)"),
+            "Oscar P Dub"
+        );
+        for value in [
+            "Extended Mix",
+            "Extended Mix (6:60)",
+            "Extended Mix (6:7)",
+            "Extended Mix (6:07",
+            "Extended Mix (6:07) Live",
+            "Extended Mix (Main Version (6:07))",
+            "Extended Mix (999999999999999999999:00)",
+        ] {
+            assert_eq!(strip_trailing_display_runtime(value), value, "{value}");
+        }
     }
 
     #[test]

@@ -6511,6 +6511,153 @@ mod tests {
     }
 
     #[test]
+    fn bacc_unknown_request_runtime_does_not_mean_over_cap_but_known_runtime_obeys_cap() {
+        // Mirrors the saved Discogs row: exact title and two complete artist
+        // credits, but no release duration, version, or ISRC. The candidate is
+        // fresh yt-dlp evidence for the already identified YouTube recording.
+        let request = |duration_seconds| Track {
+            title: "Bacc Of The Bach".into(),
+            artist: "Nipsey Hussle,Bino Rideaux".into(),
+            duration_seconds,
+            provenance: json!({
+                "artistCredits":[
+                    {"name":"Nipsey Hussle","creditedAs":"Nipsey Hussle","role":"Artist","artist":{"provider":"discogs","id":"1195171"}},
+                    {"name":"Bino Rideaux","creditedAs":"Bino Rideaux","role":"Artist","artist":{"provider":"discogs","id":"4908344"}}
+                ]
+            }),
+            ..Track::default()
+        };
+        let candidate = |duration_seconds| Candidate {
+            provider: "youtube".into(),
+            id: "youtube:rpCswezRrLs".into(),
+            url: "https://www.youtube.com/watch?v=rpCswezRrLs".into(),
+            title: "Bacc of the Bach".into(),
+            duration_seconds,
+            source_metadata: Some(json!({
+                "provider":"youtube",
+                "resolvedProviderId":"rpCswezRrLs",
+                "sourceMetadataOrigin":"ytDlpFullInfo",
+                "extractor":true,
+                "track":"Bacc of the Bach",
+                "catalogTitle":"Bacc of the Bach",
+                "artistNames":["Nipsey Hussle","Bino Rideaux"],
+                "artistCount":2,
+                "performerCreditsComplete":true,
+                "duration":duration_seconds
+            })),
+            ..Candidate::default()
+        };
+        // A provider-bound catalog recording is needed to exercise accepted
+        // duration alternatives; fresh YouTube evidence alone does not prove
+        // a different-length performance.
+        let catalog_candidate = |duration_seconds| Candidate {
+            provider: "monochrome".into(),
+            id: "monochrome:12345678901234567".into(),
+            title: "Bacc of the Bach".into(),
+            duration_seconds,
+            source_metadata: Some(json!({
+                "provider":"monochrome",
+                "trackId":"12345678901234567",
+                "catalogTitle":"Bacc of the Bach",
+                "artistNames":["Nipsey Hussle","Bino Rideaux"],
+                "performerCreditsComplete":true,
+                "duration":duration_seconds
+            })),
+            ..Candidate::default()
+        };
+        let options = FlexibleMatchingOptions {
+            allow_other_releases: true,
+            allow_other_performances: true,
+            allow_other_mixes: true,
+            allow_other_artists: false,
+            allow_different_lengths: true,
+            max_shorter_by_seconds: 30,
+            max_longer_by_seconds: 30,
+            ..Default::default()
+        };
+
+        let mut no_length_cap = options;
+        no_length_cap.allow_different_lengths = false;
+        let unconstrained_unknown_runtime = assess_with_options(
+            &request(None),
+            &candidate(Some(198.0)),
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &no_length_cap,
+        );
+        assert_eq!(
+            unconstrained_unknown_runtime.dimensions.title,
+            Comparison::Agree
+        );
+        assert_eq!(
+            unconstrained_unknown_runtime.dimensions.artists,
+            Comparison::Agree
+        );
+        assert_eq!(
+            unconstrained_unknown_runtime.dimensions.runtime,
+            Comparison::Unknown
+        );
+        assert_eq!(
+            unconstrained_unknown_runtime.action,
+            MatchAction::Accept,
+            "{unconstrained_unknown_runtime:?}"
+        );
+
+        let missing_runtime = assess_with_options(
+            &request(None),
+            &candidate(Some(198.0)),
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &options,
+        );
+        assert_eq!(missing_runtime.dimensions.title, Comparison::Agree);
+        assert_eq!(missing_runtime.dimensions.artists, Comparison::Agree);
+        assert_eq!(missing_runtime.dimensions.runtime, Comparison::Unknown);
+        assert_eq!(missing_runtime.dimensions.version, Comparison::Unknown);
+        assert_eq!(
+            missing_runtime.action,
+            MatchAction::Inspect,
+            "{missing_runtime:?}"
+        );
+        assert_eq!(missing_runtime.relationship, MatchRelationship::Unresolved);
+        assert!(!missing_runtime
+            .reasons
+            .contains(&MatchReason::RuntimeConflict));
+        assert!(!missing_runtime
+            .reasons
+            .contains(&MatchReason::VersionConflict));
+
+        let known_runtime = request(Some(198.0));
+        for delta in [30.0, -30.0] {
+            let within = assess_with_options(
+                &known_runtime,
+                &catalog_candidate(Some(198.0 + delta)),
+                MatchLevel::Flexible,
+                MatchStage::Resolved,
+                &options,
+            );
+            assert_eq!(within.dimensions.title, Comparison::Agree, "{within:?}");
+            assert_eq!(within.dimensions.artists, Comparison::Agree, "{within:?}");
+            assert_eq!(
+                within.dimensions.runtime,
+                Comparison::Conflict,
+                "{within:?}"
+            );
+            assert_eq!(within.action, MatchAction::Accept, "{within:?}");
+        }
+        let over = assess_with_options(
+            &known_runtime,
+            &catalog_candidate(Some(229.0)),
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &options,
+        );
+        assert_eq!(over.dimensions.runtime, Comparison::Conflict, "{over:?}");
+        assert_eq!(over.action, MatchAction::Reject, "{over:?}");
+        assert!(over.reasons.contains(&MatchReason::DurationLimitExceeded));
+    }
+
+    #[test]
     fn enabling_length_limits_does_not_require_complete_credits_for_in_bound_close_alternatives() {
         let request = track();
         let mut candidate = cand();
