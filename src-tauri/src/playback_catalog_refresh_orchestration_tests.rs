@@ -123,7 +123,10 @@ if search:
 else:
     i=query.rsplit('/',1)[-1]
     if i=='222' and {timeout_case}:
-        with open({pid:?},'w') as f:f.write(str(os.getpid()))
+        # Publish a complete PID atomically: readers must never see an empty file.
+        pid_path={pid:?}
+        with open(pid_path+'.tmp','w') as f:f.write(str(os.getpid()))
+        os.replace(pid_path+'.tmp',pid_path)
         time.sleep(60)
     print(json.dumps({{'id':i,'title':'Fixture Artist - Correct Catalog Title','track':'Correct Catalog Title','artist':'Fixture Artist','artists':['Fixture Artist'],'uploader':'Fixture Artist','duration':240,'webpage_url':query,'url':'https://cf-media.sndcdn.com/audio.m4a','acodec':'aac','vcodec':'none','protocol':'https','ext':'m4a'}}))
 "##,
