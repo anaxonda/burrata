@@ -144,6 +144,15 @@ pub struct Store {
     connection_wait_metrics: ConnectionWaitMetrics,
 }
 
+/// Minimal indexed identity needed by the deferred local audio facts worker.
+/// Unlike `LocalAsset`, this deliberately omits its hydrated catalog track.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct QualityFactsCandidate {
+    pub id: String,
+    pub path: String,
+    pub hash: String,
+}
+
 const ANALYSIS_CACHE_MAX_BYTES: i64 = 256 * 1024 * 1024;
 const ANALYSIS_CACHE_MAX_RECORD_BYTES: usize = 256 * 1024;
 const ANALYSIS_CACHE_MAX_RECORDS: i64 = 32_768;
@@ -6625,6 +6634,30 @@ impl Store {
             assets.push(hydrate_asset(&conn, asset)?);
         }
         Ok(assets)
+    }
+
+    /// Select the bounded identity-only batch consumed by deferred technical-facts work.
+    /// The pending predicate and ordering match `list_assets_needing_quality_facts`, but this
+    /// avoids hydrating catalog tracks while holding the shared Store connection mutex.
+    pub(crate) fn list_quality_facts_candidates(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<QualityFactsCandidate>> {
+        let conn = self.lock_connection()?;
+        let mut stmt = conn
+            .prepare("SELECT id,path,hash FROM local_assets WHERE json_extract(payload,'$.track.provenance.localAudioFactsHash') IS NOT json_extract(payload,'$.hash') ORDER BY rowid DESC LIMIT ?1")
+            .map_err(err)?;
+        let rows = stmt
+            .query_map([limit.clamp(1, 100) as i64], |row| {
+                Ok(QualityFactsCandidate {
+                    id: row.get(0)?,
+                    path: row.get(1)?,
+                    hash: row.get(2)?,
+                })
+            })
+            .map_err(err)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(err)
     }
 
     /// Save probed facts only if the indexed asset still has the hash that was inspected.
@@ -14737,6 +14770,96 @@ mod tests {
         assert_eq!(looked_up.track.asset_id, listed.track.asset_id);
         assert_eq!(looked_up.track.local_path, listed.track.local_path);
         assert!(store.get_asset_by_id("missing-asset-id").unwrap().is_none());
+    }
+
+    #[test]
+    fn quality_facts_candidates_match_pending_selection_and_keep_hash_fenced_manual_metadata() {
+        let (directory, store) = db();
+        let mut track_row = track("quality-facts-candidate-track", "Catalog title");
+        store.save_track(&track_row).unwrap();
+        track_row.title = "Manually edited title".into();
+        store.update_track(&track_row).unwrap();
+
+        let pending_path = directory.path().join("quality-facts-pending.flac");
+        std::fs::write(&pending_path, b"pending fixture").unwrap();
+        let pending = asset(
+            "quality-facts-pending",
+            &track_row,
+            &pending_path,
+            "pending-hash",
+        );
+        store.save_asset(&pending).unwrap();
+
+        let second_pending_path = directory.path().join("quality-facts-second-pending.flac");
+        std::fs::write(&second_pending_path, b"second pending fixture").unwrap();
+        let second_pending = asset(
+            "quality-facts-second-pending",
+            &track_row,
+            &second_pending_path,
+            "second-pending-hash",
+        );
+        store.save_asset(&second_pending).unwrap();
+
+        let covered_path = directory.path().join("quality-facts-covered.flac");
+        std::fs::write(&covered_path, b"covered fixture").unwrap();
+        let mut covered_track = track("quality-facts-covered-track", "Covered");
+        covered_track.provenance["localAudioFactsHash"] = serde_json::json!("covered-hash");
+        store.save_track(&covered_track).unwrap();
+        let covered = asset(
+            "quality-facts-covered",
+            &covered_track,
+            &covered_path,
+            "covered-hash",
+        );
+        store.save_asset(&covered).unwrap();
+
+        let legacy = store.list_assets_needing_quality_facts(100).unwrap();
+        let candidates = store.list_quality_facts_candidates(100).unwrap();
+        assert_eq!(
+            legacy
+                .iter()
+                .map(|asset| asset.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![second_pending.id.as_str(), pending.id.as_str()]
+        );
+        assert_eq!(
+            candidates,
+            legacy
+                .iter()
+                .map(|asset| QualityFactsCandidate {
+                    id: asset.id.clone(),
+                    path: asset.path.clone(),
+                    hash: asset.hash.clone(),
+                })
+                .collect::<Vec<_>>()
+        );
+        let legacy_limited = store.list_assets_needing_quality_facts(1).unwrap();
+        let candidates_limited = store.list_quality_facts_candidates(1).unwrap();
+        assert_eq!(legacy_limited.len(), 1);
+        assert_eq!(
+            legacy_limited[0].id, candidates_limited[0].id,
+            "identity-only selector preserves the existing LIMIT and row order"
+        );
+
+        let facts = crate::models::AudioFacts {
+            codec: "flac".into(),
+            bitrate_kbps: Some(900.0),
+            ..Default::default()
+        };
+        store
+            .save_asset_quality_facts(&pending.id, &pending.hash, &facts)
+            .unwrap();
+        assert_eq!(
+            store.get_track(&track_row.id).unwrap().unwrap().title,
+            "Manually edited title"
+        );
+
+        let mut changed = pending.clone();
+        changed.hash = "replacement-hash".into();
+        store.save_asset(&changed).unwrap();
+        assert!(store
+            .save_asset_quality_facts(&pending.id, &pending.hash, &facts)
+            .is_err());
     }
 
     #[test]

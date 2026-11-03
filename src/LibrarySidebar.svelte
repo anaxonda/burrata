@@ -72,21 +72,124 @@
   } = $props();
   let playlistArtwork = $state<Record<string, string[]>>({});
   let recoveredStationArtwork = $state<Record<string, string>>({});
-  const stationArtworkRequests = new Set<string>();
+  let failedStationFavicons = $state<Record<string, string>>({});
+  type StationArtworkRequest = {
+    targets: Map<string, string>;
+    shareByHomepage: boolean;
+    initiatorId: string;
+    initiatorIdentity: string;
+  };
+  const stationArtworkRequests = new Map<string, StationArtworkRequest>();
+  const stationArtworkFailures = new Map<string, number>();
+  const staleStationArtworkRetries = new Map<string, number>();
+  const resolvedStationHomepages = new Map<string, string>();
+  let stationArtworkActive = true;
   function stationArtworkIdentity(station: RadioStation) {
     return JSON.stringify([station.id, station.streamUrl, station.faviconUrl || station.favicon || "", station.homepageUrl || ""]);
   }
-  async function recoverStationArtwork(station: RadioStation) {
-    if (!call) return;
+  function stationArtworkHomepageKey(station: RadioStation): string | null {
+    const homepage = station.homepageUrl?.trim();
+    if (!homepage) return null;
+    try {
+      const url = new URL(homepage);
+      if (!(["http:", "https:"].includes(url.protocol) && url.hostname && !url.username && !url.password)) return null;
+      url.hash = "";
+      return url.href;
+    } catch { return null; }
+  }
+  function applyStationArtwork(station: RadioStation, homepageKey: string, image: string) {
     const identity = stationArtworkIdentity(station);
-    if (stationArtworkRequests.has(identity) || recoveredStationArtwork[identity]) return;
-    stationArtworkRequests.add(identity);
+    const explicit = station.faviconUrl || station.favicon || "";
+    if (stationArtworkHomepageKey(station) !== homepageKey || (explicit && failedStationFavicons[identity] !== explicit)) return;
+    recoveredStationArtwork = { ...recoveredStationArtwork, [identity]: image };
+  }
+  function stationMayUseHomepageArtwork(station: RadioStation) {
+    const identity = stationArtworkIdentity(station);
+    const explicit = station.faviconUrl || station.favicon || "";
+    return !explicit || failedStationFavicons[identity] === explicit;
+  }
+  async function recoverStationArtwork(station: RadioStation) {
+    if (!call || !stationArtworkActive) return;
+    const homepageKey = stationArtworkHomepageKey(station);
+    if (!homepageKey) return;
+    const identity = stationArtworkIdentity(station);
+    const explicit = station.faviconUrl || station.favicon || "";
+    const explicitFailed = Boolean(explicit && failedStationFavicons[identity] === explicit);
+    if (explicit && !explicitFailed) return;
+    if (recoveredStationArtwork[identity]) return;
+    const cached = resolvedStationHomepages.get(homepageKey);
+    if (cached) { applyStationArtwork(station, homepageKey, cached); return; }
+    const sharedKey = `homepage:${homepageKey}`;
+    const activeShared = stationArtworkRequests.get(sharedKey);
+    if (explicitFailed && activeShared) { activeShared.targets.set(station.id, identity); return; }
+    const shareByHomepage = !explicit;
+    const requestKey = shareByHomepage ? sharedKey : `station:${identity}`;
+    const active = stationArtworkRequests.get(requestKey);
+    if (active) { active.targets.set(station.id, identity); return; }
+    // Match the backend's 600s negative-cache lifetime. A later station metadata
+    // update or sidebar mount may retry after that window, without request loops.
+    if ((stationArtworkFailures.get(requestKey) ?? 0) > Date.now()) return;
+    const request: StationArtworkRequest = {
+      targets: new Map([[station.id, identity]]),
+      shareByHomepage,
+      initiatorId: station.id,
+      initiatorIdentity: identity,
+    };
+    stationArtworkRequests.set(requestKey, request);
+    let staleRetryCandidate: RadioStation | null = null;
     try {
       const image = await call<string | null>("resolve_radio_station_artwork", { stationId: station.id });
-      if (stationArtworkIdentity(station) === identity && image?.startsWith("data:image/png;base64,")) {
-        recoveredStationArtwork = { ...recoveredStationArtwork, [identity]: image };
+      if (!stationArtworkActive || stationArtworkRequests.get(requestKey) !== request) return;
+      if (!image?.startsWith("data:image/png;base64,")) {
+        stationArtworkFailures.set(requestKey, Date.now() + 600_000);
+        return;
       }
-    } catch { /* A missing station icon stays a clean placeholder. */ }
+      const currentStations = radioStations;
+      const initiator = currentStations.find(item => item.id === request.initiatorId);
+      if (!initiator || stationArtworkIdentity(initiator) !== request.initiatorIdentity || stationArtworkHomepageKey(initiator) !== homepageKey) {
+        if (request.shareByHomepage && (staleStationArtworkRetries.get(homepageKey) ?? 0) < 1) {
+          for (const [stationId, requestedIdentity] of request.targets) {
+            const candidate = currentStations.find(item => item.id === stationId);
+            if (candidate && stationArtworkIdentity(candidate) === requestedIdentity && stationArtworkHomepageKey(candidate) === homepageKey && stationMayUseHomepageArtwork(candidate)) {
+              staleRetryCandidate = candidate;
+              break;
+            }
+          }
+          if (staleRetryCandidate) staleStationArtworkRetries.set(homepageKey, 1);
+        }
+        return;
+      }
+      if (request.shareByHomepage) resolvedStationHomepages.set(homepageKey, image);
+      for (const [stationId, requestedIdentity] of request.targets) {
+        const current = currentStations.find(item => item.id === stationId);
+        if (current && stationArtworkIdentity(current) === requestedIdentity) {
+          applyStationArtwork(current, homepageKey, image);
+        }
+      }
+    } catch {
+      if (stationArtworkActive && stationArtworkRequests.get(requestKey) === request) {
+        stationArtworkFailures.set(requestKey, Date.now() + 600_000);
+      }
+    } finally {
+      if (stationArtworkRequests.get(requestKey) === request) stationArtworkRequests.delete(requestKey);
+      if (staleRetryCandidate && stationArtworkActive) {
+        queueMicrotask(() => { if (stationArtworkActive) void recoverStationArtwork(staleRetryCandidate!); });
+      }
+    }
+  }
+  function stationArtworkSource(station: RadioStation) {
+    const identity = stationArtworkIdentity(station);
+    const explicit = station.faviconUrl || station.favicon || "";
+    const recovered = recoveredStationArtwork[identity];
+    return explicit && failedStationFavicons[identity] !== explicit ? explicit : recovered;
+  }
+  function onStationArtworkError(station: RadioStation) {
+    const identity = stationArtworkIdentity(station);
+    const explicit = station.faviconUrl || station.favicon || "";
+    if (explicit && stationArtworkSource(station) === explicit) {
+      failedStationFavicons = { ...failedStationFavicons, [identity]: explicit };
+    }
+    void recoverStationArtwork(station);
   }
   $effect(() => {
     const stations = radioStations;
@@ -114,9 +217,16 @@
     return () => { artworkRequest++; };
   });
   onMount(() => {
+    stationArtworkActive = true;
     const refresh = () => void loadPlaylistArtwork(collections.filter(item => item.trackCount > 0 && !isTopPlaylist(item.id)).map(item => item.id));
     window.addEventListener("library-changed", refresh);
-    return () => { artworkRequest++; window.removeEventListener("library-changed", refresh); };
+    return () => {
+      stationArtworkActive = false;
+      stationArtworkRequests.clear();
+      resolvedStationHomepages.clear();
+      window.removeEventListener("library-changed", refresh);
+      artworkRequest++;
+    };
   });
   let drawerOpen = $state(false);
   let playlistFilter = $state("");
@@ -240,7 +350,7 @@
       <div class="source-playlists">
         {#each radioStations.filter(station => matchesPlaylist(station.name, station.country, "Radio")) as station (station.id)}
           <button class="playlist-card" class:active={(view==="radio" && activeRadioStationId===station.id) || playingRadioStationId===station.id} class:playing={playingRadioStationId===station.id} aria-current={playingRadioStationId===station.id ? "true" : undefined} onclick={()=>{onRadioStation(station);closeDrawer();}} oncontextmenu={(event)=>{if(onRadioContext){event.preventDefault();onRadioContext(station,event);closeDrawer();}}} title={station.name}>
-            <span class="playlist-glyph radio-glyph" aria-hidden="true"><StationArtwork src={recoveredStationArtwork[stationArtworkIdentity(station)] || station.faviconUrl || station.favicon} onImageError={() => void recoverStationArtwork(station)} alt="" fallbackLabel={`${station.name} station artwork`} imageClass="radio-station-icon" placeholderClass="radio-station-placeholder" symbol="◉" /></span><span class="playlist-copy"><strong>{station.name}</strong><small>{playingRadioStationId===station.id ? "Playing · " : ""}{station.country || "Live radio"}</small></span>
+            <span class="playlist-glyph radio-glyph" aria-hidden="true"><StationArtwork src={stationArtworkSource(station)} onImageError={() => onStationArtworkError(station)} alt="" fallbackLabel={`${station.name} station artwork`} imageClass="radio-station-icon" placeholderClass="radio-station-placeholder" symbol="◉" /></span><span class="playlist-copy"><strong>{station.name}</strong><small>{playingRadioStationId===station.id ? "Playing · " : ""}{station.country || "Live radio"}</small></span>
           </button>
         {/each}
         <button class="browse-source" aria-label="Add radio station" onclick={()=>{onAddRadio();closeDrawer();}}>＋ Add station</button>

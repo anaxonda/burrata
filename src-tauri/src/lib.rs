@@ -2426,6 +2426,154 @@ impl PlaybackResolutionGate {
     }
 }
 
+async fn run_after_foreground_idle<T>(
+    playback_resolution: &Arc<std::sync::Mutex<PlaybackResolutionGate>>,
+    playback_updates: &mut tokio::sync::watch::Receiver<serde_json::Value>,
+    operation: impl FnOnce() -> T,
+) -> T {
+    loop {
+        let resolution_active = playback_resolution
+            .lock()
+            .map(|gate| gate.has_current_resolution())
+            .unwrap_or(true);
+        let foreground_active = resolution_active || {
+            let snapshot = playback_updates.borrow();
+            snapshot
+                .get("status")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|status| matches!(status, "resolving" | "buffering" | "playing"))
+        };
+        if !foreground_active {
+            return operation();
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    }
+}
+
+#[cfg(test)]
+mod foreground_idle_maintenance_tests {
+    use super::*;
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    async fn poll_once_pending<F: Future>(mut future: Pin<&mut F>) {
+        std::future::poll_fn(|context| {
+            assert!(future.as_mut().poll(context).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn maintenance_waits_for_resolution_and_then_runs_when_idle() {
+        let gate = Arc::new(std::sync::Mutex::new(PlaybackResolutionGate::default()));
+        let (stop, _cancelled) = gate.lock().unwrap().begin(1).unwrap();
+        let (_playback_tx, mut playback_updates) = tokio::sync::watch::channel(serde_json::json!({
+            "status": "idle"
+        }));
+        let ran = Arc::new(AtomicBool::new(false));
+        let ran_by_job = ran.clone();
+        let gate_for_job = gate.clone();
+
+        let mut job = Box::pin(async move {
+            run_after_foreground_idle(&gate_for_job, &mut playback_updates, move || {
+                ran_by_job.store(true, Ordering::SeqCst);
+            })
+            .await;
+        });
+
+        poll_once_pending(job.as_mut()).await;
+        assert!(
+            !ran.load(Ordering::SeqCst),
+            "selection must wait for active resolution"
+        );
+        gate.lock().unwrap().finish(1, &stop);
+        job.await;
+        assert!(
+            ran.load(Ordering::SeqCst),
+            "selection proceeds after resolution becomes idle"
+        );
+    }
+
+    #[tokio::test]
+    async fn maintenance_waits_for_foreground_playback_status_to_become_idle() {
+        for status in ["resolving", "buffering", "playing"] {
+            let gate = Arc::new(std::sync::Mutex::new(PlaybackResolutionGate::default()));
+            let (playback_tx, mut playback_updates) =
+                tokio::sync::watch::channel(serde_json::json!({ "status": status }));
+            let ran = Arc::new(AtomicBool::new(false));
+            let ran_by_job = ran.clone();
+            let gate_for_job = gate.clone();
+
+            let mut job = Box::pin(async move {
+                run_after_foreground_idle(&gate_for_job, &mut playback_updates, move || {
+                    ran_by_job.store(true, Ordering::SeqCst);
+                })
+                .await;
+            });
+
+            poll_once_pending(job.as_mut()).await;
+            assert!(
+                !ran.load(Ordering::SeqCst),
+                "selection must wait while playback status is {status}"
+            );
+            playback_tx
+                .send(serde_json::json!({ "status": "idle" }))
+                .unwrap();
+            job.await;
+            assert!(
+                ran.load(Ordering::SeqCst),
+                "selection proceeds after {status} becomes idle"
+            );
+        }
+
+        let gate = Arc::new(std::sync::Mutex::new(PlaybackResolutionGate::default()));
+        let (_playback_tx, mut playback_updates) =
+            tokio::sync::watch::channel(serde_json::json!({ "status": "paused" }));
+        let ran = Arc::new(AtomicBool::new(false));
+        let ran_by_job = ran.clone();
+        run_after_foreground_idle(&gate, &mut playback_updates, move || {
+            ran_by_job.store(true, Ordering::SeqCst);
+        })
+        .await;
+        assert!(
+            ran.load(Ordering::SeqCst),
+            "paused playback is treated as idle"
+        );
+    }
+
+    #[tokio::test]
+    async fn dropping_waiting_maintenance_does_not_start_selection() {
+        let gate = Arc::new(std::sync::Mutex::new(PlaybackResolutionGate::default()));
+        let (_stop, _cancelled) = gate.lock().unwrap().begin(1).unwrap();
+        let (_playback_tx, mut playback_updates) = tokio::sync::watch::channel(serde_json::json!({
+            "status": "idle"
+        }));
+        let ran = Arc::new(AtomicBool::new(false));
+        let ran_by_job = ran.clone();
+        let gate_for_job = gate.clone();
+
+        let mut job = Box::pin(async move {
+            run_after_foreground_idle(&gate_for_job, &mut playback_updates, move || {
+                ran_by_job.store(true, Ordering::SeqCst);
+            })
+            .await;
+        });
+
+        poll_once_pending(job.as_mut()).await;
+        assert!(
+            !ran.load(Ordering::SeqCst),
+            "selection must not start before the gate clears"
+        );
+        drop(job);
+        assert!(
+            !ran.load(Ordering::SeqCst),
+            "dropping the waiter must not start selection"
+        );
+    }
+}
+
 async fn resolve_with_playback_budget<T>(
     budget: std::time::Duration,
     stop: &tokio::sync::watch::Sender<bool>,
@@ -9072,12 +9220,21 @@ pub fn run() {
                     {
                         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                     }
+                    let mut playback_updates = playback_state.subscribe();
                     let selection_store = facts_store.clone();
-                    let selected = tokio::task::spawn_blocking(move || {
-                        let settings = selection_store.settings()?;
-                        let assets = selection_store.list_assets_needing_quality_facts(100)?;
-                        Ok::<_, String>((settings, assets))
-                    }).await;
+                    let selected = run_after_foreground_idle(
+                        &foreground_playback,
+                        &mut playback_updates,
+                        move || {
+                            tokio::task::spawn_blocking(move || {
+                                let settings = selection_store.settings()?;
+                                let candidates = selection_store.list_quality_facts_candidates(100)?;
+                                Ok::<_, String>((settings, candidates))
+                            })
+                        },
+                    )
+                    .await
+                    .await;
                     let Ok(Ok((settings, assets))) = selected else { return };
                     if perf_trace {
                         eprintln!("[perf] quality_facts.select assets={} elapsed_ms={}", assets.len(), worker_started.elapsed().as_millis());
@@ -9085,23 +9242,12 @@ pub fn run() {
                     for (index, asset) in assets.into_iter().enumerate() {
                         // Yield to any active foreground resolution before starting
                         // another disk read. Each blocking job handles one asset only.
-                        loop {
-                            let resolution_active = foreground_playback
-                                .lock()
-                                .map(|gate| gate.has_current_resolution())
-                                .unwrap_or(true);
-                            let playback_updates = playback_state.subscribe();
-                            let foreground_active = resolution_active
-                                || {
-                                    let snapshot = playback_updates.borrow();
-                                    snapshot
-                                        .get("status")
-                                        .and_then(serde_json::Value::as_str)
-                                        .is_some_and(|status| matches!(status, "resolving" | "buffering" | "playing"))
-                                };
-                            if !foreground_active { break; }
-                            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-                        }
+                        run_after_foreground_idle(
+                            &foreground_playback,
+                            &mut playback_updates,
+                            || (),
+                        )
+                        .await;
                         tokio::task::yield_now().await;
                         let item = index + 1;
                         let asset_for_hash = asset.clone();

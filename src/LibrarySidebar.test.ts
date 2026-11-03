@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // @ts-expect-error Svelte's internal browser runtime has no public declarations.
 vi.mock("svelte", async () => await import("../node_modules/svelte/src/index-client.js"));
 import LibrarySidebar from "./LibrarySidebar.svelte";
+import LibrarySidebarRadioArtworkHarness from "./LibrarySidebarRadioArtworkHarness.svelte";
 
 let destroy: (() => void) | undefined;
 afterEach(() => { destroy?.(); destroy = undefined; document.body.innerHTML = ""; vi.restoreAllMocks(); });
@@ -19,6 +20,20 @@ function render(props: Record<string, unknown> = {}) {
   destroy = () => unmount(instance);
   return target;
 }
+function renderWithStationUpdates(initialStations: Record<string, unknown>[], call: (command: string, args?: Record<string, unknown>) => Promise<unknown>) {
+  const target = document.createElement("div"); document.body.append(target);
+  const instance = mount(LibrarySidebarRadioArtworkHarness, { target, props: { initialStations, call } as never }) as unknown as {
+    updateStations: (stations: Record<string, unknown>[]) => void;
+  };
+  destroy = () => unmount(instance);
+  return { target, updateStations: instance.updateStations };
+}
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+const recoveredImage = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/3S8AAAAASUVORK5CYII=";
 
 describe("LibrarySidebar provider presets", () => {
   it("loads playlist artwork in one batch and preserves playlist navigation", async () => {
@@ -87,26 +102,133 @@ describe("LibrarySidebar provider presets", () => {
     expect(buttons[1].textContent).toContain("Broken Logo FM");
   });
 
-  it("recovers missing or failed station artwork in the sidebar", async () => {
-    const image = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/3S8AAAAASUVORK5CYII=";
-    const call = vi.fn(async (command: string) => command === "resolve_radio_station_artwork" ? image : null);
+  it("recovers all four Radio Paradise built-ins from one shared homepage request", async () => {
+    const northImage = "data:image/png;base64,bm9ydGg=";
+    const call = vi.fn(async (command: string, args?: Record<string, unknown>) => {
+      if (command !== "resolve_radio_station_artwork") return [];
+      return args?.stationId === "the-north" ? northImage : recoveredImage;
+    });
     const stations = [
-      { id: "no-favicon", name: "No Favicon Radio", homepageUrl: "https://radio.example/" },
-      { id: "bad-favicon", name: "Bad Favicon Radio", faviconUrl: "https://radio.example/bad.png", homepageUrl: "https://radio.example/" },
+      ...["main", "mellow", "rock", "global"].map(id => ({
+        id, name: `Radio Paradise · ${id}`, streamUrl: `https://stream.radioparadise.com/${id}`,
+        homepageUrl: "https://radioparadise.com/",
+      })),
+      { id: "the-north", name: "The North 103.3", streamUrl: "https://thenorth1033.streamguys1.com/live", homepageUrl: "https://www.thenorth1033.org/" },
     ];
     const target = render({ call, radioStations: stations });
     await settle();
+    const artworkCalls = call.mock.calls.filter(([command]) => command === "resolve_radio_station_artwork");
     const buttons = [...target.querySelectorAll<HTMLButtonElement>(".radio-section .playlist-card")];
-    const artworkCalls = () => call.mock.calls.filter(([command]) => command === "resolve_radio_station_artwork");
-    expect(artworkCalls()).toHaveLength(1);
-    expect(call).toHaveBeenCalledWith("resolve_radio_station_artwork", { stationId: "no-favicon" });
-    expect(buttons[0].querySelector("img")?.getAttribute("src")).toBe(image);
+    expect(artworkCalls).toEqual([
+      ["resolve_radio_station_artwork", { stationId: "main" }],
+      ["resolve_radio_station_artwork", { stationId: "the-north" }],
+    ]);
+    expect(buttons.slice(0, 4).map(button => button.querySelector("img")?.getAttribute("src"))).toEqual(Array(4).fill(recoveredImage));
+    expect(buttons[4].querySelector("img")?.getAttribute("src")).toBe(northImage);
+  });
 
-    buttons[1].querySelector("img")!.dispatchEvent(new Event("error"));
+  it("keeps explicit station favicons ahead of shared homepage artwork and falls back after an error", async () => {
+    const call = vi.fn(async (command: string) => command === "resolve_radio_station_artwork" ? recoveredImage : []);
+    const target = render({ call, radioStations: [
+      { id: "missing", name: "Missing Logo FM", homepageUrl: "https://radio.example/" },
+      { id: "explicit", name: "Explicit Logo FM", faviconUrl: "https://cdn.example/logo.png", homepageUrl: "https://radio.example/" },
+    ] });
     await settle();
-    expect(artworkCalls()).toHaveLength(2);
-    expect(artworkCalls()[artworkCalls().length - 1]).toEqual(["resolve_radio_station_artwork", { stationId: "bad-favicon" }]);
-    expect(buttons[1].querySelector("img")?.getAttribute("src")).toBe(image);
+    const rows = [...target.querySelectorAll<HTMLButtonElement>(".radio-section .playlist-card")];
+    expect(rows[1].querySelector("img")?.getAttribute("src")).toBe("https://cdn.example/logo.png");
+    rows[1].querySelector("img")!.dispatchEvent(new Event("error"));
+    await settle();
+    expect(rows[1].querySelector("img")?.getAttribute("src")).toBe(recoveredImage);
+    expect(call.mock.calls.filter(([command]) => command === "resolve_radio_station_artwork")).toHaveLength(1);
+  });
+
+  it("isolates explicit-favicon recovery from missing-favicon stations on the same homepage", async () => {
+    const homepageImage = "data:image/png;base64,aG9tZXBhZ2U=";
+    const explicitImage = "data:image/png;base64,ZXhwbGljaXQ=";
+    const call = vi.fn(async (command: string, args?: Record<string, unknown>) => {
+      if (command !== "resolve_radio_station_artwork") return [];
+      return args?.stationId === "explicit" ? explicitImage : homepageImage;
+    });
+    const { target, updateStations } = renderWithStationUpdates([
+      { id: "explicit", name: "Explicit Radio", faviconUrl: "https://cdn.example/logo.png", homepageUrl: "https://same.example/" },
+    ], call);
+    await settle();
+    target.querySelector<HTMLButtonElement>(".radio-section .playlist-card img")!.dispatchEvent(new Event("error"));
+    await settle();
+    expect(target.querySelector(".radio-section .playlist-card img")?.getAttribute("src")).toBe(explicitImage);
+    updateStations([
+      { id: "explicit", name: "Explicit Radio", faviconUrl: "https://cdn.example/logo.png", homepageUrl: "https://same.example/" },
+      { id: "missing", name: "Missing Radio", homepageUrl: "https://same.example/" },
+    ]);
+    await settle();
+    const rows = [...target.querySelectorAll<HTMLButtonElement>(".radio-section .playlist-card")];
+    expect(call.mock.calls.filter(([command]) => command === "resolve_radio_station_artwork")).toHaveLength(2);
+    expect(rows[0].querySelector("img")?.getAttribute("src")).toBe(explicitImage);
+    expect(rows[1].querySelector("img")?.getAttribute("src")).toBe(homepageImage);
+  });
+
+  it("discards a stale homepage result and retries once through a still-current station", async () => {
+    const stale = deferred<string | null>();
+    const oldHomepageImage = "data:image/png;base64,b2xk";
+    const currentHomepageImage = "data:image/png;base64,bmV3";
+    const call = vi.fn(async (command: string, args?: Record<string, unknown>) => {
+      if (command !== "resolve_radio_station_artwork") return [];
+      return args?.stationId === "main" && call.mock.calls.filter(([name]) => name === command).length === 1
+        ? stale.promise
+        : currentHomepageImage;
+    });
+    const { target, updateStations } = renderWithStationUpdates([
+      { id: "main", name: "Main", streamUrl: "https://stream.example/old", homepageUrl: "https://old.example/" },
+      { id: "mellow", name: "Mellow", streamUrl: "https://stream.example/mellow", homepageUrl: "https://old.example/" },
+    ], call);
+    await settle();
+    expect(call.mock.calls.filter(([command]) => command === "resolve_radio_station_artwork")).toHaveLength(1);
+    updateStations([
+      { id: "main", name: "Main", streamUrl: "https://stream.example/new", homepageUrl: "https://new.example/" },
+      { id: "mellow", name: "Mellow", streamUrl: "https://stream.example/mellow", homepageUrl: "https://old.example/" },
+    ]);
+    await settle();
+    stale.resolve(oldHomepageImage);
+    await settle();
+    const rows = [...target.querySelectorAll<HTMLButtonElement>(".radio-section .playlist-card")];
+    expect(rows[0].querySelector("img")?.getAttribute("src")).toBe(currentHomepageImage);
+    expect(rows[1].querySelector("img")?.getAttribute("src")).toBe(currentHomepageImage);
+    expect(call.mock.calls.filter(([command]) => command === "resolve_radio_station_artwork")).toHaveLength(3);
+  });
+
+  it("does not spin on a null result or metadata identity changes during the 600 second negative-cache window", async () => {
+    const call = vi.fn(async (command: string) => command === "resolve_radio_station_artwork" ? null : []);
+    const { target, updateStations } = renderWithStationUpdates([
+      { id: "station", name: "Station", streamUrl: "https://stream.example/one", homepageUrl: "https://radio.example/" },
+    ], call);
+    await settle();
+    updateStations([{ id: "station", name: "Station", streamUrl: "https://stream.example/two", homepageUrl: "https://radio.example/" }]);
+    await settle();
+    expect(call.mock.calls.filter(([command]) => command === "resolve_radio_station_artwork")).toHaveLength(1);
+    expect(target.querySelector(".radio-station-placeholder")).not.toBeNull();
+  });
+
+  it("does not apply an in-flight artwork result after the sidebar unmounts", async () => {
+    const pending = deferred<string | null>();
+    const call = vi.fn(async (command: string) => command === "resolve_radio_station_artwork" ? pending.promise : []);
+    const target = render({ call, radioStations: [{ id: "station", name: "Station", homepageUrl: "https://radio.example/" }] });
+    await settle();
+    expect(call.mock.calls.filter(([command]) => command === "resolve_radio_station_artwork")).toHaveLength(1);
+    destroy?.(); destroy = undefined;
+    pending.resolve(recoveredImage);
+    await settle();
+    expect(target.querySelector(".radio-station-icon")).toBeNull();
+    expect(target.querySelector(".radio-station-placeholder")).toBeNull();
+  });
+
+  it("does not resolve unsafe or malformed homepage URLs", async () => {
+    const call = vi.fn(async (command: string) => command === "resolve_radio_station_artwork" ? recoveredImage : []);
+    const target = render({ call, radioStations: [
+      { id: "active", name: "Active URL", homepageUrl: "javascript:alert(1)" },
+      { id: "credentials", name: "Credential URL", homepageUrl: "https://user:secret@radio.example/" },
+    ] });
+    await settle();
+    expect(call.mock.calls.filter(([command]) => command === "resolve_radio_station_artwork")).toHaveLength(0);
   });
 
   it("filters radio and playlists together without unrelated sections burying matches", async () => {
