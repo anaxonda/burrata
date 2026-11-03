@@ -225,6 +225,8 @@ const REPORTED_GATE_PATHS=new Set([
 ]);
 const REPORTED_SHARED_ACTIONS=new Set(['inspect','accept','enrich','reject']);
 const REPORTED_SHARED_RELATIONSHIPS=new Set(['exact','probable','alternative','unresolved']);
+const REPORTED_ALTERNATIVE_KINDS=new Set(['release','performance','remix','otherArtist']);
+const REPORTED_PROOF_STRENGTHS=new Set(['metadataOnly','recordingIdentifier','audioFingerprint']);
 const REPORTED_COMPARISONS=new Set(['agree','unknown','conflict']);
 const REPORTED_SHARED_DIMENSIONS=['title','artists','guests','version','runtime','isrc','work'];
 const REPORTED_SHARED_REASONS=new Set([
@@ -283,6 +285,20 @@ function safeReportedSharedDimensions(value) {
   return Object.keys(result).length?result:null;
 }
 
+function safeReportedSharedAssessment(value) {
+  if(!value||typeof value!=='object'||Array.isArray(value))return {};
+  const result={};
+  if(REPORTED_SHARED_ACTIONS.has(value.sharedAction))result.sharedAction=value.sharedAction;
+  if(REPORTED_SHARED_RELATIONSHIPS.has(value.sharedRelationship))result.sharedRelationship=value.sharedRelationship;
+  const dimensions=safeReportedSharedDimensions(value.sharedDimensions);
+  if(dimensions)result.sharedDimensions=dimensions;
+  if(Array.isArray(value.sharedReasons)) {
+    const reasons=value.sharedReasons.slice(0,32).filter(reason=>REPORTED_SHARED_REASONS.has(reason));
+    if(reasons.length)result.sharedReasons=reasons;
+  }
+  return result;
+}
+
 function safeReportedGateRow(value) {
   if(!value||typeof value!=='object'||Array.isArray(value)
       ||!Number.isSafeInteger(value.ordinal)||value.ordinal<1||value.ordinal>1_000_000
@@ -297,15 +313,7 @@ function safeReportedGateRow(value) {
     if(duration!==null)result[key]=duration;
   }
   for(const key of REPORTED_GATE_BOOLEAN_FIELDS)if(typeof value[key]==='boolean')result[key]=value[key];
-  if(REPORTED_SHARED_ACTIONS.has(value.sharedAction))result.sharedAction=value.sharedAction;
-  if(REPORTED_SHARED_RELATIONSHIPS.has(value.sharedRelationship))result.sharedRelationship=value.sharedRelationship;
-  const dimensions=safeReportedSharedDimensions(value.sharedDimensions);
-  if(dimensions)result.sharedDimensions=dimensions;
-  if(Array.isArray(value.sharedReasons)) {
-    const reasons=value.sharedReasons.slice(0,32).filter(reason=>REPORTED_SHARED_REASONS.has(reason));
-    if(reasons.length)result.sharedReasons=reasons;
-  }
-  return result;
+  return {...result,...safeReportedSharedAssessment(value)};
 }
 
 function safeReportedGateRowsDetails(value) {
@@ -349,10 +357,23 @@ function safeReportedFullIdentityDetails(value) {
   return result;
 }
 
+function safeReportedResolvedRecordingAssessment(value) {
+  if(!value||typeof value!=='object'||Array.isArray(value))return {};
+  const result=safeReportedSharedAssessment(value);
+  if(REPORTED_ALTERNATIVE_KINDS.has(value.alternativeKind))result.alternativeKind=value.alternativeKind;
+  if(REPORTED_PROOF_STRENGTHS.has(value.proofStrength))result.proofStrength=value.proofStrength;
+  for(const key of ['missingPerformerCount','extraPerformerCount','unresolvedAnnotationCount']) {
+    const count=safeDiagnosticCount(value[key],256);
+    if(count!==null)result[key]=count;
+  }
+  return result;
+}
+
 function safeReportedDiagnosticDetails(value,phase) {
   if(phase==='candidate_gate_evidence_rows')return safeReportedGateRowsDetails(value);
   if(phase==='candidate_gate_evidence')return safeReportedGateSummaryDetails(value);
   if(phase==='full_identity_check')return safeReportedFullIdentityDetails(value);
+  if(phase==='resolved_recording_assessment')return safeReportedResolvedRecordingAssessment(value);
   if(!value||typeof value!=='object'||Array.isArray(value))return {};
   const result={};
   for(const [key,item] of Object.entries(value)) {

@@ -217,6 +217,38 @@ test('reported candidate gate diagnostics reject unknown enums, nonfinite durati
     assert.equal(encoded.includes(secret),false,`unexpected adversarial value: ${secret}`);
 });
 
+test('resolved recording assessment keeps only bounded shared proof enums and counts',()=>{
+  const start=1_800_000_000_000;
+  const result=safeReportedPlaybackDiagnosticExport({status:{enabled:true},events:[
+    {atUnixMs:start,elapsedMs:27,phase:'resolved_recording_assessment',provider:'youtube',details:{
+      sharedAction:'inspect',sharedRelationship:'alternative',
+      sharedDimensions:{title:'agree',artists:'conflict',guests:'unknown',version:'agree',runtime:'conflict',isrc:'unknown',work:'agree'},
+      sharedReasons:['titleAgrees','artistConflict','durationLimitExceeded','private reason'],
+      alternativeKind:'performance',proofStrength:'recordingIdentifier',
+      missingPerformerCount:2,extraPerformerCount:1,unresolvedAnnotationCount:4,
+      title:'Private song',artist:'Private performer',query:'private query',sourcePageUrl:'https://private.invalid/?token=secret',
+      authorization:'Bearer nested-secret',nested:{body:'secret body',header:'private header'},
+    }},
+    {atUnixMs:start+1,elapsedMs:28,phase:'resolved_recording_assessment',provider:'youtube',details:{
+      sharedAction:'secret',sharedRelationship:'unresolved?',
+      sharedDimensions:{title:'secret',artists:'unknown',extra:'credential'},
+      sharedReasons:['artistConflict','unknownReason'],alternativeKind:'remix token=secret',
+      proofStrength:'private-proof',missingPerformerCount:-1,extraPerformerCount:Infinity,
+      unresolvedAnnotationCount:1_000_000,raw:{title:'private',authorization:'secret'},
+    }},
+  ]},start,start+2);
+  assert.deepEqual(result.events[0].details,{
+    sharedAction:'inspect',sharedRelationship:'alternative',
+    sharedDimensions:{title:'agree',artists:'conflict',guests:'unknown',version:'agree',runtime:'conflict',isrc:'unknown',work:'agree'},
+    sharedReasons:['titleAgrees','artistConflict','durationLimitExceeded'],alternativeKind:'performance',
+    proofStrength:'recordingIdentifier',missingPerformerCount:2,extraPerformerCount:1,unresolvedAnnotationCount:4,
+  });
+  assert.deepEqual(result.events[1].details,{sharedDimensions:{artists:'unknown'},sharedReasons:['artistConflict'],unresolvedAnnotationCount:256});
+  const encoded=JSON.stringify(result);
+  for(const secret of ['Private song','Private performer','private query','private.invalid','token=secret','nested-secret','secret body','private header','credential','private-proof','unknownReason'])
+    assert.equal(encoded.includes(secret),false,`unexpected assessment detail: ${secret}`);
+});
+
 test('opt-in startup diagnostics reject unknown phases, wrong generations, and invalid timings',()=>{
   const result=safeStartupDiagnosticExport({targetGeneration:7,
     playingSnapshot:{generation:7,status:'playing',diagnostics:{sourceReadyMs:86_400_001,firstAudioMs:-1,

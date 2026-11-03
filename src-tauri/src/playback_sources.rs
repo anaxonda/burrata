@@ -1213,7 +1213,7 @@ pub(crate) async fn resolve_candidate_fresh_until(
             bind_linked_soundcloud_provider_id(&mut candidate, &audio);
             include_candidate_aliases(&mut aliases,track,&candidate,Some(&audio));
             let requires_identity_check = !pinned || candidate.provider == "bandcamp";
-            if verify_with_playback_alias_context(track, &aliases, &mut candidate, &audio, requires_identity_check, settings.matching_level, store, settings.flexible_matching).is_none() {
+            if verify_with_playback_alias_context_traced(track, &aliases, &mut candidate, &audio, requires_identity_check, settings.matching_level, store, settings.flexible_matching, Some(trace)).is_none() {
                 return Err("The refreshed audio source identity does not match this recording".into());
             }
             let audio = acquisition.validate_playback_audio_traced(
@@ -4084,14 +4084,17 @@ async fn resolve_serial(
                         &candidate,
                         Some(&audio),
                     );
-                    let mut proof = verify_with_playback_alias_context(
+                    let mut proof = verify_with_playback_alias_context_traced(
                         track,
                         &verified_artist_aliases,
                         &mut candidate,
                         &audio,
                         requires_identity_check,
                         settings.matching_level,
-                        store, settings.flexible_matching);
+                        store,
+                        settings.flexible_matching,
+                        Some(trace),
+                    );
                     if proof.is_none() && !pinned && track.provider == "spotify"
                         && crate::artist_alias_lookup::enabled()
                         && !trace.catalog_duration_enriched
@@ -4119,9 +4122,9 @@ async fn resolve_serial(
                             if deadline.remaining().is_zero() { return Err(failures.deadline()); }
                             verified_artist_aliases = crate::artist_credit_aliases::cached_verified_playback_artist_aliases(store, track);
                             include_candidate_aliases(&mut verified_artist_aliases, track, &candidate, Some(&audio));
-                            proof = verify_with_playback_alias_context(
+                            proof = verify_with_playback_alias_context_traced(
                                 track, &verified_artist_aliases, &mut candidate, &audio,
-                                requires_identity_check, settings.matching_level, store, settings.flexible_matching);
+                                requires_identity_check, settings.matching_level, store, settings.flexible_matching, Some(trace));
                             let remaining = fresh_alias_budget(deadline.remaining());
                             if proof.is_none() && !remaining.is_zero() {
                                 let _ = tokio::time::timeout(remaining, crate::artist_alias_lookup::lookup(
@@ -4131,8 +4134,8 @@ async fn resolve_serial(
                                 if deadline.remaining().is_zero() { return Err(failures.deadline()); }
                                 verified_artist_aliases = crate::artist_credit_aliases::cached_verified_playback_artist_aliases(store, track);
                                 include_candidate_aliases(&mut verified_artist_aliases, track, &candidate, Some(&audio));
-                                proof = verify_with_playback_alias_context(track, &verified_artist_aliases, &mut candidate, &audio,
-                                    requires_identity_check, settings.matching_level, store, settings.flexible_matching);
+                                proof = verify_with_playback_alias_context_traced(track, &verified_artist_aliases, &mut candidate, &audio,
+                                    requires_identity_check, settings.matching_level, store, settings.flexible_matching, Some(trace));
                             }
                         }
                     }
@@ -4279,7 +4282,7 @@ async fn resolve_serial(
                                 &candidate,
                                 Some(&audio),
                             );
-                            let Some(proof) = verify_with_playback_alias_context(
+                            let Some(proof) = verify_with_playback_alias_context_traced(
                                 track,
                                 &verified_artist_aliases,
                                 &mut candidate,
@@ -4288,6 +4291,7 @@ async fn resolve_serial(
                                 settings.matching_level,
                                 store,
                                 settings.flexible_matching,
+                                Some(trace),
                             ) else {
                                 failures.record("The resolved audio source identity does not match this recording".into());
                                 continue;
@@ -4497,9 +4501,25 @@ fn verify_with_playback_alias_context(
     store: &Store,
     options: crate::recording_match::FlexibleMatchingOptions,
 ) -> Option<VerifiedRecordingProof> {
+    verify_with_playback_alias_context_traced(
+        track, aliases, candidate, audio, required, level, store, options, None,
+    )
+}
+
+fn verify_with_playback_alias_context_traced(
+    track: &Track,
+    aliases: &crate::artist_credit_aliases::VerifiedPlaybackArtistAliases,
+    candidate: &mut Candidate,
+    audio: &acquisition::PreviewAudio,
+    required: bool,
+    level: crate::recording_match::MatchLevel,
+    store: &Store,
+    options: crate::recording_match::FlexibleMatchingOptions,
+    trace: Option<&SourceTrace>,
+) -> Option<VerifiedRecordingProof> {
     let discogs_variant =
         discogs_credit_variant_for_fresh_caption(aliases, track, candidate, audio);
-    policy_matching::verify_with_discogs_credit_variant_and_options(
+    policy_matching::verify_with_discogs_credit_variant_and_options_traced(
         track,
         aliases.tracks(),
         aliases.isrc_enriched(),
@@ -4511,6 +4531,7 @@ fn verify_with_playback_alias_context(
         store,
         discogs_variant.as_ref(),
         options,
+        trace,
     )
 }
 fn plausible_artist_alias_block(track: &Track, candidate: &Candidate) -> bool {
@@ -5813,7 +5834,7 @@ async fn verify_early_playback_candidate(
             )
             .await?;
         include_candidate_aliases(aliases, track, &candidate, Some(&audio));
-        let proof = verify_with_playback_alias_context(
+        let proof = verify_with_playback_alias_context_traced(
             track,
             aliases,
             &mut candidate,
@@ -5822,6 +5843,7 @@ async fn verify_early_playback_candidate(
             settings.matching_level,
             &store,
             settings.flexible_matching,
+            Some(trace),
         )
         .ok_or_else(|| {
             "The resolved audio source identity does not match this recording".to_owned()
@@ -6423,7 +6445,7 @@ async fn try_verified_candidate(
     }
     let mut context = context.clone();
     include_candidate_aliases(&mut context, track, &candidate, Some(&audio));
-    let proof = verify_with_playback_alias_context(
+    let proof = verify_with_playback_alias_context_traced(
         track,
         &context,
         &mut candidate,
@@ -6432,6 +6454,7 @@ async fn try_verified_candidate(
         settings.matching_level,
         store,
         settings.flexible_matching,
+        Some(trace),
     );
     let identity_ok = proof.is_some();
     trace.event("mapping_identity_check", &candidate.provider, json!({"ok":identity_ok,
@@ -6788,7 +6811,7 @@ async fn recover_inner(
     };
     include_candidate_aliases(&mut aliases, track, &candidate, Some(&audio));
     let requires_identity_check = !pinned || candidate.provider == "bandcamp";
-    if verify_with_playback_alias_context(
+    if verify_with_playback_alias_context_traced(
         track,
         &aliases,
         &mut candidate,
@@ -6797,6 +6820,7 @@ async fn recover_inner(
         settings.matching_level,
         store,
         settings.flexible_matching,
+        Some(trace),
     )
     .is_none()
     {

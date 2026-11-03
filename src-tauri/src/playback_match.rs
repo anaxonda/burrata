@@ -563,6 +563,36 @@ pub(super) fn verify_with_discogs_credit_variant_and_options(
     discogs_credit_variant: Option<&crate::recording_identity::VerifiedArtistCreditSetVariant>,
     options: crate::recording_match::FlexibleMatchingOptions,
 ) -> Option<VerifiedRecordingProof> {
+    verify_with_discogs_credit_variant_and_options_traced(
+        track,
+        aliases,
+        isrc_aliases,
+        known_isrc,
+        candidate,
+        audio,
+        required,
+        level,
+        store,
+        discogs_credit_variant,
+        options,
+        None,
+    )
+}
+
+pub(super) fn verify_with_discogs_credit_variant_and_options_traced(
+    track: &Track,
+    aliases: &[Track],
+    isrc_aliases: &[Track],
+    known_isrc: Option<&str>,
+    candidate: &mut Candidate,
+    audio: &acquisition::PreviewAudio,
+    required: bool,
+    level: MatchLevel,
+    store: &Store,
+    discogs_credit_variant: Option<&crate::recording_identity::VerifiedArtistCreditSetVariant>,
+    options: crate::recording_match::FlexibleMatchingOptions,
+    trace: Option<&super::SourceTrace>,
+) -> Option<VerifiedRecordingProof> {
     let mut resolved = candidate.clone();
     // Public Bandcamp links carry a page URL before its numeric track ID is
     // available. Bind that ID only after the page resolver returns it.
@@ -665,6 +695,13 @@ pub(super) fn verify_with_discogs_credit_variant_and_options(
             options,
         )
     };
+    if let Some(trace) = trace {
+        trace.event(
+            "resolved_recording_assessment",
+            &resolved.provider,
+            resolved_assessment_diagnostic_details(&a),
+        );
+    }
     if a.action != MatchAction::Accept {
         return None;
     }
@@ -707,6 +744,22 @@ pub(super) fn verify_with_discogs_credit_variant_and_options(
         } else {
             RecordingProofKind::Recording
         },
+    })
+}
+
+fn resolved_assessment_diagnostic_details(assessment: &MatchAssessment) -> Value {
+    let evidence = assessment.evidence.as_ref();
+    let count = |items: Option<usize>| items.map(|count| count.min(1_000_000));
+    json!({
+        "sharedAction":assessment.action,
+        "sharedRelationship":assessment.relationship,
+        "sharedDimensions":assessment.dimensions,
+        "sharedReasons":assessment.reasons,
+        "alternativeKind":assessment.alternative_kind,
+        "proofStrength":assessment.proof_strength,
+        "missingPerformerCount":count(evidence.map(|value| value.missing_performers.len())),
+        "extraPerformerCount":count(evidence.map(|value| value.extra_performers.len())),
+        "unresolvedAnnotationCount":count(evidence.map(|value| value.unresolved_annotations.len())),
     })
 }
 
@@ -1924,6 +1977,57 @@ mod tests {
             MatchAction::Inspect
         );
         assert_eq!(t.artist, "Lakis Chalkias");
+    }
+    #[test]
+    fn resolved_assessment_trace_emits_rejected_decision_without_raw_metadata() {
+        use std::sync::{Arc, Mutex};
+
+        let (_dir, store) = store();
+        let events = Arc::new(Mutex::new(Vec::<Value>::new()));
+        let captured = Arc::clone(&events);
+        let trace = super::super::SourceTrace::new(None, None, None)
+            .with_test_sink(Arc::new(move |event| captured.lock().unwrap().push(event)));
+        let mut candidate = candidate();
+        let mismatched_audio = audio("Private Candidate Title", json!(["Private Artist"]));
+        let result = verify_with_discogs_credit_variant_and_options_traced(
+            &request(),
+            &[],
+            &[],
+            None,
+            &mut candidate,
+            &mismatched_audio,
+            true,
+            MatchLevel::Balanced,
+            &store,
+            None,
+            crate::recording_match::FlexibleMatchingOptions::default(),
+            Some(&trace),
+        );
+        assert!(
+            result.is_none(),
+            "the conflicting identity must stay rejected"
+        );
+
+        let events = events.lock().unwrap();
+        let assessment = events
+            .iter()
+            .find(|event| event["phase"] == "resolved_recording_assessment")
+            .expect("the exact rejected assessment is traced");
+        assert_eq!(assessment["details"]["sharedAction"], "reject");
+        assert_eq!(
+            assessment["details"]["sharedDimensions"]["title"],
+            "conflict"
+        );
+        assert_eq!(
+            assessment["details"]["sharedDimensions"]["artists"],
+            "conflict"
+        );
+        assert!(assessment["details"]["sharedReasons"].is_array());
+        let encoded = serde_json::to_string(assessment).unwrap();
+        assert!(!encoded.contains("Private Candidate Title"));
+        assert!(!encoded.contains("Private Artist"));
+        assert!(assessment["details"].get("candidateTitle").is_none());
+        assert!(assessment["details"].get("artist").is_none());
     }
 }
 

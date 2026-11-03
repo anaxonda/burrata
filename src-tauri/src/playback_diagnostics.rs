@@ -816,6 +816,9 @@ fn number_key(key: &str) -> bool {
             | "candidateRowsLimit"
             | "firstOrdinal"
             | "totalCandidates"
+            | "missingPerformerCount"
+            | "extraPerformerCount"
+            | "unresolvedAnnotationCount"
             | "webviewGeneration"
             | "index"
             | "redirectHop"
@@ -1056,6 +1059,8 @@ fn enum_values(key: &str) -> Option<&'static [&'static str]> {
         "decision" => Some(&["inspect"]),
         "sharedAction" => Some(&["inspect", "accept", "enrich", "reject"]),
         "sharedRelationship" => Some(&["exact", "probable", "alternative", "unresolved"]),
+        "alternativeKind" => Some(&["release", "performance", "remix", "otherArtist"]),
+        "proofStrength" => Some(&["metadataOnly", "recordingIdentifier", "audioFingerprint"]),
         "gate" => Some(&[
             "policy_exact",
             "policy_probable",
@@ -1297,6 +1302,7 @@ pub(crate) fn phase_is_allowed(value: &str) -> bool {
             | "provider_prepare_end"
             | "provider_helper_ready_end"
             | "full_identity_check"
+            | "resolved_recording_assessment"
             | "dns_source_start"
             | "dns_source_end"
             | "dns_stream_start"
@@ -1615,6 +1621,124 @@ mod tests {
             "runtime":"agree", "isrc":"unknown", "work":"unknown"},
             "sharedAction":"token=secret", "sharedRelationship":"private"}));
         assert!(unsafe_value.is_empty());
+    }
+
+    #[test]
+    fn candidate_gate_details_keep_bounded_counts_and_sanitized_rows() {
+        let dimensions = json!({
+            "title":"agree", "artists":"unknown", "guests":"agree",
+            "version":"unknown", "runtime":"agree", "isrc":"unknown", "work":"unknown"
+        });
+        let details = sanitize_details(json!({
+            "counts": {
+                "candidatesEvaluatedBeforeForegroundCap":2,
+                "requestedTitlePhrasePresentInCandidateTitle":1,
+                "candidateTitle":"private title"
+            },
+            "rows":[{
+                "ordinal":1,
+                "providerClass":"youtube",
+                "catalogDurationSeconds":200.0,
+                "candidateDurationSeconds":201.0,
+                "gate":"policy_inspect",
+                "accepted":false,
+                "sharedAction":"inspect",
+                "sharedRelationship":"unresolved",
+                "sharedReasons":["extractorNeedsInspection"],
+                "sharedDimensions":dimensions,
+                "title":"private candidate title",
+                "artist":"private candidate artist",
+                "url":"https://cdn.example/private?token=secret"
+            }],
+            "candidateRowsLimit":200,
+            "candidateRowsTruncated":false,
+            "firstOrdinal":1,
+            "totalCandidates":2
+        }));
+        assert_eq!(
+            details["counts"]["candidatesEvaluatedBeforeForegroundCap"],
+            2
+        );
+        assert_eq!(
+            details["counts"]["requestedTitlePhrasePresentInCandidateTitle"],
+            1
+        );
+        let row = &details["rows"][0];
+        assert_eq!(row["providerClass"], "youtube");
+        assert_eq!(row["sharedAction"], "inspect");
+        assert_eq!(row["sharedDimensions"]["artists"], "unknown");
+        assert!(row.get("title").is_none());
+        assert!(row.get("artist").is_none());
+        assert!(row.get("url").is_none());
+        let encoded = serde_json::to_string(&details).unwrap();
+        for private in [
+            "private candidate title",
+            "private candidate artist",
+            "secret",
+        ] {
+            assert!(!encoded.contains(private));
+        }
+
+        let mut payload = event(1);
+        payload["phase"] = json!("candidate_gate_evidence_rows");
+        payload["details"] = details;
+        let native_event = sanitize_event(payload).expect("candidate evidence is exported");
+        assert_eq!(
+            native_event.details["counts"]["candidatesEvaluatedBeforeForegroundCap"],
+            2
+        );
+        assert_eq!(native_event.details["rows"][0]["gate"], "policy_inspect");
+    }
+
+    #[test]
+    fn resolved_recording_assessments_keep_only_typed_decisions_and_counts() {
+        let mut payload = event(1);
+        payload["phase"] = json!("resolved_recording_assessment");
+        payload["details"] = json!({
+            "sharedAction":"reject",
+            "sharedRelationship":"unresolved",
+            "sharedDimensions":{
+                "title":"conflict", "artists":"conflict", "guests":"unknown",
+                "version":"conflict", "runtime":"agree", "isrc":"unknown", "work":"unknown"
+            },
+            "sharedReasons":["artistConflict", "versionConflict"],
+            "alternativeKind":"performance",
+            "proofStrength":"recordingIdentifier",
+            "missingPerformerCount":2,
+            "extraPerformerCount":1,
+            "unresolvedAnnotationCount":3,
+            "requestedTitle":"private requested title",
+            "candidateTitle":"private candidate title",
+            "artist":"private artist",
+            "url":"https://cdn.example/private?token=secret"
+        });
+        let native_event = sanitize_event(payload).expect("resolved assessment is exported");
+        assert_eq!(native_event.phase, "resolved_recording_assessment");
+        assert_eq!(native_event.details["sharedAction"], "reject");
+        assert_eq!(native_event.details["sharedRelationship"], "unresolved");
+        assert_eq!(
+            native_event.details["sharedDimensions"]["artists"],
+            "conflict"
+        );
+        assert_eq!(
+            native_event.details["sharedReasons"],
+            json!(["artistConflict", "versionConflict"])
+        );
+        assert_eq!(native_event.details["alternativeKind"], "performance");
+        assert_eq!(native_event.details["proofStrength"], "recordingIdentifier");
+        assert_eq!(native_event.details["missingPerformerCount"], 2);
+        assert_eq!(native_event.details["extraPerformerCount"], 1);
+        assert_eq!(native_event.details["unresolvedAnnotationCount"], 3);
+        let encoded = serde_json::to_string(&native_event).unwrap();
+        for private in [
+            "private requested title",
+            "private candidate title",
+            "private artist",
+            "cdn.example",
+            "secret",
+        ] {
+            assert!(!encoded.contains(private));
+        }
     }
 
     #[test]
