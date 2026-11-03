@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) const EVALUATOR_VERSION: &str = "23";
+pub(crate) const EVALUATOR_VERSION: &str = "24";
 
 /// Independently selected categories of alternatives for Flexible matching.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -1560,7 +1560,9 @@ struct RequestCorroboratedCaptionOrientation {
 }
 
 fn uploader_matches_request_artist(uploader: &str, requested_artist: &str) -> bool {
-    let requested = crate::recording_identity::search_fold(requested_artist);
+    let requested = crate::recording_identity::search_fold(
+        &crate::matching::normalize_single_artist_name(requested_artist),
+    );
     if requested.is_empty() {
         return false;
     }
@@ -3932,6 +3934,24 @@ mod tests {
     use serde_json::json;
     #[test]
     fn uploader_corroborated_caption_orientation_is_request_scoped_and_keeps_identity_guards() {
+        macro_rules! assert_assessment_action {
+            ($assessment:expr, $expected:expr) => {{
+                let assessment = $assessment;
+                assert_eq!(assessment.action, $expected, "{assessment:?}");
+            }};
+        }
+        assert!(
+            uploader_matches_request_artist("Earth, Wind & Fire Official", "Earth, Wind & Fire"),
+            "ampersand punctuation should normalize consistently"
+        );
+        assert!(
+            uploader_matches_request_artist("Earth, Wind and Fire Official", "Earth, Wind & Fire"),
+            "and/ampersand spelling should identify the same atomic act"
+        );
+        assert!(
+            !uploader_matches_request_artist("Different Artist Official", "Earth, Wind & Fire"),
+            "unrelated uploader must not corroborate the request"
+        );
         let request = Track {
             provider: "spotify".into(),
             provider_id: "6wu6sIm3bL3KKRVXfNoaAl".into(),
@@ -3945,6 +3965,7 @@ mod tests {
         let reversed = Candidate {
             provider: "youtube".into(),
             id: "youtube:StdOHMvDlas".into(),
+            url: "https://www.youtube.com/watch?v=StdOHMvDlas".into(),
             title: caption.into(),
             uploader: Some(official.into()),
             duration_seconds: Some(240.0),
@@ -3964,31 +3985,37 @@ mod tests {
             MatchAction::Inspect,
             "{search_assessment:?}"
         );
-        assert_eq!(search_assessment.dimensions.title, Comparison::Agree);
-        assert_eq!(search_assessment.dimensions.artists, Comparison::Agree);
+        assert_eq!(
+            search_assessment.dimensions.title,
+            Comparison::Agree,
+            "{search_assessment:?}"
+        );
+        assert_eq!(
+            search_assessment.dimensions.artists,
+            Comparison::Agree,
+            "{search_assessment:?}"
+        );
         // The user-visible search row is the same occurrence after its
         // caption parser emits the reversed title/artist fields.
         let mut parsed_search_row = reversed.clone();
         parsed_search_row.title = "Maryto y su Salson".into();
         parsed_search_row.source_metadata.as_mut().unwrap()["artist"] = json!("Amame");
-        assert_eq!(
+        assert_assessment_action!(
             assess(
                 &request,
                 &parsed_search_row,
                 MatchLevel::Exact,
                 MatchStage::Search
-            )
-            .action,
+            ),
             MatchAction::Inspect
         );
-        assert_eq!(
+        assert_assessment_action!(
             assess(
                 &request,
                 &parsed_search_row,
                 MatchLevel::Exact,
                 MatchStage::Resolved
-            )
-            .action,
+            ),
             MatchAction::Enrich
         );
         let assessment = assess(&request, &reversed, MatchLevel::Exact, MatchStage::Resolved);
@@ -4008,8 +4035,16 @@ mod tests {
             Comparison::Agree,
             "{assessment:?}"
         );
-        assert_eq!(assessment.dimensions.version, Comparison::Unknown);
-        assert_eq!(reversed.source_metadata, raw_candidate.source_metadata);
+        assert_eq!(
+            assessment.dimensions.version,
+            Comparison::Unknown,
+            "{assessment:?}"
+        );
+        assert_eq!(
+            reversed.source_metadata, raw_candidate.source_metadata,
+            "raw candidate metadata must remain request-independent: left={:?}, right={:?}",
+            reversed.source_metadata, raw_candidate.source_metadata
+        );
         let mut resolved = reversed.clone();
         resolved.source_metadata.as_mut().unwrap()["sourceMetadataOrigin"] = json!("ytDlpFullInfo");
         let assessment = assess(&request, &resolved, MatchLevel::Exact, MatchStage::Resolved);
@@ -4026,19 +4061,26 @@ mod tests {
             MatchLevel::Exact,
             MatchStage::Search,
         );
-        assert_eq!(empty_credit_search.action, MatchAction::Inspect);
-        assert_eq!(empty_credit_search.dimensions.artists, Comparison::Agree);
+        assert_eq!(
+            empty_credit_search.action,
+            MatchAction::Inspect,
+            "{empty_credit_search:?}"
+        );
+        assert_eq!(
+            empty_credit_search.dimensions.artists,
+            Comparison::Agree,
+            "{empty_credit_search:?}"
+        );
         let mut empty_credits_resolved = empty_credits.clone();
         empty_credits_resolved.source_metadata.as_mut().unwrap()["sourceMetadataOrigin"] =
             json!("ytDlpFullInfo");
-        assert_eq!(
+        assert_assessment_action!(
             assess(
                 &request,
                 &empty_credits_resolved,
                 MatchLevel::Exact,
                 MatchStage::Resolved
-            )
-            .action,
+            ),
             MatchAction::Accept
         );
 
@@ -4046,69 +4088,73 @@ mod tests {
         parsed_artist.source_metadata.as_mut().unwrap()["artist"] = json!("Amame");
         parsed_artist.source_metadata.as_mut().unwrap()["sourceMetadataOrigin"] =
             json!("ytDlpFullInfo");
-        assert_eq!(
+        assert_assessment_action!(
             assess(
                 &request,
                 &parsed_artist,
                 MatchLevel::Exact,
                 MatchStage::Resolved
-            )
-            .action,
+            ),
             MatchAction::Accept
         );
 
         // Malformed arrays and contradictory structured artist data stay
         // authoritative blockers, even if the caption and uploader agree.
         let mut malformed_artists = reversed.clone();
+        malformed_artists.source_metadata.as_mut().unwrap()["sourceMetadataOrigin"] =
+            json!("ytDlpFullInfo");
         malformed_artists.source_metadata.as_mut().unwrap()["artists"] = json!("Amame");
+        let malformed_assessment = assess(
+            &request,
+            &malformed_artists,
+            MatchLevel::Exact,
+            MatchStage::Resolved,
+        );
         assert_ne!(
-            assess(
-                &request,
-                &malformed_artists,
-                MatchLevel::Exact,
-                MatchStage::Resolved
-            )
-            .action,
-            MatchAction::Accept
+            malformed_assessment.action,
+            MatchAction::Accept,
+            "{malformed_assessment:?}"
         );
         let mut contradictory_artists = reversed.clone();
+        contradictory_artists.source_metadata.as_mut().unwrap()["sourceMetadataOrigin"] =
+            json!("ytDlpFullInfo");
         contradictory_artists.source_metadata.as_mut().unwrap()["artists"] =
             json!(["Different Artist"]);
-        assert_eq!(
+        assert_assessment_action!(
             assess(
                 &request,
                 &contradictory_artists,
                 MatchLevel::Exact,
                 MatchStage::Resolved
-            )
-            .action,
+            ),
             MatchAction::Reject
         );
 
         // The same title in normal artist-first orientation still matches from
         // independent provider artist metadata without invoking the alternate.
         let normal = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:NormalCap01".into(),
+            url: "https://www.youtube.com/watch?v=NormalCap01".into(),
             title: "Ámame".into(),
             source_metadata: Some(json!({
-                "sourceMetadataOrigin":"ytDlpCandidateMetadata",
-                "resolvedProviderId":"normal-caption-fixture",
+                "sourceMetadataOrigin":"ytDlpFullInfo",
+                "resolvedProviderId":"NormalCap01",
                 "track":"Maryto y su Salson - Ámame",
                 "catalogTitle":"Ámame",
                 "artistNames":["Maryto y su Salsón"],
                 "duration":240.0
             })),
-            id: "youtube:normal-caption-fixture".into(),
             duration_seconds: Some(240.0),
             ..Candidate::default()
         };
-        assert_eq!(
+        assert_assessment_action!(
             assess(
                 &request,
                 &normal,
                 MatchLevel::Balanced,
                 MatchStage::Resolved
-            )
-            .action,
+            ),
             MatchAction::Accept
         );
 
@@ -4118,38 +4164,37 @@ mod tests {
         wrong_uploader.uploader = Some("Different Artist Official".into());
         wrong_uploader.source_metadata.as_mut().unwrap()["uploader"] =
             json!("Different Artist Official");
-        assert_eq!(
+        wrong_uploader.source_metadata.as_mut().unwrap()["sourceMetadataOrigin"] =
+            json!("ytDlpFullInfo");
+        assert_assessment_action!(
             assess(
                 &request,
                 &wrong_uploader,
                 MatchLevel::Balanced,
                 MatchStage::Resolved
-            )
-            .action,
+            ),
             MatchAction::Reject
         );
-        assert_eq!(
+        assert_assessment_action!(
             assess(
                 &request,
                 &wrong_uploader,
                 MatchLevel::Balanced,
                 MatchStage::Search
-            )
-            .action,
+            ),
             MatchAction::Reject
         );
         let wrong_artist_request = Track {
             artist: "Different Artist".into(),
             ..request.clone()
         };
-        assert_eq!(
+        assert_assessment_action!(
             assess(
                 &wrong_artist_request,
-                &reversed,
+                &resolved,
                 MatchLevel::Balanced,
                 MatchStage::Resolved
-            )
-            .action,
+            ),
             MatchAction::Reject
         );
 
@@ -4183,17 +4228,21 @@ mod tests {
         );
         assert_eq!(
             wrong_version_assessment.dimensions.version,
-            Comparison::Conflict
+            Comparison::Conflict,
+            "{wrong_version_assessment:?}"
         );
-        assert_eq!(wrong_version_assessment.action, MatchAction::Reject);
         assert_eq!(
+            wrong_version_assessment.action,
+            MatchAction::Reject,
+            "{wrong_version_assessment:?}"
+        );
+        assert_assessment_action!(
             assess(
                 &wrong_version_request,
                 &wrong_version,
                 MatchLevel::Balanced,
                 MatchStage::Search
-            )
-            .action,
+            ),
             MatchAction::Reject
         );
 
@@ -4203,18 +4252,25 @@ mod tests {
             title: "September - At Dawn".into(),
             artist: "Earth, Wind & Fire".into(),
             duration_seconds: Some(210.0),
+            provenance: json!({
+                "artistCredits":[{
+                    "name":"Earth, Wind & Fire",
+                    "role":"artist credit"
+                }]
+            }),
             ..Track::default()
         };
         let band_caption = "September - At Dawn - Earth, Wind & Fire";
-        let band = Candidate {
+        let band_search = Candidate {
             provider: "youtube".into(),
-            id: "youtube:band-caption-fixture".into(),
-            title: "Earth, Wind & Fire".into(),
+            id: "youtube:BandDash001".into(),
+            url: "https://www.youtube.com/watch?v=BandDash001".into(),
+            title: band_caption.into(),
             uploader: Some("Earth, Wind & Fire Official".into()),
             duration_seconds: Some(210.0),
             source_metadata: Some(json!({
                 "sourceMetadataOrigin":"ytDlpCandidateMetadata",
-                "resolvedProviderId":"band-caption-fixture",
+                "resolvedProviderId":"BandDash001",
                 "track":band_caption,
                 "catalogTitle":band_caption,
                 "duration":210.0,
@@ -4222,15 +4278,98 @@ mod tests {
             })),
             ..Candidate::default()
         };
+        let band_search_assessment = assess(
+            &band_request,
+            &band_search,
+            MatchLevel::Exact,
+            MatchStage::Search,
+        );
+        assert_eq!(
+            band_search_assessment.action,
+            MatchAction::Inspect,
+            "{band_search_assessment:?}"
+        );
+        let band_provisional_assessment = assess(
+            &band_request,
+            &band_search,
+            MatchLevel::Exact,
+            MatchStage::Resolved,
+        );
+        assert_eq!(
+            band_provisional_assessment.action,
+            MatchAction::Enrich,
+            "{band_provisional_assessment:?}"
+        );
+        let mut band = band_search.clone();
+        band.source_metadata.as_mut().unwrap()["sourceMetadataOrigin"] = json!("ytDlpFullInfo");
         let band_assessment = assess(
             &band_request,
             &band,
             MatchLevel::Exact,
             MatchStage::Resolved,
         );
-        assert_eq!(band_assessment.dimensions.title, Comparison::Agree);
-        assert_eq!(band_assessment.dimensions.artists, Comparison::Agree);
-        assert_eq!(band_assessment.action, MatchAction::Accept);
+        assert_eq!(
+            band_assessment.dimensions.title,
+            Comparison::Agree,
+            "{band_assessment:?}"
+        );
+        assert_eq!(
+            band_assessment.dimensions.artists,
+            Comparison::Agree,
+            "{band_assessment:?}"
+        );
+        assert_eq!(
+            band_assessment.action,
+            MatchAction::Accept,
+            "{band_assessment:?}"
+        );
+
+        // The result-row parser can expose the right-hand band as its title
+        // and the left-hand song as its artist. Fresh, source-bound caption
+        // fields still recover the intended orientation without splitting
+        // the structured atomic band credit.
+        let mut parsed_band_row = band.clone();
+        parsed_band_row.title = "Earth, Wind & Fire".into();
+        parsed_band_row.source_metadata.as_mut().unwrap()["artist"] = json!("September - At Dawn");
+        assert_assessment_action!(
+            assess(
+                &band_request,
+                &parsed_band_row,
+                MatchLevel::Exact,
+                MatchStage::Resolved
+            ),
+            MatchAction::Accept
+        );
+
+        let mut wrong_band_uploader = parsed_band_row.clone();
+        wrong_band_uploader.uploader = Some("Different Artist Official".into());
+        wrong_band_uploader.source_metadata.as_mut().unwrap()["uploader"] =
+            json!("Different Artist Official");
+        assert_assessment_action!(
+            assess(
+                &band_request,
+                &wrong_band_uploader,
+                MatchLevel::Exact,
+                MatchStage::Resolved
+            ),
+            MatchAction::Reject
+        );
+
+        let mut wrong_band_recording = band.clone();
+        let other_caption = "Another Song - Earth, Wind & Fire";
+        wrong_band_recording.title = other_caption.into();
+        wrong_band_recording.source_metadata.as_mut().unwrap()["track"] = json!(other_caption);
+        wrong_band_recording.source_metadata.as_mut().unwrap()["catalogTitle"] =
+            json!(other_caption);
+        assert_assessment_action!(
+            assess(
+                &band_request,
+                &wrong_band_recording,
+                MatchLevel::Exact,
+                MatchStage::Resolved
+            ),
+            MatchAction::Reject
+        );
     }
 
     #[test]
