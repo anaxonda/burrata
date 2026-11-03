@@ -1,14 +1,23 @@
 // Control only the disposable profile created by native_runtime_capture.py.
 // Monitor PCM is assessed independently by the Python controller.
 import {readFile, realpath, writeFile} from 'node:fs/promises';
+import {closeSync, constants as fsConstants, openSync, writeSync} from 'node:fs';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {auditionQueueMetadataRetained} from './source_audition_gates.mjs';
-import {idleIpcBucketsGate,parseIdleIpcCounter,reportedErrorEvidence,safePlaybackFailureSummary,safeStoreMutexMetrics,startupObservation,startupPauseGate} from './native_startup_capture_helpers.mjs';
+import {idleIpcBucketsGate,parseIdleIpcCounter,reportedErrorEvidence,safePlaybackFailureSummary,safeStartupDiagnosticExport,safeStartupMarkerMetrics,safeStoreMutexMetrics,startupObservation,startupPauseGate} from './native_startup_capture_helpers.mjs';
 import {Client} from '@modelcontextprotocol/client';
 import {StdioClientTransport} from '@modelcontextprotocol/client/stdio';
 
-const [profile, mcpCommand, mode] = process.argv.slice(2);
+const [profile, mcpCommand, mode, ...captureOptions] = process.argv.slice(2);
+const startupDiagnosticsEnabled=captureOptions.includes('--startup-diagnostics')
+  ||captureOptions.includes('--startup-diagnostics-no-console-trace')
+  ||captureOptions.includes('--schedstat-diagnostic');
+const schedstatDiagnosticEnabled=captureOptions.includes('--schedstat-diagnostic');
+if(captureOptions.some(option=>!['--startup-diagnostics','--startup-diagnostics-no-console-trace','--schedstat-diagnostic'].includes(option))
+    ||new Set(captureOptions).size!==captureOptions.length
+    ||captureOptions.length>1
+    ||(startupDiagnosticsEnabled&&mode!=='startup'))throw Error('Unsupported native capture option');
 if (!/^\/tmp\/burrata-launch\.[A-Za-z0-9_-]+$/.test(profile) || await realpath(profile) !== profile
     || await readFile(`${profile}/.burrata-isolated-profile`, 'utf8') !== 'burrata isolated memory run\n') {
   throw Error('Disposable profile required');
@@ -20,6 +29,29 @@ const transport = new StdioClientTransport({command:mcpCommand,args:[],
 transport.stderr?.on('data',()=>{});
 const sleep = ms => new Promise(resolve=>setTimeout(resolve,ms));
 const report = {mode, cases:[], samples:[]};
+let schedstatMarkerFd=null;
+function schedstatMark(phase){
+  if(schedstatMarkerFd===null)return;
+  const monoBefore=Number(process.hrtime.bigint()),wallClockUnixMs=Date.now(),monoAfter=Number(process.hrtime.bigint());
+  const monotonicNs=Math.round((monoBefore+monoAfter)/2),clockPairSpanNs=monoAfter-monoBefore;
+  if(!Number.isSafeInteger(monotonicNs))throw Error('Monotonic timestamp exceeds safe integer range');
+  writeSync(schedstatMarkerFd,JSON.stringify({phase,monotonicNs,wallClockUnixMs,clockPairSpanNs})+'\n');
+}
+function schedstatPlayingMark(state){
+  if(schedstatMarkerFd===null)return;
+  const monoBefore=Number(process.hrtime.bigint()),wallClockUnixMs=Date.now(),monoAfter=Number(process.hrtime.bigint());
+  const monotonicNs=Math.round((monoBefore+monoAfter)/2),clockPairSpanNs=monoAfter-monoBefore;
+  if(!Number.isSafeInteger(monotonicNs))throw Error('Monotonic timestamp exceeds safe integer range');
+  const metrics=safeStartupMarkerMetrics(state,state?.generation)??{};
+  writeSync(schedstatMarkerFd,JSON.stringify({phase:'first_playing_snapshot_observed',monotonicNs,
+    wallClockUnixMs,clockPairSpanNs,metrics})+'\n');
+}
+if(schedstatDiagnosticEnabled){
+  const markerPath=process.env.BURRATA_SCHEDSTAT_MARKER_PATH;
+  if(!markerPath||!markerPath.startsWith(`${profile}/`)||markerPath!==`${profile}/schedstat-markers.ndjson`)
+    throw Error('Private schedstat marker path required');
+  schedstatMarkerFd=openSync(markerPath,fsConstants.O_WRONLY|fsConstants.O_CREAT|fsConstants.O_APPEND|fsConstants.O_NOFOLLOW,0o600);
+}
 async function call(name,args={},timeout=45000) {
   const r = await client.callTool({name,arguments:args},{timeout});
   if (r.isError) throw Error(`${name}: ${JSON.stringify(r.structuredContent?.error ?? r.content?.[0]?.text)}`);
@@ -112,24 +144,38 @@ if(mode==='idle-ipc'){
     report.cases.push({passed:report.passed,idleIpc:report.idleIpc});
   } else if(mode==='startup'){
     const targetTrackId=spec.ids[0],startedAtUnixMs=Date.now(),started=performance.now();
-    let receiptError=null,observation=null,last=null;
+    let receiptError=null,observation=null,last=null,firstPlayingMarked=false;
     report.mainPlaybackStartedAtUnixMs=startedAtUnixMs;
+    schedstatMark('control_started');
+    schedstatMark('play_request');
     const receipt=call('play_tracks',{trackIds:[targetTrackId]}).catch(error=>{receiptError=error.message;});
     while(performance.now()-started<60000){
       last=await state();
       report.samples.push({ms:performance.now()-started,...safe(last)});
+      if(schedstatDiagnosticEnabled&&!firstPlayingMarked&&last.trackId===targetTrackId&&last.status==='playing'){
+        schedstatPlayingMark(last);firstPlayingMarked=true;
+      }
       observation=startupObservation(last,targetTrackId);
-      if(observation)break;
+      if(observation){schedstatMark('startup_observation_gate');break;}
       if(last.trackId===targetTrackId&&['failed','error','ended'].includes(last.status))break;
       await sleep(80);
     }
     await receipt;
     let paused=null;
     try{await call('pause_playback');paused=await state();}catch{}
+    schedstatMark('pause_completed');
     report.startupObservation=observation;
     report.pausedState=paused?safe(paused):null;
     report.targetTrackId=targetTrackId;
     report.captureScope='first fixture track first-audio startup and at least 3 seconds of playback; no queue-completion claim';
+    if(startupDiagnosticsEnabled){
+      let diagnosticsReport=null;
+      try{diagnosticsReport=await call('get_playback_diagnostics_report',{},5000);}catch{}
+      schedstatMark('diagnostics_report_received');
+      report.startupDiagnosticExport=safeStartupDiagnosticExport({
+        playingSnapshot:last,pausedSnapshot:paused,diagnosticsReport,targetGeneration:observation?.generation,
+      });
+    }
     report.passed=!receiptError&&startupPauseGate(observation,paused,targetTrackId);
     report.cases.push({passed:report.passed,receiptError,observation,paused:paused?safe(paused):null});
   } else if(mode==='source-audition'){
@@ -475,6 +521,7 @@ finally {
   report.storeMutexMetricsScope='global Store connection mutex only; SQLite engine busy-handler wait is not measured';
   report.storeMutexMetricsInterpretation='Cumulative counters; get_app_status snapshots include their own settings-lock access.';
   await writeFile(`${profile}/runtime-result.json`,JSON.stringify(report,null,2));
+  if(schedstatMarkerFd!==null){closeSync(schedstatMarkerFd);schedstatMarkerFd=null;}
   await client.close().catch(()=>{});
 }
 console.log(JSON.stringify({mode,passed:report.passed,error:report.error,cases:report.cases}));

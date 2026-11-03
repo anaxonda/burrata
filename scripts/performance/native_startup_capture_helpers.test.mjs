@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {idleIpcBucketsGate,parseIdleIpcCounter,reportedErrorEvidence,safePlaybackFailureSummary,safeStoreMutexMetrics,startupObservation,startupPauseGate} from './native_startup_capture_helpers.mjs';
+import {idleIpcBucketsGate,parseIdleIpcCounter,reportedErrorEvidence,safePlaybackFailureSummary,safeStartupDiagnosticExport,safeStartupMarkerMetrics,safeStoreMutexMetrics,startupObservation,startupPauseGate} from './native_startup_capture_helpers.mjs';
 
 const target='fixture-track';
 const playing={trackId:target,generation:4,status:'playing',position:3.2,diagnostics:{firstAudioMs:275}};
@@ -18,11 +18,85 @@ test('startup requires first-audio metrics and at least three seconds of playbac
   assert.equal(startupObservation({...playing,position:2.99},target),null);
 });
 
+test('first-playing marker projection reads nested diagnostics and operation trace safely',()=>{
+  const state={trackId:target,generation:4,status:'playing',id:'secret',diagnostics:{firstAudioMs:51,sourceReadyMs:5,
+    operationKind:'startup',operationTrace:[{phase:'ipc_received',atMs:0},{phase:'first_audio',atMs:54}],
+    private:'secret'}};
+  assert.deepEqual(safeStartupMarkerMetrics(state,4),{
+    generation:4,firstAudioMs:51,sourceReadyMs:5,operationFirstAudioMs:54,
+  });
+  assert.equal(safeStartupMarkerMetrics(state,5),null);
+  assert.equal(safeStartupMarkerMetrics({...state,diagnostics:{...state.diagnostics,firstAudioMs:'secret'}},4).firstAudioMs,null);
+});
+
 test('startup pause gate retains the same track and generation',()=>{
   const observation=startupObservation(playing,target);
   assert.equal(startupPauseGate(observation,paused,target),true);
   assert.equal(startupPauseGate(observation,{...paused,generation:5},target),false);
   assert.equal(startupPauseGate(observation,{...paused,trackId:'different-track'},target),false);
+});
+
+test('opt-in startup diagnostics retain only bounded numeric and enum timing fields',()=>{
+  const playingSnapshot={trackId:target,generation:4,status:'playing',candidate:{id:'private-id',url:'https://secret/?token=abc'},
+    diagnostics:{operationId:'private-operation-id',operationKind:'startup',sourceReadyMs:125,firstAudioMs:178,
+      operationTrace:[{phase:'ipc_received',atMs:0},{phase:'source_ready',atMs:122},{phase:'first_audio',atMs:176},
+        {phase:'private-text',atMs:1}],decoder:{decoderKind:'rodio',readerSetupMs:11,decoderSetupMs:13,firstDecodedBlockMs:17,
+        bytesRead:4096,bytesReceived:0,inputContentLength:2048,sampleRate:48000,channels:2,readerReused:false,decoderReused:true,
+        codec:'private',codecHint:'private codec',path:'/private/file',url:'https://secret/?token=abc'},
+      lastSourceFailure:{message:'private text'}}};
+  const pausedSnapshot={...playingSnapshot,status:'paused',diagnostics:{...playingSnapshot.diagnostics,operationKind:'pause',
+    operationTrace:[{phase:'ipc_received',atMs:0}]}};
+  const diagnosticsReport={status:{enabled:true,eventCount:5,nativeEventCount:2,droppedEvents:0,droppedNativeEvents:0},
+    events:[
+      {resolutionId:'private-resolution',nativeOperationId:'private-operation-id',phase:'decoder_start',provider:'other',elapsedMs:127,
+        atUnixMs:1_800_000_000_001,details:{generation:4}},
+      {resolutionId:'private-resolution',phase:'decoder_end',provider:'other',elapsedMs:178,atUnixMs:1_800_000_000_052,
+        details:{generation:4,durationMs:51,outcome:'success',category:'decoder',raw:'private body'}},
+      {resolutionId:'private-resolution',phase:'decoder_end',provider:'other',elapsedMs:180,
+        details:{generation:5,durationMs:52,outcome:'success',category:'decoder'}},
+      {resolutionId:'private-resolution',phase:'private-event',provider:'other',elapsedMs:180,details:{generation:4}},
+    ],
+    nativePlayback:[
+      {sequence:1,atUnixMs:1_800_000_000_001,elapsedMs:127,moment:'snapshot',playback:{status:'buffering',generation:4,sourceReadyMs:125,
+        decoderKind:'rodio',decoderEvidence:'lastStartedSnapshot',decoderGenerationBinding:'notRecorded',trackId:'private-track'}},
+      {sequence:2,atUnixMs:1_800_000_000_052,elapsedMs:178,moment:'snapshot',playback:{status:'playing',generation:4,firstAudioMs:178,
+        operationId:'private-id',diagnostics:'private'}},
+      {sequence:3,atUnixMs:456,elapsedMs:180,moment:'snapshot',playback:{status:'playing',generation:5,firstAudioMs:180}},
+    ]};
+  const result=safeStartupDiagnosticExport({playingSnapshot,pausedSnapshot,diagnosticsReport,targetGeneration:4});
+  assert.equal(result.reportAvailable,true);
+  assert.deepEqual(result.playingSnapshot,{generation:4,status:'playing',operationKind:'startup',sourceReadyMs:125,
+    firstAudioMs:178,operationFirstAudioMs:176,operationTrace:[{phase:'ipc_received',atMs:0},
+      {phase:'source_ready',atMs:122},{phase:'first_audio',atMs:176}],
+    decoder:{readerSetupMs:11,decoderSetupMs:13,firstDecodedBlockMs:17,bytesRead:4096,bytesReceived:0,
+      inputContentLength:2048,sampleRate:48000,channels:2,decoderReused:true,readerReused:false,decoderKind:'rodio'}});
+  assert.equal(result.pausedSnapshot.operationKind,'pause');
+  assert.deepEqual(result.decoderEvents,[
+    {phase:'decoder_start',elapsedMs:127,generation:4,provider:'other',atUnixMs:1_800_000_000_001},
+    {phase:'decoder_end',elapsedMs:178,generation:4,provider:'other',atUnixMs:1_800_000_000_052,durationMs:51,outcome:'success',category:'decoder'},
+  ]);
+  assert.deepEqual(result.nativePlaybackEvents,[
+    {moment:'snapshot',elapsedMs:127,generation:4,status:'buffering',atUnixMs:1_800_000_000_001,sourceReadyMs:125,
+      decoderKind:'rodio',decoderEvidence:'lastStartedSnapshot',decoderGenerationBinding:'notRecorded'},
+    {moment:'snapshot',elapsedMs:178,generation:4,status:'playing',atUnixMs:1_800_000_000_052,firstAudioMs:178},
+  ]);
+  const serialized=JSON.stringify(result);
+  for(const value of ['private-id','private-operation-id','private-resolution','private-track','https://secret','private body','private text','private codec','/private/file'])
+    assert.equal(serialized.includes(value),false);
+});
+
+test('opt-in startup diagnostics reject unknown phases, wrong generations, and invalid timings',()=>{
+  const result=safeStartupDiagnosticExport({targetGeneration:7,
+    playingSnapshot:{generation:7,status:'playing',diagnostics:{sourceReadyMs:86_400_001,firstAudioMs:-1,
+      operationKind:'raw text',operationTrace:[{phase:'first_audio',atMs:NaN},{phase:'private',atMs:2}],
+      decoder:{decoderKind:'secret',decoderSetupMs:-1,firstDecodedBlockMs:1.5,bytesRead:1e20,bytesReceived:'secret',
+        inputContentLength:128,sampleRate:48000,channels:100,decoderReused:'yes',readerReused:false,private:'secret'}}},
+    diagnosticsReport:{events:[{phase:'decoder_end',atUnixMs:1_800_000_000_000,elapsedMs:4,details:{generation:8,durationMs:3}},
+      {phase:'decoder_start',atUnixMs:'private timestamp',elapsedMs:4,details:{generation:7,durationMs:'private'}}]}});
+  assert.deepEqual(result.playingSnapshot,{generation:7,status:'playing',operationKind:null,
+    sourceReadyMs:null,firstAudioMs:null,operationFirstAudioMs:null,operationTrace:[],
+    decoder:{inputContentLength:128,sampleRate:48000,readerReused:false}});
+  assert.deepEqual(result.decoderEvents,[{phase:'decoder_start',elapsedMs:4,generation:7,provider:null}]);
 });
 
 test('idle IPC buckets require exact fields, registration, monotonic counts, and all intervals',()=>{

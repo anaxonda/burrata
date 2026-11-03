@@ -29,6 +29,7 @@ from urllib.parse import urlsplit
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts/performance'))
 from run_isolated_memory import track_record
+from native_schedstat_sampler import enrich_phase_intervals
 
 STREAMING_PROVIDERS = {'youtube', 'soundcloud', 'monochrome'}
 REPORTED_TRACK_FIELDS = {
@@ -132,6 +133,37 @@ def scratch_roots():
     capture_root = root.parent / 'native-runtime-captures'
     capture_root.mkdir(parents=True, exist_ok=True)
     return root, capture_root
+
+
+def safe_startup_performance_trace(log_path):
+    """Project only fixed startup/quality-worker timing lines from a private app log."""
+    import re
+    patterns = [
+        (re.compile(r'^\[startup\] phase=([A-Za-z0-9_.-]{1,80}) elapsed_ms=(\d+)$'),
+         lambda match: {'kind': 'startup_phase', 'phase': match.group(1), 'elapsedMs': int(match.group(2))}),
+        (re.compile(r'^\[perf\] quality_facts\.select assets=(\d+) elapsed_ms=(\d+)$'),
+         lambda match: {'kind': 'quality_facts_select', 'assets': int(match.group(1)), 'elapsedMs': int(match.group(2))}),
+        (re.compile(r'^\[perf\] quality_facts\.hash item=(\d+) matches=(true|false) elapsed_ms=(\d+)$'),
+         lambda match: {'kind': 'quality_facts_hash', 'item': int(match.group(1)), 'matches': match.group(2) == 'true', 'elapsedMs': int(match.group(3))}),
+        (re.compile(r'^\[perf\] quality_facts\.inspect item=(\d+) saved=(true|false) elapsed_ms=(\d+)$'),
+         lambda match: {'kind': 'quality_facts_inspect', 'item': int(match.group(1)), 'saved': match.group(2) == 'true', 'elapsedMs': int(match.group(3))}),
+        (re.compile(r'^\[perf\] quality_facts\.inspect item=(\d+) outcome=(error) elapsed_ms=(\d+)$'),
+         lambda match: {'kind': 'quality_facts_inspect', 'item': int(match.group(1)), 'outcome': match.group(2), 'elapsedMs': int(match.group(3))}),
+        (re.compile(r'^\[perf\] quality_facts\.total elapsed_ms=(\d+)$'),
+         lambda match: {'kind': 'quality_facts_total', 'elapsedMs': int(match.group(1))}),
+    ]
+    try:
+        lines = Path(log_path).read_text(errors='replace').splitlines()
+    except OSError:
+        return []
+    projected = []
+    for line in lines:
+        for pattern, project in patterns:
+            match = pattern.fullmatch(line)
+            if match:
+                projected.append(project(match))
+                break
+    return projected
 
 
 def incident_cases_passed(runtime):
@@ -591,6 +623,32 @@ def assess_stereo_markers(pcm, expected_markers):
     return dict(passed=passed,markers=markers,spacingSeconds=spacings,toleranceSamples=2)
 
 
+def _proc_executable(pid):
+    try:
+        return Path(f'/proc/{pid}/exe').resolve(strict=True)
+    except OSError:
+        return None
+
+
+def _proc_children(pid):
+    try:
+        return [int(value) for value in Path(f'/proc/{pid}/task/{pid}/children').read_text().split()]
+    except (OSError, ValueError):
+        return []
+
+
+def _schedstat_app_targets(root_pid, binary):
+    pending=[root_pid];descendants=[];seen=set()
+    while pending:
+        parent=pending.pop()
+        if parent in seen:continue
+        seen.add(parent);children=_proc_children(parent);descendants.extend(children);pending.extend(children)
+    app_pids=[pid for pid in descendants if _proc_executable(pid)==binary.resolve()]
+    if len(app_pids)!=1:raise RuntimeError('Could not uniquely identify private Burrata PID for schedstat')
+    app_pid=app_pids[0]
+    return app_pid,[{'role':'burrata','pid':app_pid}]
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--payload',type=Path,required=True)
@@ -615,9 +673,19 @@ def main():
                         help='Maximum separate post-first-audio capture phase for reported tracks (5 or 6 seconds)')
     parser.add_argument('--ipc-counter',action='store_true',help='Enable PID-gated WebView ::ipc counting for idle-ipc only')
     parser.add_argument('--ipc-counter-shim',type=Path,help='Built private IPC counter shared object')
+    parser.add_argument('--startup-diagnostics',action='store_true',
+                        help='Opt in to safe startup/decoder diagnostics exported only after startup timing and pause')
+    parser.add_argument('--startup-diagnostics-no-console-trace',action='store_true',
+                        help='Export the same post-pause diagnostics without enabling application console trace flags')
+    parser.add_argument('--schedstat-diagnostic',action='store_true',
+                        help='Opt in to private unprivileged per-thread schedstat sampling for startup phase attribution')
     parser.add_argument('--controller',type=Path,default=Path('/tmp/burrata-queue-recovery-private-audio-controller.py'))
     parser.add_argument('--xvfb',type=Path,default=Path('/tmp/burrata-private-xvfb/root/usr/bin/Xvfb'))
     args=parser.parse_args()
+    if (args.startup_diagnostics or args.startup_diagnostics_no_console_trace or args.schedstat_diagnostic) and args.mode!='startup':
+        parser.error('startup diagnostics options are valid only with --mode startup')
+    if sum((args.startup_diagnostics, args.startup_diagnostics_no_console_trace, args.schedstat_diagnostic)) > 1:
+        parser.error('choose only one startup diagnostics option')
     reported_options = [args.preferred_streaming_source, args.fallback_sources,
                         args.disable_streaming_fallback, args.expected_source_provider]
     if args.reported_tracks:
@@ -709,6 +777,12 @@ def main():
         app_launched_at_unix_ms=time.time()*1000
         app_command=['dbus-run-session','--config-file='+str(audio.DBUS_CONF),'--',binary]
         app_environment=env
+        if args.startup_diagnostics:
+            app_environment=dict(env,BURRATA_STARTUP_TRACE='1',BURRATA_PLAYBACK_TRACE='1',BURRATA_PERF_TRACE='1')
+        elif args.startup_diagnostics_no_console_trace or args.schedstat_diagnostic:
+            app_environment=dict(env)
+            for key in ('BURRATA_STARTUP_TRACE','BURRATA_PLAYBACK_TRACE','BURRATA_PERF_TRACE'):
+                app_environment.pop(key,None)
         if args.mode=='idle-ipc':
             wrapper=profile/'launch-ipc-counter-target.sh'
             wrapper.write_text('#!/bin/sh\nBURRATA_IPC_COUNTER_PID=$$\nexport BURRATA_IPC_COUNTER_PID\nexec "$@"\n')
@@ -763,6 +837,40 @@ def main():
             children.append(recorder)
             result['captureStartedAtUnixMs']=time.time()*1000
             time.sleep(.3)
+        schedstat_sampler=None
+        schedstat_output=profile/'schedstat-samples.json'
+        schedstat_markers=profile/'schedstat-markers.ndjson'
+        if args.schedstat_diagnostic:
+            app_pid,schedstat_targets=_schedstat_app_targets(app.pid,binary)
+            audio_state=audio.running_state()
+            if audio_state.get('status')!='ready-private-no-sinks':
+                raise RuntimeError('Private audio controller state changed before schedstat sampling')
+            audio_role={'pipewire':'pipewire','wireplumber':'wireplumber','pipewire-pulse':'pipewire-pulse'}
+            service={'pid':audio_state.get('servicePid'),'exe':audio_state.get('serviceExe'),
+                     'startTime':audio_state.get('serviceStartTime')}
+            if not audio.process_matches_record(service):
+                raise RuntimeError('Private audio controller identity changed before schedstat sampling')
+            schedstat_targets.append({'role':'audio-controller','pid':service['pid']})
+            for child in audio_state.get('children',[]):
+                role=audio_role.get(child.get('name'))
+                if role and audio.process_matches_record(child):
+                    schedstat_targets.append({'role':role,'pid':child['pid']})
+            schedstat_targets.append({'role':'parec','pid':recorder.pid})
+            sampler_env={'PATH':os.environ.get('PATH','/usr/bin:/bin'),'PYTHONNOUSERSITE':'1'}
+            schedstat_sampler=subprocess.Popen(
+                [sys.executable,ROOT/'scripts/performance/native_schedstat_sampler.py',
+                 '--output',schedstat_output,'--markers',schedstat_markers,'--interval-ms','10'],
+                cwd=ROOT,env=sampler_env,stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,
+                stderr=(profile/'schedstat-sampler.log').open('wb'),start_new_session=True)
+            children.append(schedstat_sampler)
+            schedstat_sampler.stdin.write(json.dumps(schedstat_targets).encode('utf-8'))
+            schedstat_sampler.stdin.close()
+            result['schedstatDiagnostic']={'scope':'private per-thread schedstat startup diagnostic only',
+                'samplingIntervalMs':10,'targetRoles':sorted({target['role'] for target in schedstat_targets}),
+                'appProcessIdentityVerified':_proc_executable(app_pid)==binary.resolve(),
+                'privateAudioProcessCount':sum(target['role']=='audio-controller' or target['role'] in audio_role.values() for target in schedstat_targets),
+                'captureRecorderIncluded':True,'webkitAndXvfbExcludedFromHotLoop':True,
+                'processGlobalCpuPressureIncluded':True}
         mcp=resources/'tools/x86_64-unknown-linux-gnu/burrata-mcp'
         mode='aac' if args.mode=='malformed-aac' else 'incidents' if args.mode in ['broken-download','recovery-baseline','broken-playable','decoder-recovery','nipsey'] else args.mode
         if mode=='performance':
@@ -775,7 +883,15 @@ def main():
                 cwd=ROOT,env=env,text=True,capture_output=True,timeout=100)
             (profile/'native-content-gate.txt').write_text(gate.stdout+gate.stderr)
             result['nativeContentGatePassed']=gate.returncode==0
-        control=subprocess.run(['node',str(ROOT/'scripts/performance/native_runtime_capture.mjs'),str(profile),str(mcp),mode],
+        control_command=['node',str(ROOT/'scripts/performance/native_runtime_capture.mjs'),str(profile),str(mcp),mode]
+        if args.startup_diagnostics:
+            control_command.append('--startup-diagnostics')
+        elif args.startup_diagnostics_no_console_trace:
+            control_command.append('--startup-diagnostics-no-console-trace')
+        if args.schedstat_diagnostic:
+            control_command.append('--schedstat-diagnostic')
+            env['BURRATA_SCHEDSTAT_MARKER_PATH']=str(schedstat_markers)
+        control=subprocess.run(control_command,
             cwd=ROOT,env=env,text=True,capture_output=True,timeout=900 if mode=='source-audition' else 960 if mode=='full-nipsey' else 560 if mode=='full-incidents' else 420 if mode=='incidents' else 120)
         (profile/'controller.txt').write_text(control.stdout+control.stderr)
         time.sleep(.4)
@@ -783,6 +899,25 @@ def main():
             if recorder.poll() is not None:raise RuntimeError('Output recorder exited before completion; capture is unqualified')
             recorder.terminate();recorder.wait(timeout=5);capture_file.close()
         result['runtime']=json.loads((profile/'runtime-result.json').read_text())
+        if schedstat_sampler is not None:
+            schedstat_sampler.terminate()
+            schedstat_sampler.wait(timeout=5)
+            if schedstat_output.is_file():
+                scheduler=json.loads(schedstat_output.read_text())
+                enrich_phase_intervals(scheduler,result['runtime'])
+                result['schedstatDiagnostic']['sampler']=scheduler
+                result['schedstatDiagnostic']['samplerExitCode']=schedstat_sampler.returncode
+            else:
+                result['schedstatDiagnostic']['samplerExitCode']=schedstat_sampler.returncode
+                result['schedstatDiagnostic']['error']='sampler_output_missing'
+        if args.startup_diagnostics or args.startup_diagnostics_no_console_trace:
+            result['startupPerformanceTrace']={
+                'environmentFlags':({'BURRATA_STARTUP_TRACE':'1','BURRATA_PLAYBACK_TRACE':'1','BURRATA_PERF_TRACE':'1'}
+                    if args.startup_diagnostics else {'BURRATA_STARTUP_TRACE':None,'BURRATA_PLAYBACK_TRACE':None,'BURRATA_PERF_TRACE':None}),
+                'consoleTraceEnvironmentEnabled':args.startup_diagnostics,
+                'note':'Only fixed startup marks and quality-facts worker timing events are projected; raw app stderr is not copied into this field.',
+                'events':safe_startup_performance_trace(profile/'app.log'),
+            }
         if mode=='performance':
             profiler.wait(timeout=25)
             import numpy as np

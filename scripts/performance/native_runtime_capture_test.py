@@ -1,12 +1,63 @@
 """Check that qualification gates reject plausible but incorrect audio captures."""
 from pathlib import Path
-from contextlib import closing
+from contextlib import closing, redirect_stderr
+from io import StringIO
 import tempfile
 import json
 import sqlite3
 import unittest
+from unittest.mock import patch
 import numpy as np
-from native_runtime_capture import summarize_capture, assess_normalization, assess_source_audition_pcm, assess_full_recording_pcm, assess_stereo_markers, assess_audition_queue_checkpoint, load_reported_track_fixture, parse_streaming_fallback_sources, reported_track_case_gate
+import native_runtime_capture as capture
+from native_runtime_capture import summarize_capture, assess_normalization, assess_source_audition_pcm, assess_full_recording_pcm, assess_stereo_markers, assess_audition_queue_checkpoint, load_reported_track_fixture, parse_streaming_fallback_sources, reported_track_case_gate, safe_startup_performance_trace
+
+
+class StartupDiagnosticCliTests(unittest.TestCase):
+    def test_conflicting_diagnostic_modes_fail_before_launching_any_process(self):
+        options = ['--startup-diagnostics', '--startup-diagnostics-no-console-trace', '--schedstat-diagnostic']
+        combinations = [(options[0], options[1]), (options[0], options[2]),
+                        (options[1], options[2]), tuple(options)]
+        for flags in combinations:
+            with self.subTest(flags=flags), patch('sys.argv', ['native_runtime_capture.py',
+                    '--payload', '/tmp/not-used-payload', '--evidence', '/tmp/not-used-evidence',
+                    '--mode', 'startup', *flags]), redirect_stderr(StringIO()) as stderr:
+                with self.assertRaises(SystemExit) as error:
+                    capture.main()
+                self.assertEqual(error.exception.code, 2)
+                self.assertIn('choose only one startup diagnostics option', stderr.getvalue())
+
+
+class StartupPerformanceTraceTests(unittest.TestCase):
+    def test_only_fixed_startup_and_quality_worker_timing_lines_are_projected(self):
+        lines='\n'.join([
+            '[startup] phase=store.open.begin elapsed_ms=0',
+            '[startup] phase=store.open.end elapsed_ms=17',
+            '[perf] quality_facts.select assets=0 elapsed_ms=490',
+            '[perf] quality_facts.hash item=1 matches=true elapsed_ms=22',
+            '[perf] quality_facts.inspect item=1 saved=false elapsed_ms=3',
+            '[perf] quality_facts.inspect item=2 outcome=error elapsed_ms=4',
+            '[perf] quality_facts.total elapsed_ms=520',
+            '[perf] quality_facts.inspect item=3 saved=true elapsed_ms=5 private response body',
+            '[perf] quality_facts.inspect item=4 saved=maybe elapsed_ms=6',
+            'burrata_playback_phase {"phase":"decoder_end","details":{"url":"private"}}',
+            'ordinary log contains private text',
+        ])
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'app.log';path.write_text(lines)
+            result=safe_startup_performance_trace(path)
+        self.assertEqual(result,[
+            {'kind':'startup_phase','phase':'store.open.begin','elapsedMs':0},
+            {'kind':'startup_phase','phase':'store.open.end','elapsedMs':17},
+            {'kind':'quality_facts_select','assets':0,'elapsedMs':490},
+            {'kind':'quality_facts_hash','item':1,'matches':True,'elapsedMs':22},
+            {'kind':'quality_facts_inspect','item':1,'saved':False,'elapsedMs':3},
+            {'kind':'quality_facts_inspect','item':2,'outcome':'error','elapsedMs':4},
+            {'kind':'quality_facts_total','elapsedMs':520},
+        ])
+
+    def test_missing_startup_log_is_an_empty_diagnostic_sample(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertEqual(safe_startup_performance_trace(Path(folder)/'missing.log'),[])
 
 
 class ReportedTrackFixtureTests(unittest.TestCase):
