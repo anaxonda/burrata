@@ -26,6 +26,9 @@ jobs:
         with:
           node-version: "24.21.0"
           cache: npm
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
