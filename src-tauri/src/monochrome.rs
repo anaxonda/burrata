@@ -854,24 +854,69 @@ mod tests {
         let body_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let body_address = body_listener.local_addr().unwrap();
         let body_server = tokio::spawn(async move {
-            let (mut socket, _) = body_listener.accept().await.unwrap();
+            let accepted = tokio::time::timeout(Duration::from_secs(2), body_listener.accept())
+                .await
+                .expect("body fixture accept timed out")
+                .expect("body fixture accept failed");
+            let (mut socket, _) = accepted;
             use tokio::io::AsyncWriteExt;
+            let mut request_headers = Vec::with_capacity(512);
+            let mut byte = [0u8; 1];
+            let headers_complete = tokio::time::timeout(Duration::from_secs(2), async {
+                loop {
+                    let read = socket.read(&mut byte).await?;
+                    if read == 0 {
+                        return Ok::<bool, std::io::Error>(false);
+                    }
+                    request_headers.push(byte[0]);
+                    if request_headers.ends_with(b"\r\n\r\n") {
+                        return Ok(true);
+                    }
+                    if request_headers.len() >= 8192 {
+                        return Ok(false);
+                    }
+                }
+            })
+            .await;
+            assert!(
+                matches!(headers_complete, Ok(Ok(true))),
+                "body fixture did not receive complete bounded request headers"
+            );
             socket
                 .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 40\r\nConnection: close\r\n\r\n{")
                 .await
-                .unwrap();
+                .expect("body fixture response write failed");
+            socket
+                .flush()
+                .await
+                .expect("body fixture response flush failed");
+            socket
+                .shutdown()
+                .await
+                .expect("body fixture response shutdown failed");
         });
         let body_client = Client::at_with_timeout(
             &format!("http://{body_address}"),
             Duration::from_millis(200),
         )
         .unwrap();
-        assert!(body_client
-            .search("title")
-            .await
-            .unwrap_err()
-            .contains("transport body failed"));
-        body_server.abort();
+        let error = body_client.search("title").await.unwrap_err();
+        body_server.await.unwrap();
+        let safe_category = match error.as_str() {
+            "Monochrome search transport body failed" => "body",
+            "Monochrome search transport connect failed" => "connect",
+            "Monochrome search transport request failed" => "request",
+            "Monochrome search transport timeout failed" => "timeout",
+            _ => "unrecognized",
+        };
+        assert_eq!(
+            safe_category, "body",
+            "unexpected safe transport category: {safe_category}"
+        );
+        assert!(
+            !error.contains("title") && !error.contains(&body_address.to_string()),
+            "body transport error contained private input"
+        );
     }
 
     #[test]
