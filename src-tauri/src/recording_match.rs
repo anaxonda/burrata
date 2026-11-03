@@ -4154,14 +4154,14 @@ mod tests {
         );
 
         let wrong_version_request = Track {
-            version: Some("Studio Recording".into()),
+            version: Some("Radio Edit".into()),
             ..request.clone()
         };
         let live_caption = "Amame (Live) - Maryto y su Salson";
         let wrong_version = Candidate {
             title: "Maryto y su Salson (Live)".into(),
             source_metadata: Some(json!({
-                "sourceMetadataOrigin":"ytDlpCandidateMetadata",
+                "sourceMetadataOrigin":"ytDlpFullInfo",
                 "resolvedProviderId":"live-caption-fixture",
                 "track":live_caption,
                 "catalogTitle":live_caption,
