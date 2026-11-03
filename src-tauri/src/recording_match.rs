@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) const EVALUATOR_VERSION: &str = "24";
+pub(crate) const EVALUATOR_VERSION: &str = "25";
 
 /// Independently selected categories of alternatives for Flexible matching.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -3193,10 +3193,11 @@ fn assess_prepared_inner(
         && isrc != Comparison::Conflict
         && flexible_runtime_eligible;
     // When every version category is explicitly enabled, a fresh, source-ID
-    // bound single YouTube recording with exact known title/performer/runtime
-    // evidence may be accepted as an unspecified-version alternative. This
-    // does not claim its performer list is complete and does not unlock
-    // artist changes, missing runtime, or weakly sourced candidates.
+    // bound single YouTube recording with exact known title/performer evidence
+    // and runtime agreement or an explicitly allowed bounded duration may be
+    // accepted as an unspecified-version alternative. This does not claim its
+    // performer list is complete or unlock artist changes, missing runtime,
+    // or weakly sourced candidates.
     let broad_unversioned_alternative = level == MatchLevel::Flexible
         && stage == MatchStage::Resolved
         && options.allow_other_releases
@@ -3208,7 +3209,8 @@ fn assess_prepared_inner(
         && facts.complete_fresh_extractor_recording
         && title == Comparison::Agree
         && artists == Comparison::Agree
-        && runtime == Comparison::Agree
+        && (runtime == Comparison::Agree
+            || options.allow_different_lengths && configured_length_alternative)
         && target_runtime.is_some()
         && candidate_runtime.is_some()
         && facts.missing_performers.is_empty()
@@ -6213,6 +6215,252 @@ mod tests {
             MatchAction::Accept,
             "unknown candidate duration cannot satisfy a configured length alternative"
         );
+    }
+
+    #[test]
+    fn fresh_restored_edition_substitute_respects_explicit_runtime_bounds_and_guards() {
+        let request = Track {
+            id: "catalog:musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:5:1:078741e5-6a67-411e-b071-80ccc96586d2".into(),
+            provider: "catalog".into(),
+            provider_id: "musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:5:1:078741e5-6a67-411e-b071-80ccc96586d2".into(),
+            title: "Out of Nowhere (Restored Edition '25)".into(),
+            artist: "Django Reinhardt & Coleman Hawkins".into(),
+            duration_seconds: Some(196.0),
+            provenance: json!({
+                "catalogProvider":"musicbrainz",
+                "recordingId":"078741e5-6a67-411e-b071-80ccc96586d2",
+                "artistCredits":[
+                    {
+                        "artist":{"id":"650bf385-6f6d-4992-a3b9-779d144920a4","provider":"musicbrainz"},
+                        "creditedAs":"Django Reinhardt",
+                        "joinPhrase":" & ",
+                        "name":"Django Reinhardt",
+                        "role":"artist credit"
+                    },
+                    {
+                        "artist":{"id":"5c8cb181-38fe-4300-8153-650b2ed0258f","provider":"musicbrainz"},
+                        "creditedAs":"Coleman Hawkins",
+                        "joinPhrase":"",
+                        "name":"Coleman Hawkins",
+                        "role":"artist credit"
+                    }
+                ]
+            }),
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:OutOfNow001".into(),
+            title: "Out of Nowhere".into(),
+            duration_seconds: Some(200.0),
+            source_metadata: Some(json!({
+                "provider":"youtube",
+                "resolvedProviderId":"OutOfNow001",
+                "sourceMetadataOrigin":"ytDlpFullInfo",
+                "track":"Out of Nowhere",
+                "catalogTitle":"Out of Nowhere",
+                "artistNames":["Django Reinhardt","Coleman Hawkins"],
+                "duration":200.0
+            })),
+            ..Candidate::default()
+        };
+        let options = FlexibleMatchingOptions {
+            allow_other_releases: true,
+            allow_other_performances: true,
+            allow_other_mixes: true,
+            allow_different_lengths: true,
+            max_longer_by_seconds: 30,
+            ..Default::default()
+        };
+
+        let positive = assess_with_options(
+            &request,
+            &candidate,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &options,
+        );
+        assert_eq!(positive.dimensions.title, Comparison::Agree, "{positive:?}");
+        assert_eq!(
+            positive.dimensions.artists,
+            Comparison::Agree,
+            "{positive:?}"
+        );
+        assert_eq!(
+            positive.dimensions.runtime,
+            Comparison::Conflict,
+            "{positive:?}"
+        );
+        assert_eq!(
+            positive.dimensions.version,
+            Comparison::Unknown,
+            "{positive:?}"
+        );
+        assert_eq!(
+            positive.relationship,
+            MatchRelationship::Alternative,
+            "{positive:?}"
+        );
+        assert_eq!(positive.action, MatchAction::Accept, "{positive:?}");
+
+        let mut too_long = options;
+        too_long.max_longer_by_seconds = 3;
+        assert_ne!(
+            assess_with_options(
+                &request,
+                &candidate,
+                MatchLevel::Flexible,
+                MatchStage::Resolved,
+                &too_long,
+            )
+            .action,
+            MatchAction::Accept,
+            "a four-second delta exceeds the saved three-second bound"
+        );
+        let mut lengths_disabled = options;
+        lengths_disabled.allow_different_lengths = false;
+        assert_ne!(
+            assess_with_options(
+                &request,
+                &candidate,
+                MatchLevel::Flexible,
+                MatchStage::Resolved,
+                &lengths_disabled,
+            )
+            .action,
+            MatchAction::Accept,
+            "the unspecified-version path cannot bypass the disabled length option"
+        );
+        for level in [MatchLevel::Exact, MatchLevel::Balanced] {
+            assert_ne!(
+                assess_with_options(&request, &candidate, level, MatchStage::Resolved, &options,)
+                    .action,
+                MatchAction::Accept,
+                "the saved Flexible alternative does not alter {level:?}"
+            );
+        }
+
+        let mut wrong_artist = candidate.clone();
+        wrong_artist.source_metadata.as_mut().unwrap()["artistNames"] =
+            json!(["Different Performer"]);
+        let wrong_artist_assessment = assess_with_options(
+            &request,
+            &wrong_artist,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &options,
+        );
+        assert_eq!(
+            wrong_artist_assessment.dimensions.artists,
+            Comparison::Conflict,
+            "{wrong_artist_assessment:?}"
+        );
+        assert_ne!(
+            wrong_artist_assessment.action,
+            MatchAction::Accept,
+            "an unrelated performer must not be admitted by the duration option"
+        );
+
+        let mut wrong_source = candidate.clone();
+        wrong_source.source_metadata.as_mut().unwrap()["resolvedProviderId"] = json!("Different01");
+        assert_ne!(
+            assess_with_options(
+                &request,
+                &wrong_source,
+                MatchLevel::Flexible,
+                MatchStage::Resolved,
+                &options,
+            )
+            .action,
+            MatchAction::Accept,
+            "fresh metadata must remain bound to the selected YouTube source"
+        );
+
+        let mut wrong_version = candidate.clone();
+        wrong_version.title = "Out of Nowhere (Original Version)".into();
+        wrong_version.source_metadata.as_mut().unwrap()["track"] =
+            json!("Out of Nowhere (Original Version)");
+        wrong_version.source_metadata.as_mut().unwrap()["catalogTitle"] =
+            json!("Out of Nowhere (Original Version)");
+        wrong_version.source_metadata.as_mut().unwrap()["version"] = json!("Original Version");
+        let wrong_version_assessment = assess_with_options(
+            &request,
+            &wrong_version,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &options,
+        );
+        assert_eq!(
+            wrong_version_assessment.dimensions.version,
+            Comparison::Conflict,
+            "{wrong_version_assessment:?}"
+        );
+        assert_ne!(
+            wrong_version_assessment.action,
+            MatchAction::Accept,
+            "a known contradictory version must not use the unspecified-version path"
+        );
+
+        let mut wrong_isrc_request = request.clone();
+        wrong_isrc_request.isrc = Some("USABC2600001".into());
+        let mut wrong_isrc = candidate.clone();
+        wrong_isrc.source_metadata.as_mut().unwrap()["isrc"] = json!("USXYZ2600002");
+        let wrong_isrc_assessment = assess_with_options(
+            &wrong_isrc_request,
+            &wrong_isrc,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &options,
+        );
+        assert_eq!(
+            wrong_isrc_assessment.dimensions.isrc,
+            Comparison::Conflict,
+            "{wrong_isrc_assessment:?}"
+        );
+        assert_ne!(
+            wrong_isrc_assessment.action,
+            MatchAction::Accept,
+            "a conflicting ISRC remains a hard identity guard"
+        );
+
+        for artists in [
+            json!(["Django Reinhardt"]),
+            json!([
+                "Django Reinhardt",
+                "Coleman Hawkins",
+                "Unexpected Performer"
+            ]),
+        ] {
+            let mut incomplete_or_extra = candidate.clone();
+            incomplete_or_extra.source_metadata.as_mut().unwrap()["artistNames"] = artists;
+            let assessment = assess_with_options(
+                &request,
+                &incomplete_or_extra,
+                MatchLevel::Flexible,
+                MatchStage::Resolved,
+                &options,
+            );
+            assert!(
+                !assessment
+                    .evidence
+                    .as_ref()
+                    .unwrap()
+                    .missing_performers
+                    .is_empty()
+                    || !assessment
+                        .evidence
+                        .as_ref()
+                        .unwrap()
+                        .extra_performers
+                        .is_empty(),
+                "expected a performer coverage difference: {assessment:?}"
+            );
+            assert_ne!(
+                assessment.action,
+                MatchAction::Accept,
+                "missing or extra performer evidence must remain outside this exception"
+            );
+        }
     }
 
     #[test]
