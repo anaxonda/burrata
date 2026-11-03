@@ -6732,25 +6732,18 @@ impl AutomationService {
                 json!({"candidate":inspected})
             }
             "assess_download_source" => {
-                let track = required_track(&self.store, &str_arg(&a, "trackId", 300)?)?;
+                let track_id = str_arg(&a, "trackId", 300)?;
                 let candidate: Candidate = serde_json::from_value(
                     a.get("candidate")
                         .cloned()
                         .ok_or_else(|| ToolError::bad("An explicit candidate is required"))?,
                 )
                 .map_err(|e| ToolError::bad(e.to_string()))?;
-                let level = self
-                    .store
-                    .settings()
-                    .map_err(ToolError::failed)?
-                    .matching_level;
-                json!(crate::recording_match_context::assess(
+                json!(assess_download_source_with_saved_settings(
                     &self.store,
-                    &track,
+                    &track_id,
                     &candidate,
-                    level,
-                    crate::recording_match::MatchStage::Resolved,
-                ))
+                )?)
             }
             "browse_soulseek_directory" => {
                 let (_cancel, receiver) = tokio::sync::watch::channel(false);
@@ -8133,6 +8126,17 @@ fn required_track(store: &Store, id: &str) -> Result<Track, ToolError> {
             message: "Track was not found".into(),
         })
 }
+
+fn assess_download_source_with_saved_settings(
+    store: &Store,
+    track_id: &str,
+    candidate: &Candidate,
+) -> Result<crate::recording_match::MatchAssessment, ToolError> {
+    let track = required_track(store, track_id)?;
+    crate::download_verification::assess_with_saved_matching_settings(store, &track, candidate)
+        .map_err(ToolError::failed)
+}
+
 fn safe_track(track: Track) -> Value {
     let mut value = serde_json::to_value(track).unwrap_or_else(|_| json!({}));
     strip_file_fields(&mut value);
@@ -11605,6 +11609,152 @@ mod tests {
             json!(["trackId", "candidate"])
         );
         assert_eq!(tool["inputSchema"]["additionalProperties"], false);
+    }
+
+    #[test]
+    fn assess_download_source_uses_saved_flexible_matching_options() {
+        use crate::recording_match::{
+            AlternativeKind, FlexibleMatchingOptions, MatchAction, MatchLevel, MatchRelationship,
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("automation-assess.sqlite")).unwrap();
+        let track = Track {
+            id: "musicbrainz:11111111-1111-4111-8111-111111111111".into(),
+            provider: "musicbrainz".into(),
+            provider_id: "11111111-1111-4111-8111-111111111111".into(),
+            artist: "Main Artist".into(),
+            title: "Song".into(),
+            duration_seconds: Some(200.0),
+            isrc: Some("USABC2600001".into()),
+            provenance: json!({"catalogProvider":"musicbrainz","recordingId":"11111111-1111-4111-8111-111111111111"}),
+            ..Track::default()
+        };
+        store.save_track(&track).unwrap();
+
+        let options = FlexibleMatchingOptions {
+            allow_other_performances: true,
+            allow_different_lengths: true,
+            max_shorter_by_seconds: 10,
+            max_longer_by_seconds: 60,
+            ..Default::default()
+        };
+        let settings = Settings {
+            matching_level: MatchLevel::Flexible,
+            flexible_matching: options,
+            ..Settings::default()
+        };
+        store.save_settings(&settings).unwrap();
+
+        let candidate = Candidate {
+            id: "monochrome:1234567".into(),
+            provider: "monochrome".into(),
+            url: "https://tracks.monochrome.st/track/1234567".into(),
+            title: "Song (Live)".into(),
+            duration_seconds: Some(250.0),
+            source_metadata: Some(json!({
+                "provider":"monochrome",
+                "trackId":"1234567",
+                "catalogTitle":"Song (Live)",
+                "artistNames":["Main Artist"],
+                "artistCount":1,
+                "performerCreditsComplete":true,
+                "duration":250.0,
+                "isrc":"USABC2600001"
+            })),
+            ..Candidate::default()
+        };
+
+        let saved_track = required_track(&store, &track.id).unwrap();
+        let default_context_assessment = crate::recording_match_context::assess(
+            &store,
+            &saved_track,
+            &candidate,
+            MatchLevel::Flexible,
+            crate::recording_match::MatchStage::Resolved,
+        );
+        assert_eq!(
+            default_context_assessment.action,
+            MatchAction::Reject,
+            "the assessment context default does not contain the saved options: {default_context_assessment:?}"
+        );
+
+        let accepted = assess_download_source_with_saved_settings(&store, &track.id, &candidate)
+            .expect("saved track and settings are available");
+        assert_eq!(accepted.action, MatchAction::Accept, "{accepted:?}");
+        assert_eq!(
+            accepted.relationship,
+            MatchRelationship::Alternative,
+            "{accepted:?}"
+        );
+        assert_eq!(
+            accepted.alternative_kind,
+            Some(AlternativeKind::Performance)
+        );
+        assert_eq!(
+            accepted.dimensions.runtime,
+            crate::recording_match::Comparison::Conflict
+        );
+
+        let mut disabled_options = options;
+        disabled_options.allow_other_performances = false;
+        store
+            .save_settings(&Settings {
+                flexible_matching: disabled_options,
+                ..settings.clone()
+            })
+            .unwrap();
+        let disabled = assess_download_source_with_saved_settings(&store, &track.id, &candidate)
+            .expect("saved track and settings are available");
+        assert_eq!(disabled.action, MatchAction::Reject, "{disabled:?}");
+
+        store.save_settings(&settings).unwrap();
+        let mut duration_outside_saved_limit = options;
+        duration_outside_saved_limit.max_longer_by_seconds = 49;
+        store
+            .save_settings(&Settings {
+                flexible_matching: duration_outside_saved_limit,
+                ..settings.clone()
+            })
+            .unwrap();
+        let duration_outside_saved_limit =
+            assess_download_source_with_saved_settings(&store, &track.id, &candidate)
+                .expect("saved track and settings are available");
+        assert_eq!(
+            duration_outside_saved_limit.action,
+            MatchAction::Reject,
+            "{duration_outside_saved_limit:?}"
+        );
+
+        store.save_settings(&settings).unwrap();
+        let mut wrong_artist = candidate.clone();
+        wrong_artist.title = "Wrong Artist - Song (Live)".into();
+        wrong_artist.source_metadata.as_mut().unwrap()["artistNames"] = json!(["Wrong Artist"]);
+        let wrong_artist =
+            assess_download_source_with_saved_settings(&store, &track.id, &wrong_artist)
+                .expect("saved track and settings are available");
+        assert_eq!(wrong_artist.action, MatchAction::Reject, "{wrong_artist:?}");
+
+        let mut source_binding_track = track.clone();
+        source_binding_track.id = "musicbrainz:22222222-2222-4222-8222-222222222222".into();
+        source_binding_track.provider_id = "22222222-2222-4222-8222-222222222222".into();
+        source_binding_track.provenance["recordingId"] =
+            json!("22222222-2222-4222-8222-222222222222");
+        source_binding_track.isrc = None;
+        store.save_track(&source_binding_track).unwrap();
+        let mut mismatched_source_id = candidate.clone();
+        mismatched_source_id.source_metadata.as_mut().unwrap()["trackId"] = json!("7654321");
+        let mismatched_source_id = assess_download_source_with_saved_settings(
+            &store,
+            &source_binding_track.id,
+            &mismatched_source_id,
+        )
+        .expect("saved track and settings are available");
+        assert_ne!(
+            mismatched_source_id.action,
+            MatchAction::Accept,
+            "{mismatched_source_id:?}"
+        );
     }
     #[test]
     fn malformed_arguments_are_rejected_and_missing_tracks_are_typed() {

@@ -1,6 +1,28 @@
 //! Eligibility is only permission to consider identification, never publication.
 use crate::recording_match::{Comparison, MatchAction, MatchAssessment, MatchReason};
 
+/// Use the same persisted matching policy for the download assessment shown
+/// by the UI and the read-only automation tool. The caller supplies the
+/// already-selected track identity; candidate metadata never replaces it.
+pub(crate) fn assess_with_saved_matching_settings(
+    store: &crate::Store,
+    track: &crate::models::Track,
+    candidate: &crate::models::Candidate,
+) -> Result<MatchAssessment, String> {
+    let settings = store.settings()?;
+    let mut context = crate::recording_match_context::AssessmentContext::with_flexible_options(
+        settings.flexible_matching,
+    );
+    Ok(crate::recording_match_context::assess_with_context(
+        store,
+        track,
+        candidate,
+        settings.matching_level,
+        crate::recording_match::MatchStage::Resolved,
+        &mut context,
+    ))
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DownloadAssessment {

@@ -215,7 +215,144 @@ const REPORTED_DIAGNOSTIC_ENUM_KEYS = new Map([
   ['reason',new Set(['cdn_destination_changed','insufficient_time','recovery_budget_exhausted','ordinary_resolution_succeeded','ineligible','no_artist_identity_block','distinct_semantic_versions','source_binding_mismatch','unsupported_or_unmatched','negative_cache'])],
 ]);
 
-function safeReportedDiagnosticDetails(value) {
+const REPORTED_GATE_PROVIDERS=new Set(['youtube','soundcloud','monochrome','other']);
+const REPORTED_GATE_CONFIDENCE=new Set(['high','review','low','unknown']);
+const REPORTED_GATE_PERMISSION=new Set(['restricted','unknown','allowed','other']);
+const REPORTED_GATE_PATHS=new Set([
+  'policy_exact','policy_probable','policy_inspect','policy_alternative','recording_canonical',
+  'recording_verified_alias','topic_canonical','topic_verified_alias','music_catalog_locator',
+  'provisional_canonical','provisional_verified_alias','rejected',
+]);
+const REPORTED_SHARED_ACTIONS=new Set(['inspect','accept','enrich','reject']);
+const REPORTED_SHARED_RELATIONSHIPS=new Set(['exact','probable','alternative','unresolved']);
+const REPORTED_COMPARISONS=new Set(['agree','unknown','conflict']);
+const REPORTED_SHARED_DIMENSIONS=['title','artists','guests','version','runtime','isrc','work'];
+const REPORTED_SHARED_REASONS=new Set([
+  'titleAgrees','titleConflict','artistAgrees','artistConflict','sourceIdentityConflict','guestAgrees',
+  'guestMissing','guestConflict','versionAgrees','versionConflict','unspecifiedVersionAllowed',
+  'runtimeAgrees','runtimeConflict','durationLimitExceeded','runtimeVarianceAccepted',
+  'recordingScopedRuntimeVariant','recordingScopedTitleAlias','filenameCaptionOnly','isrcAgrees',
+  'isrcConflict','workLinked','insufficientEvidence','extractorNeedsInspection','permissionRestricted',
+  'previewTooShort','conflictingRequestIdentifiers','titleCreditHintUnverified','unresolvedAnnotation',
+  'emptyIdentityKey','conflictingRequestVersions','conflictingCandidateVersions','parsingIncomplete',
+]);
+const REPORTED_PROOF_KINDS=new Set(['none','recording','verified_extractor','youtube_music_catalog','explicit_source']);
+const REPORTED_GATE_COUNT_KEYS=new Set([
+  'candidatesEvaluatedBeforeForegroundCap','policyExact','policyProbable','policyInspect','policyAlternative',
+  'acceptedRecordingCanonical','acceptedRecordingVerifiedAlias','acceptedTopicCanonical','acceptedTopicVerifiedAlias',
+  'acceptedMusicCatalogLocator','acceptedProvisionalCanonical','acceptedProvisionalVerifiedAlias','rejectedAllGates',
+  'permissionRestricted','confidenceLow','versionConflictReasonFlagAsciiCaseInsensitive','requestedVersionPresent',
+  'requestedVersionTextPresentInCandidateTitle','expectedDurationMissingOrInvalid','candidateDurationMissingOrInvalid',
+  'durationDeltaLe5s','durationDeltaGt5s','requestedTitlePhrasePresentInCandidateTitle',
+  'canonicalArtistPhrasePresentInCandidateTitle','verifiedAliasArtistPhrasePresentInCandidateTitle',
+  'monochromeCatalogTitleExact','uploaderMatchesCanonicalArtistCredit','uploaderMatchesVerifiedAliasCredit',
+]);
+const REPORTED_GATE_BOOLEAN_FIELDS=[
+  'requestedTitlePhrasePresent','catalogTitleExact','canonicalArtistPhrasePresent',
+  'verifiedAliasArtistPhrasePresent','recordingCanonicalMatch','recordingVerifiedAliasMatch',
+  'topicCanonicalMatch','topicVerifiedAliasMatch','provisionalCanonicalMatch','provisionalVerifiedAliasMatch',
+  'descriptiveDurationWithinFiveSeconds','requestedVersionPresent',
+  'descriptiveVersionTextPresentOrNotRequired','versionConflictFlag',
+];
+const REPORTED_FULL_IDENTITY_BOOLEAN_FIELDS=[
+  'ok','providerIdMatches','resolvedTitlePresent','topicUploader','requestedVersion',
+];
+
+function safeDiagnosticCount(value,maximum=1_000_000) {
+  return Number.isSafeInteger(value)&&value>=0?Math.min(value,maximum):null;
+}
+
+function safeDiagnosticDuration(value) {
+  return typeof value==='number'&&Number.isFinite(value)&&value>=0&&value<=86_400?value:null;
+}
+
+function safeReportedGateCounts(value) {
+  if(!value||typeof value!=='object'||Array.isArray(value))return {};
+  const result={};
+  for(const key of REPORTED_GATE_COUNT_KEYS) {
+    const count=safeDiagnosticCount(value[key]);
+    if(count!==null)result[key]=count;
+  }
+  return result;
+}
+
+function safeReportedSharedDimensions(value) {
+  if(!value||typeof value!=='object'||Array.isArray(value))return null;
+  const result={};
+  for(const key of REPORTED_SHARED_DIMENSIONS)if(REPORTED_COMPARISONS.has(value[key]))result[key]=value[key];
+  return Object.keys(result).length?result:null;
+}
+
+function safeReportedGateRow(value) {
+  if(!value||typeof value!=='object'||Array.isArray(value)
+      ||!Number.isSafeInteger(value.ordinal)||value.ordinal<1||value.ordinal>1_000_000
+      ||!REPORTED_GATE_PROVIDERS.has(value.providerClass)
+      ||!REPORTED_GATE_CONFIDENCE.has(value.confidenceClass)
+      ||!REPORTED_GATE_PERMISSION.has(value.permissionClass)
+      ||!REPORTED_GATE_PATHS.has(value.gate)||typeof value.accepted!=='boolean')return null;
+  const result={ordinal:value.ordinal,providerClass:value.providerClass,confidenceClass:value.confidenceClass,
+    permissionClass:value.permissionClass,gate:value.gate,accepted:value.accepted};
+  for(const key of ['catalogDurationSeconds','candidateDurationSeconds']) {
+    const duration=safeDiagnosticDuration(value[key]);
+    if(duration!==null)result[key]=duration;
+  }
+  for(const key of REPORTED_GATE_BOOLEAN_FIELDS)if(typeof value[key]==='boolean')result[key]=value[key];
+  if(REPORTED_SHARED_ACTIONS.has(value.sharedAction))result.sharedAction=value.sharedAction;
+  if(REPORTED_SHARED_RELATIONSHIPS.has(value.sharedRelationship))result.sharedRelationship=value.sharedRelationship;
+  const dimensions=safeReportedSharedDimensions(value.sharedDimensions);
+  if(dimensions)result.sharedDimensions=dimensions;
+  if(Array.isArray(value.sharedReasons)) {
+    const reasons=value.sharedReasons.slice(0,32).filter(reason=>REPORTED_SHARED_REASONS.has(reason));
+    if(reasons.length)result.sharedReasons=reasons;
+  }
+  return result;
+}
+
+function safeReportedGateRowsDetails(value) {
+  if(!value||typeof value!=='object'||Array.isArray(value))return {};
+  const firstOrdinal=safeDiagnosticCount(value.firstOrdinal);
+  const totalCandidates=safeDiagnosticCount(value.totalCandidates);
+  const candidateRowsLimit=safeDiagnosticCount(value.candidateRowsLimit,200);
+  const result={};
+  if(firstOrdinal!==null)result.firstOrdinal=firstOrdinal;
+  if(totalCandidates!==null)result.totalCandidates=totalCandidates;
+  if(candidateRowsLimit!==null)result.candidateRowsLimit=candidateRowsLimit;
+  if(typeof value.candidateRowsTruncated==='boolean')result.candidateRowsTruncated=value.candidateRowsTruncated;
+  if(Array.isArray(value.rows)) {
+    result.rows=value.rows.slice(0,12).map(safeReportedGateRow).filter(Boolean);
+  }
+  return result;
+}
+
+function safeReportedGateSummaryDetails(value) {
+  if(!value||typeof value!=='object'||Array.isArray(value))return {};
+  const result={};
+  if(value.scope==='candidatesEvaluatedBeforeForegroundCap')result.scope=value.scope;
+  const counts=safeReportedGateCounts(value.counts);
+  if(Object.keys(counts).length)result.counts=counts;
+  const candidateRowsLimit=safeDiagnosticCount(value.candidateRowsLimit,200);
+  if(candidateRowsLimit!==null)result.candidateRowsLimit=candidateRowsLimit;
+  if(typeof value.candidateRowsTruncated==='boolean')result.candidateRowsTruncated=value.candidateRowsTruncated;
+  if(value.durationDeltaBasis==='request-vs-candidate-search-metadata; descriptive-only')result.durationDeltaBasis=value.durationDeltaBasis;
+  return result;
+}
+
+function safeReportedFullIdentityDetails(value) {
+  if(!value||typeof value!=='object'||Array.isArray(value))return {};
+  const result={};
+  if(REPORTED_PROOF_KINDS.has(value.proofKind))result.proofKind=value.proofKind;
+  for(const key of REPORTED_FULL_IDENTITY_BOOLEAN_FIELDS)if(typeof value[key]==='boolean')result[key]=value[key];
+  for(const key of ['catalogDuration','resolvedDuration']) {
+    const duration=safeDiagnosticDuration(value[key]);
+    if(duration!==null)result[key]=duration;
+  }
+  return result;
+}
+
+function safeReportedDiagnosticDetails(value,phase) {
+  if(phase==='candidate_gate_evidence_rows')return safeReportedGateRowsDetails(value);
+  if(phase==='candidate_gate_evidence')return safeReportedGateSummaryDetails(value);
+  if(phase==='full_identity_check')return safeReportedFullIdentityDetails(value);
   if(!value||typeof value!=='object'||Array.isArray(value))return {};
   const result={};
   for(const [key,item] of Object.entries(value)) {
@@ -268,7 +405,7 @@ export function safeReportedPlaybackDiagnosticExport(report, sinceUnixMs, untilU
         const resolutionId=typeof event.resolutionId==='string'&&/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(event.resolutionId)
           ?event.resolutionId:null;
         return [{atUnixMs:event.atUnixMs,elapsedMs,phase,provider,...(resolutionId?{resolutionId}:{}),
-          details:safeReportedDiagnosticDetails(event.details)}];
+          details:safeReportedDiagnosticDetails(event.details,phase)}];
       }),
   };
 }

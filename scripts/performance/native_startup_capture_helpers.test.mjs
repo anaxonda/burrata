@@ -124,6 +124,99 @@ test('reported playback diagnostics retain bounded provider phases and omit raw 
   assert.equal(JSON.stringify(result).includes('private.invalid'),false);
 });
 
+test('reported playback diagnostics preserve bounded candidate gate and full identity evidence',()=>{
+  const start=1_800_000_000_000;
+  const result=safeReportedPlaybackDiagnosticExport({status:{enabled:true,eventCount:3,droppedEvents:0},events:[
+    {atUnixMs:start,elapsedMs:18,phase:'candidate_gate_evidence',provider:'youtube',details:{
+      scope:'candidatesEvaluatedBeforeForegroundCap',candidateRowsLimit:200,candidateRowsTruncated:false,
+      durationDeltaBasis:'request-vs-candidate-search-metadata; descriptive-only',
+      counts:{candidatesEvaluatedBeforeForegroundCap:1,rejectedAllGates:1,permissionRestricted:0,'private key':'secret',providerId:'private'},
+      private:'secret',
+    }},
+    {atUnixMs:start+1,elapsedMs:19,phase:'candidate_gate_evidence_rows',provider:'youtube',details:{
+      firstOrdinal:1,totalCandidates:1,candidateRowsLimit:200,candidateRowsTruncated:false,rows:[{
+        ordinal:1,providerClass:'youtube',confidenceClass:'review',permissionClass:'allowed',gate:'rejected',accepted:false,
+        catalogDurationSeconds:237.25,candidateDurationSeconds:241.5,
+        requestedTitlePhrasePresent:true,catalogTitleExact:false,canonicalArtistPhrasePresent:true,
+        verifiedAliasArtistPhrasePresent:false,recordingCanonicalMatch:false,recordingVerifiedAliasMatch:false,
+        topicCanonicalMatch:false,topicVerifiedAliasMatch:false,provisionalCanonicalMatch:false,
+        provisionalVerifiedAliasMatch:false,descriptiveDurationWithinFiveSeconds:true,requestedVersionPresent:false,
+        descriptiveVersionTextPresentOrNotRequired:true,versionConflictFlag:false,
+        sharedAction:'inspect',sharedRelationship:'unresolved',
+        sharedReasons:['artistConflict','extractorNeedsInspection','private reason'],
+        sharedDimensions:{title:'agree',artists:'conflict',guests:'unknown',version:'agree',runtime:'agree',isrc:'unknown',work:'unknown',extra:'secret'},
+        sourcePageUrl:'https://private.invalid/watch?token=secret',title:'Private title',artist:'Private artist',
+        authorization:'Bearer nested-secret',candidateId:'private-source-id',
+      }]}},
+    {atUnixMs:start+2,elapsedMs:21,phase:'full_identity_check',provider:'youtube',details:{
+      ok:false,proofKind:'none',providerIdMatches:true,resolvedTitlePresent:true,topicUploader:false,requestedVersion:true,
+      catalogDuration:237.25,resolvedDuration:241.5,sourcePageUrl:'https://private.invalid/?token=secret',title:'Private title',
+    }},
+  ]},start,start+3);
+  const [summary,rows,identity]=result.events.map(event=>event.details);
+  assert.deepEqual(summary,{scope:'candidatesEvaluatedBeforeForegroundCap',counts:{
+    candidatesEvaluatedBeforeForegroundCap:1,rejectedAllGates:1,permissionRestricted:0,
+  },candidateRowsLimit:200,candidateRowsTruncated:false,durationDeltaBasis:'request-vs-candidate-search-metadata; descriptive-only'});
+  assert.equal(rows.rows.length,1);
+  assert.deepEqual(rows.rows[0],{
+    ordinal:1,providerClass:'youtube',confidenceClass:'review',permissionClass:'allowed',gate:'rejected',accepted:false,
+    catalogDurationSeconds:237.25,candidateDurationSeconds:241.5,
+    requestedTitlePhrasePresent:true,catalogTitleExact:false,canonicalArtistPhrasePresent:true,
+    verifiedAliasArtistPhrasePresent:false,recordingCanonicalMatch:false,recordingVerifiedAliasMatch:false,
+    topicCanonicalMatch:false,topicVerifiedAliasMatch:false,provisionalCanonicalMatch:false,
+    provisionalVerifiedAliasMatch:false,descriptiveDurationWithinFiveSeconds:true,requestedVersionPresent:false,
+    descriptiveVersionTextPresentOrNotRequired:true,versionConflictFlag:false,
+    sharedAction:'inspect',sharedRelationship:'unresolved',sharedReasons:['artistConflict','extractorNeedsInspection'],
+    sharedDimensions:{title:'agree',artists:'conflict',guests:'unknown',version:'agree',runtime:'agree',isrc:'unknown',work:'unknown'},
+  });
+  assert.deepEqual(identity,{proofKind:'none',ok:false,providerIdMatches:true,resolvedTitlePresent:true,
+    topicUploader:false,requestedVersion:true,catalogDuration:237.25,resolvedDuration:241.5});
+  const encoded=JSON.stringify(result);
+  for(const privateValue of ['private.invalid','token=secret','Private title','Private artist','nested-secret','private-source-id','private reason','authorization'])
+    assert.equal(encoded.includes(privateValue),false,`unexpected diagnostic export value: ${privateValue}`);
+});
+
+test('reported candidate gate diagnostics reject unknown enums, nonfinite durations and oversized row arrays',()=>{
+  const start=1_800_000_000_000;
+  const validRow=ordinal=>({ordinal,providerClass:'youtube',confidenceClass:'high',permissionClass:'unknown',gate:'policy_inspect',accepted:false,
+    catalogDurationSeconds:238,candidateDurationSeconds:239,sharedAction:'inspect',sharedRelationship:'probable',
+    sharedReasons:['titleAgrees'],sharedDimensions:{title:'agree',artists:'unknown',guests:'unknown',version:'agree',runtime:'agree',isrc:'unknown',work:'unknown'}});
+  const result=safeReportedPlaybackDiagnosticExport({status:{enabled:true},events:[
+    {atUnixMs:start,elapsedMs:1,phase:'candidate_gate_evidence_rows',provider:'youtube',details:{
+      firstOrdinal:1,totalCandidates:15,candidateRowsLimit:200,candidateRowsTruncated:true,
+      rows:Array.from({length:15},(_,index)=>validRow(index+1)),
+    }},
+    {atUnixMs:start+1,elapsedMs:2,phase:'candidate_gate_evidence_rows',provider:'youtube',details:{
+      rows:[
+        {...validRow(1),catalogDurationSeconds:Infinity,candidateDurationSeconds:1e99,sharedAction:'authorization',
+          sharedRelationship:'not-an-enum',sharedReasons:['artistConflict','private'],
+          sharedDimensions:{title:'private',artists:'unknown',credentials:'secret'},nested:{token:'hidden'}},
+        {...validRow(2),gate:'token=secret',providerClass:'secret-provider',confidenceClass:'private',permissionClass:'mystery'},
+      ],
+    }},
+    {atUnixMs:start+2,elapsedMs:3,phase:'full_identity_check',provider:'youtube',details:{
+      ok:true,proofKind:'private proof',catalogDuration:Infinity,resolvedDuration:-1,sourcePageUrl:'https://private.invalid',
+    }},
+  ]},start,start+3);
+  const [rows,unsafeRows,identity]=result.events.map(event=>event.details);
+  assert.equal(rows.rows.length,12);
+  assert.equal(rows.rows.at(-1).ordinal,12);
+  assert.equal(rows.rows[0].catalogDurationSeconds,238);
+  assert.equal(rows.rows[0].sharedDimensions.artists,'unknown');
+  assert.equal(unsafeRows.rows.length,1);
+  assert.equal(unsafeRows.rows[0].ordinal,1);
+  assert.equal('catalogDurationSeconds' in unsafeRows.rows[0],false);
+  assert.equal('candidateDurationSeconds' in unsafeRows.rows[0],false);
+  assert.equal('sharedAction' in unsafeRows.rows[0],false);
+  assert.equal('sharedRelationship' in unsafeRows.rows[0],false);
+  assert.deepEqual(unsafeRows.rows[0].sharedReasons,['artistConflict']);
+  assert.deepEqual(unsafeRows.rows[0].sharedDimensions,{artists:'unknown'});
+  assert.deepEqual(identity,{ok:true});
+  const encoded=JSON.stringify(result);
+  for(const secret of ['secret-provider','authorization','credentials','private proof','private.invalid','hidden','token=secret'])
+    assert.equal(encoded.includes(secret),false,`unexpected adversarial value: ${secret}`);
+});
+
 test('opt-in startup diagnostics reject unknown phases, wrong generations, and invalid timings',()=>{
   const result=safeStartupDiagnosticExport({targetGeneration:7,
     playingSnapshot:{generation:7,status:'playing',diagnostics:{sourceReadyMs:86_400_001,firstAudioMs:-1,

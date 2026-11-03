@@ -7129,14 +7129,11 @@ fn assess_download_candidate(
     track: Track,
     candidate: Candidate,
 ) -> Result<download_verification::DownloadAssessment> {
-    let level = state.store.settings()?.matching_level;
-    let assessment = recording_match_context::assess(
+    let assessment = download_verification::assess_with_saved_matching_settings(
         &state.store,
         &track,
         &candidate,
-        level,
-        recording_match::MatchStage::Resolved,
-    );
+    )?;
     Ok(download_verification::DownloadAssessment::new(
         assessment, &track, &candidate,
     ))
