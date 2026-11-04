@@ -1276,7 +1276,11 @@ mod tests {
         ));
 
         let wrong_artist = Candidate {
-            artist: "Madonna".into(),
+            source_metadata: Some(serde_json::json!({
+                "title":"Minor Swing",
+                "duration":195,
+                "artistNames":["Madonna"]
+            })),
             ..candidate.clone()
         };
         assert!(!candidate_has_artist_alias_lookahead(

@@ -1939,6 +1939,18 @@ fn without_stale_local_asset(incoming: &Track) -> Track {
     prepared
 }
 
+#[cfg(test)]
+struct DropSignal(Option<tokio::sync::oneshot::Sender<()>>);
+
+#[cfg(test)]
+impl Drop for DropSignal {
+    fn drop(&mut self) {
+        if let Some(sender) = self.0.take() {
+            let _ = sender.send(());
+        }
+    }
+}
+
 struct AbortOnDropAliasTask(tokio::task::JoinHandle<Result<(), String>>);
 
 impl Drop for AbortOnDropAliasTask {
@@ -5929,7 +5941,6 @@ struct VerifiedYoutubeRecordingAnchors {
     duration_seconds: f64,
 }
 
-#[cfg(feature = "playback-early-candidate-experiment")]
 fn same_candidate_search_row(left: &Candidate, right: &Candidate) -> bool {
     left.provider == right.provider
         && left.id == right.id
@@ -7838,16 +7849,6 @@ mod tests {
         assert!(!pass.claim_fresh_alias_attempt());
     }
 
-    struct DropSignal(Option<tokio::sync::oneshot::Sender<()>>);
-
-    impl Drop for DropSignal {
-        fn drop(&mut self) {
-            if let Some(sender) = self.0.take() {
-                let _ = sender.send(());
-            }
-        }
-    }
-
     #[tokio::test]
     async fn alias_lookahead_cancel_deadline_and_pass_drop_abort_owned_task() {
         let (cancel_tx, cancel_rx) = watch::channel(false);
@@ -7922,7 +7923,7 @@ mod tests {
         let worker_order = order.clone();
         let (started_tx, started_rx) = tokio::sync::oneshot::channel();
         let (finish_tx, finish_rx) = tokio::sync::oneshot::channel();
-        let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel();
+        let (dropped_tx, mut dropped_rx) = tokio::sync::oneshot::channel();
         assert!(pass.claim_fresh_alias_attempt());
         assert!(pass.start_alias_lookahead(async move {
             let _drop_signal = DropSignal(Some(dropped_tx));
@@ -14166,10 +14167,11 @@ mod catalog_alias_priority_tests {
         let (_stop, cancel) = watch::channel(false);
         let deadline = PlaybackDeadline::after(Duration::from_secs(5));
         let original = deadline.instant();
-        let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel();
+        let (dropped_tx, mut dropped_rx) = tokio::sync::oneshot::channel();
         assert!(pass.claim_fresh_alias_attempt());
+        let drop_signal = DropSignal(Some(dropped_tx));
         assert!(pass.start_alias_lookahead(async move {
-            let _drop_signal = DropSignal(Some(dropped_tx));
+            let _drop_signal = drop_signal;
             std::future::pending::<()>().await;
             Ok(())
         }));
@@ -14198,8 +14200,9 @@ mod catalog_alias_priority_tests {
         stop.send_replace(true);
         let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel();
         assert!(pass.claim_fresh_alias_attempt());
+        let drop_signal = DropSignal(Some(dropped_tx));
         assert!(pass.start_alias_lookahead(async move {
-            let _drop_signal = DropSignal(Some(dropped_tx));
+            let _drop_signal = drop_signal;
             std::future::pending::<()>().await;
             Ok(())
         }));
@@ -14214,8 +14217,9 @@ mod catalog_alias_priority_tests {
         let (_stop, cancel) = watch::channel(false);
         let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel();
         assert!(pass.claim_fresh_alias_attempt());
+        let drop_signal = DropSignal(Some(dropped_tx));
         assert!(pass.start_alias_lookahead(async move {
-            let _drop_signal = DropSignal(Some(dropped_tx));
+            let _drop_signal = drop_signal;
             std::future::pending::<()>().await;
             Ok(())
         }));
