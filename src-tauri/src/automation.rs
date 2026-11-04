@@ -454,19 +454,43 @@ fn validate_release_revision(value: &str) -> Result<(), ToolError> {
 }
 
 fn validate_playlist_revision(value: &str, allow_empty: bool) -> Result<(), ToolError> {
+    playlist_revision_count(value, allow_empty, 500).map(|_| ())
+}
+
+const MAX_LOCAL_PLAYLIST_NAVIGATION_ROWS: usize = 100_000;
+
+fn playlist_revision_count(
+    value: &str,
+    allow_empty: bool,
+    max_count: usize,
+) -> Result<usize, ToolError> {
     let Some((count, hash)) = value.split_once(':') else {
         return Err(ToolError::bad("collectionRevision is invalid"));
     };
     let count = count.parse::<usize>().ok();
-    if count.is_some_and(|count| count <= 500 && (allow_empty || count > 0))
+    if count.is_some_and(|count| count <= max_count && (allow_empty || count > 0))
         && hash.len() == 8
         && hash
             .bytes()
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
     {
-        Ok(())
+        Ok(count.expect("validated playlist revision count"))
     } else {
         Err(ToolError::bad("collectionRevision is invalid"))
+    }
+}
+
+fn validate_playlist_navigation_revision(
+    value: &str,
+    expected_count: usize,
+) -> Result<(), ToolError> {
+    let revision_count = playlist_revision_count(value, true, MAX_LOCAL_PLAYLIST_NAVIGATION_ROWS)?;
+    if revision_count == expected_count {
+        Ok(())
+    } else {
+        Err(ToolError::bad(
+            "collectionRevision count does not match the loaded playlist",
+        ))
     }
 }
 
@@ -4205,15 +4229,19 @@ impl AutomationService {
                     if matches!(pending.target, UiNavigationTarget::LocalPlaylist(_))
                         && status == "complete"
                     {
-                        let revision = collection_revision
-                            .filter(|value| validate_playlist_revision(value, true).is_ok())
+                        let count = track_count
+                            .filter(|value| *value <= MAX_LOCAL_PLAYLIST_NAVIGATION_ROWS)
                             .ok_or_else(|| {
-                                "Local playlist completion omitted its collection revision"
+                                "Local playlist completion omitted a valid track count".to_string()
+                            })?;
+                        let revision = collection_revision
+                            .filter(|value| {
+                                validate_playlist_navigation_revision(value, count).is_ok()
+                            })
+                            .ok_or_else(|| {
+                                "Local playlist completion omitted its matching collection revision"
                                     .to_string()
                             })?;
-                        let count = track_count.filter(|value| *value <= 500).ok_or_else(|| {
-                            "Local playlist completion omitted a valid track count".to_string()
-                        })?;
                         result["collectionRevision"] = json!(revision);
                         result["trackCount"] = json!(count);
                     }
@@ -8917,6 +8945,24 @@ mod tests {
             tool_scope("get_local_playlist_download_status"),
             Some("read")
         );
+    }
+
+    #[test]
+    fn local_playlist_navigation_revision_allows_large_self_consistent_counts() {
+        assert!(validate_playlist_navigation_revision("10000:deadbeef", 10_000).is_ok());
+        assert!(validate_playlist_navigation_revision("0:00000000", 0).is_ok());
+        assert!(validate_playlist_navigation_revision("10000:deadbeef", 9_999).is_err());
+        assert!(validate_playlist_navigation_revision("100001:deadbeef", 100_001).is_err());
+        assert!(validate_playlist_navigation_revision("10000:DEADBEEF", 10_000).is_err());
+        assert!(validate_playlist_navigation_revision("not-a-revision", 10_000).is_err());
+
+        let args = |count: usize| {
+            json!({"operationId":"123e4567-e89b-42d3-a456-426614174000",
+                "collectionId":"playlist-abc","collectionRevision":format!("{count}:deadbeef")})
+        };
+        assert!(prepare_local_playlist_download_request(&args(500)).is_ok());
+        assert!(prepare_local_playlist_download_request(&args(501)).is_err());
+        assert!(prepare_local_playlist_download_request(&args(10_000)).is_err());
     }
 
     #[test]

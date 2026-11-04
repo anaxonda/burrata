@@ -7699,6 +7699,33 @@ describe("native playback frontend", () => {
     expect(summaryReads).toBe(1);
   });
 
+  it("shows a bound remote playlist membership once while preserving unrelated same-name playlists", async () => {
+    const sourceId = "import-snapshot";
+    const workingCopyId = "linked-copy";
+    remoteBindingState = [{ bindingId: "spotify-binding", provider: "spotify", collectionId: workingCopyId,
+      sourceCollectionId: sourceId, url: "https://example.test/playlist", canEdit: true }];
+    const original = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation((command, args) => command === "get_track_library_summary"
+      ? Promise.resolve({ trackId: savedTrack.id, inLibrary: true, downloaded: false, playCount: 0, playedAt: [],
+          playlists: [
+            { id: sourceId, name: "Shared playlist" },
+            { id: workingCopyId, name: "Shared playlist" },
+            { id: "independent-copy", name: "Shared playlist" },
+          ] })
+      : original(command, args));
+
+    mountNative(makeNativeSnapshot({ revision: 1, generation: 52, status: "playing", paused: false,
+      trackId: savedTrack.id, track: savedTrack, queue: [savedTrack], currentIndex: 0 }));
+    await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Show track details"]')!.click();
+    await settle();
+
+    const membershipLinks = [...document.querySelectorAll<HTMLButtonElement>(".playlist-membership-link")];
+    expect(membershipLinks.map(link => link.textContent?.trim())).toEqual(["Shared playlist", "Shared playlist"]);
+    expect(membershipLinks.map(link => link.getAttribute("onclick"))).toHaveLength(2);
+    expect(mocks.call).toHaveBeenCalledWith("list_remote_playlist_bindings");
+  });
+
   it("uses the migrated Native owner over a stale browser queue, including an empty Native session", async () => {
     const track = { ...savedTrack };
     const tracks = [track, track];
