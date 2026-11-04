@@ -98,6 +98,36 @@ describe("TrackList", () => {
     expect(JSON.stringify(counts)).not.toMatch(/duplicate-track|track-\d|Song Title|Other Song|https?:/i);
   });
 
+  it("keeps the full logical count when App passes only its parent-virtualized slice", async () => {
+    const allRows: Track[] = Array.from({ length: 1_200 }, (_, index) => ({
+      ...tracks[index % tracks.length]!,
+      id: `logical-track-${index}`,
+    }));
+    const parentWindow = allRows.slice(600, 620);
+    const target = render({ tracks: parentWindow, logicalRowCount: allRows.length, virtualizationThreshold: 100_000 });
+    await tick();
+    const logicalList = target.querySelector("ol.shared-track-list")!;
+    expect(logicalList.getAttribute("data-loaded-logical-rows")).toBe("1200");
+    expect(logicalList.querySelectorAll("li[data-track-index]")).toHaveLength(20);
+    expect(logicalList.classList.contains("virtualized")).toBe(false);
+  });
+
+  it("defaults logical rows to tracks length and clamps the observer metadata", async () => {
+    const fallback = render({ tracks: [tracks[0]!, tracks[1]!] });
+    await tick();
+    expect(fallback.querySelector("ol.shared-track-list")?.getAttribute("data-loaded-logical-rows")).toBe("2");
+    resetRendered();
+
+    const clamped = render({ tracks: [tracks[0]!, tracks[1]!], logicalRowCount: 50_000 });
+    await tick();
+    expect(clamped.querySelector("ol.shared-track-list")?.getAttribute("data-loaded-logical-rows")).toBe("10000");
+    resetRendered();
+
+    const lowerBounded = render({ tracks: [tracks[0]!, tracks[1]!], logicalRowCount: 1 });
+    await tick();
+    expect(lowerBounded.querySelector("ol.shared-track-list")?.getAttribute("data-loaded-logical-rows")).toBe("2");
+  });
+
   it("highlights and focuses one exact duplicate occurrence by stable row key", async () => {
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 1; });
     const repeated = { ...tracks[0]! };
@@ -418,6 +448,82 @@ describe("TrackList", () => {
     await tick();
     target.querySelector<HTMLButtonElement>(".add-selected")!.click();
     expect(onAddSelectedToPlaylist).toHaveBeenLastCalledWith([first, second]);
+  });
+
+  it("queues thirty selected occurrences once in visible order without dropping duplicate sources", async () => {
+    const rows = Array.from({ length: 30 }, (_, index) => ({
+      ...tracks[index % tracks.length]!,
+      id: index < 2 ? "same-recording" : `recording-${index}`,
+      provenance: { occurrence: `source-${index}` },
+    }));
+    const onQueueSelected = vi.fn<(items: Track[]) => void>();
+    const target = render({ tracks: rows, onAddSelectedToPlaylist: vi.fn(), onQueueSelected });
+    target.querySelector<HTMLButtonElement>(".start-selection")!.click(); await tick();
+    const checkboxes = [...target.querySelectorAll<HTMLInputElement>(".select-track")];
+    expect(checkboxes).toHaveLength(30);
+    for (const checkbox of [...checkboxes].reverse()) checkbox.click();
+    await tick();
+    target.querySelector<HTMLButtonElement>(".queue-selected")!.click(); await tick();
+    expect(onQueueSelected).toHaveBeenCalledTimes(1);
+    const queued = onQueueSelected.mock.calls[0]![0]!;
+    expect(queued).toHaveLength(30);
+    queued.forEach((track, index) => expect(track).toBe(rows[index]));
+    expect(queued[0]!.id).toBe(queued[1]!.id);
+    expect(queued[0]!.provenance).toEqual({ occurrence: "source-0" });
+    expect(queued[1]!.provenance).toEqual({ occurrence: "source-1" });
+    expect(target.textContent).toContain("30 tracks selected");
+  });
+
+  it("disables Queue selected with no selected occurrences", async () => {
+    const onQueueSelected = vi.fn<(items: Track[]) => void>();
+    const target = render({ tracks: [tracks[0]!], onAddSelectedToPlaylist: vi.fn(), onQueueSelected });
+    target.querySelector<HTMLButtonElement>(".start-selection")!.click(); await tick();
+    expect(target.querySelector<HTMLButtonElement>(".queue-selected")?.disabled).toBe(true);
+    expect(onQueueSelected).not.toHaveBeenCalled();
+  });
+
+  it("keeps selected occurrences and reports a failed batch queue action", async () => {
+    const rows = [tracks[0]!, tracks[1]!];
+    const onQueueSelected = vi.fn().mockRejectedValue(new Error("Queue limit reached"));
+    const target = render({ tracks: rows, onAddSelectedToPlaylist: vi.fn(), onQueueSelected });
+    target.querySelector<HTMLButtonElement>(".start-selection")!.click(); await tick();
+    for (const checkbox of target.querySelectorAll<HTMLInputElement>(".select-track")) checkbox.click();
+    await tick();
+    target.querySelector<HTMLButtonElement>(".queue-selected")!.click(); await tick(); await tick();
+    expect(target.querySelector('[role="alert"]')?.textContent).toContain("Queue limit reached");
+    expect([...target.querySelectorAll<HTMLInputElement>(".select-track")].map(input => input.checked)).toEqual([true, true]);
+  });
+
+  it("ignores a pending queue rejection after canceling selection", async () => {
+    let rejectQueue: (failure: Error) => void = () => {};
+    const onQueueSelected = vi.fn(() => new Promise<void>((_resolve, reject) => { rejectQueue = reject; }));
+    const target = render({ tracks: [tracks[0]!], onAddSelectedToPlaylist: vi.fn(), onQueueSelected });
+    target.querySelector<HTMLButtonElement>(".start-selection")!.click(); await tick();
+    target.querySelector<HTMLInputElement>(".select-track")!.click(); await tick();
+    target.querySelector<HTMLButtonElement>(".queue-selected")!.click();
+    expect(onQueueSelected).toHaveBeenCalledTimes(1);
+    target.querySelector<HTMLButtonElement>(".cancel-selection")!.click(); await tick();
+    rejectQueue(new Error("late queue error"));
+    for (let index = 0; index < 8; index++) { await Promise.resolve(); await tick(); }
+    target.querySelector<HTMLButtonElement>(".start-selection")!.click(); await tick();
+    expect(target.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("ignores a pending queue rejection after the list context changes", async () => {
+    let rejectQueue: (failure: Error) => void = () => {};
+    const onQueueSelected = vi.fn(() => new Promise<void>((_resolve, reject) => { rejectQueue = reject; }));
+    const target = document.createElement("div"); document.body.append(target);
+    const props = proxy({ tracks: [tracks[0]!], selectionContext: "first artist", onAddSelectedToPlaylist: vi.fn(), onQueueSelected });
+    const instance = mount(TrackList, { target, props: props as never }); cleanup = () => unmount(instance);
+    await tick(); target.querySelector<HTMLButtonElement>(".start-selection")!.click(); await tick();
+    target.querySelector<HTMLInputElement>(".select-track")!.click(); await tick();
+    target.querySelector<HTMLButtonElement>(".queue-selected")!.click();
+    props.tracks = [tracks[1]!]; props.selectionContext = "second artist";
+    for (let index = 0; index < 8; index++) { await Promise.resolve(); await tick(); }
+    rejectQueue(new Error("late queue error"));
+    for (let index = 0; index < 8; index++) { await Promise.resolve(); await tick(); }
+    expect(target.querySelector('[role="alert"]')).toBeNull();
+    expect(target.querySelector<HTMLButtonElement>(".start-selection")).not.toBeNull();
   });
 
   it("inverts local playlist selection across listed repeated occurrences", async () => {

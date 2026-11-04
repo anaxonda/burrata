@@ -636,8 +636,8 @@ it("selects radio history for playlists and keeps canonical song downloads", asy
     if (command === "get_radio_song_track") return canonical;
     throw new Error(`Unexpected command ${command}`);
   });
-  const onAddSelectedToPlaylist = vi.fn(), onDownloadTrack = vi.fn();
-  const instance = mount(RadioView, {target: document.body, props: {savedStations: stations, selectedStationId: "main", onPlayStation: vi.fn(), onArtist: vi.fn(), onAddSelectedToPlaylist, onDownloadTrack}});
+  const onAddSelectedToPlaylist = vi.fn(), onDownloadTrack = vi.fn(), onQueueTracks = vi.fn();
+  const instance = mount(RadioView, {target: document.body, props: {savedStations: stations, selectedStationId: "main", onPlayStation: vi.fn(), onArtist: vi.fn(), onAddSelectedToPlaylist, onDownloadTrack, onQueueTracks}});
   cleanup = () => unmount(instance);
   for (let i = 0; i < 12; i++) {await tick(); await Promise.resolve();}
   document.querySelector<HTMLButtonElement>('.history .start-selection')!.click(); await tick();
@@ -645,6 +645,10 @@ it("selects radio history for playlists and keeps canonical song downloads", asy
   document.querySelector<HTMLButtonElement>('.history .add-selected')!.click();
   for (let i = 0; i < 8; i++) {await tick(); await Promise.resolve();}
   expect(onAddSelectedToPlaylist).toHaveBeenCalledWith([expect.objectContaining({id: "radio_song:heard", sourceUrl: ""})]);
+  document.querySelector<HTMLButtonElement>('.history .queue-selected')!.click();
+  for (let i = 0; i < 8; i++) {await tick(); await Promise.resolve();}
+  expect(onQueueTracks).toHaveBeenCalledTimes(1);
+  expect(onQueueTracks).toHaveBeenCalledWith([expect.objectContaining({id: "radio_song:heard", sourceUrl: ""})], "append");
   document.querySelector<HTMLButtonElement>('[aria-label="Download Heard Song"]')!.click();
   for (let i = 0; i < 8; i++) {await tick(); await Promise.resolve();}
   expect(onDownloadTrack).toHaveBeenCalledWith(expect.objectContaining({id: "radio_song:heard", sourceUrl: ""}));

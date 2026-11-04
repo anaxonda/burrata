@@ -95,6 +95,10 @@
     const canonical = await Promise.all(tracks.map(hydrateHistoryTrack));
     await onAddSelectedToPlaylist?.(canonical);
   }
+  async function queueSelectedHistoryTracks(tracks: Track[]) {
+    const canonical = await Promise.all(tracks.map(hydrateHistoryTrack));
+    await onQueueTracks?.(canonical, "append");
+  }
   let stations = $state<RadioStation[]>([]);
   let activeStationId = $state("main");
   $effect(()=>{
@@ -653,7 +657,7 @@
         <p>Only newly identified songs played while listening are added. Repeated songs appear once.</p>
         {#if playlistError}<p role="status">{playlistError}</p>{/if}
       </section>
-      {#if displayedHistoryTracks.length}<TrackList presentation="playlist" selectionContext={`${selectedStationId}:${historyPage}:${historyQuery}`} onAddSelectedToPlaylist={onAddSelectedToPlaylist ? playlistSelectedHistoryTracks : undefined} position={(_track, index) => historyPage * historyPageSize + index + 1} tracks={displayedHistoryTracks} listLabel={`${selectedStation.name} listening history`} onPlay={onPlayTrack ? playHistoryTrack : undefined} onDownload={onDownloadTrack ? downloadHistoryTrack : undefined} onFavorite={onFavoriteTrack ? favoriteHistoryTrack : undefined} onNext={onQueueTracks ? track => queueHistoryTrack(track, "next") : undefined} onQueue={onQueueTracks ? track => queueHistoryTrack(track, "append") : undefined} onPlaylist={onAddTrackToPlaylist ? playlistHistoryTrack : undefined} onArtist={artistHistoryTrack} onAlbum={onTrackAlbum ? albumHistoryTrack : undefined} onInfo={onInfoTrack ? infoHistoryTrack : undefined} onContext={onTrackContext ? contextHistoryTrack : undefined} timestamp={historyTimestamp} meta={() => `Via ${selectedStation.name}`} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} />{:else if currentHistory.length}<p class="radio-empty">No recent tracks match this filter.</p>{:else}<p class="radio-empty">Songs identified while you listen will appear here.</p>{/if}
+      {#if displayedHistoryTracks.length}<TrackList presentation="playlist" selectionContext={`${selectedStationId}:${historyPage}:${historyQuery}`} onAddSelectedToPlaylist={onAddSelectedToPlaylist ? playlistSelectedHistoryTracks : undefined} onQueueSelected={onQueueTracks ? queueSelectedHistoryTracks : undefined} position={(_track, index) => historyPage * historyPageSize + index + 1} tracks={displayedHistoryTracks} listLabel={`${selectedStation.name} listening history`} onPlay={onPlayTrack ? playHistoryTrack : undefined} onDownload={onDownloadTrack ? downloadHistoryTrack : undefined} onFavorite={onFavoriteTrack ? favoriteHistoryTrack : undefined} onNext={onQueueTracks ? track => queueHistoryTrack(track, "next") : undefined} onQueue={onQueueTracks ? track => queueHistoryTrack(track, "append") : undefined} onPlaylist={onAddTrackToPlaylist ? playlistHistoryTrack : undefined} onArtist={artistHistoryTrack} onAlbum={onTrackAlbum ? albumHistoryTrack : undefined} onInfo={onInfoTrack ? infoHistoryTrack : undefined} onContext={onTrackContext ? contextHistoryTrack : undefined} timestamp={historyTimestamp} meta={() => `Via ${selectedStation.name}`} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} />{:else if currentHistory.length}<p class="radio-empty">No recent tracks match this filter.</p>{:else}<p class="radio-empty">Songs identified while you listen will appear here.</p>{/if}
       {#if historyTotal > historyPageSize}
         <nav class="history-pagination" aria-label="Station history pages" aria-busy={historyBusy}>
           <button disabled={historyPage === 0 || historyBusy} onclick={() => historyPage--}>Previous</button>

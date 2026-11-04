@@ -139,6 +139,7 @@
     onFavorite,
     onNext: track => onQueue([track], "next"),
     onQueue: track => onQueue([track], "append"),
+    onQueueSelected: onQueue ? items => onQueue(items, "append") : undefined,
     onPlaylist,
     onAddSelectedToPlaylist,
     onArtist,

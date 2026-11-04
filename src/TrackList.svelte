@@ -17,7 +17,7 @@
 
   let {
     tracks, orderedRows, onPlay, onDownload, onFavorite, onNext, onQueue, onPlaylist, onArtist, onAlbum, onInfo,
-    onContext, onSelect, onRowSelect, onAddSelectedToPlaylist, onInvertSelection, selectionContext, selectionKeys, rowKeys, selectionTracks, selectionTrackKeys, selectedTrackIds = [], selectedTrackId, focusedRowKey, selectionLabel, trackTitle, selectionMode: controlledSelectionMode, position, meta, timestamp, playingTrack, bufferingTrack, playingTrackId = "", bufferingTrackId = "", paused = false, playbackFailed = false, listLabel = "Tracks", initialScroll, onScroll, virtualizationThreshold = 200, presentation = "default", reorderable = false, reorderCount, onReorder,
+    onContext, onSelect, onRowSelect, onAddSelectedToPlaylist, onQueueSelected, onInvertSelection, selectionContext, selectionKeys, rowKeys, selectionTracks, selectionTrackKeys, selectedTrackIds = [], selectedTrackId, focusedRowKey, selectionLabel, trackTitle, selectionMode: controlledSelectionMode, position, meta, timestamp, playingTrack, bufferingTrack, playingTrackId = "", bufferingTrackId = "", paused = false, playbackFailed = false, listLabel = "Tracks", logicalRowCount, initialScroll, onScroll, virtualizationThreshold = 200, presentation = "default", reorderable = false, reorderCount, onReorder,
   }: {
     tracks: Track[];
     orderedRows?: Array<{ kind: "track"; key: string; trackIndex: number } | { kind: "status"; key: string; title: string; detail: string }>;
@@ -34,6 +34,7 @@
     onSelect?: (track: Track, event: MouseEvent, index: number) => void;
     onRowSelect?: (track: Track, event: MouseEvent, index: number) => void;
     onAddSelectedToPlaylist?: (tracks: Track[]) => void | Promise<void>;
+    onQueueSelected?: (tracks: Track[]) => void | Promise<void>;
     /** Invert parent-controlled selection within the currently listed track occurrences. */
     onInvertSelection?: (keys: string[], tracks: Track[]) => void;
     selectionContext?: string;
@@ -59,6 +60,8 @@
     paused?: boolean;
     playbackFailed?: boolean;
     listLabel?: string;
+    /** Logical size of the full list when the parent passes only a rendered window. */
+    logicalRowCount?: number;
     presentation?: "default" | "playlist";
     /** Enable local playlist drag reorder only when the parent is showing source order without filters. */
     reorderable?: boolean;
@@ -96,6 +99,10 @@
     ? rowWindow(displayRows.length, scrollTop, viewportHeight, rowHeight, 6, virtualizationThreshold)
     : { start: 0, end: displayRows.length });
   const visibleRows = $derived(displayRows.slice(visibleRange.start, visibleRange.end));
+  const loadedLogicalRows = $derived(Math.min(10_000, Math.max(
+    tracks.length,
+    Number.isFinite(logicalRowCount) ? Math.trunc(logicalRowCount!) : tracks.length,
+  )));
   function occurrenceKeys(sourceTracks: Track[]) {
     const counts = new Map<string, number>();
     return sourceTracks.map(track => { const count = counts.get(track.id) ?? 0; counts.set(track.id, count + 1); return `${track.id}:${count}`; });
@@ -104,11 +111,13 @@
   const defaultSelectionSourceKeys = $derived(occurrenceKeys(selectionTracks ?? tracks));
   let selectedForPlaylist = $state<string[]>([]);
   let selectionMode = $state(false);
+  let queueSelectedError = $state("");
+  let queueSelectedRequest = 0;
   const showSelection = $derived(controlledSelectionMode ?? selectionMode);
   let currentSelectionContext = $state<string | undefined>(undefined);
   $effect(() => {
     const context = selectionContext;
-    if (context !== currentSelectionContext) { currentSelectionContext = context; selectedForPlaylist = []; selectionMode = false; }
+    if (context !== currentSelectionContext) { currentSelectionContext = context; selectedForPlaylist = []; selectionMode = false; queueSelectedError = ""; queueSelectedRequest++; }
   });
   const selectedPlaylistTracks = $derived.by(() => {
     return selectedForPlaylist.flatMap(key => selectedPlaylistTrackByKey.has(key) ? [selectedPlaylistTrackByKey.get(key)!] : []);
@@ -149,9 +158,21 @@
     const keys = selectionKeys ?? defaultVisibleKeys;
     selectedForPlaylist = displayRows.flatMap(row => row.kind === "track" && keys[row.trackIndex] !== undefined ? [keys[row.trackIndex]!] : []);
   }
+  async function queueSelectedTracks() {
+    if (!onQueueSelected || !selectedPlaylistTracks.length) return;
+    const request = ++queueSelectedRequest;
+    queueSelectedError = "";
+    const orderedKeys = [...selectedForPlaylist].sort((first, second) =>
+      (visibleSelectionPositionByKey.get(first) ?? Number.MAX_SAFE_INTEGER) - (visibleSelectionPositionByKey.get(second) ?? Number.MAX_SAFE_INTEGER));
+    const selected = orderedKeys.flatMap(key => selectedPlaylistTrackByKey.has(key) ? [selectedPlaylistTrackByKey.get(key)!] : []);
+    try { await onQueueSelected(selected); }
+    catch (failure) { if (request === queueSelectedRequest) queueSelectedError = failure instanceof Error ? failure.message : String(failure); }
+  }
   function cancelPlaylistSelection() {
     selectedForPlaylist = [];
     selectionMode = false;
+    queueSelectedError = "";
+    queueSelectedRequest++;
   }
   function updateViewport(event: Event) {
     const viewport = event.currentTarget as HTMLDivElement;
@@ -258,19 +279,21 @@
 
 <div class:virtualized class:playlist={presentation === "playlist"} style:--track-row-height={`${rowHeight}px`} class="track-list-viewport" bind:this={scrollElement} onscroll={updateViewport}>
 {#if sourceOpenFailure}<p role="alert">{sourceOpenFailure}</p>{/if}
-  {#if onAddSelectedToPlaylist || (onSelect && controlledSelectionMode === undefined) || (onInvertSelection && showSelection)}<div class="playlist-selection-actions" role="group" aria-label="Track selection" bind:this={selectionToolbar}>
+{#if onAddSelectedToPlaylist || (onSelect && controlledSelectionMode === undefined) || (onInvertSelection && showSelection)}<div class="playlist-selection-actions" role="group" aria-label="Track selection" bind:this={selectionToolbar}>
   {#if showSelection}
     <span>{onAddSelectedToPlaylist ? (selectedPlaylistTracks.length ? `${selectedPlaylistTracks.length} tracks selected` : `${tracks.length} visible tracks`) : `${selectedTrackIds.length} tracks selected`}</span>
     {#if onAddSelectedToPlaylist}<button type="button" onclick={selectAllPlaylistRows} disabled={!tracks.length}>Select visible</button>{/if}
     {#if onInvertSelection || onAddSelectedToPlaylist}<button type="button" class="invert-selection" disabled={!selectionScopeKeys.length} onclick={() => onInvertSelection ? onInvertSelection(selectionScopeKeys, selectionScopeTracks) : selectedForPlaylist = invertSelection(selectionScopeKeys, selectedForPlaylist)}>Invert selection</button>{/if}
-    {#if selectedPlaylistTracks.length}<button type="button" onclick={() => selectedForPlaylist = []}>Clear selection</button><button type="button" class="add-selected" onclick={() => void onAddSelectedToPlaylist?.(selectedPlaylistTracks)}>Add selected to playlist</button>{/if}
+    {#if selectedPlaylistTracks.length}<button type="button" onclick={() => { selectedForPlaylist = []; queueSelectedError = ""; queueSelectedRequest++; }}>Clear selection</button>{#if onAddSelectedToPlaylist}<button type="button" class="add-selected" onclick={() => void onAddSelectedToPlaylist?.(selectedPlaylistTracks)}>Add selected to playlist</button>{/if}{/if}
+    {#if onQueueSelected}<button type="button" class="queue-selected" disabled={!selectedPlaylistTracks.length} onclick={() => void queueSelectedTracks()}>Queue selected</button>{/if}
+    {#if queueSelectedError}<span role="alert">{queueSelectedError}</span>{/if}
     {#if controlledSelectionMode === undefined}<button type="button" class="cancel-selection" onclick={cancelPlaylistSelection}>Cancel</button>{/if}
   {:else}
     <button type="button" class="start-selection" aria-label="Select tracks" onclick={() => selectionMode = true}>Select</button>
   {/if}
 </div>{/if}
 {#if reorderable}<div class="sr-only" aria-live="polite" aria-atomic="true">{reorderAnnouncement}</div>{/if}
-<ol class="shared-track-list" aria-label={listLabel} data-loaded-logical-rows={Math.min(10_000, tracks.length)} use:handleRowClick>
+<ol class="shared-track-list" aria-label={listLabel} data-loaded-logical-rows={loadedLogicalRows} use:handleRowClick>
   {#if virtualized && visibleRange.start > 0}<li class="virtual-spacer" aria-hidden="true" style={`height:${visibleRange.start * rowHeight}px`}></li>{/if}
   {#each visibleRows as displayRow, visibleIndex (displayRow.key)}
     {@const index = displayRow.kind === "track" ? displayRow.trackIndex : -1}
