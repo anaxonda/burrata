@@ -270,6 +270,7 @@ pub(crate) struct SourceTrace {
     provider_attempts:
         std::sync::Arc<std::sync::Mutex<Vec<crate::playback_failure::ProviderAttemptSummary>>>,
     source_rescue: std::sync::Arc<std::sync::Mutex<(Option<String>, bool)>>,
+    fresh_exact_catalog_track: std::sync::Arc<std::sync::Mutex<Option<Track>>>,
     pub(crate) skip_youtube_forbidden_retry: bool,
     recovery_attempts: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     catalog_duration_enriched: bool,
@@ -311,6 +312,7 @@ impl SourceTrace {
             other_failed_sources: Default::default(),
             provider_attempts: Default::default(),
             source_rescue: Default::default(),
+            fresh_exact_catalog_track: Default::default(),
             skip_youtube_forbidden_retry: false,
             recovery_attempts: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             catalog_duration_enriched: false,
@@ -335,6 +337,49 @@ impl SourceTrace {
     pub(crate) fn with_shared_lookup(mut self, id: uuid::Uuid) -> Self {
         self.shared_lookup_id = Some(id);
         self
+    }
+
+    /// Retain an account-validated exact provider read for this playback request.
+    /// Cache hits and search results never call this method.
+    pub(crate) fn remember_fresh_exact_catalog_track(
+        &self,
+        original: &Track,
+        fresh: Track,
+    ) -> bool {
+        if original.provider != "spotify"
+            || fresh.provider != original.provider
+            || original.provider_id.is_empty()
+            || fresh.provider_id != original.provider_id
+            || fresh.id != format!("spotify:{}", original.provider_id)
+            || fresh.source_url
+                != format!("https://open.spotify.com/track/{}", original.provider_id)
+        {
+            return false;
+        }
+        self.fresh_exact_catalog_track
+            .lock()
+            .map(|mut slot| {
+                *slot = Some(fresh);
+                true
+            })
+            .unwrap_or(false)
+    }
+
+    /// Consume the request-local exact result only for the same provider identity.
+    pub(crate) fn take_fresh_exact_catalog_track(&self, original: &Track) -> Option<Track> {
+        let mut slot = self.fresh_exact_catalog_track.lock().ok()?;
+        let fresh = slot.as_ref()?;
+        if original.provider != "spotify"
+            || fresh.provider != original.provider
+            || original.provider_id.is_empty()
+            || fresh.provider_id != original.provider_id
+            || fresh.id != format!("spotify:{}", original.provider_id)
+            || fresh.source_url
+                != format!("https://open.spotify.com/track/{}", original.provider_id)
+        {
+            return None;
+        }
+        slot.take()
     }
 
     pub(crate) fn with_event_provider(mut self, provider: &str) -> Self {
@@ -1539,14 +1584,38 @@ async fn resolve_inner(
             let refresh_after_empty_search = refresh_failure_kind
                 == Some(ResolutionFailureKind::NoResults)
                 && supports_catalog_playback_refresh(&effective_track);
-            if (refresh_failure_kind == Some(ResolutionFailureKind::IdentityRejected)
-                || refresh_after_empty_search)
+            // Failure reporting may prefer a transport failure from one source
+            // over a later identity rejection. Keep that reporting priority,
+            // but do not lose the evidence that fresh catalog metadata could
+            // rescue another source. A successful resolution needs no refresh.
+            let refresh_after_identity_rejection = result.is_err()
+                && (refresh_failure_kind == Some(ResolutionFailureKind::IdentityRejected)
+                    || trace.identity_rejected_sources.lock().is_ok_and(|sources| !sources.is_empty()));
+            if (refresh_after_identity_rejection || refresh_after_empty_search)
                 && automatic_source && !*cancel.borrow() && !deadline.remaining().is_zero()
             {
                 let fresh = tokio::select! {
                     biased;
                     _ = wait_for_cancellation(cancel.clone()) => return Err("Cancelled".into()),
-                    fresh = tokio::time::timeout_at(deadline.cap(Duration::from_secs(4)), acquisition.refresh_playback_catalog_track(&effective_track)) => fresh.ok().and_then(Result::ok).flatten(),
+                    fresh = async {
+                        if let Some(fresh) = trace.take_fresh_exact_catalog_track(&effective_track) {
+                            trace.event(
+                                "catalog_request_refresh_reused_exact_lookup",
+                                &effective_track.provider,
+                                json!({"reused":true}),
+                            );
+                            Some(fresh)
+                        } else {
+                            tokio::time::timeout_at(
+                                deadline.cap(Duration::from_secs(4)),
+                                acquisition.refresh_playback_catalog_track(&effective_track),
+                            )
+                            .await
+                            .ok()
+                            .and_then(Result::ok)
+                            .flatten()
+                        }
+                    } => fresh,
                 };
                 if let Some(refreshed) = fresh.as_ref().and_then(|fresh| refreshed_request_track(&effective_track, fresh)) {
                     if refreshed.title != effective_track.title || refreshed.artist != effective_track.artist
@@ -13584,6 +13653,50 @@ mod native_only_recovery_tests {
             };
             assert!(refreshed_request_track(&original, &fresh).is_none());
         }
+    }
+    fn spotify_refresh_track(provider_id: &str, title: &str) -> Track {
+        Track {
+            id: format!("spotify:{provider_id}"),
+            provider: "spotify".into(),
+            provider_id: provider_id.into(),
+            source_url: format!("https://open.spotify.com/track/{provider_id}"),
+            title: title.into(),
+            artist: "Fixture Artist".into(),
+            duration_seconds: Some(240.0),
+            ..Track::default()
+        }
+    }
+    #[test]
+    fn request_exact_refresh_slot_requires_same_exact_spotify_identity() {
+        let original = spotify_refresh_track("1234567890123456789012", "Stale title");
+        let fresh = spotify_refresh_track(&original.provider_id, "Fresh title");
+        let trace = SourceTrace::new(None, None, None);
+
+        // Empty slots are the behavior for alias cache hits and fallback-search
+        // results: neither is an account-checked exact getTrack response.
+        assert!(trace.take_fresh_exact_catalog_track(&original).is_none());
+        let wrong_id = spotify_refresh_track("2234567890123456789012", "Fresh title");
+        assert!(!trace.remember_fresh_exact_catalog_track(&original, wrong_id));
+        assert!(trace.take_fresh_exact_catalog_track(&original).is_none());
+
+        assert!(trace.remember_fresh_exact_catalog_track(&original, fresh.clone()));
+        let other_request = spotify_refresh_track("3234567890123456789012", "Other title");
+        assert!(trace
+            .take_fresh_exact_catalog_track(&other_request)
+            .is_none());
+        let reused = trace.take_fresh_exact_catalog_track(&original).unwrap();
+        assert_eq!(reused, fresh);
+    }
+    #[test]
+    fn reused_exact_refresh_still_rejects_conflicting_provider_metadata() {
+        let mut original = spotify_refresh_track("1234567890123456789012", "Stale title");
+        original.isrc = Some("USABC1234567".into());
+        let mut conflicting = spotify_refresh_track(&original.provider_id, "Fresh title");
+        conflicting.isrc = Some("GBXYZ9876543".into());
+        let trace = SourceTrace::new(None, None, None);
+        assert!(trace.remember_fresh_exact_catalog_track(&original, conflicting));
+        let reused = trace.take_fresh_exact_catalog_track(&original).unwrap();
+        assert!(refreshed_request_track(&original, &reused).is_none());
     }
     #[test]
     fn refreshed_candidates_reopen_only_identity_only_rejections() {

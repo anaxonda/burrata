@@ -7312,7 +7312,9 @@ impl AcquisitionManager {
             .clone()
             .ok_or("Alias service unavailable")?;
         let started = std::time::Instant::now();
-        let result = service.prepare_alias_track(track, cancel, deadline).await;
+        let result = service
+            .prepare_alias_track_traced(track, cancel, deadline, trace)
+            .await;
         trace.event(
             "artist_alias_hydration",
             "spotify",

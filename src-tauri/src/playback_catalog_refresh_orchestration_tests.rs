@@ -1,4 +1,4 @@
-// Offline tests of resolve_inner itself. The accepted second source is cancelled
+// Offline tests of resolve_inner itself. The accepted refreshed source is cancelled
 // before CDN access: these qualify orchestration, not successful remote playback.
 #[cfg(unix)]
 mod exact_refresh_orchestration {
@@ -144,7 +144,7 @@ if search:
         print(json.dumps({{'entries':[]}}))
     else:
         title='Correct Catalog Title' if corrected else 'Stale Catalog Title'
-        ids=['111','222'] if {transport_first} else (['111'] if {single_source} else (['111','222'] if corrected else ['111']))
+        ids=['222'] if corrected and {timeout_case} else (['111','222'] if {transport_first} else (['111'] if {single_source} else (['111','222'] if corrected else ['111'])))
         print(json.dumps({{'entries':[{{'id':i,'title':title,'uploader':'Fixture Artist','artist':'Fixture Artist','duration':240,'webpage_url':'https://soundcloud.com/fixture/'+i}} for i in ids]}}))
 else:
     i=query.rsplit('/',1)[-1]
@@ -398,7 +398,7 @@ else:
     }
 
     #[tokio::test]
-    async fn exact_refresh_orchestration_preserves_edits_ids_and_excludes_attempted_source() {
+    async fn exact_refresh_orchestration_rechecks_identity_rejected_source_and_preserves_edits() {
         let f = Fixture::new(false, false, false);
         let result = f.run(PlaybackDeadline::after(Duration::from_secs(6))).await;
         assert_eq!(
@@ -416,9 +416,12 @@ else:
             .iter()
             .filter(|e| e["kind"] == "extract")
             .collect::<Vec<_>>();
-        assert_eq!(extracts.len(), 2, "{calls:#?}");
+        assert_eq!(
+            extracts.len(),
+            1,
+            "the refreshed request should reuse extracted source metadata: {calls:#?}"
+        );
         assert!(extracts[0]["query"].as_str().unwrap().ends_with("/111"));
-        assert!(extracts[1]["query"].as_str().unwrap().ends_with("/222"));
         let events = f.events.lock().unwrap();
         let checks = events
             .iter()
@@ -427,11 +430,11 @@ else:
         assert_eq!(checks.len(), 2);
         assert_eq!(checks[0]["details"]["ok"], false);
         assert_eq!(checks[1]["details"]["ok"], true);
-        assert_eq!(f.trace.extraction_attempts_used(), 2);
+        assert_eq!(f.trace.extraction_attempts_used(), 1);
         let attempted = f.trace.attempted_sources.lock().unwrap();
         assert_eq!(
             attempted.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(),
-            vec!["soundcloud:111", "soundcloud:222"]
+            vec!["soundcloud:111", "soundcloud:111"]
         );
     }
 
@@ -448,13 +451,13 @@ else:
             f.events.lock().unwrap()
         );
         assert_eq!(f.accepted_refresh_count(), 1);
-        assert_eq!(f.trace.extraction_attempts_used(), 2);
+        assert_eq!(f.trace.extraction_attempts_used(), 1);
         let extracts = f
             .helper_calls()
             .into_iter()
             .filter(|e| e["kind"] == "extract")
             .collect::<Vec<_>>();
-        assert_eq!(extracts.len(), 2, "{extracts:#?}");
+        assert_eq!(extracts.len(), 1, "{extracts:#?}");
         assert!(extracts
             .iter()
             .all(|e| e["query"].as_str().unwrap().ends_with("/111")));
@@ -481,13 +484,13 @@ else:
             Some("The resolved audio source identity does not match this recording")
         );
         assert_eq!(f.accepted_refresh_count(), 1);
-        assert_eq!(f.trace.extraction_attempts_used(), 2);
+        assert_eq!(f.trace.extraction_attempts_used(), 1);
         let extracts = f
             .helper_calls()
             .into_iter()
             .filter(|e| e["kind"] == "extract")
             .collect::<Vec<_>>();
-        assert_eq!(extracts.len(), 2, "{extracts:#?}");
+        assert_eq!(extracts.len(), 1, "{extracts:#?}");
         let checks = f
             .events
             .lock()
@@ -505,7 +508,7 @@ else:
     async fn exact_refresh_keeps_transport_failed_source_excluded() {
         let f = Fixture::with_modes(false, false, false, false, false, true, false, false);
         let result = f.run(PlaybackDeadline::after(Duration::from_secs(6))).await;
-        assert_ne!(
+        assert_eq!(
             result.err().as_deref(),
             Some("Cancelled"),
             "{:#?}",
@@ -525,6 +528,19 @@ else:
         assert!(extracts[0]["query"].as_str().unwrap().ends_with("/111"));
         assert!(extracts[1]["query"].as_str().unwrap().ends_with("/222"));
         assert_eq!(f.trace.extraction_attempts_used(), 2);
+        let events = f.events.lock().unwrap();
+        let checks = events
+            .iter()
+            .filter(|e| e["phase"] == "full_identity_check")
+            .collect::<Vec<_>>();
+        assert_eq!(checks.len(), 2);
+        assert_eq!(checks[0]["details"]["ok"], false);
+        assert_eq!(checks[1]["details"]["ok"], true);
+        let attempted = f.trace.attempted_sources.lock().unwrap();
+        assert_eq!(
+            attempted.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(),
+            vec!["soundcloud:111", "soundcloud:222", "soundcloud:222"]
+        );
         f.unchanged();
     }
 

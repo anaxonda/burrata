@@ -3036,6 +3036,28 @@ impl RemotePlaylistService {
         cancel: tokio::sync::watch::Receiver<bool>,
         deadline: tokio::time::Instant,
     ) -> Result<Track> {
+        self.prepare_alias_track_inner(original, cancel, deadline, None)
+            .await
+    }
+
+    pub(crate) async fn prepare_alias_track_traced(
+        &self,
+        original: &Track,
+        cancel: tokio::sync::watch::Receiver<bool>,
+        deadline: tokio::time::Instant,
+        trace: &crate::playback_sources::SourceTrace,
+    ) -> Result<Track> {
+        self.prepare_alias_track_inner(original, cancel, deadline, Some(trace))
+            .await
+    }
+
+    async fn prepare_alias_track_inner(
+        &self,
+        original: &Track,
+        cancel: tokio::sync::watch::Receiver<bool>,
+        deadline: tokio::time::Instant,
+        trace: Option<&crate::playback_sources::SourceTrace>,
+    ) -> Result<Track> {
         let fresh = alias_hydration_key(original)
             .ok()
             .and_then(|key| {
@@ -3064,6 +3086,7 @@ impl RemotePlaylistService {
         }
         let account =
             await_crosswalk_step(deadline, cancel.clone(), self.require_account("spotify")).await?;
+        let mut fresh_exact_provider_track = None;
         let provider = match await_crosswalk_step(
             deadline,
             cancel.clone(),
@@ -3071,7 +3094,10 @@ impl RemotePlaylistService {
         )
         .await
         {
-            Ok((provider, response_account)) if response_account == account.id => provider,
+            Ok((provider, response_account)) if response_account == account.id => {
+                fresh_exact_provider_track = Some(provider.clone());
+                provider
+            }
             Ok(_) => return Err("Provider account changed during alias hydration".into()),
             Err(_error) if !*cancel.borrow() && tokio::time::Instant::now() < deadline => {
                 let query = alias_hydration_search_query(original)?;
@@ -3097,6 +3123,9 @@ impl RemotePlaylistService {
             await_crosswalk_step(deadline, cancel, self.require_account("spotify")).await?;
         if current.id != account.id {
             return Err("Provider account changed during alias hydration".into());
+        }
+        if let (Some(trace), Some(provider_track)) = (trace, fresh_exact_provider_track) {
+            trace.remember_fresh_exact_catalog_track(original, provider_track);
         }
         let hydrated = merge_alias_hydration(original, &provider)
             .ok_or("Exact provider identity disagrees with saved track")?;
@@ -12044,6 +12073,43 @@ mod spotify_album_hint_crosswalk_tests {
 #[cfg(test)]
 mod alias_hydration_tests {
     use super::*;
+    use crate::browser_bridge::ProviderTransport;
+
+    struct AliasHydrationFixtureTransport {
+        calls: Mutex<Vec<String>>,
+    }
+    #[async_trait::async_trait]
+    impl ProviderTransport for AliasHydrationFixtureTransport {
+        fn provider_operations_supported(&self) -> bool {
+            true
+        }
+        async fn provider_operation(
+            &self,
+            _provider: &str,
+            operation: &str,
+            _args: Value,
+        ) -> Result<Value> {
+            self.calls.lock().unwrap().push(operation.to_owned());
+            match operation {
+                "status" => Ok(json!({"accountId":"account-a","displayName":"Fixture"})),
+                "getTrack" => Err("controlled exact lookup unavailable".into()),
+                "search" => Ok(
+                    json!({"accountId":"account-a","items":[search_row("1234567890123456789012")]}),
+                ),
+                other => panic!("unexpected alias hydration operation {other}"),
+            }
+        }
+        async fn provider_operation_cancellable(
+            &self,
+            provider: &str,
+            operation: &str,
+            args: Value,
+            _cancel: Option<Arc<AtomicBool>>,
+        ) -> Result<Value> {
+            self.provider_operation(provider, operation, args).await
+        }
+    }
+
     fn provider_track() -> Track {
         let id = "1234567890123456789012";
         let refs = json!([{"provider":"spotify","id":"abcdefghijklmnopqrstuv","name":"Artist"}]);
@@ -12153,6 +12219,76 @@ mod alias_hydration_tests {
         changed = original;
         changed.isrc = Some("USABC1234567".into());
         assert!(merge_alias_hydration(&changed, &provider).is_none());
+    }
+
+    #[tokio::test]
+    async fn cached_alias_hydration_does_not_fill_fresh_exact_refresh_slot() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&directory.path().join("alias-cache.sqlite")).unwrap());
+        let original = provider_track();
+        let hydrated = original.clone();
+        let key = alias_hydration_key(&original).unwrap();
+        store
+            .set_provider_cache(
+                ALIAS_HYDRATION_CACHE,
+                &key,
+                &json!({
+                    "version":1,"original":original,"hydrated":hydrated,
+                    "checkedAt":chrono::Utc::now().timestamp()
+                }),
+                30 * 24 * 60 * 60,
+            )
+            .unwrap();
+        let transport = Arc::new(AliasHydrationFixtureTransport {
+            calls: Mutex::new(Vec::new()),
+        });
+        let service = RemotePlaylistService::new(store, transport.clone());
+        let trace = crate::playback_sources::SourceTrace::new(None, None, None);
+        let (_stop, cancel) = tokio::sync::watch::channel(false);
+        let result = service
+            .prepare_alias_track_traced(
+                &original,
+                cancel,
+                tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+                &trace,
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.id, original.id);
+        assert!(trace.take_fresh_exact_catalog_track(&original).is_none());
+        assert!(
+            transport.calls.lock().unwrap().is_empty(),
+            "cache hit must not issue provider calls"
+        );
+    }
+
+    #[tokio::test]
+    async fn exact_id_search_fallback_does_not_fill_fresh_exact_refresh_slot() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&directory.path().join("alias-search.sqlite")).unwrap());
+        let original = provider_track();
+        let transport = Arc::new(AliasHydrationFixtureTransport {
+            calls: Mutex::new(Vec::new()),
+        });
+        let service = RemotePlaylistService::new(store, transport.clone());
+        let trace = crate::playback_sources::SourceTrace::new(None, None, None);
+        let (_stop, cancel) = tokio::sync::watch::channel(false);
+        let result = service
+            .prepare_alias_track_traced(
+                &original,
+                cancel,
+                tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+                &trace,
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.id, original.id);
+        assert!(trace.take_fresh_exact_catalog_track(&original).is_none());
+        assert_eq!(
+            *transport.calls.lock().unwrap(),
+            vec!["status", "getTrack", "search"],
+            "only a successful account-bound getTrack may populate the request slot"
+        );
     }
 }
 
