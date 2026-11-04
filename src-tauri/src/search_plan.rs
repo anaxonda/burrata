@@ -83,7 +83,7 @@ fn primary_performer_credit(track: &Track) -> Option<String> {
         .map(|credit| credit.name.clone())
         .filter(|name| !placeholder_artist(name));
     primary.or_else(|| {
-        crate::artist_credit_aliases::legacy_discogs_roleless_primary_performer_names(track)
+        crate::legacy_discogs_credit::legacy_discogs_roleless_primary_performer_names(track)
             .and_then(|names| names.into_iter().next())
     })
 }

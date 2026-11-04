@@ -41,7 +41,7 @@ def row(run_id: str, condition: str, resolution: float, status: str = "success")
 class Stage5HarnessTests(unittest.TestCase):
     def test_matrix_has_every_mode_and_stage(self):
         data = stage5.validate_matrix(stage5.DEFAULT_MATRIX)
-        self.assertEqual(len(data["cases"]), 14)
+        self.assertEqual(len(data["cases"]), 19)
 
     def test_matrix_declares_transformations_and_explicit_proof_targets(self):
         data = stage5.validate_matrix(stage5.DEFAULT_MATRIX)

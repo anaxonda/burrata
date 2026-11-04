@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 #[path = "../../src-tauri/src/diagnostic_metrics.rs"]
 mod diagnostic_metrics;
+#[path = "../../src-tauri/src/legacy_discogs_credit.rs"]
+mod legacy_discogs_credit;
 #[path = "../../src-tauri/src/matching.rs"]
 mod matching;
 #[path = "../../src-tauri/src/models.rs"]
@@ -14,6 +16,8 @@ mod recording_match;
 #[cfg(test)]
 #[path = "../../src-tauri/src/recording_match_corpus.rs"]
 mod recording_match_corpus;
+#[path = "../../src-tauri/src/search_plan.rs"]
+mod search_plan;
 use models::{Candidate, Track};
 use recording_match::{assess, MatchLevel, MatchStage};
 use serde_json::json;

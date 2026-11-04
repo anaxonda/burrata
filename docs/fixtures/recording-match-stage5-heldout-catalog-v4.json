@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "fixtureId": "burrata.stage5.heldout-catalog-identity.v4",
-  "status": "policy-corrected-after-v3-initial-run; labels-frozen-before-v4-run",
+  "status": "policy-inputs-added-after-v4-review; source-labels-frozen-before-policy-replay",
   "frozenOn": "2026-10-22",
   "purpose": "A small source-supported catalog-metadata regression set with expected actions aligned to the documented Flexible policy: identified live alternatives are eligible; radio edits remain explicit version conflicts unless the policy is expanded. This is not a representative population sample and does not verify audio.",
   "provenance": {
@@ -408,8 +408,8 @@
             "proofStrength": "metadataOnly"
           },
           "Flexible": {
-            "relationship": "Alternative",
-            "action": "Inspect",
+            "relationship": "Unresolved",
+            "action": "Reject",
             "proofStrength": "metadataOnly"
           }
         },
@@ -425,8 +425,8 @@
             "proofStrength": "metadataOnly"
           },
           "Flexible": {
-            "relationship": "Alternative",
-            "action": "Accept",
+            "relationship": "Unresolved",
+            "action": "Reject",
             "proofStrength": "metadataOnly"
           }
         }
@@ -651,6 +651,243 @@
       },
       "candidateCarrierSynthetic": true,
       "classification": "developmentPolicyProbe"
+    },
+    {
+      "id": "crazy-in-love-live-performance-explicit-policy-probe",
+      "evidenceClass": "policyProbe",
+      "synthetic": true,
+      "groundTruth": "identifiedAlternativeRecording",
+      "sourceRecords": [
+        "crazy-in-love-work",
+        "crazy-in-love-original-series",
+        "beyonce-live-in-brooklyn-recording"
+      ],
+      "request": {
+        "title": "Crazy in Love",
+        "artist": "Beyoncé feat. Jay-Z",
+        "durationSeconds": 236,
+        "version": "album version",
+        "isrc": "USSM10305425"
+      },
+      "candidate": {
+        "title": "Crazy in Love (live)",
+        "provider": "fixture",
+        "id": "fixture-crazy-in-love-(live)",
+        "url": "",
+        "uploader": "Beyoncé, Jay-Z",
+        "permission": "catalog",
+        "confidence": "review",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "musicbrainz",
+          "catalog": true,
+          "catalogTitle": "Crazy in Love (live)",
+          "artistNames": [
+            "Beyoncé",
+            "Jay-Z"
+          ],
+          "artistCount": 2,
+          "duration": 186,
+          "isrc": "USJZ11200006",
+          "version": "live"
+        },
+        "durationSeconds": 186
+      },
+      "expected": {
+        "Search": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          }
+        },
+        "Resolved": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          }
+        }
+      },
+      "rationale": "Explicit performance and bounded shorter-runtime permission are insufficient here: the candidate conflicts on version, runtime, and ISRC, and this fixture does not establish a source-bound complete recording identity. The paired default-policy probe confirms the same conservative refusal without options.",
+      "catalogFacts": {
+        "request": {
+          "title": "Crazy in Love",
+          "performerCredits": [
+            "Beyoncé",
+            "Jay-Z"
+          ],
+          "versionAnnotation": "album version",
+          "durationSeconds": 236,
+          "isrc": "USSM10305425"
+        },
+        "candidate": {
+          "title": "Crazy in Love (live)",
+          "performerCredits": [
+            "Beyoncé",
+            "Jay-Z"
+          ],
+          "versionAnnotation": "live",
+          "durationSeconds": 186,
+          "isrc": "USJZ11200006"
+        }
+      },
+      "candidateCarrierSynthetic": true,
+      "classification": "policyProbe",
+      "policyInputs": {
+        "Search": {
+          "Flexible": {
+            "version": 1,
+            "allowOtherReleases": true,
+            "allowOtherPerformances": true,
+            "allowOtherMixes": false,
+            "allowOtherArtists": false,
+            "allowDifferentLengths": true,
+            "maxShorterBySeconds": 60,
+            "maxLongerBySeconds": 30
+          }
+        },
+        "Resolved": {
+          "Flexible": {
+            "version": 1,
+            "allowOtherReleases": true,
+            "allowOtherPerformances": true,
+            "allowOtherMixes": false,
+            "allowOtherArtists": false,
+            "allowDifferentLengths": true,
+            "maxShorterBySeconds": 60,
+            "maxLongerBySeconds": 30
+          }
+        }
+      }
+    },
+    {
+      "id": "crazy-in-love-live-performance-default-refusal-probe",
+      "evidenceClass": "policyProbe",
+      "synthetic": true,
+      "groundTruth": "identifiedAlternativeRecording",
+      "sourceRecords": [
+        "crazy-in-love-work",
+        "crazy-in-love-original-series",
+        "beyonce-live-in-brooklyn-recording"
+      ],
+      "request": {
+        "title": "Crazy in Love",
+        "artist": "Beyoncé feat. Jay-Z",
+        "durationSeconds": 236,
+        "version": "album version",
+        "isrc": "USSM10305425"
+      },
+      "candidate": {
+        "title": "Crazy in Love (live)",
+        "provider": "fixture",
+        "id": "fixture-crazy-in-love-(live)",
+        "url": "",
+        "uploader": "Beyoncé, Jay-Z",
+        "permission": "catalog",
+        "confidence": "review",
+        "score": 0.0,
+        "reasons": [],
+        "official": false,
+        "sourceMetadata": {
+          "provider": "musicbrainz",
+          "catalog": true,
+          "catalogTitle": "Crazy in Love (live)",
+          "artistNames": [
+            "Beyoncé",
+            "Jay-Z"
+          ],
+          "artistCount": 2,
+          "duration": 186,
+          "isrc": "USJZ11200006",
+          "version": "live"
+        },
+        "durationSeconds": 186
+      },
+      "expected": {
+        "Search": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          }
+        },
+        "Resolved": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Unresolved",
+            "action": "Reject",
+            "proofStrength": "metadataOnly"
+          }
+        }
+      },
+      "rationale": "Paired default-policy refusal: same source-backed live metadata, with no performance/duration options supplied. No audio-source identity is inferred.",
+      "catalogFacts": {
+        "request": {
+          "title": "Crazy in Love",
+          "performerCredits": [
+            "Beyoncé",
+            "Jay-Z"
+          ],
+          "versionAnnotation": "album version",
+          "durationSeconds": 236,
+          "isrc": "USSM10305425"
+        },
+        "candidate": {
+          "title": "Crazy in Love (live)",
+          "performerCredits": [
+            "Beyoncé",
+            "Jay-Z"
+          ],
+          "versionAnnotation": "live",
+          "durationSeconds": 186,
+          "isrc": "USJZ11200006"
+        }
+      },
+      "candidateCarrierSynthetic": true,
+      "classification": "policyProbe",
+      "policyInputs": {}
     }
   ]
 }

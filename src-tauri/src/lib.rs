@@ -46,6 +46,7 @@ mod import_drop;
 mod import_metadata;
 pub mod imports;
 pub mod install_integration;
+mod legacy_discogs_credit;
 #[cfg(target_os = "linux")]
 pub mod linux_webview_output;
 pub(crate) mod live_analysis_gate;
@@ -109,6 +110,7 @@ mod recording_match_aliases;
 mod recording_match_context;
 #[cfg(test)]
 mod recording_match_corpus;
+mod recording_timing_identity;
 pub mod remote_playlists;
 pub mod restore_work_policy;
 pub(crate) mod search_plan;

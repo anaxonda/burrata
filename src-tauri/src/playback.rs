@@ -6773,7 +6773,7 @@ impl PlaybackService {
             .as_ref()
             .map(|result| result.metadata.artist.clone());
         let timing_identity_matches = recognized.as_ref().is_some_and(|result| {
-            crate::recording_match::recognition_matches_timing_identity(
+            crate::recording_timing_identity::recognition_matches_timing_identity(
                 self.inner.store.as_ref(),
                 &requested_track,
                 &result.metadata.title,

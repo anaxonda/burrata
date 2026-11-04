@@ -574,7 +574,7 @@ impl RecordingIdentity {
                 None | Some(Value::Null) => Some("artist"),
                 Some(Value::String(role)) if !role.trim().is_empty() => Some(role.as_str()),
                 Some(Value::String(_))
-                    if crate::artist_credit_aliases::is_legacy_discogs_roleless_primary_credit(
+                    if crate::legacy_discogs_credit::is_legacy_discogs_roleless_primary_credit(
                         track, r,
                     ) =>
                 {
@@ -1604,7 +1604,7 @@ mod tests {
         };
         let hydrated_credit = &raw.provenance["artistCredits"][0];
         assert!(
-            crate::artist_credit_aliases::is_legacy_discogs_roleless_primary_credit(
+            crate::legacy_discogs_credit::is_legacy_discogs_roleless_primary_credit(
                 &raw,
                 hydrated_credit
             )
@@ -1613,7 +1613,7 @@ mod tests {
         let mut hydrated = raw.clone();
         hydrated.artist = "Gillian Welch".into();
         assert!(
-            crate::artist_credit_aliases::is_legacy_discogs_roleless_primary_credit(
+            crate::legacy_discogs_credit::is_legacy_discogs_roleless_primary_credit(
                 &hydrated,
                 hydrated_credit
             )

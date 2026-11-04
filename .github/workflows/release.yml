@@ -122,6 +122,22 @@ jobs:
           echo "linux_only=$LINUX_ONLY" >> "$GITHUB_OUTPUT"
           echo "build_matrix=$build_matrix" >> "$GITHUB_OUTPUT"
 
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.meta.outputs.extensions_only != 'true'
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+        if: steps.meta.outputs.extensions_only != 'true'
+        with:
+          workspaces: |
+            scripts/matching-audit -> target
+            scripts/heldout-matching -> target
+          cache-on-failure: true
+      - name: Check playback matching before desktop builds
+        if: steps.meta.outputs.extensions_only != 'true'
+        run: python3 scripts/check_playback_matching.py
+
   build:
     needs: prepare
     if: needs.prepare.outputs.extensions_only != 'true'

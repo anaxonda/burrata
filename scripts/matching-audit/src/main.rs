@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 #[path = "../../../src-tauri/src/diagnostic_metrics.rs"]
 mod diagnostic_metrics;
+#[path = "../../../src-tauri/src/legacy_discogs_credit.rs"]
+mod legacy_discogs_credit;
 #[path = "../../../src-tauri/src/matching.rs"]
 mod matching;
 #[path = "../../../src-tauri/src/models.rs"]
@@ -11,10 +13,13 @@ mod recording_filename;
 mod recording_identity;
 #[path = "../../../src-tauri/src/recording_match.rs"]
 mod recording_match;
+#[path = "../../../src-tauri/src/search_plan.rs"]
+mod search_plan;
 
 use models::{Candidate, Track};
 use recording_match::{
-    MatchAction, MatchAssessment, MatchLevel, MatchRelationship, MatchStage, ProofStrength,
+    FlexibleMatchingOptions, MatchAction, MatchAssessment, MatchLevel, MatchRelationship,
+    MatchStage, ProofStrength,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -69,6 +74,38 @@ fn proof_strength(value: &str) -> Result<ProofStrength, String> {
         "audioFingerprint" => Ok(ProofStrength::AudioFingerprint),
         _ => Err(format!("unknown expected proof strength {value}")),
     }
+}
+
+fn evaluate_case(
+    case: &Value,
+    mode_name: &str,
+    stage_name: &str,
+) -> Result<MatchAssessment, String> {
+    let request = overlay::<Track>(&case["request"])?;
+    let candidate = overlay::<Candidate>(&case["candidate"])?;
+    let selected_mode = mode(mode_name)?;
+    let selected_stage = stage(stage_name)?;
+    let option_input = &case["policyInputs"][stage_name][mode_name];
+    let assessed = if option_input.is_object() {
+        let options: FlexibleMatchingOptions = serde_json::from_value(option_input.clone())
+            .map_err(|error| {
+                format!("invalid policyInputs for {stage_name}/{mode_name}: {error}")
+            })?;
+        std::panic::catch_unwind(|| {
+            recording_match::assess_with_options(
+                &request,
+                &candidate,
+                selected_mode,
+                selected_stage,
+                &options,
+            )
+        })
+    } else {
+        std::panic::catch_unwind(|| {
+            recording_match::assess(&request, &candidate, selected_mode, selected_stage)
+        })
+    };
+    assessed.map_err(|_| format!("panic at {stage_name}/{mode_name}"))
 }
 
 fn evaluate(
@@ -140,14 +177,16 @@ fn run() -> Result<(), String> {
                     proof_strength(expected["proofStrength"].as_str().ok_or_else(|| {
                         format!("{id}/{stage_name}/{mode_name}: proofStrength missing")
                     })?)?;
-                let selected_mode = mode(mode_name)?;
-                let selected_stage = stage(stage_name)?;
-                let assessed = std::panic::catch_unwind(|| {
-                    recording_match::assess(&request, &candidate, selected_mode, selected_stage)
-                });
+                let assessed =
+                    std::panic::catch_unwind(|| evaluate_case(case, mode_name, stage_name));
                 evaluated += 1;
                 let actual = match assessed {
-                    Ok(assessment) => assessment,
+                    Ok(Ok(assessment)) => assessment,
+                    Ok(Err(error)) => {
+                        eprintln!("FAIL {id} {stage_name} {mode_name}: {error}");
+                        mismatches += 1;
+                        continue;
+                    }
                     Err(_) => {
                         eprintln!(
                             "PANIC {id} {stage_name} {mode_name} proof={} synthetic={}",
@@ -164,7 +203,7 @@ fn run() -> Result<(), String> {
                     mismatches += 1;
                 }
                 println!(
-                    "{} case={} stage={} mode={} expected={:?}/{:?}/{:?} actual={:?}/{:?}/{:?} labels={} synthetic={}",
+                    "{} case={} stage={} mode={} expected={:?}/{:?}/{:?} actual={:?}/{:?}/{:?} reasons={:?} dimensions={:?} labels={} synthetic={}",
                     if matched { "PASS" } else { "DIFF" },
                     id,
                     stage_name,
@@ -175,6 +214,8 @@ fn run() -> Result<(), String> {
                     actual.relationship,
                     actual.action,
                     actual.proof_strength,
+                    actual.reasons,
+                    actual.dimensions,
                     labels["candidateProof"].as_str().unwrap_or("unknown"),
                     labels["synthetic"].as_bool().unwrap_or(true),
                 );

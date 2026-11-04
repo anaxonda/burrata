@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 #[path = "../../../src-tauri/src/diagnostic_metrics.rs"]
 mod diagnostic_metrics;
+#[path = "../../../src-tauri/src/legacy_discogs_credit.rs"]
+mod legacy_discogs_credit;
 #[path = "../../../src-tauri/src/matching.rs"]
 mod matching;
 #[path = "../../../src-tauri/src/models.rs"]
@@ -11,9 +13,13 @@ mod recording_filename;
 mod recording_identity;
 #[path = "../../../src-tauri/src/recording_match.rs"]
 mod recording_match;
+#[path = "../../../src-tauri/src/search_plan.rs"]
+mod search_plan;
 
 use models::{Candidate, Track};
-use recording_match::{MatchAction, MatchLevel, MatchRelationship, MatchStage, ProofStrength};
+use recording_match::{
+    FlexibleMatchingOptions, MatchAction, MatchLevel, MatchRelationship, MatchStage, ProofStrength,
+};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use std::{env, fs, path::PathBuf};
@@ -70,7 +76,7 @@ fn parse_proof(s: &str) -> Result<ProofStrength, String> {
 fn main_path() -> PathBuf {
     env::args_os().nth(1).map(PathBuf::from).unwrap_or_else(|| {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../docs/fixtures/recording-match-stage5-heldout-catalog-v2.json")
+            .join("../../docs/fixtures/recording-match-stage5-heldout-catalog-v4.json")
     })
 }
 fn run_group(cases: &[Value], classification: &str) -> Result<(usize, usize), String> {
@@ -99,7 +105,21 @@ fn run_group(cases: &[Value], classification: &str) -> Result<(usize, usize), St
                 )?;
                 let selected_mode = parse_mode(mode_name)?;
                 let selected_stage = parse_stage(stage_name)?;
+                let option_input = &case["policyInputs"][stage_name][mode_name];
+                let parsed_options = if option_input.is_object() {
+                    Some(
+                        serde_json::from_value::<FlexibleMatchingOptions>(option_input.clone())
+                            .map_err(|error| {
+                                format!(
+                                    "invalid policyInputs for {stage_name}/{mode_name}: {error}"
+                                )
+                            })?,
+                    )
+                } else {
+                    None
+                };
                 let result = std::panic::catch_unwind(|| {
+                    let options = parsed_options.as_ref();
                     if let Some(alias) = case["verifiedArtistNameAlias"].as_object() {
                         let requested = alias["requestedName"]
                             .as_str()
@@ -107,13 +127,33 @@ fn run_group(cases: &[Value], classification: &str) -> Result<(usize, usize), St
                         let candidate_name = alias["candidateName"]
                             .as_str()
                             .expect("verified alias candidate name missing");
-                        recording_match::assess_with_scoped_artist_name_alias(
+                        if let Some(options) = options {
+                            recording_match::assess_with_scoped_artist_name_alias_and_options(
+                                &request,
+                                &candidate,
+                                selected_mode,
+                                selected_stage,
+                                requested,
+                                candidate_name,
+                                options,
+                            )
+                        } else {
+                            recording_match::assess_with_scoped_artist_name_alias(
+                                &request,
+                                &candidate,
+                                selected_mode,
+                                selected_stage,
+                                requested,
+                                candidate_name,
+                            )
+                        }
+                    } else if let Some(options) = options {
+                        recording_match::assess_with_options(
                             &request,
                             &candidate,
                             selected_mode,
                             selected_stage,
-                            requested,
-                            candidate_name,
+                            options,
                         )
                     } else {
                         recording_match::assess(&request, &candidate, selected_mode, selected_stage)
@@ -155,7 +195,7 @@ fn run() -> Result<(), String> {
     let supported_v3 = root["fixtureId"] == "burrata.stage5.heldout-catalog-identity.v3"
         && root["status"] == "source-labels-frozen-before-v3-evaluator-run";
     let supported_v4 = root["fixtureId"] == "burrata.stage5.heldout-catalog-identity.v4"
-        && root["status"] == "policy-corrected-after-v3-initial-run; labels-frozen-before-v4-run";
+        && matches!(root["status"].as_str(), Some("policy-corrected-after-v3-initial-run; labels-frozen-before-v4-run" | "policy-inputs-added-after-v4-review; source-labels-frozen-before-policy-replay"));
     if !supported_v2 && !supported_v3 && !supported_v4 {
         return Err("unsupported or unfrozen catalog fixture".into());
     }
