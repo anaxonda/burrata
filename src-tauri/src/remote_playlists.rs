@@ -193,16 +193,27 @@ fn exact_alias_search_track(
         "Exact Spotify search result failed the saved identity and credit checks".to_owned()
     })
 }
-/// Trusted exact-lookup evidence bound to the original recording identity. Age affects
-/// refresh eligibility, while retained evidence remains available to cache reads.
+const ALIAS_HYDRATION_TTL_SECS: i64 = 30 * 24 * 60 * 60;
+
+fn alias_hydration_cache_is_fresh(payload: &Value, now: i64) -> bool {
+    payload["version"] == 1
+        && payload["checkedAt"]
+            .as_i64()
+            .and_then(|checked_at| now.checked_sub(checked_at))
+            .is_some_and(|age| (0..=ALIAS_HYDRATION_TTL_SECS).contains(&age))
+}
+
+/// Hydrated evidence is usable only during its 30-day freshness window.
+/// Retained cache rows stay on disk after expiry but cannot authorize reads.
 pub(crate) fn read_alias_hydrated_track(store: &Store, original: &Track) -> Option<Track> {
     let payload = store
         .get_provider_cache(ALIAS_HYDRATION_CACHE, &alias_hydration_key(original).ok()?)
         .ok()??;
+    if !alias_hydration_cache_is_fresh(&payload, chrono::Utc::now().timestamp()) {
+        return None;
+    }
     let saved_original: Track = serde_json::from_value(payload["original"].clone()).ok()?;
-    if payload["version"] != 1
-        || alias_hydration_identity(&saved_original) != alias_hydration_identity(original)
-    {
+    if alias_hydration_identity(&saved_original) != alias_hydration_identity(original) {
         return None;
     }
     let hydrated: Track = serde_json::from_value(payload["hydrated"].clone()).ok()?;
@@ -3058,20 +3069,21 @@ impl RemotePlaylistService {
         deadline: tokio::time::Instant,
         trace: Option<&crate::playback_sources::SourceTrace>,
     ) -> Result<Track> {
-        let fresh = alias_hydration_key(original)
-            .ok()
-            .and_then(|key| {
-                self.store
-                    .get_provider_cache(ALIAS_HYDRATION_CACHE, &key)
-                    .ok()
-                    .flatten()
-            })
-            .and_then(|value| value["checkedAt"].as_i64())
-            .is_some_and(|at| {
-                (0..=30 * 24 * 60 * 60).contains(&(chrono::Utc::now().timestamp() - at))
-            });
-        if fresh {
-            if let Some(track) = read_alias_hydrated_track(&self.store, original) {
+        let cached_hydration = read_alias_hydrated_track(&self.store, original);
+        // Cached hydration is sufficient for ordinary saved-track alias
+        // discovery, but it cannot authorize a new unsaved request's
+        // request-scoped profile context. Recheck that exact provider ID so a
+        // prior search fallback or stale cache cannot masquerade as getTrack.
+        let unsaved_request = trace.is_some()
+            && crate::artist_credit_aliases::has_verified_spotify_request_credits(original)
+            && self
+                .store
+                .get_library_track(&original.id)
+                .ok()
+                .flatten()
+                .is_none();
+        if !unsaved_request {
+            if let Some(track) = cached_hydration {
                 return Ok(track);
             }
         }
@@ -3124,11 +3136,20 @@ impl RemotePlaylistService {
         if current.id != account.id {
             return Err("Provider account changed during alias hydration".into());
         }
+        let exact_get_track_succeeded = fresh_exact_provider_track.is_some();
         if let (Some(trace), Some(provider_track)) = (trace, fresh_exact_provider_track) {
+            // Keep the refresh slot semantics unchanged: an account-checked
+            // exact read may refresh catalog metadata even if later alias
+            // merging rejects conflicting fields.
             trace.remember_fresh_exact_catalog_track(original, provider_track);
         }
         let hydrated = merge_alias_hydration(original, &provider)
             .ok_or("Exact provider identity disagrees with saved track")?;
+        if exact_get_track_succeeded {
+            if let Some(trace) = trace {
+                trace.remember_fresh_exact_alias_track(original, hydrated.clone());
+            }
+        }
         self.store.set_retained_provider_cache(ALIAS_HYDRATION_CACHE, &alias_hydration_key(original)?,
             &json!({"version":1,"original":original,"hydrated":hydrated,"checkedAt":chrono::Utc::now().timestamp()}))?;
         Ok(hydrated)
@@ -12077,6 +12098,7 @@ mod alias_hydration_tests {
 
     struct AliasHydrationFixtureTransport {
         calls: Mutex<Vec<String>>,
+        exact_lookup_succeeds: bool,
     }
     #[async_trait::async_trait]
     impl ProviderTransport for AliasHydrationFixtureTransport {
@@ -12092,6 +12114,9 @@ mod alias_hydration_tests {
             self.calls.lock().unwrap().push(operation.to_owned());
             match operation {
                 "status" => Ok(json!({"accountId":"account-a","displayName":"Fixture"})),
+                "getTrack" if self.exact_lookup_succeeds => Ok(
+                    json!({"accountId":"account-a","items":[search_row("1234567890123456789012")]}),
+                ),
                 "getTrack" => Err("controlled exact lookup unavailable".into()),
                 "search" => Ok(
                     json!({"accountId":"account-a","items":[search_row("1234567890123456789012")]}),
@@ -12129,6 +12154,14 @@ mod alias_hydration_tests {
         }
     }
 
+    fn unsaved_structured_request() -> Track {
+        let mut request = provider_track();
+        request.provenance = json!({"artistCredits":[
+            {"name":"Artist","providerId":"abcdefghijklmnopqrstuv","provenance":"remoteProviderStructuredCredits","role":null,"joinPhrase":null}
+        ]});
+        request
+    }
+
     fn search_row(id: &str) -> Value {
         let url = format!("https://open.spotify.com/track/{id}");
         json!({"kind":"track","id":id,"title":"Song","subtitle":"Artist","url":url,
@@ -12136,6 +12169,57 @@ mod alias_hydration_tests {
                 "durationSeconds":120.0,"url":url,
                 "artistRefs":[{"provider":"spotify","id":"abcdefghijklmnopqrstuv","name":"Artist"}],
                 "artistCount":1}})
+    }
+
+    #[test]
+    fn alias_hydration_freshness_bounds_are_inclusive_and_fail_closed() {
+        let now = 1_800_000_000_i64;
+        let payload = |checked_at| json!({"version":1,"checkedAt":checked_at});
+        assert!(alias_hydration_cache_is_fresh(&payload(now), now));
+        assert!(alias_hydration_cache_is_fresh(
+            &payload(now - ALIAS_HYDRATION_TTL_SECS),
+            now
+        ));
+        assert!(!alias_hydration_cache_is_fresh(
+            &payload(now - ALIAS_HYDRATION_TTL_SECS - 1),
+            now
+        ));
+        assert!(!alias_hydration_cache_is_fresh(&payload(now + 1), now));
+        assert!(!alias_hydration_cache_is_fresh(&json!({"version":1}), now));
+        assert!(!alias_hydration_cache_is_fresh(
+            &json!({"version":1,"checkedAt":"1800000000"}),
+            now
+        ));
+        assert!(!alias_hydration_cache_is_fresh(
+            &json!({"version":2,"checkedAt":now}),
+            now
+        ));
+    }
+
+    #[test]
+    fn retained_expired_alias_hydration_is_not_returned_or_deleted() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("expired-alias-cache.sqlite")).unwrap();
+        let original = provider_track();
+        let payload = json!({
+            "version":1,
+            "original":original,
+            "hydrated":provider_track(),
+            "checkedAt":chrono::Utc::now().timestamp() - ALIAS_HYDRATION_TTL_SECS - 1
+        });
+        let key = alias_hydration_key(&original).unwrap();
+        store
+            .set_retained_provider_cache(ALIAS_HYDRATION_CACHE, &key, &payload)
+            .unwrap();
+
+        assert!(read_alias_hydrated_track(&store, &original).is_none());
+        assert_eq!(
+            store
+                .get_provider_cache(ALIAS_HYDRATION_CACHE, &key)
+                .unwrap(),
+            Some(payload),
+            "expired forensic evidence remains retained, but cannot authorize use"
+        );
     }
 
     #[test]
@@ -12241,6 +12325,7 @@ mod alias_hydration_tests {
             .unwrap();
         let transport = Arc::new(AliasHydrationFixtureTransport {
             calls: Mutex::new(Vec::new()),
+            exact_lookup_succeeds: false,
         });
         let service = RemotePlaylistService::new(store, transport.clone());
         let trace = crate::playback_sources::SourceTrace::new(None, None, None);
@@ -12256,6 +12341,7 @@ mod alias_hydration_tests {
             .unwrap();
         assert_eq!(result.id, original.id);
         assert!(trace.take_fresh_exact_catalog_track(&original).is_none());
+        assert!(trace.fresh_exact_alias_track(&original).is_none());
         assert!(
             transport.calls.lock().unwrap().is_empty(),
             "cache hit must not issue provider calls"
@@ -12263,12 +12349,77 @@ mod alias_hydration_tests {
     }
 
     #[tokio::test]
+    async fn repeated_unsaved_request_revalidates_fresh_get_track_instead_of_using_cached_hydration(
+    ) {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&directory.path().join("alias-cache.sqlite")).unwrap());
+        let original = unsaved_structured_request();
+        let hydrated = provider_track();
+        let key = alias_hydration_key(&original).unwrap();
+        store
+            .set_provider_cache(
+                ALIAS_HYDRATION_CACHE,
+                &key,
+                &json!({
+                    "version":1,"original":original,"hydrated":hydrated,
+                    "checkedAt":chrono::Utc::now().timestamp()
+                }),
+                30 * 24 * 60 * 60,
+            )
+            .unwrap();
+        let transport = Arc::new(AliasHydrationFixtureTransport {
+            calls: Mutex::new(Vec::new()),
+            exact_lookup_succeeds: true,
+        });
+        let service = RemotePlaylistService::new(store.clone(), transport.clone());
+        let mut traces = Vec::new();
+        for _ in 0..2 {
+            let trace = crate::playback_sources::SourceTrace::new(None, None, None);
+            let (_stop, cancel) = tokio::sync::watch::channel(false);
+            let result = service
+                .prepare_alias_track_traced(
+                    &original,
+                    cancel,
+                    tokio::time::Instant::now() + std::time::Duration::from_secs(5),
+                    &trace,
+                )
+                .await
+                .unwrap();
+            assert_eq!(result.id, original.id);
+            assert!(trace.fresh_exact_alias_track(&original).is_some());
+            traces.push(trace);
+        }
+        assert_eq!(
+            transport
+                .calls
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|operation| operation.as_str() == "getTrack")
+                .count(),
+            2,
+            "each unsaved request must establish its own fresh exact provider read"
+        );
+        assert!(transport
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|operation| operation != "search"));
+        assert!(traces
+            .iter()
+            .all(|trace| trace.fresh_exact_alias_track(&original).is_some()));
+        assert!(store.get_library_track(&original.id).unwrap().is_none());
+    }
+
+    #[tokio::test]
     async fn exact_id_search_fallback_does_not_fill_fresh_exact_refresh_slot() {
         let directory = tempfile::tempdir().unwrap();
         let store = Arc::new(Store::open(&directory.path().join("alias-search.sqlite")).unwrap());
-        let original = provider_track();
+        let original = unsaved_structured_request();
         let transport = Arc::new(AliasHydrationFixtureTransport {
             calls: Mutex::new(Vec::new()),
+            exact_lookup_succeeds: false,
         });
         let service = RemotePlaylistService::new(store, transport.clone());
         let trace = crate::playback_sources::SourceTrace::new(None, None, None);
@@ -12283,7 +12434,14 @@ mod alias_hydration_tests {
             .await
             .unwrap();
         assert_eq!(result.id, original.id);
+        assert!(
+            crate::artist_credit_aliases::exact_spotify_request_matches_hydrated_credits(
+                &original, &result,
+            ),
+            "the fixture fallback result is otherwise an exact identity/credit match"
+        );
         assert!(trace.take_fresh_exact_catalog_track(&original).is_none());
+        assert!(trace.fresh_exact_alias_track(&original).is_none());
         assert_eq!(
             *transport.calls.lock().unwrap(),
             vec!["status", "getTrack", "search"],

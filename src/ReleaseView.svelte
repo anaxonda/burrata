@@ -1,14 +1,14 @@
 <script lang="ts">
   import { territoryLabel } from "./lib/territory-label";
-  import TrackDownloadFilter from "./TrackDownloadFilter.svelte";
   let downloadAvailability = $state<"all"|"downloaded"|"not-downloaded">("all");
-  import TrackDurationFilter from "./TrackDurationFilter.svelte";
   import {tick} from "svelte";
+  import type { ComponentProps } from "svelte";
+  import AlbumDetailView from "./AlbumDetailView.svelte";
+  import type { AlbumDetailMetadata } from "./lib/album-detail-view";
   import { trackSortAvailability, trackSortOptionLabel } from "./lib/track-sort-availability";
   import type { ArtistReleaseRef } from "./lib/artist-types";
   import type { Track } from "./lib/types";
-  import { call } from "./lib/api";
-  import type { LoudnessAnalysisJobStatus, LoudnessResourceIdentity } from "./lib/loudness-normalization";
+  import type { LoudnessResourceIdentity } from "./lib/loudness-normalization";
   import TrackList from "./TrackList.svelte";
   import { filterTracks, parseDurationBound, sortTracks, type SortDirection, type TrackSortField } from "./lib/track-sort";
 
@@ -42,15 +42,6 @@
   let savingToLibrary = $state(false);
   let saveLibraryError = $state("");
   let saveLibraryNotice = $state("");
-  let albumActionStatus = $state("");
-  let albumActions = $state<HTMLDetailsElement | null>(null);
-  let loudnessAnalysisJobId = $state("");
-  let loudnessAnalysisState = $state<"idle" | "running" | "completed" | "failed" | "cancelled">("idle");
-  let loudnessAnalysisProgress = $state("");
-  let loudnessAnalysisError = $state("");
-  let loudnessAlbumResource = $state<LoudnessResourceIdentity | null>(null);
-  let loudnessPlaybackTracks = $state<Track[]>([]);
-  let loudnessAnalysisGeneration = 0;
   let activeSaveReleaseIdentity = "";
   let saveReleaseGeneration = 0;
   const saveReleaseIdentity = $derived(`${release.release.provider}:${release.release.id}:${release.sourceUrl}`);
@@ -59,10 +50,6 @@
       activeSaveReleaseIdentity = identity;
       saveReleaseGeneration++;
       savingToLibrary = false; saveLibraryError = ""; saveLibraryNotice = "";
-      if (loudnessAnalysisJobId) void call("cancel_loudness_analysis", { jobId: loudnessAnalysisJobId }).catch(() => {});
-      loudnessAnalysisGeneration++;
-      loudnessAnalysisJobId = ""; loudnessAnalysisState = "idle"; loudnessAnalysisProgress = "";
-      loudnessAnalysisError = ""; loudnessAlbumResource = null; loudnessPlaybackTracks = [];
     }
   }
   $effect(() => syncSaveReleaseIdentity(saveReleaseIdentity));
@@ -85,53 +72,7 @@
     for (let index = 0; index < source.length; index++) hash = Math.imul(hash ^ source.charCodeAt(index), 16777619);
     return { identity, revision: `${albumOccurrences.length}:${(hash >>> 0).toString(16).padStart(8, "0")}`, trackCount: albumOccurrences.length, loaded: !loading && albumOccurrences.length > 0 };
   }
-  let activeLoudnessSnapshot = "";
-  function syncLoudnessSnapshot(identity: string) {
-    if (identity === activeLoudnessSnapshot) return;
-    activeLoudnessSnapshot = identity;
-    if (loudnessAnalysisJobId) void call("cancel_loudness_analysis", { jobId: loudnessAnalysisJobId }).catch(() => {});
-    loudnessAnalysisGeneration++;
-    loudnessAnalysisJobId = ""; loudnessAnalysisState = "idle"; loudnessAnalysisProgress = "";
-    loudnessAnalysisError = ""; loudnessAlbumResource = null; loudnessPlaybackTracks = [];
-  }
-  $effect(() => {
-    const snapshot = loadedAlbumSnapshot();
-    syncLoudnessSnapshot(`${snapshot.identity}:${snapshot.revision}`);
-  });
   export function captureLoadedAlbumSnapshot() { return loadedAlbumSnapshot(); }
-  function closeAlbumActions(event: KeyboardEvent) {
-    if (event.key !== "Escape" || !albumActions?.open || !albumActions.contains(event.target as Node)) return;
-    event.preventDefault();
-    albumActions.open = false;
-    albumActions.querySelector<HTMLElement>("summary")?.focus();
-  }
-  async function downloadAlbum() {
-    if (!onDownloadAlbum || loading || !albumTracks.length) return;
-    albumActionStatus = "Preparing album download…";
-    try {
-      const receipt = await onDownloadAlbum(albumTracks);
-      const result = receipt && typeof receipt === "object" ? receipt as { status?: string; requestedCount?: number; queuedJobs?: unknown[]; failed?: Array<{reason?:string}>; skipped?: unknown[] } : null;
-      if (result?.status === "failed" || result?.status === "busy" || result?.status === "empty") {
-        throw new Error(result.failed?.[0]?.reason || (result.status === "busy" ? "Another album batch is already running." : "No album tracks could be prepared."));
-      }
-      albumActionStatus = result
-        ? `Album request finished: ${result.queuedJobs?.length ?? 0} queued${result.skipped?.length ? `, ${result.skipped.length} need review` : ""}.`
-        : "Album download request sent.";
-      if (albumActions) albumActions.open = false;
-    } catch (failure) {
-      albumActionStatus = `Album download failed: ${failure instanceof Error ? failure.message : String(failure)}`;
-    }
-  }
-  async function searchAlbumSoulseek() {
-    if (!onSearchAlbumSoulseek || !soulseekSearchAvailable) return;
-    try {
-      await onSearchAlbumSoulseek();
-      albumActionStatus = "Opened Soulseek album search.";
-      if (albumActions) albumActions.open = false;
-    } catch (failure) {
-      albumActionStatus = `Soulseek album search failed: ${failure instanceof Error ? failure.message : String(failure)}`;
-    }
-  }
   export function downloadLoadedAlbum(expectedIdentity: string, expectedRevision: string, onReceipt?: (receipt: unknown) => void | Promise<void>) {
     const snapshot = loadedAlbumSnapshot();
     if (!snapshot.loaded || snapshot.identity !== expectedIdentity || snapshot.revision !== expectedRevision || !onDownloadAlbum) {
@@ -167,64 +108,60 @@
   const visibleTracks = $derived(visibleOccurrences.map(row => row.track));
   const artists = $derived([...new Set(release.credits.map(credit => credit.name).filter(Boolean))]);
   const cover = $derived(release.artworkUrl || tracks.find(track => track.artworkUrl)?.artworkUrl || null);
-  function playAlbum() {
-    if (!albumTracks.length) return;
-    const selectedTracks = loudnessAlbumResource ? loudnessPlaybackTracks : albumTracks;
-    if (onPlayAlbum) return onPlayAlbum(selectedTracks, loudnessAlbumResource);
-    onPlay(selectedTracks[0], selectedTracks, 0);
+  const detailMetadata = $derived<AlbumDetailMetadata>({
+    title: release.title,
+    artist: artists.join(" · "),
+    artistNames: artists,
+    year: release.year ?? release.releaseDate?.slice(0, 4) ?? null,
+    artworkUrl: cover,
+    sourceLabel: release.primaryType ?? release.format ?? "Release",
+    sourceUrl: release.sourceUrl,
+    scopeLabel: release.label || release.country ? [release.label, release.country ? territoryLabel(release.country) : ""].filter(Boolean).join(" · ") : null,
+    trackCountLabel: release.trackCount != null && albumTracks.length < release.trackCount ? `${albumTracks.length} loaded of ${release.trackCount} tracks` : `${albumTracks.length} tracks loaded`,
+  });
+  const sortOptions = $derived([
+    { value: "sourceOrder", label: "Track number" },
+    ...(["title", "artist", "album", "duration", "releaseDate", "dateAdded", "bpm", "key", "plays", "views"] as TrackSortField[]).map(field => ({ value: field, label: trackSortOptionLabel(sortAvailability, field, field === "releaseDate" ? "Release date" : field === "dateAdded" ? "Date added" : field === "bpm" ? "BPM" : field === "key" ? "Key" : field[0].toUpperCase() + field.slice(1)), disabled: !sortAvailability[field] })),
+  ]);
+  const availabilityOptions = [
+    { value: "all", label: "All tracks" }, { value: "downloaded", label: "Downloaded" }, { value: "not-downloaded", label: "Not downloaded" },
+  ];
+  const trackListProps: Omit<ComponentProps<typeof TrackList>, "presentation"> = $derived({
+    tracks: visibleTracks,
+    selectionContext: `release:${release.sourceUrl}`,
+    selectionKeys: visibleOccurrences.map(row => String(row.sourceIndex)),
+    selectionTracks: albumTracks,
+    selectionTrackKeys: albumOccurrences.map(row => String(row.sourceIndex)),
+    listLabel: "Release tracks",
+    position: (track, index) => trackNumber(track, visibleOccurrences[index]?.sourceIndex ?? index),
+    onPlay: (track, list, index) => onPlay(track, list, index),
+    onDownload,
+    onFavorite,
+    onNext: track => onQueue([track], "next"),
+    onQueue: track => onQueue([track], "append"),
+    onPlaylist,
+    onAddSelectedToPlaylist,
+    onArtist,
+    onContext,
+    playingTrack,
+    bufferingTrack,
+    playingTrackId,
+    bufferingTrackId,
+    paused,
+  });
+  const analysisIdentity = $derived.by(() => {
+    const snapshot = loadedAlbumSnapshot();
+    return `${snapshot.identity}:${snapshot.revision}`;
+  });
+  function playAlbumWithResource(selectedTracks: Track[], resource: LoudnessResourceIdentity | null) {
+    if (!selectedTracks.length) return;
+    if (onPlayAlbum) return onPlayAlbum(selectedTracks, resource);
+    return onPlay(selectedTracks[0], selectedTracks, 0);
   }
-  function queueAlbum() {
-    if (!albumTracks.length) return;
-    const selectedTracks = loudnessAlbumResource ? loudnessPlaybackTracks : albumTracks;
-    if (onQueueAlbum) return onQueueAlbum(selectedTracks, loudnessAlbumResource);
-    onQueue(selectedTracks, "append");
-  }
-  async function analyzeAlbumLoudness() {
-    if (!onAnalyzeLoudness || loading || !albumTracks.length || loudnessAnalysisState === "running") return;
-    const generation = ++loudnessAnalysisGeneration;
-    loudnessAnalysisState = "running"; loudnessAnalysisError = "";
-    loudnessAnalysisProgress = "Preparing selected local tracks…";
-    loudnessAlbumResource = null; loudnessPlaybackTracks = [];
-    try {
-      const started = await onAnalyzeLoudness(albumTracks, 0);
-      if (generation !== loudnessAnalysisGeneration) {
-        void call("cancel_loudness_analysis", { jobId: started.jobId }).catch(() => {});
-        return;
-      }
-      loudnessAnalysisJobId = started.jobId;
-      loudnessPlaybackTracks = started.playbackTracks;
-      while (generation === loudnessAnalysisGeneration) {
-        const status = await call<LoudnessAnalysisJobStatus>("get_loudness_analysis_status", { jobId: started.jobId });
-        if (generation !== loudnessAnalysisGeneration) return;
-        loudnessAnalysisProgress = `${status.completed} of ${status.total} tracks analyzed`;
-        if (status.status === "completed") {
-          if (!status.resource || status.resource.scope !== "album") throw new Error("Album analysis completed without its exact programme identity.");
-          loudnessAlbumResource = status.resource;
-          loudnessAnalysisState = "completed";
-          loudnessAnalysisProgress = "Album programme analyzed with no added inter-track silence. Play or queue this release to use its measured album gain.";
-          loudnessAnalysisJobId = "";
-          return;
-        }
-        if (status.status === "failed") throw new Error(status.error || "Album loudness analysis failed.");
-        if (status.status === "cancelled") {
-          loudnessAnalysisState = "cancelled"; loudnessAnalysisProgress = "Album analysis cancelled."; loudnessAnalysisJobId = ""; return;
-        }
-        await new Promise(resolve => setTimeout(resolve, 700));
-      }
-    } catch (failure) {
-      if (generation === loudnessAnalysisGeneration) {
-        loudnessAnalysisState = "failed";
-        loudnessAnalysisError = failure instanceof Error ? failure.message : String(failure);
-        loudnessAnalysisProgress = ""; loudnessAnalysisJobId = "";
-      }
-    }
-  }
-  async function cancelAlbumLoudnessAnalysis() {
-    const jobId = loudnessAnalysisJobId;
-    loudnessAnalysisGeneration++;
-    loudnessAnalysisJobId = ""; loudnessAnalysisState = "cancelled";
-    loudnessAnalysisProgress = "Album analysis cancelled.";
-    if (jobId) await call("cancel_loudness_analysis", { jobId }).catch(() => {});
+  function queueAlbumWithResource(selectedTracks: Track[], resource: LoudnessResourceIdentity | null) {
+    if (!selectedTracks.length) return;
+    if (onQueueAlbum) return onQueueAlbum(selectedTracks, resource);
+    return onQueue(selectedTracks, "append");
   }
   async function saveAlbumToLibrary(complete = false) {
     if ((!onSaveToLibrary && !onSaveCompleteAlbum) || !albumTracks.length || savingToLibrary) return;
@@ -245,43 +182,33 @@
   }
 </script>
 
-<svelte:window onkeydown={closeAlbumActions} />
-
 <section bind:this={releaseElement} class="release-view" aria-label={`${release.title} release`}>
-  <header class="release-hero">
-    {#if cover}<img class="cover" src={cover} alt="" />{:else}<div class="cover placeholder" aria-hidden="true">♫</div>{/if}
-    <div class="hero-copy">
-      <p class="eyebrow">{release.primaryType ?? release.format ?? "Release"}</p>
-      <h1>{release.title}</h1>
-      {#if artists.length}<p class="artists">{#each artists as artist, i}<span>{#if i > 0}<span aria-hidden="true"> · </span>{/if}{#if tracks[0] && onArtist}<button onclick={() => onArtist?.(tracks[0])}>{artist}</button>{:else}{artist}{/if}</span>{/each}</p>{/if}
-      <p class="release-meta">{#if release.year}{release.year}{:else if release.releaseDate}{release.releaseDate}{/if}{#if release.label}<span> · {release.label}</span>{/if}{#if release.country}<span> · {territoryLabel(release.country)}</span>{/if}</p>
-      <div class="hero-actions"><button class="primary" disabled={!tracks.length || loading} onclick={playAlbum}>▶ Play album</button><button disabled={!tracks.length || loading} onclick={queueAlbum}>＋ Queue album</button>{#if onDownloadAlbum || onSearchAlbumSoulseek}<details class="album-actions-menu" bind:this={albumActions}><summary aria-label={`More album actions for ${release.title}`}>More album actions</summary><div class="album-actions-content" role="group" aria-label={`Album actions for ${release.title}`}>{#if onDownloadAlbum}<button type="button" disabled={!tracks.length || loading} onclick={() => void downloadAlbum()}>↓ Download album</button>{/if}{#if onSearchAlbumSoulseek}<button type="button" aria-label={`Search album ${release.title} on Soulseek`} disabled={!soulseekSearchAvailable} title={!soulseekSearchAvailable ? "Enable and configure Soulseek in Settings → Connections to search albums." : undefined} onclick={() => void searchAlbumSoulseek()}>Search album on Soulseek</button>{#if !soulseekSearchAvailable}<small>Enable and configure Soulseek in Settings → Connections.</small>{/if}{/if}</div></details>{/if}{#if onAddAlbumToPlaylist}<button class="add-album-playlist" disabled={!albumTracks.length || loading} onclick={() => void onAddAlbumToPlaylist?.(albumTracks, release.title)}>Add to playlist</button>{/if}{#if onSaveCompleteAlbum}<button disabled={!tracks.length || loading || savingToLibrary} onclick={() => void saveAlbumToLibrary(true)}>Save album</button>{/if}{#if onSaveToLibrary}<button class="save-album" disabled={!tracks.length || loading || savingToLibrary} onclick={() => void saveAlbumToLibrary()}>{savingToLibrary ? "Saving to Library…" : onSaveCompleteAlbum ? "Save loaded tracks" : saveAlbumButtonLabel}</button>{/if}</div>{#if albumActionStatus}<p class="album-action-status" role="status">{albumActionStatus}</p>{/if}
-      {#if onAnalyzeLoudness}<section class="album-loudness-analysis" aria-label="Album loudness analysis">
-        <p class="album-programme-boundary">Measures the release with no added inter-track silence, matching the album queue programme definition.</p>
-        <button disabled={!onAnalyzeLoudness || albumTracks.length < 2 || loading || loudnessAnalysisState === "running"} onclick={() => void analyzeAlbumLoudness()}>{loudnessAnalysisState === "running" ? "Analyzing album…" : loudnessAlbumResource ? "Reanalyze album loudness" : "Analyze album loudness"}</button>
-        {#if loudnessAnalysisState === "running"}<button onclick={() => void cancelAlbumLoudnessAnalysis()}>Cancel analysis</button>{/if}
-        {#if loudnessAnalysisProgress}<p role="status">{loudnessAnalysisProgress}</p>{/if}
-        {#if loudnessAnalysisError}<p role="alert">{loudnessAnalysisError}</p>{/if}
-      </section>{/if}
-    </div>
-  </header>
-  <div class="track-heading"><h2>Tracks <span>{tracks.length}</span></h2><div class="track-controls"><input aria-label="Filter tracks" placeholder="Filter tracks" bind:value={filter} /><select aria-label="Sort tracks" bind:value={sort}><option value="sourceOrder">Track number</option><option value="title" disabled={!sortAvailability.title}>{trackSortOptionLabel(sortAvailability, "title", "Title")}</option><option value="artist" disabled={!sortAvailability.artist}>{trackSortOptionLabel(sortAvailability, "artist", "Artist")}</option><option value="album" disabled={!sortAvailability.album}>{trackSortOptionLabel(sortAvailability, "album", "Album")}</option><option value="duration" disabled={!sortAvailability.duration}>{trackSortOptionLabel(sortAvailability, "duration", "Duration")}</option><option value="releaseDate" disabled={!sortAvailability.releaseDate}>{trackSortOptionLabel(sortAvailability, "releaseDate", "Release date")}</option><option value="dateAdded" disabled={!sortAvailability.dateAdded}>{trackSortOptionLabel(sortAvailability, "dateAdded", "Date added")}</option><option value="bpm" disabled={!sortAvailability.bpm}>{trackSortOptionLabel(sortAvailability, "bpm", "BPM")}</option><option value="key" disabled={!sortAvailability.key}>{trackSortOptionLabel(sortAvailability, "key", "Key")}</option><option value="plays" disabled={!sortAvailability.plays}>{trackSortOptionLabel(sortAvailability, "plays", "Plays")}</option><option value="views" disabled={!sortAvailability.views}>{trackSortOptionLabel(sortAvailability, "views", "Views")}</option></select><select aria-label="Sort direction" bind:value={sortDirection}><option value="asc">Ascending</option><option value="desc">Descending</option></select><TrackDurationFilter bind:minDuration={minDuration} bind:maxDuration={maxDuration} minLabel="Minimum track duration" maxLabel="Maximum track duration" /><TrackDownloadFilter bind:value={downloadAvailability} /></div></div>
-  {#if error}<p class="error" role="alert">{error}</p>{/if}
-  {#if saveLibraryError}<p class="error" role="alert">{saveLibraryError}</p>{/if}
-  {#if saveLibraryNotice}<p class="muted" role="status">{saveLibraryNotice}</p>{/if}
-  {#if loading && !tracks.length}<p class="muted" role="status">Loading release tracks…</p>
-  {:else if !tracks.length}<p class="muted">No track details available for this release.</p>
-  {:else if !visibleTracks.length}<p class="muted">No tracks match this filter.</p>
-  {:else}
-    <TrackList presentation="playlist" tracks={visibleTracks} selectionContext={`release:${release.sourceUrl}`} selectionKeys={visibleOccurrences.map(row => String(row.sourceIndex))} selectionTracks={albumTracks} selectionTrackKeys={albumOccurrences.map(row => String(row.sourceIndex))} listLabel="Release tracks" position={(track, index) => trackNumber(track, visibleOccurrences[index]?.sourceIndex ?? index)} onPlay={(track, list, index) => onPlay(track, list, index)} onDownload={onDownload} onFavorite={onFavorite} onNext={(track) => onQueue([track], "next")} onQueue={(track) => onQueue([track], "append")} onPlaylist={onPlaylist} {onAddSelectedToPlaylist} onArtist={onArtist} onContext={onContext} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} />
-  {/if}
+  {#snippet notices()}
+    {#if error}<p class="error" role="alert">{error}</p>{/if}
+    {#if saveLibraryError}<p class="error" role="alert">{saveLibraryError}</p>{/if}
+    {#if saveLibraryNotice}<p class="muted" role="status">{saveLibraryNotice}</p>{/if}
+    {#if loading && !tracks.length}<p class="muted" role="status">Loading release tracks…</p>{/if}
+  {/snippet}
+  <AlbumDetailView
+    metadata={detailMetadata} albumTracks={albumTracks} {analysisIdentity} {loading} ownsScroll={false} onArtistClick={() => tracks[0] && onArtist?.(tracks[0])}
+    onPlayAlbum={playAlbumWithResource} onQueueAlbum={queueAlbumWithResource}
+    onDownloadAlbum={onDownloadAlbum ? (items => onDownloadAlbum?.(items)) : undefined}
+    onSearchAlbumSoulseek={onSearchAlbumSoulseek} {soulseekSearchAvailable}
+    onAddAlbumToPlaylist={onAddAlbumToPlaylist}
+    onSaveAlbum={onSaveCompleteAlbum ? (_items => saveAlbumToLibrary(true)) : undefined} saveAlbumLabel="Save album"
+    onSaveLoadedTracks={onSaveToLibrary ? (_items => saveAlbumToLibrary()) : undefined}
+    saveLoadedTracksLabel={onSaveCompleteAlbum ? "Save loaded tracks" : saveAlbumButtonLabel} saving={savingToLibrary}
+    onAnalyzeLoudness={onAnalyzeLoudness} analysisTargetLabel="this release" analysisScopeComplete={release.trackCount == null || albumTracks.length === release.trackCount} analysisUnavailableReason={`Album analysis requires all ${release.trackCount ?? "catalog"} release tracks. ${albumTracks.length} are currently loaded.`} {trackListProps}
+    filterValue={filter} onFilterChange={value => filter = value}
+    sortValue={sort} {sortOptions} onSortChange={value => sort = value as TrackSortField}
+    {sortDirection} onDirectionChange={value => sortDirection = value}
+    availabilityValue={downloadAvailability} availabilityOptions={availabilityOptions} onAvailabilityChange={value => downloadAvailability = value as typeof downloadAvailability}
+    {minDuration} {maxDuration} onDurationChange={(minimum, maximum) => { minDuration = minimum; maxDuration = maximum; }}
+    visibleTrackCount={visibleTracks.length} actionStatus=""
+    loadingMessage="Loading release tracks…" emptyMessage={tracks.length ? "No tracks match this filter." : "No track details available for this release."}
+    {notices}
+  />
 </section>
-
 <style>
-  .release-view{display:flex;flex-direction:column;gap:1rem;min-width:0;min-height:0;height:100%;overflow:auto;padding:1rem;color:var(--text,#eee);background:var(--panel,#17191c);border-radius:12px}.release-view button,.release-view input,.release-view select{font:inherit;color:inherit;background:var(--surface,#202328);border:1px solid var(--border,#454a50);border-radius:7px;padding:.5rem .65rem}.release-view button{cursor:pointer}.release-view button:disabled{opacity:.5;cursor:default}.release-hero{display:flex;align-items:flex-end;gap:1.15rem;padding:.6rem 0 1rem;border-bottom:1px solid var(--border,#383d43)}.cover{width:clamp(120px,20vw,190px);height:clamp(120px,20vw,190px);flex:none;object-fit:cover;border-radius:9px;box-shadow:0 8px 24px #0005}.placeholder{display:grid;place-items:center;background:linear-gradient(145deg,#2b4039,#20242a);color:var(--accent,#67c3a5);font-size:4rem}.hero-copy{min-width:0}.eyebrow{margin:0;color:var(--muted,#a3a8ae);font-size:.75rem;text-transform:uppercase;letter-spacing:.1em}.hero-copy h1{margin:.35rem 0;font-size:clamp(1.6rem,4vw,2.65rem);line-height:1.1}.artists,.release-meta{margin:.35rem 0;color:var(--muted,#a3a8ae)}.artists button{border:0;background:none;padding:0;color:var(--text,#eee);text-decoration:underline}.hero-actions{display:flex;gap:.45rem;margin-top:.85rem;flex-wrap:wrap}.primary{background:var(--accent,#4c78c8)!important;border-color:var(--accent,#4c78c8)!important;color:var(--base,#101412)!important}.track-heading{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:.75rem}.track-heading h2{margin:0;font-size:1.1rem}.track-heading h2 span{color:var(--muted,#a3a8ae);font-size:.8rem;font-weight:400}.track-controls{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;min-width:0}.release-view .track-controls input,.release-view .track-controls select{height:34px;min-height:34px;box-sizing:border-box;padding:.3rem .5rem;font-size:.8rem}.track-controls input{min-width:6.75rem}.track-controls select{color-scheme:dark}.release-view button:focus-visible,.release-view input:focus-visible,.release-view select:focus-visible{outline:2px solid var(--accent,#b8ec8c);outline-offset:2px}.error{color:#ff9b9b}.muted{color:var(--muted,#a3a8ae)}
-  .album-loudness-analysis{display:flex;align-items:end;gap:.45rem;flex-wrap:wrap;margin-top:.55rem}.album-loudness-analysis p{flex-basis:100%;margin:0;color:var(--muted,#a3a8ae);font-size:.78rem}
-  .album-actions-menu{position:relative}.album-actions-menu summary{cursor:pointer;list-style:none}.album-actions-menu summary::-webkit-details-marker{display:none}.album-actions-content{position:absolute;z-index:5;top:calc(100% + 4px);right:0;display:grid;gap:.35rem;min-width:210px;padding:.5rem;background:var(--panel,#17191c);border:1px solid var(--border,#454a50);border-radius:8px;box-shadow:0 8px 22px #0008}.album-actions-content small{max-width:220px;color:var(--muted,#a3a8ae);font-size:.75rem}.album-action-status{margin:0;color:var(--muted,#a3a8ae);font-size:.82rem}
-  @media(max-width:620px){.release-view{padding:.7rem}.release-hero{align-items:center;gap:.75rem}.cover{width:105px;height:105px}.hero-actions button{padding:.4rem .5rem}.track-heading{align-items:flex-start;flex-direction:column}.track-controls{width:100%}.track-controls input{flex:1;min-width:0}}
-  .release-view .hero-actions button{box-sizing:border-box;min-height:34px;height:auto;padding:.3rem .6rem;font-size:.8rem;line-height:1.2}
-  .release-view .track-controls select{appearance:none;-webkit-appearance:none;box-sizing:border-box;display:block;height:34px;min-height:34px;max-height:34px;padding:0 30px 0 9px;font-size:12px;line-height:18px;text-align:left;background-image:linear-gradient(45deg,transparent 50%,var(--muted,#a3a8ae) 50%),linear-gradient(135deg,var(--muted,#a3a8ae) 50%,transparent 50%);background-position:calc(100% - 14px) 50%,calc(100% - 10px) 50%;background-size:4px 4px;background-repeat:no-repeat}
+  .release-view{display:flex;flex-direction:column;min-width:0;min-height:0;height:100%;overflow:auto;border-radius:12px}.release-view .error{color:#ff9b9b}.release-view .muted{color:var(--muted,#a3a8ae)}
 </style>

@@ -189,7 +189,7 @@ import { ObservedWaveformCache, prepareObservedWaveformBinding, type PreparedObs
   let showTrackDetails = $state(false);
   let showCreatePlaylist = $state(false);
   import ReleaseView from "./ReleaseView.svelte";
-  import LocalAlbumLoudnessReview from "./LocalAlbumLoudnessReview.svelte";
+  const loadLocalAlbumLoudnessReview = () => import("./LocalAlbumLoudnessReview.svelte").then(module => module.default);
   import {providerNavigationSnapshots} from "./lib/provider-navigation-snapshots";
   import { sortTracks, filterTracks, parseDurationBound, playableDuration, type TrackSortField, type SortDirection } from "./lib/track-sort";
   import SpotifyArtist from "./SpotifyArtist.svelte";
@@ -842,11 +842,14 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     const credits = release.credits.filter(credit => credit.name.trim());
     const artist = credits.find(credit => /^(?:artist|primary artist|main artist|performer)$/i.test(credit.role.trim())) ?? credits.find(credit => credit.artist) ?? credits[0];
     if (!artist?.name.trim()) throw new Error("This release has no credited artist name to search.");
+    await openSoulseekAlbumSearchByTitle(release.title, artist.name);
+  }
+  async function openSoulseekAlbumSearchByTitle(title: string, artistName: string) {
     if (!soulseekAlbumSearchAvailable) throw new Error("Soulseek is not enabled. Configure it in Settings → Connections and retry.");
     rememberRoute();
     await navigate("search", false);
     searchNavigationSnapshotKey = null;
-    query = `${release.title.trim()} ${artist.name.trim()}`.trim();
+    query = `${title.trim()} ${artistName.trim()}`.trim();
     catalogSearchSource = "soulseek";
     catalogSearchKind = "albums";
     catalogSearchRequest++;
@@ -7701,7 +7704,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
         </div>{/if}
       </section>
     {:else if view === "library" && (libraryBrowser.tab !== "tracks" || libraryBrowser.entity)}
-      <LazyView loader={loadLibraryBrowser} label="library" componentProps={{ browserState: libraryBrowser, call, onNavigate: navigateLibraryBrowser, onStateChange: (next: LibraryBrowserState) => libraryBrowser = next, onBrowse: (entry: LibraryEntity) => void run(() => browseLibraryEntity(entry)), onPlay: playArtistTrack, onQueue: queueArtistTracks, onDownload: (track: Track) => void openDownloadChooser(track), onFavorite: (track: Track) => void favorite(track), onPlaylist: (track: Track) => void addArtistTrack(track), onArtist: (track: Track) => void discoverArtist(track), onAlbum: (track: Track) => void openTrackAlbum(track), onContext: (track: Track, event: MouseEvent) => { actionTrack = track; actionAnchor = { x: event.clientX, y: event.clientY }; }, onAddSelectedToPlaylist: (items: Track[]) => void addTracksToPlaylist(items), playingTrack, bufferingTrack: playbackLoading ? playingTrack : null, bufferingTrackId: playbackLoading ? playingTrack?.id ?? "" : "", playbackFailed: nativePlaybackStatus === "failed", paused }} />
+      <LazyView loader={loadLibraryBrowser} label="library" componentProps={{ browserState: libraryBrowser, call, onNavigate: navigateLibraryBrowser, onStateChange: (next: LibraryBrowserState) => libraryBrowser = next, onBrowse: (entry: LibraryEntity) => void run(() => browseLibraryEntity(entry)), onPlay: playArtistTrack, onQueue: queueArtistTracks, onDownload: (track: Track) => void openDownloadChooser(track), onFavorite: (track: Track) => void favorite(track), onPlaylist: (track: Track) => void addArtistTrack(track), onArtist: (track: Track) => void discoverArtist(track), onAlbum: (track: Track) => void openTrackAlbum(track), onContext: (track: Track, event: MouseEvent) => { actionTrack = track; actionAnchor = { x: event.clientX, y: event.clientY }; }, onAddSelectedToPlaylist: (items: Track[]) => void addTracksToPlaylist(items), onDownloadAlbum: (items: Track[]) => queueSelected(items), onSearchAlbumSoulseek: (entry: LibraryEntity) => openSoulseekAlbumSearchByTitle(entry.name, entry.artist), soulseekSearchAvailable: soulseekAlbumSearchAvailable, onAddAlbumToPlaylist: addAlbumToPlaylist, onAnalyzeLoudness: (items: Track[], gaps: number) => prepareReleaseLoudnessAnalysis(items, gaps, true), playingTrack, bufferingTrack: playbackLoading ? playingTrack : null, bufferingTrackId: playbackLoading ? playingTrack?.id ?? "" : "", playbackFailed: nativePlaybackStatus === "failed", paused }} />
     {:else}
       <div class="toolbar" class:chart-toolbar={view === "charts"} class:library-toolbar={view === "library"} class:empty-library-toolbar={view === "library" && !showCreatePlaylist}>
         {#if view === "charts" && !activeBrowserImport}<select
@@ -8417,18 +8420,18 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
 </div>
 
 {#if localAlbumLoudnessReview}
-  <LocalAlbumLoudnessReview
-    light={settings.theme === "light" || settings.theme === "system" && systemLight}
-    tracks={localAlbumLoudnessReview.tracks}
-    album={localAlbumLoudnessReview.album}
-    albumArtist={localAlbumLoudnessReview.albumArtist}
-    canReorder={localAlbumLoudnessReview.canReorder}
-    focusReturn={localAlbumLoudnessFocusReturn}
-    onAnalyze={(orderedTracks) => prepareReleaseLoudnessAnalysis(orderedTracks, 0, true)}
-    onPlay={(orderedTracks, resource) => playReleaseAlbum(orderedTracks, resource)}
-    onQueue={(orderedTracks, resource) => queueArtistTracks(orderedTracks, "append", resource)}
-    onClose={() => { localAlbumLoudnessReview = null; localAlbumLoudnessFocusReturn = null; }}
-  />
+  <LazyView loader={loadLocalAlbumLoudnessReview} label="album loudness review" componentProps={{
+    light: settings.theme === "light" || settings.theme === "system" && systemLight,
+    tracks: localAlbumLoudnessReview.tracks,
+    album: localAlbumLoudnessReview.album,
+    albumArtist: localAlbumLoudnessReview.albumArtist,
+    canReorder: localAlbumLoudnessReview.canReorder,
+    focusReturn: localAlbumLoudnessFocusReturn,
+    onAnalyze: (orderedTracks: Track[]) => prepareReleaseLoudnessAnalysis(orderedTracks, 0, true),
+    onPlay: (orderedTracks: Track[], resource: LoudnessResourceIdentity) => playReleaseAlbum(orderedTracks, resource),
+    onQueue: (orderedTracks: Track[], resource: LoudnessResourceIdentity) => queueArtistTracks(orderedTracks, "append", resource),
+    onClose: () => { localAlbumLoudnessReview = null; localAlbumLoudnessFocusReturn = null; },
+  }} />
 {/if}
 
 <LibraryCleanup open={showLibraryCleanup} {call} onClose={() => showLibraryCleanup=false} onRemoved={() => requestLocalPrefixRefresh(undefined,true)} />

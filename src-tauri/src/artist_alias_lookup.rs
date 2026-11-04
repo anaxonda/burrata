@@ -16,9 +16,9 @@ use std::{
 };
 use tokio::sync::watch;
 
-// v6 invalidates prior negatives because exact MusicBrainz release
-// occurrences can now prepare recording-scoped release runtime evidence.
-const NEGATIVE_CACHE_NAMESPACE: &str = "artists.alias-discovery.negative.v6";
+// v7 invalidates prior negatives because fresh exact Spotify reads can now
+// supply request-scoped verified artist profile aliases without a library row.
+const NEGATIVE_CACHE_NAMESPACE: &str = "artists.alias-discovery.negative.v7";
 
 struct Flight {
     id: uuid::Uuid,
@@ -43,6 +43,22 @@ fn fingerprint(track: &Track) -> String {
         .unwrap_or_else(|_| format!("{:x}", Sha256::digest(track.id.as_bytes())))
 }
 
+fn lookup_flight_key(
+    store: &Arc<crate::storage::Store>,
+    track: &Track,
+    hash: &str,
+    trace: &SourceTrace,
+) -> String {
+    let needs_request_local_context = track.provider == "spotify"
+        && crate::artist_credit_aliases::has_verified_spotify_request_credits(track)
+        && store.get_library_track(&track.id).ok().flatten().is_none();
+    if needs_request_local_context {
+        format!("{:p}:{hash}:{}", Arc::as_ptr(store), trace.resolution_id())
+    } else {
+        format!("{:p}:{hash}", Arc::as_ptr(store))
+    }
+}
+
 fn negative_cache_key(original: &Track, hydrated: &Track) -> Option<String> {
     if original.provider == "spotify" {
         // A Spotify no-match is meaningful only for a complete, verified
@@ -54,6 +70,14 @@ fn negative_cache_key(original: &Track, hydrated: &Track) -> Option<String> {
     } else {
         Some(fingerprint(original))
     }
+}
+
+fn can_cache_no_verified_evidence(
+    track: &Track,
+    has_saved_row: bool,
+    has_fresh_exact: bool,
+) -> bool {
+    track.provider != "spotify" || has_saved_row || has_fresh_exact
 }
 
 pub(crate) fn enabled() -> bool {
@@ -83,7 +107,7 @@ pub(crate) async fn lookup(
         );
         return Ok(());
     }
-    let key = format!("{:p}:{hash}", Arc::as_ptr(&store));
+    let key = lookup_flight_key(&store, track, &hash, trace);
     let acquisition = acquisition.clone();
     let track = track.clone();
     let worker_trace = trace.clone();
@@ -98,7 +122,20 @@ pub(crate) async fn lookup(
             _=tokio::time::sleep_until(worker_deadline.instant())=>Err("Alias discovery deadline exceeded".into()),
             result=async {
                 let hydrated = if track.provider == "spotify" {
-                    if crate::artist_credit_aliases::spotify_artist_credit_fingerprint(&track).is_some() {
+                    if crate::artist_credit_aliases::has_verified_spotify_request_credits(&track)
+                        && store.get_library_track(&track.id).ok().flatten().is_none()
+                    {
+                        if let Some(fresh) = worker_trace.fresh_exact_alias_track(&track) {
+                            fresh
+                        } else {
+                            acquisition.prepare_alias_track_traced(
+                                &track,
+                                stop.clone(),
+                                worker_deadline.instant(),
+                                &worker_trace,
+                            ).await?
+                        }
+                    } else if crate::artist_credit_aliases::spotify_artist_credit_fingerprint(&track).is_some() {
                         track.clone()
                     } else if let Some(cached) = crate::remote_playlists::read_alias_hydrated_track(&store, &track) {
                         cached
@@ -118,9 +155,17 @@ pub(crate) async fn lookup(
                 let report=crate::artist_alias_discovery::discover_verified_artist_aliases_traced(&store,&hydrated,worker_trace.clone()).await;
                 worker_trace.event("alias_discovery_work",&track.provider,json!({"metadataRequests":report.stats.requests,"bytes":report.stats.bytes,"queueMs":report.stats.queue_ms,"httpMs":report.stats.http_ms,"lastStatus":report.stats.last_status,"ok":report.result.is_ok()}));
                 report.result?;
-                if crate::artist_credit_aliases::cached_verified_playback_artist_aliases(&store,&track).has_verified_credit_sets() == false {
-                    if let Some(key) = negative_key {
-                        store.set_provider_cache(NEGATIVE_CACHE_NAMESPACE,&key,&json!({"outcome":"no_verified_evidence","identity":"complete"}),24*60*60)?;
+                let has_fresh_exact = worker_trace.fresh_exact_alias_track(&track).is_some();
+                let has_saved_row = store.get_library_track(&track.id).ok().flatten().is_some();
+                if crate::artist_credit_aliases::cached_verified_playback_artist_aliases_with_fresh_exact_track(
+                    &store,
+                    &track,
+                    worker_trace.fresh_exact_alias_track(&track).as_ref(),
+                ).has_verified_credit_sets() == false {
+                    if can_cache_no_verified_evidence(&track, has_saved_row, has_fresh_exact) {
+                        if let Some(key) = negative_key {
+                            store.set_provider_cache(NEGATIVE_CACHE_NAMESPACE,&key,&json!({"outcome":"no_verified_evidence","identity":"complete"}),24*60*60)?;
+                        }
                     }
                 }
                 Ok(())
@@ -226,6 +271,38 @@ mod tests {
     }
 
     #[test]
+    fn unsaved_spotify_lookup_flight_is_owned_by_its_resolution_trace() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Arc::new(
+            crate::storage::Store::open(&directory.path().join("flights.sqlite")).unwrap(),
+        );
+        let track = spotify_track_with_artist_identity();
+        let first = SourceTrace::new(None, None, None);
+        let first_clone = first.clone();
+        let second = SourceTrace::new(None, None, None);
+        let key = fingerprint(&track);
+
+        let first_key = lookup_flight_key(&store, &track, &key, &first);
+        assert_eq!(
+            first_key,
+            lookup_flight_key(&store, &track, &key, &first_clone),
+            "clones in one resolution can still share work"
+        );
+        assert_ne!(
+            first_key,
+            lookup_flight_key(&store, &track, &key, &second),
+            "a different resolution must receive its own exact evidence slot"
+        );
+
+        store.save_track(&track).unwrap();
+        assert_eq!(
+            lookup_flight_key(&store, &track, &key, &first),
+            lookup_flight_key(&store, &track, &key, &second),
+            "saved-track alias discovery keeps its existing cross-request sharing"
+        );
+    }
+
+    #[test]
     fn spotify_negative_cache_requires_complete_hydrated_identity() {
         let mut incomplete = spotify_track_with_artist_identity();
         incomplete.provenance = json!({});
@@ -236,8 +313,12 @@ mod tests {
     }
 
     #[test]
-    fn recording_runtime_evidence_does_not_reuse_pre_v6_negative_cache() {
+    fn recording_runtime_evidence_does_not_reuse_pre_v7_negative_cache() {
         assert_eq!(
+            NEGATIVE_CACHE_NAMESPACE,
+            "artists.alias-discovery.negative.v7"
+        );
+        assert_ne!(
             NEGATIVE_CACHE_NAMESPACE,
             "artists.alias-discovery.negative.v6"
         );
@@ -245,6 +326,19 @@ mod tests {
             NEGATIVE_CACHE_NAMESPACE,
             "artists.alias-discovery.negative.v5"
         );
+    }
+
+    #[test]
+    fn unsaved_spotify_missing_fresh_exact_evidence_does_not_cache_a_semantic_miss() {
+        let unsaved = spotify_track_with_artist_identity();
+        assert!(!can_cache_no_verified_evidence(&unsaved, false, false));
+        assert!(can_cache_no_verified_evidence(&unsaved, false, true));
+        assert!(can_cache_no_verified_evidence(&unsaved, true, false));
+        let non_spotify = Track {
+            provider: "youtube".into(),
+            ..Track::default()
+        };
+        assert!(can_cache_no_verified_evidence(&non_spotify, false, false));
     }
 
     #[test]

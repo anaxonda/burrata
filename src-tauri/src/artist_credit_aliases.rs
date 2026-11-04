@@ -535,9 +535,22 @@ pub(crate) fn cached_verified_playback_artist_aliases(
     store: &Store,
     track: &Track,
 ) -> VerifiedPlaybackArtistAliases {
+    cached_verified_playback_artist_aliases_with_fresh_exact_track(store, track, None)
+}
+
+/// Build the same fail-closed alias context, allowing only a successful,
+/// request-scoped exact provider read to stand in for a missing library row.
+/// `fresh_exact` is supplied by SourceTrace after exact-ID/account validation.
+pub(crate) fn cached_verified_playback_artist_aliases_with_fresh_exact_track(
+    store: &Store,
+    track: &Track,
+    fresh_exact: Option<&Track>,
+) -> VerifiedPlaybackArtistAliases {
     let original = track;
+    let fresh_exact =
+        fresh_exact.filter(|fresh| exact_spotify_request_matches_hydrated_credits(original, fresh));
     let hydrated = crate::remote_playlists::read_alias_hydrated_track(store, original);
-    let track = hydrated.as_ref().unwrap_or(original);
+    let track = fresh_exact.or(hydrated.as_ref()).unwrap_or(original);
     let mut credit_sets = Vec::new();
     let mut aliases =
         cached_verified_artist_alias_tracks_with_context(store, track, &mut credit_sets);
@@ -575,7 +588,11 @@ pub(crate) fn cached_verified_playback_artist_aliases(
                 .cloned(),
         );
         aliases.extend(recording_aliases);
-        if let Some(credits) = cached_verified_provider_artist_credit_set(store, original) {
+        if let Some(credits) = cached_verified_provider_artist_credit_set_with_fresh_exact(
+            store,
+            original,
+            fresh_exact,
+        ) {
             // Search fanout stays bounded while matching keeps every alias.
             let canonical = credits
                 .names
@@ -1050,6 +1067,143 @@ pub(crate) fn spotify_artist_credit_fingerprint(
         isrc: track_isrc.or(remote_isrc),
         artists,
     })
+}
+
+/// Bind a merged exact Spotify catalog response to the unsaved source request.
+/// The request's own structured credits must match provider IDs and display
+/// names in order; the merged side must independently pass the full catalog
+/// fingerprint validation above.
+pub(crate) fn exact_spotify_request_matches_hydrated_credits(
+    request: &Track,
+    hydrated: &Track,
+) -> bool {
+    if request.provider != "spotify"
+        || hydrated.provider != "spotify"
+        || request.id != hydrated.id
+        || request.provider_id != hydrated.provider_id
+        || request.source_url != hydrated.source_url
+        || request.title != hydrated.title
+        || request.artist != hydrated.artist
+        || request.duration_seconds != hydrated.duration_seconds
+        || request.version.is_some()
+        || request.playback_range.is_some()
+        || request.provenance["manualFields"]["artist"] == true
+        || request.provenance["manualFields"]["artistCredits"] == true
+    {
+        return false;
+    }
+    let Some(fresh) = spotify_artist_credit_fingerprint(hydrated) else {
+        return false;
+    };
+    if request.isrc.as_deref().is_some_and(|isrc| {
+        fresh
+            .isrc
+            .as_deref()
+            .is_none_or(|known| !crate::recording_identity::same_isrc(isrc, known))
+    }) {
+        return false;
+    }
+    if let Some(request_fingerprint) = spotify_artist_credit_fingerprint(request) {
+        if request_fingerprint != fresh {
+            return false;
+        }
+        if has_spotify_request_credit_claim(request) {
+            return verified_spotify_request_credit_refs(request).is_some_and(|credits| {
+                credits.len() == fresh.artists.len()
+                    && credits
+                        .iter()
+                        .zip(fresh.artists.iter())
+                        .all(|(request, fresh)| {
+                            request.id == fresh.id && request.name == fresh.name
+                        })
+            });
+        }
+        true
+    } else {
+        let Some(request_credits) = verified_spotify_request_credit_refs(request) else {
+            return false;
+        };
+        request_credits.len() == fresh.artists.len()
+            && request_credits
+                .iter()
+                .zip(fresh.artists.iter())
+                .all(|(request, fresh)| request.id == fresh.id && request.name == fresh.name)
+    }
+}
+
+pub(crate) fn has_verified_spotify_request_credits(track: &Track) -> bool {
+    if let Some(fingerprint) = spotify_artist_credit_fingerprint(track) {
+        if !has_spotify_request_credit_claim(track) {
+            return true;
+        }
+        return verified_spotify_request_credit_refs(track).is_some_and(|credits| {
+            credits.len() == fingerprint.artists.len()
+                && credits
+                    .iter()
+                    .zip(fingerprint.artists.iter())
+                    .all(|(request, fresh)| request.id == fresh.id && request.name == fresh.name)
+        });
+    }
+    verified_spotify_request_credit_refs(track).is_some()
+}
+
+/// Null and empty arrays carry no credit assertion. A nonempty malformed value
+/// is still a claim and must fail validation for fingerprinted requests.
+fn has_spotify_request_credit_claim(track: &Track) -> bool {
+    match track.provenance.get("artistCredits") {
+        None | Some(Value::Null) => false,
+        Some(Value::Array(values)) if values.is_empty() => false,
+        Some(_) => true,
+    }
+}
+
+fn verified_spotify_request_credit_refs(track: &Track) -> Option<Vec<SpotifyArtistCreditRef>> {
+    if track.provider != "spotify"
+        || track.version.is_some()
+        || track.playback_range.is_some()
+        || track.provenance["manualFields"]["artist"] == true
+        || track.provenance["manualFields"]["artistCredits"] == true
+    {
+        return None;
+    }
+    let credits = track.provenance["artistCredits"].as_array()?;
+    if credits.is_empty() || credits.len() > MAX_CREDIT_ARTISTS {
+        return None;
+    }
+    let mut result = Vec::with_capacity(credits.len());
+    let mut seen = std::collections::HashSet::new();
+    for credit in credits {
+        let id = credit["providerId"].as_str()?;
+        let name = credit["name"].as_str()?.trim();
+        let role_is_performer = match credit.get("role") {
+            None | Some(Value::Null) => true,
+            Some(Value::String(role)) => crate::recording_identity::is_performer_credit_role(role),
+            Some(_) => false,
+        };
+        if credit["provenance"].as_str() != Some("remoteProviderStructuredCredits")
+            || !valid_spotify_id(id)
+            || name.is_empty()
+            || name.len() > 256
+            || !role_is_performer
+            || !seen.insert(id)
+        {
+            return None;
+        }
+        result.push(SpotifyArtistCreditRef {
+            id: id.to_owned(),
+            name: name.to_owned(),
+        });
+    }
+    if result
+        .iter()
+        .map(|credit| credit.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
+        != track.artist
+    {
+        return None;
+    }
+    Some(result)
 }
 
 /// Validate that a raw MusicBrainz recording and every artist profile link the
@@ -1598,15 +1752,37 @@ fn cached_verified_provider_artist_credit_set(
     store: &Store,
     original: &Track,
 ) -> Option<VerifiedCreditSet> {
-    let hydrated = crate::remote_playlists::read_alias_hydrated_track(store, original);
-    let source = spotify_artist_credit_fingerprint(hydrated.as_ref().unwrap_or(original))?;
-    let saved = store.get_library_track(&original.id).ok()??;
-    let hydrated_saved = crate::remote_playlists::read_alias_hydrated_track(store, &saved);
-    if spotify_artist_credit_fingerprint(hydrated_saved.as_ref().unwrap_or(&saved)).as_ref()
-        != Some(&source)
+    cached_verified_provider_artist_credit_set_with_fresh_exact(store, original, None)
+}
+
+fn cached_verified_provider_artist_credit_set_with_fresh_exact(
+    store: &Store,
+    original: &Track,
+    fresh_exact: Option<&Track>,
+) -> Option<VerifiedCreditSet> {
+    if original.version.is_some()
+        || original.playback_range.is_some()
+        || original.provenance["manualFields"]["artist"] == true
+        || original.provenance["manualFields"]["artistCredits"] == true
     {
         return None;
     }
+    let hydrated = crate::remote_playlists::read_alias_hydrated_track(store, original);
+    let source_track = fresh_exact.or(hydrated.as_ref()).unwrap_or(original);
+    if let Some(fresh) = fresh_exact {
+        if !exact_spotify_request_matches_hydrated_credits(original, fresh) {
+            return None;
+        }
+    } else {
+        let saved = store.get_library_track(&original.id).ok()??;
+        let hydrated_saved = crate::remote_playlists::read_alias_hydrated_track(store, &saved);
+        if spotify_artist_credit_fingerprint(hydrated_saved.as_ref().unwrap_or(&saved)).as_ref()
+            != spotify_artist_credit_fingerprint(hydrated.as_ref().unwrap_or(original)).as_ref()
+        {
+            return None;
+        }
+    }
+    let source = spotify_artist_credit_fingerprint(source_track)?;
     let mut all_names = Vec::new();
     for credit in &source.artists {
         let evidence = store
@@ -2938,6 +3114,163 @@ mod tests {
         assert!(cached_verified_playback_artist_aliases(&store, &second)
             .matching_track(&second, "Canonical Act, Guest")
             .is_none());
+    }
+
+    #[test]
+    fn exact_request_scoped_provider_credits_work_without_a_saved_row() {
+        let directory = tempdir().unwrap();
+        let store = Store::open(&directory.path().join("artists.sqlite")).unwrap();
+        let fresh_exact = spotify_artist_credit_track();
+        let mut source = fresh_exact.clone();
+        source.provenance = json!({"artistCredits":[
+            {"name":"Spotify Act","providerId":"aaaaaaaaaaaaaaaaaaaaaa","provenance":"remoteProviderStructuredCredits","role":null,"joinPhrase":null},
+            {"name":"Guest","providerId":"cccccccccccccccccccccc","provenance":"remoteProviderStructuredCredits","role":null,"joinPhrase":null}
+        ]});
+        let (_, profile_a, profile_b) = recording_credit_fixture();
+        for (provider_id, profile) in [
+            ("aaaaaaaaaaaaaaaaaaaaaa", &profile_a),
+            ("cccccccccccccccccccccc", &profile_b),
+        ] {
+            store.set_retained_provider_cache("artists.alias-discovery.provider-artist.v1", &format!("spotify:{provider_id}"), &json!({
+                "version":1,"provider":"spotify","providerArtistId":provider_id,"musicbrainzArtistId":profile["id"],"profile":profile,
+                "lookup":{"resource":format!("https://open.spotify.com/artist/{provider_id}"),"relations":[{"target-type":"artist","artist":{"id":profile["id"]}}]}
+            })).unwrap();
+        }
+
+        assert!(store.get_library_track(&source.id).unwrap().is_none());
+        assert!(exact_spotify_request_matches_hydrated_credits(
+            &source,
+            &fresh_exact
+        ));
+        assert!(
+            !cached_verified_playback_artist_aliases(&store, &source).has_verified_credit_sets()
+        );
+        let context = cached_verified_playback_artist_aliases_with_fresh_exact_track(
+            &store,
+            &source,
+            Some(&fresh_exact),
+        );
+        assert!(context.has_verified_credit_sets());
+        assert!(context
+            .matching_track(&source, "Canonical Act, Guest")
+            .is_some());
+        assert!(store.get_library_track(&source.id).unwrap().is_none());
+        let verified_request_context =
+            cached_verified_playback_artist_aliases_with_fresh_exact_track(
+                &store,
+                &fresh_exact,
+                Some(&fresh_exact),
+            );
+        assert!(verified_request_context.has_verified_credit_sets());
+        assert!(
+            !cached_verified_playback_artist_aliases(&store, &fresh_exact)
+                .has_verified_credit_sets()
+        );
+        for empty_credits in [json!([]), Value::Null] {
+            let mut full_fingerprint = fresh_exact.clone();
+            full_fingerprint.provenance["artistCredits"] = empty_credits;
+            assert!(has_verified_spotify_request_credits(&full_fingerprint));
+            assert!(exact_spotify_request_matches_hydrated_credits(
+                &full_fingerprint,
+                &fresh_exact,
+            ));
+        }
+        let mut malformed_full = fresh_exact.clone();
+        malformed_full.provenance["artistCredits"] = json!({"unexpected":"shape"});
+        assert!(!has_verified_spotify_request_credits(&malformed_full));
+        assert!(!exact_spotify_request_matches_hydrated_credits(
+            &malformed_full,
+            &fresh_exact,
+        ));
+
+        let mut reordered = source.clone();
+        reordered.provenance["artistCredits"]
+            .as_array_mut()
+            .unwrap()
+            .reverse();
+        assert!(!exact_spotify_request_matches_hydrated_credits(
+            &reordered,
+            &fresh_exact,
+        ));
+        let mut absent = source.clone();
+        absent.provenance["artistCredits"] = json!([]);
+        assert!(!exact_spotify_request_matches_hydrated_credits(
+            &absent,
+            &fresh_exact,
+        ));
+        let mut null_raw_credits = source.clone();
+        null_raw_credits.provenance["artistCredits"] = Value::Null;
+        assert!(!has_verified_spotify_request_credits(&null_raw_credits));
+        assert!(!exact_spotify_request_matches_hydrated_credits(
+            &null_raw_credits,
+            &fresh_exact,
+        ));
+        let mut nonperformer_role = source.clone();
+        nonperformer_role.provenance["artistCredits"][0]["role"] = json!("Composer");
+        assert!(!has_verified_spotify_request_credits(&nonperformer_role));
+        assert!(!exact_spotify_request_matches_hydrated_credits(
+            &nonperformer_role,
+            &fresh_exact,
+        ));
+        let mut wrong_provider_credit_id = fresh_exact.clone();
+        wrong_provider_credit_id.provenance["catalog"]["artists"][1]["id"] =
+            json!("dddddddddddddddddddddd");
+        wrong_provider_credit_id.provenance["remoteCatalog"]["artistRefs"][1]["id"] =
+            json!("dddddddddddddddddddddd");
+        assert!(!exact_spotify_request_matches_hydrated_credits(
+            &source,
+            &wrong_provider_credit_id,
+        ));
+        let mut contradictory_role = fresh_exact.clone();
+        contradictory_role.provenance["artistCredits"] = json!([
+            {"name":"Spotify Act","providerId":"aaaaaaaaaaaaaaaaaaaaaa","provenance":"remoteProviderStructuredCredits","role":"Composer"},
+            {"name":"Guest","providerId":"cccccccccccccccccccccc","provenance":"remoteProviderStructuredCredits","role":null}
+        ]);
+        assert!(!has_verified_spotify_request_credits(&contradictory_role));
+        assert!(!exact_spotify_request_matches_hydrated_credits(
+            &contradictory_role,
+            &fresh_exact,
+        ));
+
+        let mut wrong_credit = fresh_exact.clone();
+        wrong_credit.artist = "Spotify Act, Different Guest".into();
+        wrong_credit.provenance["remoteCatalog"]["artist"] = json!(wrong_credit.artist);
+        assert!(
+            !cached_verified_playback_artist_aliases_with_fresh_exact_track(
+                &store,
+                &source,
+                Some(&wrong_credit),
+            )
+            .has_verified_credit_sets()
+        );
+
+        let mut manual = source.clone();
+        manual.provenance["manualFields"]["artistCredits"] = json!(true);
+        assert!(
+            !cached_verified_playback_artist_aliases_with_fresh_exact_track(
+                &store,
+                &manual,
+                Some(&fresh_exact),
+            )
+            .has_verified_credit_sets()
+        );
+
+        store.set_retained_provider_cache(
+            "artists.alias-discovery.provider-artist.v1",
+            "spotify:cccccccccccccccccccccc",
+            &json!({
+                "version":1,"provider":"spotify","providerArtistId":"cccccccccccccccccccccc","musicbrainzArtistId":profile_b["id"],"profile":profile_b,
+                "lookup":{"resource":"https://open.spotify.com/artist/cccccccccccccccccccccc","relations":[{"target-type":"artist","artist":{"id":"00000000-0000-4000-8000-000000000099"}}]}
+            }),
+        ).unwrap();
+        assert!(
+            !cached_verified_playback_artist_aliases_with_fresh_exact_track(
+                &store,
+                &source,
+                Some(&fresh_exact),
+            )
+            .has_verified_credit_sets()
+        );
     }
 
     #[test]

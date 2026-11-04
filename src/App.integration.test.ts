@@ -1313,6 +1313,38 @@ describe("saved library navigation", () => {
     expect(mocks.call.mock.calls.some(([command])=>command==='search_artists')).toBe(false);
   });
 
+  it("shows the shared saved album detail and analyzes its complete locally registered saved scope", async () => {
+    const originalCall = mocks.call.getMockImplementation()!;
+    const entry = { id: "album:ref:spotify:library-detail", kind: "album", name: "Borrowed Light", artist: "Nora Vale", provider: "spotify", providerId: "library-detail", explicitlySaved: false, trackCount: 2, totalTracks: 2, albumCount: 0 };
+    const first: Track = { ...savedTrack, id: "library-album-one", title: "First Saved Song", album: entry.name, artist: entry.artist };
+    const second: Track = { ...savedTrack, id: "library-album-two", title: "Second Saved Song", album: entry.name, artist: entry.artist };
+    const rows = [first, second];
+    savedAssets = rows.map((track, index) => ({ id: `library-asset-${index + 1}`, recordingId: track.id, path: `/music/library-${index + 1}.flac`, hash: String.fromCharCode(97 + index).repeat(64), sourceCodec: "flac", finalCodec: "flac", processing: "ready", track }));
+    const resource = { scope: "album" as const, members: savedAssets.map(asset => ({ assetId: asset.id, fileHash: asset.hash, range: { startSeconds: 0, endSeconds: null } })), interTrackGapsSeconds: [0], resourceKey: "c".repeat(64) };
+    mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "list_library_entities") return { items: [entry], total: 1 };
+      if (command === "list_library_entity_tracks") return { tracks: rows, total: rows.length };
+      if (command === "start_loudness_analysis") return "library-album-loudness";
+      if (command === "get_loudness_analysis_status") return { jobId: "library-album-loudness", status: "completed", total: 2, completed: 2, error: null, resource };
+      return originalCall(command, args);
+    });
+    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); }; await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".library-view-tabs button")].find(button => button.textContent === "Albums")!.click(); await settle();
+    document.querySelector<HTMLButtonElement>(".entity-card")!.click(); await settle();
+
+    expect(document.querySelector(".album-detail h1")?.textContent).toBe("Borrowed Light");
+    expect(document.querySelector(".album-detail .artists")?.textContent).toBe("Nora Vale");
+    expect(document.querySelector(".album-track-scope")?.textContent).toContain("2 of 2 catalog tracks saved");
+    expect(document.body.textContent).toContain("Download album");
+    expect(document.body.textContent).toContain("Play album");
+
+    document.querySelector<HTMLElement>("[aria-label=\"More album actions for Borrowed Light\"]")!.click();
+    [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim() === "Analyze album loudness")!.click(); await settle(); await settle();
+    expect(mocks.call).toHaveBeenCalledWith("list_track_files_for_recordings", { recordingIds: rows.map(track => track.id) });
+    expect(mocks.call).toHaveBeenCalledWith("start_loudness_analysis", { assetIds: savedAssets.map(asset => asset.id), interTrackGapsSeconds: [0] });
+    expect(document.body.textContent).toContain("Play or queue this album to use its measured album gain.");
+  });
+
   it("opens saved artists and restores artist subsections through back and forward", async () => {
     const originalCall = mocks.call.getMockImplementation()!;
     const artist = { id: 'artist:ref:spotify:library-artist', kind: 'artist', name: 'Library Artist', artist: '', provider: 'spotify', providerId: 'library-artist', explicitlySaved: true, trackCount: 1, albumCount: 1 };

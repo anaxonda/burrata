@@ -271,6 +271,7 @@ pub(crate) struct SourceTrace {
         std::sync::Arc<std::sync::Mutex<Vec<crate::playback_failure::ProviderAttemptSummary>>>,
     source_rescue: std::sync::Arc<std::sync::Mutex<(Option<String>, bool)>>,
     fresh_exact_catalog_track: std::sync::Arc<std::sync::Mutex<Option<Track>>>,
+    fresh_exact_alias_track: std::sync::Arc<std::sync::Mutex<Option<(Track, Track)>>>,
     pub(crate) skip_youtube_forbidden_retry: bool,
     recovery_attempts: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     catalog_duration_enriched: bool,
@@ -313,6 +314,7 @@ impl SourceTrace {
             provider_attempts: Default::default(),
             source_rescue: Default::default(),
             fresh_exact_catalog_track: Default::default(),
+            fresh_exact_alias_track: Default::default(),
             skip_youtube_forbidden_retry: false,
             recovery_attempts: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             catalog_duration_enriched: false,
@@ -324,6 +326,9 @@ impl SourceTrace {
     pub(crate) fn with_preparation_handoff(mut self, handoff: tokio::time::Instant) -> Self {
         self.preparation_handoff = Some(handoff);
         self
+    }
+    pub(crate) fn resolution_id(&self) -> uuid::Uuid {
+        self.id
     }
     fn fallback_grace(&self, settings: &Settings) -> Duration {
         self.preparation_handoff
@@ -380,6 +385,43 @@ impl SourceTrace {
             return None;
         }
         slot.take()
+    }
+
+    /// Retain verified artist-credit context from a successful exact Spotify
+    /// getTrack read. This slot is independent of the consumable catalog refresh
+    /// slot so refresh cannot erase alias evidence.
+    pub(crate) fn remember_fresh_exact_alias_track(
+        &self,
+        original: &Track,
+        hydrated: Track,
+    ) -> bool {
+        if !crate::artist_credit_aliases::exact_spotify_request_matches_hydrated_credits(
+            original, &hydrated,
+        ) {
+            return false;
+        }
+        self.fresh_exact_alias_track
+            .lock()
+            .map(|mut slot| {
+                *slot = Some((original.clone(), hydrated));
+                true
+            })
+            .unwrap_or(false)
+    }
+
+    /// Borrow the exact request-local artist-credit result only when its full
+    /// provider recording identity still matches the current playback request.
+    pub(crate) fn fresh_exact_alias_track(&self, original: &Track) -> Option<Track> {
+        let slot = self.fresh_exact_alias_track.lock().ok()?;
+        let (request, hydrated) = slot.as_ref()?;
+        if request != original
+            || !crate::artist_credit_aliases::exact_spotify_request_matches_hydrated_credits(
+                original, hydrated,
+            )
+        {
+            return None;
+        }
+        Some(hydrated.clone())
     }
 
     pub(crate) fn with_event_provider(mut self, provider: &str) -> Self {
@@ -1431,7 +1473,11 @@ fn resolved_registered_local_duration(
             if asset_track.provenance["automaticExcerpt"].is_object() {
                 asset_duration_seconds
             } else {
-                track.duration_seconds
+                // Keep an existing catalog duration authoritative, but use
+                // the registered asset's measured duration when the catalog
+                // omitted one. Decoder fallbacks (such as FFmpeg for local
+                // Opus) may not be able to report duration themselves.
+                track.duration_seconds.or(asset_duration_seconds)
             }
         });
     duration.filter(|value| value.is_finite() && *value >= 0.)
@@ -4304,7 +4350,8 @@ async fn resolve_serial(
                             trace.event("alias_canonical_lookup_end", &track.provider, json!({"durationMs":canonical_started.elapsed().as_millis(),"metadataRequests":canonical.as_ref().map(|r|r.stats.requests),"ok":canonical.as_ref().is_some_and(|r|r.result.is_ok())}));
                             if *cancel.borrow() { return Err("Cancelled".into()); }
                             if deadline.remaining().is_zero() { return Err(failures.deadline()); }
-                            verified_artist_aliases = crate::artist_credit_aliases::cached_verified_playback_artist_aliases(store, track);
+                            verified_artist_aliases = crate::artist_credit_aliases::cached_verified_playback_artist_aliases_with_fresh_exact_track(
+                                store, track, trace.fresh_exact_alias_track(track).as_ref());
                             include_candidate_aliases(&mut verified_artist_aliases, track, &candidate, Some(&audio));
                             proof = verify_with_playback_alias_context_traced(
                                 track, &verified_artist_aliases, &mut candidate, &audio,
@@ -4316,7 +4363,8 @@ async fn resolve_serial(
                                 )).await;
                                 if *cancel.borrow() { return Err("Cancelled".into()); }
                                 if deadline.remaining().is_zero() { return Err(failures.deadline()); }
-                                verified_artist_aliases = crate::artist_credit_aliases::cached_verified_playback_artist_aliases(store, track);
+                                verified_artist_aliases = crate::artist_credit_aliases::cached_verified_playback_artist_aliases_with_fresh_exact_track(
+                                    store, track, trace.fresh_exact_alias_track(track).as_ref());
                                 include_candidate_aliases(&mut verified_artist_aliases, track, &candidate, Some(&audio));
                                 proof = verify_with_playback_alias_context_traced(track, &verified_artist_aliases, &mut candidate, &audio,
                                     requires_identity_check, settings.matching_level, store, settings.flexible_matching, Some(trace));
@@ -8164,7 +8212,7 @@ mod tests {
     }
 
     #[test]
-    fn local_approximate_excerpt_uses_measured_asset_duration_without_changing_catalog_track() {
+    fn registered_local_duration_falls_back_to_measured_asset_when_catalog_is_unknown() {
         let catalog_track = Track {
             duration_seconds: Some(180.0),
             ..Track::default()
@@ -8185,6 +8233,41 @@ mod tests {
             resolved_registered_local_duration(&catalog_track, &ordinary_asset_track, Some(179.4)),
             Some(180.0),
             "ordinary local assets keep existing catalog-duration behavior"
+        );
+
+        let unknown_duration_track = Track {
+            duration_seconds: None,
+            ..Track::default()
+        };
+        assert_eq!(
+            resolved_registered_local_duration(
+                &unknown_duration_track,
+                &ordinary_asset_track,
+                Some(177.0605),
+            ),
+            Some(177.0605),
+            "a measured registered-asset duration fills a missing catalog duration"
+        );
+        assert_eq!(
+            resolved_registered_local_duration(
+                &unknown_duration_track,
+                &ordinary_asset_track,
+                Some(f64::NAN),
+            ),
+            None,
+            "invalid asset duration must not invent a seek range"
+        );
+        let excerpt = Track {
+            playback_range: Some(crate::models::PlaybackRange {
+                start_time: 12.0,
+                end_time: 42.0,
+            }),
+            ..unknown_duration_track.clone()
+        };
+        assert_eq!(
+            resolved_registered_local_duration(&excerpt, &ordinary_asset_track, Some(177.0605)),
+            Some(30.0),
+            "explicit source ranges remain authoritative"
         );
     }
 
@@ -13666,6 +13749,28 @@ mod native_only_recovery_tests {
             ..Track::default()
         }
     }
+    fn spotify_alias_trace_track() -> Track {
+        let track_id = "bbbbbbbbbbbbbbbbbbbbbb";
+        let artists = json!([
+            {"provider":"spotify","id":"aaaaaaaaaaaaaaaaaaaaaa","name":"Spotify Act"},
+            {"provider":"spotify","id":"cccccccccccccccccccccc","name":"Guest"}
+        ]);
+        Track {
+            id: format!("spotify:{track_id}"),
+            provider: "spotify".into(),
+            provider_id: track_id.into(),
+            source_url: format!("https://open.spotify.com/track/{track_id}"),
+            title: "Song".into(),
+            artist: "Spotify Act, Guest".into(),
+            duration_seconds: Some(180.0),
+            isrc: Some("USABC2600001".into()),
+            provenance: json!({
+                "catalog":{"verified":true,"provider":"spotify","providerId":track_id,"artistCount":2,"artists":artists},
+                "remoteCatalog":{"trackId":track_id,"title":"Song","artist":"Spotify Act, Guest","durationSeconds":180.0,"isrc":"USABC2600001","artistCount":2,"artistRefs":artists}
+            }),
+            ..Track::default()
+        }
+    }
     #[test]
     fn request_exact_refresh_slot_requires_same_exact_spotify_identity() {
         let original = spotify_refresh_track("1234567890123456789012", "Stale title");
@@ -13686,6 +13791,49 @@ mod native_only_recovery_tests {
             .is_none());
         let reused = trace.take_fresh_exact_catalog_track(&original).unwrap();
         assert_eq!(reused, fresh);
+    }
+    #[test]
+    fn exact_alias_context_is_request_scoped_and_independent_of_refresh_consumption() {
+        let hydrated = spotify_alias_trace_track();
+        let mut original = hydrated.clone();
+        original.provenance = json!({"artistCredits":[
+            {"name":"Spotify Act","providerId":"aaaaaaaaaaaaaaaaaaaaaa","provenance":"remoteProviderStructuredCredits","role":null,"joinPhrase":null},
+            {"name":"Guest","providerId":"cccccccccccccccccccccc","provenance":"remoteProviderStructuredCredits","role":null,"joinPhrase":null}
+        ]});
+        let trace = SourceTrace::new(None, None, None);
+        assert!(trace.fresh_exact_alias_track(&original).is_none());
+
+        let mut wrong_id = hydrated.clone();
+        wrong_id.provider_id = "cccccccccccccccccccccc".into();
+        wrong_id.id = format!("spotify:{}", wrong_id.provider_id);
+        wrong_id.source_url = format!("https://open.spotify.com/track/{}", wrong_id.provider_id);
+        assert!(!trace.remember_fresh_exact_alias_track(&original, wrong_id));
+
+        let mut wrong_credits = hydrated.clone();
+        wrong_credits.artist = "Spotify Act, Different Guest".into();
+        wrong_credits.provenance["remoteCatalog"]["artist"] = json!(wrong_credits.artist);
+        assert!(!trace.remember_fresh_exact_alias_track(&original, wrong_credits));
+
+        let mut versioned = original.clone();
+        versioned.version = Some("live".into());
+        assert!(!trace.remember_fresh_exact_alias_track(&versioned, hydrated.clone()));
+
+        assert!(trace.remember_fresh_exact_alias_track(&original, hydrated.clone()));
+        assert!(trace.fresh_exact_alias_track(&original).is_some());
+        let mut another_request = original.clone();
+        another_request.provider_id = "dddddddddddddddddddddd".into();
+        another_request.id = format!("spotify:{}", another_request.provider_id);
+        another_request.source_url = format!(
+            "https://open.spotify.com/track/{}",
+            another_request.provider_id
+        );
+        assert!(trace.fresh_exact_alias_track(&another_request).is_none());
+
+        // The refresh slot is intentionally consumed while alias evidence stays
+        // available for the current request.
+        assert!(trace.remember_fresh_exact_catalog_track(&original, hydrated));
+        assert!(trace.take_fresh_exact_catalog_track(&original).is_some());
+        assert!(trace.fresh_exact_alias_track(&original).is_some());
     }
     #[test]
     fn reused_exact_refresh_still_rejects_conflicting_provider_metadata() {

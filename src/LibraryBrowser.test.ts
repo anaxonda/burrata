@@ -230,6 +230,47 @@ describe('saved library views', () => {
     expect(target.querySelectorAll('.playlist-reorder-handle, .playlist-move')).toHaveLength(0);
   });
 
+  it('keeps a partial saved album detail actionable through the canonical unfiltered saved scope', async () => {
+    const album: LibraryEntity = { ...albumVersion('album:ref:spotify:partial', 'Borrowed Light', 'Nora Vale', 'spotify', '2008'), trackCount: 2, totalTracks: 5 };
+    const second: Track = { ...saved, id: 'fixture:saved-two', providerId: 'saved-two', title: 'Second saved song' };
+    const call = vi.fn(async (_command: string, args?: Record<string, unknown>) => args?.query === 'missing'
+      ? { tracks: [] as Track[], total: 0 }
+      : { tracks: [saved, second], total: 2 });
+    const onDownloadAlbum = vi.fn();
+    const browserState = { ...initialLibraryBrowserState(), tab: 'albums' as const, entity: album, query: 'missing', sort: 'title', descending: true, availability: 'local', minDuration: '60', maxDuration: '300' };
+    const { target } = render({ browserState, call, onDownloadAlbum }); await settle();
+
+    expect(target.querySelector('.album-detail h1')?.textContent).toBe('Borrowed Light');
+    expect(target.querySelector('.album-detail .artists')?.textContent).toBe('Nora Vale');
+    expect(target.textContent).toContain('2 of 5 catalog tracks saved');
+    expect(target.textContent).toContain('Play saved tracks');
+    expect(target.textContent).toContain('Queue saved tracks');
+    expect(target.textContent).toContain('No saved tracks match this filter');
+    target.querySelector<HTMLElement>('[aria-label="More album actions for Borrowed Light"]')!.click();
+    expect(target.textContent).toContain('Album loudness analysis is available after every catalog track is saved');
+    expect([...target.querySelectorAll<HTMLButtonElement>('button')].some(button => button.textContent?.includes('Analyze album loudness'))).toBe(false);
+
+    target.querySelector<HTMLElement>('[aria-label="Download album options for Borrowed Light"]')!.click();
+    [...target.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Download saved tracks')!.click();
+    await settle();
+    expect(onDownloadAlbum).toHaveBeenCalledWith([saved, second]);
+    const actionRead = call.mock.calls.find(([, args]) => args?.query === '');
+    expect(actionRead?.[1]).toMatchObject({ sort: 'sourceOrder', descending: false, availability: 'all', minDuration: null, maxDuration: null });
+    expect(call.mock.calls.some(([, args]) => args?.query === 'missing' && args?.sort === 'title')).toBe(true);
+  });
+
+  it('rechecks exact saved album completeness before starting loudness analysis', async () => {
+    const album: LibraryEntity = { ...albumVersion('album:ref:spotify:stale-complete', 'False Promise', 'Nora Vale', 'spotify', '2008'), trackCount: 3, totalTracks: 3 };
+    const second: Track = { ...saved, id: 'fixture:saved-two', providerId: 'saved-two', title: 'Second saved song' };
+    const call = vi.fn(async () => ({ tracks: [saved, second], total: 2 }));
+    const onAnalyzeLoudness = vi.fn(async () => ({ jobId: 'should-not-start', playbackTracks: [saved, second] }));
+    const { target } = render({ browserState: { ...initialLibraryBrowserState(), tab: 'albums', entity: album }, call, onAnalyzeLoudness }); await settle();
+    target.querySelector<HTMLElement>('[aria-label="More album actions for False Promise"]')!.click();
+    [...target.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes('Analyze album loudness'))!.click(); await settle();
+    expect(onAnalyzeLoudness).not.toHaveBeenCalled();
+    expect(target.querySelector('[role="alert"]')?.textContent).toContain('complete album tracklist is no longer saved');
+  });
+
   it('scopes albums to the selected artist and preserves browse as an explicit action', async () => {
     const call = vi.fn(async (_command: string, _args?: Record<string, unknown>) => ({ items: [], total: 0 }));
     const { target, props } = render({ browserState: { ...initialLibraryBrowserState(), tab: 'artists', entity: artist }, call });

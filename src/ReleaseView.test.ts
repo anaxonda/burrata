@@ -8,6 +8,9 @@ import ReleaseView from "./ReleaseView.svelte";
 import ReleaseViewHarness from "./ReleaseViewHarness.svelte";
 import type { ArtistReleaseRef } from "./lib/artist-types";
 import type { Track } from "./lib/types";
+import { call } from "./lib/api";
+
+vi.mock("./lib/api", () => ({ call: vi.fn(async () => ({ status: "running", completed: 1, total: 2 })) }));
 
 beforeEach(() => {
   globalThis.ResizeObserver = class {observe() {} unobserve() {} disconnect() {}} as unknown as typeof ResizeObserver;
@@ -40,7 +43,7 @@ describe("ReleaseView", () => {
     const downloaded={...tracks[0],localAvailability:"available"};
     const missing={...tracks[1],localAvailability:"missing",localPath:"/music/missing.flac"};
     const target=render({tracks:[downloaded,missing]});await settle();
-    const filter=target.querySelector<HTMLSelectElement>('[aria-label="Downloaded status"]')!;
+    const filter=target.querySelector<HTMLSelectElement>('[aria-label="Track availability"]')!;
     filter.value="downloaded";filter.dispatchEvent(new Event("change",{bubbles:true}));await settle();
     expect(target.querySelectorAll('.shared-track-list li')).toHaveLength(1);
     expect(target.querySelector('.shared-track-list')?.textContent).toContain("Zulu");
@@ -55,6 +58,7 @@ describe("ReleaseView", () => {
     const filter = target.querySelector<HTMLInputElement>("[aria-label='Filter tracks']")!;
     filter.value="Zulu";filter.dispatchEvent(new Event("input",{bubbles:true}));await settle();
     target.querySelector<HTMLButtonElement>(".add-album-playlist")!.click();
+    await settle();
     expect(onAddAlbumToPlaylist).toHaveBeenCalledWith([tracks[1],tracks[0]],release.title);
     expect(target.querySelector(".save-album")).toBeNull();
   });
@@ -63,7 +67,7 @@ describe("ReleaseView", () => {
     const onPlay = vi.fn(); const onQueue = vi.fn();
     const target = render({ onPlay, onQueue });
     target.querySelector<HTMLButtonElement>(".hero-actions .primary")!.click();
-    target.querySelector<HTMLButtonElement>(".hero-actions button:not(.primary)")!.click();
+    target.querySelector<HTMLButtonElement>(".hero-actions button:not(.primary)")!.click(); await settle();
     expect(onPlay).toHaveBeenCalledWith(tracks[1], [tracks[1], tracks[0]], 0);
     expect(onQueue).toHaveBeenCalledWith([tracks[1], tracks[0]], "append");
     target.querySelector<HTMLButtonElement>('[aria-label="Play Zulu"]')!.click();
@@ -73,7 +77,7 @@ describe("ReleaseView", () => {
   it("runs the visible Download album button through its app callback in album order", async () => {
     const onDownloadAlbum=vi.fn(async()=>({status:"completed"}));
     const target=render({onDownloadAlbum});
-    [...target.querySelectorAll<HTMLButtonElement>(".hero-actions button")].find(button=>button.textContent?.includes("Download album"))?.click();
+    target.querySelector<HTMLButtonElement>(".download-menu .menu-content .download-album-action")?.click();
     await settle();
     expect(onDownloadAlbum).toHaveBeenCalledOnce();
     expect(onDownloadAlbum).toHaveBeenCalledWith([tracks[1],tracks[0]]);
@@ -82,7 +86,7 @@ describe("ReleaseView", () => {
   it("opens album actions by keyboard, returns focus on Escape, and selects Soulseek search", async () => {
     const onSearchAlbumSoulseek = vi.fn();
     const target = render({ onSearchAlbumSoulseek, soulseekSearchAvailable: true });
-    const menu = target.querySelector<HTMLDetailsElement>(".album-actions-menu")!;
+    const menu = target.querySelector<HTMLDetailsElement>(".download-menu")!;
     const summary = menu.querySelector<HTMLElement>("summary")!;
     summary.focus(); summary.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     summary.click(); await settle();
@@ -101,7 +105,7 @@ describe("ReleaseView", () => {
   it("explains unavailable Soulseek configuration and exposes download callback failures", async () => {
     const onDownloadAlbum = vi.fn().mockRejectedValue(new Error("music folder is unavailable"));
     const target = render({ onDownloadAlbum, onSearchAlbumSoulseek: vi.fn(), soulseekSearchAvailable: false });
-    const menu = target.querySelector<HTMLDetailsElement>(".album-actions-menu")!;
+    const menu = target.querySelector<HTMLDetailsElement>(".download-menu")!;
     menu.querySelector("summary")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(target.textContent).toContain("Enable and configure Soulseek in Settings → Connections.");
     expect(target.querySelector<HTMLButtonElement>('[aria-label^="Search album"]')?.disabled).toBe(true);
@@ -173,8 +177,48 @@ describe("ReleaseView", () => {
   it("offers a whole-album download using track-number order", async () => {
     const onDownloadAlbum = vi.fn();
     const target = render({ onDownloadAlbum });
-    target.querySelector<HTMLButtonElement>(".hero-actions button:last-child")!.click();
+    target.querySelector<HTMLButtonElement>(".download-menu .menu-content .download-album-action")!.click();
+    await settle();
     expect(onDownloadAlbum).toHaveBeenCalledWith([tracks[1], tracks[0]]);
+  });
+
+  it("keeps analysis and its local-file requirement in More, preserves preflight eligibility, progress, cancel, and Escape focus", async () => {
+    vi.clearAllMocks();
+    const onAnalyzeLoudness = vi.fn(async () => ({ jobId: "album-job", playbackTracks: tracks }));
+    const localMatchCandidates = tracks.map(track => ({ ...track, localAvailability: "missing" as const }));
+    const target = render({ tracks: localMatchCandidates, onAnalyzeLoudness, onDownloadAlbum: vi.fn() });
+    expect(target.querySelector(".more-menu .album-loudness-analysis")).not.toBeNull();
+    const more = target.querySelector<HTMLDetailsElement>(".more-menu")!;
+    const summary = more.querySelector<HTMLElement>("summary")!;
+    expect(target.querySelector(".download-menu summary")?.textContent).toContain("Download album");
+    summary.focus(); summary.click(); await settle();
+    expect(more.open).toBe(true);
+    expect(more.textContent).toContain("Requires local files for every track");
+    expect(more.textContent).toContain("Download or import the tracks first");
+    const analyze = [...more.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.includes("Analyze album loudness"))!;
+    analyze.click(); await settle();
+    expect(onAnalyzeLoudness).toHaveBeenCalledWith(localMatchCandidates.slice().reverse(), 0);
+    expect(more.textContent).toContain("1 of 2 tracks analyzed");
+    expect(more.querySelector("button")?.textContent).toContain("Analyzing album");
+    const cancel = [...more.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.includes("Cancel analysis"))!;
+    cancel.click(); await settle();
+    expect(call).toHaveBeenCalledWith("cancel_loudness_analysis", { jobId: "album-job" });
+    more.open = true;
+    more.querySelector<HTMLButtonElement>("button")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(more.open).toBe(false);
+    expect(document.activeElement).toBe(summary);
+  });
+
+  it("does not analyze a known partial catalog programme", async () => {
+    const onAnalyzeLoudness = vi.fn(async () => ({ jobId: "must-not-start", playbackTracks: tracks }));
+    const target = render({ release: { ...release, trackCount: 10 }, onAnalyzeLoudness });
+    const more = target.querySelector<HTMLDetailsElement>(".more-menu")!;
+    more.querySelector<HTMLElement>("summary")!.click(); await settle();
+    const analyze = [...more.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.includes("Analyze album loudness"))!;
+    expect(analyze.disabled).toBe(true);
+    expect(more.textContent).toContain("Album analysis requires all 10 release tracks. 2 are currently loaded.");
+    analyze.click(); await settle();
+    expect(onAnalyzeLoudness).not.toHaveBeenCalled();
   });
 
   it("filters and sorts track rows, and wires row actions while leaving navigation to the app toolbar", async () => {
