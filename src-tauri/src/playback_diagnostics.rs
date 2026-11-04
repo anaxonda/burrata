@@ -823,6 +823,7 @@ fn number_key(key: &str) -> bool {
             | "index"
             | "redirectHop"
             | "metadataRequests"
+            | "requests"
             | "bytes"
             | "queueMs"
             | "httpMs"
@@ -862,6 +863,9 @@ fn bounded_number(key: &str, number: &Number) -> Option<Number> {
             .as_u64()
             .filter(|value| (100..=599).contains(value))
             .map(Number::from);
+    }
+    if key == "requests" {
+        return number.as_u64().map(|value| Number::from(value.min(24)));
     }
     if let Some(value) = number.as_u64() {
         let limit = if matches!(key, "webviewGeneration" | "generation") {
@@ -1043,6 +1047,9 @@ fn enum_values(key: &str) -> Option<&'static [&'static str]> {
             "no_exact_name_owner",
             "ambiguous",
             "no_verified_evidence",
+            "no_eligible_alias",
+            "temporarily_unavailable",
+            "budget_exhausted",
         ]),
         "reason" => Some(&[
             "cdn_destination_changed",
@@ -1082,7 +1089,10 @@ fn enum_values(key: &str) -> Option<&'static [&'static str]> {
         "attemptPhase" => Some(&["search", "parser", "transport", "extraction", "other"]),
         "authority" => Some(&["musicbrainz", "discogs", "spotify", "other"]),
         "identity" => Some(&["complete", "incomplete"]),
-        "scope" => Some(&["candidatesEvaluatedBeforeForegroundCap"]),
+        "scope" => Some(&[
+            "candidatesEvaluatedBeforeForegroundCap",
+            "exact_linked_release_lexical_alias",
+        ]),
         "catalogProvider" => Some(&[
             "spotify",
             "musicbrainz",
@@ -1251,6 +1261,8 @@ pub(crate) fn phase_is_allowed(value: &str) -> bool {
             | "catalog_request_refresh"
             | "catalog_duration_lookup_start"
             | "catalog_duration_lookup_end"
+            | "alias_lexical_preflight_start"
+            | "alias_lexical_preflight_end"
             | "bandcamp_fallback_start"
             | "bandcamp_fallback_end"
             | "canonical_search_warmup_end"
@@ -1875,6 +1887,67 @@ mod tests {
                 .get("formatId")
                 .is_none());
         }
+    }
+
+    #[test]
+    fn lexical_preflight_phases_retain_only_bounded_scope_and_outcome() {
+        for phase in [
+            "alias_lexical_preflight_start",
+            "alias_lexical_preflight_end",
+        ] {
+            assert!(phase_is_allowed(phase), "missing phase {phase}");
+        }
+
+        let mut start = event(1);
+        start["phase"] = json!("alias_lexical_preflight_start");
+        start["provider"] = json!("catalog");
+        start["details"] = json!({
+            "scope":"exact_linked_release_lexical_alias",
+            "url":"https://private.example/path?token=secret",
+            "rawResponse":"private metadata",
+        });
+        let sanitized_start = sanitize_event(start).expect("lexical start is retained");
+        assert_eq!(
+            sanitized_start.details["scope"],
+            "exact_linked_release_lexical_alias"
+        );
+        assert_eq!(sanitized_start.details.len(), 1);
+
+        let mut end = event(2);
+        end["phase"] = json!("alias_lexical_preflight_end");
+        end["provider"] = json!("catalog");
+        end["details"] = json!({
+            "scope":"exact_linked_release_lexical_alias",
+            "outcome":"no_eligible_alias",
+            "requests":99,
+            "durationMs":7136,
+            "error":"private response body",
+            "query":"private query",
+            "headers":{"authorization":"private"},
+        });
+        let sanitized_end = sanitize_event(end).expect("lexical end is retained");
+        assert_eq!(
+            sanitized_end.details["scope"],
+            "exact_linked_release_lexical_alias"
+        );
+        assert_eq!(sanitized_end.details["outcome"], "no_eligible_alias");
+        assert_eq!(sanitized_end.details["requests"], 24);
+        assert_eq!(sanitized_end.details["durationMs"], 7136);
+        assert_eq!(sanitized_end.details.len(), 4);
+
+        let mut invalid = event(3);
+        invalid["phase"] = json!("alias_lexical_preflight_end");
+        invalid["details"] = json!({
+            "scope":"freeform attacker content",
+            "outcome":"private failure text",
+            "requests":3,
+            "durationMs":5,
+        });
+        let sanitized_invalid = sanitize_event(invalid).expect("phase remains visible");
+        assert_eq!(sanitized_invalid.details.get("scope"), None);
+        assert_eq!(sanitized_invalid.details.get("outcome"), None);
+        assert_eq!(sanitized_invalid.details["requests"], 3);
+        assert_eq!(sanitized_invalid.details["durationMs"], 5);
     }
 
     #[test]

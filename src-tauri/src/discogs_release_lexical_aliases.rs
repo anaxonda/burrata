@@ -171,7 +171,11 @@ pub(crate) fn musicbrainz_profile_owns_name(profile: &Value, requested_name: &st
     let Some(requested) = bounded_name(requested_name) else {
         return false;
     };
-    let requested = normalize(requested);
+    // This comparison is scoped by the exact Spotify artist URL, unique
+    // MusicBrainz artist profile, and that profile's bounded canonical/alias
+    // names. Honor the existing single-artist `&`/`and` spelling equivalence
+    // here so valid provider display names can match the profile's real alias.
+    let requested = crate::matching::normalize_single_artist_name(requested);
     if requested.is_empty() {
         return false;
     }
@@ -181,7 +185,7 @@ pub(crate) fn musicbrainz_profile_owns_name(profile: &Value, requested_name: &st
         .and_then(Value::as_str)
         .and_then(bounded_name)
     {
-        names.insert(normalize(name));
+        names.insert(crate::matching::normalize_single_artist_name(name));
     }
     if let Some(aliases) = profile.get("aliases").and_then(Value::as_array) {
         for alias in aliases {
@@ -198,7 +202,7 @@ pub(crate) fn musicbrainz_profile_owns_name(profile: &Value, requested_name: &st
             else {
                 continue;
             };
-            names.insert(normalize(name));
+            names.insert(crate::matching::normalize_single_artist_name(name));
         }
     }
     names.contains(&requested)

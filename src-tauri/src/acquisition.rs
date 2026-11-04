@@ -4359,7 +4359,7 @@ fn search_cache_key(
     result_limit: usize,
 ) -> String {
     serde_json::json!([
-        "completed-recording-search-v5",
+        "completed-recording-search-v6",
         crate::recording_match::EVALUATOR_VERSION,
         settings.matching_level,
         settings.flexible_matching,

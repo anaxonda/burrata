@@ -694,6 +694,128 @@ fn exact_spotify_artist_id_does_not_authorize_a_contradictory_credit_name() {
 }
 
 #[test]
+fn retained_spotify_artist_name_matches_real_ampersand_alias_only_on_exact_profile() {
+    let fixture = make_fixture();
+    let directory = tempfile::tempdir().unwrap();
+    let store = Store::open(&directory.path().join("spotify-artist-spelling.sqlite")).unwrap();
+    let credit = &fixture.request.credits[2];
+    let spotify_url = format!("https://open.spotify.com/artist/{}", credit.id);
+    let profile = json!({
+        "id": MB_ARTIST_IDS[2],
+        "name": "Quantic and his Combo Bárbaro",
+        "aliases": [{"name":"Quantic & His Combo Barbaro","type":"Artist name"}],
+        "relations": [
+            {"target-type":"url","url":{"resource":spotify_url}},
+            {"target-type":"url","url":{"resource":format!("https://www.discogs.com/artist/{}",DISCOGS_ARTIST_IDS[2])}}
+        ]
+    });
+    let lookup = json!({
+        "resource": spotify_url,
+        "relations": [{"target-type":"artist","artist":{"id":MB_ARTIST_IDS[2]}}]
+    });
+    let now = chrono::Utc::now().timestamp();
+    store
+        .set_retained_provider_cache(
+            PROVIDER_ARTIST_CACHE,
+            &format!("spotify:{}", credit.id),
+            &json!({
+                "version":1,"provider":"spotify","providerArtistId":credit.id,
+                "musicbrainzArtistId":MB_ARTIST_IDS[2],"lookup":lookup,
+                "profile":profile,"fetchedAt":now
+            }),
+        )
+        .unwrap();
+    store
+        .set_retained_provider_cache(MB_PROFILE_CACHE, MB_ARTIST_IDS[2], &profile)
+        .unwrap();
+    store
+        .set_provider_cache(
+            MB_FETCHED_AT_CACHE,
+            &format!("{MB_PROFILE_CACHE}:{}", MB_ARTIST_IDS[2]),
+            &json!({"fetchedAt":now}),
+            3600,
+        )
+        .unwrap();
+
+    assert_eq!(credit.name, "Quantic and His Combo Barbaro");
+    assert_eq!(
+        cached_discogs_artist_id(&store, &credit.id, &credit.name).as_deref(),
+        Some(DISCOGS_ARTIST_IDS[2])
+    );
+    assert!(cached_discogs_artist_id(&store, &credit.id, "The Combo Barbaro").is_none());
+
+    let mut wrong_mapping = lookup.clone();
+    wrong_mapping["relations"][0]["artist"]["id"] = json!(MB_ARTIST_IDS[1]);
+    let mut wrong_binding = json!({
+        "version":1,"provider":"spotify","providerArtistId":credit.id,
+        "musicbrainzArtistId":MB_ARTIST_IDS[2],"lookup":wrong_mapping,
+        "profile":profile,"fetchedAt":now
+    });
+    store
+        .set_retained_provider_cache(
+            PROVIDER_ARTIST_CACHE,
+            &format!("spotify:{}", credit.id),
+            &wrong_binding,
+        )
+        .unwrap();
+    assert!(cached_discogs_artist_id(&store, &credit.id, &credit.name).is_none());
+
+    wrong_binding["lookup"] = lookup;
+    wrong_binding["profile"]["aliases"] = json!([
+        {"name":"Quantic & His Combo Barbaro","type":"Search hint"}
+    ]);
+    store
+        .set_retained_provider_cache(
+            PROVIDER_ARTIST_CACHE,
+            &format!("spotify:{}", credit.id),
+            &wrong_binding,
+        )
+        .unwrap();
+    store
+        .set_retained_provider_cache(
+            MB_PROFILE_CACHE,
+            MB_ARTIST_IDS[2],
+            &wrong_binding["profile"],
+        )
+        .unwrap();
+    assert!(cached_discogs_artist_id(&store, &credit.id, &credit.name).is_none());
+
+    seed_warm_proof(&store, &fixture);
+    assert!(cached_discogs_artist_id(
+        &store,
+        &fixture.request.credits[0].id,
+        "Quantic and His Combo Barbaro"
+    )
+    .is_none());
+    let key = format!("spotify:{}", credit.id);
+    let mut exact_binding = store
+        .get_provider_cache(PROVIDER_ARTIST_CACHE, &key)
+        .unwrap()
+        .unwrap();
+    exact_binding["profile"] = profile.clone();
+    store
+        .set_retained_provider_cache(PROVIDER_ARTIST_CACHE, &key, &exact_binding)
+        .unwrap();
+    store
+        .set_retained_provider_cache(MB_PROFILE_CACHE, MB_ARTIST_IDS[2], &profile)
+        .unwrap();
+    assert!(cached_lexical_credits(&store, &fixture.track).is_some());
+
+    let mut search_hint_profile = profile;
+    search_hint_profile["aliases"] = json!([
+        {"name":"Quantic & His Combo Barbaro","type":"Search hint"}
+    ]);
+    exact_binding["profile"] = search_hint_profile.clone();
+    store
+        .set_retained_provider_cache(PROVIDER_ARTIST_CACHE, &key, &exact_binding)
+        .unwrap();
+    store
+        .set_retained_provider_cache(MB_PROFILE_CACHE, MB_ARTIST_IDS[2], &search_hint_profile)
+        .unwrap();
+    assert!(cached_lexical_credits(&store, &fixture.track).is_none());
+}
+
+#[test]
 fn stale_future_or_malformed_identity_cache_context_is_rejected() {
     let fixture = make_fixture();
     let directory = tempfile::tempdir().unwrap();

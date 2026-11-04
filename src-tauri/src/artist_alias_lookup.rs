@@ -16,9 +16,9 @@ use std::{
 };
 use tokio::sync::watch;
 
-// v8 invalidates prior negatives because exact-release lexical aliases can
-// recover provider credit spellings without a fresh Spotify track read.
-const NEGATIVE_CACHE_NAMESPACE: &str = "artists.alias-discovery.negative.v8";
+// v9 invalidates prior negatives because scoped profile-name comparison now
+// recognizes the existing single-artist `&`/`and` spelling equivalence.
+const NEGATIVE_CACHE_NAMESPACE: &str = "artists.alias-discovery.negative.v9";
 
 struct Flight {
     id: uuid::Uuid,
@@ -390,8 +390,12 @@ mod tests {
     }
 
     #[test]
-    fn recording_runtime_evidence_does_not_reuse_pre_v8_negative_cache() {
+    fn scoped_artist_spelling_evidence_does_not_reuse_pre_v9_negative_cache() {
         assert_eq!(
+            NEGATIVE_CACHE_NAMESPACE,
+            "artists.alias-discovery.negative.v9"
+        );
+        assert_ne!(
             NEGATIVE_CACHE_NAMESPACE,
             "artists.alias-discovery.negative.v8"
         );
