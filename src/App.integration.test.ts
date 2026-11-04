@@ -453,6 +453,7 @@ async function startWebviewIdentify(track = savedTrack) {
 }
 
 beforeEach(() => {
+  collections.find(item => item.id === "collection-full")!.trackCount = 131;
   document.body.innerHTML = "";
   pendingMockStartupClocks = 0;
   vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(playAndAdvanceMediaClock);
@@ -2782,15 +2783,12 @@ describe("saved recording navigation", () => {
     await settle();
     collectionCard().dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await settle();
-    [...document.querySelectorAll("button")].find((item) => item.textContent === "Rename")!
-      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    document.querySelector<HTMLButtonElement>('[aria-label="Playlist context menu"]')!.click();
     await settle();
-    const rename = document.querySelector('[aria-label="Playlist name"]') as HTMLInputElement;
-    rename.value = "Weekend Set";
-    rename.dispatchEvent(new Event("input", { bubbles: true }));
-    [...document.querySelectorAll("button")].find((item) => item.textContent === "Save name")!
-      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const playlistMenu = document.querySelector<HTMLDialogElement>('dialog.playlist-menu[aria-label="Actions for playlist Saved Collection"]')!;
+    [...playlistMenu.querySelectorAll<HTMLButtonElement>("button")].find((item) => menuActionText(item) === "Rename")!.click();
     await settle();
+    await saveSidebarRename("Weekend Set");
     expect(mocks.call).toHaveBeenCalledWith("rename_collection", { collectionId: "collection-full", name: "Weekend Set" });
     await chooseTrackAction("Select for batch actions", "Existing Collection Member");
     expect(document.querySelector('[aria-label="Select occurrence 1: Existing Collection Member for playlist"]')).not.toBeNull();
@@ -2801,6 +2799,127 @@ describe("saved recording navigation", () => {
       collectionId: "collection-full", trackIds: [collectionTrack.id],
     });
     expect(document.querySelector(".shared-track-list")?.textContent).not.toContain("Existing Collection Member");
+  });
+
+  it("plays and queues every saved playlist occurrence in stored order, independent of the visible filters", async () => {
+    delayedBrowserImports = Promise.resolve([]);
+    const pinned = {
+      ...collectionTrack,
+      id: "duplicate-occurrence",
+      title: "Pinned source",
+      provider: "youtube" as const,
+      providerId: "pinned-video-id",
+      sourceUrl: "https://youtube.com/watch?v=pinned-video-id",
+      provenance: { sourceKind: "playlist", playlistPosition: 1, playbackMode: "source", userSelectedSource: true, selectedCandidate: { provider: "youtube", id: "pinned-video-id", url: "https://youtube.com/watch?v=pinned-video-id", title: "Pinned source" } },
+    };
+    const repeated = { ...pinned, title: "Repeated source", provenance: { ...pinned.provenance, playlistPosition: 2 } };
+    const middle = Array.from({ length: 202 }, (_, index) => ({
+      ...secondTrack,
+      id: `playlist-track-${index}`,
+      title: `Saved track ${index + 1}`,
+      provenance: { sourceKind: "playlist", playlistPosition: index + 3 },
+    }));
+    const final = { ...secondTrack, id: "playlist-final", title: "Last saved track", provenance: { sourceKind: "playlist", playlistPosition: 205 } };
+    const savedRows = [pinned, repeated, ...middle, final];
+    collections.find(item => item.id === "collection-full")!.trackCount = savedRows.length;
+    mockCollectionRows = savedRows;
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    collectionCard().click();
+    await settle();
+
+    const sort = document.querySelector<HTMLSelectElement>('[aria-label="Sort tracks"]')!;
+    sort.value = "title";
+    sort.dispatchEvent(new Event("change", { bubbles: true }));
+    const filter = document.querySelector<HTMLInputElement>('[aria-label="Filter tracks"]')!;
+    filter.value = "no visible match";
+    filter.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+    mocks.call.mockClear();
+
+    const play = document.querySelector<HTMLButtonElement>('[aria-label="Play all 205 saved tracks in playlist order, ignoring filters"]')!;
+    expect(play.disabled).toBe(false);
+    play.click();
+    await settle();
+    expect(mocks.call).toHaveBeenCalledWith("list_tracks", { view: "collections", collectionId: "collection-full" });
+    expect(mocks.call).toHaveBeenCalledWith("playback_command", expect.objectContaining({
+      command: expect.objectContaining({ action: "play", tracks: savedRows, index: 0 }),
+    }));
+    const playCall = mocks.call.mock.calls.find(([command, args]) => command === "playback_command" && (args as { command?: { action?: string } })?.command?.action === "play");
+    const playedTracks = (playCall?.[1] as { command?: { tracks?: Track[] } } | undefined)?.command?.tracks ?? [];
+    expect(playedTracks).toHaveLength(205);
+    expect(playedTracks[0]).toEqual(pinned);
+    expect(playedTracks[1]).toEqual(repeated);
+    expect(playedTracks[204]).toEqual(final);
+
+    const queue = document.querySelector<HTMLButtonElement>('[aria-label="Queue all 205 saved tracks in playlist order, ignoring filters"]')!;
+    expect(queue.disabled).toBe(false);
+    queue.click();
+    await settle();
+    expect(mocks.call).toHaveBeenCalledWith("playback_command", expect.objectContaining({
+      command: expect.objectContaining({ action: "queue", tracks: savedRows, mode: "append" }),
+    }));
+  });
+
+  it("cancels a pending full-playlist action after navigating away", async () => {
+    delayedBrowserImports = Promise.resolve([]);
+    let finishRead: ((rows: Track[]) => void) | undefined;
+    const base = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation((command: string, args?: Record<string, unknown>) => {
+      if (command === "list_tracks" && args?.view === "collections") return new Promise<Track[]>(resolve => { finishRead = resolve; });
+      return base(command, args);
+    });
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    collectionCard().click();
+    await settle();
+    const play = document.querySelector<HTMLButtonElement>('[aria-label="Play all 131 saved tracks in playlist order, ignoring filters"]')!;
+    play.click();
+    await settle();
+    expect(play.disabled).toBe(true);
+    const callsBeforeNavigation = mocks.call.mock.calls.filter(([command, args]) => command === "playback_command" && (args as { command?: { action?: string } })?.command?.action === "play").length;
+    eventHandlers.get("automation-ui-navigation")!({ event: "automation-ui-navigation", id: 1, payload: { requestId: "playlist-play-away", target: { kind: "view", view: "library" } } });
+    await settle();
+    await settle();
+    finishRead!([collectionTrack]);
+    await settle();
+    expect(mocks.call.mock.calls.filter(([command, args]) => command === "playback_command" && (args as { command?: { action?: string } })?.command?.action === "play")).toHaveLength(callsBeforeNavigation);
+  });
+
+  it("does not publish a failed playlist read after navigating away", async () => {
+    delayedBrowserImports = Promise.resolve([]);
+    let rejectRead: ((reason?: unknown) => void) | undefined;
+    const base = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation((command: string, args?: Record<string, unknown>) => {
+      if (command === "list_tracks" && args?.view === "collections") return new Promise<Track[]>((_resolve, reject) => { rejectRead = reject; });
+      return base(command, args);
+    });
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    collectionCard().click();
+    await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Play all 131 saved tracks in playlist order, ignoring filters"]')!.click();
+    await settle();
+    eventHandlers.get("automation-ui-navigation")!({ event: "automation-ui-navigation", id: 1, payload: { requestId: "playlist-play-failure-away", target: { kind: "view", view: "library" } } });
+    await settle();
+    await settle();
+    rejectRead!(new Error("stale playlist read failure"));
+    await settle();
+    expect(document.querySelector(".banner.error")?.textContent ?? "").not.toContain("stale playlist read failure");
+  });
+
+  it("disables full-playlist playback actions for an empty saved playlist", async () => {
+    delayedBrowserImports = Promise.resolve([]);
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    collectionCard("Empty Collection").click();
+    await settle();
+    expect(document.querySelector<HTMLButtonElement>('[aria-label="Play all 0 saved tracks in playlist order, ignoring filters"]')?.disabled).toBe(true);
+    expect(document.querySelector<HTMLButtonElement>('[aria-label="Queue all 0 saved tracks in playlist order, ignoring filters"]')?.disabled).toBe(true);
   });
 
   it("removes one recording directly from its active playlist only", async () => {

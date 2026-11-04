@@ -1167,15 +1167,40 @@ fn sanitize_track_list_counts(report: &Value) -> Result<Vec<Value>, ToolError> {
         let playing = count("playing")?;
         let paused = count("paused")?;
         let buffering = count("buffering")?;
+        let optional_count = |key: &str| item.get(key).map(|_| count(key)).transpose();
+        let loaded_logical_rows = optional_count("loadedLogicalRows")?;
+        let visible_selected_rows = optional_count("visibleSelectedRows")?;
+        let visible_checkboxes = optional_count("visibleCheckboxes")?;
+        let visible_checked_checkboxes = optional_count("visibleCheckedCheckboxes")?;
+        let visible_reorder_handles = optional_count("visibleReorderHandles")?;
         if playing > visible_rows || paused > visible_rows || buffering > visible_rows {
             return Err(ToolError::bad(
                 "Playback track state count exceeds visible rows",
             ));
         }
-        if counts
-            .insert(role, json!({"role":role,"visibleRows":visible_rows,"playing":playing,"paused":paused,"buffering":buffering}))
-            .is_some()
+        if visible_selected_rows.is_some_and(|selected| selected > visible_rows)
+            || visible_checkboxes.is_some_and(|checkboxes| checkboxes > visible_rows)
+            || visible_checked_checkboxes
+                .is_some_and(|checked| checked > visible_checkboxes.unwrap_or(visible_rows))
+            || visible_reorder_handles.is_some_and(|handles| handles > visible_rows)
         {
+            return Err(ToolError::bad(
+                "Playback track control count exceeds visible or loaded rows",
+            ));
+        }
+        let mut sanitized = json!({"role":role,"visibleRows":visible_rows,"playing":playing,"paused":paused,"buffering":buffering});
+        for (key, value) in [
+            ("loadedLogicalRows", loaded_logical_rows),
+            ("visibleSelectedRows", visible_selected_rows),
+            ("visibleCheckboxes", visible_checkboxes),
+            ("visibleCheckedCheckboxes", visible_checked_checkboxes),
+            ("visibleReorderHandles", visible_reorder_handles),
+        ] {
+            if let Some(value) = value {
+                sanitized[key] = json!(value);
+            }
+        }
+        if counts.insert(role, sanitized).is_some() {
             return Err(ToolError::bad("Duplicate playback track list role"));
         }
     }
@@ -10879,7 +10904,7 @@ mod tests {
     fn playback_layout_accepts_only_sanitized_track_state_counts() {
         let elements=PLAYBACK_LAYOUT_ROLES.iter().map(|role|json!({"role":role,"present":true,"visible":true,"x":0,"y":0,"width":10,"height":10,"clientWidth":10,"scrollWidth":10})).collect::<Vec<_>>();
         let track_lists = PLAYBACK_TRACK_LIST_ROLES.iter().map(|role| {
-            json!({"role":role,"visibleRows":4,"playing":1,"paused":1,"buffering":1,"trackId":"PRIVATE-ID","title":"PRIVATE TITLE","url":"https://private.invalid"})
+            json!({"role":role,"visibleRows":4,"playing":1,"paused":1,"buffering":1,"loadedLogicalRows":10000,"visibleSelectedRows":2,"visibleCheckboxes":4,"visibleCheckedCheckboxes":2,"visibleReorderHandles":4,"trackId":"PRIVATE-ID","title":"PRIVATE TITLE","url":"https://private.invalid","trackNames":["PRIVATE TITLE"]})
         }).collect::<Vec<_>>();
         let result = sanitize_playback_layout(
             json!({"viewport":{"width":100,"height":100},"footerHeight":10,"elements":elements,"trackListsCounts":track_lists}),
@@ -10890,12 +10915,13 @@ mod tests {
         );
         assert_eq!(
             result["trackListsCounts"][0],
-            json!({"role":"search","visibleRows":4,"playing":1,"paused":1,"buffering":1})
+            json!({"role":"search","visibleRows":4,"playing":1,"paused":1,"buffering":1,"loadedLogicalRows":10000,"visibleSelectedRows":2,"visibleCheckboxes":4,"visibleCheckedCheckboxes":2,"visibleReorderHandles":4})
         );
         let serialized = result.to_string();
         assert!(!serialized.contains("PRIVATE-ID"));
         assert!(!serialized.contains("PRIVATE TITLE"));
         assert!(!serialized.contains("private.invalid"));
+        assert!(!serialized.contains("trackNames"));
     }
 
     #[test]
@@ -10909,6 +10935,35 @@ mod tests {
             {"role":"remote","visibleRows":0,"playing":0,"paused":0,"buffering":0}
         ]});
         assert!(sanitize_track_list_counts(&inconsistent).is_err());
+
+        let base = json!({"role":"library","visibleRows":2,"playing":0,"paused":0,"buffering":0});
+        let with_library = |library: Value| {
+            json!({"trackListsCounts":PLAYBACK_TRACK_LIST_ROLES.iter().map(|role| {
+                if *role == "library" { library.clone() }
+                else { json!({"role":role,"visibleRows":0,"playing":0,"paused":0,"buffering":0}) }
+            }).collect::<Vec<_>>()})
+        };
+        let legacy = sanitize_track_list_counts(&with_library(base.clone())).unwrap();
+        assert!(legacy[1].get("loadedLogicalRows").is_none());
+        assert!(legacy[1].get("visibleCheckboxes").is_none());
+        let mut status_row_case = base.clone();
+        status_row_case["loadedLogicalRows"] = json!(1);
+        let sanitized = sanitize_track_list_counts(&with_library(status_row_case)).unwrap();
+        assert_eq!(sanitized[1]["loadedLogicalRows"], json!(1));
+        assert_eq!(sanitized[1]["visibleRows"], json!(2));
+        let mut invalid = base.clone();
+        invalid["loadedLogicalRows"] = json!(MAX_PLAYBACK_TRACK_LIST_ROWS + 1);
+        assert!(sanitize_track_list_counts(&with_library(invalid)).is_err());
+        let mut invalid = base.clone();
+        invalid["visibleCheckboxes"] = json!(1);
+        invalid["visibleCheckedCheckboxes"] = json!(2);
+        assert!(sanitize_track_list_counts(&with_library(invalid)).is_err());
+        let mut invalid = base.clone();
+        invalid["visibleSelectedRows"] = json!(MAX_PLAYBACK_TRACK_LIST_ROWS + 1);
+        assert!(sanitize_track_list_counts(&with_library(invalid)).is_err());
+        let mut invalid = base;
+        invalid["visibleReorderHandles"] = json!("unknown");
+        assert!(sanitize_track_list_counts(&with_library(invalid)).is_err());
     }
 
     #[test]

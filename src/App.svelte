@@ -2116,6 +2116,8 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
   let durationMinimum = $state(""), durationMaximum = $state("");
   const activeDurationFilterCount = $derived([durationMinimum, durationMaximum].filter(value => parseDurationBound(value) !== null).length);
   let localPageTotal = $state(0), localPageLoading = $state(false);
+  let playlistPlaybackAction = $state<"play" | "queue" | null>(null);
+  let playlistPlaybackRequest = 0;
   let localSortPending = $state(false);
   let localSortAvailability = $state<TrackSortAvailability | null>(null);
   let localSortAvailabilityPending = $state(false);
@@ -5928,6 +5930,34 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     if(expectedRevision && localPlaylistSnapshot(items).revision!==expectedRevision)throw new Error("Playlist changed; reopen the exact local playlist before downloading");
     return await queueSelected(items,onReceipt,undefined,isDisplayedImport ? undefined : savedPlaylistContext(id));
   }
+  async function playCurrentPlaylist(mode: "play" | "queue") {
+    const id = collectionId;
+    if (view !== "collections" || !id || playlistPlaybackAction) return;
+    const request = ++playlistPlaybackRequest;
+    const context = activeContext;
+    const navigation = navigationRequest;
+    const isCurrent = () => request === playlistPlaybackRequest && view === "collections"
+      && collectionId === id && activeContext === context && navigationRequest === navigation;
+    playlistPlaybackAction = mode;
+    error = "";
+    try {
+      // Read the complete persisted occurrence list. The visible page can be
+      // filtered, sorted, or limited to the first 200 rows.
+      const items = await call<Track[]>("list_tracks", { view: "collections", collectionId: id });
+      if (!isCurrent()) return;
+      if (!Array.isArray(items)) throw new Error("The saved playlist could not be read.");
+      if (!items.length) {
+        setNotice("This playlist has no saved tracks to play.");
+        return;
+      }
+      if (mode === "play") await startPreview(items[0]!, false, false, items, 0);
+      else await nativeCommand({ action: "queue", tracks: items, mode: "append" });
+    } catch (failure) {
+      if (isCurrent()) error = String(failure);
+    } finally {
+      if (request === playlistPlaybackRequest) playlistPlaybackAction = null;
+    }
+  }
   let downloadSortField = $state<TrackSortField>("sourceOrder"),downloadSortDirection = $state<SortDirection>("asc"),downloadMinDuration=$state(""),downloadMaxDuration=$state("");
   const sortedDownloadJobs=$derived.by(()=>{
     const byId=new Map(jobs.map(job=>[job.id,job]));
@@ -7738,9 +7768,15 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
 
           {#if showCreatePlaylist}<input bind:value={newCollection} placeholder="New playlist name" aria-label="New playlist name" /><button disabled={!newCollection.trim()} onclick={() => void createCollection().then(() => (showCreatePlaylist = false))}>Create</button>{/if}
 
-        {:else if view === "collections"}{#if collectionId===DOWNLOADS_PLAYLIST_ID}<button aria-label="Open download activity" onclick={()=>{openPlayerPanel("downloads");void refreshJobs();}}>Download activity</button>{/if}<button onclick={()=>{renamePlaylistName=currentCollection?.name??"";renamingPlaylist=true;}}>Rename</button><button onclick={openPlaylistImport}>Import tracks</button>
+        {:else if view === "collections"}
+          {#if collectionId===DOWNLOADS_PLAYLIST_ID}<button aria-label="Open download activity" onclick={()=>{openPlayerPanel("downloads");void refreshJobs();}}>Download activity</button>{/if}
+          {@const savedCount = currentCollection?.trackCount ?? 0}
+          <button class="primary" aria-label={`Play all ${savedCount} saved tracks in playlist order, ignoring filters`} title="Plays every saved playlist track in saved order, including tracks hidden by filters" disabled={!collectionId || savedCount === 0 || playlistPlaybackAction !== null} aria-busy={playlistPlaybackAction === "play"} onclick={() => void playCurrentPlaylist("play")}>{playlistPlaybackAction === "play" ? "Starting…" : "▶ Play full playlist"}</button>
+          <button aria-label={`Queue all ${savedCount} saved tracks in playlist order, ignoring filters`} title="Adds every saved playlist track in saved order, including tracks hidden by filters" disabled={!collectionId || savedCount === 0 || playlistPlaybackAction !== null} aria-busy={playlistPlaybackAction === "queue"} onclick={() => void playCurrentPlaylist("queue")}>{playlistPlaybackAction === "queue" ? "Queuing…" : "＋ Queue full playlist"}</button>
+          <span class="playlist-action-scope">All {savedCount} saved tracks · filters ignored</span>
+          <button onclick={openPlaylistImport}>Import tracks</button>
           {#if renamingPlaylist}<input aria-label="Playlist name" bind:value={renamePlaylistName} onkeydown={(event)=>{if(event.key==="Enter")void renameCurrentPlaylist();if(event.key==="Escape")renamingPlaylist=false;}} /><button onclick={()=>void renameCurrentPlaylist()}>Save name</button>{/if}
-          <button disabled={!collectionId || batchRunning} onclick={() => void downloadPlaylist(collectionId, true)}>↓ Download playlist</button>{#if currentPlaylistCreator}<button disabled={Boolean(busy)} onclick={()=>void refreshLinkedPlaylist(collectionId)}>Refresh</button>{#if (currentPlaylistCreator.provider === "spotify" || currentPlaylistCreator.provider === "youtube") && currentPlaylistCreator.canEdit}<PlaylistSync {call} bindingId={currentPlaylistCreator.bindingId} enabled={remotePlaylistWriteSyncEnabled[currentPlaylistCreator.provider as "spotify" | "youtube"]} onApplied={()=>refreshLinkedPlaylist(collectionId)}/>{/if}{/if}<button class="playlist-context-trigger" aria-label="Playlist context menu" title="Playlist actions" onclick={openCurrentPlaylistMenu}>⋯</button>{/if}
+          {#if currentPlaylistCreator}<button disabled={Boolean(busy)} onclick={()=>void refreshLinkedPlaylist(collectionId)}>Refresh</button>{#if (currentPlaylistCreator.provider === "spotify" || currentPlaylistCreator.provider === "youtube") && currentPlaylistCreator.canEdit}<PlaylistSync {call} bindingId={currentPlaylistCreator.bindingId} enabled={remotePlaylistWriteSyncEnabled[currentPlaylistCreator.provider as "spotify" | "youtube"]} onApplied={()=>refreshLinkedPlaylist(collectionId)}/>{/if}{/if}<button class="playlist-context-trigger" aria-label="Playlist context menu" title="More playlist actions" onclick={openCurrentPlaylistMenu}>⋯</button>{/if}
       </div>
       {#if view === "charts"}<div class="chart-context">
           <span

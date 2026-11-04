@@ -12,6 +12,7 @@ import trackListSource from "./TrackList.svelte?raw";
 import bufferingSpinnerSource from "./BufferingSpinner.svelte?raw";
 import type { Track } from "./lib/types";
 import { playlistDropIndex } from "./lib/playlist-reorder";
+import { measureTrackListCounts } from "./lib/playback-layout";
 
 const tracks: Track[] = [
   { id: "track-1", provider: "library", providerId: "track-1", sourceUrl: "https://example.test/song", artist: "Artist Name", title: "Song Title", album: "Album", favorite: false, provenance: {} },
@@ -34,6 +35,69 @@ function render(props: Record<string, unknown> = {}) {
 }
 
 describe("TrackList", () => {
+  it("reports 10k loaded rows with a virtual window and occurrence-specific visible controls", async () => {
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 1; });
+    const rows: Track[] = Array.from({ length: 10_000 }, (_, index) => ({
+      ...(index < 2 ? tracks[0]! : tracks[1]!),
+      id: index < 2 ? "duplicate-track" : `track-${index}`,
+      provenance: { playlistPosition: index + 1 },
+    }));
+    const trackArea = document.createElement("section"); trackArea.className = "track-area";
+    const desktopList = document.createElement("div"); desktopList.className = "track-scroll desktop-track-list";
+    trackArea.append(desktopList); document.body.append(trackArea);
+    const instance = mount(TrackList, { target: desktopList, props: {
+      tracks: rows,
+      selectionMode: true,
+      selectedTrackIds: ["occurrence-1"],
+      selectionKeys: rows.map((_, index) => `occurrence-${index}`),
+      rowKeys: rows.map((_, index) => `row-${index}`),
+      reorderable: true,
+      reorderCount: rows.length,
+      onReorder: () => {},
+      onSelect: () => {},
+      virtualizationThreshold: 100,
+    } as never });
+    cleanup = () => unmount(instance);
+    await tick();
+    const logicalList = desktopList.querySelector("ol.shared-track-list")!;
+    expect(logicalList.getAttribute("data-loaded-logical-rows")).toBe("10000");
+    const renderedRows = [...logicalList.querySelectorAll("li[data-track-index]")];
+    expect(renderedRows.length).toBeGreaterThan(2);
+    expect(renderedRows.length).toBeLessThan(100);
+    expect(renderedRows.slice(0, 2).map(row => row.getAttribute("data-track-index"))).toEqual(["0", "1"]);
+    expect(renderedRows[0]?.querySelector<HTMLInputElement>("input.select-track")?.checked).toBe(false);
+    expect(renderedRows[1]?.querySelector<HTMLInputElement>("input.select-track")?.checked).toBe(true);
+
+    const viewport = desktopList.querySelector(".track-list-viewport")!;
+    for (const element of desktopList.querySelectorAll("*")) {
+      const row = element.closest("li[data-track-index]");
+      const index = row ? Number(row.getAttribute("data-track-index")) : -1;
+      const rowTop = index < 0 ? 0 : 10 + index * 24;
+      const control = element.matches("input,button");
+      const top = control ? rowTop + 3 : rowTop;
+      const height = control ? 18 : 24;
+      const isViewport = element === viewport;
+      Object.defineProperties(element, {
+        getBoundingClientRect: { value: () => ({ left: 0, top: isViewport ? 0 : top, right: 300, bottom: isViewport ? 200 : top + height, width: 300, height: isViewport ? 200 : height }) },
+        getClientRects: { value: () => [{}] },
+      });
+    }
+    Object.defineProperty(desktopList, "getBoundingClientRect", { value: () => ({ left: 0, top: 0, right: 300, bottom: 200, width: 300, height: 200 }) });
+    const counts = measureTrackListCounts(trackArea, { width: 300, height: 200 }, element => ({
+      display: "block", visibility: "visible", opacity: "1",
+      overflowY: element === viewport ? "auto" : "visible",
+    }));
+    expect(counts.find(item => item.role === "library")).toMatchObject({
+      loadedLogicalRows: 10_000,
+      visibleRows: 8,
+      visibleSelectedRows: 1,
+      visibleCheckboxes: 8,
+      visibleCheckedCheckboxes: 1,
+      visibleReorderHandles: 8,
+    });
+    expect(JSON.stringify(counts)).not.toMatch(/duplicate-track|track-\d|Song Title|Other Song|https?:/i);
+  });
+
   it("highlights and focuses one exact duplicate occurrence by stable row key", async () => {
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 1; });
     const repeated = { ...tracks[0]! };

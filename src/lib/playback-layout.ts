@@ -97,7 +97,7 @@ function measureElement(
   };
 }
 
-/** Capture only allow-listed player controls and CSS geometry. No text, track data, or URLs are read. */
+/** Capture allow-listed player geometry and bounded track-list counts; never read labels, IDs, track fields, or URLs. */
 export function measurePlaybackLayout(
   root: LayoutRoot,
   viewport: { width: number; height: number },
@@ -120,6 +120,11 @@ export type TrackListCount = {
   playing: number;
   paused: number;
   buffering: number;
+  loadedLogicalRows?: number;
+  visibleSelectedRows: number;
+  visibleCheckboxes: number;
+  visibleCheckedCheckboxes: number;
+  visibleReorderHandles: number;
 };
 
 const TRACK_LIST_TARGETS: ReadonlyArray<{ role: TrackListRole; selector: string; rowSelector: string; table: boolean }> = [
@@ -130,7 +135,10 @@ const TRACK_LIST_TARGETS: ReadonlyArray<{ role: TrackListRole; selector: string;
   { role: "remote", selector: ".remote-playlist-detail ol.shared-track-list", rowSelector: ":scope > li:not(.virtual-spacer)", table: false },
 ];
 
-const emptyTrackListCount = (role: TrackListRole): TrackListCount => ({ role, visibleRows: 0, playing: 0, paused: 0, buffering: 0 });
+const emptyTrackListCount = (role: TrackListRole): TrackListCount => ({
+  role, visibleRows: 0, playing: 0, paused: 0, buffering: 0,
+  visibleSelectedRows: 0, visibleCheckboxes: 0, visibleCheckedCheckboxes: 0, visibleReorderHandles: 0,
+});
 
 function intersects(a: DOMRect, b: { left: number; top: number; right: number; bottom: number }): boolean {
   return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
@@ -165,7 +173,7 @@ function isTrackRowVisible(
   return left < right && top < bottom && intersects(rect, clipRect);
 }
 
-/** Count visible track states in fixed UI regions. Reads only row classes/ARIA state and geometry; never reads labels or track fields. */
+/** Count visible row states and controls in fixed regions using classes, checkbox state, one bounded count attribute, and geometry. */
 export function measureTrackListCounts(
   root: LayoutRoot,
   viewport: { width: number; height: number },
@@ -175,15 +183,33 @@ export function measureTrackListCounts(
     const result = emptyTrackListCount(role);
     for (const container of root.querySelectorAll(selector)) {
       const clip = table ? container : container.closest(".track-list-viewport") ?? container;
+      const lists = container.matches("ol.shared-track-list")
+        ? [container]
+        : [...container.querySelectorAll("ol.shared-track-list")];
+      for (const list of lists) {
+        const rawLoaded = list.getAttribute("data-loaded-logical-rows");
+        if (rawLoaded !== null && /^\d+$/.test(rawLoaded)) {
+          result.loadedLogicalRows = Math.min(10_000, (result.loadedLogicalRows ?? 0) + Number(rawLoaded));
+        }
+      }
       for (const row of container.querySelectorAll(rowSelector)) {
         if (!isTrackRowVisible(row, clip, viewport, styleFor)) continue;
         result.visibleRows += 1;
         if (row.matches(".current, [aria-current='true']")) result.playing += 1;
         if (row.matches(".paused")) result.paused += 1;
         if (row.matches(".buffering") || row.querySelector("[aria-busy='true']")) result.buffering += 1;
+        if (row.matches(".selected")) result.visibleSelectedRows += 1;
+        for (const checkbox of row.querySelectorAll("input.select-track[type='checkbox']")) {
+          if (!isTrackRowVisible(checkbox, clip, viewport, styleFor)) continue;
+          result.visibleCheckboxes += 1;
+          if ((checkbox as HTMLInputElement).checked) result.visibleCheckedCheckboxes += 1;
+        }
+        for (const handle of row.querySelectorAll("button.playlist-reorder-handle")) {
+          if (isTrackRowVisible(handle, clip, viewport, styleFor)) result.visibleReorderHandles += 1;
+        }
       }
     }
-    for (const key of ["visibleRows", "playing", "paused", "buffering"] as const) {
+    for (const key of ["visibleRows", "playing", "paused", "buffering", "visibleSelectedRows", "visibleCheckboxes", "visibleCheckedCheckboxes", "visibleReorderHandles"] as const) {
       result[key] = Math.min(10_000, result[key]);
     }
     return result;

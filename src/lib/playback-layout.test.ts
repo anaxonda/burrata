@@ -124,7 +124,7 @@ describe("measureTrackListCounts",()=>{
       display:element.classList.contains("hidden")?"none":"block",visibility:"visible",opacity:"1",
       overflowY:element.matches(".track-scroll")?"auto":"visible",
     }));
-    expect(counts.find(item=>item.role==="library")).toEqual({role:"library",visibleRows:2,playing:2,paused:1,buffering:1});
+    expect(counts.find(item=>item.role==="library")).toMatchObject({role:"library",visibleRows:2,playing:2,paused:1,buffering:1,visibleSelectedRows:0,visibleCheckboxes:0,visibleCheckedCheckboxes:0,visibleReorderHandles:0});
     expect(JSON.stringify(counts)).not.toMatch(/PRIVATE|trackId|title|url/i);
   });
   it("excludes rows clipped by an outer scrolling pane",()=>{
@@ -155,12 +155,12 @@ describe("measureTrackListCounts",()=>{
       Object.defineProperty(row,"getClientRects",{value:()=>row.classList.contains("hidden")?[]:[{}]});
     }
     const counts=measureTrackListCounts(root,{width:300,height:300},element=>({display:element.classList?.contains("hidden")?"none":"block",visibility:"visible",opacity:"1"}));
-    expect(counts).toEqual([
-      {role:"search",visibleRows:2,playing:1,paused:0,buffering:1},
-      {role:"library",visibleRows:2,playing:2,paused:1,buffering:1},
-      {role:"history",visibleRows:1,playing:1,paused:1,buffering:0},
-      {role:"artist",visibleRows:2,playing:1,paused:0,buffering:1},
-      {role:"remote",visibleRows:1,playing:1,paused:0,buffering:1},
+    expect(counts).toMatchObject([
+      {role:"search",visibleRows:2,playing:1,paused:0,buffering:1,visibleSelectedRows:0,visibleCheckboxes:0,visibleCheckedCheckboxes:0,visibleReorderHandles:0},
+      {role:"library",visibleRows:2,playing:2,paused:1,buffering:1,visibleSelectedRows:0,visibleCheckboxes:0,visibleCheckedCheckboxes:0,visibleReorderHandles:0},
+      {role:"history",visibleRows:1,playing:1,paused:1,buffering:0,visibleSelectedRows:0,visibleCheckboxes:0,visibleCheckedCheckboxes:0,visibleReorderHandles:0},
+      {role:"artist",visibleRows:2,playing:1,paused:0,buffering:1,visibleSelectedRows:0,visibleCheckboxes:0,visibleCheckedCheckboxes:0,visibleReorderHandles:0},
+      {role:"remote",visibleRows:1,playing:1,paused:0,buffering:1,visibleSelectedRows:0,visibleCheckboxes:0,visibleCheckedCheckboxes:0,visibleReorderHandles:0},
     ]);
     const serialized=JSON.stringify(counts);
     expect(serialized).not.toMatch(/SECRET|PRIVATE|trackId|title|url|https?:/i);
@@ -177,5 +177,38 @@ describe("measureTrackListCounts",()=>{
     const counts=measureTrackListCounts(root,{width:300,height:300},()=>({display:"block",visibility:"visible",opacity:"1"}));
     expect(counts[0]).toMatchObject({role:"search",visibleRows:0,playing:0,paused:0,buffering:0});
     expect(counts.slice(1).every(item=>item.visibleRows===0)).toBe(true);
+  });
+
+  it("reads only bounded loaded rows and visible occurrence controls from a virtualized list",()=>{
+    const root=document.createElement("main");
+    root.innerHTML=`<section class="track-area"><div class="track-scroll desktop-track-list"><div class="track-list-viewport"><ol class="shared-track-list" data-loaded-logical-rows="10000">
+      <li class="selected"><input class="select-track" type="checkbox" checked><button class="playlist-reorder-handle"></button></li>
+      <li><input class="select-track" type="checkbox"><button class="playlist-reorder-handle"></button></li>
+      <li><input class="select-track" type="checkbox"><button class="playlist-reorder-handle"></button></li>
+      <li class="virtual-spacer" aria-hidden="true"></li>
+    </ol></div></div></section>`;
+    const viewport=root.querySelector(".track-list-viewport")!;
+    const desktopList=root.querySelector(".track-scroll.desktop-track-list")!;
+    for(const element of root.querySelectorAll("*")){
+      const row=element.closest("li:not(.virtual-spacer)");
+      const rowIndex=row?[...root.querySelectorAll("li:not(.virtual-spacer)")].indexOf(row):-1;
+      const top=rowIndex<0?0:10+rowIndex*30;
+      const isControl=element.matches("input,button");
+      const y=isControl?top+5:top;
+      const isClip=element===viewport||element===desktopList;
+      const height=isClip?65:(isControl?18:24);
+      Object.defineProperties(element,{
+        getBoundingClientRect:{value:()=>({left:0,top:isClip?0:y,right:300,bottom:(isClip?0:y)+height,width:300,height})},
+        getClientRects:{value:()=>[{}]},
+      });
+    }
+    const counts=measureTrackListCounts(root,{width:300,height:200},element=>({
+      display:"block",visibility:"visible",opacity:"1",overflowY:element===viewport?"auto":"visible",
+    }));
+    expect(counts.find(item=>item.role==="library")).toMatchObject({
+      loadedLogicalRows:10000,visibleRows:2,visibleSelectedRows:1,
+      visibleCheckboxes:2,visibleCheckedCheckboxes:1,visibleReorderHandles:2,
+    });
+    expect(JSON.stringify(counts)).not.toMatch(/PRIVATE|trackId|title|url|https?:/i);
   });
 });
