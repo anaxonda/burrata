@@ -91,3 +91,6 @@ tauri = { version = "2", features = ["test"] }
 [patch.crates-io]
 # Keep strict byte-range validation while fixing upstream's sparse-seek gap selection.
 stream-download = { path = "vendor/stream-download" }
+# Preserve CPAL 0.17.3's public API while forwarding macOS default-output
+# disconnects to the existing application recovery callback.
+cpal = { path = "vendor/cpal" }

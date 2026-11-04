@@ -98,7 +98,7 @@ jobs:
         if: runner.os == 'Linux'
         run: python -m unittest discover -s scripts/performance/tests -p "test_*.py"
       - name: Playback measurement validity tests
-        run: node --test scripts/performance/playback_progress.test.mjs scripts/performance/imported_playback_case.test.mjs scripts/performance/sustained_playback.test.mjs scripts/performance/sasa_qualification_manifest.test.mjs scripts/performance/tests/library_page_matrix_boundaries.test.mjs
+        run: node --test scripts/performance/playback_progress.test.mjs scripts/performance/imported_playback_case.test.mjs scripts/performance/sustained_playback.test.mjs scripts/performance/sasa_qualification_manifest.test.mjs scripts/performance/tests/library_page_matrix_boundaries.test.mjs scripts/performance/playback_entrypoint_audit.test.mjs scripts/performance/ui_playback_races.test.cjs
       - name: Check isolated launcher profile handling
         if: runner.os == 'Linux'
         run: |
@@ -146,6 +146,12 @@ jobs:
           BURRATA_NATIVE_YOUTUBE_SEARCH: '0'
           BURRATA_DIRECT_YOUTUBE: '0'
           BURRATA_BANDCAMP_PLAYBACK: '0'
+      - name: Test vendored CPAL macOS default-output disconnect callback
+        if: runner.os == 'macOS'
+        timeout-minutes: 10
+        env:
+          CARGO_TARGET_DIR: src-tauri/target
+        run: cargo test --locked --manifest-path src-tauri/vendor/cpal/Cargo.toml --lib host::coreaudio::macos::disconnect_tests::disconnect_pauses_before_default_output_error_callback -- --exact
       - name: Check experimental direct resolver without provider requests
         # Keep the compatibility-feature build and full library suite bounded.
         # Direct resolution is now part of the default build; live probes stay ignored.

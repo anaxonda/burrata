@@ -97,6 +97,27 @@ mod exact_refresh_orchestration {
     }
     impl Fixture {
         fn new(blocked: bool, cancel_on_response: bool, timeout_case: bool) -> Self {
+            Self::with_modes(
+                blocked,
+                cancel_on_response,
+                timeout_case,
+                false,
+                false,
+                false,
+                false,
+                false,
+            )
+        }
+        fn with_modes(
+            blocked: bool,
+            cancel_on_response: bool,
+            timeout_case: bool,
+            single_source: bool,
+            wrong_recording: bool,
+            transport_first: bool,
+            empty_stale_search: bool,
+            malformed_stale_search: bool,
+        ) -> Self {
             use std::os::unix::fs::PermissionsExt;
             let directory = tempfile::tempdir().unwrap();
             let store =
@@ -117,23 +138,41 @@ search=query.startswith('scsearch')
 corrected='correct catalog title' in query.lower()
 with open(log,'a') as f:f.write(json.dumps({{'kind':'search' if search else 'extract','query':query}})+'\n')
 if search:
-    title='Correct Catalog Title' if corrected else 'Stale Catalog Title'
-    ids=['111','222'] if corrected else ['111']
-    print(json.dumps({{'entries':[{{'id':i,'title':title,'uploader':'Fixture Artist','artist':'Fixture Artist','duration':240,'webpage_url':'https://soundcloud.com/fixture/'+i}} for i in ids]}}))
+    if not corrected and {malformed_stale_search}:
+        print(json.dumps({{'wrongField':[]}}))
+    elif not corrected and {empty_stale_search}:
+        print(json.dumps({{'entries':[]}}))
+    else:
+        title='Correct Catalog Title' if corrected else 'Stale Catalog Title'
+        ids=['111','222'] if {transport_first} else (['111'] if {single_source} else (['111','222'] if corrected else ['111']))
+        print(json.dumps({{'entries':[{{'id':i,'title':title,'uploader':'Fixture Artist','artist':'Fixture Artist','duration':240,'webpage_url':'https://soundcloud.com/fixture/'+i}} for i in ids]}}))
 else:
     i=query.rsplit('/',1)[-1]
+    if i=='111' and {transport_first}:
+        print('ERROR: fixture transport failed',file=sys.stderr)
+        sys.exit(1)
     if i=='222' and {timeout_case}:
         # Publish a complete PID atomically: readers must never see an empty file.
         pid_path={pid:?}
         with open(pid_path+'.tmp','w') as f:f.write(str(os.getpid()))
         os.replace(pid_path+'.tmp',pid_path)
         time.sleep(60)
-    print(json.dumps({{'id':i,'title':'Fixture Artist - Correct Catalog Title','track':'Correct Catalog Title','artist':'Fixture Artist','artists':['Fixture Artist'],'uploader':'Fixture Artist','duration':240,'webpage_url':query,'url':'https://cf-media.sndcdn.com/audio.m4a','acodec':'aac','vcodec':'none','protocol':'https','ext':'m4a'}}))
+    title='Unrelated Recording' if {wrong_recording} else 'Correct Catalog Title'
+    print(json.dumps({{'id':i,'title':'Fixture Artist - '+title,'track':title,'artist':'Fixture Artist','artists':['Fixture Artist'],'uploader':'Fixture Artist','duration':240,'webpage_url':query,'url':'https://cf-media.sndcdn.com/audio.m4a','acodec':'aac','vcodec':'none','protocol':'https','ext':'m4a'}}))
 "##,
                 log = log.to_string_lossy(),
                 pid = pid.to_string_lossy(),
                 ready = directory.path().join("helper-ready.json").to_string_lossy(),
-                timeout_case = if timeout_case { "True" } else { "False" }
+                timeout_case = if timeout_case { "True" } else { "False" },
+                single_source = if single_source { "True" } else { "False" },
+                wrong_recording = if wrong_recording { "True" } else { "False" },
+                transport_first = if transport_first { "True" } else { "False" },
+                empty_stale_search = if empty_stale_search { "True" } else { "False" },
+                malformed_stale_search = if malformed_stale_search {
+                    "True"
+                } else {
+                    "False"
+                },
             );
             std::fs::write(&helper, script).unwrap();
             std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -394,6 +433,166 @@ else:
             attempted.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(),
             vec!["soundcloud:111", "soundcloud:222"]
         );
+    }
+
+    #[tokio::test]
+    async fn exact_refresh_rechecks_single_identity_rejected_candidate_once() {
+        let f = Fixture::with_modes(false, false, false, true, false, false, false, false);
+        assert_eq!(
+            f.run(PlaybackDeadline::after(Duration::from_secs(6)))
+                .await
+                .err()
+                .as_deref(),
+            Some("Cancelled"),
+            "fresh exact metadata should let the same source pass: {:#?}",
+            f.events.lock().unwrap()
+        );
+        assert_eq!(f.accepted_refresh_count(), 1);
+        assert_eq!(f.trace.extraction_attempts_used(), 2);
+        let extracts = f
+            .helper_calls()
+            .into_iter()
+            .filter(|e| e["kind"] == "extract")
+            .collect::<Vec<_>>();
+        assert_eq!(extracts.len(), 2, "{extracts:#?}");
+        assert!(extracts
+            .iter()
+            .all(|e| e["query"].as_str().unwrap().ends_with("/111")));
+        let checks = f
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| e["phase"] == "full_identity_check")
+            .map(|e| e["details"]["ok"].as_bool().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(checks, vec![false, true]);
+        f.unchanged();
+    }
+
+    #[tokio::test]
+    async fn exact_refresh_rechecks_candidate_without_weakening_recording_identity() {
+        let f = Fixture::with_modes(false, false, false, true, true, false, false, false);
+        assert_eq!(
+            f.run(PlaybackDeadline::after(Duration::from_secs(6)))
+                .await
+                .err()
+                .as_deref(),
+            Some("The resolved audio source identity does not match this recording")
+        );
+        assert_eq!(f.accepted_refresh_count(), 1);
+        assert_eq!(f.trace.extraction_attempts_used(), 2);
+        let extracts = f
+            .helper_calls()
+            .into_iter()
+            .filter(|e| e["kind"] == "extract")
+            .collect::<Vec<_>>();
+        assert_eq!(extracts.len(), 2, "{extracts:#?}");
+        let checks = f
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| e["phase"] == "full_identity_check")
+            .collect::<Vec<_>>();
+        assert_eq!(checks.len(), 2);
+        assert!(checks.iter().all(|e| e["details"]["ok"] == false));
+        f.unchanged();
+    }
+
+    #[tokio::test]
+    async fn exact_refresh_keeps_transport_failed_source_excluded() {
+        let f = Fixture::with_modes(false, false, false, false, false, true, false, false);
+        let result = f.run(PlaybackDeadline::after(Duration::from_secs(6))).await;
+        assert_ne!(
+            result.err().as_deref(),
+            Some("Cancelled"),
+            "{:#?}",
+            f.events.lock().unwrap()
+        );
+        assert_eq!(f.accepted_refresh_count(), 1);
+        let extracts = f
+            .helper_calls()
+            .into_iter()
+            .filter(|e| e["kind"] == "extract")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            extracts.len(),
+            2,
+            "the shared two-extraction cap remains in force: {extracts:#?}"
+        );
+        assert!(extracts[0]["query"].as_str().unwrap().ends_with("/111"));
+        assert!(extracts[1]["query"].as_str().unwrap().ends_with("/222"));
+        assert_eq!(f.trace.extraction_attempts_used(), 2);
+        f.unchanged();
+    }
+
+    #[tokio::test]
+    async fn exact_refresh_recovers_completed_empty_stale_search() {
+        let f = Fixture::with_modes(false, false, false, true, false, false, true, false);
+        assert_eq!(
+            f.run(PlaybackDeadline::after(Duration::from_secs(6)))
+                .await
+                .err()
+                .as_deref(),
+            Some("Cancelled"),
+            "the corrected exact-ID title should discover and verify source 111: {:#?}",
+            f.events.lock().unwrap()
+        );
+        f.assert_exact_read();
+        assert_eq!(f.accepted_refresh_count(), 1);
+        assert_eq!(f.trace.extraction_attempts_used(), 1);
+        let extracts = f
+            .helper_calls()
+            .into_iter()
+            .filter(|e| e["kind"] == "extract")
+            .collect::<Vec<_>>();
+        assert_eq!(extracts.len(), 1, "{extracts:#?}");
+        assert!(extracts[0]["query"].as_str().unwrap().ends_with("/111"));
+        let checks = f
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| e["phase"] == "full_identity_check")
+            .collect::<Vec<_>>();
+        assert_eq!(checks.len(), 1);
+        assert_eq!(checks[0]["details"]["ok"], true);
+        f.unchanged();
+        f.assert_no_media_access();
+    }
+
+    #[tokio::test]
+    async fn invalid_search_page_does_not_trigger_exact_catalog_refresh() {
+        let f = Fixture::with_modes(false, false, false, false, false, false, false, true);
+        let result = f.run(PlaybackDeadline::after(Duration::from_secs(6))).await;
+        assert!(
+            result.is_err(),
+            "malformed search data must remain an error"
+        );
+        assert_ne!(result.err().as_deref(), Some("Cancelled"));
+        assert_eq!(f.accepted_refresh_count(), 0);
+        assert_eq!(
+            f.transport
+                .calls
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(name, _)| name == "getTrack")
+                .count(),
+            0,
+            "parser failures must not be reclassified as completed empty searches"
+        );
+        assert_eq!(
+            f.events
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|event| event["phase"] == "full_identity_check")
+                .count(),
+            0
+        );
+        f.unchanged();
     }
 
     #[tokio::test]

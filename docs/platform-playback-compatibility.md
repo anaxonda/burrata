@@ -1,5 +1,17 @@
 # Desktop playback compatibility investigation
 
+> **Historical investigation (October 18), not the current playback-engine matrix.**
+> Burrata now uses native playback on desktop platforms; references below to
+> default WebView2/WKWebView playback and native opt-in describe the older build.
+> WebView media-clock tests do not qualify current native device output, and the
+> Windows N browser-codec discussion does not establish a native decoder defect.
+> Current behavior and qualification limits are in [Native playback](native-playback.md)
+> and the [November playback audit](playback-audit-2026-11-03.md). The new audit
+> identifies default-route and silent-stall qualification gaps; the historical
+> statement below that no Windows-specific output defect was found is not a
+> current platform clearance. Physical macOS and Windows output remains unqualified.
+
+
 Post-v0.1.3 work, 2026-10-18. The France report is from an Apple Silicon MacBook, likely on recent macOS. Nova plays in its browser. The reported song-start error is a resolver deadline, while the radio error comes from WebView playback; they need separate remedies.
 
 ## macOS transport fix

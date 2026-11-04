@@ -976,6 +976,7 @@ struct Playback {
     cancel: Arc<AtomicBool>,
     decode_failed: Arc<AtomicBool>,
     active_generation: Arc<AtomicU64>,
+    activation_gate: ActivationGate,
     base_position: Arc<AtomicU64>,
     preload_cancel: Option<Arc<AtomicBool>>,
     activation_rx: std_mpsc::Receiver<Activation>,
@@ -1103,6 +1104,29 @@ struct Activation {
     replace_normalization_plan: bool,
 }
 
+/// Serializes callback-side queue activation with worker-side device-loss
+/// snapshots. The mixer callback only uses `try_lock`; recovery may wait.
+type ActivationGate = Arc<std::sync::Mutex<bool>>;
+
+fn new_activation_gate() -> ActivationGate {
+    Arc::new(std::sync::Mutex::new(false))
+}
+
+fn try_activation_gate(gate: &ActivationGate) -> Option<std::sync::MutexGuard<'_, bool>> {
+    match gate.try_lock() {
+        Ok(guard) if !*guard => Some(guard),
+        Ok(_)
+        | Err(std::sync::TryLockError::WouldBlock)
+        | Err(std::sync::TryLockError::Poisoned(_)) => None,
+    }
+}
+
+fn freeze_activation_gate(gate: &ActivationGate) -> std::sync::MutexGuard<'_, bool> {
+    let mut frozen = gate.lock().unwrap_or_else(|error| error.into_inner());
+    *frozen = true;
+    frozen
+}
+
 struct ActiveMetadata {
     rate: Arc<std::sync::atomic::AtomicU32>,
     channels: Arc<std::sync::atomic::AtomicU32>,
@@ -1121,6 +1145,74 @@ struct Reconnect {
     retry_at: Instant,
     normalization_gain_db: f32,
     normalization_plan: Option<crate::loudness_manager::NativeNormalizationGainPlan>,
+}
+
+fn reconnect_after_device_loss(current: &mut Playback, reason: String) -> Reconnect {
+    // An activation either finishes publishing its complete snapshot before
+    // this lock is acquired, or sees the frozen gate and cancels its queued
+    // voice without publishing a new active generation.
+    let gate = current.activation_gate.clone();
+    let _frozen = freeze_activation_gate(&gate);
+    loop {
+        // The frozen gate excludes callback-side publication while the worker
+        // drains completed activations and snapshots their worker state.
+        while let Ok(activation) = current.activation_rx.try_recv() {
+            apply_activation(current, activation);
+        }
+        let generation = current.active_generation.load(Ordering::Acquire);
+        if generation != current.generation {
+            if let Ok(activation) = current
+                .activation_rx
+                .recv_timeout(Duration::from_millis(10))
+            {
+                apply_activation(current, activation);
+            }
+            continue;
+        }
+
+        let source = current.source.clone();
+        let end = current.end;
+        let paused = current.paused;
+        let position = playback_position(current);
+        let normalization_gain_db = linear_gain_to_db(f32::from_bits(
+            current.normalization_gain_target.load(Ordering::Acquire),
+        ));
+        let normalization_plan = current.normalization_plan.clone();
+        // An activation racing the snapshot invalidates it; retry with its full
+        // worker message instead of combining fields from two generations.
+        if current.active_generation.load(Ordering::Acquire) != generation {
+            continue;
+        }
+
+        return Reconnect {
+            generation,
+            source,
+            position,
+            end,
+            paused,
+            attempts: 0,
+            last_error: reason,
+            retry_at: Instant::now() + reconnect_delay(0),
+            normalization_gain_db,
+            normalization_plan,
+        };
+    }
+}
+
+fn apply_seek_to_reconnect(
+    reconnect: &mut Option<Reconnect>,
+    generation: u64,
+    position: f64,
+) -> bool {
+    let Some(reconnect) = reconnect.as_mut() else {
+        return false;
+    };
+    if generation < reconnect.generation {
+        return false;
+    }
+    reconnect.generation = generation;
+    reconnect.position = position.max(0.0);
+    true
 }
 
 // Only combine adjacent seeks. Preserve pause, load, stop and queue command ordering.
@@ -1370,6 +1462,7 @@ fn run_worker(
                             position,
                             end,
                             current.active_generation.clone(),
+                            current.activation_gate.clone(),
                             current.queued_successor_generation.clone(),
                             current.samples.clone(),
                             current.base_position.clone(),
@@ -1602,40 +1695,31 @@ fn run_worker(
                     );
                     restarted.normalization_plan = normalization_plan;
                     player = Some(restarted);
+                } else {
+                    // DeviceLost may still be waiting in the service event queue.
+                    // Keep a ready seek attached to the pending recovery so it is
+                    // not lost merely because the old Player has been retired.
+                    apply_seek_to_reconnect(&mut reconnect, generation, seconds);
                 }
             }
             Err(std_mpsc::RecvTimeoutError::Disconnected) => break,
             Err(std_mpsc::RecvTimeoutError::Timeout) => {}
         }
         if device_lost.swap(false, Ordering::Relaxed) {
-            if let Some(current) = player.take() {
-                let generation = current.active_generation.load(Ordering::Relaxed);
-                let position = playback_position(&current);
+            if let Some(mut current) = player.take() {
                 let reason = device_error
                     .lock()
                     .unwrap_or_else(|error| error.into_inner())
                     .take()
                     .unwrap_or_else(|| "audio output stream was invalidated".into());
-                eprintln!("native audio output disconnected: {reason}");
+                let pending = reconnect_after_device_loss(&mut current, reason);
+                eprintln!("native audio output disconnected: {}", pending.last_error);
                 let _ = events.send(OutputEvent::DeviceLost {
-                    generation,
-                    position,
-                    reason: reason.clone(),
+                    generation: pending.generation,
+                    position: pending.position,
+                    reason: pending.last_error.clone(),
                 });
-                reconnect = Some(Reconnect {
-                    generation,
-                    source: current.source.clone(),
-                    position,
-                    end: current.end,
-                    paused: current.paused,
-                    attempts: 0,
-                    last_error: reason,
-                    retry_at: Instant::now() + reconnect_delay(0),
-                    normalization_gain_db: linear_gain_to_db(f32::from_bits(
-                        current.normalization_gain_target.load(Ordering::Acquire),
-                    )),
-                    normalization_plan: current.normalization_plan.clone(),
-                });
+                reconnect = Some(pending);
                 current.cancel.store(true, Ordering::Relaxed);
                 if let Some(cancel) = current.preload_cancel {
                     cancel.store(true, Ordering::Relaxed);
@@ -2114,6 +2198,7 @@ fn start_playback_with_reserve_policy_and_gain(
     let buffering = Arc::new(AtomicBool::new(false));
     let decode_failed = Arc::new(AtomicBool::new(false));
     let active_generation = Arc::new(AtomicU64::new(generation));
+    let activation_gate = new_activation_gate();
     let base_position_bits = Arc::new(AtomicU64::new(base_position.to_bits()));
     let duration_bits = Arc::new(AtomicU64::new(f64::NAN.to_bits()));
     let decoder_diagnostics = Arc::new(std::sync::Mutex::new(None));
@@ -2212,6 +2297,7 @@ fn start_playback_with_reserve_policy_and_gain(
         alignment_phase: 0,
         generation,
         active_generation: active_generation.clone(),
+        activation_gate: activation_gate.clone(),
         queued_successor_generation: queued_successor_generation.clone(),
         base_position: base_position_bits.clone(),
         initial_position: base_position,
@@ -2262,6 +2348,7 @@ fn start_playback_with_reserve_policy_and_gain(
         cancel,
         decode_failed,
         active_generation,
+        activation_gate,
         base_position: base_position_bits,
         preload_cancel: None,
         activation_rx,
@@ -2292,6 +2379,7 @@ fn append_source(
     position: f64,
     end: Option<f64>,
     active_generation: Arc<AtomicU64>,
+    activation_gate: ActivationGate,
     queued_successor_generation: Arc<AtomicU64>,
     samples_played: Arc<AtomicU64>,
     base_position: Arc<AtomicU64>,
@@ -2408,6 +2496,7 @@ fn append_source(
         alignment_phase: 0,
         generation,
         active_generation,
+        activation_gate,
         queued_successor_generation: queued_successor_generation.clone(),
         base_position,
         initial_position: position,
@@ -2480,6 +2569,7 @@ struct QueuedSamples {
     alignment_phase: u16,
     generation: u64,
     active_generation: Arc<AtomicU64>,
+    activation_gate: ActivationGate,
     queued_successor_generation: Arc<AtomicU64>,
     base_position: Arc<AtomicU64>,
     initial_position: f64,
@@ -2518,7 +2608,10 @@ impl Iterator for QueuedSamples {
         // Selection is the mixer reaching this occurrence, not first PCM. This
         // transfers ownership of a buffering preload so its startup is bounded.
         if !self.activated && self.active_generation.load(Ordering::Acquire) != self.generation {
-            self.activate();
+            if !self.activate() {
+                self.exhausted = true;
+                return None;
+            }
         }
         if let Some(reserve) = self.reserve.as_mut() {
             if !reserve.ready {
@@ -2566,7 +2659,9 @@ impl Iterator for QueuedSamples {
         }
         if let Some(value) = self.pending.pop_front() {
             if !self.started {
-                self.begin_track();
+                if !self.begin_track() {
+                    return None;
+                }
             }
             self.note_voice_sample();
             self.buffering.store(false, Ordering::Relaxed);
@@ -2589,7 +2684,9 @@ impl Iterator for QueuedSamples {
                 let value = self.pending.pop_front();
                 if value.is_some() {
                     if !self.started {
-                        self.begin_track();
+                        if !self.begin_track() {
+                            return None;
+                        }
                     }
                     self.note_voice_sample();
                     self.buffering.store(false, Ordering::Relaxed);
@@ -2732,14 +2829,19 @@ impl QueuedSamples {
                 value
             })
     }
-    fn activate(&mut self) {
-        self.active_generation
-            .store(self.generation, Ordering::Relaxed);
+    fn activate(&mut self) -> bool {
+        let Some(_gate) = try_activation_gate(&self.activation_gate) else {
+            self.cancelled.store(true, Ordering::Release);
+            self.exhausted = true;
+            return false;
+        };
         self.base_position
             .store(self.initial_position.to_bits(), Ordering::Relaxed);
         self.samples_played.store(0, Ordering::Relaxed);
         self.activated = true;
-        let _ = self.activation_tx.send(Activation {
+        self.active_generation
+            .store(self.generation, Ordering::Release);
+        let activation = Activation {
             decoder_session: self.decoder_session.clone(),
             generation: self.generation,
             source: self.source.clone(),
@@ -2768,11 +2870,15 @@ impl QueuedSamples {
             normalization_ramp_ms: self.normalization_ramp_ms.clone(),
             normalization_plan: self.normalization_plan.clone(),
             replace_normalization_plan: self.replace_normalization_plan,
-        });
+        };
+        let _ = self.activation_tx.send(activation);
+        true
     }
-    fn begin_track(&mut self) {
+    fn begin_track(&mut self) -> bool {
         if !self.activated {
-            self.activate();
+            if !self.activate() {
+                return false;
+            }
         }
         // A queued source may have been repriced while it waited behind the
         // current track. Before its first audible sample, start at the latest
@@ -2798,6 +2904,7 @@ impl QueuedSamples {
                 .clamp(1, u16::MAX as u32) as u16,
             decoder: self.start_diagnostics(),
         });
+        true
     }
 }
 impl native_crossfade::Voice for QueuedSamples {
@@ -3798,6 +3905,40 @@ fn is_finite_remote_opus_webm(source: &AudioSource) -> bool {
             .is_some_and(|url| url.scheme() == "https" && url.host_str().is_some())
 }
 
+/// Track explicit FFmpeg truncation diagnostics even when it exits with status
+/// zero. Keep bounded overlap independently of the sanitized stderr tail.
+#[derive(Default)]
+struct FfmpegDemuxErrorScanner {
+    overlap: Vec<u8>,
+    incomplete: bool,
+}
+
+impl FfmpegDemuxErrorScanner {
+    fn push(&mut self, bytes: &[u8]) {
+        const MARKERS: [&[u8]; 4] = [
+            b"stream ends prematurely",
+            b"file ended prematurely",
+            b"error during demuxing",
+            b"read error",
+        ];
+        const OVERLAP: usize = b"stream ends prematurely".len() - 1;
+        if self.incomplete {
+            return;
+        }
+        let mut window = Vec::with_capacity(self.overlap.len() + bytes.len());
+        window.extend_from_slice(&self.overlap);
+        window.extend(bytes.iter().map(u8::to_ascii_lowercase));
+        self.incomplete = MARKERS.iter().any(|marker| {
+            window
+                .windows(marker.len())
+                .any(|candidate| candidate == *marker)
+        });
+        self.overlap.clear();
+        self.overlap
+            .extend_from_slice(&window[window.len().saturating_sub(OVERLAP)..]);
+    }
+}
+
 fn should_use_ffmpeg_for_source(source: &AudioSource) -> bool {
     if source.decoder_hint.as_ref().is_some_and(|hint| {
         hint.decode_policy == AudioSourceDecodePolicy::FfmpegOggOpusHeadGain
@@ -3975,7 +4116,7 @@ fn build_cenc_manifest(source: &AudioSource) -> Result<CencManifest, String> {
 struct FfmpegChildReaper {
     child: Arc<std::sync::Mutex<std::process::Child>>,
     watcher_done: Arc<AtomicBool>,
-    stderr: Option<JoinHandle<String>>,
+    stderr: Option<JoinHandle<(String, bool)>>,
 }
 impl Drop for FfmpegChildReaper {
     fn drop(&mut self) {
@@ -4177,11 +4318,13 @@ fn decode_ffmpeg_with_diagnostics(
             .name("burrata-decoder-diagnostics".into())
             .spawn(move || {
                 let mut tail = VecDeque::with_capacity(8192);
+                let mut demux_errors = FfmpegDemuxErrorScanner::default();
                 let mut bytes = [0; 1024];
                 while let Ok(count) = pipe.read(&mut bytes) {
                     if count == 0 {
                         break;
                     }
+                    demux_errors.push(&bytes[..count]);
                     for byte in &bytes[..count] {
                         if tail.len() == 8192 {
                             tail.pop_front();
@@ -4193,7 +4336,12 @@ fn decode_ffmpeg_with_diagnostics(
                 if let Some(key) = cenc_key.as_ref() {
                     key.redact_hex_from(&mut diagnostic);
                 }
-                crate::playback::safe_failure_text(&String::from_utf8_lossy(&diagnostic), 512)
+                let text = String::from_utf8_lossy(&diagnostic);
+                let incomplete_demux = demux_errors.incomplete;
+                (
+                    crate::playback::safe_failure_text(&text, 512),
+                    incomplete_demux,
+                )
             })
             .ok()
     });
@@ -4352,13 +4500,18 @@ fn decode_ffmpeg_with_diagnostics(
         .map_err(|_| "ffmpeg process lock was poisoned".to_owned())?
         .wait()
         .map_err(|e| e.to_string())?;
-    if !cancelled.load(Ordering::Relaxed) && !status.success() {
-        let diagnostic = _reap
+    if !cancelled.load(Ordering::Relaxed) {
+        let (diagnostic, incomplete_demux) = _reap
             .stderr
             .take()
             .and_then(|worker| worker.join().ok())
             .unwrap_or_default();
-        return Err(format!("ffmpeg exited with status {status}: {diagnostic}"));
+        if !status.success() {
+            return Err(format!("ffmpeg exited with status {status}: {diagnostic}"));
+        }
+        if is_finite_remote_opus_webm(&source) && incomplete_demux {
+            return Err(format!("ffmpeg reported incomplete media: {diagnostic}"));
+        }
     }
     if !cancelled.load(Ordering::Relaxed) {
         duration_out.store(
@@ -4438,11 +4591,23 @@ mod tests {
     use std::net::TcpListener;
 
     fn queued_gain_fixture(sample_rate: u32, channels: u16, initial_gain_db: f32) -> QueuedSamples {
+        queued_gain_fixture_with_observers(sample_rate, channels, initial_gain_db).0
+    }
+
+    fn queued_gain_fixture_with_observers(
+        sample_rate: u32,
+        channels: u16,
+        initial_gain_db: f32,
+    ) -> (
+        QueuedSamples,
+        tokio::sync::mpsc::UnboundedReceiver<OutputEvent>,
+        std_mpsc::Receiver<Activation>,
+    ) {
         let (_tx, rx) = std_mpsc::sync_channel(1);
-        let (events, _) = tokio::sync::mpsc::unbounded_channel();
-        let (activation_tx, _) = std_mpsc::channel();
+        let (events, event_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (activation_tx, activation_rx) = std_mpsc::channel();
         let initial_gain = gain_db_to_linear(initial_gain_db);
-        QueuedSamples {
+        let queued = QueuedSamples {
             reserve: None,
             reserve_diagnostics: None,
             decoder_session: Arc::new(DecoderSession::default()),
@@ -4457,6 +4622,7 @@ mod tests {
             alignment_phase: 0,
             generation: 1,
             active_generation: Arc::new(AtomicU64::new(1)),
+            activation_gate: new_activation_gate(),
             queued_successor_generation: Arc::new(AtomicU64::new(0)),
             base_position: Arc::new(AtomicU64::new(0.0f64.to_bits())),
             initial_position: 0.0,
@@ -4490,7 +4656,44 @@ mod tests {
             normalization_ramp_total: 0,
             normalization_ramp_remaining: 0,
             exhausted: false,
-        }
+        };
+        (queued, event_rx, activation_rx)
+    }
+
+    #[test]
+    fn frozen_activation_gate_suppresses_successor_activation_and_started() {
+        let (mut held, mut held_events, held_activations) =
+            queued_gain_fixture_with_observers(48_000, 2, 0.0);
+        held.generation = 2;
+        held.pending.push_back(0.5);
+        let held_gate = held.activation_gate.clone();
+        let held_guard = held_gate.lock().unwrap();
+        assert_eq!(
+            held.next(),
+            None,
+            "callback must not block on recovery gate"
+        );
+        drop(held_guard);
+        assert!(held.cancelled.load(Ordering::Acquire));
+        assert!(!held.activated);
+        assert!(!held.started);
+        assert_eq!(held.active_generation.load(Ordering::Acquire), 1);
+        assert!(held_activations.try_recv().is_err());
+        assert!(held_events.try_recv().is_err());
+
+        let (mut frozen, mut frozen_events, frozen_activations) =
+            queued_gain_fixture_with_observers(48_000, 2, 0.0);
+        frozen.generation = 2;
+        frozen.pending.push_back(0.5);
+        let frozen_gate = frozen.activation_gate.clone();
+        drop(freeze_activation_gate(&frozen_gate));
+        assert_eq!(frozen.next(), None);
+        assert!(frozen.cancelled.load(Ordering::Acquire));
+        assert!(!frozen.activated);
+        assert!(!frozen.started);
+        assert_eq!(frozen.active_generation.load(Ordering::Acquire), 1);
+        assert!(frozen_activations.try_recv().is_err());
+        assert!(frozen_events.try_recv().is_err());
     }
 
     #[test]
@@ -4893,6 +5096,7 @@ mod tests {
             alignment_phase: 0,
             generation: 2,
             active_generation: active_generation.clone(),
+            activation_gate: new_activation_gate(),
             queued_successor_generation: Arc::new(AtomicU64::new(0)),
             base_position: Arc::new(AtomicU64::new(0f64.to_bits())),
             initial_position: 0.,
@@ -5927,6 +6131,150 @@ mod tests {
         );
     }
 
+    fn recovery_playback_fixture(
+        source: AudioSource,
+        activation_rx: std_mpsc::Receiver<Activation>,
+        activation_tx: std_mpsc::Sender<Activation>,
+    ) -> Playback {
+        let (mixer, mixer_source) = rodio::mixer::mixer(2, 44_100);
+        let player = Player::connect_new(&mixer);
+        player.append(mixer_source);
+        let samples = Arc::new(AtomicU64::new(0));
+        let active_generation = Arc::new(AtomicU64::new(1));
+        let base_position = Arc::new(AtomicU64::new(12.0f64.to_bits()));
+        Playback {
+            decoder_session: Arc::new(DecoderSession::default()),
+            generation: 1,
+            player,
+            samples,
+            sample_rate: Arc::new(std::sync::atomic::AtomicU32::new(44_100)),
+            channels: Arc::new(std::sync::atomic::AtomicU32::new(2)),
+            source,
+            end: Some(90.0),
+            position: 12.0,
+            cancel: Arc::new(AtomicBool::new(false)),
+            decode_failed: Arc::new(AtomicBool::new(false)),
+            active_generation,
+            activation_gate: new_activation_gate(),
+            base_position,
+            preload_cancel: None,
+            activation_rx,
+            activation_tx,
+            buffering: Arc::new(AtomicBool::new(false)),
+            buffering_reported: false,
+            source_duration: Some(90.0),
+            decoder_diagnostics: None,
+            source_sample_rate: 44_100,
+            source_channels: 2,
+            live_metadata: None,
+            normalization_gain_target: Arc::new(AtomicU32::new(gain_db_to_linear(0.0).to_bits())),
+            normalization_ramp_ms: Arc::new(AtomicU32::new(80)),
+            normalization_plan: None,
+            preload_normalization: Arc::new(std::sync::Mutex::new(None)),
+            crossfade_queued: Arc::new(std::sync::Mutex::new(None)),
+            queued_successor_generation: Arc::new(AtomicU64::new(0)),
+            crossfade_available: Arc::new(AtomicBool::new(false)),
+            crossfade_in_progress: Arc::new(AtomicBool::new(false)),
+            paused: false,
+        }
+    }
+
+    #[test]
+    fn device_loss_adopts_pending_successor_as_one_reconnect_snapshot() {
+        let source_a = AudioSource {
+            input: "track-a.wav".into(),
+            ffmpeg: "unused".into(),
+            headers: vec![],
+            decoder_hint: None,
+            cenc: None,
+        };
+        let source_b = AudioSource {
+            input: "track-b.wav".into(),
+            ..source_a.clone()
+        };
+        let (activation_tx, activation_rx) = std_mpsc::channel();
+        let mut current = recovery_playback_fixture(source_a, activation_rx, activation_tx.clone());
+
+        let mut successor = queued_gain_fixture(44_100, 2, -6.0);
+        successor.generation = 2;
+        successor.source = source_b.clone();
+        successor.end = Some(42.0);
+        successor.initial_position = 21.0;
+        successor.activation_gate = current.activation_gate.clone();
+        successor.base_position = current.base_position.clone();
+        successor.active_generation = current.active_generation.clone();
+        successor.samples_played = current.samples.clone();
+        successor.activation_tx = activation_tx;
+        assert!(successor.activate());
+        current.samples.store(44_100 * 2, Ordering::Relaxed);
+
+        let pending = reconnect_after_device_loss(&mut current, "device lost".into());
+        assert_eq!(pending.generation, 2);
+        assert_eq!(pending.source.input, "track-b.wav");
+        assert_eq!(pending.end, Some(42.0));
+        assert_eq!(pending.position, 22.0);
+        assert!((pending.normalization_gain_db + 6.0).abs() < 0.001);
+        assert_eq!(current.generation, pending.generation);
+    }
+
+    #[test]
+    fn seek_updates_pending_reconnect_and_rejects_stale_generation() {
+        let source = AudioSource {
+            input: "track.wav".into(),
+            ffmpeg: "unused".into(),
+            headers: vec![],
+            decoder_hint: None,
+            cenc: None,
+        };
+        let mut reconnect = Some(Reconnect {
+            generation: 8,
+            source: source.clone(),
+            position: 12.0,
+            end: Some(90.0),
+            paused: true,
+            attempts: 1,
+            last_error: "device lost".into(),
+            retry_at: Instant::now(),
+            normalization_gain_db: -2.0,
+            normalization_plan: None,
+        });
+
+        assert!(!apply_seek_to_reconnect(&mut reconnect, 7, 30.0));
+        assert_eq!(reconnect.as_ref().unwrap().generation, 8);
+        assert_eq!(reconnect.as_ref().unwrap().position, 12.0);
+
+        assert!(apply_seek_to_reconnect(&mut reconnect, 9, -4.0));
+        let pending = reconnect.unwrap();
+        assert_eq!(pending.generation, 9);
+        assert_eq!(pending.position, 0.0);
+        assert_eq!(pending.source.input, "track.wav");
+        assert_eq!(pending.end, Some(90.0));
+        assert!(
+            pending.paused,
+            "a paused seek remains paused after recovery"
+        );
+
+        let mut playing_reconnect = Some(Reconnect {
+            generation: 12,
+            source,
+            position: 5.0,
+            end: None,
+            paused: false,
+            attempts: 0,
+            last_error: "device lost".into(),
+            retry_at: Instant::now(),
+            normalization_gain_db: 0.0,
+            normalization_plan: None,
+        });
+        assert!(apply_seek_to_reconnect(&mut playing_reconnect, 13, 25.0));
+        let pending = playing_reconnect.unwrap();
+        assert_eq!(pending.position, 25.0);
+        assert!(
+            !pending.paused,
+            "a playing seek remains playing after recovery"
+        );
+    }
+
     #[test]
     fn lyric_playhead_counts_consumption_not_decoder_lookahead_or_underrun_silence() {
         let (tx, rx) = std_mpsc::sync_channel(2);
@@ -5948,6 +6296,7 @@ mod tests {
             alignment_phase: 0,
             generation: 1,
             active_generation: Arc::new(AtomicU64::new(1)),
+            activation_gate: new_activation_gate(),
             queued_successor_generation: Arc::new(AtomicU64::new(0)),
             base_position: Arc::new(AtomicU64::new(12f64.to_bits())),
             initial_position: 12.,
@@ -6642,6 +6991,113 @@ mod tests {
             }
             assert!(!is_finite_remote_opus_webm(&unsupported), "case {change}");
             assert!(!should_use_ffmpeg_for_source(&unsupported), "case {change}");
+        }
+    }
+
+    #[test]
+    fn ffmpeg_incomplete_demux_guard_requires_explicit_failure_markers() {
+        for diagnostic in [
+            "Stream ends prematurely at 51308, should be 102617",
+            "File ended prematurely",
+            "Error during demuxing: Input/output error",
+            "Read error",
+        ] {
+            let mut scanner = FfmpegDemuxErrorScanner::default();
+            scanner.push(diagnostic.as_bytes());
+            assert!(
+                scanner.incomplete,
+                "expected explicit truncation diagnostic to be recognized: {diagnostic}"
+            );
+        }
+        for diagnostic in [
+            "",
+            "Estimating duration from bitrate",
+            "Invalid timestamps may result in incorrect output",
+            "Non-monotonous DTS in output stream",
+        ] {
+            let mut scanner = FfmpegDemuxErrorScanner::default();
+            scanner.push(diagnostic.as_bytes());
+            assert!(
+                !scanner.incomplete,
+                "ordinary FFmpeg warning must not imply truncation: {diagnostic}"
+            );
+        }
+
+        let mut scanner = FfmpegDemuxErrorScanner::default();
+        scanner.push(&vec![b'x'; 16 * 1024]);
+        scanner.push(b"stream ends pre");
+        scanner.push(b"maturely");
+        assert!(
+            scanner.incomplete,
+            "marker must survive stderr chunk boundaries"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn finite_remote_opus_ffmpeg_rejects_status_zero_demux_error_but_accepts_clean_eof() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("fake-ffmpeg");
+        let source_for = |stderr: &str| {
+            let quoted_stderr = format!("'{}'", stderr.replace('\'', "'\\''"));
+            let script = format!(
+                "#!/bin/sh\nprintf '\\000\\000\\000\\000'\nprintf '%s' {} >&2\nexit 0\n",
+                quoted_stderr
+            );
+            std::fs::write(&executable, script).unwrap();
+            let mut permissions = std::fs::metadata(&executable).unwrap().permissions();
+            permissions.set_mode(0o700);
+            std::fs::set_permissions(&executable, permissions).unwrap();
+            AudioSource {
+                input: "https://media.example/audio.webm".into(),
+                ffmpeg: executable.clone(),
+                headers: vec![],
+                decoder_hint: Some(AudioSourceDecoderHint {
+                    mime_type: Some("audio/webm".into()),
+                    codec: Some("opus".into()),
+                    duration_seconds: Some(10.0),
+                    content_length: Some(100_000),
+                    has_video: false,
+                    decode_policy: AudioSourceDecodePolicy::Automatic,
+                    decoder_fingerprint: None,
+                }),
+                cenc: None,
+            }
+        };
+
+        for (stderr, expect_error) in [
+            ("Error during demuxing: Input/output error", true),
+            ("", false),
+        ] {
+            let source = source_for(stderr);
+            let (tx, rx) = std_mpsc::sync_channel(8);
+            let result = decode_ffmpeg_with_diagnostics(
+                source,
+                0.0,
+                None,
+                48_000,
+                1,
+                tx,
+                Arc::new(AtomicU64::new(0)),
+                Arc::new(AtomicU32::new(0)),
+                Arc::new(AtomicU32::new(0)),
+                Arc::new(AtomicU64::new(f64::NAN.to_bits())),
+                Arc::new(AtomicBool::new(false)),
+                None,
+                Instant::now(),
+            );
+            let _pcm = rx.into_iter().flatten().count();
+            if expect_error {
+                let error = result.expect_err("status-0 demux truncation must fail");
+                assert!(
+                    error.starts_with("ffmpeg reported incomplete media:"),
+                    "{error}"
+                );
+            } else {
+                result.expect("clean status-0 EOF remains successful");
+            }
         }
     }
 

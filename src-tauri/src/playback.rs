@@ -1074,6 +1074,30 @@ fn remove_queue_occurrences(
     Ok(())
 }
 
+/// Validate an occurrence-addressed selection while the caller has exclusive
+/// state access, then mutate only after every ownership check passes. Production
+/// callers hold the state lock for this entire operation.
+fn select_queue_occurrence<T>(
+    state: &mut State,
+    index: usize,
+    expected_revision: Option<u64>,
+    expected_entry_id: Option<&str>,
+    mutation: impl FnOnce(&mut State) -> Result<T, String>,
+) -> Result<T, String> {
+    if expected_revision.is_some_and(|revision| revision != state.queue_revision) {
+        return Err("Queue revision changed before selection".into());
+    }
+    if index >= state.queue.len() {
+        return Err("Queue position is out of range".into());
+    }
+    if expected_entry_id
+        .is_some_and(|entry_id| state.entries.get(index).map(String::as_str) != Some(entry_id))
+    {
+        return Err("Queue entry changed before selection".into());
+    }
+    mutation(state)
+}
+
 fn mark_queue_changed(state: &mut State) {
     state.queue_revision = state.queue_revision.wrapping_add(1);
     let entries: HashSet<&str> = state.entries.iter().map(String::as_str).collect();
@@ -1099,6 +1123,84 @@ fn validate_loudness_album_queue_binding(
             .any(|(track, member)| !loudness_album_resource_matches_track(resource, track, member))
     {
         return Err("Album loudness identity must match every queued occurrence in order".into());
+    }
+    Ok(())
+}
+
+struct ResolvedActivationProof {
+    asset_id: String,
+    expected_hash: String,
+    input: String,
+}
+
+fn resolved_activation_proof(
+    resolved: Option<&crate::playback_sources::ResolvedSource>,
+) -> Result<Option<ResolvedActivationProof>, String> {
+    let Some(resolved) = resolved.filter(|resolved| {
+        matches!(
+            resolved.quality["sourceKind"].as_str(),
+            Some("localAsset" | "approximateAlbumExcerpt")
+        )
+    }) else {
+        return Ok(None);
+    };
+    Ok(Some(ResolvedActivationProof {
+        asset_id: resolved.quality["assetId"]
+            .as_str()
+            .ok_or("Local audio is not registered in the library")?
+            .to_owned(),
+        expected_hash: resolved.quality["hash"]
+            .as_str()
+            .ok_or("Local audio is not registered in the library")?
+            .to_owned(),
+        input: resolved.source.input.clone(),
+    }))
+}
+
+fn validate_activation_track(
+    store: &Store,
+    track: &Track,
+    resolved: Option<&ResolvedActivationProof>,
+) -> Result<(), String> {
+    if track.id.trim().is_empty() || track.title.trim().is_empty() {
+        return Err("Track identity or title is missing".into());
+    }
+
+    if let Some(path) = track.local_path.as_deref() {
+        let asset = store
+            .get_asset_by_path(path)?
+            .ok_or("Local audio is not registered in the library")?;
+        if track
+            .asset_id
+            .as_deref()
+            .is_some_and(|asset_id| asset_id != asset.id)
+        {
+            return Err("Local audio is not registered in the library".into());
+        }
+        if !Path::new(path).is_file() {
+            return Err(
+                "Local file is missing or has changed. Reconnect its folder or choose another file."
+                    .into(),
+            );
+        }
+    }
+
+    if let Some(resolved) = resolved {
+        let asset = store
+            .get_asset_by_id(&resolved.asset_id)?
+            .ok_or("Local audio is not registered in the library")?;
+        if asset.path != resolved.input || asset.hash != resolved.expected_hash {
+            return Err(
+                "Local file is missing or has changed. Reconnect its folder or choose another file."
+                    .into(),
+            );
+        }
+        if !Path::new(&asset.path).is_file() {
+            return Err(
+                "Local file is missing or has changed. Reconnect its folder or choose another file."
+                    .into(),
+            );
+        }
     }
     Ok(())
 }
@@ -3458,6 +3560,9 @@ impl PlaybackService {
     }
     fn cancel(&self) {
         let mut s = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+        self.cancel_locked(&mut s);
+    }
+    fn cancel_locked(&self, s: &mut State) {
         if let Some(tx) = s.cancel.take() {
             let _ = tx.send(true);
         }
@@ -3650,7 +3755,7 @@ impl PlaybackService {
             "play" => {
                 let tracks: Vec<Track> = serde_json::from_value(command["tracks"].clone())
                     .map_err(|_| "Invalid playback tracks")?;
-                self.validate_tracks(&tracks)?;
+                Self::validate_queue_structure(&tracks)?;
                 let album_context = command
                     .get("loudnessAlbumResource")
                     .filter(|value| !value.is_null())
@@ -3709,7 +3814,7 @@ impl PlaybackService {
             "queue" => {
                 let tracks: Vec<Track> = serde_json::from_value(command["tracks"].clone())
                     .map_err(|_| "Invalid queue tracks")?;
-                self.validate_tracks(&tracks)?;
+                Self::validate_queue_structure(&tracks)?;
                 let album_context = command
                     .get("loudnessAlbumResource")
                     .filter(|value| !value.is_null())
@@ -3790,6 +3895,17 @@ impl PlaybackService {
             }
             "select" => {
                 let index = command["index"].as_u64().ok_or("Queue position missing")? as usize;
+                let expected_revision = command
+                    .get("expectedQueueRevision")
+                    .map(|value| value.as_u64().ok_or("Invalid expected queue revision"))
+                    .transpose()?;
+                let expected_entry_id = command
+                    .get("expectedEntryId")
+                    .map(|value| value.as_str().ok_or("Invalid expected queue entry ID"))
+                    .transpose()?;
+                if expected_revision.is_some() != expected_entry_id.is_some() {
+                    return Err("Queue selection requires both revision and entry ID".into());
+                }
                 let album_context = command
                     .get("loudnessAlbumResource")
                     .filter(|value| !value.is_null())
@@ -3800,31 +3916,37 @@ impl PlaybackService {
                         .map_err(|_| "Invalid album loudness queue identity")
                     })
                     .transpose()?;
-                if index >= self.inner.state.lock().unwrap().queue.len() {
-                    return Err("Queue position is out of range".into());
-                }
-                if let Some(resource) = album_context.as_ref() {
-                    bind_loudness_context_to_matching_queue(
-                        &mut self.inner.state.lock().unwrap(),
-                        resource,
+                {
+                    let mut s = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+                    select_queue_occurrence(
+                        &mut s,
+                        index,
+                        expected_revision,
+                        expected_entry_id,
+                        |s| {
+                            if let Some(resource) = album_context.as_ref() {
+                                bind_loudness_context_to_matching_queue(s, resource)?;
+                            }
+                            self.cancel_locked(s);
+                            begin_operation(
+                                s,
+                                operation_id.as_deref(),
+                                "transition",
+                                operation_received_at,
+                                client_started_at_ms,
+                                click_to_ipc_ms,
+                                command_bytes,
+                            );
+                            s.index = index;
+                            s.recovery = 0;
+                            s.failed_occurrence_ids.clear();
+                            clear_current_source_failure(s);
+                            Ok(())
+                        },
                     )?;
+                    s.revision += 1;
                 }
-                self.cancel();
-                self.change(|s| {
-                    begin_operation(
-                        s,
-                        operation_id.as_deref(),
-                        "transition",
-                        operation_received_at,
-                        client_started_at_ms,
-                        click_to_ipc_ms,
-                        command_bytes,
-                    );
-                    s.index = index;
-                    s.recovery = 0;
-                    s.failed_occurrence_ids.clear();
-                    clear_current_source_failure(s);
-                });
+                self.publish();
                 self.start(None, 0., false);
             }
             "pause" => {
@@ -4224,21 +4346,33 @@ impl PlaybackService {
         commit_queued_playback(&_command, || self.queued_playback_acceptance(), commit)?;
         Ok(self.snapshot_without_queue())
     }
-    fn validate_tracks(&self, tracks: &[Track]) -> Result<(), String> {
+    fn validate_queue_structure(tracks: &[Track]) -> Result<(), String> {
         if tracks.is_empty() || tracks.len() > 10000 {
             return Err("A playback queue must contain 1–10000 tracks".into());
         }
-        for track in tracks {
-            if track.id.trim().is_empty() || track.title.trim().is_empty() {
-                return Err("Track identity or title is missing".into());
-            }
-            if let Some(path) = &track.local_path {
-                if self.inner.store.get_asset_by_path(path)?.is_none() {
-                    return Err("Local audio must be registered in the library".into());
-                }
-            }
-        }
         Ok(())
+    }
+
+    /// Row-local checks run only when this exact occurrence is being prepared
+    /// or started. A preloaded local source carries its own asset proof because
+    /// the queue Track may have had its local asset fields cleared meanwhile.
+    async fn validate_activation_track(
+        &self,
+        track: Track,
+        resolved: Option<&crate::playback_sources::ResolvedSource>,
+    ) -> Result<(), String> {
+        let proof = resolved_activation_proof(resolved)?;
+        // Network-only rows need only the in-memory identity check. Avoid a
+        // blocking-pool round trip when no database or filesystem work exists.
+        if track.local_path.is_none() && proof.is_none() {
+            return validate_activation_track(&self.inner.store, &track, None);
+        }
+        let store = self.inner.store.clone();
+        tokio::task::spawn_blocking(move || {
+            validate_activation_track(&store, &track, proof.as_ref())
+        })
+        .await
+        .map_err(|_| "Playback activation validation failed".to_owned())?
     }
     fn start(&self, candidate: Option<Candidate>, position: f64, resume: bool) {
         self.start_with_pause(candidate, position, resume, false);
@@ -4423,7 +4557,21 @@ impl PlaybackService {
         });
         let service = self.clone();
         tauri::async_runtime::spawn(async move {
-            let result = if let Some(resolved) = resolved_source {
+            let activation = if service.current(g) && !*rx.borrow() {
+                service
+                    .validate_activation_track(track.clone(), resolved_source.as_ref())
+                    .await
+            } else {
+                Err("Cancelled".into())
+            };
+            let activation = if service.current(g) && !*rx.borrow() {
+                activation
+            } else {
+                Err("Cancelled".into())
+            };
+            let result = if let Err(error) = activation {
+                Err(error)
+            } else if let Some(resolved) = resolved_source {
                 Ok(resolved)
             } else if recovery > 0 {
                 if let Some(candidate) = candidate.as_ref() {
@@ -5613,6 +5761,53 @@ impl PlaybackService {
                 "next_preparation_start",
                 "next_preparation_end",
             );
+            let preparation_current = {
+                let state = service
+                    .inner
+                    .state
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                preload_preparation_is_current(&state, &owner)
+            };
+            if !preparation_current {
+                span.finish(if *cancel.borrow() {
+                    "cancelled"
+                } else {
+                    "obsolete"
+                });
+                return;
+            }
+            let activation = service.validate_activation_track(track.clone(), None).await;
+            let preparation_current = {
+                let state = service
+                    .inner
+                    .state
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                preload_preparation_is_current(&state, &owner)
+            };
+            if !preparation_current {
+                span.finish(if *cancel.borrow() {
+                    "cancelled"
+                } else {
+                    "obsolete"
+                });
+                return;
+            }
+            if let Err(error) = activation {
+                let mut state = service
+                    .inner
+                    .state
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                let _ = finish_preload_resolution(
+                    &mut state,
+                    &owner,
+                    Err::<crate::playback_sources::ResolvedSource, _>(error),
+                );
+                span.finish("failed");
+                return;
+            }
             trace.event(
                 "next_preparation_policy",
                 "other",
@@ -8098,6 +8293,153 @@ fn shuffle_upcoming(state: &mut State) {
 mod tests {
     include!("playback_paused_startup_resume_tests.rs");
     use super::*;
+
+    #[test]
+    fn queue_structure_keeps_unplayable_future_occurrences_until_activation() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("queue-activation.sqlite")).unwrap();
+        let healthy = Track {
+            id: "catalog:healthy".into(),
+            provider: "catalog".into(),
+            provider_id: "healthy".into(),
+            title: "Healthy recording".into(),
+            ..Default::default()
+        };
+        let blank_title = Track {
+            id: "catalog:blank-title".into(),
+            provider: "catalog".into(),
+            provider_id: "blank-title".into(),
+            title: "  ".into(),
+            ..Default::default()
+        };
+        let future_path = directory.path().join("unregistered.wav");
+        std::fs::write(&future_path, b"not opened by queue validation").unwrap();
+        let stale_local = Track {
+            id: "local:unregistered".into(),
+            provider: "local".into(),
+            provider_id: "unregistered".into(),
+            title: "Unregistered future track".into(),
+            local_path: Some(future_path.to_string_lossy().into_owned()),
+            ..Default::default()
+        };
+        let tracks = vec![healthy.clone(), blank_title.clone(), stale_local.clone()];
+
+        PlaybackService::validate_queue_structure(&tracks).unwrap();
+
+        let mut state = State::default();
+        state.queue = tracks;
+        state.entries = vec![
+            "healthy-occurrence".into(),
+            "blank-occurrence".into(),
+            "local-occurrence".into(),
+        ];
+        let entries_before_activation = state.entries.clone();
+        let queue_before_activation = state.queue.clone();
+        assert_eq!(state.track().unwrap().id, healthy.id);
+        assert!(validate_activation_track(&store, state.track().unwrap(), None).is_ok());
+
+        state.index = 1;
+        let title_error =
+            validate_activation_track(&store, state.track().unwrap(), None).unwrap_err();
+        assert_eq!(title_error, "Track identity or title is missing");
+        assert!(should_skip_exhausted_failure(&title_error));
+
+        state.index = 2;
+        let local_error =
+            validate_activation_track(&store, state.track().unwrap(), None).unwrap_err();
+        assert_eq!(local_error, "Local audio is not registered in the library");
+        assert!(should_skip_exhausted_failure(&local_error));
+        assert!(future_path.is_file());
+
+        let audition = crate::playback_sources::selected_preview_track(
+            &stale_local,
+            &Candidate {
+                id: "youtube:abcdefghijk".into(),
+                provider: "youtube".into(),
+                url: "https://www.youtube.com/watch?v=abcdefghijk".into(),
+                ..Default::default()
+            },
+        );
+        assert!(audition.local_path.is_none());
+        assert!(validate_activation_track(&store, &audition, None).is_ok());
+
+        assert_eq!(
+            state.entries.iter().map(String::as_str).collect::<Vec<_>>(),
+            ["healthy-occurrence", "blank-occurrence", "local-occurrence"]
+        );
+        assert_eq!(state.entries, entries_before_activation);
+        assert_eq!(state.queue, queue_before_activation);
+
+        assert!(PlaybackService::validate_queue_structure(&[]).is_err());
+        assert!(PlaybackService::validate_queue_structure(&vec![healthy; 10_001]).is_err());
+    }
+
+    #[test]
+    fn preloaded_local_source_requires_its_exact_asset_registration_at_handoff() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("preloaded-asset.sqlite");
+        let path = directory.path().join("registered.wav");
+        std::fs::write(&path, b"registered asset bytes").unwrap();
+        let store = Store::open(&database).unwrap();
+        let track = Track {
+            id: "catalog:asset-track".into(),
+            provider: "catalog".into(),
+            provider_id: "asset-track".into(),
+            title: "Registered recording".into(),
+            ..Default::default()
+        };
+        let asset = crate::models::LocalAsset {
+            id: "asset-preloaded".into(),
+            recording_id: track.id.clone(),
+            path: path.to_string_lossy().into_owned(),
+            hash: "registered-hash".into(),
+            source_codec: "wav".into(),
+            final_codec: "wav".into(),
+            source_bitrate: None,
+            final_bitrate: None,
+            sample_rate: None,
+            channels: None,
+            bit_depth: None,
+            duration_seconds: Some(30.0),
+            size_bytes: Some(22),
+            bitrate_origin: None,
+            processing: "original".into(),
+            track: track.clone(),
+        };
+        store.save_asset(&asset).unwrap();
+        let resolved = crate::playback_sources::ResolvedSource {
+            origin: crate::playback_sources::ResolvedSourceOrigin::Existing,
+            source: crate::native_output::AudioSource {
+                input: asset.path.clone(),
+                ffmpeg: "ffmpeg".into(),
+                headers: Vec::new(),
+                decoder_hint: None,
+                cenc: None,
+            },
+            candidate: None,
+            quality: json!({
+                "sourceKind":"localAsset",
+                "assetId":asset.id.clone(),
+                "hash":asset.hash.clone(),
+            }),
+            station: None,
+            duration: Some(30.0),
+        };
+        // A cleared Track assetId/path cannot stand in for the resolved asset's
+        // proof, but the exact registered asset still permits the handoff.
+        let cleared_track = track.clone();
+        let proof = resolved_activation_proof(Some(&resolved)).unwrap();
+        assert!(validate_activation_track(&store, &cleared_track, proof.as_ref()).is_ok());
+
+        rusqlite::Connection::open(&database)
+            .unwrap()
+            .execute("DELETE FROM local_assets WHERE id=?1", [&asset.id])
+            .unwrap();
+        let error = validate_activation_track(&store, &cleared_track, proof.as_ref()).unwrap_err();
+        assert_eq!(error, "Local audio is not registered in the library");
+        assert!(path.is_file());
+        assert!(should_skip_exhausted_failure(&error));
+    }
 
     #[test]
     fn active_local_asset_identity_precedes_remote_candidate_for_detection() {
@@ -10772,6 +11114,102 @@ mod tests {
         assert_eq!(state.queue_revision, 2);
         reorder_queue_state(&mut state, 0, 1, None).unwrap();
         assert_eq!(state.queue_revision, 3);
+    }
+
+    #[test]
+    fn queue_selection_uses_occurrence_identity_for_duplicate_track_ids() {
+        let duplicate = Track {
+            id: "same-track".into(),
+            ..Track::default()
+        };
+        let mut state = State::default();
+        state.queue = vec![duplicate.clone(), duplicate];
+        state.entries = vec!["occurrence-a".into(), "occurrence-b".into()];
+        state.queue_revision = 7;
+        state.index = 0;
+
+        select_queue_occurrence(&mut state, 1, Some(7), Some("occurrence-b"), |state| {
+            state.index = 1;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(state.queue[0].id, state.queue[1].id);
+        assert_eq!(state.entries[state.index], "occurrence-b");
+
+        // Older callers that omit both guards retain legacy index semantics.
+        select_queue_occurrence(&mut state, 0, None, None, |state| {
+            state.index = 0;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(state.entries[state.index], "occurrence-a");
+    }
+
+    #[test]
+    fn stale_queue_selection_reorder_or_removal_does_not_mutate_playback() {
+        let duplicate = Track {
+            id: "same-track".into(),
+            ..Track::default()
+        };
+        let mut state = State::default();
+        state.queue = vec![duplicate.clone(), duplicate.clone(), duplicate];
+        state.entries = vec![
+            "occurrence-a".into(),
+            "occurrence-b".into(),
+            "occurrence-c".into(),
+        ];
+        state.queue_revision = 4;
+        state.index = 0;
+        state.generation = 22;
+        state.position = 13.0;
+        state.status = "playing".into();
+
+        // A reorder puts C at the displayed B index and advances the revision.
+        state.queue.swap(1, 2);
+        state.entries.swap(1, 2);
+        state.queue_revision = 5;
+        let before_reorder_rejection = state.snapshot(true, true);
+        let mut mutation_ran = false;
+        assert!(
+            select_queue_occurrence(&mut state, 1, Some(4), Some("occurrence-b"), |state| {
+                mutation_ran = true;
+                state.index = 1;
+                Ok(())
+            },)
+            .is_err()
+        );
+        assert!(!mutation_ran);
+        assert_eq!(state.snapshot(true, true), before_reorder_rejection);
+
+        // Even at a current revision, an index that now names another occurrence
+        // must not run the cancellation/mutation closure.
+        assert!(
+            select_queue_occurrence(&mut state, 1, Some(5), Some("occurrence-b"), |state| {
+                mutation_ran = true;
+                state.index = 1;
+                Ok(())
+            },)
+            .is_err()
+        );
+        assert!(!mutation_ran);
+        assert_eq!(state.snapshot(true, true), before_reorder_rejection);
+
+        // A removal also invalidates the older occurrence address before any
+        // playback cancellation can occur.
+        state.queue.remove(2);
+        state.entries.remove(2);
+        state.queue_revision = 6;
+        let before_removal_rejection = state.snapshot(true, true);
+        assert!(
+            select_queue_occurrence(&mut state, 1, Some(5), Some("occurrence-b"), |state| {
+                mutation_ran = true;
+                state.index = 1;
+                Ok(())
+            },)
+            .is_err()
+        );
+        assert!(!mutation_ran);
+        assert_eq!(state.snapshot(true, true), before_removal_rejection);
     }
 
     #[test]

@@ -2181,15 +2181,42 @@ pub async fn resolve_portable_playback_candidate(
     {
         return Err("The reviewed portable playback provider is no longer configured".into());
     }
-    let candidates = tokio::time::timeout(
-        std::time::Duration::from_secs(8),
-        acquisition.find_fresh_preview_candidates_cancelled(
-            track,
-            &[provider.to_owned()],
-            settings,
-            cancel.clone(),
-        ),
-    )
+    let candidates = tokio::time::timeout(std::time::Duration::from_secs(8), async {
+        if provider == "youtube" {
+            match crate::acquisition::inspect_portable_youtube_id_cancelled(
+                track,
+                source_id,
+                settings,
+                cancel.clone(),
+            )
+            .await
+            {
+                Ok(candidate) => Ok(vec![candidate]),
+                // Retain the existing fresh-search route for installations
+                // where direct extraction is unavailable. The final gate
+                // below still requires the reviewed provider/source ID.
+                Err(_) => {
+                    acquisition
+                        .find_fresh_preview_candidates_cancelled(
+                            track,
+                            &[provider.to_owned()],
+                            settings,
+                            cancel.clone(),
+                        )
+                        .await
+                }
+            }
+        } else {
+            acquisition
+                .find_fresh_preview_candidates_cancelled(
+                    track,
+                    &[provider.to_owned()],
+                    settings,
+                    cancel.clone(),
+                )
+                .await
+        }
+    })
     .await
     .map_err(|_| "Portable playback source lookup timed out")??;
     if *cancel.borrow() {

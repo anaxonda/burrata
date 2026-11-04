@@ -7761,14 +7761,17 @@ describe("native playback frontend", () => {
     const duplicateQueue = [savedTrack, secondTrack, savedTrack];
     mountNative(makeNativeSnapshot({
       revision: 49, generation: 10, status: "failed", trackId: savedTrack.id, track: savedTrack,
-      queue: duplicateQueue, currentIndex: 2, paused: false, playerMessage: "Unavailable",
+      queue: duplicateQueue, queueRevision: 51, queueEntryIds: ["saved-first-occurrence", "second-track-occurrence", "saved-active-occurrence"],
+      currentIndex: 2, paused: false, playerMessage: "Unavailable",
       diagnostics: { lastSourceFailure: { trackId: savedTrack.id, title: savedTrack.title, artist: savedTrack.artist, reason: "No eligible audio source" } },
     }));
     await settle();
 
     document.querySelector<HTMLButtonElement>('[aria-label="Retry playback"]')!.click();
     await settle();
-    expect(mocks.call).toHaveBeenCalledWith("playback_command", { command: expect.objectContaining({ action: "select", index: 2 }) });
+    expect(mocks.call).toHaveBeenCalledWith("playback_command", { command: expect.objectContaining({
+      action: "select", index: 2, expectedQueueRevision: 51, expectedEntryId: "saved-active-occurrence",
+    }) });
     const selectedIndexes = mocks.call.mock.calls
       .filter(([command, args]) => command === "playback_command" && (args as { command?: { action?: string } })?.command?.action === "select")
       .map(([, args]) => (args as { command: { index: number } }).command.index);
@@ -7999,7 +8002,8 @@ describe("native playback frontend", () => {
       capturedEndSeconds: 90, observedAt: "2026-10-28T00:00:00Z",
     }] };
     mountNative(makeNativeSnapshot({ revision: 89, generation: 23, status: "playing", trackId: savedTrack.id,
-      track: savedTrack, candidate: youtubeCandidate(savedTrack), queue: [savedTrack, parent], currentIndex: 0, paused: false }));
+      track: savedTrack, candidate: youtubeCandidate(savedTrack), queue: [savedTrack, parent], queueRevision: 93,
+      queueEntryIds: ["currently-playing-occurrence", "inactive-parent-occurrence"], currentIndex: 0, paused: false }));
     await settle();
     document.querySelector<HTMLButtonElement>('[aria-label="Show playback queue and chapters"]')!.click();
     await settle();
@@ -8007,7 +8011,9 @@ describe("native playback frontend", () => {
     expect(timestamp).not.toBeNull();
     timestamp!.click();
     await settle();
-    expect(mocks.call).toHaveBeenCalledWith("playback_command", { command: expect.objectContaining({ action: "select", index: 1 }) });
+    expect(mocks.call).toHaveBeenCalledWith("playback_command", { command: expect.objectContaining({
+      action: "select", index: 1, expectedQueueRevision: 93, expectedEntryId: "inactive-parent-occurrence",
+    }) });
   });
 
   it("requests lyrics for the active detected song and switches with playback position", async () => {
@@ -8909,13 +8915,16 @@ describe("native playback frontend", () => {
 
   it("selects within an identical native queue without resending the full queue", async () => {
     savedChartTracks = [savedTrack, secondTrack];
-    mountNative(makeNativeSnapshot({status:"paused",track:savedTrack,trackId:savedTrack.id,queue:[savedTrack,secondTrack],currentIndex:0,paused:true}));
+    mountNative(makeNativeSnapshot({status:"paused",track:savedTrack,trackId:savedTrack.id,queue:[savedTrack,secondTrack],
+      queueRevision:27,queueEntryIds:["saved-track-occurrence","second-track-occurrence"],currentIndex:0,paused:true}));
     await settle();
     mocks.call.mockClear();
     [...document.querySelectorAll(".shared-track-list > li")].find(row=>row.textContent?.includes(secondTrack.title))!
       .dispatchEvent(new MouseEvent("click",{bubbles:true}));
     await settle();
-    expect(mocks.call).toHaveBeenCalledWith("playback_command",{command:expect.objectContaining({action:"select",index:1})});
+    expect(mocks.call).toHaveBeenCalledWith("playback_command",{command:expect.objectContaining({
+      action:"select",index:1,expectedQueueRevision:27,expectedEntryId:"second-track-occurrence",
+    })});
     expect(mocks.call.mock.calls.some(([command,args])=>command==="playback_command"&&(args as {command:{action?:string}}).command.action==="play")).toBe(false);
   });
 

@@ -12,7 +12,7 @@
     { key: "allowOtherPerformances", label: "Other performances by the same artist", help: "For example, a live performance instead of the studio recording." },
     { key: "allowOtherMixes", label: "Other remixes or edits", help: "For example, a radio edit or another remix." },
     { key: "allowOtherArtists", label: "The same song performed by other artists", help: "For example, a cover by another artist." },
-    { key: "allowDifferentLengths", label: "Allow different durations for identified recordings", help: "These caps include Flexible matching's usual duration tolerance. Recording identity checks still apply." },
+    { key: "allowDifferentLengths", label: "Allow different durations for identified recordings", help: "These caps include Flexible matching's usual duration tolerance. If a saved track has no duration, enabling limits can prevent an automatic match. Recording identity checks still apply." },
   ];
   const normalized = $derived({
     ...DEFAULT_FLEXIBLE_MATCHING,

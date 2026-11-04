@@ -4231,28 +4231,36 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     resolvingPlayback = true;
     try {
       await startPreviewInner(t, fromQueue, automaticContinuation, displayedTracks, displayedIndex, failedSkips,
-        automationRequestId, playbackOperationTrace(), resumeSavedPosition, failedQueueRun, resource, advanceResumeFailure);
+        automationRequestId, playbackOperationTrace(), resumeSavedPosition, failedQueueRun, resource, advanceResumeFailure, sequence);
       return sequence === playbackLoadSequence;
     } finally { if (sequence === playbackLoadSequence) resolvingPlayback = false; }
   }
   function sameNativePlaybackTrack(left: Track, right: Track) {
     const a = left.playbackRange, b = right.playbackRange;
     const sameRange = !a && !b || Boolean(a && b && a.parentTrackId === b.parentTrackId && a.chapterId === b.chapterId && a.sourceUrl === b.sourceUrl && a.startTime === b.startTime && a.endTime === b.endTime);
-    return left.id === right.id && left.provider === right.provider && left.sourceUrl === right.sourceUrl &&
+    return left.id === right.id && left.provider === right.provider && left.providerId === right.providerId &&
+      left.sourceUrl === right.sourceUrl && left.isrc === right.isrc &&
       left.artist === right.artist && left.title === right.title && (left.version ?? null) === (right.version ?? null) &&
       (left.durationSeconds ?? null) === (right.durationSeconds ?? null) && (left.localPath ?? null) === (right.localPath ?? null) &&
       (left.assetId ?? null) === (right.assetId ?? null) && sameRange &&
-      JSON.stringify(portablePlaybackSource(left)) === JSON.stringify(portablePlaybackSource(right));
+      JSON.stringify(portablePlaybackSource(left)) === JSON.stringify(portablePlaybackSource(right)) &&
+      JSON.stringify(left.provenance) === JSON.stringify(right.provenance);
   }
   function sameNativePlaybackQueue(left: readonly Track[], right: readonly Track[]) {
     return left.length === right.length && left.every((track, index) => sameNativePlaybackTrack(track, right[index]!));
   }
-  async function startPreviewInner(t: Track, fromQueue = false, automaticContinuation = false, displayedTracks?: Track[], displayedIndex?: number, failedSkips = 0, automationRequestId: string | null = null,trace?:PlaybackOperationTrace,resumeSavedPosition = false, failedQueueRun?: FailedQueueRun,loudnessAlbumResource: LoudnessResourceIdentity | null = null,advanceResumeFailure = false) {
-    try {
-      await call("set_loudness_album_context", { resource: loudnessAlbumResource });
-    } catch (failure) {
-      if (loudnessAlbumResource) throw failure;
-    }
+  function nativeQueueSelectIdentity(index: number, displayed: readonly Track[]) {
+    const snapshot = nativeSnapshot;
+    const entryIds = snapshot?.queueEntryIds;
+    if (!snapshot || !Number.isSafeInteger(snapshot.queueRevision) || snapshot.queueRevision! < 0 || !Array.isArray(entryIds) ||
+        entryIds.length !== displayed.length || index < 0 || index >= displayed.length ||
+        !sameNativePlaybackQueue(snapshot.queue ?? [], displayed)) return null;
+    const expectedEntryId = entryIds[index];
+    if (typeof expectedEntryId !== "string" || !expectedEntryId || entryIds.filter(id => id === expectedEntryId).length !== 1) return null;
+    return {expectedQueueRevision:snapshot.queueRevision!, expectedEntryId};
+  }
+  async function startPreviewInner(t: Track, fromQueue = false, automaticContinuation = false, displayedTracks?: Track[], displayedIndex?: number, failedSkips = 0, automationRequestId: string | null = null,trace?:PlaybackOperationTrace,resumeSavedPosition = false, failedQueueRun?: FailedQueueRun,loudnessAlbumResource: LoudnessResourceIdentity | null = null,advanceResumeFailure = false, intentSequence = playbackLoadSequence) {
+    if (intentSequence !== playbackLoadSequence) return;
     playbackRunGeneration++;
     cancelRadioIdentification();
 
@@ -4266,8 +4274,11 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
         (!candidate || !queueCandidates[t.id] && candidate.url === t.sourceUrl);
       // Explicit track selection starts at the beginning. The native Resume command
       // owns restoration of paused playback, including its saved playhead.
-      if (canSelectFromNativeQueue) await nativeCommand({action:"select",index,loudnessAlbumResource,...trace});
-      else await nativeCommand({action:"play",tracks:list.length ? list : [t],index:index >= 0 ? index : 0,candidate,position:0,loudnessAlbumResource,...trace});
+      if (canSelectFromNativeQueue) {
+        const occurrence = nativeQueueSelectIdentity(index, list);
+        if (!occurrence) { error = "The playback queue identity is unavailable. Refresh the queue and try again."; return; }
+        await nativeCommand({action:"select",index,...occurrence,loudnessAlbumResource,...trace});
+      } else await nativeCommand({action:"play",tracks:list.length ? list : [t],index:index >= 0 ? index : 0,candidate,position:0,loudnessAlbumResource,...trace});
       return;
 
   }
@@ -4799,14 +4810,15 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
 
   async function playArtistTrack(track: Track, displayed: Track[] = [track], index = 0, albumResource: LoudnessResourceIdentity | null = null) {
     const request = ++artistPlaybackMatchGeneration;
+    const intentSequence = playbackLoadSequence;
     const rows = displayed ?? [track];
     const rowIndex = Number.isInteger(index) && index >= 0 && index < rows.length ? index : Math.max(0, rows.indexOf(track));
     let playableTrack = rows[rowIndex] ?? track;
     if (!(playableTrack.localAvailability === "available" && playableTrack.localPath)) {
       try { playableTrack = (await matchArtistPlaybackSources([playableTrack]))[0] ?? playableTrack; }
-      catch (failure) { if (request === artistPlaybackMatchGeneration) error = String(failure); playableTrack = rows[rowIndex] ?? track; }
+      catch (failure) { if (request === artistPlaybackMatchGeneration && intentSequence === playbackLoadSequence) error = String(failure); playableTrack = rows[rowIndex] ?? track; }
     }
-    if (request !== artistPlaybackMatchGeneration) return;
+    if (request !== artistPlaybackMatchGeneration || intentSequence !== playbackLoadSequence) return;
     const playableRows = playableTrack === rows[rowIndex] ? rows : rows.map((item, itemIndex) => itemIndex === rowIndex ? playableTrack : item);
     selected = playableTrack;
      await startPreview(playableTrack,false,false,playableRows,rowIndex,0,null,false,undefined,albumResource); return;
@@ -4832,7 +4844,12 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
   function removeQueueItem(index:number) { void nativeCommand({action:"remove",index}); }
   function toggleShuffle() { shuffleEnabled=!shuffleEnabled;void nativeCommand({action:"shuffle",enabled:shuffleEnabled}); }
   function cycleRepeat() { repeatMode=repeatMode==="off"?"all":repeatMode==="all"?"one":"off";void nativeCommand({action:"repeat",mode:repeatMode}); }
-  function playQueueIndex(index:number) { clearPlaybackSkipNotice(); void nativeCommand({action:"select",index}); }
+  function playQueueIndex(index:number) {
+    clearPlaybackSkipNotice();
+    const occurrence = nativeQueueSelectIdentity(index, queueTracks);
+    if (!occurrence) { error = "The playback queue identity is unavailable. Refresh the queue and try again."; return; }
+    void nativeCommand({action:"select",index,...occurrence});
+  }
   function closePlaylistPicker() {
     playlistAlbumName = null;
     playlistPickerGeneration++; playlistTrack = null; playlistTracks = []; pendingCreatedPlaylist = null; shortcutSlot = null;

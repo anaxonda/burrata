@@ -37,15 +37,17 @@ export function hasExplicitSourceLock(
       provenance.userSelectedSource === true || provenance.explicitSourceLock === true ||
       ["youtuberadio", "upload", "uploaded", "localupload"].includes(sourceKind)) return true;
 
-  if (options.selectedCandidate) return true;
-
   const playbackMode = provenance.playbackMode;
   const manualFields = provenance.manualFields && typeof provenance.manualFields === "object"
     ? provenance.manualFields as Record<string, unknown> : {};
   const automaticBrowserSource = provenance.browserImport === true && provenance.captureProvider === "youtube" &&
     playbackMode === "source" && manualFields.playbackMode !== true;
   if (playbackMode === "source" && !automaticBrowserSource) return true;
-  if (playbackMode === "lookup" || (track.provider === "import" && options.overridePlaylistTrackUrls === true)) return false;
+  if (playbackMode === "lookup") return false;
+
+  if (options.selectedCandidate) return true;
+
+  if (track.provider === "import" && options.overridePlaylistTrackUrls === true) return false;
 
   return false;
 }

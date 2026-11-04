@@ -2263,6 +2263,17 @@ fn track_for_playback_source_search(track: &Track) -> Track {
     search_track
 }
 
+/// Recovery discovery may ignore the originally embedded audio-search result
+/// after that exact candidate failed. Keep the rest of the track provenance
+/// and metadata intact for the normal recording matcher.
+fn track_for_failed_audio_candidate_search(track: &Track) -> Track {
+    let mut search_track = track_for_playback_source_search(track);
+    if let Some(provenance) = search_track.provenance.as_object_mut() {
+        provenance.remove("audioCandidate");
+    }
+    search_track
+}
+
 /// Monochrome uses a canonical query plus at most the first exact cached alias,
 /// matching the existing two-query bound used by YouTube and SoundCloud.
 fn monochrome_search_tracks(track: &Track, alternate_artist: Option<&str>) -> Vec<Track> {
@@ -4348,7 +4359,7 @@ fn search_cache_key(
     result_limit: usize,
 ) -> String {
     serde_json::json!([
-        "completed-recording-search-v3",
+        "completed-recording-search-v4",
         crate::recording_match::EVALUATOR_VERSION,
         settings.matching_level,
         settings.flexible_matching,
@@ -4623,6 +4634,49 @@ pub(crate) async fn inspect_candidate_cancelled(
     cancel: watch::Receiver<bool>,
 ) -> Result<Candidate, String> {
     inspect_with_cancel(track, candidate, settings, cancel).await
+}
+
+/// Reinspect a reviewed YouTube video ID without depending on text-search
+/// ranking. The stable ID is validated before it is placed in a provider URL,
+/// and the extractor response must resolve back to that same ID.
+pub(crate) async fn inspect_portable_youtube_id_cancelled(
+    track: &Track,
+    source_id: &str,
+    settings: &Settings,
+    cancel: watch::Receiver<bool>,
+) -> Result<Candidate, String> {
+    if source_id.len() != 11
+        || !source_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    {
+        return Err("Saved YouTube playback source ID is invalid".into());
+    }
+    let candidate = Candidate {
+        id: format!("youtube:{source_id}"),
+        provider: "youtube".into(),
+        url: format!("https://www.youtube.com/watch?v={source_id}"),
+        title: track.title.clone(),
+        uploader: None,
+        duration_seconds: track.duration_seconds,
+        ..Candidate::default()
+    };
+    // A portable binding needs new evidence for this identity; the ordinary
+    // inspection cache is keyed by URL and could retain an older response.
+    let mut inspected = inspect_metadata_with_cancel(&candidate, settings, cancel).await?;
+    matching::score_candidate(track, &mut inspected);
+    if inspected.id != candidate.id
+        || inspected.provider != "youtube"
+        || youtube_video_id(&inspected.url).as_deref() != Some(source_id)
+        || inspected
+            .source_metadata
+            .as_ref()
+            .and_then(|metadata| metadata["resolvedProviderId"].as_str())
+            != Some(source_id)
+    {
+        return Err("Fresh YouTube inspection changed the reviewed source ID".into());
+    }
+    Ok(inspected)
 }
 
 pub(crate) async fn inspect_candidate_cancelled_until(
@@ -8060,6 +8114,39 @@ impl AcquisitionManager {
             None,
         )
         .await
+    }
+
+    /// Run bounded recovery discovery after an embedded audio-search
+    /// candidate has already failed. This deliberately bypasses the completed
+    /// search result that may contain only that remembered candidate, while
+    /// retaining provider-query caching, the current attempt deadline, and
+    /// source trace events.
+    pub(crate) async fn prefetch_playback_candidates_after_audio_candidate_failure_traced(
+        &self,
+        track: &Track,
+        alternate_artists: &[String],
+        provider: &str,
+        settings: &Settings,
+        cancel: watch::Receiver<bool>,
+        deadline: crate::playback_sources::PlaybackDeadline,
+        trace: crate::playback_sources::SourceTrace,
+    ) -> Result<Vec<Candidate>, String> {
+        let search_track = track_for_failed_audio_candidate_search(track);
+        let alternate_artist = alternate_artists.first().cloned();
+        let (candidates, _complete) = find_candidates_with_cancel_until_alias_detailed_traced(
+            &search_track,
+            &[provider.to_owned()],
+            settings,
+            cancel,
+            PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT,
+            PREVIEW_SEARCH_TIMEOUT,
+            Some(deadline),
+            alternate_artist,
+            Some(&self.inner.search_cache),
+            Some(trace.with_event_provider(provider)),
+        )
+        .await?;
+        Ok(candidates)
     }
 
     /// Warm only the flat provider discovery rows. These entries are never
@@ -20764,6 +20851,121 @@ echo "$result"
         let error = result.unwrap_err();
         assert!(error.contains("timed out"), "{error}");
         assert!(started.elapsed() < Duration::from_secs(3));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn portable_youtube_id_inspection_bypasses_text_search_and_checks_exact_id() {
+        let id = "AbCdEf12345";
+        let output = format!(
+            "printf '%s\\n' '{{\"id\":\"{id}\",\"webpage_url\":\"https://www.youtube.com/watch?v={id}\",\"title\":\"Artist - Night Drive\",\"artist\":\"Artist\",\"duration\":180}}'"
+        );
+        let (_directory, settings) = fake_tool(&output);
+        let track = Track {
+            artist: "Artist".into(),
+            title: "Night Drive".into(),
+            duration_seconds: Some(180.0),
+            ..Default::default()
+        };
+        with_playback_test_public_addresses(async {
+            let candidate =
+                inspect_portable_youtube_id_cancelled(&track, id, &settings, idle_cancel().1)
+                    .await
+                    .unwrap();
+            assert_eq!(candidate.id, format!("youtube:{id}"));
+            assert_eq!(
+                candidate.source_metadata.as_ref().unwrap()["resolvedProviderId"],
+                id
+            );
+
+            let wrong_id = "ZyXwVu98765";
+            let error =
+                inspect_portable_youtube_id_cancelled(&track, wrong_id, &settings, idle_cancel().1)
+                    .await
+                    .unwrap_err();
+            assert_eq!(
+                error,
+                "Source identity changed during inspection; select it again"
+            );
+        })
+        .await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn failed_audio_search_candidate_recovery_discovers_and_matches_replacement() {
+        let directory = tempfile::tempdir().unwrap();
+        let marker = directory.path().join("search-called");
+        let output = serde_json::json!({
+            "entries": [{
+                "id": "YvXwVu98765",
+                "webpage_url": "https://www.youtube.com/watch?v=YvXwVu98765",
+                "title": "Artist - Night Drive",
+                "artist": "Artist",
+                "duration": 180
+            }]
+        });
+        let script = format!(
+            "echo searched >> '{}'; cat <<'JSON'\n{}\nJSON",
+            marker.display(),
+            output
+        );
+        let (_tool_dir, settings) = fake_tool(&script);
+        let remembered = Candidate {
+            id: "youtube:XvXwVu98765".into(),
+            provider: "youtube".into(),
+            url: "https://www.youtube.com/watch?v=XvXwVu98765".into(),
+            title: "Old title from remembered candidate".into(),
+            ..Default::default()
+        };
+        let track = Track {
+            artist: "Artist".into(),
+            title: "Night Drive".into(),
+            duration_seconds: Some(180.0),
+            provenance: serde_json::json!({
+                "sourceKind":"audioSearch",
+                "playbackMode":"lookup",
+                "audioCandidate":remembered
+            }),
+            ..Default::default()
+        };
+        let providers = vec!["youtube".to_owned()];
+        let (_tx, cancel) = idle_cancel();
+        let initially_remembered = find_candidates_with_cancel(
+            &track_for_playback_source_search(&track),
+            &providers,
+            &settings,
+            cancel.clone(),
+            3,
+            Duration::from_secs(2),
+        )
+        .await
+        .unwrap();
+        assert_eq!(initially_remembered[0].id, "youtube:XvXwVu98765");
+        assert!(
+            !marker.exists(),
+            "the initial embedded choice should not search"
+        );
+
+        let fresh = find_candidates_with_cancel(
+            &track_for_failed_audio_candidate_search(&track),
+            &providers,
+            &settings,
+            cancel,
+            3,
+            Duration::from_secs(2),
+        )
+        .await
+        .unwrap();
+        assert!(marker.exists());
+        let replacement = fresh
+            .iter()
+            .find(|candidate| candidate.id == "youtube:YvXwVu98765")
+            .expect("fresh search replacement should be discovered");
+        assert!(crate::source_fallback::playback_recording_matches(
+            &track,
+            replacement
+        ));
     }
 
     #[tokio::test]

@@ -265,6 +265,8 @@ pub(crate) struct SourceTrace {
     event_provider: Option<&'static str>,
     extraction_attempts: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     attempted_sources: std::sync::Arc<std::sync::Mutex<Vec<FailedPlaybackCandidate>>>,
+    identity_rejected_sources: std::sync::Arc<std::sync::Mutex<Vec<FailedPlaybackCandidate>>>,
+    other_failed_sources: std::sync::Arc<std::sync::Mutex<Vec<FailedPlaybackCandidate>>>,
     provider_attempts:
         std::sync::Arc<std::sync::Mutex<Vec<crate::playback_failure::ProviderAttemptSummary>>>,
     source_rescue: std::sync::Arc<std::sync::Mutex<(Option<String>, bool)>>,
@@ -305,6 +307,8 @@ impl SourceTrace {
             event_provider: None,
             extraction_attempts: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             attempted_sources: Default::default(),
+            identity_rejected_sources: Default::default(),
+            other_failed_sources: Default::default(),
             provider_attempts: Default::default(),
             source_rescue: Default::default(),
             skip_youtube_forbidden_retry: false,
@@ -1528,7 +1532,15 @@ async fn resolve_inner(
                 && !trace.native_operation_id.as_deref().is_some_and(|id| id.starts_with("preparation:"));
             let mut result = resolve_inner_prepared(store, acquisition, &effective_track, selected.clone(), cancel.clone(),
                 settings.clone(), &effective_trace, failed, deadline, attempt_limit).await;
-            if result.as_ref().err().is_some_and(|error| ResolutionFailure::new(error.clone()).kind == ResolutionFailureKind::IdentityRejected)
+            let refresh_failure_kind = result
+                .as_ref()
+                .err()
+                .map(|error| ResolutionFailure::new(error.clone()).kind);
+            let refresh_after_empty_search = refresh_failure_kind
+                == Some(ResolutionFailureKind::NoResults)
+                && supports_catalog_playback_refresh(&effective_track);
+            if (refresh_failure_kind == Some(ResolutionFailureKind::IdentityRejected)
+                || refresh_after_empty_search)
                 && automatic_source && !*cancel.borrow() && !deadline.remaining().is_zero()
             {
                 let fresh = tokio::select! {
@@ -1541,10 +1553,26 @@ async fn resolve_inner(
                         || refreshed.duration_seconds != effective_track.duration_seconds || refreshed.version != effective_track.version
                     {
                         trace.event("catalog_request_refresh", &effective_track.provider, json!({"accepted":true}));
-                        let mut refresh_failed = failed.to_vec();
-                        if let Ok(attempted) = trace.attempted_sources.lock() { refresh_failed.extend(attempted.iter().cloned()); }
-                        result = resolve_inner_prepared(store, acquisition, &refreshed, selected, cancel.clone(),
-                            settings.clone(), &effective_trace, &refresh_failed, deadline, attempt_limit).await;
+                        let refresh_failed = match (
+                            trace.attempted_sources.lock(),
+                            trace.identity_rejected_sources.lock(),
+                            trace.other_failed_sources.lock(),
+                        ) {
+                            (Ok(attempted), Ok(identity_rejected), Ok(other_failed)) => {
+                                let mut refresh_failed = failed.to_vec();
+                                refresh_failed.extend(refreshed_candidate_exclusions(
+                                    &attempted,
+                                    &identity_rejected,
+                                    &other_failed,
+                                ));
+                                Some(refresh_failed)
+                            }
+                            _ => None,
+                        };
+                        if let Some(refresh_failed) = refresh_failed {
+                            result = resolve_inner_prepared(store, acquisition, &refreshed, selected, cancel.clone(),
+                                settings.clone(), &effective_trace, &refresh_failed, deadline, attempt_limit).await;
+                        }
                     }
                 }
             }
@@ -1565,6 +1593,35 @@ async fn resolve_inner(
         })
     })
     .await
+}
+
+fn refreshed_candidate_exclusions(
+    attempted: &[FailedPlaybackCandidate],
+    identity_rejected: &[FailedPlaybackCandidate],
+    other_failed: &[FailedPlaybackCandidate],
+) -> Vec<FailedPlaybackCandidate> {
+    attempted
+        .iter()
+        .filter(|attempted| {
+            !identity_rejected.iter().any(|rejected| {
+                rejected.provider == attempted.provider && rejected.id == attempted.id
+            }) || other_failed
+                .iter()
+                .any(|failed| failed.provider == attempted.provider && failed.id == attempted.id)
+        })
+        .cloned()
+        .collect()
+}
+
+fn supports_catalog_playback_refresh(track: &Track) -> bool {
+    if track.provider_id.is_empty() {
+        return false;
+    }
+    match track.provider.as_str() {
+        "spotify" => true,
+        "beatport" | "traxsource" => track.provider_id.bytes().all(|byte| byte.is_ascii_digit()),
+        _ => false,
+    }
 }
 
 /// Exact provider identity permits correcting stale catalog fields only within
@@ -2286,6 +2343,33 @@ pub(crate) fn source_resolution_is_pinned(
             track.provenance["sourceKind"].as_str(),
             Some("youtubeRadio" | "upload" | "uploaded" | "localUpload")
         )
+}
+
+fn failed_unlocked_audio_search_candidate(
+    track: &Track,
+    provider: &str,
+    failed: &[FailedPlaybackCandidate],
+) -> bool {
+    if track.provenance["sourceKind"].as_str() != Some("audioSearch")
+        || track.provenance["playbackMode"].as_str() != Some("lookup")
+        || track.playback_range.is_some()
+        || track.provenance["explicitSourceLock"].as_bool() == Some(true)
+        || (!track.provenance["userSelectedSource"].is_null()
+            && track.provenance["userSelectedSource"].as_bool() != Some(false))
+    {
+        return false;
+    }
+    let Some(candidate) = track
+        .provenance
+        .get("audioCandidate")
+        .and_then(|value| serde_json::from_value::<Candidate>(value.clone()).ok())
+    else {
+        return false;
+    };
+    candidate.provider == provider
+        && failed
+            .iter()
+            .any(|failed| failed.provider == candidate.provider && failed.id == candidate.id)
 }
 
 fn automatic_browser_source_mode(track: &Track) -> bool {
@@ -3665,6 +3749,8 @@ async fn resolve_serial(
         {
             trace.event("search_start", &provider, json!({}));
             let provider_search_started = Instant::now();
+            let recover_failed_audio_candidate =
+                failed_unlocked_audio_search_candidate(track, &provider, failed);
             #[cfg(feature = "playback-early-candidate-experiment")]
             let early_enabled = total_candidate_attempts == 0
                 && provider_attempt_count == 0
@@ -3676,7 +3762,20 @@ async fn resolve_serial(
                     deadline,
                 );
             #[cfg(feature = "playback-early-candidate-experiment")]
-            let search_result = if early_enabled {
+            let search_result = if recover_failed_audio_candidate {
+                acquisition
+                    .prefetch_playback_candidates_after_audio_candidate_failure_traced(
+                        track,
+                        &alternate_search_artists,
+                        &provider,
+                        &settings,
+                        cancel.clone(),
+                        deadline,
+                        trace.clone(),
+                    )
+                    .await
+                    .map(|found| (found, None::<()>))
+            } else if early_enabled {
                 prefetch_with_early_candidate_experiment(
                     acquisition,
                     track,
@@ -3714,18 +3813,33 @@ async fn resolve_serial(
                     .map(|found| (found, None::<()>))
             };
             #[cfg(not(feature = "playback-early-candidate-experiment"))]
-            let search_result = acquisition
-                .prefetch_playback_candidates_cancelled_traced(
-                    track,
-                    &alternate_search_artists,
-                    std::slice::from_ref(&provider),
-                    &settings,
-                    cancel.clone(),
-                    deadline,
-                    trace.clone().with_event_provider(&provider),
-                )
-                .await
-                .map(|found| (found, None::<()>));
+            let search_result = if recover_failed_audio_candidate {
+                acquisition
+                    .prefetch_playback_candidates_after_audio_candidate_failure_traced(
+                        track,
+                        &alternate_search_artists,
+                        &provider,
+                        &settings,
+                        cancel.clone(),
+                        deadline,
+                        trace.clone(),
+                    )
+                    .await
+                    .map(|found| (found, None::<()>))
+            } else {
+                acquisition
+                    .prefetch_playback_candidates_cancelled_traced(
+                        track,
+                        &alternate_search_artists,
+                        std::slice::from_ref(&provider),
+                        &settings,
+                        cancel.clone(),
+                        deadline,
+                        trace.clone().with_event_provider(&provider),
+                    )
+                    .await
+                    .map(|found| (found, None::<()>))
+            };
             let found = match search_result {
                 Ok(found) => found,
                 Err(error) if *cancel.borrow() || error == "Cancelled" => {
@@ -4062,6 +4176,7 @@ async fn resolve_serial(
                 json!({"attempt":attempt+1,"sourcePageUrl":candidate.url,"sourceFingerprint":source_diagnostic_fingerprint(&candidate),"trackFingerprint":recording_identity_fingerprint(track)}),
             );
             let prepared_alternate = std::sync::Arc::new(std::sync::Mutex::new(None));
+            let mut extracted_identity_rejected = false;
             let resolved = async {
                 let audio = acquisition
                 .extract_playback_audio_traced_preparing_alternate(
@@ -4150,6 +4265,10 @@ async fn resolve_serial(
                         "topicUploader":candidate.uploader.as_ref().is_some_and(|value|value.trim_end().ends_with("- Topic")),
                         "requestedVersion":track.version.as_ref().is_some_and(|value|!value.trim().is_empty())}));
                     if !identity_ok {
+                        extracted_identity_rejected = true;
+                        if let Ok(mut rejected) = trace.identity_rejected_sources.lock() {
+                            rejected.push(FailedPlaybackCandidate { provider: candidate.provider.clone(), id: candidate.id.clone() });
+                        }
                         let mut fresh = candidate.clone();
                         if let Some(metadata) = &audio.source_metadata {
                             fresh.source_metadata = Some(metadata.clone());
@@ -4174,6 +4293,14 @@ async fn resolve_serial(
                 &provider,
                 json!({"attempt":attempt+1,"ok":resolved.is_ok(),"sourcePageUrl":candidate.url,"sourceFingerprint":source_diagnostic_fingerprint(&candidate),"trackFingerprint":recording_identity_fingerprint(track)}),
             );
+            if resolved.is_err() && !extracted_identity_rejected {
+                if let Ok(mut failed) = trace.other_failed_sources.lock() {
+                    failed.push(FailedPlaybackCandidate {
+                        provider: candidate.provider.clone(),
+                        id: candidate.id.clone(),
+                    });
+                }
+            }
             match resolved {
                 Ok((audio, proof)) => {
                     remember_verified_source(
@@ -10780,6 +10907,73 @@ mod tests {
     }
 
     #[test]
+    fn failed_audio_search_candidate_recovery_requires_unlocked_lookup_mode() {
+        let remembered = Candidate {
+            id: "youtube:abcdefghijk".into(),
+            provider: "youtube".into(),
+            ..Default::default()
+        };
+        let track = Track {
+            provenance: json!({
+                "sourceKind":"audioSearch",
+                "playbackMode":"lookup",
+                "audioCandidate":remembered
+            }),
+            ..Default::default()
+        };
+        let failed = [FailedPlaybackCandidate {
+            provider: "youtube".into(),
+            id: "youtube:abcdefghijk".into(),
+        }];
+        assert!(failed_unlocked_audio_search_candidate(
+            &track, "youtube", &failed
+        ));
+        assert!(!failed_unlocked_audio_search_candidate(
+            &track,
+            "youtube",
+            &[]
+        ));
+        assert!(!failed_unlocked_audio_search_candidate(
+            &track,
+            "soundcloud",
+            &failed
+        ));
+
+        let mut locked = track.clone();
+        locked.provenance["explicitSourceLock"] = json!(true);
+        assert!(!failed_unlocked_audio_search_candidate(
+            &locked, "youtube", &failed
+        ));
+        let mut user_selected = track.clone();
+        user_selected.provenance["userSelectedSource"] = json!({"provider":"youtube"});
+        assert!(!failed_unlocked_audio_search_candidate(
+            &user_selected,
+            "youtube",
+            &failed
+        ));
+        let mut chapter = track.clone();
+        chapter.playback_range = Some(crate::models::PlaybackRange {
+            parent_track_id: "parent".into(),
+            chapter_id: "chapter-1".into(),
+            source_url: "https://www.youtube.com/watch?v=abcdefghijk".into(),
+            start_time: 10.0,
+            end_time: 20.0,
+            parent_title: "Parent song".into(),
+            parent_duration_seconds: None,
+        });
+        assert!(!failed_unlocked_audio_search_candidate(
+            &chapter, "youtube", &failed
+        ));
+        let mut source_mode = track;
+        source_mode.provenance["playbackMode"] = json!("source");
+        assert!(!failed_unlocked_audio_search_candidate(
+            &source_mode,
+            "youtube",
+            &failed
+        ));
+    }
+
+    #[test]
     fn implicit_failure_exclusion_survives_alias_retry() {
         let pass = AliasResolutionPass::default();
         let failed = FailedPlaybackCandidate {
@@ -13390,6 +13584,60 @@ mod native_only_recovery_tests {
             };
             assert!(refreshed_request_track(&original, &fresh).is_none());
         }
+    }
+    #[test]
+    fn refreshed_candidates_reopen_only_identity_only_rejections() {
+        let candidate = |id: &str| FailedPlaybackCandidate {
+            provider: "soundcloud".into(),
+            id: id.into(),
+        };
+        let attempted = vec![candidate("111"), candidate("222"), candidate("333")];
+        let identity_rejected = vec![candidate("222"), candidate("333")];
+        let other_failed = vec![candidate("333")];
+        let retained =
+            refreshed_candidate_exclusions(&attempted, &identity_rejected, &other_failed);
+        assert_eq!(
+            retained
+                .iter()
+                .map(|source| source.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["111", "333"]
+        );
+    }
+    #[test]
+    fn empty_search_refresh_is_limited_to_supported_catalog_ids_and_valid_empty_results() {
+        let track = |provider: &str, provider_id: &str| Track {
+            provider: provider.into(),
+            provider_id: provider_id.into(),
+            ..Track::default()
+        };
+        for provider in ["spotify", "beatport", "traxsource"] {
+            assert!(supports_catalog_playback_refresh(&track(provider, "123")));
+        }
+        assert!(!supports_catalog_playback_refresh(&track(
+            "beatport",
+            "not-numeric"
+        )));
+        assert!(!supports_catalog_playback_refresh(&track("youtube", "123")));
+        assert!(!supports_catalog_playback_refresh(&track("spotify", "")));
+
+        assert_eq!(
+            ResolutionFailure::new(SOURCE_NO_RESULTS.into()).kind,
+            ResolutionFailureKind::NoResults
+        );
+        assert_eq!(
+            ResolutionFailure::new("soundcloud: incomplete search response".into()).kind,
+            ResolutionFailureKind::SourceOrSearch,
+            "an invalid parsed provider page must not be treated as a completed empty search"
+        );
+        assert_eq!(
+            ResolutionFailure::new("Network connection unavailable".into()).kind,
+            ResolutionFailureKind::Retryable
+        );
+        assert_eq!(
+            ResolutionFailure::new("Playback candidate search timed out".into()).kind,
+            ResolutionFailureKind::ProviderSearchDeadline
+        );
     }
     #[test]
     fn provider_opportunities_leave_useful_time_under_the_same_total_deadline() {

@@ -6540,9 +6540,8 @@ mod tests {
                 "extractor":true,
                 "track":"Bacc of the Bach",
                 "catalogTitle":"Bacc of the Bach",
-                "artistNames":["Nipsey Hussle","Bino Rideaux"],
+                "artists":["Nipsey Hussle","Bino Rideaux"],
                 "artistCount":2,
-                "performerCreditsComplete":true,
                 "duration":duration_seconds
             })),
             ..Candidate::default()
@@ -6626,6 +6625,28 @@ mod tests {
         assert!(!missing_runtime
             .reasons
             .contains(&MatchReason::VersionConflict));
+
+        // Complete typed provider credits open the existing missing-runtime
+        // catalog exception. That path is independent of the length cap and
+        // remains valid when the candidate explicitly proves full credits.
+        let mut complete_fresh_candidate = candidate(Some(198.0));
+        complete_fresh_candidate.source_metadata.as_mut().unwrap()["performerCreditsComplete"] =
+            json!(true);
+        let complete_credits = assess_with_options(
+            &request(None),
+            &complete_fresh_candidate,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &options,
+        );
+        assert_eq!(complete_credits.dimensions.title, Comparison::Agree);
+        assert_eq!(complete_credits.dimensions.artists, Comparison::Agree);
+        assert_eq!(complete_credits.dimensions.runtime, Comparison::Unknown);
+        assert_eq!(
+            complete_credits.action,
+            MatchAction::Accept,
+            "{complete_credits:?}"
+        );
 
         let known_runtime = request(Some(198.0));
         for delta in [30.0, -30.0] {
