@@ -128,7 +128,7 @@ pub(crate) async fn lookup(
                         if let Some(fresh) = worker_trace.fresh_exact_alias_track(&track) {
                             fresh
                         } else {
-                            acquisition.prepare_alias_track_traced(
+                            acquisition.prepare_alias_track(
                                 &track,
                                 stop.clone(),
                                 worker_deadline.instant(),

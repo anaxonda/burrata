@@ -8259,8 +8259,13 @@ mod tests {
         );
         let excerpt = Track {
             playback_range: Some(crate::models::PlaybackRange {
+                parent_track_id: "local-duration-parent".into(),
+                chapter_id: "local-duration-excerpt".into(),
+                source_url: "local:duration-parent".into(),
                 start_time: 12.0,
                 end_time: 42.0,
+                parent_title: "Local duration parent".into(),
+                parent_duration_seconds: Some(177.0605),
             }),
             ..unknown_duration_track.clone()
         };
