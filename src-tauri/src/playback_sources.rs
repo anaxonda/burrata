@@ -2452,7 +2452,7 @@ async fn resolve_inner_prepared(
         trace.event("catalog_alias_preparation_end", &track.provider,
             json!({"durationMs":started.elapsed().as_millis(),"completed":prepared,"extractionAttemptsUsed":trace.extraction_attempts_used()}));
     }
-    let result = resolve_inner_prepared_ordinary(
+    let result = Box::pin(resolve_inner_prepared_ordinary(
         store,
         acquisition,
         track,
@@ -2464,7 +2464,7 @@ async fn resolve_inner_prepared(
         deadline,
         attempt_limit,
         &pass,
-    )
+    ))
     .await;
     if result.is_ok()
         || pinned
@@ -2592,7 +2592,7 @@ async fn resolve_inner_prepared_ordinary(
         let linked_id = linked.id.clone();
         let (branch_stop, branch_cancel) = watch::channel(false);
         let linked_primary = async {
-            let result = resolve_serial(
+            let result = Box::pin(resolve_serial(
                 store,
                 acquisition,
                 track,
@@ -2604,7 +2604,7 @@ async fn resolve_inner_prepared_ordinary(
                 deadline,
                 attempt_limit,
                 alias_pass,
-            )
+            ))
             .await;
             if let Err(error) = &result {
                 if !implicit_link_error_is_terminal(error, deadline) {
@@ -2626,11 +2626,11 @@ async fn resolve_inner_prepared_ordinary(
             biased;
             _ = wait_for_cancellation(cancel.clone()) => Err("Cancelled".into()),
             result = prefer_primary_after_delay(
-                linked_primary,
-                || resolve_ordinary_streaming_sources(
+                Box::pin(linked_primary),
+                || Box::pin(resolve_ordinary_streaming_sources(
                     store, acquisition, track, selected.clone(), branch_cancel.clone(),
                     settings.clone(), trace, &fallback_failed, deadline, attempt_limit, alias_pass,
-                ),
+                )),
                 start_after,
                 |error| implicit_link_error_is_terminal(error, deadline),
             ) => result,
@@ -2640,7 +2640,7 @@ async fn resolve_inner_prepared_ordinary(
         branch_stop.send_replace(true);
         return linked_result;
     }
-    resolve_ordinary_streaming_sources(
+    Box::pin(resolve_ordinary_streaming_sources(
         store,
         acquisition,
         track,
@@ -2652,7 +2652,7 @@ async fn resolve_inner_prepared_ordinary(
         deadline,
         attempt_limit,
         alias_pass,
-    )
+    ))
     .await
 }
 
@@ -2681,7 +2681,7 @@ async fn resolve_ordinary_streaming_sources(
         false,
     );
     if pinned || fallbacks.is_empty() {
-        return resolve_serial(
+        return Box::pin(resolve_serial(
             store,
             acquisition,
             track,
@@ -2693,13 +2693,13 @@ async fn resolve_ordinary_streaming_sources(
             deadline,
             attempt_limit,
             alias_pass,
-        )
+        ))
         .await;
     }
     let mut preferred = settings.clone();
     preferred.streaming_fallback_enabled = false;
     if attempt_limit == 1 {
-        return resolve_serial(
+        return Box::pin(resolve_serial(
             store,
             acquisition,
             track,
@@ -2711,7 +2711,7 @@ async fn resolve_ordinary_streaming_sources(
             deadline,
             attempt_limit,
             alias_pass,
-        )
+        ))
         .await;
     }
     // Run the ordered fallback chain beside the preferred source. A failed
