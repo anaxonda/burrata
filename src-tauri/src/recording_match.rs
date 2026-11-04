@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) const EVALUATOR_VERSION: &str = "28";
+pub(crate) const EVALUATOR_VERSION: &str = "29";
 
 /// Independently selected categories of alternatives for Flexible matching.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -212,34 +212,112 @@ fn valid_duration(d: Option<f64>) -> Option<f64> {
 fn close(a: f64, b: f64) -> bool {
     (a - b).abs() <= 2.0_f64.max(a.min(b) * 0.02)
 }
-fn field_artist_names(meta: &Value) -> Vec<String> {
+#[derive(Default)]
+struct ArtistArrayObservation {
+    names: Vec<String>,
+    declared: bool,
+    uncertain: bool,
+}
+
+fn artist_array_observation(meta: &Value) -> ArtistArrayObservation {
+    let mut observation = ArtistArrayObservation::default();
+    let mut selected_performers: Option<Vec<String>> = None;
     for key in ["artists", "artistNames"] {
-        if let Some(values) = meta[key].as_array() {
+        if let Some(value) = meta.get(key) {
+            if value.is_null() {
+                continue;
+            }
+            let Some(values) = value.as_array() else {
+                // A malformed non-null credit field is uncertainty, not
+                // permission to fall through to a different field.
+                observation.declared = true;
+                observation.uncertain = true;
+                continue;
+            };
             // A malformed/oversized list is not partial credit evidence.
-            if values.is_empty() || values.len() > 32 {
-                return Vec::new();
+            if values.is_empty() {
+                continue;
+            }
+            observation.declared = true;
+            if values.len() > 32 {
+                observation.uncertain = true;
+                continue;
             }
             let mut names = Vec::new();
+            let mut malformed = false;
             for value in values {
                 if let Some(name) = value.as_str() {
                     if name.trim().is_empty() || name.len() > 512 {
-                        return Vec::new();
+                        malformed = true;
+                        break;
                     }
                     names.push(name.to_owned());
                 } else if let Some(name) = value["name"].as_str() {
                     if name.trim().is_empty() || name.len() > 512 {
-                        return Vec::new();
+                        malformed = true;
+                        break;
                     }
-                    let role = value["role"].as_str().unwrap_or("artist");
+                    let role = match value.get("role") {
+                        None | Some(Value::Null) => "artist",
+                        Some(Value::String(role)) => role.as_str(),
+                        Some(_) => {
+                            malformed = true;
+                            break;
+                        }
+                    };
                     if crate::recording_identity::is_performer_credit_role(role) {
                         names.push(name.to_owned());
+                    } else if !crate::recording_identity::is_non_performer_credit_role(role) {
+                        // Preserve an unfamiliar role as uncertainty rather
+                        // than silently treating its artist as a nonperformer.
+                        malformed = true;
+                        break;
                     }
                 } else {
-                    return Vec::new();
+                    malformed = true;
+                    break;
                 }
             }
-            return names;
+            if malformed {
+                observation.uncertain = true;
+                continue;
+            }
+            // Separate composer or other non-performer rows do not contradict
+            // a performer row for the same person. Compare only performer sets.
+            if names.is_empty() {
+                continue;
+            }
+            if let Some(existing) = &selected_performers {
+                let mut existing_keys = existing
+                    .iter()
+                    .map(|name| norm_artist(name))
+                    .collect::<Vec<_>>();
+                let mut current_keys = names
+                    .iter()
+                    .map(|name| norm_artist(name))
+                    .collect::<Vec<_>>();
+                existing_keys.sort();
+                current_keys.sort();
+                if existing_keys != current_keys {
+                    observation.uncertain = true;
+                }
+            } else {
+                selected_performers = Some(names);
+            }
         }
+    }
+    if observation.uncertain {
+        observation.names.clear();
+    } else if let Some(names) = selected_performers {
+        observation.names = names;
+    }
+    observation
+}
+
+fn field_artist_names(meta: &Value) -> Vec<String> {
+    let observation = artist_array_observation(meta);
+    if observation.declared {
+        return observation.names;
     }
     // A singular catalog artist is structured evidence; uploader/channel is not.
     ["artist", "catalogArtist"]
@@ -2677,22 +2755,22 @@ fn build_comparison(
                 .unwrap_or_else(|| credit.clone())
         })
         .collect::<Vec<_>>();
-    let mut names = if let Some(orientation) = &caption_orientation {
+    let artist_array_observation = artist_array_observation(meta);
+    let mut names = if artist_array_observation.uncertain {
+        Vec::new()
+    } else if let Some(orientation) = &caption_orientation {
         expanded_credits(&[orientation.artist.clone()], &comparison_credit_parts)
     } else if filename_observations.is_some() {
         Vec::new()
     } else {
         field_artist_names(meta)
     };
-    // Providers sometimes serialize absent credit arrays as JSON null. Null is
-    // no evidence and may fall back to an independent exact caption prefix;
-    // a malformed non-null structure remains a blocker to avoid truncating it.
+    // Providers sometimes serialize absent credit arrays as JSON null or an
+    // empty array. Both are no evidence and may fall back to an independent
+    // exact caption prefix; malformed non-null structures remain blockers.
     let metadata_declares_artists = filename_observations.is_none()
-        && (meta["identityMetadataUncertain"] == true
-            || ["artists", "artistNames"]
-                .iter()
-                .any(|key| meta.get(*key).is_some_and(|value| !value.is_null())));
-    let mut caption_names = if caption_orientation.is_some() {
+        && (meta["identityMetadataUncertain"] == true || artist_array_observation.declared);
+    let mut caption_names = if artist_array_observation.uncertain || caption_orientation.is_some() {
         Vec::new()
     } else {
         caption_artist_names(
@@ -2757,8 +2835,10 @@ fn build_comparison(
             caption.dedup();
             structured == caption
         };
-    if let Some((_, credits)) = &title_first_caption {
-        caption_names.extend(credits.iter().cloned());
+    if !artist_array_observation.uncertain {
+        if let Some((_, credits)) = &title_first_caption {
+            caption_names.extend(credits.iter().cloned());
+        }
     }
     if let Some(folder_artist) = filename_observations
         .as_ref()
@@ -6248,6 +6328,365 @@ mod tests {
         let assessment = assess(&track(), &c, MatchLevel::Balanced, MatchStage::Resolved);
         assert_eq!(assessment.dimensions.artists, Comparison::Agree);
         assert_eq!(assessment.action, MatchAction::Accept);
+    }
+
+    #[test]
+    fn contradictory_or_malformed_artist_arrays_cannot_be_replaced_by_a_caption() {
+        let request = Track {
+            title: "Song".into(),
+            artist: "Main Artist".into(),
+            duration_seconds: Some(200.),
+            ..Track::default()
+        };
+        for fields in [
+            json!({"artists":["Main Artist"],"artistNames":["Wrong Artist"]}),
+            json!({"artists":["Wrong Artist"],"artistNames":["Main Artist"]}),
+            json!({"artists":["Main Artist"],"artistNames":7}),
+            json!({"artists":"malformed","artistNames":["Main Artist"]}),
+            json!({"artists":["Main Artist"],"artistNames":[{"name":"Main Artist","role":7}]}),
+            json!({"artists":["Main Artist"],"artistNames":[{"name":"Main Artist","role":"unrecognized role"}]}),
+        ] {
+            for title in ["Song", "Main Artist - Song"] {
+                let mut metadata = fields.clone();
+                metadata["provider"] = json!("youtube");
+                metadata["track"] = json!("Song");
+                let candidate = Candidate {
+                    provider: "youtube".into(),
+                    id: "youtube:contradictory-credits".into(),
+                    title: title.into(),
+                    duration_seconds: Some(200.),
+                    source_metadata: Some(metadata),
+                    ..Candidate::default()
+                };
+                for stage in [MatchStage::Search, MatchStage::Resolved] {
+                    for level in [
+                        MatchLevel::Exact,
+                        MatchLevel::Balanced,
+                        MatchLevel::Flexible,
+                    ] {
+                        let assessment = assess(&request, &candidate, level, stage);
+                        assert_eq!(
+                            assessment.dimensions.artists,
+                            Comparison::Unknown,
+                            "{assessment:?}"
+                        );
+                        assert_eq!(
+                            assessment.action,
+                            if stage == MatchStage::Search {
+                                MatchAction::Inspect
+                            } else {
+                                MatchAction::Enrich
+                            },
+                            "{assessment:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn artist_array_order_and_same_person_multiple_roles_preserve_valid_evidence() {
+        for (requested, fields) in [
+            (
+                vec!["Main Artist"],
+                json!({"artists":[{"name":"Main Artist","role":"artist"}],"artistNames":[{"name":"Main Artist","role":"composer"}]}),
+            ),
+            (
+                vec!["Main Artist"],
+                json!({"artists":[{"name":"Main Artist","role":"composer"}],"artistNames":[{"name":"Main Artist","role":"artist"}]}),
+            ),
+            (
+                vec!["Main Artist", "Guest"],
+                json!({"artists":["Main Artist","Guest"],"artistNames":["Guest","Main Artist"]}),
+            ),
+        ] {
+            let request = Track {
+                title: "Song".into(),
+                artist: requested.join(", "),
+                duration_seconds: Some(200.),
+                provenance: json!({"artistCredits":requested.iter().map(|name| json!({"name":name,"role":"artist"})).collect::<Vec<_>>()}),
+                ..Track::default()
+            };
+            let mut metadata = fields;
+            metadata["track"] = json!("Song");
+            let candidate = Candidate {
+                provider: "youtube".into(),
+                title: "Song".into(),
+                duration_seconds: Some(200.),
+                source_metadata: Some(metadata),
+                ..Candidate::default()
+            };
+            let mut baseline = candidate.clone();
+            baseline.source_metadata = Some(json!({"track":"Song","artists":requested}));
+            for stage in [MatchStage::Search, MatchStage::Resolved] {
+                for level in [
+                    MatchLevel::Exact,
+                    MatchLevel::Balanced,
+                    MatchLevel::Flexible,
+                ] {
+                    let assessment = assess(&request, &candidate, level, stage);
+                    let expected = assess(&request, &baseline, level, stage);
+                    assert_eq!(
+                        assessment.dimensions.artists,
+                        Comparison::Agree,
+                        "{assessment:?}"
+                    );
+                    assert_eq!(assessment.action, expected.action, "{assessment:?}");
+                    assert_eq!(
+                        assessment.relationship, expected.relationship,
+                        "{assessment:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn empty_artist_arrays_fall_through_to_other_valid_artist_fields() {
+        let mut candidates = Vec::new();
+        for mut metadata in [
+            json!({"provider":"youtube","track":"Song","duration":200.,"artist":"Main Artist"}),
+            json!({"provider":"youtube","track":"Song","duration":200.,"artists":null,"artistNames":null,"artist":"Main Artist"}),
+            json!({"provider":"youtube","track":"Song","duration":200.,"artists":[],"artistNames":[],"artist":"Main Artist"}),
+            json!({"provider":"youtube","track":"Song","duration":200.,"artists":[],"artistNames":["Main Artist"]}),
+            json!({"provider":"youtube","track":"Song","duration":200.,"artists":["Main Artist"],"artistNames":[]}),
+        ] {
+            // The input fields intentionally cover missing, null, empty and
+            // alternate-array cases; each yields the same positive credit.
+            metadata["sourceMetadataOrigin"] = json!("ytDlpFullInfo");
+            candidates.push(Candidate {
+                provider: "youtube".into(),
+                id: "youtube:artist-fields".into(),
+                title: "Song".into(),
+                duration_seconds: Some(200.),
+                source_metadata: Some(metadata),
+                ..Candidate::default()
+            });
+        }
+
+        for candidate in candidates {
+            for stage in [MatchStage::Search, MatchStage::Resolved] {
+                for level in [
+                    MatchLevel::Exact,
+                    MatchLevel::Balanced,
+                    MatchLevel::Flexible,
+                ] {
+                    let assessment = assess(&track(), &candidate, level, stage);
+                    assert_eq!(
+                        assessment.dimensions.artists,
+                        Comparison::Agree,
+                        "{assessment:?}"
+                    );
+                    assert_eq!(
+                        assessment.relationship,
+                        MatchRelationship::Exact,
+                        "{assessment:?}"
+                    );
+                    assert_eq!(
+                        assessment.action,
+                        if stage == MatchStage::Search {
+                            MatchAction::Inspect
+                        } else {
+                            MatchAction::Accept
+                        },
+                        "{assessment:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn malformed_artist_arrays_block_fallback_but_empty_arrays_do_not_hide_conflicts() {
+        let malformed = [
+            json!("not-an-array"),
+            json!([""]),
+            json!([{"unexpected":"shape"}]),
+            json!([null]),
+            json!([42]),
+        ];
+        for artists in malformed {
+            let candidate = Candidate {
+                provider: "youtube".into(),
+                title: "Song".into(),
+                duration_seconds: Some(200.),
+                source_metadata: Some(json!({
+                    "provider":"youtube",
+                    "track":"Song",
+                    "duration":200.,
+                    "artists":artists,
+                    "artistNames":["Main Artist"],
+                    "artist":"Main Artist"
+                })),
+                ..Candidate::default()
+            };
+            for stage in [MatchStage::Search, MatchStage::Resolved] {
+                for level in [
+                    MatchLevel::Exact,
+                    MatchLevel::Balanced,
+                    MatchLevel::Flexible,
+                ] {
+                    let assessment = assess(&track(), &candidate, level, stage);
+                    assert_eq!(
+                        assessment.dimensions.artists,
+                        Comparison::Unknown,
+                        "{assessment:?}"
+                    );
+                    assert_eq!(
+                        assessment.action,
+                        if stage == MatchStage::Search {
+                            MatchAction::Inspect
+                        } else {
+                            MatchAction::Enrich
+                        },
+                        "{assessment:?}"
+                    );
+                }
+            }
+        }
+
+        let no_artist_evidence = Candidate {
+            provider: "youtube".into(),
+            title: "Song".into(),
+            duration_seconds: Some(200.),
+            source_metadata: Some(json!({
+                "provider":"youtube",
+                "track":"Song",
+                "duration":200.,
+                "artists":[],
+                "artistNames":[]
+            })),
+            ..Candidate::default()
+        };
+        for stage in [MatchStage::Search, MatchStage::Resolved] {
+            for level in [
+                MatchLevel::Exact,
+                MatchLevel::Balanced,
+                MatchLevel::Flexible,
+            ] {
+                let assessment = assess(&track(), &no_artist_evidence, level, stage);
+                assert_eq!(
+                    assessment.dimensions.artists,
+                    Comparison::Unknown,
+                    "{assessment:?}"
+                );
+                assert_eq!(
+                    assessment.action,
+                    if stage == MatchStage::Search {
+                        MatchAction::Inspect
+                    } else {
+                        MatchAction::Enrich
+                    },
+                    "{assessment:?}"
+                );
+            }
+        }
+
+        let mut conflicting = cand();
+        let metadata = conflicting.source_metadata.as_mut().unwrap();
+        metadata["artists"] = json!([]);
+        metadata["artistNames"] = json!(["Wrong Artist"]);
+        metadata["artist"] = json!("Main Artist");
+        for stage in [MatchStage::Search, MatchStage::Resolved] {
+            for level in [
+                MatchLevel::Exact,
+                MatchLevel::Balanced,
+                MatchLevel::Flexible,
+            ] {
+                let assessment = assess(&track(), &conflicting, level, stage);
+                assert_eq!(
+                    assessment.dimensions.artists,
+                    Comparison::Conflict,
+                    "{assessment:?}"
+                );
+                assert_eq!(assessment.action, MatchAction::Reject, "{assessment:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn empty_artist_arrays_do_not_weaken_guest_version_or_isrc_conflicts() {
+        let request = Track {
+            title: "Song feat. Guest One".into(),
+            ..track()
+        };
+        let mut wrong_guest = Candidate {
+            provider: "youtube".into(),
+            title: "Song feat. Wrong Guest".into(),
+            duration_seconds: Some(200.),
+            source_metadata: Some(json!({
+                "provider":"youtube",
+                "track":"Song feat. Wrong Guest",
+                "artists":[],
+                "artist":"Main Artist",
+                "duration":200.
+            })),
+            ..Candidate::default()
+        };
+        wrong_guest.id = "youtube:guest-conflict".into();
+        let guest_assessment = assess(
+            &request,
+            &wrong_guest,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+        );
+        assert_eq!(
+            guest_assessment.dimensions.guests,
+            Comparison::Conflict,
+            "{guest_assessment:?}"
+        );
+        assert_eq!(
+            guest_assessment.action,
+            MatchAction::Reject,
+            "{guest_assessment:?}"
+        );
+
+        let mut wrong_version = cand();
+        wrong_version.source_metadata.as_mut().unwrap()["artists"] = json!([]);
+        wrong_version.source_metadata.as_mut().unwrap()["artist"] = json!("Main Artist");
+        wrong_version.source_metadata.as_mut().unwrap()["track"] = json!("Song (Radio Edit)");
+        let version_request = Track {
+            version: Some("Extended Mix".into()),
+            ..track()
+        };
+        let version_assessment = assess(
+            &version_request,
+            &wrong_version,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+        );
+        assert_eq!(
+            version_assessment.dimensions.version,
+            Comparison::Conflict,
+            "{version_assessment:?}"
+        );
+        assert_eq!(
+            version_assessment.action,
+            MatchAction::Reject,
+            "{version_assessment:?}"
+        );
+
+        let mut wrong_isrc = cand();
+        wrong_isrc.source_metadata.as_mut().unwrap()["artists"] = json!([]);
+        wrong_isrc.source_metadata.as_mut().unwrap()["artist"] = json!("Main Artist");
+        wrong_isrc.source_metadata.as_mut().unwrap()["isrc"] = json!("USZZZ2600001");
+        let isrc_assessment = assess(
+            &track(),
+            &wrong_isrc,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+        );
+        assert_eq!(
+            isrc_assessment.dimensions.isrc,
+            Comparison::Conflict,
+            "{isrc_assessment:?}"
+        );
+        assert_eq!(
+            isrc_assessment.action,
+            MatchAction::Reject,
+            "{isrc_assessment:?}"
+        );
     }
     #[test]
     fn flexible_enriches_when_requested_version_evidence_is_missing() {
