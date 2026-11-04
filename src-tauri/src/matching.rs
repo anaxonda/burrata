@@ -214,8 +214,8 @@ pub fn normalize_version_for_title(title: &str, version: &str) -> String {
     if version.is_empty() {
         return version;
     }
-    let parsed_title = crate::recording_identity::parse_title(title);
-    let title = normalize(&parsed_title.title);
+    let parsed_title = crate::recording_identity::parse_recording_text(title);
+    let title = normalize(&parsed_title.title_without_recognized_annotations());
     if title.is_empty() {
         return version;
     }

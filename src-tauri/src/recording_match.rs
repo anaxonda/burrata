@@ -811,9 +811,15 @@ fn prepared_semantic_observations(
             );
         }
     }
-    // Original/album labels are neutral under the existing policy. They
-    // must not become a second conflicting observation alongside a remaster.
-    values.retain(|value| !value.is_empty());
+    // Original/album labels can accompany mastering labels, but an explicit
+    // Original observation still contradicts Live or a named alternate mix.
+    // Keep that empty semantic key as a conflict witness in the latter case.
+    if !values
+        .iter()
+        .any(|value| !value.is_empty() && !crate::recording_identity::is_release_version(value))
+    {
+        values.retain(|value| !value.is_empty());
+    }
     values.sort();
     values.dedup();
     // Generic "Remix" and a named remix are a compatible refinement; Original
@@ -841,10 +847,7 @@ fn conflicting_semantic_observations(values: &[String]) -> bool {
     }
     let mastering = values
         .iter()
-        .filter(|value| {
-            crate::recording_identity::remaster_version_key(value).is_some()
-                || value.starts_with("restored edition ")
-        })
+        .filter(|value| crate::recording_identity::is_release_version(value))
         .count();
     !(values.len() == 2 && mastering == 1)
 }
@@ -1268,6 +1271,23 @@ fn version_kind(value: &str) -> String {
         "demo".into()
     } else if words.contains(&"karaoke") {
         "karaoke".into()
+    } else if words.contains(&"dub") {
+        "dub".into()
+    } else if matches!(
+        n.as_str(),
+        "a cappella"
+            | "acapella"
+            | "acappella"
+            | "a capella"
+            | "extended version"
+            | "mono"
+            | "stereo"
+            | "sped up"
+            | "slowed"
+            | "slowed reverb"
+            | "slowed and reverb"
+    ) {
+        n
     } else if words.contains(&"edit") {
         "edit".into()
     } else {
@@ -1403,8 +1423,7 @@ fn semantic_version(title: &str, version: &str) -> String {
         }
     }
     let normalized = crate::matching::normalize_version_for_title(title, version);
-    let normalized =
-        crate::recording_identity::remaster_version_key(&normalized).unwrap_or(normalized);
+    let normalized = crate::recording_identity::canonical_version_key(&normalized);
     if matches!(
         normalized.as_str(),
         "original" | "original mix" | "original vocal" | "album version" | "main version"
@@ -1857,6 +1876,8 @@ struct ComparisonFacts {
     requested_performer_count: usize,
     names: Vec<String>,
     actual_version: String,
+    actual_version_components: Vec<String>,
+    requested_version_components: Vec<String>,
     requested_semantic: String,
     requested_version: String,
     actual_kind: String,
@@ -3040,6 +3061,18 @@ fn build_comparison(
         requested_guests,
         requested_performer_count,
         names,
+        actual_version_components: if observations.is_empty() && !actual_semantic.is_empty() {
+            vec![actual_semantic]
+        } else {
+            observations
+        },
+        requested_version_components: if request_observations.is_empty()
+            && !requested_semantic.is_empty()
+        {
+            vec![requested_semantic.clone()]
+        } else {
+            request_observations
+        },
         actual_version,
         requested_semantic,
         requested_version: requested_version.to_owned(),
@@ -3300,26 +3333,28 @@ fn assess_prepared_inner(
                 }
         });
     let category_allowed = |version: &str| {
-        let v = norm(version);
-        let release = v.contains("remaster") || v.contains("restored edition");
-        let performance = ["live", "acoustic", "demo"]
-            .iter()
-            .any(|kind| v.split_whitespace().any(|word| word == *kind));
-        let cover = v.split_whitespace().any(|word| word == "cover");
-        let mix = ["remix", "mix", "edit", "instrumental", "karaoke"]
-            .iter()
-            .any(|kind| v.split_whitespace().any(|word| word == *kind));
-        (release || performance || mix || cover)
-            && (!release || options.allow_other_releases)
-            && (!performance || options.allow_other_performances)
-            && (!mix || options.allow_other_mixes)
-            && (!cover || options.allow_other_artists)
+        let category = crate::recording_identity::version_categories(version);
+        category.known()
+            && (!category.release || options.allow_other_releases)
+            && (!category.performance || options.allow_other_performances)
+            && (!category.mix || options.allow_other_mixes)
+            && (!category.cover || options.allow_other_artists)
     };
+    // Only changed dimensions need permission: a different remaster of the
+    // same live performance must not require permission to change performance.
+    let changed_versions = facts
+        .requested_version_components
+        .iter()
+        .filter(|value| !facts.actual_version_components.contains(value))
+        .chain(
+            facts
+                .actual_version_components
+                .iter()
+                .filter(|value| !facts.requested_version_components.contains(value)),
+        )
+        .collect::<Vec<_>>();
     let version_alternative_allowed = version != Comparison::Conflict
-        || [requested_semantic.as_str(), actual_version.as_str()]
-            .iter()
-            .filter(|v| !v.is_empty())
-            .all(|v| category_allowed(v));
+        || changed_versions.iter().all(|value| category_allowed(value));
     let artist_alternative_allowed = (artists != Comparison::Conflict
         && guests != Comparison::Conflict)
         || options.allow_other_artists;
@@ -3727,18 +3762,20 @@ fn assess_prepared_inner(
     {
         Some(AlternativeKind::OtherArtist)
     } else {
-        let versions = norm(&format!("{requested_semantic} {actual_version}"));
-        if ["remix", "mix", "edit", "instrumental", "karaoke"]
+        if changed_versions
             .iter()
-            .any(|word| versions.split_whitespace().any(|part| part == *word))
+            .any(|value| crate::recording_identity::version_categories(value).mix)
         {
             Some(AlternativeKind::Remix)
-        } else if ["live", "acoustic", "demo"]
+        } else if changed_versions
             .iter()
-            .any(|word| versions.split_whitespace().any(|part| part == *word))
+            .any(|value| crate::recording_identity::version_categories(value).performance)
         {
             Some(AlternativeKind::Performance)
-        } else if versions.contains("remaster") || versions.contains("restored edition") {
+        } else if changed_versions
+            .iter()
+            .any(|value| crate::recording_identity::version_categories(value).release)
+        {
             Some(AlternativeKind::Release)
         } else {
             None
@@ -3788,6 +3825,14 @@ pub(crate) fn alternative_rank(
     if assessment.relationship != MatchRelationship::Alternative {
         return 0;
     }
+    if let Some(kind) = assessment.alternative_kind {
+        return match kind {
+            AlternativeKind::Release => 1,
+            AlternativeKind::Performance => 2,
+            AlternativeKind::Remix => 3,
+            AlternativeKind::OtherArtist => 4,
+        };
+    }
     if assessment.dimensions.artists == Comparison::Conflict
         || assessment.dimensions.guests == Comparison::Conflict
     {
@@ -3815,16 +3860,15 @@ pub(crate) fn alternative_rank(
             .semantic_versions()
             .map(str::to_owned),
     );
-    let text = norm(&labels.join(" "));
-    if ["remix", "mix", "edit", "instrumental", "karaoke"]
+    if labels
         .iter()
-        .any(|word| text.split_whitespace().any(|part| part == *word))
+        .any(|value| crate::recording_identity::version_categories(value).mix)
     {
         3
-    } else if ["live", "acoustic", "demo", "cover"]
-        .iter()
-        .any(|word| text.split_whitespace().any(|part| part == *word))
-    {
+    } else if labels.iter().any(|value| {
+        let c = crate::recording_identity::version_categories(value);
+        c.performance || c.cover
+    }) {
         2
     } else {
         1
@@ -7514,7 +7558,7 @@ mod stage_one_regressions {
     }
     #[test]
     fn unknown_annotations_remain_uncertain_in_all_modes_and_stages() {
-        for suffix in ["[432Hz]", "[Slowed + Reverb]", "(Unclassified Edition)"] {
+        for suffix in ["[432Hz]", "(Unclassified Edition)"] {
             let mut c = candidate();
             c.title = format!("Artist - Song {suffix}");
             c.source_metadata.as_mut().unwrap()["track"] = json!(c.title);
@@ -7536,6 +7580,21 @@ mod stage_one_regressions {
                 assert!(a.reasons.contains(&MatchReason::UnresolvedAnnotation));
             });
         }
+    }
+    #[test]
+    fn explicit_tempo_mix_is_refused_without_mix_permission() {
+        let mut c = candidate();
+        c.title = "Artist - Song [Slowed + Reverb]".into();
+        c.source_metadata.as_mut().unwrap()["track"] = json!(c.title);
+        cells(|level, stage| {
+            let assessment = assess(&request(), &c, level, stage);
+            assert_eq!(
+                assessment.action,
+                MatchAction::Reject,
+                "{level:?} {stage:?}: {assessment:?}"
+            );
+            assert!(assessment.reasons.contains(&MatchReason::VersionConflict));
+        });
     }
     #[test]
     fn caption_semantics_survive_clean_structured_fields_and_nested_presentation() {

@@ -185,3 +185,273 @@ fn structural_normalization_preserves_wrong_recording_and_unknown_title_negative
         );
     }
 }
+
+#[test]
+fn structured_version_labels_match_title_labels_and_respect_mix_permission() {
+    for label in [
+        "Extended Version",
+        "Dub",
+        "DJ Named Dub",
+        "A Cappella",
+        "Mono",
+        "Stereo",
+        "Sped Up",
+        "Slowed + Reverb",
+    ] {
+        let (mut request, candidate) = pair("Song", &format!("Song ({label})"));
+        request.version = Some(label.into());
+        assert_same_recording(&request, &candidate);
+        let (request, candidate) = pair(&format!("Song - {label}"), &format!("Song ({label})"));
+        assert_same_recording(&request, &candidate);
+        let (request, candidate) = pair("Song", &format!("Song ({label})"));
+        for level in [
+            MatchLevel::Exact,
+            MatchLevel::Balanced,
+            MatchLevel::Flexible,
+        ] {
+            assert_ne!(
+                assess(&request, &candidate, level, MatchStage::Resolved).action,
+                MatchAction::Accept,
+                "{label}: {level:?}"
+            );
+        }
+        let mixes = FlexibleMatchingOptions {
+            allow_other_releases: false,
+            allow_other_mixes: true,
+            ..Default::default()
+        };
+        let accepted = assess_with_options(
+            &request,
+            &candidate,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &mixes,
+        );
+        assert_eq!(
+            accepted.action,
+            MatchAction::Accept,
+            "{label}: {accepted:?}"
+        );
+        assert_eq!(
+            accepted.alternative_kind,
+            Some(crate::recording_match::AlternativeKind::Remix)
+        );
+        let performance_only = FlexibleMatchingOptions {
+            allow_other_releases: false,
+            allow_other_performances: true,
+            ..Default::default()
+        };
+        assert_ne!(
+            assess_with_options(
+                &request,
+                &candidate,
+                MatchLevel::Flexible,
+                MatchStage::Resolved,
+                &performance_only
+            )
+            .action,
+            MatchAction::Accept
+        );
+    }
+    let (mut request, candidate) = pair("Song", "Song (A Cappella)");
+    request.version = Some("Acapella".into());
+    assert_same_recording(&request, &candidate);
+    for unknown in ["Stereo Love", "A Cappella Dreams", "Mystery Label"] {
+        let (request, candidate) = pair("Song", &format!("Song ({unknown})"));
+        let all = FlexibleMatchingOptions {
+            allow_other_releases: true,
+            allow_other_performances: true,
+            allow_other_mixes: true,
+            allow_other_artists: true,
+            ..Default::default()
+        };
+        assert_ne!(
+            assess_with_options(
+                &request,
+                &candidate,
+                MatchLevel::Flexible,
+                MatchStage::Resolved,
+                &all
+            )
+            .action,
+            MatchAction::Accept,
+            "{unknown}"
+        );
+    }
+}
+#[test]
+fn flexible_options_apply_only_to_changed_recording_dimensions() {
+    let (request, candidate) = pair(
+        "Song (Live at Wembley) (Remastered 2009)",
+        "Song (Remastered 2019) (Live at Wembley)",
+    );
+    for level in [MatchLevel::Exact, MatchLevel::Balanced] {
+        assert_eq!(
+            assess(&request, &candidate, level, MatchStage::Resolved).action,
+            MatchAction::Reject
+        );
+    }
+    let release_only = FlexibleMatchingOptions::default();
+    let release = assess_with_options(
+        &request,
+        &candidate,
+        MatchLevel::Flexible,
+        MatchStage::Resolved,
+        &release_only,
+    );
+    assert_eq!(release.action, MatchAction::Accept, "{release:?}");
+    assert_eq!(
+        release.alternative_kind,
+        Some(crate::recording_match::AlternativeKind::Release)
+    );
+    assert_eq!(
+        crate::recording_match::alternative_rank(&release, &request, &candidate),
+        1
+    );
+    let (_, different_venue) = pair("Song", "Song (Remastered 2019) (Live at Madrid)");
+    assert_eq!(
+        assess_with_options(
+            &request,
+            &different_venue,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &release_only
+        )
+        .action,
+        MatchAction::Reject
+    );
+    let performance_only = FlexibleMatchingOptions {
+        allow_other_releases: false,
+        allow_other_performances: true,
+        ..Default::default()
+    };
+    assert_eq!(
+        assess_with_options(
+            &request,
+            &different_venue,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &performance_only
+        )
+        .action,
+        MatchAction::Reject
+    );
+    let both = FlexibleMatchingOptions {
+        allow_other_performances: true,
+        ..Default::default()
+    };
+    assert_eq!(
+        assess_with_options(
+            &request,
+            &different_venue,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &both
+        )
+        .action,
+        MatchAction::Accept
+    );
+}
+
+#[test]
+fn search_budget_preserves_verified_title_and_artist_alternatives() {
+    use crate::search_plan::{SearchPlan, SearchQueryReason};
+    let (mut track, _) = pair("Canonical Title", "Canonical Title");
+    let original = track.clone();
+    let plan = SearchPlan::for_track_with_alternatives(
+        &track,
+        &["Verified Artist".into()],
+        &["Verified Title".into()],
+    );
+    assert_eq!(plan.queries.len(), 2);
+    assert_eq!(plan.queries[0].text, "Artist Canonical Title");
+    assert_eq!(plan.queries[1].text, "Verified Artist Verified Title");
+    assert_eq!(
+        plan.queries[1].reason,
+        SearchQueryReason::VerifiedTitleAlternative
+    );
+    assert_eq!(track.title, original.title);
+    assert_eq!(track.artist, original.artist);
+    track.provenance = json!({"manualFields":{"artist":true}});
+    let manual_artist = SearchPlan::for_track_with_alternatives(
+        &track,
+        &["Verified Artist".into()],
+        &["Verified Title".into()],
+    );
+    assert_eq!(manual_artist.queries[1].text, "Artist Verified Title");
+    track.provenance = json!({"manualFields":{"title":true}});
+    let manual_title = SearchPlan::for_track_with_alternatives(
+        &track,
+        &["Verified Artist".into()],
+        &["Verified Title".into()],
+    );
+    assert!(manual_title
+        .queries
+        .iter()
+        .all(|query| query.title == "Canonical Title"));
+    let equivalent = SearchPlan::for_track_with_alternatives(
+        &original,
+        &["Verified Artist".into()],
+        &["Canonical  Title".into()],
+    );
+    assert_eq!(
+        equivalent.queries[1].reason,
+        SearchQueryReason::VerifiedArtistAlternative
+    );
+}
+#[test]
+fn retrieval_uses_shared_version_keys_and_preserves_performance_context() {
+    use crate::search_plan::SearchPlan;
+    for (title, version) in [
+        ("Song (Radio Edit) (Official Audio)", "Radio Edit"),
+        ("Song [ Radio Edit ]", "Radio Edit (3:20)"),
+        ("Song (2009 Digital Remaster)", "Remastered 2009"),
+        ("Song (A Cappella)", "Acapella"),
+        ("Song (Radio Edit) (Official Audio)", "Song Radio Edit"),
+    ] {
+        let (mut track, _) = pair(title, title);
+        track.version = Some(version.into());
+        let plan = SearchPlan::for_track(&track, &[]);
+        assert_eq!(plan.queries[0].title, title, "{title} / {version}");
+    }
+    let (track, _) = pair("Song (Live at Remaster Hall)", "Song");
+    let unchanged = SearchPlan::for_track_with_release_policy(&track, &[], true);
+    assert!(unchanged
+        .queries
+        .iter()
+        .all(|query| query.title.contains("Live at Remaster Hall")));
+    let (track, _) = pair("Song (Live at Wembley) (Remastered 2009)", "Song");
+    let release = SearchPlan::for_track_with_release_policy(&track, &[], true);
+    assert_eq!(release.queries.len(), 2);
+    assert_eq!(release.queries[1].title, "Song (Live at Wembley)");
+    assert_eq!(track.title, "Song (Live at Wembley) (Remastered 2009)");
+}
+
+#[test]
+fn original_labels_still_conflict_with_explicit_performance_or_mix() {
+    for version in ["Live", "DJ Named Remix", "Dub"] {
+        let (mut request, mut candidate) =
+            pair(&format!("Song ({version})"), &format!("Song ({version})"));
+        request.version = Some("Original Mix".into());
+        candidate.source_metadata.as_mut().unwrap()["version"] = json!("Original Mix");
+        let all = FlexibleMatchingOptions {
+            allow_other_releases: true,
+            allow_other_performances: true,
+            allow_other_mixes: true,
+            allow_other_artists: true,
+            ..Default::default()
+        };
+        for level in [
+            MatchLevel::Exact,
+            MatchLevel::Balanced,
+            MatchLevel::Flexible,
+        ] {
+            let result =
+                assess_with_options(&request, &candidate, level, MatchStage::Resolved, &all);
+            assert_ne!(result.action, MatchAction::Accept, "{version}: {result:?}");
+            assert!(result
+                .reasons
+                .contains(&crate::recording_match::MatchReason::ConflictingRequestVersions));
+        }
+    }
+}

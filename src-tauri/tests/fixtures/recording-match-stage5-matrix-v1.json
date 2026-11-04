@@ -258,7 +258,7 @@
       "labels": {
         "evidenceBasis": "syntheticPolicyProbe",
         "candidateProof": "unboundCaption",
-        "uncertainty": "The annotation is unresolved and could describe a distinct rendition; fixture does not assert whether the source is the requested audio.",
+        "uncertainty": "The explicit Slowed + Reverb label is a recognized mix alternative. Default policy forbids changing mixes; this unbound source also lacks evidence required to accept an alternative.",
         "sourceReference": "Durable annotation-stripping reproductions in docs/performance-results/2026-10-21-stage5-matching-audit/results.txt.",
         "synthetic": true
       },
@@ -297,34 +297,34 @@
         "Search": {
           "Exact": {
             "relationship": "Unresolved",
-            "action": "Inspect",
+            "action": "Reject",
             "proofStrength": "metadataOnly"
           },
           "Balanced": {
             "relationship": "Unresolved",
-            "action": "Inspect",
+            "action": "Reject",
             "proofStrength": "metadataOnly"
           },
           "Flexible": {
             "relationship": "Unresolved",
-            "action": "Inspect",
+            "action": "Reject",
             "proofStrength": "metadataOnly"
           }
         },
         "Resolved": {
           "Exact": {
             "relationship": "Unresolved",
-            "action": "Enrich",
+            "action": "Reject",
             "proofStrength": "metadataOnly"
           },
           "Balanced": {
             "relationship": "Unresolved",
-            "action": "Enrich",
+            "action": "Reject",
             "proofStrength": "metadataOnly"
           },
           "Flexible": {
             "relationship": "Unresolved",
-            "action": "Enrich",
+            "action": "Reject",
             "proofStrength": "metadataOnly"
           }
         }

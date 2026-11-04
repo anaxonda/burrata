@@ -90,8 +90,8 @@ fn primary_performer_credit(track: &Track) -> Option<String> {
 
 impl SearchPlan {
     /// Build a canonical query and one alternate within the fixed provider
-    /// budget. A source-verified artist spelling takes priority; when none is
-    /// available, use the first role-aware lead-performer credit.
+    /// budget. Combine source-verified title and artist spellings in the
+    /// alternate slot; otherwise use an artist alias or role-aware lead credit.
     pub(crate) fn for_track(track: &Track, verified_artist_alternatives: &[String]) -> Self {
         Self::for_track_with_release_policy(track, verified_artist_alternatives, false)
     }
@@ -166,6 +166,36 @@ impl SearchPlan {
             push_query(&mut queries, artist, &rendered_title, canonical_reason);
         }
 
+        // One alternate can carry both verified spellings. Otherwise an
+        // artist alias consumes the budget before any title alias is tried.
+        // Equivalent punctuation variants do not displace a useful fallback.
+        if track.provenance["manualFields"]["title"] != true {
+            let title_alternative = verified_title_alternatives
+                .iter()
+                .take(2)
+                .map(|title| search_title_with_alternative(track, title))
+                .find(|title| {
+                    !title.is_empty()
+                        && crate::matching::normalize(title)
+                            != crate::matching::normalize(&rendered_title)
+                });
+            if let (Some(title), Some(artist)) = (
+                title_alternative,
+                verified_artist_alternatives
+                    .first()
+                    .map(String::as_str)
+                    .or(canonical_artist.as_deref())
+                    .or(lead.as_deref()),
+            ) {
+                push_query(
+                    &mut queries,
+                    artist,
+                    &title,
+                    SearchQueryReason::VerifiedTitleAlternative,
+                );
+            }
+        }
+
         let release_fallback = allow_other_releases
             .then(|| search_title_without_release(track))
             .flatten();
@@ -210,76 +240,46 @@ impl SearchPlan {
                 push_query(&mut queries, artist, &fallback_title, reason);
             }
         }
-        if queries.len() < MAX_SEARCH_QUERIES {
-            for alternative in verified_title_alternatives.iter().take(2) {
-                let title = search_title_with_alternative(track, alternative);
-                if let Some(artist) = canonical_artist.as_deref() {
-                    push_query(
-                        &mut queries,
-                        artist,
-                        &title,
-                        SearchQueryReason::VerifiedTitleAlternative,
-                    );
-                }
-                if queries.len() == MAX_SEARCH_QUERIES {
-                    break;
-                }
-            }
-        }
         Self { queries }
     }
 }
 
 fn search_title(track: &Track) -> String {
-    let title = track.title.trim();
-    let Some(version) = track
-        .version
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    else {
-        return title.to_owned();
-    };
-    let parsed = crate::recording_identity::parse_title(title);
-    let title_version = parsed.version.as_deref().unwrap_or_default();
-    if crate::matching::normalize(title_version) == crate::matching::normalize(version) {
-        title.to_owned()
-    } else {
-        format!(
-            "{title} {}",
-            crate::matching::strip_trailing_display_runtime(version)
-        )
-    }
+    render_search_title(&track.title, track.version.as_deref())
 }
 
 fn search_title_with_alternative(track: &Track, alternative: &str) -> String {
-    let title = alternative.trim();
+    render_search_title(alternative, track.version.as_deref())
+}
+
+fn render_search_title(title: &str, version: Option<&str>) -> String {
+    let title = title.trim();
     if title.is_empty() {
         return String::new();
     }
-    let separate_version = track.version.as_deref().map(str::trim).filter(|value| {
-        !value.is_empty()
-            && crate::matching::normalize(
-                crate::recording_identity::parse_title(title)
-                    .version
-                    .as_deref()
-                    .unwrap_or_default(),
-            ) != crate::matching::normalize(value)
-    });
-    separate_version.map_or_else(
-        || title.to_owned(),
-        |version| {
-            format!(
-                "{title} {}",
-                crate::matching::strip_trailing_display_runtime(version)
-            )
-        },
-    )
+    let Some(version) = version.map(str::trim).filter(|value| !value.is_empty()) else {
+        return title.to_owned();
+    };
+    let version = crate::matching::strip_trailing_display_runtime(version);
+    let key = |value: &str| {
+        crate::recording_identity::canonical_version_key(
+            &crate::matching::normalize_version_for_title(title, value),
+        )
+    };
+    let parsed = crate::recording_identity::parse_recording_text(title);
+    let requested_key = key(version);
+    if parsed
+        .semantic_versions()
+        .any(|label| key(label) == requested_key)
+    {
+        title.to_owned()
+    } else {
+        format!("{title} {version}")
+    }
 }
 
 fn release_label(value: &str) -> bool {
-    let normalized = crate::matching::normalize(value);
-    normalized.contains("restored edition") || normalized.contains("remaster")
+    crate::recording_identity::is_release_version(value)
 }
 
 /// Return a retrieval-only title with recognized restoration/remaster labels
@@ -324,14 +324,8 @@ fn search_title_without_release(track: &Track) -> Option<String> {
         }
     }
     title = title.trim().to_owned();
-    let keep_separate_version = separate_version.filter(|version| {
-        !release_label(version)
-            && crate::matching::normalize(&parsed_title_version)
-                != crate::matching::normalize(version)
-    });
-    keep_separate_version.map_or(Some(title.clone()), |version| {
-        Some(format!("{title} {version}"))
-    })
+    let keep_separate_version = separate_version.filter(|version| !release_label(version));
+    Some(render_search_title(&title, keep_separate_version))
 }
 
 fn search_title_without_soundtrack(track: &Track) -> String {
@@ -364,16 +358,7 @@ fn search_title_without_soundtrack(track: &Track) -> String {
         }
     }
     let title = title.trim().to_owned();
-    let separate_version = track.version.as_deref().map(str::trim).filter(|value| {
-        !value.is_empty()
-            && crate::matching::normalize(
-                crate::recording_identity::parse_title(&title)
-                    .version
-                    .as_deref()
-                    .unwrap_or_default(),
-            ) != crate::matching::normalize(value)
-    });
-    separate_version.map_or(title.clone(), |version| format!("{title} {version}"))
+    render_search_title(&title, track.version.as_deref())
 }
 
 #[cfg(test)]

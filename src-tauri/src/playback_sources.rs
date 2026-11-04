@@ -1767,14 +1767,14 @@ fn refreshed_request_track(original: &Track, fresh: &Track) -> Option<Track> {
         return None;
     }
     let versions = |track: &Track| {
-        let parsed = crate::recording_identity::parse_title(&track.title);
-        [track.version.as_deref(), parsed.version.as_deref()]
+        let parsed = crate::recording_identity::parse_recording_text(&track.title);
+        track
+            .version
+            .as_deref()
             .into_iter()
-            .flatten()
+            .chain(parsed.semantic_versions())
             .map(|version| crate::matching::normalize_version_for_title(&track.title, version))
-            .map(|version| {
-                crate::recording_identity::remaster_version_key(&version).unwrap_or(version)
-            })
+            .map(|version| crate::recording_identity::canonical_version_key(&version))
             .filter(|version| !version.is_empty())
             .collect::<std::collections::BTreeSet<_>>()
     };
@@ -15074,6 +15074,44 @@ mod native_only_recovery_tests {
 
         let other_year = spotify_refresh_track("same-recording", "I Will (2010 Digital Remaster)");
         assert!(refreshed_request_track(&original, &other_year).is_none());
+    }
+
+    #[test]
+    fn exact_catalog_refresh_shares_version_keys_and_all_annotation_components() {
+        for (old_title, new_title) in [
+            ("Song (Acapella)", "Song (A Cappella)"),
+            ("Song [ Radio Edit ]", "Song (Radio Edit)"),
+            (
+                "Song (Live at Wembley) (Remastered 2009)",
+                "Song (2009 Digital Remaster) (Live at Wembley)",
+            ),
+        ] {
+            let original = spotify_refresh_track("same-recording", old_title);
+            let fresh = spotify_refresh_track("same-recording", new_title);
+            assert!(
+                refreshed_request_track(&original, &fresh).is_some(),
+                "{old_title} / {new_title}"
+            );
+        }
+        let mut original = spotify_refresh_track("same-recording", "Song");
+        original.version = Some("Acapella".into());
+        let fresh = spotify_refresh_track("same-recording", "Song (A Cappella)");
+        assert!(refreshed_request_track(&original, &fresh).is_some());
+        let original =
+            spotify_refresh_track("same-recording", "Song (Live at Wembley) (Remastered 2009)");
+        for wrong_title in [
+            "Song (Live at Madrid) (Remastered 2009)",
+            "Song (Live at Wembley) (Remastered 2019)",
+            "Song (DJ Remix) (Remastered 2009)",
+        ] {
+            let fresh = spotify_refresh_track("same-recording", wrong_title);
+            assert!(
+                refreshed_request_track(&original, &fresh).is_none(),
+                "{wrong_title}"
+            );
+        }
+        let fresh = spotify_refresh_track("other-recording", &original.title);
+        assert!(refreshed_request_track(&original, &fresh).is_none());
     }
 
     #[test]

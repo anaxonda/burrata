@@ -835,29 +835,7 @@ pub fn parse_title(value: &str) -> ParsedRecordingTitle {
         } else if let Some(work) = soundtrack_work(label) {
             result.title = base.trim().to_owned();
             result.soundtrack = Some(work);
-        } else if [
-            "live",
-            "live at ",
-            "live on ",
-            "live in ",
-            "instrumental",
-            "acoustic",
-            "karaoke",
-            "demo",
-            "cover",
-            "cover by ",
-            "radio edit",
-            "remix",
-            "extended mix",
-        ]
-        .iter()
-        .any(|label| lower == *label || (label.ends_with(' ') && lower.starts_with(label)))
-            || restored_edition_year(&lower)
-            || remaster_version_key(label).is_some()
-            || [" remix", " mix", " edit", " version", " cover"]
-                .iter()
-                .any(|suffix| lower.ends_with(suffix))
-        {
+        } else if explicit_recording_version(label) {
             result.title = base.trim().to_owned();
             result.version = Some(label.to_owned());
         }
@@ -888,6 +866,108 @@ pub fn parse_title(value: &str) -> ParsedRecordingTitle {
         }
     }
     result
+}
+
+/// Shared semantic label vocabulary. Delimiter handling is separate from
+/// classification, and unknown labels remain literal evidence.
+fn explicit_recording_version(label: &str) -> bool {
+    let lower = label.trim().to_ascii_lowercase();
+    matches!(
+        lower.as_str(),
+        "live"
+            | "instrumental"
+            | "acoustic"
+            | "karaoke"
+            | "demo"
+            | "cover"
+            | "radio edit"
+            | "remix"
+            | "extended mix"
+            | "dub"
+            | "acapella"
+            | "acappella"
+            | "a capella"
+            | "a cappella"
+            | "mono"
+            | "stereo"
+            | "sped up"
+            | "slowed"
+            | "slowed + reverb"
+            | "slowed and reverb"
+    ) || ["live at ", "live on ", "live in ", "cover by "]
+        .iter()
+        .any(|prefix| lower.starts_with(prefix))
+        || is_release_version(&lower)
+        || [" remix", " mix", " edit", " version", " cover", " dub"]
+            .iter()
+            .any(|suffix| lower.ends_with(suffix))
+}
+
+/// One spelling key for structured fields and parsed version annotations.
+/// This never removes recording-changing words or collapses distinct years.
+pub(crate) fn canonical_version_key(label: &str) -> String {
+    let normalized = crate::matching::normalize_version(label);
+    let normalized = remaster_version_key(&normalized).unwrap_or(normalized);
+    match normalized.as_str() {
+        "acapella" | "acappella" | "a capella" => "a cappella".to_owned(),
+        _ => normalized,
+    }
+}
+
+pub(crate) fn is_release_version(label: &str) -> bool {
+    let normalized = crate::matching::normalize(label);
+    remaster_version_key(&normalized).is_some() || restored_edition_year(&normalized)
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct VersionCategories {
+    pub release: bool,
+    pub performance: bool,
+    pub mix: bool,
+    pub cover: bool,
+}
+impl VersionCategories {
+    pub fn known(self) -> bool {
+        self.release || self.performance || self.mix || self.cover
+    }
+}
+/// Policy categories use the same vocabulary as parsing, including labels
+/// supplied as separate structured version fields. Categories never establish
+/// artist, title, duration, or source identity on their own.
+pub(crate) fn version_categories(label: &str) -> VersionCategories {
+    let n = crate::matching::normalize(label);
+    let words = n.split_whitespace().collect::<Vec<_>>();
+    VersionCategories {
+        release: words
+            .iter()
+            .any(|word| matches!(*word, "remaster" | "remastered"))
+            || n.contains("restored edition"),
+        performance: words
+            .iter()
+            .any(|word| matches!(*word, "live" | "acoustic" | "demo")),
+        mix: words.iter().any(|word| {
+            matches!(
+                *word,
+                "remix"
+                    | "mix"
+                    | "edit"
+                    | "instrumental"
+                    | "karaoke"
+                    | "dub"
+                    | "acapella"
+                    | "acappella"
+                    | "mono"
+                    | "stereo"
+            )
+        }) || n.contains("a capella")
+            || n.contains("a cappella")
+            || n.contains("extended version")
+            || n == "sped up"
+            || n == "slowed"
+            || n == "slowed reverb"
+            || n == "slowed and reverb",
+        cover: words.contains(&"cover"),
+    }
 }
 
 fn restored_edition_year(label: &str) -> bool {
@@ -946,9 +1026,30 @@ fn trailing_dash_version(value: &str) -> Option<(&str, &str)> {
     let normalized = crate::matching::normalize(label);
     (matches!(
         normalized.as_str(),
-        "extended mix" | "radio edit" | "vocal edit" | "original mix" | "club mix" | "instrumental"
+        "extended mix"
+            | "extended version"
+            | "radio edit"
+            | "vocal edit"
+            | "original mix"
+            | "club mix"
+            | "instrumental"
+            | "album version"
+            | "main version"
+            | "acoustic version"
+            | "dub"
+            | "acapella"
+            | "acappella"
+            | "a capella"
+            | "a cappella"
+            | "mono"
+            | "stereo"
+            | "sped up"
+            | "slowed"
+            | "slowed reverb"
+            | "slowed and reverb"
     ) || normalized == "remix"
         || normalized.ends_with(" remix")
+        || normalized.ends_with(" dub")
         || remaster_version_key(label).is_some())
     .then_some((base, label))
 }
