@@ -34,6 +34,7 @@ fn reserve_fixture_source(
             alignment_phase: 0,
             generation: 1,
             active_generation: Arc::new(AtomicU64::new(1)),
+            activation_gate: new_activation_gate(),
             queued_successor_generation: Arc::new(AtomicU64::new(0)),
             base_position: Arc::new(AtomicU64::new(0f64.to_bits())),
             initial_position: 0.,

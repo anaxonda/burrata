@@ -494,6 +494,7 @@ else:
             .unwrap()
             .iter()
             .filter(|e| e["phase"] == "full_identity_check")
+            .cloned()
             .collect::<Vec<_>>();
         assert_eq!(checks.len(), 2);
         assert!(checks.iter().all(|e| e["details"]["ok"] == false));
@@ -555,6 +556,7 @@ else:
             .unwrap()
             .iter()
             .filter(|e| e["phase"] == "full_identity_check")
+            .cloned()
             .collect::<Vec<_>>();
         assert_eq!(checks.len(), 1);
         assert_eq!(checks[0]["details"]["ok"], true);

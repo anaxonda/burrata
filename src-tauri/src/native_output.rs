@@ -6136,9 +6136,11 @@ mod tests {
         activation_rx: std_mpsc::Receiver<Activation>,
         activation_tx: std_mpsc::Sender<Activation>,
     ) -> Playback {
-        let (mixer, mixer_source) = rodio::mixer::mixer(2, 44_100);
+        let (mixer, _mixer_source) = rodio::mixer::mixer(
+            NonZeroU16::new(2).unwrap(),
+            NonZeroU32::new(44_100).unwrap(),
+        );
         let player = Player::connect_new(&mixer);
-        player.append(mixer_source);
         let samples = Arc::new(AtomicU64::new(0));
         let active_generation = Arc::new(AtomicU64::new(1));
         let base_position = Arc::new(AtomicU64::new(12.0f64.to_bits()));

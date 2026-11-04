@@ -85,7 +85,10 @@ where
 /// Forward a device-disconnection error through the callback shared with the
 /// render path. The disconnect manager pauses the stream before invoking this
 /// callback; default-output streams must also let the application recover.
-fn error_callback_for_disconnect(error_callback: Arc<Mutex<ErrorCallback>>) -> ErrorCallback {
+fn error_callback_for_disconnect<E>(error_callback: Arc<Mutex<E>>) -> ErrorCallback
+where
+    E: FnMut(crate::StreamError) + Send + 'static,
+{
     Box::new(move |err| {
         invoke_error_callback(&error_callback, err);
     })
@@ -197,12 +200,11 @@ mod disconnect_tests {
         let paused_in_callback = paused.clone();
         let received = Arc::new(Mutex::new(Vec::new()));
         let received_by_callback = received.clone();
-        let user_callback: ErrorCallback = Box::new(move |err| {
+        let shared_callback = Arc::new(Mutex::new(move |err: crate::StreamError| {
             assert!(paused_in_callback.load(Ordering::SeqCst));
             received_by_callback.lock().unwrap().push(err);
-        });
-        let shared_callback = Arc::new(Mutex::new(user_callback));
-        let stream_callback = error_callback_for_disconnect(shared_callback);
+        }));
+        let stream_callback: ErrorCallback = error_callback_for_disconnect(shared_callback);
         let disconnect_callback = Arc::new(Mutex::new(stream_callback));
 
         // Inject the event without creating an AudioUnit or touching hardware.
