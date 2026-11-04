@@ -2583,66 +2583,93 @@ async fn resolve_inner_prepared_ordinary(
     attempt_limit: usize,
     alias_pass: &AliasResolutionPass,
 ) -> Result<ResolvedSource, String> {
-    let pinned = source_resolution_is_pinned(track, selected.is_some(), &settings, true);
-    // A saved link is the first source to try, but without an explicit lock it
-    // does not prohibit verified alternatives after that source fails.
-    let mut effective_failed = failed.to_vec();
     if let Some(linked) = implicit_first_candidate(track, selected.is_some(), &settings, failed) {
-        let opportunity = if settings.streaming_fallback_enabled {
-            PlaybackDeadline::at(deadline.cap(deadline.remaining() / 2))
-        } else {
-            deadline
-        };
-        match within_shared_deadline(
-            opportunity,
-            Box::pin(resolve_serial(
+        // A saved link gets the first half of the operation to resolve. At that
+        // boundary, start ordinary source resolution but leave the linked
+        // attempt alive against the same overall deadline.
+        let fallback_failed = failed_with_excluded_candidate(failed, &linked);
+        let linked_provider = linked.provider.clone();
+        let linked_id = linked.id.clone();
+        let (branch_stop, branch_cancel) = watch::channel(false);
+        let linked_primary = async {
+            let result = resolve_serial(
                 store,
                 acquisition,
                 track,
-                Some(linked.clone()),
-                cancel.clone(),
+                Some(linked),
+                branch_cancel.clone(),
                 settings.clone(),
                 trace,
                 failed,
-                opportunity,
+                deadline,
                 attempt_limit,
                 alias_pass,
-            )),
-        )
-        .await
-        {
-            Ok(source) => return Ok(source),
-            Err(error)
-                if error == "Cancelled"
-                    || (error == PLAYBACK_DEADLINE_MESSAGE && deadline.remaining().is_zero())
-                    || *cancel.borrow() =>
-            {
-                return Err(error)
-            }
-            Err(error)
-                if error != PLAYBACK_DEADLINE_MESSAGE
-                    && matches!(
-                        crate::playback_failure::classify(&error).scope,
-                        crate::playback_failure::FailureScope::Global
-                            | crate::playback_failure::FailureScope::Operation
-                    ) =>
-            {
-                return Err(error)
-            }
-            Err(error) => {
-                trace.note_source_failure(&linked.provider, &error, false);
-                let failed_source = FailedPlaybackCandidate {
-                    provider: linked.provider,
-                    id: linked.id,
-                };
-                if let Ok(mut rows) = alias_pass.implicit_failed.lock() {
-                    rows.push(failed_source.clone());
+            )
+            .await;
+            if let Err(error) = &result {
+                if !implicit_link_error_is_terminal(error, deadline) {
+                    trace.note_source_failure(&linked_provider, error, false);
+                    if let Ok(mut rows) = alias_pass.implicit_failed.lock() {
+                        rows.push(FailedPlaybackCandidate {
+                            provider: linked_provider.clone(),
+                            id: linked_id.clone(),
+                        });
+                    }
                 }
-                effective_failed.push(failed_source);
             }
-        }
+            result
+        };
+        let start_after = settings
+            .streaming_fallback_enabled
+            .then(|| deadline.remaining() / 2);
+        let linked_result = tokio::select! {
+            biased;
+            _ = wait_for_cancellation(cancel.clone()) => Err("Cancelled".into()),
+            result = prefer_primary_after_delay(
+                linked_primary,
+                || resolve_ordinary_streaming_sources(
+                    store, acquisition, track, selected.clone(), branch_cancel.clone(),
+                    settings.clone(), trace, &fallback_failed, deadline, attempt_limit, alias_pass,
+                ),
+                start_after,
+                |error| implicit_link_error_is_terminal(error, deadline),
+            ) => result,
+        };
+        // Stop only this resolver's losing waiter. Shared cache owners for
+        // other consumers remain independent.
+        branch_stop.send_replace(true);
+        return linked_result;
     }
-    let failed = effective_failed.as_slice();
+    resolve_ordinary_streaming_sources(
+        store,
+        acquisition,
+        track,
+        selected,
+        cancel,
+        settings,
+        trace,
+        failed,
+        deadline,
+        attempt_limit,
+        alias_pass,
+    )
+    .await
+}
+
+async fn resolve_ordinary_streaming_sources(
+    store: &Store,
+    acquisition: &AcquisitionManager,
+    track: &Track,
+    selected: Option<Candidate>,
+    cancel: watch::Receiver<bool>,
+    settings: Settings,
+    trace: &SourceTrace,
+    failed: &[FailedPlaybackCandidate],
+    deadline: PlaybackDeadline,
+    attempt_limit: usize,
+    alias_pass: &AliasResolutionPass,
+) -> Result<ResolvedSource, String> {
+    let pinned = source_resolution_is_pinned(track, selected.is_some(), &settings, true);
     let primary = match settings.preferred_streaming_source.as_str() {
         "monochrome" | "soundcloud" | "bandcamp" => settings.preferred_streaming_source.as_str(),
         _ => "youtube",
@@ -2704,6 +2731,90 @@ async fn resolve_inner_prepared_ordinary(
     };
     stop.send_replace(true);
     result
+}
+
+fn implicit_link_error_is_terminal(error: &str, deadline: PlaybackDeadline) -> bool {
+    error == "Cancelled"
+        || (error == PLAYBACK_DEADLINE_MESSAGE && deadline.remaining().is_zero())
+        || (error != PLAYBACK_DEADLINE_MESSAGE
+            && matches!(
+                crate::playback_failure::classify(error).scope,
+                crate::playback_failure::FailureScope::Global
+                    | crate::playback_failure::FailureScope::Operation
+            ))
+}
+
+fn failed_with_excluded_candidate(
+    failed: &[FailedPlaybackCandidate],
+    candidate: &Candidate,
+) -> Vec<FailedPlaybackCandidate> {
+    let mut excluded = failed.to_vec();
+    excluded.push(FailedPlaybackCandidate {
+        provider: candidate.provider.clone(),
+        id: candidate.id.clone(),
+    });
+    excluded
+}
+
+async fn prefer_primary_after_delay<T, P, F, Fut, Stop>(
+    primary: P,
+    start_fallback: F,
+    delay: Option<Duration>,
+    stop_on_error: Stop,
+) -> Result<T, String>
+where
+    P: std::future::Future<Output = Result<T, String>>,
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<T, String>>,
+    Stop: Fn(&str) -> bool,
+{
+    tokio::pin!(primary);
+    if let Some(delay) = delay {
+        let timer = tokio::time::sleep(delay);
+        tokio::pin!(timer);
+        tokio::select! {
+            biased;
+            result = &mut primary => match result {
+                Ok(value) => return Ok(value),
+                Err(error) if stop_on_error(&error) => return Err(error),
+                Err(primary_error) => {
+                    return start_fallback()
+                        .await
+                        .map_err(|fallback_error| merge_resolution_errors(primary_error, fallback_error));
+                },
+            },
+            _ = &mut timer => {}
+        }
+    } else {
+        match primary.await {
+            Ok(value) => return Ok(value),
+            Err(error) if stop_on_error(&error) => return Err(error),
+            Err(primary_error) => {
+                return start_fallback().await.map_err(|fallback_error| {
+                    merge_resolution_errors(primary_error, fallback_error)
+                });
+            }
+        }
+    }
+
+    let fallback = start_fallback();
+    tokio::pin!(fallback);
+    tokio::select! {
+        biased;
+        result = &mut primary => match result {
+            Ok(value) => Ok(value),
+            Err(error) if stop_on_error(&error) => Err(error),
+            Err(primary_error) => fallback
+                .await
+                .map_err(|fallback_error| merge_resolution_errors(primary_error, fallback_error)),
+        },
+        result = &mut fallback => match result {
+            Ok(value) => Ok(value),
+            Err(fallback_error) => primary.await.map_err(|primary_error| {
+                merge_resolution_errors(primary_error, fallback_error)
+            }),
+        },
+    }
 }
 
 fn ordered_fallback_settings(settings: &Settings, fallbacks: &[String]) -> Settings {
@@ -9136,6 +9247,239 @@ mod tests {
             .kind,
             ResolutionFailureKind::NoResults
         );
+    }
+
+    #[tokio::test]
+    async fn implicit_link_deadline_signal_is_terminal_only_at_global_deadline() {
+        let overall = PlaybackDeadline::after(Duration::from_secs(5));
+        assert!(!implicit_link_error_is_terminal(
+            PLAYBACK_DEADLINE_MESSAGE,
+            overall
+        ));
+        assert!(implicit_link_error_is_terminal(
+            PLAYBACK_DEADLINE_MESSAGE,
+            PlaybackDeadline::at(tokio::time::Instant::now()),
+        ));
+        assert!(implicit_link_error_is_terminal(
+            "Network connection unavailable",
+            overall,
+        ));
+        assert!(implicit_link_error_is_terminal("Cancelled", overall));
+
+        let fallback = prefer_primary_after_delay(
+            async { Err::<(), _>(PLAYBACK_DEADLINE_MESSAGE.to_owned()) },
+            || async { Ok(()) },
+            Some(Duration::from_secs(1)),
+            |error| implicit_link_error_is_terminal(error, overall),
+        )
+        .await;
+        assert_eq!(fallback, Ok(()));
+
+        let network = prefer_primary_after_delay(
+            async { Err::<(), _>("Network connection unavailable".to_owned()) },
+            || async { Ok(()) },
+            Some(Duration::from_secs(1)),
+            |error| implicit_link_error_is_terminal(error, overall),
+        )
+        .await;
+        assert_eq!(network, Err("Network connection unavailable".to_owned()));
+    }
+
+    #[tokio::test]
+    async fn linked_source_race_keeps_primary_alive_past_half_and_primary_wins() {
+        let (fallback_started_tx, fallback_started_rx) = tokio::sync::oneshot::channel();
+        let primary = async move {
+            fallback_started_rx
+                .await
+                .expect("fallback starts at half time");
+            Ok::<_, String>("linked")
+        };
+        let result = prefer_primary_after_delay(
+            primary,
+            move || {
+                let _ = fallback_started_tx.send(());
+                std::future::pending::<Result<&str, String>>()
+            },
+            Some(Duration::from_millis(20)),
+            |_| false,
+        )
+        .await;
+        assert_eq!(result, Ok("linked"));
+    }
+
+    #[tokio::test]
+    async fn linked_source_race_returns_fallback_while_primary_is_pending() {
+        let result = prefer_primary_after_delay(
+            std::future::pending::<Result<&str, String>>(),
+            || async { Ok("fallback") },
+            Some(Duration::from_millis(10)),
+            |_| false,
+        )
+        .await;
+        assert_eq!(result, Ok("fallback"));
+    }
+
+    #[tokio::test]
+    async fn linked_source_race_prefers_primary_when_both_are_ready() {
+        let (primary_ready_tx, primary_ready_rx) = tokio::sync::oneshot::channel();
+        let primary = async move {
+            primary_ready_rx
+                .await
+                .expect("fallback makes primary ready");
+            Ok::<_, String>("linked")
+        };
+        let result = prefer_primary_after_delay(
+            primary,
+            move || {
+                let _ = primary_ready_tx.send(());
+                async { Ok("fallback") }
+            },
+            Some(Duration::from_millis(10)),
+            |_| false,
+        )
+        .await;
+        assert_eq!(result, Ok("linked"));
+    }
+
+    #[tokio::test]
+    async fn linked_source_race_preserves_implicit_failure_priority_and_stops_global_errors() {
+        let saved_source_error = "Audio source is unavailable; choose another source";
+        let result = prefer_primary_after_delay(
+            async { Err::<(), _>(saved_source_error.to_owned()) },
+            || async { Err(SOURCE_MISSING_DURATION.to_owned()) },
+            Some(Duration::from_secs(1)),
+            |_| false,
+        )
+        .await;
+        assert_eq!(result, Err(saved_source_error.to_owned()));
+
+        let fallback_started = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let fallback_started_in_factory = fallback_started.clone();
+        let result = prefer_primary_after_delay(
+            async { Err::<(), _>("Cancelled".to_owned()) },
+            move || {
+                fallback_started_in_factory.store(true, std::sync::atomic::Ordering::SeqCst);
+                async { Ok(()) }
+            },
+            Some(Duration::ZERO),
+            |error| error == "Cancelled",
+        )
+        .await;
+        assert_eq!(result, Err("Cancelled".to_owned()));
+        assert!(!fallback_started.load(std::sync::atomic::Ordering::SeqCst));
+
+        let result = prefer_primary_after_delay(
+            async { Err::<(), _>(PLAYBACK_DEADLINE_MESSAGE.to_owned()) },
+            || async { Ok(()) },
+            Some(Duration::ZERO),
+            |error| error == PLAYBACK_DEADLINE_MESSAGE,
+        )
+        .await;
+        assert_eq!(result, Err(PLAYBACK_DEADLINE_MESSAGE.to_owned()));
+    }
+
+    #[tokio::test]
+    async fn linked_source_race_merges_errors_when_both_attempts_fail() {
+        let (fallback_started_tx, fallback_started_rx) = tokio::sync::oneshot::channel();
+        let primary = async move {
+            fallback_started_rx.await.expect("fallback starts");
+            Err::<(), _>("linked source failed".to_owned())
+        };
+        let result = prefer_primary_after_delay(
+            primary,
+            move || {
+                let _ = fallback_started_tx.send(());
+                async { Err("preferred and fallback sources failed".to_owned()) }
+            },
+            Some(Duration::from_millis(10)),
+            |_| false,
+        )
+        .await;
+        assert_eq!(
+            result,
+            Err(merge_resolution_errors(
+                "linked source failed".to_owned(),
+                "preferred and fallback sources failed".to_owned(),
+            ))
+        );
+    }
+
+    #[tokio::test]
+    async fn linked_source_race_user_cancel_stops_only_its_losing_waiter() {
+        struct DropNotice(std::sync::Arc<std::sync::atomic::AtomicBool>);
+        impl Drop for DropNotice {
+            fn drop(&mut self) {
+                self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+
+        let (user_cancel_tx, user_cancel) = watch::channel(false);
+        let (branch_stop, branch_cancel) = watch::channel(false);
+        let branch_cancel_observer = branch_cancel.clone();
+        let dropped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let dropped_in_fallback = dropped.clone();
+        let (fallback_started_tx, fallback_started_rx) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            let _ = fallback_started_rx.await;
+            let _ = user_cancel_tx.send(true);
+        });
+
+        let race = prefer_primary_after_delay(
+            std::future::pending::<Result<(), String>>(),
+            move || {
+                let _ = fallback_started_tx.send(());
+                async move {
+                    let _drop_notice = DropNotice(dropped_in_fallback);
+                    std::future::pending::<Result<(), String>>().await
+                }
+            },
+            Some(Duration::from_millis(10)),
+            |_| false,
+        );
+        let result = tokio::select! {
+            biased;
+            _ = wait_for_cancellation(user_cancel) => Err("Cancelled".into()),
+            result = race => result,
+        };
+        branch_stop.send_replace(true);
+        assert_eq!(result, Err("Cancelled".to_owned()));
+        assert!(*branch_cancel_observer.borrow());
+        assert!(dropped.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn linked_source_race_obeys_global_timeout() {
+        let result = tokio::time::timeout(
+            Duration::from_millis(25),
+            prefer_primary_after_delay(
+                std::future::pending::<Result<(), String>>(),
+                || std::future::pending::<Result<(), String>>(),
+                Some(Duration::from_millis(5)),
+                |_| false,
+            ),
+        )
+        .await;
+        assert!(result.is_err(), "global timeout drops both racing attempts");
+    }
+
+    #[test]
+    fn linked_source_fallback_excludes_exact_linked_candidate_without_mutating_input() {
+        let linked = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:2HjO-7_Ap-0".into(),
+            ..Candidate::default()
+        };
+        let prior = FailedPlaybackCandidate {
+            provider: "soundcloud".into(),
+            id: "soundcloud:123".into(),
+        };
+        let excluded = failed_with_excluded_candidate(std::slice::from_ref(&prior), &linked);
+        assert_eq!(excluded.len(), 2);
+        assert_eq!(excluded[0].provider, prior.provider);
+        assert_eq!(excluded[0].id, prior.id);
+        assert_eq!(excluded[1].provider, "youtube");
+        assert_eq!(excluded[1].id, "youtube:2HjO-7_Ap-0");
+        assert_eq!(failed_with_excluded_candidate(&[], &linked).len(), 1);
     }
 
     #[test]
