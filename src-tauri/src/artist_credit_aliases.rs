@@ -216,6 +216,8 @@ pub(crate) struct VerifiedPlaybackArtistAliases {
     isrc_enriched: Vec<Track>,
     verified_recording_isrc: Option<String>,
     credit_sets: Vec<VerifiedCreditSet>,
+    /// Release-scoped spelling choices only; never recording/credit-set proof.
+    lexical_credit_sets: Vec<VerifiedCreditSet>,
     discogs_credit_sets: Vec<VerifiedDiscogsCreditSet>,
     musicbrainz_credit_sets: Vec<VerifiedMusicBrainzCreditSet>,
     release_runtime_variants: Vec<crate::artist_alias_discovery::VerifiedReleaseRuntimeVariant>,
@@ -432,7 +434,12 @@ impl VerifiedPlaybackArtistAliases {
         let credits = self
             .credit_sets
             .iter()
-            .find(|credits| credits.matches(candidate_artist))?;
+            .find(|credits| credits.matches(candidate_artist))
+            .or_else(|| {
+                self.lexical_credit_sets
+                    .iter()
+                    .find(|credits| credits.matches(candidate_artist))
+            })?;
         let mut variant = source.clone();
         variant.artist = candidate_artist.to_owned();
         if let Some(isrc) = &credits.isrc {
@@ -452,6 +459,11 @@ impl VerifiedPlaybackArtistAliases {
         self.credit_sets
             .iter()
             .find_map(|credits| credits.matching_names(candidate_artist))
+            .or_else(|| {
+                self.lexical_credit_sets
+                    .iter()
+                    .find_map(|credits| credits.matching_names(candidate_artist))
+            })
     }
 
     pub(crate) fn discogs_credit_variant(
@@ -558,6 +570,7 @@ pub(crate) fn cached_verified_playback_artist_aliases_with_fresh_exact_track(
     let mut verified_recording_isrc = None;
     let mut release_runtime_variants = Vec::new();
     let mut musicbrainz_credit_sets = Vec::new();
+    let mut lexical_credit_sets = Vec::new();
     if track.provider == "spotify" {
         // A unique MusicBrainz profile that owns the request spelling can add
         // scoped lexical aliases. It does not create a recording credit set or
@@ -566,6 +579,42 @@ pub(crate) fn cached_verified_playback_artist_aliases_with_fresh_exact_track(
             let mut variant = original.clone();
             variant.artist = artist;
             aliases.push(variant);
+        }
+        if let Some(lexical) =
+            crate::discogs_release_lexical_aliases::cached_lexical_credits(store, original)
+        {
+            if lexical.names.len() == lexical.join_phrases.len()
+                && lexical.names.len()
+                    == crate::discogs_release_lexical_aliases::spotify_request(original)
+                        .map_or(0, |request| request.credits.len())
+            {
+                let canonical = lexical
+                    .names
+                    .iter()
+                    .zip(&lexical.join_phrases)
+                    .map(|(names, join)| {
+                        format!(
+                            "{}{}",
+                            names
+                                .get(1)
+                                .or_else(|| names.first())
+                                .map(String::as_str)
+                                .unwrap_or_default(),
+                            join
+                        )
+                    })
+                    .collect::<String>();
+                if !canonical.trim().is_empty() && canonical != original.artist {
+                    let mut variant = original.clone();
+                    variant.artist = canonical;
+                    aliases.push(variant);
+                }
+                lexical_credit_sets.push(VerifiedCreditSet {
+                    names: lexical.names,
+                    join_phrases: lexical.join_phrases,
+                    isrc: None,
+                });
+            }
         }
         aliases.extend(cached_verified_spotify_recording_alias_tracks_with_context(
             store,
@@ -699,6 +748,7 @@ pub(crate) fn cached_verified_playback_artist_aliases_with_fresh_exact_track(
         credit_sets,
         discogs_credit_sets,
         musicbrainz_credit_sets,
+        lexical_credit_sets,
         release_runtime_variants,
         source: Some(original.clone()),
     }
@@ -1157,7 +1207,9 @@ fn has_spotify_request_credit_claim(track: &Track) -> bool {
     }
 }
 
-fn verified_spotify_request_credit_refs(track: &Track) -> Option<Vec<SpotifyArtistCreditRef>> {
+pub(crate) fn verified_spotify_request_credit_refs(
+    track: &Track,
+) -> Option<Vec<SpotifyArtistCreditRef>> {
     if track.provider != "spotify"
         || track.version.is_some()
         || track.playback_range.is_some()
@@ -3483,7 +3535,8 @@ mod tests {
             .set_retained_provider_cache(
                 "artists.spotify-alias-hydration.v1",
                 &key,
-                &json!({"version":1,"original":original,"hydrated":hydrated,"checkedAt":0}),
+                &json!({"version":1,"original":original,"hydrated":hydrated,
+                    "checkedAt":chrono::Utc::now().timestamp()}),
             )
             .unwrap();
         let (recording, profile_a, profile_b) = recording_credit_fixture();

@@ -15,6 +15,7 @@ pub mod analysis_stream_selection;
 mod artist_alias_discovery;
 mod artist_alias_lookup;
 mod artist_credit_aliases;
+mod discogs_release_lexical_aliases;
 pub mod artists;
 mod artwork_cache;
 mod artwork_display;

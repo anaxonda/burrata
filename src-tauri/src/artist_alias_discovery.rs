@@ -71,7 +71,7 @@ fn client() -> Result<&'static Client, String> {
     let _ = CLIENT.set(value);
     Ok(CLIENT.get().expect("client initialized"))
 }
-async fn fetch(url: &str, query: &[(&str, String)]) -> Result<Value, String> {
+pub(crate) async fn fetch(url: &str, query: &[(&str, String)]) -> Result<Value, String> {
     if COOLDOWN
         .lock()
         .await
@@ -98,19 +98,7 @@ async fn fetch(url: &str, query: &[(&str, String)]) -> Result<Value, String> {
     {
         return Err("Artist discovery rate limited".into());
     }
-    let allowed = STATS
-        .try_with(|stats| {
-            let mut stats = stats.borrow_mut();
-            if stats.requests >= 24 {
-                return false;
-            }
-            stats.requests += 1;
-            true
-        })
-        .unwrap_or(true);
-    if !allowed {
-        return Err("Artist discovery request budget exhausted".into());
-    }
+    charge_request_budget()?;
     let mut request_trace = RequestTrace {
         trace: TRACE.try_with(Clone::clone).ok(),
         started: std::time::Instant::now(),
@@ -180,7 +168,7 @@ async fn fetch(url: &str, query: &[(&str, String)]) -> Result<Value, String> {
     };
     result
 }
-async fn mb(
+pub(crate) async fn mb(
     store: &Store,
     namespace: &str,
     id: &str,
@@ -232,13 +220,139 @@ pub(crate) async fn discover_verified_artist_aliases(
     store: &Store,
     track: &Track,
 ) -> DiscoveryReport {
+    if STATS.try_with(|_| ()).is_ok() {
+        let result = discover_inner(store, track).await;
+        let stats = STATS.with(|stats| stats.borrow().clone());
+        DiscoveryReport { stats, result }
+    } else {
+        let (result, stats) = with_discovery_budget(discover_inner(store, track)).await;
+        DiscoveryReport { stats, result }
+    }
+}
+
+/// Share one request-count/bytes/deadline diagnostic scope across lexical
+/// preflight and legacy hydration fallback in the playback alias worker.
+pub(crate) async fn with_discovery_budget<T, F>(future: F) -> (T, DiscoveryStats)
+where
+    F: std::future::Future<Output = T>,
+{
     STATS
-        .scope(std::cell::RefCell::new(DiscoveryStats::default()), async {
-            let result = discover_inner(store, track).await;
-            let stats = STATS.with(|stats| stats.borrow().clone());
-            DiscoveryReport { stats, result }
+        .scope(
+            std::cell::RefCell::new(DiscoveryStats::default()),
+            async move {
+                let result = future.await;
+                let stats = STATS.with(|stats| stats.borrow().clone());
+                (result, stats)
+            },
+        )
+        .await
+}
+
+fn charge_request_budget() -> Result<(), String> {
+    let allowed = STATS
+        .try_with(|stats| {
+            let mut stats = stats.borrow_mut();
+            if stats.requests >= 24 {
+                return false;
+            }
+            stats.requests += 1;
+            true
+        })
+        .unwrap_or(true);
+    if allowed {
+        Ok(())
+    } else {
+        Err("Artist discovery request budget exhausted".into())
+    }
+}
+
+pub(crate) fn has_cached_request_scoped_discogs_lexical_alias(
+    store: &Store,
+    track: &Track,
+) -> bool {
+    crate::discogs_release_lexical_aliases::has_cached_lexical_alias(store, track)
+}
+
+pub(crate) async fn discover_request_scoped_discogs_lexical_aliases_traced(
+    store: &Store,
+    original: &Track,
+    trace: crate::playback_sources::SourceTrace,
+) -> DiscoveryReport {
+    TRACE
+        .scope(trace, async {
+            let started = std::time::Instant::now();
+            let trace = TRACE.try_with(Clone::clone).ok();
+            if let Some(trace) = &trace {
+                trace.event(
+                    "alias_lexical_preflight_start",
+                    "catalog",
+                    json!({"scope":"exact_linked_release_lexical_alias"}),
+                );
+            }
+            if STATS.try_with(|_| ()).is_ok() {
+                let result = lexical_discovery_result(
+                    crate::discogs_release_lexical_aliases::discover_lexical_alias(store, original)
+                        .await,
+                );
+                let stats = STATS.with(|stats| stats.borrow().clone());
+                if let Some(trace) = &trace {
+                    trace.event(
+                        "alias_lexical_preflight_end",
+                        "catalog",
+                        json!({
+                            "durationMs": started.elapsed().as_millis() as u64,
+                            "outcome": lexical_outcome(&result),
+                            "requests": stats.requests,
+                        }),
+                    );
+                }
+                DiscoveryReport { stats, result }
+            } else {
+                let (result, stats) = with_discovery_budget(async {
+                    lexical_discovery_result(
+                        crate::discogs_release_lexical_aliases::discover_lexical_alias(
+                            store, original,
+                        )
+                        .await,
+                    )
+                })
+                .await;
+                if let Some(trace) = &trace {
+                    trace.event(
+                        "alias_lexical_preflight_end",
+                        "catalog",
+                        json!({
+                            "durationMs": started.elapsed().as_millis() as u64,
+                            "outcome": lexical_outcome(&result),
+                            "requests": stats.requests,
+                        }),
+                    );
+                }
+                DiscoveryReport { stats, result }
+            }
         })
         .await
+}
+
+fn lexical_discovery_result(result: Result<bool, String>) -> Result<(), String> {
+    match result {
+        Ok(true) => Ok(()),
+        Ok(false) => Err("No request-scoped lexical alias was verified".to_owned()),
+        Err(error) => Err(error),
+    }
+}
+
+fn lexical_outcome(result: &Result<(), String>) -> &'static str {
+    match result {
+        Ok(()) => "completed",
+        Err(error) if error.contains("No request-scoped lexical alias") => "no_eligible_alias",
+        Err(error) if error.contains("rate limited") || error.contains("HTTP 429") => {
+            "rate_limited"
+        }
+        Err(error) if error.contains("HTTP 503") => "temporarily_unavailable",
+        Err(error) if error.contains("budget") => "budget_exhausted",
+        Err(_) => "unavailable",
+    }
 }
 async fn discover_inner(store: &Store, track: &Track) -> Result<(), String> {
     if matches!(
@@ -2743,7 +2857,10 @@ pub(crate) fn exact_url_artist_name<'a>(
     }
     Some(name)
 }
-async fn discover_spotify_artist(store: &Store, artist_id: &str) -> Result<bool, String> {
+pub(crate) async fn discover_spotify_artist(
+    store: &Store,
+    artist_id: &str,
+) -> Result<bool, String> {
     discover_spotify_artist_mode(store, artist_id, false).await
 }
 async fn discover_spotify_artist_mode(
@@ -3045,6 +3162,43 @@ mod provider_identity_tests {
                 .unwrap()
                 .unwrap(),
             binding
+        );
+    }
+}
+
+#[cfg(test)]
+mod shared_budget_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn lexical_and_fallback_stages_share_one_request_cap() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("discovery-budget.sqlite")).unwrap();
+        let unsupported = Track::default();
+        let trace = crate::playback_sources::SourceTrace::new(None, None, None);
+        let (result, stats) = with_discovery_budget(async {
+            // Simulate a failed lexical stage consuming most of the cap, then
+            // the unchanged hydration/recording fallback sharing the remainder.
+            for _ in 0..19 {
+                charge_request_budget().unwrap();
+            }
+            let lexical =
+                discover_request_scoped_discogs_lexical_aliases_traced(&store, &unsupported, trace)
+                    .await;
+            assert_eq!(lexical.stats.requests, 19);
+            let fallback = discover_verified_artist_aliases(&store, &unsupported).await;
+            assert_eq!(fallback.stats.requests, 19);
+            let lexical_requests = 19;
+            for _ in 0..(24 - lexical_requests) {
+                charge_request_budget().unwrap();
+            }
+            charge_request_budget().err()
+        })
+        .await;
+        assert_eq!(stats.requests, 24);
+        assert_eq!(
+            result.as_deref(),
+            Some("Artist discovery request budget exhausted")
         );
     }
 }

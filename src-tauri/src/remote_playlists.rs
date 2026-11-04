@@ -12311,6 +12311,7 @@ mod alias_hydration_tests {
         let store = Arc::new(Store::open(&directory.path().join("alias-cache.sqlite")).unwrap());
         let original = provider_track();
         let hydrated = original.clone();
+        store.save_track(&original).unwrap();
         let key = alias_hydration_key(&original).unwrap();
         store
             .set_provider_cache(

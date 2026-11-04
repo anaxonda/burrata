@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "tracks": [
+    {
+      "album": "Look Around The Corner",
+      "albumArtist": null,
+      "artist": "Quantic, Alice Russell, Quantic and His Combo Barbaro",
+      "artworkUrl": "https://i.scdn.co/image/ab67616d00001e02856bb633b8d27f246bdc4dab",
+      "assetId": null,
+      "bpm": null,
+      "catalogNumber": null,
+      "discNumber": null,
+      "discTotal": null,
+      "disposition": null,
+      "durationSeconds": 284.16,
+      "favorite": false,
+      "genre": null,
+      "id": "spotify:2EO1Mu1ynYzzR5v3h7DPmP",
+      "isrc": null,
+      "key": null,
+      "label": null,
+      "localAvailability": "none",
+      "localPath": null,
+      "normalizedGenre": null,
+      "previewUrl": null,
+      "provenance": {
+        "albumId": "5LvGZBRirAASn8sF0tcWFn",
+        "artistCredits": [
+          {
+            "joinPhrase": null,
+            "name": "Quantic",
+            "provenance": "remoteProviderStructuredCredits",
+            "providerId": "5ZMwoAjeDtLJ0XRwRTgaK8",
+            "role": null
+          },
+          {
+            "joinPhrase": null,
+            "name": "Alice Russell",
+            "provenance": "remoteProviderStructuredCredits",
+            "providerId": "1ga4lWS7NtKo4r9jNSWumc",
+            "role": null
+          },
+          {
+            "joinPhrase": null,
+            "name": "Quantic and His Combo Barbaro",
+            "provenance": "remoteProviderStructuredCredits",
+            "providerId": "7zc5IwPnsT4IxqtsqVwcSN",
+            "role": null
+          }
+        ],
+        "available": true,
+        "plays": 12101071,
+        "position": 3,
+        "positionScope": "album",
+        "remoteEntryId": "album_5LvGZBRirAASn8sF0tcWFn_2",
+        "remotePlaylist": true
+      },
+      "provider": "spotify",
+      "providerId": "2EO1Mu1ynYzzR5v3h7DPmP",
+      "rank": null,
+      "recordingDate": null,
+      "releaseDate": null,
+      "remixers": null,
+      "sourceUrl": "https://open.spotify.com/track/2EO1Mu1ynYzzR5v3h7DPmP",
+      "title": "Travelling Song",
+      "trackNumber": null,
+      "trackTotal": null,
+      "version": null
+    }
+  ]
+}

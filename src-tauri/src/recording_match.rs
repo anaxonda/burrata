@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) const EVALUATOR_VERSION: &str = "25";
+pub(crate) const EVALUATOR_VERSION: &str = "26";
 
 /// Independently selected categories of alternatives for Flexible matching.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -3934,6 +3934,131 @@ pub(crate) fn assess_with_scoped_artist_credit_set_variant_and_options(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn exact_release_lexical_artist_spelling_matches_title_only_candidate_without_identity_proof() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../fixtures/travelling-song-spotify-request.json"
+        ))
+        .unwrap();
+        let request: Track = serde_json::from_value(fixture["tracks"][0].clone()).unwrap();
+        let candidate_title = "Quantic, Alice Russell - Travelling Song - feat. The Combo Bárbaro";
+        let candidate = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:x5JgogqFYOM".into(),
+            url: "https://www.youtube.com/watch?v=x5JgogqFYOM".into(),
+            title: candidate_title.into(),
+            uploader: Some("TruThoughtsJukeBox".into()),
+            duration_seconds: Some(284.0),
+            source_metadata: Some(json!({
+                "provider":"youtube",
+                "resolvedProviderId":"x5JgogqFYOM",
+                "sourceMetadataOrigin":"ytDlpCandidateMetadata",
+                "duration":284.0,
+                "artists":null,"artist":null,"album":null,"isrc":null
+            })),
+            ..Candidate::default()
+        };
+        let mut resolved_candidate = candidate.clone();
+        // Model the production Search -> Resolved metadata-origin transition
+        // without adding artist, album, ISRC, track, or catalogTitle facts.
+        resolved_candidate.source_metadata.as_mut().unwrap()["sourceMetadataOrigin"] =
+            json!("ytDlpFullInfo");
+        let lexical_credits = vec![
+            "Quantic".to_owned(),
+            "Alice Russell".to_owned(),
+            "The Combo Bárbaro".to_owned(),
+        ];
+        for level in [
+            MatchLevel::Exact,
+            MatchLevel::Balanced,
+            MatchLevel::Flexible,
+        ] {
+            let search = assess_with_primary_credit_override(
+                &request,
+                &candidate,
+                level,
+                MatchStage::Search,
+                &lexical_credits,
+            );
+            assert_ne!(search.action, MatchAction::Reject, "{level:?}: {search:?}");
+            let resolved = assess_with_primary_credit_override(
+                &request,
+                &resolved_candidate,
+                level,
+                MatchStage::Resolved,
+                &lexical_credits,
+            );
+            match level {
+                MatchLevel::Flexible => assert_eq!(
+                    resolved.action,
+                    MatchAction::Accept,
+                    "{level:?}: {resolved:?}"
+                ),
+                MatchLevel::Exact => assert_ne!(
+                    resolved.action,
+                    MatchAction::Accept,
+                    "{level:?}: {resolved:?}"
+                ),
+                MatchLevel::Balanced => assert_ne!(
+                    resolved.action,
+                    MatchAction::Reject,
+                    "{level:?}: {resolved:?}"
+                ),
+            }
+            assert_ne!(resolved.dimensions.artists, Comparison::Conflict);
+            assert_eq!(resolved.dimensions.title, Comparison::Agree);
+            assert_eq!(resolved.dimensions.version, Comparison::Unknown);
+        }
+
+        let mut wrong_artist = resolved_candidate.clone();
+        wrong_artist.title = "Different Artist - Travelling Song".into();
+        let rejected = assess_with_primary_credit_override(
+            &request,
+            &wrong_artist,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &lexical_credits,
+        );
+        assert_ne!(rejected.action, MatchAction::Accept, "{rejected:?}");
+
+        let mut wrong_version = resolved_candidate.clone();
+        wrong_version.title = format!("{candidate_title} (Remix)");
+        let rejected = assess_with_primary_credit_override(
+            &request,
+            &wrong_version,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &lexical_credits,
+        );
+        assert_ne!(rejected.action, MatchAction::Accept, "{rejected:?}");
+
+        let mut wrong_source = resolved_candidate.clone();
+        wrong_source.source_metadata.as_mut().unwrap()["resolvedProviderId"] =
+            json!("differentVideoId");
+        let rejected = assess_with_primary_credit_override(
+            &request,
+            &wrong_source,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &lexical_credits,
+        );
+        assert_ne!(rejected.action, MatchAction::Accept, "{rejected:?}");
+
+        let mut request_with_isrc = request;
+        request_with_isrc.isrc = Some("USABC2600001".into());
+        let mut wrong_isrc = resolved_candidate;
+        wrong_isrc.source_metadata.as_mut().unwrap()["isrc"] = json!("GBXYZ9876543");
+        let rejected = assess_with_primary_credit_override(
+            &request_with_isrc,
+            &wrong_isrc,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &lexical_credits,
+        );
+        assert_ne!(rejected.action, MatchAction::Accept, "{rejected:?}");
+        assert_eq!(rejected.dimensions.identifier, Comparison::Conflict);
+    }
     #[test]
     fn uploader_corroborated_caption_orientation_is_request_scoped_and_keeps_identity_guards() {
         macro_rules! assert_assessment_action {

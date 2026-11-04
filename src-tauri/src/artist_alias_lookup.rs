@@ -16,9 +16,9 @@ use std::{
 };
 use tokio::sync::watch;
 
-// v7 invalidates prior negatives because fresh exact Spotify reads can now
-// supply request-scoped verified artist profile aliases without a library row.
-const NEGATIVE_CACHE_NAMESPACE: &str = "artists.alias-discovery.negative.v7";
+// v8 invalidates prior negatives because exact-release lexical aliases can
+// recover provider credit spellings without a fresh Spotify track read.
+const NEGATIVE_CACHE_NAMESPACE: &str = "artists.alias-discovery.negative.v8";
 
 struct Flight {
     id: uuid::Uuid,
@@ -72,6 +72,20 @@ fn negative_cache_key(original: &Track, hydrated: &Track) -> Option<String> {
     }
 }
 
+// A saved, complete identity can reuse its semantic negative before another
+// cold lexical lookup. Unsaved requests still obtain fresh exact provenance
+// through their existing request-local route before consulting negatives.
+fn saved_spotify_negative_key(store: &crate::storage::Store, track: &Track) -> Option<String> {
+    if track.provider != "spotify" || store.get_library_track(&track.id).ok().flatten().is_none() {
+        return None;
+    }
+    if let Some(key) = negative_cache_key(track, track) {
+        return Some(key);
+    }
+    let hydrated = crate::remote_playlists::read_alias_hydrated_track(store, track)?;
+    negative_cache_key(track, &hydrated)
+}
+
 fn can_cache_no_verified_evidence(
     track: &Track,
     has_saved_row: bool,
@@ -121,6 +135,30 @@ pub(crate) async fn lookup(
             _=wait_for_cancellation(stop.clone())=>Err("Cancelled".into()),
             _=tokio::time::sleep_until(worker_deadline.instant())=>Err("Alias discovery deadline exceeded".into()),
             result=async {
+                // Both discovery routes consume one public-metadata budget.
+                // A failed lexical lookup must not reset the 24-request cap
+                // when the existing hydration/recording route runs afterward.
+                let (result, stats): (Result<(), String>, _) = crate::artist_alias_discovery::with_discovery_budget(async {
+                if track.provider == "spotify" {
+                    if crate::artist_alias_discovery::has_cached_request_scoped_discogs_lexical_alias(&store, &track) {
+                        return Ok(());
+                    }
+                    if let Some(key) = saved_spotify_negative_key(&store, &track) {
+                        if store.get_provider_cache(NEGATIVE_CACHE_NAMESPACE, &key)?.is_some() {
+                            worker_trace.event("alias_lookup_skipped", &track.provider, json!({"reason":"negative_cache","identity":"saved_complete"}));
+                            return Ok(());
+                        }
+                    }
+                    // This path accepts only the original structured album
+                    // request. A provider failure leaves the established exact
+                    // hydration route available under the same outer deadline.
+                    let _lexical_report = crate::artist_alias_discovery::discover_request_scoped_discogs_lexical_aliases_traced(
+                        &store, &track, worker_trace.clone(),
+                    ).await;
+                    if crate::artist_alias_discovery::has_cached_request_scoped_discogs_lexical_alias(&store, &track) {
+                        return Ok(());
+                    }
+                }
                 let hydrated = if track.provider == "spotify" {
                     if crate::artist_credit_aliases::has_verified_spotify_request_credits(&track)
                         && store.get_library_track(&track.id).ok().flatten().is_none()
@@ -153,7 +191,6 @@ pub(crate) async fn lookup(
                     }
                 }
                 let report=crate::artist_alias_discovery::discover_verified_artist_aliases_traced(&store,&hydrated,worker_trace.clone()).await;
-                worker_trace.event("alias_discovery_work",&track.provider,json!({"metadataRequests":report.stats.requests,"bytes":report.stats.bytes,"queueMs":report.stats.queue_ms,"httpMs":report.stats.http_ms,"lastStatus":report.stats.last_status,"ok":report.result.is_ok()}));
                 report.result?;
                 let has_fresh_exact = worker_trace.fresh_exact_alias_track(&track).is_some();
                 let has_saved_row = store.get_library_track(&track.id).ok().flatten().is_some();
@@ -169,6 +206,9 @@ pub(crate) async fn lookup(
                     }
                 }
                 Ok(())
+                }).await;
+                worker_trace.event("alias_discovery_work",&track.provider,json!({"metadataRequests":stats.requests,"bytes":stats.bytes,"queueMs":stats.queue_ms,"httpMs":stats.http_ms,"lastStatus":stats.last_status,"ok":result.is_ok()}));
+                result
             }=>result,
         };
         worker_trace.event("alias_discovery_end",&track.provider,json!({"durationMs":started.elapsed().as_secs_f64()*1000.0,"ok":result.is_ok(),"cancelled":result.as_ref().err().is_some_and(|e|e=="Cancelled")}));
@@ -303,6 +343,43 @@ mod tests {
     }
 
     #[test]
+    fn saved_complete_negative_is_available_before_cold_lexical_discovery() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = crate::storage::Store::open(&directory.path().join("negative.sqlite")).unwrap();
+        let track = spotify_track_with_artist_identity();
+        let key = negative_cache_key(&track, &track).unwrap();
+        store
+            .set_provider_cache(
+                NEGATIVE_CACHE_NAMESPACE,
+                &key,
+                &json!({"outcome":"no_verified_evidence"}),
+                3600,
+            )
+            .unwrap();
+        assert!(
+            saved_spotify_negative_key(&store, &track).is_none(),
+            "an unsaved request must not skip its fresh exact identity route"
+        );
+        store.save_track(&track).unwrap();
+        assert_eq!(
+            saved_spotify_negative_key(&store, &track).as_deref(),
+            Some(key.as_str())
+        );
+        let mut changed = track.clone();
+        changed.title = "Corrected title".into();
+        changed.provenance["remoteCatalog"]["title"] = json!(changed.title);
+        let changed_key = saved_spotify_negative_key(&store, &changed).unwrap();
+        assert_ne!(
+            changed_key, key,
+            "a corrected request must not inherit the negative"
+        );
+        assert!(store
+            .get_provider_cache(NEGATIVE_CACHE_NAMESPACE, &changed_key)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
     fn spotify_negative_cache_requires_complete_hydrated_identity() {
         let mut incomplete = spotify_track_with_artist_identity();
         incomplete.provenance = json!({});
@@ -313,10 +390,10 @@ mod tests {
     }
 
     #[test]
-    fn recording_runtime_evidence_does_not_reuse_pre_v7_negative_cache() {
+    fn recording_runtime_evidence_does_not_reuse_pre_v8_negative_cache() {
         assert_eq!(
             NEGATIVE_CACHE_NAMESPACE,
-            "artists.alias-discovery.negative.v7"
+            "artists.alias-discovery.negative.v8"
         );
         assert_ne!(
             NEGATIVE_CACHE_NAMESPACE,
