@@ -1072,11 +1072,13 @@ mod tests {
             .annotations
             .iter()
             .any(|annotation| annotation.kind == AnnotationKind::FeaturedCredit));
+        // `span` retains the original separator whitespace from base end;
+        // `content_span` isolates the annotation's inner label.
         assert!(version.annotations.iter().any(|annotation| {
             annotation.kind == AnnotationKind::SemanticVersion
                 && annotation.value == "Remix"
                 && &"Song feat. Guest (Remix)"[annotation.span.start..annotation.span.end]
-                    == "(Remix)"
+                    == " (Remix)"
                 && &"Song feat. Guest (Remix)"
                     [annotation.content_span.start..annotation.content_span.end]
                     == "Remix"
@@ -1088,7 +1090,7 @@ mod tests {
             annotation.kind == AnnotationKind::Soundtrack
                 && annotation.value == "From \"Film\""
                 && &"Song feat. Guest (From \"Film\")"[annotation.span.start..annotation.span.end]
-                    == "(From \"Film\")"
+                    == " (From \"Film\")"
                 && &"Song feat. Guest (From \"Film\")"
                     [annotation.content_span.start..annotation.content_span.end]
                     == "From \"Film\""

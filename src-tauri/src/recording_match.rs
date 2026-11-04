@@ -1524,18 +1524,39 @@ fn caption_artist_names(
 ) -> Vec<String> {
     for separator in [" - ", " – ", " — ", " | "] {
         if let Some((prefix, suffix)) = caption.split_once(separator) {
-            let expected = expected_override
+            let expected_names = expected_override
                 .map(|credits| credits.to_vec())
-                .unwrap_or_else(|| requested_credit_parts(expected_artist, guests))
-                .into_iter()
-                .map(|name| norm_artist(&name))
-                .collect::<Vec<_>>();
+                .unwrap_or_else(|| requested_credit_parts(expected_artist, guests));
+            // A bare feature phrase in the artist field can be an atomic act
+            // name (for example, "Band Featuring Friends"). Preserve that
+            // whole name when no separately verified/structured credit list
+            // was supplied; otherwise a caption can split the name into a
+            // false main-artist/guest pair.
+            let expected_is_atomic_feature_name = expected_override.is_none()
+                && guests.is_empty()
+                && parse_title(expected_artist).featured_credit.is_some();
+            let expected = if expected_is_atomic_feature_name {
+                vec![norm_artist(expected_artist)]
+            } else {
+                expected_names
+                    .into_iter()
+                    .map(|name| norm_artist(&name))
+                    .collect::<Vec<_>>()
+            };
             // A structured expected credit that matches the whole caption
             // prefix is atomic, even if its proper name contains words such
             // as "Featuring" or "with".
-            let prefix_is_expected_whole_credit = expected
-                .iter()
-                .any(|credit| !credit.is_empty() && norm_artist(prefix) == *credit);
+            let prefix_is_expected_whole_credit = expected_override
+                .map(|credits| {
+                    credits.iter().any(|credit| {
+                        !credit.trim().is_empty() && norm_artist(prefix) == norm_artist(credit)
+                    })
+                })
+                .unwrap_or_else(|| {
+                    guests.is_empty()
+                        && !expected_artist.trim().is_empty()
+                        && norm_artist(prefix) == norm_artist(expected_artist)
+                });
             let mut featured = if prefix_is_expected_whole_credit {
                 Vec::new()
             } else {
@@ -4356,6 +4377,22 @@ mod tests {
             None,
         )
         .is_empty());
+        assert!(caption_artist_names(
+            "Band - Song feat. Wrong Guest",
+            "Band",
+            &["Requested Guest".into()],
+            None,
+        )
+        .is_empty());
+
+        let structured = vec!["Band".to_owned(), "Friends".to_owned()];
+        let grouped_caption = caption_artist_names(
+            "Band & Friends - Song",
+            "Band & Friends",
+            &[],
+            Some(&structured),
+        );
+        assert_eq!(expanded_credits(&grouped_caption, &structured), structured);
     }
     #[test]
     fn uploader_corroborated_caption_orientation_is_request_scoped_and_keeps_identity_guards() {
