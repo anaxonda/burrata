@@ -3096,7 +3096,8 @@ fn native_operation_allowed(provider: &str, operation: &str) -> bool {
             native_read_operation_allowed(operation)
                 || matches!(
                     operation,
-                    "applySyncPreview"
+                    "getTrackCredits"
+                        | "applySyncPreview"
                         | "createVerificationPlaylist"
                         | "verifyVerificationPlaylist"
                 )
@@ -5017,6 +5018,8 @@ mod tests {
         .is_err());
         assert!(native_read_operation_allowed("getArtist"));
         assert!(native_read_operation_allowed("getTrack"));
+        assert!(native_operation_allowed("spotify", "getTrackCredits"));
+        assert!(!native_operation_allowed("youtube", "getTrackCredits"));
         assert!(!native_read_operation_allowed("updatePlaylist"));
     }
 

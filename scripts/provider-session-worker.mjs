@@ -13,7 +13,10 @@ const MAX_INPUT = 1024 * 1024;
 const MAX_OUTPUT = 2 * 1024 * 1024;
 const MAX_RESPONSE = 2 * 1024 * 1024;
 const DEADLINE_MS = 20_000;
-const CATALOG_GRAPHQL_OPERATIONS = new Set(['queryArtistMinimal', 'queryArtistDiscographyAll', 'getAlbum', 'queryAlbumTracks', 'getListsContents']);
+// Pinned from Spotify WebPlayer web-player.421304b0.js (SHA-256 96d2b17df1644c9f93f26385294803e1ef1d8ef987dbb587541ef7278ef40d84), fetched 2026-11-04.
+const PINNED_QUERY_NPV_ARTIST_HASH = 'e1ae46a21911a3075c1aa29bf09a6c60f9a45b6a2b1132429f10ad06c299b5d7';
+const CATALOG_GRAPHQL_OPERATIONS = new Set(['queryArtistMinimal', 'queryArtistDiscographyAll', 'getAlbum', 'queryAlbumTracks', 'getListsContents', 'queryNpvArtist']);
+const PATHFINDER_OPERATIONS = new Set(['profileAttributes','searchUsers','searchDesktop','libraryV3','fetchPlaylist','queryArtistMinimal','queryArtistDiscographyAll','getAlbum','queryAlbumTracks','getListsContents','queryNpvArtist','addToPlaylist','removeFromPlaylist','moveItemsInPlaylist']);
 const REGISTRY_URL = 'https://api.github.com/gists/22ed9c6ba463899e933427f7de1f0eef';
 const HASH_REGISTRY_URL = 'https://francescograzioso.github.io/Meld/spotify-gql-hashes.json';
 const HASHES = {
@@ -26,7 +29,7 @@ const HASHES = {
   removeFromPlaylist: '47b2a1234b17748d332dd0431534f22450e9ecbb3d5ddcdacbd83368636a0990',
   moveItemsInPlaylist: '47b2a1234b17748d332dd0431534f22450e9ecbb3d5ddcdacbd83368636a0990',
 };
-const READ_OPERATIONS = new Set(['verifyVerificationPlaylist', 'status', 'search', 'listPlaylists', 'getPlaylist', 'getTrack', 'getArtist', 'getArtistAlbums', 'getArtistTracks', 'getAlbum', 'getAlbumTracks']);
+const READ_OPERATIONS = new Set(['verifyVerificationPlaylist', 'status', 'search', 'listPlaylists', 'getPlaylist', 'getTrack', 'getTrackCredits', 'getArtist', 'getArtistAlbums', 'getArtistTracks', 'getAlbum', 'getAlbumTracks']);
 const WRITE_OPERATIONS = new Set(['applySyncPreview', 'createVerificationPlaylist']);
 const ERRORS = {
   INPUT: ['UNSUPPORTED', 'The Spotify worker request is invalid.'],
@@ -126,8 +129,29 @@ function requestOperationName(url, options) {
   if (url.hostname !== 'api-partner.spotify.com') return null;
   try {
     const name = JSON.parse(options.body || '{}').operationName;
-    return CATALOG_GRAPHQL_OPERATIONS.has(name) ? name : null;
+    return PATHFINDER_OPERATIONS.has(name) ? name : null;
   } catch { return null; }
+}
+function allowedPathfinderBody(options) {
+  try {
+    const body=JSON.parse(options.body||'');
+    const hash=body.extensions?.persistedQuery?.sha256Hash,variables=body.variables;
+    const ordinary=PATHFINDER_OPERATIONS.has(body.operationName)
+      && body.extensions?.persistedQuery?.version===1
+      && /^[a-f0-9]{64}$/i.test(hash||'')
+      && variables&&typeof variables==='object'&&!Array.isArray(variables);
+    if(!ordinary)return false;
+    if(body.operationName!=='queryNpvArtist')return true;
+    const keys=Object.keys(variables).sort();
+    return hash===PINNED_QUERY_NPV_ARTIST_HASH
+      && JSON.stringify(keys)===JSON.stringify(['artistUri','contributorsLimit','contributorsOffset','enableRelatedAudioTracks','enableRelatedVideos','trackUri'])
+      && /^spotify:artist:[A-Za-z0-9]{22}$/.test(variables.artistUri||'')
+      && /^spotify:track:[A-Za-z0-9]{22}$/.test(variables.trackUri||'')
+      && variables.contributorsLimit===64
+      && Number.isSafeInteger(variables.contributorsOffset)&&variables.contributorsOffset>=0&&variables.contributorsOffset<=64
+      && variables.enableRelatedVideos===false
+      && variables.enableRelatedAudioTracks===false;
+  } catch { return false; }
 }
 function requestPhase(url, options) {
   if (url.hostname === 'open.spotify.com') return url.pathname === '/api/token' ? 'token_exchange' : 'spotify_clock';
@@ -147,7 +171,7 @@ function makeFetcher(cookieHeader, deadlineAt, fetchImpl = globalThis.fetch, dia
   return async (input, options = {}, transportMetadata = {}) => {
     const url = new URL(typeof input === 'string' ? input : input.url);
     const method = String(options.method || 'GET').toUpperCase();
-    if (!allowedRequest(url.href, method)) throw new Error('blocked');
+    if (!allowedRequest(url.href, method) || url.hostname==='api-partner.spotify.com'&&!allowedPathfinderBody(options)) throw new Error('blocked');
     if (url.hostname === 'api.spotify.com' && method === 'POST') {
       if (!creationAccountId || !creationTitle || url.pathname !== '/v1/me/playlists'
           || options.body !== JSON.stringify({ name: creationTitle, public: false, collaborative: false })) throw new Error('blocked');

@@ -14,6 +14,8 @@ const SPOTIFY_PINNED_READ_HASHES=Object.freeze({
   queryArtistDiscographyAll:'5e07d323febb57b4a56a42abbf781490e58764aa45feb6e3dc0591564fc56599',
   getListsContents:'130589ef0ac5ffc096b08ab11c031292812f91620665af1a339112ca3016c5c1',
   getAlbum:'11c9cad9cb24c4f9e25ef9456f68621cfd6006a90f679e729c1d2f2fd70dfe16',
+  // Spotify public WebPlayer bundle web-player.421304b0.js, fetched 2026-11-04, SHA-256 96d2b17df1644c9f93f26385294803e1ef1d8ef987dbb587541ef7278ef40d84.
+  queryNpvArtist:'e1ae46a21911a3075c1aa29bf09a6c60f9a45b6a2b1132429f10ad06c299b5d7',
 });
 async function runSpotifyProviderOperation(provider,operation,args,hashes,runtime={}){
   const fail=(code,message)=>{throw Object.assign(new Error(message),{code});};
@@ -83,7 +85,7 @@ async function runSpotifyProviderOperation(provider,operation,args,hashes,runtim
     }
     return {version:1,hasData:Boolean(body?.data&&typeof body.data==='object'),hasGraphqlErrors:Array.isArray(body?.errors)&&body.errors.length>0,listsArray:Array.isArray(lists),listCount:Array.isArray(lists)?Math.min(10000,lists.length):0,listKind:!list?'absent':list.__typename==='List'?'list':'other',listIdentityMatches:list?.uri===listUri,pageItemsArray:Array.isArray(page?.items),rowCount:Math.min(10000,rows.length),totalKind:!page||!Object.prototype.hasOwnProperty.call(page,'totalCount')?'missing':page.totalCount===null?'null':Number.isSafeInteger(total)&&total>=0&&total<=100000?'valid':'invalid',rows:count,firstFailedGuard,truncated:rows.length>10000};
   };
-  const gql=async(name,variables,auth,hashSet,inspectErrors=false)=>{const entry=hashSet?.[name],pinned=SPOTIFY_PINNED_READ_HASHES[name];const candidates=[entry?.hash,entry?.previous_hash,entry?.previousHash,entry?.fallback,entry,pinned].filter((v,i,a)=>typeof v==='string'&&/^[a-f0-9]{64}$/i.test(v)&&a.indexOf(v)===i);if(!candidates.length)fail('UNSUPPORTED',`Spotify operation ${name} has no verified hash.`);for(const hash of candidates){const response=await fetchBounded('https://api-partner.spotify.com/pathfinder/v2/query',{method:'POST',credentials:'include',headers:{Authorization:`Bearer ${auth}`,'Content-Type':'application/json','app-platform':'WebPlayer'},body:JSON.stringify({operationName:name,variables,extensions:{persistedQuery:{version:1,sha256Hash:hash}}})});let body={};try{body=await response.json();}catch{}if(response.status===412||JSON.stringify(body).includes('PersistedQueryNotFound'))continue;if(!response.ok)await json(new Response(JSON.stringify(body),{status:response.status}));if(body.errors?.length){if(inspectErrors&&name==='getListsContents')return body;if(body.errors.some(e=>String(e.message).includes('PersistedQueryNotFound')))continue;fail('PROVIDER_CHANGED','Spotify returned an unsupported GraphQL response.');}return body;}fail('HASH_EXPIRED',`Spotify rejected all cached hashes for ${name}.`);};
+  const gql=async(name,variables,auth,hashSet,inspectErrors=false)=>{const entry=hashSet?.[name],pinned=SPOTIFY_PINNED_READ_HASHES[name],candidates=name==='queryNpvArtist'?[pinned]:[entry?.hash,entry?.previous_hash,entry?.previousHash,entry?.fallback,entry,pinned].filter((v,i,a)=>typeof v==='string'&&/^[a-f0-9]{64}$/i.test(v)&&a.indexOf(v)===i);if(!candidates.length)fail('UNSUPPORTED',`Spotify operation ${name} has no verified hash.`);for(const hash of candidates){const response=await fetchBounded('https://api-partner.spotify.com/pathfinder/v2/query',{method:'POST',credentials:'include',headers:{Authorization:`Bearer ${auth}`,'Content-Type':'application/json','app-platform':'WebPlayer'},body:JSON.stringify({operationName:name,variables,extensions:{persistedQuery:{version:1,sha256Hash:hash}}})});let body={};try{body=await response.json();}catch{}if(response.status===412||JSON.stringify(body).includes('PersistedQueryNotFound'))continue;if(!response.ok)await json(new Response(JSON.stringify(body),{status:response.status}));if(body.errors?.length){if(inspectErrors&&name==='getListsContents')return body;if(body.errors.some(e=>String(e.message).includes('PersistedQueryNotFound')))continue;fail('PROVIDER_CHANGED','Spotify returned an unsupported GraphQL response.');}return body;}fail('HASH_EXPIRED',`Spotify rejected all cached hashes for ${name}.`);};
   const spotifyCatalog=async(url,auth,notFoundCode='API_DENIED')=>{const response=await fetchBounded(url,{credentials:'include',headers:{Authorization:`Bearer ${auth}`,Accept:'application/json'}});let body={};try{body=await response.json();}catch{}if(response.status===401)fail('SIGN_IN_REQUIRED','Spotify rejected the signed-in browser session. Sign in to Spotify, then retry.');if(response.status===403)fail('API_DENIED','Spotify denied this catalog request. The endpoint may require an approved Spotify developer app or may be unavailable to this account.');if(response.status===429)fail('RATE_LIMITED','Spotify is rate limiting catalog requests. Try again shortly.');if(response.status===404)fail(notFoundCode,'Spotify does not expose this catalog item through the current API.');if(!response.ok)fail('PROVIDER_CHANGED',`Spotify catalog request failed (${response.status}).`);return body;};
   const spotifyToken=async()=>{if(typeof hashes?.cachedAccessToken==='string'&&hashes.cachedAccessToken)return hashes.cachedAccessToken;if(!hashes?.totp?.code||!Number.isInteger(hashes.totp.version))fail('PROVIDER_CHANGED','Spotify TOTP parameters are unavailable.');const query=new URLSearchParams({reason:'transport',productType:'web-player',totp:hashes.totp.code,totpServer:hashes.totp.code,totpVer:String(hashes.totp.version)});const response=await fetchBounded(`https://open.spotify.com/api/token?${query}`,{credentials:'include',headers:{Accept:'application/json'}});const body=await json(response);if(body.isAnonymous===true||!body.accessToken)fail('SIGN_IN_REQUIRED','Spotify returned an anonymous token. Sign in to Spotify in the browser, then retry.');return body.accessToken;};
   const verificationTitle=id=>id===undefined?'Burrata verification':typeof id==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id)?`Burrata verification ${id}`:null;
@@ -161,6 +163,61 @@ async function runSpotifyProviderOperation(provider,operation,args,hashes,runtim
       const track=spotifyTrack(body,null,body.uri);
       if(!track)fail('PROVIDER_CHANGED','Spotify track response was not recognized.');
       return {accountId:me.accountId,items:[{id:track.trackId,kind:'track',title:track.title,subtitle:track.artist,url:track.url,artworkUrl:track.artworkUrl,data:{...track,id:track.trackId,provider:'spotify'}}]};
+    }
+    if(operation==='getTrackCredits'){
+      const trackId=String(args.trackId||''),trackTitle=String(args.trackTitle||''),mainArtistId=String(args.mainArtistId||'');
+      const expectedDurationMilliseconds=args.durationMilliseconds;
+      const expectedArtistIds=args.artistIds;
+      if(!/^[A-Za-z0-9]{22}$/.test(trackId)||!trackTitle.trim()||trackTitle.length>512||/[\u0000-\u001f\u007f]/u.test(trackTitle)||!/^[A-Za-z0-9]{22}$/.test(mainArtistId)||!Number.isSafeInteger(expectedDurationMilliseconds)||expectedDurationMilliseconds<=0||expectedDurationMilliseconds>86400000||!Array.isArray(expectedArtistIds)||expectedArtistIds.length<1||expectedArtistIds.length>64||expectedArtistIds[0]!==mainArtistId||expectedArtistIds.some(id=>typeof id!=='string'||!/^[A-Za-z0-9]{22}$/.test(id))||new Set(expectedArtistIds).size!==expectedArtistIds.length)fail('UNSUPPORTED','Spotify track-credit request is invalid.');
+      const trackUri=`spotify:track:${trackId}`,artistUri=`spotify:artist:${mainArtistId}`,limit=64;
+      const rows=[],pageLimit=64,maxRows=128,maxPages=2,seenRows=new Set(),seenPages=new Set();
+      let offset=0,pagesFetched=0,paginationTerminal=false,paginationStatus='unknown',total=null;
+      while(pagesFetched<maxPages){
+        const body=await gql('queryNpvArtist',{artistUri,trackUri,contributorsLimit:pageLimit,contributorsOffset:offset,enableRelatedVideos:false,enableRelatedAudioTracks:false},auth,hashes);
+        const track=body?.data?.trackUnion;
+        // This first-party operation binds the track only through the exact trackUri variable.
+        // Current response shape has no uri/name/duration echo; do not mislabel request metadata as provider echo.
+        if(!track||track.__typename!=='Track')fail('PROVIDER_CHANGED','Spotify track-credit response was not a Track.');
+        const echoedUris=[track.uri,track._uri].filter(value=>value!==undefined&&value!==null);
+        if(echoedUris.some(value=>typeof value!=='string'||value!==trackUri)||track.id!=null&&track.id!==trackId)fail('PROVIDER_CHANGED','Spotify returned a different track-credit identity.');
+        const echoedTitle=track.name??track.identityTrait?.name;
+        if(echoedTitle!=null&&(typeof echoedTitle!=='string'||echoedTitle!==trackTitle))fail('PROVIDER_CHANGED','Spotify returned a conflicting track-credit title.');
+        const echoedDuration=track.durationMilliseconds??track.duration?.totalMilliseconds??track.duration;
+        if(echoedDuration!=null&&(typeof echoedDuration!=='number'||echoedDuration!==expectedDurationMilliseconds))fail('PROVIDER_CHANGED','Spotify returned a conflicting track-credit duration.');
+        if(Array.isArray(track.artists?.items)){
+          const echoedArtistIds=track.artists.items.map(item=>String(item?.uri||'').match(/^spotify:artist:([A-Za-z0-9]{22})$/)?.[1]||'');
+          if(echoedArtistIds.length!==expectedArtistIds.length||echoedArtistIds.some((id,index)=>id!==expectedArtistIds[index]))fail('PROVIDER_CHANGED','Spotify returned conflicting track-credit artists.');
+        }
+        const contributors=track.creditsTrait?.contributors,items=contributors?.items;
+        if(!Array.isArray(items)||items.length>pageLimit||offset+items.length>maxRows)fail('PROVIDER_CHANGED','Spotify track-credit rows were absent or malformed.');
+        const pageSignature=JSON.stringify(items);
+        if(seenPages.has(pageSignature))fail('PROVIDER_CHANGED','Spotify repeated a track-credit page.');
+        seenPages.add(pageSignature);
+        const rawTotal=contributors.totalCount,pageTotal=rawTotal==null?null:(Number.isSafeInteger(rawTotal)?rawTotal:typeof rawTotal==='string'&&/^(?:0|[1-9]\d*)$/.test(rawTotal)?Number(rawTotal):NaN);
+        if(pageTotal!==null&&(!Number.isSafeInteger(pageTotal)||pageTotal<offset+items.length||pageTotal>10000||total!==null&&total!==pageTotal))fail('PROVIDER_CHANGED','Spotify track-credit pagination metadata was malformed.');
+        if(pageTotal!==null)total=pageTotal;
+        pagesFetched+=1;
+        if(items.length===0){if(total!==null&&offset!==total)fail('PROVIDER_CHANGED','Spotify track-credit count did not match its terminal page.');paginationTerminal=true;paginationStatus='terminal';break;}
+        for(const item of items){
+          const name=typeof item?.name==='string'?item.name.trim():'';
+          const role=typeof item?.role==='string'?item.role.trim():'';
+          const roleGroup=typeof item?.roleGroup?.name==='string'?item.roleGroup.name.trim():'';
+          const uri=typeof item?.uri==='string'&&/^spotify:artist:[A-Za-z0-9]{22}$/.test(item.uri)?item.uri:null;
+          if(!name||name.length>512||/[\u0000-\u001f\u007f]/u.test(name)||!role||role.length>128||/[\u0000-\u001f\u007f]/u.test(role)||!roleGroup||roleGroup.length>128||/[\u0000-\u001f\u007f]/u.test(roleGroup)||item?.uri!=null&&!uri)fail('PROVIDER_CHANGED','Spotify track-credit rows were malformed.');
+          const rowKey=JSON.stringify([name,role,roleGroup,uri]);
+          if(seenRows.has(rowKey))fail('PROVIDER_CHANGED','Spotify repeated a track-credit row.');
+          seenRows.add(rowKey);
+          rows.push({name,role,roleGroup,artistUri:uri});
+        }
+        offset+=items.length;
+        if(total!==null&&offset===total){paginationTerminal=true;paginationStatus='terminal';break;}
+        if(offset>=maxRows){paginationStatus='bounded';break;}
+      }
+      if(!paginationTerminal&&paginationStatus==='unknown')paginationStatus='bounded';
+      const performerRows=rows.filter(row=>row.roleGroup.toLowerCase()==='performers');
+      const genericArtistRows=rows.filter(row=>row.roleGroup.toLowerCase()==='artist');
+      const rowsWellFormed=rows.every(row=>Boolean(row.role&&row.roleGroup));
+      return {accountId:me.accountId,spotifyTrackCredits:{provider:'spotify',operation:'queryNpvArtist',queryHash:'e1ae46a21911a3075c1aa29bf09a6c60f9a45b6a2b1132429f10ad06c299b5d7',binding:{trackId,trackUri,trackTitle,expectedDurationMilliseconds,artistIds:expectedArtistIds,mainArtistUri:artistUri,bindsThrough:'exact queryNpvArtist trackUri variable',providerEchoedTrackIdentity:false},credits:{paginationStatus,paginationTerminal,pagesFetched,rowCount:rows.length,totalCount:total,rows,rowsWellFormed,roleEvidenceComplete:false,performerCreditsComplete:false,performerPreview:performerRows.map(row=>({name:row.name,role:row.role,artistUri:row.artistUri})),genericArtistCreditPreview:genericArtistRows.map(row=>({name:row.name,role:row.role,artistUri:row.artistUri})),classificationReady:false}}};
     }
     if(operation==='getArtistTracks'){
       const artistId=String(args.artistId||'');
