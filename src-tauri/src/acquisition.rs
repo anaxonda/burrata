@@ -14216,11 +14216,72 @@ mod tests {
             annotated.dimensions.version,
             crate::recording_match::Comparison::Conflict
         );
-        assert!(annotated.evidence.unwrap().conflicting_version_observations);
-        assert_ne!(
+        // A mastering label can describe a live performance. Both changed
+        // categories are explicitly enabled here, so this consistent source
+        // is an identified alternative, not contradictory version evidence.
+        let evidence = annotated.evidence.as_ref().unwrap();
+        assert!(!evidence.conflicting_version_observations);
+        assert!(!evidence.complete_performer_credits);
+        assert_eq!(
             annotated.action,
             crate::recording_match::MatchAction::Accept
         );
+        assert_eq!(
+            annotated.relationship,
+            crate::recording_match::MatchRelationship::Alternative
+        );
+        for restricted in [
+            crate::recording_match::FlexibleMatchingOptions {
+                allow_other_performances: false,
+                ..options
+            },
+            crate::recording_match::FlexibleMatchingOptions {
+                allow_other_releases: false,
+                ..options
+            },
+        ] {
+            let refused = crate::recording_match::assess_with_options(
+                &request,
+                &annotated_candidate,
+                crate::recording_match::MatchLevel::Flexible,
+                crate::recording_match::MatchStage::Resolved,
+                &restricted,
+            );
+            assert_ne!(refused.action, crate::recording_match::MatchAction::Accept);
+        }
+
+        for (version, mix) in [
+            ("Live at Wembley", "Live at Madrid"),
+            ("Remastered 2002", "Remastered 2009"),
+            ("Original Mix", "Live"),
+        ] {
+            let mut conflicting_info = extractor_info.clone();
+            conflicting_info["version"] = serde_json::json!(version);
+            conflicting_info["mix"] = serde_json::json!(mix);
+            let conflicting_audio =
+                preview_audio_from_metadata(&candidate, &conflicting_info).unwrap();
+            let mut conflicting_candidate = resolved.clone();
+            conflicting_candidate.source_metadata = conflicting_audio.source_metadata;
+            let conflicting = crate::recording_match::assess_with_options(
+                &request,
+                &conflicting_candidate,
+                crate::recording_match::MatchLevel::Flexible,
+                crate::recording_match::MatchStage::Resolved,
+                &options,
+            );
+            assert!(
+                conflicting
+                    .evidence
+                    .as_ref()
+                    .unwrap()
+                    .conflicting_version_observations,
+                "{version} / {mix}: {conflicting:?}"
+            );
+            assert_ne!(
+                conflicting.action,
+                crate::recording_match::MatchAction::Accept
+            );
+        }
 
         let mut malformed_info = extractor_info.clone();
         malformed_info["artists"] = serde_json::json!(["Django Reinhardt", null]);
