@@ -107,6 +107,26 @@ describe("measurePlaybackLayout",()=>{
 
 
 describe("measureTrackListCounts",()=>{
+  it("counts shared Library rows while excluding virtual spacers and clipped rows",()=>{
+    const root=document.createElement("main");
+    root.innerHTML=`<section class="track-area"><div class="track-scroll desktop-track-list"><div class="track-list-viewport"><ol class="shared-track-list">
+      <li class="current paused" data-track-id="PRIVATE-ID" title="PRIVATE TITLE"></li>
+      <li class="current"><button aria-busy="true"></button></li>
+      <li class="virtual-spacer"></li><li class="hidden current buffering"></li>
+      <li class="clipped current buffering"></li>
+    </ol></div></div></section>`;
+    for(const element of root.querySelectorAll("*")){
+      const clipped=element.classList.contains("clipped");
+      Object.defineProperty(element,"getBoundingClientRect",{value:()=>({left:0,top:clipped?150:0,right:300,bottom:clipped?170:100,width:300,height:clipped?20:100})});
+      Object.defineProperty(element,"getClientRects",{value:()=>[{}]});
+    }
+    const counts=measureTrackListCounts(root,{width:300,height:300},element=>({
+      display:element.classList.contains("hidden")?"none":"block",visibility:"visible",opacity:"1",
+      overflowY:element.matches(".track-scroll")?"auto":"visible",
+    }));
+    expect(counts.find(item=>item.role==="library")).toEqual({role:"library",visibleRows:2,playing:2,paused:1,buffering:1});
+    expect(JSON.stringify(counts)).not.toMatch(/PRIVATE|trackId|title|url/i);
+  });
   it("excludes rows clipped by an outer scrolling pane",()=>{
     const root=document.createElement("main");
     root.innerHTML='<section class="search-panel"><div class="source-results"><ol class="shared-track-list"><li class="current"></li></ol></div></section>';

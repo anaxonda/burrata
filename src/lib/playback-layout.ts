@@ -124,7 +124,7 @@ export type TrackListCount = {
 
 const TRACK_LIST_TARGETS: ReadonlyArray<{ role: TrackListRole; selector: string; rowSelector: string; table: boolean }> = [
   { role: "search", selector: ".search-panel .source-results ol.shared-track-list", rowSelector: ":scope > li:not(.virtual-spacer)", table: false },
-  { role: "library", selector: ".track-area .track-scroll.desktop-track-list", rowSelector: "table > tbody > tr:not(.spacer)", table: true },
+  { role: "library", selector: ".track-area .track-scroll.desktop-track-list", rowSelector: ".shared-track-list > li:not(.virtual-spacer), table > tbody > tr:not(.spacer)", table: true },
   { role: "history", selector: ".history-page ol.shared-track-list", rowSelector: ":scope > li:not(.virtual-spacer)", table: false },
   { role: "artist", selector: ".artist-page-host ol.shared-track-list", rowSelector: ":scope > li:not(.virtual-spacer)", table: false },
   { role: "remote", selector: ".remote-playlist-detail ol.shared-track-list", rowSelector: ":scope > li:not(.virtual-spacer)", table: false },

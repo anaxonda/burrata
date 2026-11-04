@@ -735,6 +735,12 @@ fn bool_key(key: &str) -> bool {
             | "attempted"
             | "waitedForGate"
             | "lossless"
+            | "candidateArtistMetadataPresent"
+            | "resolvedArtistMetadataPresent"
+            | "candidateTitleArtistCreditPresent"
+            | "resolvedTitleArtistCreditPresent"
+            | "resolvedIdentityMetadataUncertain"
+            | "resolvedChannelIdPresent"
             | "candidateRowsTruncated"
             | "versionConflictFlag"
             | "requestedTitlePhrasePresent"
@@ -838,6 +844,7 @@ fn number_key(key: &str) -> bool {
             | "bitrate"
             | "bitrateKbps"
             | "durationSeconds"
+            | "candidateArtistSpellingsCount"
             | "catalogDuration"
             | "catalogDurationSeconds"
             | "candidateDurationSeconds"
@@ -1059,6 +1066,16 @@ fn enum_values(key: &str) -> Option<&'static [&'static str]> {
             "ordinary_resolution_succeeded",
             "ineligible",
             "no_artist_identity_block",
+            "catalog_duration_enriched",
+            "implicit_first_candidate",
+            "bandcamp_preferred",
+            "insufficient_deadline",
+            "pinned_source",
+            "not_catalog_track",
+            "unsupported_catalog_provider",
+            "alias_discovery_disabled",
+            "already_verified_credit_sets",
+            "verified_source_or_locator",
             "distinct_semantic_versions",
             "source_binding_mismatch",
             "unsupported_or_unmatched",
@@ -1268,6 +1285,7 @@ pub(crate) fn phase_is_allowed(value: &str) -> bool {
             | "bandcamp_fallback_end"
             | "canonical_search_warmup_end"
             | "catalog_alias_preparation_end"
+            | "catalog_alias_preparation_skipped"
             | "alias_lookup_skipped"
             | "alias_candidate_recheck"
             | "alias_cache_lookup_end"
@@ -1479,6 +1497,64 @@ mod tests {
         ] {
             assert!(!encoded.contains(secret), "leaked {secret}: {encoded}");
         }
+    }
+
+    #[test]
+    fn catalog_alias_skip_and_identity_field_diagnostics_are_fixed_and_private() {
+        let mut skipped = event(4);
+        skipped["phase"] = json!("catalog_alias_preparation_skipped");
+        skipped["provider"] = json!("catalog");
+        skipped["details"] = json!({
+            "reason":"already_verified_credit_sets",
+            "sourceUrl":"https://private.example/release?token=secret",
+            "artist":"private performer"
+        });
+        let safe_skip = sanitize_event(skipped).expect("safe skip event is retained");
+        assert_eq!(safe_skip.details["reason"], "already_verified_credit_sets");
+        assert_eq!(safe_skip.details.len(), 1);
+
+        for reason in [
+            "catalog_duration_enriched",
+            "implicit_first_candidate",
+            "bandcamp_preferred",
+            "insufficient_deadline",
+            "pinned_source",
+            "not_catalog_track",
+            "unsupported_catalog_provider",
+            "alias_discovery_disabled",
+            "already_verified_credit_sets",
+            "verified_source_or_locator",
+        ] {
+            assert_eq!(sanitize_details(json!({"reason":reason}))["reason"], reason);
+        }
+        assert!(sanitize_details(json!({"reason":"private failure text"}))
+            .get("reason")
+            .is_none());
+
+        let safe_identity = sanitize_details(json!({
+            "candidateArtistMetadataPresent":false,
+            "resolvedArtistMetadataPresent":true,
+            "candidateTitleArtistCreditPresent":false,
+            "resolvedTitleArtistCreditPresent":true,
+            "candidateArtistSpellingsCount":3,
+            "resolvedIdentityMetadataUncertain":false,
+            "resolvedChannelIdPresent":true,
+            "candidateArtist":"private performer",
+            "resolvedArtist":"private performer",
+            "url":"https://cdn.example/signed?token=secret"
+        }));
+        assert_eq!(safe_identity["candidateArtistMetadataPresent"], false);
+        assert_eq!(safe_identity["resolvedArtistMetadataPresent"], true);
+        assert_eq!(safe_identity["candidateTitleArtistCreditPresent"], false);
+        assert_eq!(safe_identity["resolvedTitleArtistCreditPresent"], true);
+        assert_eq!(safe_identity["candidateArtistSpellingsCount"], 3);
+        assert_eq!(safe_identity["resolvedIdentityMetadataUncertain"], false);
+        assert_eq!(safe_identity["resolvedChannelIdPresent"], true);
+        assert_eq!(safe_identity.len(), 7);
+        let encoded = serde_json::to_string(&safe_identity).unwrap();
+        assert!(!encoded.contains("private performer"));
+        assert!(!encoded.contains("https://"));
+        assert!(!encoded.contains("secret"));
     }
 
     #[test]

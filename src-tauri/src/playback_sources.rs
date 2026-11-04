@@ -2242,23 +2242,41 @@ impl Drop for AliasResolutionPass {
     }
 }
 
+#[cfg(test)]
 fn needs_catalog_alias_preparation(
     store: &Store,
     track: &Track,
     settings: &Settings,
     pinned: bool,
 ) -> bool {
-    if pinned
-        || track.provider != "catalog"
-        || !matches!(
-            track.provenance["catalogProvider"].as_str(),
-            Some("discogs" | "musicbrainz")
-        )
-        || !crate::artist_alias_lookup::enabled()
-        || crate::artist_credit_aliases::cached_verified_playback_artist_aliases(store, track)
-            .has_verified_credit_sets()
+    catalog_alias_preparation_context_skip_reason(store, track, settings, pinned).is_none()
+}
+
+fn catalog_alias_preparation_context_skip_reason(
+    store: &Store,
+    track: &Track,
+    settings: &Settings,
+    pinned: bool,
+) -> Option<&'static str> {
+    if pinned {
+        return Some("pinned_source");
+    }
+    if track.provider != "catalog" {
+        return Some("not_catalog_track");
+    }
+    if !matches!(
+        track.provenance["catalogProvider"].as_str(),
+        Some("discogs" | "musicbrainz")
+    ) {
+        return Some("unsupported_catalog_provider");
+    }
+    if !crate::artist_alias_lookup::enabled() {
+        return Some("alias_discovery_disabled");
+    }
+    if crate::artist_credit_aliases::cached_verified_playback_artist_aliases(store, track)
+        .has_verified_credit_sets()
     {
-        return false;
+        return Some("already_verified_credit_sets");
     }
     // A previously verified source already has replay priority. Do not delay it
     // for optional metadata preparation merely because artist aliases are cold.
@@ -2274,7 +2292,7 @@ fn needs_catalog_alias_preparation(
                 .flatten()
                 .is_some()
             {
-                return false;
+                return Some("verified_source_or_locator");
             }
             if policy_matching::locator_with_options(
                 store,
@@ -2286,11 +2304,36 @@ fn needs_catalog_alias_preparation(
             )
             .is_some()
             {
-                return false;
+                return Some("verified_source_or_locator");
             }
         }
     }
-    true
+    None
+}
+
+fn catalog_alias_preparation_skip_reason(
+    store: &Store,
+    track: &Track,
+    settings: &Settings,
+    pinned: bool,
+    catalog_duration_enriched: bool,
+    selected: Option<&Candidate>,
+    failed: &[FailedPlaybackCandidate],
+    deadline: PlaybackDeadline,
+) -> Option<&'static str> {
+    if catalog_duration_enriched {
+        return Some("catalog_duration_enriched");
+    }
+    if implicit_first_candidate(track, selected.is_some(), settings, failed).is_some() {
+        return Some("implicit_first_candidate");
+    }
+    if settings.preferred_streaming_source == "bandcamp" {
+        return Some("bandcamp_preferred");
+    }
+    if deadline.remaining() <= Duration::from_secs(8) {
+        return Some("insufficient_deadline");
+    }
+    catalog_alias_preparation_context_skip_reason(store, track, settings, pinned)
 }
 
 struct AbortCanonicalWarmup(tokio::task::JoinHandle<()>);
@@ -2355,11 +2398,24 @@ async fn resolve_inner_prepared(
 ) -> Result<ResolvedSource, String> {
     let mut pass = AliasResolutionPass::default();
     let pinned = source_resolution_is_pinned(track, selected.is_some(), &settings, true);
-    let prepare_aliases = !trace.catalog_duration_enriched
-        && implicit_first_candidate(track, selected.is_some(), &settings, failed).is_none()
-        && settings.preferred_streaming_source != "bandcamp"
-        && deadline.remaining() > Duration::from_secs(8)
-        && needs_catalog_alias_preparation(store, track, &settings, pinned);
+    let alias_preparation_skip_reason = catalog_alias_preparation_skip_reason(
+        store,
+        track,
+        &settings,
+        pinned,
+        trace.catalog_duration_enriched,
+        selected.as_ref(),
+        failed,
+        deadline,
+    );
+    let prepare_aliases = alias_preparation_skip_reason.is_none();
+    if !prepare_aliases && track.provider == "catalog" {
+        trace.event(
+            "catalog_alias_preparation_skipped",
+            &track.provider,
+            json!({"reason":alias_preparation_skip_reason.unwrap_or("not_eligible")}),
+        );
+    }
     let _canonical_warmup = prepare_aliases.then(|| {
         start_canonical_warmup(
             acquisition,
@@ -4732,6 +4788,13 @@ async fn resolve_serial(
                     let identity_ok = proof.is_some();
                     trace.event("full_identity_check", &provider, json!({"ok":identity_ok,
                         "proofKind":proof.map(VerifiedRecordingProof::diagnostic_label).unwrap_or("none"),
+                        "candidateArtistMetadataPresent":candidate_artist_metadata_present(candidate.source_metadata.as_ref()),
+                        "resolvedArtistMetadataPresent":candidate_artist_metadata_present(audio.source_metadata.as_ref()),
+                        "candidateTitleArtistCreditPresent":title_artist_credit_present(&candidate.title),
+                        "resolvedTitleArtistCreditPresent":audio.resolved_title.as_deref().is_some_and(title_artist_credit_present),
+                        "candidateArtistSpellingsCount":candidate_artist_spellings(&candidate, Some(&audio)).len().min(16),
+                        "resolvedIdentityMetadataUncertain":audio.source_metadata.as_ref().is_some_and(|metadata| metadata["identityMetadataUncertain"].as_bool() == Some(true)),
+                        "resolvedChannelIdPresent":audio.source_metadata.as_ref().and_then(|metadata| metadata["channelId"].as_str()).is_some_and(|value| !value.trim().is_empty()),
                         "sourcePageUrl":candidate.url,"sourceFingerprint":source_diagnostic_fingerprint(&candidate),
                         "trackFingerprint":recording_identity_fingerprint(track),
                         "providerIdMatches":audio.resolved_provider_id.as_deref().is_some_and(|id|candidate.id.split_once(':').map(|(_,value)|value)==Some(id)),
@@ -5065,6 +5128,34 @@ fn candidate_artist_spellings(
     names.retain(|name| !name.is_empty() && name.len() <= 4096);
     names
 }
+
+fn candidate_artist_metadata_present(metadata: Option<&Value>) -> bool {
+    let Some(metadata) = metadata else {
+        return false;
+    };
+    ["artist", "catalogArtist", "channel", "uploader"]
+        .iter()
+        .any(|key| {
+            metadata[*key]
+                .as_str()
+                .is_some_and(|value| !value.trim().is_empty())
+        })
+        || ["artists", "artistNames"].iter().any(|key| {
+            metadata[*key].as_array().is_some_and(|values| {
+                values
+                    .iter()
+                    .any(|value| value.as_str().is_some_and(|name| !name.trim().is_empty()))
+            })
+        })
+}
+
+fn title_artist_credit_present(title: &str) -> bool {
+    crate::source_fallback::youtube_flat_artist_credit(title).is_some()
+        || title
+            .split_once(" - ")
+            .is_some_and(|(artist, _)| !artist.trim().is_empty())
+}
+
 fn include_candidate_aliases(
     context: &mut crate::artist_credit_aliases::VerifiedPlaybackArtistAliases,
     track: &Track,
@@ -14457,6 +14548,93 @@ mod catalog_alias_priority_tests {
             &track,
             &Settings::default(),
             false
+        ));
+    }
+
+    #[test]
+    fn catalog_alias_preparation_skip_reasons_and_artist_field_flags_are_bounded() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("catalog-prep-reasons.sqlite")).unwrap();
+        let mut track = Track {
+            provider: "catalog".into(),
+            provenance: json!({"catalogProvider":"musicbrainz"}),
+            ..Track::default()
+        };
+        assert_eq!(
+            catalog_alias_preparation_context_skip_reason(
+                &store,
+                &track,
+                &Settings::default(),
+                true,
+            ),
+            Some("pinned_source")
+        );
+        track.provenance["catalogProvider"] = json!("spotify");
+        assert_eq!(
+            catalog_alias_preparation_context_skip_reason(
+                &store,
+                &track,
+                &Settings::default(),
+                false,
+            ),
+            Some("unsupported_catalog_provider")
+        );
+
+        let mut settings = Settings::default();
+        settings.preferred_streaming_source = "bandcamp".into();
+        assert_eq!(
+            catalog_alias_preparation_skip_reason(
+                &store,
+                &track,
+                &settings,
+                false,
+                false,
+                None,
+                &[],
+                PlaybackDeadline::after(Duration::from_secs(20)),
+            ),
+            Some("bandcamp_preferred")
+        );
+        assert_eq!(
+            catalog_alias_preparation_skip_reason(
+                &store,
+                &track,
+                &Settings::default(),
+                false,
+                true,
+                None,
+                &[],
+                PlaybackDeadline::after(Duration::from_secs(20)),
+            ),
+            Some("catalog_duration_enriched")
+        );
+        assert_eq!(
+            catalog_alias_preparation_skip_reason(
+                &store,
+                &track,
+                &Settings::default(),
+                false,
+                false,
+                None,
+                &[],
+                PlaybackDeadline::at(tokio::time::Instant::now()),
+            ),
+            Some("insufficient_deadline")
+        );
+
+        assert!(!candidate_artist_metadata_present(None));
+        assert!(!candidate_artist_metadata_present(Some(&json!({
+            "title":"Song",
+            "artist":null,
+            "artists":[]
+        }))));
+        assert!(candidate_artist_metadata_present(Some(&json!({
+            "channel":"Artist Channel",
+            "artists":["Artist"]
+        }))));
+        assert!(!title_artist_credit_present("Minor Swing"));
+        assert!(title_artist_credit_present(
+            "Django Reinhardt - Minor Swing"
         ));
     }
 }
