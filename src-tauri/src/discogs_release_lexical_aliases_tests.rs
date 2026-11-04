@@ -21,7 +21,7 @@ struct Fixture {
     alias_profiles: HashMap<String, Value>,
 }
 
-fn fixture() -> Fixture {
+fn make_fixture() -> Fixture {
     let data: Value = serde_json::from_str(include_str!(
         "../fixtures/travelling-song-spotify-request.json"
     ))
@@ -108,7 +108,7 @@ fn discogs_release_one_medium(
 }
 
 fn multi_medium_fixture() -> Fixture {
-    let mut value = fixture();
+    let mut value = make_fixture();
     value.track.provenance["position"] = json!(4);
     value.track.provenance["remoteEntryId"] = json!("album_5LvGZBRirAASn8sF0tcWFn_3");
     value.request = spotify_request(&value.track).unwrap();
@@ -153,7 +153,7 @@ fn assert_rejected(fixture: &Fixture) {
 
 #[test]
 fn exact_album_request_and_release_id_alias_produce_lexical_names_only() {
-    let fixture = fixture();
+    let fixture = make_fixture();
     assert_eq!(fixture.request.spotify_track_id, "2EO1Mu1ynYzzR5v3h7DPmP");
     assert_eq!(fixture.request.spotify_album_id, "5LvGZBRirAASn8sF0tcWFn");
     assert_eq!(fixture.request.album_position, 3);
@@ -191,7 +191,7 @@ fn album_global_position_maps_through_multidisc_medium_coordinates() {
 
 #[test]
 fn rejects_bad_or_ambiguous_public_release_relations() {
-    let mut fixture = fixture();
+    let mut fixture = make_fixture();
     for resource in [
         "http://www.discogs.com/release/3517186",
         "https://user@www.discogs.com/release/3517186",
@@ -219,52 +219,52 @@ fn rejects_bad_or_ambiguous_public_release_relations() {
 
 #[test]
 fn rejects_ambiguous_missing_and_wrong_occurrences_or_metadata() {
-    let mut fixture = fixture();
+    let mut fixture = make_fixture();
     fixture.discogs_release["tracklist"][2]["title"] = json!("Different song");
     assert_rejected(&fixture);
 
-    let mut fixture = fixture();
+    let mut fixture = make_fixture();
     fixture.discogs_release["title"] = json!("Different album");
     assert_rejected(&fixture);
 
-    let mut fixture = fixture();
+    let mut fixture = make_fixture();
     fixture.discogs_release["tracklist"][2]["title"] = json!("Travelling Song (Remix)");
     assert_rejected(&fixture);
 
-    let mut fixture = fixture();
+    let mut fixture = make_fixture();
     fixture.mb_release["media"][0]["tracks"][2]["length"] = json!(300_000);
     assert_rejected(&fixture);
 
-    let mut fixture = fixture();
+    let mut fixture = make_fixture();
     fixture.discogs_release["tracklist"][2]["duration"] = json!("5:00");
     assert_rejected(&fixture);
 
-    let mut fixture = fixture();
+    let mut fixture = make_fixture();
     fixture.mb_release["media"][0]["tracks"][2]["position"] = json!(2);
     assert_rejected(&fixture);
 }
 
 #[test]
 fn requires_exact_ordered_primary_artist_ids_and_explicit_alias_edge() {
-    let mut fixture = fixture();
+    let mut fixture = make_fixture();
     fixture.discogs_release["tracklist"][2]["artists"][0]["id"] = json!(31262);
     assert_rejected(&fixture);
 
-    let mut fixture = fixture();
+    let mut fixture = make_fixture();
     fixture.discogs_release["tracklist"][2]["artists"]
         .as_array_mut()
         .unwrap()
         .pop();
     assert_rejected(&fixture);
 
-    let mut fixture = fixture();
+    let mut fixture = make_fixture();
     fixture.discogs_release["tracklist"][2]["artists"]
         .as_array_mut()
         .unwrap()
         .push(json!({"id":777,"name":"Extra performer","join":""}));
     assert_rejected(&fixture);
 
-    let mut fixture = fixture();
+    let mut fixture = make_fixture();
     fixture.discogs_release["tracklist"][2]["artists"] = json!([
         {"id":9858,"name":"Quantic","join":", "},
         {"id":31262,"name":"Alice Russell","join":" with "}
@@ -274,44 +274,44 @@ fn requires_exact_ordered_primary_artist_ids_and_explicit_alias_edge() {
     ]);
     assert_rejected(&fixture);
 
-    let mut fixture = fixture();
+    let mut fixture = make_fixture();
     fixture.alias_profiles.clear();
     assert_rejected(&fixture);
 
-    let mut fixture = fixture();
+    let mut fixture = make_fixture();
     fixture.alias_profiles.insert(
         DISCOGS_ARTIST_IDS[2].into(),
         json!({"id":1420481,"aliases":[{"id":123456,"name":"The Combo Bárbaro"}]}),
     );
     assert_rejected(&fixture);
 
-    let mut fixture = fixture();
+    let mut fixture = make_fixture();
     fixture.alias_profiles.insert(
         DISCOGS_ARTIST_IDS[2].into(),
         json!({"id":1420481,"aliases":[{"id":2698689,"name":"Other homonym"}]}),
     );
     assert_rejected(&fixture);
 
-    let mut fixture = fixture();
+    let mut fixture = make_fixture();
     fixture.alias_profiles.insert(DISCOGS_ARTIST_IDS[2].into(), json!({"id":1420481,"aliases":[{"id":2698689,"name":"The Combo Bárbaro"},{"id":2698689,"name":"Other homonym"}]}));
     assert_rejected(&fixture);
 
-    let mut fixture = fixture();
+    let mut fixture = make_fixture();
     fixture.mapped_discogs_ids[2] = "0".into();
     assert_rejected(&fixture);
 
-    let mut fixture = fixture();
+    let mut fixture = make_fixture();
     fixture.mapped_discogs_ids[2] = fixture.mapped_discogs_ids[1].clone();
     assert_rejected(&fixture);
 }
 
 #[test]
 fn request_rejects_manual_range_version_malformed_isrc_and_bad_credit_claims() {
-    let mut track = fixture().track;
+    let mut track = make_fixture().track;
     track.version = Some("Remix".into());
     assert!(spotify_request(&track).is_none());
 
-    let mut track = fixture().track;
+    let mut track = make_fixture().track;
     track.playback_range = Some(crate::models::PlaybackRange {
         start_time: 1.0,
         end_time: 10.0,
@@ -323,15 +323,15 @@ fn request_rejects_manual_range_version_malformed_isrc_and_bad_credit_claims() {
     });
     assert!(spotify_request(&track).is_none());
 
-    let mut track = fixture().track;
+    let mut track = make_fixture().track;
     track.provenance["manualFields"] = json!({"artist":true});
     assert!(spotify_request(&track).is_none());
 
-    let mut track = fixture().track;
+    let mut track = make_fixture().track;
     track.isrc = Some("NOT-AN-ISRC".into());
     assert!(spotify_request(&track).is_none());
 
-    let mut track = fixture().track;
+    let mut track = make_fixture().track;
     track.isrc = Some("USABC2400001".into());
     track.provenance["remoteCatalog"] = json!({
         "trackId":track.provider_id,
@@ -342,12 +342,12 @@ fn request_rejects_manual_range_version_malformed_isrc_and_bad_credit_claims() {
     });
     assert!(spotify_request(&track).is_none());
 
-    let mut track = fixture().track;
+    let mut track = make_fixture().track;
     let duplicate_id = track.provenance["artistCredits"][1]["providerId"].clone();
     track.provenance["artistCredits"][2]["providerId"] = json!(duplicate_id);
     assert!(spotify_request(&track).is_none());
 
-    let mut track = fixture().track;
+    let mut track = make_fixture().track;
     track.provenance["artistCredits"][2]["name"] = json!("Wrong Group");
     assert!(spotify_request(&track).is_none());
 }
@@ -479,7 +479,7 @@ fn seed_warm_proof(store: &Store, fixture: &Fixture) {
 
 #[tokio::test]
 async fn cached_album_locator_rejects_wrong_resource_before_using_relations() {
-    let fixture = fixture();
+    let fixture = make_fixture();
     let directory = tempfile::tempdir().unwrap();
     let store = Store::open(&directory.path().join("wrong-album-url.sqlite")).unwrap();
     seed_warm_proof(&store, &fixture);
@@ -511,7 +511,7 @@ async fn cached_album_locator_rejects_wrong_resource_before_using_relations() {
 
 #[tokio::test]
 async fn cached_proof_is_revalidated_and_lookup_uses_pre_hydration_path() {
-    let fixture = fixture();
+    let fixture = make_fixture();
     let directory = tempfile::tempdir().unwrap();
     let store = Arc::new(Store::open(&directory.path().join("lexical.sqlite")).unwrap());
     seed_warm_proof(&store, &fixture);
@@ -567,7 +567,7 @@ async fn cached_proof_is_revalidated_and_lookup_uses_pre_hydration_path() {
 
 #[test]
 fn malformed_stale_or_future_cache_context_cannot_authorize_cached_lexical_names() {
-    let fixture = fixture();
+    let fixture = make_fixture();
     let directory = tempfile::tempdir().unwrap();
     let store = Store::open(&directory.path().join("cache.sqlite")).unwrap();
     seed_warm_proof(&store, &fixture);
@@ -586,7 +586,7 @@ fn malformed_stale_or_future_cache_context_cannot_authorize_cached_lexical_names
 
 #[test]
 fn exact_spotify_artist_id_does_not_authorize_a_contradictory_credit_name() {
-    let fixture = fixture();
+    let fixture = make_fixture();
     let directory = tempfile::tempdir().unwrap();
     let store = Store::open(&directory.path().join("artist-name.sqlite")).unwrap();
     seed_warm_proof(&store, &fixture);
@@ -615,7 +615,7 @@ fn exact_spotify_artist_id_does_not_authorize_a_contradictory_credit_name() {
 
 #[test]
 fn stale_future_or_malformed_identity_cache_context_is_rejected() {
-    let fixture = fixture();
+    let fixture = make_fixture();
     let directory = tempfile::tempdir().unwrap();
     let store = Store::open(&directory.path().join("stale-cache.sqlite")).unwrap();
     seed_warm_proof(&store, &fixture);

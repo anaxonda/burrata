@@ -4057,7 +4057,7 @@ mod tests {
             &lexical_credits,
         );
         assert_ne!(rejected.action, MatchAction::Accept, "{rejected:?}");
-        assert_eq!(rejected.dimensions.identifier, Comparison::Conflict);
+        assert_eq!(rejected.dimensions.isrc, Comparison::Conflict);
     }
     #[test]
     fn uploader_corroborated_caption_orientation_is_request_scoped_and_keeps_identity_guards() {

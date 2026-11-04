@@ -850,7 +850,7 @@ pub(crate) fn verify_release_track(
         return None;
     }
     Some(VerifiedLexicalCredits {
-        release_id,
+        release_id: expected_discogs_release_id.to_owned(),
         track_position: row.provenance["trackPosition"]
             .as_str()
             .unwrap_or_default()
