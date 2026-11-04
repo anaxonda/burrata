@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) const EVALUATOR_VERSION: &str = "26";
+pub(crate) const EVALUATOR_VERSION: &str = "27";
 
 /// Independently selected categories of alternatives for Flexible matching.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -440,6 +440,39 @@ fn caption_base_without_features(raw: &str) -> String {
         remaining = parsed.title;
     }
     remaining.trim().to_owned()
+}
+
+/// Read feature names from the side of a caption separator whose base matches
+/// the requested recording title. This avoids treating an artist name such as
+/// "Band Featuring Friends" as a guest annotation in artist-first captions.
+fn caption_features_for_requested_title(
+    raw: &str,
+    requested_title: &str,
+    expected_credits: &[String],
+) -> Vec<String> {
+    let wanted = title_key(requested_title);
+    if wanted.is_empty() || raw.len() > 2048 {
+        return Vec::new();
+    }
+    for separator in [" - ", " – ", " — ", " | "] {
+        for (index, _) in raw.match_indices(separator) {
+            let prefix = raw[..index].trim();
+            let suffix = raw[index + separator.len()..].trim();
+            if title_key(&caption_base_without_features(suffix)) == wanted {
+                let prefix_is_expected_whole_credit = expected_credits
+                    .iter()
+                    .any(|credit| norm_artist(credit) == norm_artist(prefix));
+                let mut features = if prefix_is_expected_whole_credit {
+                    Vec::new()
+                } else {
+                    caption_feature_credits(prefix)
+                };
+                features.extend(caption_feature_credits(suffix));
+                return features;
+            }
+        }
+    }
+    guest_from_title(raw)
 }
 
 /// Interpret the less common `Title - Artist, Guest` filename ordering only
@@ -1491,15 +1524,25 @@ fn caption_artist_names(
 ) -> Vec<String> {
     for separator in [" - ", " – ", " — ", " | "] {
         if let Some((prefix, suffix)) = caption.split_once(separator) {
-            let mut featured = caption_feature_credits(prefix);
-            featured.extend(caption_feature_credits(suffix));
-            let suffix = base_title(suffix);
             let expected = expected_override
                 .map(|credits| credits.to_vec())
                 .unwrap_or_else(|| requested_credit_parts(expected_artist, guests))
                 .into_iter()
                 .map(|name| norm_artist(&name))
                 .collect::<Vec<_>>();
+            // A structured expected credit that matches the whole caption
+            // prefix is atomic, even if its proper name contains words such
+            // as "Featuring" or "with".
+            let prefix_is_expected_whole_credit = expected
+                .iter()
+                .any(|credit| !credit.is_empty() && norm_artist(prefix) == *credit);
+            let mut featured = if prefix_is_expected_whole_credit {
+                Vec::new()
+            } else {
+                caption_feature_credits(prefix)
+            };
+            featured.extend(caption_feature_credits(suffix));
+            let suffix = base_title(suffix);
             if !featured.is_empty() {
                 let parts = |credit: &str| {
                     // Preserve an exact whole-act spelling before interpreting
@@ -1788,6 +1831,7 @@ struct ComparisonFacts {
     credits_complete: bool,
     verified_musicbrainz_credits_complete: bool,
     request_credits_complete: bool,
+    lexical_credit_override: bool,
     exact_recording_bound: bool,
     topic_full: bool,
     contextual_game_title: bool,
@@ -2234,6 +2278,42 @@ fn prepare_with_primary_credit_override(
     verified_name_alias: Option<(&str, &str)>,
     verified_credit_set_alias: Option<&crate::recording_identity::VerifiedArtistCreditSetVariant>,
 ) -> PreparedMatchInput {
+    prepare_with_primary_credit_override_and_mode(
+        track,
+        candidate,
+        primary_credit_override,
+        recording_scoped_title_alias,
+        verified_name_alias,
+        verified_credit_set_alias,
+        false,
+    )
+}
+
+fn prepare_with_lexical_credit_override(
+    track: &Track,
+    candidate: &Candidate,
+    lexical_credit_override: &[String],
+) -> PreparedMatchInput {
+    prepare_with_primary_credit_override_and_mode(
+        track,
+        candidate,
+        Some(lexical_credit_override),
+        false,
+        None,
+        None,
+        true,
+    )
+}
+
+fn prepare_with_primary_credit_override_and_mode(
+    track: &Track,
+    candidate: &Candidate,
+    primary_credit_override: Option<&[String]>,
+    recording_scoped_title_alias: bool,
+    verified_name_alias: Option<(&str, &str)>,
+    verified_credit_set_alias: Option<&crate::recording_identity::VerifiedArtistCreditSetVariant>,
+    lexical_credit_override: bool,
+) -> PreparedMatchInput {
     let enabled = crate::diagnostic_metrics::is_enabled();
     let started = enabled.then(std::time::Instant::now);
     let cpu_started = enabled
@@ -2249,6 +2329,7 @@ fn prepare_with_primary_credit_override(
         recording_scoped_title_alias,
         verified_name_alias,
         verified_credit_set_alias,
+        lexical_credit_override,
     );
     let prepared = PreparedMatchInput {
         request,
@@ -2323,6 +2404,7 @@ fn build_comparison(
     recording_scoped_title_alias: bool,
     verified_name_alias: Option<(&str, &str)>,
     verified_credit_set_alias: Option<&crate::recording_identity::VerifiedArtistCreditSetVariant>,
+    lexical_credit_override: bool,
 ) -> ComparisonFacts {
     let request_identity = RecordingIdentity::from_track(track);
     let manual_artist_override_supersedes_imported_credits =
@@ -2566,8 +2648,10 @@ fn build_comparison(
     // structured artist prefix and feature annotation parse to exactly the
     // requested performer set. Public search display strings, stale catalog
     // rows, and captions with contradictory structured artist metadata remain
-    // open-world evidence.
-    let fresh_caption_credits_complete = filename_observations.is_none()
+    // open-world evidence. Lexical-only aliases can resolve names for this
+    // request but do not authorize either caption-derived completeness path.
+    let fresh_caption_credits_complete = !lexical_credit_override
+        && filename_observations.is_none()
         && meta["identityMetadataUncertain"] != true
         && canonical_catalog.is_none()
         && !caption_names.is_empty()
@@ -2595,7 +2679,8 @@ fn build_comparison(
     // A bound catalog row can also corroborate a full caption when both the
     // structured artist rows and the explicitly parsed caption name exactly
     // the same requested set. A flat array alone still cannot close credits.
-    let bound_caption_credits_complete = canonical_catalog.is_some()
+    let bound_caption_credits_complete = !lexical_credit_override
+        && canonical_catalog.is_some()
         && meta["identityMetadataUncertain"] != true
         && !names.is_empty()
         && !caption_names.is_empty()
@@ -2633,8 +2718,35 @@ fn build_comparison(
     names = expanded_credits(&names, &comparison_credit_parts);
     let mut seen_credit_keys = std::collections::HashSet::new();
     names.retain(|name| seen_credit_keys.insert(norm_artist(name)));
-    let actual_guests = guest_from_title(raw_candidate);
+    let actual_guests = if lexical_credit_override {
+        caption_features_for_requested_title(raw_candidate, &track.title, &comparison_credit_parts)
+    } else {
+        guest_from_title(raw_candidate)
+    };
     let mut guests = features_match(&requested_guests, &actual_guests);
+    if lexical_credit_override && requested_guests.is_empty() && !actual_guests.is_empty() {
+        let known_lexical_credits = comparison_credit_parts
+            .iter()
+            .map(|credit| norm_artist(credit))
+            .filter(|credit| !credit.is_empty())
+            .collect::<std::collections::HashSet<_>>();
+        let mut observed_lexical_guests =
+            expanded_credits(&actual_guests, &comparison_credit_parts)
+                .into_iter()
+                .map(|credit| norm_artist(&credit))
+                .filter(|credit| !credit.is_empty())
+                .collect::<Vec<_>>();
+        observed_lexical_guests.sort();
+        observed_lexical_guests.dedup();
+        guests = if observed_lexical_guests
+            .iter()
+            .all(|guest| known_lexical_credits.contains(guest))
+        {
+            Comparison::Agree
+        } else {
+            Comparison::Conflict
+        };
+    }
     if !requested_guests.is_empty() && guests == Comparison::Unknown && !names.is_empty() {
         let all_known = requested_guests.iter().all(|guest| {
             names
@@ -2660,7 +2772,7 @@ fn build_comparison(
         }
     }
     // Extra structured credits are permitted if they do not contradict a named guest.
-    if requested_guests.is_empty() {
+    if requested_guests.is_empty() && !(lexical_credit_override && !actual_guests.is_empty()) {
         guests = Comparison::Unknown;
     }
     let exact_recording_bound = verified_recording_binding(track, candidate, meta);
@@ -2902,6 +3014,7 @@ fn build_comparison(
         credits_complete,
         verified_musicbrainz_credits_complete,
         request_credits_complete,
+        lexical_credit_override,
         exact_recording_bound,
         topic_full,
         contextual_game_title,
@@ -3071,6 +3184,7 @@ fn assess_prepared_inner(
         credits_complete,
         verified_musicbrainz_credits_complete,
         request_credits_complete,
+        lexical_credit_override,
         exact_recording_bound,
         topic_full,
         contextual_game_title,
@@ -3429,16 +3543,17 @@ fn assess_prepared_inner(
     };
     // In Exact mode, matching the known members of a multi-performer request
     // does not prove that either side supplied the whole credit set. Preserve
-    // the artist dimension as Agree, but require a closed credit list or a
-    // strong recording identifier before calling that coverage Exact.
+    // the artist dimension as Agree, but require candidate-side completeness
+    // or a strong recording identifier before lexical-only evidence can call
+    // that coverage Exact.
     let multi_performer_request = facts.requested_performer_count > 1;
     if level == MatchLevel::Exact
         && relationship == MatchRelationship::Exact
         && multi_performer_request
-        && !request_credits_complete
         && !credits_complete
         && !exact_recording_bound
         && isrc != Comparison::Agree
+        && (!request_credits_complete || lexical_credit_override)
     {
         relationship = MatchRelationship::Unresolved;
     }
@@ -3800,6 +3915,25 @@ pub(crate) fn assess_with_primary_credit_override_and_options(
     )
 }
 
+/// Assess using a request-scoped lexical artist rendering. Its names may
+/// resolve artist spelling and guest identity for matching, but they cannot
+/// establish source completeness by themselves.
+pub(crate) fn assess_with_lexical_credit_override_and_options(
+    track: &Track,
+    candidate: &Candidate,
+    level: MatchLevel,
+    stage: MatchStage,
+    lexical_credit_names: &[String],
+    options: &FlexibleMatchingOptions,
+) -> MatchAssessment {
+    assess_prepared_with_options(
+        &prepare_with_lexical_credit_override(track, candidate, lexical_credit_names),
+        level,
+        stage,
+        options,
+    )
+}
+
 /// Compare against an exact recording's validated release title and ordered
 /// credits while leaving the source and candidate observations untouched.
 pub(crate) fn assess_with_scoped_occurrence_title_and_credit(
@@ -3969,25 +4103,28 @@ mod tests {
             "Alice Russell".to_owned(),
             "The Combo Bárbaro".to_owned(),
         ];
+        let options = FlexibleMatchingOptions::default();
         for level in [
             MatchLevel::Exact,
             MatchLevel::Balanced,
             MatchLevel::Flexible,
         ] {
-            let search = assess_with_primary_credit_override(
+            let search = assess_with_lexical_credit_override_and_options(
                 &request,
                 &candidate,
                 level,
                 MatchStage::Search,
                 &lexical_credits,
+                &options,
             );
             assert_ne!(search.action, MatchAction::Reject, "{level:?}: {search:?}");
-            let resolved = assess_with_primary_credit_override(
+            let resolved = assess_with_lexical_credit_override_and_options(
                 &request,
                 &resolved_candidate,
                 level,
                 MatchStage::Resolved,
                 &lexical_credits,
+                &options,
             );
             match level {
                 MatchLevel::Flexible => assert_eq!(
@@ -4008,40 +4145,149 @@ mod tests {
             }
             assert_ne!(resolved.dimensions.artists, Comparison::Conflict);
             assert_eq!(resolved.dimensions.title, Comparison::Agree);
+            assert_eq!(resolved.dimensions.guests, Comparison::Agree);
             assert_eq!(resolved.dimensions.version, Comparison::Unknown);
+            assert!(
+                !resolved
+                    .evidence
+                    .as_ref()
+                    .unwrap()
+                    .complete_performer_credits,
+                "lexical spelling evidence cannot close source credits: {resolved:?}"
+            );
         }
+
+        for wrong_guest_title in [
+            "Quantic, Alice Russell - Travelling Song - feat. Another Artist",
+            "Quantic, Alice Russell - Travelling Song - feat. The Combo Bárbaro & Another Artist",
+        ] {
+            let mut wrong_guest = resolved_candidate.clone();
+            wrong_guest.title = wrong_guest_title.into();
+            let rejected = assess_with_lexical_credit_override_and_options(
+                &request,
+                &wrong_guest,
+                MatchLevel::Flexible,
+                MatchStage::Resolved,
+                &lexical_credits,
+                &options,
+            );
+            assert_ne!(rejected.action, MatchAction::Accept, "{rejected:?}");
+            assert_eq!(
+                rejected.dimensions.guests,
+                Comparison::Conflict,
+                "{rejected:?}"
+            );
+        }
+
+        let mut multiple_known_guests = resolved_candidate.clone();
+        multiple_known_guests.title =
+            "Quantic, Alice Russell - Travelling Song - feat. The Combo Bárbaro & Alice Russell"
+                .into();
+        let multiple_guest_result = assess_with_lexical_credit_override_and_options(
+            &request,
+            &multiple_known_guests,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &lexical_credits,
+            &options,
+        );
+        assert_eq!(
+            multiple_guest_result.action,
+            MatchAction::Accept,
+            "{multiple_guest_result:?}"
+        );
+        assert_eq!(multiple_guest_result.dimensions.guests, Comparison::Agree);
+
+        let atomic_guest_request = Track {
+            title: "Song".into(),
+            artist: "Primary, Atomic Band & Friends".into(),
+            duration_seconds: Some(180.0),
+            ..Track::default()
+        };
+        let atomic_guest_candidate = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:atomic-guest".into(),
+            title: "Primary - Song feat. Atomic Band & Friends".into(),
+            duration_seconds: Some(180.0),
+            source_metadata: Some(json!({
+                "provider":"youtube",
+                "resolvedProviderId":"atomic-guest",
+                "sourceMetadataOrigin":"ytDlpFullInfo",
+                "duration":180.0,
+                "artists":null,"artist":null,"album":null,"isrc":null
+            })),
+            ..Candidate::default()
+        };
+        let atomic_guest_result = assess_with_lexical_credit_override_and_options(
+            &atomic_guest_request,
+            &atomic_guest_candidate,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &["Primary".into(), "Atomic Band & Friends".into()],
+            &options,
+        );
+        assert_eq!(
+            atomic_guest_result.action,
+            MatchAction::Accept,
+            "{atomic_guest_result:?}"
+        );
+        assert_eq!(atomic_guest_result.dimensions.guests, Comparison::Agree);
+
+        let mut prefix_feature = atomic_guest_candidate.clone();
+        prefix_feature.title = "Primary feat. Atomic Band & Friends - Song".into();
+        let prefix_guest_result = assess_with_lexical_credit_override_and_options(
+            &atomic_guest_request,
+            &prefix_feature,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &["Primary".into(), "Atomic Band & Friends".into()],
+            &options,
+        );
+        assert_eq!(
+            prefix_guest_result.action,
+            MatchAction::Accept,
+            "{prefix_guest_result:?}"
+        );
+        assert_eq!(prefix_guest_result.dimensions.guests, Comparison::Agree);
+
+        let mut wrong_prefix_feature = atomic_guest_candidate;
+        wrong_prefix_feature.title = "Primary feat. Unknown Guest - Song".into();
+        let wrong_prefix_result = assess_with_lexical_credit_override_and_options(
+            &atomic_guest_request,
+            &wrong_prefix_feature,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &["Primary".into(), "Atomic Band & Friends".into()],
+            &options,
+        );
+        assert_ne!(
+            wrong_prefix_result.action,
+            MatchAction::Accept,
+            "{wrong_prefix_result:?}"
+        );
+        assert_eq!(wrong_prefix_result.dimensions.guests, Comparison::Conflict);
 
         let mut wrong_artist = resolved_candidate.clone();
         wrong_artist.title = "Different Artist - Travelling Song".into();
-        let rejected = assess_with_primary_credit_override(
+        let rejected = assess_with_lexical_credit_override_and_options(
             &request,
             &wrong_artist,
             MatchLevel::Flexible,
             MatchStage::Resolved,
             &lexical_credits,
+            &options,
         );
         assert_ne!(rejected.action, MatchAction::Accept, "{rejected:?}");
 
         let mut wrong_version = resolved_candidate.clone();
         wrong_version.title = format!("{candidate_title} (Remix)");
-        let rejected = assess_with_primary_credit_override(
+        let rejected = assess_with_lexical_credit_override_and_options(
             &request,
             &wrong_version,
             MatchLevel::Flexible,
             MatchStage::Resolved,
             &lexical_credits,
-        );
-        assert_ne!(rejected.action, MatchAction::Accept, "{rejected:?}");
-
-        let mut wrong_source = resolved_candidate.clone();
-        wrong_source.source_metadata.as_mut().unwrap()["resolvedProviderId"] =
-            json!("differentVideoId");
-        let rejected = assess_with_primary_credit_override(
-            &request,
-            &wrong_source,
-            MatchLevel::Flexible,
-            MatchStage::Resolved,
-            &lexical_credits,
+            &options,
         );
         assert_ne!(rejected.action, MatchAction::Accept, "{rejected:?}");
 
@@ -4049,15 +4295,67 @@ mod tests {
         request_with_isrc.isrc = Some("USABC2600001".into());
         let mut wrong_isrc = resolved_candidate;
         wrong_isrc.source_metadata.as_mut().unwrap()["isrc"] = json!("GBXYZ9876543");
-        let rejected = assess_with_primary_credit_override(
+        let rejected = assess_with_lexical_credit_override_and_options(
             &request_with_isrc,
             &wrong_isrc,
             MatchLevel::Flexible,
             MatchStage::Resolved,
             &lexical_credits,
+            &options,
         );
         assert_ne!(rejected.action, MatchAction::Accept, "{rejected:?}");
         assert_eq!(rejected.dimensions.isrc, Comparison::Conflict);
+    }
+
+    #[test]
+    fn caption_whole_band_name_is_atomic_before_trailing_feature_parsing() {
+        let track = Track {
+            title: "Song".into(),
+            artist: "Band Featuring Friends".into(),
+            duration_seconds: Some(180.0),
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:atomic-band".into(),
+            title: "Band Featuring Friends - Song".into(),
+            duration_seconds: Some(180.0),
+            source_metadata: Some(json!({
+                "provider":"youtube",
+                "resolvedProviderId":"atomic-band",
+                "sourceMetadataOrigin":"ytDlpFullInfo",
+                "duration":180.0,
+                "artists":null,"artist":null,"album":null,"isrc":null
+            })),
+            ..Candidate::default()
+        };
+        let assessment = assess(
+            &track,
+            &candidate,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+        );
+        assert_eq!(
+            assessment.dimensions.artists,
+            Comparison::Agree,
+            "{assessment:?}"
+        );
+        assert_eq!(
+            caption_artist_names(
+                "Band Featuring Friends - Song",
+                "Band Featuring Friends",
+                &[],
+                None
+            ),
+            vec!["Band Featuring Friends".to_owned()]
+        );
+        assert!(caption_artist_names(
+            "Band - Song feat. Friends",
+            "Band Featuring Friends",
+            &[],
+            None,
+        )
+        .is_empty());
     }
     #[test]
     fn uploader_corroborated_caption_orientation_is_request_scoped_and_keeps_identity_guards() {

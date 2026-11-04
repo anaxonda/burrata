@@ -1410,25 +1410,37 @@ fn assess_with_aliases_and_context_impl(
         if &same != variant {
             continue;
         }
-        let next =
-            if let Some(credits) = verified_credits.matching_credit_names(track, &variant.artist) {
-                recording_match::assess_with_primary_credit_override_and_options(
-                    variant,
-                    candidate,
-                    level,
-                    stage,
-                    &credits,
-                    &context.flexible_options,
-                )
-            } else {
-                recording_match::assess_with_options(
-                    variant,
-                    candidate,
-                    level,
-                    stage,
-                    &context.flexible_options,
-                )
-            };
+        let next = if let Some(credits) =
+            verified_credits.matching_verified_credit_names(track, &variant.artist)
+        {
+            recording_match::assess_with_primary_credit_override_and_options(
+                variant,
+                candidate,
+                level,
+                stage,
+                &credits,
+                &context.flexible_options,
+            )
+        } else if let Some(credits) =
+            verified_credits.matching_lexical_credit_names(track, &variant.artist)
+        {
+            recording_match::assess_with_lexical_credit_override_and_options(
+                variant,
+                candidate,
+                level,
+                stage,
+                &credits,
+                &context.flexible_options,
+            )
+        } else {
+            recording_match::assess_with_options(
+                variant,
+                candidate,
+                level,
+                stage,
+                &context.flexible_options,
+            )
+        };
         if priority(&next) < priority(&best) {
             best = next;
             best_request = variant.clone();

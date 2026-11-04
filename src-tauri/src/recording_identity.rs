@@ -242,7 +242,8 @@ pub fn parse_recording_text(value: &str) -> ParsedRecordingText {
         for _ in 0..16 {
             let bracketed = crate::matching::split_balanced_trailing_parenthetical(remaining)
                 .or_else(|| remaining.strip_suffix(']').and_then(|s| s.rsplit_once('[')))
-                .or_else(|| trailing_dash_version(remaining));
+                .or_else(|| trailing_dash_version(remaining))
+                .or_else(|| trailing_feature_credit(remaining));
             let Some((base, label)) = bracketed else {
                 break;
             };
@@ -288,9 +289,13 @@ pub fn parse_recording_text(value: &str) -> ParsedRecordingText {
                     end: content_start + label.len(),
                 },
                 kind,
-                value: parsed
-                    .featured_credit
-                    .unwrap_or_else(|| label.trim().to_owned()),
+                value: if kind == AnnotationKind::FeaturedCredit {
+                    parsed
+                        .featured_credit
+                        .unwrap_or_else(|| label.trim().to_owned())
+                } else {
+                    label.trim().to_owned()
+                },
             });
             remaining = base.trim_end();
             result.base_title = remaining.trim().to_owned();
@@ -850,6 +855,25 @@ pub fn parse_title(value: &str) -> ParsedRecordingTitle {
             result.version = Some(label.trim().to_owned());
         }
     }
+    let has_unparsed_trailing_group =
+        crate::matching::split_balanced_trailing_parenthetical(&result.title).is_some()
+            || result
+                .title
+                .strip_suffix(']')
+                .is_some_and(|base| base.rsplit_once('[').is_some());
+    if result.featured_credit.is_none()
+        && result.version.is_none()
+        && result.soundtrack.is_none()
+        && !has_unparsed_trailing_group
+    {
+        if let Some((base, credit)) = trailing_feature_credit(&result.title) {
+            // Own both slices before replacing the String they borrow from.
+            let base = base.trim().to_owned();
+            let credit = credit.trim().to_owned();
+            result.title = base;
+            result.featured_credit = Some(credit);
+        }
+    }
     result
 }
 
@@ -888,6 +912,60 @@ fn trailing_dash_version(value: &str) -> Option<(&str, &str)> {
     ) || normalized == "remix"
         || normalized.ends_with(" remix"))
     .then_some((base, label))
+}
+
+/// Split an explicit trailing feature credit from a title. The marker must be
+/// anchored at the end of the recording text (apart from its guest name), so
+/// A spaced dash before the marker is optional; the returned guest string
+/// stays atomic. Plain "with" is intentionally not a feature marker.
+fn trailing_feature_credit(value: &str) -> Option<(&str, &str)> {
+    if value.len() > 2048 {
+        return None;
+    }
+    let lower = value.to_ascii_lowercase();
+    let markers = ["featuring", "feat.", "feat", "ft.", "ft", "w/"];
+    let mut candidates = markers
+        .iter()
+        .flat_map(|marker| {
+            lower
+                .match_indices(marker)
+                .map(move |(start, _)| (start, *marker))
+        })
+        .collect::<Vec<_>>();
+    candidates.sort_by_key(|(start, marker)| (*start, std::cmp::Reverse(marker.len())));
+    for (start, marker) in candidates {
+        let before = &value[..start];
+        if !before.chars().last().is_some_and(char::is_whitespace) {
+            continue;
+        }
+        let after_start = start + marker.len();
+        let after = &value[after_start..];
+        if !after
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_whitespace() || matches!(c, ':' | '-' | '–' | '—'))
+        {
+            continue;
+        }
+        let credit = after
+            .trim()
+            .trim_start_matches(|c: char| matches!(c, ':' | '-' | '–' | '—'))
+            .trim();
+        if credit.is_empty() || credit.len() > 256 || credit.chars().any(char::is_control) {
+            continue;
+        }
+        let mut base = before.trim_end();
+        for separator in [" -", " –", " —"] {
+            if let Some(stripped) = base.strip_suffix(separator) {
+                base = stripped.trim_end();
+                break;
+            }
+        }
+        if !base.is_empty() {
+            return Some((base, credit));
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -952,6 +1030,115 @@ mod tests {
                 .soundtrack
                 .as_deref(),
             Some("Raiders of the Lost Ark")
+        );
+    }
+
+    #[test]
+    fn trailing_feature_markers_are_shared_credit_annotations_and_keep_the_guest_atomic() {
+        for marker in ["feat.", "feat", "featuring", "ft.", "ft", "w/"] {
+            for separator in [" ", " - "] {
+                let text = format!("Song{separator}{marker} The Combo Bárbaro & Friends");
+                let parsed = parse_title(&text);
+                assert_eq!(parsed.title, "Song", "{text}");
+                assert_eq!(
+                    parsed.featured_credit.as_deref(),
+                    Some("The Combo Bárbaro & Friends"),
+                    "{text}"
+                );
+                let recording = parse_recording_text(&text);
+                assert_eq!(recording.base_title, "Song", "{text}");
+                assert_eq!(recording.annotations.len(), 1, "{text}");
+                let annotation = &recording.annotations[0];
+                assert_eq!(annotation.kind, AnnotationKind::FeaturedCredit, "{text}");
+                assert_eq!(annotation.value, "The Combo Bárbaro & Friends", "{text}");
+                assert_eq!(
+                    &text[annotation.content_span.start..annotation.content_span.end],
+                    "The Combo Bárbaro & Friends",
+                    "{text}"
+                );
+            }
+        }
+
+        let compound_guest = parse_title("Song feat. Artist Featuring Friends");
+        assert_eq!(compound_guest.title, "Song");
+        assert_eq!(
+            compound_guest.featured_credit.as_deref(),
+            Some("Artist Featuring Friends")
+        );
+
+        let version = parse_recording_text("Song feat. Guest (Remix)");
+        assert_eq!(version.base_title, "Song");
+        assert!(version
+            .annotations
+            .iter()
+            .any(|annotation| annotation.kind == AnnotationKind::FeaturedCredit));
+        assert!(version.annotations.iter().any(|annotation| {
+            annotation.kind == AnnotationKind::SemanticVersion
+                && annotation.value == "Remix"
+                && &"Song feat. Guest (Remix)"[annotation.span.start..annotation.span.end]
+                    == "(Remix)"
+                && &"Song feat. Guest (Remix)"
+                    [annotation.content_span.start..annotation.content_span.end]
+                    == "Remix"
+        }));
+
+        let soundtrack = parse_recording_text("Song feat. Guest (From \"Film\")");
+        assert_eq!(soundtrack.base_title, "Song");
+        assert!(soundtrack.annotations.iter().any(|annotation| {
+            annotation.kind == AnnotationKind::Soundtrack
+                && annotation.value == "From \"Film\""
+                && &"Song feat. Guest (From \"Film\")"[annotation.span.start..annotation.span.end]
+                    == "(From \"Film\")"
+                && &"Song feat. Guest (From \"Film\")"
+                    [annotation.content_span.start..annotation.content_span.end]
+                    == "From \"Film\""
+        }));
+        assert!(soundtrack.annotations.iter().any(|annotation| {
+            annotation.kind == AnnotationKind::FeaturedCredit
+                && annotation.value == "Guest"
+                && &"Song feat. Guest (From \"Film\")"
+                    [annotation.content_span.start..annotation.content_span.end]
+                    == "Guest"
+        }));
+
+        let unknown = parse_recording_text("Song feat. Guest [Unfamiliar Label]");
+        assert_eq!(unknown.base_title, "Song");
+        assert!(unknown
+            .annotations
+            .iter()
+            .any(|annotation| annotation.kind == AnnotationKind::FeaturedCredit));
+        assert!(unknown
+            .annotations
+            .iter()
+            .any(|annotation| annotation.kind == AnnotationKind::Unresolved));
+        assert_eq!(
+            parse_title("Song feat. Guest [Unfamiliar Label]").featured_credit,
+            None,
+            "unrecognized trailing annotation remains opaque to parse_title"
+        );
+
+        for malformed in ["Song feat.", "Song feat. \n", "feat. Guest"] {
+            assert_eq!(
+                parse_title(malformed).featured_credit,
+                None,
+                "{malformed:?}"
+            );
+        }
+        assert_eq!(
+            parse_title("A Song Featuring Friends")
+                .featured_credit
+                .as_deref(),
+            Some("Friends")
+        );
+        assert_eq!(parse_title("A Song with Friends").featured_credit, None);
+        assert_eq!(
+            parse_title("A Song FeaturingFriends").featured_credit,
+            None,
+            "a marker embedded in a word is not a feature annotation"
+        );
+        assert_eq!(
+            parse_title("Song - Original Mix").version.as_deref(),
+            Some("Original Mix")
         );
     }
 

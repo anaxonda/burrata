@@ -1617,6 +1617,50 @@ mod tests {
     }
 
     #[test]
+    fn artist_alias_match_never_overrides_a_different_resolved_source_id() {
+        let (_dir, store) = store();
+        let track = request();
+        let alias = Track {
+            artist: "Alias Artist".into(),
+            ..track.clone()
+        };
+        let aliases = vec![alias];
+        let resolved = audio("Song", json!(["Alias Artist"]));
+        assert!(
+            verify(
+                &track,
+                &aliases,
+                &[],
+                None,
+                &mut candidate(),
+                &resolved,
+                false,
+                MatchLevel::Flexible,
+                &store
+            )
+            .is_some(),
+            "the alias can identify the matching recording on its exact source"
+        );
+        let mut different_source = resolved;
+        different_source.resolved_provider_id = Some("differentid".into());
+        assert!(
+            verify(
+                &track,
+                &aliases,
+                &[],
+                None,
+                &mut candidate(),
+                &different_source,
+                false,
+                MatchLevel::Flexible,
+                &store
+            )
+            .is_none(),
+            "even a matching artist alias cannot authorize another source ID"
+        );
+    }
+
+    #[test]
     fn fresh_evidence_replaces_search_identity_and_binds_provider_id() {
         let (_dir, s) = store();
         let t = request();

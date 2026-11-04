@@ -453,17 +453,38 @@ impl VerifiedPlaybackArtistAliases {
         source: &Track,
         candidate_artist: &str,
     ) -> Option<Vec<String>> {
+        self.matching_verified_credit_names(source, candidate_artist)
+            .or_else(|| self.matching_lexical_credit_names(source, candidate_artist))
+    }
+
+    /// Retain the existing verified-credit assessment route independently of
+    /// the release-scoped spelling-only route below.
+    pub(crate) fn matching_verified_credit_names(
+        &self,
+        source: &Track,
+        candidate_artist: &str,
+    ) -> Option<Vec<String>> {
         if self.source.as_ref() != Some(source) {
             return None;
         }
         self.credit_sets
             .iter()
             .find_map(|credits| credits.matching_names(candidate_artist))
-            .or_else(|| {
-                self.lexical_credit_sets
-                    .iter()
-                    .find_map(|credits| credits.matching_names(candidate_artist))
-            })
+    }
+
+    /// These names authorize lexical equivalence only. Callers must keep
+    /// caption-derived performer completeness open-world for this route.
+    pub(crate) fn matching_lexical_credit_names(
+        &self,
+        source: &Track,
+        candidate_artist: &str,
+    ) -> Option<Vec<String>> {
+        if self.source.as_ref() != Some(source) {
+            return None;
+        }
+        self.lexical_credit_sets
+            .iter()
+            .find_map(|credits| credits.matching_names(candidate_artist))
     }
 
     pub(crate) fn discogs_credit_variant(

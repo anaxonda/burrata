@@ -532,6 +532,12 @@ async fn cached_proof_is_revalidated_and_lookup_uses_pre_hydration_path() {
         .map(|variant| variant.artist.as_str())
         .expect("request-scoped spelling is available for matching");
     assert!(aliases
+        .matching_verified_credit_names(&fixture.track, lexical_artist)
+        .is_none());
+    assert!(aliases
+        .matching_lexical_credit_names(&fixture.track, lexical_artist)
+        .is_some());
+    assert!(aliases
         .matching_track(&fixture.track, lexical_artist)
         .is_some());
     assert!(aliases
@@ -563,6 +569,80 @@ async fn cached_proof_is_revalidated_and_lookup_uses_pre_hydration_path() {
         .get_library_track(&fixture.track.id)
         .unwrap()
         .is_none());
+}
+
+#[test]
+fn cached_lexical_context_resolves_flexible_match_without_closing_exact_credits() {
+    let fixture = make_fixture();
+    let directory = tempfile::tempdir().unwrap();
+    let store = Store::open(&directory.path().join("lexical-match-context.sqlite")).unwrap();
+    seed_warm_proof(&store, &fixture);
+    let candidate_title = "Quantic, Alice Russell - Travelling Song - feat. The Combo Bárbaro";
+    let candidate = crate::models::Candidate {
+        provider: "youtube".into(),
+        id: "youtube:x5JgogqFYOM".into(),
+        url: "https://www.youtube.com/watch?v=x5JgogqFYOM".into(),
+        title: candidate_title.into(),
+        uploader: Some("TruThoughtsJukeBox".into()),
+        duration_seconds: Some(284.0),
+        source_metadata: Some(json!({
+            "provider":"youtube",
+            "resolvedProviderId":"x5JgogqFYOM",
+            "sourceMetadataOrigin":"ytDlpFullInfo",
+            "duration":284.0,
+            "artists":null,"artist":null,"album":null,"isrc":null
+        })),
+        ..Default::default()
+    };
+
+    for level in [
+        crate::recording_match::MatchLevel::Exact,
+        crate::recording_match::MatchLevel::Balanced,
+        crate::recording_match::MatchLevel::Flexible,
+    ] {
+        let search = crate::recording_match_context::assess(
+            &store,
+            &fixture.track,
+            &candidate,
+            level,
+            crate::recording_match::MatchStage::Search,
+        );
+        assert_eq!(
+            search.action,
+            crate::recording_match::MatchAction::Inspect,
+            "search stays inspect-only at {level:?}: {search:?}"
+        );
+
+        let resolved = crate::recording_match_context::assess(
+            &store,
+            &fixture.track,
+            &candidate,
+            level,
+            crate::recording_match::MatchStage::Resolved,
+        );
+        match level {
+            crate::recording_match::MatchLevel::Flexible => {
+                assert_eq!(
+                    resolved.action,
+                    crate::recording_match::MatchAction::Accept,
+                    "flexible matching can use the exact linked-release spelling: {resolved:?}"
+                );
+            }
+            crate::recording_match::MatchLevel::Exact => {
+                assert_ne!(
+                    resolved.action,
+                    crate::recording_match::MatchAction::Accept,
+                    "spelling-only evidence cannot establish exact identity: {resolved:?}"
+                );
+                let evidence = resolved.evidence.as_ref().unwrap();
+                assert!(!evidence.complete_performer_credits);
+                assert!(!evidence.requested_performer_credits_complete);
+            }
+            crate::recording_match::MatchLevel::Balanced => {
+                assert_ne!(resolved.action, crate::recording_match::MatchAction::Reject);
+            }
+        }
+    }
 }
 
 #[test]
