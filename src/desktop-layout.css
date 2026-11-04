@@ -224,6 +224,9 @@
 
 /* Desktop split panes respond to their remaining content width, not the window. */
 .app-shell > main { container: main-pane / inline-size; }
+.app-shell > main > header.playlist-header { flex-wrap:wrap; }
+.app-shell > main > header.playlist-header .header-actions { flex:1 1 100%; min-width:0; flex-wrap:wrap; gap:8px; }
+.playlist-header .playlist-action-scope { flex-basis:100%; color:var(--muted); font-size:12px; }
 @media (min-width: 901px) {
   .table-tools.compact-tools .local-filter { flex-shrink:0; }
   .table-tools.compact-tools .local-filter select { min-width:132px; }

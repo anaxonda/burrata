@@ -7393,7 +7393,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     onImport={() => void createNewPlaylist()} onSettings={() => void navigate("settings")} onDownloads={() => { openPlayerPanel("downloads"); void refreshJobs(); }}
     activeJobs={jobs.filter((job) => !["completed", "failed", "cancelled", "waiting_for_source", "interrupted"].includes(job.state)).length} />
   <main inert={showFullNowPlaying}>
-    <header>
+    <header class:playlist-header={view === "collections"}>
       <div class="navigation-controls"><button aria-label="Go back" disabled={restoringRoute || !backRoutes.length} onclick={() => void travelRoute("back")}>←</button><button aria-label="Go forward" disabled={restoringRoute || !forwardRoutes.length} onclick={() => void travelRoute("forward")}>→</button></div>
       <div>
         <div class="eyebrow">DISCOVER · AUDITION · COLLECT</div>
