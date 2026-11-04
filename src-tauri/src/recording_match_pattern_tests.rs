@@ -1424,3 +1424,175 @@ fn broad_version_options_can_accept_fresh_complete_unannotated_source() {
         assert_ne!(test(&bad, &broad).action, MatchAction::Accept, "{field}");
     }
 }
+
+#[test]
+fn captured_i_will_remaster_labels_preserve_recording_and_policy_dimensions() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../fixtures/i-will-remastered-2009-candidate.json"
+    ))
+    .unwrap();
+    let request: Track = serde_json::from_value(fixture["request"].clone()).unwrap();
+    let candidate: Candidate = serde_json::from_value(fixture["candidate"].clone()).unwrap();
+    let parenthesized = Track {
+        title: "I Will (Remastered 2009)".into(),
+        ..request.clone()
+    };
+    for level in [
+        MatchLevel::Exact,
+        MatchLevel::Balanced,
+        MatchLevel::Flexible,
+    ] {
+        for stage in [MatchStage::Search, MatchStage::Resolved] {
+            let actual = assess(&request, &candidate, level, stage);
+            let control = assess(&parenthesized, &candidate, level, stage);
+            assert_eq!(actual.action, control.action, "{level:?} {stage:?}");
+            assert_eq!(actual.dimensions, control.dimensions, "{level:?} {stage:?}");
+            assert_eq!(actual.dimensions.title, Comparison::Agree);
+            assert_eq!(actual.dimensions.version, Comparison::Agree);
+            // A singular artist is structured performer evidence, without
+            // establishing exhaustive credits. Source binding is verified by
+            // playback_match::verify against fresh PreviewAudio separately.
+            assert_eq!(actual.dimensions.artists, Comparison::Agree);
+            assert_eq!(
+                actual.action,
+                if stage == MatchStage::Search {
+                    MatchAction::Inspect
+                } else {
+                    MatchAction::Accept
+                },
+                "{level:?} {stage:?}: {actual:?}"
+            );
+            assert!(!actual.evidence.as_ref().unwrap().complete_performer_credits);
+        }
+    }
+
+    for label in [
+        "Remaster 2009",
+        "2009 Digital Remaster",
+        "Digitally Remastered 2009",
+    ] {
+        let mut equivalent = candidate.clone();
+        set_captured_i_will_title(&mut equivalent, &format!("I Will ({label})"));
+        let actual = assess(
+            &request,
+            &equivalent,
+            MatchLevel::Balanced,
+            MatchStage::Resolved,
+        );
+        assert_eq!(actual.action, MatchAction::Accept, "{label}: {actual:?}");
+        assert_eq!(actual.dimensions.version, Comparison::Agree);
+    }
+
+    let mut wrong_artist = candidate.clone();
+    wrong_artist.source_metadata.as_mut().unwrap()["artist"] = json!("The Who");
+    for title in [
+        "I Will (Live)",
+        "I Will (Remix)",
+        "Another Song (Remastered 2009)",
+    ] {
+        let mut wrong_recording = candidate.clone();
+        set_captured_i_will_title(&mut wrong_recording, title);
+        for level in [
+            MatchLevel::Exact,
+            MatchLevel::Balanced,
+            MatchLevel::Flexible,
+        ] {
+            for stage in [MatchStage::Search, MatchStage::Resolved] {
+                assert_ne!(
+                    assess(&request, &wrong_recording, level, stage).action,
+                    MatchAction::Accept,
+                    "{title} {level:?} {stage:?}"
+                );
+                assert_ne!(
+                    assess(&request, &wrong_artist, level, stage).action,
+                    MatchAction::Accept,
+                    "wrong artist {level:?} {stage:?}"
+                );
+            }
+        }
+    }
+
+    let mut other_year = candidate.clone();
+    set_captured_i_will_title(&mut other_year, "I Will (Remastered 2010)");
+    for level in [MatchLevel::Exact, MatchLevel::Balanced] {
+        for stage in [MatchStage::Search, MatchStage::Resolved] {
+            let actual = assess(&request, &other_year, level, stage);
+            assert_eq!(actual.dimensions.version, Comparison::Conflict);
+            assert_ne!(actual.action, MatchAction::Accept);
+        }
+    }
+    let flexible = assess(
+        &request,
+        &other_year,
+        MatchLevel::Flexible,
+        MatchStage::Resolved,
+    );
+    assert_eq!(flexible.dimensions.version, Comparison::Conflict);
+    assert_ne!(flexible.action, MatchAction::Accept);
+    // Selecting another release needs stronger evidence than the captured
+    // scalar artist field. Keep that requirement distinct from title parsing.
+    let mut verified_other_year = other_year;
+    let metadata = verified_other_year.source_metadata.as_mut().unwrap();
+    metadata["provider"] = json!("youtube");
+    metadata["resolvedProviderId"] = json!("p-abNGP1BK4");
+    metadata["sourceMetadataOrigin"] = json!("ytDlpFullInfo");
+    metadata["artists"] = json!(["The Beatles"]);
+    metadata["performerCreditsComplete"] = json!(true);
+    let flexible = assess(
+        &request,
+        &verified_other_year,
+        MatchLevel::Flexible,
+        MatchStage::Resolved,
+    );
+    assert_eq!(flexible.action, MatchAction::Accept);
+    assert_eq!(flexible.relationship, MatchRelationship::Alternative);
+    assert_eq!(flexible.alternative_kind, Some(AlternativeKind::Release));
+    let strict_release = FlexibleMatchingOptions {
+        allow_other_releases: false,
+        ..Default::default()
+    };
+    assert_ne!(
+        assess_with_options(
+            &request,
+            &verified_other_year,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &strict_release
+        )
+        .action,
+        MatchAction::Accept
+    );
+
+    let mut manual_live = request.clone();
+    manual_live.version = Some("Live".into());
+    manual_live.provenance["manualFields"] = json!({"version":true});
+    assert_ne!(
+        assess(
+            &manual_live,
+            &candidate,
+            MatchLevel::Balanced,
+            MatchStage::Resolved
+        )
+        .action,
+        MatchAction::Accept
+    );
+}
+
+fn set_captured_i_will_title(candidate: &mut Candidate, title: &str) {
+    candidate.title = title.to_owned();
+    if let Some(metadata) = candidate.source_metadata.as_mut() {
+        metadata["title"] = json!(title);
+        metadata["song"] = json!(title);
+        for field in ["track", "catalogTitle"] {
+            if metadata.get(field).is_some() {
+                metadata[field] = json!(title);
+            }
+        }
+        let description = metadata["description"]
+            .as_str()
+            .map(|description| description.replace("I Will (Remastered 2009)", title));
+        if let Some(description) = description {
+            metadata["description"] = json!(description);
+        }
+    }
+}

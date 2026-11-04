@@ -45,16 +45,24 @@ pub fn normalize_title_ignoring_intraword_apostrophes(value: &str) -> String {
 /// Split one balanced parenthetical group at the end of a display string.
 /// Returns the trimmed prefix and the full parenthetical contents without delimiters.
 pub fn split_balanced_trailing_parenthetical(value: &str) -> Option<(&str, &str)> {
+    split_balanced_trailing_group(value, '(', ')')
+}
+
+pub fn split_balanced_trailing_square_group(value: &str) -> Option<(&str, &str)> {
+    split_balanced_trailing_group(value, '[', ']')
+}
+
+fn split_balanced_trailing_group(value: &str, open: char, close: char) -> Option<(&str, &str)> {
     let value = value.trim_end();
-    if !value.ends_with(')') {
+    if !value.ends_with(close) {
         return None;
     }
     let mut depth = 0usize;
     let mut opening = None;
     for (index, character) in value.char_indices().rev() {
         match character {
-            ')' => depth = depth.checked_add(1)?,
-            '(' => {
+            c if c == close => depth = depth.checked_add(1)?,
+            c if c == open => {
                 depth = depth.checked_sub(1)?;
                 if depth == 0 {
                     opening = Some(index);
@@ -69,8 +77,8 @@ pub fn split_balanced_trailing_parenthetical(value: &str) -> Option<(&str, &str)
     let mut prefix_depth = 0usize;
     for character in prefix.chars() {
         match character {
-            '(' => prefix_depth = prefix_depth.checked_add(1)?,
-            ')' => prefix_depth = prefix_depth.checked_sub(1)?,
+            c if c == open => prefix_depth = prefix_depth.checked_add(1)?,
+            c if c == close => prefix_depth = prefix_depth.checked_sub(1)?,
             _ => {}
         }
     }

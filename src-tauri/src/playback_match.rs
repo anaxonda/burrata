@@ -1578,6 +1578,33 @@ mod tests {
             ..Candidate::default()
         }
     }
+
+    #[test]
+    fn old_evaluator_acceptance_is_discarded_and_current_policy_is_reassessed() {
+        let (_directory, store) = store();
+        let track = request();
+        let mut candidate = candidate();
+        candidate.source_metadata.as_mut().unwrap()["matching"] = json!({
+            "evaluatorVersion":"27",
+            "level":"exact",
+            "assessment":{"action":"accept","relationship":"sameRecording"}
+        });
+
+        assert_eq!(VERSION, "28");
+        assert!(!cached_direct_allowed(
+            &store,
+            &track,
+            &candidate,
+            MatchLevel::Exact
+        ));
+        let current =
+            recording_match::assess(&track, &candidate, MatchLevel::Exact, MatchStage::Resolved);
+        assert_eq!(current.dimensions.title, Comparison::Agree);
+        assert_eq!(
+            candidate.source_metadata.as_ref().unwrap()["matching"]["evaluatorVersion"],
+            "27"
+        );
+    }
     #[test]
     fn live_amame_search_candidate_is_eligible_for_bounded_inspection() {
         let (_dir, store) = store();
@@ -1891,6 +1918,57 @@ mod tests {
             chapters: Some(vec![]),
             expected_content_length: None,
             headers: vec![],
+        }
+    }
+
+    #[test]
+    fn remaster_verification_uses_fresh_audio_identity_instead_of_search_metadata() {
+        let (_directory, store) = store();
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../fixtures/i-will-remastered-2009-candidate.json"
+        ))
+        .unwrap();
+        let track: Track = serde_json::from_value(fixture["request"].clone()).unwrap();
+        let search: Candidate = serde_json::from_value(fixture["candidate"].clone()).unwrap();
+        // Synthetic resolver response with explicit complete credits. The
+        // captured search metadata above does not establish this evidence.
+        let mut fresh = audio("I Will (2009 Digital Remaster)", json!(["The Beatles"]));
+        fresh.resolved_provider_id = Some("p-abNGP1BK4".into());
+        fresh.duration_seconds = Some(106.0);
+        let metadata = fresh.source_metadata.as_mut().unwrap();
+        metadata["resolvedProviderId"] = json!("p-abNGP1BK4");
+        metadata["sourceMetadataOrigin"] = json!("ytDlpFullInfo");
+        metadata["performerCreditsComplete"] = json!(true);
+        metadata["duration"] = json!(106.0);
+
+        let verify_audio = |audio: &acquisition::PreviewAudio| {
+            verify(
+                &track,
+                &[],
+                &[],
+                None,
+                &mut search.clone(),
+                audio,
+                true,
+                MatchLevel::Balanced,
+                &store,
+            )
+        };
+        assert!(verify_audio(&fresh).is_some());
+        let mut wrong_id = fresh.clone();
+        wrong_id.resolved_provider_id = Some("other-video".into());
+        assert!(verify_audio(&wrong_id).is_none());
+        let mut missing_id = fresh.clone();
+        missing_id.resolved_provider_id = None;
+        assert!(verify_audio(&missing_id).is_none());
+        let mut wrong_artist = fresh.clone();
+        wrong_artist.source_metadata.as_mut().unwrap()["artists"] = json!(["The Who"]);
+        assert!(verify_audio(&wrong_artist).is_none());
+        for title in ["I Will (Live)", "I Will (Remastered 2010)"] {
+            let mut other_version = fresh.clone();
+            other_version.resolved_title = Some(title.into());
+            other_version.source_metadata.as_mut().unwrap()["track"] = json!(title);
+            assert!(verify_audio(&other_version).is_none(), "{title}");
         }
     }
     #[test]

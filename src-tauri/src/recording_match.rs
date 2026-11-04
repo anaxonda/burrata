@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) const EVALUATOR_VERSION: &str = "27";
+pub(crate) const EVALUATOR_VERSION: &str = "28";
 
 /// Independently selected categories of alternatives for Flexible matching.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -582,15 +582,7 @@ fn guest_from_title(raw: &str) -> Vec<String> {
     found
 }
 fn base_title(raw: &str) -> String {
-    let raw = strip_caption_presentation(raw);
-    let parsed = parse_title(raw);
-    let mut t = parsed.title;
-    if let Some((before, tail)) = t.rsplit_once(" (") {
-        let marker = version_kind(tail.trim_end_matches(')'));
-        if !marker.is_empty() && t.ends_with(')') {
-            t = before.trim().to_owned();
-        }
-    }
+    let mut t = parse_recording_text(raw).title_without_recognized_annotations();
     // Providers commonly append “- with Guest” to a catalog track title.
     let low = t.to_ascii_lowercase();
     for marker in [" - with ", " feat. ", " featuring ", " ft. "] {
@@ -819,6 +811,9 @@ fn prepared_semantic_observations(
             );
         }
     }
+    // Original/album labels are neutral under the existing policy. They
+    // must not become a second conflicting observation alongside a remaster.
+    values.retain(|value| !value.is_empty());
     values.sort();
     values.dedup();
     // Generic "Remix" and a named remix are a compatible refinement; Original
@@ -836,6 +831,24 @@ fn prepared_semantic_observations(
     values.retain(|value| !generic.contains(value));
     values
 }
+/// A mastering/release label can describe the same live performance or mix.
+/// Continue rejecting contradictory labels within either dimension. This
+/// intentionally does not infer that two different performance/mix labels
+/// identify one recording just because they occur together.
+fn conflicting_semantic_observations(values: &[String]) -> bool {
+    if values.len() <= 1 {
+        return false;
+    }
+    let mastering = values
+        .iter()
+        .filter(|value| {
+            crate::recording_identity::remaster_version_key(value).is_some()
+                || value.starts_with("restored edition ")
+        })
+        .count();
+    !(values.len() == 2 && mastering == 1)
+}
+
 fn prepared_unknown_annotation(
     evidence: &PreparedRecordingEvidence,
     requested: &str,
@@ -1390,6 +1403,8 @@ fn semantic_version(title: &str, version: &str) -> String {
         }
     }
     let normalized = crate::matching::normalize_version_for_title(title, version);
+    let normalized =
+        crate::recording_identity::remaster_version_key(&normalized).unwrap_or(normalized);
     if matches!(
         normalized.as_str(),
         "original" | "original mix" | "original vocal" | "album version" | "main version"
@@ -2513,8 +2528,8 @@ fn build_comparison(
     );
     let request_observations =
         prepared_semantic_observations(request_evidence, &wanted_title, &track.title, known_label);
-    let conflicting_candidate_versions = observations.len() > 1;
-    let conflicting_request_versions = request_observations.len() > 1;
+    let conflicting_candidate_versions = conflicting_semantic_observations(&observations);
+    let conflicting_request_versions = conflicting_semantic_observations(&request_observations);
     let mut actual_version = if let Some(orientation) = &caption_orientation {
         meta["version"]
             .as_str()
@@ -2530,16 +2545,17 @@ fn build_comparison(
     } else {
         candidate_version(meta, &candidate_title, known_label)
     };
-    if !conflicting_candidate_versions && observations.len() == 1 {
-        actual_version = observations[0].clone();
+    if !conflicting_candidate_versions && !observations.is_empty() {
+        actual_version = observations.join(" ");
     }
     if actual_version == "presentation video" {
         actual_version.clear();
     }
-    let requested_semantic = request_observations
-        .first()
-        .cloned()
-        .unwrap_or_else(|| semantic_version(&track.title, requested_version));
+    let requested_semantic = if request_observations.is_empty() {
+        semantic_version(&track.title, requested_version)
+    } else {
+        request_observations.join(" ")
+    };
     let actual_semantic = semantic_version(&candidate_title, &actual_version);
     let same_remix = version_kind(&requested_semantic) == "remix"
         && version_kind(&actual_semantic) == "remix"
@@ -7936,3 +7952,7 @@ mod prepared_evidence_tests {
 #[cfg(test)]
 #[path = "recording_match_pattern_tests.rs"]
 mod recording_match_pattern_tests;
+
+#[cfg(test)]
+#[path = "recording_match_parser_regressions.rs"]
+mod parser_regressions;

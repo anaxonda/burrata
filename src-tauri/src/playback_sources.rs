@@ -1772,6 +1772,9 @@ fn refreshed_request_track(original: &Track, fresh: &Track) -> Option<Track> {
             .into_iter()
             .flatten()
             .map(|version| crate::matching::normalize_version_for_title(&track.title, version))
+            .map(|version| {
+                crate::recording_identity::remaster_version_key(&version).unwrap_or(version)
+            })
             .filter(|version| !version.is_empty())
             .collect::<std::collections::BTreeSet<_>>()
     };
@@ -10980,6 +10983,49 @@ mod tests {
     }
 
     #[test]
+    fn captured_i_will_remaster_row_reaches_search_inspection_without_acceptance() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../fixtures/i-will-remastered-2009-candidate.json"
+        ))
+        .unwrap();
+        let track: Track = serde_json::from_value(fixture["request"].clone()).unwrap();
+        let candidate: Candidate = serde_json::from_value(fixture["candidate"].clone()).unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("i-will-search-gate.sqlite")).unwrap();
+        let gate = policy_matching::evaluate_with_options(
+            &track,
+            &[],
+            &[],
+            None,
+            &candidate,
+            crate::recording_match::MatchLevel::Balanced,
+            &store,
+            crate::recording_match::FlexibleMatchingOptions::default(),
+        );
+        assert_eq!(gate.path, CandidateGatePath::PolicyExact);
+        assert_eq!(
+            gate.shared.action,
+            crate::recording_match::MatchAction::Inspect
+        );
+        assert_eq!(
+            gate.shared.relationship,
+            crate::recording_match::MatchRelationship::Exact
+        );
+        assert_eq!(
+            gate.shared.proof_strength,
+            crate::recording_match::ProofStrength::MetadataOnly
+        );
+        assert!(
+            gate.accepted(),
+            "inspectable rows remain eligible for full-info retrieval"
+        );
+        assert_ne!(
+            gate.shared.action,
+            crate::recording_match::MatchAction::Accept
+        );
+    }
+
+    #[test]
     fn candidate_gate_evaluator_preserves_provisional_path_and_rejection() {
         let track = Track {
             artist: "Artist".into(),
@@ -15019,6 +15065,17 @@ mod native_only_recovery_tests {
         assert_eq!(result.provenance, original.provenance);
         assert_eq!(serde_json::to_value(&original).unwrap(), saved);
     }
+    #[test]
+    fn exact_catalog_refresh_canonicalizes_delimited_remaster_years() {
+        let original = spotify_refresh_track("same-recording", "I Will - Remastered 2009");
+        let fresh = spotify_refresh_track("same-recording", "I Will (2009 Digital Remaster)");
+        let refreshed = refreshed_request_track(&original, &fresh).unwrap();
+        assert_eq!(refreshed.title, fresh.title);
+
+        let other_year = spotify_refresh_track("same-recording", "I Will (2010 Digital Remaster)");
+        assert!(refreshed_request_track(&original, &other_year).is_none());
+    }
+
     #[test]
     fn exact_catalog_refresh_rejects_recording_version_and_provider_conflicts() {
         let original = track();

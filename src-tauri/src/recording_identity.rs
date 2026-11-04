@@ -176,7 +176,7 @@ fn valid_musicbrainz_id(value: &str) -> bool {
 }
 
 /// Parsing behavior is versioned alongside evaluator/cache semantics.
-pub(crate) const PARSER_VERSION: &str = "4";
+pub(crate) const PARSER_VERSION: &str = "5";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -215,6 +215,22 @@ pub struct ParsedRecordingText {
     pub parsing_incomplete: bool,
 }
 impl ParsedRecordingText {
+    /// Remove recognized suffix annotations while preserving literal/unknown
+    /// title text and its spelling. Every consumer uses the same parsed spans,
+    /// so annotation order cannot change the work/title being compared.
+    pub fn title_without_recognized_annotations(&self) -> String {
+        if self.parsing_incomplete {
+            return self.original.clone();
+        }
+        let mut title = self.original.clone();
+        for annotation in self.annotations.iter().rev() {
+            if annotation.kind != AnnotationKind::Unresolved {
+                title.replace_range(annotation.span.start..annotation.span.end, "");
+            }
+        }
+        title.trim().to_owned()
+    }
+
     pub fn semantic_versions(&self) -> impl Iterator<Item = &str> {
         self.annotations
             .iter()
@@ -241,7 +257,7 @@ pub fn parse_recording_text(value: &str) -> ParsedRecordingText {
         let mut remaining = value.trim_end();
         for _ in 0..16 {
             let bracketed = crate::matching::split_balanced_trailing_parenthetical(remaining)
-                .or_else(|| remaining.strip_suffix(']').and_then(|s| s.rsplit_once('[')))
+                .or_else(|| crate::matching::split_balanced_trailing_square_group(remaining))
                 .or_else(|| trailing_dash_version(remaining))
                 .or_else(|| trailing_feature_credit(remaining));
             let Some((base, label)) = bracketed else {
@@ -304,9 +320,9 @@ pub fn parse_recording_text(value: &str) -> ParsedRecordingText {
         if result.annotations.len() == 16 {
             result.parsing_incomplete =
                 crate::matching::split_balanced_trailing_parenthetical(remaining).is_some()
-                    || remaining
-                        .strip_suffix(']')
-                        .is_some_and(|s| s.rsplit_once(" [").is_some());
+                    || crate::matching::split_balanced_trailing_square_group(remaining).is_some()
+                    || trailing_dash_version(remaining).is_some()
+                    || trailing_feature_credit(remaining).is_some();
         }
         result.annotations.reverse();
     }
@@ -793,7 +809,7 @@ pub fn parse_title(value: &str) -> ParsedRecordingTitle {
         }
     }
     let bracketed = crate::matching::split_balanced_trailing_parenthetical(value)
-        .or_else(|| value.strip_suffix(']').and_then(|s| s.rsplit_once('[')));
+        .or_else(|| crate::matching::split_balanced_trailing_square_group(value));
     if let Some((base, label)) = bracketed {
         let lower = label.to_ascii_lowercase();
         let feature_prefix = ["featuring", "feat.", "feat", "ft.", "ft", "w/"]
@@ -837,7 +853,7 @@ pub fn parse_title(value: &str) -> ParsedRecordingTitle {
         .iter()
         .any(|label| lower == *label || (label.ends_with(' ') && lower.starts_with(label)))
             || restored_edition_year(&lower)
-            || remastered_year(&lower)
+            || remaster_version_key(label).is_some()
             || [" remix", " mix", " edit", " version", " cover"]
                 .iter()
                 .any(|suffix| lower.ends_with(suffix))
@@ -857,10 +873,7 @@ pub fn parse_title(value: &str) -> ParsedRecordingTitle {
     }
     let has_unparsed_trailing_group =
         crate::matching::split_balanced_trailing_parenthetical(&result.title).is_some()
-            || result
-                .title
-                .strip_suffix(']')
-                .is_some_and(|base| base.rsplit_once('[').is_some());
+            || crate::matching::split_balanced_trailing_square_group(&result.title).is_some();
     if result.featured_credit.is_none()
         && result.version.is_none()
         && result.soundtrack.is_none()
@@ -888,11 +901,36 @@ fn restored_edition_year(label: &str) -> bool {
     matches!(year.len(), 2 | 4) && year.bytes().all(|byte| byte.is_ascii_digit())
 }
 
-fn remastered_year(label: &str) -> bool {
-    let Some(year) = label.strip_prefix("remastered ") else {
-        return false;
+/// Canonical comparison key for a complete, delimited mastering label.
+/// Raw annotation text remains untouched; years and other version evidence are not erased.
+pub(crate) fn remaster_version_key(label: &str) -> Option<String> {
+    let lower = label.to_ascii_lowercase();
+    let mut words: Vec<&str> = lower.split_whitespace().collect();
+    if words.is_empty() || words.len() > 4 {
+        return None;
+    }
+    let is_year = |s: &str| s.len() == 4 && s.bytes().all(|b| b.is_ascii_digit());
+    let year = if is_year(words[0]) {
+        Some(words.remove(0))
+    } else if words.last().is_some_and(|s| is_year(s)) {
+        words.pop()
+    } else {
+        None
     };
-    year.len() == 4 && year.bytes().all(|byte| byte.is_ascii_digit())
+    if !matches!(
+        words.as_slice(),
+        ["remaster"]
+            | ["remastered"]
+            | ["digital", "remaster"]
+            | ["digital", "remastered"]
+            | ["digitally", "remastered"]
+    ) {
+        return None;
+    }
+    match year {
+        Some(year) => Some(format!("remastered {year}")),
+        None => Some("remastered".into()),
+    }
 }
 
 fn trailing_dash_version(value: &str) -> Option<(&str, &str)> {
@@ -910,7 +948,8 @@ fn trailing_dash_version(value: &str) -> Option<(&str, &str)> {
         normalized.as_str(),
         "extended mix" | "radio edit" | "vocal edit" | "original mix" | "club mix" | "instrumental"
     ) || normalized == "remix"
-        || normalized.ends_with(" remix"))
+        || normalized.ends_with(" remix")
+        || remaster_version_key(label).is_some())
     .then_some((base, label))
 }
 
@@ -1233,6 +1272,43 @@ mod tests {
             assert!(parsed.version.is_none(), "unexpected parse for {raw}");
         }
     }
+    #[test]
+    fn trailing_dash_remastered_year_matches_parenthesized_semantic_version() {
+        let dashed = parse_recording_text("I Will - Remastered 2009");
+        let parenthesized = parse_recording_text("I Will (Remastered 2009)");
+        for parsed in [&dashed, &parenthesized] {
+            assert_eq!(parsed.base_title, "I Will");
+            assert_eq!(
+                parsed.semantic_versions().collect::<Vec<_>>(),
+                ["Remastered 2009"]
+            );
+            assert!(!parsed.parsing_incomplete);
+        }
+        assert_eq!(parse_title("I Will - Remastered 2009").title, "I Will");
+        assert_eq!(
+            parse_title("I Will - Remastered 2009").version.as_deref(),
+            Some("Remastered 2009")
+        );
+
+        let wrong_year = parse_recording_text("I Will - Remastered 2010");
+        assert_eq!(wrong_year.base_title, "I Will");
+        assert_eq!(
+            wrong_year.semantic_versions().collect::<Vec<_>>(),
+            ["Remastered 2010"]
+        );
+        assert_eq!(
+            parse_recording_text("I Will - Live").base_title,
+            "I Will - Live"
+        );
+        assert_eq!(
+            parse_recording_text("I Will - Remix")
+                .semantic_versions()
+                .collect::<Vec<_>>(),
+            ["Remix"]
+        );
+        assert_eq!(parse_recording_text("A - B - C").base_title, "A - B - C");
+    }
+
     #[test]
     fn game_level_difficulty_is_version_only_in_level_track_context() {
         let parsed = parse_title("Level 2 - Miami (Insane)");
@@ -1582,6 +1658,114 @@ mod parsed_evidence_tests {
                     .get(annotation.span.start..annotation.span.end)
                     .is_some());
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod generalized_remaster_tests {
+    use super::*;
+    #[test]
+    fn equivalent_delimited_labels_keep_raw_text_and_year() {
+        for label in [
+            "Remastered 2009",
+            "2009 Remastered",
+            "2009 Remaster",
+            "Remaster 2009",
+            "2009 Digital Remaster",
+            "Digitally Remastered 2009",
+            "  REMASTERED   2009  ",
+        ] {
+            for raw in [
+                format!("I Will ({label})"),
+                format!("I Will [{label}]"),
+                format!("I Will - {label}"),
+                format!("I Will – {label}"),
+                format!("I Will — {label}"),
+            ] {
+                let parsed = parse_recording_text(&raw);
+                assert_eq!(parsed.base_title, "I Will", "{raw}");
+                let versions = parsed.semantic_versions().collect::<Vec<_>>();
+                assert_eq!(versions.len(), 1, "{raw}: {parsed:?}");
+                assert_eq!(
+                    remaster_version_key(versions[0]).as_deref(),
+                    Some("remastered 2009"),
+                    "{raw}"
+                );
+                for a in parsed.annotations {
+                    assert_eq!(
+                        raw[a.content_span.start..a.content_span.end].trim(),
+                        label.trim()
+                    );
+                }
+            }
+        }
+    }
+    #[test]
+    fn years_and_missing_year_stay_distinct() {
+        assert_ne!(
+            remaster_version_key("2009 Remaster"),
+            remaster_version_key("2010 Remaster")
+        );
+        assert_eq!(
+            remaster_version_key("Remaster").as_deref(),
+            Some("remastered")
+        );
+        assert_eq!(
+            remaster_version_key("Remastered").as_deref(),
+            Some("remastered")
+        );
+        assert_ne!(
+            remaster_version_key("Remastered"),
+            remaster_version_key("Remastered 2009")
+        );
+        assert_eq!(
+            parse_recording_text("Song (Remastered)")
+                .semantic_versions()
+                .collect::<Vec<_>>(),
+            ["Remastered"]
+        );
+        assert_eq!(
+            parse_recording_text("Song - Remaster")
+                .semantic_versions()
+                .collect::<Vec<_>>(),
+            ["Remaster"]
+        );
+    }
+    #[test]
+    fn unknown_and_performance_qualifiers_are_not_erased() {
+        for label in [
+            "Live Remastered 2009",
+            "2009 Remaster Stereo",
+            "2009 Mono Remaster",
+            "Remastered 2009 Remix",
+            "Remastered by Bob 2009",
+            "2009 2010 Remaster",
+            "Remastering",
+            "Remastered 09",
+            "Remastered 2009-2010",
+        ] {
+            assert_eq!(remaster_version_key(label), None, "{label}");
+        }
+    }
+    #[test]
+    fn stacked_live_and_remaster_are_both_preserved() {
+        let parsed = parse_recording_text("Song (Live) - 2009 Digital Remaster");
+        assert_eq!(parsed.base_title, "Song");
+        assert_eq!(
+            parsed.semantic_versions().collect::<Vec<_>>(),
+            ["Live", "2009 Digital Remaster"]
+        );
+    }
+    #[test]
+    fn ambiguous_bare_titles_stay_unchanged() {
+        for raw in [
+            "I Will Remastered 2009",
+            "Remastered Love",
+            "Remaster",
+            "A - B - C",
+        ] {
+            assert_eq!(parse_recording_text(raw).base_title, raw);
         }
     }
 }
