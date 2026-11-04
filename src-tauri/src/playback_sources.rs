@@ -1939,6 +1939,14 @@ fn without_stale_local_asset(incoming: &Track) -> Track {
     prepared
 }
 
+struct AbortOnDropAliasTask(tokio::task::JoinHandle<Result<(), String>>);
+
+impl Drop for AbortOnDropAliasTask {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 #[derive(Default)]
 struct AliasResolutionPass {
     retry: bool,
@@ -1948,17 +1956,206 @@ struct AliasResolutionPass {
     spare_queries: std::sync::Mutex<std::collections::HashMap<String, bool>>,
     empty_search: std::sync::atomic::AtomicBool,
     fresh_alias_lookup_started: std::sync::atomic::AtomicBool,
+    alias_lookahead_started: std::sync::atomic::AtomicBool,
+    alias_lookahead_task: std::sync::Mutex<Option<AbortOnDropAliasTask>>,
 }
 fn fresh_alias_budget(remaining: Duration) -> Duration {
     remaining.saturating_sub(Duration::from_secs(3))
 }
+
+fn should_start_artist_alias_lookahead(
+    track: &Track,
+    search_candidate_qualifies: bool,
+    pinned: bool,
+    enabled: bool,
+    catalog_duration_enriched: bool,
+    has_cached_lexical_alias: bool,
+) -> bool {
+    !pinned
+        && enabled
+        && !catalog_duration_enriched
+        && !has_cached_lexical_alias
+        && search_candidate_qualifies
+        // This parser validates the original Spotify album-entry identity,
+        // structured credit IDs, manual fields, version and playback range.
+        // It intentionally accepts both saved and unsaved library requests.
+        && crate::discogs_release_lexical_aliases::spotify_request(track).is_some()
+}
+
+fn start_artist_alias_lookahead(
+    alias_pass: &AliasResolutionPass,
+    acquisition: &AcquisitionManager,
+    track: &Track,
+    cancel: watch::Receiver<bool>,
+    deadline: PlaybackDeadline,
+    trace: &SourceTrace,
+) -> bool {
+    let remaining = deadline.remaining();
+    if remaining <= Duration::from_secs(3) {
+        return false;
+    }
+    let lookup_deadline = PlaybackDeadline::at(deadline.instant() - Duration::from_secs(3));
+    let acquisition = acquisition.clone();
+    let track = track.clone();
+    let trace = trace.clone();
+    alias_pass.start_alias_lookahead(async move {
+        crate::artist_alias_lookup::lookup(&acquisition, &track, cancel, lookup_deadline, &trace)
+            .await
+    })
+}
+
+fn start_catalog_alias_preparation(
+    alias_pass: &AliasResolutionPass,
+    acquisition: &AcquisitionManager,
+    track: &Track,
+    cancel: watch::Receiver<bool>,
+    deadline: PlaybackDeadline,
+    trace: &SourceTrace,
+) -> bool {
+    let remaining = deadline.remaining();
+    if remaining <= Duration::from_secs(3) || !alias_pass.claim_fresh_alias_attempt() {
+        return false;
+    }
+    let lookup_deadline = PlaybackDeadline::at(
+        deadline
+            .instant()
+            .checked_sub(Duration::from_secs(3))
+            .unwrap_or(deadline.instant()),
+    );
+    let acquisition = acquisition.clone();
+    let track = track.clone();
+    let trace = trace.clone();
+    alias_pass.start_alias_lookahead(async move {
+        crate::artist_alias_lookup::lookup(&acquisition, &track, cancel, lookup_deadline, &trace)
+            .await
+    })
+}
+
 impl AliasResolutionPass {
+    fn start_alias_lookahead(
+        &self,
+        work: impl std::future::Future<Output = Result<(), String>> + Send + 'static,
+    ) -> bool {
+        if self
+            .alias_lookahead_started
+            .swap(true, std::sync::atomic::Ordering::AcqRel)
+        {
+            return false;
+        }
+        let task = AbortOnDropAliasTask(tokio::spawn(work));
+        match self.alias_lookahead_task.lock() {
+            Ok(mut slot) => {
+                *slot = Some(task);
+                true
+            }
+            Err(_) => {
+                drop(task);
+                false
+            }
+        }
+    }
+
+    fn has_alias_lookahead(&self) -> bool {
+        self.alias_lookahead_started
+            .load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    fn claim_fresh_alias_attempt(&self) -> bool {
+        !self
+            .fresh_alias_lookup_started
+            .swap(true, std::sync::atomic::Ordering::AcqRel)
+    }
+
+    fn has_fresh_alias_attempt(&self) -> bool {
+        self.fresh_alias_lookup_started
+            .load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    async fn wait_for_alias_lookahead(
+        &self,
+        cancel: watch::Receiver<bool>,
+        deadline: PlaybackDeadline,
+    ) -> Option<Result<(), String>> {
+        self.wait_for_alias_lookahead_for(
+            cancel,
+            deadline,
+            fresh_alias_budget(deadline.remaining()),
+            false,
+        )
+        .await
+    }
+
+    async fn wait_for_alias_headstart(
+        &self,
+        cancel: watch::Receiver<bool>,
+        deadline: PlaybackDeadline,
+    ) -> Option<Result<(), String>> {
+        self.wait_for_alias_lookahead_for(cancel, deadline, Duration::from_secs(2), true)
+            .await
+    }
+
+    fn alias_lookahead_is_finished(&self) -> bool {
+        self.alias_lookahead_task
+            .lock()
+            .ok()
+            .and_then(|slot| slot.as_ref().map(|task| task.0.is_finished()))
+            .unwrap_or(false)
+    }
+
+    async fn consume_finished_alias_lookahead(
+        &self,
+        cancel: watch::Receiver<bool>,
+        deadline: PlaybackDeadline,
+    ) -> Option<Result<(), String>> {
+        if !self.alias_lookahead_is_finished() {
+            return None;
+        }
+        self.wait_for_alias_lookahead(cancel, deadline).await
+    }
+
+    async fn wait_for_alias_lookahead_for(
+        &self,
+        cancel: watch::Receiver<bool>,
+        deadline: PlaybackDeadline,
+        wait_budget: Duration,
+        preserve_pending: bool,
+    ) -> Option<Result<(), String>> {
+        let mut task = self.alias_lookahead_task.lock().ok()?.take()?;
+        let cutoff = tokio::time::Instant::now() + wait_budget;
+        let alias_cutoff = deadline
+            .instant()
+            .checked_sub(Duration::from_secs(3))
+            .unwrap_or(deadline.instant());
+        let cutoff = cutoff.min(alias_cutoff);
+        let waited = tokio::select! {
+            biased;
+            _ = wait_for_cancellation(cancel) => {
+                Some(Err("Cancelled".to_owned()))
+            }
+            result = tokio::time::timeout_at(cutoff, &mut task.0) => match result {
+                Ok(Ok(result)) => Some(result),
+                Ok(Err(_)) => Some(Err("Alias lookahead task failed".to_owned())),
+                Err(_) => None,
+            }
+        };
+        if waited.is_none() && preserve_pending {
+            // A head-start timeout is not a lookup cancellation. Restore the
+            // abort-on-drop owner so extraction can proceed while the same
+            // bounded flight continues in the background.
+            if let Ok(mut slot) = self.alias_lookahead_task.lock() {
+                if slot.is_none() {
+                    *slot = Some(task);
+                }
+            }
+            return Some(Err("Alias lookup still pending".to_owned()));
+        }
+        waited.or_else(|| Some(Err("Alias lookup deadline exceeded".to_owned())))
+    }
+
     fn claim_fresh_alias_lookup(&self, track: &Track, fresh: &Candidate, budget: Duration) -> bool {
         !budget.is_zero()
             && plausible_artist_alias_block(track, fresh)
-            && !self
-                .fresh_alias_lookup_started
-                .swap(true, std::sync::atomic::Ordering::Relaxed)
+            && self.claim_fresh_alias_attempt()
     }
     fn remember(&self, candidate: &Candidate) {
         if self.retry {
@@ -2022,6 +2219,14 @@ impl AliasResolutionPass {
                     .collect()
             })
             .unwrap_or_default()
+    }
+}
+
+impl Drop for AliasResolutionPass {
+    fn drop(&mut self) {
+        if let Ok(slot) = self.alias_lookahead_task.get_mut() {
+            drop(slot.take());
+        }
     }
 }
 
@@ -2124,28 +2329,6 @@ fn start_canonical_warmup(
     }))
 }
 
-async fn bounded_catalog_alias_preparation(
-    cancel: watch::Receiver<bool>,
-    deadline: PlaybackDeadline,
-    prepare: impl std::future::Future<Output = Result<(), String>>,
-) -> Result<bool, String> {
-    if *cancel.borrow() {
-        return Err("Cancelled".into());
-    }
-    let result = tokio::select! {
-        biased;
-        _ = wait_for_cancellation(cancel.clone()) => return Err("Cancelled".into()),
-        result = tokio::time::timeout_at(deadline.cap(Duration::from_secs(2)), prepare) => result,
-    };
-    if *cancel.borrow() {
-        return Err("Cancelled".into());
-    }
-    if deadline.remaining().is_zero() {
-        return Err(PLAYBACK_DEADLINE_MESSAGE.into());
-    }
-    Ok(matches!(result, Ok(Ok(()))))
-}
-
 async fn resolve_inner_prepared(
     store: &Store,
     acquisition: &AcquisitionManager,
@@ -2177,12 +2360,27 @@ async fn resolve_inner_prepared(
     });
     if prepare_aliases {
         let started = Instant::now();
-        let prepared = bounded_catalog_alias_preparation(
+        let prepared = if start_catalog_alias_preparation(
+            &pass,
+            acquisition,
+            track,
             cancel.clone(),
             deadline,
-            crate::artist_alias_lookup::lookup(acquisition, track, cancel.clone(), deadline, trace),
-        )
-        .await?;
+            trace,
+        ) {
+            let result = pass
+                .wait_for_alias_headstart(cancel.clone(), deadline)
+                .await;
+            if *cancel.borrow() {
+                return Err("Cancelled".into());
+            }
+            if deadline.remaining().is_zero() {
+                return Err(PLAYBACK_DEADLINE_MESSAGE.into());
+            }
+            matches!(result, Some(Ok(())))
+        } else {
+            false
+        };
         trace.event("catalog_alias_preparation_end", &track.provider,
             json!({"durationMs":started.elapsed().as_millis(),"completed":prepared,"extractionAttemptsUsed":trace.extraction_attempts_used()}));
     }
@@ -2241,16 +2439,26 @@ async fn resolve_inner_prepared(
         );
         return result;
     }
-    let alias_lookup =
+    let alias_lookup = if pass.has_alias_lookahead() {
+        pass.wait_for_alias_lookahead(cancel.clone(), deadline)
+            .await
+            .unwrap_or(Ok(()))
+    } else if pass.has_fresh_alias_attempt() {
+        Ok(())
+    } else {
         crate::artist_alias_lookup::lookup(acquisition, track, cancel.clone(), deadline, trace)
-            .await;
+            .await
+    };
     match &alias_lookup {
         Err(_) if *cancel.borrow() => return Err("Cancelled".into()),
         Err(_) if deadline.remaining().is_zero() => return Err(PLAYBACK_DEADLINE_MESSAGE.into()),
         _ => {}
     }
-    let context =
-        crate::artist_credit_aliases::cached_verified_playback_artist_aliases(store, track);
+    let context = crate::artist_credit_aliases::cached_verified_playback_artist_aliases_with_fresh_exact_track(
+        store,
+        track,
+        trace.fresh_exact_alias_track(track).as_ref(),
+    );
     if alias_lookup.is_err() && context.tracks().is_empty() {
         return result;
     }
@@ -4087,6 +4295,12 @@ async fn resolve_serial(
             gate_filtered.sort_by_key(|(candidate, path)| {
                 policy_matching::priority(track, candidate, *path, settings.matching_level)
             });
+            let alias_lookahead_candidate = gate_filtered
+                .first()
+                .filter(|(_, gate)| {
+                    gate.path == CandidateGatePath::PolicyInspect && gate.artist_alias_lookahead
+                })
+                .map(|(candidate, _)| candidate.clone());
             let gate_filtered = gate_filtered.into_iter().map(|(candidate, _)| candidate);
 
             candidates.extend(eligible_after_webview_failure(
@@ -4100,6 +4314,42 @@ async fn resolve_serial(
                     provider_attempt_count,
                 ),
             ));
+            if alias_lookahead_candidate.as_ref().is_some_and(|candidate| {
+                candidates
+                    .first()
+                    .is_some_and(|first| same_candidate_search_row(first, candidate))
+            }) {
+                let has_cached_lexical_alias =
+                    crate::artist_alias_discovery::has_cached_request_scoped_discogs_lexical_alias(
+                        store, track,
+                    );
+                if should_start_artist_alias_lookahead(
+                    track,
+                    true,
+                    pinned,
+                    crate::artist_alias_lookup::enabled(),
+                    trace.catalog_duration_enriched,
+                    has_cached_lexical_alias,
+                ) && deadline.remaining() > Duration::from_secs(3)
+                    && alias_pass.claim_fresh_alias_attempt()
+                {
+                    let started = start_artist_alias_lookahead(
+                        alias_pass,
+                        acquisition,
+                        track,
+                        cancel.clone(),
+                        deadline,
+                        trace,
+                    );
+                    if !started {
+                        trace.event(
+                            "alias_lookup_skipped",
+                            &track.provider,
+                            json!({"reason":"ineligible"}),
+                        );
+                    }
+                }
+            }
             if let Some(gate_evidence) = gate_evidence {
                 trace.event(
                     "candidate_gate_evidence",
@@ -4325,6 +4575,73 @@ async fn resolve_serial(
                         settings.flexible_matching,
                         Some(trace),
                     );
+                    if proof.is_none()
+                        && !pinned
+                        && track.provider == "catalog"
+                        && alias_pass.has_alias_lookahead()
+                        && !trace.catalog_duration_enriched
+                        && crate::artist_alias_lookup::enabled()
+                    {
+                        let mut search_candidate = candidate.clone();
+                        if let Some(metadata) = &audio.source_metadata {
+                            search_candidate.source_metadata = Some(metadata.clone());
+                        }
+                        if let Some(title) = &audio.resolved_title {
+                            search_candidate.title = title.clone();
+                        }
+                        search_candidate.duration_seconds =
+                            audio.duration_seconds.or(search_candidate.duration_seconds);
+                        let has_search_artist_gap =
+                            policy_matching::candidate_has_artist_alias_lookahead(
+                                track,
+                                verified_artist_aliases.tracks(),
+                                verified_artist_aliases.isrc_enriched(),
+                                verified_artist_aliases.verified_recording_isrc(),
+                                &search_candidate,
+                                settings.matching_level,
+                                store,
+                                settings.flexible_matching,
+                            );
+                        if has_search_artist_gap
+                            && alias_pass.alias_lookahead_is_finished()
+                        {
+                            // Do not spend foreground budget waiting here. If the
+                            // early catalog lookup has completed, consume it and
+                            // refresh proof before rejecting this first extraction;
+                            // if it is still running, preserve the existing retry path.
+                            let _ = alias_pass
+                                .consume_finished_alias_lookahead(cancel.clone(), deadline)
+                                .await;
+                            if *cancel.borrow() {
+                                return Err("Cancelled".into());
+                            }
+                            if deadline.remaining().is_zero() {
+                                return Err(failures.deadline());
+                            }
+                            verified_artist_aliases = crate::artist_credit_aliases::cached_verified_playback_artist_aliases_with_fresh_exact_track(
+                                store,
+                                track,
+                                trace.fresh_exact_alias_track(track).as_ref(),
+                            );
+                            include_candidate_aliases(
+                                &mut verified_artist_aliases,
+                                track,
+                                &candidate,
+                                Some(&audio),
+                            );
+                            proof = verify_with_playback_alias_context_traced(
+                                track,
+                                &verified_artist_aliases,
+                                &mut candidate,
+                                &audio,
+                                requires_identity_check,
+                                settings.matching_level,
+                                store,
+                                settings.flexible_matching,
+                                Some(trace),
+                            );
+                        }
+                    }
                     if proof.is_none() && !pinned && track.provider == "spotify"
                         && crate::artist_alias_lookup::enabled()
                         && !trace.catalog_duration_enriched
@@ -4338,7 +4655,36 @@ async fn resolve_serial(
                         }
                         fresh.duration_seconds = audio.duration_seconds.or(fresh.duration_seconds);
                         let alias_budget = fresh_alias_budget(deadline.remaining());
-                        if alias_pass.claim_fresh_alias_lookup(track, &fresh, alias_budget) {
+                        if alias_pass.has_alias_lookahead() {
+                            let _ = alias_pass
+                                .wait_for_alias_lookahead(cancel.clone(), deadline)
+                                .await;
+                            if *cancel.borrow() {
+                                return Err("Cancelled".into());
+                            }
+                            if deadline.remaining().is_zero() {
+                                return Err(failures.deadline());
+                            }
+                            verified_artist_aliases = crate::artist_credit_aliases::cached_verified_playback_artist_aliases_with_fresh_exact_track(
+                                store, track, trace.fresh_exact_alias_track(track).as_ref());
+                            include_candidate_aliases(
+                                &mut verified_artist_aliases,
+                                track,
+                                &candidate,
+                                Some(&audio),
+                            );
+                            proof = verify_with_playback_alias_context_traced(
+                                track,
+                                &verified_artist_aliases,
+                                &mut candidate,
+                                &audio,
+                                requires_identity_check,
+                                settings.matching_level,
+                                store,
+                                settings.flexible_matching,
+                                Some(trace),
+                            );
+                        } else if alias_pass.claim_fresh_alias_lookup(track, &fresh, alias_budget) {
                             let canonical_started = Instant::now();
                             trace.event("alias_canonical_lookup_start", &track.provider, json!({}));
                             let canonical = tokio::select! {
@@ -4966,6 +5312,7 @@ impl CandidateGatePath {
 struct CandidateGateResult {
     path: CandidateGatePath,
     shared: policy_matching::SharedEvidenceRank,
+    artist_alias_lookahead: bool,
 }
 
 impl CandidateGateResult {
@@ -7282,6 +7629,391 @@ mod tests {
         assert!(pass.claim_fresh_alias_lookup(&track, &candidate, Duration::from_secs(1)));
         assert!(!pass.claim_fresh_alias_lookup(&track, &candidate, Duration::from_secs(1)));
     }
+
+    fn retained_travelling_song_request() -> Track {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../fixtures/travelling-song-spotify-request.json"
+        ))
+        .unwrap();
+        serde_json::from_value(fixture["tracks"][0].clone()).unwrap()
+    }
+
+    fn alias_lookahead_gate() -> CandidateGateResult {
+        CandidateGateResult {
+            path: CandidateGatePath::PolicyInspect,
+            shared: policy_matching::SharedEvidenceRank {
+                relationship: crate::recording_match::MatchRelationship::Unresolved,
+                action: crate::recording_match::MatchAction::Inspect,
+                proof_strength: crate::recording_match::ProofStrength::MetadataOnly,
+                ambiguity_count: 0,
+                alternative_category: 0,
+            },
+            artist_alias_lookahead: true,
+        }
+    }
+
+    #[test]
+    fn spotify_request_lookahead_accepts_saved_and_unsaved_rows_and_keeps_guards() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("lookahead-saved.sqlite")).unwrap();
+        let track = retained_travelling_song_request();
+        assert!(crate::discogs_release_lexical_aliases::spotify_request(&track).is_some());
+        let gate = alias_lookahead_gate();
+        assert_eq!(gate.path, CandidateGatePath::PolicyInspect);
+        assert!(store.get_library_track(&track.id).unwrap().is_none());
+        assert!(should_start_artist_alias_lookahead(
+            &track,
+            gate.artist_alias_lookahead,
+            false,
+            true,
+            false,
+            false,
+        ));
+
+        store.save_track(&track).unwrap();
+        assert!(store.get_library_track(&track.id).unwrap().is_some());
+        assert!(should_start_artist_alias_lookahead(
+            &track,
+            gate.artist_alias_lookahead,
+            false,
+            true,
+            false,
+            false,
+        ));
+
+        let mut locked = track.clone();
+        locked.provenance["explicitSourceLock"] = json!(true);
+        let settings = store.settings().unwrap();
+        let pinned = source_resolution_is_pinned(&locked, false, &settings, true);
+        assert!(pinned);
+        assert!(!should_start_artist_alias_lookahead(
+            &locked, true, pinned, true, false, false,
+        ));
+
+        for (search_gap, pinned, enabled, duration_enriched, cached) in [
+            (false, false, true, false, false),
+            (true, true, true, false, false),
+            (true, false, false, false, false),
+            (true, false, true, true, false),
+            (true, false, true, false, true),
+        ] {
+            assert!(!should_start_artist_alias_lookahead(
+                &track,
+                search_gap,
+                pinned,
+                enabled,
+                duration_enriched,
+                cached,
+            ));
+        }
+
+        for changed in [
+            Track {
+                version: Some("Live".into()),
+                ..track.clone()
+            },
+            Track {
+                playback_range: Some(crate::models::PlaybackRange {
+                    parent_track_id: "parent".into(),
+                    chapter_id: "chapter".into(),
+                    source_url: "https://example.invalid/audio".into(),
+                    start_time: 0.0,
+                    end_time: 30.0,
+                    parent_title: "Parent".into(),
+                    parent_duration_seconds: Some(60.0),
+                }),
+                ..track.clone()
+            },
+        ] {
+            assert!(!should_start_artist_alias_lookahead(
+                &changed, true, false, true, false, false,
+            ));
+        }
+        for field in ["artist", "title", "album", "durationSeconds", "version"] {
+            let mut manual = track.clone();
+            manual.provenance["manualFields"][field] = json!(true);
+            assert!(
+                !should_start_artist_alias_lookahead(&manual, true, false, true, false, false,),
+                "manual {field}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn alias_lookahead_starts_before_extraction_and_is_consumed_once() {
+        let pass = AliasResolutionPass::default();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (finish_tx, finish_rx) = tokio::sync::oneshot::channel();
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let worker_calls = calls.clone();
+        let order = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let worker_order = order.clone();
+        assert!(pass.claim_fresh_alias_attempt());
+        assert!(pass.start_alias_lookahead(async move {
+            worker_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            worker_order.lock().unwrap().push("alias started");
+            let _ = started_tx.send(());
+            let _ = finish_rx.await;
+            Ok(())
+        }));
+        started_rx.await.unwrap();
+
+        let candidate_track = Track {
+            artist: "Quantic, Nidia Gongora".into(),
+            title: "Amor en Francia".into(),
+            duration_seconds: Some(270.293),
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            id: "youtube:x1aO1kcVeu4".into(),
+            provider: "youtube".into(),
+            title: "Quantic, Nidia Góngora - Amor en Francia".into(),
+            duration_seconds: Some(270.0),
+            confidence: "review".into(),
+            permission: "unknown".into(),
+            uploader: Some("Tru Thoughts Records".into()),
+            ..Candidate::default()
+        };
+        assert!(plausible_artist_alias_block(&candidate_track, &candidate));
+        assert!(!pass.claim_fresh_alias_lookup(
+            &candidate_track,
+            &candidate,
+            Duration::from_secs(1),
+        ));
+
+        order.lock().unwrap().push("extraction started");
+        assert_eq!(
+            *order.lock().unwrap(),
+            ["alias started", "extraction started"]
+        );
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        finish_tx.send(()).unwrap();
+        assert_eq!(
+            pass.wait_for_alias_lookahead(
+                watch::channel(false).1,
+                PlaybackDeadline::after(Duration::from_secs(5)),
+            )
+            .await,
+            Some(Ok(())),
+        );
+        assert!(pass.has_fresh_alias_attempt());
+        assert!(pass.has_alias_lookahead());
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(pass
+            .wait_for_alias_lookahead(
+                watch::channel(false).1,
+                PlaybackDeadline::after(Duration::from_secs(5)),
+            )
+            .await
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn aborting_alias_lookahead_waiter_aborts_only_its_consumer() {
+        let pass = Arc::new(AliasResolutionPass::default());
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel();
+        assert!(pass.claim_fresh_alias_attempt());
+        assert!(pass.start_alias_lookahead(async move {
+            let _drop_signal = DropSignal(Some(dropped_tx));
+            let _ = started_tx.send(());
+            std::future::pending::<()>().await;
+            Ok(())
+        }));
+        started_rx.await.unwrap();
+        let waiting_pass = pass.clone();
+        let waiter = tokio::spawn(async move {
+            waiting_pass
+                .wait_for_alias_lookahead(
+                    watch::channel(false).1,
+                    PlaybackDeadline::after(Duration::from_secs(5)),
+                )
+                .await
+        });
+        tokio::task::yield_now().await;
+        waiter.abort();
+        assert!(dropped_rx.await.is_ok());
+        assert!(pass.has_alias_lookahead());
+        assert!(pass.has_fresh_alias_attempt());
+        assert!(!pass.claim_fresh_alias_attempt());
+    }
+
+    struct DropSignal(Option<tokio::sync::oneshot::Sender<()>>);
+
+    impl Drop for DropSignal {
+        fn drop(&mut self) {
+            if let Some(sender) = self.0.take() {
+                let _ = sender.send(());
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn alias_lookahead_cancel_deadline_and_pass_drop_abort_owned_task() {
+        let (cancel_tx, cancel_rx) = watch::channel(false);
+        let pass = AliasResolutionPass::default();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel();
+        assert!(pass.claim_fresh_alias_attempt());
+        assert!(pass.start_alias_lookahead(async move {
+            let _drop_signal = DropSignal(Some(dropped_tx));
+            let _ = started_tx.send(());
+            std::future::pending::<()>().await;
+            Ok(())
+        }));
+        started_rx.await.unwrap();
+        cancel_tx.send(true).unwrap();
+        assert_eq!(
+            pass.wait_for_alias_lookahead(
+                cancel_rx,
+                PlaybackDeadline::after(Duration::from_secs(5))
+            )
+            .await,
+            Some(Err("Cancelled".into())),
+        );
+        assert!(dropped_rx.await.is_ok());
+        assert!(pass.has_fresh_alias_attempt());
+        assert!(!pass.claim_fresh_alias_attempt());
+
+        let pass = AliasResolutionPass::default();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel();
+        assert!(pass.claim_fresh_alias_attempt());
+        assert!(pass.start_alias_lookahead(async move {
+            let _drop_signal = DropSignal(Some(dropped_tx));
+            let _ = started_tx.send(());
+            std::future::pending::<()>().await;
+            Ok(())
+        }));
+        started_rx.await.unwrap();
+        assert!(pass
+            .wait_for_alias_lookahead(
+                watch::channel(false).1,
+                PlaybackDeadline::at(tokio::time::Instant::now()),
+            )
+            .await
+            .unwrap()
+            .is_err());
+        assert!(dropped_rx.await.is_ok());
+        assert!(pass.has_fresh_alias_attempt());
+        assert!(!pass.claim_fresh_alias_attempt());
+
+        let pass = AliasResolutionPass::default();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel();
+        assert!(pass.claim_fresh_alias_attempt());
+        assert!(pass.start_alias_lookahead(async move {
+            let _drop_signal = DropSignal(Some(dropped_tx));
+            let _ = started_tx.send(());
+            std::future::pending::<()>().await;
+            Ok(())
+        }));
+        started_rx.await.unwrap();
+        drop(pass);
+        assert!(dropped_rx.await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn catalog_alias_headstart_keeps_one_flight_alive_while_extraction_proceeds() {
+        let pass = AliasResolutionPass::default();
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let worker_calls = calls.clone();
+        let order = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let worker_order = order.clone();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (finish_tx, finish_rx) = tokio::sync::oneshot::channel();
+        let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel();
+        assert!(pass.claim_fresh_alias_attempt());
+        assert!(pass.start_alias_lookahead(async move {
+            let _drop_signal = DropSignal(Some(dropped_tx));
+            worker_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            worker_order.lock().unwrap().push("alias started");
+            let _ = started_tx.send(());
+            let _ = finish_rx.await;
+            worker_order.lock().unwrap().push("alias completed");
+            Ok(())
+        }));
+        started_rx.await.unwrap();
+
+        let headstart = pass
+            .wait_for_alias_lookahead_for(
+                watch::channel(false).1,
+                PlaybackDeadline::after(Duration::from_secs(5)),
+                Duration::from_millis(5),
+                true,
+            )
+            .await;
+        assert_eq!(headstart, Some(Err("Alias lookup still pending".into())));
+        assert!(
+            dropped_rx.try_recv().is_err(),
+            "head-start timeout keeps worker alive"
+        );
+        assert!(pass.has_alias_lookahead());
+
+        // Candidate extraction can run while the exact same alias flight is pending.
+        order.lock().unwrap().push("extraction started");
+        assert_eq!(
+            *order.lock().unwrap(),
+            ["alias started", "extraction started"]
+        );
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        finish_tx.send(()).unwrap();
+        assert_eq!(
+            pass.wait_for_alias_lookahead(
+                watch::channel(false).1,
+                PlaybackDeadline::after(Duration::from_secs(5)),
+            )
+            .await,
+            Some(Ok(())),
+        );
+        assert_eq!(
+            *order.lock().unwrap(),
+            ["alias started", "extraction started", "alias completed"]
+        );
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(
+            dropped_rx.await.is_ok(),
+            "completed worker is consumed once"
+        );
+        assert!(pass.has_fresh_alias_attempt());
+        assert!(
+            !pass.claim_fresh_alias_attempt(),
+            "late resolution cannot start a duplicate lookup"
+        );
+    }
+
+    #[tokio::test]
+    async fn completed_catalog_alias_task_is_consumed_before_a_second_extraction() {
+        let pass = AliasResolutionPass::default();
+        let trace = SourceTrace::new(None, None, None);
+        assert!(pass.claim_fresh_alias_attempt());
+        assert!(pass.start_alias_lookahead(async { Ok(()) }));
+        for _ in 0..10 {
+            if pass.alias_lookahead_is_finished() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert!(pass.alias_lookahead_is_finished());
+        assert!(
+            trace.try_spend_extraction(),
+            "first extraction already happened"
+        );
+        assert_eq!(
+            pass.consume_finished_alias_lookahead(
+                watch::channel(false).1,
+                PlaybackDeadline::after(Duration::from_secs(5)),
+            )
+            .await,
+            Some(Ok(())),
+        );
+        assert_eq!(trace.extraction_attempts_used(), 1);
+        assert!(pass.has_fresh_alias_attempt());
+        assert!(
+            !pass.claim_fresh_alias_attempt(),
+            "no second lookup is started"
+        );
+    }
     #[test]
     fn recovery_has_one_shared_slot_independent_of_normal_extractions() {
         let trace = SourceTrace::new(None, None, None);
@@ -8746,6 +9478,7 @@ mod tests {
     fn competing_flexible_versions_are_inspected_but_duplicate_sources_are_not() {
         let alternative_gate = CandidateGateResult {
             path: CandidateGatePath::PolicyAlternative,
+            artist_alias_lookahead: false,
             shared: policy_matching::SharedEvidenceRank {
                 relationship: crate::recording_match::MatchRelationship::Alternative,
                 action: crate::recording_match::MatchAction::Inspect,
@@ -8756,6 +9489,7 @@ mod tests {
         };
         let exact_gate = CandidateGateResult {
             path: CandidateGatePath::PolicyExact,
+            artist_alias_lookahead: false,
             shared: policy_matching::SharedEvidenceRank {
                 relationship: crate::recording_match::MatchRelationship::Exact,
                 action: crate::recording_match::MatchAction::Accept,
@@ -8766,6 +9500,7 @@ mod tests {
         };
         let probable_gate = CandidateGateResult {
             path: CandidateGatePath::PolicyProbable,
+            artist_alias_lookahead: false,
             shared: policy_matching::SharedEvidenceRank {
                 relationship: crate::recording_match::MatchRelationship::Probable,
                 action: crate::recording_match::MatchAction::Accept,
@@ -8776,6 +9511,7 @@ mod tests {
         };
         let rejected_conflict_gate = CandidateGateResult {
             path: CandidateGatePath::Rejected,
+            artist_alias_lookahead: false,
             shared: policy_matching::SharedEvidenceRank {
                 relationship: crate::recording_match::MatchRelationship::Unresolved,
                 action: crate::recording_match::MatchAction::Reject,
@@ -13379,19 +14115,21 @@ mod catalog_alias_priority_tests {
 
     #[tokio::test]
     async fn verified_catalog_candidate_is_ready_before_parallel_fallback_can_spend_slots() {
+        let pass = AliasResolutionPass::default();
         let trace = SourceTrace::new(None, None, None);
         let verified_credit = Arc::new(AtomicBool::new(false));
         let prepared_credit = verified_credit.clone();
         let (_stop, cancel) = watch::channel(false);
         let deadline = PlaybackDeadline::after(Duration::from_secs(5));
-        assert!(
-            bounded_catalog_alias_preparation(cancel, deadline, async move {
-                tokio::time::sleep(Duration::from_millis(5)).await;
-                prepared_credit.store(true, Ordering::Release);
-                Ok(())
-            })
-            .await
-            .unwrap()
+        assert!(pass.claim_fresh_alias_attempt());
+        assert!(pass.start_alias_lookahead(async move {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+            prepared_credit.store(true, Ordering::Release);
+            Ok(())
+        }));
+        assert_eq!(
+            pass.wait_for_alias_headstart(cancel, deadline).await,
+            Some(Ok(()))
         );
         assert_eq!(trace.extraction_attempts_used(), 0);
         // Before preparation this preferred provider would spend a slot on an
@@ -13424,43 +14162,71 @@ mod catalog_alias_priority_tests {
 
     #[tokio::test]
     async fn optional_alias_timeout_does_not_restart_or_exhaust_original_deadline() {
+        let pass = AliasResolutionPass::default();
         let (_stop, cancel) = watch::channel(false);
         let deadline = PlaybackDeadline::after(Duration::from_secs(5));
         let original = deadline.instant();
-        assert!(
-            !bounded_catalog_alias_preparation(cancel, deadline, std::future::pending())
-                .await
-                .unwrap()
+        let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel();
+        assert!(pass.claim_fresh_alias_attempt());
+        assert!(pass.start_alias_lookahead(async move {
+            let _drop_signal = DropSignal(Some(dropped_tx));
+            std::future::pending::<()>().await;
+            Ok(())
+        }));
+        assert_eq!(
+            pass.wait_for_alias_headstart(cancel, deadline).await,
+            Some(Err("Alias lookup still pending".into()))
         );
         assert_eq!(deadline.instant(), original);
         assert!(deadline.remaining() > Duration::from_secs(2));
+        assert!(
+            dropped_rx.try_recv().is_err(),
+            "2s head start retains lookup"
+        );
+        assert!(pass.has_alias_lookahead());
+        drop(pass);
+        assert!(
+            dropped_rx.await.is_ok(),
+            "dropping the resolution pass aborts lookup"
+        );
     }
 
     #[tokio::test]
     async fn alias_preparation_cancellation_and_original_deadline_remain_terminal() {
+        let pass = AliasResolutionPass::default();
         let (stop, cancel) = watch::channel(false);
         stop.send_replace(true);
+        let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel();
+        assert!(pass.claim_fresh_alias_attempt());
+        assert!(pass.start_alias_lookahead(async move {
+            let _drop_signal = DropSignal(Some(dropped_tx));
+            std::future::pending::<()>().await;
+            Ok(())
+        }));
         assert_eq!(
-            bounded_catalog_alias_preparation(
-                cancel,
-                PlaybackDeadline::after(Duration::from_secs(5)),
-                async { Ok(()) }
-            )
-            .await
-            .unwrap_err(),
-            "Cancelled"
+            pass.wait_for_alias_headstart(cancel, PlaybackDeadline::after(Duration::from_secs(5)))
+                .await,
+            Some(Err("Cancelled".into()))
         );
+        assert!(dropped_rx.await.is_ok());
+
+        let pass = AliasResolutionPass::default();
         let (_stop, cancel) = watch::channel(false);
+        let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel();
+        assert!(pass.claim_fresh_alias_attempt());
+        assert!(pass.start_alias_lookahead(async move {
+            let _drop_signal = DropSignal(Some(dropped_tx));
+            std::future::pending::<()>().await;
+            Ok(())
+        }));
+        let deadline = PlaybackDeadline::after(Duration::from_secs(5));
         assert_eq!(
-            bounded_catalog_alias_preparation(
-                cancel,
-                PlaybackDeadline::after(Duration::from_millis(5)),
-                std::future::pending()
-            )
-            .await
-            .unwrap_err(),
-            PLAYBACK_DEADLINE_MESSAGE
+            pass.wait_for_alias_lookahead(cancel, deadline).await,
+            Some(Err("Alias lookup deadline exceeded".into()))
         );
+        assert!(dropped_rx.await.is_ok());
+        assert!(deadline.remaining() > Duration::from_secs(2));
+        assert!(deadline.remaining() < Duration::from_secs(4));
     }
 
     #[test]

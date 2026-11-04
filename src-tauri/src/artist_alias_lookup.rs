@@ -16,9 +16,10 @@ use std::{
 };
 use tokio::sync::watch;
 
-// v9 invalidates prior negatives because scoped profile-name comparison now
-// recognizes the existing single-artist `&`/`and` spelling equivalence.
-const NEGATIVE_CACHE_NAMESPACE: &str = "artists.alias-discovery.negative.v9";
+// v10 invalidates prior negatives because request-scoped lexical discovery now
+// falls back to bounded release search when an exact Spotify album URL has no
+// MusicBrainz URL entity.
+const NEGATIVE_CACHE_NAMESPACE: &str = "artists.alias-discovery.negative.v10";
 
 struct Flight {
     id: uuid::Uuid,
@@ -342,6 +343,91 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn aborting_one_shared_alias_consumer_keeps_the_other_flight_user_alive() {
+        let key = format!("shared-flight-test:{}", uuid::Uuid::new_v4());
+        let calls = Arc::new(AtomicUsize::new(0));
+        let worker_calls = calls.clone();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        let (first_cancel_tx, first_cancel_rx) = watch::channel(false);
+        let (_second_cancel_tx, second_cancel_rx) = watch::channel(false);
+        let first_trace = SourceTrace::new(None, None, None);
+        let first_key = key.clone();
+        let first = tokio::spawn(async move {
+            shared(
+                first_key,
+                first_cancel_rx,
+                PlaybackDeadline::after(Duration::from_secs(5)),
+                &first_trace,
+                move |mut stop, _| async move {
+                    worker_calls.fetch_add(1, Ordering::SeqCst);
+                    let _ = started_tx.send(());
+                    tokio::select! {
+                        changed = stop.changed() => {
+                            let _ = changed;
+                            Err("shared worker was stopped".to_owned())
+                        }
+                        _ = release_rx => Ok(()),
+                    }
+                },
+            )
+            .await
+        });
+        started_rx.await.unwrap();
+
+        let second_calls = calls.clone();
+        let second_trace = SourceTrace::new(None, None, None);
+        let second_key = key.clone();
+        let second = tokio::spawn(async move {
+            shared(
+                second_key,
+                second_cancel_rx,
+                PlaybackDeadline::after(Duration::from_secs(5)),
+                &second_trace,
+                move |_, _| async move {
+                    second_calls.fetch_add(1, Ordering::SeqCst);
+                    Err("joined consumer must not start a second worker".to_owned())
+                },
+            )
+            .await
+        });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let joined = {
+                    flights()
+                        .lock()
+                        .unwrap()
+                        .get(&key)
+                        .is_some_and(|flight| flight.users.load(Ordering::Acquire) == 2)
+                };
+                if joined {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("second caller joins the existing flight");
+        assert_eq!(
+            flights()
+                .lock()
+                .unwrap()
+                .get(&key)
+                .unwrap()
+                .users
+                .load(Ordering::Acquire),
+            2
+        );
+
+        first_cancel_tx.send(true).unwrap();
+        assert_eq!(first.await.unwrap(), Err("Cancelled".to_owned()));
+        assert!(!*flights().lock().unwrap().get(&key).unwrap().stop.borrow());
+        release_tx.send(()).unwrap();
+        assert_eq!(second.await.unwrap(), Ok(()));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
     #[test]
     fn saved_complete_negative_is_available_before_cold_lexical_discovery() {
         let directory = tempfile::tempdir().unwrap();
@@ -390,8 +476,12 @@ mod tests {
     }
 
     #[test]
-    fn scoped_artist_spelling_evidence_does_not_reuse_pre_v9_negative_cache() {
+    fn album_url_404_fallback_does_not_reuse_pre_v10_negative_cache() {
         assert_eq!(
+            NEGATIVE_CACHE_NAMESPACE,
+            "artists.alias-discovery.negative.v10"
+        );
+        assert_ne!(
             NEGATIVE_CACHE_NAMESPACE,
             "artists.alias-discovery.negative.v9"
         );

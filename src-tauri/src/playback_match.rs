@@ -242,6 +242,29 @@ pub(super) fn evaluate_with_options(
     candidate_gate_result(&a, track, candidate)
 }
 
+pub(super) fn candidate_has_artist_alias_lookahead(
+    track: &Track,
+    aliases: &[Track],
+    isrc_aliases: &[Track],
+    known_isrc: Option<&str>,
+    candidate: &Candidate,
+    level: MatchLevel,
+    store: &Store,
+    options: crate::recording_match::FlexibleMatchingOptions,
+) -> bool {
+    evaluate_with_options(
+        track,
+        aliases,
+        isrc_aliases,
+        known_isrc,
+        candidate,
+        level,
+        store,
+        options,
+    )
+    .artist_alias_lookahead
+}
+
 pub(super) fn evaluate_with_diagnostics_and_options(
     track: &Track,
     aliases: &[Track],
@@ -290,9 +313,47 @@ fn candidate_gate_result(
             MatchRelationship::Unresolved => CandidateGatePath::PolicyInspect,
         }
     };
+    let artist_alias_lookahead = artist_alias_lookahead_gap(a);
     let mut shared = SharedEvidenceRank::from_assessment(a);
     shared.alternative_category = recording_match::alternative_rank(a, track, candidate);
-    CandidateGateResult { path, shared }
+    CandidateGateResult {
+        path,
+        shared,
+        artist_alias_lookahead,
+    }
+}
+
+fn artist_alias_lookahead_gap(assessment: &MatchAssessment) -> bool {
+    let dimensions = assessment
+        .evidence
+        .as_ref()
+        .map(|evidence| &evidence.dimensions)
+        .unwrap_or(&assessment.dimensions);
+    assessment.action == MatchAction::Inspect
+        && assessment.relationship == MatchRelationship::Unresolved
+        && dimensions.title == crate::recording_match::Comparison::Agree
+        && dimensions.runtime == crate::recording_match::Comparison::Agree
+        && dimensions.artists != crate::recording_match::Comparison::Conflict
+        && dimensions.guests != crate::recording_match::Comparison::Conflict
+        && (dimensions.artists == crate::recording_match::Comparison::Unknown
+            || dimensions.guests == crate::recording_match::Comparison::Unknown)
+        && dimensions.version != crate::recording_match::Comparison::Conflict
+        && dimensions.isrc != crate::recording_match::Comparison::Conflict
+        && !assessment.reasons.iter().any(|reason| {
+            matches!(
+                reason,
+                crate::recording_match::MatchReason::SourceIdentityConflict
+                    | crate::recording_match::MatchReason::ConflictingRequestIdentifiers
+                    | crate::recording_match::MatchReason::TitleConflict
+                    | crate::recording_match::MatchReason::ArtistConflict
+                    | crate::recording_match::MatchReason::GuestConflict
+                    | crate::recording_match::MatchReason::VersionConflict
+                    | crate::recording_match::MatchReason::IsrcConflict
+                    | crate::recording_match::MatchReason::RuntimeConflict
+                    | crate::recording_match::MatchReason::ConflictingRequestVersions
+                    | crate::recording_match::MatchReason::ConflictingCandidateVersions
+            )
+        })
 }
 pub(super) fn priority(
     _track: &Track,
@@ -996,6 +1057,7 @@ mod tests {
         };
         let gate = |category, proof| CandidateGateResult {
             path: CandidateGatePath::PolicyAlternative,
+            artist_alias_lookahead: false,
             shared: SharedEvidenceRank {
                 relationship: MatchRelationship::Alternative,
                 action: MatchAction::Accept,
@@ -1021,6 +1083,256 @@ mod tests {
                 < p(&candidate(220.), gate(1, ProofStrength::MetadataOnly))
         );
     }
+
+    #[test]
+    fn alias_lookahead_requires_inspect_for_unknown_artist_evidence_only() {
+        use crate::recording_match::{
+            AlternativeKind, ComparedEvidence, Comparison, MatchDimensions, MatchReason,
+        };
+        let assessment = |dimensions: MatchDimensions, action, relationship| MatchAssessment {
+            relationship,
+            action,
+            alternative_kind: None::<AlternativeKind>,
+            reasons: vec![MatchReason::InsufficientEvidence],
+            dimensions,
+            proof_strength: ProofStrength::MetadataOnly,
+            evidence: None,
+        };
+        let dimensions = || MatchDimensions {
+            title: Comparison::Agree,
+            artists: Comparison::Unknown,
+            guests: Comparison::Unknown,
+            version: Comparison::Unknown,
+            runtime: Comparison::Agree,
+            isrc: Comparison::Unknown,
+            work: Comparison::Unknown,
+        };
+        let compared_evidence = |dimensions| ComparedEvidence {
+            dimensions,
+            proof_strength: ProofStrength::MetadataOnly,
+            runtime_delta_seconds: None,
+            missing_performers: Vec::new(),
+            extra_performers: Vec::new(),
+            unresolved_annotations: Vec::new(),
+            identifier_conflict: false,
+            complete_performer_credits: false,
+            requested_performer_credits_complete: false,
+            accent_folded_performer_match: false,
+            scoped_artist_name_alias: None,
+            scoped_artist_credit_set_alias: None,
+            parsing_incomplete: false,
+            conflicting_version_observations: false,
+            recording_scoped_runtime_variant: None,
+            recording_scoped_credit_variant: None,
+            recording_scoped_isrc_membership: None,
+            recording_scoped_title_alias: None,
+        };
+        let assessment_with_evidence = |fallback_dimensions, evidence_dimensions| MatchAssessment {
+            relationship: MatchRelationship::Unresolved,
+            action: MatchAction::Inspect,
+            alternative_kind: None::<AlternativeKind>,
+            reasons: vec![MatchReason::InsufficientEvidence],
+            dimensions: fallback_dimensions,
+            proof_strength: ProofStrength::MetadataOnly,
+            evidence: Some(compared_evidence(evidence_dimensions)),
+        };
+        let positive = assessment(
+            dimensions(),
+            MatchAction::Inspect,
+            MatchRelationship::Unresolved,
+        );
+        assert!(artist_alias_lookahead_gap(&positive));
+        let evidence_overrides_fallback = assessment_with_evidence(
+            MatchDimensions {
+                artists: Comparison::Conflict,
+                ..dimensions()
+            },
+            dimensions(),
+        );
+        assert!(artist_alias_lookahead_gap(&evidence_overrides_fallback));
+        let evidence_conflict_overrides_fallback = assessment_with_evidence(
+            dimensions(),
+            MatchDimensions {
+                runtime: Comparison::Conflict,
+                ..dimensions()
+            },
+        );
+        assert!(!artist_alias_lookahead_gap(
+            &evidence_conflict_overrides_fallback
+        ));
+        let gate = candidate_gate_result(&positive, &Track::default(), &Candidate::default());
+        assert_eq!(gate.path, CandidateGatePath::PolicyInspect);
+        assert!(gate.artist_alias_lookahead);
+
+        let mutations: [fn(&mut MatchDimensions); 6] = [
+            |d: &mut MatchDimensions| d.title = Comparison::Unknown,
+            |d: &mut MatchDimensions| d.runtime = Comparison::Unknown,
+            |d: &mut MatchDimensions| d.artists = Comparison::Conflict,
+            |d: &mut MatchDimensions| d.guests = Comparison::Conflict,
+            |d: &mut MatchDimensions| d.version = Comparison::Conflict,
+            |d: &mut MatchDimensions| d.isrc = Comparison::Conflict,
+        ];
+        for mutate in mutations {
+            let mut invalid = dimensions();
+            mutate(&mut invalid);
+            assert!(!artist_alias_lookahead_gap(&assessment(
+                invalid,
+                MatchAction::Inspect,
+                MatchRelationship::Unresolved,
+            )));
+        }
+        assert!(!artist_alias_lookahead_gap(&assessment(
+            dimensions(),
+            MatchAction::Accept,
+            MatchRelationship::Unresolved,
+        )));
+        assert!(!artist_alias_lookahead_gap(&assessment(
+            dimensions(),
+            MatchAction::Inspect,
+            MatchRelationship::Alternative,
+        )));
+        let no_unknown_credits = MatchDimensions {
+            artists: Comparison::Agree,
+            guests: Comparison::Agree,
+            ..dimensions()
+        };
+        assert!(!artist_alias_lookahead_gap(&assessment(
+            no_unknown_credits,
+            MatchAction::Inspect,
+            MatchRelationship::Unresolved,
+        )));
+        for reason in [
+            MatchReason::SourceIdentityConflict,
+            MatchReason::ConflictingRequestIdentifiers,
+            MatchReason::TitleConflict,
+            MatchReason::ArtistConflict,
+            MatchReason::GuestConflict,
+            MatchReason::VersionConflict,
+            MatchReason::IsrcConflict,
+            MatchReason::RuntimeConflict,
+            MatchReason::ConflictingRequestVersions,
+            MatchReason::ConflictingCandidateVersions,
+        ] {
+            let mut conflict = assessment(
+                dimensions(),
+                MatchAction::Inspect,
+                MatchRelationship::Unresolved,
+            );
+            conflict.reasons.push(reason);
+            assert!(!artist_alias_lookahead_gap(&conflict), "{reason:?}");
+        }
+    }
+
+    #[test]
+    fn catalog_candidate_search_gap_is_reusable_for_ready_alias_context() {
+        let directory = tempfile::tempdir().unwrap();
+        let store =
+            crate::storage::Store::open(&directory.path().join("lookahead.sqlite")).unwrap();
+        let track = Track {
+            id: "catalog:musicbrainz:recording".into(),
+            provider: "catalog".into(),
+            provider_id: "musicbrainz:recording".into(),
+            title: "Minor Swing".into(),
+            artist: "Django Reinhardt & Stéphane Grappelli".into(),
+            duration_seconds: Some(195.0),
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            id: "youtube:verified-row".into(),
+            provider: "youtube".into(),
+            title: "Minor Swing".into(),
+            duration_seconds: Some(195.0),
+            source_metadata: Some(serde_json::json!({
+                "title":"Minor Swing",
+                "duration":195
+            })),
+            ..Candidate::default()
+        };
+        let options = crate::recording_match::FlexibleMatchingOptions::default();
+        assert!(candidate_has_artist_alias_lookahead(
+            &track,
+            &[],
+            &[],
+            None,
+            &candidate,
+            MatchLevel::Flexible,
+            &store,
+            options,
+        ));
+
+        let conflicting = Candidate {
+            title: "Autumn Leaves".into(),
+            ..candidate.clone()
+        };
+        assert!(!candidate_has_artist_alias_lookahead(
+            &track,
+            &[],
+            &[],
+            None,
+            &conflicting,
+            MatchLevel::Flexible,
+            &store,
+            options,
+        ));
+
+        let wrong_artist = Candidate {
+            artist: "Madonna".into(),
+            ..candidate.clone()
+        };
+        assert!(!candidate_has_artist_alias_lookahead(
+            &track,
+            &[],
+            &[],
+            None,
+            &wrong_artist,
+            MatchLevel::Flexible,
+            &store,
+            options,
+        ));
+
+        let versioned_request = Track {
+            version: Some("Live".into()),
+            ..track.clone()
+        };
+        let studio_candidate = Candidate {
+            title: "Minor Swing (Remix)".into(),
+            ..candidate.clone()
+        };
+        assert!(!candidate_has_artist_alias_lookahead(
+            &versioned_request,
+            &[],
+            &[],
+            None,
+            &studio_candidate,
+            MatchLevel::Flexible,
+            &store,
+            options,
+        ));
+
+        let identified_request = Track {
+            isrc: Some("USABC2600001".into()),
+            ..track
+        };
+        let conflicting_identifier = Candidate {
+            source_metadata: Some(serde_json::json!({
+                "title":"Minor Swing",
+                "duration":195,
+                "isrc":"GBXYZ2600002"
+            })),
+            ..candidate
+        };
+        assert!(!candidate_has_artist_alias_lookahead(
+            &identified_request,
+            &[],
+            &[],
+            None,
+            &conflicting_identifier,
+            MatchLevel::Flexible,
+            &store,
+            options,
+        ));
+    }
+
     #[test]
     fn relationship_tier_precedes_topic_preference() {
         let alternative_topic = SharedEvidenceRank {

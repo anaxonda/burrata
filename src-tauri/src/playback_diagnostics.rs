@@ -1050,6 +1050,7 @@ fn enum_values(key: &str) -> Option<&'static [&'static str]> {
             "no_eligible_alias",
             "temporarily_unavailable",
             "budget_exhausted",
+            "unavailable",
         ]),
         "reason" => Some(&[
             "cdn_destination_changed",
@@ -1934,6 +1935,25 @@ mod tests {
         assert_eq!(sanitized_end.details["requests"], 24);
         assert_eq!(sanitized_end.details["durationMs"], 7136);
         assert_eq!(sanitized_end.details.len(), 4);
+
+        for outcome in [
+            "completed",
+            "no_eligible_alias",
+            "rate_limited",
+            "temporarily_unavailable",
+            "budget_exhausted",
+            "unavailable",
+        ] {
+            let mut end = event(2);
+            end["phase"] = json!("alias_lexical_preflight_end");
+            end["provider"] = json!("catalog");
+            end["details"] = json!({
+                "scope":"exact_linked_release_lexical_alias",
+                "outcome":outcome,
+            });
+            let sanitized = sanitize_event(end).expect("lexical end is retained");
+            assert_eq!(sanitized.details["outcome"], outcome);
+        }
 
         let mut invalid = event(3);
         invalid["phase"] = json!("alias_lexical_preflight_end");

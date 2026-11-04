@@ -294,6 +294,24 @@ async fn musicbrainz_release_locators(
     store: &Store,
     request: &SpotifyRequest,
 ) -> Result<(Vec<String>, &'static str), String> {
+    musicbrainz_release_locators_with(store, request, fetch_musicbrainz_locator).await
+}
+
+type LocatorQuery = Vec<(&'static str, String)>;
+
+async fn fetch_musicbrainz_locator(url: String, query: LocatorQuery) -> Result<Value, String> {
+    crate::artist_alias_discovery::fetch(&url, &query).await
+}
+
+async fn musicbrainz_release_locators_with<F, Fut>(
+    store: &Store,
+    request: &SpotifyRequest,
+    mut fetcher: F,
+) -> Result<(Vec<String>, &'static str), String>
+where
+    F: FnMut(String, LocatorQuery) -> Fut,
+    Fut: std::future::Future<Output = Result<Value, String>>,
+{
     let album_url = format!(
         "https://open.spotify.com/album/{}",
         request.spotify_album_id
@@ -307,15 +325,27 @@ async fn musicbrainz_release_locators(
             .get_provider_cache(ALBUM_URL_CACHE, &request.spotify_album_id)?
             .ok_or_else(|| "Cached MusicBrainz album URL lookup disappeared".to_owned())?
     } else {
-        let raw = crate::artist_alias_discovery::fetch(
-            "https://musicbrainz.org/ws/2/url/",
-            &[
+        let raw = match fetcher(
+            "https://musicbrainz.org/ws/2/url/".to_owned(),
+            vec![
                 ("resource", album_url.clone()),
                 ("inc", "release-rels".into()),
                 ("fmt", "json".into()),
             ],
         )
-        .await?;
+        .await
+        {
+            Ok(raw) => raw,
+            // A Spotify album URL can legitimately have no MusicBrainz URL
+            // entity. In that one case, use the same bounded release search
+            // as an exact URL response with no release relations. Other
+            // failures (429/503/transport/invalid JSON) must remain failures.
+            Err(error) if error == "Artist discovery HTTP 404" => {
+                return musicbrainz_release_search_with(store, request, &mut fetcher).await;
+            }
+            Err(error) => return Err(error),
+        };
+        validate_album_url_lookup(&raw, &album_url)?;
         store.set_retained_provider_cache(ALBUM_URL_CACHE, &request.spotify_album_id, &raw)?;
         store.set_provider_cache(
             MB_FETCHED_AT_CACHE,
@@ -325,11 +355,12 @@ async fn musicbrainz_release_locators(
         )?;
         raw
     };
-    if raw_lookup["resource"].as_str() != Some(album_url.as_str()) {
-        return Ok((Vec::new(), "spotify_album_url"));
-    }
+    validate_album_url_lookup(&raw_lookup, &album_url)?;
     let mut ids = BTreeSet::new();
-    for relation in raw_lookup["relations"].as_array().into_iter().flatten() {
+    for relation in raw_lookup["relations"]
+        .as_array()
+        .expect("validated relations")
+    {
         if relation["target-type"].as_str() != Some("release") {
             continue;
         }
@@ -346,13 +377,47 @@ async fn musicbrainz_release_locators(
     if !ids.is_empty() {
         return Ok((ids.into_iter().collect(), "spotify_album_url"));
     }
-    musicbrainz_release_search(store, request).await
+    musicbrainz_release_search_with(store, request, &mut fetcher).await
 }
 
-async fn musicbrainz_release_search(
+fn validate_album_url_lookup(raw: &Value, expected_resource: &str) -> Result<(), String> {
+    if !raw.is_object() || raw["resource"].as_str() != Some(expected_resource) {
+        return Err("MusicBrainz album URL lookup returned a mismatched resource".to_owned());
+    }
+    let relations = raw["relations"]
+        .as_array()
+        .ok_or_else(|| "MusicBrainz album URL lookup omitted relations".to_owned())?;
+    if relations
+        .iter()
+        .any(|relation| !relation.is_object() || relation["target-type"].as_str().is_none())
+    {
+        return Err("MusicBrainz album URL lookup contained malformed relations".to_owned());
+    }
+    for relation in relations
+        .iter()
+        .filter(|relation| relation["target-type"].as_str() == Some("release"))
+    {
+        if relation["release"]["id"]
+            .as_str()
+            .is_none_or(|id| !artist_credit_aliases::valid_musicbrainz_recording_id(id))
+        {
+            return Err(
+                "MusicBrainz album URL lookup contained a malformed release relation".to_owned(),
+            );
+        }
+    }
+    Ok(())
+}
+
+async fn musicbrainz_release_search_with<F, Fut>(
     store: &Store,
     request: &SpotifyRequest,
-) -> Result<(Vec<String>, &'static str), String> {
+    fetcher: &mut F,
+) -> Result<(Vec<String>, &'static str), String>
+where
+    F: FnMut(String, LocatorQuery) -> Fut,
+    Fut: std::future::Future<Output = Result<Value, String>>,
+{
     let title = quote_musicbrainz_term(&request.album_title);
     let first_credit = request
         .credits
@@ -360,9 +425,9 @@ async fn musicbrainz_release_search(
         .ok_or_else(|| "Spotify request has no artist credits".to_owned())?;
     let artist = quote_musicbrainz_term(&first_credit.name);
     let query = format!("release:\"{title}\" AND artist:\"{artist}\"");
-    let raw = crate::artist_alias_discovery::fetch(
-        "https://musicbrainz.org/ws/2/release/",
-        &[
+    let raw = fetcher(
+        "https://musicbrainz.org/ws/2/release/".to_owned(),
+        vec![
             ("query", query),
             ("limit", MAX_RELEASE_LOCATORS.to_string()),
             ("fmt", "json".into()),

@@ -502,11 +502,119 @@ async fn cached_album_locator_rejects_wrong_resource_before_using_relations() {
         )
         .unwrap();
 
-    let (ids, kind) = musicbrainz_release_locators(&store, &fixture.request)
+    let error = musicbrainz_release_locators(&store, &fixture.request)
         .await
-        .expect("cached locator rejection is offline and non-fatal");
-    assert!(ids.is_empty());
-    assert_eq!(kind, "spotify_album_url");
+        .expect_err("a cached mismatched resource is malformed, not an empty locator");
+    assert!(error.contains("mismatched resource"));
+}
+
+#[tokio::test]
+async fn exact_album_url_404_uses_bounded_release_locator_but_keeps_occurrence_guards() {
+    let fixture = make_fixture();
+    let directory = tempfile::tempdir().unwrap();
+    let store = Store::open(&directory.path().join("album-url-404.sqlite")).unwrap();
+    let album_url = format!(
+        "https://open.spotify.com/album/{}",
+        fixture.request.spotify_album_id
+    );
+    let release_search = json!({
+        "count": 1,
+        "releases": [{"id": MB_RELEASE_ID}]
+    });
+    let mut responses = std::collections::VecDeque::from([
+        Err("Artist discovery HTTP 404".to_owned()),
+        Ok(release_search),
+    ]);
+    let mut calls = Vec::new();
+    let (ids, kind) = musicbrainz_release_locators_with(&store, &fixture.request, |url, query| {
+        calls.push((url, query));
+        let result = responses
+            .pop_front()
+            .expect("one scripted response per request");
+        async move { result }
+    })
+    .await
+    .expect("404 permits the existing bounded release-search fallback");
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[0].0, "https://musicbrainz.org/ws/2/url/");
+    assert_eq!(calls[0].1[0], ("resource", album_url));
+    assert_eq!(calls[1].0, "https://musicbrainz.org/ws/2/release/");
+    assert_eq!(calls[1].1[1], ("limit", MAX_RELEASE_LOCATORS.to_string()));
+    assert_eq!(ids, vec![MB_RELEASE_ID.to_owned()]);
+    assert_eq!(kind, "release_search");
+    assert_eq!(
+        cached_locator_contains(&store, &fixture.request, kind, MB_RELEASE_ID),
+        true,
+        "the successful fallback locator is retained for warm revalidation"
+    );
+
+    assert!(exact_musicbrainz_occurrence(&fixture.request, &fixture.mb_release).is_some());
+    assert!(
+        verified(&fixture).is_some(),
+        "the exact source occurrence still verifies"
+    );
+    // Existing neighboring tests cover wrong artist IDs and release positions:
+    // `requires_exact_ordered_primary_artist_ids_and_explicit_alias_edge` and
+    // `rejects_ambiguous_missing_and_wrong_occurrences_or_metadata`.
+}
+
+#[tokio::test]
+async fn album_url_rate_errors_and_malformed_responses_do_not_fallback_to_search() {
+    let fixture = make_fixture();
+    let cases = [
+        (
+            Err("Artist discovery rate limited".to_owned()),
+            "rate limited",
+        ),
+        (Err("Artist discovery HTTP 503".to_owned()), "HTTP 503"),
+        (
+            Ok(json!({
+                "resource":"https://open.spotify.com/album/different",
+                "relations":[]
+            })),
+            "mismatched resource",
+        ),
+        (
+            Ok(json!({"resource":format!(
+                "https://open.spotify.com/album/{}",
+                fixture.request.spotify_album_id
+            )})),
+            "omitted relations",
+        ),
+        (
+            Ok(json!({
+                "resource":format!(
+                    "https://open.spotify.com/album/{}",
+                    fixture.request.spotify_album_id
+                ),
+                "relations":[{"target-type":"release","release":{"id":"bad"}}]
+            })),
+            "malformed release relation",
+        ),
+    ];
+    for (first_response, expected_error) in cases {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("album-url-error.sqlite")).unwrap();
+        let mut responses = std::collections::VecDeque::from([
+            first_response,
+            Ok(json!({"count":0,"releases":[]})),
+        ]);
+        let mut calls = Vec::new();
+        let error = musicbrainz_release_locators_with(&store, &fixture.request, |url, query| {
+            calls.push((url, query));
+            let result = responses.pop_front().expect("scripted response");
+            async move { result }
+        })
+        .await
+        .expect_err("only exact album-URL 404 is eligible for fallback");
+        assert!(error.contains(expected_error), "{error}");
+        assert_eq!(
+            calls.len(),
+            1,
+            "must not issue a release search after {error}"
+        );
+        assert!(calls[0].0.ends_with("/url/"));
+    }
 }
 
 #[tokio::test]
