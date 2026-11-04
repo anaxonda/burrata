@@ -113,6 +113,17 @@ def load_reported_track_fixture(source, private_destination):
     return sanitized, digest
 
 
+def streaming_fallback_policy_settings(enabled, sources):
+    """Build an authoritative v1 fallback setting and its legacy mirror."""
+    sources = list(sources)
+    return {
+        'streamingFallbackEnabled': enabled,
+        'streamingFallbackSources': sources,
+        'streamingFallbackPolicyVersion': 1,
+        'bandcampFallbackEnabled': 'bandcamp' in sources,
+    }
+
+
 def parse_streaming_fallback_sources(value, preferred):
     if value is None or value == '':
         return []
@@ -399,7 +410,8 @@ def seed(profile, resources, mode, args):
             if getattr(args, 'reported_track_max_longer_seconds', None) is not None else 30)
         settings = dict(musicDirectory=str(profile/'fixture'),autoPreview=False,previewDelayMs=250,theme='dark',
             ytDlpPath='yt-dlp',ffmpegPath='ffmpeg',ffprobePath='ffprobe',jsRuntimePath='node',playlistDirectories=[],
-            streamingFallbackEnabled=fallback_enabled,preferredStreamingSource=preferred_source,streamingFallbackSources=fallback_sources,
+            preferredStreamingSource=preferred_source,
+            **streaming_fallback_policy_settings(fallback_enabled, fallback_sources),
             playbackDiagnosticsEnabled=True,playbackStartupTimeoutSeconds=args.reported_track_startup_timeout_seconds if reported_options else 20,
             liveBpmEnabled=mode=='live-analysis',
             crossfadeEnabled=mode.startswith('crossfade'),crossfadeSeconds=2,

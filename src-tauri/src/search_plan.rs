@@ -69,6 +69,12 @@ fn placeholder_artist(value: &str) -> bool {
 }
 
 fn primary_performer_credit(track: &Track) -> Option<String> {
+    if track.provenance["manualFields"]["artist"]
+        .as_bool()
+        .unwrap_or(false)
+    {
+        return None;
+    }
     let identity = crate::recording_identity::RecordingIdentity::from_track(track);
     let primary = identity
         .credits
@@ -129,6 +135,14 @@ impl SearchPlan {
         allow_other_releases: bool,
     ) -> Self {
         let mut queries = Vec::with_capacity(MAX_SEARCH_QUERIES);
+        let manual_artist = track.provenance["manualFields"]["artist"]
+            .as_bool()
+            .unwrap_or(false);
+        let verified_artist_alternatives = if manual_artist {
+            &[]
+        } else {
+            verified_artist_alternatives
+        };
         let rendered_title = search_title(track);
         let lead = primary_performer_credit(track);
         let canonical_artist = if placeholder_artist(&track.artist) {
@@ -156,12 +170,12 @@ impl SearchPlan {
             .then(|| search_title_without_release(track))
             .flatten();
         if let Some(fallback_title) = release_fallback {
-            if let Some(artist) = verified_artist_alternatives
+            let artist = verified_artist_alternatives
                 .first()
                 .map(String::as_str)
-                .or(lead.as_deref())
                 .or(canonical_artist.as_deref())
-            {
+                .or(lead.as_deref());
+            if let Some(artist) = artist {
                 push_query(
                     &mut queries,
                     artist,
@@ -723,6 +737,90 @@ mod tests {
             "Django Reinhardt Verified Alias Swing 42"
         );
         assert_eq!(track, unchanged);
+    }
+
+    #[test]
+    fn release_fallback_preserves_canonical_multi_primary_credits_without_alias() {
+        let track = Track {
+            title: "Minor Swing (Restored Edition '25)".into(),
+            version: Some("Restored Edition '25".into()),
+            artist: "Django Reinhardt & Stéphane Grappelli".into(),
+            provenance: json!({"artistCredits":[
+                {"name":"Django Reinhardt","role":"artist credit","joinPhrase":" & "},
+                {"name":"Stéphane Grappelli","role":"artist credit","joinPhrase":""}
+            ]}),
+            ..Track::default()
+        };
+        let unchanged = track.clone();
+        let plan = SearchPlan::for_track_with_release_policy(&track, &[], true);
+
+        assert_eq!(plan.queries.len(), MAX_SEARCH_QUERIES);
+        assert_eq!(
+            plan.queries[0].text,
+            "Django Reinhardt & Stéphane Grappelli Minor Swing (Restored Edition '25)"
+        );
+        assert_eq!(
+            plan.queries[1].text,
+            "Django Reinhardt & Stéphane Grappelli Minor Swing"
+        );
+        assert_eq!(
+            plan.queries[1].reason,
+            SearchQueryReason::ReleaseContextFallback
+        );
+        assert_eq!(track, unchanged);
+    }
+
+    #[test]
+    fn release_fallback_keeps_single_artist_and_manual_artist_precedence() {
+        let single = Track {
+            title: "Minor Swing (Restored Edition '25)".into(),
+            artist: "Django Reinhardt".into(),
+            ..Track::default()
+        };
+        let plan = SearchPlan::for_track_with_release_policy(&single, &[], true);
+        assert_eq!(plan.queries.len(), MAX_SEARCH_QUERIES);
+        assert_eq!(plan.queries[1].text, "Django Reinhardt Minor Swing");
+
+        let manual = Track {
+            title: "Minor Swing (Restored Edition '25)".into(),
+            artist: "Manual saved artist".into(),
+            provenance: json!({
+                "manualFields":{"artist":true},
+                "artistCredits":[{"name":"Django Reinhardt","role":"artist credit"}]
+            }),
+            ..Track::default()
+        };
+        let ordinary_manual = SearchPlan::for_track(&manual, &["Verified alias".into()]);
+        assert_eq!(ordinary_manual.queries.len(), 1);
+        assert_eq!(
+            ordinary_manual.queries[0].text,
+            "Manual saved artist Minor Swing (Restored Edition '25)"
+        );
+        let plan =
+            SearchPlan::for_track_with_release_policy(&manual, &["Verified alias".into()], true);
+        assert_eq!(
+            plan.queries[0].text,
+            "Manual saved artist Minor Swing (Restored Edition '25)"
+        );
+        assert_eq!(plan.queries[1].text, "Manual saved artist Minor Swing");
+
+        let manual_placeholder = Track {
+            title: "Minor Swing (Restored Edition '25)".into(),
+            artist: "Unknown artist".into(),
+            provenance: json!({
+                "manualFields":{"artist":true},
+                "artistCredits":[{"name":"Django Reinhardt","role":"artist credit"}]
+            }),
+            ..Track::default()
+        };
+        assert!(SearchPlan::for_track(&manual_placeholder, &[])
+            .queries
+            .is_empty());
+        assert!(
+            SearchPlan::for_track_with_release_policy(&manual_placeholder, &[], true)
+                .queries
+                .is_empty()
+        );
     }
 
     #[test]

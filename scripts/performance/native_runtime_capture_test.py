@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 import numpy as np
 import native_runtime_capture as capture
-from native_runtime_capture import summarize_capture, assess_normalization, assess_source_audition_pcm, assess_full_recording_pcm, assess_stereo_markers, assess_audition_queue_checkpoint, load_reported_track_fixture, parse_streaming_fallback_sources, reported_track_case_gate, safe_startup_performance_trace, reported_track_matching_policy, reported_track_matching_settings
+from native_runtime_capture import summarize_capture, assess_normalization, assess_source_audition_pcm, assess_full_recording_pcm, assess_stereo_markers, assess_audition_queue_checkpoint, load_reported_track_fixture, parse_streaming_fallback_sources, reported_track_case_gate, safe_startup_performance_trace, reported_track_matching_policy, reported_track_matching_settings, streaming_fallback_policy_settings
 
 
 class StartupDiagnosticCliTests(unittest.TestCase):
@@ -67,6 +67,28 @@ class StartupPerformanceTraceTests(unittest.TestCase):
     def test_missing_startup_log_is_an_empty_diagnostic_sample(self):
         with tempfile.TemporaryDirectory() as folder:
             self.assertEqual(safe_startup_performance_trace(Path(folder)/'missing.log'),[])
+
+
+class StreamingFallbackPolicySettingsTests(unittest.TestCase):
+    def test_disabled_fallback_is_authoritative_and_cannot_migrate_back_on(self):
+        settings = streaming_fallback_policy_settings(False, [])
+        self.assertEqual(settings, {
+            'streamingFallbackEnabled': False,
+            'streamingFallbackSources': [],
+            'streamingFallbackPolicyVersion': 1,
+            'bandcampFallbackEnabled': False,
+        })
+
+    def test_bandcamp_legacy_mirror_tracks_the_ordered_list(self):
+        settings = streaming_fallback_policy_settings(True, ['youtube', 'bandcamp'])
+        self.assertEqual(settings['streamingFallbackSources'], ['youtube', 'bandcamp'])
+        self.assertTrue(settings['bandcampFallbackEnabled'])
+        self.assertEqual(settings['streamingFallbackPolicyVersion'], 1)
+
+    def test_non_bandcamp_chain_keeps_legacy_mirror_disabled(self):
+        settings = streaming_fallback_policy_settings(True, ['youtube', 'soundcloud'])
+        self.assertFalse(settings['bandcampFallbackEnabled'])
+        self.assertEqual(settings['streamingFallbackSources'], ['youtube', 'soundcloud'])
 
 
 class ReportedTrackFixtureTests(unittest.TestCase):
