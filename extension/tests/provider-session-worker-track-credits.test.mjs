@@ -38,7 +38,7 @@ function fixtureFetch({trackType='Track',contributors=liveRows,includeTotal=fals
  };
  return {fetchImpl,calls};
 }
-function request(args={}){return {provider:'spotify',operation:'getTrackCredits',args:{trackId:TRACK_ID,trackTitle:TITLE,mainArtistId:ARTIST_IDS[0],durationMilliseconds:247381,artistIds:ARTIST_IDS,...args},cookieHeader:'sp_dc=fixture; sp_key=fixture',cachedAuth:{accessToken:'TEST-FIXTURE-ACCESS-TOKEN',expiresAt:Date.now()+60000}};}
+function request(args={}){return {provider:'spotify',operation:'getTrackCredits',args:{trackId:TRACK_ID,trackTitle:TITLE,mainArtistId:ARTIST_IDS[0],durationMilliseconds:247381,artistIds:ARTIST_IDS,...args},cookieHeader:'sp_dc=fixture; sp_key=fixture',cachedAuth:{accessToken:'test-fixture-credential-a1b2c3d4e5',expiresAt:Date.now()+60000}};}
 
 test('live exact-track shape stays bound to request URI and keeps role groups distinct',async()=>{
  const fixture=fixtureFetch();
@@ -66,7 +66,7 @@ test('live exact-track shape stays bound to request URI and keeps role groups di
   {artistUri:`spotify:artist:${ARTIST_IDS[0]}`,trackUri:`spotify:track:${TRACK_ID}`,contributorsLimit:64,contributorsOffset:10,enableRelatedVideos:false,enableRelatedAudioTracks:false},
  ]));
  assert.equal(queries[0].extensions.persistedQuery.sha256Hash,'e1ae46a21911a3075c1aa29bf09a6c60f9a45b6a2b1132429f10ad06c299b5d7');
- const serialized=JSON.stringify(result);assert.equal(serialized.includes('TEST-FIXTURE-ACCESS-TOKEN'),false);assert.equal(serialized.includes('sp_dc=fixture'),false);
+ const serialized=JSON.stringify(result);assert.equal(serialized.includes('test-fixture-credential-a1b2c3d4e5'),false);assert.equal(serialized.includes('sp_dc=fixture'),false);
 });
 
 test('a Track union without credits or malformed role rows is rejected',async()=>{

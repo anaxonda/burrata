@@ -368,3 +368,24 @@ fn main() {
         std::process::exit(1);
     }
 }
+
+
+#[cfg(test)]
+mod spotify_role_integration_boundary {
+    #[test]
+    fn playback_callers_can_check_request_eligibility_without_trusting_manual_edits() {
+        let mut track = crate::models::Track {
+            id: "spotify:2u9k9X8d1uD4qDLjMhVxU0".into(),
+            provider: "spotify".into(),
+            provider_id: "2u9k9X8d1uD4qDLjMhVxU0".into(),
+            source_url: "https://open.spotify.com/track/2u9k9X8d1uD4qDLjMhVxU0".into(),
+            title: "Halka Halka".into(),
+            artist: "Sunidhi Chauhan, Divya Kumar".into(),
+            duration_seconds: Some(247.0),
+            ..Default::default()
+        };
+        assert!(crate::spotify_role_context::request_is_unmodified_exact_spotify_track(&track));
+        track.provenance = serde_json::json!({"manualFields":{"artist":true}});
+        assert!(!crate::spotify_role_context::request_is_unmodified_exact_spotify_track(&track));
+    }
+}

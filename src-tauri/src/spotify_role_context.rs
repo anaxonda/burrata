@@ -422,7 +422,7 @@ pub(crate) fn saved_duration_agrees_with_precise_catalog(saved: f64, provider: f
     saved == provider || (saved.fract() == 0.0 && provider > saved && provider.floor() == saved)
 }
 
-fn request_is_unmodified_exact_spotify_track(track: &Track) -> bool {
+pub(crate) fn request_is_unmodified_exact_spotify_track(track: &Track) -> bool {
     track.provider == "spotify"
         && valid_spotify_id(&track.provider_id)
         && track.id == format!("spotify:{}", track.provider_id)
