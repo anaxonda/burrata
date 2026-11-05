@@ -14594,7 +14594,7 @@ mod tests {
 
         let directory = tempfile::tempdir().unwrap();
         let store = Store::open(&directory.path().join("spotify-role-gate.sqlite")).unwrap();
-        let gate = policy_matching::evaluate_with_trace_and_options(
+        let (gate, diagnostic) = policy_matching::evaluate_with_diagnostics_trace_and_options(
             &track,
             &[],
             &[],
@@ -14606,7 +14606,7 @@ mod tests {
             &trace,
         );
         assert_eq!(
-            gate.shared.dimensions.artists,
+            diagnostic.dimensions.artists,
             crate::recording_match::Comparison::Agree
         );
         assert!(
