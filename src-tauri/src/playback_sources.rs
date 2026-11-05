@@ -1614,6 +1614,62 @@ impl Drop for SpotifyRoleTaskCompletion {
     }
 }
 
+// The gate may wait only through its original two-second window. The
+// request-owned loader can finish during concurrent search/extraction, bounded
+// by the unchanged absolute startup deadline and its caller cancellation.
+fn spawn_spotify_role_lookup<F, Fut>(
+    trace: &SourceTrace,
+    original: &Track,
+    deadline: PlaybackDeadline,
+    read: F,
+) where
+    F: FnOnce(tokio::time::Instant) -> Fut + Send + 'static,
+    Fut: std::future::Future<
+            Output = Result<
+                Option<spotify_role_context::SpotifyTrackRoleContext>,
+                spotify_role_diagnostics::RoleLookupFailure,
+            >,
+        > + Send
+        + 'static,
+{
+    let wait_deadline = deadline.cap(Duration::from_secs(2));
+    if wait_deadline <= tokio::time::Instant::now() {
+        return;
+    }
+    let loader_deadline = deadline.instant();
+    let request = original.clone();
+    let role_trace = trace.clone();
+    let task = tokio::spawn(async move {
+        let completion = SpotifyRoleTaskCompletion::new(role_trace.clone());
+        let started = Instant::now();
+        let result = read(loader_deadline).await;
+        let (accepted, stage, outcome) = match result {
+            Ok(Some(context)) => {
+                let accepted = role_trace.remember_spotify_track_role_context(&request, context);
+                (
+                    accepted,
+                    "retain_context",
+                    if accepted {
+                        "available"
+                    } else {
+                        "binding_rejected"
+                    },
+                )
+            }
+            Ok(None) => (false, "service", "service_missing"),
+            Err(failure) => (false, failure.stage(), failure.outcome()),
+        };
+        role_trace.event(
+            "spotify_track_role_context",
+            "spotify",
+            json!({"durationMs":started.elapsed().as_millis(), "available":accepted,
+                        "roleStage":stage,"roleOutcome":outcome}),
+        );
+        completion.finish(accepted);
+    });
+    trace.store_spotify_track_role_task(wait_deadline, task);
+}
+
 async fn resolve_inner(
     store: &Store,
     acquisition: &AcquisitionManager,
@@ -1647,45 +1703,14 @@ async fn resolve_inner(
         && (track.local_path.is_none() || bypass_local)
         && spotify_role_context::request_is_unmodified_exact_spotify_track(track)
     {
-        let role_deadline = deadline.cap(Duration::from_secs(2));
-        if role_deadline > tokio::time::Instant::now() {
-            let acquisition = acquisition.clone();
-            let request = track.clone();
-            let role_trace = trace.clone();
-            let cancel = cancel.clone();
-            let task = tokio::spawn(async move {
-                let completion = SpotifyRoleTaskCompletion::new(role_trace.clone());
-                let started = Instant::now();
-                let result = acquisition
-                    .read_spotify_track_role_context(&request, role_deadline, cancel)
-                    .await;
-                let (accepted, stage, outcome) = match result {
-                    Ok(Some(context)) => {
-                        let accepted =
-                            role_trace.remember_spotify_track_role_context(&request, context);
-                        (
-                            accepted,
-                            "retain_context",
-                            if accepted {
-                                "available"
-                            } else {
-                                "binding_rejected"
-                            },
-                        )
-                    }
-                    Ok(None) => (false, "service", "service_missing"),
-                    Err(failure) => (false, failure.stage(), failure.outcome()),
-                };
-                role_trace.event(
-                    "spotify_track_role_context",
-                    "spotify",
-                    json!({"durationMs":started.elapsed().as_millis(), "available":accepted,
-                        "roleStage":stage,"roleOutcome":outcome}),
-                );
-                completion.finish(accepted);
-            });
-            trace.store_spotify_track_role_task(role_deadline, task);
-        }
+        let acquisition = acquisition.clone();
+        let request = track.clone();
+        let cancel = cancel.clone();
+        spawn_spotify_role_lookup(trace, track, deadline, move |loader_deadline| async move {
+            acquisition
+                .read_spotify_track_role_context(&request, loader_deadline, cancel)
+                .await
+        });
     }
     let bypassed_track;
     let track = if bypass_local {
@@ -15739,5 +15764,122 @@ mod spotify_role_trace_projection_tests {
             assert_eq!(payload["details"]["roleOutcome"], failure.outcome());
             assert_eq!(payload["details"]["available"], false);
         }
+    }
+}
+
+#[cfg(test)]
+mod spotify_role_loader_budget_tests {
+    use super::*;
+    use serde::{de::DeserializeOwned, Serialize};
+
+    fn fixture() -> (Track, spotify_role_context::SpotifyTrackRoleContext) {
+        fn overlay<T: Default + Serialize + DeserializeOwned>(input: &Value) -> T {
+            let mut value = serde_json::to_value(T::default()).unwrap();
+            value
+                .as_object_mut()
+                .unwrap()
+                .extend(input.as_object().unwrap().clone());
+            serde_json::from_value(value).unwrap()
+        }
+        let value: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/spotify-halka-role-context.json"
+        ))
+        .unwrap();
+        let track: Track = overlay(&value["freshRequestProjection"]);
+        let context = spotify_role_context::SpotifyTrackRoleContext::from_operation_for_track(
+            &track,
+            &value["operation"],
+        )
+        .unwrap();
+        (track, context)
+    }
+
+    #[tokio::test]
+    async fn loader_can_finish_after_gate_wait_without_extending_that_wait() {
+        let (track, context) = fixture();
+        let trace = SourceTrace::new(None, None, None);
+        let overall = PlaybackDeadline::after(Duration::from_secs(4));
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        spawn_spotify_role_lookup(&trace, &track, overall, move |loader_deadline| async move {
+            started_tx.send(loader_deadline).unwrap();
+            tokio::time::timeout_at(loader_deadline, release_rx)
+                .await
+                .map_err(|_| spotify_role_diagnostics::RoleLookupFailure::SearchOperation)?
+                .map_err(|_| spotify_role_diagnostics::RoleLookupFailure::SearchOperation)?;
+            Ok(Some(context))
+        });
+        assert_eq!(started_rx.await.unwrap(), overall.instant());
+        assert!(tokio::time::timeout(
+            Duration::from_secs(3),
+            trace.await_spotify_track_role_context(&track)
+        )
+        .await
+        .expect("gate keeps its two-second cap")
+        .is_none());
+        assert_eq!(
+            *trace.spotify_track_role_finished.borrow(),
+            None,
+            "gate expiration must not terminate the in-budget loader"
+        );
+        let mut completed = trace.spotify_track_role_finished.subscribe();
+        release_tx.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while completed.borrow().is_none() {
+                completed.changed().await.unwrap();
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(*completed.borrow(), Some(true));
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(50),
+                trace.await_spotify_track_role_context(&track)
+            )
+            .await
+            .unwrap()
+            .is_some(),
+            "already-completed late context is immediately usable"
+        );
+    }
+
+    #[tokio::test]
+    async fn loader_receives_original_short_deadline_and_expired_requests_do_not_start_it() {
+        let (track, _) = fixture();
+        let trace = SourceTrace::new(None, None, None);
+        let overall = PlaybackDeadline::after(Duration::from_millis(40));
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        spawn_spotify_role_lookup(&trace, &track, overall, move |loader_deadline| async move {
+            started_tx.send(loader_deadline).unwrap();
+            tokio::time::timeout_at(loader_deadline, std::future::pending::<()>())
+                .await
+                .map_err(|_| spotify_role_diagnostics::RoleLookupFailure::SearchOperation)?;
+            Ok(None)
+        });
+        assert_eq!(started_rx.await.unwrap(), overall.instant());
+        assert_eq!(
+            *trace.spotify_track_role_deadline.lock().unwrap(),
+            Some(overall.instant())
+        );
+        let mut completed = trace.spotify_track_role_finished.subscribe();
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while completed.borrow().is_none() {
+                completed.changed().await.unwrap();
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(*completed.borrow(), Some(false));
+        let expired = SourceTrace::new(None, None, None);
+        spawn_spotify_role_lookup(
+            &expired,
+            &track,
+            PlaybackDeadline::at(tokio::time::Instant::now() - Duration::from_millis(1)),
+            |_| async { panic!("expired request must not dispatch provider work") },
+        );
+        assert!(!expired
+            .spotify_track_role_started
+            .load(std::sync::atomic::Ordering::Acquire));
     }
 }
