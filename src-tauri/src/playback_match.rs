@@ -1744,8 +1744,12 @@ mod tests {
                 &candidate,
                 MatchLevel::Exact
             ));
-            let current =
-                recording_match::assess(&track, &candidate, MatchLevel::Exact, MatchStage::Resolved);
+            let current = recording_match::assess(
+                &track,
+                &candidate,
+                MatchLevel::Exact,
+                MatchStage::Resolved,
+            );
             assert_eq!(current.dimensions.title, Comparison::Agree);
             assert_eq!(
                 candidate.source_metadata.as_ref().unwrap()["matching"]["evaluatorVersion"],
