@@ -774,6 +774,7 @@ fn bool_key(key: &str) -> bool {
             | "userAgentPresent"
             | "cookiesPresent"
             | "managedProviderInstalled"
+            | "available"
             | "customHelper"
     )
 }
@@ -1118,6 +1119,30 @@ fn enum_values(key: &str) -> Option<&'static [&'static str]> {
             "independentCatalog",
             "shazamAppleExact",
         ]),
+        "roleStage" => Some(&[
+            "service",
+            "request",
+            "account_status",
+            "exact_search",
+            "catalog_identity",
+            "search_account",
+            "credits_operation",
+            "credits_account",
+            "credits_binding",
+            "account_recheck",
+            "retain_context",
+        ]),
+        "roleOutcome" => Some(&[
+            "available",
+            "service_missing",
+            "service_unavailable",
+            "request_rejected",
+            "operation_failed",
+            "invalid_result",
+            "identity_mismatch",
+            "account_mismatch",
+            "binding_rejected",
+        ]),
         "stage" => Some(&[
             "resolver",
             "extraction",
@@ -1215,6 +1240,7 @@ fn sanitize_event(value: Value) -> Option<PlaybackDiagnosticEvent> {
         "monochrome" => "monochrome",
         "bandcamp" => "bandcamp",
         "musicbrainz" => "musicbrainz",
+        "spotify" => "spotify",
         _ => "other",
     };
     let token = |name: &str| {
@@ -1257,6 +1283,7 @@ pub(crate) fn phase_is_allowed(value: &str) -> bool {
     matches!(
         value,
         "resolution_start"
+            | "spotify_track_role_context"
             | "other"
             | "verified_source_transport_recovery_skipped"
             | "resolution_end"
@@ -2321,5 +2348,54 @@ mod native_timeline_tests {
             fingerprint_reader(&mut std::io::Cursor::new(b"abcd"), 3).unwrap_err(),
             "too_large"
         );
+    }
+}
+
+#[cfg(test)]
+mod spotify_role_telemetry_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn role_lookup_stage_and_outcome_survive_both_sanitizer_passes() {
+        let cases = [
+            ("service", "service_missing", false),
+            ("service", "service_unavailable", false),
+            ("request", "request_rejected", false),
+            ("account_status", "operation_failed", false),
+            ("exact_search", "operation_failed", false),
+            ("exact_search", "invalid_result", false),
+            ("catalog_identity", "identity_mismatch", false),
+            ("search_account", "account_mismatch", false),
+            ("credits_operation", "operation_failed", false),
+            ("credits_account", "account_mismatch", false),
+            ("credits_binding", "binding_rejected", false),
+            ("account_recheck", "operation_failed", false),
+            ("account_recheck", "account_mismatch", false),
+            ("retain_context", "available", true),
+            ("retain_context", "binding_rejected", false),
+        ];
+        for (stage, outcome, available) in cases {
+            let details = sanitize_details(json!({"roleStage":stage,"roleOutcome":outcome,
+                "durationMs":5,"available":available,"rawError":"private-canary",
+                "query":"private-canary","trackId":"private-canary","url":"https://private.invalid"}));
+            let event = sanitize_event(json!({"resolutionId":"00000000-0000-4000-8000-000000000001",
+                "atUnixMs":1,"elapsedMs":5,"phase":"spotify_track_role_context","provider":"spotify","details":details})).unwrap();
+            assert_eq!(event.phase, "spotify_track_role_context");
+            assert_eq!(event.provider, "spotify");
+            assert_eq!(event.details["roleStage"], stage);
+            assert_eq!(event.details["roleOutcome"], outcome);
+            assert_eq!(event.details["available"], available);
+            assert_eq!(event.details["durationMs"], 5);
+            assert_eq!(event.details.len(), 4);
+            assert!(!serde_json::to_string(&event).unwrap().contains("private"));
+        }
+    }
+    #[test]
+    fn role_lookup_diagnostics_reject_arbitrary_stage_outcome_and_availability_values() {
+        let details = sanitize_details(json!({"roleStage":"Bearer private-canary",
+            "roleOutcome":"https://private.invalid/?token=private-canary","available":"private-canary","durationMs":5}));
+        assert_eq!(details.len(), 1);
+        assert_eq!(details["durationMs"], 5);
     }
 }

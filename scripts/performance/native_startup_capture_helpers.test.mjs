@@ -332,3 +332,14 @@ test('reported error evidence drops arbitrary query, header, and response body t
   const serialized=JSON.stringify(evidence);
   for(const value of arbitrary)assert.equal(serialized.includes(value),false);
 });
+
+ test('Spotify role diagnostics survive export without arbitrary provider text',()=>{
+  const atUnixMs=1800000000000;
+  const report=details=>({status:{enabled:true},events:[{atUnixMs,elapsedMs:5,phase:'spotify_track_role_context',provider:'spotify',details}]});
+  const details={durationMs:5,available:false,roleStage:'account_status',roleOutcome:'operation_failed'};
+  const good=safeReportedPlaybackDiagnosticExport(report({...details,rawError:'private-canary',query:'private-canary',url:'https://private.invalid'}),atUnixMs,atUnixMs);
+  assert.deepEqual(good.events[0].details,details);
+  assert.equal(JSON.stringify(good).includes('private'),false);
+  const bad=safeReportedPlaybackDiagnosticExport(report({roleStage:'private-canary',roleOutcome:'private-canary',available:'private-canary'}),atUnixMs,atUnixMs);
+  assert.deepEqual(bad.events[0].details,{});
+ });

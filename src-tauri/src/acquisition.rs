@@ -7332,13 +7332,13 @@ impl AcquisitionManager {
         cancel: watch::Receiver<bool>,
     ) -> Result<
         Option<crate::playback_sources::spotify_role_context::SpotifyTrackRoleContext>,
-        String,
+        crate::playback_sources::spotify_role_diagnostics::RoleLookupFailure,
     > {
         let service = self
             .inner
             .remote_playlists
             .lock()
-            .map_err(|_| "Spotify role context service unavailable")?
+            .map_err(|_| crate::playback_sources::spotify_role_diagnostics::RoleLookupFailure::ServiceUnavailable)?
             .clone();
         let Some(service) = service else {
             return Ok(None);

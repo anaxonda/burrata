@@ -204,12 +204,14 @@ const REPORTED_DIAGNOSTIC_NUMBER_KEYS = new Set([
   'waiterCount','flightWaiters','responseCount','addressCount','expectedDelayMs','status','count',
 ]);
 const REPORTED_DIAGNOSTIC_BOOLEAN_KEYS = new Set([
-  'attempted','retryable','accepted','deadline','cancelled','reused','hasResults','localSource','background','joined','ok',
+  'available','attempted','retryable','accepted','deadline','cancelled','reused','hasResults','localSource','background','joined','ok',
   'rateLimited','selected','completed','abandoned','waitedForGate','sameSearchRow','providerIdMatches',
   'requestedTitlePhrasePresent','canonicalArtistPhrasePresent','descriptiveDurationWithinFiveSeconds',
   'recordingCanonicalMatch','recordingVerifiedAliasMatch','topicCanonicalMatch','topicVerifiedAliasMatch',
 ]);
 const REPORTED_DIAGNOSTIC_ENUM_KEYS = new Map([
+  ['roleStage',new Set(['service','request','account_status','exact_search','catalog_identity','search_account','credits_operation','credits_account','credits_binding','account_recheck','retain_context'])],
+  ['roleOutcome',new Set(['available','service_missing','service_unavailable','request_rejected','operation_failed','invalid_result','identity_mismatch','account_mismatch','binding_rejected'])],
   ['category',new Set(['cancelled','timeout','network','rate_limited','source_access','source_unavailable','source_private','source_deleted','no_match','recording_identity_mismatch','unsupported_audio','output','storage','parser','unknown','complete','unavailable','redirect','decoder','probe'])],
   ['outcome',new Set(['success','completed','failed','cancelled','deadline','abandoned','aborted','rate_limited','http_error','response_limit','invalid_json','unique_exact_name_profile','no_exact_name_owner','ambiguous','no_verified_evidence'])],
   ['attemptPhase',new Set(['search','parser','transport','extraction','other'])],

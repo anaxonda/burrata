@@ -3249,19 +3249,26 @@ impl RemotePlaylistService {
         request: &Track,
         deadline: tokio::time::Instant,
         cancel: tokio::sync::watch::Receiver<bool>,
-    ) -> Result<crate::playback_sources::spotify_role_context::SpotifyTrackRoleContext> {
+    ) -> std::result::Result<
+        crate::playback_sources::spotify_role_context::SpotifyTrackRoleContext,
+        crate::playback_sources::spotify_role_diagnostics::RoleLookupFailure,
+    > {
+        use crate::playback_sources::spotify_role_diagnostics::RoleLookupFailure as Failure;
         if !crate::playback_sources::spotify_role_context::request_is_unmodified_exact_spotify_track(
             request,
         ) {
-            return Err("The Spotify role request is not an unmodified exact track".into());
+            return Err(Failure::RequestRejected);
         }
         let account =
-            await_crosswalk_step(deadline, cancel.clone(), self.require_account("spotify")).await?;
+            await_crosswalk_step(deadline, cancel.clone(), self.require_account("spotify"))
+                .await
+                .map_err(|_| Failure::AccountStatus)?;
         let verified_catalog_track =
             if crate::artist_credit_aliases::spotify_artist_credit_fingerprint(request).is_some() {
                 request.clone()
             } else {
-                let query = alias_hydration_search_query(request)?;
+                let query =
+                    alias_hydration_search_query(request).map_err(|_| Failure::RequestRejected)?;
                 let response = await_crosswalk_step(
                     deadline,
                     cancel.clone(),
@@ -3271,12 +3278,14 @@ impl RemotePlaylistService {
                         json!({"query":query,"kind":"track","limit":50}),
                     ),
                 )
-                .await?;
-                self.ensure_response_account("spotify", &response, &account.id)?;
+                .await
+                .map_err(|_| Failure::SearchOperation)?;
+                self.ensure_response_account("spotify", &response, &account.id)
+                    .map_err(|_| Failure::SearchAccount)?;
                 let rows = response
                     .get("items")
                     .and_then(Value::as_array)
-                    .ok_or("Spotify search returned invalid exact-track results")?;
+                    .ok_or(Failure::SearchResult)?;
                 let exact_rows = rows
                     .iter()
                     .filter(|row| {
@@ -3284,45 +3293,45 @@ impl RemotePlaylistService {
                     })
                     .collect::<Vec<_>>();
                 if exact_rows.len() != 1 {
-                    return Err("Spotify search did not return exactly one exact track ID".into());
+                    return Err(Failure::SearchResult);
                 }
-                let normalized = normalize_catalog_item(exact_rows[0], "spotify", "track")?;
+                let normalized = normalize_catalog_item(exact_rows[0], "spotify", "track")
+                    .map_err(|_| Failure::SearchResult)?;
                 let data = normalized
                     .get("data")
                     .filter(|data| data.is_object())
-                    .ok_or("Spotify search omitted exact track metadata")?;
+                    .ok_or(Failure::SearchResult)?;
                 let provider_duration = data
                     .get("durationSeconds")
                     .and_then(Value::as_f64)
-                    .ok_or("Spotify search omitted exact track duration")?;
-                let saved_duration = request
-                    .duration_seconds
-                    .ok_or("The saved Spotify track has no duration")?;
+                    .ok_or(Failure::SearchResult)?;
+                let saved_duration = request.duration_seconds.ok_or(Failure::RequestRejected)?;
                 if !crate::playback_sources::spotify_role_context::saved_duration_agrees_with_precise_catalog(
                 saved_duration,
                 provider_duration,
             ) {
-                return Err("Spotify catalog runtime disagrees with the saved whole-second request".into());
+                return Err(Failure::CatalogIdentity);
             }
                 let mut provider_duration_lookup = request.clone();
                 provider_duration_lookup.duration_seconds = Some(provider_duration);
-                exact_alias_search_track(&provider_duration_lookup, &response, &account.id)?
+                exact_alias_search_track(&provider_duration_lookup, &response, &account.id)
+                    .map_err(|_| Failure::CatalogIdentity)?
             };
         if !crate::playback_sources::spotify_role_context::request_matches_catalog(
             request,
             &verified_catalog_track,
         ) {
-            return Err("Fresh Spotify metadata disagrees with the saved request".into());
+            return Err(Failure::CatalogIdentity);
         }
         let fingerprint = crate::artist_credit_aliases::spotify_artist_credit_fingerprint(
             &verified_catalog_track,
         )
-        .ok_or("Fresh Spotify metadata did not provide a complete artist fingerprint")?;
+        .ok_or(Failure::CatalogIdentity)?;
         let main_artist_id = fingerprint
             .artists
             .first()
             .map(|artist| artist.id.as_str())
-            .ok_or("Fresh Spotify metadata omitted the main artist ID")?;
+            .ok_or(Failure::CatalogIdentity)?;
         let response = await_crosswalk_step(
             deadline,
             cancel.clone(),
@@ -3338,19 +3347,21 @@ impl RemotePlaylistService {
                 }),
             ),
         )
-        .await?;
-        self.ensure_response_account("spotify", &response, &account.id)?;
-        let current =
-            await_crosswalk_step(deadline, cancel, self.require_account("spotify")).await?;
+        .await.map_err(|_| Failure::CreditsOperation)?;
+        self.ensure_response_account("spotify", &response, &account.id)
+            .map_err(|_| Failure::CreditsAccount)?;
+        let current = await_crosswalk_step(deadline, cancel, self.require_account("spotify"))
+            .await
+            .map_err(|_| Failure::AccountRecheck)?;
         if current.id != account.id {
-            return Err("Spotify account changed during the contributor-role read".into());
+            return Err(Failure::AccountChanged);
         }
         crate::playback_sources::spotify_role_context::SpotifyTrackRoleContext::from_operation_for_request(
             request,
             &verified_catalog_track,
             &response,
         )
-        .ok_or_else(|| "Spotify contributor roles did not bind to the exact request".into())
+        .ok_or(Failure::CreditsBinding)
     }
     pub async fn list_playlists(
         &self,

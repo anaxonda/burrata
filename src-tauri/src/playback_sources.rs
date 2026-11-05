@@ -20,6 +20,8 @@ use tokio::sync::watch;
 mod policy_matching;
 #[path = "spotify_role_context.rs"]
 pub(crate) mod spotify_role_context;
+#[path = "spotify_role_diagnostics.rs"]
+pub(crate) mod spotify_role_diagnostics;
 
 pub(crate) const SOURCE_NO_RESULTS: &str = "No audio results were returned by the available providers. Open the catalog source or choose another source.";
 pub(crate) const SOURCE_IDENTITY_REJECTED: &str = "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.";
@@ -723,7 +725,7 @@ impl SourceTrace {
     }
     pub(crate) fn payload(&self, phase: &'static str, provider: &str, details: Value) -> Value {
         let provider = match provider {
-            "youtube" | "soundcloud" | "monochrome" => provider,
+            "youtube" | "soundcloud" | "monochrome" | "spotify" => provider,
             _ => "other",
         };
         let phase = if crate::playback_diagnostics::phase_is_allowed(phase) {
@@ -1654,18 +1656,31 @@ async fn resolve_inner(
             let task = tokio::spawn(async move {
                 let completion = SpotifyRoleTaskCompletion::new(role_trace.clone());
                 let started = Instant::now();
-                let context = acquisition
+                let result = acquisition
                     .read_spotify_track_role_context(&request, role_deadline, cancel)
-                    .await
-                    .ok()
-                    .flatten();
-                let accepted = context.is_some_and(|context| {
-                    role_trace.remember_spotify_track_role_context(&request, context)
-                });
+                    .await;
+                let (accepted, stage, outcome) = match result {
+                    Ok(Some(context)) => {
+                        let accepted =
+                            role_trace.remember_spotify_track_role_context(&request, context);
+                        (
+                            accepted,
+                            "retain_context",
+                            if accepted {
+                                "available"
+                            } else {
+                                "binding_rejected"
+                            },
+                        )
+                    }
+                    Ok(None) => (false, "service", "service_missing"),
+                    Err(failure) => (false, failure.stage(), failure.outcome()),
+                };
                 role_trace.event(
                     "spotify_track_role_context",
                     "spotify",
-                    json!({"durationMs":started.elapsed().as_millis(),"available":accepted}),
+                    json!({"durationMs":started.elapsed().as_millis(), "available":accepted,
+                        "roleStage":stage,"roleOutcome":outcome}),
                 );
                 completion.finish(accepted);
             });
@@ -15692,5 +15707,37 @@ mod native_only_recovery_tests {
             PlaybackDeadline::at(total.cap(provider_opportunity_budget(total.remaining(), 3)));
         assert!(first.instant() <= total.instant());
         assert!(total.instant().duration_since(first.instant()) >= Duration::from_secs(7));
+    }
+}
+
+#[cfg(test)]
+mod spotify_role_trace_projection_tests {
+    use super::*;
+    #[test]
+    fn typed_role_failures_survive_source_trace_payload() {
+        use spotify_role_diagnostics::RoleLookupFailure::*;
+        let trace = SourceTrace::new(None, None, None);
+        for failure in [
+            ServiceUnavailable,
+            RequestRejected,
+            AccountStatus,
+            SearchOperation,
+            SearchResult,
+            CatalogIdentity,
+            SearchAccount,
+            CreditsOperation,
+            CreditsAccount,
+            CreditsBinding,
+            AccountRecheck,
+            AccountChanged,
+        ] {
+            let payload = trace.payload("spotify_track_role_context", "spotify",
+                json!({"roleStage":failure.stage(),"roleOutcome":failure.outcome(),"available":false,"durationMs":5}));
+            assert_eq!(payload["phase"], "spotify_track_role_context");
+            assert_eq!(payload["provider"], "spotify");
+            assert_eq!(payload["details"]["roleStage"], failure.stage());
+            assert_eq!(payload["details"]["roleOutcome"], failure.outcome());
+            assert_eq!(payload["details"]["available"], false);
+        }
     }
 }
