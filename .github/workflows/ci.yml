@@ -4,6 +4,17 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      tests_only:
+        description: Run checks without rebuilding Linux installers
+        type: boolean
+        required: false
+        default: false
+      linux_only:
+        description: Limit this manual check to Linux
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -19,7 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-15, windows-2022]
+        os: ${{ github.event_name == 'workflow_dispatch' && inputs.linux_only && fromJSON('["ubuntu-22.04"]') || fromJSON('["ubuntu-22.04","macos-15","windows-2022"]') }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
@@ -183,6 +194,7 @@ jobs:
 
   linux-bundles:
     name: Linux configured bundle targets
+    if: github.event_name != 'workflow_dispatch' || !inputs.tests_only
     runs-on: ubuntu-22.04
     needs: test
     steps:
