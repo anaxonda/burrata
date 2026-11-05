@@ -1857,9 +1857,7 @@ impl Store {
         }
         let ttl = ttl_seconds.min(315_576_000) as i64;
         let expires_at = (chrono::Utc::now() + chrono::Duration::seconds(ttl)).to_rfc3339();
-        self.connection
-            .lock()
-            .map_err(err)?
+        self.lock_connection()?
             .execute(
                 "INSERT INTO provider_cache(namespace,key,payload,expires_at) VALUES(?1,?2,?3,?4) ON CONFLICT(namespace,key) DO UPDATE SET payload=excluded.payload,expires_at=CASE WHEN provider_cache.expires_at='9999-12-31T23:59:59Z' AND ?5 THEN provider_cache.expires_at ELSE excluded.expires_at END",
                 params![namespace, key, encoded, expires_at, ttl_seconds != 0],
@@ -2185,9 +2183,7 @@ impl Store {
         provider: &str,
         provider_artist_id: &str,
     ) -> Result<Option<String>> {
-        self.connection
-            .lock()
-            .map_err(err)?
+        self.lock_connection()?
             .query_row(
                 "SELECT artist_id FROM artist_mappings WHERE provider=?1 AND provider_artist_id=?2",
                 params![provider, provider_artist_id],
@@ -2208,9 +2204,7 @@ impl Store {
         {
             return Err("Provider and artist identities are required".into());
         }
-        self.connection
-            .lock()
-            .map_err(err)?
+        self.lock_connection()?
             .execute(
                 "INSERT INTO artist_mappings(provider,provider_artist_id,artist_id,updated_at) VALUES(?1,?2,?3,?4) ON CONFLICT(provider,provider_artist_id) DO UPDATE SET artist_id=excluded.artist_id,updated_at=excluded.updated_at",
                 params![provider, provider_artist_id, artist_id, chrono::Utc::now().to_rfc3339()],
@@ -2363,9 +2357,7 @@ impl Store {
         Ok(result)
     }
     pub fn recording_id(&self, listing_id: &str) -> Result<String> {
-        self.connection
-            .lock()
-            .map_err(err)?
+        self.lock_connection()?
             .query_row(
                 "SELECT recording_id FROM catalog_listings WHERE id=?1",
                 [listing_id],
@@ -4213,9 +4205,7 @@ impl Store {
             name: name.into(),
             track_count: 0,
         };
-        self.connection
-            .lock()
-            .map_err(err)?
+        self.lock_connection()?
             .execute(
                 "INSERT INTO collections(id,name) VALUES(?1,?2)",
                 params![c.id, c.name],
@@ -5234,9 +5224,7 @@ impl Store {
         rows.map(|row| decode(row.map_err(err)?)).collect()
     }
     pub fn is_browser_source_collection(&self, collection_id: &str) -> Result<bool> {
-        self.connection
-            .lock()
-            .map_err(err)?
+        self.lock_connection()?
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM browser_sources WHERE collection_id=?1)",
                 [collection_id],
@@ -17210,6 +17198,54 @@ mod tests {
             .values()
             .any(|operation| { operation["maxHoldNs"].as_u64().unwrap() > 0 }));
         assert_eq!(metrics["sqliteEngineBusyWait"], "not_measured");
+    }
+
+    #[test]
+    fn store_api_connection_locks_all_flow_through_metrics() {
+        let (_dir, mut store) = db();
+        store.connection_metrics_enabled = true;
+        store.connection_wait_metrics = ConnectionWaitMetrics::default();
+
+        store
+            .set_provider_cache(
+                "metrics-test",
+                "cache-key",
+                &serde_json::json!({"ok":true}),
+                60,
+            )
+            .unwrap();
+        assert!(store
+            .get_artist_mapping("spotify", "artist")
+            .unwrap()
+            .is_none());
+        store
+            .save_artist_mapping("spotify", "artist", "musicbrainz:artist")
+            .unwrap();
+        let _ = store.recording_id("missing-listing");
+        store.create_collection("Metrics Fixture").unwrap();
+        assert!(!store
+            .is_browser_source_collection("missing-collection")
+            .unwrap());
+
+        let metrics = store.connection_wait_metrics().unwrap();
+        assert_eq!(metrics["scope"], "global_store_connection_mutex");
+        assert_eq!(metrics["lockCount"], 6);
+        let operations = metrics["operations"].as_object().unwrap();
+        assert_eq!(
+            operations.len(),
+            6,
+            "each raw API callsite should be measured"
+        );
+        let operation_lock_count: u64 = operations
+            .values()
+            .map(|operation| operation["lockCount"].as_u64().unwrap())
+            .sum();
+        let total_operation_hold_ns: u64 = operations
+            .values()
+            .map(|operation| operation["totalHoldNs"].as_u64().unwrap())
+            .sum();
+        assert_eq!(operation_lock_count, 6);
+        assert!(total_operation_hold_ns > 0);
     }
 
     #[test]

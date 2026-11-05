@@ -11684,6 +11684,30 @@ mod tests {
         assert!(!encoded.contains("arguments"));
     }
 
+    #[test]
+    fn source_trace_retains_only_safe_provider_helper_readiness_category() {
+        let trace = SourceTrace::new(None, None, None);
+        let payload = trace.payload(
+            "provider_helper_ready_end",
+            "youtube",
+            json!({
+                "durationMs": 6076,
+                "ok": false,
+                "failureCategory": "helper_exited",
+                "error": "private helper path /secret/token",
+                "stderr": "raw helper output"
+            }),
+        );
+        assert_eq!(payload["phase"], "provider_helper_ready_end");
+        assert_eq!(payload["details"]["failureCategory"], "helper_exited");
+        assert_eq!(payload["details"]["durationMs"], 6076);
+        assert_eq!(payload["details"]["ok"], false);
+        let encoded = payload.to_string();
+        assert!(!encoded.contains("private helper path"));
+        assert!(!encoded.contains("raw helper output"));
+        assert!(!encoded.contains("/secret/token"));
+    }
+
     fn stored_asset(id: &str, track: &Track, path: &std::path::Path) -> LocalAsset {
         LocalAsset {
             id: id.into(),

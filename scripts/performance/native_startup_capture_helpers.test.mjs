@@ -136,6 +136,24 @@ test('reported playback diagnostics retain bounded provider phases and omit raw 
   assert.equal(JSON.stringify(result).includes('private.invalid'),false);
 });
 
+test('reported readiness event preserves only closed helper failure categories',()=>{
+  const start=1_800_000_000_000;
+  const result=safeReportedPlaybackDiagnosticExport({status:{enabled:true,eventCount:2,droppedEvents:0},events:[
+    {atUnixMs:start,elapsedMs:17,phase:'provider_helper_ready_end',provider:'youtube',details:{
+      durationMs:6076,ok:false,failureCategory:'helper_exited',
+      error:'private helper path /secret/token',stderr:'raw helper output',
+    }},
+    {atUnixMs:start+1,elapsedMs:18,phase:'provider_helper_ready_end',provider:'youtube',details:{
+      durationMs:6000,ok:false,failureCategory:'http://127.0.0.1:1234/private-token',
+    }},
+  ]},start,start+2);
+  assert.deepEqual(result.events[0].details,{durationMs:6076,ok:false,failureCategory:'helper_exited'});
+  assert.deepEqual(result.events[1].details,{durationMs:6000,ok:false});
+  const encoded=JSON.stringify(result);
+  for(const secret of ['private helper path','/secret/token','raw helper output','127.0.0.1'])
+    assert.equal(encoded.includes(secret),false);
+});
+
 test('reported playback diagnostics preserve bounded candidate gate and full identity evidence',()=>{
   const start=1_800_000_000_000;
   const result=safeReportedPlaybackDiagnosticExport({status:{enabled:true,eventCount:3,droppedEvents:0},events:[

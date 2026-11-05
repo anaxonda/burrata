@@ -275,11 +275,15 @@ pub(super) async fn playback(
             .map_err(|_| "Provider readiness cancelled or deadline exceeded".to_string())
             .and_then(|value| value);
         if let Some(trace) = trace {
-            trace.event(
-                "provider_helper_ready_end",
-                "youtube",
-                serde_json::json!({"durationMs":started.elapsed().as_millis(),"ok":result.is_ok()}),
-            );
+            let mut details = serde_json::json!({
+                "durationMs": started.elapsed().as_millis(),
+                "ok": result.is_ok(),
+            });
+            if let Err(error) = &result {
+                details["failureCategory"] =
+                    YouTubeSupportManager::provider_readiness_failure_category(error).into();
+            }
+            trace.event("provider_helper_ready_end", "youtube", details);
         }
         ready_tx.send_replace(Some(result));
     });

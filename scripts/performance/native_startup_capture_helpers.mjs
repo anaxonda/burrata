@@ -210,6 +210,7 @@ const REPORTED_DIAGNOSTIC_BOOLEAN_KEYS = new Set([
   'recordingCanonicalMatch','recordingVerifiedAliasMatch','topicCanonicalMatch','topicVerifiedAliasMatch',
 ]);
 const REPORTED_DIAGNOSTIC_ENUM_KEYS = new Map([
+  ['failureCategory',new Set(['helper_exited','helper_status_check_failed','helper_missing','helper_spawn_failed','ping_timeout','port_reservation_failed','cancelled_or_deadline','assets_unavailable','other'])],
   ['roleStage',new Set(['service','request','account_status','exact_search','catalog_identity','search_account','credits_operation','credits_account','credits_binding','account_recheck','retain_context'])],
   ['roleOutcome',new Set(['available','service_missing','service_unavailable','request_rejected','operation_failed','invalid_result','identity_mismatch','account_mismatch','binding_rejected'])],
   ['category',new Set(['cancelled','timeout','network','rate_limited','source_access','source_unavailable','source_private','source_deleted','no_match','recording_identity_mismatch','unsupported_audio','output','storage','parser','unknown','complete','unavailable','redirect','decoder','probe'])],

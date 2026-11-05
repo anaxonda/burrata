@@ -1016,6 +1016,17 @@ fn enum_values(key: &str) -> Option<&'static [&'static str]> {
             "source_unavailable",
             "other",
         ]),
+        "failureCategory" => Some(&[
+            "helper_exited",
+            "helper_status_check_failed",
+            "helper_missing",
+            "helper_spawn_failed",
+            "ping_timeout",
+            "port_reservation_failed",
+            "cancelled_or_deadline",
+            "assets_unavailable",
+            "other",
+        ]),
         "category" => Some(&[
             "cancelled",
             "timeout",
@@ -1890,6 +1901,37 @@ mod tests {
         )
         .get("extractorReason")
         .is_none());
+    }
+
+    #[test]
+    fn provider_helper_readiness_category_is_closed_and_secret_free() {
+        let mut payload = event(8);
+        payload["phase"] = json!("provider_helper_ready_end");
+        payload["details"] = json!({
+            "durationMs": 6076,
+            "ok": false,
+            "failureCategory": "helper_exited",
+            "error": "private helper path /secret/token",
+            "stderr": "raw helper output"
+        });
+        let safe_event = sanitize_event(payload).expect("readiness phase is exported");
+        assert_eq!(safe_event.details["failureCategory"], "helper_exited");
+        assert_eq!(safe_event.details["durationMs"], 6076);
+        assert_eq!(safe_event.details["ok"], false);
+        let encoded = serde_json::to_string(&safe_event).unwrap();
+        assert!(!encoded.contains("private helper path"));
+        assert!(!encoded.contains("raw helper output"));
+        assert!(!encoded.contains("/secret/token"));
+
+        for unsafe_value in [
+            "private helper path",
+            "http://127.0.0.1:1234/private-token",
+            "spawn_error_with_os_path",
+        ] {
+            assert!(sanitize_details(json!({"failureCategory":unsafe_value}))
+                .get("failureCategory")
+                .is_none());
+        }
     }
 
     #[test]

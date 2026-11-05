@@ -627,9 +627,33 @@ impl YouTubeSupportManager {
             .build()
             .map_err(|e| e.to_string())?;
         for _ in 0..20 {
+            // A successful ping remains authoritative even if a test wrapper
+            // exits immediately after serving it. On failed probes, detect an
+            // exited child rather than spending the remaining attempts waiting.
             if let Ok(r) = client.get(format!("{url}/ping")).send().await {
                 if r.status().is_success() {
                     return Ok(url);
+                }
+            }
+            {
+                let mut helper = self.helper.lock().await;
+                match helper.as_mut() {
+                    Some(child) => match child.try_wait() {
+                        Ok(Some(_)) => {
+                            *helper = None;
+                            self.provider_verified.store(false, Ordering::Relaxed);
+                            return Err("BgUtils helper exited before readiness".into());
+                        }
+                        Ok(None) => {}
+                        Err(_) => {
+                            self.provider_verified.store(false, Ordering::Relaxed);
+                            return Err("Could not inspect BgUtils helper readiness state".into());
+                        }
+                    },
+                    None => {
+                        self.provider_verified.store(false, Ordering::Relaxed);
+                        return Err("BgUtils helper was unavailable before readiness".into());
+                    }
                 }
             }
             tokio::time::sleep(Duration::from_millis(250)).await;
@@ -638,6 +662,33 @@ impl YouTubeSupportManager {
         // Invocation leases own cleanup. A failed readiness probe must not
         // terminate a worker still in use by another independent invocation.
         Err("BgUtils helper started but its /ping probe did not succeed. Check the bundled provider server build.".into())
+    }
+
+    /// Reduce readiness failures to stable, non-sensitive diagnostic labels.
+    /// The underlying error text can include OS paths and is never copied to
+    /// playback diagnostics.
+    pub(crate) fn provider_readiness_failure_category(error: &str) -> &'static str {
+        if error.starts_with("BgUtils helper exited before readiness") {
+            "helper_exited"
+        } else if error.starts_with("Could not inspect BgUtils helper readiness state") {
+            "helper_status_check_failed"
+        } else if error.starts_with("BgUtils helper was unavailable before readiness") {
+            "helper_missing"
+        } else if error.starts_with("Could not start bundled BgUtils helper") {
+            "helper_spawn_failed"
+        } else if error.starts_with("BgUtils helper started but its /ping probe did not succeed") {
+            "ping_timeout"
+        } else if error.starts_with("Could not reserve local BgUtils port") {
+            "port_reservation_failed"
+        } else if error.starts_with("Provider readiness cancelled or deadline exceeded") {
+            "cancelled_or_deadline"
+        } else if error.starts_with("BgUtils provider is unavailable")
+            || error.starts_with("BgUtils provider bundle is incomplete")
+        {
+            "assets_unavailable"
+        } else {
+            "other"
+        }
     }
 
     /// Args to append to each yt-dlp invocation that can use YouTube. This
@@ -2196,5 +2247,84 @@ mod tests {
         ]);
         assert!(select_recommended_release(&releases).is_none());
         assert!(select_recommended_release(&serde_json::json!([])).is_none());
+    }
+
+    #[test]
+    fn provider_readiness_diagnostics_use_safe_categories() {
+        assert_eq!(
+            YouTubeSupportManager::provider_readiness_failure_category(
+                "BgUtils helper exited before readiness"
+            ),
+            "helper_exited"
+        );
+        assert_eq!(
+            YouTubeSupportManager::provider_readiness_failure_category(
+                "BgUtils helper started but its /ping probe did not succeed. Check the bundled provider server build."
+            ),
+            "ping_timeout"
+        );
+        assert_eq!(
+            YouTubeSupportManager::provider_readiness_failure_category(
+                "Could not start bundled BgUtils helper with bundled Node: private path details"
+            ),
+            "helper_spawn_failed"
+        );
+        assert_eq!(
+            YouTubeSupportManager::provider_readiness_failure_category(
+                "Provider readiness cancelled or deadline exceeded"
+            ),
+            "cancelled_or_deadline"
+        );
+    }
+
+    #[cfg(unix)]
+    fn helper_test_manager(dir: &Path, python_body: &str) -> YouTubeSupportManager {
+        use std::os::unix::fs::PermissionsExt;
+        let node = dir.join("fake-node");
+        fs::write(&node, "#!/bin/sh\nexec python3 \"$@\"\n").unwrap();
+        fs::set_permissions(&node, fs::Permissions::from_mode(0o755)).unwrap();
+        let script = dir.join("server.py");
+        fs::write(&script, python_body).unwrap();
+        let plugin = dir.join("plugin");
+        fs::create_dir(&plugin).unwrap();
+        YouTubeSupportManager::new(
+            dir,
+            dir.join("unused-yt-dlp"),
+            Some(node),
+            Some(script),
+            Some(plugin),
+        )
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn immediately_exited_helper_fails_without_waiting_for_probe_window() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = helper_test_manager(dir.path(), "raise SystemExit(0)\n");
+        let started = std::time::Instant::now();
+        let error = manager.ensure_provider().await.unwrap_err();
+        assert_eq!(
+            YouTubeSupportManager::provider_readiness_failure_category(&error),
+            "helper_exited"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "an exited child should not consume the 20-attempt readiness loop"
+        );
+        manager.shutdown().await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn successful_ping_still_wins_if_helper_exits_after_response() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = helper_test_manager(
+            dir.path(),
+            "import http.server, sys\nport = int(sys.argv[2])\nclass Handler(http.server.BaseHTTPRequestHandler):\n def do_GET(self):\n  if self.path != '/ping':\n   self.send_error(404); return\n  self.send_response(200); self.end_headers(); self.wfile.write(b'ok')\n def log_message(self, *args):\n  pass\nhttp.server.HTTPServer(('127.0.0.1', port), Handler).handle_request()\n",
+        );
+        let ready = manager.ensure_provider().await.unwrap();
+        assert!(ready.starts_with("http://127.0.0.1:"));
+        assert!(!ready.contains('?'));
+        manager.shutdown().await.unwrap();
     }
 }

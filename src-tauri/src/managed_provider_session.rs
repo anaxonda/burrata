@@ -2,6 +2,8 @@
 //!
 //! Provider credentials stay inside a browser session or the OS keyring. Rust sees only bounded,
 //! normalized provider results.
+#[path = "native_credential_read.rs"]
+mod native_credential_read;
 #[path = "spotify_auth_cache.rs"]
 mod spotify_auth_cache;
 #[path = "spotify_auth_refresh_process.rs"]
@@ -311,6 +313,8 @@ pub struct ManagedProviderSession {
     native_requested: bool,
     active_jobs: AtomicUsize,
     native_jobs: Arc<Semaphore>,
+    native_credential_reads: Arc<Semaphore>,
+    native_credential_load: tokio::sync::Mutex<()>,
     native_generation: AtomicU64,
     native_shutdown: AtomicBool,
     native_control: Mutex<()>,
@@ -422,42 +426,155 @@ impl ManagedProviderSession {
         Ok(())
     }
 
-    fn load_native_cookie(&self) -> Result<SecretString, String> {
-        if let Some(cookie) = self
-            .native_cookie_header
-            .lock()
-            .map_err(|_| "Provider session is unavailable")?
-            .clone()
+    // Call while holding native_control. Session transitions and confirmation
+    // cannot race the snapshot/cache commit; no synchronous guard crosses await.
+    fn native_credential_binding(
+        &self,
+        provider: &str,
+        expected_account: &str,
+        generation: u64,
+        cancel: &Option<Arc<AtomicBool>>,
+    ) -> Result<native_credential_read::Binding, String> {
+        if !native_runtime_open(&self.native_shutdown)
+            || self.native_generation.load(Ordering::SeqCst) != generation
+            || cancel
+                .as_ref()
+                .is_some_and(|flag| flag.load(Ordering::SeqCst))
         {
-            return Ok(cookie);
+            return Err(native_credential_read::CANCELLED.into());
         }
-        let session_id = self
+        let state = self
             .state
             .lock()
-            .map_err(|_| "Provider session is unavailable")?
+            .map_err(|_| "Provider session is unavailable")?;
+        if !native_session_ready(&state.mode) {
+            return Err("Confirm the provider account and enable native access first".into());
+        }
+        native_youtube_reconnect_gate(provider, state.persisted.youtube_reconnect_required)
+            .map_err(str::to_owned)?;
+        let account = state
             .persisted
-            .session_id
-            .clone();
-        let username = format!("spotify:{session_id}");
-        let entry = keyring::Entry::new(NATIVE_KEYRING_SERVICE, &username).map_err(|_| {
-            "Secure Spotify session storage is unavailable; sign in again after restart".to_owned()
-        })?;
-        let cookie = SecretString(entry.get_password().map_err(|_| {
-            "Spotify session is not confirmed; sign in and confirm the account".to_owned()
-        })?);
-        if !valid_spotify_cookie_header(&cookie.0) {
-            return Err("Stored Spotify session is invalid; sign in again".into());
+            .accounts
+            .get(provider)
+            .filter(|account| account.account_id == expected_account)
+            .ok_or("Provider account changed before credential read")?;
+        Ok(native_credential_read::Binding {
+            generation,
+            session_id: state.persisted.session_id.clone(),
+            account_id: account.account_id.clone(),
+            account_revision: account.revision,
+        })
+    }
+
+    async fn load_native_credential(
+        &self,
+        provider: &str,
+        expected_account: &str,
+        generation: u64,
+        cancel: Option<Arc<AtomicBool>>,
+    ) -> Result<SecretString, String> {
+        let (cache, entry_error, read_error) = match provider {
+            "spotify" => (
+                &self.native_cookie_header,
+                "Secure Spotify session storage is unavailable; sign in again after restart",
+                "Spotify session is not confirmed; sign in and confirm the account",
+            ),
+            "youtube" => (
+                &self.native_youtube_session,
+                "Secure YouTube session storage is unavailable; reconnect YouTube",
+                "YouTube session is not confirmed; use the session handoff again",
+            ),
+            _ => return Err("This native provider is not available".into()),
+        };
+        {
+            let _control = self
+                .native_control
+                .lock()
+                .map_err(|_| "Provider session is unavailable")?;
+            self.native_credential_binding(provider, expected_account, generation, &cancel)?;
+            if let Some(value) = cache
+                .lock()
+                .map_err(|_| "Provider session is unavailable")?
+                .clone()
+            {
+                return Ok(value);
+            }
+        }
+        // Serialize cold callers and recheck the cache after admission. The
+        // separate worker permit remains held even if this caller is dropped.
+        let _loading = tokio::select! {
+            biased;
+            _ = wait_cancel(cancel.clone()) => return Err(native_credential_read::CANCELLED.into()),
+            _ = wait_generation(&self.native_generation, generation) => return Err(native_credential_read::CANCELLED.into()),
+            loading = self.native_credential_load.lock() => loading,
+        };
+        let binding = {
+            let _control = self
+                .native_control
+                .lock()
+                .map_err(|_| "Provider session is unavailable")?;
+            let binding =
+                self.native_credential_binding(provider, expected_account, generation, &cancel)?;
+            if let Some(value) = cache
+                .lock()
+                .map_err(|_| "Provider session is unavailable")?
+                .clone()
+            {
+                return Ok(value);
+            }
+            binding
+        };
+        let username = format!("{provider}:{}", binding.session_id);
+        let loaded = native_credential_read::read(
+            self.native_credential_reads.clone(),
+            async {
+                tokio::select! {
+                    _ = wait_cancel(cancel.clone()) => {},
+                    _ = wait_generation(&self.native_generation, generation) => {},
+                }
+            },
+            move || {
+                let entry = keyring::Entry::new(NATIVE_KEYRING_SERVICE, &username)
+                    .map_err(|_| entry_error.to_owned())?;
+                entry
+                    .get_password()
+                    .map(SecretString)
+                    .map_err(|_| read_error.to_owned())
+            },
+        )
+        .await?;
+        if provider == "spotify" {
+            if !valid_spotify_cookie_header(&loaded.0) {
+                return Err("Stored Spotify session is invalid; sign in again".into());
+            }
+        } else {
+            let parsed = serde_json::from_str::<YoutubeSession>(&loaded.0)
+                .map_err(|_| "Stored YouTube session is invalid; reconnect YouTube")?;
+            valid_youtube_session(&parsed)?;
+        }
+        let _control = self
+            .native_control
+            .lock()
+            .map_err(|_| "Provider session is unavailable")?;
+        let current =
+            self.native_credential_binding(provider, expected_account, generation, &cancel)?;
+        if binding != current {
+            return Err(native_credential_read::CANCELLED.into());
         }
         self.persist_native_transport_opt_in()?;
-        *self
-            .native_cookie_header
+        let mut cached = cache
             .lock()
-            .map_err(|_| "Provider session is unavailable")? = Some(cookie.clone());
-        *self
-            .native_credential_storage
-            .lock()
-            .map_err(|_| "Provider session is unavailable")? = "os-keyring".into();
-        Ok(cookie)
+            .map_err(|_| "Provider session is unavailable")?;
+        let inserted = cached.is_none();
+        let value = native_credential_read::commit(&binding, &current, &mut cached, loaded)?;
+        drop(cached);
+        if inserted {
+            *self
+                .native_credential_storage
+                .lock()
+                .map_err(|_| "Provider session is unavailable")? = "os-keyring".into();
+        }
+        Ok(value)
     }
 
     fn persist_native_cookie(&self, cookie: &str) -> Result<(), String> {
@@ -486,44 +603,6 @@ impl ManagedProviderSession {
             .lock()
             .map_err(|_| "Provider session is unavailable")? = "os-keyring".into();
         Ok(())
-    }
-
-    fn load_native_youtube_session(&self) -> Result<SecretString, String> {
-        if let Some(session) = self
-            .native_youtube_session
-            .lock()
-            .map_err(|_| "Provider session is unavailable")?
-            .clone()
-        {
-            return Ok(session);
-        }
-        let session_id = self
-            .state
-            .lock()
-            .map_err(|_| "Provider session is unavailable")?
-            .persisted
-            .session_id
-            .clone();
-        let entry =
-            keyring::Entry::new(NATIVE_KEYRING_SERVICE, &format!("youtube:{session_id}"))
-                .map_err(|_| "Secure YouTube session storage is unavailable; reconnect YouTube")?;
-        let session = SecretString(
-            entry
-                .get_password()
-                .map_err(|_| "YouTube session is not confirmed; use the session handoff again")?,
-        );
-        let parsed = serde_json::from_str::<YoutubeSession>(&session.0)
-            .map_err(|_| "Stored YouTube session is invalid; reconnect YouTube")?;
-        valid_youtube_session(&parsed)?;
-        self.persist_native_transport_opt_in()?;
-        *self
-            .native_youtube_session
-            .lock()
-            .map_err(|_| "Provider session is unavailable")? = Some(session.clone());
-        if let Ok(mut storage) = self.native_credential_storage.lock() {
-            *storage = "os-keyring".into();
-        }
-        Ok(session)
     }
 
     fn persist_native_youtube_session(&self, session: &YoutubeSession) -> Result<(), String> {
@@ -1014,6 +1093,8 @@ impl ManagedProviderSession {
             native_requested,
             active_jobs: AtomicUsize::new(0),
             native_jobs: Arc::new(Semaphore::new(2)),
+            native_credential_reads: Arc::new(Semaphore::new(1)),
+            native_credential_load: tokio::sync::Mutex::new(()),
             native_generation: AtomicU64::new(0),
             native_shutdown: AtomicBool::new(false),
             native_control: Mutex::new(()),
@@ -3423,11 +3504,9 @@ impl ManagedProviderSession {
             return Err("Confirm the provider account and enable native access first".into());
         }
         native_youtube_reconnect_gate(provider, reconnect_required).map_err(str::to_owned)?;
-        let credential = if provider == "spotify" {
-            self.load_native_cookie()?
-        } else {
-            self.load_native_youtube_session()?
-        };
+        let credential = self
+            .load_native_credential(provider, &expected, generation, None)
+            .await?;
         let _legacy_creation_admission = {
             let state = self
                 .state
@@ -3663,11 +3742,9 @@ impl ManagedProviderSession {
             return Err("Confirm the provider account and enable native access first".into());
         }
         native_youtube_reconnect_gate(provider, reconnect_required).map_err(str::to_owned)?;
-        let credential = if provider == "spotify" {
-            self.load_native_cookie()?
-        } else {
-            self.load_native_youtube_session()?
-        };
+        let credential = self
+            .load_native_credential(provider, &expected, generation, None)
+            .await?;
         // Atomic with record_account: validate/register/consume while holding account state.
         // Never hold this synchronous state guard across a worker await.
         let (contract, mut file, account_fence) = {
@@ -3910,15 +3987,11 @@ impl ProviderTransport for ManagedProviderSession {
                 .get(provider)
                 .map(|account| account.account_id.clone())
                 .ok_or("Confirm this provider account before using native access")?;
-            let credential = if provider == "spotify" {
-                self.load_native_cookie()?
-            } else {
-                self.load_native_youtube_session()?
-            };
+            let credential = self
+                .load_native_credential(provider, &expected_account, generation, cancel.clone())
+                .await?;
             if self.native_generation.load(Ordering::SeqCst) != generation {
-                if let Ok(mut cached) = self.native_cookie_header.lock() {
-                    *cached = None;
-                }
+                // A stale request must never clear a newer confirmation's cache.
                 return Err("Provider request was cancelled".into());
             }
             let result = self
