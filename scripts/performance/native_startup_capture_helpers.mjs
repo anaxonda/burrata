@@ -239,7 +239,7 @@ const REPORTED_SHARED_DIMENSIONS=['title','artists','guests','version','runtime'
 const REPORTED_SHARED_REASONS=new Set([
   'titleAgrees','titleConflict','artistAgrees','artistConflict','sourceIdentityConflict','guestAgrees',
   'guestMissing','guestConflict','versionAgrees','versionConflict','unspecifiedVersionAllowed',
-  'runtimeAgrees','runtimeConflict','durationLimitExceeded','runtimeVarianceAccepted',
+  'runtimeAgrees','runtimeConflict','durationLimitExceeded','durationLimitUnavailable','runtimeVarianceAccepted',
   'recordingScopedRuntimeVariant','recordingScopedTitleAlias','filenameCaptionOnly','isrcAgrees',
   'isrcConflict','workLinked','insufficientEvidence','extractorNeedsInspection','permissionRestricted',
   'previewTooShort','conflictingRequestIdentifiers','titleCreditHintUnverified','unresolvedAnnotation',

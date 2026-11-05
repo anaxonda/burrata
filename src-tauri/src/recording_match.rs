@@ -140,6 +140,7 @@ pub enum MatchReason {
     RuntimeAgrees,
     RuntimeConflict,
     DurationLimitExceeded,
+    DurationLimitUnavailable,
     RuntimeVarianceAccepted,
     RecordingScopedRuntimeVariant,
     RecordingScopedTitleAlias,
@@ -3561,6 +3562,13 @@ fn assess_prepared_inner(
     if configured_length_conflict {
         reasons.push(MatchReason::DurationLimitExceeded);
     }
+    // This describes unavailable policy evidence, not a new rejection rule.
+    if level == MatchLevel::Flexible
+        && options.allow_different_lengths
+        && target_runtime.zip(candidate_runtime).is_none()
+    {
+        reasons.push(MatchReason::DurationLimitUnavailable);
+    }
     if broad_unversioned_alternative {
         reasons.push(MatchReason::UnspecifiedVersionAllowed);
     }
@@ -6920,6 +6928,61 @@ mod tests {
             assess_with_options(&t, &c, MatchLevel::Flexible, MatchStage::Resolved, &options);
         assert_eq!(denied.action, MatchAction::Reject);
         assert!(denied.reasons.contains(&MatchReason::PermissionRestricted));
+    }
+
+    #[test]
+    fn configured_duration_limits_report_missing_runtime_only_when_enabled() {
+        let mut request = track();
+        request.duration_seconds = None;
+        let candidate = cand();
+        let options = FlexibleMatchingOptions {
+            allow_different_lengths: true,
+            ..Default::default()
+        };
+        let bounded = assess_with_options(
+            &request,
+            &candidate,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &options,
+        );
+        assert!(bounded
+            .reasons
+            .contains(&MatchReason::DurationLimitUnavailable));
+        assert!(!bounded
+            .reasons
+            .contains(&MatchReason::DurationLimitExceeded));
+        assert_eq!(
+            serde_json::to_value(MatchReason::DurationLimitUnavailable).unwrap(),
+            serde_json::json!("durationLimitUnavailable")
+        );
+        for level in [MatchLevel::Exact, MatchLevel::Balanced] {
+            let other =
+                assess_with_options(&request, &candidate, level, MatchStage::Resolved, &options);
+            assert!(!other
+                .reasons
+                .contains(&MatchReason::DurationLimitUnavailable));
+        }
+        let unbounded = assess(
+            &request,
+            &candidate,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+        );
+        assert!(!unbounded
+            .reasons
+            .contains(&MatchReason::DurationLimitUnavailable));
+        request.duration_seconds = candidate.duration_seconds;
+        let known = assess_with_options(
+            &request,
+            &candidate,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &options,
+        );
+        assert!(!known
+            .reasons
+            .contains(&MatchReason::DurationLimitUnavailable));
     }
 
     #[test]
