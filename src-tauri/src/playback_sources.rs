@@ -15910,21 +15910,8 @@ mod spotify_role_recovery_regression_tests {
             .extend(input.as_object().unwrap().clone());
         serde_json::from_value(value).unwrap()
     }
-    #[tokio::test]
-    async fn same_source_recovery_needs_fresh_roles_and_keeps_identity_guards() {
-        let fixture: Value = serde_json::from_str(include_str!(
-            "../tests/fixtures/spotify-halka-role-context.json"
-        ))
-        .unwrap();
-        let track: Track = overlay(&fixture["freshRequestProjection"]);
-        let candidate: Candidate = overlay(&fixture["candidate"]);
-        let raw_metadata = candidate.source_metadata.clone();
-        let context = spotify_role_context::SpotifyTrackRoleContext::from_operation_for_track(
-            &track,
-            &fixture["operation"],
-        )
-        .unwrap();
-        let audio = acquisition::PreviewAudio {
+    fn fixture_audio(candidate: &Candidate) -> acquisition::PreviewAudio {
+        acquisition::PreviewAudio {
             provider_session: None,
             url: "https://example.invalid/no-fetch.m4a".into(),
             mime_type: "audio/mp4".into(),
@@ -15939,7 +15926,23 @@ mod spotify_role_recovery_regression_tests {
             chapters: Some(vec![]),
             expected_content_length: None,
             headers: vec![],
-        };
+        }
+    }
+    #[tokio::test]
+    async fn same_source_recovery_needs_fresh_roles_and_keeps_identity_guards() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/spotify-halka-role-context.json"
+        ))
+        .unwrap();
+        let track: Track = overlay(&fixture["freshRequestProjection"]);
+        let candidate: Candidate = overlay(&fixture["candidate"]);
+        let raw_metadata = candidate.source_metadata.clone();
+        let context = spotify_role_context::SpotifyTrackRoleContext::from_operation_for_track(
+            &track,
+            &fixture["operation"],
+        )
+        .unwrap();
+        let audio = fixture_audio(&candidate);
         let directory = tempfile::tempdir().unwrap();
         let store = Store::open(&directory.path().join("role-recovery.sqlite")).unwrap();
         let aliases = crate::artist_credit_aliases::VerifiedPlaybackArtistAliases::default();
@@ -16006,5 +16009,144 @@ mod spotify_role_recovery_regression_tests {
         edited.provenance["manualFields"]["artist"] = json!(true);
         assert!(recovery.spotify_track_role_context(&edited).is_none());
         assert!(!spotify_role_context::request_is_unmodified_exact_spotify_track(&edited));
+    }
+
+    struct RecoveryCase {
+        _directory: tempfile::TempDir,
+        store: std::sync::Arc<Store>,
+        manager: AcquisitionManager,
+        track: Track,
+        candidate: Candidate,
+        io: std::sync::Arc<acquisition::RecoveryAcquisitionFixture>,
+        deadline: PlaybackDeadline,
+    }
+    impl RecoveryCase {
+        fn new(roles: bool, wrong_id: bool, hold_extraction: bool, budget: Duration) -> Self {
+            let fixture: Value = serde_json::from_str(include_str!(
+                "../tests/fixtures/spotify-halka-role-context.json"
+            ))
+            .unwrap();
+            let track: Track = overlay(&fixture["freshRequestProjection"]);
+            let candidate: Candidate = overlay(&fixture["candidate"]);
+            let context = spotify_role_context::SpotifyTrackRoleContext::from_operation_for_track(
+                &track,
+                &fixture["operation"],
+            )
+            .unwrap();
+            let mut audio = fixture_audio(&candidate);
+            if wrong_id {
+                audio.resolved_provider_id = Some("other-video".into());
+            }
+            let directory = tempfile::tempdir().unwrap();
+            let store = std::sync::Arc::new(
+                Store::open(&directory.path().join("recovery-path.sqlite")).unwrap(),
+            );
+            let settings = Settings {
+                matching_level: crate::recording_match::MatchLevel::Balanced,
+                ..Settings::default()
+            };
+            store.save_settings(&settings).unwrap();
+            let deadline = PlaybackDeadline::after(budget);
+            let io = std::sync::Arc::new(acquisition::RecoveryAcquisitionFixture {
+                audio,
+                roles: roles.then_some(context),
+                request: track.clone(),
+                deadline: deadline.instant(),
+                role_reads: Default::default(),
+                extractions: Default::default(),
+                validations: Default::default(),
+                hold_extraction,
+                extraction_started: Default::default(),
+            });
+            let connections =
+                std::sync::Arc::new(crate::connections::ConnectionManager::new(store.clone()));
+            let manager = AcquisitionManager::new_for_playback_test(store.clone(), connections)
+                .with_recovery_fixture_for_test(io.clone());
+            Self {
+                _directory: directory,
+                store,
+                manager,
+                track,
+                candidate,
+                io,
+                deadline,
+            }
+        }
+        async fn recover(&self, cancel: watch::Receiver<bool>) -> Result<ResolvedSource, String> {
+            recover_with_trace_context_until(
+                &self.store,
+                &self.manager,
+                &self.track,
+                &self.candidate,
+                false,
+                cancel,
+                None,
+                None,
+                None,
+                self.deadline,
+                true,
+            )
+            .await
+        }
+    }
+
+    #[tokio::test]
+    async fn actual_recovery_path_loads_fresh_roles_before_verification() {
+        use std::sync::atomic::Ordering;
+        let case = RecoveryCase::new(true, false, false, Duration::from_secs(5));
+        let (_tx, cancel) = watch::channel(false);
+        // No manual spawn or trace seeding: production recover_inner must start the lookup.
+        let recovered = case
+            .recover(cancel)
+            .await
+            .expect("role-dependent source must recover");
+        assert_eq!(case.io.role_reads.load(Ordering::SeqCst), 1);
+        assert_eq!(case.io.extractions.load(Ordering::SeqCst), 1);
+        assert_eq!(case.io.validations.load(Ordering::SeqCst), 1);
+        let candidate = recovered.candidate.unwrap();
+        assert_eq!(candidate.id, case.candidate.id);
+        assert_eq!(
+            candidate.source_metadata.as_ref().unwrap()["artists"],
+            case.candidate.source_metadata.as_ref().unwrap()["artists"]
+        );
+
+        let unavailable = RecoveryCase::new(false, false, false, Duration::from_secs(5));
+        let (_tx, cancel) = watch::channel(false);
+        assert_eq!(
+            unavailable.recover(cancel).await.err().as_deref(),
+            Some("The refreshed audio source identity does not match this recording")
+        );
+        assert_eq!(unavailable.io.role_reads.load(Ordering::SeqCst), 1);
+        assert_eq!(unavailable.io.validations.load(Ordering::SeqCst), 0);
+
+        let wrong_id = RecoveryCase::new(true, true, false, Duration::from_secs(5));
+        let (_tx, cancel) = watch::channel(false);
+        assert_eq!(
+            wrong_id.recover(cancel).await.err().as_deref(),
+            Some("The refreshed audio source did not resolve to the same provider recording")
+        );
+        assert_eq!(wrong_id.io.validations.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn actual_recovery_path_keeps_cancellation_and_absolute_deadline() {
+        use std::sync::atomic::Ordering;
+        let cancelled = RecoveryCase::new(true, false, true, Duration::from_secs(5));
+        let (tx, cancel) = watch::channel(false);
+        let (result, ()) = tokio::join!(cancelled.recover(cancel), async {
+            cancelled.io.extraction_started.notified().await;
+            tx.send(true).unwrap();
+        });
+        assert_eq!(result.err().as_deref(), Some("Cancelled"));
+        assert_eq!(cancelled.io.extractions.load(Ordering::SeqCst), 1);
+        assert_eq!(cancelled.io.validations.load(Ordering::SeqCst), 0);
+
+        let expired = RecoveryCase::new(true, false, true, Duration::from_millis(50));
+        let (_tx, cancel) = watch::channel(false);
+        assert_eq!(
+            expired.recover(cancel).await.err().as_deref(),
+            Some(PLAYBACK_DEADLINE_MESSAGE)
+        );
+        assert_eq!(expired.io.validations.load(Ordering::SeqCst), 0);
     }
 }

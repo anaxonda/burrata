@@ -6878,7 +6878,26 @@ pub async fn check_dependencies(settings: &Settings) -> Vec<Dependency> {
 #[derive(Clone)]
 pub struct AcquisitionManager {
     inner: Arc<Inner>,
+    #[cfg(test)]
+    recovery_fixture: Option<Arc<RecoveryAcquisitionFixture>>,
 }
+
+// Per-manager I/O boundary fixture: recovery orchestration and verification stay real.
+// Never compiled into production, and never changes global process or network state.
+#[cfg(test)]
+pub(crate) struct RecoveryAcquisitionFixture {
+    pub(crate) audio: PreviewAudio,
+    pub(crate) roles:
+        Option<crate::playback_sources::spotify_role_context::SpotifyTrackRoleContext>,
+    pub(crate) request: Track,
+    pub(crate) deadline: tokio::time::Instant,
+    pub(crate) role_reads: AtomicU64,
+    pub(crate) extractions: AtomicU64,
+    pub(crate) validations: AtomicU64,
+    pub(crate) hold_extraction: bool,
+    pub(crate) extraction_started: tokio::sync::Notify,
+}
+
 struct Inner {
     app: Option<tauri::AppHandle>,
     store: Arc<Store>,
@@ -7071,12 +7090,23 @@ impl AcquisitionManager {
         Self::with_optional_app(None, store, connections)
     }
 
+    #[cfg(test)]
+    pub(crate) fn with_recovery_fixture_for_test(
+        mut self,
+        fixture: Arc<RecoveryAcquisitionFixture>,
+    ) -> Self {
+        self.recovery_fixture = Some(fixture);
+        self
+    }
+
     fn with_optional_app(
         app: Option<tauri::AppHandle>,
         store: Arc<Store>,
         connections: Arc<ConnectionManager>,
     ) -> Self {
         Self {
+            #[cfg(test)]
+            recovery_fixture: None,
             inner: Arc::new(Inner {
                 app,
                 store,
@@ -7334,6 +7364,13 @@ impl AcquisitionManager {
         Option<crate::playback_sources::spotify_role_context::SpotifyTrackRoleContext>,
         crate::playback_sources::spotify_role_diagnostics::RoleLookupFailure,
     > {
+        #[cfg(test)]
+        if let Some(fixture) = &self.recovery_fixture {
+            assert_eq!(track, &fixture.request);
+            assert_eq!(deadline, fixture.deadline);
+            fixture.role_reads.fetch_add(1, Ordering::SeqCst);
+            return Ok(fixture.roles.clone());
+        }
         let service = self
             .inner
             .remote_playlists
@@ -8521,6 +8558,16 @@ impl AcquisitionManager {
         if *cancel.borrow() {
             return Err("Cancelled".into());
         }
+        #[cfg(test)]
+        if let Some(fixture) = &self.recovery_fixture {
+            assert_eq!(deadline.instant(), fixture.deadline);
+            fixture.extractions.fetch_add(1, Ordering::SeqCst);
+            fixture.extraction_started.notify_one();
+            if fixture.hold_extraction {
+                std::future::pending::<()>().await;
+            }
+            return Ok(fixture.audio.clone());
+        }
         if let Some(audio) = prepared {
             if !audio.provider_session_current() {
                 return Err("Audio source provider session changed during resolution".into());
@@ -8600,6 +8647,12 @@ impl AcquisitionManager {
     ) -> Result<PreviewAudio, String> {
         if !audio.provider_session_current() {
             return Err("Audio source provider session changed during resolution".into());
+        }
+        #[cfg(test)]
+        if let Some(fixture) = &self.recovery_fixture {
+            assert_eq!(deadline.instant(), fixture.deadline);
+            fixture.validations.fetch_add(1, Ordering::SeqCst);
+            return Ok(audio);
         }
         if matches!(candidate.provider.as_str(), "youtube" | "soundcloud") {
             let key = playback_access_cache_key(candidate, &audio);
