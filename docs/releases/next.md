@@ -7,6 +7,8 @@ Draft release notes. Full native-suite, platform-package, installed-artifact, li
 - Artist and album browsing handles duplicate profiles and album families more clearly. Artist pages show source and year; album sorting and independent grid/list choices are available.
 - Library bulk play and queue actions cover all matching pages, up to the 10,000 item bound, rather than only the currently loaded slice.
 - Compact track rows use consistent buffering, downloaded, and missing-file states. Select-only rows without chord keys use buttons and remain keyboard operable.
+- Exact Spotify contributor reads distinguish verified performers from composers and lyricists during playback matching, including legacy rows with freshly verified artist grouping. Identity conflicts and incomplete credits retain their protections; saved metadata is not automatically rewritten.
+- Narrow album headers keep artwork, title and playback actions readable.
 - Matching recognizes equivalent remaster spellings across dash, bracket, and parenthesis labels, and composes mastering labels with live or mix annotations. Years, performer evidence, unknown annotations, and conflicting recording versions remain part of validation.
 - Sidebar icon recovery and Settings navigation are clearer, and the active radio station is highlighted. The compact radio bar shows the station name, and source table rows open their source link.
 - Radio browsing uses the available width, and track information wraps long album names without covering controls.

@@ -18,6 +18,10 @@ mod recording_match;
 mod recording_match_corpus;
 #[path = "../../src-tauri/src/search_plan.rs"]
 mod search_plan;
+#[path = "../../src-tauri/src/spotify_catalog_identity.rs"]
+mod spotify_catalog_identity;
+#[path = "../../src-tauri/src/spotify_role_context.rs"]
+mod spotify_role_context;
 use models::{Candidate, Track};
 use recording_match::{assess, MatchLevel, MatchStage};
 use serde_json::json;

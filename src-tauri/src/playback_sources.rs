@@ -18,6 +18,8 @@ use tokio::sync::watch;
 
 #[path = "playback_match.rs"]
 mod policy_matching;
+#[path = "spotify_role_context.rs"]
+pub(crate) mod spotify_role_context;
 
 pub(crate) const SOURCE_NO_RESULTS: &str = "No audio results were returned by the available providers. Open the catalog source or choose another source.";
 pub(crate) const SOURCE_IDENTITY_REJECTED: &str = "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.";
@@ -272,6 +274,12 @@ pub(crate) struct SourceTrace {
     source_rescue: std::sync::Arc<std::sync::Mutex<(Option<String>, bool)>>,
     fresh_exact_catalog_track: std::sync::Arc<std::sync::Mutex<Option<Track>>>,
     fresh_exact_alias_track: std::sync::Arc<std::sync::Mutex<Option<(Track, Track)>>>,
+    spotify_track_role_context: std::sync::Arc<
+        std::sync::Mutex<Option<(Track, spotify_role_context::SpotifyTrackRoleContext)>>,
+    >,
+    spotify_track_role_started: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    spotify_track_role_finished: tokio::sync::watch::Sender<Option<bool>>,
+    spotify_track_role_deadline: std::sync::Arc<std::sync::Mutex<Option<tokio::time::Instant>>>,
     pub(crate) skip_youtube_forbidden_retry: bool,
     recovery_attempts: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     catalog_duration_enriched: bool,
@@ -315,6 +323,10 @@ impl SourceTrace {
             source_rescue: Default::default(),
             fresh_exact_catalog_track: Default::default(),
             fresh_exact_alias_track: Default::default(),
+            spotify_track_role_context: Default::default(),
+            spotify_track_role_started: Default::default(),
+            spotify_track_role_finished: tokio::sync::watch::channel(None).0,
+            spotify_track_role_deadline: Default::default(),
             skip_youtube_forbidden_retry: false,
             recovery_attempts: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             catalog_duration_enriched: false,
@@ -422,6 +434,89 @@ impl SourceTrace {
             return None;
         }
         Some(hydrated.clone())
+    }
+
+    /// Request-local positive contributor roles are retained only for the
+    /// exact unchanged Track that authorized their provider read.
+    pub(crate) fn remember_spotify_track_role_context(
+        &self,
+        original: &Track,
+        context: spotify_role_context::SpotifyTrackRoleContext,
+    ) -> bool {
+        if !context.is_for_track(original) {
+            return false;
+        }
+        self.spotify_track_role_context
+            .lock()
+            .map(|mut slot| {
+                *slot = Some((original.clone(), context));
+                true
+            })
+            .unwrap_or(false)
+    }
+
+    pub(crate) fn spotify_track_role_context(
+        &self,
+        original: &Track,
+    ) -> Option<spotify_role_context::SpotifyTrackRoleContext> {
+        let slot = self.spotify_track_role_context.lock().ok()?;
+        let (_request, context) = slot.as_ref()?;
+        // The context validates every original identity field itself and only
+        // permits a later ISRC addition when its catalog sidecar verifies it.
+        context.is_for_track(original).then(|| context.clone())
+    }
+
+    pub(crate) fn store_spotify_track_role_task(
+        &self,
+        deadline: tokio::time::Instant,
+        task: tokio::task::JoinHandle<()>,
+    ) {
+        if let Ok(mut stored_deadline) = self.spotify_track_role_deadline.lock() {
+            *stored_deadline = Some(deadline);
+        }
+        self.spotify_track_role_started
+            .store(true, std::sync::atomic::Ordering::Release);
+        // Dropping a Tokio JoinHandle detaches the bounded role read. A
+        // cancellation or drop by one waiter must not abort the shared task.
+        drop(task);
+    }
+
+    fn finish_spotify_track_role_task(&self, available: bool) {
+        self.spotify_track_role_finished
+            .send_replace(Some(available));
+    }
+
+    pub(crate) async fn await_spotify_track_role_context(
+        &self,
+        original: &Track,
+    ) -> Option<spotify_role_context::SpotifyTrackRoleContext> {
+        if self
+            .spotify_track_role_started
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            let mut completed = self.spotify_track_role_finished.subscribe();
+            while completed.borrow().is_none() {
+                let deadline = self
+                    .spotify_track_role_deadline
+                    .lock()
+                    .ok()
+                    .and_then(|deadline| *deadline);
+                match deadline {
+                    Some(deadline) => {
+                        tokio::select! {
+                            _ = tokio::time::sleep_until(deadline) => return None,
+                            changed = completed.changed() => {
+                                if changed.is_err() {
+                                    return None;
+                                }
+                            }
+                        }
+                    }
+                    None => return None,
+                }
+            }
+        }
+        self.spotify_track_role_context(original)
     }
 
     pub(crate) fn with_event_provider(mut self, provider: &str) -> Self {
@@ -1490,6 +1585,33 @@ impl Drop for CancelSourceChildren {
     }
 }
 
+struct SpotifyRoleTaskCompletion {
+    trace: SourceTrace,
+    completed: bool,
+}
+
+impl SpotifyRoleTaskCompletion {
+    fn new(trace: SourceTrace) -> Self {
+        Self {
+            trace,
+            completed: false,
+        }
+    }
+
+    fn finish(mut self, available: bool) {
+        self.trace.finish_spotify_track_role_task(available);
+        self.completed = true;
+    }
+}
+
+impl Drop for SpotifyRoleTaskCompletion {
+    fn drop(&mut self) {
+        if !self.completed {
+            self.trace.finish_spotify_track_role_task(false);
+        }
+    }
+}
+
 async fn resolve_inner(
     store: &Store,
     acquisition: &AcquisitionManager,
@@ -1516,6 +1638,40 @@ async fn resolve_inner(
     let explicit_source = source_resolution_is_pinned(track, selected.is_some(), &settings, false)
         || track.provenance.get("portablePlaybackSource").is_some();
     let automatic_source = !explicit_source && selected.is_none();
+    // Positive Spotify contributor roles refine performer facts at each
+    // matching level; the normal evaluator retains control of completeness and
+    // acceptance policy. Run the exact-ID read alongside candidate retrieval.
+    if automatic_source
+        && (track.local_path.is_none() || bypass_local)
+        && spotify_role_context::request_is_unmodified_exact_spotify_track(track)
+    {
+        let role_deadline = deadline.cap(Duration::from_secs(2));
+        if role_deadline > tokio::time::Instant::now() {
+            let acquisition = acquisition.clone();
+            let request = track.clone();
+            let role_trace = trace.clone();
+            let cancel = cancel.clone();
+            let task = tokio::spawn(async move {
+                let completion = SpotifyRoleTaskCompletion::new(role_trace.clone());
+                let started = Instant::now();
+                let context = acquisition
+                    .read_spotify_track_role_context(&request, role_deadline, cancel)
+                    .await
+                    .ok()
+                    .flatten();
+                let accepted = context.is_some_and(|context| {
+                    role_trace.remember_spotify_track_role_context(&request, context)
+                });
+                role_trace.event(
+                    "spotify_track_role_context",
+                    "spotify",
+                    json!({"durationMs":started.elapsed().as_millis(),"available":accepted}),
+                );
+                completion.finish(accepted);
+            });
+            trace.store_spotify_track_role_task(role_deadline, task);
+        }
+    }
     let bypassed_track;
     let track = if bypass_local {
         bypassed_track = without_stale_local_asset(track);
@@ -3902,6 +4058,7 @@ async fn resolve_serial(
             0
         };
         if alias_pass.retry {
+            let _ = trace.await_spotify_track_role_context(track).await;
             let collected = alias_pass.collected(&provider);
             for candidate in &collected {
                 include_candidate_aliases(&mut verified_artist_aliases, track, candidate, None);
@@ -3909,7 +4066,7 @@ async fn resolve_serial(
             let mut ranked = collected
                 .into_iter()
                 .filter_map(|candidate| {
-                    let path = policy_matching::evaluate_with_options(
+                    let path = policy_matching::evaluate_with_trace_and_options(
                         track,
                         verified_artist_aliases.tracks(),
                         verified_artist_aliases.isrc_enriched(),
@@ -3918,6 +4075,7 @@ async fn resolve_serial(
                         settings.matching_level,
                         store,
                         settings.flexible_matching,
+                        trace,
                     );
                     path.accepted().then_some((candidate, path))
                 })
@@ -3987,6 +4145,7 @@ async fn resolve_serial(
                     .await
                 {
                     Ok(found) => {
+                        let _ = trace.await_spotify_track_role_context(track).await;
                         for candidate in &found {
                             include_candidate_aliases(
                                 &mut verified_artist_aliases,
@@ -3998,7 +4157,7 @@ async fn resolve_serial(
                         let mut ranked = found
                             .into_iter()
                             .filter_map(|candidate| {
-                                let gate = policy_matching::evaluate_with_options(
+                                let gate = policy_matching::evaluate_with_trace_and_options(
                                     track,
                                     verified_artist_aliases.tracks(),
                                     verified_artist_aliases.isrc_enriched(),
@@ -4007,6 +4166,7 @@ async fn resolve_serial(
                                     settings.matching_level,
                                     store,
                                     settings.flexible_matching,
+                                    trace,
                                 );
                                 gate.accepted().then_some((candidate, gate))
                             })
@@ -4396,6 +4556,7 @@ async fn resolve_serial(
             for candidate in &found {
                 include_candidate_aliases(&mut verified_artist_aliases, track, candidate, None);
             }
+            let _ = trace.await_spotify_track_role_context(track).await;
             let mut gate_evidence = CandidateGateEvidence::new_if_trace_enabled(&trace);
             for candidate in &mut found {
                 rescore_candidate_with_verified_aliases(
@@ -4410,7 +4571,7 @@ async fn resolve_serial(
                 .filter_map(|candidate| {
                     let (path, shared_diagnostic) = if gate_evidence.is_some() {
                         let (path, diagnostic) =
-                            policy_matching::evaluate_with_diagnostics_and_options(
+                            policy_matching::evaluate_with_diagnostics_trace_and_options(
                                 track,
                                 verified_artist_aliases.tracks(),
                                 verified_artist_aliases.isrc_enriched(),
@@ -4419,11 +4580,12 @@ async fn resolve_serial(
                                 settings.matching_level,
                                 store,
                                 settings.flexible_matching,
+                                trace,
                             );
                         (path, Some(diagnostic))
                     } else {
                         (
-                            policy_matching::evaluate_with_options(
+                            policy_matching::evaluate_with_trace_and_options(
                                 track,
                                 verified_artist_aliases.tracks(),
                                 verified_artist_aliases.isrc_enriched(),
@@ -4432,6 +4594,7 @@ async fn resolve_serial(
                                 settings.matching_level,
                                 store,
                                 settings.flexible_matching,
+                                trace,
                             ),
                             None,
                         )
@@ -6764,6 +6927,7 @@ async fn prefetch_with_early_candidate_experiment(
     let Some(batch) = batch else {
         return search.await.map(|found| (found, None));
     };
+    let _ = trace.await_spotify_track_role_context(track).await;
     let batch_count = batch.len();
     let mut ranked = batch
         .into_iter()
@@ -6771,7 +6935,7 @@ async fn prefetch_with_early_candidate_experiment(
             if candidate_failed(&candidate, failed) {
                 return None;
             }
-            let path = policy_matching::evaluate_with_options(
+            let path = policy_matching::evaluate_with_trace_and_options(
                 track,
                 aliases.tracks(),
                 aliases.isrc_enriched(),
@@ -6780,6 +6944,7 @@ async fn prefetch_with_early_candidate_experiment(
                 settings.matching_level,
                 &store,
                 settings.flexible_matching,
+                &trace,
             );
             early_candidate_gate(path.path).then_some((candidate, path))
         })
@@ -14378,6 +14543,216 @@ mod tests {
         failures.record(redirect.into());
         failures.record(EXTRACTION_ATTEMPTS_EXHAUSTED.into());
         assert_eq!(failures.finish(false), redirect);
+    }
+
+    #[tokio::test]
+    async fn spotify_role_task_is_joined_before_search_gate_and_raw_candidate_is_preserved() {
+        use serde::{de::DeserializeOwned, Serialize};
+        fn overlay<T: Default + Serialize + DeserializeOwned>(input: &Value) -> T {
+            let mut value = serde_json::to_value(T::default()).unwrap();
+            value
+                .as_object_mut()
+                .unwrap()
+                .extend(input.as_object().unwrap().clone());
+            serde_json::from_value(value).unwrap()
+        }
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/spotify-halka-role-context.json"
+        ))
+        .unwrap();
+        let track: Track = overlay(&fixture["freshRequestProjection"]);
+        let candidate: Candidate = overlay(&fixture["candidate"]);
+        let raw_candidate = serde_json::to_value(&candidate).unwrap();
+        let context = spotify_role_context::SpotifyTrackRoleContext::from_operation_for_track(
+            &track,
+            &fixture["operation"],
+        )
+        .unwrap();
+        let trace = SourceTrace::new(None, None, None);
+        let task_trace = trace.clone();
+        let task_track = track.clone();
+        trace.store_spotify_track_role_task(
+            tokio::time::Instant::now() + Duration::from_secs(1),
+            tokio::spawn(async move {
+                let completion = SpotifyRoleTaskCompletion::new(task_trace.clone());
+                tokio::time::sleep(Duration::from_millis(5)).await;
+                let available =
+                    task_trace.remember_spotify_track_role_context(&task_track, context);
+                assert!(available);
+                completion.finish(available);
+            }),
+        );
+
+        let available = trace
+            .await_spotify_track_role_context(&track)
+            .await
+            .expect("the candidate gate waits for its bounded role read");
+        assert_eq!(
+            available.performer_names(),
+            ["Sunidhi Chauhan", "Divya Kumar"]
+        );
+
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("spotify-role-gate.sqlite")).unwrap();
+        let gate = policy_matching::evaluate_with_trace_and_options(
+            &track,
+            &[],
+            &[],
+            None,
+            &candidate,
+            crate::recording_match::MatchLevel::Balanced,
+            &store,
+            crate::recording_match::FlexibleMatchingOptions::default(),
+            &trace,
+        );
+        assert_eq!(
+            gate.shared.dimensions.artists,
+            crate::recording_match::Comparison::Agree
+        );
+        assert!(
+            gate.accepted(),
+            "role-correct metadata must reach inspection"
+        );
+        assert_eq!(serde_json::to_value(&candidate).unwrap(), raw_candidate);
+    }
+
+    #[tokio::test]
+    async fn spotify_role_completion_is_shared_across_waiters_and_dropped_waiters_do_not_abort_it()
+    {
+        use serde::{de::DeserializeOwned, Serialize};
+        fn overlay<T: Default + Serialize + DeserializeOwned>(input: &Value) -> T {
+            let mut value = serde_json::to_value(T::default()).unwrap();
+            value
+                .as_object_mut()
+                .unwrap()
+                .extend(input.as_object().unwrap().clone());
+            serde_json::from_value(value).unwrap()
+        }
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/spotify-halka-role-context.json"
+        ))
+        .unwrap();
+        let track: Track = overlay(&fixture["freshRequestProjection"]);
+        let context = spotify_role_context::SpotifyTrackRoleContext::from_operation_for_track(
+            &track,
+            &fixture["operation"],
+        )
+        .unwrap();
+        let trace = SourceTrace::new(None, None, None);
+        let producer_trace = trace.clone();
+        let producer_track = track.clone();
+        let producer = tokio::spawn(async move {
+            let completion = SpotifyRoleTaskCompletion::new(producer_trace.clone());
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            let available =
+                producer_trace.remember_spotify_track_role_context(&producer_track, context);
+            completion.finish(available);
+        });
+        trace.store_spotify_track_role_task(
+            tokio::time::Instant::now() + Duration::from_secs(1),
+            producer,
+        );
+
+        let first_trace = trace.clone();
+        let first_track = track.clone();
+        let first = tokio::spawn(async move {
+            first_trace
+                .await_spotify_track_role_context(&first_track)
+                .await
+        });
+        let second_trace = trace.clone();
+        let second_track = track.clone();
+        let second = tokio::spawn(async move {
+            second_trace
+                .await_spotify_track_role_context(&second_track)
+                .await
+        });
+        tokio::time::sleep(Duration::from_millis(2)).await;
+        first.abort();
+        let available = tokio::time::timeout(Duration::from_secs(1), second)
+            .await
+            .expect("a dropped peer waiter must not cancel shared role work")
+            .unwrap()
+            .expect("the other waiter receives the exact request result");
+        assert_eq!(
+            available.performer_names(),
+            ["Sunidhi Chauhan", "Divya Kumar"]
+        );
+
+        let failed = SourceTrace::new(None, None, None);
+        let failed_producer = failed.clone();
+        failed.store_spotify_track_role_task(
+            tokio::time::Instant::now() + Duration::from_secs(1),
+            tokio::spawn(async move {
+                let completion = SpotifyRoleTaskCompletion::new(failed_producer);
+                tokio::time::sleep(Duration::from_millis(2)).await;
+                completion.finish(false);
+            }),
+        );
+        assert!(failed
+            .await_spotify_track_role_context(&track)
+            .await
+            .is_none());
+
+        let timed = SourceTrace::new(None, None, None);
+        let timed_producer = timed.clone();
+        let timed_track = track.clone();
+        let timed_context =
+            spotify_role_context::SpotifyTrackRoleContext::from_operation_for_track(
+                &track,
+                &fixture["operation"],
+            )
+            .unwrap();
+        timed.store_spotify_track_role_task(
+            tokio::time::Instant::now() + Duration::from_secs(1),
+            tokio::spawn(async move {
+                let completion = SpotifyRoleTaskCompletion::new(timed_producer.clone());
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                let available =
+                    timed_producer.remember_spotify_track_role_context(&timed_track, timed_context);
+                completion.finish(available);
+            }),
+        );
+        assert!(tokio::time::timeout(
+            Duration::from_millis(1),
+            timed.await_spotify_track_role_context(&track)
+        )
+        .await
+        .is_err());
+        assert!(
+            timed
+                .await_spotify_track_role_context(&track)
+                .await
+                .is_some(),
+            "a timed out waiter must not cancel the shared bounded task"
+        );
+
+        let expired = SourceTrace::new(None, None, None);
+        let expired_producer = expired.clone();
+        let expired_track = track.clone();
+        let expired_context =
+            spotify_role_context::SpotifyTrackRoleContext::from_operation_for_track(
+                &track,
+                &fixture["operation"],
+            )
+            .unwrap();
+        expired.store_spotify_track_role_task(
+            tokio::time::Instant::now() + Duration::from_millis(5),
+            tokio::spawn(async move {
+                let completion = SpotifyRoleTaskCompletion::new(expired_producer.clone());
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                let available = expired_producer
+                    .remember_spotify_track_role_context(&expired_track, expired_context);
+                completion.finish(available);
+            }),
+        );
+        assert!(
+            expired
+                .await_spotify_track_role_context(&track)
+                .await
+                .is_none(),
+            "waiters stop at the shared absolute role deadline"
+        );
     }
 }
 

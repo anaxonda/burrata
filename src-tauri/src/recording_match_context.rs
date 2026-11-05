@@ -16,6 +16,7 @@ use std::{collections::HashMap, sync::Arc};
 #[derive(Default)]
 pub(crate) struct AssessmentContext {
     flexible_options: recording_match::FlexibleMatchingOptions,
+    primary_credit_override: Option<Vec<String>>,
     artist_profiles: ArtistProfileLookupMemo,
     verified_artist_aliases:
         HashMap<(String, String), crate::artist_credit_aliases::VerifiedPlaybackArtistAliases>,
@@ -45,6 +46,10 @@ impl AssessmentContext {
             flexible_options: options,
             ..Self::default()
         }
+    }
+    pub(crate) fn with_primary_credit_override(mut self, credits: Vec<String>) -> Self {
+        self.primary_credit_override = Some(credits);
+        self
     }
     fn artist_profiles_for_name(&mut self, store: &Store, name: &str) -> Arc<[Value]> {
         self.artist_profiles.get_or_load(name, || {
@@ -1378,13 +1383,24 @@ fn assess_with_aliases_and_context_impl(
             }
         }
     }
-    let mut best = recording_match::assess_with_options(
-        &requested,
-        candidate,
-        level,
-        stage,
-        &context.flexible_options,
-    );
+    let mut best = if let Some(credits) = context.primary_credit_override.as_deref() {
+        recording_match::assess_with_primary_credit_override_and_options(
+            &requested,
+            candidate,
+            level,
+            stage,
+            credits,
+            &context.flexible_options,
+        )
+    } else {
+        recording_match::assess_with_options(
+            &requested,
+            candidate,
+            level,
+            stage,
+            &context.flexible_options,
+        )
+    };
     let mut best_request = requested.clone();
     let early_folder_credit_assessment = if allow_folder_artist_fast_path
         && candidate_isrc(candidate).is_none()

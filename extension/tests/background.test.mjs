@@ -6,7 +6,7 @@ import vm from 'node:vm';
 const source=readFileSync(new URL('../background.js',import.meta.url),'utf8');
 function worker(session={}, {enabled=false, verification=false, requests=[],pageUrl='https://www.beatport.com/genre/afro-house/89/top-100',albumCollection=false,handoffSession=null,youtubePage=null,accountIdentity=null,providerFailure=null}={}) {
   let listener, removed, reply;
-  const messages=[], created=[], updated=[];
+  const messages=[], created=[], updated=[], scripts=[];
   const host=new URL(pageUrl).hostname;
   const snapshot={provider:host.includes('shazam')?'shazam':host.includes('last.fm')?'lastfm':host.includes('bandcamp')?'bandcamp':host.includes('youtube')?'youtube':'beatport',kind:host.includes('youtube')?'playlist':'chart',sourceUrl:pageUrl,entries:[]};
   const api={
@@ -16,7 +16,7 @@ function worker(session={}, {enabled=false, verification=false, requests=[],page
       onMessage:{addListener(fn){reply=fn;}},onDisconnect:{addListener(){}},disconnect(){},
       postMessage(message){messages.push(message);queueMicrotask(()=>reply({ok:true,requests:message.type==='poll'?requests:[],result:{id:'saved'}}));},
     };}},
-    scripting:{executeScript:async details=>details.world==='MAIN'?[{result:details.func?.name==='captureYouTubeAccountIdentity'?{account:accountIdentity||{accountId:handoffSession?.accountId||'UCaaaaaaaaaaaaaaaaaaaaaa',displayName:handoffSession?.displayName||'Fixture Channel'}}:details.func?.name==='captureYouTubeSessionHandoff'?(handoffSession?{session:handoffSession}:details.func()):providerFailure?{__burrataProviderError:providerFailure}:{accountId:'browser-account',displayName:'Test'}}]:[]},
+    scripting:{executeScript:async details=>{scripts.push(details);return details.world==='MAIN'?[{result:details.func?.name==='captureYouTubeAccountIdentity'?{account:accountIdentity||{accountId:handoffSession?.accountId||'UCaaaaaaaaaaaaaaaaaaaaaa',displayName:handoffSession?.displayName||'Fixture Channel'}}:details.func?.name==='captureYouTubeSessionHandoff'?(handoffSession?{session:handoffSession}:details.func()):providerFailure?{__burrataProviderError:providerFailure}:{accountId:'browser-account',displayName:'Test'}}]:[];}},
     tabs:{get:async id=>({id,status:'complete',url:pageUrl,windowId:1}),
       query:async()=>[{id:8,url:pageUrl}],create:async value=>{created.push(value);return {id:9};},
       update:async(id,value)=>{updated.push({id,...value});return {windowId:1};},
@@ -26,7 +26,7 @@ function worker(session={}, {enabled=false, verification=false, requests=[],page
   };
   const context=vm.createContext({chrome:api,URL,TextEncoder,Map,Promise,crypto:{randomUUID:()=> 'test-id'},BurrataSpotifyAuth:{loadRegistry:async()=>({secret:'fixture',version:'fixture'}),totp:async()=> '123456'},location:youtubePage?.location||{origin:new URL(pageUrl).origin},document:youtubePage?.document||{cookie:'',querySelector:()=>null},setInterval(){},setTimeout(fn,ms){if(ms<30000)queueMicrotask(fn);return 1;},clearTimeout(){}});
   vm.runInContext(source,context);
-  return {messages,created,updated,session,removed,
+  return {messages,created,updated,scripts,session,removed,
     send:(message,sender={})=>new Promise(resolve=>listener(message,sender,resolve)),
     poll:()=>vm.runInContext('poll()',context),
   };
@@ -65,6 +65,28 @@ test('current-page capture accepts Shazam, Last.fm and Bandcamp provider hosts',
     assert.equal(result.ok,true,pageUrl);
     assert.equal(w.messages[0].snapshot.provider,new URL(pageUrl).hostname.includes('shazam')?'shazam':new URL(pageUrl).hostname.includes('last.fm')?'lastfm':'bandcamp');
   }
+});
+
+test('Spotify track-credit read is routed to Spotify only and rejects unsupported operations',async()=>{
+ const args={trackId:'2u9k9X8d1uD4qDLjMhVxU0',trackTitle:'Halka Halka (From "Fanney Khan")',mainArtistId:'3eDT9fwXKuHWFvgZaaYC5v',durationMilliseconds:247381,artistIds:['3eDT9fwXKuHWFvgZaaYC5v','0NErdIJtuKBjtxKmlqaWdj']};
+ const request={id:'credit-read-1',kind:'providerOperation',operationId:'credit-op-1',provider:'spotify',operation:'getTrackCredits',args};
+ const spotify=worker({}, {enabled:true,requests:[request],pageUrl:'https://open.spotify.com/'});
+ await spotify.poll();
+ const invoke=spotify.scripts.find(call=>typeof call.func==='function'&&Array.isArray(call.args));
+ assert.ok(invoke,'the supported exact read reaches the injected Spotify provider adapter');
+ assert.equal(invoke.args[0],'spotify');assert.equal(invoke.args[1],'getTrackCredits');assert.deepEqual(invoke.args[2],args);
+ assert.ok(spotify.messages.some(message=>message.type==='poll'&&message.providerCapabilities.includes('spotifyTrackCreditsV1')),'the companion advertises support before receiving the read');
+ assert.ok(spotify.messages.some(message=>message.type==='providerResult'&&message.operationId==='credit-op-1'&&message.ok));
+
+ const youtube=worker({}, {enabled:true,requests:[{...request,id:'credit-read-2',operationId:'credit-op-2',provider:'youtube'}],pageUrl:'https://www.youtube.com/'});
+ await youtube.poll();
+ assert.equal(youtube.scripts.length,0,'a Spotify catalog operation is refused before provider-page execution on YouTube');
+ assert.ok(youtube.messages.some(message=>message.type==='providerResult'&&message.operationId==='credit-op-2'&&!message.ok));
+
+ const unknown=worker({}, {enabled:true,requests:[{...request,id:'credit-read-3',operationId:'credit-op-3',operation:'getTrackCreditsExtended'}],pageUrl:'https://open.spotify.com/'});
+ await unknown.poll();
+ assert.equal(unknown.scripts.length,0,'unrecognized provider operations never reach page execution');
+ assert.ok(unknown.messages.some(message=>message.type==='providerResult'&&message.operationId==='credit-op-3'&&!message.ok));
 });
 
 test('current-page YouTube video import uses the rendered public snapshot without account status',async()=>{

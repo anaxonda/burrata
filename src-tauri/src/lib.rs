@@ -119,6 +119,7 @@ pub mod sidebar_layout;
 pub mod slskd;
 pub mod source_fallback;
 mod source_preparation;
+mod spotify_catalog_identity;
 mod spotify_mb_crosswalk;
 mod staged_recognition;
 pub mod storage;

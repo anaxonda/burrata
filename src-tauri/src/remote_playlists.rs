@@ -3239,6 +3239,119 @@ impl RemotePlaylistService {
         crate::recording_identity::hydrate_identifiers(&mut track);
         Ok((track, account.id))
     }
+
+    /// Read positive contributor roles for one exact Spotify request without
+    /// writing catalog metadata back to the user's library. Legacy rows may
+    /// first receive an ephemeral exact-ID catalog sidecar, but every saved
+    /// identity field must agree before the role operation is issued.
+    pub(crate) async fn read_spotify_track_role_context(
+        &self,
+        request: &Track,
+        deadline: tokio::time::Instant,
+        cancel: tokio::sync::watch::Receiver<bool>,
+    ) -> Result<crate::playback_sources::spotify_role_context::SpotifyTrackRoleContext> {
+        if !crate::playback_sources::spotify_role_context::request_is_unmodified_exact_spotify_track(
+            request,
+        ) {
+            return Err("The Spotify role request is not an unmodified exact track".into());
+        }
+        let account =
+            await_crosswalk_step(deadline, cancel.clone(), self.require_account("spotify")).await?;
+        let verified_catalog_track =
+            if crate::artist_credit_aliases::spotify_artist_credit_fingerprint(request).is_some() {
+                request.clone()
+            } else {
+                let query = alias_hydration_search_query(request)?;
+                let response = await_crosswalk_step(
+                    deadline,
+                    cancel.clone(),
+                    self.bridge.provider_operation(
+                        "spotify",
+                        "search",
+                        json!({"query":query,"kind":"track","limit":50}),
+                    ),
+                )
+                .await?;
+                self.ensure_response_account("spotify", &response, &account.id)?;
+                let rows = response
+                    .get("items")
+                    .and_then(Value::as_array)
+                    .ok_or("Spotify search returned invalid exact-track results")?;
+                let exact_rows = rows
+                    .iter()
+                    .filter(|row| {
+                        row.get("id").and_then(Value::as_str) == Some(request.provider_id.as_str())
+                    })
+                    .collect::<Vec<_>>();
+                if exact_rows.len() != 1 {
+                    return Err("Spotify search did not return exactly one exact track ID".into());
+                }
+                let normalized = normalize_catalog_item(exact_rows[0], "spotify", "track")?;
+                let data = normalized
+                    .get("data")
+                    .filter(|data| data.is_object())
+                    .ok_or("Spotify search omitted exact track metadata")?;
+                let provider_duration = data
+                    .get("durationSeconds")
+                    .and_then(Value::as_f64)
+                    .ok_or("Spotify search omitted exact track duration")?;
+                let saved_duration = request
+                    .duration_seconds
+                    .ok_or("The saved Spotify track has no duration")?;
+                if !crate::playback_sources::spotify_role_context::saved_duration_agrees_with_precise_catalog(
+                saved_duration,
+                provider_duration,
+            ) {
+                return Err("Spotify catalog runtime disagrees with the saved whole-second request".into());
+            }
+                let mut provider_duration_lookup = request.clone();
+                provider_duration_lookup.duration_seconds = Some(provider_duration);
+                exact_alias_search_track(&provider_duration_lookup, &response, &account.id)?
+            };
+        if !crate::playback_sources::spotify_role_context::request_matches_catalog(
+            request,
+            &verified_catalog_track,
+        ) {
+            return Err("Fresh Spotify metadata disagrees with the saved request".into());
+        }
+        let fingerprint = crate::artist_credit_aliases::spotify_artist_credit_fingerprint(
+            &verified_catalog_track,
+        )
+        .ok_or("Fresh Spotify metadata did not provide a complete artist fingerprint")?;
+        let main_artist_id = fingerprint
+            .artists
+            .first()
+            .map(|artist| artist.id.as_str())
+            .ok_or("Fresh Spotify metadata omitted the main artist ID")?;
+        let response = await_crosswalk_step(
+            deadline,
+            cancel.clone(),
+            self.bridge.provider_operation(
+                "spotify",
+                "getTrackCredits",
+                json!({
+                    "trackId":fingerprint.track_id,
+                    "trackTitle":fingerprint.title,
+                    "mainArtistId":main_artist_id,
+                    "durationMilliseconds":fingerprint.duration_ms,
+                    "artistIds":fingerprint.artists.iter().map(|artist|artist.id.as_str()).collect::<Vec<_>>(),
+                }),
+            ),
+        )
+        .await?;
+        self.ensure_response_account("spotify", &response, &account.id)?;
+        let current =
+            await_crosswalk_step(deadline, cancel, self.require_account("spotify")).await?;
+        if current.id != account.id {
+            return Err("Spotify account changed during the contributor-role read".into());
+        }
+        crate::playback_sources::spotify_role_context::SpotifyTrackRoleContext::from_operation_for_request(
+            request,
+            &verified_catalog_track,
+            &response,
+        )
+        .ok_or_else(|| "Spotify contributor roles did not bind to the exact request".into())
+    }
     pub async fn list_playlists(
         &self,
         provider: &str,

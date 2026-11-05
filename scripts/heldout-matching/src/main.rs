@@ -15,6 +15,10 @@ mod recording_identity;
 mod recording_match;
 #[path = "../../../src-tauri/src/search_plan.rs"]
 mod search_plan;
+#[path = "../../../src-tauri/src/spotify_catalog_identity.rs"]
+mod spotify_catalog_identity;
+#[path = "../../../src-tauri/src/spotify_role_context.rs"]
+mod spotify_role_context;
 
 use models::{Candidate, Track};
 use recording_match::{

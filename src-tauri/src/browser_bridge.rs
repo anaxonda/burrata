@@ -924,12 +924,17 @@ impl BrowserBridge {
         if !self.status().connected {
             return Err("Browser companion is not connected".into());
         }
-        if self
-            .status()
+        let status = self.status();
+        if status
             .provider_protocol_version
             .is_none_or(|version| version < 2)
         {
             return Err("Reload the Burrata browser companion and enable app-driven imports to use remote playlists".into());
+        }
+        if !provider_operation_capability_supported(operation, &status.provider_capabilities) {
+            return Err(
+                "Reload the Burrata browser companion to enable Spotify contributor reads".into(),
+            );
         }
         if !self.provider_operations_supported() {
             return Err("The expected browser provider session is not connected".into());
@@ -1035,7 +1040,12 @@ impl BrowserBridge {
         state.provider_protocol_version = version;
         state.provider_capabilities = capabilities
             .iter()
-            .filter(|capability| capability.as_str() == "structuredArtistCreditsV1")
+            .filter(|capability| {
+                matches!(
+                    capability.as_str(),
+                    "structuredArtistCreditsV1" | "spotifyTrackCreditsV1"
+                )
+            })
             .cloned()
             .take(8)
             .collect();
@@ -1454,6 +1464,13 @@ fn validate_provider_operation(
         "listPlaylists" => &["ownerId", "limit", "cursor"],
         "getPlaylist" => &["playlistId", "limit", "cursor"],
         "getTrack" => &["trackId"],
+        "getTrackCredits" => &[
+            "trackId",
+            "trackTitle",
+            "mainArtistId",
+            "durationMilliseconds",
+            "artistIds",
+        ],
         "getArtist" => &["artistId"],
         "getArtistAlbums" | "getArtistTracks" => &["artistId", "limit", "cursor"],
         "getAlbum" => &["albumId"],
@@ -1481,6 +1498,63 @@ fn validate_provider_operation(
     };
     if object.keys().any(|key| !allowed.contains(&key.as_str())) {
         return Err("Provider operation contains an unsupported argument".into());
+    }
+    if operation == "getTrackCredits" {
+        if provider != "spotify" || object.len() != 5 {
+            return Err(
+                "Spotify track-credit reads require the exact Spotify request fields".into(),
+            );
+        }
+        let valid_id = |value: &str| {
+            value.len() == 22 && value.bytes().all(|byte| byte.is_ascii_alphanumeric())
+        };
+        let track_id = object
+            .get("trackId")
+            .and_then(Value::as_str)
+            .filter(|id| valid_id(id))
+            .ok_or("Spotify track-credit track ID is invalid")?;
+        let title = object
+            .get("trackTitle")
+            .and_then(Value::as_str)
+            .ok_or("Spotify track-credit title is invalid")?;
+        if title.trim().is_empty() || title.len() > 512 || title.chars().any(char::is_control) {
+            return Err("Spotify track-credit title is invalid".into());
+        }
+        let main_artist_id = object
+            .get("mainArtistId")
+            .and_then(Value::as_str)
+            .filter(|id| valid_id(id))
+            .ok_or("Spotify track-credit main artist ID is invalid")?;
+        let duration = object
+            .get("durationMilliseconds")
+            .and_then(Value::as_u64)
+            .filter(|value| (1..=86_400_000).contains(value))
+            .ok_or("Spotify track-credit duration is invalid")?;
+        let artist_ids = object
+            .get("artistIds")
+            .and_then(Value::as_array)
+            .filter(|ids| !ids.is_empty() && ids.len() <= 64)
+            .ok_or("Spotify track-credit artist IDs are invalid")?;
+        let mut seen = std::collections::HashSet::with_capacity(artist_ids.len());
+        let parsed_ids = artist_ids
+            .iter()
+            .map(|value| {
+                let id = value
+                    .as_str()
+                    .filter(|id| valid_id(id))
+                    .ok_or("Spotify track-credit artist ID is invalid")?;
+                if !seen.insert(id) {
+                    return Err("Spotify track-credit artist IDs must be unique".into());
+                }
+                Ok(id)
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        if parsed_ids.first().copied() != Some(main_artist_id) {
+            return Err("Spotify track-credit artist IDs must begin with the main artist".into());
+        }
+        // Read these explicitly so the validation contract stays aligned with
+        // the request fields bound by the extension worker.
+        let _ = (track_id, title, duration);
     }
     if operation == "verifyVerificationPlaylist"
         && (provider != "spotify"
@@ -1841,6 +1915,15 @@ fn validate_provider_operation(
     Ok(())
 }
 
+fn provider_operation_capability_supported(operation: &str, capabilities: &[String]) -> bool {
+    match operation {
+        "getTrackCredits" => capabilities
+            .iter()
+            .any(|capability| capability == "spotifyTrackCreditsV1"),
+        _ => true,
+    }
+}
+
 fn valid_youtube_video_id(value: &str) -> bool {
     value.len() == 11
         && value
@@ -2150,11 +2233,11 @@ mod tests {
         );
         let advertised: NativeRequest = serde_json::from_value(json!({
             "type":"heartbeat", "providerProtocolVersion":2,
-            "providerCapabilities":["structuredArtistCreditsV1"]
+            "providerCapabilities":["structuredArtistCreditsV1","spotifyTrackCreditsV1"]
         }))
         .unwrap();
         assert!(
-            matches!(advertised, NativeRequest::Heartbeat { provider_capabilities, .. } if provider_capabilities == ["structuredArtistCreditsV1"])
+            matches!(advertised, NativeRequest::Heartbeat { provider_capabilities, .. } if provider_capabilities == ["structuredArtistCreditsV1","spotifyTrackCreditsV1"])
         );
         let status = BrowserStatus {
             connected: false,
@@ -2547,6 +2630,84 @@ mod tests {
         assert!(
             validate_provider_operation("youtube", "getTrack", &json!({"trackId":id})).is_err()
         );
+    }
+
+    #[test]
+    fn spotify_get_track_credits_requires_exact_validated_read_arguments() {
+        let track_id = "1234567890123456789012";
+        let main_artist_id = "abcdefghijklmnopqrstuv";
+        let second_artist_id = "ZYXWVUTSRQPONMLKJIHGFE";
+        let valid = json!({
+            "trackId":track_id,
+            "trackTitle":"Song (Original Mix)",
+            "mainArtistId":main_artist_id,
+            "durationMilliseconds":247381,
+            "artistIds":[main_artist_id, second_artist_id]
+        });
+        assert!(validate_provider_operation("spotify", "getTrackCredits", &valid).is_ok());
+        assert!(validate_provider_operation("youtube", "getTrackCredits", &valid).is_err());
+
+        let mut malformed = Vec::new();
+        let mut missing = valid.clone();
+        missing.as_object_mut().unwrap().remove("trackTitle");
+        malformed.push(missing);
+        let mut extra = valid.clone();
+        extra["query"] = json!("Song");
+        malformed.push(extra);
+        let mut bad_track_id = valid.clone();
+        bad_track_id["trackId"] = json!("short");
+        malformed.push(bad_track_id);
+        let mut empty_title = valid.clone();
+        empty_title["trackTitle"] = json!("  ");
+        malformed.push(empty_title);
+        let mut control_title = valid.clone();
+        control_title["trackTitle"] = json!("Song\nTitle");
+        malformed.push(control_title);
+        let mut long_title = valid.clone();
+        long_title["trackTitle"] = json!("x".repeat(513));
+        malformed.push(long_title);
+        let mut bad_main = valid.clone();
+        bad_main["mainArtistId"] = json!("short");
+        malformed.push(bad_main);
+        let mut zero_duration = valid.clone();
+        zero_duration["durationMilliseconds"] = json!(0);
+        malformed.push(zero_duration);
+        let mut high_duration = valid.clone();
+        high_duration["durationMilliseconds"] = json!(86_400_001_u64);
+        malformed.push(high_duration);
+        let mut fractional_duration = valid.clone();
+        fractional_duration["durationMilliseconds"] = json!(247381.5);
+        malformed.push(fractional_duration);
+        let mut no_artists = valid.clone();
+        no_artists["artistIds"] = json!([]);
+        malformed.push(no_artists);
+        let mut duplicate_artists = valid.clone();
+        duplicate_artists["artistIds"] = json!([main_artist_id, main_artist_id]);
+        malformed.push(duplicate_artists);
+        let mut main_not_first = valid.clone();
+        main_not_first["artistIds"] = json!([second_artist_id, main_artist_id]);
+        malformed.push(main_not_first);
+
+        for args in malformed {
+            assert!(
+                validate_provider_operation("spotify", "getTrackCredits", &args).is_err(),
+                "invalid args should fail closed: {args}"
+            );
+        }
+        assert!(validate_provider_operation("spotify", "unknownCreditsRead", &valid).is_err());
+    }
+
+    #[test]
+    fn spotify_track_credit_read_requires_the_new_extension_capability() {
+        assert!(!provider_operation_capability_supported(
+            "getTrackCredits",
+            &["structuredArtistCreditsV1".into()]
+        ));
+        assert!(provider_operation_capability_supported(
+            "getTrackCredits",
+            &["spotifyTrackCreditsV1".into()]
+        ));
+        assert!(provider_operation_capability_supported("getTrack", &[]));
     }
 
     #[test]

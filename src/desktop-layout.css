@@ -224,6 +224,14 @@
 
 /* Desktop split panes respond to their remaining content width, not the window. */
 .app-shell > main { container: main-pane / inline-size; }
+/* Keep the title readable when the main pane is narrow (including split panes). */
+@container main-pane (max-width: 600px) {
+  .app-shell > main > header:not(.playlist-header) { flex-wrap:wrap; align-items:center; }
+  .app-shell > main > header:not(.playlist-header) .navigation-controls { flex:0 0 auto; }
+  .app-shell > main > header:not(.playlist-header) > div:nth-child(2) { flex:1 1 80px; min-width:0; }
+  .app-shell > main > header:not(.playlist-header) h1 { min-width:0; white-space:nowrap; overflow-wrap:normal; overflow:hidden; text-overflow:ellipsis; line-height:1.15; }
+  .app-shell > main > header:not(.playlist-header) .header-actions { flex:1 1 100%; min-width:0; flex-wrap:wrap; justify-content:flex-start; }
+}
 .app-shell > main > header.playlist-header { flex-wrap:wrap; }
 .app-shell > main > header.playlist-header .header-actions { flex:1 1 100%; min-width:0; flex-wrap:wrap; gap:8px; }
 .playlist-header .playlist-action-scope { flex-basis:100%; color:var(--muted); font-size:12px; }

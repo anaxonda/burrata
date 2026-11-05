@@ -1,0 +1,273 @@
+{
+  "legacyRequest": {
+    "id": "spotify:2u9k9X8d1uD4qDLjMhVxU0",
+    "provider": "spotify",
+    "providerId": "2u9k9X8d1uD4qDLjMhVxU0",
+    "sourceUrl": "https://open.spotify.com/track/2u9k9X8d1uD4qDLjMhVxU0",
+    "artist": "Sunidhi Chauhan, Divya Kumar, Amit Trivedi, Nusrat Fateh Ali Khan, Irshad Kamil",
+    "title": "Halka Halka (From \"Fanney Khan\")",
+    "album": "Feel Good Valentines",
+    "durationSeconds": 247,
+    "localPath": null,
+    "localAvailability": "none",
+    "assetId": null,
+    "favorite": false,
+    "provenance": {},
+    "previewUrl": null,
+    "artworkUrl": null
+  },
+  "freshRequestProjection": {
+    "id": "spotify:2u9k9X8d1uD4qDLjMhVxU0",
+    "provider": "spotify",
+    "providerId": "2u9k9X8d1uD4qDLjMhVxU0",
+    "sourceUrl": "https://open.spotify.com/track/2u9k9X8d1uD4qDLjMhVxU0",
+    "artist": "Sunidhi Chauhan, Divya Kumar, Amit Trivedi, Nusrat Fateh Ali Khan, Irshad Kamil",
+    "title": "Halka Halka (From \"Fanney Khan\")",
+    "album": "Feel Good Valentines",
+    "durationSeconds": 247.381,
+    "localPath": null,
+    "localAvailability": "none",
+    "assetId": null,
+    "favorite": false,
+    "provenance": {
+      "catalog": {
+        "verified": true,
+        "provider": "spotify",
+        "providerId": "2u9k9X8d1uD4qDLjMhVxU0",
+        "artists": [
+          {
+            "provider": "spotify",
+            "id": "3eDT9fwXKuHWFvgZaaYC5v",
+            "name": "Sunidhi Chauhan"
+          },
+          {
+            "provider": "spotify",
+            "id": "0NErdIJtuKBjtxKmlqaWdj",
+            "name": "Divya Kumar"
+          },
+          {
+            "provider": "spotify",
+            "id": "7HCqGPJcQTyGJ2yqntbuyr",
+            "name": "Amit Trivedi"
+          },
+          {
+            "provider": "spotify",
+            "id": "5HcunTidTUrOaf8V0iJcvl",
+            "name": "Nusrat Fateh Ali Khan"
+          },
+          {
+            "provider": "spotify",
+            "id": "3GdSQUH1BRtl9UrrtuwJlP",
+            "name": "Irshad Kamil"
+          }
+        ],
+        "artistCount": 5
+      },
+      "remoteCatalog": {
+        "trackId": "2u9k9X8d1uD4qDLjMhVxU0",
+        "title": "Halka Halka (From \"Fanney Khan\")",
+        "artist": "Sunidhi Chauhan, Divya Kumar, Amit Trivedi, Nusrat Fateh Ali Khan, Irshad Kamil",
+        "durationSeconds": 247.381,
+        "artistRefs": [
+          {
+            "provider": "spotify",
+            "id": "3eDT9fwXKuHWFvgZaaYC5v",
+            "name": "Sunidhi Chauhan"
+          },
+          {
+            "provider": "spotify",
+            "id": "0NErdIJtuKBjtxKmlqaWdj",
+            "name": "Divya Kumar"
+          },
+          {
+            "provider": "spotify",
+            "id": "7HCqGPJcQTyGJ2yqntbuyr",
+            "name": "Amit Trivedi"
+          },
+          {
+            "provider": "spotify",
+            "id": "5HcunTidTUrOaf8V0iJcvl",
+            "name": "Nusrat Fateh Ali Khan"
+          },
+          {
+            "provider": "spotify",
+            "id": "3GdSQUH1BRtl9UrrtuwJlP",
+            "name": "Irshad Kamil"
+          }
+        ],
+        "artistCount": 5
+      }
+    },
+    "previewUrl": null,
+    "artworkUrl": null
+  },
+  "operation": {
+    "spotifyTrackCredits": {
+      "provider": "spotify",
+      "operation": "queryNpvArtist",
+      "queryHash": "e1ae46a21911a3075c1aa29bf09a6c60f9a45b6a2b1132429f10ad06c299b5d7",
+      "binding": {
+        "trackId": "2u9k9X8d1uD4qDLjMhVxU0",
+        "trackUri": "spotify:track:2u9k9X8d1uD4qDLjMhVxU0",
+        "trackTitle": "Halka Halka (From \"Fanney Khan\")",
+        "expectedDurationMilliseconds": 247381,
+        "artistIds": [
+          "3eDT9fwXKuHWFvgZaaYC5v",
+          "0NErdIJtuKBjtxKmlqaWdj",
+          "7HCqGPJcQTyGJ2yqntbuyr",
+          "5HcunTidTUrOaf8V0iJcvl",
+          "3GdSQUH1BRtl9UrrtuwJlP"
+        ],
+        "mainArtistUri": "spotify:artist:3eDT9fwXKuHWFvgZaaYC5v",
+        "bindsThrough": "exact queryNpvArtist trackUri variable",
+        "providerEchoedTrackIdentity": false
+      },
+      "credits": {
+        "paginationStatus": "terminal",
+        "paginationTerminal": true,
+        "pagesFetched": 2,
+        "rowCount": 10,
+        "totalCount": null,
+        "rows": [
+          {
+            "name": "Sunidhi Chauhan",
+            "role": "Main Artist",
+            "roleGroup": "Artist",
+            "artistUri": "spotify:artist:3eDT9fwXKuHWFvgZaaYC5v"
+          },
+          {
+            "name": "Divya Kumar",
+            "role": "Main Artist",
+            "roleGroup": "Artist",
+            "artistUri": "spotify:artist:0NErdIJtuKBjtxKmlqaWdj"
+          },
+          {
+            "name": "Amit Trivedi",
+            "role": "Main Artist",
+            "roleGroup": "Artist",
+            "artistUri": "spotify:artist:7HCqGPJcQTyGJ2yqntbuyr"
+          },
+          {
+            "name": "Nusrat Fateh Ali Khan",
+            "role": "Main Artist",
+            "roleGroup": "Artist",
+            "artistUri": "spotify:artist:5HcunTidTUrOaf8V0iJcvl"
+          },
+          {
+            "name": "Irshad Kamil",
+            "role": "Main Artist",
+            "roleGroup": "Artist",
+            "artistUri": "spotify:artist:3GdSQUH1BRtl9UrrtuwJlP"
+          },
+          {
+            "name": "Amit Trivedi",
+            "role": "Composer",
+            "roleGroup": "Composition & Lyrics",
+            "artistUri": "spotify:artist:7HCqGPJcQTyGJ2yqntbuyr"
+          },
+          {
+            "name": "Nusrat Fateh Ali Khan",
+            "role": "Composer",
+            "roleGroup": "Composition & Lyrics",
+            "artistUri": "spotify:artist:5HcunTidTUrOaf8V0iJcvl"
+          },
+          {
+            "name": "Irshad Kamil",
+            "role": "Lyricist",
+            "roleGroup": "Composition & Lyrics",
+            "artistUri": "spotify:artist:3GdSQUH1BRtl9UrrtuwJlP"
+          },
+          {
+            "name": "Sunidhi Chauhan",
+            "role": "Vocalist",
+            "roleGroup": "Performers",
+            "artistUri": "spotify:artist:3eDT9fwXKuHWFvgZaaYC5v"
+          },
+          {
+            "name": "Divya Kumar",
+            "role": "Vocalist",
+            "roleGroup": "Performers",
+            "artistUri": "spotify:artist:0NErdIJtuKBjtxKmlqaWdj"
+          }
+        ],
+        "rowsWellFormed": true,
+        "roleEvidenceComplete": false,
+        "performerCreditsComplete": false,
+        "performerPreview": [
+          {
+            "name": "Sunidhi Chauhan",
+            "role": "Vocalist",
+            "artistUri": "spotify:artist:3eDT9fwXKuHWFvgZaaYC5v"
+          },
+          {
+            "name": "Divya Kumar",
+            "role": "Vocalist",
+            "artistUri": "spotify:artist:0NErdIJtuKBjtxKmlqaWdj"
+          }
+        ],
+        "genericArtistCreditPreview": [
+          {
+            "name": "Sunidhi Chauhan",
+            "role": "Main Artist",
+            "artistUri": "spotify:artist:3eDT9fwXKuHWFvgZaaYC5v"
+          },
+          {
+            "name": "Divya Kumar",
+            "role": "Main Artist",
+            "artistUri": "spotify:artist:0NErdIJtuKBjtxKmlqaWdj"
+          },
+          {
+            "name": "Amit Trivedi",
+            "role": "Main Artist",
+            "artistUri": "spotify:artist:7HCqGPJcQTyGJ2yqntbuyr"
+          },
+          {
+            "name": "Nusrat Fateh Ali Khan",
+            "role": "Main Artist",
+            "artistUri": "spotify:artist:5HcunTidTUrOaf8V0iJcvl"
+          },
+          {
+            "name": "Irshad Kamil",
+            "role": "Main Artist",
+            "artistUri": "spotify:artist:3GdSQUH1BRtl9UrrtuwJlP"
+          }
+        ],
+        "classificationReady": false
+      }
+    }
+  },
+  "candidate": {
+    "id": "youtube:z-wNY9Uu4E4",
+    "provider": "youtube",
+    "title": "Halka Halka (From \"Fanney Khan\")",
+    "durationSeconds": 247,
+    "sourceMetadata": {
+      "provider": "youtube",
+      "sourceMetadataOrigin": "ytDlpFullInfo",
+      "resolvedProviderId": "z-wNY9Uu4E4",
+      "track": "Halka Halka (From \"Fanney Khan\")",
+      "artist": "Sunidhi Chauhan, Divya Kumar, Amit Trivedi, Irshad Kamil",
+      "artists": [
+        "Sunidhi Chauhan",
+        "Divya Kumar",
+        "Amit Trivedi",
+        "Irshad Kamil"
+      ],
+      "duration": 247,
+      "channelVerified": true,
+      "album": "Halka Halka (From \"Fanney Khan\")"
+    },
+    "uploader": "Sunidhi Chauhan Official"
+  },
+  "fixtureProvenance": {
+    "request": "Legacy reported tuple retained separately; fresh comparison projection uses exact Spotify live ordered IDs/names and duration, not claimed to be a raw track response.",
+    "roles": "Committed exact-ID worker operation live report.",
+    "candidate": "Fresh exact video full-info metadata captured using e536 packaged extractor; four credits including lyricist.",
+    "notQualified": [
+      "media delivery",
+      "native output",
+      "legacy hydration accessibility",
+      "source lock boundary"
+    ]
+  }
+}

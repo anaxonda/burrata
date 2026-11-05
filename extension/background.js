@@ -185,8 +185,8 @@ async function providerTab(provider,connectRequest,preferYoutubeWeb=false){
 async function executeProviderRequest(request){
   const {provider,operation,args={}}=request;
   if(!['spotify','youtube'].includes(provider))throw errorResult('UNSUPPORTED','This provider is not supported.');
-  if(!['connect','status','search','listPlaylists','getPlaylist','getTrack','getArtist','getArtistAlbums','getArtistTracks','getAlbum','getAlbumTracks','addTracks','removeTracks','moveTracks'].includes(operation))throw errorResult('UNSUPPORTED',`Unsupported provider operation: ${operation}`);
-  if(provider!=='spotify'&&['getTrack','getArtist','getArtistAlbums','getArtistTracks','getAlbum','getAlbumTracks'].includes(operation))throw errorResult('UNSUPPORTED','Spotify catalog browsing is not supported for this provider.');
+  if(!['connect','status','search','listPlaylists','getPlaylist','getTrack','getTrackCredits','getArtist','getArtistAlbums','getArtistTracks','getAlbum','getAlbumTracks','addTracks','removeTracks','moveTracks'].includes(operation))throw errorResult('UNSUPPORTED',`Unsupported provider operation: ${operation}`);
+  if(provider!=='spotify'&&['getTrack','getTrackCredits','getArtist','getArtistAlbums','getArtistTracks','getAlbum','getAlbumTracks'].includes(operation))throw errorResult('UNSUPPORTED','Spotify catalog browsing is not supported for this provider.');
   if(provider==='youtube'&&providerMutation(operation))throw errorResult('UNSUPPORTED','YouTube playlist writeback is not supported.');
   const tab=await providerTab(provider,operation==='connect',provider==='youtube'&&operation==='listPlaylists'&&!args.ownerId);
   const stored=provider==='spotify'?await refreshSpotifyHashes():{};
@@ -343,7 +343,7 @@ function connect(){
   port.onDisconnect.addListener(()=>disconnect(!enabled&&!waiters.length?'':api.runtime.lastError?.message||'Native host disconnected. Open Burrata and install its browser host.'));
 }
 function native(message){
-  const payload=message.type==='poll'?{...message,providerProtocolVersion:2,providerCapabilities:['structuredArtistCreditsV1'],...(managedSessionId?{managedSessionId}:{})}:message.type==='heartbeat'?{...message,providerProtocolVersion:enabled?2:0,providerCapabilities:['structuredArtistCreditsV1'],...(managedSessionId?{managedSessionId}:{})}:message;
+  const payload=message.type==='poll'?{...message,providerProtocolVersion:2,providerCapabilities:['structuredArtistCreditsV1','spotifyTrackCreditsV1'],...(managedSessionId?{managedSessionId}:{})}:message.type==='heartbeat'?{...message,providerProtocolVersion:enabled?2:0,providerCapabilities:['structuredArtistCreditsV1','spotifyTrackCreditsV1'],...(managedSessionId?{managedSessionId}:{})}:message;
   const run=()=>new Promise((resolve,reject)=>{
       try{if(new TextEncoder().encode(JSON.stringify(payload)).length>1024*1024)throw new Error('Capture exceeds the 1 MiB bridge limit. Import a smaller chart, playlist, or album.');connect();const limit=payload.type==='importAlbumCollection'?120000:payload.type==='providerResult'?90000:payload.type==='youtubeSessionHandoff'?45000:30000;const w={resolve,reject,timeout:setTimeout(()=>{port?.disconnect();disconnect(`Burrata did not reply within ${Math.round(limit/1000)} seconds.`);},limit)};waiters.push(w);port.postMessage(payload);}catch(e){reject(e);}
   });

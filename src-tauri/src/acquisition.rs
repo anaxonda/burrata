@@ -7325,6 +7325,30 @@ impl AcquisitionManager {
         result
     }
 
+    pub(crate) async fn read_spotify_track_role_context(
+        &self,
+        track: &Track,
+        deadline: tokio::time::Instant,
+        cancel: watch::Receiver<bool>,
+    ) -> Result<
+        Option<crate::playback_sources::spotify_role_context::SpotifyTrackRoleContext>,
+        String,
+    > {
+        let service = self
+            .inner
+            .remote_playlists
+            .lock()
+            .map_err(|_| "Spotify role context service unavailable")?
+            .clone();
+        let Some(service) = service else {
+            return Ok(None);
+        };
+        service
+            .read_spotify_track_role_context(track, deadline, cancel)
+            .await
+            .map(Some)
+    }
+
     pub fn set_analysis_manager(&self, analysis: Arc<crate::analysis::AnalysisManager>) {
         if let Ok(mut slot) = self.inner.analysis.lock() {
             *slot = Some(analysis);

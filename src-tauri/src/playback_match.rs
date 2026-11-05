@@ -218,6 +218,73 @@ fn assessment_with_options(
         &mut context,
     )
 }
+
+fn role_context_candidate(
+    track: &Track,
+    candidate: &Candidate,
+    trace: Option<&super::SourceTrace>,
+) -> Option<(Candidate, Vec<String>)> {
+    let context = trace?.spotify_track_role_context(track)?;
+    let mut projected_candidate = candidate.clone();
+    let metadata = projected_candidate.source_metadata.as_ref()?;
+    let projected = context.project_candidate_artists(metadata)?;
+    let performers = context.performer_names();
+    if performers.is_empty() {
+        return None;
+    }
+    let mut projected_metadata = metadata.clone();
+    projected_metadata["artists"] = json!(projected);
+    if projected_metadata.get("artistNames").is_some() {
+        projected_metadata["artistNames"] = json!(projected);
+    }
+    projected_candidate.source_metadata = Some(projected_metadata);
+    Some((projected_candidate, performers))
+}
+
+fn assessment_with_trace_and_options(
+    store: &Store,
+    track: &Track,
+    aliases: &[Track],
+    isrc_aliases: &[Track],
+    known_isrc: Option<&str>,
+    candidate: &Candidate,
+    level: MatchLevel,
+    stage: MatchStage,
+    options: crate::recording_match::FlexibleMatchingOptions,
+    trace: Option<&super::SourceTrace>,
+) -> MatchAssessment {
+    if let Some((projected_candidate, performers)) = role_context_candidate(track, candidate, trace)
+    {
+        let mut context =
+            crate::recording_match_context::AssessmentContext::with_flexible_options(options)
+                .with_primary_credit_override(performers);
+        crate::recording_match_context::assess_with_aliases_and_context(
+            store,
+            track,
+            &projected_candidate,
+            level,
+            stage,
+            aliases,
+            isrc_aliases,
+            known_isrc,
+            &[],
+            &mut context,
+        )
+    } else {
+        assessment_with_options(
+            store,
+            track,
+            aliases,
+            isrc_aliases,
+            known_isrc,
+            candidate,
+            level,
+            stage,
+            options,
+        )
+    }
+}
+
 pub(super) fn evaluate_with_options(
     track: &Track,
     aliases: &[Track],
@@ -238,6 +305,32 @@ pub(super) fn evaluate_with_options(
         level,
         MatchStage::Search,
         options,
+    );
+    candidate_gate_result(&a, track, candidate)
+}
+
+pub(super) fn evaluate_with_trace_and_options(
+    track: &Track,
+    aliases: &[Track],
+    isrc_aliases: &[Track],
+    known_isrc: Option<&str>,
+    candidate: &Candidate,
+    level: MatchLevel,
+    store: &Store,
+    options: crate::recording_match::FlexibleMatchingOptions,
+    trace: &super::SourceTrace,
+) -> CandidateGateResult {
+    let a = assessment_with_trace_and_options(
+        store,
+        track,
+        aliases,
+        isrc_aliases,
+        known_isrc,
+        candidate,
+        level,
+        MatchStage::Search,
+        options,
+        Some(trace),
     );
     candidate_gate_result(&a, track, candidate)
 }
@@ -285,6 +378,38 @@ pub(super) fn evaluate_with_diagnostics_and_options(
         level,
         MatchStage::Search,
         options,
+    );
+    let diagnostic = SharedGateDiagnostic {
+        action: a.action,
+        relationship: a.relationship,
+        reasons: a.reasons.clone(),
+        dimensions: a.dimensions.clone(),
+    };
+    (candidate_gate_result(&a, track, candidate), diagnostic)
+}
+
+pub(super) fn evaluate_with_diagnostics_trace_and_options(
+    track: &Track,
+    aliases: &[Track],
+    isrc_aliases: &[Track],
+    known_isrc: Option<&str>,
+    candidate: &Candidate,
+    level: MatchLevel,
+    store: &Store,
+    options: crate::recording_match::FlexibleMatchingOptions,
+    trace: &super::SourceTrace,
+) -> (CandidateGateResult, SharedGateDiagnostic) {
+    let a = assessment_with_trace_and_options(
+        store,
+        track,
+        aliases,
+        isrc_aliases,
+        known_isrc,
+        candidate,
+        level,
+        MatchStage::Search,
+        options,
+        Some(trace),
     );
     let diagnostic = SharedGateDiagnostic {
         action: a.action,
@@ -730,6 +855,11 @@ pub(super) fn verify_with_discogs_credit_variant_and_options_traced(
             kind: RecordingProofKind::ExplicitSource,
         });
     }
+    let role_credit_assessment = if discogs_credit_variant.is_none() {
+        role_context_candidate(track, &resolved, trace)
+    } else {
+        None
+    };
     let a = if let Some(variant) = discogs_credit_variant {
         crate::recording_match_context::assess_with_artist_credit_set_variant_and_options(
             store,
@@ -742,6 +872,22 @@ pub(super) fn verify_with_discogs_credit_variant_and_options_traced(
             known_isrc,
             variant,
             &options,
+        )
+    } else if let Some((comparison_candidate, performers)) = role_credit_assessment.as_ref() {
+        let mut context =
+            crate::recording_match_context::AssessmentContext::with_flexible_options(options)
+                .with_primary_credit_override(performers.clone());
+        crate::recording_match_context::assess_with_aliases_and_context(
+            store,
+            track,
+            comparison_candidate,
+            level,
+            MatchStage::Resolved,
+            aliases,
+            isrc_aliases,
+            known_isrc,
+            &[],
+            &mut context,
         )
     } else {
         assessment_with_options(
