@@ -242,7 +242,7 @@ const REPORTED_SHARED_REASONS=new Set([
   'runtimeAgrees','runtimeConflict','durationLimitExceeded','durationLimitUnavailable','runtimeVarianceAccepted',
   'recordingScopedRuntimeVariant','recordingScopedTitleAlias','filenameCaptionOnly','isrcAgrees',
   'isrcConflict','workLinked','insufficientEvidence','extractorNeedsInspection','permissionRestricted',
-  'previewTooShort','conflictingRequestIdentifiers','titleCreditHintUnverified','unresolvedAnnotation',
+  'previewTooShort','fullAlbumContent','conflictingRequestIdentifiers','titleCreditHintUnverified','unresolvedAnnotation',
   'emptyIdentityKey','conflictingRequestVersions','conflictingCandidateVersions','parsingIncomplete',
 ]);
 const REPORTED_PROOF_KINDS=new Set(['none','recording','verified_extractor','youtube_music_catalog','explicit_source']);

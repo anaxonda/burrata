@@ -235,7 +235,7 @@ test('resolved recording assessment keeps only bounded shared proof enums and co
     {atUnixMs:start,elapsedMs:27,phase:'resolved_recording_assessment',provider:'youtube',details:{
       sharedAction:'inspect',sharedRelationship:'alternative',
       sharedDimensions:{title:'agree',artists:'conflict',guests:'unknown',version:'agree',runtime:'conflict',isrc:'unknown',work:'agree'},
-      sharedReasons:['titleAgrees','artistConflict','durationLimitExceeded','durationLimitUnavailable','private reason'],
+      sharedReasons:['titleAgrees','artistConflict','fullAlbumContent','durationLimitExceeded','durationLimitUnavailable','private reason'],
       alternativeKind:'performance',proofStrength:'recordingIdentifier',
       missingPerformerCount:2,extraPerformerCount:1,unresolvedAnnotationCount:4,
       title:'Private song',artist:'Private performer',query:'private query',sourcePageUrl:'https://private.invalid/?token=secret',
@@ -252,7 +252,7 @@ test('resolved recording assessment keeps only bounded shared proof enums and co
   assert.deepEqual(result.events[0].details,{
     sharedAction:'inspect',sharedRelationship:'alternative',
     sharedDimensions:{title:'agree',artists:'conflict',guests:'unknown',version:'agree',runtime:'conflict',isrc:'unknown',work:'agree'},
-    sharedReasons:['titleAgrees','artistConflict','durationLimitExceeded','durationLimitUnavailable'],alternativeKind:'performance',
+    sharedReasons:['titleAgrees','artistConflict','fullAlbumContent','durationLimitExceeded','durationLimitUnavailable'],alternativeKind:'performance',
     proofStrength:'recordingIdentifier',missingPerformerCount:2,extraPerformerCount:1,unresolvedAnnotationCount:4,
   });
   assert.deepEqual(result.events[1].details,{sharedDimensions:{artists:'unknown'},sharedReasons:['artistConflict'],unresolvedAnnotationCount:256});

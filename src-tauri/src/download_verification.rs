@@ -97,6 +97,7 @@ pub(crate) fn eligible_for_identification(assessment: &MatchAssessment) -> bool 
                     | IsrcConflict
                     | PermissionRestricted
                     | PreviewTooShort
+                    | FullAlbumContent
                     | ConflictingRequestIdentifiers
                     | ConflictingRequestVersions
                     | ConflictingCandidateVersions
@@ -456,6 +457,7 @@ mod tests {
         for reason in [
             MatchReason::PermissionRestricted,
             MatchReason::PreviewTooShort,
+            MatchReason::FullAlbumContent,
             MatchReason::ConflictingRequestIdentifiers,
             MatchReason::SourceIdentityConflict,
             MatchReason::ConflictingCandidateVersions,

@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) const EVALUATOR_VERSION: &str = "29";
+pub(crate) const EVALUATOR_VERSION: &str = "30";
 
 /// Independently selected categories of alternatives for Flexible matching.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -152,6 +152,7 @@ pub enum MatchReason {
     ExtractorNeedsInspection,
     PermissionRestricted,
     PreviewTooShort,
+    FullAlbumContent,
     ConflictingRequestIdentifiers,
     TitleCreditHintUnverified,
     UnresolvedAnnotation,
@@ -1974,6 +1975,7 @@ struct ComparisonFacts {
     caption_orientation_requires_full_info: bool,
     linked: bool,
     explicit_alt: bool,
+    full_album_content: bool,
     cover_evidence: bool,
     catalog_id_conflict: bool,
     preview_too_short: bool,
@@ -3047,6 +3049,38 @@ fn build_comparison(
         Comparison::Unknown
     };
     let explicit_alt = matches!(actual_kind.as_str(), "live" | "remix" | "cover");
+    // The matcher has no Settings/selected argument. Mirror the explicit
+    // pinned-source markers here, then require the exact provider ID so an
+    // automatic browser import cannot bypass this identity check.
+    let source_locked_to_this_youtube_video = candidate.provider == "youtube"
+        && track.provider == "youtube"
+        && (track.provenance["explicitSourceLock"] == true
+            || track.provenance["userSelectedSource"] == true
+            || (track.provenance["playbackMode"].as_str() == Some("source")
+                && !(track.provenance["browserImport"] == true
+                    && track.provenance["captureProvider"].as_str() == Some("youtube")
+                    && track.provenance["manualFields"]["playbackMode"] != true)))
+        && candidate.id.strip_prefix("youtube:") == Some(track.provider_id.as_str());
+    // Explicit yt-dlp metadata says this video is an album, not an individual
+    // recording. Missing request duration must not turn that into a track
+    // match. Preserve a long-form request and its exact manually locked video.
+    let full_album_content = meta["isFullAlbum"] == true
+        && candidate.provider == "youtube"
+        && meta["provider"].as_str() == Some("youtube")
+        && candidate
+            .id
+            .strip_prefix("youtube:")
+            .is_some_and(|id| meta["resolvedProviderId"].as_str() == Some(id))
+        && matches!(
+            meta["sourceMetadataOrigin"].as_str(),
+            Some("ytDlpCandidateMetadata" | "ytDlpFullInfo")
+        )
+        && !track.title.to_ascii_lowercase().contains("full album")
+        && !track
+            .version
+            .as_deref()
+            .is_some_and(|version| version.to_ascii_lowercase().contains("full album"))
+        && !source_locked_to_this_youtube_video;
     let cover_evidence = actual_kind == "cover"
         && (linked || explicit_original_cover(&candidate.title, &track.artist, &names));
     let dimensions = MatchDimensions {
@@ -3173,6 +3207,7 @@ fn build_comparison(
             && meta["sourceMetadataOrigin"].as_str() != Some("ytDlpFullInfo"),
         linked,
         explicit_alt,
+        full_album_content,
         cover_evidence,
         catalog_id_conflict,
         preview_too_short,
@@ -3590,10 +3625,14 @@ fn assess_prepared_inner(
     if preview_too_short {
         reasons.push(MatchReason::PreviewTooShort);
     }
+    if facts.full_album_content {
+        reasons.push(MatchReason::FullAlbumContent);
+    }
     if catalog_id_conflict {
         reasons.push(MatchReason::SourceIdentityConflict);
     }
     let hard_conflict = catalog_id_conflict
+        || facts.full_album_content
         || facts.restricted
         || preview_too_short
         || configured_length_conflict
@@ -6717,6 +6756,175 @@ mod tests {
         assert_eq!(flexible.action, MatchAction::Enrich);
         assert_eq!(flexible.relationship, MatchRelationship::Probable);
         assert_eq!(flexible.dimensions.version, Comparison::Unknown);
+    }
+
+    #[test]
+    fn explicit_full_album_metadata_blocks_track_substitutions_but_preserves_exact_requests() {
+        let request = Track {
+            title: "Song".into(),
+            artist: "Main Artist".into(),
+            duration_seconds: None,
+            ..Track::default()
+        };
+        let album_candidate = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:album-video".into(),
+            title: "Song".into(),
+            duration_seconds: Some(3_600.0),
+            source_metadata: Some(json!({
+                "provider":"youtube",
+                "resolvedProviderId":"album-video",
+                "sourceMetadataOrigin":"ytDlpFullInfo",
+                "track":"Song",
+                "catalogTitle":"Song",
+                "artistNames":["Main Artist"],
+                "duration":3600.0,
+                "isFullAlbum":true
+            })),
+            ..Candidate::default()
+        };
+        for stage in [MatchStage::Search, MatchStage::Resolved] {
+            for level in [
+                MatchLevel::Exact,
+                MatchLevel::Balanced,
+                MatchLevel::Flexible,
+            ] {
+                let assessment = assess(&request, &album_candidate, level, stage);
+                assert_eq!(
+                    assessment.action,
+                    MatchAction::Reject,
+                    "{stage:?}/{level:?}: {assessment:?}"
+                );
+                assert!(assessment.reasons.contains(&MatchReason::FullAlbumContent));
+            }
+        }
+
+        // A user explicitly requesting a long-form object can still select it.
+        let long_form_request = Track {
+            title: "Song Full Album".into(),
+            ..request.clone()
+        };
+        let long_form = Candidate {
+            title: "Song Full Album".into(),
+            source_metadata: Some(json!({
+                "provider":"youtube",
+                "resolvedProviderId":"album-video",
+                "sourceMetadataOrigin":"ytDlpFullInfo",
+                "track":"Song Full Album",
+                "catalogTitle":"Song Full Album",
+                "artistNames":["Main Artist"],
+                "duration":3600.0,
+                "isFullAlbum":true
+            })),
+            ..album_candidate.clone()
+        };
+        let requested_long_form = assess(
+            &long_form_request,
+            &long_form,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+        );
+        assert_eq!(
+            requested_long_form.action,
+            MatchAction::Accept,
+            "{requested_long_form:?}"
+        );
+        assert!(!requested_long_form
+            .reasons
+            .contains(&MatchReason::FullAlbumContent));
+
+        // Likewise, this guard does not replace an explicitly locked exact video.
+        let locked_request = Track {
+            provider: "youtube".into(),
+            provider_id: "album-video".into(),
+            provenance: json!({"explicitSourceLock":true}),
+            ..request.clone()
+        };
+        let exact_locked = assess(
+            &locked_request,
+            &album_candidate,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+        );
+        assert_eq!(exact_locked.action, MatchAction::Accept, "{exact_locked:?}");
+        assert!(!exact_locked
+            .reasons
+            .contains(&MatchReason::FullAlbumContent));
+
+        let automatic_browser_import = Track {
+            provider: "youtube".into(),
+            provider_id: "album-video".into(),
+            provenance: json!({
+                "browserImport":true,
+                "captureProvider":"youtube",
+                "playbackMode":"source"
+            }),
+            ..request.clone()
+        };
+        let not_manually_locked = assess(
+            &automatic_browser_import,
+            &album_candidate,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+        );
+        assert_eq!(
+            not_manually_locked.action,
+            MatchAction::Reject,
+            "{not_manually_locked:?}"
+        );
+        assert!(not_manually_locked
+            .reasons
+            .contains(&MatchReason::FullAlbumContent));
+
+        let mut mismatched_marker = album_candidate.clone();
+        mismatched_marker.source_metadata.as_mut().unwrap()["resolvedProviderId"] =
+            json!("different-video");
+        let unbound_marker = assess(
+            &request,
+            &mismatched_marker,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+        );
+        assert!(!unbound_marker
+            .reasons
+            .contains(&MatchReason::FullAlbumContent));
+
+        // Titles alone are not trusted as aggregate metadata; Medley can be
+        // part of an ordinary named recording without triggering this guard.
+        let medley_track = Track {
+            title: "Medley".into(),
+            ..request.clone()
+        };
+        let mut named_medley = album_candidate;
+        named_medley.title = "Medley".into();
+        named_medley.source_metadata.as_mut().unwrap()["track"] = json!("Medley");
+        named_medley.source_metadata.as_mut().unwrap()["catalogTitle"] = json!("Medley");
+        named_medley.source_metadata.as_mut().unwrap()["isFullAlbum"] = json!(false);
+        let named_recording = assess(
+            &medley_track,
+            &named_medley,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+        );
+        assert!(!named_recording
+            .reasons
+            .contains(&MatchReason::FullAlbumContent));
+
+        // Flexible performance permission does not let an explicit album
+        // marker turn an individual track request into a long-form match.
+        let mut mismatched_runtime = request.clone();
+        mismatched_runtime.duration_seconds = Some(240.0);
+        let album_with_duration = assess(
+            &mismatched_runtime,
+            &long_form,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+        );
+        assert_eq!(
+            album_with_duration.action,
+            MatchAction::Reject,
+            "{album_with_duration:?}"
+        );
     }
     #[test]
     fn flexible_tolerates_moderate_runtime_differences_as_probable() {

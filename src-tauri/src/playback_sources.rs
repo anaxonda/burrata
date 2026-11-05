@@ -7796,6 +7796,21 @@ async fn recover_inner(
         )
         .await;
     }
+    let pinned = !strict_recording_verification
+        || source_resolution_is_pinned(track, false, &settings, true);
+    // Recovery has a new request-scoped trace. Re-read contributor roles for
+    // automatic Spotify requests alongside extraction; prior matching evidence
+    // is not authority to restore these account-bound roles.
+    if !pinned && spotify_role_context::request_is_unmodified_exact_spotify_track(track) {
+        let acquisition = acquisition.clone();
+        let request = track.clone();
+        let role_cancel = cancel.clone();
+        spawn_spotify_role_lookup(&trace, track, deadline, move |loader_deadline| async move {
+            acquisition
+                .read_spotify_track_role_context(&request, loader_deadline, role_cancel)
+                .await
+        });
+    }
     let mut candidate = candidate.clone();
     let audio = acquisition
         .extract_playback_audio_fresh_or_prepared_traced(
@@ -7814,14 +7829,13 @@ async fn recover_inner(
         );
     }
     bind_linked_soundcloud_provider_id(&mut candidate, &audio);
-    let pinned = !strict_recording_verification
-        || source_resolution_is_pinned(track, false, &settings, true);
     let mut aliases = if pinned {
         crate::artist_credit_aliases::VerifiedPlaybackArtistAliases::default()
     } else {
         crate::artist_credit_aliases::cached_verified_playback_artist_aliases(store, track)
     };
     include_candidate_aliases(&mut aliases, track, &candidate, Some(&audio));
+    let _ = trace.await_spotify_track_role_context(track).await;
     let requires_identity_check = !pinned || candidate.provider == "bandcamp";
     if verify_with_playback_alias_context_traced(
         track,
@@ -15881,5 +15895,116 @@ mod spotify_role_loader_budget_tests {
         assert!(!expired
             .spotify_track_role_started
             .load(std::sync::atomic::Ordering::Acquire));
+    }
+}
+
+#[cfg(test)]
+mod spotify_role_recovery_regression_tests {
+    use super::*;
+    use serde::{de::DeserializeOwned, Serialize};
+    fn overlay<T: Default + Serialize + DeserializeOwned>(input: &Value) -> T {
+        let mut value = serde_json::to_value(T::default()).unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .extend(input.as_object().unwrap().clone());
+        serde_json::from_value(value).unwrap()
+    }
+    #[tokio::test]
+    async fn same_source_recovery_needs_fresh_roles_and_keeps_identity_guards() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/spotify-halka-role-context.json"
+        ))
+        .unwrap();
+        let track: Track = overlay(&fixture["freshRequestProjection"]);
+        let candidate: Candidate = overlay(&fixture["candidate"]);
+        let raw_metadata = candidate.source_metadata.clone();
+        let context = spotify_role_context::SpotifyTrackRoleContext::from_operation_for_track(
+            &track,
+            &fixture["operation"],
+        )
+        .unwrap();
+        let audio = acquisition::PreviewAudio {
+            provider_session: None,
+            url: "https://example.invalid/no-fetch.m4a".into(),
+            mime_type: "audio/mp4".into(),
+            codec: None,
+            bitrate_kbps: None,
+            duration_seconds: candidate.duration_seconds,
+            selected_format_id: None,
+            selected_format_has_video: false,
+            source_metadata: candidate.source_metadata.clone(),
+            resolved_title: Some(candidate.title.clone()),
+            resolved_provider_id: Some("z-wNY9Uu4E4".into()),
+            chapters: Some(vec![]),
+            expected_content_length: None,
+            headers: vec![],
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("role-recovery.sqlite")).unwrap();
+        let aliases = crate::artist_credit_aliases::VerifiedPlaybackArtistAliases::default();
+        let verify = |request: &Track, audio: &acquisition::PreviewAudio, trace: &SourceTrace| {
+            let mut fresh = candidate.clone();
+            let proof = verify_with_playback_alias_context_traced(
+                request,
+                &aliases,
+                &mut fresh,
+                audio,
+                true,
+                crate::recording_match::MatchLevel::Balanced,
+                &store,
+                crate::recording_match::FlexibleMatchingOptions::default(),
+                Some(trace),
+            );
+            (proof, fresh)
+        };
+        let initial = SourceTrace::new(None, None, None);
+        assert!(initial.remember_spotify_track_role_context(&track, context.clone()));
+        assert!(verify(&track, &audio, &initial).0.is_some());
+        let recovery = SourceTrace::new(None, None, None);
+        assert!(
+            verify(&track, &audio, &recovery).0.is_none(),
+            "persisted initial matching evidence cannot replace fresh role context"
+        );
+        let deadline = PlaybackDeadline::after(Duration::from_secs(1));
+        spawn_spotify_role_lookup(
+            &recovery,
+            &track,
+            deadline,
+            move |actual_deadline| async move {
+                assert_eq!(actual_deadline, deadline.instant());
+                Ok(Some(context))
+            },
+        );
+        assert!(recovery
+            .await_spotify_track_role_context(&track)
+            .await
+            .is_some());
+        let (proof, recovered) = verify(&track, &audio, &recovery);
+        assert!(
+            proof.is_some(),
+            "fresh roles restore strict same-source verification"
+        );
+        assert_eq!(recovered.id, candidate.id);
+        assert_eq!(
+            recovered.source_metadata.as_ref().unwrap()["artists"],
+            raw_metadata.as_ref().unwrap()["artists"],
+            "role projection remains comparison-only"
+        );
+        let mut wrong_id = audio.clone();
+        wrong_id.resolved_provider_id = Some("other-video".into());
+        assert!(verify(&track, &wrong_id, &recovery).0.is_none());
+        let mut wrong_title = audio.clone();
+        wrong_title.resolved_title = Some("Different Song".into());
+        wrong_title.source_metadata.as_mut().unwrap()["track"] = json!("Different Song");
+        assert!(verify(&track, &wrong_title, &recovery).0.is_none());
+        let mut wrong_artist = audio.clone();
+        wrong_artist.source_metadata.as_mut().unwrap()["artists"] = json!(["Different Performer"]);
+        wrong_artist.source_metadata.as_mut().unwrap()["artist"] = json!("Different Performer");
+        assert!(verify(&track, &wrong_artist, &recovery).0.is_none());
+        let mut edited = track.clone();
+        edited.provenance["manualFields"]["artist"] = json!(true);
+        assert!(recovery.spotify_track_role_context(&edited).is_none());
+        assert!(!spotify_role_context::request_is_unmodified_exact_spotify_track(&edited));
     }
 }

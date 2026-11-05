@@ -4,7 +4,7 @@ use super::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-const LIBRARY_PROJECTION_REVISION: i64 = 2;
+const LIBRARY_PROJECTION_REVISION: i64 = 3;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -427,22 +427,29 @@ fn canonicalize(mut entry: LibraryEntity, refs: &HashMap<String, Vec<String>>) -
 pub(super) fn track_entities(track: &Track) -> Vec<LibraryEntity> {
     let p = &track.provenance;
     let mut result = Vec::new();
-    if let Some(credits) = p.get("artistCredits").and_then(Value::as_array) {
-        for credit in credits {
-            let name = string_at(credit, &["/name", "/artist/name"]);
-            let provider = string_at(credit, &["/artist/provider", "/provider"])
-                .or_else(|| (track.provider == "spotify").then_some("spotify"));
-            let id = string_at(credit, &["/artist/id", "/artistId", "/providerId", "/id"]);
-            if let Some(name) = name {
-                let (provider, id) = artist_credit_identity(provider, id);
-                result.push(entity("artist", name, track, provider, id));
+    let manual_artist = p.pointer("/manualFields/artist") == Some(&json!(true));
+    if !manual_artist {
+        if let Some(credits) = p.get("artistCredits").and_then(Value::as_array) {
+            for credit in credits {
+                let name = string_at(credit, &["/name", "/artist/name"]);
+                let provider = string_at(credit, &["/artist/provider", "/provider"])
+                    .or_else(|| (track.provider == "spotify").then_some("spotify"));
+                let id = string_at(credit, &["/artist/id", "/artistId", "/providerId", "/id"]);
+                if let Some(name) = name {
+                    let (provider, id) = artist_credit_identity(provider, id);
+                    result.push(entity("artist", name, track, provider, id));
+                }
             }
         }
     }
     if result.is_empty() && !track.artist.trim().is_empty() && artist_fallback_is_trustworthy(track)
     {
-        let provider = string_at(p, &["/catalog/artist/provider", "/artist/provider"])
-            .or_else(|| (track.provider == "spotify").then_some("spotify"));
+        let provider = if manual_artist {
+            None
+        } else {
+            string_at(p, &["/catalog/artist/provider", "/artist/provider"])
+                .or_else(|| (track.provider == "spotify").then_some("spotify"))
+        };
         let embedded = if track.provider == "local"
             && p.pointer("/manualFields/artist") != Some(&json!(true))
         {
@@ -450,8 +457,11 @@ pub(super) fn track_entities(track: &Track) -> Vec<LibraryEntity> {
         } else {
             None
         };
-        let id =
-            embedded.or_else(|| string_at(p, &["/catalog/artist/id", "/artist/id", "/artistId"]));
+        let id = if manual_artist {
+            None
+        } else {
+            embedded.or_else(|| string_at(p, &["/catalog/artist/id", "/artist/id", "/artistId"]))
+        };
         result.push(entity(
             "artist",
             &track.artist,
@@ -1222,6 +1232,103 @@ mod tests {
         assert_eq!(
             stored_track.provenance["artistCredits"][1]["artist"]["id"],
             "0"
+        );
+    }
+
+    #[test]
+    fn manual_artist_override_replaces_stale_credits_and_survives_projection_upgrade() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("library.sqlite");
+        let store = Store::open(&path).unwrap();
+        let mut edited = track("manual-artist-overrides-credits");
+        edited.artist = "Catalog Artist".into();
+        edited.provenance = json!({
+            "artist":{"provider":"discogs","id":"255403"},
+            "artistCredits": [
+                {"name":"Catalog Artist","role":"Artist","artist":{"provider":"discogs","id":"255403"}},
+                {"name":"Guest Artist","role":"Artist","artist":{"provider":"discogs","id":"31262"}}
+            ]
+        });
+        store.save_library_tracks(&[edited.clone()]).unwrap();
+
+        edited.artist = "User Chosen Artist".into();
+        let edited = store.update_track(&edited).unwrap();
+        assert_eq!(edited.provenance["manualFields"]["artist"], true);
+        let artists = store
+            .list_library_entities("artist", None, "", 200, 0)
+            .unwrap();
+        assert_eq!(artists.total, 1);
+        assert_eq!(artists.items[0].name, "User Chosen Artist");
+        assert!(artists.items[0].provider.is_none());
+        assert!(artists.items[0].provider_id.is_none());
+
+        let mut structured = track("structured-multiple-credits-remain");
+        structured.provenance = json!({"artistCredits":[
+            {"name":"Earth, Wind & Fire","role":"Artist","artist":{"provider":"discogs","id":"atomic-band"}},
+            {"name":"Guest Vocalist","role":"Artist","artist":{"provider":"discogs","id":"guest-vocalist"}}
+        ]});
+        let projected = track_entities(&structured)
+            .into_iter()
+            .filter(|entry| entry.kind == "artist")
+            .map(|entry| entry.name)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            projected,
+            vec!["Earth, Wind & Fire".to_owned(), "Guest Vocalist".to_owned()]
+        );
+        store.save_library_tracks(&[structured]).unwrap();
+
+        let mut cleared = track("manual-empty-artist");
+        cleared.artist.clear();
+        cleared.provenance = json!({
+            "manualFields":{"artist":true},
+            "artistCredits":[{"name":"Stale Catalog Artist","artist":{"provider":"discogs","id":"stale"}}]
+        });
+        assert!(track_entities(&cleared)
+            .into_iter()
+            .all(|entry| entry.kind != "artist"));
+
+        {
+            let conn = store.lock_connection().unwrap();
+            conn.execute("UPDATE library_entity_state SET dirty=0", [])
+                .unwrap();
+            conn.execute(
+                "UPDATE library_entity_projection_revision SET revision=2 WHERE id=1",
+                [],
+            )
+            .unwrap();
+        }
+        drop(store);
+
+        let upgraded = Store::open(&path).unwrap();
+        let upgraded_artists = upgraded
+            .list_library_entities("artist", None, "", 200, 0)
+            .unwrap()
+            .items
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            upgraded_artists,
+            [
+                "Earth, Wind & Fire".to_owned(),
+                "Guest Vocalist".to_owned(),
+                "User Chosen Artist".to_owned()
+            ]
+            .into_iter()
+            .collect(),
+            "revision 2 projections must rebuild with the manual artist value",
+        );
+        drop(upgraded);
+
+        let reopened = Store::open(&path).unwrap();
+        assert_eq!(
+            reopened
+                .list_library_entities("artist", None, "", 200, 0)
+                .unwrap()
+                .total,
+            3,
+            "the upgraded projection must remain clean and idempotent",
         );
     }
 
