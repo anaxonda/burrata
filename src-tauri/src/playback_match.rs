@@ -1729,27 +1729,29 @@ mod tests {
     fn old_evaluator_acceptance_is_discarded_and_current_policy_is_reassessed() {
         let (_directory, store) = store();
         let track = request();
-        let mut candidate = candidate();
-        candidate.source_metadata.as_mut().unwrap()["matching"] = json!({
-            "evaluatorVersion":"27",
-            "level":"exact",
-            "assessment":{"action":"accept","relationship":"sameRecording"}
-        });
+        for old_version in ["27", "28"] {
+            let mut candidate = candidate();
+            candidate.source_metadata.as_mut().unwrap()["matching"] = json!({
+                "evaluatorVersion":old_version,
+                "level":"exact",
+                "assessment":{"action":"accept","relationship":"sameRecording"}
+            });
 
-        assert_eq!(VERSION, "28");
-        assert!(!cached_direct_allowed(
-            &store,
-            &track,
-            &candidate,
-            MatchLevel::Exact
-        ));
-        let current =
-            recording_match::assess(&track, &candidate, MatchLevel::Exact, MatchStage::Resolved);
-        assert_eq!(current.dimensions.title, Comparison::Agree);
-        assert_eq!(
-            candidate.source_metadata.as_ref().unwrap()["matching"]["evaluatorVersion"],
-            "27"
-        );
+            assert_ne!(VERSION, old_version);
+            assert!(!cached_direct_allowed(
+                &store,
+                &track,
+                &candidate,
+                MatchLevel::Exact
+            ));
+            let current =
+                recording_match::assess(&track, &candidate, MatchLevel::Exact, MatchStage::Resolved);
+            assert_eq!(current.dimensions.title, Comparison::Agree);
+            assert_eq!(
+                candidate.source_metadata.as_ref().unwrap()["matching"]["evaluatorVersion"],
+                old_version
+            );
+        }
     }
     #[test]
     fn live_amame_search_candidate_is_eligible_for_bounded_inspection() {
