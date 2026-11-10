@@ -236,7 +236,9 @@ function bandcampCollection(doc,url){
     if(!href)continue;
     const rawId=row.getAttribute('data-track-id')||row.getAttribute('data-item-id')||row.querySelector('[data-track-id]')?.getAttribute('data-track-id');
     const id=/^\d{1,20}$/.test(String(rawId||''))?String(rawId):null;
-    entries.push(entry(id,href,artist,anchor.textContent.trim(),entries.length+1,{album:text(doc,'h1')}));
+    const artwork=row.querySelector('.artwork img,.art img,img');
+    const artworkUrl=link(artwork?.getAttribute('src')||artwork?.getAttribute('srcset')?.split(',').at(-1)?.trim().split(/\s+/)[0],url);
+    entries.push(entry(id,href,artist,anchor.textContent.trim(),entries.length+1,{album:text(doc,'h1'),artworkUrl}));
   }
   if(!entries.length)throw new Error('Bandcamp collections list albums, not song tracks. Open an album tracklist to import its songs.');
   return {schemaVersion:1,provider:'bandcamp',kind:'playlist',title:safeTitle(doc),sourceUrl:url,capturedAt:new Date().toISOString(),complete:false,expectedTotal:null,warnings:['Only rendered song rows were captured; album cards were not treated as tracks.'],entries};

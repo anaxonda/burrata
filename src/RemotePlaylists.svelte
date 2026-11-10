@@ -479,11 +479,23 @@
   function isTerminal(job: ImportJob) { return ["complete", "completed", "partial", "failed", "canceled", "cancelled"].includes((job.state || "").toLowerCase()); }
   const providerName = (value: Provider) => value === "spotify" ? "Spotify" : "YouTube";
   const visibility = (item: RemotePlaylist) => item.visibility || "";
+  function safeYoutubeChannelUrl(value: string): string | null {
+    try {
+      const url = new URL(value);
+      if (url.protocol !== "https:" || !["www.youtube.com", "youtube.com", "music.youtube.com"].includes(url.hostname)
+        || url.username || url.password || (url.port && url.port !== "443") || url.search || url.hash) return null;
+      const channel = url.pathname.match(/^\/channel\/(UC[A-Za-z0-9_-]{20,30})\/?$/);
+      if (channel) return `https://www.youtube.com/channel/${channel[1]}`;
+      const handle = url.pathname.match(/^\/@([A-Za-z0-9._-]{1,100})\/?$/);
+      return handle ? `https://www.youtube.com/@${handle[1]}` : null;
+    } catch { return null; }
+  }
 </script>
 
 <section class="remote-playlists" aria-label={provider === "spotify" ? "Spotify playlists" : "YouTube playlists"} bind:this={scrollElement} onscroll={(event) => { scrollTop = (event.currentTarget as HTMLElement).scrollTop; }}>
   {#if profileOnly}
-    <header class="remote-profile-heading"><div><span>Public playlists by</span><strong title={profileUrl}>{profileUrl}</strong></div><button disabled={loading || selectingAll || importing} onclick={() => void browse()}>Refresh</button></header>
+    {@const channelUrl = provider === "youtube" ? safeYoutubeChannelUrl(profileUrl) : null}
+    <header class="remote-profile-heading"><div><span>{provider === "youtube" ? "YouTube channel" : "Public playlists by"}</span><strong title={profileUrl}>{profileUrl}</strong></div>{#if channelUrl}<a class="remote-open-channel" href={channelUrl} target="_blank" rel="noreferrer">Open channel in YouTube ↗</a>{/if}<button disabled={loading || selectingAll || importing} onclick={() => void browse()}>Refresh</button></header>
   {:else}<nav class="remote-provider-tabs" aria-label="Playlist provider">
     <button class:active={provider === "spotify"} aria-pressed={provider === "spotify"} disabled={selectingAll || importing} onclick={() => { invalidateBrowseContext(); provider = "spotify"; playlistUrls = []; directUrl = ""; sourceMode = "mine"; void browse(); }}>Spotify</button>
     <button class:active={provider === "youtube"} aria-pressed={provider === "youtube"} disabled={selectingAll || importing} onclick={() => { invalidateBrowseContext(); provider = "youtube"; playlistUrls = []; directUrl = ""; sourceMode = "mine"; void browse(); }}>YouTube</button>
@@ -558,7 +570,7 @@
             {#if importedIds.includes(item.id) || item.imported}<span class="remote-imported">Imported</span>{/if}
           </li>
         {/each}
-        {:else if !loading}<li class="remote-empty">No playlists shown. Choose a source and browse.</li>
+        {:else if !loading && !error}<li class="remote-empty">{profileOnly ? `No public playlists found for ${provider === "youtube" ? "this YouTube channel" : "this profile"}.` : "No playlists shown. Choose a source and browse."}</li>
         {/if}
       </ul>
       {#if cursor}<button class="remote-more" disabled={loading || selectingAll} onclick={() => void browse(false)}>Load more</button>{/if}

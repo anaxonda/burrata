@@ -35,6 +35,13 @@ function render(props: Record<string, unknown> = {}) {
 }
 
 describe("TrackList", () => {
+  it("renders imported track artwork from artworkUrl", async () => {
+    const artworkUrl = "https://f4.bcbits.com/img/a12345_10.jpg";
+    const target = render({ tracks: [{ ...tracks[0]!, artworkUrl }] });
+    await tick();
+    expect(target.querySelector(".artwork img")?.getAttribute("src")).toBe(artworkUrl);
+  });
+
   it("reports 10k loaded rows with a virtual window and occurrence-specific visible controls", async () => {
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 1; });
     const rows: Track[] = Array.from({ length: 10_000 }, (_, index) => ({

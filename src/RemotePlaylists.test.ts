@@ -20,7 +20,7 @@ function deferred<T = unknown>() {
   const promise = new Promise<T>(done => { resolve = done; });
   return { promise, resolve };
 }
-function render(call: (command: string, args?: Record<string, unknown>) => Promise<unknown>, props: { onClose?: () => void; initialOwner?: string; initialPlaylistUrl?: string; initialProvider?: "spotify" | "youtube"; onBrowseOwner?: (provider: "spotify" | "youtube", ownerUrl: string) => void } = {}) {
+function render(call: (command: string, args?: Record<string, unknown>) => Promise<unknown>, props: { onClose?: () => void; initialOwner?: string; initialPlaylistUrl?: string; initialProvider?: "spotify" | "youtube"; profileOnly?: boolean; onBrowseOwner?: (provider: "spotify" | "youtube", ownerUrl: string) => void } = {}) {
   const target = document.createElement("div"); document.body.append(target);
   const instance = mount(RemotePlaylists, { target, props: { call, onImported: vi.fn(), initialProvider: "spotify", ...props } });
   destroy = () => unmount(instance);
@@ -620,6 +620,65 @@ describe("RemotePlaylists", () => {
     });
     render(call, { initialOwner: "artist-profile-1" }); await settle();
     expect(call).toHaveBeenCalledWith("list_remote_playlists", expect.objectContaining({ provider: "spotify", ownerId: "artist-profile-1", requestId: expect.any(String) }));
+  });
+
+  it("opens a YouTube channel owner route with the channel URL on its initial browse", async () => {
+    const call = vi.fn(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "list_remote_playlist_bindings") return [];
+      if (command === "list_remote_playlists") return { provider: "youtube", items: [], nextCursor: null, complete: true };
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const channelUrl = "https://www.youtube.com/channel/UC1234567890123456789012";
+    const target = render(call, { initialProvider: "youtube", initialOwner: channelUrl, profileOnly: true });
+    await settle();
+    expect(call).toHaveBeenCalledWith("list_remote_playlists", expect.objectContaining({ provider: "youtube", ownerId: channelUrl, requestId: expect.any(String) }));
+    expect(target.querySelector('[aria-label="YouTube playlists"]')).not.toBeNull();
+    expect(target.textContent).toContain("YouTube channel");
+    expect(target.textContent).toContain(channelUrl);
+    expect(target.textContent).toContain("No public playlists found for this YouTube channel.");
+    const openChannel = target.querySelector<HTMLAnchorElement>(".remote-open-channel")!;
+    expect(openChannel.href).toBe(channelUrl);
+    expect(openChannel.target).toBe("_blank");
+    expect(call).not.toHaveBeenCalledWith("open_external_url", expect.anything());
+  });
+
+  it("keeps a failed YouTube channel browse distinct from a confirmed empty channel and allows retry", async () => {
+    const channelUrl = "https://www.youtube.com/channel/UC8TZwtZ17WKFJSmwTZQpBTA";
+    let browseAttempts = 0;
+    const call = vi.fn(async (command: string) => {
+      if (command === "list_remote_playlist_bindings") return [];
+      if (command === "list_remote_playlists") {
+        browseAttempts++;
+        if (browseAttempts === 1) throw new Error("PROVIDER_CHANGED: YouTube returned an unsupported response.");
+        return { provider: "youtube", items: [], nextCursor: null, complete: true };
+      }
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const target = render(call, { initialProvider: "youtube", initialOwner: channelUrl, profileOnly: true });
+    await settle();
+
+    expect(target.querySelector('[role="alert"]')?.textContent).toContain("Could not browse YouTube playlists");
+    expect(target.querySelector('[role="alert"]')?.textContent).toContain("PROVIDER_CHANGED");
+    expect(target.textContent).toContain(channelUrl);
+    expect(target.querySelector(".remote-open-channel")?.getAttribute("href")).toBe(channelUrl);
+    expect(target.textContent).not.toContain("No public playlists found for this YouTube channel.");
+
+    target.querySelector<HTMLButtonElement>(".remote-profile-heading button")!.click();
+    await settle();
+    expect(browseAttempts).toBe(2);
+    expect(target.querySelector('[role="alert"]')).toBeNull();
+    expect(target.textContent).toContain("No public playlists found for this YouTube channel.");
+  });
+
+  it("does not render an external channel link for an untrusted YouTube owner URL", async () => {
+    const call = vi.fn(async (command: string) => {
+      if (command === "list_remote_playlist_bindings") return [];
+      if (command === "list_remote_playlists") return { items: [], complete: true };
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const target = render(call, { initialProvider: "youtube", initialOwner: "https://evil.example/channel/UC1234567890123456789012", profileOnly: true });
+    await settle();
+    expect(target.querySelector(".remote-open-channel")).toBeNull();
   });
 
   it("accepts official Spotify profile URLs with dotted, underscored, and hyphenated IDs", async () => {

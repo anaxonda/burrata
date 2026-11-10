@@ -772,6 +772,22 @@ mod tests {
         assert!(!names.contains(&"Misleading hint".into()));
         assert!(profile_names(&raw, "Different Choir").is_empty());
     }
+    #[test]
+    fn youtube_official_audio_fixture_queries_the_parsed_song_and_artist() {
+        let snapshot = serde_json::json!({
+            "engine":"native", "status":"paused",
+            "track":{"id":"youtube:3KDKLR7D5-4","provider":"youtube","providerId":"3KDKLR7D5-4","title":"Sui Generis - Cuando Ya Me Empiece a Quedar Solo (Official Audio)","artist":"","durationSeconds":231.0}
+        });
+        let (_, request, id) =
+            context(&snapshot, None).expect("YouTube title supplies bounded credits");
+        assert_eq!(id.as_deref(), Some("youtube:3KDKLR7D5-4"));
+        assert_eq!(request.track_name, "Cuando Ya Me Empiece a Quedar Solo");
+        assert_eq!(request.artist_name, "Sui Generis");
+        let lookups = queries(&[request]);
+        assert!(lookups.contains(&("track_name", "Cuando Ya Me Empiece a Quedar Solo".into())));
+        assert!(lookups.contains(&("q", "cuando ya me empiece a quedar solo".into())));
+        assert!(!lookups.contains(&("q", "sui generis".into())));
+    }
     #[tokio::test]
     #[ignore = "live public LRCLIB and MusicBrainz lookup; sends metadata only"]
     async fn live_choir_discovery_returns_selectable_plain_lyrics() {

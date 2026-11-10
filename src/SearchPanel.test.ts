@@ -1025,6 +1025,100 @@ describe("SearchPanel", () => {
     expect(target.textContent).toContain("Second");
   });
 
+  it("auto-queues only new search rows when enabled and never starts playback", async () => {
+    const track = (id: string) => ({ id, provider: "library", providerId: id, sourceUrl: `local:${id}`, artist: "Artist", title: `Song ${id}`, favorite: false, provenance: {} });
+    const first = { id: "row-a", kind: "track", sourceId: "library", title: "Song a", track: track("a") };
+    const second = { id: "row-b", kind: "track", sourceId: "library", title: "Song b", track: track("b") };
+    const third = { id: "row-c", kind: "track", sourceId: "library", title: "Song c", track: track("c") };
+    const searchSource = vi.fn(async ({ cursor }: { cursor?: string | null }) => cursor === "page-two"
+      ? { complete: false, nextCursor: "page-three", results: [first, second, second] }
+      : cursor === "page-three"
+        ? { complete: true, results: [second, third] }
+        : { complete: false, nextCursor: "page-two", results: [first] });
+    const onQueueTracks = vi.fn();
+    const onPlay = vi.fn();
+    const target = render({ searchSource, onQueueTracks, onPlay }); await settle();
+    const autoQueue = target.querySelector<HTMLInputElement>('[aria-label="Automatically queue newly loaded search results"]')!;
+    expect(autoQueue.checked).toBe(false);
+    const input = target.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
+    input.value = "song"; input.dispatchEvent(new Event("input", { bubbles: true }));
+    target.querySelector<HTMLFormElement>(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); await settle();
+    expect(onQueueTracks).not.toHaveBeenCalled();
+
+    autoQueue.click(); await settle();
+    expect(storage.get("burrata.discovery.auto-queue-search-results.v1")).toBe("true");
+    target.querySelector<HTMLButtonElement>(".load-more")!.click(); await settle();
+    expect(onQueueTracks).toHaveBeenCalledTimes(1);
+    expect(onQueueTracks).toHaveBeenLastCalledWith([second.track], "append");
+    target.querySelector<HTMLButtonElement>(".load-more")!.click(); await settle();
+    expect(onQueueTracks).toHaveBeenCalledTimes(2);
+    expect(onQueueTracks).toHaveBeenLastCalledWith([third.track], "append");
+    expect(onQueueTracks).not.toHaveBeenCalledWith([first.track], "append");
+    expect(onPlay).not.toHaveBeenCalled();
+  });
+
+  it("scopes automatic queue deduplication to each search generation", async () => {
+    storage.set("burrata.discovery.auto-queue-search-results.v1", "true");
+    const track = { id: "same-track", provider: "library", providerId: "same-track", sourceUrl: "local:same-track", artist: "Artist", title: "Same track", favorite: false, provenance: {} };
+    const row = { id: "same-row", kind: "track", sourceId: "library", title: track.title, track };
+    const searchSource = vi.fn(async () => ({ complete: true, results: [row] }));
+    const onQueueTracks = vi.fn();
+    const target = render({ searchSource, onQueueTracks }); await settle();
+    const input = target.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
+    const submit = async (query: string) => {
+      input.value = query; input.dispatchEvent(new Event("input", { bubbles: true }));
+      target.querySelector<HTMLFormElement>(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); await settle();
+    };
+    await submit("first query");
+    await submit("second query");
+    expect(searchSource).toHaveBeenCalledTimes(2);
+    expect(onQueueTracks).toHaveBeenNthCalledWith(1, [track], "append");
+    expect(onQueueTracks).toHaveBeenNthCalledWith(2, [track], "append");
+  });
+
+  it("does not auto-queue a late page after a newer search starts", async () => {
+    storage.set("burrata.discovery.auto-queue-search-results.v1", "true");
+    const oldPage = deferred<{ complete: boolean; results: unknown[] }>();
+    const oldTrack = { id: "old", provider: "library", providerId: "old", sourceUrl: "local:old", artist: "Artist", title: "Old", favorite: false, provenance: {} };
+    const newTrack = { id: "new", provider: "library", providerId: "new", sourceUrl: "local:new", artist: "Artist", title: "New", favorite: false, provenance: {} };
+    const searchSource = vi.fn(async ({ query }: { query: string }) => query === "old query"
+      ? oldPage.promise
+      : { complete: true, results: [{ id: "new-row", kind: "track", sourceId: "library", title: "New", track: newTrack }] });
+    const onQueueTracks = vi.fn();
+    const target = render({ searchSource, onQueueTracks }); await settle();
+    const input = target.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
+    const submit = (query: string) => {
+      input.value = query; input.dispatchEvent(new Event("input", { bubbles: true }));
+      target.querySelector<HTMLFormElement>(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    };
+    submit("old query"); await settle();
+    submit("new query"); await settle();
+    oldPage.resolve({ complete: true, results: [{ id: "old-row", kind: "track", sourceId: "library", title: "Old", track: oldTrack }] });
+    await settle();
+    expect(onQueueTracks).toHaveBeenCalledTimes(1);
+    expect(onQueueTracks).toHaveBeenCalledWith([newTrack], "append");
+    expect(onQueueTracks).not.toHaveBeenCalledWith([oldTrack], "append");
+  });
+
+  it("does not auto-queue a failed source response and queues its successful retry once", async () => {
+    storage.set("burrata.discovery.auto-queue-search-results.v1", "true");
+    const track = { id: "retry-track", provider: "library", providerId: "retry-track", sourceUrl: "local:retry-track", artist: "Artist", title: "Retry result", favorite: false, provenance: {} };
+    const searchSource = vi.fn()
+      .mockRejectedValueOnce(new Error("Source temporarily unavailable"))
+      .mockResolvedValueOnce({ complete: true, results: [{ id: "retry-row", kind: "track", sourceId: "library", title: track.title, track }] });
+    const onQueueTracks = vi.fn();
+    const target = render({ searchSource, onQueueTracks }); await settle();
+    const input = target.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
+    input.value = "retry"; input.dispatchEvent(new Event("input", { bubbles: true }));
+    target.querySelector<HTMLFormElement>(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); await settle();
+    expect(target.textContent).toContain("Source temporarily unavailable");
+    expect(onQueueTracks).not.toHaveBeenCalled();
+
+    target.querySelector<HTMLButtonElement>(".notice.error button")!.click(); await settle();
+    expect(onQueueTracks).toHaveBeenCalledOnce();
+    expect(onQueueTracks).toHaveBeenCalledWith([track], "append");
+  });
+
   it("stops cursor cycles, retains collected rows and resets cursor history for a new search", async () => {
     const searchSource = vi.fn(async ({ cursor }: { cursor?: string | null }) => {
       const id = cursor || "first";

@@ -33,6 +33,8 @@ pub struct LyricsRequest {
 #[serde(rename_all = "camelCase")]
 pub struct LyricsRequestInput {
     #[serde(default)]
+    pub provider: Option<String>,
+    #[serde(default)]
     pub track_id: Option<String>,
     #[serde(default)]
     pub local_path: Option<String>,
@@ -566,15 +568,81 @@ pub(crate) fn request_from_snapshot(snapshot: &Value) -> Option<LyricsRequest> {
                 .as_f64()
                 .filter(|d| valid_duration(*d))
         })?;
+    let title = track.get("title")?.as_str()?;
+    let artist = track.get("artist")?.as_str()?;
+    let identity = inferred_youtube_upload_identity(
+        track.get("provider").and_then(Value::as_str),
+        title,
+        artist,
+    );
     Some(LyricsRequest {
-        track_name: track.get("title")?.as_str()?.to_owned(),
-        artist_name: track.get("artist")?.as_str()?.to_owned(),
+        track_name: identity
+            .as_ref()
+            .map_or_else(|| title.to_owned(), |(title, _)| title.clone()),
+        artist_name: identity
+            .as_ref()
+            .map_or_else(|| artist.to_owned(), |(_, artist)| artist.clone()),
         album_name: track
             .get("album")
             .and_then(Value::as_str)
             .map(str::to_owned),
         duration_seconds: duration,
     })
+}
+
+/// Recover exact title credits only from YouTube's explicit official-upload
+/// presentation form when the source has no usable byline. Ordinary hyphenated
+/// titles and non-YouTube metadata remain unchanged.
+fn inferred_youtube_upload_identity(
+    provider: Option<&str>,
+    title: &str,
+    artist: &str,
+) -> Option<(String, String)> {
+    if provider != Some("youtube") {
+        return None;
+    }
+    let artist_key = crate::matching::normalize(artist);
+    if !artist_key.is_empty()
+        && !matches!(
+            artist_key.as_str(),
+            "unknown" | "unknown artist" | "artist unknown" | "not available" | "n a" | "na"
+        )
+    {
+        return None;
+    }
+    let source_title = title.trim();
+    let (base, presentation) = crate::matching::split_balanced_trailing_parenthetical(source_title)
+        .or_else(|| {
+            source_title
+                .strip_suffix(']')
+                .and_then(|value| value.rsplit_once('['))
+        })?;
+    if !matches!(
+        crate::matching::normalize(presentation).as_str(),
+        "official audio"
+            | "audio oficial"
+            | "official video"
+            | "official music video"
+            | "official lyric video"
+            | "lyric video"
+            | "lyrics"
+            | "visualizer"
+    ) {
+        return None;
+    }
+    let (artist, song) = base.split_once(" - ")?;
+    let artist = artist.trim();
+    let song = song.trim();
+    if artist.is_empty()
+        || song.is_empty()
+        || artist.len() > 200
+        || song.len() > 512
+        || artist.chars().any(char::is_control)
+        || song.chars().any(char::is_control)
+    {
+        return None;
+    }
+    Some((song.to_owned(), artist.to_owned()))
 }
 
 pub async fn get_current_track_lyrics_from_snapshot(
@@ -837,7 +905,21 @@ pub(crate) fn request_for_current_track(
             {
                 None
             } else {
-                Some(input.into())
+                let identity = inferred_youtube_upload_identity(
+                    input.provider.as_deref(),
+                    &input.track_name,
+                    &input.artist_name,
+                );
+                Some(LyricsRequest {
+                    track_name: identity
+                        .as_ref()
+                        .map_or(input.track_name.clone(), |(title, _)| title.clone()),
+                    artist_name: identity
+                        .as_ref()
+                        .map_or(input.artist_name.clone(), |(_, artist)| artist.clone()),
+                    album_name: input.album_name,
+                    duration_seconds: input.duration_seconds,
+                })
             }
         })
     }
@@ -1989,6 +2071,7 @@ mod tests {
 
     fn visible_input() -> LyricsRequestInput {
         LyricsRequestInput {
+            provider: Some("catalog".into()),
             track_id: None,
             local_path: None,
             track_name: "Visible Song".into(),
@@ -2015,6 +2098,59 @@ mod tests {
         });
         let request = request_for_current_track(&native, Some(visible_input())).unwrap();
         assert_eq!(request.track_name, "Native Song");
+    }
+
+    #[test]
+    fn youtube_official_upload_title_recovers_missing_byline_for_lyrics_only() {
+        let video_id = "3KDKLR7D5-4";
+        let title = "Sui Generis - Cuando Ya Me Empiece a Quedar Solo (Official Audio)";
+        let native = serde_json::json!({
+            "engine":"native", "status":"playing",
+            "track":{"id":format!("youtube:{video_id}"),"provider":"youtube","providerId":video_id,"title":title,"artist":"","durationSeconds":231.0}
+        });
+        let from_snapshot = request_from_snapshot(&native).unwrap();
+        assert_eq!(
+            from_snapshot.track_name,
+            "Cuando Ya Me Empiece a Quedar Solo"
+        );
+        assert_eq!(from_snapshot.artist_name, "Sui Generis");
+
+        let webview = serde_json::json!({"engine":"webview","status":"playing"});
+        let visible = LyricsRequestInput {
+            provider: Some("youtube".into()),
+            track_id: Some(format!("youtube:{video_id}")),
+            local_path: None,
+            track_name: title.into(),
+            artist_name: "Artist unknown".into(),
+            album_name: None,
+            duration_seconds: 231.0,
+            playback_range: None,
+            radio: false,
+            detection: None,
+            detected_track_verified: false,
+        };
+        let from_visible = request_for_current_track(&webview, Some(visible)).unwrap();
+        assert_eq!(from_visible.track_name, from_snapshot.track_name);
+        assert_eq!(from_visible.artist_name, from_snapshot.artist_name);
+        assert_eq!(native["track"]["artist"], "");
+
+        let mut known_byline = native.clone();
+        known_byline["track"]["artist"] = serde_json::json!("Verified byline");
+        let known_request = request_from_snapshot(&known_byline).unwrap();
+        assert_eq!(known_request.track_name, title);
+        assert_eq!(known_request.artist_name, "Verified byline");
+
+        let mut arbitrary_set = native.clone();
+        arbitrary_set["track"]["title"] = serde_json::json!("Sui Generis - London Concert Set");
+        let set_request = request_from_snapshot(&arbitrary_set).unwrap();
+        assert_eq!(set_request.track_name, "Sui Generis - London Concert Set");
+        assert_eq!(set_request.artist_name, "");
+
+        let mut other_provider = native.clone();
+        other_provider["track"]["provider"] = serde_json::json!("catalog");
+        let untouched = request_from_snapshot(&other_provider).unwrap();
+        assert_eq!(untouched.track_name, title);
+        assert_eq!(untouched.artist_name, "");
     }
 
     #[test]

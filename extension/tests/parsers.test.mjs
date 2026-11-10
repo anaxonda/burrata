@@ -256,8 +256,8 @@ test('Bandcamp album imports explicit TralbumData tracks; collections never conv
  const page=doc(readFileSync(new URL('./fixtures/bandcamp-album.html',import.meta.url),'utf8'));
  const s=extract(page,'https://jpegmafia.bandcamp.com/album/lp');
  assert.equal(s.kind,'album');assert.equal(s.title,'LP!');assert.deepEqual(s.entries.map(e=>e.providerId),['987654','987655']);assert.deepEqual(s.entries.map(e=>e.position),[1,2]);assert.equal(s.entries[0].durationSeconds,91.5);
- const songRows=extract(doc('<h1>Mix</h1><div class="track_row_view"><a href="/track/song">Song</a><a href="/artist">Artist</a></div>'),'https://bandcamp.com/collection/example');
- assert.equal(songRows.kind,'playlist');assert.equal(songRows.entries[0].providerId,null);assert.match(songRows.entries[0].sourceUrl,/\/track\/song$/);
+ const songRows=extract(doc('<h1>Mix</h1><div class="track_row_view"><img src="https://f4.bcbits.com/img/a123.jpg"><a href="/track/song">Song</a><a href="/artist">Artist</a></div><div class="track_row_view"><img srcset="https://f4.bcbits.com/img/a124_2.jpg 2x"><a href="/track/song-two">Song Two</a><a href="/artist">Artist</a></div><div class="track_row_view"><a href="/track/song-three">Song Three</a><a href="/artist">Artist</a></div><div class="track_row_view"><img src="data:image/gif;base64,AAAA"><a href="/track/song-four">Song Four</a><a href="/artist">Artist</a></div>'),'https://bandcamp.com/collection/example');
+ assert.equal(songRows.kind,'playlist');assert.deepEqual(songRows.entries.map(e=>e.providerId),[null,null,null,null]);assert.match(songRows.entries[0].sourceUrl,/\/track\/song$/);assert.deepEqual(songRows.entries.map(e=>e.artworkUrl),['https://f4.bcbits.com/img/a123.jpg','https://f4.bcbits.com/img/a124_2.jpg',null,null]);
  assert.throws(()=>extract(doc('<h1>Collection</h1><a href="/album/lp">LP!</a>'),'https://bandcamp.com/collection/example'),/collections list albums, not song tracks/);
 });
 

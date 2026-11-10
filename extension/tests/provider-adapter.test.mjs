@@ -8,6 +8,41 @@ const source=readFileSync(new URL('../background.js',import.meta.url),'utf8');
 const sharedSpotifySource=readFileSync(new URL('../provider-operations.js',import.meta.url),'utf8');
 const youtubeSessionSource=readFileSync(new URL('../youtube-session-provider.js',import.meta.url),'utf8');
 
+const fixtureYoutubeChannel='UC8TZwtZ17WKFJSmwTZQpBTA';
+const fixtureYoutubePlaylistParams='EglwbGF5bGlzdHO4AQCSAwDyBgQKAkIA';
+const fixtureYoutubeOwnerUrl=`https://www.youtube.com/channel/${fixtureYoutubeChannel}`;
+const fixturePlaylistCard=(id,title)=>({lockupViewModel:{contentType:'LOCKUP_CONTENT_TYPE_PLAYLIST',contentId:id,metadata:{lockupMetadataViewModel:{title:{content:title}}}}});
+const fixtureChannelPlaylistBody=(items,extraSelected=[],unselected=[])=>({contents:{twoColumnBrowseResultsRenderer:{tabs:[
+ {tabRenderer:{selected:false,content:{sectionListRenderer:{contents:[{itemSectionRenderer:{contents:[{gridRenderer:{targetId:'unselected-home-grid',items:unselected}}]}}]}}}},
+ {tabRenderer:{selected:true,content:{sectionListRenderer:{contents:[{itemSectionRenderer:{contents:[{gridRenderer:{targetId:'channel-playlists-grid',items,continuations:extraSelected}}]}}]}}}},
+]}}});
+function makeYoutubeSessionContext(fetchImpl){
+ const context=vm.createContext({fetch:fetchImpl,crypto:webcrypto,URL,URLSearchParams,TextEncoder,AbortController,Headers,setTimeout,clearTimeout});
+ vm.runInContext(youtubeSessionSource,context);
+ return context;
+}
+function youtubeChannelFetch({browseResponse,continuationResponse,ownerResolved=fixtureYoutubeChannel,ownerParams=fixtureYoutubePlaylistParams}){
+ const calls=[];
+ const json=(body,status=200)=>({ok:status>=200&&status<300,status,headers:new Headers(),text:async()=>JSON.stringify(body)});
+ const fetchImpl=async(url,options={})=>{
+  const target=String(url),endpoint=target.split('/youtubei/v1/')[1]?.split('?')[0],body=options.body?JSON.parse(options.body):null;
+  calls.push({target,endpoint,body});
+  if(endpoint==='account/accounts_list')return json({contents:[{accountItemSectionRenderer:{contents:[{accountItem:{isSelected:true,channelHandle:{runs:[{text:'@fixture_handle'}]}}}]}}]});
+  if(endpoint==='account/account_menu')return json({actions:[{openPopupAction:{popup:{multiPageMenuRenderer:{header:{activeAccountHeaderRenderer:{channelHandle:{runs:[{text:'@fixture_handle'}]}}}}}}}]});
+  if(endpoint==='navigation/resolve_url'){
+   if(body.url==='https://www.youtube.com/@fixture_handle')return json({endpoint:{browseEndpoint:{browseId:fixtureYoutubeChannel}}});
+   return json({endpoint:{browseEndpoint:{browseId:ownerResolved,params:ownerParams}}});
+  }
+  if(endpoint==='browse')return json(body?.continuation?continuationResponse:browseResponse);
+  throw new Error(`Unexpected YouTube fixture request: ${endpoint}`);
+ };
+ return {calls,fetchImpl};
+}
+const youtubeSessionFixture={origin:'https://www.youtube.com',cookieHeader:'SAPISID=fixture-session-cookie',accountId:fixtureYoutubeChannel,clientName:'WEB',clientVersion:'1.20261001.00.00',apiKey:'fakeApiKey12345678'};
+async function runYoutubePublicChannel(ownerId,fetchImpl,cursor){
+ return makeYoutubeSessionContext(fetchImpl).BurrataYouTubeSessionProvider.run('listPlaylists',{ownerId,...(cursor?{cursor}:{})},youtubeSessionFixture,{fetchImpl});
+}
+
 test('Spotify playlist rows resolve wrapper URIs, preserve duplicate UIDs, and retain unavailable rows',async()=>{
  const trackUri='spotify:track:0123456789abcdefghij';
  const item=(uid,data,uri)=>({uid,itemV2:{...(uri?{_uri:uri}:{}),data}});
@@ -473,12 +508,155 @@ test('YouTube own library parses the fixed playlist feed and resolves public han
  assert.equal(publicList.items[0].ownerId,'https://www.youtube.com/@publichandle/playlists');assert.equal(publicList.items[0].title,'User playlist');
 });
 
+test('YouTube public channel browse preserves safe HTTP status without exposing response details',async()=>{
+ const calls=[];
+ const fetchImpl=async(url,options={})=>{
+  const target=String(url),endpoint=target.split('/youtubei/v1/')[1]?.split('?')[0],body=options.body?JSON.parse(options.body):null;
+  calls.push({url:target,options,endpoint,body});
+  if(endpoint==='account/accounts_list')return {ok:true,status:200,headers:new Headers(),text:async()=>JSON.stringify({contents:[{accountItemSectionRenderer:{contents:[{accountItem:{isSelected:true,channelHandle:{runs:[{text:'@fixture_handle'}]}}}]}}]})};
+  if(endpoint==='navigation/resolve_url'){
+   const url=JSON.parse(options.body).url;
+   const browseId=url.endsWith('/playlists')?'UC8TZwtZ17WKFJSmwTZQpBTA':'UCaaaaaaaaaaaaaaaaaaaaaa';
+   return {ok:true,status:200,headers:new Headers(),text:async()=>JSON.stringify({endpoint:{browseEndpoint:{browseId,params:fixtureYoutubePlaylistParams}}})};
+  }
+  if(endpoint==='account/account_menu')return {ok:true,status:200,headers:new Headers(),text:async()=>JSON.stringify({actions:[{openPopupAction:{popup:{multiPageMenuRenderer:{header:{activeAccountHeaderRenderer:{channelHandle:{runs:[{text:'@fixture_handle'}]}}}}}}}]})};
+  return {ok:false,status:502,headers:new Headers(),text:async()=>'{"private":"response body must not be surfaced"}'};
+ };
+ const context=vm.createContext({fetch:fetchImpl,crypto:webcrypto,URL,URLSearchParams,TextEncoder,AbortController,Headers,setTimeout,clearTimeout});
+ vm.runInContext(youtubeSessionSource,context);
+ await assert.rejects(context.BurrataYouTubeSessionProvider.run('listPlaylists',{ownerId:'https://www.youtube.com/channel/UC8TZwtZ17WKFJSmwTZQpBTA'},{
+  origin:'https://www.youtube.com',cookieHeader:'SAPISID=fixture-session-cookie',accountId:'UCaaaaaaaaaaaaaaaaaaaaaa',clientName:'WEB',clientVersion:'1.20261001.00.00',apiKey:'fakeApiKey12345678',
+ },{fetchImpl}),error=>{
+  assert.equal(error.code,'PROVIDER_CHANGED');
+  assert.equal(error.phase,'innertube');
+  assert.equal(error.httpStatus,502);
+  assert.equal(error.message,'YouTube Innertube request failed (HTTP 502).');
+  assert.equal(error.message.includes('response body'),false);
+  assert.equal(error.message.includes('fixture-session-cookie'),false);
+  assert.equal(error.message.includes('fakeApiKey12345678'),false);
+  return true;
+ });
+ assert.equal(calls.at(-1).endpoint,'browse');
+ assert.equal(calls.at(-1).body.browseId,'UC8TZwtZ17WKFJSmwTZQpBTA');
+ assert.equal(calls.at(-1).body.params,fixtureYoutubePlaylistParams);
+});
+
+test('YouTube public channel playlists use resolved selected-tab params and exclude home/recommendation rows',async()=>{
+ const continuation={continuationItemViewModel:{continuationCommand:{innertubeCommand:{continuationCommand:{token:'channel-playlists-next'}}}}};
+ const body=fixtureChannelPlaylistBody([fixturePlaylistCard('PLselectedPlaylist00001','Selected channel playlist'),continuation],[],[fixturePlaylistCard('PLhomeRecommendation00001','Home recommendation')]);
+ body.contents.twoColumnBrowseResultsRenderer.tabs[1].tabRenderer.content.sectionListRenderer.contents.push({shelfRenderer:{content:{gridRenderer:{items:[fixturePlaylistCard('PLshelfRecommendation00001','Shelf recommendation')]}}}});
+ const {calls,fetchImpl}=youtubeChannelFetch({browseResponse:body,continuationResponse:{onResponseReceivedActions:[{appendContinuationItemsAction:{targetId:'channel-playlists-grid',continuationItems:[fixturePlaylistCard('PLnextChannelPlaylist0001','Next channel playlist')]}}]}});
+ const first=JSON.parse(JSON.stringify(await runYoutubePublicChannel(fixtureYoutubeOwnerUrl,fetchImpl)));
+ const firstBrowse=calls.find(call=>call.endpoint==='browse');
+ const resolve=calls.find(call=>call.endpoint==='navigation/resolve_url'&&call.body.url.endsWith('/playlists'));
+ assert.equal(resolve.body.url,`${fixtureYoutubeOwnerUrl}/playlists`);
+ assert.equal(firstBrowse.body.browseId,fixtureYoutubeChannel);
+ assert.equal(firstBrowse.body.params,fixtureYoutubePlaylistParams);
+ assert.deepEqual(first.items.map(item=>item.title),['Selected channel playlist']);
+ assert.equal(first.items[0].id,'PLselectedPlaylist00001');
+ assert.ok(first.nextCursor);
+ const second=JSON.parse(JSON.stringify(await runYoutubePublicChannel(fixtureYoutubeOwnerUrl,fetchImpl,first.nextCursor)));
+ const continuationBrowse=calls.filter(call=>call.endpoint==='browse').at(-1);
+ assert.deepEqual(continuationBrowse.body,{context:continuationBrowse.body.context,continuation:'channel-playlists-next'});
+ assert.deepEqual(second.items.map(item=>item.title),['Next channel playlist']);
+ assert.equal(second.items[0].ownerId,fixtureYoutubeOwnerUrl);
+ assert.equal(second.complete,true);
+});
+
+test('YouTube public channel handle resolves to its canonical channel and playlist selector',async()=>{
+ const body=fixtureChannelPlaylistBody([fixturePlaylistCard('PLhandlePlaylist000001','Handle playlist')]);
+ const {calls,fetchImpl}=youtubeChannelFetch({browseResponse:body});
+ const handleUrl='https://www.youtube.com/@fixture_handle/playlists';
+ const result=JSON.parse(JSON.stringify(await runYoutubePublicChannel(handleUrl,fetchImpl)));
+ const ownerResolve=calls.find(call=>call.endpoint==='navigation/resolve_url'&&call.body.url.endsWith('/playlists'));
+ const browse=calls.find(call=>call.endpoint==='browse');
+ assert.equal(ownerResolve.body.url,handleUrl);
+ assert.equal(browse.body.browseId,fixtureYoutubeChannel);
+ assert.equal(browse.body.params,fixtureYoutubePlaylistParams);
+ assert.equal(result.items[0].title,'Handle playlist');
+});
+
+test('YouTube public channel playlist browse rejects a resolver that returns a different UCID',async()=>{
+ const body=fixtureChannelPlaylistBody([fixturePlaylistCard('PLwrongChannelPlaylist01','Wrong channel')]);
+ const {calls,fetchImpl}=youtubeChannelFetch({browseResponse:body,ownerResolved:'UCwrongResolvedChannel12345'});
+ await assert.rejects(runYoutubePublicChannel(fixtureYoutubeOwnerUrl,fetchImpl),error=>{
+  assert.equal(error.code,'PROVIDER_CHANGED');
+  assert.equal(error.phase,'channel_identity');
+  assert.match(error.message,/requested channel/);
+  return true;
+ });
+ assert.equal(calls.some(call=>call.endpoint==='browse'),false);
+});
+
+test('YouTube public channel playlist browse distinguishes explicit empty grid from sparse failure',async()=>{
+ const empty=fixtureChannelPlaylistBody([]);
+ const emptyFetch=youtubeChannelFetch({browseResponse:empty}).fetchImpl;
+ const result=JSON.parse(JSON.stringify(await runYoutubePublicChannel(fixtureYoutubeOwnerUrl,emptyFetch)));
+ assert.deepEqual(result.items,[]);
+ assert.equal(result.nextCursor,null);
+ assert.equal(result.complete,true);
+
+ const sparse=youtubeChannelFetch({browseResponse:{contents:{twoColumnBrowseResultsRenderer:{tabs:[{tabRenderer:{selected:false,content:{sectionListRenderer:{contents:[]}}}}]}}}});
+ await assert.rejects(runYoutubePublicChannel(fixtureYoutubeOwnerUrl,sparse.fetchImpl),error=>{
+  assert.equal(error.code,'PROVIDER_CHANGED');
+  assert.equal(error.phase,'playlist_library');
+  assert.match(error.message,/playlist tab/);
+  return true;
+ });
+});
+
+test('YouTube public channel playlist browse rejects invalid-only cards and marks partial cards incomplete',async()=>{
+ const invalid={lockupViewModel:{contentType:'LOCKUP_CONTENT_TYPE_PLAYLIST',metadata:{lockupMetadataViewModel:{title:{content:'Missing identity'}}}}};
+ const invalidOnly=youtubeChannelFetch({browseResponse:fixtureChannelPlaylistBody([invalid])});
+ await assert.rejects(runYoutubePublicChannel(fixtureYoutubeOwnerUrl,invalidOnly.fetchImpl),error=>{
+  assert.equal(error.code,'PROVIDER_CHANGED');
+  assert.equal(error.phase,'playlist_library');
+  assert.match(error.message,/cards were not recognized/);
+  return true;
+ });
+
+ const partial=youtubeChannelFetch({browseResponse:fixtureChannelPlaylistBody([fixturePlaylistCard('PLvalidPartialCard0001','Valid card'),invalid])});
+ const result=JSON.parse(JSON.stringify(await runYoutubePublicChannel(fixtureYoutubeOwnerUrl,partial.fetchImpl)));
+ assert.deepEqual(result.items.map(item=>item.title),['Valid card']);
+ assert.equal(result.complete,false);
+ assert.equal(result.truncated,true);
+});
+
+test('YouTube public channel playlist browse rejects ambiguous, repeated, and wrong-target continuations',async()=>{
+ const continuation=token=>({continuationItemViewModel:{continuationCommand:{innertubeCommand:{continuationCommand:{token}}}}});
+ const ambiguous=youtubeChannelFetch({browseResponse:fixtureChannelPlaylistBody([fixturePlaylistCard('PLambiguousTokenCard001','Valid card'),continuation('token-a'),continuation('token-b')])});
+ await assert.rejects(runYoutubePublicChannel(fixtureYoutubeOwnerUrl,ambiguous.fetchImpl),/ambiguous channel playlist pages/);
+
+ const repeated=youtubeChannelFetch({browseResponse:fixtureChannelPlaylistBody([fixturePlaylistCard('PLrepeatedTokenCard0001','Valid card'),continuation('same-token')],[continuation('same-token')])});
+ await assert.rejects(runYoutubePublicChannel(fixtureYoutubeOwnerUrl,repeated.fetchImpl),/repeated a channel playlist continuation/);
+
+ const firstBody=fixtureChannelPlaylistBody([fixturePlaylistCard('PLwrongTargetCard0001','Valid card'),continuation('bound-token')]);
+ const wrongTarget=youtubeChannelFetch({browseResponse:firstBody,continuationResponse:{onResponseReceivedActions:[{appendContinuationItemsAction:{targetId:'some-other-grid',continuationItems:[fixturePlaylistCard('PLwrongTargetContinuation01','Wrong target')]}}]}});
+ const first=await runYoutubePublicChannel(fixtureYoutubeOwnerUrl,wrongTarget.fetchImpl);
+ await assert.rejects(runYoutubePublicChannel(fixtureYoutubeOwnerUrl,wrongTarget.fetchImpl,first.nextCursor),error=>{
+  assert.equal(error.code,'PROVIDER_CHANGED');
+  assert.match(error.message,/continuation was not recognized for this source/);
+  return true;
+ });
+});
+
+test('YouTube own playlist library keeps its aggregation browse separate from public channel selectors',async()=>{
+ const body=fixtureChannelPlaylistBody([fixturePlaylistCard('PLownLibraryFixture0001','Own library playlist')]);
+ const {calls,fetchImpl}=youtubeChannelFetch({browseResponse:body});
+ const context=makeYoutubeSessionContext(fetchImpl);
+ const result=JSON.parse(JSON.stringify(await context.BurrataYouTubeSessionProvider.run('listPlaylists',{},youtubeSessionFixture,{fetchImpl})));
+ const browse=calls.find(call=>call.endpoint==='browse');
+ assert.equal(browse.body.browseId,'FEplaylist_aggregation');
+ assert.equal(Object.hasOwn(browse.body,'params'),false);
+ assert.deepEqual(result.items.map(item=>item.title),['Own library playlist']);
+});
+
 test('YouTube bootstrap resolves an omitted channel handle from the explicit active Music header',async()=>{
  const calls=[],channelId='UCaaaaaaaaaaaaaaaaaaaaaa';
  const selected={isSelected:true,accountName:{runs:[{text:'Fixture account'}]},serviceEndpoint:{selectActiveIdentityEndpoint:{supportedTokens:[{pageIdToken:{pageId:'123456789012345'}}]}}};
  const fetchImpl=async(url,options={})=>{
   const target=String(url); const body=options.body?JSON.parse(options.body):null; calls.push({target,body});
-  if(options.method==='GET')return {ok:true,status:200,headers:new Headers(),text:async()=>`ytcfg.set({"INNERTUBE_CLIENT_NAME":"WEB_REMIX","INNERTUBE_CLIENT_VERSION":"1.20261001.00.00","INNERTUBE_API_KEY":"fixtureApiKey123456","VISITOR_DATA":"fixtureVisitor","SESSION_INDEX":0,"LOGGED_IN":true});`};
+  if(options.method==='GET')return {ok:true,status:200,headers:new Headers(),text:async()=>`ytcfg.set({"INNERTUBE_CLIENT_NAME":"WEB_REMIX","INNERTUBE_CLIENT_VERSION":"1.20261001.00.00","INNERTUBE_API_KEY":"fakeApiKey12345678","VISITOR_DATA":"fixtureVisitor","SESSION_INDEX":0,"LOGGED_IN":true});`};
   const endpoint=target.split('/youtubei/v1/')[1].split('?')[0];
   if(endpoint==='account/accounts_list')return {ok:true,status:200,headers:new Headers(),text:async()=>JSON.stringify({contents:[{accountItemSectionRenderer:{contents:[{accountItem:selected}]}}]})};
   if(endpoint==='account/account_menu')return {ok:true,status:200,headers:new Headers(),text:async()=>JSON.stringify({actions:[{openPopupAction:{popup:{multiPageMenuRenderer:{header:{activeAccountHeaderRenderer:{accountName:{runs:[{text:'Fixture account'}]},channelHandle:{runs:[{text:'@fixture_handle'}]}}}}}}}]})};
@@ -500,7 +678,7 @@ test('YouTube bootstrap rejects unresolved channel identity without leaking acco
  const selected={isSelected:true,accountName:{runs:[{text:accountName}]},serviceEndpoint:{selectActiveIdentityEndpoint:{supportedTokens:[{pageIdToken:{pageId:'123456789012345'}}]}}};
  const fetchImpl=async(url,options={})=>{
   const target=String(url),body=options.body?JSON.parse(options.body):null;
-  if(options.method==='GET')return {ok:true,status:200,headers:new Headers(),text:async()=>`ytcfg.set({"INNERTUBE_CLIENT_NAME":"WEB_REMIX","INNERTUBE_CLIENT_VERSION":"1.20261001.00.00","INNERTUBE_API_KEY":"fixtureApiKey123456","VISITOR_DATA":"fixtureVisitor","DATASYNC_ID":"fixtureDataSync","SESSION_INDEX":0,"LOGGED_IN":true});`};
+  if(options.method==='GET')return {ok:true,status:200,headers:new Headers(),text:async()=>`ytcfg.set({"INNERTUBE_CLIENT_NAME":"WEB_REMIX","INNERTUBE_CLIENT_VERSION":"1.20261001.00.00","INNERTUBE_API_KEY":"fakeApiKey12345678","VISITOR_DATA":"fixtureVisitor","DATASYNC_ID":"fixtureDataSync","SESSION_INDEX":0,"LOGGED_IN":true});`};
   const endpoint=target.split('/youtubei/v1/')[1].split('?')[0];
   if(endpoint==='account/accounts_list')return {ok:true,status:200,headers:new Headers(),text:async()=>JSON.stringify({contents:[{accountItemSectionRenderer:{contents:[{accountItem:selected}]}}]})};
   if(endpoint==='account/account_menu')return {ok:true,status:200,headers:new Headers(),text:async()=>JSON.stringify({actions:[{openPopupAction:{popup:{multiPageMenuRenderer:{header:{activeAccountHeaderRenderer:{accountName:{runs:[{text:accountName}]}}}}}}}]})};
@@ -516,7 +694,7 @@ test('YouTube channel identity rejects an unsafe urlEndpoint redirect without fo
  const calls=[],selected={isSelected:true,channelHandle:{runs:[{text:'@fixture_handle'}]}};let redirectUrl='https://attacker.example/steal';
  const fetchImpl=async(url,options={})=>{
   const target=String(url),body=options.body?JSON.parse(options.body):null;calls.push(target);
-  if(options.method==='GET')return {ok:true,status:200,headers:new Headers(),text:async()=>`ytcfg.set({"INNERTUBE_CLIENT_NAME":"WEB_REMIX","INNERTUBE_CLIENT_VERSION":"1.20261001.00.00","INNERTUBE_API_KEY":"fixtureApiKey123456","VISITOR_DATA":"fixtureVisitor","DATASYNC_ID":"fixtureDataSync","SESSION_INDEX":0,"LOGGED_IN":true});`};
+  if(options.method==='GET')return {ok:true,status:200,headers:new Headers(),text:async()=>`ytcfg.set({"INNERTUBE_CLIENT_NAME":"WEB_REMIX","INNERTUBE_CLIENT_VERSION":"1.20261001.00.00","INNERTUBE_API_KEY":"fakeApiKey12345678","VISITOR_DATA":"fixtureVisitor","DATASYNC_ID":"fixtureDataSync","SESSION_INDEX":0,"LOGGED_IN":true});`};
   const endpoint=target.split('/youtubei/v1/')[1].split('?')[0];
   if(endpoint==='account/accounts_list')return {ok:true,status:200,headers:new Headers(),text:async()=>JSON.stringify({contents:[{accountItemSectionRenderer:{contents:[{accountItem:selected}]}}]})};
   if(endpoint==='navigation/resolve_url')return {ok:true,status:200,headers:new Headers(),text:async()=>JSON.stringify({endpoint:{urlEndpoint:{url:redirectUrl}}})};
@@ -537,7 +715,7 @@ test('YouTube bootstrap does not borrow a different active-header handle',async(
  const calls=[],selected={isSelected:true,channelHandle:{runs:[{text:'@selected_handle'}]}};
  const fetchImpl=async(url,options={})=>{
   const target=String(url),body=options.body?JSON.parse(options.body):null;calls.push({target,body});
-  if(options.method==='GET')return {ok:true,status:200,headers:new Headers(),text:async()=>`ytcfg.set({"INNERTUBE_CLIENT_NAME":"WEB_REMIX","INNERTUBE_CLIENT_VERSION":"1.20261001.00.00","INNERTUBE_API_KEY":"fixtureApiKey123456","VISITOR_DATA":"fixtureVisitor","SESSION_INDEX":0,"LOGGED_IN":true});`};
+  if(options.method==='GET')return {ok:true,status:200,headers:new Headers(),text:async()=>`ytcfg.set({"INNERTUBE_CLIENT_NAME":"WEB_REMIX","INNERTUBE_CLIENT_VERSION":"1.20261001.00.00","INNERTUBE_API_KEY":"fakeApiKey12345678","VISITOR_DATA":"fixtureVisitor","SESSION_INDEX":0,"LOGGED_IN":true});`};
   const endpoint=target.split('/youtubei/v1/')[1].split('?')[0];
   if(endpoint==='account/accounts_list')return {ok:true,status:200,headers:new Headers(),text:async()=>JSON.stringify({contents:[{accountItemSectionRenderer:{contents:[{accountItem:selected}]}}]})};
   if(endpoint==='navigation/resolve_url')return {ok:true,status:200,headers:new Headers(),text:async()=>JSON.stringify({endpoint:{browseEndpoint:{browseId:'not-a-channel'}}})};

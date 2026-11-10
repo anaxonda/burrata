@@ -48,7 +48,7 @@ describe("WaveformSeek", () => {
 
     expect(target.querySelectorAll(".waveform rect")).toHaveLength(50);
     expect(target.querySelector(".waveform-unknown-rail")?.getAttribute("d")).toContain("M50 91H1200");
-    expect(target.querySelector(".waveform-elapsed-rail")?.getAttribute("x2")).toBe("50");
+    expect(target.querySelector<HTMLElement>(".waveform-elapsed-rail")?.style.transform).toBe("scaleX(0.041666666666666664)");
     const range = target.querySelector<HTMLInputElement>('[aria-label="Playback position, waveform"]')!;
     expect(range.min).toBe("0");
     expect(range.max).toBe("7200");
@@ -174,6 +174,35 @@ describe("WaveformSeek", () => {
     expect(bars).toHaveLength(2);
     expect(Number(bars[0]?.getAttribute("height"))).toBeGreaterThan(10);
     expect(Number(bars[1]?.getAttribute("height"))).toBeGreaterThan(10);
+  });
+
+  it("moves HTML progress overlays while keeping dense waveform bars static", async () => {
+    const waveform = localWaveformSnapshot({
+      generation: 11, trackId: "dense-long-song", durationSeconds: 120,
+      bins: Array.from({ length: 1_200 }, (_, index) => ({ min: -0.4 + index % 3 / 100, max: 0.45 - index % 5 / 100 })),
+      complete: true,
+    });
+    const target = document.createElement("div"); document.body.append(target);
+    const instance = createClassComponent({ component: WaveformSeek, target, props: {
+      position: 30, duration: 120, disabled: false, onSeek: vi.fn(), waveform, generation: 11, trackId: "dense-long-song",
+    } as never }) as unknown as { $set: (props: { position: number }) => void };
+    destroy = () => unmount(instance as never); await settle();
+    const bars = [...target.querySelectorAll<SVGRectElement>(".waveform rect")];
+    const firstBar = bars[0]?.getAttribute("y");
+    const rail = target.querySelector<HTMLElement>(".waveform-elapsed-rail")!;
+    const played = target.querySelector<HTMLElement>(".waveform-played-region")!;
+    expect(bars).toHaveLength(1_200);
+    expect(rail.tagName).toBe("DIV");
+    expect(rail.getAttribute("aria-hidden")).toBe("true");
+    expect(rail.style.transform).toBe("scaleX(0.25)");
+    expect(played.style.transform).toBe("scaleX(0.25)");
+
+    instance.$set({ position: 60 }); await settle();
+    expect(rail.style.transform).toBe("scaleX(0.5)");
+    expect(played.style.transform).toBe("scaleX(0.5)");
+    expect(target.querySelectorAll(".waveform rect")).toHaveLength(1_200);
+    expect(target.querySelector<SVGRectElement>(".waveform rect")?.getAttribute("y")).toBe(firstBar);
+    expect(target.querySelector<HTMLInputElement>('[aria-label="Playback position, waveform"]')?.value).toBe("60");
   });
 
   it("shows optional approximate detected-track ranges across the waveform", async () => {

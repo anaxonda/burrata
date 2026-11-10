@@ -192,6 +192,92 @@
     const seen = new Set();
     return rows.filter(row => !seen.has(`${row.kind}:${row.id}`) && (seen.add(`${row.kind}:${row.id}`), true));
   };
+  const channelPlaylistPage = (body, previousToken, expectedTargetId = null) => {
+    const tabs = body?.contents?.twoColumnBrowseResultsRenderer?.tabs;
+    let roots, continuationGrid = null;
+    if (Array.isArray(tabs)) {
+      const selected = tabs.filter(tab => tab?.tabRenderer?.selected === true);
+      if (selected.length !== 1) throw Object.assign(new Error('YouTube channel playlist tab was not recognized.'), { code: 'PROVIDER_CHANGED', phase: 'playlist_library' });
+      const content = selected[0].tabRenderer.content?.sectionListRenderer;
+      if (!Array.isArray(content?.contents)) throw Object.assign(new Error('YouTube channel playlist section was not recognized.'), { code: 'PROVIDER_CHANGED', phase: 'playlist_library' });
+      roots = content.contents;
+    } else {
+      const grid = body?.continuationContents?.gridContinuation || body?.continuationContents?.richGridContinuation;
+      if (grid && Array.isArray(grid.items)) continuationGrid = grid;
+      else {
+        const actions = (Array.isArray(body?.onResponseReceivedActions) ? body.onResponseReceivedActions : [])
+          .map(action => action?.appendContinuationItemsAction).filter(Boolean);
+        const matching = actions.filter(action => action.targetId === expectedTargetId);
+        if (typeof expectedTargetId !== 'string' || !expectedTargetId || matching.length !== 1 || !Array.isArray(matching[0].continuationItems)) {
+          throw Object.assign(new Error('YouTube channel playlist continuation was not recognized for this source.'), { code: 'PROVIDER_CHANGED', phase: 'playlist_library' });
+        }
+        continuationGrid = { items: matching[0].continuationItems, targetId: matching[0].targetId };
+      }
+      if (continuationGrid?.targetId && expectedTargetId && continuationGrid.targetId !== expectedTargetId) throw Object.assign(new Error('YouTube channel playlist continuation changed source.'), { code: 'PROVIDER_CHANGED', phase: 'playlist_library' });
+      roots = [{ gridContinuation: continuationGrid }];
+    }
+    let visited = 0, grids = 0, playlistCards = 0, invalidPlaylistCards = 0, gridTargetId = null;
+    const rows = [], tokens = [];
+    const readToken = item => {
+      const direct = item?.nextContinuationData?.continuation;
+      const wrapped = playlistContinuationToken(item);
+      const token = typeof direct === 'string' ? direct : wrapped;
+      if (typeof token !== 'string' || !token || token.length > 16_384) throw Object.assign(new Error('YouTube channel playlist continuation was not recognized.'), { code: 'PROVIDER_CHANGED', phase: 'playlist_library' });
+      tokens.push(token);
+    };
+    const isPlaylistCard = item => {
+      const lockup = item?.lockupViewModel;
+      return Boolean(item?.playlistRenderer || item?.gridPlaylistRenderer
+        || (lockup && String(lockup.contentType || '').toLowerCase().includes('playlist')));
+    };
+    const consumeGrid = grid => {
+      grids++;
+      if (typeof grid.targetId === 'string') {
+        if (gridTargetId && gridTargetId !== grid.targetId) throw Object.assign(new Error('YouTube returned ambiguous channel playlist sources.'), { code: 'PROVIDER_CHANGED', phase: 'playlist_library' });
+        gridTargetId = grid.targetId;
+      }
+      const items = grid.items || grid.contents;
+      if (!Array.isArray(items)) throw Object.assign(new Error('YouTube channel playlist grid was not recognized.'), { code: 'PROVIDER_CHANGED', phase: 'playlist_library' });
+      for (const item of items) {
+        if (item?.continuationItemRenderer || item?.continuationItemViewModel || item?.nextContinuationData) readToken(item);
+        else if (isPlaylistCard(item)) {
+          playlistCards++;
+          const decoded = decode(item).filter(row => row.kind === 'playlist' && /^[A-Za-z0-9_-]{10,80}$/.test(row.id) && typeof row.title === 'string' && row.title.trim());
+          if (decoded.length) rows.push(...decoded); else invalidPlaylistCards++;
+        }
+      }
+      for (const item of Array.isArray(grid.continuations) ? grid.continuations : []) readToken(item);
+    };
+    const walkSections = (value, depth = 0) => {
+      if (!value || typeof value !== 'object') return;
+      if (++visited > 20_000 || depth > 32) throw Object.assign(new Error('YouTube channel playlist response exceeded the structural limit.'), { code: 'PROVIDER_CHANGED', phase: 'playlist_library' });
+      if (Array.isArray(value)) { for (const child of value) walkSections(child, depth + 1); return; }
+      for (const key of ['gridRenderer', 'richGridRenderer', 'gridContinuation', 'richGridContinuation']) {
+        if (value[key]) { consumeGrid(value[key]); return; }
+      }
+      // Traverse only the selected playlist tab's section wrappers. Shelves,
+      // recommendations, headers, and unselected tabs are intentionally out of scope.
+      for (const key of ['sectionListRenderer', 'itemSectionRenderer']) {
+        const wrapper = value[key];
+        if (wrapper && Array.isArray(wrapper.contents)) walkSections(wrapper.contents, depth + 1);
+      }
+    };
+    walkSections(roots);
+    if (!grids) throw Object.assign(new Error('YouTube channel playlist grid was not recognized.'), { code: 'PROVIDER_CHANGED', phase: 'playlist_library' });
+    if (grids !== 1) throw Object.assign(new Error('YouTube returned ambiguous channel playlist grids.'), { code: 'PROVIDER_CHANGED', phase: 'playlist_library' });
+    if (tokens.length > 1) {
+      if (new Set(tokens).size === 1) throw Object.assign(new Error('YouTube repeated a channel playlist continuation.'), { code: 'PROVIDER_CHANGED', phase: 'playlist_library' });
+      throw Object.assign(new Error('YouTube returned ambiguous channel playlist pages.'), { code: 'PROVIDER_CHANGED', phase: 'playlist_library' });
+    }
+    const token = tokens.length ? tokens[0] : null;
+    if (token && token === previousToken) throw Object.assign(new Error('YouTube repeated a channel playlist page.'), { code: 'PROVIDER_CHANGED', phase: 'playlist_library' });
+    if (playlistCards > 0 && rows.length === 0) throw Object.assign(new Error('YouTube channel playlist cards were not recognized.'), { code: 'PROVIDER_CHANGED', phase: 'playlist_library' });
+    const unique = new Map();
+    for (const row of rows) unique.set(row.id, row);
+    const targetId = gridTargetId || continuationGrid?.targetId || expectedTargetId || null;
+    if (token && (!targetId || typeof targetId !== 'string' || targetId.length > 256 || !/^[A-Za-z0-9_:-]+$/.test(targetId))) throw Object.assign(new Error('YouTube channel playlist continuation has no valid source binding.'), { code: 'PROVIDER_CHANGED', phase: 'playlist_library' });
+    return { rows: [...unique.values()], token, targetId, complete: !token && invalidPlaylistCards === 0, truncated: invalidPlaylistCards > 0 };
+  };
   // yt-dlp 897341241f2bfb2439fe0367f4c7c9ccd29a3828, youtube/_tab.py
   // _reload_with_unavailable_videos documents VL browse + wgYCCAA= to include
   // unavailable occurrences. Retain that request contract for reads/preflight.
@@ -989,7 +1075,7 @@ function modernExplicitEmpty(body,id,accountId,hl,decodedTotal,evidence=null) {
         const response = await fetchImpl(`${requestOrigin}${path}${path.startsWith('/youtubei/') ? (generalLibrary ? '?prettyPrint=false' : query) : ''}`, { method, headers: { ...headers, ...(method === 'GET' ? { Accept: 'text/html' } : {}) }, ...(body ? { body: JSON.stringify({ context, ...body }) } : {}), redirect: 'error', credentials: 'omit', signal: controller.signal, cache: 'no-store' });
         if (response.status === 401 || response.status === 403) throw Object.assign(new Error('YouTube session expired or was denied. Use the existing session again.'), { code: 'SIGN_IN_REQUIRED', phase: path.includes('youtubei') ? 'innertube' : 'playlist_library', httpStatus: response.status });
         if (response.status === 429) throw Object.assign(new Error('YouTube temporarily limited this request. Try again shortly.'), { code: 'RATE_LIMITED', phase: path.includes('youtubei') ? 'innertube' : 'playlist_library', httpStatus: 429, retryAfterSeconds: Number(response.headers.get('retry-after')) || null });
-        if (!response.ok) throw Object.assign(new Error('YouTube returned an unsupported response.'), { code: 'PROVIDER_CHANGED', phase: 'innertube', httpStatus: response.status });
+        if (!response.ok) throw Object.assign(new Error(`YouTube Innertube request failed (HTTP ${response.status}).`), { code: 'PROVIDER_CHANGED', phase: 'innertube', httpStatus: response.status });
         const text = await response.text();
         if (text.length > 2 * 1024 * 1024) throw Object.assign(new Error('YouTube response exceeded the size limit.'), { code: 'PROVIDER_CHANGED' });
         if (method === 'GET') return text;
@@ -1264,41 +1350,56 @@ function modernExplicitEmpty(body,id,accountId,hl,decodedTotal,evidence=null) {
       return { accountId, items, nextCursor };
     }
     if (operation === 'listPlaylists') {
-      let body, previousLibraryToken = null;
+      let body, previousLibraryToken = null, channelOwner = Boolean(args.ownerId), channelTargetId = null;
       const cursorScope = String(args.ownerId || '');
       if (args.cursor) {
         let cursor;
         try { cursor = JSON.parse(decodeURIComponent(String(args.cursor).replace(/^yt-library-v1:/, ''))); } catch { /* rejected below */ }
-        if (!String(args.cursor).startsWith('yt-library-v1:') || !cursor || Object.keys(cursor).length !== 4
+        const expectedCursorKeys = channelOwner ? 5 : 4;
+        if (!String(args.cursor).startsWith('yt-library-v1:') || !cursor || Object.keys(cursor).length !== expectedCursorKeys
             || cursor.accountId !== accountId || cursor.ownerId !== cursorScope || cursor.origin !== 'https://www.youtube.com'
-            || typeof cursor.token !== 'string' || !cursor.token || cursor.token.length > 16_384) {
+            || typeof cursor.token !== 'string' || !cursor.token || cursor.token.length > 16_384
+            || (channelOwner && (typeof cursor.targetId !== 'string' || !/^[A-Za-z0-9_:-]{1,256}$/.test(cursor.targetId)))) {
           throw Object.assign(new Error('YouTube library cursor does not match this account and source.'), { code: 'UNSUPPORTED' });
         }
         previousLibraryToken = cursor.token;
+        channelTargetId = channelOwner ? cursor.targetId : null;
         body = await call({ continuation: cursor.token });
       }
       else if (args.ownerId) {
-        let owner = String(args.ownerId);
-        if (/^https?:\/\//i.test(owner)) {
-          let parsed; try { parsed = new URL(owner); } catch { throw Object.assign(new Error('YouTube channel URL is invalid.'), { code: 'UNSUPPORTED' }); }
-          if (!['www.youtube.com', 'music.youtube.com'].includes(parsed.hostname) || parsed.protocol !== 'https:') throw Object.assign(new Error('Only YouTube channel URLs are supported.'), { code: 'UNSUPPORTED' });
-          const path = parsed.pathname.replace(/\/+$/, '').replace(/\/playlists$/, ''), handle = path.match(/^\/@([A-Za-z0-9._-]+)$/), channel = path.match(/^\/channel\/(UC[A-Za-z0-9_-]+)$/);
-          owner = handle ? `@${handle[1]}` : channel?.[1] || '';
-        }
-        if (owner.startsWith('@')) { const resolved = await call({ url: `https://www.youtube.com/${owner}` }, 'navigation/resolve_url'); owner = resolved.endpoint?.browseEndpoint?.browseId || resolved.browseEndpoint?.browseId || ''; }
-        if (!/^(?:UC[A-Za-z0-9_-]+|[A-Za-z0-9_-]{20,})$/.test(owner)) throw Object.assign(new Error('YouTube channel could not be resolved.'), { code: 'UNSUPPORTED' });
-        body = await call({ browseId: owner.startsWith('UC') ? owner : `UC${owner}` });
+        const rawOwner = String(args.ownerId).trim();
+        let ownerPath = '';
+        if (/^https?:\/\//i.test(rawOwner)) {
+          let parsed; try { parsed = new URL(rawOwner); } catch { throw Object.assign(new Error('YouTube channel URL is invalid.'), { code: 'UNSUPPORTED' }); }
+          if (!['www.youtube.com', 'youtube.com', 'music.youtube.com'].includes(parsed.hostname) || parsed.protocol !== 'https:' || parsed.username || parsed.password || (parsed.port && parsed.port !== '443') || parsed.search || parsed.hash) throw Object.assign(new Error('Only public YouTube channel URLs are supported.'), { code: 'UNSUPPORTED' });
+          const path = parsed.pathname.replace(/\/+$/, '');
+          if (/^\/channel\/UC[A-Za-z0-9_-]{20,30}(?:\/playlists)?$/.test(path)) ownerPath = path.replace(/\/playlists$/, '');
+          else if (/^\/@[A-Za-z0-9._-]{1,100}(?:\/playlists)?$/.test(path)) ownerPath = path.replace(/\/playlists$/, '');
+        } else if (/^UC[A-Za-z0-9_-]{20,30}$/.test(rawOwner)) ownerPath = `/channel/${rawOwner}`;
+        else if (/^@[A-Za-z0-9._-]{1,100}$/.test(rawOwner)) ownerPath = `/${rawOwner}`;
+        if (!ownerPath) throw Object.assign(new Error('YouTube channel owner is invalid.'), { code: 'UNSUPPORTED' });
+        const playlistsUrl = `https://www.youtube.com${ownerPath}/playlists`;
+        const resolved = await call({ url: playlistsUrl }, 'navigation/resolve_url');
+        const endpoint = resolved.endpoint?.browseEndpoint || resolved.browseEndpoint;
+        const browseId = endpoint?.browseId;
+        const expectedChannel = ownerPath.match(/^\/channel\/(UC[A-Za-z0-9_-]{20,30})$/)?.[1];
+        const params = endpoint?.params;
+        if (typeof browseId !== 'string' || !/^UC[A-Za-z0-9_-]{20,30}$/.test(browseId) || (expectedChannel && browseId !== expectedChannel)) throw Object.assign(new Error('YouTube channel could not be resolved to the requested channel.'), { code: 'PROVIDER_CHANGED', phase: 'channel_identity' });
+        if (typeof params !== 'string' || !params || params.length > 2048 || !/^[A-Za-z0-9_=-]+$/.test(params)) throw Object.assign(new Error('YouTube did not provide a valid public channel playlist selector.'), { code: 'PROVIDER_CHANGED', phase: 'channel_identity' });
+        body = await call({ browseId, params });
       } else body = await call({ browseId: 'FEplaylist_aggregation' });
       // General YouTube libraries include non-music playlists. Even a Music
       // handoff uses WWW/WEB here; identity is verified above for every page.
       // Source: YouTube.js Innertube.getPlaylists (FEplaylist_aggregation).
       if (!body || typeof body !== 'object') throw Object.assign(new Error('YouTube playlist page was not recognized.'), { code: 'PROVIDER_CHANGED', phase: 'playlist_library' });
       const listRoot = !args.ownerId && !args.cursor ? body.contents?.twoColumnBrowseResultsRenderer?.tabs?.find(tab => tab.tabRenderer?.selected)?.tabRenderer?.content || body.contents || body : body;
-      const items = decode(listRoot).filter(row => row.kind === 'playlist').map(row => ({ id: row.id, provider: 'youtube', title: row.title || 'Untitled playlist', url: row.url, ownerId: args.ownerId || null, ownerName: row.subtitle || null, artworkUrl: row.artworkUrl, total: row.data.total, canEdit: false }));
+      const channelPage = channelOwner ? channelPlaylistPage(body, previousLibraryToken, channelTargetId) : null;
+      const rows = channelOwner ? channelPage.rows : decode(listRoot).filter(row => row.kind === 'playlist');
+      const items = rows.map(row => ({ id: row.id, provider: 'youtube', title: row.title || 'Untitled playlist', url: row.url, ownerId: args.ownerId || null, ownerName: row.subtitle || null, artworkUrl: row.artworkUrl, total: row.data.total, canEdit: false }));
       const ownLibrary = !args.ownerId, libraryInfo = ownLibrary ? libraryContinuation(listRoot, previousLibraryToken, args.inspectLibraryResponseShape === true) : null;
-      const token = ownLibrary ? libraryInfo.token : nextToken(listRoot);
-      const nextCursor = token ? `yt-library-v1:${encodeURIComponent(JSON.stringify({ accountId, ownerId: cursorScope, origin: 'https://www.youtube.com', token }))}` : null;
-      return { accountId, items, nextCursor, ...(ownLibrary ? { complete: null, ...(libraryInfo.shape.ambiguous ? { complete: false, truncated: true } : {}), ...(args.inspectLibraryResponseShape === true ? { libraryResponseShape: libraryInfo.shape } : {}) } : {}) };
+      const token = ownLibrary ? libraryInfo.token : channelOwner ? channelPage.token : nextToken(listRoot);
+      const nextCursor = token ? `yt-library-v1:${encodeURIComponent(JSON.stringify({ accountId, ownerId: cursorScope, origin: 'https://www.youtube.com', token, ...(channelOwner ? { targetId: channelPage.targetId } : {}) }))}` : null;
+      return { accountId, items, nextCursor, ...(channelOwner ? { complete: channelPage.complete, ...(channelPage.truncated ? { truncated: true } : {}) } : ownLibrary ? { complete: null, ...(libraryInfo.shape.ambiguous ? { complete: false, truncated: true } : {}), ...(args.inspectLibraryResponseShape === true ? { libraryResponseShape: libraryInfo.shape } : {}) } : {}) };
     }
     const id = String(args.playlistId || '');
     const systemCollection = ['LM', 'SE', 'LL', 'WL'].includes(id);

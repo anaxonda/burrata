@@ -8,8 +8,21 @@ describe("visibleLyricsTrack", () => {
       title: "Nunca vas a comprender", artist: "Rita Payés & Elisabeth Roma", album: "Como la piel", durationSeconds: 244.631,
       favorite: false, provenance: {},
     })).toEqual({
+      provider: "youtube",
       trackId: "reported-nunca", localPath: null, trackName: "Nunca vas a comprender", artistName: "Rita Payés & Elisabeth Roma", albumName: "Como la piel",
       durationSeconds: 244.631, playbackRange: null,
+    });
+  });
+
+  it("passes YouTube source identity for an official upload with an unknown byline", () => {
+    expect(visibleLyricsTrack({
+      id: "youtube:3KDKLR7D5-4", provider: "youtube", providerId: "3KDKLR7D5-4",
+      sourceUrl: "https://www.youtube.com/watch?v=3KDKLR7D5-4",
+      title: "Sui Generis - Cuando Ya Me Empiece a Quedar Solo (Official Audio)", artist: "",
+      durationSeconds: 231, favorite: false, provenance: {},
+    })).toMatchObject({
+      provider: "youtube", trackId: "youtube:3KDKLR7D5-4",
+      trackName: "Sui Generis - Cuando Ya Me Empiece a Quedar Solo (Official Audio)", artistName: "",
     });
   });
 

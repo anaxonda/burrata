@@ -1,6 +1,7 @@
 import type { Track, NativePlaybackSnapshot } from "./types";
 
 export interface VisibleLyricsTrack {
+  provider: string;
   trackId: string;
   localPath: string | null;
   trackName: string;
@@ -18,6 +19,7 @@ export function visibleLyricsTrack(track: Track | null | undefined, detection?: 
   const metadata=(track.provenance as {radioMetadata?:{title?:unknown;artist?:unknown}}|null)?.radioMetadata;
   const radio=["radio","radioparadise","internet-radio"].includes(track.provider) && typeof metadata?.title === "string" && metadata.title.trim() && metadata.title===track.title && typeof metadata.artist === "string" && metadata.artist.trim() && metadata.artist===track.artist;
   return {
+    provider: track.provider,
     trackId: detection?.trackId ?? track.id,
     localPath: track.localPath ?? null,
     trackName: track.title,

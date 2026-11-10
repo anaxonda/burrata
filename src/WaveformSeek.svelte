@@ -66,7 +66,6 @@
     }
     return segments.join("");
   });
-  const elapsedEnd = $derived(current ? current.bins.length * safePosition / duration : 0);
   const markers = $derived(detectionMarkers(detections, duration, detectionSourceOffset));
   const previewPosition = $derived(target ?? hoverPosition);
   function previewSeek(event: PointerEvent) {
@@ -110,7 +109,7 @@
 {:else}
 <div class="waveform-seek-frame">
   <div class="waveform-seek" class:empty={!current} class:disabled>
-    <div class="waveform-played-region" style={`width:${100 * safePosition / duration}%`} aria-hidden="true"></div>
+    <div class="waveform-played-region" style={`transform:scaleX(${safePosition / duration})`} aria-hidden="true"></div>
     {#each markers as marker, index (`${marker.startSeconds}:${marker.endSeconds}:${index}`)}
       <span class={`detection-marker detection-color-${marker.colorIndex}`} style={`left:${100 * marker.startSeconds / duration}%;width:${100 * (marker.endSeconds - marker.startSeconds) / duration}%`} title={`Approximate observed span for ${marker.title}`} aria-hidden="true"></span>
     {/each}
@@ -128,8 +127,8 @@
           {/if}
       {/each}
       {/if}
-      <line class="waveform-elapsed-rail" x1="0" y1="97" x2={elapsedEnd} y2="97" />
     </svg>
+    <div class="waveform-elapsed-rail" style={`transform:scaleX(${safePosition / duration})`} aria-hidden="true"></div>
     <input class="waveform-range" type="range" min="0" max={duration} step="0.1"
       value={target ?? safePosition} {disabled} aria-label="Playback position, waveform" aria-describedby={waveformId}
       aria-valuetext={`${timeLabel(target ?? safePosition)} of ${timeLabel(duration)}`}
@@ -156,7 +155,7 @@
   .waveform-seek-frame{position:relative;isolation:isolate;flex:1 1 auto;width:100%;height:2rem;min-width:40px;max-width:none}
   .waveform-seek{position:relative;isolation:isolate;contain:layout paint;overflow:hidden;width:100%;height:2rem;display:grid;grid-template:2rem / minmax(0,1fr);align-items:center;touch-action:pan-y;border-radius:5px;background:color-mix(in srgb,var(--text,#eef5f0) 7%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--muted,#9ca6a0) 35%,transparent);transition:background 120ms,box-shadow 120ms}
   .waveform-seek:not(.disabled):hover{background:color-mix(in srgb,var(--text,#eef5f0) 11%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent,#71bda2) 65%,transparent)}
-  .waveform-played-region{position:absolute;inset:0 auto 0 0;background:color-mix(in srgb,var(--accent,#71bda2) 12%,transparent);pointer-events:none}
+  .waveform-played-region{position:absolute;inset:0 auto 0 0;width:100%;transform-origin:left center;background:color-mix(in srgb,var(--accent,#71bda2) 12%,transparent);pointer-events:none}
   .detection-marker{position:absolute;z-index:1;top:0;height:3px;min-width:2px;opacity:.9;pointer-events:none}
   .detection-color-0{background:#62d6b0}.detection-color-1{background:#f2b84b}.detection-color-2{background:#e879a9}.detection-color-3{background:#78aaff}.detection-color-4{background:#bf91f5}.detection-color-5{background:#f27d61}
   .waveform-hover-guide{position:absolute;inset-block:0;width:1px;background:var(--text,#eef5f0);opacity:.65;pointer-events:none}
@@ -164,7 +163,7 @@
   .waveform{position:relative;grid-area:1 / 1;width:100%;height:2rem;display:block;overflow:hidden;pointer-events:none}
   .waveform line{stroke:var(--line,#69726f);stroke-width:1;opacity:.9}
   .waveform .waveform-unknown-rail{fill:none;stroke:var(--muted,#9ca6a0);stroke-width:2;stroke-dasharray:2 2.8;stroke-linecap:round;opacity:.58;pointer-events:none}
-  .waveform .waveform-elapsed-rail{stroke:var(--accent,#71bda2);stroke-width:2.5;stroke-linecap:round;opacity:.95}
+  .waveform-elapsed-rail{position:absolute;left:0;bottom:1.75%;width:100%;height:2.5%;transform-origin:left center;border-radius:999px;background:var(--accent,#71bda2);pointer-events:none}
   .waveform rect{fill:var(--accent,#71bda2);stroke:var(--text,#eef5f0);stroke-opacity:.2;stroke-width:.28;opacity:1}
   .waveform-seek.empty .waveform rect{display:none}
   .waveform-range{position:relative;grid-area:1 / 1;box-sizing:border-box;min-width:0;min-height:0;width:100%;height:2rem;margin:0;padding:0;border:0;appearance:none;-webkit-appearance:none;background:transparent;cursor:pointer}

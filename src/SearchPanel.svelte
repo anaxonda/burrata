@@ -33,6 +33,7 @@
   const PREF_KEY = "burrata.discovery.search-scope.v2";
   const OLD_PREF_KEY = "burrata.discovery.sources.v1";
   const CONTINUE_PREF_KEY = "burrata.discovery.continue-search.v1";
+  const AUTO_QUEUE_PREF_KEY = "burrata.discovery.auto-queue-search-results.v1";
   const kinds: { id: SearchKind; label: string }[] = [
     { id: "all", label: "All" }, { id: "tracks", label: "Tracks" }, { id: "artists", label: "Artists" }, { id: "albums", label: "Albums" }, { id: "videos", label: "Videos / Sets" }, { id:"playlists",label:"Playlists" }, { id:"profiles",label:"Profiles" }, { id:"channels",label:"Channels" },
   ];
@@ -134,6 +135,8 @@
   let presetRequestPending = $state(false);
   let continueSearch = $state(false);
   let continuePreferenceLoaded = $state(false);
+  let autoQueueSearchResults = $state(false);
+  let seenSearchRows = new Set<string>();
   let collectingSearch = $state(false);
   let collectionProgress = $state("");
   let collectionRequest = 0;
@@ -310,6 +313,7 @@
   }
   onMount(async () => {
     searchHistory = readSearchHistory(startupReadStorage ?? localStorage);
+    try { autoQueueSearchResults = (startupReadStorage ?? localStorage).getItem(AUTO_QUEUE_PREF_KEY) === "true"; } catch { autoQueueSearchResults = false; }
     if (navigationSnapshotKey) return; // App owns the awaited history restoration.
     navigationReady = true;
     try { continueSearch = (startupReadStorage ?? localStorage).getItem(CONTINUE_PREF_KEY) === "true"; } catch { continueSearch = false; }
@@ -322,8 +326,9 @@
 
   // Capture only on explicit route navigation, never on playback/scroll ticks.
   function searchNavigationSnapshot() {
-    return { controls:{text,submitted,kind,searchMode,sourceChoice,customSourceIds:[...customSourceIds],collectedSort,collectedDirection,minimumDuration,maximumDuration,downloadAvailability,continueSearch},
+    return { controls:{text,submitted,kind,searchMode,sourceChoice,customSourceIds:[...customSourceIds],collectedSort,collectedDirection,minimumDuration,maximumDuration,downloadAvailability,continueSearch,autoQueueSearchResults},
       rowsBySource:{...rowsBySource},overflowRows:{...overflowRows},cursors:{...cursors},
+      seenSearchRows:[...seenSearchRows],
       consumed:Object.fromEntries(Object.entries(consumedPageCursors).map(([id,values])=>[id,[...values]])),
       statuses:{...statuses},errors:{...errors},warnings:{...warnings},incompleteSources:{...incompleteSources},
       expanded:{...expanded},collapsedSources:{...collapsedSources},chapterExpanded:{...chapterExpanded},chaptersByRow:Object.fromEntries(Object.entries(chaptersByRow).filter(([,value])=>value!=="loading")),
@@ -333,7 +338,7 @@
   }
   type SearchNavigationSnapshot = ReturnType<typeof searchNavigationSnapshot>;
   function stripSearchNavigationRows(saved: SearchNavigationSnapshot): SearchNavigationSnapshot {
-    return {...saved,rowsBySource:{},overflowRows:{},cursors:{},consumed:{},statuses:{},errors:{},warnings:{},incompleteSources:{},expanded:{},collapsedSources:{},chapterExpanded:{},chaptersByRow:{},selectedTrackRows:[],searchSelectionMode:false,collectionProgress:"",needsRefetch:true};
+    return {...saved,rowsBySource:{},overflowRows:{},cursors:{},seenSearchRows:[],consumed:{},statuses:{},errors:{},warnings:{},incompleteSources:{},expanded:{},collapsedSources:{},chapterExpanded:{},chaptersByRow:{},selectedTrackRows:[],searchSelectionMode:false,collectionProgress:"",needsRefetch:true};
   }
   function retainedSearchNavigationRows(saved: SearchNavigationSnapshot): number {
     return Object.values(saved.rowsBySource).reduce((n,rows)=>n+rows.length,0)
@@ -379,12 +384,15 @@
       const scopes=await searchNavigationScopes(call,ids);
       if(!current())return;
       ({text,submitted,kind,searchMode,sourceChoice,collectedSort,collectedDirection,minimumDuration,maximumDuration,continueSearch}=saved.controls);
+      autoQueueSearchResults = saved.controls.autoQueueSearchResults ?? false;
       downloadAvailability = saved.controls.downloadAvailability ?? "all";
       customSourceIds = validConfiguredSources(saved.controls.customSourceIds);
       lastQueryProp=initialQuery;continuePreferenceLoaded=true;
       const invalid=new Set(ids.filter(id=>!scopes[id]||!saved.accountScopes[id]||scopes[id]!==saved.accountScopes[id]));
       const retained=<T,>(values:Record<string,T>)=>Object.fromEntries(Object.entries(values).filter(([id])=>!invalid.has(id)));
       rowsBySource=retained(saved.rowsBySource);overflowRows=retained(saved.overflowRows);cursors=retained(saved.cursors);
+      const restoredSeenRows=saved.seenSearchRows??Object.values(saved.rowsBySource).flat().map(identity);
+      seenSearchRows=new Set(restoredSeenRows.filter(key=>!invalid.has(key.split(":",1)[0]!)));
       consumedPageCursors=Object.fromEntries(Object.entries(retained(saved.consumed)).map(([id,values])=>[id,new Set(values)]));
       statuses=retained(saved.statuses);errors=retained(saved.errors);warnings=retained(saved.warnings);incompleteSources=retained(saved.incompleteSources);
       //Per-row metadata/selection may reference account-owned results. Clear it
@@ -575,6 +583,22 @@
     for (const row of merged) unique.set(identity(row), row);
     rowsBySource = { ...rowsBySource, [sourceId]: [...unique.values()] };
   }
+  function queueNewSearchRows(incoming: SearchRow[], request: number) {
+    if (!onQueueTracks || request !== generation || navigationDestroyed) return;
+    const fresh: Track[] = [];
+    for (const row of incoming) {
+      if (!row.track) continue;
+      const key = identity(row);
+      if (seenSearchRows.has(key)) continue;
+      seenSearchRows.add(key);
+      if (autoQueueSearchResults) fresh.push(row.track);
+    }
+    if (fresh.length) onQueueTracks(fresh, "append");
+  }
+  function setAutoQueueSearchResults(enabled: boolean) {
+    autoQueueSearchResults = enabled;
+    try { localStorage.setItem(AUTO_QUEUE_PREF_KEY, String(enabled)); } catch { /* preference remains active for this session */ }
+  }
   async function requestSource(query: string, sourceId: string, cursor?: string | null, reads = providerReads, limit = 30): Promise<SearchPage> {
     if (searchSource) return searchSource({ query, sourceIds: [sourceId], kinds: requestedKinds(), cursor, limit });
     const args = { query, sourceIds: [sourceId], kinds: requestedKinds(), cursor: cursor ?? null, limit };
@@ -608,6 +632,7 @@
       collectingSearch = false; collectionProgress = "";
       void cancelSoulseek(); collectionSoulseekSource = null;
       generation++;
+      seenSearchRows = new Set();
       submitted = term;
       rowsBySource = {}; statuses = {}; errors = {}; cursors = {}; incompleteSources = {}; warnings = {}; overflowRows = {}; expanded = {}; collapsedSources = {}; chaptersByRow = {};
       loadingSourceRequests = {}; consumedPageCursors = {};
@@ -638,7 +663,7 @@
           const left = buffered.slice(batch.length);
           overflowRows = { ...overflowRows, [sourceId]: left };
           if (collectionBudget) collectionBudget.used += batch.length;
-          if (batch.length) { mergeRows(sourceId, batch, true); queueVisibleEnrichment(sourceId, request); scheduleInitialMusicBrainzArtwork(sourceId, lazyArtworkScope); }
+          if (batch.length) { mergeRows(sourceId, batch, true); queueNewSearchRows(batch, request); queueVisibleEnrichment(sourceId, request); scheduleInitialMusicBrainzArtwork(sourceId, lazyArtworkScope); }
           if (collection && (collectionBudget?.used ?? 0) >= MAX_COLLECTION_RESULTS_PER_ACTION) {
             statuses = { ...statuses, [sourceId]: "Collection action limit reached; collect more to continue" };
             return;
@@ -685,6 +710,7 @@
           if (collectionBudget) collectionBudget.used += actionRows.length;
           if (actionOverflow.length) overflowRows = { ...overflowRows, [sourceId]: [...actionOverflow, ...(overflowRows[sourceId] ?? [])] };
           mergeRows(sourceId, actionRows, append);
+          queueNewSearchRows(actionRows, request);
           queueVisibleEnrichment(sourceId, request);
           scheduleInitialMusicBrainzArtwork(sourceId, lazyArtworkScope);
           append = true;
@@ -1188,6 +1214,7 @@
     </div>
       <details class="loaded-track-filters"><summary aria-label={`Search filters and playback options${minimumDuration.trim() || maximumDuration.trim() || downloadAvailability !== "all" ? ", active duration filters" : ""}`}>Filters &amp; playback{#if minimumDuration.trim() || maximumDuration.trim() || downloadAvailability !== "all"} <span class="active-filter-indicator">· Active</span>{/if}</summary><div class="loaded-filter-fields">
     <label class="continue-setting"><input type="checkbox" aria-label="Play remaining loaded search results" bind:checked={continueSearch} /> Play remaining loaded search results</label>
+    {#if onQueueTracks}<label class="continue-setting"><input type="checkbox" aria-label="Automatically queue newly loaded search results" checked={autoQueueSearchResults} onchange={(event) => setAutoQueueSearchResults(event.currentTarget.checked)} /> Automatically queue newly loaded results</label>{/if}
     <TrackDownloadFilter bind:value={downloadAvailability} />
     <label>Min duration <input aria-label="Minimum loaded track duration" type="text" inputmode="decimal" placeholder="seconds or mm:ss" value={minimumDuration} oninput={(event) => minimumDuration = event.currentTarget.value} /></label>
     <label>Max duration <input aria-label="Maximum loaded track duration" type="text" inputmode="decimal" placeholder="seconds or mm:ss" value={maximumDuration} oninput={(event) => maximumDuration = event.currentTarget.value} /></label>

@@ -121,6 +121,7 @@ export function createQueuedPlaybackOutbox(
   };
   const flush = (): Promise<void> => {
     if (flushing) return flushing;
+    if (pending.size === 0) return Promise.resolve();
     flushing = (async () => {
       for (const [id, entry] of pending) {
         for (let attempt = 0; attempt < 3; attempt++) {

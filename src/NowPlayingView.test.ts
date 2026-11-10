@@ -57,6 +57,15 @@ it("offers set, detected, and side-by-side fullscreen art choices and falls back
  setup({artworkMode:"detected",detectedArtworkUrl:null});await tick();
  expect(document.querySelector('.hero-art .placeholder')).not.toBeNull();
 });
+it("uses the dedicated detected artwork image in detected-only mode",async()=>{
+ setup({detectedArtworkUrl:"https://example.test/detected.jpg",artworkMode:"detected"});await tick();
+ const frame=document.querySelector<HTMLElement>(".hero-art")!;
+ const image=frame.querySelector<HTMLImageElement>(".detected-artwork")!;
+ expect(image.alt).toBe("Detected track artwork");
+ expect(image.src).toBe("https://example.test/detected.jpg");
+ expect(image.getAttribute("style")).toBeNull();
+ expect(frame.classList.contains("both-art")).toBe(false);
+});
 it("forwards lyrics seeking and the player bottom inset",async()=>{
  const onSeek=vi.fn();
  const loadLyrics=vi.fn().mockResolvedValue({status:"synced",provider:"lrclib",lines:[{id:"line-1",timeSeconds:12,text:"A timed lyric"}]});
