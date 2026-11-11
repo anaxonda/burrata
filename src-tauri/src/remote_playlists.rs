@@ -729,6 +729,8 @@ struct RemoteEntry {
     track_id: String,
     title: String,
     artist: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    channel_name: Option<String>,
     album: Option<String>,
     duration_seconds: Option<f64>,
     url: String,
@@ -3821,11 +3823,22 @@ impl RemotePlaylistService {
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_owned();
-            let artist = data
-                .get("artist")
-                .and_then(Value::as_str)
-                .or_else(|| row.get("subtitle").and_then(Value::as_str))
-                .unwrap_or("Unknown Artist")
+            let data_artist = data.get("artist").and_then(Value::as_str);
+            let artist = data_artist
+                .filter(|artist| {
+                    binding.provider != "youtube"
+                        || data.get("artistSource").and_then(Value::as_str) == Some("recording")
+                })
+                .or_else(|| {
+                    (binding.provider != "youtube")
+                        .then(|| row.get("subtitle").and_then(Value::as_str))
+                        .flatten()
+                })
+                .unwrap_or(if binding.provider == "youtube" {
+                    ""
+                } else {
+                    "Unknown Artist"
+                })
                 .to_owned();
             let duration_seconds = data.get("durationSeconds").and_then(Value::as_f64);
             let version = data
@@ -6784,10 +6797,23 @@ fn parse_remote_entry(value: &Value, provider: &str, occurrence_key: &str) -> Re
         artist: value
             .get("artist")
             .and_then(Value::as_str)
-            .unwrap_or("Unknown Artist")
+            .filter(|artist| {
+                provider != "youtube"
+                    || value.get("artistSource").and_then(Value::as_str) == Some("recording")
+            })
+            .unwrap_or(if provider == "youtube" {
+                ""
+            } else {
+                "Unknown Artist"
+            })
             .chars()
             .take(512)
             .collect(),
+        channel_name: value
+            .get("channelName")
+            .and_then(Value::as_str)
+            .filter(|channel| !channel.trim().is_empty())
+            .map(|channel| channel.chars().take(512).collect()),
         album: value
             .get("album")
             .and_then(Value::as_str)
@@ -6852,6 +6878,9 @@ fn entry_to_track(provider: &str, entry: &RemoteEntry, position: usize) -> Track
     }
     if let Some(views) = entry.views {
         provenance["views"] = json!(views);
+    }
+    if let Some(channel_name) = &entry.channel_name {
+        provenance["channelName"] = json!(channel_name);
     }
     Track {
         id: id.clone(),
@@ -8406,6 +8435,7 @@ mod tests {
             track_id: track_id.into(),
             title: format!("Track {track_id}"),
             artist: "Fixture artist".into(),
+            channel_name: None,
             album: None,
             duration_seconds: None,
             url: format!("https://www.youtube.com/watch?v={track_id}"),
@@ -8813,6 +8843,7 @@ mod tests {
             track_id: "existing123".into(),
             title: "Existing track".into(),
             artist: "Fixture artist".into(),
+            channel_name: None,
             album: None,
             duration_seconds: None,
             url: "https://www.youtube.com/watch?v=existing123".into(),
@@ -9937,6 +9968,7 @@ mod tests {
             track_id: track_id.into(),
             title: "New import".into(),
             artist: "Fixture artist".into(),
+            channel_name: None,
             album: None,
             duration_seconds: None,
             url: url.clone(),
@@ -10295,6 +10327,7 @@ mod tests {
                 track_id: "abcdefghijk".into(),
                 title: "A".into(),
                 artist: "X".into(),
+                channel_name: None,
                 album: None,
                 duration_seconds: None,
                 url: String::new(),
@@ -10308,6 +10341,7 @@ mod tests {
                 track_id: "abcdefghijk".into(),
                 title: "A".into(),
                 artist: "X".into(),
+                channel_name: None,
                 album: None,
                 duration_seconds: None,
                 url: String::new(),
@@ -10516,6 +10550,7 @@ mod tests {
             track_id: track_id.into(),
             title: track_id.into(),
             artist: "Artist".into(),
+            channel_name: None,
             album: None,
             duration_seconds: None,
             url: format!("https://open.spotify.com/track/{track_id}"),
@@ -10844,6 +10879,34 @@ mod tests {
     }
 
     #[test]
+    fn youtube_channel_byline_is_preserved_without_becoming_artist_metadata() {
+        let row = json!({
+            "entryId":"occurrence-1", "trackId":"youtubeTrack_1",
+            "title":"Video title", "artist":"Uploader", "channelName":"Uploader",
+            "url":"https://music.youtube.com/watch?v=youtubeTrack_1", "available":true
+        });
+        let entry = parse_remote_entry(&row, "youtube", "0").unwrap();
+        assert_eq!(entry.artist, "");
+        assert_eq!(entry.channel_name.as_deref(), Some("Uploader"));
+        let track = entry_to_track("youtube", &entry, 0);
+        assert_eq!(track.artist, "");
+        assert_eq!(track.provenance["channelName"], "Uploader");
+
+        let mut catalog_credited = row;
+        catalog_credited["artist"] = json!("Recording Artist");
+        catalog_credited["artistSource"] = json!("recording");
+        let entry = parse_remote_entry(&catalog_credited, "youtube", "0").unwrap();
+        assert_eq!(entry.artist, "Recording Artist");
+
+        let legacy = json!({"entryId":"old","trackId":"youtubeTrack_2","title":"Old row",
+            "artist":"Uploader","url":"https://www.youtube.com/watch?v=youtubeTrack_2"});
+        assert_eq!(
+            parse_remote_entry(&legacy, "youtube", "1").unwrap().artist,
+            ""
+        );
+    }
+
+    #[test]
     fn playlist_count_distinguishes_known_zero_from_unknown() {
         let base = json!({
             "id": "AAAAAAAAAAAAAAAAAAAAAA",
@@ -10992,6 +11055,7 @@ mod tests {
             track_id: "unknown-track".into(),
             title: "Old unavailable title".into(),
             artist: "Artist".into(),
+            channel_name: None,
             album: Some("Album".into()),
             duration_seconds: Some(180.0),
             url: String::new(),

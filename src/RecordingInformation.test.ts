@@ -58,13 +58,12 @@ it("keeps exact-upload playback preferences separate from absent imported metada
  expect(document.body.textContent).toContain("Applies next time you play");
 });
 
-it("does not call the configured AI lookup on mount and keeps it disabled without configuration",async()=>{
+it("does not call the configured AI lookup on mount and hides it without configuration",async()=>{
  apiCall.mockReset();
  instance=mount(RecordingInformation,{target:document.body,props:{track,contextLookupConfigured:false,loadRecording:async()=>({resolution:"unresolved",recording:null,candidates:[]})}});
  await tick();await tick();
- const button=document.querySelector<HTMLButtonElement>(".context-action")!;
- expect(button.disabled).toBe(true);
- expect(button.textContent).toContain("This song");
+ expect(document.querySelector(".context-action")).toBeNull();
+ expect(document.querySelector('[aria-label="AI song and set context"]')).toBeNull();
  expect(apiCall).not.toHaveBeenCalled();
 });
 
@@ -101,6 +100,43 @@ it("lets the user choose song, concert, or set context explicitly",async()=>{
  expect(document.querySelector(".context-result strong")?.textContent).toContain("This DJ set");
 });
 
+it("separates answer labeling from the answer and renders only valid returned sources",async()=>{
+ apiCall.mockReset().mockImplementation(async(_command:string,args:{request:{requestId:string}})=>({
+  requestId:args.request.requestId,identity:"opaque",answer:"The event took place at Alexandra Palace.",model:"model",provider:"openaiCompatible",
+  sources:[
+   {title:"Official event page",url:"https://venue.example/events/usb002"},
+   {title:"Local address",url:"https://127.0.0.1/private"},
+   {title:"Unencrypted page",url:"http://news.example/story"},
+  ],
+ }));
+ instance=mount(RecordingInformation,{target:document.body,props:{track,contextLookupConfigured:true,loadRecording:async()=>({resolution:"unresolved",recording:null,candidates:[]})}});
+ await tick();await tick();
+ (document.querySelector(".context-action") as HTMLButtonElement).click();
+ await tick();await tick();
+ const result=document.querySelector(".context-result")!;
+ expect(result.querySelector(".context-badge")?.textContent).toContain("web sources");
+ expect(result.querySelector(".context-result>strong")?.textContent).toContain(track.title);
+ expect(result.querySelector(".context-result>p")?.textContent).toBe("The event took place at Alexandra Palace.");
+ expect(result.querySelectorAll(".context-sources a")).toHaveLength(1);
+ expect(result.querySelector(".context-sources a")?.textContent).toContain("Official event page");
+});
+
+it("sends a canonical public YouTube locator and omits private or nonstandard source URLs",async()=>{
+ apiCall.mockReset().mockImplementation(async(_command:string,args:{request:{requestId:string}})=>({requestId:args.request.requestId,identity:"opaque",answer:"Context",model:"model",provider:"openaiCompatible"}));
+ const youtube={...track,provider:"youtube",sourceUrl:"https://www.youtube.com/watch?v=AbCdEf123_-&list=private&si=secret#t=2"};
+ instance=mount(RecordingInformation,{target:document.body,props:{track:youtube,contextLookupConfigured:true,loadRecording:async()=>({resolution:"unresolved",recording:null,candidates:[]})}});
+ await tick();await tick();
+ (document.querySelector(".context-action") as HTMLButtonElement).click();await tick();await tick();
+ expect(apiCall.mock.calls[0][1].request.sourceUrl).toBe("https://www.youtube.com/watch?v=AbCdEf123_-");
+ await unmount(instance);instance=undefined;document.body.innerHTML="";
+
+ const privateSoundcloud={...track,provider:"soundcloud",sourceUrl:"https://soundcloud.com/artist/track/s-private-token"};
+ instance=mount(RecordingInformation,{target:document.body,props:{track:privateSoundcloud,contextLookupConfigured:true,loadRecording:async()=>({resolution:"unresolved",recording:null,candidates:[]})}});
+ await tick();await tick();
+ (document.querySelector(".context-action") as HTMLButtonElement).click();await tick();await tick();
+ expect(apiCall.mock.calls[1][1].request).not.toHaveProperty("sourceUrl");
+});
+
 it("offers separate detected song and full-set lookups in fullscreen context",async()=>{
  apiCall.mockReset().mockImplementation(async(_command:string,args:{request:Record<string,unknown>})=>({requestId:args.request.requestId,identity:"opaque",answer:"Context",model:"model",provider:"openaiCompatible"}));
  const detected={...track,title:"Detected song",artist:"Detected artist"};
@@ -108,7 +144,7 @@ it("offers separate detected song and full-set lookups in fullscreen context",as
  instance=mount(RecordingInformation,{target:document.body,props:{track:fullSet,contextLookupConfigured:true,contextTargets:[{track:detected,label:"Detected song",targetKind:"song"},{track:fullSet,label:"Full set",targetKind:"set"}],loadRecording:async()=>({resolution:"unresolved",recording:null,candidates:[]})}});
  await tick();await tick();
  const buttons=[...document.querySelectorAll<HTMLButtonElement>(".context-action")];
- expect(buttons.map(button=>button.textContent)).toEqual(["Ask configured AI about Detected song","Ask configured AI about Full set"]);
+ expect(buttons.map(button=>button.textContent)).toEqual(["Ask AI about Detected song","Ask AI about Full set"]);
  buttons[0].click();await tick();await tick();
  expect(apiCall.mock.calls[0][1].request).toMatchObject({title:"Detected song",artist:"Detected artist",targetKind:"song"});
 });
@@ -162,5 +198,5 @@ it("discards a pending answer after the configured AI connection changes",async(
  resolveLookup({requestId:apiCall.mock.calls[0][1].request.requestId,identity:"opaque",answer:"answer from old connection",model:"m",provider:"openaiCompatible"});
  await tick();await tick();
  expect(document.body.textContent).not.toContain("answer from old connection");
- expect(document.querySelector(".context-action")?.textContent).toContain("Ask configured AI");
+ expect(document.querySelector(".context-action")?.textContent).toContain("Ask AI");
 });

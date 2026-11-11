@@ -76,6 +76,18 @@
     return parts.reduce((total, part) => total * 60 + Number(part), 0) || null;
   };
   const viewText = value => typeof value === 'string' ? value : first(text(value), value?.content, value?.dynamicTextViewModel?.text?.content, value?.text?.content, value?.accessibility?.accessibilityData?.label) || '';
+  const isMusicArtistRun = run => run?.navigationEndpoint?.browseEndpoint?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType === 'MUSIC_PAGE_TYPE_ARTIST';
+  const musicArtistNames = columns => {
+    const names = [];
+    for (const column of columns || []) {
+      const runs = column?.musicResponsiveListItemFlexColumnRenderer?.text?.runs || [];
+      for (const run of runs) {
+        const name = viewText(run);
+        if (isMusicArtistRun(run) && name && !names.includes(name)) names.push(name);
+      }
+    }
+    return names;
+  };
   // Public WEB lockups expose duration in thumbnail bottom-overlay badges,
   // not the content metadata rows (which contain views/publication age).
   const lockupBadgeDuration = row => {
@@ -166,7 +178,7 @@
       }
       if (value.videoRenderer) {
         const x = value.videoRenderer, id = x.videoId;
-        if (id) { const title = text(x.title), artist = text(x.ownerText || x.shortBylineText), durationSeconds = duration(x.lengthText?.simpleText), url = `https://www.youtube.com/watch?v=${id}`, artworkUrl = image(x.thumbnail); rows.push({ id, kind: 'track', title, subtitle: artist, url, artworkUrl, data: { id, provider: 'youtube', trackId: id, title, artist, album: '', durationSeconds, url, artworkUrl, available: true } }); }
+        if (id) { const title = text(x.title), artist = text(x.ownerText || x.shortBylineText), durationSeconds = duration(x.lengthText?.simpleText), url = `https://www.youtube.com/watch?v=${id}`, artworkUrl = image(x.thumbnail); rows.push({ id, kind: 'track', title, subtitle: artist, url, artworkUrl, data: { id, provider: 'youtube', trackId: id, title, artist: '', channelName: artist, album: '', durationSeconds, url, artworkUrl, available: true } }); }
       }
       if (value.channelRenderer) {
         const x = value.channelRenderer, id = x.channelId;
@@ -179,7 +191,9 @@
       if (value.musicResponsiveListItemRenderer) {
         const x = value.musicResponsiveListItemRenderer, id = x.playlistItemData?.videoId || x.navigationEndpoint?.watchEndpoint?.videoId || x.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]?.navigationEndpoint?.watchEndpoint?.videoId;
         const columns = (x.flexColumns || []).map(column => text(column.musicResponsiveListItemFlexColumnRenderer?.text));
-        if (id) { const title = columns[0] || '', artist = columns.slice(1).join(' • '), durationSeconds = duration(text(x.fixedColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text)), url = `https://www.youtube.com/watch?v=${id}`, artworkUrl = image(x.thumbnail); rows.push({ id, kind: 'track', title, subtitle: artist, url, artworkUrl, data: { id, provider: 'youtube', trackId: id, title, artist, album: '', durationSeconds, url, artworkUrl, available: true } }); }
+        const artists = musicArtistNames(x.flexColumns);
+        const artist = artists.join(' • ');
+        if (id) { const title = columns[0] || '', durationSeconds = duration(text(x.fixedColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text)), url = `https://www.youtube.com/watch?v=${id}`, artworkUrl = image(x.thumbnail); rows.push({ id, kind: 'track', title, subtitle: artist || columns.slice(1).join(' • '), url, artworkUrl, data: { id, provider: 'youtube', trackId: id, title, artist, ...(artists.length ? { artistSource: 'recording' } : {}), album: '', durationSeconds, url, artworkUrl, available: true } }); }
       }
       if (value.musicTwoRowItemRenderer) {
         const x = value.musicTwoRowItemRenderer, endpoint = x.navigationEndpoint || x.title?.runs?.[0]?.navigationEndpoint, id = endpoint?.browseEndpoint?.browseId || endpoint?.watchEndpoint?.playlistId;
@@ -510,18 +524,19 @@
         const parts = rows.flatMap(row => (row.metadataParts || []).map(part => viewText(part.text || part)).filter(Boolean));
         const durationText = parts.find(part => /^\d{1,2}:\d{2}(?::\d{2})?$/.test(part)) || '';
         const artist = (rows[0]?.metadataParts || []).map(part => viewText(part.text || part)).filter(part => part && part !== durationText).join(' • ');
-        if (type.includes('video') && (trackId || entryId)) entries.push({ entryId, trackId: trackId || null, title: title || 'Unavailable video', artist, album: '', durationSeconds: duration(durationText) || lockupBadgeDuration(x), url: trackId ? `https://www.youtube.com/watch?v=${trackId}` : null, artworkUrl: image(x.contentImage), available: !!trackId && !type.includes('unavailable') });
+        if (type.includes('video') && (trackId || entryId)) entries.push({ entryId, trackId: trackId || null, title: title || 'Unavailable video', artist: '', ...(artist ? { channelName: artist } : {}), album: '', durationSeconds: duration(durationText) || lockupBadgeDuration(x), url: trackId ? `https://www.youtube.com/watch?v=${trackId}` : null, artworkUrl: image(x.contentImage), available: !!trackId && !type.includes('unavailable') });
       }
       if (value.playlistVideoRenderer) {
         const x = value.playlistVideoRenderer, trackId = x.videoId || null, entryId = x.setVideoId || x.playlistVideoId || x.playlistItemData?.playlistSetVideoId || null;
         // Missing legacy flags preserve the occurrence but do not confirm playability.
         const available = typeof trackId === 'string' && /^[A-Za-z0-9_-]{11}$/.test(trackId) && x.isPlayable === true && !x.unplayableText;
-        if (trackId || entryId || x.isPlayable === false || x.unplayableText) entries.push({ entryId, trackId, title: text(x.title) || text(x.unplayableText) || 'Unavailable video', artist: text(x.shortBylineText), album: '', durationSeconds: duration(x.lengthText?.simpleText), url: trackId ? `https://www.youtube.com/watch?v=${trackId}` : null, artworkUrl: image(x.thumbnail), available });
+        if (trackId || entryId || x.isPlayable === false || x.unplayableText) { const channelName = text(x.shortBylineText); entries.push({ entryId, trackId, title: text(x.title) || text(x.unplayableText) || 'Unavailable video', artist: '', ...(channelName ? { channelName } : {}), album: '', durationSeconds: duration(x.lengthText?.simpleText), url: trackId ? `https://www.youtube.com/watch?v=${trackId}` : null, artworkUrl: image(x.thumbnail), available }); }
       }
       if (value.musicResponsiveListItemRenderer) {
         const x = value.musicResponsiveListItemRenderer, trackId = x.playlistItemData?.videoId || x.navigationEndpoint?.watchEndpoint?.videoId;
         const columns = (x.flexColumns || []).map(column => text(column.musicResponsiveListItemFlexColumnRenderer?.text));
-        if (trackId) entries.push({ entryId: x.playlistItemData?.setVideoId || null, trackId, title: columns[0] || '', artist: columns.slice(1).join(' • '), album: '', durationSeconds: duration(text(x.fixedColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text)), url: `https://www.youtube.com/watch?v=${trackId}`, artworkUrl: image(x.thumbnail), available: true });
+        const artists = musicArtistNames(x.flexColumns);
+        if (trackId) entries.push({ entryId: x.playlistItemData?.setVideoId || null, trackId, title: columns[0] || '', artist: artists.join(' • '), ...(artists.length ? { artistSource: 'recording' } : {}), album: '', durationSeconds: duration(text(x.fixedColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text)), url: `https://www.youtube.com/watch?v=${trackId}`, artworkUrl: image(x.thumbnail), available: true });
       }
       for (const child of Object.values(value)) walk(child);
     };

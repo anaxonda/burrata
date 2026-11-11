@@ -80,6 +80,41 @@ describe('saved library views', () => {
     expect(trackView.target.querySelector('[aria-label="Library layout"]')).toBeNull();
   });
 
+  it('keeps long artist and album card text inside cards, preserves separate profiles, and uses singular counts', async () => {
+    const longName = 'The Absolutely Impossibly Long Artist Name With Several Collaborating Performers & Guests';
+    const longAlbum = 'An Extremely Long Album Title That Should Wrap Cleanly Across Several Lines (Expanded Edition)';
+    const profiles: LibraryEntity[] = [
+      { ...artist, id: 'artist:ref:beatport:long-one', name: longName, provider: 'beatport', providerId: 'beatport-profile-with-long-reference-123456789', trackCount: 1, albumCount: 1 },
+      { ...artist, id: 'artist:ref:traxsource:long-two', name: longName, provider: 'traxsource', providerId: 'traxsource-profile-with-long-reference-123456789', trackCount: 1, albumCount: 1 },
+    ];
+    const artistCall = vi.fn(async () => ({ items: profiles, total: profiles.length }));
+    const artistView = render({ browserState: { ...initialLibraryBrowserState(), tab: 'artists' }, call: artistCall }); await settle();
+    const artistCard = artistView.target.querySelector<HTMLElement>('.artist-family')!;
+    expect(artistCard.querySelector(':scope > strong')?.textContent).toBe(longName);
+    expect(artistCard.querySelectorAll('.version-choice')).toHaveLength(2);
+    expect(artistCard.querySelector('details')?.hasAttribute('open')).toBe(false);
+    expect(artistView.target.querySelector<HTMLSelectElement>('[aria-label="Filter artists by source"]')?.innerHTML).toContain('value="beatport"');
+    expect(artistView.target.querySelector<HTMLSelectElement>('[aria-label="Filter artists by source"]')?.innerHTML).toContain('value="traxsource"');
+    artistCard.querySelector('summary')!.click();
+    await settle();
+    expect(artistCard.querySelector('details')?.hasAttribute('open')).toBe(true);
+    expect(artistCard.querySelectorAll('.version-choice')).toHaveLength(2);
+    expect(artistCard.textContent).toContain('1 saved track');
+    expect(artistCard.textContent).toContain('1 album');
+    clearRendered();
+
+    const longEntry = { ...albumVersion('album:ref:beatport:long', longAlbum, longName, 'beatport', '2001-11-03'), trackCount: 1, totalTracks: 1 };
+    const albumCall = vi.fn(async () => ({ items: [longEntry], total: 1 }));
+    const albumView = render({ browserState: { ...initialLibraryBrowserState(), tab: 'albums' }, call: albumCall }); await settle();
+    const albumCard = albumView.target.querySelector<HTMLButtonElement>('.entity-card')!;
+    expect(albumCard.querySelector(':scope > strong')?.textContent).toBe(longAlbum);
+    expect(albumCard.querySelector(':scope > span')?.textContent).toBe(longName);
+    expect(albumCard.textContent).toContain('1 of 1 track saved');
+    expect(libraryBrowserSource).toContain('.entity-grid .entity-card>strong,.entity-grid .entity-card>span,.entity-grid .entity-card>small');
+    expect(libraryBrowserSource).toContain('overflow-wrap:anywhere');
+    expect(libraryBrowserSource).toContain('.entity-grid .entity-card>details{min-width:0;max-width:100%;box-sizing:border-box}');
+  });
+
   it('renders artist source profile disclosures in list layout', async () => {
     const profiles = [artist, { ...artist, id: 'artist:ref:discogs:one', provider: 'discogs', providerId: 'one' }];
     const call = vi.fn(async () => ({ items: profiles, total: 2 }));

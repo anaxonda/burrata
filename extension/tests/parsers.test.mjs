@@ -111,7 +111,7 @@ test('YouTube public video import creates one complete occurrence without a sign
  assert.equal(providerFor('https://www.youtube.com/watch?v=abcdefghijk'),'youtube');
  assert.equal(result.provider,'youtube');assert.equal(result.kind,'playlist');assert.equal(result.complete,true);
  assert.equal(result.expectedTotal,1);assert.equal(result.entries[0].providerId,'abcdefghijk');
- assert.equal(result.entries[0].artist,'Artist Channel');assert.equal(result.entries[0].title,'Song Title');
+ assert.equal(result.entries[0].artist,'');assert.equal(result.entries[0].metadata.channelName,'Artist Channel');assert.equal(result.entries[0].title,'Song Title');
  assert.equal(result.entries[0].durationSeconds,192);assert.equal(result.entries[0].artworkUrl,'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg');
 });
 
@@ -120,7 +120,7 @@ test('YouTube watch extraction skips empty placeholder headings before the rende
  const page=doc('<ytd-watch-metadata><h1></h1><h1><yt-formatted-string></yt-formatted-string></h1><div id="title"><h1 class="title">BAD TIMES</h1></div><div id="owner"><ytd-channel-name><a href="/@ImaelAngel">Imael Angel</a></ytd-channel-name></div><meta itemprop="duration" content="PT2M48S"><meta property="og:image" content="https://i.ytimg.com/vi/Hqp8vxkPrI8/maxresdefault.jpg">',url);
  const result=mergeSnapshots([extract(page,url)]);
  assert.equal(result.entries[0].providerId,'Hqp8vxkPrI8');assert.equal(result.entries[0].title,'BAD TIMES');
- assert.equal(result.entries[0].artist,'Imael Angel');assert.equal(result.entries[0].durationSeconds,168);
+ assert.equal(result.entries[0].artist,'');assert.equal(result.entries[0].metadata.channelName,'Imael Angel');assert.equal(result.entries[0].durationSeconds,168);
 });
 
 test('YouTube public playlist preserves ordered duplicate occurrences and honest partial capture',()=>{
@@ -132,7 +132,8 @@ test('YouTube public playlist preserves ordered duplicate occurrences and honest
  const result=mergeSnapshots([extract(page,'https://www.youtube.com/playlist?list=PLabcdefghijk')]);
  assert.equal(result.complete,true);assert.equal(result.expectedTotal,3);
  assert.deepEqual(result.entries.map(e=>[e.position,e.providerId]),[[1,'abcdefghijk'],[2,'BCDEFGHIJKL'],[3,'abcdefghijk']]);
- assert.deepEqual(result.entries.map(e=>e.artist),['First Artist','Second Artist','First Artist']);
+ assert.deepEqual(result.entries.map(e=>e.artist),['','','']);
+ assert.deepEqual(result.entries.map(e=>e.metadata.channelName),['First Artist','Second Artist','First Artist']);
  assert.equal(result.entries[0].durationSeconds,192);
  const partial=mergeSnapshots([extract(page,'https://www.youtube.com/playlist?list=PLabcdefghijk')]).entries.slice(0,2);
  assert.equal(mergeSnapshots([{...extract(page,'https://www.youtube.com/playlist?list=PLabcdefghijk'),entries:partial}]).complete,false);
@@ -144,13 +145,16 @@ test('YouTube current lockup playlist cards use explicit list indexes and ignore
  const page=doc(`<main><ytd-playlist-header-renderer><h1>Public Mix</h1></ytd-playlist-header-renderer><yt-page-header-view-model><div>2 videos </div></yt-page-header-view-model>${card('abcdefghijk',1,'First Song','ArtistA')}${card('abcdefghijk',2,'First Song','ArtistA')}<yt-lockup-view-model><a class="ytLockupMetadataViewModelTitle" href="/watch?v=LMNOPQRSTUV&list=OTHERLIST123&index=1">Unrelated</a></yt-lockup-view-model></main>`,url);
  const result=mergeSnapshots([extract(page,url)]);
  assert.equal(result.expectedTotal,2);assert.equal(result.complete,true);
- assert.deepEqual(result.entries.map(e=>[e.position,e.providerId,e.title,e.artist,e.durationSeconds]),[[1,'abcdefghijk','First Song','ArtistA',235],[2,'abcdefghijk','First Song','ArtistA',235]]);
+ assert.deepEqual(result.entries.map(e=>[e.position,e.providerId,e.title,e.artist,e.metadata.channelName,e.durationSeconds]),[[1,'abcdefghijk','First Song','','ArtistA',235],[2,'abcdefghijk','First Song','','ArtistA',235]]);
 });
 
-test('YouTube rejects unsupported pages and does not infer missing public channel credit',()=>{
+test('YouTube keeps channel metadata separate from artist and accepts absent uploader metadata',()=>{
  assert.throws(()=>extract(doc('<h1>Channel</h1>'),'https://www.youtube.com/@Artist'),/public YouTube video or playlist/);
  assert.throws(()=>extract(doc('<h1>Song</h1>'),'https://www.youtube.com/watch?v=bad'),/public YouTube video or playlist/);
- assert.throws(()=>extract(doc('<h1>Song</h1>'),'https://www.youtube.com/watch?v=abcdefghijk'),/channel credit/);
+ const video=extract(doc('<h1>Song</h1>'),'https://www.youtube.com/watch?v=abcdefghijk');
+ assert.equal(video.entries[0].artist,'');assert.equal(video.entries[0].metadata.channelName,'');
+ const playlist=extract(doc('<main><ytd-playlist-video-renderer><span id="index">1</span><a id="video-title" href="/watch?v=abcdefghijk">Song</a></ytd-playlist-video-renderer></main>','https://www.youtube.com/playlist?list=PLabcdefghijk'),'https://www.youtube.com/playlist?list=PLabcdefghijk');
+ assert.equal(playlist.entries[0].artist,'');assert.equal(playlist.entries[0].metadata.channelName,'');
 });
 
 test('A visibly empty YouTube playlist with explicit zero count is complete',()=>{
@@ -162,7 +166,7 @@ test('A visibly empty YouTube playlist with explicit zero count is complete',()=
 test('YouTube playlist row omissions prevent completeness even when declared count matches captured rows',()=>{
  const page=doc(`<main><ytd-playlist-header-renderer><h1>Changed playlist</h1><span>2 videos</span></ytd-playlist-header-renderer><ytd-playlist-video-list-renderer>
   <ytd-playlist-video-renderer><span id="index">1</span><a id="video-title" href="/watch?v=abcdefghijk">First</a><div id="byline-container">Artist</div></ytd-playlist-video-renderer>
-  <ytd-playlist-video-renderer><span id="index">2</span><a id="video-title" href="/watch?v=BCDEFGHIJKL">Missing credit</a></ytd-playlist-video-renderer>
+  <ytd-playlist-video-renderer><span id="index">2</span><a id="video-title" href="/watch?v=BCDEFGHIJKL"></a></ytd-playlist-video-renderer>
   <ytd-playlist-video-renderer><span id="index">2</span><a id="video-title" href="/watch?v=LMNOPQRSTUV">Second</a><div id="byline-container">Artist</div></ytd-playlist-video-renderer>
  </ytd-playlist-video-list-renderer></main>`,'https://www.youtube.com/playlist?list=PLabcdefghijk');
  const result=mergeSnapshots([extract(page,'https://www.youtube.com/playlist?list=PLabcdefghijk')]);
@@ -209,6 +213,18 @@ test('Traxsource chart total can come from explicit provider document title',()=
 test('Beatport rendered table reads linked artists and first-cell rank, not title-link test ID',()=>{
  const s=extract(doc(`<h1>Afro House</h1><div data-testid="tracks-table-row"><div class="cell"># 7</div><div class="cell title"><a data-testid="track-title" href="/track/recording/123"><span>Recording</span></a><a href="/artist/artist/5">Artist</a><a href="/artist/artist/5">Artist</a><span class="mix-name">Extended Mix</span></div><div class="cell label"><a href="/label/label/6">Label</a></div><div class="cell bpm">122 BPM</div><div class="cell key">A Minor</div><div class="cell length">6:32</div></div>`),beatportUrl);
  assert.equal(s.entries.length,1);assert.equal(s.entries[0].rank,7);assert.equal(s.entries[0].artist,'Artist');assert.equal(s.entries[0].title,'Recording');assert.equal(s.entries[0].version,'Extended Mix');assert.equal(s.entries[0].bpm,122);assert.equal(s.entries[0].durationSeconds,392);assert.equal(s.expectedTotal,100);
+});
+test('Beatport rendered artist anchors preserve atomic punctuation, boundaries and provider IDs',()=>{
+ const page=doc(`<h1>Afro House</h1><div data-testid="tracks-table-row"><div class="cell">1</div><div class="cell title"><a href="/track/song/123">Song</a><a href="/artist/earth-wind-fire/456">Earth, Wind &amp; Fire</a><a href="/artist/duo/789">Duo</a><span class="remixers"><a href="/artist/remixer/99">Remixer</a></span></div></div>`);
+ const e=extract(page,'https://www.beatport.com/genre/afro-house/89/top-100').entries[0];
+ assert.equal(e.artist,'Earth, Wind & Fire, Duo');
+ assert.deepEqual(e.artistCredits.map(({name,providerId})=>({name,providerId})),[{name:'Earth, Wind & Fire',providerId:'456'},{name:'Duo',providerId:'789'}]);
+});
+test('Traxsource rendered artist anchors extract IDs from /artist/ID/slug and exclude remixers',()=>{
+ const page=doc(`<h1>Top 1</h1><div class="trk-row"><span class="tnum">1</span><div class="title"><a href="/track/123/song">Song</a></div><div class="artists"><a href="/artist/42/earth-wind-fire">Earth, Wind &amp; Fire</a><a href="/artist/56/duo">Duo</a><span class="remixers"><a href="/artist/99/remixer">Remixer</a></span></div></div>`);
+ const e=extract(page,'https://www.traxsource.com/genre/13/deep-house/top').entries[0];
+ assert.equal(e.artist,'Earth, Wind & Fire, Duo');
+ assert.deepEqual(e.artistCredits.map(({name,providerId})=>({name,providerId})),[{name:'Earth, Wind & Fire',providerId:'42'},{name:'Duo',providerId:'56'}]);
 });
 test('Beatport unranked recommendations never use a later BPM cell as chart rank',()=>{
  const s=extract(doc(`<h1>Afro House</h1><div data-testid="tracks-table-row"><div class="cell"><button>Play</button></div><div class="cell title"><a href="/track/recording/123">Recording</a><a href="/artist/artist/5">Artist</a></div><div class="cell bpm">122</div></div>`),beatportUrl);

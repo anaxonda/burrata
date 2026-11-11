@@ -385,7 +385,7 @@ test('modern YouTube playlist browse decodes lockup video rows, page header, and
  assert.equal(result.playlist.title,'Modern playlist title');
  assert.equal(result.playlist.artworkUrl,'https://i.ytimg.com/playlist-art.jpg');
  assert.equal(result.entries.length,2);
- assert.deepEqual(result.entries[0],{entryId:null,trackId:'videoModern123',title:'Bamboleo',artist:'Gipsy Kings',album:'',durationSeconds:206,url:'https://www.youtube.com/watch?v=videoModern123',artworkUrl:'https://i.ytimg.com/track.jpg',available:true});
+ assert.deepEqual(result.entries[0],{entryId:null,trackId:'videoModern123',title:'Bamboleo',artist:'',channelName:'Gipsy Kings',album:'',durationSeconds:206,url:'https://www.youtube.com/watch?v=videoModern123',artworkUrl:'https://i.ytimg.com/track.jpg',available:true});
  assert.deepEqual(result.entries[1],{entryId:'hidden-entry-1',trackId:null,title:'Video unavailable',artist:'',album:'',durationSeconds:null,url:null,artworkUrl:null,available:false});
  assert.equal(result.total,2);
  assert.equal(result.nextCursor,'next-playlist-page');

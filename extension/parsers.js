@@ -33,9 +33,9 @@ function rowMetadata(row,base){
  return {artistUrls:[...new Set(links('a[href*="/artist/"]'))],albumUrl:links('a[href*="/album/"],a[href*="/release/"]')[0]||null,labelUrl:links('a[href*="/label/"]')[0]||null,remixers:[...row.querySelectorAll('.remixers a,.remixer a')].map(a=>a.textContent.trim()).filter(Boolean)};
 }
 function renderedArtistCredits(row,base,provider){
- const anchors=[...row.querySelectorAll('a[href*="/artist/"]')].filter(a=>a.textContent.trim());
+ const anchors=[...row.querySelectorAll('a[href*="/artist/"]')].filter(a=>a.textContent.trim()&&!a.closest('.remixers,.remixer'));
  const credits=anchors.map((anchor,index)=>{
-  let providerId=null;try{const path=new URL(anchor.getAttribute('href'),base).pathname;providerId=path.match(/\/artist\/([^/]+)/)?.[1]||null;}catch{/* keep explicit name without a parsed ID */}
+  let providerId=null;try{const path=new URL(anchor.getAttribute('href'),base).pathname;providerId=(provider==='beatport'?path.match(/\/artist\/[^/]+\/(\d+)(?:\/|$)/)?.[1]:provider==='traxsource'?path.match(/\/artist\/(\d+)(?:\/|$)/)?.[1]:path.match(/\/artist\/([^/]+)/)?.[1])||null;}catch{/* keep explicit name without a parsed ID */}
   return {name:anchor.textContent.trim(),role:'artist',providerId,joinPhrase:index<anchors.length-1?', ':'',provenance:`${provider}RenderedArtistLink`};
  });
  return credits.length&&credits.length<=32?credits:null;
@@ -304,13 +304,13 @@ function youtubePlaylistEntry(row,_index,base){
   let linkIndex=null;
   if(anchor){try{const u=new URL(anchor.getAttribute('href'),base);if(u.searchParams.get('list')===playlistId)linkIndex=Number(u.searchParams.get('index'));}catch{/* noncanonical link */}}
   const position=ordinalMatch?Number(ordinalMatch[0]):Number.isInteger(linkIndex)&&linkIndex>0?linkIndex:null;
-  if(!Number.isInteger(position)||position<1||position>10000||!title||!artist)return null;
+  if(!Number.isInteger(position)||position<1||position>10000||!title)return null;
   const durationNode=row.querySelector('#text.ytd-thumbnail-overlay-time-status-renderer, .duration, .ytBadgeShapeText, yt-thumbnail-bottom-overlay-view-model, [aria-label*="duration" i]');
   const durationSeconds=youtubeDuration(durationNode?.getAttribute('aria-label')||youtubeText(durationNode));
   const image=row.querySelector('img');
   const artworkUrl=link(image?.getAttribute('src')||image?.getAttribute('srcset')?.split(',').at(-1)?.trim().split(/\s+/)[0],base);
   const url=videoId?`https://www.youtube.com/watch?v=${videoId}`:null;
-  return entry(videoId,url,artist,title,position,{durationSeconds,artworkUrl,metadata:{videoTitle:title,channelName:artist,channelUrl:pageLink(row.querySelector('a[href*="/channel/"],a[href*="/@"]')?.getAttribute('href'),base),availability:'available'}});
+  return entry(videoId,url,'',title,position,{durationSeconds,artworkUrl,metadata:{videoTitle:title,channelName:artist,channelUrl:pageLink(row.querySelector('a[href*="/channel/"],a[href*="/@"]')?.getAttribute('href'),base),availability:'available'}});
 }
 function extractYouTube(doc,url){
   const page=new URL(url),videoId=youtubeVideoId(page.searchParams.get('v'));
@@ -321,11 +321,11 @@ function extractYouTube(doc,url){
     const title=[...doc.querySelectorAll('ytd-watch-metadata h1, #above-the-fold h1, h1.title, h1')].map(youtubeText).find(Boolean)||'';
     const owner=doc.querySelector('#owner #channel-name a, #upload-info #channel-name a, ytd-video-owner-renderer #channel-name a, ytd-channel-name a');
     const artist=youtubeText(owner)||youtubeText(doc.querySelector('#owner #channel-name, #upload-info #channel-name, ytd-video-owner-renderer #channel-name'));
-    if(!title||!artist)throw new Error('YouTube video title or channel credit is not rendered. Wait for the public video metadata to load and retry.');
+    if(!title)throw new Error('YouTube video title is not rendered. Wait for the public video metadata to load and retry.');
     const durationNode=doc.querySelector('meta[itemprop="duration"], .ytp-time-duration');
     const durationRaw=durationNode?.getAttribute('content')||youtubeText(durationNode);
     const image=doc.querySelector('meta[property="og:image"]')?.getAttribute('content')||doc.querySelector('#thumbnail img, ytd-video-primary-info-renderer img')?.getAttribute('src');
-    return {schemaVersion:1,provider:'youtube',kind:'playlist',title:`${artist} — ${title}`,sourceUrl:`https://www.youtube.com/watch?v=${videoId}`,capturedAt:new Date().toISOString(),complete:true,expectedTotal:1,warnings:[],entries:[entry(videoId,`https://www.youtube.com/watch?v=${videoId}`,artist,title,1,{durationSeconds:youtubeDuration(durationRaw),artworkUrl:link(image,url),metadata:{videoTitle:title,channelName:artist,channelUrl:pageLink(doc.querySelector('#owner a[href*="/channel/"],#owner a[href*="/@"]')?.getAttribute('href'),url),availability:'available'}})]};
+    return {schemaVersion:1,provider:'youtube',kind:'playlist',title:`${artist} — ${title}`,sourceUrl:`https://www.youtube.com/watch?v=${videoId}`,capturedAt:new Date().toISOString(),complete:true,expectedTotal:1,warnings:[],entries:[entry(videoId,`https://www.youtube.com/watch?v=${videoId}`,'',title,1,{durationSeconds:youtubeDuration(durationRaw),artworkUrl:link(image,url),metadata:{videoTitle:title,channelName:artist,channelUrl:pageLink(doc.querySelector('#owner a[href*="/channel/"],#owner a[href*="/@"]')?.getAttribute('href'),url),availability:'available'}})]};
   }
   const playlistId=page.searchParams.get('list');
   if(page.pathname==='/playlist'&&typeof playlistId==='string'&&/^[A-Za-z0-9_-]{10,80}$/.test(playlistId)){
@@ -336,7 +336,7 @@ function extractYouTube(doc,url){
       })).slice(0,10000);
     const entries=[],warnings=[];
     rows.forEach((row,index)=>{const parsed=youtubePlaylistEntry(row,index,url);if(parsed)entries.push(parsed);});
-    if(entries.length<rows.length)warnings.push('Some rendered playlist rows lacked a stable order, title, or channel credit and were omitted.');
+    if(entries.length<rows.length)warnings.push('Some rendered playlist rows lacked a stable order or title and were omitted.');
     const header=doc.querySelector('ytd-playlist-header-renderer')||doc.querySelector('ytmusic-playlist-header-renderer')||doc.querySelector('main')||doc.body;
     const expectedTotal=youtubeExpectedTotal(header)??youtubeExpectedTotal(doc.body);
     if(!entries.length&&expectedTotal!==0)throw new Error('YouTube playlist videos were not available. Wait for the public playlist rows to load and retry.');
@@ -383,7 +383,7 @@ export function extract(doc, url) {
       const sourceUrl=link(a?.getAttribute('href'),url); const providerId=sourceUrl?.match(/\/track\/(\d+)/)?.[1];
       const artists=[...row.querySelectorAll('.artists a')].filter(a=>!a.closest('.remixers,.remixer')).map(a=>a.textContent.trim()).filter(Boolean).join(', ');
       if (!providerId || !artists || !a.textContent.trim()) continue;
-      entries.push(entry(providerId,sourceUrl,artists,a.textContent.trim(),entries.length+1,{rank:rankNumber(text(row,'.tnum,.position,.rank')?.replace(/^#/,'')),version:text(row,'.version,.mix,.mix-name'),durationSeconds:time(text(row,'.title')),label:text(row,'.label'),genre:text(row,'.genre'),releaseDate:text(row,'.r-date'),bpm:num(text(row,'.bpm')),key:text(row,'.key'),artworkUrl:link(row.querySelector('img')?.getAttribute('src'),url),isrc:normalizedIsrc(row.getAttribute('data-isrc')),catalogNumber:text(row,'.catalog-number,.catalog'),metadata:rowMetadata(row,url)}));
+      entries.push(entry(providerId,sourceUrl,artists,a.textContent.trim(),entries.length+1,{artistCredits:renderedArtistCredits(row,url,'traxsource'),rank:rankNumber(text(row,'.tnum,.position,.rank')?.replace(/^#/,'')),version:text(row,'.version,.mix,.mix-name'),durationSeconds:time(text(row,'.title')),label:text(row,'.label'),genre:text(row,'.genre'),releaseDate:text(row,'.r-date'),bpm:num(text(row,'.bpm')),key:text(row,'.key'),artworkUrl:link(row.querySelector('img')?.getAttribute('src'),url),isrc:normalizedIsrc(row.getAttribute('data-isrc')),catalogNumber:text(row,'.catalog-number,.catalog'),metadata:rowMetadata(row,url)}));
     }
   } else if (provider==='beatport') {
     const named=v=>{
@@ -399,7 +399,7 @@ export function extract(doc, url) {
       // Require explicit chart rank, avoiding related tracks and recommendations.
       if(rank && /^\d+$/.test(String(t.id)) && trackTitle && Array.isArray(t.artists)) {
         const artist=t.artists.filter(a=>!/remix/i.test(a.role?.name||a.role||'')).map(named).filter(Boolean).join(', ');
-        if(artist) entries.push(entry(String(t.id),`https://www.beatport.com/track/${t.slug||'track'}/${t.id}`,artist,trackTitle.trim(),rank,{rank,version:t.mix_name||null,durationSeconds:num(t.length_ms)?t.length_ms/1000:num(t.duration),bpm:num(t.bpm),key:named(t.key),label:named(t.release?.label??t.label),album:named(t.release),genre:named(t.genre),releaseDate:t.publish_date||null,artworkUrl:link(t.release?.image?.uri??t.image?.uri,url),isrc:t.isrc||null,catalogNumber:t.release?.catalog_number||null,metadata:{artistUrls:t.artists.map(a=>{const v=a.artist||a;return v.id?`https://www.beatport.com/artist/${v.slug||'artist'}/${v.id}`:null;}).filter(Boolean),albumUrl:t.release?.id?`https://www.beatport.com/release/${t.release.slug||'release'}/${t.release.id}`:null,remixers:[...(t.remixers||[]),...t.artists.filter(a=>/remix/i.test(a.role?.name||a.role||''))].map(named).filter(Boolean)}})); return;
+        if(artist) entries.push(entry(String(t.id),`https://www.beatport.com/track/${t.slug||'track'}/${t.id}`,artist,trackTitle.trim(),rank,{artistCredits:t.artists.filter(a=>!/remix/i.test(a.role?.name||a.role||'')).map((a,index,artists)=>({name:named(a),role:'artist',providerId:String((a.artist||a).id||'')||null,joinPhrase:index<artists.length-1?', ':'',provenance:'beatportCatalogArtist'})).filter(a=>a.name),rank,version:t.mix_name||null,durationSeconds:num(t.length_ms)?t.length_ms/1000:num(t.duration),bpm:num(t.bpm),key:named(t.key),label:named(t.release?.label??t.label),album:named(t.release),genre:named(t.genre),releaseDate:t.publish_date||null,artworkUrl:link(t.release?.image?.uri??t.image?.uri,url),isrc:t.isrc||null,catalogNumber:t.release?.catalog_number||null,metadata:{artistUrls:t.artists.map(a=>{const v=a.artist||a;return v.id?`https://www.beatport.com/artist/${v.slug||'artist'}/${v.id}`:null;}).filter(Boolean),albumUrl:t.release?.id?`https://www.beatport.com/release/${t.release.slug||'release'}/${t.release.id}`:null,remixers:[...(t.remixers||[]),...t.artists.filter(a=>/remix/i.test(a.role?.name||a.role||''))].map(named).filter(Boolean)}})); return;
       }
       Object.values(v).forEach(x=>walk(x,depth+1));
     };
@@ -454,7 +454,7 @@ export function extract(doc, url) {
       const bpmKey=text(row,'.cell.bpm-key,[data-testid="track-bpm-key"]');
       const bpmText=text(row,'.cell.bpm,[data-testid="track-bpm"],.bpm') || bpmKey;
       const combined=bpmText?.match(/^\s*(\d+(?:\.\d+)?)\s*BPM(?:\s*[-–—]\s*(.+))?\s*$/i);
-      domEntries.push(entry(id,sourceUrl,artist,title,rank,{rank,
+      domEntries.push(entry(id,sourceUrl,artist,title,rank,{artistCredits:renderedArtistCredits(row,url,'beatport'),rank,
         version:mixName,
         durationSeconds:time(text(row,'.cell.length,.cell.duration,[data-testid="track-length"],[data-testid="track-duration"]')),
         bpm:num(combined?.[1] || bpmText),key:text(row,'.cell.key,[data-testid="track-key"],.key') || combined?.[2]?.trim() || null,

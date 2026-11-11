@@ -467,7 +467,7 @@ pub fn validate_snapshot(s: &BrowserSnapshot) -> Result<Chart, String> {
         }
         if e.position == 0
             || e.rank == Some(0)
-            || e.artist.trim().is_empty()
+            || (e.artist.trim().is_empty() && s.provider != "youtube")
             || e.title.trim().is_empty()
         {
             return Err("Entries require artist, title and positive positions/ranks".into());
@@ -543,7 +543,26 @@ pub fn validate_snapshot(s: &BrowserSnapshot) -> Result<Chart, String> {
             entry_url.map(|u| u.to_string()).unwrap_or_default()
         };
         let artist_credits = validated_browser_artist_credits(e);
-        tracks.push(Track { id, provider, provider_id, source_url: canonical_source, artist:e.artist.trim().into(), title:e.title.trim().into(), version:e.version.clone(), album:e.album.clone(), label:e.label.clone(), genre:e.genre.clone(), duration_seconds:e.duration_seconds, bpm:e.bpm, key:e.key.clone(), release_date:e.release_date.clone(), artwork_url:e.artwork_url.clone(), isrc:e.isrc.clone(), catalog_number:e.catalog_number.clone(), album_artist:e.metadata["albumArtist"].as_str().map(str::to_owned), track_number:e.metadata["trackNumber"].as_u64().map(|n|n as u32), disc_number:e.metadata["discNumber"].as_u64().map(|n|n as u32), remixers:e.metadata["remixers"].as_array().map(|v|v.iter().filter_map(|v|v.as_str().map(str::to_owned)).collect()), rank:if s.kind == "chart" { e.rank } else { None }, provenance:json!({"sourceKind":s.kind,"browserImport":true,"captureProvider":s.provider,"sourceUrl":source.as_str(),"rawPageTitle":s.raw_page_title,"position":e.position,"playlistPosition":if matches!(s.kind.as_str(),"playlist"|"collection") {Some(e.position)} else {None},"albumPosition":if s.kind=="album" {Some(e.position)} else {None},"occurrencePositions":[e.position],"rawCaptures":[e],"capturedAt":s.captured_at,"identity":"unverified browser capture","artistCredits":artist_credits,"importMetadata":e.metadata,"fieldSources":crate::import_metadata::field_sources(e,&s.provider,&s.captured_at,source.as_str()),"sourceContext":crate::import_metadata::source_context(&s.provider,&source.to_string(),&s.kind,&s.captured_at),"playbackMode":if s.provider=="youtube" {"source"} else {"lookup"}}), ..Track::default() });
+        let artist = if s.provider == "youtube" {
+            // Older companions may place the video uploader in `artist` and
+            // omit channelName entirely. Only an explicit structured credit
+            // can establish an artist for a YouTube browser capture.
+            artist_credits
+                .as_ref()
+                .into_iter()
+                .flatten()
+                .filter(|credit| {
+                    crate::recording_identity::is_performer_credit_role(
+                        credit["role"].as_str().unwrap_or_default(),
+                    )
+                })
+                .filter_map(|credit| credit["name"].as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        } else {
+            e.artist.trim().to_owned()
+        };
+        tracks.push(Track { id, provider, provider_id, source_url: canonical_source, artist, title:e.title.trim().into(), version:e.version.clone(), album:e.album.clone(), label:e.label.clone(), genre:e.genre.clone(), duration_seconds:e.duration_seconds, bpm:e.bpm, key:e.key.clone(), release_date:e.release_date.clone(), artwork_url:e.artwork_url.clone(), isrc:e.isrc.clone(), catalog_number:e.catalog_number.clone(), album_artist:e.metadata["albumArtist"].as_str().map(str::to_owned), track_number:e.metadata["trackNumber"].as_u64().map(|n|n as u32), disc_number:e.metadata["discNumber"].as_u64().map(|n|n as u32), remixers:e.metadata["remixers"].as_array().map(|v|v.iter().filter_map(|v|v.as_str().map(str::to_owned)).collect()), rank:if s.kind == "chart" { e.rank } else { None }, provenance:json!({"sourceKind":s.kind,"browserImport":true,"captureProvider":s.provider,"sourceUrl":source.as_str(),"rawPageTitle":s.raw_page_title,"position":e.position,"playlistPosition":if matches!(s.kind.as_str(),"playlist"|"collection") {Some(e.position)} else {None},"albumPosition":if s.kind=="album" {Some(e.position)} else {None},"occurrencePositions":[e.position],"rawCaptures":[e],"capturedAt":s.captured_at,"identity":"unverified browser capture","artistCredits":artist_credits,"importMetadata":e.metadata,"fieldSources":crate::import_metadata::field_sources(e,&s.provider,&s.captured_at,source.as_str()),"sourceContext":crate::import_metadata::source_context(&s.provider,&source.to_string(),&s.kind,&s.captured_at),"playbackMode":if s.provider=="youtube" {"source"} else {"lookup"}}), ..Track::default() });
     }
     let mut chart = Chart {
         id: uuid::Uuid::new_v4().to_string(),
@@ -2223,6 +2242,75 @@ mod tests {
         }]);
         let chart = validate_snapshot(&old).unwrap();
         assert!(chart.tracks[0].provenance["artistCredits"].is_null());
+    }
+    #[test]
+    fn youtube_browser_capture_keeps_channel_byline_out_of_artist_field() {
+        let mut capture = snapshot();
+        capture.provider = "youtube".into();
+        capture.source_url = "https://www.youtube.com/playlist?list=PL0123456789".into();
+        capture.entries[0].provider_id = Some("abcdefghijk".into());
+        capture.entries[0].source_url = Some("https://www.youtube.com/watch?v=abcdefghijk".into());
+        capture.entries[0].artist = "Uploader channel".into();
+        capture.entries[0].metadata["channelName"] = json!("Uploader channel");
+        let chart = validate_snapshot(&capture).unwrap();
+        assert_eq!(chart.tracks[0].artist, "");
+        assert_eq!(
+            chart.tracks[0].provenance["importMetadata"]["channelName"],
+            "Uploader channel"
+        );
+
+        capture.entries[0].metadata = json!({});
+        let legacy_companion = validate_snapshot(&capture).unwrap();
+        assert_eq!(legacy_companion.tracks[0].artist, "");
+
+        capture.entries[0].artist_credits = Some(vec![BrowserArtistCredit {
+            name: "Recording Artist".into(),
+            role: Some("artist".into()),
+            provider_id: None,
+            join_phrase: None,
+            provenance: Some("youtubeMusicRecordingCredit".into()),
+        }]);
+        let chart = validate_snapshot(&capture).unwrap();
+        assert_eq!(chart.tracks[0].artist, "Recording Artist");
+        assert_eq!(
+            chart.tracks[0].provenance["artistCredits"][0]["name"],
+            "Recording Artist"
+        );
+    }
+
+    #[test]
+    fn youtube_import_artist_uses_all_recording_performers_but_no_composer_or_uploader() {
+        let mut capture = snapshot();
+        capture.provider = "youtube".into();
+        capture.source_url = "https://www.youtube.com/playlist?list=PL0123456789".into();
+        capture.entries[0].provider_id = Some("abcdefghijk".into());
+        capture.entries[0].source_url = Some("https://www.youtube.com/watch?v=abcdefghijk".into());
+        capture.entries[0].artist = "Uploader Channel".into();
+        capture.entries[0].artist_credits = Some(
+            [
+                ("Composer", "composer"),
+                ("Main Performer", "artist"),
+                ("Guest Performer", "featured artist"),
+                ("Uploader Channel", "uploader"),
+            ]
+            .into_iter()
+            .map(|(name, role)| BrowserArtistCredit {
+                name: name.into(),
+                role: Some(role.into()),
+                provider_id: None,
+                join_phrase: None,
+                provenance: None,
+            })
+            .collect(),
+        );
+        let chart = validate_snapshot(&capture).unwrap();
+        assert_eq!(chart.tracks[0].artist, "Main Performer, Guest Performer");
+        capture.entries[0]
+            .artist_credits
+            .as_mut()
+            .unwrap()
+            .retain(|credit| credit.role.as_deref() == Some("composer"));
+        assert_eq!(validate_snapshot(&capture).unwrap().tracks[0].artist, "");
     }
 
     #[test]

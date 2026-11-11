@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 
 const source=readFileSync(new URL('../background.js',import.meta.url),'utf8');
-function worker(session={}, {enabled=false, verification=false, requests=[],pageUrl='https://www.beatport.com/genre/afro-house/89/top-100',albumCollection=false,handoffSession=null,youtubePage=null,accountIdentity=null,providerFailure=null}={}) {
+function worker(session={}, {enabled=false, verification=false, requests=[],pageUrl='https://www.beatport.com/genre/afro-house/89/top-100',albumCollection=false,handoffSession=null,youtubePage=null,accountIdentity=null,providerFailure=null,providerResponse={}}={}) {
   let listener, removed, reply;
   const messages=[], created=[], updated=[], scripts=[];
   const host=new URL(pageUrl).hostname;
@@ -24,13 +24,36 @@ function worker(session={}, {enabled=false, verification=false, requests=[],page
     windows:{update:async()=>{}},permissions:{contains:async()=>true},
     alarms:{create(){},onAlarm:{addListener(){}}},
   };
-  const context=vm.createContext({chrome:api,URL,TextEncoder,Map,Promise,crypto:{randomUUID:()=> 'test-id'},BurrataSpotifyAuth:{loadRegistry:async()=>({secret:'fixture',version:'fixture'}),totp:async()=> '123456'},location:youtubePage?.location||{origin:new URL(pageUrl).origin},document:youtubePage?.document||{cookie:'',querySelector:()=>null},setInterval(){},setTimeout(fn,ms){if(ms<30000)queueMicrotask(fn);return 1;},clearTimeout(){}});
+  const context=vm.createContext({chrome:api,URL,TextEncoder,Map,Promise,AbortController,crypto:{randomUUID:()=> 'test-id'},BurrataSpotifyAuth:{loadRegistry:async()=>({secret:'fixture',version:'fixture'}),totp:async()=> '123456'},location:youtubePage?.location||{origin:new URL(pageUrl).origin,hostname:new URL(pageUrl).hostname,pathname:new URL(pageUrl).pathname},document:youtubePage?.document||{cookie:'',querySelector:()=>null},fetch:async()=>({ok:true,status:200,text:async()=>JSON.stringify(providerResponse)}),setInterval(){},setTimeout(fn,ms){if(ms<30000)queueMicrotask(fn);return 1;},clearTimeout(){}});
   vm.runInContext(source,context);
   return {messages,created,updated,scripts,session,removed,
     send:(message,sender={})=>new Promise(resolve=>listener(message,sender,resolve)),
-    poll:()=>vm.runInContext('poll()',context),
+    poll:()=>vm.runInContext('poll()',context),context,
   };
 }
+const youtubeArtistRun=(name)=>({text:name,navigationEndpoint:{browseEndpoint:{browseEndpointContextSupportedConfigs:{browseEndpointContextMusicConfig:{pageType:'MUSIC_PAGE_TYPE_ARTIST'}}}}});
+const youtubeTrackColumn=(runs)=>({musicResponsiveListItemFlexColumnRenderer:{text:{runs}}});
+test('YouTube video search keeps the channel byline out of artist metadata',async()=>{
+ const response={contents:{videoRenderer:{videoId:'abcdefghijk',title:{simpleText:'Song'},ownerText:{runs:[{text:'Uploader Channel'}]},lengthText:{simpleText:'3:12'}}}};
+ const w=worker({}, {pageUrl:'https://www.youtube.com/results?search_query=song',providerResponse:response});
+ const result=await w.context.runProviderPageOperation('youtube','search',{query:'song',kind:'track'},{});
+ const item=JSON.parse(JSON.stringify(result.items[0]));
+ assert.equal(item.data.artist,'');assert.equal(item.data.channelName,'Uploader Channel');
+});
+test('YouTube Music search accepts typed artist runs and keeps untyped bylines separate',async()=>{
+ const response={contents:{musicResponsiveListItemRenderer:{playlistItemData:{videoId:'abcdefghijk'},flexColumns:[youtubeTrackColumn([{text:'Song',navigationEndpoint:{watchEndpoint:{videoId:'abcdefghijk'}}}]),youtubeTrackColumn([{text:'Earth, Wind & Fire',navigationEndpoint:{browseEndpoint:{browseEndpointContextSupportedConfigs:{browseEndpointContextMusicConfig:{pageType:'MUSIC_PAGE_TYPE_ARTIST'}}}}},{text:'Uploader Channel'}])],fixedColumns:[{musicResponsiveListItemFixedColumnRenderer:{text:{simpleText:'3:12'}}}]}}};
+ const w=worker({}, {pageUrl:'https://music.youtube.com/search?q=song',providerResponse:response});
+ const result=await w.context.runProviderPageOperation('youtube','search',{query:'song',kind:'track'},{});
+ const item=JSON.parse(JSON.stringify(result.items[0]));
+ assert.equal(item.data.artist,'Earth, Wind & Fire');assert.equal(item.data.channelName,'Uploader Channel');
+});
+test('YouTube playlist rows do not promote uploaders or ambiguous music columns to artists',async()=>{
+ const response={contents:{playlistVideoRenderer:{videoId:'abcdefghijk',title:{simpleText:'Video'},shortBylineText:{simpleText:'Uploader Channel'},lengthText:{simpleText:'3:12'}},musicResponsiveListItemRenderer:{playlistItemData:{videoId:'BCDEFGHIJKL'},flexColumns:[youtubeTrackColumn([{text:'Music Song',navigationEndpoint:{watchEndpoint:{videoId:'BCDEFGHIJKL'}}}]),youtubeTrackColumn([{text:'Ambiguous Channel and album'}])],fixedColumns:[{musicResponsiveListItemFixedColumnRenderer:{text:{simpleText:'4:05'}}}]}}};
+ const w=worker({}, {pageUrl:'https://www.youtube.com/playlist?list=PLabcdefghijk',providerResponse:response});
+ const result=await w.context.runProviderPageOperation('youtube','getPlaylist',{playlistId:'PLabcdefghijk'},{});
+ const entries=JSON.parse(JSON.stringify(result.entries));
+ assert.deepEqual(entries.map(entry=>[entry.artist,entry.channelName]),[['','Uploader Channel'],['','Ambiguous Channel and album']]);
+});
 test('Chromium worker restart retains request association for manual import',async()=>{
   const w=worker({requestTabs:[[8,'pending-1']]});
   const result=await w.send({type:'importCurrent'});

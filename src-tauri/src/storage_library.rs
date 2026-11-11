@@ -4,7 +4,7 @@ use super::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-const LIBRARY_PROJECTION_REVISION: i64 = 4;
+const LIBRARY_PROJECTION_REVISION: i64 = 5;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -238,9 +238,31 @@ fn artist_credit_identity<'a>(
 /// not create permanent artist rows in the Library projection.
 fn artist_fallback_is_trustworthy(track: &Track) -> bool {
     let provenance = &track.provenance;
-    if provenance.pointer("/manualFields/artist") == Some(&json!(true))
-        || has_artist_identity_evidence(provenance)
+    if provenance.pointer("/manualFields/artist") == Some(&json!(true)) {
+        return true;
+    }
+    let youtube = track.provider == "youtube" || provenance["captureProvider"] == "youtube";
+    let uploader = string_at(
+        provenance,
+        &[
+            "/importMetadata/channelName",
+            "/remoteCatalog/channelName",
+            "/channelName",
+        ],
+    )
+    .or_else(|| {
+        provenance["rawCaptures"].as_array().and_then(|rows| {
+            rows.iter()
+                .find_map(|row| row["metadata"]["channelName"].as_str())
+        })
+    });
+    if youtube
+        && (provenance["artistSource"] == "uploader"
+            || uploader.is_some_and(|name| name.trim() == track.artist.trim()))
     {
+        return false;
+    }
+    if has_artist_identity_evidence(provenance) {
         return true;
     }
 
@@ -446,9 +468,20 @@ pub(super) fn track_entities(track: &Track) -> Vec<LibraryEntity> {
     if !manual_artist {
         if let Some(credits) = p.get("artistCredits").and_then(Value::as_array) {
             for credit in credits {
+                if (track.provider == "youtube" || p["captureProvider"] == "youtube")
+                    && !crate::recording_identity::is_performer_credit_role(
+                        credit["role"].as_str().unwrap_or_default(),
+                    )
+                {
+                    continue;
+                }
                 let name = string_at(credit, &["/name", "/artist/name"]);
                 let provider = string_at(credit, &["/artist/provider", "/provider"])
-                    .or_else(|| (track.provider == "spotify").then_some("spotify"));
+                    .or_else(|| (track.provider == "spotify").then_some("spotify"))
+                    .or_else(|| {
+                        string_at(p, &["/captureProvider"])
+                            .filter(|provider| matches!(*provider, "beatport" | "traxsource"))
+                    });
                 let id = string_at(credit, &["/artist/id", "/artistId", "/providerId", "/id"]);
                 if let Some(name) = name {
                     let (provider, id) = artist_credit_identity(provider, id);
@@ -1113,6 +1146,79 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(&dir.path().join("library.sqlite")).unwrap();
         (dir, store)
+    }
+
+    #[test]
+    fn captured_catalog_credits_create_individual_artists_and_preserve_atomic_names() {
+        for provider in ["beatport", "traxsource"] {
+            let (_dir, store) = db();
+            let mut captured = track("collaboration");
+            captured.provider = provider.into();
+            captured.id = format!("{provider}:collaboration");
+            captured.artist = "&ME, Earth, Wind & Fire, 19:26".into();
+            captured.provenance = json!({"browserImport":true,"captureProvider":provider,"artistCredits":[
+                {"name":"&ME","providerId":"123","role":"artist"},
+                {"name":"Earth, Wind & Fire","providerId":"456","role":"artist"},
+                {"name":"19:26","providerId":"789","role":"artist"}
+            ]});
+            store.save_library_tracks(&[captured.clone()]).unwrap();
+            let page = store
+                .list_library_entities("artist", None, "", 200, 0)
+                .unwrap();
+            assert_eq!(page.total, 3);
+            for (name, id) in [
+                ("&ME", "123"),
+                ("Earth, Wind & Fire", "456"),
+                ("19:26", "789"),
+            ] {
+                let artist = page
+                    .items
+                    .iter()
+                    .find(|artist| artist.name == name)
+                    .unwrap();
+                assert_eq!(artist.provider.as_deref(), Some(provider));
+                assert_eq!(artist.provider_id.as_deref(), Some(id));
+                assert_eq!(artist.track_count, 1);
+                let tracks = store
+                    .list_library_entity_tracks(
+                        &artist.id,
+                        "",
+                        "sourceOrder",
+                        false,
+                        "all",
+                        None,
+                        None,
+                        200,
+                        0,
+                    )
+                    .unwrap();
+                assert_eq!(tracks.total, 1);
+            }
+            assert_eq!(
+                store.get_track(&captured.id).unwrap().unwrap().artist,
+                captured.artist
+            );
+        }
+    }
+
+    #[test]
+    fn uploader_attribution_never_creates_artist_cards_but_independent_credits_and_manual_names_do()
+    {
+        let mut upload = track("uploaded-video");
+        upload.provider = "youtube".into();
+        upload.artist = "Concert Uploads".into();
+        upload.album = None;
+        upload.provenance =
+            json!({"captureProvider":"youtube","importMetadata":{"channelName":"Concert Uploads"}});
+        assert!(track_entities(&upload).is_empty());
+        upload.provenance = json!({"captureProvider":"youtube","rawCaptures":[{"metadata":{"channelName":"Concert Uploads"}}]});
+        assert!(track_entities(&upload).is_empty());
+        upload.provenance["artistCredits"] = json!([{"name":"Actual Performer","role":"artist","artist":{"provider":"musicbrainz","id":"performer-id"}}]);
+        let artists = track_entities(&upload);
+        assert_eq!(artists.len(), 1);
+        assert_eq!(artists[0].name, "Actual Performer");
+        upload.provenance["manualFields"] = json!({"artist":true});
+        assert_eq!(track_entities(&upload)[0].name, "Concert Uploads");
     }
 
     #[test]

@@ -28,15 +28,18 @@ Draft release notes. Final-source automated, package, playback, performance, and
 - Exact Bandcamp sources can play when saved duration is missing, after fresh page, track ID, title, artist, and stream identity checks. Opaque stream tokens are not retained in the warm audio cache.
 - Missing Discogs durations can be checked against a complete independent Apple album programme without changing saved tags. Bounded artist-catalogue lookup can locate an edition omitted by song search; cleaned editions are rejected. A differing release date is permitted only within the same year when Flexible matching explicitly allows other releases; Exact and Balanced retain the date check.
 - Isolated Chromium profiles receive their own native-host registration, and managed browser status detects an exited process.
-- Optional song, concert, and set context lookup uses the configured AI connection and labels its results unverified. Optional search auto-queueing is off by default and never starts playback.
+- Ask AI appears only with a configured API connection. OpenRouter lookups research the actual song, concert, or set and show source links; other compatible endpoints provide model-knowledge context. Answers have separate headings, paragraphs, and attribution. Optional search auto-queueing remains off by default.
 - Lyrics lookup handles identified official uploads with missing artist metadata. Waveform progress updates avoid rebuilding waveform bars.
 
 - MusicBrainz artist recordings continue through all provider pages using raw response offsets, including pages containing malformed rows.
 - Flexible release-context discovery prioritizes the structured primary performer over reordered group aliases. Requested MusicBrainz profiles are prepared before whole-release discovery, and enrichment is restricted to artists verified for the requested track occurrence; recording validation remains required.
 
+- Browser companion 0.2.9 keeps YouTube uploaders and channel names as source attribution rather than artist metadata. New Beatport and Traxsource captures retain separate artist credits and provider IDs, including names containing punctuation.
+- Artist and album grid cards contain long names and metadata without overlapping adjacent cards. The scrolling fullscreen Now Playing header sits flush against the top edge.
+
 ## Qualification status and limits
 
-- Local default native, frontend, extension, MCP, player, and repository contract suites pass. Candidate CI, final installed artifacts, playback/performance, and live-provider checks remain pending. Physical macOS/Windows output is not qualified.
+- The earlier checkpoint passed local native, frontend, extension, MCP, player, and repository contract suites. The feedback fixes pass the frontend suite and type check; final native CI, companion tests, installed artifacts, playback/performance, and live-provider checks remain pending. Physical macOS/Windows output is not qualified.
 - Monochrome can still stall at its 15-second transport limit, and YouTube extraction has intermittent failures. This release does not claim those provider transport or extraction issues are fixed.
 - Legacy v8 cache entries promoted into the Library can still have ambiguous recording identity. There is no automatic cleanup of those entries; playback remains subject to available identity evidence.
 - A resolver or decoder result applies only to its exact recording and provider. It does not prove physical-device output or qualify another provider.
