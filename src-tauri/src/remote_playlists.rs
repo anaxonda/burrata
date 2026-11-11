@@ -6488,6 +6488,22 @@ fn normalize_catalog_data(data: Option<&Value>, kind: &str, provider: &str) -> R
             result.insert((*key).to_owned(), value.clone());
         }
     }
+    // YouTube search rows are allowlisted above, but credit provenance must survive
+    // normalization so downstream code can distinguish recording artists from channels.
+    // Keep only the recognized source value and bounded channel label; don't pass through
+    // arbitrary provider metadata.
+    if kind == "track" && provider == "youtube" {
+        if object.get("artistSource").and_then(Value::as_str) == Some("recording") {
+            result.insert("artistSource".into(), json!("recording"));
+        }
+        if let Some(channel) = object
+            .get("channelName")
+            .and_then(Value::as_str)
+            .filter(|channel| !channel.trim().is_empty() && channel.len() <= 512)
+        {
+            result.insert("channelName".into(), json!(channel));
+        }
+    }
     if kind == "track" && provider == "spotify" {
         // Keep raw credit count separate from validated identities: filtering or
         // truncation must not turn incomplete credits into a false exact match.
@@ -10918,6 +10934,44 @@ mod tests {
             "artist":"Uploader","url":"https://www.youtube.com/watch?v=youtubeTrack_2"});
         assert_eq!(
             parse_remote_entry(&legacy, "youtube", "1").unwrap().artist,
+            ""
+        );
+    }
+
+    #[test]
+    fn youtube_catalog_normalization_preserves_only_attested_artist_source_and_channel() {
+        let row = json!({
+            "id":"youtubeTrack_1", "kind":"track", "title":"Video title",
+            "url":"https://www.youtube.com/watch?v=youtubeTrack_1",
+            "data":{
+                "artist":"Recording Artist", "artistSource":"recording",
+                "channelName":"Uploader", "untrustedExtra":"discard me"
+            }
+        });
+        let normalized = normalize_catalog_item(&row, "youtube", "track").unwrap();
+        assert_eq!(normalized["data"]["artist"], "Recording Artist");
+        assert_eq!(normalized["data"]["artistSource"], "recording");
+        assert_eq!(normalized["data"]["channelName"], "Uploader");
+        assert!(normalized["data"].get("untrustedExtra").is_none());
+
+        let uploader_only = json!({
+            "id":"youtubeTrack_1", "kind":"track", "title":"Video title",
+            "url":"https://www.youtube.com/watch?v=youtubeTrack_1",
+            "data":{"artist":"Uploader", "channelName":"Uploader", "artistSource":"channel"}
+        });
+        let normalized = normalize_catalog_item(&uploader_only, "youtube", "track").unwrap();
+        assert_eq!(normalized["data"]["artist"], "Uploader");
+        assert_eq!(normalized["data"]["channelName"], "Uploader");
+        assert!(normalized["data"].get("artistSource").is_none());
+        let mut entry_row = normalized["data"].clone();
+        entry_row["entryId"] = json!("occurrence-1");
+        entry_row["trackId"] = json!("youtubeTrack_1");
+        entry_row["title"] = json!("Video title");
+        entry_row["url"] = json!("https://www.youtube.com/watch?v=youtubeTrack_1");
+        assert_eq!(
+            parse_remote_entry(&entry_row, "youtube", "0")
+                .unwrap()
+                .artist,
             ""
         );
     }
