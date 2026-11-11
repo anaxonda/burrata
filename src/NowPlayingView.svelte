@@ -9,8 +9,8 @@
   import type { Track } from "./lib/types";
   import { fullscreenArtworkUpgradeCandidates } from "./lib/fullscreen-artwork";
   import type { ArtistProfile, ArtistRef } from "./lib/artist-types";
-  let { track, lyricsTrack = track, absolutePosition = 0, loadLyrics, findLyrics, chooseLyrics, saveLyrics, exportLyrics, translationLanguage, changeTranslationLanguage, syncLyrics, syncScope, translationEnabled = false, translationCredentialPresent = false, translateLyrics, onSeek, nextTrack = null, title, artworkUrl, sourceArtworkUrl, detectedArtworkUrl = null, artworkMode = "set", onArtworkModeChange, bottom = 100, context = "Now playing", loadArtist, loadRecording, onRecordingRelease, onClose, onArtist, onArtistRef, onAlbum, onQueue, queueOpen = false, onFavorite }: {
-    track: Track; nextTrack?: Track | null; title: string; artworkUrl?: string | null; sourceArtworkUrl?: string | null; bottom?: number; context?: string;
+  let { track, setTrack = track, lyricsTrack = track, contextLookupConfigured = false, contextLookupRevision = 0, absolutePosition = 0, loadLyrics, findLyrics, chooseLyrics, saveLyrics, exportLyrics, translationLanguage, changeTranslationLanguage, syncLyrics, syncScope, translationEnabled = false, translationCredentialPresent = false, translateLyrics, onSeek, nextTrack = null, title, artworkUrl, sourceArtworkUrl, detectedArtworkUrl = null, artworkMode = "set", onArtworkModeChange, bottom = 100, context = "Now playing", loadArtist, loadRecording, onRecordingRelease, onClose, onArtist, onArtistRef, onAlbum, onQueue, queueOpen = false, onFavorite }: {
+    track: Track; setTrack?: Track; contextLookupConfigured?: boolean; contextLookupRevision?: number; nextTrack?: Track | null; title: string; artworkUrl?: string | null; sourceArtworkUrl?: string | null; bottom?: number; context?: string;
     detectedArtworkUrl?: string | null; artworkMode?: "set" | "detected" | "both"; onArtworkModeChange?: (mode: "set" | "detected" | "both") => void;
     onSeek?: (seconds: number) => void;
     saveLyrics?: (sourceHash: string) => Promise<unknown>; exportLyrics?: (sourceHash: string,text:string) => Promise<{cancelled?:boolean}>; translationLanguage?:string; changeTranslationLanguage?: (language:string)=>Promise<unknown>;
@@ -21,6 +21,10 @@
     onRecordingRelease?: (release:RecordingReleaseInfo, artist:ArtistRef|null) => void; onClose: () => void; onArtist: () => void; onArtistRef?: (artist: ArtistRef) => void;
     onAlbum?: () => void; onQueue: () => void; queueOpen?: boolean; onFavorite: () => void;
   } = $props();
+  function contextTrackIdentity(value: Track): string { const range=value.playbackRange; return JSON.stringify([value.id,value.provider,value.title,value.artist,value.album ?? "",value.version ?? "",value.recordingDate ?? "",range ? [range.parentTrackId,range.chapterId,range.startTime,range.endTime] : null]); }
+  const contextTargets = $derived.by(() => contextTrackIdentity(lyricsTrack) !== contextTrackIdentity(setTrack)
+    ? [{track:lyricsTrack,label:"Detected song",targetKind:"song" as const},{track:setTrack,label:"Full set",targetKind:"set" as const}]
+    : undefined);
   const credits = $derived.by(() => {
     const provenance = track.provenance && typeof track.provenance === "object" ? track.provenance as Record<string, unknown> : {};
     const catalog = provenance.catalog && typeof provenance.catalog === "object" ? provenance.catalog as Record<string, unknown> : {};
@@ -49,7 +53,7 @@
     <div class="recording"><h1>{title}</h1><button class="artist-link" onclick={onArtist}>{track.artist || "Artist unknown"}</button>{#if track.album}<button class="album-link" disabled={!onAlbum} onclick={onAlbum}>{track.album}</button>{/if}<button class="favorite" onclick={onFavorite} aria-label={track.favorite ? "Remove from favorites" : "Add to favorites"} aria-pressed={track.favorite}>{track.favorite ? "♥" : "♡"}</button></div>
     </div>
     <div class="cards">
-      <article class="artist-card"><ArtistInformation {track} {loadArtist} {onArtist} {onArtistRef} />{#if loadRecording}<RecordingInformation {track} {loadRecording} onRelease={onRecordingRelease} onArtist={onArtistRef} />{/if}</article>
+      <article class="artist-card"><ArtistInformation {track} {loadArtist} {onArtist} {onArtistRef} />{#if loadRecording}<RecordingInformation {track} {loadRecording} {contextLookupConfigured} {contextLookupRevision} {contextTargets} onRelease={onRecordingRelease} onArtist={onArtistRef} />{/if}</article>
       <div class="right-cards"><article><h2>Credits</h2>{#if credits.length}{#each credits as credit}<p class="credit-name">{credit.name}</p><small>{credit.role}</small>{/each}{:else}<p class="credit-name">{track.artist || "Artist unknown"}</p><small>Credited performers</small>{/if}{#if track.remixers?.length}<p class="credit-name">{track.remixers.join(", ")}</p><small>Remix</small>{/if}{#if track.label}<p class="credit-name">{track.label}</p><small>Label</small>{/if}</article>
       <article><div class="card-heading"><h2>Next in queue</h2><button class="subtle" onclick={onQueue}>Open queue</button></div>{#if nextTrack}<div class="next-track"><div class="next-art"><ArtworkImage urls={[nextTrack.artworkUrl]} /></div><div><strong>{nextTrack.title}</strong><p>{nextTrack.artist}</p></div></div>{:else}<p>No more tracks queued.</p>{/if}</article></div>
       {#if loadLyrics}<article class="lyrics-card"><LyricsPanel track={lyricsTrack} {absolutePosition} bottomInset={bottom} {onSeek} {loadLyrics} {findLyrics} {chooseLyrics} {saveLyrics} {exportLyrics} {translationLanguage} {changeTranslationLanguage} {syncLyrics} {syncScope} {translationEnabled} {translationCredentialPresent} {translateLyrics} /></article>{/if}

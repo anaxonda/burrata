@@ -80,6 +80,180 @@ fn endpoint(base_url: &str) -> Result<Url, String> {
         .map_err(|_| "Invalid translation service URL".into())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ChatTransportFailure {
+    Network,
+    Timeout,
+    TooLarge,
+    Incomplete,
+}
+
+pub(crate) struct ChatCompletionHttpResponse {
+    pub status: u16,
+    pub content_length: Option<u64>,
+    pub body: Vec<u8>,
+}
+
+#[async_trait::async_trait]
+pub(crate) trait ChatCompletionTransport: Send + Sync {
+    async fn post(
+        &self,
+        url: Url,
+        api_key: String,
+        body: Vec<u8>,
+        max_response_bytes: usize,
+    ) -> Result<ChatCompletionHttpResponse, ChatTransportFailure>;
+}
+
+pub(crate) struct ReqwestChatCompletionTransport;
+
+#[async_trait::async_trait]
+impl ChatCompletionTransport for ReqwestChatCompletionTransport {
+    async fn post(
+        &self,
+        url: Url,
+        api_key: String,
+        body: Vec<u8>,
+        max_response_bytes: usize,
+    ) -> Result<ChatCompletionHttpResponse, ChatTransportFailure> {
+        let client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(45))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|_| ChatTransportFailure::Network)?;
+        let mut response = client
+            .post(url)
+            .bearer_auth(api_key)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(body)
+            .send()
+            .await
+            .map_err(|error| {
+                if error.is_timeout() {
+                    ChatTransportFailure::Timeout
+                } else {
+                    ChatTransportFailure::Network
+                }
+            })?;
+        let status = response.status().as_u16();
+        let content_length = response.content_length();
+        // Match the previous translation transport contract: a rejected status
+        // is actionable from headers, so do not wait for or buffer its body.
+        if status != reqwest::StatusCode::OK.as_u16() {
+            return Ok(ChatCompletionHttpResponse {
+                status,
+                content_length,
+                body: Vec::new(),
+            });
+        }
+        if content_length.is_some_and(|length| length > max_response_bytes as u64) {
+            return Err(ChatTransportFailure::TooLarge);
+        }
+        let mut bytes = Vec::new();
+        loop {
+            match response.chunk().await {
+                Ok(Some(chunk))
+                    if bytes.len().saturating_add(chunk.len()) <= max_response_bytes =>
+                {
+                    bytes.extend_from_slice(&chunk)
+                }
+                Ok(Some(_)) => return Err(ChatTransportFailure::TooLarge),
+                Err(error) if error.is_timeout() => return Err(ChatTransportFailure::Timeout),
+                Err(_) => return Err(ChatTransportFailure::Incomplete),
+                Ok(None) => break,
+            }
+        }
+        Ok(ChatCompletionHttpResponse {
+            status,
+            content_length,
+            body: bytes,
+        })
+    }
+}
+
+fn chat_endpoint(base_url: &str, service: &str) -> Result<Url, String> {
+    let mut base = Url::parse(base_url.trim()).map_err(|_| format!("Invalid {service} URL"))?;
+    let local_http = base.scheme() == "http"
+        && base
+            .host_str()
+            .is_some_and(|host| matches!(host, "localhost" | "127.0.0.1" | "[::1]" | "::1"));
+    if (base.scheme() != "https" && !local_http)
+        || base.host_str().is_none()
+        || !base.username().is_empty()
+        || base.password().is_some()
+        || base.query().is_some()
+        || base.fragment().is_some()
+    {
+        return Err(format!("{service} must use HTTPS or loopback HTTP"));
+    }
+    let path = format!("{}/", base.path().trim_end_matches('/'));
+    base.set_path(&path);
+    base.join("chat/completions")
+        .map_err(|_| format!("Invalid {service} URL"))
+}
+
+pub(crate) async fn post_chat_completion(
+    connection: &LyricsTranslationConnection,
+    body: Value,
+    max_request_bytes: usize,
+    max_response_bytes: usize,
+    service: &str,
+) -> Result<Value, String> {
+    post_chat_completion_with_transport(
+        connection,
+        body,
+        max_request_bytes,
+        max_response_bytes,
+        service,
+        &ReqwestChatCompletionTransport,
+    )
+    .await
+}
+
+pub(crate) async fn post_chat_completion_with_transport(
+    connection: &LyricsTranslationConnection,
+    body: Value,
+    max_request_bytes: usize,
+    max_response_bytes: usize,
+    service: &str,
+    transport: &dyn ChatCompletionTransport,
+) -> Result<Value, String> {
+    let url = chat_endpoint(&connection.base_url, service)?;
+    let body_bytes =
+        serde_json::to_vec(&body).map_err(|_| format!("Could not prepare {service} request"))?;
+    if body_bytes.len() > max_request_bytes {
+        return Err(format!("{service} request exceeds the size limit"));
+    }
+    let response = transport
+        .post(
+            url,
+            connection.api_key.clone(),
+            body_bytes,
+            max_response_bytes,
+        )
+        .await
+        .map_err(|failure| match failure {
+            ChatTransportFailure::Network => {
+                format!("{service} request failed; check endpoint and network")
+            }
+            ChatTransportFailure::Timeout => format!("{service} request timed out"),
+            ChatTransportFailure::TooLarge => format!("{service} response exceeded the size limit"),
+            ChatTransportFailure::Incomplete => format!("{service} response was incomplete"),
+        })?;
+    if response.status != 200 {
+        return Err(format!("{service} returned HTTP {}", response.status));
+    }
+    if response
+        .content_length
+        .is_some_and(|length| length > max_response_bytes as u64)
+        || response.body.len() > max_response_bytes
+    {
+        return Err(format!("{service} response exceeded the size limit"));
+    }
+    serde_json::from_slice(&response.body).map_err(|_| format!("{service} returned invalid JSON"))
+}
+
 fn cache_key(connection: &LyricsTranslationConnection, source_hash: &str) -> String {
     let mut hash = Sha256::new();
     hash.update(b"burrata-lyrics-translation-cache-v3\0");
@@ -308,49 +482,14 @@ async fn translate_openai(
     if url.host_str() == Some("openrouter.ai") && connection.model == "openai/gpt-6-luna" {
         body["reasoning"] = json!({"effort":"none"});
     }
-    let body_bytes =
-        serde_json::to_vec(&body).map_err(|_| "Could not prepare translation request")?;
-    if body_bytes.len() > MAX_REQUEST_BYTES {
-        return Err("Translation request exceeds the size limit".into());
-    }
-    let client = reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(5))
-        .timeout(Duration::from_secs(45))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|_| "Could not initialize the translation service connection")?;
-    let mut response = client
-        .post(url)
-        .bearer_auth(&connection.api_key)
-        .header(reqwest::header::CONTENT_TYPE, "application/json")
-        .body(body_bytes)
-        .send()
-        .await
-        .map_err(|_| "Translation service request failed; check endpoint, network, and API key")?;
-    if response.status() != reqwest::StatusCode::OK
-        || response
-            .content_length()
-            .is_some_and(|length| length > MAX_RESPONSE_BYTES as u64)
-    {
-        return Err(format!(
-            "Translation service returned HTTP {}",
-            response.status().as_u16()
-        ));
-    }
-    let mut bytes = Vec::new();
-    loop {
-        match response.chunk().await {
-            Ok(Some(chunk)) if bytes.len().saturating_add(chunk.len()) <= MAX_RESPONSE_BYTES => {
-                bytes.extend_from_slice(&chunk)
-            }
-            Ok(Some(_)) | Err(_) => {
-                return Err("Translation service response was too large or incomplete".into())
-            }
-            Ok(None) => break,
-        }
-    }
-    let envelope: Value =
-        serde_json::from_slice(&bytes).map_err(|_| "Translation service returned invalid JSON")?;
+    let envelope = post_chat_completion(
+        connection,
+        body,
+        MAX_REQUEST_BYTES,
+        MAX_RESPONSE_BYTES,
+        "Translation service",
+    )
+    .await?;
     let content = envelope
         .pointer("/choices/0/message/content")
         .and_then(Value::as_str)
@@ -544,6 +683,43 @@ mod tests {
         net::TcpListener,
         thread,
     };
+
+    #[tokio::test]
+    async fn non_success_status_returns_without_waiting_for_response_body() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (release_body, wait_for_release) = std::sync::mpsc::channel::<()>();
+        let _server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0; 2048];
+            let _ = stream.read(&mut request).unwrap();
+            stream
+                .write_all(
+                    b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 100\r\nConnection: close\r\n\r\n",
+                )
+                .unwrap();
+            stream.flush().unwrap();
+            // No body arrives until the client has returned from headers. A body
+            // reader must hit the outer deadline rather than passing by timing luck.
+            let _ = wait_for_release.recv_timeout(Duration::from_secs(10));
+        });
+
+        let response = tokio::time::timeout(
+            Duration::from_secs(2),
+            ReqwestChatCompletionTransport.post(
+                Url::parse(&format!("http://{address}/v1/chat/completions")).unwrap(),
+                "fixture-key".into(),
+                b"{}".to_vec(),
+                24 * 1024,
+            ),
+        )
+        .await
+        .expect("a rejected status should return from response headers")
+        .unwrap();
+        let _ = release_body.send(());
+        assert_eq!(response.status, 401);
+        assert!(response.body.is_empty());
+    }
 
     fn document() -> (String, Vec<lyrics::LyricsLine>) {
         let lines = vec![

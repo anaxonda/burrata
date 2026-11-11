@@ -66,6 +66,7 @@ pub mod managed_provider_session;
 mod managed_slskd_settings;
 pub mod matching;
 pub mod media;
+mod media_context_lookup;
 pub mod metadata;
 pub mod metadata_normalization;
 pub mod models;
@@ -7619,6 +7620,20 @@ async fn translate_current_track_lyrics(
         _ => Err("Incomplete lyric translation batch".into()),
     }
 }
+
+#[tauri::command]
+async fn lookup_media_context(
+    state: State<'_, AppState>,
+    request: media_context_lookup::MediaContextRequest,
+) -> Result<media_context_lookup::MediaContextResponse> {
+    let permit = media_context_lookup::acquire_lookup_permit()?;
+    let manager = state.connections.clone();
+    let connection = tokio::task::spawn_blocking(move || manager.media_context_connection())
+        .await
+        .map_err(|_| "Could not read AI context settings")??;
+    media_context_lookup::lookup_media_context_with_permit(connection, request, permit).await
+}
+
 #[tauri::command]
 async fn export_playback_diagnostics(
     app: tauri::AppHandle,
@@ -9438,7 +9453,7 @@ pub fn run() {
             get_playlist_mirror_options, set_playlist_mirror_options,
             open_in_file_manager,
             open_external_url
-            ,get_connections, save_connections, test_connections, get_managed_slskd_download_settings, save_managed_slskd_download_settings, get_slskd_shares, rescan_slskd_shares, add_managed_slskd_share, remove_managed_slskd_share, translate_current_track_lyrics,
+            ,get_connections, save_connections, test_connections, get_managed_slskd_download_settings, save_managed_slskd_download_settings, get_slskd_shares, rescan_slskd_shares, add_managed_slskd_share, remove_managed_slskd_share, translate_current_track_lyrics, lookup_media_context,
             start_slskd_search, get_slskd_search, cancel_slskd_search,
             search_artists, search_albums, get_artist_artwork, cached_spotify_artist_ref, get_artist_profile, get_artist_releases, get_release_tracks, save_library_tracks,
             get_artist_tracks, get_artist_collaborations, resolve_recording_metadata,

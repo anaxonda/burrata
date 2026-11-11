@@ -51,6 +51,7 @@ const COMMANDS: &[&str] = &[
     "youtube_support_rollback",
     "youtube_support_diagnose",
     "get_slskd_shares",
+    "lookup_media_context",
     "rescan_slskd_shares",
     "add_managed_slskd_share",
     "remove_managed_slskd_share",

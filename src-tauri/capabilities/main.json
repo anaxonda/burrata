@@ -77,6 +77,7 @@
     "allow-search-current-track-lyric-candidates",
     "allow-select-current-track-lyric-candidate",
     "allow-translate-current-track-lyrics",
+    "allow-lookup-media-context",
     "allow-set-playback-diagnostics-enabled",
     "allow-clear-playback-diagnostics",
     "allow-export-playback-diagnostics",

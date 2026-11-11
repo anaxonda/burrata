@@ -149,6 +149,10 @@ pub struct ConnectionStatus {
     pub acoustid_credential: CredentialStatus,
     #[serde(default)]
     pub lyrics_translation_credential: CredentialStatus,
+    /// True when the existing AI endpoint, model and credential can serve an
+    /// explicit metadata-only context request, independently of translation policy.
+    #[serde(default)]
+    pub context_lookup_available: bool,
 }
 
 /// Avoid storing credentials in Settings or SQLite. Session credentials are an
@@ -188,6 +192,20 @@ impl ConnectionManager {
 
     pub fn status(&self) -> Result<ConnectionStatus, String> {
         let settings = self.settings()?;
+        let context_configured = ai_context_settings_available(&settings.lyrics_translation);
+        let translation_credential_visible = settings.lyrics_translation.enabled
+            && settings.lyrics_translation.provider != LyricsTranslationProvider::GoogleFree;
+        let lyrics_credential = if context_configured || translation_credential_visible {
+            self.credential_status("lyrics_translation")
+                .unwrap_or_else(|error| CredentialStatus {
+                    present: false,
+                    session_only: false,
+                    error: Some(error),
+                })
+        } else {
+            CredentialStatus::default()
+        };
+        let context_lookup_available = context_configured && lyrics_credential.present;
         Ok(ConnectionStatus {
             slskd_credential: self.credential_status_if_enabled("slskd", settings.slskd.enabled),
             discogs_credential: self
@@ -195,12 +213,12 @@ impl ConnectionManager {
             lastfm_credential: self.credential_status_if_enabled("lastfm", settings.lastfm_enabled),
             acoustid_credential: self
                 .credential_status_if_enabled("acoustid", settings.acoustid_enabled),
-            lyrics_translation_credential: self.credential_status_if_enabled(
-                "lyrics_translation",
-                settings.lyrics_translation.enabled
-                    && settings.lyrics_translation.provider
-                        != LyricsTranslationProvider::GoogleFree,
-            ),
+            lyrics_translation_credential: if translation_credential_visible {
+                lyrics_credential
+            } else {
+                CredentialStatus::default()
+            },
+            context_lookup_available,
             settings,
         })
     }
@@ -400,6 +418,28 @@ impl ConnectionManager {
         self.lyrics_translation_with_provider(Some(LyricsTranslationProvider::OpenaiCompatible))
     }
 
+    /// AI context explicitly reuses the configured endpoint/model/key regardless of
+    /// the lyrics translation enabled switch or its selected provider.
+    pub fn media_context_connection(&self) -> Result<LyricsTranslationConnection, String> {
+        let settings = self.settings()?.lyrics_translation;
+        if !ai_context_settings_available(&settings) {
+            return Err(
+                "Set an HTTPS API endpoint and model in Connections for AI context lookup".into(),
+            );
+        }
+        let api_key = self
+            .credential("lyrics_translation")?
+            .filter(|value| !value.trim().is_empty())
+            .ok_or("Add an API key in Connections for AI context lookup")?;
+        Ok(LyricsTranslationConnection {
+            provider: LyricsTranslationProvider::OpenaiCompatible,
+            base_url: settings.base_url,
+            model: settings.model,
+            target_language: settings.target_language,
+            api_key,
+        })
+    }
+
     fn lyrics_translation_with_provider(
         &self,
         provider: Option<LyricsTranslationProvider>,
@@ -434,6 +474,33 @@ impl ConnectionManager {
             api_key,
         }))
     }
+}
+
+fn ai_context_settings_available(settings: &LyricsTranslationSettings) -> bool {
+    let base_url = settings.base_url.trim();
+    let model = settings.model.trim();
+    if base_url.is_empty()
+        || base_url.len() > 512
+        || model.is_empty()
+        || model.len() > 128
+        || base_url.chars().any(char::is_control)
+        || model.chars().any(char::is_control)
+    {
+        return false;
+    }
+    let Ok(url) = url::Url::parse(base_url) else {
+        return false;
+    };
+    let loopback_http = url.scheme() == "http"
+        && url
+            .host_str()
+            .is_some_and(|host| matches!(host, "localhost" | "127.0.0.1" | "[::1]" | "::1"));
+    (url.scheme() == "https" || loopback_http)
+        && url.host_str().is_some()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.query().is_none()
+        && url.fragment().is_none()
 }
 
 #[derive(Clone)]
@@ -627,6 +694,68 @@ mod tests {
         assert_eq!(connection.model, "translate-model");
         assert_eq!(connection.target_language, "fr");
         assert_eq!(connection.api_key, "translation-secret");
+    }
+
+    #[test]
+    fn explicit_context_lookup_uses_existing_ai_config_independent_of_translation_policy() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&directory.path().join("library.sqlite")).unwrap());
+        let keyring = Arc::new(MemoryKeyring::default());
+        let manager = ConnectionManager::with_keyring(store, keyring);
+        let settings = ConnectionSettings {
+            lyrics_translation: LyricsTranslationSettings {
+                provider: LyricsTranslationProvider::GoogleFree,
+                enabled: false,
+                base_url: "https://api.example.test/v1".into(),
+                model: "context-model".into(),
+                target_language: "en".into(),
+            },
+            ..ConnectionSettings::default()
+        };
+        let status = manager
+            .update(ConnectionUpdate {
+                settings,
+                lyrics_translation_api_key: Some("test-context-key".into()),
+                ..ConnectionUpdate::default()
+            })
+            .unwrap();
+        assert!(!status.settings.lyrics_translation.enabled);
+        assert_eq!(
+            status.settings.lyrics_translation.provider,
+            LyricsTranslationProvider::GoogleFree
+        );
+        assert!(!status.lyrics_translation_credential.present);
+        assert!(status.context_lookup_available);
+        let connection = manager.media_context_connection().unwrap();
+        assert_eq!(
+            connection.provider,
+            LyricsTranslationProvider::OpenaiCompatible
+        );
+        assert_eq!(connection.model, "context-model");
+        assert_eq!(connection.api_key, "test-context-key");
+        assert!(!serde_json::to_string(&status)
+            .unwrap()
+            .contains("test-context-key"));
+    }
+
+    #[test]
+    fn context_lookup_availability_requires_endpoint_model_and_credential() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&directory.path().join("library.sqlite")).unwrap());
+        let manager = ConnectionManager::with_keyring(store, Arc::new(MemoryKeyring::default()));
+        let mut settings = ConnectionSettings::default();
+        settings.lyrics_translation.enabled = false;
+        settings.lyrics_translation.provider = LyricsTranslationProvider::GoogleFree;
+        settings.lyrics_translation.base_url = "https://api.example.test/v1".into();
+        settings.lyrics_translation.model = "context-model".into();
+        manager
+            .update(ConnectionUpdate {
+                settings,
+                ..ConnectionUpdate::default()
+            })
+            .unwrap();
+        assert!(!manager.status().unwrap().context_lookup_available);
+        assert!(manager.media_context_connection().is_err());
     }
 
     #[test]

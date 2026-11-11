@@ -40,6 +40,8 @@ import { trackSource } from "./lib/source-link";
     onArtistRef,
     loadArtist,
     loadRecording,
+    contextLookupConfigured = false,
+    contextLookupRevision = 0,
     onRecordingRelease,
     onAlbum,
     onDownload,
@@ -88,6 +90,8 @@ import { trackSource } from "./lib/source-link";
     onArtistRef?: (artist: ArtistRef) => void;
     loadArtist?: (track: Track) => Promise<ArtistProfile | null>;
     loadRecording?: (track: Track) => Promise<RecordingInformationResult>;
+    contextLookupConfigured?: boolean;
+    contextLookupRevision?: number;
     onRecordingRelease?: (release:RecordingReleaseInfo, artist:ArtistRef|null) => void;
     onAlbum?: () => void;
     onDownload: () => void;
@@ -448,7 +452,7 @@ import { trackSource } from "./lib/source-link";
     {#if sourceOpenError}<p role="status">{sourceOpenError}</p>{/if}
 
     {#if loadArtist && track.artist && (!radioLinks.isRadio || track.provenance && (track.provenance as Record<string, unknown>).radioMetadata)}<ArtistInformation {track} {loadArtist} {onArtist} {onArtistRef} compact />{/if}
-    {#if loadRecording && (!radioLinks.isRadio || track.provenance && (track.provenance as Record<string, unknown>).radioMetadata)}<RecordingInformation {track} {loadRecording} onRelease={onRecordingRelease} onArtist={onArtistRef} compact />{/if}
+    {#if loadRecording && (!radioLinks.isRadio || track.provenance && (track.provenance as Record<string, unknown>).radioMetadata)}<RecordingInformation {track} {loadRecording} {contextLookupConfigured} {contextLookupRevision} onRelease={onRecordingRelease} onArtist={onArtistRef} compact />{/if}
     <div class="actions">
       {#if onFavorite}<button aria-label={favorite ? "Remove from favorites" : "Add to favorites"} aria-pressed={favorite} onclick={onFavorite}>{favorite ? "♥ Favorited" : "♡ Add to favorites"}</button>{/if}
       {#if onPlay}<button class="primary" onclick={onPlay}>Play</button>{/if}
