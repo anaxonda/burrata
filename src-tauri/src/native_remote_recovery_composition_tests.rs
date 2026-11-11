@@ -310,6 +310,28 @@ else:
         )
         .await
     }
+    async fn resolve_selected(
+        &self,
+        candidate: crate::models::Candidate,
+        cancel: watch::Receiver<bool>,
+        deadline: PlaybackDeadline,
+    ) -> Result<playback_sources::ResolvedSource, String> {
+        crate::acquisition::with_playback_test_public_addresses(
+            playback_sources::resolve_with_trace_context_excluding_until(
+                &self.store,
+                &self.acquisition,
+                &self.track,
+                Some(candidate),
+                cancel,
+                Some("native-synthetic-remote-composition-selected".into()),
+                None,
+                None,
+                &[],
+                deadline,
+            ),
+        )
+        .await
+    }
     async fn fresh(
         &self,
         candidate: crate::models::Candidate,
@@ -686,6 +708,104 @@ async fn controlled_remote_tls_resolver_decoder_composition() {
             serde_json::to_string(&fixture.requests()).unwrap()
         );
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires documented isolated network namespace, local openssl/ffmpeg/python3; no public egress"]
+async fn expired_stream_advances_to_valid_fallback_but_selected_source_stays_locked() {
+    // Positive path: the previously working A stream has expired. The normal
+    // replacement request must skip A, accept the later identity-valid B, and
+    // deliver B through the production preflight, HTTP reader, and decoder.
+    let fixture = Fixture::new();
+    fixture.mode("fallback");
+    let (_stop, cancel) = watch::channel(false);
+    let deadline = PlaybackDeadline::after(Duration::from_secs(15));
+    let first = fixture
+        .resolve(cancel.clone(), &[], deadline)
+        .await
+        .expect("first identity-valid source");
+    let expired = first.candidate.clone().unwrap();
+    assert_eq!(expired.id, "soundcloud:111");
+    let (failed, samples) = finish_decode(start_decode(first.source, deadline));
+    assert!(failed.unwrap_err().contains("403"));
+    assert!(samples.is_empty());
+    fixture
+        .acquisition
+        .invalidate_preview_audio(&expired, &fixture.store.settings().unwrap());
+    let replacement = fixture
+        .resolve(
+            cancel,
+            &[FailedPlaybackCandidate {
+                provider: expired.provider.clone(),
+                id: expired.id.clone(),
+            }],
+            deadline,
+        )
+        .await
+        .expect("later identity-valid source after expired stream");
+    let replacement_candidate = replacement.candidate.as_ref().unwrap();
+    assert_eq!(replacement_candidate.id, "soundcloud:222");
+    assert_ne!(replacement_candidate.id, expired.id);
+    let (decoded, samples) = finish_decode(start_decode(replacement.source, deadline));
+    decoded.expect("later source reaches the real native decoder");
+    stereo_tones(&samples);
+    fixture.assert_saved();
+    drop(fixture);
+
+    // Negative path: after selecting A explicitly, an expired A stream cannot
+    // authorize switching to B. The selected provider ID and source URL remain
+    // the request's exact source identity even when fallback is configured.
+    let mut locked = Fixture::new();
+    locked.mode("fallback");
+    let (_stop, cancel) = watch::channel(false);
+    let deadline = PlaybackDeadline::after(Duration::from_secs(15));
+    let first = locked
+        .resolve(cancel.clone(), &[], deadline)
+        .await
+        .expect("source to select");
+    let exact = first.candidate.clone().unwrap();
+    let (failed, samples) = finish_decode(start_decode(first.source, deadline));
+    assert!(failed.unwrap_err().contains("403"));
+    assert!(samples.is_empty());
+    let mut request = locked.track.clone();
+    request.provenance["userSelectedSource"] = serde_json::json!(true);
+    locked.store.save_track(&request).unwrap();
+    let request = locked.store.get_track(&request.id).unwrap().unwrap();
+    assert_eq!(request.provenance["userSelectedSource"], true);
+    locked.track = request.clone();
+    locked.saved = serde_json::to_value(&request).unwrap();
+    locked
+        .acquisition
+        .invalidate_preview_audio(&exact, &locked.store.settings().unwrap());
+    let result = locked
+        .resolve_selected(exact.clone(), cancel, deadline)
+        .await;
+    let selected_retry = result.expect("selected source refresh remains bound to A");
+    assert!(selected_retry.source.input.ends_with("/a-2.mp3"));
+    assert_eq!(
+        selected_retry.candidate.as_ref().unwrap().id,
+        exact.id,
+        "refresh must preserve the exact selected provider recording"
+    );
+    let (decode_result, samples) = finish_decode(start_decode(selected_retry.source, deadline));
+    assert!(decode_result.unwrap_err().contains("403"));
+    assert!(samples.is_empty());
+    assert_eq!(exact.id, "soundcloud:111");
+    assert_eq!(exact.url, "https://soundcloud.com/synthetic-fixture/111");
+    assert_eq!(
+        std::fs::read_to_string(locked.directory.path().join("extract-111")).unwrap(),
+        "2",
+        "only the exact selected source may be refreshed"
+    );
+    assert!(!locked.directory.path().join("extract-222").exists());
+    assert!(!locked
+        .requests()
+        .iter()
+        .any(|request| request["path"] == "/b.mp3"));
+    assert!(locked.requests().iter().any(|request| {
+        request["path"] == "/a-2.mp3" && request["range"].is_null() && request["status"] == 403
+    }));
+    locked.assert_saved();
 }
 
 #[test]

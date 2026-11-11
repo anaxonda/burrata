@@ -2509,11 +2509,6 @@ fn catalog_alias_preparation_context_skip_reason(
     if !crate::artist_alias_lookup::enabled() {
         return Some("alias_discovery_disabled");
     }
-    if crate::artist_credit_aliases::cached_verified_playback_artist_aliases(store, track)
-        .has_verified_credit_sets()
-    {
-        return Some("already_verified_credit_sets");
-    }
     // A previously verified source already has replay priority. Do not delay it
     // for optional metadata preparation merely because artist aliases are cold.
     if let Some(fingerprint) = policy_matching::request_fingerprint_with_options(
@@ -15976,6 +15971,69 @@ mod catalog_alias_priority_tests {
         assert!(title_artist_credit_present(
             "Django Reinhardt - Minor Swing"
         ));
+    }
+
+    #[test]
+    fn verified_musicbrainz_credits_do_not_suppress_optional_alias_preparation() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("musicbrainz-alias-prep.sqlite")).unwrap();
+        let release_id = "4d654402-6a53-46c5-bf68-26c19e4d0fa9";
+        let source_url = format!("https://musicbrainz.org/release/{release_id}");
+        let django_id = "650bf385-6f6d-4992-a3b9-779d144920a4";
+        let grappelli_id = "bfc03211-a3a2-4700-8fa3-00968c02c5d0";
+        for (id, name, aliases) in [
+            (
+                django_id,
+                "Django Reinhardt",
+                Vec::<serde_json::Value>::new(),
+            ),
+            (
+                grappelli_id,
+                "Stéphane Grappelli",
+                Vec::<serde_json::Value>::new(),
+            ),
+        ] {
+            store
+                .set_retained_provider_cache(
+                    "artists.profile.musicbrainz",
+                    id,
+                    &json!({"id":id,"name":name,"aliases":aliases}),
+                )
+                .unwrap();
+        }
+        let track = Track {
+            id: "catalog:musicbrainz:fixture".into(),
+            provider: "catalog".into(),
+            source_url: source_url.clone(),
+            artist: "Django Reinhardt & Stéphane Grappelli".into(),
+            title: "Minor Swing (Restored Edition '25)".into(),
+            provenance: json!({
+                "sourceKind":"catalog",
+                "catalogProvider":"musicbrainz",
+                "releaseId":release_id,
+                "sourceUrl":source_url,
+                "manualFields":{},
+                "artistCredits":[
+                    {"name":"Django Reinhardt","role":"artist credit","joinPhrase":" & ","sourceUrl":source_url,"artist":{"provider":"musicbrainz","id":django_id}},
+                    {"name":"Stéphane Grappelli","role":"artist credit","joinPhrase":"","sourceUrl":source_url,"artist":{"provider":"musicbrainz","id":grappelli_id}}
+                ]
+            }),
+            ..Track::default()
+        };
+        assert!(
+            crate::artist_credit_aliases::cached_verified_playback_artist_aliases(&store, &track)
+                .has_verified_credit_sets()
+        );
+        assert_eq!(
+            catalog_alias_preparation_context_skip_reason(
+                &store,
+                &track,
+                &Settings::default(),
+                false,
+            ),
+            None,
+            "having verified canonical credits does not prove alias discovery is complete"
+        );
     }
 }
 

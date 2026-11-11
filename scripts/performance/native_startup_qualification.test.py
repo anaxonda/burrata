@@ -28,6 +28,7 @@ class StartupQualificationTests(unittest.TestCase):
                 rows.append({
                     'build': 'baseline', 'pendingQualityAssets': pending,
                     'sampleRole': role, 'appLaunchToAutomationMs': value,
+                    'appLaunchToRenderedLibraryTargetReadyMs':value+2,'clickToIpcMs':4,
                     'firstAudioMs': value, 'capturePassed': True, 'pcmPassed': True,
                     'requiredMetricGate': {'missingMetrics': []}, 'binarySha256': 'fixture-hash',
                 })
@@ -48,6 +49,16 @@ class StartupQualificationTests(unittest.TestCase):
         gate = QUAL.required_metric_gate(120.0, 250.0, 9, False, 0)
         self.assertFalse(gate['passed'])
         self.assertFalse(gate['pcmPassed'])
+
+    def test_startup_requires_rendered_library_readiness_and_actual_play_correlation(self):
+        gate=QUAL.required_metric_gate(120.0,250.0,9,True,0,480.0,32.0,True,True,'startup')
+        self.assertTrue(gate['passed'])
+        missing=QUAL.required_metric_gate(120.0,250.0,9,True,0,None,None,False,False,None)
+        self.assertFalse(missing['passed'])
+        self.assertEqual(set(missing['missingMetrics']),{
+            'appLaunchToRenderedLibraryTargetReadyMs','clickToIpcMs','rendererLayoutAck',
+            'privateGuiPlayActionAcknowledged','firstPlayOperationKind=startup'})
+        self.assertFalse(QUAL.required_metric_gate(120.0,250.0,9,True,0,480.0,32.0,True,True,'pause')['passed'])
 
     def test_wrong_track_first_audio_is_missing_for_target(self):
         runtime = {'samples': [

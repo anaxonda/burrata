@@ -50,7 +50,9 @@ def first_audio_observation(runtime, target_track_id):
     return None, None
 
 
-def required_metric_gate(launch_to_automation_ms, first_audio_ms, generation, pcm_passed, exit_code):
+def required_metric_gate(launch_to_automation_ms, first_audio_ms, generation, pcm_passed, exit_code,
+                        launch_to_rendered_library_ready_ms=None, click_to_ipc_ms=None,
+                        renderer_ack=False, gui_action_ack=False, first_play_operation_kind=None):
     missing = []
     if launch_to_automation_ms is None:
         missing.append('appLaunchToAutomationMs')
@@ -58,6 +60,16 @@ def required_metric_gate(launch_to_automation_ms, first_audio_ms, generation, pc
         missing.append('firstAudioMs')
     if generation is None:
         missing.append('firstAudioGeneration')
+    if launch_to_rendered_library_ready_ms is None:
+        missing.append('appLaunchToRenderedLibraryTargetReadyMs')
+    if click_to_ipc_ms is None:
+        missing.append('clickToIpcMs')
+    if renderer_ack is not True:
+        missing.append('rendererLayoutAck')
+    if gui_action_ack is not True:
+        missing.append('privateGuiPlayActionAcknowledged')
+    if first_play_operation_kind!='startup':
+        missing.append('firstPlayOperationKind=startup')
     return {
         'passed': not missing and pcm_passed is True and exit_code == 0,
         'missingMetrics': missing,
@@ -86,9 +98,14 @@ def capture(payload, output, build, condition, index, role, args):
     fixture = json.loads((profile / 'fixture/runtime-cases.json').read_text())
     target_track_id = fixture['ids'][0]
     first_audio, generation = first_audio_observation(runtime, target_track_id)
+    launch_to_rendered_ready=runtime.get('appLaunchToRenderedLibraryTargetReadyMs')
+    operation=runtime.get('observedPlaybackOperation') or {}
+    click_to_ipc=operation.get('clickToIpcMs')
     launch_to_automation = (ready - launch) if isinstance(ready, (int, float)) and isinstance(launch, (int, float)) else None
     pcm_passed = evidence.get('pcm', {}).get('passed') is True
-    metric_gate = required_metric_gate(launch_to_automation, first_audio, generation, pcm_passed, result.returncode)
+    metric_gate = required_metric_gate(launch_to_automation, first_audio, generation, pcm_passed, result.returncode,
+        launch_to_rendered_ready,click_to_ipc,runtime.get('rendererLayoutAck') is True,
+        runtime.get('firstGuiInteraction',{}).get('acknowledged') is True,operation.get('operationKind'))
     row = {
         'build': build,
         'buildProfile': args.build_profile,
@@ -101,6 +118,11 @@ def capture(payload, output, build, condition, index, role, args):
         'requiredMetricGate': metric_gate,
         'binarySha256': evidence.get('binarySha256'),
         'appLaunchToAutomationMs': launch_to_automation,
+        'appLaunchToRenderedLibraryTargetReadyMs':launch_to_rendered_ready,
+        'clickToIpcMs':click_to_ipc,
+        'firstPlayOperationKind':operation.get('operationKind'),
+        'rendererLayoutAck':runtime.get('rendererLayoutAck') is True,
+        'firstGuiInteractionAcknowledged':runtime.get('firstGuiInteraction',{}).get('acknowledged') is True,
         'firstAudioMs': first_audio,
         'firstAudioTrackId': target_track_id,
         'firstAudioGeneration': generation,
@@ -196,7 +218,7 @@ def summarize(rows, builds, measured_runs, warmups):
             measured = [row for row in all_samples if row['sampleRole'] == 'measured']
             discarded = [row for row in all_samples if row['sampleRole'] == 'warmup']
             measures = {}
-            for metric in ('appLaunchToAutomationMs', 'firstAudioMs'):
+            for metric in ('appLaunchToAutomationMs', 'appLaunchToRenderedLibraryTargetReadyMs', 'clickToIpcMs', 'firstAudioMs'):
                 values = [row[metric] for row in measured if row[metric] is not None]
                 measures[metric] = {
                     'count': len(values),

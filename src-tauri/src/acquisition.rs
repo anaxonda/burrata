@@ -2962,11 +2962,11 @@ fn flexible_other_release_search_enabled(settings: &Settings) -> bool {
         && settings.flexible_matching.allow_other_releases
 }
 
-fn playback_music_catalog_query(
+fn playback_music_catalog_queries(
     track: &Track,
     alternate_artist: Option<&str>,
     settings: &Settings,
-) -> Option<String> {
+) -> Vec<String> {
     let alternatives = alternate_artist
         .map(str::to_owned)
         .into_iter()
@@ -2977,20 +2977,12 @@ fn playback_music_catalog_query(
         &alternatives,
         allow_other_releases,
     );
-    let release_fallback = allow_other_releases
-        .then(|| {
-            plan.queries.iter().find(|query| {
-                query.reason == crate::search_plan::SearchQueryReason::ReleaseContextFallback
-            })
-        })
-        .flatten();
-    let selected = release_fallback
-        .or_else(|| plan.queries.first())
-        .map(|query| query.text.clone());
-    debug_assert!(selected.as_ref().map_or(true, |text| {
-        plan.queries.iter().any(|query| &query.text == text)
-    }));
-    selected
+    let mut seen = std::collections::HashSet::new();
+    plan.queries
+        .iter()
+        .take(crate::search_plan::MAX_SEARCH_QUERIES.min(2))
+        .filter_map(|query| (seen.insert(query.text.clone())).then(|| query.text.clone()))
+        .collect()
 }
 
 fn playback_search_queries_with_release_policy(
@@ -4570,7 +4562,7 @@ where
     .await
 }
 
-async fn complete_playback_candidate_search_observed_with_level<F, Fut>(
+async fn complete_playback_candidate_search_observed_with_level<F, Fut, R>(
     track: &Track,
     providers: &[String],
     _alternate_artist: Option<&str>,
@@ -4583,7 +4575,8 @@ async fn complete_playback_candidate_search_observed_with_level<F, Fut>(
 ) -> Result<(Vec<Candidate>, bool), String>
 where
     F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = Result<Vec<Candidate>, String>>,
+    Fut: std::future::Future<Output = Result<R, String>>,
+    R: Into<OptionalPlaybackCatalogSearch>,
 {
     if *cancel.borrow() {
         return Err("Cancelled".into());
@@ -4624,9 +4617,10 @@ where
             _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => Err("Cancelled".into()),
             result = tokio::time::timeout(optional_budget, catalog()) => result.unwrap_or_else(|_| Err("Optional playback catalog search timed out".into())),
         } {
-            Ok(items) => {
-                found.extend(items);
-                cacheable = true;
+            Ok(result) => {
+                let result = result.into();
+                found = merge_playback_candidate_rows(found, result.candidates);
+                cacheable = result.complete;
             }
             Err(error) if *cancel.borrow() || error == "Cancelled" => {
                 return Err("Cancelled".into());
@@ -4637,6 +4631,160 @@ where
     Ok((found, cacheable))
 }
 
+#[derive(Debug)]
+struct OptionalPlaybackCatalogSearch {
+    candidates: Vec<Candidate>,
+    complete: bool,
+}
+
+impl From<Vec<Candidate>> for OptionalPlaybackCatalogSearch {
+    fn from(candidates: Vec<Candidate>) -> Self {
+        Self {
+            candidates,
+            complete: true,
+        }
+    }
+}
+
+/// Keep the validated flat row as the locator while preserving richer
+/// catalog artist evidence when both search paths find the same video.
+fn merge_playback_candidate_rows(
+    mut flat: Vec<Candidate>,
+    catalog: Vec<Candidate>,
+) -> Vec<Candidate> {
+    let mut by_id = HashMap::<(String, String), usize>::new();
+    for (index, candidate) in flat.iter().enumerate() {
+        by_id
+            .entry((candidate.provider.clone(), candidate.id.clone()))
+            .or_insert(index);
+    }
+    for candidate in catalog {
+        let key = (candidate.provider.clone(), candidate.id.clone());
+        if let Some(index) = by_id.get(&key).copied() {
+            let existing = &mut flat[index];
+            if existing.title.trim().is_empty() {
+                existing.title = candidate.title.clone();
+            }
+            if existing.duration_seconds.is_none() {
+                existing.duration_seconds = candidate.duration_seconds;
+            }
+            merge_catalog_candidate_metadata(
+                &mut existing.source_metadata,
+                candidate.source_metadata.as_ref(),
+            );
+        } else {
+            by_id.insert(key, flat.len());
+            flat.push(candidate);
+        }
+    }
+    flat
+}
+
+fn merge_catalog_candidate_metadata(flat: &mut Option<Value>, catalog: Option<&Value>) {
+    let Some(catalog) = catalog.and_then(Value::as_object) else {
+        return;
+    };
+    if flat.is_none() {
+        *flat = Some(serde_json::json!({}));
+    }
+    let Some(target) = flat.as_mut().and_then(Value::as_object_mut) else {
+        return;
+    };
+    let existing_has_catalog = target
+        .get("playbackMusicCatalogCandidate")
+        .and_then(Value::as_bool)
+        == Some(true);
+    let metadata_conflict = if existing_has_catalog {
+        let conflict = ["catalogArtist", "catalogTitle"].into_iter().any(|key| {
+            match (target.get(key), catalog.get(key)) {
+                (Some(Value::String(existing)), Some(Value::String(incoming))) => {
+                    existing != incoming
+                }
+                _ => false,
+            }
+        });
+        if conflict {
+            target.remove("catalogArtist");
+            target.remove("catalogTitle");
+            target.insert("catalogMetadataConflict".into(), Value::Bool(true));
+        }
+        conflict
+            || target
+                .get("catalogMetadataConflict")
+                .and_then(Value::as_bool)
+                == Some(true)
+    } else {
+        false
+    };
+    for (key, value) in catalog {
+        // Music catalog fields are structured retrieval evidence. A flat row
+        // that lacks those fields must not erase them during ID deduplication.
+        if metadata_conflict && matches!(key.as_str(), "catalogArtist" | "catalogTitle") {
+            continue;
+        }
+        if !target.contains_key(key)
+            || (!existing_has_catalog
+                && matches!(
+                    key.as_str(),
+                    "playbackMusicCatalogCandidate" | "catalogArtist" | "catalogTitle"
+                ))
+        {
+            target.insert(key.clone(), value.clone());
+        }
+    }
+}
+
+async fn collect_optional_playback_catalog_candidates<F, Fut>(
+    queries: Vec<String>,
+    cancel: watch::Receiver<bool>,
+    research_deadline: tokio::time::Instant,
+    mut search: F,
+) -> Result<OptionalPlaybackCatalogSearch, String>
+where
+    F: FnMut(String, watch::Receiver<bool>) -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<Candidate>, String>>,
+{
+    let mut candidates = Vec::new();
+    let mut complete = true;
+    let mut seen_queries = std::collections::HashSet::new();
+    for query in queries
+        .into_iter()
+        .take(crate::search_plan::MAX_SEARCH_QUERIES.min(2))
+        .filter(|query| seen_queries.insert(query.clone()))
+    {
+        if *cancel.borrow() {
+            return Err("Cancelled".into());
+        }
+        if tokio::time::Instant::now() >= research_deadline {
+            return Ok(OptionalPlaybackCatalogSearch {
+                candidates,
+                complete: false,
+            });
+        }
+        match tokio::select! {
+            biased;
+            _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => Err("Cancelled".to_owned()),
+            result = tokio::time::timeout_at(research_deadline, search(query, cancel.clone())) => {
+                result.unwrap_or_else(|_| Err("Optional playback catalog search timed out".to_owned()))
+            }
+        } {
+            Ok(rows) => {
+                candidates = merge_playback_candidate_rows(candidates, rows);
+            }
+            Err(error) if *cancel.borrow() || error == "Cancelled" => {
+                return Err("Cancelled".into());
+            }
+            Err(_) => {
+                complete = false;
+            }
+        }
+    }
+    Ok(OptionalPlaybackCatalogSearch {
+        candidates,
+        complete,
+    })
+}
+
 fn playback_candidate_search_cache_key(
     track: &Track,
     provider_ids: &[String],
@@ -4644,7 +4792,7 @@ fn playback_candidate_search_cache_key(
     alternate_artists: &[String],
 ) -> String {
     format!(
-        "{}:playback-source-search:recording-match-{}:{:?}:{}:{}",
+        "{}:playback-source-search-retrieval-2:recording-match-{}:{:?}:{}:{}",
         search_cache_key(track, provider_ids, settings, 3),
         crate::recording_match::EVALUATOR_VERSION,
         settings.matching_level,
@@ -8488,6 +8636,12 @@ impl AcquisitionManager {
                     } else {
                         search_flat().await?
                     };
+                    // Leave a small scheduling margin so the single outer
+                    // optional-research timeout cannot drop rows from query 1
+                    // while query 2 reaches the same absolute cutoff.
+                    let catalog_research_deadline = tokio::time::Instant::now()
+                        + optional_playback_research_budget(deadline.remaining())
+                            .saturating_sub(Duration::from_millis(25));
                     let (completed, catalog_complete) =
                         complete_playback_candidate_search_observed_with_level(
                             &search_track,
@@ -8497,21 +8651,34 @@ impl AcquisitionManager {
                             cancel.clone(),
                             deadline,
                             || async {
-                                let Some(query) = playback_music_catalog_query(
+                                let queries = playback_music_catalog_queries(
                                     &search_track,
                                     alternate_artist.as_deref(),
                                     settings,
-                                ) else {
-                                    return Ok(Vec::new());
-                                };
-                                let items = crate::youtube_music::search_playback_candidates(
-                                    &query,
-                                    10,
+                                );
+                                collect_optional_playback_catalog_candidates(
+                                    queries,
                                     cancel.clone(),
-                                    deadline,
+                                    catalog_research_deadline,
+                                    |query, query_cancel| {
+                                        let query_track = search_track.clone();
+                                        async move {
+                                            let items =
+                                                crate::youtube_music::search_playback_candidates(
+                                                    &query,
+                                                    PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT,
+                                                    query_cancel,
+                                                    deadline,
+                                                )
+                                                .await?;
+                                            Ok(playback_music_catalog_candidates(
+                                                &query_track,
+                                                items,
+                                            ))
+                                        }
+                                    },
                                 )
-                                .await?;
-                                Ok(playback_music_catalog_candidates(&search_track, items))
+                                .await
                             },
                             observe_flat_batch,
                             settings.matching_level,
@@ -13526,6 +13693,292 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn optional_catalog_query_failure_retains_prior_rows_and_marks_incomplete() {
+        let (_cancel_tx, cancel) = watch::channel(false);
+        let first = Candidate {
+            id: "youtube:canonical-row".into(),
+            provider: "youtube".into(),
+            source_metadata: Some(serde_json::json!({
+                "playbackMusicCatalogCandidate": true,
+                "catalogArtist": "Django Reinhardt & Quintette du Hot Club de France"
+            })),
+            ..Candidate::default()
+        };
+        let result = collect_optional_playback_catalog_candidates(
+            vec!["canonical".into(), "release".into(), "unused-third".into()],
+            cancel,
+            tokio::time::Instant::now() + Duration::from_secs(1),
+            move |query, _cancel| {
+                let first = first.clone();
+                async move {
+                    match query.as_str() {
+                        "canonical" => Ok(vec![first]),
+                        "release" => Err("second catalog query failed".into()),
+                        _ => panic!("must never exceed the two-query budget"),
+                    }
+                }
+            },
+        )
+        .await
+        .unwrap();
+        assert!(!result.complete);
+        assert_eq!(result.candidates.len(), 1);
+        assert_eq!(result.candidates[0].id, "youtube:canonical-row");
+        assert_eq!(
+            result.candidates[0].source_metadata.as_ref().unwrap()["catalogArtist"],
+            "Django Reinhardt & Quintette du Hot Club de France"
+        );
+    }
+
+    #[tokio::test]
+    async fn first_catalog_query_failure_still_runs_second_within_same_deadline() {
+        let (_cancel_tx, cancel) = watch::channel(false);
+        let result = collect_optional_playback_catalog_candidates(
+            vec!["canonical".into(), "release".into()],
+            cancel,
+            tokio::time::Instant::now() + Duration::from_secs(1),
+            |query, _cancel| async move {
+                if query == "canonical" {
+                    Err("canonical catalog unavailable".into())
+                } else {
+                    Ok(vec![Candidate {
+                        id: "youtube:release-row".into(),
+                        provider: "youtube".into(),
+                        ..Candidate::default()
+                    }])
+                }
+            },
+        )
+        .await
+        .unwrap();
+        assert!(!result.complete);
+        assert_eq!(result.candidates.len(), 1);
+        assert_eq!(result.candidates[0].id, "youtube:release-row");
+    }
+
+    #[tokio::test]
+    async fn cancelled_optional_catalog_query_propagates_without_partial_rows() {
+        let (cancel_tx, cancel) = watch::channel(false);
+        cancel_tx.send_replace(true);
+        let result = collect_optional_playback_catalog_candidates(
+            vec!["canonical".into(), "release".into()],
+            cancel,
+            tokio::time::Instant::now() + Duration::from_secs(1),
+            |_query, _cancel| async {
+                panic!("cancelled optional search must not start a catalog request")
+            },
+        )
+        .await;
+        assert_eq!(result.unwrap_err(), "Cancelled");
+    }
+
+    #[tokio::test]
+    async fn incomplete_optional_catalog_rows_are_returned_without_full_cacheability() {
+        let track = Track {
+            artist: "Catalog Artist".into(),
+            title: "Recording".into(),
+            duration_seconds: Some(180.0),
+            ..Track::default()
+        };
+        let providers = vec!["youtube".into()];
+        let (_cancel_tx, cancel) = watch::channel(false);
+        let (rows, cacheable) = complete_playback_candidate_search_observed_with_level(
+            &track,
+            &providers,
+            None,
+            Vec::new(),
+            cancel,
+            crate::playback_sources::PlaybackDeadline::after(Duration::from_secs(20)),
+            || async {
+                Ok(OptionalPlaybackCatalogSearch {
+                    candidates: vec![Candidate {
+                        id: "youtube:partial-catalog-row".into(),
+                        provider: "youtube".into(),
+                        ..Candidate::default()
+                    }],
+                    complete: false,
+                })
+            },
+            None,
+            crate::recording_match::MatchLevel::Flexible,
+        )
+        .await
+        .unwrap();
+        assert!(!cacheable);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "youtube:partial-catalog-row");
+    }
+
+    #[tokio::test]
+    async fn optional_catalog_second_query_uses_same_deadline_and_keeps_first_rows() {
+        let (_cancel_tx, cancel) = watch::channel(false);
+        let first = Candidate {
+            id: "youtube:first-row".into(),
+            provider: "youtube".into(),
+            ..Candidate::default()
+        };
+        let result = collect_optional_playback_catalog_candidates(
+            vec!["canonical".into(), "release".into()],
+            cancel,
+            tokio::time::Instant::now() + Duration::from_millis(40),
+            move |query, _cancel| {
+                let first = first.clone();
+                async move {
+                    if query == "canonical" {
+                        Ok(vec![first])
+                    } else {
+                        std::future::pending::<Result<Vec<Candidate>, String>>().await
+                    }
+                }
+            },
+        )
+        .await
+        .unwrap();
+        assert!(!result.complete);
+        assert_eq!(result.candidates.len(), 1);
+        assert_eq!(result.candidates[0].id, "youtube:first-row");
+    }
+
+    #[tokio::test]
+    async fn conflicting_catalog_metadata_is_marked_and_not_merged() {
+        let (_cancel_tx, cancel) = watch::channel(false);
+        let result = collect_optional_playback_catalog_candidates(
+            vec!["canonical".into(), "release".into()],
+            cancel,
+            tokio::time::Instant::now() + Duration::from_secs(1),
+            |query, _cancel| async move {
+                let metadata = if query == "canonical" {
+                    serde_json::json!({
+                        "playbackMusicCatalogCandidate": true,
+                        "catalogArtist": "Django Reinhardt & Quintette du Hot Club de France",
+                        "catalogTitle": "Swing 42"
+                    })
+                } else {
+                    serde_json::json!({
+                        "playbackMusicCatalogCandidate": true,
+                        "catalogArtist": "Django Reinhardt",
+                        "catalogTitle": "Swing 42"
+                    })
+                };
+                Ok(vec![Candidate {
+                    id: "youtube:shared-video".into(),
+                    provider: "youtube".into(),
+                    source_metadata: Some(metadata),
+                    ..Candidate::default()
+                }])
+            },
+        )
+        .await
+        .unwrap();
+        assert!(result.complete);
+        assert_eq!(result.candidates.len(), 1);
+        assert!(result.candidates[0].source_metadata.as_ref().unwrap()["catalogArtist"].is_null());
+        assert!(result.candidates[0].source_metadata.as_ref().unwrap()["catalogTitle"].is_null());
+        assert_eq!(
+            result.candidates[0].source_metadata.as_ref().unwrap()["catalogMetadataConflict"],
+            true
+        );
+        assert!(
+            result.candidates[0].source_metadata.as_ref().unwrap()["playbackMusicCatalogCandidate"]
+                .as_bool()
+                == Some(true)
+        );
+    }
+
+    #[tokio::test]
+    async fn optional_catalog_query_strings_are_deduplicated_and_capped_at_two() {
+        let (_cancel_tx, cancel) = watch::channel(false);
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let worker_calls = calls.clone();
+        let result = collect_optional_playback_catalog_candidates(
+            vec![
+                "canonical".into(),
+                "canonical".into(),
+                "release".into(),
+                "third".into(),
+            ],
+            cancel,
+            tokio::time::Instant::now() + Duration::from_secs(1),
+            move |query, _cancel| {
+                worker_calls.lock().unwrap().push(query.clone());
+                async { Ok(Vec::new()) }
+            },
+        )
+        .await
+        .unwrap();
+        assert!(result.complete);
+        assert_eq!(*calls.lock().unwrap(), vec!["canonical"]);
+    }
+
+    #[test]
+    fn flat_catalog_merge_keeps_flat_locator_and_catalog_artist_evidence() {
+        let flat = Candidate {
+            id: "youtube:shared-video".into(),
+            provider: "youtube".into(),
+            url: "https://www.youtube.com/watch?v=shared-video".into(),
+            title: "Swing 42".into(),
+            duration_seconds: Some(169.0),
+            source_metadata: Some(serde_json::json!({
+                "provider":"youtube",
+                "catalogArtist":"flat-poor-value"
+            })),
+            ..Candidate::default()
+        };
+        let catalog = Candidate {
+            id: "youtube:shared-video".into(),
+            provider: "youtube".into(),
+            url: "https://www.youtube.com/watch?v=shared-video".into(),
+            title: "Swing 42".into(),
+            duration_seconds: Some(168.0),
+            source_metadata: Some(serde_json::json!({
+                "provider":"youtube",
+                "playbackMusicCatalogCandidate":true,
+                "catalogArtist":"Django Reinhardt & Quintette du Hot Club de France",
+                "catalogTitle":"Swing 42"
+            })),
+            ..Candidate::default()
+        };
+        let merged = merge_playback_candidate_rows(vec![flat], vec![catalog]);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(
+            merged[0].url,
+            "https://www.youtube.com/watch?v=shared-video"
+        );
+        assert_eq!(merged[0].duration_seconds, Some(169.0));
+        assert_eq!(
+            merged[0].source_metadata.as_ref().unwrap()["catalogArtist"],
+            "Django Reinhardt & Quintette du Hot Club de France"
+        );
+        assert_eq!(
+            merged[0].source_metadata.as_ref().unwrap()["playbackMusicCatalogCandidate"],
+            true
+        );
+    }
+
+    #[test]
+    fn flat_catalog_merge_preserves_malformed_metadata_uncertainty() {
+        let malformed = serde_json::json!("unexpected metadata shape");
+        let flat = Candidate {
+            id: "youtube:shared-video".into(),
+            provider: "youtube".into(),
+            source_metadata: Some(malformed.clone()),
+            ..Candidate::default()
+        };
+        let catalog = Candidate {
+            id: "youtube:shared-video".into(),
+            provider: "youtube".into(),
+            source_metadata: Some(serde_json::json!({
+                "playbackMusicCatalogCandidate":true,
+                "catalogArtist":"Django Reinhardt & Quintette du Hot Club de France"
+            })),
+            ..Candidate::default()
+        };
+        let merged = merge_playback_candidate_rows(vec![flat], vec![catalog]);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].source_metadata, Some(malformed));
+    }
+
+    #[tokio::test]
     async fn optional_catalog_timeout_returns_flat_rows_without_caching_incomplete_search() {
         let cache = CandidateSearchCache::default();
         let track = Track {
@@ -14863,6 +15316,7 @@ mod tests {
             ..Default::default()
         };
         let key = playback_candidate_search_cache_key(&track, &providers, &settings, &[]);
+        assert!(key.contains("playback-source-search-retrieval-2"));
         let mut unrelated_provenance = track.clone();
         unrelated_provenance.provenance["displayOnly"]["source"] = "two".into();
         assert_eq!(
@@ -15832,7 +16286,7 @@ mod tests {
     }
 
     #[test]
-    fn playback_music_catalog_query_selects_only_an_existing_search_plan_query() {
+    fn playback_music_catalog_queries_use_only_deduped_search_plan_queries() {
         let track = Track {
             title: "Minor Swing (Restored Edition '25)".into(),
             artist: "Django Reinhardt & Stéphane Grappelli".into(),
@@ -15857,13 +16311,21 @@ mod tests {
                 query.reason == crate::search_plan::SearchQueryReason::ReleaseContextFallback
             })
             .expect("recognized release fallback should be in the plan");
-        let selected = playback_music_catalog_query(&track, None, &settings).unwrap();
-        assert_eq!(selected, expected_release.text);
-        assert!(selected.contains("Django Reinhardt"));
-        assert!(selected.contains("Stéphane Grappelli"));
-        assert!(selected.contains("Minor Swing"));
-        assert!(!selected.contains("Restored Edition"));
-        assert!(plan.queries.iter().any(|query| query.text == selected));
+        let selected = playback_music_catalog_queries(&track, None, &settings);
+        assert_eq!(selected.len(), 2);
+        assert_eq!(selected[0], plan.queries[0].text);
+        assert_eq!(selected[1], expected_release.text);
+        assert!(selected[0].contains("Django Reinhardt"));
+        assert!(selected[0].contains("Stéphane Grappelli"));
+        assert!(selected[0].contains("Minor Swing"));
+        assert!(selected[0].contains("Restored Edition"));
+        assert!(selected[1].contains("Django Reinhardt"));
+        assert!(selected[1].contains("Stéphane Grappelli"));
+        assert!(selected[1].contains("Minor Swing"));
+        assert!(!selected[1].contains("Restored Edition"));
+        assert!(selected
+            .iter()
+            .all(|selected| plan.queries.iter().any(|query| &query.text == selected)));
 
         let alternate_artist = "Verified Django & Stéphane Grappelli";
         let alias_plan = crate::search_plan::SearchPlan::for_track_with_release_policy(
@@ -15879,37 +16341,43 @@ mod tests {
             })
             .unwrap();
         let alias_selected =
-            playback_music_catalog_query(&track, Some(alternate_artist), &settings).unwrap();
-        assert_eq!(alias_selected, alias_release.text);
-        assert!(alias_selected.starts_with(alternate_artist));
-        assert!(alias_plan
+            playback_music_catalog_queries(&track, Some(alternate_artist), &settings);
+        assert_eq!(alias_selected.len(), 2);
+        assert_eq!(alias_selected[1], alias_release.text);
+        assert!(alias_selected[0].starts_with(&track.artist));
+        assert!(alias_selected[1].starts_with(alternate_artist));
+        assert!(alias_selected.iter().all(|selected| alias_plan
             .queries
             .iter()
-            .any(|query| query.text == alias_selected));
+            .any(|query| &query.text == selected)));
 
         settings.flexible_matching.allow_other_releases = false;
         let no_release_plan =
             crate::search_plan::SearchPlan::for_track_with_release_policy(&track, &[], false);
         assert_eq!(
-            playback_music_catalog_query(&track, None, &settings).as_deref(),
+            playback_music_catalog_queries(&track, None, &settings),
             no_release_plan
                 .queries
-                .first()
-                .map(|query| query.text.as_str())
+                .iter()
+                .take(crate::search_plan::MAX_SEARCH_QUERIES.min(2))
+                .map(|query| query.text.clone())
+                .collect::<Vec<_>>()
         );
-        assert!(playback_music_catalog_query(&track, None, &settings)
-            .unwrap()
-            .contains("Restored Edition"));
+        assert!(
+            playback_music_catalog_queries(&track, None, &settings)[0].contains("Restored Edition")
+        );
 
         settings.matching_level = crate::recording_match::MatchLevel::Balanced;
         settings.flexible_matching.allow_other_releases = true;
         assert_eq!(
-            playback_music_catalog_query(&track, None, &settings).as_deref(),
+            playback_music_catalog_queries(&track, None, &settings),
             no_release_plan
                 .queries
-                .first()
-                .map(|query| query.text.as_str()),
-            "Balanced keeps the versioned canonical query"
+                .iter()
+                .take(crate::search_plan::MAX_SEARCH_QUERIES.min(2))
+                .map(|query| query.text.clone())
+                .collect::<Vec<_>>(),
+            "Balanced keeps the SearchPlan's versioned query set"
         );
 
         settings.matching_level = crate::recording_match::MatchLevel::Flexible;
@@ -15919,7 +16387,7 @@ mod tests {
         };
         let live_plan =
             crate::search_plan::SearchPlan::for_track_with_release_policy(&live, &[], true);
-        let live_selected = playback_music_catalog_query(&live, None, &settings).unwrap();
+        let live_selected = playback_music_catalog_queries(&live, None, &settings);
         let live_release = live_plan
             .queries
             .iter()
@@ -15927,9 +16395,10 @@ mod tests {
                 query.reason == crate::search_plan::SearchQueryReason::ReleaseContextFallback
             })
             .unwrap();
-        assert_eq!(live_selected, live_release.text);
-        assert!(live_selected.contains("Live"));
-        assert!(!live_selected.contains("Remastered"));
+        assert_eq!(live_selected[1], live_release.text);
+        assert!(live_selected[0].contains("Live"));
+        assert!(live_selected[1].contains("Live"));
+        assert!(!live_selected[1].contains("Remastered"));
 
         let extended = Track {
             title: "Minor Swing (Remastered 2020)".into(),
@@ -15938,7 +16407,7 @@ mod tests {
         };
         let extended_plan =
             crate::search_plan::SearchPlan::for_track_with_release_policy(&extended, &[], true);
-        let extended_selected = playback_music_catalog_query(&extended, None, &settings).unwrap();
+        let extended_selected = playback_music_catalog_queries(&extended, None, &settings);
         let extended_release = extended_plan
             .queries
             .iter()
@@ -15946,9 +16415,10 @@ mod tests {
                 query.reason == crate::search_plan::SearchQueryReason::ReleaseContextFallback
             })
             .unwrap();
-        assert_eq!(extended_selected, extended_release.text);
-        assert!(extended_selected.contains("Extended Mix"));
-        assert!(!extended_selected.contains("Remastered"));
+        assert_eq!(extended_selected[1], extended_release.text);
+        assert!(extended_selected[0].contains("Extended Mix"));
+        assert!(extended_selected[1].contains("Extended Mix"));
+        assert!(!extended_selected[1].contains("Remastered"));
 
         let mut manual_artist = track.clone();
         manual_artist.provenance["manualFields"]["artist"] = serde_json::json!(true);
@@ -15958,24 +16428,31 @@ mod tests {
             true,
         );
         let manual_selected =
-            playback_music_catalog_query(&manual_artist, Some(alternate_artist), &settings)
-                .unwrap();
-        assert!(manual_plan
+            playback_music_catalog_queries(&manual_artist, Some(alternate_artist), &settings);
+        assert_eq!(manual_selected.len(), manual_plan.queries.len().min(2));
+        assert!(manual_selected.iter().all(|selected| manual_plan
             .queries
             .iter()
-            .any(|query| query.text == manual_selected));
-        assert!(!manual_selected.contains(alternate_artist));
+            .any(|query| &query.text == selected)));
+        assert!(manual_selected
+            .iter()
+            .all(|selected| !selected.starts_with(alternate_artist)));
 
         let mut manual_title = track;
         manual_title.provenance["manualFields"]["title"] = serde_json::json!(true);
         let manual_title_plan =
             crate::search_plan::SearchPlan::for_track_with_release_policy(&manual_title, &[], true);
-        let manual_title_selected =
-            playback_music_catalog_query(&manual_title, None, &settings).unwrap();
-        assert!(manual_title_plan
-            .queries
+        let manual_title_selected = playback_music_catalog_queries(&manual_title, None, &settings);
+        assert_eq!(
+            manual_title_selected.len(),
+            manual_title_plan.queries.len().min(2)
+        );
+        assert!(manual_title_selected
             .iter()
-            .any(|query| query.text == manual_title_selected));
+            .all(|selected| manual_title_plan
+                .queries
+                .iter()
+                .any(|query| &query.text == selected)));
     }
 
     #[cfg(unix)]

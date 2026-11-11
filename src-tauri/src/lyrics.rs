@@ -1519,6 +1519,123 @@ fn parse_timestamp(stamp: &str) -> Option<f64> {
 
 #[cfg(test)]
 mod tests {
+    async fn lookup_sui_generis_with_local_search(
+        search_status: u16,
+        search_body: &str,
+        expected_search_requests: usize,
+    ) -> super::LyricsResponse {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let search_body = search_body.to_owned();
+        let server = tokio::spawn(async move {
+            for index in 0..=expected_search_requests {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut bytes = [0u8; 8192];
+                let count = socket.read(&mut bytes).await.unwrap();
+                let incoming = String::from_utf8_lossy(&bytes[..count]);
+                if index == 0 {
+                    assert!(
+                        incoming.starts_with("GET /get?"),
+                        "unexpected exact query: {incoming}"
+                    );
+                    assert!(incoming.contains("track_name=Cuando+Ya+Me+Empiece+a+Quedar+Solo"));
+                    assert!(incoming.contains("artist_name=Sui+Generis"));
+                } else if index == 1 {
+                    assert!(
+                        incoming.starts_with("GET /search?"),
+                        "unexpected search query: {incoming}"
+                    );
+                    assert!(incoming.contains("track_name=Cuando+Ya+Me+Empiece+a+Quedar+Solo"));
+                    assert!(incoming.contains("artist_name=Sui+Generis"));
+                } else if index == 2 {
+                    assert!(
+                        incoming.starts_with("GET /search?"),
+                        "unexpected broad search query: {incoming}"
+                    );
+                    assert!(incoming.contains("track_name=Cuando+Ya+Me+Empiece+a+Quedar+Solo"));
+                    assert!(!incoming.contains("artist_name="));
+                }
+
+                let (status, body) = if index == 0 {
+                    (
+                        "503 Service Unavailable",
+                        "temporary lookup failure".to_owned(),
+                    )
+                } else {
+                    let status = match search_status {
+                        200 => "200 OK",
+                        429 => "429 Too Many Requests",
+                        _ => "500 Internal Server Error",
+                    };
+                    (status, search_body.clone())
+                };
+                let reply = format!(
+                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                socket.write_all(reply.as_bytes()).await.unwrap();
+            }
+        });
+
+        let snapshot = serde_json::json!({
+            "engine":"native", "status":"playing",
+            "track":{"id":"youtube:3KDKLR7D5-4","provider":"youtube","providerId":"3KDKLR7D5-4",
+                "title":"Sui Generis - Cuando Ya Me Empiece a Quedar Solo (Official Audio)",
+                "artist":"","durationSeconds":231.0}
+        });
+        let request =
+            super::request_from_snapshot(&snapshot).expect("official upload identity parses");
+        assert_eq!(request.track_name, "Cuando Ya Me Empiece a Quedar Solo");
+        assert_eq!(request.artist_name, "Sui Generis");
+        let mut get = url::Url::parse(&format!("http://{address}/get")).unwrap();
+        get.query_pairs_mut()
+            .append_pair("track_name", &request.track_name)
+            .append_pair("artist_name", &request.artist_name)
+            .append_pair("duration", "231");
+        let search = url::Url::parse(&format!("http://{address}/search")).unwrap();
+        let result = super::lookup_with_search(&get, &search, &request).await;
+        server.await.unwrap();
+        result
+    }
+
+    #[tokio::test]
+    async fn sui_generis_corrected_lyrics_query_covers_success_no_result_and_provider_error() {
+        let success = lookup_sui_generis_with_local_search(
+            200,
+            &serde_json::json!([{
+                "trackName":"Cuando Ya Me Empiece a Quedar Solo",
+                "artistName":"Sui Generis",
+                "albumName":"Confesiones de invierno",
+                "duration":231.0,
+                "instrumental":false,
+                "plainLyrics":"Synthetic matching lyrics for the official upload"
+            }])
+            .to_string(),
+            1,
+        )
+        .await;
+        assert_eq!(success.status, "unsynced");
+        assert_eq!(
+            success.matched.as_ref().unwrap().track_name,
+            "Cuando Ya Me Empiece a Quedar Solo"
+        );
+        assert_eq!(success.matched.as_ref().unwrap().artist_name, "Sui Generis");
+        assert_eq!(
+            success.plain_lyrics.as_deref(),
+            Some("Synthetic matching lyrics for the official upload")
+        );
+
+        let no_result = lookup_sui_generis_with_local_search(200, "[]", 2).await;
+        assert_eq!(no_result.status, "notFound");
+        assert!(no_result.plain_lyrics.is_none());
+
+        let provider_error = lookup_sui_generis_with_local_search(429, "rate limited", 1).await;
+        assert_eq!(provider_error.status, "providerUnavailable");
+        assert!(provider_error.plain_lyrics.is_none());
+    }
+
     #[test]
     fn existing_shazam_lyrics_are_an_identity_scoped_unsynced_fallback() {
         let source = serde_json::json!({"key":"999123456789", "title":"Synthetic fallback title", "subtitle":"Synthetic fallback artist", "sections":[{"type":"LYRICS", "text":["Synthetic first paragraph", "", "Synthetic second paragraph"]}]});

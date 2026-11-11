@@ -7274,6 +7274,11 @@ describe("native playback frontend", () => {
     localStorage.setItem("burrata.waveform-enabled.v1","true");
     mountNative(makeNativeSnapshot({revision:1,generation:30,status:"playing",paused:false,trackId:track.id,track,queue:[track],currentIndex:0,duration:180,volume:0,
       quality:{sourceKind:"localAsset",assetId:asset.id}}));
+    // The complete local waveform is available from cache; it should appear
+    // all at once on the first settled render.
+    await settle();
+    expect(document.querySelectorAll('.waveform rect')).toHaveLength(1200);
+    expect(document.querySelector('.waveform-status')?.textContent).toContain("Full audio waveform");
     for(let i=0;i<20&&!document.querySelector('.waveform-status')?.textContent?.includes("Full audio waveform");i++)await settle();
     expect(document.querySelectorAll('.waveform rect')).toHaveLength(1200);
     expect(document.querySelector('.waveform-status')?.textContent).toContain("Full audio waveform");
@@ -8205,7 +8210,13 @@ describe("native playback frontend", () => {
     const originalCall = mocks.call.getMockImplementation()!;
     mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
       if (command === "get_current_track_lyrics") {
-        requests.push(structuredClone(args) as { visibleTrack?: Record<string, unknown> });
+        const request = structuredClone(args) as { visibleTrack?: Record<string, unknown> };
+        requests.push(request);
+        if (request.visibleTrack?.trackName === "First Detected Song") {
+          return { status: "unsynced", provider: "lrclib", plainLyrics: "Lyrics returned for the detected song", lines: [
+            { id: "detected-line-1", timeSeconds: null, text: "Lyrics returned for the detected song" },
+          ] };
+        }
         return { status: "noCurrentTrack", provider: "lrclib" };
       }
       return originalCall(command, args);
@@ -8221,7 +8232,8 @@ describe("native playback frontend", () => {
       trackId: setTrack.id, trackName: "First Detected Song", artistName: "First Artist", durationSeconds: 0,
       detection: { trackId: setTrack.id, generation: 24, seekSerial: 4, resourceKey: "e".repeat(64), detectedAtSeconds: 18 },
     });
-    expect(document.querySelector('[role="dialog"][aria-label="Fullscreen lyrics"]')?.textContent).toContain("No current full-track metadata is available for lyrics.");
+    expect(document.querySelector('[role="dialog"][aria-label="Fullscreen lyrics"]')?.textContent).toContain("Lyrics returned for the detected song");
+    expect(document.querySelector('[role="dialog"][aria-label="Fullscreen lyrics"]')?.textContent).not.toContain("Lyrics Long Set");
 
     emitNative({ ...makeNativeSnapshot({ revision: 92, generation: 24, seekSerial: 4, status: "playing", trackId: setTrack.id,
       track: setTrack, candidate: youtubeCandidate(setTrack), queue: [setTrack], currentIndex: 0, paused: false, position: 70, duration: 900 }) });
@@ -8231,6 +8243,7 @@ describe("native playback frontend", () => {
       trackId: setTrack.id, trackName: "Second Detected Song", artistName: "Second Artist",
       detection: { trackId: setTrack.id, generation: 24, seekSerial: 4, resourceKey: "e".repeat(64), detectedAtSeconds: 62 },
     });
+    expect(document.querySelector('[role="dialog"][aria-label="Fullscreen lyrics"]')?.textContent).toContain("No current full-track metadata is available for lyrics.");
   });
 
   it("keeps mix detection off by default and cancels its owned native capture when toggled off", async () => {

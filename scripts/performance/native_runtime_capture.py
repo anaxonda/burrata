@@ -32,6 +32,15 @@ from run_isolated_memory import track_record
 from native_schedstat_sampler import enrich_phase_intervals
 
 STREAMING_PROVIDERS = {'youtube', 'soundcloud', 'monochrome'}
+PRIVATE_UI_ACTOR_DIR = ROOT / 'scripts/performance/private_ui_actor'
+PRIVATE_UI_ACTOR_HASHES = {
+    'first_play_actor.py': 'd4fbbba021e7155d5233f1d92d54db831583535b2852eb209295507e8f587f66',
+    'private_actor_base.py': '0e4b31647ced692c7832b5eec5c447784c739008258516e49e94b49ee37f1b7d',
+    'radio_ui_actor.py': '9e32c3717df7be0c2a26e7c3b5c08f4542c2508bb5623a49d1bc05fd77a2d2d5',
+    'private_app_launcher.py': '57b9f74642f5dec02dd708880f972faa2c3d275ddefcefe8d7964eabe7c6d8e0',
+}
+AT_SPI_SERVICE_TEXT = ('[D-BUS Service]\nName=org.a11y.Bus\n'
+                       'Exec=/usr/lib/at-spi-bus-launcher --launch-immediately\n')
 REPORTED_TRACK_FIELDS = {
     'id', 'provider', 'providerId', 'sourceUrl', 'artist', 'title', 'version', 'album', 'albumArtist',
     'recordingDate', 'trackNumber', 'trackTotal', 'discNumber', 'discTotal', 'remixers', 'playbackRange',
@@ -39,6 +48,113 @@ REPORTED_TRACK_FIELDS = {
     'artworkUrl', 'isrc', 'catalogNumber', 'rank', 'previewUrl', 'favorite', 'disposition', 'localPath',
     'localAvailability', 'assetId', 'provenance',
 }
+
+def file_sha256(path):
+    digest=hashlib.sha256()
+    with Path(path).open('rb') as stream:
+        for block in iter(lambda:stream.read(1024*1024),b''):digest.update(block)
+    return digest.hexdigest()
+
+def bind_app_launch_monotonic_origin(environment, monotonic_ns):
+    if not isinstance(monotonic_ns,int) or monotonic_ns<0:
+        raise ValueError('Monotonic app launch origin must be a nonnegative integer')
+    origin=str(monotonic_ns)
+    environment['BURRATA_QUAL_APP_LAUNCH_MONOTONIC_NS']=origin
+    return dict(environment)
+
+def _proc_start_time_ticks(pid):
+    raw=Path(f'/proc/{pid}/stat').read_text()
+    return raw[raw.rfind(')')+2:].split()[19]
+
+def validate_appimage_launch_clock_receipt(profile,appimage,expected_raw_sha256,app_pid,
+                                           now_monotonic_ns=None,now_unix_ms=None):
+    profile=Path(profile).resolve(strict=True);path=profile/'app-launch-clock.json'
+    if path.is_symlink() or not path.is_file():raise ValueError('AppImage launch clock receipt is missing or unsafe')
+    stat=path.stat()
+    if stat.st_uid!=os.getuid() or stat.st_mode&0o777!=0o600:
+        raise ValueError('AppImage launch clock receipt ownership or mode is invalid')
+    receipt=json.loads(path.read_text(encoding='utf-8'))
+    required={'schemaVersion','profile','appImagePath','appImageSha256','launcherPid','launcherStartTimeTicks',
+        'appImagePid','appImageStartTimeTicks','appLaunchMonotonicNs','appLaunchUnixMs'}
+    if not isinstance(receipt,dict) or set(receipt)!=required or receipt.get('schemaVersion')!=1:
+        raise ValueError('AppImage launch clock receipt shape is invalid')
+    image=Path(appimage).resolve(strict=True)
+    if (receipt.get('profile')!=str(profile) or receipt.get('appImagePath')!=str(image)
+            or receipt.get('appImageSha256')!=expected_raw_sha256):
+        raise ValueError('AppImage launch clock receipt does not match the pinned image/profile')
+    if (not isinstance(receipt.get('launcherPid'),int) or receipt['launcherPid']<=1
+            or not isinstance(receipt.get('appImagePid'),int) or receipt['appImagePid']<=1):
+        raise ValueError('AppImage launch clock receipt PID binding is invalid')
+    for key in ('launcherStartTimeTicks','appImageStartTimeTicks'):
+        if not isinstance(receipt.get(key),str) or not receipt[key].isdigit():
+            raise ValueError('AppImage launch clock receipt process start time is invalid')
+    try:
+        launcher_ticks=_proc_start_time_ticks(receipt['launcherPid'])
+        appimage_ticks=_proc_start_time_ticks(receipt['appImagePid'])
+    except OSError as error:
+        raise ValueError('AppImage launch clock receipt process disappeared') from error
+    if launcher_ticks!=receipt['launcherStartTimeTicks']:
+        raise ValueError('AppImage launch clock receipt launcher process changed')
+    if appimage_ticks!=receipt['appImageStartTimeTicks']:
+        raise ValueError('AppImage launch clock receipt raw image process changed')
+    if app_pid not in _descendant_processes(receipt['launcherPid']):
+        raise ValueError('AppImage launch clock receipt does not own the selected native process')
+    now_monotonic_ns=time.monotonic_ns() if now_monotonic_ns is None else now_monotonic_ns
+    now_unix_ms=time.time_ns()//1_000_000 if now_unix_ms is None else now_unix_ms
+    launch_ns=receipt.get('appLaunchMonotonicNs');launch_ms=receipt.get('appLaunchUnixMs')
+    if (not isinstance(launch_ns,int) or isinstance(launch_ns,bool) or launch_ns<0 or launch_ns>now_monotonic_ns
+            or now_monotonic_ns-launch_ns>120_000_000_000):
+        raise ValueError('AppImage launch monotonic timestamp is outside the permitted bound')
+    if (not isinstance(launch_ms,int) or isinstance(launch_ms,bool) or launch_ms<1_600_000_000_000
+            or launch_ms>now_unix_ms+10_000):
+        raise ValueError('AppImage launch wall-clock timestamp is outside the permitted bound')
+    return receipt
+
+def verify_private_ui_actor(directory=PRIVATE_UI_ACTOR_DIR, expected_hashes=PRIVATE_UI_ACTOR_HASHES):
+    directory=Path(directory)
+    if directory.is_symlink() or directory.resolve(strict=True)!=directory:
+        raise ValueError('Private GUI actor directory must be a real pinned path')
+    actual={}
+    for name,expected in expected_hashes.items():
+        path=directory/name
+        if path.is_symlink() or not path.is_file() or file_sha256(path)!=expected:
+            raise ValueError(f'Private GUI actor asset failed its SHA-256 pin: {name}')
+        actual[name]=expected
+    return {'directory':str(directory),'entryPoint':str(directory/'first_play_actor.py'),
+        'supportDirectory':str(directory),'assets':actual,
+        'scope':'private AT-SPI named Play action; no coordinate or MCP playback action'}
+
+def validate_appimage_pin(appimage,payload,raw_sha256,elf_sha256):
+    appimage=Path(appimage)
+    if not raw_sha256 or not elf_sha256:raise ValueError('AppImage requires explicit raw and ELF SHA-256 pins')
+    if appimage.is_symlink():raise ValueError('AppImage must be a non-symlink executable file')
+    appimage=appimage.resolve(strict=True);binary=Path(payload).resolve(strict=True)/'usr/bin/burrata'
+    if not appimage.is_file() or not os.access(appimage,os.X_OK):raise ValueError('AppImage must be a regular executable file')
+    if file_sha256(appimage)!=raw_sha256:raise ValueError('AppImage raw SHA-256 does not match the explicit pin')
+    if file_sha256(binary)!=elf_sha256:raise ValueError('Payload burrata ELF SHA-256 does not match the explicit AppImage pin')
+    return appimage
+
+APP_RUN_FINAL_EXEC=b'exec "$APPDIR/usr/bin/burrata" "$@"'
+def instrument_appimage_apprun(payload,destination):
+    payload=Path(payload).resolve(strict=True);source=payload/'AppRun';resolved=source.resolve(strict=True)
+    if not resolved.is_relative_to(payload) or not resolved.is_file() or not os.access(resolved,os.X_OK):
+        raise ValueError('AppImage AppRun must resolve to an executable file inside the verified payload')
+    original=resolved.read_bytes();lines=original.splitlines(keepends=True)
+    matches=[index for index,line in enumerate(lines) if line.rstrip(b'\r\n')==APP_RUN_FINAL_EXEC]
+    nonblank=[index for index,line in enumerate(lines) if line.strip()]
+    if len(matches)!=1 or not nonblank or matches[0]!=nonblank[-1]:
+        raise ValueError('AppImage AppRun must contain exactly one final Burrata exec line')
+    index=matches[0];newline=b'\r\n' if lines[index].endswith(b'\r\n') else b'\n'
+    if index and not lines[index-1].endswith((b'\n',b'\r')):lines[index-1]+=newline
+    lines.insert(index,b'export BURRATA_IPC_COUNTER_PID=$$'+newline);instrumented=b''.join(lines)
+    destination=Path(destination)
+    if destination.exists() or destination.is_symlink():raise ValueError('Private instrumented AppRun destination must be new')
+    with destination.open('xb') as stream:stream.write(instrumented)
+    destination.chmod(0o700)
+    return {'sourcePath':str(resolved),'sourceSha256':hashlib.sha256(original).hexdigest(),
+        'instrumentedPath':str(destination.resolve(strict=True)),
+        'instrumentedSha256':hashlib.sha256(instrumented).hexdigest(),
+        'instrumentationScope':'one export immediately before the unique final exec of the verified mounted Burrata ELF; AppRun shell PID is preserved by exec'}
 
 
 def _reject_sensitive_fixture_values(value, path='fixture'):
@@ -241,6 +357,62 @@ def host_baseline(audio):
     snapshot['testSinkPresent']=any(name.startswith(('burrata_native_','burrata_qual_')) for name in names)
     snapshot['inventoryReadable']=query.returncode==0
     return snapshot
+
+
+def seed_private_atspi_activation(profile):
+    """Create the single AT-SPI activation in a private startup session."""
+    profile = Path(profile)
+    if (profile.is_symlink() or not re.fullmatch(r'/tmp/burrata-launch\.[A-Za-z0-9_-]+', str(profile))
+            or profile.resolve(strict=True) != profile or not profile.is_dir()
+            or profile.stat().st_uid != os.getuid() or profile.stat().st_mode & 0o077
+            or (profile / '.burrata-isolated-profile').read_text() != 'burrata isolated memory run\n'):
+        raise RuntimeError('PRIVATE_ATSPI_PROFILE_INVALID')
+    service_dir = profile / 'atspi-services'
+    service = service_dir / 'org.a11y.Bus.service'
+    runtime = profile / 'runtime'
+    session_config = profile / 'atspi-session.conf'
+    launcher = Path('/usr/lib/at-spi-bus-launcher')
+    if any(path.exists() or path.is_symlink() for path in (service_dir, runtime, session_config)):
+        raise RuntimeError('PRIVATE_ATSPI_FILES_ALREADY_EXIST')
+    if not launcher.is_file() or launcher.is_symlink() or not os.access(launcher, os.X_OK):
+        raise RuntimeError('PRIVATE_ATSPI_LAUNCHER_UNAVAILABLE')
+    service_dir.mkdir(mode=0o700)
+    runtime.mkdir(mode=0o700)
+    service.write_text(AT_SPI_SERVICE_TEXT, encoding='utf-8')
+    session_config.write_text(
+        '<busconfig><type>session</type><keep_umask/><listen>unix:tmpdir=/tmp</listen><auth>EXTERNAL</auth>'
+        f'<servicedir>{service_dir}</servicedir>'
+        '<policy context="default"><allow send_destination="*" eavesdrop="true"/>'
+        '<allow eavesdrop="true"/><allow own="*"/></policy></busconfig>',
+        encoding='utf-8')
+    service.chmod(0o600)
+    session_config.chmod(0o600)
+    digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+    return {
+        'serviceFile': service.name,
+        'serviceFileSha256': digest(service),
+        'serviceFileMode': '0600',
+        'serviceDirectoryMode': '0700',
+        'runtimeDirectory': str(runtime),
+        'runtimeDirectoryMode': '0700',
+        'launcherPath': str(launcher),
+        'launcherSha256': digest(launcher),
+        'sessionConfig': session_config.name,
+        'sessionConfigSha256': digest(session_config),
+        'sessionConfigMode': '0600',
+        'scope': 'one startup attempt D-Bus session; only org.a11y.Bus activation added',
+    }
+
+
+def startup_atspi_launch_settings(profile, mode, audio_session_config, environment):
+    """Bind AX setup only to the startup app and its matching private actor."""
+    if mode != 'startup':
+        return Path(audio_session_config), environment, None
+    activation = seed_private_atspi_activation(profile)
+    child_env = dict(environment)
+    child_env.pop('NO_AT_BRIDGE', None)
+    child_env['XDG_RUNTIME_DIR'] = str(Path(profile) / 'runtime')
+    return Path(profile) / 'atspi-session.conf', child_env, activation
 
 
 def seed(profile, resources, mode, args):
@@ -450,6 +622,10 @@ def seed(profile, resources, mode, args):
     ids = [track['id'] for track in records]
     if mode == 'duplicates': ids = [ids[0],ids[0]]
     runtime_cases=dict(ids=ids,aacId=aac['trackId'],incidents=incidents)
+    if mode=='startup':
+        first=records[0]
+        runtime_cases['startupUiAction']={'mode':'track','title':'Native runtime first',
+            'scope':'Recordings','occurrence':1,'expectedRows':1,'trackId':first['id'],'artist':first['artist']}
     if reported_options:
         runtime_cases['reportedTrackOptions']={
             'fixtureSha256':reported_track_digest,
@@ -688,21 +864,63 @@ def _proc_children(pid):
         return []
 
 
-def _schedstat_app_targets(root_pid, binary):
+def private_app_process_matches(executable, environment, binary_sha256, raw_appimage=None, profile=None,
+                                expected_executable=None):
+    """Match the one private app independently of its fresh AppImage mount path."""
+    executable=Path(executable)
+    try:
+        if not executable.is_file() or file_sha256(executable)!=binary_sha256:return False
+        if expected_executable is not None and executable.resolve(strict=True)!=Path(expected_executable).resolve(strict=True):return False
+        if profile is not None and environment.get('XDG_DATA_HOME')!=str(Path(profile)/'data'):return False
+        if raw_appimage is not None and environment.get('APPIMAGE')!=str(Path(raw_appimage).resolve(strict=True)):return False
+    except OSError:
+        return False
+    return True
+
+
+def select_unique_private_app(candidates, binary_sha256, raw_appimage=None, profile=None,expected_executable=None):
+    matches=[(pid,Path(executable)) for pid,executable,environment in candidates
+        if private_app_process_matches(executable,environment,binary_sha256,raw_appimage,profile,expected_executable)]
+    if len(matches)!=1:raise RuntimeError('Could not uniquely identify private Burrata PID and executable')
+    return matches[0]
+
+
+def _descendant_processes(root_pid):
     pending=[root_pid];descendants=[];seen=set()
     while pending:
         parent=pending.pop()
         if parent in seen:continue
         seen.add(parent);children=_proc_children(parent);descendants.extend(children);pending.extend(children)
-    app_pids=[pid for pid in descendants if _proc_executable(pid)==binary.resolve()]
-    if len(app_pids)!=1:raise RuntimeError('Could not uniquely identify private Burrata PID for schedstat')
-    app_pid=app_pids[0]
+    return descendants
+
+
+def _private_app_from_tree(root_pid,binary,binary_sha256,raw_appimage=None,profile=None):
+    candidates=[]
+    for pid in _descendant_processes(root_pid):
+        executable=_proc_executable(pid)
+        if executable is None:continue
+        try:
+            entries=Path(f'/proc/{pid}/environ').read_bytes().split(b'\0')
+            environment={key.decode():value.decode(errors='replace') for entry in entries if b'=' in entry
+                for key,value in [entry.split(b'=',1)]}
+        except OSError:continue
+        candidates.append((pid,executable,environment))
+    return select_unique_private_app(candidates,binary_sha256,raw_appimage,profile,
+        None if raw_appimage is not None else binary)
+
+
+def _schedstat_app_targets(root_pid, binary, raw_appimage=None, profile=None):
+    app_pid,app_executable=_private_app_from_tree(root_pid,binary,file_sha256(binary),raw_appimage,profile)
     return app_pid,[{'role':'burrata','pid':app_pid}]
 
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--payload',type=Path,required=True)
+    parser.add_argument('--appimage',type=Path,
+                        help='Launch this exact AppImage while using --payload as its verified read-only FUSE resource root')
+    parser.add_argument('--appimage-sha256',help='Required raw AppImage SHA-256 when --appimage is used')
+    parser.add_argument('--appimage-elf-sha256',help='Required packaged burrata ELF SHA-256 when --appimage is used')
     parser.add_argument('--evidence',type=Path,required=True)
     parser.add_argument('--mode',choices=['startup','idle-ipc','natural','duplicates','seek','crossfade','crossfade-pause','aac','malformed-aac','incidents','broken-download','recovery-baseline','broken-playable','decoder-recovery','radio','performance','migration','mpris','full-incidents','waveform','normalization-off','normalization-track','normalization-album','live-analysis','nipsey','full-nipsey','source-audition','stereo-wav','stereo-aac','stereo-opus','stereo-seek-opus'],required=True)
     parser.add_argument('--build-profile',choices=['release','diagnostic'],default='release')
@@ -780,6 +998,11 @@ def main():
     elif args.ipc_counter or args.ipc_counter_shim:
         parser.error('--ipc-counter options are valid only with --mode idle-ipc')
     payload=args.payload.resolve(strict=True);binary=payload/'usr/bin/burrata'
+    appimage=None
+    if args.appimage:
+        try:appimage=validate_appimage_pin(args.appimage,payload,args.appimage_sha256,args.appimage_elf_sha256)
+        except (OSError,ValueError) as error:parser.error(str(error))
+    ui_actor_evidence=verify_private_ui_actor() if args.mode=='startup' else None
     resources=next(payload.glob('usr/lib/*/resources'))
     module=importlib.util.spec_from_file_location('private_audio',args.controller)
     audio=importlib.util.module_from_spec(module);module.loader.exec_module(audio)
@@ -796,8 +1019,10 @@ def main():
     (profile/'data').symlink_to(scratch/'data',target_is_directory=True)
     args.evidence.mkdir(parents=True,exist_ok=True)
     children=[];result={'mode':args.mode,'buildProfile':args.build_profile,'profile':str(profile),'binarySha256':hashlib.sha256(binary.read_bytes()).hexdigest(),
-        'qualification':('Diagnostic dev build with custom protocol; not release qualification. ' if args.build_profile=='diagnostic' else '')+'Extracted DEB payload; private virtual output; physical hardware and OS install not tested',
+        'appimagePath':str(appimage) if appimage else None,'appimageSha256':args.appimage_sha256 if appimage else None,
+        'qualification':('Diagnostic dev build with custom protocol; not release qualification. ' if args.build_profile=='diagnostic' else '')+('verified AppImage payload; private virtual output; physical hardware and OS install not tested' if appimage else 'Extracted DEB payload; private virtual output; physical hardware and OS install not tested'),
         'settings':settings,'pendingQualityAssets':pending_count,'hostBefore':host_baseline(audio)}
+    if ui_actor_evidence:result['privateGuiActionActor']=ui_actor_evidence
     if args.reported_tracks:
         runtime_cases=json.loads((profile/'fixture/runtime-cases.json').read_text())
         options=runtime_cases['reportedTrackOptions']
@@ -813,6 +1038,16 @@ def main():
             XDG_STATE_HOME=str(profile/'state'),BURRATA_APP_DATA=str(profile/'data/org.burrata.discovery'),
             BURRATA_ISOLATED_MUSIC_ROOT=str(profile/'fixture'),GDK_BACKEND='x11',PULSE_SINK=sink,NO_AT_BRIDGE='1',
             BURRATA_NATIVE_OUTPUT_QUALIFICATION='1',BURRATA_DB_METRICS='1')
+        app_session_config, env, atspi_activation = startup_atspi_launch_settings(
+            profile, args.mode, audio.DBUS_CONF, env)
+        if atspi_activation is not None:
+            result['privateAtspiActivation'] = atspi_activation
+            result['privateAtspiEnvironment'] = {
+                'noAtBridgeRemoved': 'NO_AT_BRIDGE' not in env,
+                'xdgRuntimeDir': env['XDG_RUNTIME_DIR'],
+                'privateBusForAppAndActor': True,
+                'scope': 'startup AppImage and exact private AT-SPI actor only',
+            }
         env.pop('WAYLAND_DISPLAY',None);env.pop('SESSION_MANAGER',None)
         alsa=profile/'config/alsa.conf';alsa.write_text('pcm.!default { type pulse server "'+env['PULSE_SERVER']+'" device "'+sink+'" }\nctl.!default { type pulse server "'+env['PULSE_SERVER']+'" }\n')
         env['ALSA_CONFIG_PATH']=str(alsa)
@@ -845,9 +1080,19 @@ def main():
             smoke=importlib.util.module_from_spec(smoke_spec);smoke_spec.loader.exec_module(smoke)
             result['packagedTools']=smoke.bundled_tool_checks(resources,smoke.TARGETS['linux'],env)
             result['packagedMedia']=smoke.bundled_media_checks(resources,smoke.TARGETS['linux'],env,profile)
+        raw_image_startup=args.mode=='startup' and appimage is not None
         app_launched_at_unix_ms=time.time()*1000
-        app_command=['dbus-run-session','--config-file='+str(audio.DBUS_CONF),'--',binary]
-        app_environment=env
+        app_launched_at_monotonic_ns=time.monotonic_ns()
+        launch_target=appimage or binary
+        app_command=['dbus-run-session','--config-file='+str(app_session_config),'--',launch_target]
+        if raw_image_startup:
+            launch_clock_receipt=profile/'app-launch-clock.json'
+            launcher=PRIVATE_UI_ACTOR_DIR/'private_app_launcher.py'
+            app_command=['dbus-run-session','--config-file='+str(app_session_config),'--',sys.executable,str(launcher),
+                '--profile',str(profile),'--launch-clock-receipt',str(launch_clock_receipt),'--',str(launch_target)]
+            app_environment=dict(env)
+        else:
+            app_environment=bind_app_launch_monotonic_origin(env,app_launched_at_monotonic_ns)
         if args.startup_diagnostics:
             app_environment=dict(env,BURRATA_STARTUP_TRACE='1',BURRATA_PLAYBACK_TRACE='1',BURRATA_PERF_TRACE='1')
         elif args.startup_diagnostics_no_console_trace or args.schedstat_diagnostic:
@@ -864,8 +1109,15 @@ def main():
             app_environment.pop('BURRATA_IPC_COUNTER_PID',None)
             prior_preload=app_environment.get('LD_PRELOAD')
             app_environment['LD_PRELOAD']=str(args.ipc_counter_shim)+((' '+prior_preload) if prior_preload else '')
-            app_command=['dbus-run-session','--config-file='+str(audio.DBUS_CONF),'--','/bin/sh',str(wrapper),str(binary)]
+            if appimage:
+                instrumented_apprun=profile/'AppRun-ipc-instrumented'
+                result['appimageIpcInstrumentation']=instrument_appimage_apprun(payload,instrumented_apprun)
+                app_environment['APPDIR']=str(payload)
+                app_command=['dbus-run-session','--config-file='+str(audio.DBUS_CONF),'--','/bin/bash',str(instrumented_apprun)]
+            else:
+                app_command=['dbus-run-session','--config-file='+str(audio.DBUS_CONF),'--','/bin/sh',str(wrapper),str(launch_target)]
         app=launch(app_command,(profile/'app.log').open('wb'),app_environment)
+        result['appLaunchedAtMonotonicNs']=None if raw_image_startup else app_launched_at_monotonic_ns
         for _ in range(300):
             if app.poll() is not None:raise RuntimeError('Packaged app exited')
             if (profile/'data/org.burrata.discovery/automation.json').exists():break
@@ -873,15 +1125,20 @@ def main():
         else:raise RuntimeError('Automation discovery timeout')
         result['appLaunchedAtUnixMs']=app_launched_at_unix_ms
         result['automationReadyAtUnixMs']=time.time()*1000
-        if args.mode in ['mpris','source-audition','idle-ipc']:
-            pending=[app.pid];app_pid=None
-            for parent in pending:
-                try:
-                    for child in Path(f'/proc/{parent}/task/{parent}/children').read_text().split():
-                        pid=int(child);pending.append(pid)
-                        if Path(f'/proc/{pid}/exe').resolve()==binary.resolve():app_pid=pid
-                except OSError:pass
-            if app_pid is None:raise RuntimeError('Private app process not found for MPRIS')
+        if args.mode in ['mpris','source-audition','idle-ipc','startup']:
+            raw_appimage_launch=appimage is not None and args.mode!='idle-ipc'
+            app_pid,app_executable=_private_app_from_tree(app.pid,binary,file_sha256(binary),
+                appimage if raw_appimage_launch else None,profile)
+            if raw_image_startup:
+                receipt=validate_appimage_launch_clock_receipt(profile,appimage,args.appimage_sha256,app_pid)
+                app_launched_at_monotonic_ns=receipt['appLaunchMonotonicNs']
+                app_launched_at_unix_ms=receipt['appLaunchUnixMs']
+                env['BURRATA_QUAL_APP_LAUNCH_MONOTONIC_NS']=str(app_launched_at_monotonic_ns)
+                result['appLaunchedAtUnixMs']=app_launched_at_unix_ms
+                result['appLaunchClockReceipt']={'path':str(profile/'app-launch-clock.json'),
+                    'nativeAppPid':app_pid,'appImagePid':receipt['appImagePid'],'launcherPid':receipt['launcherPid'],
+                    'timestampScope':'raw AppImage Popen; excludes private AT-SPI registry setup and includes fresh FUSE startup'}
+                result['appLaunchedAtMonotonicNs']=app_launched_at_monotonic_ns
             entries=Path(f'/proc/{app_pid}/environ').read_bytes().split(b'\0')
             selected={entry.split(b'=',1)[0]:entry.split(b'=',1)[1] for entry in entries if entry.startswith((b'DBUS_SESSION_BUS_ADDRESS=',b'XDG_DATA_HOME=',b'BURRATA_IPC_COUNTER_PID=',b'BURRATA_IPC_COUNTER_PATH='))}
             if selected.get(b'XDG_DATA_HOME',b'').decode()!=str(profile/'data'):raise RuntimeError('Private app profile mismatch')
@@ -896,8 +1153,12 @@ def main():
             if not address.startswith('unix:path=/tmp/dbus-'):raise RuntimeError('App is not on a verified private bus')
             env['BURRATA_QUAL_PRIVATE_DBUS']=address;result['privateMprisBusVerified']=True
             env['BURRATA_QUAL_PRIVATE_APP_PID']=str(app_pid)
-            env['BURRATA_QUAL_PRIVATE_APP_EXE']=str(binary)
+            env['BURRATA_QUAL_PRIVATE_APP_EXE']=str(app_executable)
             env['BURRATA_QUAL_PRIVATE_XVFB_PID']=str(xvfb.pid)
+            if args.mode=='startup':
+                env['BURRATA_QUAL_UI_ACTOR_SCRIPT']=ui_actor_evidence['entryPoint']
+                env['BURRATA_QUAL_UI_ACTOR_PYTHON']=sys.executable
+                env['BURRATA_QUAL_UI_ACTOR_PYTHONPATH']=ui_actor_evidence['supportDirectory']
         result['privateProbe']=audio.probe_private(env)
         if result['privateProbe']['hardwareObjects']:raise RuntimeError('Private server exposed hardware')
         capture=capture_root/(profile.name+'.f32le')
@@ -912,7 +1173,8 @@ def main():
         schedstat_output=profile/'schedstat-samples.json'
         schedstat_markers=profile/'schedstat-markers.ndjson'
         if args.schedstat_diagnostic:
-            app_pid,schedstat_targets=_schedstat_app_targets(app.pid,binary)
+            app_pid,schedstat_targets=_schedstat_app_targets(app.pid,binary,
+                appimage if appimage is not None and args.mode!='idle-ipc' else None,profile)
             audio_state=audio.running_state()
             if audio_state.get('status')!='ready-private-no-sinks':
                 raise RuntimeError('Private audio controller state changed before schedstat sampling')

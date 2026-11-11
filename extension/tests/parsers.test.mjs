@@ -196,6 +196,9 @@ test('Spotify live presentation row parses once and uses playlist heading over s
  const s=extract(doc(`<aside><h1>Your Library</h1></aside><main><h1>Beatport Top 100 - Afro House</h1><p>96 songs</p><div role="row" aria-rowindex="2">${row}</div></main>`),'https://open.spotify.com/playlist/PL');
  assert.equal(s.title,'Beatport Top 100 - Afro House');assert.equal(s.entries.length,1);
  assert.equal(s.entries[0].position,1);assert.equal(s.entries[0].durationSeconds,156);
+ // This retained live row has an img with no src/srcset/data-src. Keep the
+ // track while preserving genuinely absent artwork as null.
+ assert.equal(s.entries[0].artworkUrl,null);
 });
 test('Traxsource chart total can come from explicit provider document title',()=>{
  const s=extract(doc('<title>Afro House - TOP 100: Get Afro House Tracks on Traxsource</title><h1>AFRO HOUSE</h1>'),'https://www.traxsource.com/genre/27/afro-house/top');
@@ -254,8 +257,9 @@ test('Last.fm tag track charts capture ordered rows as charts, not genre-tagged 
 
 test('Bandcamp album imports explicit TralbumData tracks; collections never convert album cards into songs',()=>{
  const page=doc(readFileSync(new URL('./fixtures/bandcamp-album.html',import.meta.url),'utf8'));
- const s=extract(page,'https://jpegmafia.bandcamp.com/album/lp');
- assert.equal(s.kind,'album');assert.equal(s.title,'LP!');assert.deepEqual(s.entries.map(e=>e.providerId),['987654','987655']);assert.deepEqual(s.entries.map(e=>e.position),[1,2]);assert.equal(s.entries[0].durationSeconds,91.5);
+ const s=mergeSnapshots([extract(page,'https://jpegmafia.bandcamp.com/album/lp')]);
+ assert.equal(s.kind,'album');assert.equal(s.title,'LP!');assert.equal(s.complete,true);assert.deepEqual(s.entries.map(e=>e.providerId),['987654','987655']);assert.deepEqual(s.entries.map(e=>e.position),[1,2]);assert.equal(s.entries[0].durationSeconds,91.5);
+ assert.deepEqual(s.entries.map(e=>e.artworkUrl),['https://f4.bcbits.com/img/a.jpg','https://f4.bcbits.com/img/a.jpg']);
  const songRows=extract(doc('<h1>Mix</h1><div class="track_row_view"><img src="https://f4.bcbits.com/img/a123.jpg"><a href="/track/song">Song</a><a href="/artist">Artist</a></div><div class="track_row_view"><img srcset="https://f4.bcbits.com/img/a124_2.jpg 2x"><a href="/track/song-two">Song Two</a><a href="/artist">Artist</a></div><div class="track_row_view"><a href="/track/song-three">Song Three</a><a href="/artist">Artist</a></div><div class="track_row_view"><img src="data:image/gif;base64,AAAA"><a href="/track/song-four">Song Four</a><a href="/artist">Artist</a></div>'),'https://bandcamp.com/collection/example');
  assert.equal(songRows.kind,'playlist');assert.deepEqual(songRows.entries.map(e=>e.providerId),[null,null,null,null]);assert.match(songRows.entries[0].sourceUrl,/\/track\/song$/);assert.deepEqual(songRows.entries.map(e=>e.artworkUrl),['https://f4.bcbits.com/img/a123.jpg','https://f4.bcbits.com/img/a124_2.jpg',null,null]);
  assert.throws(()=>extract(doc('<h1>Collection</h1><a href="/album/lp">LP!</a>'),'https://bandcamp.com/collection/example'),/collections list albums, not song tracks/);

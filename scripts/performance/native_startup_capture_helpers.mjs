@@ -18,6 +18,69 @@ export function startupPauseGate(observation, pausedState, targetTrackId) {
     &&Number.isFinite(pausedState?.position)&&pausedState.position>=3;
 }
 
+const PLAYBACK_LAYOUT_ROLES=new Set(['footer','now_playing','transport','scrubber','right','quality','error',
+  'queue_panel','queue_header','queue_title','identify','queue_close','panel_close','expanded_player',
+  'expanded_artwork','expanded_close','expanded_cards']);
+function inViewport(element,viewport){
+  return element&&element.present===true&&element.visible===true
+    &&['x','y','width','height'].every(key=>Number.isFinite(element[key]))
+    &&element.x>=0&&element.y>=0&&element.width>0&&element.height>0
+    &&element.x+element.width<=viewport.width&&element.y+element.height<=viewport.height;
+}
+export function rendererLayoutAcknowledgement(layout){
+  const viewport=layout?.viewport,elements=layout?.elements;
+  if(!viewport||!Number.isFinite(viewport.width)||viewport.width<=0
+      ||!Number.isFinite(viewport.height)||viewport.height<=0
+      ||!Array.isArray(elements)||elements.length!==PLAYBACK_LAYOUT_ROLES.size)return null;
+  const byRole=new Map();
+  for(const element of elements){
+    if(!element||!PLAYBACK_LAYOUT_ROLES.has(element.role)||byRole.has(element.role))return null;
+    byRole.set(element.role,element);
+  }
+  if(byRole.size!==PLAYBACK_LAYOUT_ROLES.size)return null;
+  const footer=byRole.get('footer'),transport=byRole.get('transport');
+  if(!inViewport(footer,viewport)||!inViewport(transport,viewport))return null;
+  return {viewportWidth:viewport.width,viewportHeight:viewport.height,roleCount:elements.length,
+    footer:{x:footer.x,y:footer.y,width:footer.width,height:footer.height},
+    transport:{x:transport.x,y:transport.y,width:transport.width,height:transport.height}};
+}
+
+export function privateGuiActionAcknowledgement(response,target='Play Native runtime first'){
+  if(response?.status!=='private_ui_action'||response?.mode!=='track'||response?.passed!==true
+      ||response?.activated!==true||response?.method!=='named-private-accessibility-action'
+      ||response?.playbackProven!==false||response?.target!==target
+      ||!['click','press','activate','toggle'].includes(response?.action)
+      ||!Number.isSafeInteger(response?.targetReadyMonotonicNs)
+      ||!Number.isSafeInteger(response?.activationStartedMonotonicNs)
+      ||!Number.isSafeInteger(response?.activationReturnedMonotonicNs)
+      ||response.targetReadyMonotonicNs<0
+      ||response.activationStartedMonotonicNs<response.targetReadyMonotonicNs
+      ||response.activationReturnedMonotonicNs<response.activationStartedMonotonicNs)return null;
+  return {passed:true,method:'private AT-SPI named accessibility Play action',
+    action:response.action,target,targetReadyMonotonicNs:response.targetReadyMonotonicNs,
+    activationStartedMonotonicNs:response.activationStartedMonotonicNs,
+    activationReturnedMonotonicNs:response.activationReturnedMonotonicNs};
+}
+
+export function privateLibraryTrackReady(page,track){
+  if(!Array.isArray(page?.items)||!track||typeof track.id!=='string'||typeof track.title!=='string'
+      ||typeof track.artist!=='string')return false;
+  return page.items.some(item=>item&&item.id===track.id&&item.title===track.title&&item.artist===track.artist);
+}
+
+export function observedFirstGuiPlaybackOperation(snapshot,targetTrackId,initialOperationId){
+  const diagnostics=snapshot?.diagnostics;
+  if(typeof diagnostics?.operationId!=='string'||!diagnostics.operationId
+      ||diagnostics.operationId===initialOperationId||diagnostics.operationKind!=='startup'
+      ||snapshot?.trackId!==targetTrackId||!Number.isSafeInteger(snapshot?.generation)||snapshot.generation<1
+      ||!Number.isFinite(diagnostics.clientStartedAtMs)||diagnostics.clientStartedAtMs<0
+      ||!Number.isFinite(diagnostics.clickToIpcMs)||diagnostics.clickToIpcMs<0)return null;
+  return {operationId:diagnostics.operationId,operationKind:diagnostics.operationKind,
+    trackId:snapshot.trackId,clientStartedAtMs:diagnostics.clientStartedAtMs,
+    clickToIpcMs:diagnostics.clickToIpcMs,generation:snapshot.generation,
+    status:snapshot.status,paused:snapshot.paused,firstAudioMs:diagnostics.firstAudioMs};
+}
+
 export function reportedPcmPhaseComplete(elapsedMs, playheadDeltaSeconds) {
   return Number.isFinite(elapsedMs)&&elapsedMs>=5000
     &&Number.isFinite(playheadDeltaSeconds)&&playheadDeltaSeconds>=5;

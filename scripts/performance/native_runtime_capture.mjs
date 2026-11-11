@@ -5,7 +5,7 @@ import {closeSync, constants as fsConstants, openSync, writeSync} from 'node:fs'
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {auditionQueueMetadataRetained} from './source_audition_gates.mjs';
-import {idleIpcBucketsGate,parseIdleIpcCounter,reportedErrorEvidence,reportedPcmPhaseComplete,safePlaybackFailureSummary,safeReportedLibraryRowLookup,safeReportedPlaybackDiagnosticExport,safeStartupDiagnosticExport,safeStartupMarkerMetrics,safeStoreMutexMetrics,startupObservation,startupPauseGate} from './native_startup_capture_helpers.mjs';
+import {idleIpcBucketsGate,observedFirstGuiPlaybackOperation,parseIdleIpcCounter,privateGuiActionAcknowledgement,privateLibraryTrackReady,rendererLayoutAcknowledgement,reportedErrorEvidence,reportedPcmPhaseComplete,safePlaybackFailureSummary,safeReportedLibraryRowLookup,safeReportedPlaybackDiagnosticExport,safeStartupDiagnosticExport,safeStartupMarkerMetrics,safeStoreMutexMetrics,startupObservation,startupPauseGate} from './native_startup_capture_helpers.mjs';
 import {Client} from '@modelcontextprotocol/client';
 import {StdioClientTransport} from '@modelcontextprotocol/client/stdio';
 
@@ -30,6 +30,8 @@ const transport = new StdioClientTransport({command:mcpCommand,args:[],
   env:{...process.env,BURRATA_AUTOMATION_FILE:`${profile}/data/org.burrata.discovery/automation.json`},stderr:'pipe'});
 transport.stderr?.on('data',()=>{});
 const sleep = ms => new Promise(resolve=>setTimeout(resolve,ms));
+function monotonicNowNs(){const value=process.hrtime.bigint();if(value>BigInt(Number.MAX_SAFE_INTEGER))throw Error('MONOTONIC_TIMESTAMP_OUT_OF_RANGE');return Number(value);}
+const execFileAsync=promisify(execFile);
 const report = {mode, cases:[], samples:[]};
 let schedstatMarkerFd=null;
 function schedstatMark(phase){
@@ -67,6 +69,38 @@ async function captureUi(name) {
   const path=`${profile}/${name}.png`;await writeFile(path,Buffer.from(picture.data,'base64'));return path;
 }
 async function state(timeout=45000) { return call('playback_state',{offset:0,limit:10},timeout); }
+async function performPrivateGuiPlayAction(){
+  const actor=process.env.BURRATA_QUAL_UI_ACTOR_SCRIPT,python=process.env.BURRATA_QUAL_UI_ACTOR_PYTHON;
+  const pythonPath=process.env.BURRATA_QUAL_UI_ACTOR_PYTHONPATH,pid=process.env.BURRATA_QUAL_PRIVATE_APP_PID;
+  const dbus=process.env.BURRATA_QUAL_PRIVATE_DBUS,xdg=process.env.XDG_DATA_HOME,action=spec.startupUiAction;
+  if(!actor||!python||!pythonPath||!/^[0-9]+$/.test(pid??'')||!dbus||!xdg
+      ||action?.mode!=='track'||action?.title!=='Native runtime first'||action?.scope!=='Recordings'
+      ||typeof action?.trackId!=='string'||typeof action?.artist!=='string')throw Error('PRIVATE_GUI_ACTION_BINDING_INVALID');
+  const initial=await state();
+  if(initial?.status==='playing'||initial?.paused===false)throw Error('PREEXISTING_PLAYBACK_INVALID');
+  report.libraryNavigationStartedAtUnixMs=Date.now();
+  await call('set_player_panel',{panel:'closed'});await call('navigate_ui',{view:'library'});
+  const page=await call('list_tracks_page',{view:'library',query:action.title,limit:200,offset:0});
+  if(!privateLibraryTrackReady(page,{id:action.trackId,title:action.title,artist:action.artist}))throw Error('LIBRARY_TRACK_IDENTITY_NOT_READY');
+  report.libraryActionReadyAtUnixMs=Date.now();report.libraryActionReadyMonotonicNs=monotonicNowNs();
+  const launchMonotonicNs=Number(process.env.BURRATA_QUAL_APP_LAUNCH_MONOTONIC_NS);
+  if(!Number.isSafeInteger(launchMonotonicNs)||report.libraryActionReadyMonotonicNs<launchMonotonicNs)
+    throw Error('APP_LAUNCH_MONOTONIC_ORIGIN_INVALID');
+  report.appLaunchToRenderedLibraryTargetReadyMs=(report.libraryActionReadyMonotonicNs-launchMonotonicNs)/1e6;
+  report.libraryActionReadiness={view:'library',trackId:action.trackId,artist:action.artist,title:action.title,scope:action.scope,identityVerified:true};
+  await sleep(350);
+  const {stdout}=await execFileAsync(python,[actor,'--profile',profile,'--pid',pid,'--dbus',dbus,'--xdg',xdg,
+    '--mode','track','--title',action.title,'--scope',action.scope,'--occurrence',String(action.occurrence),
+    '--expected-rows',String(action.expectedRows)],{env:{...process.env,DBUS_SESSION_BUS_ADDRESS:dbus,PYTHONPATH:pythonPath},timeout:18000,maxBuffer:128*1024});
+  let response;try{response=JSON.parse(stdout.trim().split(/\r?\n/).at(-1));}catch{throw Error('PRIVATE_GUI_ACTION_RESPONSE_INVALID');}
+  const acknowledgement=privateGuiActionAcknowledgement(response);
+  if(!acknowledgement)throw Error('PRIVATE_GUI_ACTION_NOT_ACKNOWLEDGED');
+  return {...acknowledgement,acknowledged:true,activationStartedMonotonicNs:response.activationStartedMonotonicNs,
+    activationReturnedMonotonicNs:response.activationReturnedMonotonicNs,
+    activationCallDurationNs:response.activationReturnedMonotonicNs-response.activationStartedMonotonicNs,
+    initialOperationId:typeof initial?.diagnostics?.operationId==='string'?initial.diagnostics.operationId:null,
+    initialPlaybackStatus:typeof initial?.status==='string'?initial.status:null};
+}
 function safeDiagnosticText(value) {
   if(typeof value!=='string')return null;
   return value.replace(/https?:\/\/\S+/gi,'[redacted-url]')
@@ -79,7 +113,9 @@ function safe(s, reported=false) {
   return {generation:s.generation,trackId:s.trackId,entryId:s.entryId,entryIds:s.queueEntryIds,index:s.currentIndex,
     status:s.status,position:s.position,duration:s.duration,catalogDuration:s.track?.durationSeconds,paused:s.paused,
     transition:reported?Boolean(s.transition):s.transition,
-    firstAudioMs:s.diagnostics?.firstAudioMs,recoveryCount:s.diagnostics?.recoveryCount,bufferingCount:s.diagnostics?.bufferingCount,seekSerial:s.seekSerial,
+    firstAudioMs:s.diagnostics?.firstAudioMs,operationId:s.diagnostics?.operationId,
+    operationKind:s.diagnostics?.operationKind,clientStartedAtMs:s.diagnostics?.clientStartedAtMs,
+    clickToIpcMs:s.diagnostics?.clickToIpcMs,recoveryCount:s.diagnostics?.recoveryCount,bufferingCount:s.diagnostics?.bufferingCount,seekSerial:s.seekSerial,
     ...(!reported?{message:s.playerMessage}:{}),
     loudnessNormalization:reported?Boolean(s.loudnessNormalization):s.loudnessNormalization,
     candidate:s.candidate ? {provider:reported?(['youtube','soundcloud','monochrome'].includes(sourceProvider)?sourceProvider:null):sourceProvider,id:reported?safeDiagnosticText(s.candidate.id):s.candidate.id,
@@ -99,6 +135,28 @@ try {
     } catch {await sleep(250);}
   }
   if (!ready) throw Error('Native session restoration did not finish');
+  const frontendReadyDeadline=performance.now()+15000;
+  for(let i=0;i<60&&performance.now()<frontendReadyDeadline;i++){
+    try{
+      const layout=await call('inspect_playback_layout',{},Math.max(1,Math.floor(frontendReadyDeadline-performance.now())));
+      const acknowledgement=rendererLayoutAcknowledgement(layout);
+      if(!acknowledgement)throw Object.assign(new Error('RENDERER_LAYOUT_ACK_INVALID'),{safeCode:'INVALID_RESPONSE'});
+      report.rendererLayoutAckAtUnixMs=Date.now();report.rendererLayoutAckMonotonicNs=monotonicNowNs();
+      report.rendererLayoutAcknowledgement={...acknowledgement,source:'inspect_playback_layout renderer-layout-ack'};
+      report.layoutDiagnostic={passed:true};break;
+    }catch(error){
+      report.layoutDiagnostic={passed:false,error:String(error?.safeCode??error?.code??error?.message??'UNKNOWN').slice(0,80)};
+      if(error.safeCode==='INVALID_RESPONSE'||!String(error.message).includes('FRONTEND_NOT_READY'))break;
+      await sleep(Math.min(100,Math.max(1,frontendReadyDeadline-performance.now())));
+    }
+  }
+  report.rendererLayoutAck=report.rendererLayoutAckAtUnixMs!==undefined;report.rendererLayoutAckDeadlineMs=15000;
+  if(!report.rendererLayoutAck)throw Error('RENDERER_LAYOUT_ACK_FAILED');
+  if(mode==='startup'){
+    schedstatMark('control_started');report.uiActorProcessStartedAtUnixMs=Date.now();
+    schedstatMark('ui_actor_process_started');report.firstGuiInteraction=await performPrivateGuiPlayAction();
+    schedstatMark('first_gui_interaction_acknowledged');
+  }
   for(let i=0;i<20;i++){
     try{await call('inspect_playback_layout',{},3000);report.layoutDiagnostic={passed:true};break;}
     catch(error){report.layoutDiagnostic=spec.reportedTrackOptions?{passed:false,errorPresent:true}:{passed:false,error:error.message};if(!error.message.includes('FRONTEND_NOT_READY'))break;await sleep(250);}
@@ -147,24 +205,23 @@ if(mode==='idle-ipc'){
     report.passed=idleIpcBucketsGate(before,warmupBuckets,measuredBuckets,actualElapsedMs);
     report.cases.push({passed:report.passed,idleIpc:report.idleIpc});
   } else if(mode==='startup'){
-    const targetTrackId=spec.ids[0],startedAtUnixMs=Date.now(),started=performance.now();
-    let receiptError=null,observation=null,last=null,firstPlayingMarked=false;
-    report.mainPlaybackStartedAtUnixMs=startedAtUnixMs;
-    schedstatMark('control_started');
-    schedstatMark('play_request');
-    const receipt=call('play_tracks',{trackIds:[targetTrackId]}).catch(error=>{receiptError=error.message;});
-    while(performance.now()-started<60000){
+    const targetTrackId=spec.ids[0],started=performance.now();
+    let observation=null,last=null,firstPlayingMarked=false;
+    schedstatMark('gui_action_observation_started');
+    while(performance.now()-started<20000){
       last=await state();
       report.samples.push({ms:performance.now()-started,...safe(last)});
+      const initialOperationId=report.firstGuiInteraction?.initialOperationId;
+      const playbackOperation=observedFirstGuiPlaybackOperation(last,targetTrackId,initialOperationId);
+      if(playbackOperation)report.observedPlaybackOperation=playbackOperation;
       if(schedstatDiagnosticEnabled&&!firstPlayingMarked&&last.trackId===targetTrackId&&last.status==='playing'){
         schedstatPlayingMark(last);firstPlayingMarked=true;
       }
       observation=startupObservation(last,targetTrackId);
-      if(observation){schedstatMark('startup_observation_gate');break;}
+      if(observation&&report.observedPlaybackOperation){schedstatMark('startup_observation_gate');break;}
       if(last.trackId===targetTrackId&&['failed','error','ended'].includes(last.status))break;
       await sleep(80);
     }
-    await receipt;
     let paused=null;
     try{await call('pause_playback');paused=await state();}catch{}
     schedstatMark('pause_completed');
@@ -180,8 +237,11 @@ if(mode==='idle-ipc'){
         playingSnapshot:last,pausedSnapshot:paused,diagnosticsReport,targetGeneration:observation?.generation,
       });
     }
-    report.passed=!receiptError&&startupPauseGate(observation,paused,targetTrackId);
-    report.cases.push({passed:report.passed,receiptError,observation,paused:paused?safe(paused):null});
+    report.passed=report.firstGuiInteraction?.acknowledged===true&&report.observedPlaybackOperation?.operationKind==='startup'
+      &&report.observedPlaybackOperation?.trackId===targetTrackId&&Number.isFinite(report.observedPlaybackOperation?.clickToIpcMs)
+      &&startupPauseGate(observation,paused,targetTrackId);
+    report.cases.push({passed:report.passed,firstGuiInteractionAcknowledged:report.firstGuiInteraction?.acknowledged===true,
+      observedPlaybackOperation:report.observedPlaybackOperation??null,observation,paused:paused?safe(paused):null});
   } else if(mode==='source-audition'){
     // X11 interaction is restricted to this harness's verified private Xvfb
     // and this exact app process. Never targets the normal desktop/display.

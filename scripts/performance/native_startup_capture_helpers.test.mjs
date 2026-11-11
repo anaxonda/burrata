@@ -1,10 +1,51 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {idleIpcBucketsGate,parseIdleIpcCounter,reportedErrorEvidence,reportedPcmPhaseComplete,safePlaybackFailureSummary,safeReportedLibraryRowLookup,safeReportedPlaybackDiagnosticExport,safeStartupDiagnosticExport,safeStartupMarkerMetrics,safeStoreMutexMetrics,startupObservation,startupPauseGate} from './native_startup_capture_helpers.mjs';
+import {idleIpcBucketsGate,observedFirstGuiPlaybackOperation,parseIdleIpcCounter,privateGuiActionAcknowledgement,privateLibraryTrackReady,rendererLayoutAcknowledgement,reportedErrorEvidence,reportedPcmPhaseComplete,safePlaybackFailureSummary,safeReportedLibraryRowLookup,safeReportedPlaybackDiagnosticExport,safeStartupDiagnosticExport,safeStartupMarkerMetrics,safeStoreMutexMetrics,startupObservation,startupPauseGate} from './native_startup_capture_helpers.mjs';
 
 const target='fixture-track';
 const playing={trackId:target,generation:4,status:'playing',position:3.2,diagnostics:{firstAudioMs:275}};
 const paused={trackId:target,generation:4,status:'paused',paused:true,position:3.25};
+
+test('renderer layout readiness requires visible positive-area footer and transport',()=>{
+  const roles=['footer','now_playing','transport','scrubber','right','quality','error','queue_panel','queue_header','queue_title','identify','queue_close','panel_close','expanded_player','expanded_artwork','expanded_close','expanded_cards'];
+  const empty={viewport:{width:1280,height:900},elements:roles.map(role=>({role,present:false,visible:false,x:0,y:0,width:0,height:0}))};
+  assert.equal(rendererLayoutAcknowledgement(empty),null);
+  const ready={...empty,elements:empty.elements.map(element=>['footer','transport'].includes(element.role)
+    ?{...element,present:true,visible:true,x:10,y:10,width:20,height:20}:element)};
+  assert.ok(rendererLayoutAcknowledgement(ready));
+  for(const role of ['footer','transport']){
+    const hidden={...ready,elements:ready.elements.map(element=>element.role===role?{...element,visible:false}:element)};
+    assert.equal(rendererLayoutAcknowledgement(hidden),null);
+  }
+});
+
+test('private GUI action acknowledgement requires monotonic target, start, and return times',()=>{
+  const valid={status:'private_ui_action',mode:'track',passed:true,activated:true,
+    method:'named-private-accessibility-action',playbackProven:false,target:'Play Native runtime first',action:'click',
+    targetReadyMonotonicNs:10,activationStartedMonotonicNs:11,activationReturnedMonotonicNs:12};
+  assert.ok(privateGuiActionAcknowledgement(valid));
+  assert.equal(privateGuiActionAcknowledgement({...valid,targetReadyMonotonicNs:13}),null);
+  assert.equal(privateGuiActionAcknowledgement({...valid,activated:false}),null);
+});
+
+test('Library action readiness is bound to exact fixture identity',()=>{
+  const track={id:'fixture',title:'Native runtime first',artist:'Fixture artist'};
+  assert.equal(privateLibraryTrackReady({items:[track]},track),true);
+  assert.equal(privateLibraryTrackReady({items:[{...track,id:'other'}]},track),false);
+});
+
+test('actual AX first Play correlates only the native startup operation',()=>{
+  const snapshot={trackId:target,generation:11,status:'playing',paused:false,diagnostics:{
+    operationId:'new-operation-id',operationKind:'startup',clientStartedAtMs:1788000000123,
+    clickToIpcMs:2,firstAudioMs:55}};
+  assert.deepEqual(observedFirstGuiPlaybackOperation(snapshot,target,'prior-operation-id'),{
+    operationId:'new-operation-id',operationKind:'startup',trackId:target,
+    clientStartedAtMs:1788000000123,clickToIpcMs:2,generation:11,status:'playing',paused:false,firstAudioMs:55});
+  for(const operationKind of ['pause','seek','volume','play'])
+    assert.equal(observedFirstGuiPlaybackOperation({...snapshot,diagnostics:{...snapshot.diagnostics,operationKind}},target,'prior-operation-id'),null);
+  assert.equal(observedFirstGuiPlaybackOperation(snapshot,target,'new-operation-id'),null);
+  assert.equal(observedFirstGuiPlaybackOperation({...snapshot,trackId:'other'},target,'prior-operation-id'),null);
+});
 
 test('startup metric is bound to the requested track and active generation',()=>{
   assert.deepEqual(startupObservation(playing,target),{

@@ -42,6 +42,13 @@ describe("TrackList", () => {
     expect(target.querySelector(".artwork img")?.getAttribute("src")).toBe(artworkUrl);
   });
 
+  it("keeps missing provider artwork as a placeholder instead of a broken image", async () => {
+    const target = render({ tracks: [{ ...tracks[0]!, artworkUrl: null }] });
+    await tick();
+    expect(target.querySelector(".artwork img")).toBeNull();
+    expect(target.querySelector(".artwork .placeholder")?.textContent).toBe("♫");
+  });
+
   it("reports 10k loaded rows with a virtual window and occurrence-specific visible controls", async () => {
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 1; });
     const rows: Track[] = Array.from({ length: 10_000 }, (_, index) => ({

@@ -4,12 +4,20 @@ from contextlib import closing, redirect_stderr
 from io import StringIO
 import tempfile
 import json
+import hashlib
+import importlib.util
+import os
 import sqlite3
+import time
 import unittest
 from unittest.mock import patch
 import numpy as np
 import native_runtime_capture as capture
-from native_runtime_capture import summarize_capture, assess_normalization, assess_source_audition_pcm, assess_full_recording_pcm, assess_stereo_markers, assess_audition_queue_checkpoint, load_reported_track_fixture, parse_streaming_fallback_sources, reported_track_case_gate, safe_startup_performance_trace, reported_track_matching_policy, reported_track_matching_settings, streaming_fallback_policy_settings
+from native_runtime_capture import summarize_capture, assess_normalization, assess_source_audition_pcm, assess_full_recording_pcm, assess_stereo_markers, assess_audition_queue_checkpoint, load_reported_track_fixture, parse_streaming_fallback_sources, reported_track_case_gate, safe_startup_performance_trace, reported_track_matching_policy, reported_track_matching_settings, streaming_fallback_policy_settings, validate_appimage_pin, instrument_appimage_apprun, verify_private_ui_actor, select_unique_private_app, bind_app_launch_monotonic_origin
+
+LAUNCHER_SPEC=importlib.util.spec_from_file_location('private_app_launcher',Path(__file__).with_name('private_ui_actor')/'private_app_launcher.py')
+LAUNCHER=importlib.util.module_from_spec(LAUNCHER_SPEC)
+LAUNCHER_SPEC.loader.exec_module(LAUNCHER)
 
 
 class StartupDiagnosticCliTests(unittest.TestCase):
@@ -34,6 +42,177 @@ class StartupDiagnosticCliTests(unittest.TestCase):
                 capture.main()
             self.assertEqual(error.exception.code, 2)
             self.assertIn('--reported-track-diagnostics requires --reported-tracks', stderr.getvalue())
+
+
+class AppImageHarnessTests(unittest.TestCase):
+    def test_raw_image_hash_finishes_before_launch_clock_and_receipt_write_does_not_rehash(self):
+        with tempfile.TemporaryDirectory(prefix='burrata-launch.',dir='/tmp') as directory:
+            profile=Path(directory);image=profile/'Burrata_0.1.34_amd64.AppImage';image.write_bytes(b'image bytes')
+            image.chmod(0o700);events=[]
+            def hashed(path):events.append('hash');return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+            with patch.object(LAUNCHER,'appimage_sha256',side_effect=hashed), \
+                 patch.object(LAUNCHER.time,'monotonic_ns',side_effect=lambda:(events.append('monotonic'),123456789)[1]), \
+                 patch.object(LAUNCHER.time,'time_ns',side_effect=lambda:(events.append('wall'),1_800_000_000_000_000_000)[1]):
+                resolved,digest,launch_ns,launch_ms=LAUNCHER.prepare_appimage_launch(image,{})
+            self.assertEqual(events,['hash','monotonic','wall'])
+            self.assertEqual((launch_ns,launch_ms),(123456789,1_800_000_000_000))
+            ticks=capture._proc_start_time_ticks(os.getpid())
+            with patch.object(LAUNCHER,'appimage_sha256',side_effect=AssertionError('receipt must not rehash image')):
+                LAUNCHER.write_launch_clock_receipt(profile,profile/'app-launch-clock.json',resolved,digest,
+                    os.getpid(),ticks,os.getpid(),ticks,launch_ns,launch_ms)
+
+    def test_app_and_control_environments_share_monotonic_launch_origin(self):
+        controller_environment={'PATH':'/usr/bin','XDG_DATA_HOME':'/tmp/burrata-launch.fixture/data'}
+        app_environment=bind_app_launch_monotonic_origin(controller_environment,1234567890123)
+        self.assertEqual(controller_environment['BURRATA_QUAL_APP_LAUNCH_MONOTONIC_NS'],'1234567890123')
+        self.assertEqual(app_environment['BURRATA_QUAL_APP_LAUNCH_MONOTONIC_NS'],
+                         controller_environment['BURRATA_QUAL_APP_LAUNCH_MONOTONIC_NS'])
+        app_environment['APPIMAGE']='child-only-value'
+        self.assertNotIn('APPIMAGE',controller_environment)
+        with self.assertRaises(ValueError):bind_app_launch_monotonic_origin(controller_environment,-1)
+
+    def test_raw_appimage_clock_receipt_is_profile_owned_pinned_and_time_bounded(self):
+        with tempfile.TemporaryDirectory(prefix='burrata-launch.',dir='/tmp') as directory:
+            profile=Path(directory);image=profile/'Burrata_0.1.34_amd64.AppImage'
+            image.write_bytes(b'pinned image fixture');image.chmod(0o700)
+            now_ns=time.monotonic_ns();now_ms=time.time_ns()//1_000_000
+            pid=os.getpid();ticks=capture._proc_start_time_ticks(pid)
+            receipt_path=profile/'app-launch-clock.json'
+            image_sha=hashlib.sha256(image.read_bytes()).hexdigest()
+            receipt=LAUNCHER.write_launch_clock_receipt(profile,receipt_path,image,image_sha,pid,ticks,pid,ticks,
+                now_ns-1_000_000,now_ms-1)
+            self.assertEqual(receipt_path.stat().st_mode & 0o777,0o600)
+            with patch.object(capture,'_descendant_processes',return_value=[pid]):
+                validated=capture.validate_appimage_launch_clock_receipt(profile,image,image_sha,pid,now_ns,now_ms)
+            self.assertEqual(validated['appLaunchMonotonicNs'],now_ns-1_000_000)
+            original=json.loads(receipt_path.read_text())
+            mutations=[
+                {**original,'profile':str(profile/'other')},
+                {**original,'appImageSha256':'0'*64},
+                {**original,'appImagePid':pid+1},
+                {**original,'appLaunchMonotonicNs':now_ns+1},
+                {**original,'appLaunchMonotonicNs':now_ns-121_000_000_000},
+                {**original,'appLaunchUnixMs':now_ms+10_001},
+            ]
+            for bad in mutations:
+                receipt_path.write_text(json.dumps(bad));receipt_path.chmod(0o600)
+                with self.subTest(receipt=bad),self.assertRaises(ValueError):
+                    with patch.object(capture,'_descendant_processes',return_value=[pid]):
+                        capture.validate_appimage_launch_clock_receipt(profile,image,image_sha,pid,now_ns,now_ms)
+
+    def test_appimage_requires_both_exact_pins_and_executable_regular_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);payload=root/'payload';(payload/'usr/bin').mkdir(parents=True)
+            app= root/'burrata.AppImage';app.write_bytes(b'appimage');app.chmod(0o700)
+            elf=payload/'usr/bin/burrata';elf.write_bytes(b'ELF fixture')
+            raw_hash=hashlib.sha256(app.read_bytes()).hexdigest();elf_hash=hashlib.sha256(elf.read_bytes()).hexdigest()
+            self.assertEqual(validate_appimage_pin(app,payload,raw_hash,elf_hash),app)
+            with self.assertRaisesRegex(ValueError,'requires explicit'):
+                validate_appimage_pin(app,payload,None,elf_hash)
+            with self.assertRaisesRegex(ValueError,'raw SHA-256'):
+                validate_appimage_pin(app,payload,'0'*64,elf_hash)
+            with self.assertRaisesRegex(ValueError,'ELF SHA-256'):
+                validate_appimage_pin(app,payload,raw_hash,'0'*64)
+
+    def test_apprun_instrumentation_preserves_exact_final_exec_scope(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);payload=root/'payload';payload.mkdir()
+            apprun=payload/'AppRun';apprun.write_bytes(b'#!/bin/bash\nprepare\nexec "$APPDIR/usr/bin/burrata" "$@"\n');apprun.chmod(0o700)
+            output=root/'AppRun-instrumented'
+            receipt=instrument_appimage_apprun(payload,output)
+            self.assertEqual(receipt['sourceSha256'],hashlib.sha256(apprun.read_bytes()).hexdigest())
+            self.assertEqual(output.read_bytes(),b'#!/bin/bash\nprepare\nexport BURRATA_IPC_COUNTER_PID=$$\nexec "$APPDIR/usr/bin/burrata" "$@"\n')
+            self.assertEqual(output.stat().st_mode & 0o777,0o700)
+            bad=payload/'bad';bad.write_text('#!/bin/bash\nexec other\n');bad.chmod(0o700)
+            (payload/'AppRun').rename(payload/'AppRun.good');bad.rename(payload/'AppRun')
+            with self.assertRaisesRegex(ValueError,'exactly one final'):
+                instrument_appimage_apprun(payload,root/'bad-output')
+
+    def test_raw_appimage_process_is_bound_by_elf_hash_raw_path_and_private_profile(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);profile=root/'profile';(profile/'data').mkdir(parents=True)
+            raw=root/'Burrata_0.1.34_amd64.AppImage';raw.write_bytes(b'pinned raw appimage');raw.chmod(0o700)
+            prior=root/'previous-mount/usr/bin/burrata';prior.parent.mkdir(parents=True);prior.write_bytes(b'ELF bytes')
+            fresh=root/'fresh-mount/usr/bin/burrata';fresh.parent.mkdir(parents=True);fresh.write_bytes(b'ELF bytes')
+            self.assertNotEqual(fresh.resolve(),prior.resolve())
+            binary_hash=hashlib.sha256(fresh.read_bytes()).hexdigest()
+            identity={'APPIMAGE':str(raw.resolve()),'XDG_DATA_HOME':str(profile/'data')}
+            self.assertEqual(select_unique_private_app([(419,fresh,identity)],binary_hash,raw,profile),(419,fresh))
+            with self.assertRaisesRegex(RuntimeError,'uniquely identify'):
+                select_unique_private_app([(419,fresh,identity)],binary_hash,None,profile,prior)
+            self.assertEqual(select_unique_private_app([(419,prior,identity)],binary_hash,None,profile,prior),(419,prior))
+            bad_hash=hashlib.sha256(b'other ELF').hexdigest()
+            bad_raw={**identity,'APPIMAGE':str(root/'other.AppImage')}
+            bad_profile={**identity,'XDG_DATA_HOME':str(root/'other-profile/data')}
+            for candidate in [(419,fresh,{**identity,'APPIMAGE':bad_raw['APPIMAGE']}),
+                              (419,fresh,bad_profile),
+                              (419,prior,identity)]:
+                with self.subTest(candidate=candidate),self.assertRaisesRegex(RuntimeError,'uniquely identify'):
+                    select_unique_private_app([candidate],bad_hash if candidate[1]==prior else binary_hash,raw,profile)
+            with self.assertRaisesRegex(RuntimeError,'uniquely identify'):
+                select_unique_private_app([(419,fresh,identity),(420,fresh,identity)],binary_hash,raw,profile)
+
+    def test_private_actor_bundle_is_exactly_pinned_and_portable(self):
+        evidence=verify_private_ui_actor()
+        self.assertEqual(Path(evidence['supportDirectory']),Path(evidence['directory']))
+        self.assertEqual(set(evidence['assets']),set(capture.PRIVATE_UI_ACTOR_HASHES))
+
+
+class PrivateAtspiStartupSetupTests(unittest.TestCase):
+    def test_startup_seeds_one_private_atspi_service_and_uses_its_session_config(self):
+        with tempfile.TemporaryDirectory(prefix='burrata-launch.', dir='/tmp') as directory:
+            profile = Path(directory)
+            (profile / '.burrata-isolated-profile').write_text('burrata isolated memory run\n')
+            audio_config = profile / 'audio-session.conf'
+            audio_config.write_text('<busconfig><type>session</type></busconfig>')
+            original_audio_config = audio_config.read_bytes()
+            environment = {
+                'NO_AT_BRIDGE': '1',
+                'XDG_RUNTIME_DIR': '/tmp/private-audio-runtime',
+                'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/tmp/private-audio-bus',
+            }
+
+            session_config, app_environment, receipt = capture.startup_atspi_launch_settings(
+                profile, 'startup', audio_config, environment)
+
+            service_dir = profile / 'atspi-services'
+            service = service_dir / 'org.a11y.Bus.service'
+            runtime = profile / 'runtime'
+            config_text = session_config.read_text()
+            self.assertEqual(session_config, profile / 'atspi-session.conf')
+            self.assertEqual(service.read_text(), capture.AT_SPI_SERVICE_TEXT)
+            self.assertEqual(service_dir.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(service.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(runtime.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(session_config.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(config_text.count('<servicedir>'), 1)
+            self.assertIn(f'<servicedir>{service_dir}</servicedir>', config_text)
+            self.assertNotIn('<include', config_text)
+            self.assertNotIn('<standard_session_servicedirs/>', config_text)
+            self.assertNotIn('NO_AT_BRIDGE', app_environment)
+            self.assertEqual(app_environment['XDG_RUNTIME_DIR'], str(runtime))
+            self.assertEqual(app_environment['DBUS_SESSION_BUS_ADDRESS'],
+                'unix:path=/tmp/private-audio-bus')
+            self.assertEqual(audio_config.read_bytes(), original_audio_config)
+            self.assertEqual(receipt['serviceFileSha256'], hashlib.sha256(service.read_bytes()).hexdigest())
+            self.assertEqual(receipt['sessionConfigSha256'],
+                hashlib.sha256(session_config.read_bytes()).hexdigest())
+
+    def test_non_startup_modes_keep_stock_audio_session_config_and_environment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            profile = Path(directory)
+            audio_config = profile / 'audio-session.conf'
+            audio_config.write_text('<busconfig/>')
+            environment = {'NO_AT_BRIDGE': '1', 'XDG_RUNTIME_DIR': '/tmp/private-audio-runtime'}
+
+            session_config, app_environment, receipt = capture.startup_atspi_launch_settings(
+                profile, 'waveform', audio_config, environment)
+
+            self.assertEqual(session_config, audio_config)
+            self.assertIs(app_environment, environment)
+            self.assertIsNone(receipt)
+            self.assertFalse((profile / 'atspi-services').exists())
+            self.assertFalse((profile / 'atspi-session.conf').exists())
 
 
 class StartupPerformanceTraceTests(unittest.TestCase):
