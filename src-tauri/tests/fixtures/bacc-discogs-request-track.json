@@ -1,0 +1,74 @@
+{
+  "album": "Prolific",
+  "albumArtist": null,
+  "artist": "Nipsey Hussle,Bino Rideaux",
+  "artworkUrl": "https://i.discogs.com/6-_UPWXbDd19Ie1LDj_lRqfzUYG1c60HxQSg-mp1N6w/rs:fit/g:sm/q:90/h:450/w:600/czM6Ly9kaXNjb2dz/LWRhdGFiYXNlLWlt/YWdlcy9SLTM4NTQ5/MjE0LTE3OTA1MjIw/NDAtMjgwNi5qcGVn.jpeg",
+  "assetId": null,
+  "bpm": null,
+  "catalogNumber": "075678583711",
+  "discNumber": null,
+  "discTotal": null,
+  "disposition": null,
+  "durationSeconds": null,
+  "favorite": false,
+  "genre": null,
+  "id": "catalog:discogs:46a5e4250d2cac2a720d5133d6b0d8386e48de8aeaea4224e2b94e03e9e60a47",
+  "isrc": null,
+  "key": null,
+  "label": "Atlantic Records",
+  "localAvailability": "none",
+  "normalizedGenre": null,
+  "previewUrl": null,
+  "provenance": {
+    "artistCredits": [
+      {
+        "artist": {
+          "id": "1195171",
+          "provider": "discogs"
+        },
+        "creditedAs": "Nipsey Hussle",
+        "joinPhrase": ",",
+        "name": "Nipsey Hussle",
+        "role": "Artist",
+        "sourceUrl": "https://www.discogs.com/release/38549214"
+      },
+      {
+        "artist": {
+          "id": "4908344",
+          "provider": "discogs"
+        },
+        "creditedAs": "Bino Rideaux",
+        "joinPhrase": "",
+        "name": "Bino Rideaux",
+        "role": "Artist",
+        "sourceUrl": "https://www.discogs.com/release/38549214"
+      }
+    ],
+    "audioMatchStatus": "played source; recording match unverified",
+    "candidateUrl": "https://www.youtube.com/watch?v=rpCswezRrLs",
+    "catalogProvider": "discogs",
+    "manualFields": {},
+    "mediumPosition": 1,
+    "occurrence": 1,
+    "parentTitle": null,
+    "releaseGroupId": null,
+    "releaseId": "38549214",
+    "representativeEdition": false,
+    "requestedReleaseSourceUrl": "https://www.discogs.com/release/38549214",
+    "sourceKind": "catalog",
+    "sourceUrl": "https://www.discogs.com/release/38549214",
+    "trackId": null,
+    "trackPosition": "15"
+  },
+  "provider": "catalog",
+  "providerId": "discogs:46a5e4250d2cac2a720d5133d6b0d8386e48de8aeaea4224e2b94e03e9e60a47",
+  "rank": null,
+  "recordingDate": null,
+  "releaseDate": "2026-08-14",
+  "remixers": null,
+  "sourceUrl": "https://www.discogs.com/release/38549214",
+  "title": "Bacc Of The Bach",
+  "trackNumber": null,
+  "trackTotal": null,
+  "version": null
+}

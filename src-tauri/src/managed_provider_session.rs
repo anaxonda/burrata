@@ -1149,7 +1149,18 @@ impl ManagedProviderSession {
     }
 
     pub fn status(&self) -> ManagedProviderSessionStatus {
-        let state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
+        let browser_exited = if self.native_enabled {
+            false
+        } else {
+            let background_opt_in = state.background_opt_in;
+            let has_confirmed_account = !state.persisted.accounts.is_empty();
+            let SessionState { child, mode, .. } = &mut *state;
+            refresh_exited_managed_child(child, mode, background_opt_in, has_confirmed_account)
+        };
+        if browser_exited {
+            let _ = self.bridge.set_managed_session(None);
+        }
         let connection_seen = !self.native_enabled
             && self
                 .bridge
@@ -3458,6 +3469,10 @@ fn shell_single_quote(value: &str) -> String {
 fn managed_host_manifest_dirs(session_root: &Path) -> Vec<PathBuf> {
     let config = session_root.join("config");
     vec![
+        // Chromium on Linux resolves native messaging hosts under the managed
+        // user-data directory, not the XDG config locations below. Keep this
+        // registration inside the isolated browser profile.
+        session_root.join("profile/NativeMessagingHosts"),
         config.join("chromium/NativeMessagingHosts"),
         config.join("google-chrome/NativeMessagingHosts"),
         config.join("google-chrome-for-testing/NativeMessagingHosts"),
@@ -4354,6 +4369,27 @@ fn stop_child(child: &mut Option<Child>) {
     let _ = process.wait();
 }
 
+fn refresh_exited_managed_child(
+    child: &mut Option<Child>,
+    mode: &mut String,
+    background_opt_in: bool,
+    has_confirmed_account: bool,
+) -> bool {
+    if !child
+        .as_mut()
+        .is_some_and(|process| process.try_wait().ok().flatten().is_some())
+    {
+        return false;
+    }
+    stop_child(child);
+    *mode = if background_opt_in && has_confirmed_account {
+        "idle".into()
+    } else {
+        "stopped".into()
+    };
+    true
+}
+
 impl ManagedProviderSession {
     pub(crate) fn shutdown(&self) {
         // Serialize with login-window creation so a call that starts after shutdown cannot
@@ -4410,6 +4446,52 @@ impl Drop for ManagedProviderSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn status_refreshes_an_exited_login_browser_as_stopped() {
+        let mut process = Command::new("sh").arg("-c").arg("exit 0").spawn().unwrap();
+        process.wait().unwrap();
+        let mut child = Some(process);
+        let mut mode = "login:spotify".to_owned();
+
+        assert!(refresh_exited_managed_child(
+            &mut child, &mut mode, false, false,
+        ));
+        assert!(child.is_none());
+        assert_eq!(mode, "stopped");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn status_refresh_keeps_confirmed_background_session_idle_after_exit() {
+        let mut process = Command::new("sh").arg("-c").arg("exit 0").spawn().unwrap();
+        process.wait().unwrap();
+        let mut child = Some(process);
+        let mut mode = "background".to_owned();
+
+        assert!(refresh_exited_managed_child(
+            &mut child, &mut mode, true, true,
+        ));
+        assert!(child.is_none());
+        assert_eq!(mode, "idle");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn status_refresh_leaves_a_live_browser_child_running() {
+        let mut child = Some(Command::new("sleep").arg("30").spawn().unwrap());
+        let mut mode = "login:spotify".to_owned();
+
+        assert!(!refresh_exited_managed_child(
+            &mut child, &mut mode, false, false,
+        ));
+        assert!(child.is_some());
+        assert_eq!(mode, "login:spotify");
+        let mut process = child.take().unwrap();
+        let _ = process.kill();
+        let _ = process.wait();
+    }
 
     #[test]
     fn managed_extension_staging_materializes_every_manifest_icon() {
@@ -5186,6 +5268,9 @@ mod tests {
         );
 
         let dirs = managed_host_manifest_dirs(&session_root);
+        assert!(dirs
+            .iter()
+            .any(|dir| { dir == &session_root.join("profile/NativeMessagingHosts") }));
         assert!(dirs
             .iter()
             .any(|dir| { dir == &session_root.join("config/chromium/NativeMessagingHosts") }));

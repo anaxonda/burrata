@@ -39,6 +39,18 @@ export interface Track {
   assetId?: string | null;
   provenance: unknown;
 }
+/** One native yt-dlp page of public uploads from a YouTube channel. Uploads
+ * retain their exact YouTube source identity; channel/uploader text is context,
+ * not catalog artist metadata. */
+export interface RemoteYoutubeChannelVideosPage {
+  channelId: string;
+  title: string;
+  url: string;
+  tracks: Track[];
+  nextCursor: string | null;
+  complete: boolean;
+  warnings: string[];
+}
 export interface Genre {
   id: string;
   name: string;

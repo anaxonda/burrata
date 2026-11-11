@@ -7532,6 +7532,140 @@ mod tests {
     }
 
     #[test]
+    fn restored_edition_unknown_version_requires_complete_credits_for_selective_release_permission()
+    {
+        let request = Track {
+            id: "catalog:musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:5:1:078741e5-6a67-411e-b071-80ccc96586d2".into(),
+            provider: "catalog".into(),
+            provider_id: "musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:5:1:078741e5-6a67-411e-b071-80ccc96586d2".into(),
+            title: "Out of Nowhere (Restored Edition '25)".into(),
+            artist: "Django Reinhardt & Coleman Hawkins".into(),
+            duration_seconds: Some(196.0),
+            provenance: json!({
+                "catalogProvider":"musicbrainz",
+                "recordingId":"078741e5-6a67-411e-b071-80ccc96586d2",
+                "artistCredits":[
+                    {"artist":{"id":"650bf385-6f6d-4992-a3b9-779d144920a4","provider":"musicbrainz"},
+                     "creditedAs":"Django Reinhardt","joinPhrase":" & ","name":"Django Reinhardt","role":"artist credit"},
+                    {"artist":{"id":"5c8cb181-38fe-4300-8153-650b2ed0258f","provider":"musicbrainz"},
+                     "creditedAs":"Coleman Hawkins","joinPhrase":"","name":"Coleman Hawkins","role":"artist credit"}
+                ]
+            }),
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:OutOfNow001".into(),
+            title: "Out of Nowhere".into(),
+            duration_seconds: Some(200.0),
+            source_metadata: Some(json!({
+                "provider":"youtube",
+                "resolvedProviderId":"OutOfNow001",
+                "sourceMetadataOrigin":"ytDlpFullInfo",
+                "track":"Out of Nowhere",
+                "catalogTitle":"Out of Nowhere",
+                "artistNames":["Django Reinhardt","Coleman Hawkins"],
+                "duration":200.0
+            })),
+            ..Candidate::default()
+        };
+        let release_only = FlexibleMatchingOptions {
+            allow_other_releases: true,
+            allow_other_performances: false,
+            allow_other_mixes: false,
+            allow_other_artists: false,
+            allow_different_lengths: true,
+            max_longer_by_seconds: 30,
+            ..Default::default()
+        };
+        let selective = assess_with_options(
+            &request,
+            &candidate,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &release_only,
+        );
+        assert_eq!(
+            selective.dimensions.title,
+            Comparison::Agree,
+            "{selective:?}"
+        );
+        assert_eq!(
+            selective.dimensions.artists,
+            Comparison::Agree,
+            "{selective:?}"
+        );
+        assert_eq!(
+            selective.dimensions.runtime,
+            Comparison::Conflict,
+            "{selective:?}"
+        );
+        assert_eq!(
+            selective.dimensions.version,
+            Comparison::Unknown,
+            "{selective:?}"
+        );
+        assert_eq!(selective.action, MatchAction::Enrich, "{selective:?}");
+        let evidence = selective.evidence.as_ref().expect("resolved evidence");
+        assert!(evidence.missing_performers.is_empty(), "{selective:?}");
+        assert!(evidence.extra_performers.is_empty(), "{selective:?}");
+        assert!(!evidence.complete_performer_credits, "{selective:?}");
+
+        // The explicit broad all-version policy may accept this source-bound,
+        // same-title/same-performer unversioned candidate without asserting
+        // that its performer list is complete. This remains an alternative,
+        // not proof of the requested restored mastering.
+        let all_version_categories = FlexibleMatchingOptions {
+            allow_other_performances: true,
+            allow_other_mixes: true,
+            ..release_only
+        };
+        let broad = assess_with_options(
+            &request,
+            &candidate,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &all_version_categories,
+        );
+        assert_eq!(broad.dimensions.title, Comparison::Agree, "{broad:?}");
+        assert_eq!(broad.dimensions.artists, Comparison::Agree, "{broad:?}");
+        assert_eq!(broad.dimensions.version, Comparison::Unknown, "{broad:?}");
+        assert_eq!(broad.action, MatchAction::Accept, "{broad:?}");
+        assert_eq!(
+            broad.relationship,
+            MatchRelationship::Alternative,
+            "{broad:?}"
+        );
+        assert!(!broad.evidence.as_ref().unwrap().complete_performer_credits);
+
+        // Selective release-only permission can accept an unknown release once
+        // the same candidate actually provides complete performer credits.
+        let mut complete_candidate = candidate;
+        complete_candidate.source_metadata.as_mut().unwrap()["performerCreditsComplete"] =
+            json!(true);
+        let complete = assess_with_options(
+            &request,
+            &complete_candidate,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &release_only,
+        );
+        assert_eq!(complete.action, MatchAction::Accept, "{complete:?}");
+        assert_eq!(
+            complete.relationship,
+            MatchRelationship::Alternative,
+            "{complete:?}"
+        );
+        assert!(
+            complete
+                .evidence
+                .as_ref()
+                .unwrap()
+                .complete_performer_credits
+        );
+    }
+
+    #[test]
     fn flexible_duration_caps_do_not_change_exact_or_balanced_and_cannot_be_bypassed_by_recording_id(
     ) {
         let request = track();

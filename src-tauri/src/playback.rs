@@ -132,7 +132,15 @@ pub(crate) async fn warm_upcoming_playback_identity(
             if duration_missing {
                 matches!(
                     acquisition
-                        .prepare_catalog_duration_track(track, cancel.clone(), deadline.instant())
+                        .prepare_catalog_duration_track(
+                            track,
+                            crate::discogs_duration_orchestration::CatalogDurationPolicy {
+                                matching_level: settings.matching_level,
+                                flexible_options: settings.flexible_matching,
+                            },
+                            cancel.clone(),
+                            deadline.instant(),
+                        )
                         .await,
                     Ok(Some(_))
                 )

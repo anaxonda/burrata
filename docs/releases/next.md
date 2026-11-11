@@ -1,4 +1,4 @@
-# Burrata 0.1.28
+# Burrata 0.1.32
 
 Draft release notes. Full native-suite, platform-package, installed-artifact, live-provider, and physical audio-output qualification is pending.
 
@@ -13,6 +13,13 @@ Draft release notes. Full native-suite, platform-package, installed-artifact, li
 - Sidebar icon recovery and Settings navigation are clearer, and the active radio station is highlighted. The compact radio bar shows the station name, and source table rows open their source link.
 - Radio browsing uses the available width, and track information wraps long album names without covering controls.
 - Fullscreen playback fits the hero artwork while keeping track details visible below the first fold.
+- Shared selection controls include Queue selected. Album actions group playback, downloads, Soulseek searches, and local analysis more clearly.
+- YouTube channel pages offer individual Videos and Playlists. Uploads use the shared play, queue, favorite, and download controls; uploader names remain separate from recording artists.
+- Exact Bandcamp sources can play when saved duration is missing, after fresh page, track ID, title, artist, and stream identity checks. Opaque stream tokens are not retained in the warm audio cache.
+- Missing Discogs durations can be checked against a complete independent Apple album programme without changing saved tags. Bounded artist-catalogue lookup can locate an edition omitted by song search; cleaned editions are rejected. A differing release date is permitted only within the same year when Flexible matching explicitly allows other releases; Exact and Balanced retain the date check.
+- Isolated Chromium profiles receive their own native-host registration, and managed browser status detects an exited process.
+- Optional song, concert, and set context lookup uses the configured AI connection and labels its results unverified. Optional search auto-queueing is off by default and never starts playback.
+- Lyrics lookup handles identified official uploads with missing artist metadata. Waveform progress updates avoid rebuilding waveform bars.
 
 ## Qualification status and limits
 
@@ -20,3 +27,4 @@ Draft release notes. Full native-suite, platform-package, installed-artifact, li
 - Monochrome can still stall at its 15-second transport limit, and YouTube extraction has intermittent failures. This release does not claim those provider transport or extraction issues are fixed.
 - Legacy v8 cache entries promoted into the Library can still have ambiguous recording identity. There is no automatic cleanup of those entries; playback remains subject to available identity evidence.
 - A resolver or decoder result applies only to its exact recording and provider. It does not prove physical-device output or qualify another provider.
+- The inspected Django restored-album alternatives omit required performer credits or lack a recording binding. Flexible mode continues to refuse those unverified sources; a famous title alone does not establish the requested recording.

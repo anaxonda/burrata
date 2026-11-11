@@ -1789,15 +1789,23 @@ async fn resolve_inner(
                     trace.event("identifier_lookup_end", "musicbrainz", json!({"accepted":effective_track.duration_seconds.is_some(),"elapsedMs":started.elapsed().as_millis()}));
                 }
             }
-            if effective_track.provider == "radio_song"
-                && effective_track.duration_seconds.is_none()
-                && !source_resolution_is_pinned(&effective_track, selected.is_some(), &settings, true)
+            if should_prepare_catalog_duration(
+                &effective_track,
+                selected.is_some(),
+                &settings,
+            )
                 && deadline.remaining() > Duration::from_secs(8)
             {
                 let started = Instant::now();
+                let catalog_duration_policy =
+                    crate::discogs_duration_orchestration::CatalogDurationPolicy {
+                        matching_level: settings.matching_level,
+                        flexible_options: settings.flexible_matching,
+                    };
                 trace.event("catalog_duration_lookup_start", "other", json!({"catalogProvider":"independentCatalog"}));
                 let prepared = acquisition.prepare_catalog_duration_track(
                     &effective_track,
+                    catalog_duration_policy,
                     cancel.clone(),
                     deadline.instant() - Duration::from_secs(8),
                 ).await;
@@ -1806,7 +1814,11 @@ async fn resolve_inner(
                 }
                 if let Ok(Some(prepared)) = prepared {
                     let verified_artist_variants = prepared.verified_artist_variants.clone();
-                    if let Some(enriched) = validated_catalog_duration_track(&effective_track, prepared) {
+                    if let Some(enriched) = validated_catalog_duration_track(
+                        &effective_track,
+                        prepared,
+                        catalog_duration_policy,
+                    ) {
                         effective_track = enriched;
                         effective_trace.catalog_duration_enriched = true;
                         effective_trace.catalog_artist_variants = verified_artist_variants;
@@ -2003,6 +2015,7 @@ fn refreshed_request_track(original: &Track, fresh: &Track) -> Option<Track> {
 fn validated_catalog_duration_track(
     original: &Track,
     prepared: crate::remote_playlists::PreparedCatalogDuration,
+    policy: crate::discogs_duration_orchestration::CatalogDurationPolicy,
 ) -> Option<Track> {
     let fingerprint = format!(
         "{:x}",
@@ -2023,6 +2036,30 @@ fn validated_catalog_duration_track(
             .is_some_and(|known| prepared.track.isrc.as_ref() != Some(known))
     {
         return None;
+    }
+    if prepared.track.provenance["playbackCatalogDurationProof"]["provider"]
+        == "discogsAppleCompleteAlbum"
+    {
+        let proof = &prepared.track.provenance["playbackCatalogDurationProof"];
+        let request_fingerprint =
+            crate::discogs_duration_orchestration::full_request_fingerprint(original)?;
+        let policy_fingerprint = policy.fingerprint(&request_fingerprint)?;
+        let flexible_release_allowed = policy.matching_level
+            == crate::recording_match::MatchLevel::Flexible
+            && policy.flexible_options.allow_other_releases;
+        if proof["requestFingerprint"].as_str() != Some(request_fingerprint.as_str())
+            || proof["policyFingerprint"].as_str() != Some(policy_fingerprint.as_str())
+            || proof["matchingLevel"] != serde_json::to_value(policy.matching_level).ok()?
+            || proof["flexibleOptions"] != serde_json::to_value(policy.flexible_options).ok()?
+            || (proof["releaseDateClaim"] == "sameYearOtherReleaseDate"
+                && !flexible_release_allowed)
+            || !matches!(
+                proof["releaseDateClaim"].as_str(),
+                Some("dateMatched" | "sameYearOtherReleaseDate")
+            )
+        {
+            return None;
+        }
     }
     // Only the private catalog lookup can supply this overlay. Neither source
     // search metadata nor a saved provenance sidecar authorizes enrichment.
@@ -3044,6 +3081,21 @@ pub(crate) fn source_resolution_is_pinned(
             track.provenance["sourceKind"].as_str(),
             Some("youtubeRadio" | "upload" | "uploaded" | "localUpload")
         )
+}
+
+fn should_prepare_catalog_duration(track: &Track, selected: bool, settings: &Settings) -> bool {
+    if track.duration_seconds.is_some() {
+        return false;
+    }
+    let unpinned = !source_resolution_is_pinned(track, selected, settings, true);
+    (track.provider == "radio_song" && unpinned)
+        || (track.provider == "catalog"
+            && track.provenance["catalogProvider"] == "discogs"
+            && track.provenance["sourceKind"] == "catalog"
+            && track.local_path.is_none()
+            && track.asset_id.is_none()
+            && track.playback_range.is_none()
+            && unpinned)
 }
 
 fn failed_unlocked_audio_search_candidate(
@@ -4928,16 +4980,34 @@ async fn resolve_serial(
             let prepared_alternate = std::sync::Arc::new(std::sync::Mutex::new(None));
             let mut extracted_identity_rejected = false;
             let resolved = async {
-                let audio = acquisition
-                .extract_playback_audio_traced_preparing_alternate(
-                    &candidate,
-                    &settings,
-                    cancel.clone(),
-                    trace.clone(),
-                    deadline,
-                    Some(prepared_alternate.clone()),
-                )
-                .await?;
+                let audio = if crate::bandcamp::is_exact_direct_source_request(track, &candidate)
+                {
+                    // A Bandcamp signed stream token has no trustworthy expiry
+                    // field. Force this exact-source request through a fresh
+                    // page resolution instead of trusting cached metadata.
+                    acquisition
+                        .extract_playback_audio_fresh_or_prepared_traced(
+                            &candidate,
+                            &settings,
+                            cancel.clone(),
+                            false,
+                            trace.clone(),
+                            deadline,
+                            None,
+                        )
+                        .await?
+                } else {
+                    acquisition
+                        .extract_playback_audio_traced_preparing_alternate(
+                            &candidate,
+                            &settings,
+                            cancel.clone(),
+                            trace.clone(),
+                            deadline,
+                            Some(prepared_alternate.clone()),
+                        )
+                        .await?
+                };
                     if pinned && matches!(candidate.provider.as_str(), "youtube" | "soundcloud")
                         && !fresh_candidate_audio_identity_matches(track, &candidate, &audio) {
                         return Err("The resolved audio source did not retain the pinned provider recording".to_owned());
@@ -7060,14 +7130,20 @@ fn verify_resolved_identity(
         "youtube" | "soundcloud" | "bandcamp"
     );
     if candidate.provider == "bandcamp" && candidate.id.is_empty() {
-        let Some(id) = audio
-            .resolved_provider_id
-            .as_deref()
-            .filter(|id| !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit()))
-        else {
-            return None;
-        };
-        candidate.id = format!("bandcamp:{id}");
+        if crate::bandcamp::is_exact_direct_source_request(track, candidate) {
+            // Bind only the validated saved Bandcamp ID, before comparing it
+            // with the ID returned by this exact fresh page extraction.
+            candidate.id = track.id.clone();
+        } else {
+            let Some(id) = audio
+                .resolved_provider_id
+                .as_deref()
+                .filter(|id| !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit()))
+            else {
+                return None;
+            };
+            candidate.id = format!("bandcamp:{id}");
+        }
     }
     if required && candidate.provider == "bandcamp" {
         let resolved_artist = audio.source_metadata.as_ref().and_then(|metadata| {
@@ -7140,6 +7216,14 @@ fn verify_resolved_identity(
             candidate.confidence = "review".into();
         }
         candidate.duration_seconds = audio.duration_seconds;
+    }
+    if required
+        && candidate.provider == "bandcamp"
+        && crate::bandcamp::exact_direct_source_identity_matches(track, candidate, audio)
+    {
+        return Some(VerifiedRecordingProof {
+            kind: RecordingProofKind::VerifiedExtractor,
+        });
     }
     if !required {
         return Some(VerifiedRecordingProof {
@@ -8571,8 +8655,12 @@ mod tests {
             original_fingerprint: fingerprint,
             verified_artist_variants: Vec::new(),
         };
+        let policy = crate::discogs_duration_orchestration::CatalogDurationPolicy {
+            matching_level: crate::recording_match::MatchLevel::Balanced,
+            flexible_options: crate::recording_match::FlexibleMatchingOptions::default(),
+        };
         assert_eq!(
-            validated_catalog_duration_track(&original, prepared.clone()),
+            validated_catalog_duration_track(&original, prepared.clone(), policy),
             Some(enriched)
         );
         assert_eq!(original, snapshot);
@@ -8596,10 +8684,90 @@ mod tests {
                 _ => changed.track.duration_seconds = Some(f64::NAN),
             }
             assert!(
-                validated_catalog_duration_track(&original, changed).is_none(),
+                validated_catalog_duration_track(&original, changed, policy).is_none(),
                 "{field}"
             );
         }
+    }
+
+    #[test]
+    fn discogs_other_release_duration_overlay_is_bound_to_original_flexible_policy() {
+        let original: Track = serde_json::from_str(include_str!(
+            "../tests/fixtures/bacc-discogs-request-track.json"
+        ))
+        .unwrap();
+        let release: serde_json::Value =
+            serde_json::from_str(include_str!("../tests/fixtures/bacc-discogs-release.json"))
+                .unwrap();
+        let mut apple: serde_json::Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/bacc-apple-album-lookup.json"
+        ))
+        .unwrap();
+        // Synthetic date-only variant of the explicit edition. The real
+        // current lookup is cleaned and must never authorize this overlay.
+        for row in apple["results"].as_array_mut().unwrap() {
+            row["releaseDate"] = json!("2026-08-13T12:00:00Z");
+        }
+        assert!(
+            crate::remote_playlists::catalog_duration_proof::discogs_apple_duration_crosswalk::verify(
+                &original, &release, &apple,
+            )
+            .is_none()
+        );
+        let policy = crate::discogs_duration_orchestration::CatalogDurationPolicy {
+            matching_level: crate::recording_match::MatchLevel::Flexible,
+            flexible_options: crate::recording_match::FlexibleMatchingOptions::default(),
+        };
+        let crosswalk =
+            crate::remote_playlists::catalog_duration_proof::discogs_apple_duration_crosswalk::verify_same_year_other_release(
+                &original,
+                &release,
+                &apple,
+                policy.matching_level,
+                policy.flexible_options,
+            )
+            .unwrap();
+        let request_fingerprint =
+            crate::discogs_duration_orchestration::full_request_fingerprint(&original).unwrap();
+        let policy_fingerprint = policy.fingerprint(&request_fingerprint).unwrap();
+        let mut prepared_track = original.clone();
+        prepared_track.duration_seconds = Some(crosswalk.duration_seconds);
+        prepared_track.provenance["playbackCatalogDurationProof"] = json!({
+            "version": 2,
+            "provider": "discogsAppleCompleteAlbum",
+            "requestFingerprint": request_fingerprint,
+            "policyFingerprint": policy_fingerprint,
+            "matchingLevel": policy.matching_level,
+            "flexibleOptions": policy.flexible_options,
+            "releaseDateClaim": crosswalk.evidence["releaseDateClaim"],
+            "sourceFingerprint": "a".repeat(64),
+            "checkedAt": 1,
+            "evidence": crosswalk.evidence,
+        });
+        let prepared = crate::remote_playlists::PreparedCatalogDuration {
+            track: prepared_track,
+            original_fingerprint: crate::remote_playlists::alias_hydration_identity(&original),
+            verified_artist_variants: Vec::new(),
+        };
+        assert!(validated_catalog_duration_track(&original, prepared.clone(), policy).is_some());
+
+        let balanced = crate::discogs_duration_orchestration::CatalogDurationPolicy {
+            matching_level: crate::recording_match::MatchLevel::Balanced,
+            flexible_options: policy.flexible_options,
+        };
+        assert!(validated_catalog_duration_track(&original, prepared.clone(), balanced).is_none());
+        let flexible_without_release =
+            crate::discogs_duration_orchestration::CatalogDurationPolicy {
+                matching_level: crate::recording_match::MatchLevel::Flexible,
+                flexible_options: crate::recording_match::FlexibleMatchingOptions {
+                    allow_other_releases: false,
+                    ..policy.flexible_options
+                },
+            };
+        assert!(
+            validated_catalog_duration_track(&original, prepared, flexible_without_release)
+                .is_none()
+        );
     }
 
     #[test]
@@ -12410,6 +12578,40 @@ mod tests {
     }
 
     #[test]
+    fn duration_enrichment_preserves_radio_song_without_isrc_and_gates_discogs_locks() {
+        let settings = Settings::default();
+        let radio = Track {
+            provider: "radio_song".into(),
+            duration_seconds: None,
+            isrc: None,
+            ..Track::default()
+        };
+        assert!(should_prepare_catalog_duration(&radio, false, &settings));
+        assert!(!should_prepare_catalog_duration(&radio, true, &settings));
+
+        let discogs = Track {
+            provider: "catalog".into(),
+            provenance: json!({"catalogProvider":"discogs","sourceKind":"catalog"}),
+            ..Track::default()
+        };
+        assert!(should_prepare_catalog_duration(&discogs, false, &settings));
+        let mut local = discogs.clone();
+        local.local_path = Some("local.wav".into());
+        assert!(!should_prepare_catalog_duration(&local, false, &settings));
+        let mut range = discogs;
+        range.playback_range = Some(crate::models::PlaybackRange {
+            parent_track_id: "parent".into(),
+            chapter_id: "chapter".into(),
+            source_url: String::new(),
+            start_time: 0.0,
+            end_time: 1.0,
+            parent_title: "parent".into(),
+            parent_duration_seconds: None,
+        });
+        assert!(!should_prepare_catalog_duration(&range, false, &settings));
+    }
+
+    #[test]
     fn browser_youtube_default_is_recoverable_but_manual_source_is_pinned() {
         let mut settings = Settings::default();
         let track = Track {
@@ -13208,6 +13410,96 @@ mod tests {
             &invalid_id_audio,
             true
         ));
+    }
+
+    #[test]
+    fn exact_bandcamp_source_can_verify_missing_catalog_duration_without_mutation() {
+        let track = Track {
+            id: "bandcamp:2065435071".into(),
+            provider: "bandcamp".into(),
+            provider_id: "2065435071".into(),
+            source_url: "https://lucassanttana.bandcamp.com/track/night-time-in-the-backyard"
+                .into(),
+            title: "Night-time in the backyard".into(),
+            artist: "Lucas Santtana".into(),
+            duration_seconds: None,
+            provenance: json!({"playbackMode":"source","explicitSourceLock":true}),
+            ..Track::default()
+        };
+        let mut candidate = linked_candidate_with_bandcamp(&track, true).unwrap();
+        let audio = acquisition::PreviewAudio {
+            url: "https://t4.bcbits.com/stream/0123456789abcdef0123456789abcdef/mp3-128/2065435071?token=fixture".into(),
+            mime_type: "audio/mpeg".into(),
+            codec: Some("mp3".into()),
+            bitrate_kbps: Some(128.0),
+            duration_seconds: Some(197.76),
+            selected_format_id: Some("mp3-128".into()),
+            selected_format_has_video: false,
+            source_metadata: Some(json!({"provider":"bandcamp","track":"Night-time in the backyard","artist":"Lucas Santtana","channel":"Lucas Santtana"})),
+            resolved_title: Some("Lucas Santtana - Night-time in the backyard".into()),
+            resolved_provider_id: Some("2065435071".into()),
+            chapters: Some(vec![]),
+            expected_content_length: Some(1000000),
+            provider_session: None,
+            headers: vec![],
+        };
+        let proof = verify_resolved_identity(&track, &mut candidate, &audio, true).unwrap();
+        assert_eq!(proof.kind, RecordingProofKind::VerifiedExtractor);
+        assert_eq!(candidate.id, track.id);
+        assert_eq!(candidate.duration_seconds, Some(197.76));
+        assert_eq!(track.duration_seconds, None);
+
+        let mut wrong_id = linked_candidate_with_bandcamp(&track, true).unwrap();
+        assert!(verify_resolved_identity(
+            &track,
+            &mut wrong_id,
+            &acquisition::PreviewAudio {
+                resolved_provider_id: Some("2065435072".into()),
+                ..audio.clone()
+            },
+            true,
+        )
+        .is_none());
+        let mut wrong_artist = linked_candidate_with_bandcamp(&track, true).unwrap();
+        assert!(verify_resolved_identity(
+            &track,
+            &mut wrong_artist,
+            &acquisition::PreviewAudio {
+                source_metadata: Some(json!({"provider":"bandcamp","track":"Night-time in the backyard","artist":"Other Artist"})),
+                resolved_title: Some("Other Artist - Night-time in the backyard".into()),
+                ..audio.clone()
+            },
+            true,
+        )
+        .is_none());
+        let mut wrong_title = linked_candidate_with_bandcamp(&track, true).unwrap();
+        assert!(verify_resolved_identity(
+            &track,
+            &mut wrong_title,
+            &acquisition::PreviewAudio {
+                source_metadata: Some(
+                    json!({"provider":"bandcamp","track":"Other Track","artist":"Lucas Santtana"})
+                ),
+                resolved_title: Some("Lucas Santtana - Other Track".into()),
+                ..audio.clone()
+            },
+            true,
+        )
+        .is_none());
+
+        let mut versioned = track.clone();
+        versioned.version = Some("Live".into());
+        let mut version_candidate = linked_candidate_with_bandcamp(&versioned, true).unwrap();
+        assert!(
+            verify_resolved_identity(&versioned, &mut version_candidate, &audio, true).is_none()
+        );
+        let mut manually_edited = track.clone();
+        manually_edited.provenance["manualFields"] = json!({"artist":true});
+        let mut manual_candidate = linked_candidate_with_bandcamp(&manually_edited, true).unwrap();
+        assert!(
+            verify_resolved_identity(&manually_edited, &mut manual_candidate, &audio, true,)
+                .is_none()
+        );
     }
 
     #[test]

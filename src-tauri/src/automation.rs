@@ -5377,6 +5377,11 @@ impl AutomationService {
                     deadline,
                     self.acquisition.prepare_catalog_duration_track(
                         &track,
+                        crate::discogs_duration_orchestration::CatalogDurationPolicy {
+                            matching_level: crate::recording_match::MatchLevel::Balanced,
+                            flexible_options:
+                                crate::recording_match::FlexibleMatchingOptions::default(),
+                        },
                         guard.cancellation(),
                         deadline,
                     ),
@@ -5500,6 +5505,50 @@ impl AutomationService {
                     .map_err(ToolError::failed)?;
                 serde_json::to_value(page)
                     .map_err(|_| ToolError::failed("Artist tracks serialization failed"))?
+            }
+            "browse_youtube_channel_videos" => {
+                let owner_id = a
+                    .get("ownerId")
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.trim().is_empty() && value.len() <= 2048)
+                    .ok_or_else(|| ToolError::bad("ownerId must be a YouTube channel ID or URL"))?
+                    .to_owned();
+                let cursor = match a.get("cursor") {
+                    None | Some(Value::Null) => None,
+                    Some(Value::String(value)) if value.len() <= 1024 => Some(value.clone()),
+                    _ => return Err(ToolError::bad("cursor must be a string or null")),
+                };
+                let limit = match a.get("limit") {
+                    None | Some(Value::Null) => None,
+                    Some(value) => Some(
+                        value
+                            .as_u64()
+                            .and_then(|value| usize::try_from(value).ok())
+                            .ok_or_else(|| {
+                                ToolError::bad("limit must be an integer from 1 to 50")
+                            })?,
+                    ),
+                };
+                let state = self
+                    .app
+                    .try_state::<crate::AppState>()
+                    .ok_or_else(|| ToolError::failed("Remote read registry is unavailable"))?;
+                let page = state
+                    .provider_reads
+                    .run(Some(Uuid::new_v4().to_string()), || async {
+                        let settings = state.store.settings()?;
+                        crate::youtube_channel::browse_youtube_channel_videos(
+                            &owner_id,
+                            cursor.as_deref(),
+                            limit,
+                            &settings,
+                        )
+                        .await
+                    })
+                    .await
+                    .map_err(ToolError::failed)?;
+                serde_json::to_value(page)
+                    .map_err(|_| ToolError::failed("YouTube channel page serialization failed"))?
             }
             "get_remote_album_tracks" => {
                 let service = self.remote_service()?;
@@ -7647,6 +7696,7 @@ fn tool_scope(name: &str) -> Option<&'static str> {
         | "inspect_spotify_profile_page"
         | "inspect_youtube_library_page"
         | "inspect_youtube_playlist_page"
+        | "browse_youtube_channel_videos"
         | "get_remote_track"
         | "prepare_spotify_recording_crosswalk"
         | "prepare_playback_catalog_identity"
@@ -8699,6 +8749,7 @@ fn tool_definitions() -> Vec<Value> {
  ("inspect_youtube_library_page","Inspect fixed own YouTube library response counts and flags without exposing content or identifiers", "read"),
  ("inspect_youtube_playlist_page","Inspect fixed YouTube playlist response counts and flags without exposing content or identifiers", "read"),
  ("browse_remote_artist_tracks","Read one bounded Spotify artist track page without importing", "read"),
+ ("browse_youtube_channel_videos","Read one bounded page of public uploads from a YouTube channel", "read"),
  ("list_remote_playlists","List available Spotify or YouTube playlists", "read"),("get_remote_playlist","Browse remote playlist tracks without importing into the library", "read"),("get_remote_track","Read one exact Spotify track by catalog ID without importing it", "read"),("prepare_bandcamp_playback_source","Verify and cache a public Bandcamp source for one saved track; bounded to 45 seconds, no saved tags or queue changes", "read"),("prepare_playback_catalog_identity","Prepare independent Spotify catalog duration for one saved track within four seconds; returns only enrichment status, duration, ISRC-known and elapsed time. Cache-only, no saved tags or queue changes", "read"),("prepare_spotify_recording_crosswalk","Verify an exact Spotify track against a linked MusicBrainz release, or verify complete artist-ID credits against an explicitly selected MusicBrainz recording; read-only, cached for playback identity, no tag changes", "read"),("get_remote_artist","Read a Spotify artist and one page of releases", "read"),("get_remote_album_tracks","Read a Spotify album and one page of tracks", "read"),("repair_spotify_durations_public","Fill missing Spotify durations from public metadata for up to 300 local tracks in 60 seconds; no account or playlist writeback", "control"),("cancel_public_spotify_duration_repair","Cancel the active public Spotify duration repair", "control"),("public_spotify_duration_repair_running","Check whether public Spotify duration repair is running", "read"),("import_remote_playlists","Import selected remote playlists into the library", "control"),("get_remote_playlist_import_job","Get status for a remote playlist import", "read"),("cancel_remote_playlist_import","Cancel an active remote playlist import", "control"),("refresh_remote_playlist","Refresh an imported remote playlist", "control"),("search_remote_playlist_writeback_candidates","Search provider candidates for one local playlist track; returns expiring review tokens without writing provider data", "read"),("get_playlist_sync_preview","Preview pending remote playlist changes with optional explicitly reviewed candidate tokens", "read"),("apply_playlist_sync_preview","Apply a reviewed remote playlist sync preview", "manage"),("list_track_files","List local files linked to a track", "read"),("set_preferred_track_file","Choose the preferred local file for a track", "control"),
  ("get_radio_playlist_option","Read a station's opt-in local playlist capture setting", "read"),("list_radio_playlist_targets","List active local playlist targets for radio capture", "read"),("set_radio_playlist_option","Explicitly enable or disable capture of newly heard identified songs into a local playlist; never adds past history", "control"),
  ("list_radio_stations","List built-in and saved radio stations", "read"),("search_radio_stations","Search radio stations by name, country, or tag", "read"),("get_station_details","Get details and available current metadata for a station", "read"),("add_radio_station","Save a selected Radio Browser search result", "control"),("add_custom_radio_station","Save a station from a stream URL", "control"),("edit_radio_station_url","Edit a station stream URL while preserving its stable station ID", "control"),("remove_radio_station","Remove a saved station or hide a built-in station", "control"),("rename_radio_station","Rename a saved or built-in station", "control"),("play_radio_station","Play a saved or built-in radio station", "control"),
@@ -8739,6 +8790,7 @@ fn tool_definitions() -> Vec<Value> {
  "inspect_youtube_playlist_page"=>(json!({"playlistId":{"type":"string","pattern":"^(?:LM|SE|LL|WL|[A-Za-z0-9_-]{10,80})$","maxLength":80},"cursor":{"type":"string","minLength":1,"maxLength":2048}}),json!(["playlistId"])),
  "get_remote_playlist"=>(json!({"provider":{"type":"string","enum":["spotify","youtube"]},"playlistId":{"type":"string","maxLength":2048},"cursor":{"type":"string","maxLength":2048}}),json!(["provider","playlistId"])),
  "get_remote_track"=>(json!({"provider":{"type":"string","enum":["spotify"]},"trackId":{"type":"string","pattern":"^[A-Za-z0-9]{22}$"}}),json!(["provider","trackId"])),
+ "browse_youtube_channel_videos"=>(json!({"ownerId":{"type":"string","minLength":1,"maxLength":2048,"description":"A YouTube UC channel ID or HTTPS channel URL, including an @handle videos URL"},"cursor":{"type":["string","null"],"maxLength":1024},"limit":{"type":"integer","minimum":1,"maximum":50}}),json!(["ownerId"])),
  "prepare_playback_catalog_identity"|"prepare_bandcamp_playback_source"=>(json!({"trackId":{"type":"string","minLength":1,"maxLength":256,"description":"Exact existing saved-track ID; no supplied metadata or URL"}}),json!(["trackId"])),
  "prepare_spotify_recording_crosswalk"=>(json!({"trackId":{"type":"string","pattern":"^[A-Za-z0-9]{22}$"},"albumIdHint":{"type":"string","pattern":"^[A-Za-z0-9]{22}$","description":"Optional candidate album locator. The complete album read must independently contain the requested track exactly once."},"musicBrainzRecordingIdHint":{"type":"string","pattern":"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$","description":"Optional locator for a user-selected MusicBrainz recording. Exact stored Spotify metadata, ordered artist IDs, duration, ISRC and artist URL relations must independently match."},"requestId":{"type":"string","format":"uuid","pattern":"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"}}),json!(["trackId","requestId"])),
  "browse_remote_artist_tracks"|"get_remote_artist"=>(json!({"artistId":{"type":"string","pattern":"^[A-Za-z0-9]{22}$"},"cursor":{"type":["string","null"],"pattern":"^[0-9]{1,6}$","maxLength":6}}),json!(["artistId"])),

@@ -5,6 +5,8 @@
   import { normalizeSpotifyUserProfileUrl } from "./lib/spotify-profile-url";
   import { safeArtworkUrl } from "./lib/artwork-url";
   import { appendPageWithinLimit } from "./remote-playlist-paging";
+  import TrackList from "./TrackList.svelte";
+  import type { RemoteYoutubeChannelVideosPage, Track } from "./lib/types";
   type Provider = "spotify" | "youtube";
   type RemotePlaylist = {
     id: string; name?: string; title?: string; ownerId?: string | null; ownerName?: string | null; url?: string | null;
@@ -18,10 +20,12 @@
   type ProfileSearchPage = { results?: ProfileChoice[]; nextCursor?: string | null };
   type ImportResult = { bindingId?: string; id?: string; playlistId?: string; title?: string; provider?: string; collectionId?: string; trackCount?: number; complete?: boolean; error?: string };
   type ImportFailure = { playlistId: string; message: string };
-  type PlaylistsSnapshot = { provider: Provider; sourceMode: "mine" | "profile" | "search" | "url"; profileUrl: string; directUrl: string; playlistUrls: string[]; query: string; searchKind: "playlist" | "channel"; items: RemotePlaylist[]; cursor: string | null; selected: string[]; seenCursors: string[]; currentBrowseComplete: boolean | null; pageNote: string; snapshotConsistency: "progressive" | null; scroll: number; loadedCount: number; needsRefetch: boolean };
+  type PlaylistsSnapshot = { provider: Provider; sourceMode: "mine" | "profile" | "search" | "url"; profileUrl: string; directUrl: string; playlistUrls: string[]; query: string; searchKind: "playlist" | "channel"; items: RemotePlaylist[]; cursor: string | null; selected: string[]; seenCursors: string[]; currentBrowseComplete: boolean | null; pageNote: string; snapshotConsistency: "progressive" | null; scroll: number; loadedCount: number; needsRefetch: boolean; channelTab?: "videos" | "playlists" };
   type ImportJob = { jobId?: string; id?: string; state?: string; completed?: number; total?: number; results?: ImportResult[]; errors?: ImportFailure[]; error?: string | null };
 
-  let { call, onImported = () => {}, onClose = () => {}, onOpenPlaylist = () => {}, onBrowseOwner, initialProvider = "spotify", initialOwner = "", initialPlaylistUrl = "", profileOnly = false }: {
+  let { call, onImported = () => {}, onClose = () => {}, onOpenPlaylist = () => {}, onBrowseOwner, initialProvider = "spotify", initialOwner = "", initialPlaylistUrl = "", profileOnly = false,
+    onPlay, onQueue, onNext, onDownload, onFavorite, onPlaylist, onAddSelectedToPlaylist, onArtist, onAlbum, onInfo, onContext, onQueueTracks,
+    playingTrack, bufferingTrack, playingTrackId = "", bufferingTrackId = "", paused = false }: {
     call: <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
     onImported?: () => void;
     onClose?: () => void;
@@ -31,10 +35,36 @@
     initialOwner?: string;
     initialPlaylistUrl?: string;
     profileOnly?: boolean;
+    onPlay?: (track: Track, tracks: Track[], index: number) => void | Promise<void>;
+    onQueue?: (track: Track) => void | Promise<void>;
+    onNext?: (track: Track) => void | Promise<void>;
+    onDownload?: (track: Track) => void | Promise<void>;
+    onFavorite?: (track: Track) => void | Promise<void>;
+    onPlaylist?: (track: Track) => void | Promise<void>;
+    onAddSelectedToPlaylist?: (tracks: Track[]) => void | Promise<void>;
+    onArtist?: (track: Track) => void | Promise<void>;
+    onAlbum?: (track: Track) => void | Promise<void>;
+    onInfo?: (track: Track) => void | Promise<void>;
+    onContext?: (track: Track, event: MouseEvent) => void;
+    onQueueTracks?: (tracks: Track[], mode: "append" | "next") => void | Promise<void>;
+    playingTrack?: Track | null;
+    bufferingTrack?: Track | null;
+    playingTrackId?: string;
+    bufferingTrackId?: string;
+    paused?: boolean;
   } = $props();
   const providerReads = new ProviderReadCancellation((command, args) => call(command, args ?? {}));
 
   let provider = $state<Provider>("spotify");
+  let channelTab = $state<"videos" | "playlists">("videos");
+  let channelPage = $state<RemoteYoutubeChannelVideosPage | null>(null);
+  let channelTracks = $state<Track[]>([]);
+  let channelCursor = $state<string | null>(null);
+  let channelSeenCursors = new Set<string>();
+  let channelLoading = $state(false);
+  let channelError = $state("");
+  let channelNotice = $state("");
+  let channelRequest = 0;
   let sourceMode = $state<"mine" | "profile" | "search" | "url">("mine");
   let profileUrl = $state("");
   let profileChoices = $state<ProfileChoice[]>([]);
@@ -82,12 +112,12 @@
   const RESTORE_BUDGET_MS = 120_000;
   const MAX_IMPORT_SELECTION = 500;
 
-  $effect(() => { provider; void loadBindings(); });
+  $effect(() => { provider; channelTab; if (!(profileOnly && provider === "youtube" && channelTab === "videos")) void loadBindings(); });
   $effect(() => { provider = initialProvider; });
-  onMount(() => { void restoreOrBrowse(); });
+  onMount(() => { provider = initialProvider; void restoreOrBrowse(); });
   onDestroy(() => {
     destroyed = true; profileSearchRequest += 1; providerReads.cancelAll(); finishPollWait?.();
-    const snapshot: PlaylistsSnapshot = { provider, sourceMode, profileUrl, directUrl, playlistUrls, query, searchKind, items, cursor, selected, seenCursors: [...seenBrowseCursors], currentBrowseComplete, pageNote, snapshotConsistency, scroll: scrollElement?.scrollTop ?? scrollTop, loadedCount: items.length, needsRefetch: false };
+    const snapshot: PlaylistsSnapshot = { provider, sourceMode, profileUrl, directUrl, playlistUrls, query, searchKind, items, cursor, selected, seenCursors: [...seenBrowseCursors], currentBrowseComplete, pageNote, snapshotConsistency, scroll: scrollElement?.scrollTop ?? scrollTop, loadedCount: items.length, needsRefetch: false, channelTab };
     if (accountScope) providerNavigationSnapshots.put({ kind: "playlists", key: playlistSnapshotKey(snapshot), accountScope, snapshot, rows: items.length, stripRows: value => ({ ...value, items: [], cursor: null, selected: [], needsRefetch: true }) });
   });
 
@@ -105,9 +135,14 @@
     accountScope = scope;
     const saved = providerNavigationSnapshots.get<PlaylistsSnapshot>("playlists", routeKey, accountScope);
     if (saved && isCurrent() && (!profileOnly || saved.sourceMode === "profile")) {
+      if (initialOwner.trim() && initialProvider === "youtube" && saved.channelTab === "videos") {
+        provider = "youtube"; sourceMode = "profile"; profileUrl = initialOwner.trim(); channelTab = "videos";
+        void browseYoutubeChannelVideos(true);
+        return;
+      }
       const restoredDescriptor = { provider: saved.provider, mode: saved.sourceMode, profileUrl: saved.profileUrl.trim(), query: saved.query.trim(), searchKind: saved.searchKind };
       const restoreStillCurrent = () => isCurrent() && sameBrowseDescriptor(restoredDescriptor, getBrowseDescriptor());
-      provider = saved.provider; sourceMode = saved.sourceMode; profileUrl = saved.profileUrl; directUrl = saved.directUrl; playlistUrls = saved.playlistUrls; query = saved.query; searchKind = saved.searchKind;
+      provider = saved.provider; sourceMode = saved.sourceMode; profileUrl = saved.profileUrl; directUrl = saved.directUrl; playlistUrls = saved.playlistUrls; query = saved.query; searchKind = saved.searchKind; channelTab = saved.channelTab ?? "playlists";
       items = saved.items; cursor = saved.cursor; selected = saved.selected; seenBrowseCursors = new Set(saved.seenCursors); currentBrowseComplete = saved.currentBrowseComplete; pageNote = saved.pageNote; snapshotConsistency = saved.snapshotConsistency ?? null; scrollTop = saved.scroll;
       if (saved.needsRefetch || saved.items.length < saved.loadedCount) {
         cursor = null; items = []; const started = Date.now(); let first = true; let restoreTimedOut = false;
@@ -129,7 +164,11 @@
       requestAnimationFrame(() => { if (restoreStillCurrent() && scrollElement) scrollElement.scrollTop = scrollTop; });
       return;
     }
-    if (initialOwner.trim()) { sourceMode = "profile"; profileUrl = initialOwner.trim(); void browse(); }
+    if (initialOwner.trim()) {
+      sourceMode = "profile"; profileUrl = initialOwner.trim();
+      if (initialProvider === "youtube") { channelTab = "videos"; void browseYoutubeChannelVideos(true); }
+      else { channelTab = "playlists"; void browse(); }
+    }
     else if (initialPlaylistUrl.trim()) {
       sourceMode = "url"; directUrl = initialPlaylistUrl.trim();
       if (isProviderUrl(initialPlaylistUrl.trim())) { playlistUrls = [new URL(initialPlaylistUrl.trim()).toString()]; selected = [...playlistUrls]; directUrl = ""; }
@@ -144,6 +183,65 @@
       if (destroyed || request !== bindingsRequest || provider !== requestedProvider) return;
       importedIds = (result ?? []).map(binding => binding.playlistId);
     } catch { /* Older backends can still browse and import without sync bindings. */ }
+  }
+
+  function channelTrackIdentity(track: Track, channelId: string) {
+    const videoId = track.providerId;
+    const provenance = track.provenance && typeof track.provenance === "object"
+      ? track.provenance as Record<string, unknown> : {};
+    return typeof videoId === "string" && /^[A-Za-z0-9_-]{11}$/.test(videoId)
+      && track.id === `youtube:${videoId}` && track.provider === "youtube"
+      && track.sourceUrl === `https://www.youtube.com/watch?v=${videoId}`
+      && track.artist === "" && provenance.sourceKind === "youtubeChannelUpload"
+      && provenance.playbackMode === "source"
+      && provenance.identity === "direct YouTube upload; recording artist unverified"
+      && provenance.uploaderChannelId === channelId;
+  }
+
+  async function browseYoutubeChannelVideos(reset = true) {
+    if (channelLoading) return;
+    const requestedOwner = youtubeChannelOwner(profileUrl);
+    if (!requestedOwner) { channelError = "Use a public YouTube channel ID, channel URL, or @handle URL."; return; }
+    const request = ++channelRequest;
+    const requestedCursor = reset ? null : channelCursor;
+    const isCurrent = () => !destroyed && request === channelRequest && channelTab === "videos" && provider === "youtube";
+    channelLoading = true; channelError = ""; channelNotice = "";
+    if (reset) { channelCursor = null; channelSeenCursors = new Set(); }
+    if (requestedCursor) channelSeenCursors.add(requestedCursor);
+    try {
+      const page = await providerReads.read<RemoteYoutubeChannelVideosPage>("browse_youtube_channel_videos", {
+        ownerId: requestedOwner, limit: 25, ...(requestedCursor ? { cursor: requestedCursor } : {}),
+      });
+      if (!isCurrent()) return;
+      const requestedChannelId = requestedOwner.startsWith("UC") ? requestedOwner : requestedOwner.match(/\/channel\/(UC[A-Za-z0-9_-]{22})(?:\/|$)/)?.[1];
+      if (!page || !/^UC[A-Za-z0-9_-]{22}$/.test(page.channelId) || (requestedChannelId && page.channelId !== requestedChannelId)
+        || page.url !== `https://www.youtube.com/channel/${page.channelId}` || !Array.isArray(page.tracks)
+        || !Array.isArray(page.warnings) || typeof page.complete !== "boolean"
+        || (page.complete === false && !page.nextCursor)) throw new Error("The channel returned an invalid upload page.");
+      if (page.tracks.some(track => !channelTrackIdentity(track, page.channelId)))
+        throw new Error("The channel returned an upload without exact YouTube source identity.");
+      const nextCursor = page.nextCursor || null;
+      if (nextCursor && (nextCursor === requestedCursor || channelSeenCursors.has(nextCursor)))
+        throw new Error("Stopped loading because the channel repeated a page cursor. Loaded videos remain available.");
+      const nextTracks = reset ? page.tracks : [...channelTracks, ...page.tracks.filter(track => !channelTracks.some(previous => previous.id === track.id))];
+      channelTracks = nextTracks;
+      channelPage = { ...page, tracks: nextTracks };
+      channelCursor = nextCursor;
+      if (nextCursor) channelSeenCursors.add(nextCursor);
+      channelNotice = page.warnings.join(" ");
+    } catch (failure) {
+      if (isCurrent()) channelError = `Could not load YouTube channel videos: ${failure instanceof Error ? failure.message : String(failure)}`;
+    } finally { if (isCurrent()) channelLoading = false; }
+  }
+
+  function changeChannelTab(tab: "videos" | "playlists") {
+    if (channelTab === tab) return;
+    channelTab = tab; channelRequest++; channelLoading = false; channelError = ""; channelNotice = "";
+    providerReads.cancelAll();
+    if (tab === "playlists") {
+      sourceMode = "profile"; profileUrl = initialOwner.trim() || profileUrl;
+      if (!items.length) void browse(true);
+    } else if (!channelPage) void browseYoutubeChannelVideos(true);
   }
 
   async function browse(reset = true, restore?: { token: number; descriptor: BrowseDescriptor }, maxRows?: number, onRowLimit?: () => void, deadline?: PageDeadline) {
@@ -479,30 +577,63 @@
   function isTerminal(job: ImportJob) { return ["complete", "completed", "partial", "failed", "canceled", "cancelled"].includes((job.state || "").toLowerCase()); }
   const providerName = (value: Provider) => value === "spotify" ? "Spotify" : "YouTube";
   const visibility = (item: RemotePlaylist) => item.visibility || "";
-  function safeYoutubeChannelUrl(value: string): string | null {
+  function youtubeChannelOwner(value: string): string | null {
+    const owner = value.trim();
+    if (/^UC[A-Za-z0-9_-]{22}$/.test(owner)) return owner;
     try {
-      const url = new URL(value);
+      const url = new URL(owner);
       if (url.protocol !== "https:" || !["www.youtube.com", "youtube.com", "music.youtube.com"].includes(url.hostname)
         || url.username || url.password || (url.port && url.port !== "443") || url.search || url.hash) return null;
-      const channel = url.pathname.match(/^\/channel\/(UC[A-Za-z0-9_-]{20,30})\/?$/);
+      const channel = url.pathname.match(/^\/channel\/(UC[A-Za-z0-9_-]{22})(?:\/videos)?\/?$/);
       if (channel) return `https://www.youtube.com/channel/${channel[1]}`;
-      const handle = url.pathname.match(/^\/@([A-Za-z0-9._-]{1,100})\/?$/);
+      const handle = url.pathname.match(/^\/@([A-Za-z0-9._-]{1,100})(?:\/videos)?\/?$/);
       return handle ? `https://www.youtube.com/@${handle[1]}` : null;
     } catch { return null; }
   }
+  function safeYoutubeChannelUrl(value: string): string | null {
+    const owner = youtubeChannelOwner(value);
+    if (!owner) return null;
+    return owner.startsWith("UC") ? `https://www.youtube.com/channel/${owner}` : owner;
+  }
 </script>
 
-<section class="remote-playlists" aria-label={provider === "spotify" ? "Spotify playlists" : "YouTube playlists"} bind:this={scrollElement} onscroll={(event) => { scrollTop = (event.currentTarget as HTMLElement).scrollTop; }}>
+<section class="remote-playlists" aria-label={provider === "youtube" && initialOwner.trim() ? "YouTube channel" : provider === "spotify" ? "Spotify playlists" : "YouTube playlists"} bind:this={scrollElement} onscroll={(event) => { scrollTop = (event.currentTarget as HTMLElement).scrollTop; }}>
   {#if profileOnly}
     {@const channelUrl = provider === "youtube" ? safeYoutubeChannelUrl(profileUrl) : null}
-    <header class="remote-profile-heading"><div><span>{provider === "youtube" ? "YouTube channel" : "Public playlists by"}</span><strong title={profileUrl}>{profileUrl}</strong></div>{#if channelUrl}<a class="remote-open-channel" href={channelUrl} target="_blank" rel="noreferrer">Open channel in YouTube ↗</a>{/if}<button disabled={loading || selectingAll || importing} onclick={() => void browse()}>Refresh</button></header>
+    <header class="remote-profile-heading"><div><span>{provider === "youtube" ? "YouTube channel" : "Public playlists by"}</span><strong title={profileUrl}>{provider === "youtube" ? channelPage?.title || profileUrl : profileUrl}</strong></div>{#if channelUrl}<a class="remote-open-channel" href={channelUrl} target="_blank" rel="noreferrer">Open channel in YouTube ↗</a>{/if}<button disabled={loading || channelLoading || selectingAll || importing} onclick={() => channelTab === "videos" && provider === "youtube" ? void browseYoutubeChannelVideos(true) : void browse()}>{channelTab === "videos" && provider === "youtube" ? "Refresh videos" : "Refresh"}</button></header>
   {:else}<nav class="remote-provider-tabs" aria-label="Playlist provider">
     <button class:active={provider === "spotify"} aria-pressed={provider === "spotify"} disabled={selectingAll || importing} onclick={() => { invalidateBrowseContext(); provider = "spotify"; playlistUrls = []; directUrl = ""; sourceMode = "mine"; void browse(); }}>Spotify</button>
     <button class:active={provider === "youtube"} aria-pressed={provider === "youtube"} disabled={selectingAll || importing} onclick={() => { invalidateBrowseContext(); provider = "youtube"; playlistUrls = []; directUrl = ""; sourceMode = "mine"; void browse(); }}>YouTube</button>
     <button class="remote-close" aria-label="Close remote playlist picker" onclick={onClose}>×</button>
   </nav>{/if}
+  {#if !profileOnly && provider === "youtube" && initialOwner.trim()}
+    {@const channelUrl = safeYoutubeChannelUrl(profileUrl)}
+    <header class="remote-profile-heading"><div><span>YouTube channel</span><strong title={profileUrl}>{channelPage?.title || profileUrl}</strong></div>{#if channelUrl}<a class="remote-open-channel" href={channelUrl} target="_blank" rel="noreferrer">Open channel in YouTube ↗</a>{/if}<button disabled={loading || channelLoading || selectingAll || importing} onclick={() => channelTab === "videos" ? void browseYoutubeChannelVideos(true) : void browse()}>{channelTab === "videos" ? "Refresh videos" : "Refresh"}</button></header>
+  {/if}
 
   <div class="remote-picker-grid">
+    {#if provider === "youtube" && initialOwner.trim()}
+      <nav class="remote-channel-tabs" role="group" aria-label="YouTube channel content">
+        <button type="button" aria-pressed={channelTab === "videos"} class:active={channelTab === "videos"} onclick={() => changeChannelTab("videos")}>Videos</button>
+        <button type="button" aria-pressed={channelTab === "playlists"} class:active={channelTab === "playlists"} onclick={() => changeChannelTab("playlists")}>Playlists</button>
+      </nav>
+    {/if}
+    {#if provider === "youtube" && initialOwner.trim() && channelTab === "videos"}
+      <section class="remote-channel-videos" aria-label="YouTube channel videos">
+        {#if channelPage}<p class="remote-profile-scope">Public uploads from {channelPage.title}. Uploader names are source context, not recording-artist credits.</p>{/if}
+        {#if channelLoading}<p class="remote-loading" role="status">Loading channel videos…</p>{/if}
+        {#if channelError}<p class="remote-error" role="alert">{channelError}</p>{/if}
+        {#if channelNotice}<p class="remote-notice" role="status">{channelNotice}</p>{/if}
+        {#if channelTracks.length}<TrackList presentation="playlist" tracks={channelTracks} selectionContext={`youtube-channel:${channelPage?.channelId || profileUrl}`} listLabel={`${channelPage?.title || "YouTube channel"} videos`} meta={(track) => {
+          const provenance = track.provenance && typeof track.provenance === "object" ? track.provenance as Record<string, unknown> : {};
+          const uploader = typeof provenance.uploaderChannelTitle === "string" ? provenance.uploaderChannelTitle : "YouTube channel";
+          return `Uploaded by ${uploader} · recording artist unverified`;
+        }} onPlay={onPlay} onQueue={onQueue} onNext={onNext} onDownload={onDownload} onFavorite={onFavorite} onPlaylist={onPlaylist} {onAddSelectedToPlaylist} onQueueSelected={onQueueTracks ? items => onQueueTracks(items, "append") : undefined} onArtist={onArtist} onAlbum={onAlbum} onInfo={onInfo} onContext={onContext} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} />
+        {:else if !channelLoading && !channelError && channelPage?.complete === true}<p class="remote-empty" role="status">This channel has no public videos.</p>
+        {:else if !channelLoading && !channelError && channelPage}<p class="remote-empty" role="status">No videos loaded yet. Load more to continue browsing this channel.</p>{/if}
+        {#if channelCursor}<button type="button" class="remote-more" disabled={channelLoading} onclick={() => void browseYoutubeChannelVideos(false)}>{channelLoading ? "Loading more…" : "Load more videos"}</button>{/if}
+      </section>
+    {:else}
     <section class="remote-picker-main" aria-label="Browse remote playlists">
       {#if !profileOnly}<div class="remote-source-tabs" aria-label="Playlist source">
         <button class:active={sourceMode === "mine"} aria-pressed={sourceMode === "mine"} disabled={selectingAll || importing} onclick={() => changeSourceMode("mine")}>Mine</button>
@@ -581,6 +712,7 @@
       {#if importing}<div class="remote-progress" role="status"><span>Importing {importProgress()} of {importTotal} playlists</span><progress max={importTotal || 1} value={importProgress()}></progress><button class="remote-cancel-import" disabled={cancelRequested} onclick={() => void cancelImport()}>{cancelRequested ? "Canceling…" : "Cancel import"}</button></div>{/if}
       {#if importResults.length || importErrors.length}<ul class="remote-import-results" aria-label="Playlist import results">{#each importResults as result, index (`${result.bindingId || result.playlistId || result.id || index}`)}<li><strong>{result.title || result.playlistId || "Playlist"}</strong><span>{result.trackCount != null ? `${result.trackCount} tracks` : "Track count unknown"} {result.complete === false ? "· incomplete" : "· imported"}</span></li>{/each}{#each importErrors as failure (`${failure.playlistId}-${failure.message}`)}<li class="remote-error"><strong>{failure.playlistId}</strong><span>{failure.message}</span></li>{/each}</ul>{/if}
     </section>
+    {/if}
 
   </div>
 </section>
@@ -595,6 +727,10 @@
   .remote-profile-heading strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
   .remote-profile-heading button { flex:none; margin-left:auto; padding:4px 8px; font-size:11px; }
   .remote-profile-scope { margin:0; }
+  .remote-channel-tabs { display:flex; gap:4px; padding:0 8px; border-bottom:1px solid var(--line); }
+  .remote-channel-tabs button { min-height:34px; padding:5px 12px; border:0; border-bottom:2px solid transparent; border-radius:0; background:transparent; color:var(--muted); font-size:12px; }
+  .remote-channel-tabs button.active { border-bottom-color:var(--accent); color:var(--text); }
+  .remote-channel-videos { display:grid; gap:7px; min-width:0; padding:0 8px 8px; }
   .remote-provider-tabs,.remote-source-tabs { display:flex; flex-wrap:wrap; gap:4px; padding:0; border:0; border-radius:0; }
   .remote-provider-tabs button,.remote-source-tabs button { min-width:0; padding:5px 8px; background:transparent; color:var(--muted); font-size:11px; }
   .remote-provider-tabs button.active,.remote-source-tabs button.active { background:var(--raised); color:var(--text); }

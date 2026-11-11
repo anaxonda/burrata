@@ -7362,6 +7362,15 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     call, initialProvider: provider, initialOwner: remoteOwner, profileOnly: true,
     onOpenPlaylist: (source: "spotify" | "youtube", url: string) => void openRemotePlaylist(source, url),
     onBrowseOwner: openRemoteOwnerProfile, onImported: remotePlaylistsImported,
+    playingTrack, bufferingTrack: playbackLoading ? playingTrack : null,
+    playingTrackId: playingTrack?.id ?? "", bufferingTrackId: playbackLoading ? playingTrack?.id ?? "" : "", paused,
+    onPlay: async (track: Track, list: Track[], index: number) => { await startPreview(track, false, false, list, index); },
+    onQueue: (track: Track) => queueArtistTracks([track], "append"),
+    onNext: (track: Track) => queueArtistTracks([track], "next"), onQueueTracks: queueArtistTracks,
+    onDownload: openDownloadChooser, onFavorite: favorite, onPlaylist: addArtistTrack,
+    onAddSelectedToPlaylist: addTracksToPlaylist, onArtist: discoverArtist,
+    onAlbum: (track: Track) => void openTrackAlbum(track), onInfo: (track: Track) => void openPlayerPanel("info", track),
+    onContext: (track: Track, event: MouseEvent) => { actionTrack = track; actionAnchor = { x: event.clientX, y: event.clientY }; },
   });
 </script>
 

@@ -38,6 +38,7 @@ mod compilation_excerpt;
 pub mod connections;
 pub mod diagnostic_metrics;
 mod directory_browser;
+pub mod discogs_duration_orchestration;
 mod discogs_release_lexical_aliases;
 pub mod discovery;
 mod download_verification;
@@ -136,6 +137,7 @@ mod webview_audio_transport;
 pub mod webview_identification;
 pub mod webview_live_bpm;
 pub mod webview_radio_pcm;
+pub mod youtube_channel;
 mod youtube_direct_experiment;
 mod youtube_download_recovery;
 pub mod youtube_music;
@@ -7971,6 +7973,28 @@ async fn browse_remote_playlist(
         .await
 }
 #[tauri::command]
+async fn browse_youtube_channel_videos(
+    state: State<'_, AppState>,
+    owner_id: String,
+    cursor: Option<String>,
+    limit: Option<usize>,
+    request_id: Option<String>,
+) -> Result<youtube_channel::YoutubeChannelVideosPage> {
+    state
+        .provider_reads
+        .run(request_id, || async {
+            let settings = state.store.settings()?;
+            youtube_channel::browse_youtube_channel_videos(
+                &owner_id,
+                cursor.as_deref(),
+                limit,
+                &settings,
+            )
+            .await
+        })
+        .await
+}
+#[tauri::command]
 async fn browse_remote_artist(
     state: State<'_, AppState>,
     artist_id: String,
@@ -9334,7 +9358,7 @@ pub fn run() {
             submit_backup_checkpoint,
             inspect_backup_settings,
             apply_backup_settings,
-            list_track_files,set_preferred_track_file,set_remote_playlist_write_sync_enabled,remote_playlist_connection_status,connect_remote_playlist_provider,disconnect_remote_playlist_provider,list_remote_playlists,browse_remote_playlist,browse_remote_artist,browse_remote_artist_tracks,browse_remote_album_tracks,prepare_spotify_recording_crosswalk,search_remote_playlists,cancel_remote_read,repair_spotify_durations_public,cancel_public_spotify_duration_repair,public_spotify_duration_repair_running,list_remote_playlist_bindings,import_remote_playlists,get_remote_playlist_import_job,cancel_remote_playlist_import,refresh_remote_playlist_binding,get_remote_playlist_sync_preview,search_remote_playlist_writeback_candidates,apply_remote_playlist_sync_preview,get_managed_provider_session_status,start_managed_provider_login,start_managed_provider_background,stop_managed_provider_session,confirm_managed_provider_account,create_verification_playlist,create_youtube_handoff_pairing_code,
+            list_track_files,set_preferred_track_file,set_remote_playlist_write_sync_enabled,remote_playlist_connection_status,connect_remote_playlist_provider,disconnect_remote_playlist_provider,list_remote_playlists,browse_remote_playlist,browse_youtube_channel_videos,browse_remote_artist,browse_remote_artist_tracks,browse_remote_album_tracks,prepare_spotify_recording_crosswalk,search_remote_playlists,cancel_remote_read,repair_spotify_durations_public,cancel_public_spotify_duration_repair,public_spotify_duration_repair_running,list_remote_playlist_bindings,import_remote_playlists,get_remote_playlist_import_job,cancel_remote_playlist_import,refresh_remote_playlist_binding,get_remote_playlist_sync_preview,search_remote_playlist_writeback_candidates,apply_remote_playlist_sync_preview,get_managed_provider_session_status,start_managed_provider_login,start_managed_provider_background,stop_managed_provider_session,confirm_managed_provider_account,create_verification_playlist,create_youtube_handoff_pairing_code,
             inspect_backup, consume_import_drop, create_backup, estimate_backup, get_backup_job, get_active_backup_job, cancel_backup_job, restore_backup, get_restore_work_policy, review_restored_automatic_work, choose_backup_restore_root, get_backup_schedule, set_backup_schedule, choose_backup_schedule_destination, get_backup_frontend_preferences, ack_backup_frontend_preferences, get_backup_playback_restore, ack_backup_playback_restore,
             get_release_setup, complete_release_setup, get_radio_recognition, set_radio_recognition, choose_music_directory,
             migrate_native_playback, get_playback_snapshot, playback_command,

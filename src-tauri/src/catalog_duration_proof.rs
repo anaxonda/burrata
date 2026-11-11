@@ -1,5 +1,7 @@
 //! Recording-scoped independent catalog evidence; never library tag updates.
 use super::*;
+#[path = "discogs_apple_duration_crosswalk.rs"]
+pub(crate) mod discogs_apple_duration_crosswalk;
 const CACHE: &str = "playback.catalog-duration.v1";
 fn trace_stage(stage: &str, started: std::time::Instant, details: Value) {
     if std::env::var("BURRATA_PLAYBACK_TRACE").is_ok_and(|value| value == "1") {

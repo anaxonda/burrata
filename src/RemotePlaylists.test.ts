@@ -12,6 +12,8 @@ let destroy: (() => void) | undefined;
 beforeEach(() => {
   providerNavigationSnapshots.clear();
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 1; });
+  vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function(this: HTMLDialogElement) { this.setAttribute("open", ""); } });
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); destroy?.(); destroy = undefined; document.body.innerHTML = ""; });
 async function settle() { for (let i = 0; i < 10; i++) await Promise.resolve(); await tick(); }
@@ -20,7 +22,7 @@ function deferred<T = unknown>() {
   const promise = new Promise<T>(done => { resolve = done; });
   return { promise, resolve };
 }
-function render(call: (command: string, args?: Record<string, unknown>) => Promise<unknown>, props: { onClose?: () => void; initialOwner?: string; initialPlaylistUrl?: string; initialProvider?: "spotify" | "youtube"; profileOnly?: boolean; onBrowseOwner?: (provider: "spotify" | "youtube", ownerUrl: string) => void } = {}) {
+function render(call: (command: string, args?: Record<string, unknown>) => Promise<unknown>, props: { onClose?: () => void; initialOwner?: string; initialPlaylistUrl?: string; initialProvider?: "spotify" | "youtube"; profileOnly?: boolean; onBrowseOwner?: (provider: "spotify" | "youtube", ownerUrl: string) => void; onOpenPlaylist?: (provider: "spotify" | "youtube", url: string) => void; onPlay?: (track: unknown, tracks: unknown[], index: number) => void; onQueue?: (track: unknown) => void; onNext?: (track: unknown) => void; onDownload?: (track: unknown) => void; onFavorite?: (track: unknown) => void; onPlaylist?: (track: unknown) => void; onQueueTracks?: (tracks: unknown[], mode: "append" | "next") => void; onAddSelectedToPlaylist?: (tracks: unknown[]) => void } = {}) {
   const target = document.createElement("div"); document.body.append(target);
   const instance = mount(RemotePlaylists, { target, props: { call, onImported: vi.fn(), initialProvider: "spotify", ...props } });
   destroy = () => unmount(instance);
@@ -28,6 +30,188 @@ function render(call: (command: string, args?: Record<string, unknown>) => Promi
 }
 
 describe("RemotePlaylists", () => {
+  const channelId = "UC8TZwtZ17WKFJSmwTZQpBTA";
+  const upload = (id = "s6G2q4zNDuk", title = "Dub, Dancehall & Lovers Rock with Vanilla") => ({
+    id: `youtube:${id}`, provider: "youtube", providerId: id,
+    sourceUrl: `https://www.youtube.com/watch?v=${id}`, artist: "", title,
+    favorite: false, durationSeconds: 2836, artworkUrl: null,
+    provenance: { sourceKind: "youtubeChannelUpload", playbackMode: "source", identity: "direct YouTube upload; recording artist unverified", uploaderChannelId: channelId, uploaderChannelTitle: "MAJ" },
+  });
+
+  it("opens a YouTube channel on Videos, pages exact source uploads, and shares TrackList Play", async () => {
+    const first = upload();
+    const second = upload("_QcW2UT2QKs", "My Autumn Soundtrack with John Henriksson (Piano Piano)");
+    const call = vi.fn(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "browse_youtube_channel_videos") return args?.cursor
+        ? { channelId, title: "MAJ", url: `https://www.youtube.com/channel/${channelId}`, tracks: [second], nextCursor: null, complete: true, warnings: [] }
+        : { channelId, title: "MAJ", url: `https://www.youtube.com/channel/${channelId}`, tracks: [first], nextCursor: "offset-25", complete: false, warnings: [] };
+      if (command === "list_remote_playlists") return { items: [] };
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const onPlay = vi.fn();
+    const target = render(call, { initialProvider: "youtube", initialOwner: `https://www.youtube.com/channel/${channelId}`, profileOnly: true, onPlay });
+    await settle();
+    expect(target.querySelector('[aria-label="YouTube channel content"] [aria-pressed="true"]')?.textContent).toBe("Videos");
+    expect(call).toHaveBeenCalledWith("browse_youtube_channel_videos", expect.objectContaining({ ownerId: `https://www.youtube.com/channel/${channelId}`, limit: 25, requestId: expect.any(String) }));
+    expect(target.querySelector('[aria-label="MAJ videos"]')).not.toBeNull();
+    expect(target.textContent).toContain("Uploaded by MAJ · recording artist unverified");
+    expect(target.textContent).not.toContain("Artist: MAJ");
+    target.querySelector<HTMLButtonElement>('[aria-label="Play Dub, Dancehall & Lovers Rock with Vanilla"]')!.click();
+    expect(onPlay).toHaveBeenCalledWith(first, [first], 0);
+    target.querySelector<HTMLButtonElement>('.remote-more')!.click(); await settle();
+    expect(target.querySelectorAll("li[data-track-index]")).toHaveLength(2);
+    expect(target.textContent).toContain("My Autumn Soundtrack with John Henriksson (Piano Piano)");
+    expect(call.mock.calls.filter(([command]) => command === "browse_youtube_channel_videos")).toHaveLength(2);
+    expect(call.mock.calls.some(([command]) => /import_remote|create_.*playlist|apply_remote_playlist/.test(command))).toBe(false);
+  });
+
+  it("keeps the Playlists tab available from a channel videos view", async () => {
+    const call = vi.fn(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "browse_youtube_channel_videos") return { channelId, title: "MAJ", url: `https://www.youtube.com/channel/${channelId}`, tracks: [], nextCursor: null, complete: true, warnings: [] };
+      if (command === "list_remote_playlists") return { items: [{ id: "playlist-1", title: "Public playlist", url: "https://www.youtube.com/playlist?list=PL1" }], complete: true };
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const target = render(call, { initialProvider: "youtube", initialOwner: `https://www.youtube.com/channel/${channelId}`, profileOnly: true });
+    await settle();
+    expect(target.textContent).toContain("This channel has no public videos.");
+    target.querySelector<HTMLButtonElement>('[aria-label="YouTube channel content"] button:nth-child(2)')!.click(); await settle();
+    expect(target.querySelector('[aria-label="Browse Public playlist"]')).not.toBeNull();
+    expect(call).toHaveBeenCalledWith("list_remote_playlists", expect.objectContaining({ provider: "youtube", ownerId: `https://www.youtube.com/channel/${channelId}`, requestId: expect.any(String) }));
+  });
+
+  it("defaults generic YouTube owner routes to Videos and keeps uploader text out of artist metadata", async () => {
+    const first = upload();
+    const call = vi.fn(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "get_managed_provider_session_status") return { youtubeAccountId: "public-read", accountRevisions: { youtube: 1 } };
+      if (command === "list_remote_playlist_bindings") return [];
+      if (command === "browse_youtube_channel_videos") return { channelId, title: "MAJ", url: `https://www.youtube.com/channel/${channelId}`, tracks: [first], nextCursor: null, complete: true, warnings: [] };
+      if (command === "list_remote_playlists") return { items: [{ id: "channel-playlist", title: "Channel playlist", url: "https://www.youtube.com/playlist?list=PL1" }], complete: true };
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const target = render(call, { initialProvider: "youtube", initialOwner: channelId });
+    await settle();
+    expect(target.querySelector('[aria-label="YouTube channel content"] [aria-pressed="true"]')?.textContent).toBe("Videos");
+    expect(target.querySelector('[aria-label="YouTube channel"]')).not.toBeNull();
+    expect(target.querySelector(".artist-link")).toBeNull();
+    expect(target.textContent).toContain("Uploaded by MAJ · recording artist unverified");
+    target.querySelector<HTMLButtonElement>('[aria-label="YouTube channel content"] button:nth-child(2)')!.click(); await settle();
+    expect(target.querySelector('[aria-label="Browse Channel playlist"]')).not.toBeNull();
+    target.querySelector<HTMLButtonElement>('[aria-label="YouTube channel content"] button:nth-child(1)')!.click(); await settle();
+    expect(target.querySelectorAll("li[data-track-index]")).toHaveLength(1);
+  });
+
+  it("cancels a stale channel page when switching to Playlists", async () => {
+    const deferredPage = deferred<unknown>();
+    const call = vi.fn(async (command: string) => {
+      if (command === "get_managed_provider_session_status") return { youtubeAccountId: "public-read", accountRevisions: { youtube: 1 } };
+      if (command === "list_remote_playlist_bindings") return [];
+      if (command === "browse_youtube_channel_videos") return deferredPage.promise;
+      if (command === "list_remote_playlists") return { items: [{ id: "channel-playlist", title: "Channel playlist", url: "https://www.youtube.com/playlist?list=PL1" }], complete: true };
+      if (command === "cancel_remote_read") return null;
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const target = render(call, { initialProvider: "youtube", initialOwner: channelId, profileOnly: true }); await settle();
+    target.querySelector<HTMLButtonElement>('[aria-label="YouTube channel content"] button:nth-child(2)')!.click(); await settle();
+    expect(call).toHaveBeenCalledWith("cancel_remote_read", expect.objectContaining({ requestId: expect.any(String) }));
+    deferredPage.resolve({ channelId, title: "MAJ", url: `https://www.youtube.com/channel/${channelId}`, tracks: [upload()], nextCursor: null, complete: true, warnings: [] }); await settle();
+    expect(target.querySelector('[aria-label="Browse Channel playlist"]')).not.toBeNull();
+    expect(target.querySelectorAll("li[data-track-index]")).toHaveLength(0);
+  });
+
+  it("restores the Playlists tab when returning to a channel from playlist detail", async () => {
+    const call = vi.fn(async (command: string) => {
+      if (command === "get_managed_provider_session_status") return { youtubeAccountId: "public-read", accountRevisions: { youtube: 1 } };
+      if (command === "list_remote_playlist_bindings") return [];
+      if (command === "browse_youtube_channel_videos") return { channelId, title: "MAJ", url: `https://www.youtube.com/channel/${channelId}`, tracks: [upload()], nextCursor: null, complete: true, warnings: [] };
+      if (command === "list_remote_playlists") return { items: [{ id: "channel-playlist", title: "Channel playlist", url: "https://www.youtube.com/playlist?list=PL1" }], complete: true };
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const onOpenPlaylist = vi.fn();
+    const first = render(call, { initialProvider: "youtube", initialOwner: channelId, profileOnly: true, onOpenPlaylist }); await settle();
+    first.querySelector<HTMLButtonElement>('[aria-label="YouTube channel content"] button:nth-child(2)')!.click(); await settle();
+    first.querySelector<HTMLButtonElement>('[aria-label="Browse Channel playlist"]')!.click();
+    expect(onOpenPlaylist).toHaveBeenCalledWith("youtube", "https://www.youtube.com/playlist?list=PL1");
+    destroy?.(); destroy = undefined;
+    const returned = render(call, { initialProvider: "youtube", initialOwner: channelId, profileOnly: true }); await settle();
+    expect(returned.querySelector('[aria-label="YouTube channel content"] [aria-pressed="true"]')?.textContent).toBe("Playlists");
+    expect(returned.querySelector('[aria-label="Browse Channel playlist"]')).not.toBeNull();
+    expect(call.mock.calls.filter(([command]) => command === "list_remote_playlists")).toHaveLength(1);
+  });
+
+  it("resolves an existing public @handle route without treating it as an empty channel", async () => {
+    const call = vi.fn(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "browse_youtube_channel_videos") return { channelId, title: "MAJ", url: `https://www.youtube.com/channel/${channelId}`, tracks: [upload()], nextCursor: null, complete: true, warnings: [] };
+      if (command === "list_remote_playlists") return { items: [] };
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const target = render(call, { initialProvider: "youtube", initialOwner: "https://www.youtube.com/@MyAnalogJournal/videos", profileOnly: true });
+    await settle();
+    expect(call).toHaveBeenCalledWith("browse_youtube_channel_videos", expect.objectContaining({ ownerId: "https://www.youtube.com/@MyAnalogJournal", requestId: expect.any(String) }));
+    expect(target.textContent).toContain("MAJ");
+    expect(target.querySelectorAll("li[data-track-index]")).toHaveLength(1);
+    expect(target.textContent).not.toContain("This channel has no public videos.");
+  });
+
+  it("passes selection and queue actions through to the shared TrackList controls", async () => {
+    const first = upload();
+    const call = vi.fn(async (command: string) => {
+      if (command === "browse_youtube_channel_videos") return { channelId, title: "MAJ", url: `https://www.youtube.com/channel/${channelId}`, tracks: [first], nextCursor: null, complete: true, warnings: [] };
+      if (command === "list_remote_playlists") return { items: [] };
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const onQueueTracks = vi.fn(), onAddSelectedToPlaylist = vi.fn();
+    const target = render(call, { initialProvider: "youtube", initialOwner: channelId, profileOnly: true, onQueueTracks, onAddSelectedToPlaylist });
+    await settle();
+    target.querySelector<HTMLButtonElement>('[aria-label="Select tracks"]')!.click(); await settle();
+    target.querySelector<HTMLButtonElement>('[aria-label="Select Dub, Dancehall & Lovers Rock with Vanilla for playlist"]')!.click(); await settle();
+    target.querySelector<HTMLButtonElement>(".queue-selected")!.click(); await settle();
+    expect(onQueueTracks).toHaveBeenCalledWith([first], "append");
+    target.querySelector<HTMLButtonElement>(".add-selected")!.click(); await settle();
+    expect(onAddSelectedToPlaylist).toHaveBeenCalledWith([first]);
+  });
+
+  it("preserves direct-upload play and per-track queue/save actions through TrackList", async () => {
+    const first = upload();
+    const call = vi.fn(async (command: string) => {
+      if (command === "browse_youtube_channel_videos") return { channelId, title: "MAJ", url: `https://www.youtube.com/channel/${channelId}`, tracks: [first], nextCursor: null, complete: true, warnings: [] };
+      if (command === "list_remote_playlist_bindings") return [];
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const onPlay = vi.fn(), onQueue = vi.fn(), onNext = vi.fn(), onFavorite = vi.fn(), onDownload = vi.fn(), onPlaylist = vi.fn();
+    const target = render(call, { initialProvider: "youtube", initialOwner: channelId, profileOnly: true, onPlay, onQueue, onNext, onFavorite, onDownload, onPlaylist });
+    await settle();
+    target.querySelector<HTMLButtonElement>('[aria-label="Play Dub, Dancehall & Lovers Rock with Vanilla"]')!.click();
+    expect(onPlay).toHaveBeenCalledWith(first, [first], 0);
+    target.querySelector<HTMLButtonElement>('[aria-label="Add Dub, Dancehall & Lovers Rock with Vanilla to favorites"]')!.click();
+    target.querySelector<HTMLButtonElement>('[aria-label="Download Dub, Dancehall & Lovers Rock with Vanilla"]')!.click();
+    expect(onFavorite).toHaveBeenCalledWith(first);
+    expect(onDownload).toHaveBeenCalledWith(first);
+    const actions = () => target.querySelector<HTMLButtonElement>('[aria-label="Actions for Dub, Dancehall & Lovers Rock with Vanilla"]')!.click();
+    actions(); await settle();
+    [...target.querySelectorAll<HTMLButtonElement>('dialog[aria-label="Actions for Dub, Dancehall & Lovers Rock with Vanilla"] button')].find(button => button.textContent?.includes("Add to queue"))!.click(); await settle();
+    expect(onQueue).toHaveBeenCalledWith(first);
+    actions(); await settle();
+    [...target.querySelectorAll<HTMLButtonElement>('dialog[aria-label="Actions for Dub, Dancehall & Lovers Rock with Vanilla"] button')].find(button => button.textContent?.includes("Play next"))!.click(); await settle();
+    expect(onNext).toHaveBeenCalledWith(first);
+    actions(); await settle();
+    [...target.querySelectorAll<HTMLButtonElement>('dialog[aria-label="Actions for Dub, Dancehall & Lovers Rock with Vanilla"] button')].find(button => button.textContent?.includes("Add to playlist"))!.click(); await settle();
+    expect(onPlaylist).toHaveBeenCalledWith(first);
+    expect(first.sourceUrl).toBe(`https://www.youtube.com/watch?v=${first.providerId}`);
+  });
+
+  it("does not present malformed or mismatched upload identity as channel content", async () => {
+    const bad = { ...upload(), sourceUrl: "https://www.youtube.com/watch?v=otherVideo" };
+    const call = vi.fn(async (command: string) => {
+      if (command === "browse_youtube_channel_videos") return { channelId, title: "MAJ", url: `https://www.youtube.com/channel/${channelId}`, tracks: [bad], nextCursor: null, complete: true, warnings: [] };
+      if (command === "list_remote_playlists") return { items: [] };
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const target = render(call, { initialProvider: "youtube", initialOwner: channelId, profileOnly: true });
+    await settle();
+    expect(target.querySelector('[role="alert"]')?.textContent).toContain("without exact YouTube source identity");
+    expect(target.querySelectorAll("li[data-track-index]")).toHaveLength(0);
+  });
+
   it("keeps the close action in the provider row with accessible labels and callback", async () => {
     const onClose = vi.fn();
     const call = vi.fn(async (command: string) => {
@@ -625,17 +809,16 @@ describe("RemotePlaylists", () => {
   it("opens a YouTube channel owner route with the channel URL on its initial browse", async () => {
     const call = vi.fn(async (command: string, args?: Record<string, unknown>) => {
       if (command === "list_remote_playlist_bindings") return [];
-      if (command === "list_remote_playlists") return { provider: "youtube", items: [], nextCursor: null, complete: true };
+      if (command === "browse_youtube_channel_videos") return { channelId: "UC1234567890123456789012", title: "Test Channel", url: "https://www.youtube.com/channel/UC1234567890123456789012", tracks: [], nextCursor: null, complete: true, warnings: [] };
       throw new Error(`Unexpected command ${command}`);
     });
     const channelUrl = "https://www.youtube.com/channel/UC1234567890123456789012";
     const target = render(call, { initialProvider: "youtube", initialOwner: channelUrl, profileOnly: true });
     await settle();
-    expect(call).toHaveBeenCalledWith("list_remote_playlists", expect.objectContaining({ provider: "youtube", ownerId: channelUrl, requestId: expect.any(String) }));
-    expect(target.querySelector('[aria-label="YouTube playlists"]')).not.toBeNull();
+    expect(call).toHaveBeenCalledWith("browse_youtube_channel_videos", expect.objectContaining({ ownerId: channelUrl, requestId: expect.any(String) }));
+    expect(target.querySelector('[aria-label="YouTube channel"]')).not.toBeNull();
     expect(target.textContent).toContain("YouTube channel");
-    expect(target.textContent).toContain(channelUrl);
-    expect(target.textContent).toContain("No public playlists found for this YouTube channel.");
+    expect(target.textContent).toContain("This channel has no public videos.");
     const openChannel = target.querySelector<HTMLAnchorElement>(".remote-open-channel")!;
     expect(openChannel.href).toBe(channelUrl);
     expect(openChannel.target).toBe("_blank");
@@ -647,27 +830,27 @@ describe("RemotePlaylists", () => {
     let browseAttempts = 0;
     const call = vi.fn(async (command: string) => {
       if (command === "list_remote_playlist_bindings") return [];
-      if (command === "list_remote_playlists") {
+      if (command === "browse_youtube_channel_videos") {
         browseAttempts++;
         if (browseAttempts === 1) throw new Error("PROVIDER_CHANGED: YouTube returned an unsupported response.");
-        return { provider: "youtube", items: [], nextCursor: null, complete: true };
+        return { channelId: "UC8TZwtZ17WKFJSmwTZQpBTA", title: "MAJ", url: "https://www.youtube.com/channel/UC8TZwtZ17WKFJSmwTZQpBTA", tracks: [], nextCursor: null, complete: true, warnings: [] };
       }
       throw new Error(`Unexpected command ${command}`);
     });
     const target = render(call, { initialProvider: "youtube", initialOwner: channelUrl, profileOnly: true });
     await settle();
 
-    expect(target.querySelector('[role="alert"]')?.textContent).toContain("Could not browse YouTube playlists");
+    expect(target.querySelector('[role="alert"]')?.textContent).toContain("Could not load YouTube channel videos");
     expect(target.querySelector('[role="alert"]')?.textContent).toContain("PROVIDER_CHANGED");
     expect(target.textContent).toContain(channelUrl);
     expect(target.querySelector(".remote-open-channel")?.getAttribute("href")).toBe(channelUrl);
-    expect(target.textContent).not.toContain("No public playlists found for this YouTube channel.");
+    expect(target.textContent).not.toContain("This channel has no public videos.");
 
     target.querySelector<HTMLButtonElement>(".remote-profile-heading button")!.click();
     await settle();
     expect(browseAttempts).toBe(2);
     expect(target.querySelector('[role="alert"]')).toBeNull();
-    expect(target.textContent).toContain("No public playlists found for this YouTube channel.");
+    expect(target.textContent).toContain("This channel has no public videos.");
   });
 
   it("does not render an external channel link for an untrusted YouTube owner URL", async () => {

@@ -951,7 +951,7 @@ pub trait AcquisitionProvider: Send + Sync {
     ) -> Result<DownloadJob, String>;
 }
 
-fn base_args(settings: &Settings) -> Vec<String> {
+pub(crate) fn base_args(settings: &Settings) -> Vec<String> {
     let mut args = vec![
         "--ignore-config",
         "--no-plugin-dirs",
@@ -1830,6 +1830,22 @@ pub(crate) async fn fetch_youtube_mix_entries(
         .take(recommendation_limit.saturating_add(1))
         .cloned()
         .collect())
+}
+
+/// Run a bounded public metadata listing with the same isolated yt-dlp
+/// process, temporary directory, output cap, and drop-time process-group
+/// cleanup used by other acquisition reads. Dropping this future cancels the
+/// child before its private temporary directory is removed.
+pub(crate) async fn fetch_public_youtube_listing(
+    settings: &Settings,
+    args: Vec<String>,
+    timeout: Duration,
+) -> Result<String, String> {
+    if timeout.is_zero() || timeout > Duration::from_secs(45) {
+        return Err("Public YouTube listing timeout is out of range".into());
+    }
+    let (_, cancel) = idle_cancel();
+    run_tool(settings, args, cancel, timeout, |_| {}).await
 }
 
 pub(crate) fn youtube_video_id(raw: &str) -> Option<String> {
@@ -3994,10 +4010,41 @@ fn preview_audio_cache_ttl_at(raw_url: &str, now: i64) -> Duration {
         }
     }
     let Some(expiry) = expiries.into_iter().min() else {
-        return PREVIEW_AUDIO_CACHE_TTL;
+        return if opaque_bandcamp_stream_url(&url) {
+            Duration::ZERO
+        } else {
+            PREVIEW_AUDIO_CACHE_TTL
+        };
     };
     Duration::from_secs(expiry.saturating_sub(now).saturating_sub(30).max(0) as u64)
         .min(PREVIEW_AUDIO_CACHE_TTL)
+}
+
+/// Bandcamp CDN stream tokens are opaque and do not expose a trustworthy
+/// expiry. Never give these signed URLs the generic preview cache lifetime.
+fn opaque_bandcamp_stream_url(url: &url::Url) -> bool {
+    let host = url.host_str().unwrap_or_default();
+    let numbered_bcbits_host = host
+        .strip_prefix('t')
+        .and_then(|rest| rest.strip_suffix(".bcbits.com"))
+        .is_some_and(|number| {
+            !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit())
+        });
+    let segments = url
+        .path_segments()
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+    url.scheme() == "https"
+        && url.port().is_none()
+        && numbered_bcbits_host
+        && segments.len() == 4
+        && segments[0] == "stream"
+        && segments[1].len() == 32
+        && segments[1].bytes().all(|byte| byte.is_ascii_hexdigit())
+        && segments[2] == "mp3-128"
+        && !segments[3].is_empty()
+        && segments[3].bytes().all(|byte| byte.is_ascii_digit())
 }
 
 impl CandidateSearchCache {
@@ -7309,9 +7356,24 @@ impl AcquisitionManager {
     pub(crate) async fn prepare_catalog_duration_track(
         &self,
         track: &Track,
+        policy: crate::discogs_duration_orchestration::CatalogDurationPolicy,
         cancel: watch::Receiver<bool>,
         deadline: tokio::time::Instant,
     ) -> Result<Option<crate::remote_playlists::PreparedCatalogDuration>, String> {
+        if track.provider == "catalog"
+            && track.provenance["catalogProvider"] == "discogs"
+            && track.provenance["sourceKind"] == "catalog"
+        {
+            return crate::discogs_duration_orchestration::prepare(
+                &self.inner.store,
+                &self.inner.connections,
+                track,
+                policy,
+                cancel,
+                deadline,
+            )
+            .await;
+        }
         let service = self
             .inner
             .remote_playlists
@@ -20523,6 +20585,45 @@ echo "$result"
             .await
             .unwrap();
         assert_eq!(second.url, "https://cdn.example/audio?expire=4102444800");
+    }
+
+    #[tokio::test]
+    async fn opaque_bandcamp_stream_token_is_not_warm_cached() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let url = "https://t4.bcbits.com/stream/0123456789abcdef0123456789abcdef/mp3-128/2065435071?token=opaque";
+        assert_eq!(preview_audio_cache_ttl(url), Duration::ZERO);
+        let trusted_expiry = format!("{url}&expire=4102444800");
+        assert!(preview_audio_cache_ttl(&trusted_expiry) > Duration::ZERO);
+
+        let cache = PreviewAudioCache::default();
+        let calls = AtomicUsize::new(0);
+        for _ in 0..2 {
+            let audio_url = url.to_owned();
+            cache
+                .get_or_resolve("exact-bandcamp-source".into(), || async {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Ok(PreviewAudio {
+                        provider_session: None,
+                        url: audio_url,
+                        mime_type: "audio/mpeg".into(),
+                        codec: Some("mp3".into()),
+                        bitrate_kbps: Some(128.0),
+                        duration_seconds: Some(197.76),
+                        selected_format_id: Some("mp3-128".into()),
+                        selected_format_has_video: false,
+                        source_metadata: None,
+                        resolved_title: None,
+                        resolved_provider_id: None,
+                        chapters: Some(vec![]),
+                        expected_content_length: Some(1_000_000),
+                        headers: vec![],
+                    })
+                })
+                .await
+                .unwrap();
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]

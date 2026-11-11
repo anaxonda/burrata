@@ -354,6 +354,94 @@ impl ArtistService {
             .await
     }
 
+    /// Fetch raw Discogs release JSON for one playback proof. This deliberately
+    /// bypasses the normal artist/release cache and never writes the response;
+    /// callers keep their own fingerprinted, short-lived evidence cache.
+    pub(crate) async fn fresh_discogs_release_for_playback(
+        &self,
+        release_id: &str,
+        token: Option<&str>,
+        cancel: tokio::sync::watch::Receiver<bool>,
+        deadline: tokio::time::Instant,
+    ) -> Result<Value, String> {
+        if release_id.is_empty()
+            || release_id.len() > 20
+            || !release_id.bytes().all(|byte| byte.is_ascii_digit())
+            || release_id
+                .parse::<u64>()
+                .ok()
+                .filter(|id| *id > 0)
+                .is_none()
+            || token.is_some_and(|token| token.trim().is_empty())
+        {
+            return Err("Discogs playback metadata request is invalid".into());
+        }
+        let mut url = Url::parse(&format!("{}/releases/{release_id}", self.endpoints.discogs))
+            .map_err(|_| "Discogs playback metadata endpoint is invalid")?;
+        url.query_pairs_mut().append_pair("curr_abbr", "USD");
+        let client = &self.client;
+        let token = token.map(str::to_owned);
+        let work = async move {
+            for attempt in 0..3 {
+                discogs_rate_limit().await;
+                let mut request = client.get(url.clone());
+                if let Some(token) = token.as_deref() {
+                    request =
+                        request.header(header::AUTHORIZATION, format!("Discogs token={token}"));
+                }
+                crate::diagnostic_metrics::record_http_send_attempt();
+                let response = request
+                    .send()
+                    .await
+                    .map_err(|_| "Discogs playback metadata request failed".to_owned())?;
+                let status = response.status();
+                if matches!(status.as_u16(), 429 | 502 | 503 | 504) && attempt < 2 {
+                    let retry_after = response
+                        .headers()
+                        .get(header::RETRY_AFTER)
+                        .and_then(|value| value.to_str().ok())
+                        .and_then(|value| value.parse::<u64>().ok())
+                        .unwrap_or(1u64 << attempt)
+                        .clamp(1, 2);
+                    tokio::time::sleep(Duration::from_secs(retry_after)).await;
+                    continue;
+                }
+                if !status.is_success() {
+                    return Err(format!("Discogs playback metadata returned HTTP {status}"));
+                }
+                const BODY_LIMIT: usize = 512 * 1024;
+                if response
+                    .content_length()
+                    .is_some_and(|length| length > BODY_LIMIT as u64)
+                {
+                    return Err("Discogs playback metadata exceeds size limit".into());
+                }
+                let mut response = response;
+                let mut bytes = Vec::new();
+                while let Some(chunk) = response
+                    .chunk()
+                    .await
+                    .map_err(|_| "Discogs playback metadata response failed".to_owned())?
+                {
+                    if bytes.len().saturating_add(chunk.len()) > BODY_LIMIT {
+                        return Err("Discogs playback metadata exceeds size limit".into());
+                    }
+                    bytes.extend_from_slice(&chunk);
+                }
+                return serde_json::from_slice(&bytes)
+                    .map_err(|_| "Discogs playback metadata JSON is invalid".into());
+            }
+            Err("Discogs playback metadata retries were exhausted".into())
+        };
+        tokio::select! {
+            biased;
+            _ = crate::playback_sources::wait_for_cancellation(cancel.clone()) => Err("Cancelled".into()),
+            result = tokio::time::timeout_at(deadline, work) => {
+                result.map_err(|_| "Discogs playback metadata exceeded its deadline".to_owned())?
+            }
+        }
+    }
+
     async fn monochrome_json(
         &self,
         path: &str,
@@ -4823,6 +4911,62 @@ mod tests {
     }
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[tokio::test]
+    async fn fresh_public_discogs_release_uses_optional_auth() {
+        use axum::{http::HeaderMap, routing::get, Json, Router};
+
+        let seen = Arc::new(std::sync::Mutex::new(Vec::<Option<String>>::new()));
+        let capture = seen.clone();
+        let app = Router::new().route(
+            "/releases/{id}",
+            get(move |headers: HeaderMap| {
+                let capture = capture.clone();
+                async move {
+                    let authorization = headers
+                        .get(header::AUTHORIZATION)
+                        .and_then(|value| value.to_str().ok())
+                        .map(str::to_owned);
+                    capture.lock().unwrap().push(authorization);
+                    Json(json!({"id":38549214,"title":"PROLIFIC"}))
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let directory = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&directory.path().join("discogs-public.sqlite")).unwrap());
+        let mut service = ArtistService::new(store.clone()).unwrap();
+        service.endpoints.discogs = format!("http://{address}");
+        let (_stop, cancel) = tokio::sync::watch::channel(false);
+
+        let anonymous = service
+            .fresh_discogs_release_for_playback(
+                "38549214",
+                None,
+                cancel.clone(),
+                tokio::time::Instant::now() + Duration::from_secs(5),
+            )
+            .await
+            .unwrap();
+        assert_eq!(anonymous["id"], 38549214);
+        let authenticated = service
+            .fresh_discogs_release_for_playback(
+                "38549214",
+                Some("unit-test-token"),
+                cancel,
+                tokio::time::Instant::now() + Duration::from_secs(5),
+            )
+            .await
+            .unwrap();
+        assert_eq!(authenticated["id"], 38549214);
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![None, Some("Discogs token=unit-test-token".to_owned())]
+        );
+        server.abort();
+    }
 
     #[test]
     fn monochrome_artist_release_and_track_adapters_keep_provider_identity_and_catalog_only_semantics(

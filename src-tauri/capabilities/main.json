@@ -278,6 +278,7 @@
     "allow-disconnect-remote-playlist-provider",
     "allow-list-remote-playlists",
     "allow-browse-remote-playlist",
+    "allow-browse-youtube-channel-videos",
     "allow-browse-remote-artist",
     "allow-browse-remote-artist-tracks",
     "allow-browse-remote-album-tracks",

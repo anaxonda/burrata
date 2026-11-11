@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-browse-youtube-channel-videos"
+description = "Enables the browse_youtube_channel_videos command without any pre-configured scope."
+commands.allow = ["browse_youtube_channel_videos"]
+
+[[permission]]
+identifier = "deny-browse-youtube-channel-videos"
+description = "Denies the browse_youtube_channel_videos command without any pre-configured scope."
+commands.deny = ["browse_youtube_channel_videos"]

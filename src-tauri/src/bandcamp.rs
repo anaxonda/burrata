@@ -1,6 +1,7 @@
 //! Resolve publicly streamable artist-hosted Bandcamp tracks.
 //! Automatic discovery and recording verification live in bandcamp_fallback.
 
+use crate::models::{Candidate, Track};
 use reqwest::{redirect::Policy, Client, Url};
 use serde_json::Value;
 use std::{net::SocketAddr, time::Duration};
@@ -43,6 +44,217 @@ pub(crate) fn validate_track_page_url(raw: &str) -> Result<Url, String> {
 pub(crate) fn validate_album_page_url(raw: &str) -> Result<Url, String> {
     validate_page_url(raw, "album")
 }
+
+/// Whether this request has enough saved, exact Bandcamp identity to justify a
+/// fresh page fetch for direct-source playback. This deliberately ignores
+/// candidate source metadata; it is only a request-side gate.
+pub(crate) fn is_exact_direct_source_request(track: &Track, candidate: &Candidate) -> bool {
+    let Some(provider_id) = canonical_numeric_track_id(track) else {
+        return false;
+    };
+    if candidate.provider != "bandcamp"
+        || !candidate.id.is_empty() && candidate.id != track.id
+        || candidate.url != track.source_url
+        || track.playback_range.is_some()
+        || track.local_path.is_some()
+        || track.asset_id.is_some()
+        || track.duration_seconds.is_some()
+        || track
+            .version
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+        || crate::recording_identity::parse_title(&track.title)
+            .version
+            .is_some()
+        || has_isrc_evidence(track)
+        || track.title.trim().is_empty()
+        || track.artist.trim().is_empty()
+        || track.title.len() > 512
+        || track.artist.len() > 512
+        || !has_explicit_source_intent(track)
+        || has_manual_identity_conflict(track)
+        || has_unverifiable_artist_credits(track)
+        || track.id != format!("bandcamp:{provider_id}")
+    {
+        return false;
+    }
+    let Ok(page) = validate_track_page_url(&track.source_url) else {
+        return false;
+    };
+    page.as_str() == track.source_url && candidate.url == page.as_str()
+}
+
+/// Direct-source proof from one fresh Bandcamp track-page extraction. No
+/// caller or cached candidate metadata participates in this identity check.
+pub(crate) fn exact_direct_source_identity_matches(
+    track: &Track,
+    candidate: &Candidate,
+    audio: &crate::acquisition::PreviewAudio,
+) -> bool {
+    if !is_exact_direct_source_request(track, candidate) || candidate.id != track.id {
+        return false;
+    }
+    let Some(metadata) = audio.source_metadata.as_ref() else {
+        return false;
+    };
+    let Some(track_title) = metadata["track"].as_str() else {
+        return false;
+    };
+    let Some(page_artist) = metadata["artist"].as_str() else {
+        return false;
+    };
+    let Some(resolved_title) = audio.resolved_title.as_deref() else {
+        return false;
+    };
+    let Some(duration) = audio.duration_seconds else {
+        return false;
+    };
+    validate_stream_url(&audio.url, &track.provider_id).is_ok()
+        && metadata["provider"].as_str() == Some("bandcamp")
+        && metadata["identityMetadataUncertain"].as_bool() != Some(true)
+        && audio.resolved_provider_id.as_deref() == Some(track.provider_id.as_str())
+        && crate::matching::normalize(track_title) == crate::matching::normalize(&track.title)
+        && crate::matching::normalize(page_artist) == crate::matching::normalize(&track.artist)
+        && singleton_primary_credit_matches(track, page_artist)
+        && crate::matching::normalize(resolved_title)
+            == crate::matching::normalize(&format!("{} - {}", track.artist, track.title))
+        && duration.is_finite()
+        && (1.0..=86_400.0).contains(&duration)
+}
+
+fn canonical_numeric_track_id(track: &Track) -> Option<&str> {
+    let value = track.provider_id.as_str();
+    let numeric = value.parse::<u64>().ok().filter(|id| *id > 0)?;
+    (numeric.to_string() == value).then_some(value)
+}
+
+fn has_explicit_source_intent(track: &Track) -> bool {
+    track.provenance["playbackMode"].as_str() == Some("source")
+        || track.provenance["explicitSourceLock"].as_bool() == Some(true)
+        || track.provenance["userSelectedSource"].as_bool() == Some(true)
+}
+
+fn has_manual_identity_conflict(track: &Track) -> bool {
+    let Some(fields) = track.provenance.get("manualFields") else {
+        return false;
+    };
+    let Some(fields) = fields.as_object() else {
+        return !fields.is_null();
+    };
+    ["title", "artist", "artistCredits", "version", "isrc"]
+        .iter()
+        .any(|field| fields.get(*field).is_some_and(|value| value != false))
+}
+
+fn has_isrc_evidence(track: &Track) -> bool {
+    let identity = crate::recording_identity::RecordingIdentity::from_track(track);
+    track
+        .isrc
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty())
+        || identity.isrc.is_some()
+        || identity.identifier_conflict
+        || [
+            track
+                .provenance
+                .get("catalog")
+                .and_then(|value| value.get("isrc")),
+            track
+                .provenance
+                .get("remoteCatalog")
+                .and_then(|value| value.get("isrc")),
+            track
+                .provenance
+                .get("recordingContext")
+                .and_then(|value| value.get("isrc")),
+            track
+                .provenance
+                .get("recognitionIdentifiers")
+                .and_then(|value| value.get("isrc")),
+        ]
+        .into_iter()
+        .flatten()
+        .any(|value| value.as_str().is_some_and(|value| !value.trim().is_empty()))
+        || match track
+            .provenance
+            .get("catalog")
+            .and_then(|value| value.get("isrcs"))
+        {
+            None | Some(Value::Null) => false,
+            Some(Value::Array(values)) => !values.is_empty(),
+            Some(_) => true,
+        }
+}
+
+fn has_unverifiable_artist_credits(track: &Track) -> bool {
+    let identity = crate::recording_identity::RecordingIdentity::from_track(track);
+    identity.credits.len() > 1 || singleton_credit_names(track).is_none()
+}
+
+fn singleton_primary_credit_matches(track: &Track, page_artist: &str) -> bool {
+    let identity = crate::recording_identity::RecordingIdentity::from_track(track);
+    let Some(names) = singleton_credit_names(track) else {
+        return false;
+    };
+    let primary_identity = match identity.credits.as_slice() {
+        [] => names.is_empty(),
+        [credit] => {
+            crate::recording_identity::is_primary_performer_role(&credit.role)
+                && crate::matching::normalize(&credit.name)
+                    == crate::matching::normalize(page_artist)
+        }
+        _ => false,
+    };
+    primary_identity
+        && names
+            .iter()
+            .all(|name| crate::matching::normalize(name) == crate::matching::normalize(page_artist))
+}
+
+fn singleton_credit_names(track: &Track) -> Option<Vec<String>> {
+    let sources = [
+        track.provenance.get("artistCredits"),
+        track
+            .provenance
+            .get("catalog")
+            .and_then(|value| value.get("artists")),
+        track
+            .provenance
+            .get("remoteCatalog")
+            .and_then(|value| value.get("artistRefs")),
+    ];
+    let mut names = Vec::new();
+    for source in sources.into_iter().flatten() {
+        match source {
+            Value::Null => {}
+            Value::Array(rows) if rows.is_empty() => {}
+            Value::Array(rows) if rows.len() == 1 => {
+                let row = rows.first()?;
+                let name = row
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .or_else(|| row.get("creditedAs").and_then(Value::as_str))?
+                    .trim();
+                if name.is_empty() || name.len() > 512 || name.chars().any(char::is_control) {
+                    return None;
+                }
+                if let Some(role) = row.get("role") {
+                    if !role.is_null()
+                        && !role.as_str().is_some_and(|value| {
+                            crate::recording_identity::is_primary_performer_role(value)
+                        })
+                    {
+                        return None;
+                    }
+                }
+                names.push(name.to_owned());
+            }
+            _ => return None,
+        }
+    }
+    Some(names)
+}
+
 fn validate_page_url(raw: &str, kind: &str) -> Result<Url, String> {
     let url = Url::parse(raw).map_err(|_| "Invalid Bandcamp track URL")?;
     let host = url.host_str().ok_or("Invalid Bandcamp track host")?;
@@ -377,6 +589,138 @@ mod tests {
         let no_stream =
             REDACTED_TRACK_PAGE.replace("&quot;streaming&quot;:1", "&quot;streaming&quot;:0");
         assert!(parse_track_page(&no_stream).is_err());
+    }
+
+    fn exact_source_fixture() -> (Track, Candidate, crate::acquisition::PreviewAudio) {
+        let page = "https://lucassanttana.bandcamp.com/track/night-time-in-the-backyard";
+        let track = Track {
+            id: "bandcamp:2065435071".into(),
+            provider: "bandcamp".into(),
+            provider_id: "2065435071".into(),
+            source_url: page.into(),
+            artist: "Lucas Santtana".into(),
+            title: "Night-time in the backyard".into(),
+            duration_seconds: None,
+            provenance: serde_json::json!({
+                "playbackMode":"source",
+                "explicitSourceLock":true,
+            }),
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            id: String::new(),
+            provider: "bandcamp".into(),
+            url: page.into(),
+            title: track.title.clone(),
+            source_metadata: Some(serde_json::json!({"provider":"wrong","artist":"wrong"})),
+            ..Candidate::default()
+        };
+        let audio = crate::acquisition::PreviewAudio {
+            url: "https://t4.bcbits.com/stream/0123456789abcdef0123456789abcdef/mp3-128/2065435071?token=fixture".into(),
+            mime_type: "audio/mpeg".into(),
+            codec: Some("mp3".into()),
+            bitrate_kbps: Some(128.0),
+            duration_seconds: Some(197.76),
+            selected_format_id: Some("mp3-128".into()),
+            selected_format_has_video: false,
+            source_metadata: Some(serde_json::json!({
+                "provider":"bandcamp",
+                "track":"Night-time in the backyard",
+                "artist":"Lucas Santtana",
+            })),
+            resolved_title: Some("Lucas Santtana - Night-time in the backyard".into()),
+            resolved_provider_id: Some("2065435071".into()),
+            chapters: Some(vec![]),
+            expected_content_length: Some(1000000),
+            provider_session: None,
+            headers: vec![],
+        };
+        (track, candidate, audio)
+    }
+
+    #[test]
+    fn exact_direct_source_proof_requires_fresh_bound_provider_identity() {
+        let (track, mut candidate, audio) = exact_source_fixture();
+        assert!(is_exact_direct_source_request(&track, &candidate));
+        candidate.id = track.id.clone();
+        assert!(exact_direct_source_identity_matches(
+            &track, &candidate, &audio
+        ));
+
+        let mut wrong_audio = audio.clone();
+        wrong_audio.resolved_provider_id = Some("2065435072".into());
+        assert!(!exact_direct_source_identity_matches(
+            &track,
+            &candidate,
+            &wrong_audio
+        ));
+        wrong_audio = audio.clone();
+        wrong_audio.source_metadata.as_mut().unwrap()["artist"] = serde_json::json!("Other");
+        assert!(!exact_direct_source_identity_matches(
+            &track,
+            &candidate,
+            &wrong_audio
+        ));
+        wrong_audio = audio.clone();
+        wrong_audio.source_metadata.as_mut().unwrap()["track"] = serde_json::json!("Other");
+        assert!(!exact_direct_source_identity_matches(
+            &track,
+            &candidate,
+            &wrong_audio
+        ));
+        wrong_audio = audio.clone();
+        wrong_audio.duration_seconds = Some(f64::INFINITY);
+        assert!(!exact_direct_source_identity_matches(
+            &track,
+            &candidate,
+            &wrong_audio
+        ));
+
+        let mut wrong_track = track.clone();
+        wrong_track.provider_id = "2065435072".into();
+        assert!(!is_exact_direct_source_request(&wrong_track, &candidate));
+        wrong_track = track.clone();
+        wrong_track.source_url =
+            "https://other.bandcamp.com/track/night-time-in-the-backyard".into();
+        assert!(!is_exact_direct_source_request(&wrong_track, &candidate));
+        wrong_track = track.clone();
+        wrong_track.version = Some("Live".into());
+        assert!(!is_exact_direct_source_request(&wrong_track, &candidate));
+        wrong_track = track.clone();
+        wrong_track.isrc = Some("BRL6M0900003".into());
+        assert!(!is_exact_direct_source_request(&wrong_track, &candidate));
+        wrong_track = track.clone();
+        wrong_track.provenance["recordingContext"] = serde_json::json!({"isrc":"BRL6M0900003"});
+        assert!(!is_exact_direct_source_request(&wrong_track, &candidate));
+        wrong_track = track.clone();
+        wrong_track.provenance["manualFields"] = serde_json::json!({"artist":true});
+        assert!(!is_exact_direct_source_request(&wrong_track, &candidate));
+    }
+
+    #[test]
+    fn exact_direct_source_allows_only_a_matching_single_primary_credit() {
+        let (mut track, mut candidate, audio) = exact_source_fixture();
+        candidate.id = track.id.clone();
+        track.provenance["artistCredits"] = serde_json::json!([
+            {"name":"Lucas Santtana","role":"primary artist"}
+        ]);
+        assert!(exact_direct_source_identity_matches(
+            &track, &candidate, &audio
+        ));
+
+        track.provenance["artistCredits"] = serde_json::json!([
+            {"name":"Lucas Santtana","role":"primary artist"},
+            {"name":"Different Artist","role":"guest"}
+        ]);
+        assert!(!is_exact_direct_source_request(&track, &candidate));
+        track.provenance["artistCredits"] = serde_json::json!([
+            {"name":"Other Artist","role":"primary artist"}
+        ]);
+        assert!(!exact_direct_source_identity_matches(
+            &track, &candidate, &audio
+        ));
+        track.provenance["artistCredits"] = serde_json::json!([{"name":7,"role":"main"}]);
+        assert!(!is_exact_direct_source_request(&track, &candidate));
     }
 
     #[tokio::test]

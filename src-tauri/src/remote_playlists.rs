@@ -27,7 +27,7 @@ use std::{
 type Result<T> = std::result::Result<T, String>;
 
 const ALIAS_HYDRATION_CACHE: &str = "artists.spotify-alias-hydration.v1";
-fn alias_hydration_identity(track: &Track) -> Value {
+pub(crate) fn alias_hydration_identity(track: &Track) -> Value {
     json!({"id":track.id,"provider":track.provider,"providerId":track.provider_id,"sourceUrl":track.source_url,
         "title":track.title,"artist":track.artist,"album":track.album,"albumArtist":track.album_artist,
         "duration":track.duration_seconds,"isrc":track.isrc,"version":track.version,"range":track.playback_range})
@@ -12576,5 +12576,5 @@ mod alias_hydration_tests {
 }
 
 #[path = "catalog_duration_proof.rs"]
-mod catalog_duration_proof;
+pub(crate) mod catalog_duration_proof;
 pub(crate) use catalog_duration_proof::PreparedCatalogDuration;

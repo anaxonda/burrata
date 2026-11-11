@@ -634,7 +634,10 @@ async fn bounded_body(
     Ok(bytes)
 }
 
-async fn apple_json(url: reqwest::Url, cancel: watch::Receiver<bool>) -> Result<Value, String> {
+pub(crate) async fn apple_json(
+    url: reqwest::Url,
+    cancel: watch::Receiver<bool>,
+) -> Result<Value, String> {
     let addresses = crate::acquisition::public_addresses(&url).await?;
     let client = reqwest::Client::builder()
         .no_proxy()
@@ -656,7 +659,10 @@ async fn apple_json(url: reqwest::Url, cancel: watch::Receiver<bool>) -> Result<
     serde_json::from_slice(&bytes).map_err(|_| "Public catalog metadata is invalid".into())
 }
 
-fn apple_endpoint(path: &str, params: &[(&str, String)]) -> Result<reqwest::Url, String> {
+pub(crate) fn apple_endpoint(
+    path: &str,
+    params: &[(&str, String)],
+) -> Result<reqwest::Url, String> {
     let mut url = reqwest::Url::parse(&format!("https://itunes.apple.com/{path}"))
         .map_err(|_| "Public catalog endpoint is invalid")?;
     url.query_pairs_mut()

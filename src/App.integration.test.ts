@@ -9338,6 +9338,46 @@ describe("authoritative startup folder status",()=>{
 });
 
 describe("remote occurrence save wiring", () => {
+  it("routes a YouTube channel Search result into the channel Videos view", async () => {
+    const original = mocks.call.getMockImplementation()!;
+    const channelId = "UC8TZwtZ17WKFJSmwTZQpBTA";
+    const channelUrl = "https://www.youtube.com/@MyAnalogJournal/videos";
+    const videoId = "s6G2q4zNDuk";
+    const upload: Track = {
+      id: `youtube:${videoId}`, provider: "youtube", providerId: videoId,
+      sourceUrl: `https://www.youtube.com/watch?v=${videoId}`, title: "Dub, Dancehall & Lovers Rock with Vanilla",
+      artist: "", durationSeconds: 2836, favorite: false,
+      provenance: { sourceKind: "youtubeChannelUpload", playbackMode: "source", identity: "direct YouTube upload; recording artist unverified", uploaderChannelId: channelId, uploaderChannelTitle: "MAJ", position: 1 },
+    };
+    mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "get_managed_provider_session_status") return { youtubeAccountId: "public-read", accountRevisions: { youtube: 1 } };
+      if (command === "list_remote_playlist_bindings") return [];
+      if (command === "list_search_sources") return [
+        { id: "library", name: "Library", kinds: ["track"], enabled: true },
+        { id: "youtube", name: "YouTube", kinds: ["track", "video", "playlist", "channel"], enabled: true },
+      ];
+      if (command === "search_source" && (args?.sourceIds as string[] | undefined)?.[0] === "youtube") return {
+        sourceId: "youtube", complete: true,
+        results: [{ id: channelId, kind: "channel", sourceId: "youtube", title: "MAJ", url: channelUrl }],
+      };
+      if (command === "browse_youtube_channel_videos") return { channelId, title: "MAJ", url: `https://www.youtube.com/channel/${channelId}`, tracks: [upload], nextCursor: null, complete: true, warnings: [] };
+      return original(command, args);
+    });
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    [...document.querySelectorAll<HTMLButtonElement>("nav button")].find(button => button.textContent?.includes("Search"))!.click(); await settle();
+    await searchDiscovery("My Analog Journal", ["YouTube"]);
+    [...document.querySelectorAll<HTMLButtonElement>(".filters button")].find(button => button.textContent?.trim() === "Channels")!.click(); await settle(); submitSearch(); await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Open channel: MAJ"]')!.click(); await settle();
+    expect(document.querySelector('[aria-label="YouTube channel content"] [aria-pressed="true"]')?.textContent).toBe("Videos");
+    expect(document.querySelector(".remote-source-tabs")).toBeNull();
+    expect(document.querySelector('[aria-label="Play Dub, Dancehall & Lovers Rock with Vanilla"]')).not.toBeNull();
+    expect(mocks.call).toHaveBeenCalledWith("browse_youtube_channel_videos", expect.objectContaining({ ownerId: "https://www.youtube.com/@MyAnalogJournal", limit: 25 }));
+    expect(document.querySelector(".artist-link")).toBeNull();
+    expect(document.querySelector(".remote-channel-videos")?.textContent).toContain("Uploaded by MAJ · recording artist unverified");
+  });
+
   it("wires selected repeated YouTube playlist occurrences into a local append in source order", async () => {
     const original = mocks.call.getMockImplementation()!;
     const playlistId = "PLfixture123";

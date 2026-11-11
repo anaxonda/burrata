@@ -8,6 +8,7 @@ const COMMANDS: &[&str] = &[
     "disconnect_remote_playlist_provider",
     "list_remote_playlists",
     "browse_remote_playlist",
+    "browse_youtube_channel_videos",
     "browse_remote_artist",
     "browse_remote_artist_tracks",
     "browse_remote_album_tracks",

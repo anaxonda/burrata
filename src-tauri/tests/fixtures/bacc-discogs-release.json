@@ -1,0 +1,858 @@
+{
+  "artists": [
+    {
+      "anv": "",
+      "id": 1195171,
+      "join": ",",
+      "name": "Nipsey Hussle",
+      "resource_url": "https://api.discogs.com/artists/1195171",
+      "role": "",
+      "thumbnail_url": "https://i.discogs.com/9fylgGWMfSR5_ePXcLjnw0QYmmgT-RMMrubS-bHlNrk/rs:fit/g:sm/q:90/h:600/w:450/czM6Ly9kaXNjb2dz/LWRhdGFiYXNlLWlt/YWdlcy9BLTExOTUx/NzEtMTUyMDg5MjQ0/OC03Mzg5LmpwZWc.jpeg",
+      "tracks": ""
+    },
+    {
+      "anv": "",
+      "id": 4908344,
+      "join": "",
+      "name": "Bino Rideaux",
+      "resource_url": "https://api.discogs.com/artists/4908344",
+      "role": "",
+      "thumbnail_url": "https://i.discogs.com/L-zedGb1d3RaDxM8fWJaeNV3rP34XAH7JZWanBzhGiE/rs:fit/g:sm/q:90/h:600/w:600/czM6Ly9kaXNjb2dz/LWRhdGFiYXNlLWlt/YWdlcy9BLTQ5MDgz/NDQtMTc1MTEyMzg5/NS03NjY2LnBuZw.jpeg",
+      "tracks": ""
+    }
+  ],
+  "artists_sort": "Nipsey Hussle, Bino Rideaux",
+  "blocked_from_sale": false,
+  "community": {
+    "contributors": [
+      {
+        "resource_url": "https://api.discogs.com/users/aiyananaomi",
+        "username": "aiyananaomi"
+      },
+      {
+        "resource_url": "https://api.discogs.com/users/OneEyedWilly",
+        "username": "OneEyedWilly"
+      }
+    ],
+    "data_quality": "Needs Vote",
+    "have": 5,
+    "rating": {
+      "average": 5.0,
+      "count": 2
+    },
+    "status": "Accepted",
+    "submitter": {
+      "resource_url": "https://api.discogs.com/users/aiyananaomi",
+      "username": "aiyananaomi"
+    },
+    "want": 1
+  },
+  "companies": [],
+  "country": "US",
+  "data_quality": "Needs Vote",
+  "date_added": "2026-09-27T08:13:58-07:00",
+  "date_changed": "2026-10-20T09:59:37-07:00",
+  "estimated_weight": 65,
+  "format_quantity": 1,
+  "formats": [
+    {
+      "descriptions": [
+        "Album"
+      ],
+      "name": "Cassette",
+      "qty": "1"
+    }
+  ],
+  "genres": [
+    "Hip Hop"
+  ],
+  "id": 38549214,
+  "identifiers": [
+    {
+      "type": "Barcode",
+      "value": "075678583711"
+    }
+  ],
+  "images": [
+    {
+      "height": 450,
+      "resource_url": "https://i.discogs.com/6-_UPWXbDd19Ie1LDj_lRqfzUYG1c60HxQSg-mp1N6w/rs:fit/g:sm/q:90/h:450/w:600/czM6Ly9kaXNjb2dz/LWRhdGFiYXNlLWlt/YWdlcy9SLTM4NTQ5/MjE0LTE3OTA1MjIw/NDAtMjgwNi5qcGVn.jpeg",
+      "type": "secondary",
+      "uri": "https://i.discogs.com/6-_UPWXbDd19Ie1LDj_lRqfzUYG1c60HxQSg-mp1N6w/rs:fit/g:sm/q:90/h:450/w:600/czM6Ly9kaXNjb2dz/LWRhdGFiYXNlLWlt/YWdlcy9SLTM4NTQ5/MjE0LTE3OTA1MjIw/NDAtMjgwNi5qcGVn.jpeg",
+      "uri150": "https://i.discogs.com/FRYIph-eggGpMhq_wYBN6BYGZyNA8EYF8Ylv6z0g2qY/rs:fit/g:sm/q:40/h:150/w:150/czM6Ly9kaXNjb2dz/LWRhdGFiYXNlLWlt/YWdlcy9SLTM4NTQ5/MjE0LTE3OTA1MjIw/NDAtMjgwNi5qcGVn.jpeg",
+      "width": 600
+    },
+    {
+      "height": 450,
+      "resource_url": "https://i.discogs.com/ZS9oWThlFr21z2XqdZ0godLzVFz9Z4P1iE2CGy7he6I/rs:fit/g:sm/q:90/h:450/w:600/czM6Ly9kaXNjb2dz/LWRhdGFiYXNlLWlt/YWdlcy9SLTM4NTQ5/MjE0LTE3OTA1MjIw/NDAtODgxNC5qcGVn.jpeg",
+      "type": "secondary",
+      "uri": "https://i.discogs.com/ZS9oWThlFr21z2XqdZ0godLzVFz9Z4P1iE2CGy7he6I/rs:fit/g:sm/q:90/h:450/w:600/czM6Ly9kaXNjb2dz/LWRhdGFiYXNlLWlt/YWdlcy9SLTM4NTQ5/MjE0LTE3OTA1MjIw/NDAtODgxNC5qcGVn.jpeg",
+      "uri150": "https://i.discogs.com/HE7cBl-ob1PfHpaKtKYmb_VC0tBvKg8YVERq5NHDghw/rs:fit/g:sm/q:40/h:150/w:150/czM6Ly9kaXNjb2dz/LWRhdGFiYXNlLWlt/YWdlcy9SLTM4NTQ5/MjE0LTE3OTA1MjIw/NDAtODgxNC5qcGVn.jpeg",
+      "width": 600
+    },
+    {
+      "height": 450,
+      "resource_url": "https://i.discogs.com/qonrpEd4ktx8_VvvyA_GRpZoitt9_o0laJIWJLxeZFg/rs:fit/g:sm/q:90/h:450/w:600/czM6Ly9kaXNjb2dz/LWRhdGFiYXNlLWlt/YWdlcy9SLTM4NTQ5/MjE0LTE3OTA1MjIw/MzktNzYzMC5qcGVn.jpeg",
+      "type": "secondary",
+      "uri": "https://i.discogs.com/qonrpEd4ktx8_VvvyA_GRpZoitt9_o0laJIWJLxeZFg/rs:fit/g:sm/q:90/h:450/w:600/czM6Ly9kaXNjb2dz/LWRhdGFiYXNlLWlt/YWdlcy9SLTM4NTQ5/MjE0LTE3OTA1MjIw/MzktNzYzMC5qcGVn.jpeg",
+      "uri150": "https://i.discogs.com/J9ogr2GLCBusTlr3xZ24miMwOCqglfYVfDhaqgRw30w/rs:fit/g:sm/q:40/h:150/w:150/czM6Ly9kaXNjb2dz/LWRhdGFiYXNlLWlt/YWdlcy9SLTM4NTQ5/MjE0LTE3OTA1MjIw/MzktNzYzMC5qcGVn.jpeg",
+      "width": 600
+    }
+  ],
+  "is_offensive": false,
+  "labels": [
+    {
+      "catno": "075678583711",
+      "entity_type": "1",
+      "entity_type_name": "Label",
+      "id": 98679,
+      "name": "Atlantic Records",
+      "resource_url": "https://api.discogs.com/labels/98679",
+      "thumbnail_url": "https://i.discogs.com/gh8n7V_3OFlrIP1g8HpK7YZLc8j42YTnpGAdeK_1q30/rs:fit/g:sm/q:90/h:175/w:365/czM6Ly9kaXNjb2dz/LWRhdGFiYXNlLWlt/YWdlcy9MLTk4Njc5/LTE0ODg0NjQ2MTIt/NDk5MS5wbmc.jpeg"
+    },
+    {
+      "catno": "075678583711",
+      "entity_type": "1",
+      "entity_type_name": "Label",
+      "id": 430919,
+      "name": "All Money In No Money Out",
+      "resource_url": "https://api.discogs.com/labels/430919",
+      "thumbnail_url": "https://i.discogs.com/6ZBg-GnBgsb7MbKO6_0QLJqKxZaUMCz03-4ok_EUFWo/rs:fit/g:sm/q:90/h:600/w:600/czM6Ly9kaXNjb2dz/LWRhdGFiYXNlLWlt/YWdlcy9MLTQzMDkx/OS0xNTU1NjI3NTM5/LTcwNDUuanBlZw.jpeg"
+    }
+  ],
+  "lowest_price": 19.47,
+  "master_id": 4317096,
+  "master_url": "https://api.discogs.com/masters/4317096",
+  "notes": "Two sided \nWhite Cassette Tape ",
+  "num_for_sale": 7,
+  "released": "2026-08-14",
+  "released_formatted": "14 Aug 2026",
+  "resource_url": "https://api.discogs.com/releases/38549214",
+  "series": [],
+  "status": "Accepted",
+  "styles": [
+    "Gangsta"
+  ],
+  "thumb": "https://i.discogs.com/FRYIph-eggGpMhq_wYBN6BYGZyNA8EYF8Ylv6z0g2qY/rs:fit/g:sm/q:40/h:150/w:150/czM6Ly9kaXNjb2dz/LWRhdGFiYXNlLWlt/YWdlcy9SLTM4NTQ5/MjE0LTE3OTA1MjIw/NDAtMjgwNi5qcGVn.jpeg",
+  "title": "Prolific",
+  "tracklist": [
+    {
+      "artists": [
+        {
+          "anv": "",
+          "id": 1195171,
+          "join": ",",
+          "name": "Nipsey Hussle",
+          "resource_url": "https://api.discogs.com/artists/1195171",
+          "role": "",
+          "tracks": ""
+        },
+        {
+          "anv": "",
+          "id": 4908344,
+          "join": ",",
+          "name": "Bino Rideaux",
+          "resource_url": "https://api.discogs.com/artists/4908344",
+          "role": "",
+          "tracks": ""
+        },
+        {
+          "anv": "",
+          "id": 1124616,
+          "join": "",
+          "name": "Static Major",
+          "resource_url": "https://api.discogs.com/artists/1124616",
+          "role": "",
+          "tracks": ""
+        }
+      ],
+      "duration": "",
+      "position": "1",
+      "title": "Reckless",
+      "type_": "track"
+    },
+    {
+      "artists": [
+        {
+          "anv": "",
+          "id": 1195171,
+          "join": ",",
+          "name": "Nipsey Hussle",
+          "resource_url": "https://api.discogs.com/artists/1195171",
+          "role": "",
+          "tracks": ""
+        },
+        {
+          "anv": "",
+          "id": 4908344,
+          "join": ",",
+          "name": "Bino Rideaux",
+          "resource_url": "https://api.discogs.com/artists/4908344",
+          "role": "",
+          "tracks": ""
+        },
+        {
+          "anv": "",
+          "id": 737282,
+          "join": "",
+          "name": "James Fauntleroy II",
+          "resource_url": "https://api.discogs.com/artists/737282",
+          "role": "",
+          "tracks": ""
+        }
+      ],
+      "duration": "",
+      "position": "2",
+      "title": "Sacrifices",
+      "type_": "track"
+    },
+    {
+      "artists": [
+        {
+          "anv": "",
+          "id": 1195171,
+          "join": ",",
+          "name": "Nipsey Hussle",
+          "resource_url": "https://api.discogs.com/artists/1195171",
+          "role": "",
+          "tracks": ""
+        },
+        {
+          "anv": "",
+          "id": 4908344,
+          "join": "",
+          "name": "Bino Rideaux",
+          "resource_url": "https://api.discogs.com/artists/4908344",
+          "role": "",
+          "tracks": ""
+        }
+      ],
+      "duration": "",
+      "position": "3",
+      "title": "500 Horses",
+      "type_": "track"
+    },
+    {
+      "artists": [
+        {
+          "anv": "",
+          "id": 1195171,
+          "join": ",",
+          "name": "Nipsey Hussle",
+          "resource_url": "https://api.discogs.com/artists/1195171",
+          "role": "",
+          "tracks": ""
+        },
+        {
+          "anv": "",
+          "id": 4908344,
+          "join": "",
+          "name": "Bino Rideaux",
+          "resource_url": "https://api.discogs.com/artists/4908344",
+          "role": "",
+          "tracks": ""
+        }
+      ],
+      "duration": "",
+      "position": "4",
+      "title": "Make Believe ",
+      "type_": "track"
+    },
+    {
+      "artists": [
+        {
+          "anv": "",
+          "id": 1195171,
+          "join": ",",
+          "name": "Nipsey Hussle",
+          "resource_url": "https://api.discogs.com/artists/1195171",
+          "role": "",
+          "tracks": ""
+        },
+        {
+          "anv": "",
+          "id": 4908344,
+          "join": "",
+          "name": "Bino Rideaux",
+          "resource_url": "https://api.discogs.com/artists/4908344",
+          "role": "",
+          "tracks": ""
+        }
+      ],
+      "duration": "",
+      "position": "5",
+      "title": "Count On You",
+      "type_": "track"
+    },
+    {
+      "artists": [
+        {
+          "anv": "",
+          "id": 1195171,
+          "join": ",",
+          "name": "Nipsey Hussle",
+          "resource_url": "https://api.discogs.com/artists/1195171",
+          "role": "",
+          "tracks": ""
+        },
+        {
+          "anv": "",
+          "id": 4908344,
+          "join": "",
+          "name": "Bino Rideaux",
+          "resource_url": "https://api.discogs.com/artists/4908344",
+          "role": "",
+          "tracks": ""
+        }
+      ],
+      "duration": "",
+      "position": "6",
+      "title": "Miami Off The Plane",
+      "type_": "track"
+    },
+    {
+      "artists": [
+        {
+          "anv": "",
+          "id": 1195171,
+          "join": ",",
+          "name": "Nipsey Hussle",
+          "resource_url": "https://api.discogs.com/artists/1195171",
+          "role": "",
+          "tracks": ""
+        },
+        {
+          "anv": "",
+          "id": 4908344,
+          "join": "",
+          "name": "Bino Rideaux",
+          "resource_url": "https://api.discogs.com/artists/4908344",
+          "role": "",
+          "tracks": ""
+        }
+      ],
+      "duration": "",
+      "position": "7",
+      "title": "Just Like Me (Interlude)",
+      "type_": "track"
+    },
+    {
+      "artists": [
+        {
+          "anv": "",
+          "id": 1195171,
+          "join": ",",
+          "name": "Nipsey Hussle",
+          "resource_url": "https://api.discogs.com/artists/1195171",
+          "role": "",
+          "tracks": ""
+        },
+        {
+          "anv": "",
+          "id": 4908344,
+          "join": ",",
+          "name": "Bino Rideaux",
+          "resource_url": "https://api.discogs.com/artists/4908344",
+          "role": "",
+          "tracks": ""
+        },
+        {
+          "anv": "",
+          "id": 231786,
+          "join": "",
+          "name": "Buddy",
+          "resource_url": "https://api.discogs.com/artists/231786",
+          "role": "",
+          "tracks": ""
+        }
+      ],
+      "duration": "",
+      "position": "8",
+      "title": "Just Like Me",
+      "type_": "track"
+    },
+    {
+      "artists": [
+        {
+          "anv": "",
+          "id": 1195171,
+          "join": ",",
+          "name": "Nipsey Hussle",
+          "resource_url": "https://api.discogs.com/artists/1195171",
+          "role": "",
+          "tracks": ""
+        },
+        {
+          "anv": "",
+          "id": 4908344,
+          "join": "",
+          "name": "Bino Rideaux",
+          "resource_url": "https://api.discogs.com/artists/4908344",
+          "role": "",
+          "tracks": ""
+        }
+      ],
+      "duration": "",
+      "position": "9",
+      "title": "Super Real",
+      "type_": "track"
+    },
+    {
+      "artists": [
+        {
+          "anv": "",
+          "id": 1195171,
+          "join": ",",
+          "name": "Nipsey Hussle",
+          "resource_url": "https://api.discogs.com/artists/1195171",
+          "role": "",
+          "tracks": ""
+        },
+        {
+          "anv": "",
+          "id": 4908344,
+          "join": "",
+          "name": "Bino Rideaux",
+          "resource_url": "https://api.discogs.com/artists/4908344",
+          "role": "",
+          "tracks": ""
+        }
+      ],
+      "duration": "",
+      "position": "10",
+      "title": "Situations",
+      "type_": "track"
+    },
+    {
+      "artists": [
+        {
+          "anv": "",
+          "id": 1195171,
+          "join": ",",
+          "name": "Nipsey Hussle",
+          "resource_url": "https://api.discogs.com/artists/1195171",
+          "role": "",
+          "tracks": ""
+        },
+        {
+          "anv": "",
+          "id": 4908344,
+          "join": ",",
+          "name": "Bino Rideaux",
+          "resource_url": "https://api.discogs.com/artists/4908344",
+          "role": "",
+          "tracks": ""
+        },
+        {
+          "anv": "",
+          "id": 181208,
+          "join": "",
+          "name": "Leon Thomas",
+          "resource_url": "https://api.discogs.com/artists/181208",
+          "role": "",
+          "tracks": ""
+        }
+      ],
+      "duration": "",
+      "position": "11",
+      "title": "Vibe With Me",
+      "type_": "track"
+    },
+    {
+      "artists": [
+        {
+          "anv": "",
+          "id": 1195171,
+          "join": ",",
+          "name": "Nipsey Hussle",
+          "resource_url": "https://api.discogs.com/artists/1195171",
+          "role": "",
+          "tracks": ""
+        },
+        {
+          "anv": "",
+          "id": 4908344,
+          "join": ",",
+          "name": "Bino Rideaux",
+          "resource_url": "https://api.discogs.com/artists/4908344",
+          "role": "",
+          "tracks": ""
+        },
+        {
+          "anv": "",
+          "id": 3895048,
+          "join": "",
+          "name": "Ty Dolla $ign",
+          "resource_url": "https://api.discogs.com/artists/3895048",
+          "role": "",
+          "tracks": ""
+        }
+      ],
+      "duration": "",
+      "position": "12",
+      "title": "Mean It",
+      "type_": "track"
+    },
+    {
+      "artists": [
+        {
+          "anv": "",
+          "id": 1195171,
+          "join": ",",
+          "name": "Nipsey Hussle",
+          "resource_url": "https://api.discogs.com/artists/1195171",
+          "role": "",
+          "tracks": ""
+        },
+        {
+          "anv": "",
+          "id": 4908344,
+          "join": ",",
+          "name": "Bino Rideaux",
+          "resource_url": "https://api.discogs.com/artists/4908344",
+          "role": "",
+          "tracks": ""
+        },
+        {
+          "anv": "",
+          "id": 305559,
+          "join": "",
+          "name": "BH",
+          "resource_url": "https://api.discogs.com/artists/305559",
+          "role": "",
+          "tracks": ""
+        }
+      ],
+      "duration": "",
+      "position": "13",
+      "title": "All Summer",
+      "type_": "track"
+    },
+    {
+      "artists": [
+        {
+          "anv": "",
+          "id": 1195171,
+          "join": ",",
+          "name": "Nipsey Hussle",
+          "resource_url": "https://api.discogs.com/artists/1195171",
+          "role": "",
+          "tracks": ""
+        },
+        {
+          "anv": "",
+          "id": 4908344,
+          "join": ",",
+          "name": "Bino Rideaux",
+          "resource_url": "https://api.discogs.com/artists/4908344",
+          "role": "",
+          "tracks": ""
+        },
+        {
+          "anv": "",
+          "id": 3895048,
+          "join": ",",
+          "name": "Ty Dolla $ign",
+          "resource_url": "https://api.discogs.com/artists/3895048",
+          "role": "",
+          "tracks": ""
+        },
+        {
+          "anv": "",
+          "id": 5153025,
+          "join": "",
+          "name": "Cardi B",
+          "resource_url": "https://api.discogs.com/artists/5153025",
+          "role": "",
+          "tracks": ""
+        }
+      ],
+      "duration": "",
+      "position": "14",
+      "title": "I Just Wanna Know",
+      "type_": "track"
+    },
+    {
+      "artists": [
+        {
+          "anv": "",
+          "id": 1195171,
+          "join": ",",
+          "name": "Nipsey Hussle",
+          "resource_url": "https://api.discogs.com/artists/1195171",
+          "role": "",
+          "tracks": ""
+        },
+        {
+          "anv": "",
+          "id": 4908344,
+          "join": "",
+          "name": "Bino Rideaux",
+          "resource_url": "https://api.discogs.com/artists/4908344",
+          "role": "",
+          "tracks": ""
+        }
+      ],
+      "duration": "",
+      "position": "15",
+      "title": "Bacc Of The Bach",
+      "type_": "track"
+    }
+  ],
+  "uri": "https://www.discogs.com/release/38549214-Nipsey-Hussle-Bino-Rideaux-Prolific",
+  "videos": [
+    {
+      "description": "Nipsey Hussle and Bino Rideaux - Reckless (Official Music Video)\nStream here: https://nipseyhussle.lnk.to/Reckless\n\nPre-order PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nips",
+      "duration": 153,
+      "embed": true,
+      "title": "Nipsey Hussle and Bino Rideaux - Reckless (Official Music Video)",
+      "uri": "https://www.youtube.com/watch?v=VnLg9ZGxaF4"
+    },
+    {
+      "description": "Nipsey Hussle and Bino Rideaux (feat. James Fauntleroy) - Sacrifices (Official Music Video)\n\nStream here: https://nipseyhussle.lnk.to/Sacrifices\n\nPre-order PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\n",
+      "duration": 280,
+      "embed": true,
+      "title": "Nipsey Hussle and Bino Rideaux (feat. James Fauntleroy) - Sacrifices (Official Music Video)",
+      "uri": "https://www.youtube.com/watch?v=FrKgnaj_Ums"
+    },
+    {
+      "description": "Nipsey Hussle and Bino Rideaux - Sacrifices\n\nStream here: https://nipseyhussle.lnk.to/Sacrifices\n\nPre-order PROLIFIC: http://prolificthealbum.com/\n\n#NipseyHussle #BinoRideaux #Sacrifices",
+      "duration": 269,
+      "embed": true,
+      "title": "Nipsey Hussle and Bino Rideaux (feat. James Fauntleroy) - Sacrifices (Official Audio)",
+      "uri": "https://www.youtube.com/watch?v=vqDoiUMuqQA"
+    },
+    {
+      "description": "Nipsey Hussle x Bino Rideaux - 500 Horses (Official Audio)\n\nStream PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nipseyhussle\nhttps://twitter.com/nipseyhussle  \nhttps://www.tik",
+      "duration": 229,
+      "embed": true,
+      "title": "Nipsey Hussle x Bino Rideaux - 500 Horses (Official Audio)",
+      "uri": "https://www.youtube.com/watch?v=FfKtyZ_Im68"
+    },
+    {
+      "description": "Nipsey Hussle x Bino Rideaux - Make Believe (Official Audio)\n\nStream PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nipseyhussle\nhttps://twitter.com/nipseyhussle  \nhttps://www.t",
+      "duration": 176,
+      "embed": true,
+      "title": "Nipsey Hussle x Bino Rideaux - Make Believe (Official Audio)",
+      "uri": "https://www.youtube.com/watch?v=nL_emm86KtU"
+    },
+    {
+      "description": "Nipsey Hussle x Bino Rideaux- Count On You (Official Audio)\n\nStream PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nipseyhussle\nhttps://twitter.com/nipseyhussle  \nhttps://www.ti",
+      "duration": 162,
+      "embed": true,
+      "title": "Nipsey Hussle x Bino Rideaux - Count On You (Official Audio)",
+      "uri": "https://www.youtube.com/watch?v=90zDR2_FEuI"
+    },
+    {
+      "description": "Nipsey Hussle x Bino Rideaux- Miami Off The Plane (Official Audio)\n\nStream PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nipseyhussle\nhttps://twitter.com/nipseyhussle  \nhttps:/",
+      "duration": 186,
+      "embed": true,
+      "title": "Nipsey Hussle x Bino Rideaux - Miami Off The Plane (Official Audio)",
+      "uri": "https://www.youtube.com/watch?v=gAcvxabSyyM"
+    },
+    {
+      "description": "Nipsey Hussle x Bino Rideaux - Just Like Me (Interlude) (Official Audio)\n\nStream PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nipseyhussle\nhttps://twitter.com/nipseyhussle  \nh",
+      "duration": 74,
+      "embed": true,
+      "title": "Nipsey Hussle x Bino Rideaux - Just Like Me (Interlude) (Official Audio)",
+      "uri": "https://www.youtube.com/watch?v=Wjoc9oPAhWs"
+    },
+    {
+      "description": "Nipsey Hussle x Bino Rideaux - Just Like Me (feat. Buddy) (Official Audio)\n\nStream PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nipseyhussle\nhttps://twitter.com/nipseyhussle  ",
+      "duration": 187,
+      "embed": true,
+      "title": "Nipsey Hussle x Bino Rideaux - Just Like Me (feat. Buddy) (Official Audio)",
+      "uri": "https://www.youtube.com/watch?v=eRniNCMRSfs"
+    },
+    {
+      "description": "Provided to YouTube by P2026\n\nSuper Real \u00b7 Nipsey Hussle \u00b7 Bino Rideaux\n\nPROLIFIC\n\n\u2117 2026 All Money In & Out The Blue Records under exclusive license to Atlantic Recording Corporation\n\nVocals: Nipsey Hussle\nVocals: Bino Rideaux\nProducer: Mike & Keys\nAssis",
+      "duration": 280,
+      "embed": true,
+      "title": "Super Real",
+      "uri": "https://www.youtube.com/watch?v=ju4m0SnrLyI"
+    },
+    {
+      "description": "Nipsey Hussle x Bino Rideaux - Situations (Official Audio)\n\nStream PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nipseyhussle\nhttps://twitter.com/nipseyhussle  \nhttps://www.tik",
+      "duration": 108,
+      "embed": true,
+      "title": "Nipsey Hussle x Bino Rideaux - Situations (Official Audio)",
+      "uri": "https://www.youtube.com/watch?v=mkzBsG0mYME"
+    },
+    {
+      "description": "Nipsey Hussle & Bino Rideaux - Vibe With Me (feat. Leon Thomas) (Official Audio)\n\nStream PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nipseyhussle\nhttps://twitter.com/nipseyhu",
+      "duration": 232,
+      "embed": true,
+      "title": "Nipsey Hussle x Bino Rideaux - Vibe With Me (feat. Leon Thomas) (Official Audio)",
+      "uri": "https://www.youtube.com/watch?v=ExdT24gJngk"
+    },
+    {
+      "description": "Nipsey Hussle & Bino Rideaux - Mean It (feat. Ty Dolla Sign) (Official Audio)\n\nStream PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nipseyhussle\nhttps://twitter.com/nipseyhussl",
+      "duration": 156,
+      "embed": true,
+      "title": "Nipsey Hussle x Bino Rideaux - Mean It (feat. Ty Dolla Sign) (Official Audio)",
+      "uri": "https://www.youtube.com/watch?v=INFOtsgcKM0"
+    },
+    {
+      "description": "Nipsey Hussle and Bino Rideaux (feat. BH) - All Summer (Official Music Video)\n\nStream here: \n\nPre-order PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nipseyhussle\nhttps://twitt",
+      "duration": 250,
+      "embed": true,
+      "title": "Nipsey Hussle and Bino Rideaux (feat. BH) - All Summer (Official Music Video)",
+      "uri": "https://www.youtube.com/watch?v=7Rw4cSEa9y4"
+    },
+    {
+      "description": "Nipsey Hussle and Bino Rideaux (feat. BH) - All Summer\n\nStream here: https://nipseyhussle.lnk.to/AllSummer\n\nPre-order PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nipseyhussle",
+      "duration": 240,
+      "embed": true,
+      "title": "Nipsey Hussle and Bino Rideaux (feat. BH) - All Summer",
+      "uri": "https://www.youtube.com/watch?v=jQby6LETtgM"
+    },
+    {
+      "description": "Nipsey Hussle x Bino Rideaux - I Just Wanna Know (Official Music Video)\n\n\nPre-order PROLIFIC: http://prolificthealbum.com/\n\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nipseyhussle\nhttps://twitter.com/nipseyhussle",
+      "duration": 231,
+      "embed": true,
+      "title": "Nipsey Hussle x Bino Rideaux - I Just Wanna Know ft. Ty Dolla Sign & Cardi B (Official Music Video)",
+      "uri": "https://www.youtube.com/watch?v=Jh_p62acsEI"
+    },
+    {
+      "description": "Nipsey Hussle & Bino Rideaux - Bacc of the Bach (Official Audio)\n\nStream PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nipseyhussle\nhttps://twitter.com/nipseyhussle  \nhttps://w",
+      "duration": 198,
+      "embed": true,
+      "title": "Nipsey Hussle x Bino Rideaux - Bacc of the Bach (Official Audio)",
+      "uri": "https://www.youtube.com/watch?v=l1DZojBqxxk"
+    },
+    {
+      "description": "Nipsey Hussle and Bino Rideaux new album \u201cProlific\u201d drops Friday 8/14/26\n\nMusic snippet is from the song \u201cReckless\u201d off the Prolific album",
+      "duration": 60,
+      "embed": true,
+      "title": "Nipsey Hussle X Bino Rideaux \u201cProlific\u201d Friday 8/14 ",
+      "uri": "https://www.youtube.com/watch?v=IJkC1MoKUuA"
+    },
+    {
+      "description": "Nipsey Hussle and Bino Rideaux - Reckless (Official Music Video)\nStream here: https://nipseyhussle.lnk.to/Reckless\n\nPre-order PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nips",
+      "duration": 153,
+      "embed": true,
+      "title": "Nipsey Hussle and Bino Rideaux - Reckless (Official Music Video)",
+      "uri": "https://www.youtube.com/watch?v=VnLg9ZGxaF4"
+    },
+    {
+      "description": "Nipsey Hussle and Bino Rideaux (feat. James Fauntleroy) - Sacrifices (Official Music Video)\n\nStream here: https://nipseyhussle.lnk.to/Sacrifices\n\nPre-order PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\n",
+      "duration": 280,
+      "embed": true,
+      "title": "Nipsey Hussle and Bino Rideaux (feat. James Fauntleroy) - Sacrifices (Official Music Video)",
+      "uri": "https://www.youtube.com/watch?v=FrKgnaj_Ums"
+    },
+    {
+      "description": "Nipsey Hussle and Bino Rideaux - Sacrifices\n\nStream here: https://nipseyhussle.lnk.to/Sacrifices\n\nPre-order PROLIFIC: http://prolificthealbum.com/\n\n#NipseyHussle #BinoRideaux #Sacrifices",
+      "duration": 269,
+      "embed": true,
+      "title": "Nipsey Hussle and Bino Rideaux (feat. James Fauntleroy) - Sacrifices (Official Audio)",
+      "uri": "https://www.youtube.com/watch?v=vqDoiUMuqQA"
+    },
+    {
+      "description": "Nipsey Hussle x Bino Rideaux - 500 Horses (Official Audio)\n\nStream PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nipseyhussle\nhttps://twitter.com/nipseyhussle  \nhttps://www.tik",
+      "duration": 229,
+      "embed": true,
+      "title": "Nipsey Hussle x Bino Rideaux - 500 Horses (Official Audio)",
+      "uri": "https://www.youtube.com/watch?v=FfKtyZ_Im68"
+    },
+    {
+      "description": "Nipsey Hussle x Bino Rideaux - Make Believe (Official Audio)\n\nStream PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nipseyhussle\nhttps://twitter.com/nipseyhussle  \nhttps://www.t",
+      "duration": 176,
+      "embed": true,
+      "title": "Nipsey Hussle x Bino Rideaux - Make Believe (Official Audio)",
+      "uri": "https://www.youtube.com/watch?v=nL_emm86KtU"
+    },
+    {
+      "description": "Nipsey Hussle x Bino Rideaux- Count On You (Official Audio)\n\nStream PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nipseyhussle\nhttps://twitter.com/nipseyhussle  \nhttps://www.ti",
+      "duration": 162,
+      "embed": true,
+      "title": "Nipsey Hussle x Bino Rideaux - Count On You (Official Audio)",
+      "uri": "https://www.youtube.com/watch?v=90zDR2_FEuI"
+    },
+    {
+      "description": "Nipsey Hussle x Bino Rideaux- Miami Off The Plane (Official Audio)\n\nStream PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nipseyhussle\nhttps://twitter.com/nipseyhussle  \nhttps:/",
+      "duration": 186,
+      "embed": true,
+      "title": "Nipsey Hussle x Bino Rideaux - Miami Off The Plane (Official Audio)",
+      "uri": "https://www.youtube.com/watch?v=gAcvxabSyyM"
+    },
+    {
+      "description": "Nipsey Hussle x Bino Rideaux - Just Like Me (Interlude) (Official Audio)\n\nStream PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nipseyhussle\nhttps://twitter.com/nipseyhussle  \nh",
+      "duration": 74,
+      "embed": true,
+      "title": "Nipsey Hussle x Bino Rideaux - Just Like Me (Interlude) (Official Audio)",
+      "uri": "https://www.youtube.com/watch?v=Wjoc9oPAhWs"
+    },
+    {
+      "description": "Nipsey Hussle x Bino Rideaux - Just Like Me (feat. Buddy) (Official Audio)\n\nStream PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nipseyhussle\nhttps://twitter.com/nipseyhussle  ",
+      "duration": 187,
+      "embed": true,
+      "title": "Nipsey Hussle x Bino Rideaux - Just Like Me (feat. Buddy) (Official Audio)",
+      "uri": "https://www.youtube.com/watch?v=eRniNCMRSfs"
+    },
+    {
+      "description": "Nipsey Hussle x Bino Rideaux - Super Real (Official Audio)\n\nStream PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nipseyhussle\nhttps://twitter.com/nipseyhussle  \nhttps://www.tik",
+      "duration": 280,
+      "embed": true,
+      "title": "Nipsey Hussle x Bino Rideaux - Super Real (Official Audio)",
+      "uri": "https://www.youtube.com/watch?v=v1XIwKFd-bc"
+    },
+    {
+      "description": "Nipsey Hussle x Bino Rideaux - Situations (Official Audio)\n\nStream PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nipseyhussle\nhttps://twitter.com/nipseyhussle  \nhttps://www.tik",
+      "duration": 108,
+      "embed": true,
+      "title": "Nipsey Hussle x Bino Rideaux - Situations (Official Audio)",
+      "uri": "https://www.youtube.com/watch?v=mkzBsG0mYME"
+    },
+    {
+      "description": "Nipsey Hussle & Bino Rideaux - Vibe With Me (feat. Leon Thomas) (Official Audio)\n\nStream PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nipseyhussle\nhttps://twitter.com/nipseyhu",
+      "duration": 232,
+      "embed": true,
+      "title": "Nipsey Hussle x Bino Rideaux - Vibe With Me (feat. Leon Thomas) (Official Audio)",
+      "uri": "https://www.youtube.com/watch?v=ExdT24gJngk"
+    },
+    {
+      "description": "Nipsey Hussle & Bino Rideaux - Mean It (feat. Ty Dolla Sign) (Official Audio)\n\nStream PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nipseyhussle\nhttps://twitter.com/nipseyhussl",
+      "duration": 156,
+      "embed": true,
+      "title": "Nipsey Hussle x Bino Rideaux - Mean It (feat. Ty Dolla Sign) (Official Audio)",
+      "uri": "https://www.youtube.com/watch?v=INFOtsgcKM0"
+    },
+    {
+      "description": "Nipsey Hussle and Bino Rideaux (feat. BH) - All Summer (Official Music Video)\n\nStream here: \n\nPre-order PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nipseyhussle\nhttps://twitt",
+      "duration": 250,
+      "embed": true,
+      "title": "Nipsey Hussle and Bino Rideaux (feat. BH) - All Summer (Official Music Video)",
+      "uri": "https://www.youtube.com/watch?v=7Rw4cSEa9y4"
+    },
+    {
+      "description": "Nipsey Hussle and Bino Rideaux (feat. BH) - All Summer\n\nStream here: https://nipseyhussle.lnk.to/AllSummer\n\nPre-order PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nipseyhussle",
+      "duration": 240,
+      "embed": true,
+      "title": "Nipsey Hussle and Bino Rideaux (feat. BH) - All Summer",
+      "uri": "https://www.youtube.com/watch?v=jQby6LETtgM"
+    },
+    {
+      "description": "Nipsey Hussle x Bino Rideaux - I Just Wanna Know (Official Music Video)\n\n\nPre-order PROLIFIC: http://prolificthealbum.com/\n\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nipseyhussle\nhttps://twitter.com/nipseyhussle",
+      "duration": 231,
+      "embed": true,
+      "title": "Nipsey Hussle x Bino Rideaux - I Just Wanna Know ft. Ty Dolla Sign & Cardi B (Official Music Video)",
+      "uri": "https://www.youtube.com/watch?v=Jh_p62acsEI"
+    },
+    {
+      "description": "Provided to YouTube by P2026\n\nI Just Wanna Know (feat. Ty Dolla $ign & Cardi B) \u00b7 Nipsey Hussle \u00b7 Bino Rideaux \u00b7 Ty Dolla $ign \u00b7 Cardi B\n\nPROLIFIC\n\n\u2117 2026 All Money In & Out The Blue Records under exclusive license to Atlantic Recording Corporation\n\nVocal",
+      "duration": 227,
+      "embed": true,
+      "title": "I Just Wanna Know (feat. Ty Dolla $ign & Cardi B)",
+      "uri": "https://www.youtube.com/watch?v=GDXOkJ9h4Dc"
+    },
+    {
+      "description": "Nipsey Hussle & Bino Rideaux - Bacc of the Bach (Official Audio)\n\nStream PROLIFIC: http://prolificthealbum.com/\n\nFollow Nipsey Hussle \nhttps://www.themarathonclothing.com/\nhttps://www.instagram.com/nipseyhussle\nhttps://twitter.com/nipseyhussle  \nhttps://w",
+      "duration": 198,
+      "embed": true,
+      "title": "Nipsey Hussle x Bino Rideaux - Bacc of the Bach (Official Audio)",
+      "uri": "https://www.youtube.com/watch?v=l1DZojBqxxk"
+    }
+  ],
+  "year": 2026
+}
