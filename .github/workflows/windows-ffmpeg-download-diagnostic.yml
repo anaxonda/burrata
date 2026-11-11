@@ -44,6 +44,15 @@ jobs:
             mingw-w64-x86_64-nasm
             mingw-w64-x86_64-pkgconf
 
+      - name: Check Opus probe final-block socket handling
+        shell: msys2 {0}
+        timeout-minutes: 1
+        env:
+          PYTHON_PATH: ${{ steps.python.outputs.python-path }}
+        run: |
+          python_exe="$(cygpath -u "$PYTHON_PATH")"
+          "$python_exe" windows34-opus-mirror-probe-test.py
+
       - name: Probe Opus official source and locked mirrors
         shell: msys2 {0}
         timeout-minutes: 5
