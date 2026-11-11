@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   compare-pinned-source-downloads:
-    name: Compare Python urllib and Windows curl
+    name: Probe locked Windows media sources
     runs-on: windows-2022
     timeout-minutes: 12
     steps:
@@ -44,7 +44,7 @@ jobs:
             mingw-w64-x86_64-nasm
             mingw-w64-x86_64-pkgconf
 
-      - name: Compare urllib and system curl against the locked FFmpeg archive
+      - name: Probe ordered locked archives with bounded transports
         shell: msys2 {0}
         timeout-minutes: 5
         env:
