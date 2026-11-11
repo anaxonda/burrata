@@ -167,7 +167,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          # Always run the checker from the exact product source that built
+          # the pinned installer. The workflow itself may be dispatched from
+          # this separate diagnostic-harness branch.
+          ref: 527a947a5c523de5208fe554ce7cc0e8b618a5bf
       - uses: actions/setup-node@v6
         with:
           node-version: '24.21.0'
@@ -185,11 +188,16 @@ jobs:
         run: |
           import hashlib,json,os,pathlib,subprocess,zipfile,stat
           root=pathlib.Path('.cache/windows-diagnostic');root.mkdir(parents=True)
-          commit='3cf3b1a48709c4a102f7e06ac2ea6b15059b19b4'
-          run_id=41349273407;artifact_id=13102717611
-          digest='301d6a5942b90043c52de1274f29a96030dcb3811eb1c30206900b786d0657f2'
+          commit='527a947a5c523de5208fe554ce7cc0e8b618a5bf'
+          run_id=42962024538;artifact_id=13830874211
+          artifact_size=345711952
+          digest='c9e18760747675dd9ae735e5b48ee40384a058303ae7f2c06898b25979675829'
+          installer_name='Burrata_0.1.32_x64-setup.exe'
           assert os.environ['PLATFORM']=='windows-x64' and os.environ['RPM_ONLY']=='false'
           assert os.environ['SOURCE_RUN_ID']==str(run_id) and os.environ['EXPECTED_COMMIT']==commit
+          assert pathlib.Path('.github/workflows/smoke-installed.yml').exists()
+          checked_out=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+          assert checked_out==commit, f'checker source must be pinned to {commit}, got {checked_out}'
           def diagnostic_member_size(size):return type(size) is int and 0<size<=512*1024**2
           def api(path):return json.loads(subprocess.check_output(['gh','api','repos/anaxonda/burrata/'+path],timeout=30))
           run=api(f'actions/runs/{run_id}')
@@ -198,22 +206,22 @@ jobs:
           jobs=api(f'actions/runs/{run_id}/jobs?filter=latest&per_page=100')
           assert jobs['total_count']<=100
           windows=[j for j in jobs['jobs'] if j['name']=='build (x86_64-pc-windows-msvc, windows-2022, nsis, windows-x64)']
-          assert len(windows)==1 and windows[0]['status']=='completed'
+          assert len(windows)==1 and windows[0]['status']=='completed' and windows[0]['conclusion']=='failure'
           steps={s['name']:s['conclusion'] for s in windows[0]['steps']}
           assert steps['Build native installer']=='success' and steps['Smoke-test the installed desktop artifact']=='failure'
           artifact=api(f'actions/artifacts/{artifact_id}')
           assert artifact['workflow_run']['id']==run_id and artifact['workflow_run']['head_sha']==commit
           assert artifact['name']=='debug-installer-windows-x64-'+commit and not artifact['expired']
-          assert artifact['size_in_bytes']==344839864 and artifact['digest']=='sha256:'+digest
+          assert artifact['size_in_bytes']==artifact_size and artifact['digest']=='sha256:'+digest
           archive=pathlib.Path('.cache/windows-diagnostic-installer.zip')
           with archive.open('wb') as output:
               result=subprocess.run(['gh','api',f'repos/anaxonda/burrata/actions/artifacts/{artifact_id}/zip'],stdout=output,stderr=subprocess.PIPE,timeout=120)
-          assert result.returncode==0 and archive.stat().st_size==artifact['size_in_bytes']
+          assert result.returncode==0 and archive.stat().st_size==artifact_size
           with archive.open('rb') as stream:assert hashlib.file_digest(stream,'sha256').hexdigest()==digest
           destination=pathlib.Path('.cache/windows-diagnostic-installer');destination.mkdir()
           with zipfile.ZipFile(archive) as zipped:
               members=[m for m in zipped.infolist() if not m.is_dir()]
-              assert len(members)==1 and members[0].filename=='Burrata_0.1.25_x64-setup.exe'
+              assert len(members)==1 and members[0].filename==installer_name
               member=members[0];assert stat.S_IFMT(member.external_attr>>16)!=stat.S_IFLNK
               assert diagnostic_member_size(member.file_size)
               installer=destination/member.filename
@@ -221,7 +229,7 @@ jobs:
                   while data:=source.read(1024*1024):target.write(data)
           assert installer.stat().st_size==member.file_size
           with installer.open('rb') as stream:installer_sha=hashlib.file_digest(stream,'sha256').hexdigest()
-          proof={'diagnosticOnly':True,'qualificationStatus':'UNQUALIFIED','producerConclusion':'failure','producerRunId':run_id,'producerCommit':commit,'producerWorkflow':run['path'],'windowsBuildStepPassed':True,'artifactId':artifact_id,'artifactZipSha256':digest,'archiveDigestMatched':True,'inventorySource':'Derived from exact verified debug archive; no successful release inventory exists','inventory':[{'file':member.filename,'bytes':member.file_size,'sha256':installer_sha}]}
+          proof={'diagnosticOnly':True,'qualificationStatus':'UNQUALIFIED','producerConclusion':'failure','producerRunId':run_id,'producerCommit':commit,'producerWorkflow':run['path'],'windowsBuildStepPassed':True,'artifactId':artifact_id,'artifactZipSize':artifact_size,'artifactZipSha256':digest,'archiveDigestMatched':True,'inventorySource':'Derived from exact verified debug archive; no successful release inventory exists','inventory':[{'file':member.filename,'bytes':member.file_size,'sha256':installer_sha}]}
           (root/'producer-provenance.json').write_text(json.dumps(proof,indent=2)+'\n')
       - name: Read only Windows audio services and default render endpoint
         shell: pwsh
@@ -266,9 +274,10 @@ jobs:
         shell: bash
         run: |
           python scripts/release/smoke-installed.py --windows-diagnostic \
-            --installer .cache/windows-diagnostic-installer/Burrata_0.1.25_x64-setup.exe \
+            --installer .cache/windows-diagnostic-installer/Burrata_0.1.32_x64-setup.exe \
             --evidence .cache/windows-diagnostic/native-diagnostic.json \
-            --source-run-id 41349273407 --source-commit 3cf3b1a48709c4a102f7e06ac2ea6b15059b19b4 \
+            --source-run-id 42962024538 --source-commit 527a947a5c523de5208fe554ce7cc0e8b618a5bf \
+            --source-version 0.1.32 \
             --harness-commit '${{ github.sha }}'
       - uses: actions/upload-artifact@v7
         if: always()
