@@ -687,7 +687,7 @@ mod tests {
     }
 
     #[test]
-    fn release_fallback_is_opt_in_uses_verified_alias_and_preserves_track_version() {
+    fn release_fallback_is_opt_in_prefers_primary_and_preserves_track_version() {
         let track = Track {
             title: "Swing 42 (Restored Edition '25)".into(),
             version: Some("Restored Edition '25".into()),
@@ -717,10 +717,7 @@ mod tests {
             flexible.queries[1].reason,
             SearchQueryReason::ReleaseContextFallback
         );
-        assert_eq!(
-            flexible.queries[1].text,
-            "Django Reinhardt Verified Alias Swing 42"
-        );
+        assert_eq!(flexible.queries[1].text, "Django Reinhardt Swing 42");
         assert_eq!(track, unchanged);
     }
 
