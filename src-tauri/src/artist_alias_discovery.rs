@@ -382,9 +382,46 @@ fn requested_musicbrainz_artist_ids(track: &Track) -> Vec<String> {
     ids
 }
 
+fn verified_occurrence_artist_ids(store: &Store, track: &Track) -> Vec<String> {
+    aliases::verified_musicbrainz_occurrence(store, track)
+        .map(|occurrence| occurrence.artist_ids)
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod requested_artist_profile_tests {
     use super::*;
+
+    #[test]
+    fn occurrence_enrichment_excludes_unrelated_release_artists_and_edited_tracks() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Store::open(&temp.path().join("occurrence-artists.sqlite")).unwrap();
+        let mut release: Value = serde_json::from_str(include_str!(
+            "../fixtures/musicbrainz-release-4f7f6950.json"
+        ))
+        .unwrap();
+        let unrelated = "00000000-0000-4000-8000-000000000001";
+        release["unrelated"] =
+            json!({"artist-credit":[{"artist":{"id":unrelated,"name":"Other album performer"}}]});
+        let id = release["id"].as_str().unwrap();
+        let tracks = crate::artists::parse_musicbrainz_release_tracks(
+            &release,
+            id,
+            &format!("https://musicbrainz.org/release/{id}"),
+            false,
+            None,
+        );
+        let mut track = tracks[0].clone();
+        store
+            .set_retained_provider_cache("artists.release-tracks.musicbrainz", id, &release)
+            .unwrap();
+        let ids = verified_occurrence_artist_ids(&store, &track);
+        assert!(!ids.is_empty());
+        assert!(!ids.iter().any(|id| id == unrelated));
+        assert_eq!(ids, requested_musicbrainz_artist_ids(&track));
+        track.artist = "Edited unrelated performer".into();
+        assert!(verified_occurrence_artist_ids(&store, &track).is_empty());
+    }
 
     #[test]
     fn exact_profile_locators_preserve_request_order_and_reject_other_namespaces() {
@@ -464,7 +501,7 @@ async fn discover_inner(store: &Store, track: &Track) -> Result<(), String> {
             .as_str()
             .filter(|id| aliases::valid_musicbrainz_recording_id(id))
         {
-            let raw = mb(
+            mb(
                 store,
                 "artists.release-tracks.musicbrainz",
                 id,
@@ -472,9 +509,10 @@ async fn discover_inner(store: &Store, track: &Track) -> Result<(), String> {
                 "recordings+artist-credits+isrcs",
             )
             .await?;
-            let mut ids = BTreeSet::new();
-            collect_artist_ids(&raw, &mut ids);
-            for id in ids.into_iter().take(16) {
+            // Album-wide credits can contain many unrelated performers. Only
+            // enrich artists bound to this exact requested occurrence before
+            // playback; other album rows must not consume its lookup budget.
+            for id in verified_occurrence_artist_ids(store, track) {
                 hydrate_artist(store, &id, "artists.profile.musicbrainz").await?;
             }
         }

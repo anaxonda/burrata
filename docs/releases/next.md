@@ -32,7 +32,7 @@ Draft release notes. Final-source automated, package, playback, performance, and
 - Lyrics lookup handles identified official uploads with missing artist metadata. Waveform progress updates avoid rebuilding waveform bars.
 
 - MusicBrainz artist recordings continue through all provider pages using raw response offsets, including pages containing malformed rows.
-- Flexible release-context discovery prioritizes the structured primary performer over reordered group aliases. Requested MusicBrainz profiles are prepared before whole-release discovery; recording validation remains required.
+- Flexible release-context discovery prioritizes the structured primary performer over reordered group aliases. Requested MusicBrainz profiles are prepared before whole-release discovery, and enrichment is restricted to artists verified for the requested track occurrence; recording validation remains required.
 
 ## Qualification status and limits
 
@@ -40,4 +40,4 @@ Draft release notes. Final-source automated, package, playback, performance, and
 - Monochrome can still stall at its 15-second transport limit, and YouTube extraction has intermittent failures. This release does not claim those provider transport or extraction issues are fixed.
 - Legacy v8 cache entries promoted into the Library can still have ambiguous recording identity. There is no automatic cleanup of those entries; playback remains subject to available identity evidence.
 - A resolver or decoder result applies only to its exact recording and provider. It does not prove physical-device output or qualify another provider.
-- A source32 isolated Linux check played Django's “Swing 42” with the requested performers under permissive Flexible settings. Source33 later missed that candidate after its optional catalog query discarded the canonical search. Source34 repairs that retrieval path; the restored-album programme and final installer still need playback qualification. Incomplete performer evidence remains a reason to refuse a source.
+- Live source35 resolver checks have found validated alternatives for Django’s “Minor Swing” and “Swing 42” under Flexible settings. These are alternative-release assessments, not verification of the requested restored mastering. A subsequent Swing 42 attempt passed identity checks but received HTTP 403 from the extracted media URLs. Final packaged playback remains pending; provider access and incomplete performer evidence can still prevent playback.

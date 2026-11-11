@@ -16452,7 +16452,7 @@ mod tests {
         assert_eq!(alias_selected.len(), 2);
         assert_eq!(alias_selected[1], alias_release.text);
         assert!(alias_selected[0].starts_with(&track.artist));
-        assert!(alias_selected[1].starts_with(alternate_artist));
+        assert_eq!(alias_selected[1], "Django Reinhardt Minor Swing");
         assert!(alias_selected.iter().all(|selected| alias_plan
             .queries
             .iter()
