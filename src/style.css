@@ -19,7 +19,7 @@ html,
 body,
 #app {
   width: 100%;
-  min-width: 360px;
+  min-width: 350px;
   height: 100%;
 }
 body {
@@ -105,7 +105,7 @@ textarea:focus-visible {
   grid-template-rows: minmax(0, 1fr) 84px;
   height: 100vh;
   height: 100dvh;
-  min-width: 360px;
+  min-width: 350px;
   min-height: 0;
   background: var(--base);
   color: var(--text);
@@ -1604,12 +1604,12 @@ tr.spacer td {
   html,
   body,
   #app {
-    min-width: 360px;
+    min-width: 350px;
     overflow: hidden;
   }
   .app-shell {
     width: 100%;
-    min-width: 360px;
+    min-width: 350px;
     height: 100vh;
     height: 100dvh;
     min-height: 0;

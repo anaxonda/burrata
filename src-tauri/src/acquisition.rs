@@ -2962,6 +2962,37 @@ fn flexible_other_release_search_enabled(settings: &Settings) -> bool {
         && settings.flexible_matching.allow_other_releases
 }
 
+fn playback_music_catalog_query(
+    track: &Track,
+    alternate_artist: Option<&str>,
+    settings: &Settings,
+) -> Option<String> {
+    let alternatives = alternate_artist
+        .map(str::to_owned)
+        .into_iter()
+        .collect::<Vec<_>>();
+    let allow_other_releases = flexible_other_release_search_enabled(settings);
+    let plan = crate::search_plan::SearchPlan::for_track_with_release_policy(
+        track,
+        &alternatives,
+        allow_other_releases,
+    );
+    let release_fallback = allow_other_releases
+        .then(|| {
+            plan.queries.iter().find(|query| {
+                query.reason == crate::search_plan::SearchQueryReason::ReleaseContextFallback
+            })
+        })
+        .flatten();
+    let selected = release_fallback
+        .or_else(|| plan.queries.first())
+        .map(|query| query.text.clone());
+    debug_assert!(selected.as_ref().map_or(true, |text| {
+        plan.queries.iter().any(|query| &query.text == text)
+    }));
+    selected
+}
+
 fn playback_search_queries_with_release_policy(
     track: &Track,
     alternate_artist: Option<&str>,
@@ -8466,8 +8497,13 @@ impl AcquisitionManager {
                             cancel.clone(),
                             deadline,
                             || async {
-                                let query =
-                                    format!("{} {}", search_track.artist, search_track.title);
+                                let Some(query) = playback_music_catalog_query(
+                                    &search_track,
+                                    alternate_artist.as_deref(),
+                                    settings,
+                                ) else {
+                                    return Ok(Vec::new());
+                                };
                                 let items = crate::youtube_music::search_playback_candidates(
                                     &query,
                                     10,
@@ -15793,6 +15829,153 @@ mod tests {
         };
         let live_queries = playback_search_queries_with_release_policy(&live, None, true);
         assert_eq!(live_queries, ["Performer Song (Live)"]);
+    }
+
+    #[test]
+    fn playback_music_catalog_query_selects_only_an_existing_search_plan_query() {
+        let track = Track {
+            title: "Minor Swing (Restored Edition '25)".into(),
+            artist: "Django Reinhardt & Stéphane Grappelli".into(),
+            provenance: serde_json::json!({
+                "artistCredits":[
+                    {"name":"Django Reinhardt","role":"artist credit","joinPhrase":" & "},
+                    {"name":"Stéphane Grappelli","role":"artist credit","joinPhrase":""}
+                ]
+            }),
+            ..Track::default()
+        };
+        let mut settings = Settings::default();
+        settings.matching_level = crate::recording_match::MatchLevel::Flexible;
+        settings.flexible_matching.allow_other_releases = true;
+
+        let plan = crate::search_plan::SearchPlan::for_track_with_release_policy(&track, &[], true);
+        assert!(plan.queries.len() <= crate::search_plan::MAX_SEARCH_QUERIES);
+        let expected_release = plan
+            .queries
+            .iter()
+            .find(|query| {
+                query.reason == crate::search_plan::SearchQueryReason::ReleaseContextFallback
+            })
+            .expect("recognized release fallback should be in the plan");
+        let selected = playback_music_catalog_query(&track, None, &settings).unwrap();
+        assert_eq!(selected, expected_release.text);
+        assert!(selected.contains("Django Reinhardt"));
+        assert!(selected.contains("Stéphane Grappelli"));
+        assert!(selected.contains("Minor Swing"));
+        assert!(!selected.contains("Restored Edition"));
+        assert!(plan.queries.iter().any(|query| query.text == selected));
+
+        let alternate_artist = "Verified Django & Stéphane Grappelli";
+        let alias_plan = crate::search_plan::SearchPlan::for_track_with_release_policy(
+            &track,
+            &[alternate_artist.to_owned()],
+            true,
+        );
+        let alias_release = alias_plan
+            .queries
+            .iter()
+            .find(|query| {
+                query.reason == crate::search_plan::SearchQueryReason::ReleaseContextFallback
+            })
+            .unwrap();
+        let alias_selected =
+            playback_music_catalog_query(&track, Some(alternate_artist), &settings).unwrap();
+        assert_eq!(alias_selected, alias_release.text);
+        assert!(alias_selected.starts_with(alternate_artist));
+        assert!(alias_plan
+            .queries
+            .iter()
+            .any(|query| query.text == alias_selected));
+
+        settings.flexible_matching.allow_other_releases = false;
+        let no_release_plan =
+            crate::search_plan::SearchPlan::for_track_with_release_policy(&track, &[], false);
+        assert_eq!(
+            playback_music_catalog_query(&track, None, &settings).as_deref(),
+            no_release_plan
+                .queries
+                .first()
+                .map(|query| query.text.as_str())
+        );
+        assert!(playback_music_catalog_query(&track, None, &settings)
+            .unwrap()
+            .contains("Restored Edition"));
+
+        settings.matching_level = crate::recording_match::MatchLevel::Balanced;
+        settings.flexible_matching.allow_other_releases = true;
+        assert_eq!(
+            playback_music_catalog_query(&track, None, &settings).as_deref(),
+            no_release_plan
+                .queries
+                .first()
+                .map(|query| query.text.as_str()),
+            "Balanced keeps the versioned canonical query"
+        );
+
+        settings.matching_level = crate::recording_match::MatchLevel::Flexible;
+        let live = Track {
+            title: "Minor Swing (Live) (Remastered 2020)".into(),
+            ..track.clone()
+        };
+        let live_plan =
+            crate::search_plan::SearchPlan::for_track_with_release_policy(&live, &[], true);
+        let live_selected = playback_music_catalog_query(&live, None, &settings).unwrap();
+        let live_release = live_plan
+            .queries
+            .iter()
+            .find(|query| {
+                query.reason == crate::search_plan::SearchQueryReason::ReleaseContextFallback
+            })
+            .unwrap();
+        assert_eq!(live_selected, live_release.text);
+        assert!(live_selected.contains("Live"));
+        assert!(!live_selected.contains("Remastered"));
+
+        let extended = Track {
+            title: "Minor Swing (Remastered 2020)".into(),
+            version: Some("Extended Mix".into()),
+            ..track.clone()
+        };
+        let extended_plan =
+            crate::search_plan::SearchPlan::for_track_with_release_policy(&extended, &[], true);
+        let extended_selected = playback_music_catalog_query(&extended, None, &settings).unwrap();
+        let extended_release = extended_plan
+            .queries
+            .iter()
+            .find(|query| {
+                query.reason == crate::search_plan::SearchQueryReason::ReleaseContextFallback
+            })
+            .unwrap();
+        assert_eq!(extended_selected, extended_release.text);
+        assert!(extended_selected.contains("Extended Mix"));
+        assert!(!extended_selected.contains("Remastered"));
+
+        let mut manual_artist = track.clone();
+        manual_artist.provenance["manualFields"]["artist"] = serde_json::json!(true);
+        let manual_plan = crate::search_plan::SearchPlan::for_track_with_release_policy(
+            &manual_artist,
+            &[alternate_artist.to_owned()],
+            true,
+        );
+        let manual_selected =
+            playback_music_catalog_query(&manual_artist, Some(alternate_artist), &settings)
+                .unwrap();
+        assert!(manual_plan
+            .queries
+            .iter()
+            .any(|query| query.text == manual_selected));
+        assert!(!manual_selected.contains(alternate_artist));
+
+        let mut manual_title = track;
+        manual_title.provenance["manualFields"]["title"] = serde_json::json!(true);
+        let manual_title_plan =
+            crate::search_plan::SearchPlan::for_track_with_release_policy(&manual_title, &[], true);
+        let manual_title_selected =
+            playback_music_catalog_query(&manual_title, None, &settings).unwrap();
+        assert!(manual_title_plan
+            .queries
+            .iter()
+            .any(|query| query.text == manual_title_selected));
     }
 
     #[cfg(unix)]

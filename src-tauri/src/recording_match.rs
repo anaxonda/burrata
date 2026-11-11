@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) const EVALUATOR_VERSION: &str = "30";
+pub(crate) const EVALUATOR_VERSION: &str = "31";
 
 /// Independently selected categories of alternatives for Flexible matching.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -3456,6 +3456,14 @@ fn assess_prepared_inner(
             && (!category.mix || options.allow_other_mixes)
             && (!category.cover || options.allow_other_artists)
     };
+    let release_only_version = |version: &str| {
+        let category = crate::recording_identity::version_categories(version);
+        category.known()
+            && category.release
+            && !category.performance
+            && !category.mix
+            && !category.cover
+    };
     // Only changed dimensions need permission: a different remaster of the
     // same live performance must not require permission to change performance.
     let changed_versions = facts
@@ -3526,8 +3534,64 @@ fn assess_prepared_inner(
         && !facts.parsing_incomplete
         && !unresolved_annotation
         && (!options.allow_different_lengths || configured_length_alternative);
+    // A fresh, source-ID-bound recording can prove a permitted release-only
+    // alternative without claiming its observed performer rows are exhaustive.
+    // All named artist, runtime, guest, and identifier conflicts remain hard
+    // guards; other Flexible categories do not need unrelated permissions.
+    let known_release_alternative = level == MatchLevel::Flexible
+        && stage == MatchStage::Resolved
+        && options.allow_other_releases
+        && version == Comparison::Conflict
+        && !requested_semantic.is_empty()
+        && !actual_version.is_empty()
+        && release_only_version(&requested_semantic)
+        && release_only_version(&actual_version)
+        && facts.complete_fresh_extractor_recording
+        && title == Comparison::Agree
+        && artists == Comparison::Agree
+        && target_runtime.is_some()
+        && candidate_runtime.is_some()
+        && (runtime == Comparison::Agree
+            || options.allow_different_lengths && configured_length_alternative)
+        && (!options.allow_different_lengths || configured_length_alternative)
+        && facts.missing_performers.is_empty()
+        && facts.extra_performers.is_empty()
+        && (requested_guests.is_empty() || guests == Comparison::Agree)
+        && !facts.request_identifier_conflict
+        && !catalog_id_conflict
+        && isrc != Comparison::Conflict
+        && !conflicting_request_versions
+        && !conflicting_candidate_versions
+        && !facts.parsing_incomplete
+        && !unresolved_annotation;
+    // Flat search metadata is eligible for inspection only; the resolved
+    // branch above still requires fresh metadata bound to the source ID.
+    let known_release_search_inspection = level == MatchLevel::Flexible
+        && stage == MatchStage::Search
+        && options.allow_other_releases
+        && version == Comparison::Conflict
+        && !requested_semantic.is_empty()
+        && !actual_version.is_empty()
+        && release_only_version(&requested_semantic)
+        && release_only_version(&actual_version)
+        && title == Comparison::Agree
+        && artists != Comparison::Conflict
+        && guests != Comparison::Conflict
+        && target_runtime.is_some()
+        && candidate_runtime.is_some()
+        && (runtime == Comparison::Agree
+            || options.allow_different_lengths && configured_length_alternative)
+        && (!options.allow_different_lengths || configured_length_alternative)
+        && !facts.request_identifier_conflict
+        && !catalog_id_conflict
+        && isrc != Comparison::Conflict
+        && !conflicting_request_versions
+        && !conflicting_candidate_versions
+        && !facts.parsing_incomplete
+        && !unresolved_annotation;
     let identified_alternative = unknown_version_substitute
         || broad_unversioned_alternative
+        || known_release_alternative
         || version == Comparison::Conflict
         || artists == Comparison::Conflict
         || guests == Comparison::Conflict
@@ -3551,7 +3615,8 @@ fn assess_prepared_inner(
             || authoritative
             || exact_recording_bound
             || credits_complete
-            || broad_unversioned_alternative)
+            || broad_unversioned_alternative
+            || known_release_alternative)
         && (flexible_runtime_eligible
             || options.allow_different_lengths
                 && complete_single_recording
@@ -3647,6 +3712,7 @@ fn assess_prepared_inner(
         || (isrc == Comparison::Conflict && !alternative)
         || (version == Comparison::Conflict
             && !alternative
+            && !known_release_search_inspection
             && !conflicting_request_versions
             && !conflicting_candidate_versions
             && !unresolved_annotation);
@@ -7663,6 +7729,410 @@ mod tests {
                 .unwrap()
                 .complete_performer_credits
         );
+    }
+
+    #[test]
+    fn django_minor_swing_versioned_candidate_preserves_artist_permission_boundary() {
+        // Request is the saved MusicBrainz album row for Minor Swing. It has a
+        // recording identifier, but the two-name MB artist credit is open
+        // world and has no performerCreditsComplete flag.
+        let request = Track {
+            id: "catalog:musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:2:1:2e5ce3b7-28b8-4cba-9867-5fc1c7a44d75".into(),
+            provider: "catalog".into(),
+            provider_id: "musicbrainz:4d654402-6a53-46c5-bf68-26c19e4d0fa9:1:2:1:2e5ce3b7-28b8-4cba-9867-5fc1c7a44d75".into(),
+            title: "Minor Swing (Restored Edition '25)".into(),
+            artist: "Django Reinhardt & Stéphane Grappelli".into(),
+            duration_seconds: Some(195.0),
+            provenance: json!({
+                "catalogProvider":"musicbrainz",
+                "recordingId":"2e5ce3b7-28b8-4cba-9867-5fc1c7a44d75",
+                "artistCredits":[
+                    {"artist":{"id":"650bf385-6f6d-4992-a3b9-779d144920a4","provider":"musicbrainz"},
+                     "creditedAs":"Django Reinhardt","joinPhrase":" & ","name":"Django Reinhardt","role":"artist credit"},
+                    {"artist":{"id":"bfc03211-a3a2-4700-8fa3-00968c02c5d0","provider":"musicbrainz"},
+                     "creditedAs":"Stéphane Grappelli","joinPhrase":"","name":"Stéphane Grappelli","role":"artist credit"}
+                ]
+            }),
+            ..Track::default()
+        };
+        // Projection of the retained direct yt-dlp metadata for t_k2OpLnAA4.
+        // Its artist array names the requested pair, but no field declares a
+        // complete performer-credit set.
+        let candidate = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:t_k2OpLnAA4".into(),
+            title: "Minor Swing (Remastered 2020)".into(),
+            duration_seconds: Some(196.0),
+            source_metadata: Some(json!({
+                "provider":"youtube",
+                "resolvedProviderId":"t_k2OpLnAA4",
+                "sourceMetadataOrigin":"ytDlpFullInfo",
+                "track":"Minor Swing (Remastered 2020)",
+                "artists":["Django Reinhardt","Stéphane Grappelli"],
+                "artistCount":2,
+                "duration":196.0,
+                "album":"Nuages"
+            })),
+            ..Candidate::default()
+        };
+        let options = FlexibleMatchingOptions {
+            allow_other_releases: true,
+            allow_other_performances: true,
+            allow_other_mixes: true,
+            allow_other_artists: false,
+            allow_different_lengths: true,
+            max_shorter_by_seconds: 12,
+            max_longer_by_seconds: 45,
+            ..Default::default()
+        };
+
+        let unclosed = assess_with_options(
+            &request,
+            &candidate,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &options,
+        );
+        assert_eq!(unclosed.dimensions.title, Comparison::Agree, "{unclosed:?}");
+        assert_eq!(
+            unclosed.dimensions.artists,
+            Comparison::Agree,
+            "{unclosed:?}"
+        );
+        assert_eq!(
+            unclosed.dimensions.runtime,
+            Comparison::Agree,
+            "{unclosed:?}"
+        );
+        assert_eq!(
+            unclosed.dimensions.version,
+            Comparison::Conflict,
+            "{unclosed:?}"
+        );
+        assert!(
+            !unclosed
+                .evidence
+                .as_ref()
+                .unwrap()
+                .complete_performer_credits
+        );
+        assert_eq!(
+            unclosed.action,
+            MatchAction::Accept,
+            "a known release-only alternative uses the same fresh source-ID and identity guards"
+        );
+        assert_eq!(
+            unclosed.alternative_kind,
+            Some(AlternativeKind::Release),
+            "{unclosed:?}"
+        );
+
+        let release_only_options = FlexibleMatchingOptions {
+            allow_other_performances: false,
+            allow_other_mixes: false,
+            ..options
+        };
+        let release_only_positive = assess_with_options(
+            &request,
+            &candidate,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &release_only_options,
+        );
+        assert_eq!(
+            release_only_positive.action,
+            MatchAction::Accept,
+            "release permission alone is sufficient: {release_only_positive:?}"
+        );
+
+        let release_disabled = FlexibleMatchingOptions {
+            allow_other_releases: false,
+            ..options
+        };
+        assert_eq!(
+            assess_with_options(
+                &request,
+                &candidate,
+                MatchLevel::Flexible,
+                MatchStage::Resolved,
+                &release_disabled,
+            )
+            .action,
+            MatchAction::Reject
+        );
+        for level in [MatchLevel::Exact, MatchLevel::Balanced] {
+            assert_eq!(
+                assess_with_options(&request, &candidate, level, MatchStage::Resolved, &options,)
+                    .action,
+                MatchAction::Reject,
+                "the Flexible release exception must not affect {level:?}"
+            );
+        }
+
+        // A flat search result may reach extraction, but cannot use the
+        // resolved acceptance proof without fresh metadata tied to its ID.
+        let mut flat_search = candidate.clone();
+        flat_search.title = "Minor Swing (Remastered 2020)".into();
+        flat_search.duration_seconds = Some(193.0);
+        flat_search.source_metadata = Some(json!({
+            "provider":"youtube",
+            "resolvedProviderId":"t_k2OpLnAA4",
+            "sourceMetadataOrigin":"ytDlpSearchResult",
+            "track":"Minor Swing (Remastered 2020)",
+            "duration":193.0
+        }));
+        let search_action = assess_with_options(
+            &request,
+            &flat_search,
+            MatchLevel::Flexible,
+            MatchStage::Search,
+            &release_only_options,
+        )
+        .action;
+        assert_eq!(search_action, MatchAction::Inspect);
+        assert_ne!(
+            assess_with_options(
+                &request,
+                &flat_search,
+                MatchLevel::Flexible,
+                MatchStage::Resolved,
+                &release_only_options,
+            )
+            .action,
+            MatchAction::Accept
+        );
+
+        // With the same projected metadata and no explicit version string,
+        // the all-category Flexible path accepts the bounded unversioned
+        // substitute. Preserve this asymmetry as observed behavior: the
+        // known Remastered 2020 label is a version conflict and cannot take
+        // that unspecified-version route without complete credits or an exact
+        // recording binding.
+        let mut unspecified = candidate.clone();
+        unspecified.title = "Minor Swing".into();
+        unspecified.source_metadata.as_mut().unwrap()["track"] = json!("Minor Swing");
+        let accepted_unspecified = assess_with_options(
+            &request,
+            &unspecified,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &options,
+        );
+        assert_eq!(
+            accepted_unspecified.dimensions.title,
+            Comparison::Agree,
+            "{accepted_unspecified:?}"
+        );
+        assert_eq!(
+            accepted_unspecified.dimensions.artists,
+            Comparison::Agree,
+            "{accepted_unspecified:?}"
+        );
+        assert_eq!(
+            accepted_unspecified.dimensions.runtime,
+            Comparison::Agree,
+            "{accepted_unspecified:?}"
+        );
+        assert_eq!(
+            accepted_unspecified.dimensions.version,
+            Comparison::Unknown,
+            "{accepted_unspecified:?}"
+        );
+        assert_eq!(
+            accepted_unspecified.action,
+            MatchAction::Accept,
+            "{accepted_unspecified:?}"
+        );
+
+        let mut wrong_artist = candidate.clone();
+        wrong_artist.source_metadata.as_mut().unwrap()["artists"] = json!(["Different Artist"]);
+        assert_eq!(
+            assess_with_options(
+                &request,
+                &wrong_artist,
+                MatchLevel::Flexible,
+                MatchStage::Resolved,
+                &options
+            )
+            .action,
+            MatchAction::Reject
+        );
+
+        let mut wrong_source_id = candidate.clone();
+        wrong_source_id.source_metadata.as_mut().unwrap()["resolvedProviderId"] =
+            json!("different-video-id");
+        let mut wrong_origin = candidate.clone();
+        wrong_origin.source_metadata.as_mut().unwrap()["sourceMetadataOrigin"] =
+            json!("userSuppliedMetadata");
+        let mut composer_only = candidate.clone();
+        composer_only.source_metadata.as_mut().unwrap()["artists"] = json!([
+            {"name":"Django Reinhardt","role":"composer"},
+            {"name":"Stéphane Grappelli","role":"composer"}
+        ]);
+        let mut extra_ensemble = candidate.clone();
+        extra_ensemble.source_metadata.as_mut().unwrap()["artists"] = json!([
+            "Django Reinhardt",
+            "Stéphane Grappelli",
+            "The Quintet of the Hot Club of France"
+        ]);
+        let mut wrong_isrc_request = request.clone();
+        wrong_isrc_request.isrc = Some("USABC2600001".into());
+        let mut wrong_isrc = candidate.clone();
+        wrong_isrc.source_metadata.as_mut().unwrap()["isrc"] = json!("USXYZ2600002");
+        let mut missing_duration = candidate.clone();
+        missing_duration.duration_seconds = None;
+        missing_duration.source_metadata.as_mut().unwrap()["duration"] = Value::Null;
+        let mut over_runtime_cap = candidate.clone();
+        over_runtime_cap.duration_seconds = Some(241.0);
+        over_runtime_cap.source_metadata.as_mut().unwrap()["duration"] = json!(241.0);
+        let bounded = FlexibleMatchingOptions {
+            allow_different_lengths: true,
+            max_shorter_by_seconds: 12,
+            max_longer_by_seconds: 0,
+            ..release_only_options
+        };
+        let mut unknown_release = candidate.clone();
+        unknown_release.title = "Minor Swing (Alternate Take)".into();
+        unknown_release.source_metadata.as_mut().unwrap()["track"] =
+            json!("Minor Swing (Alternate Take)");
+        let mut compound_live = candidate.clone();
+        compound_live.title = "Minor Swing (Live Remastered 2020)".into();
+        compound_live.source_metadata.as_mut().unwrap()["track"] =
+            json!("Minor Swing (Live Remastered 2020)");
+        let mut compound_remix = candidate.clone();
+        compound_remix.title = "Minor Swing (Remix Remastered 2020)".into();
+        compound_remix.source_metadata.as_mut().unwrap()["track"] =
+            json!("Minor Swing (Remix Remastered 2020)");
+        let mut contradictory_manual_version = request.clone();
+        contradictory_manual_version.version = Some("Live".into());
+        contradictory_manual_version.provenance["manualFields"]["version"] = json!(true);
+        let mut missing_guest_request = request.clone();
+        missing_guest_request.provenance["artistCredits"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({
+                "name":"Requested Guest",
+                "role":"guest artist",
+                "joinPhrase":""
+            }));
+        for (track, row, opts, label) in [
+            (
+                &request,
+                &wrong_artist,
+                &release_only_options,
+                "wrong artist",
+            ),
+            (
+                &request,
+                &wrong_source_id,
+                &release_only_options,
+                "wrong bound source ID",
+            ),
+            (
+                &request,
+                &wrong_origin,
+                &release_only_options,
+                "untrusted metadata origin",
+            ),
+            (
+                &request,
+                &composer_only,
+                &release_only_options,
+                "composer roles",
+            ),
+            (
+                &request,
+                &extra_ensemble,
+                &release_only_options,
+                "extra ensemble performer",
+            ),
+            (
+                &missing_guest_request,
+                &candidate,
+                &release_only_options,
+                "missing requested guest",
+            ),
+            (
+                &wrong_isrc_request,
+                &wrong_isrc,
+                &release_only_options,
+                "conflicting ISRC",
+            ),
+            (
+                &request,
+                &missing_duration,
+                &release_only_options,
+                "missing runtime",
+            ),
+            (
+                &request,
+                &over_runtime_cap,
+                &bounded,
+                "runtime over configured cap",
+            ),
+            (
+                &request,
+                &unknown_release,
+                &release_only_options,
+                "unknown version label",
+            ),
+            (
+                &request,
+                &compound_live,
+                &release_only_options,
+                "compound live release label",
+            ),
+            (
+                &request,
+                &compound_remix,
+                &release_only_options,
+                "compound remix release label",
+            ),
+            (
+                &contradictory_manual_version,
+                &candidate,
+                &release_only_options,
+                "contradictory manual version",
+            ),
+        ] {
+            let result =
+                assess_with_options(track, row, MatchLevel::Flexible, MatchStage::Resolved, opts);
+            assert_ne!(result.action, MatchAction::Accept, "{label}: {result:?}");
+        }
+
+        let mut prohibited_mix = unspecified.clone();
+        prohibited_mix.title = "Minor Swing (Remix)".into();
+        prohibited_mix.source_metadata.as_mut().unwrap()["track"] = json!("Minor Swing (Remix)");
+        let no_mixes = FlexibleMatchingOptions {
+            allow_other_mixes: false,
+            ..options
+        };
+        assert_eq!(
+            assess_with_options(
+                &request,
+                &prohibited_mix,
+                MatchLevel::Flexible,
+                MatchStage::Resolved,
+                &no_mixes
+            )
+            .action,
+            MatchAction::Reject
+        );
+
+        let mut over_limit = unspecified;
+        over_limit.duration_seconds = Some(241.0);
+        over_limit.source_metadata.as_mut().unwrap()["duration"] = json!(241.0);
+        let too_long = assess_with_options(
+            &request,
+            &over_limit,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &options,
+        );
+        assert!(too_long
+            .reasons
+            .contains(&MatchReason::DurationLimitExceeded));
+        assert_eq!(too_long.action, MatchAction::Reject, "{too_long:?}");
     }
 
     #[test]

@@ -5597,6 +5597,9 @@ fn verify_with_playback_alias_context_traced(
     options: crate::recording_match::FlexibleMatchingOptions,
     trace: Option<&SourceTrace>,
 ) -> Option<VerifiedRecordingProof> {
+    if let Some(proof) = verify_exact_direct_bandcamp_identity(track, candidate, audio, required) {
+        return Some(proof);
+    }
     let discogs_variant =
         discogs_credit_variant_for_fresh_caption(aliases, track, candidate, audio);
     policy_matching::verify_with_discogs_credit_variant_and_options_traced(
@@ -5613,6 +5616,46 @@ fn verify_with_playback_alias_context_traced(
         options,
         trace,
     )
+}
+
+/// Verify an explicitly selected, exact Bandcamp source using only the fresh
+/// track-page extraction. Keep the candidate unchanged unless every direct
+/// source identity guard succeeds.
+fn verify_exact_direct_bandcamp_identity(
+    track: &Track,
+    candidate: &mut Candidate,
+    audio: &acquisition::PreviewAudio,
+    required: bool,
+) -> Option<VerifiedRecordingProof> {
+    if !required || !crate::bandcamp::is_exact_direct_source_request(track, candidate) {
+        return None;
+    }
+    let mut checked = candidate.clone();
+    checked.id = track.id.clone();
+    if !crate::bandcamp::exact_direct_source_identity_matches(track, &checked, audio) {
+        return None;
+    }
+
+    checked.source_metadata = audio.source_metadata.clone();
+    checked.chapters = audio.chapters.clone();
+    checked.uploader = audio.source_metadata.as_ref().and_then(|metadata| {
+        metadata["channel"]
+            .as_str()
+            .filter(|value| !value.is_empty())
+            .or_else(|| {
+                metadata["uploader"]
+                    .as_str()
+                    .filter(|value| !value.is_empty())
+            })
+            .map(str::to_owned)
+    });
+    checked.title = audio.resolved_title.clone()?;
+    checked.duration_seconds = audio.duration_seconds;
+    checked.confidence = "review".into();
+    *candidate = checked;
+    Some(VerifiedRecordingProof {
+        kind: RecordingProofKind::VerifiedExtractor,
+    })
 }
 fn plausible_artist_alias_block(track: &Track, candidate: &Candidate) -> bool {
     if candidate.permission == "restricted" {
@@ -7116,6 +7159,9 @@ fn verify_resolved_identity(
     audio: &acquisition::PreviewAudio,
     required: bool,
 ) -> Option<VerifiedRecordingProof> {
+    if let Some(proof) = verify_exact_direct_bandcamp_identity(track, candidate, audio, required) {
+        return Some(proof);
+    }
     let youtube_music_catalog_locator = candidate
         .source_metadata
         .as_ref()
@@ -7216,14 +7262,6 @@ fn verify_resolved_identity(
             candidate.confidence = "review".into();
         }
         candidate.duration_seconds = audio.duration_seconds;
-    }
-    if required
-        && candidate.provider == "bandcamp"
-        && crate::bandcamp::exact_direct_source_identity_matches(track, candidate, audio)
-    {
-        return Some(VerifiedRecordingProof {
-            kind: RecordingProofKind::VerifiedExtractor,
-        });
     }
     if !required {
         return Some(VerifiedRecordingProof {
@@ -13500,6 +13538,173 @@ mod tests {
             verify_resolved_identity(&manually_edited, &mut manual_candidate, &audio, true,)
                 .is_none()
         );
+    }
+
+    #[test]
+    fn production_bandcamp_verifier_accepts_only_exact_missing_duration_source() {
+        let track = Track {
+            id: "bandcamp:2065435071".into(),
+            provider: "bandcamp".into(),
+            provider_id: "2065435071".into(),
+            source_url: "https://lucassanttana.bandcamp.com/track/night-time-in-the-backyard"
+                .into(),
+            title: "Night-time in the backyard".into(),
+            artist: "Lucas Santtana".into(),
+            duration_seconds: None,
+            provenance: json!({"playbackMode":"source","explicitSourceLock":true}),
+            ..Track::default()
+        };
+        let audio = acquisition::PreviewAudio {
+            url: "https://t4.bcbits.com/stream/0123456789abcdef0123456789abcdef/mp3-128/2065435071?token=fixture".into(),
+            mime_type: "audio/mpeg".into(),
+            codec: Some("mp3".into()),
+            bitrate_kbps: Some(128.0),
+            duration_seconds: Some(197.76),
+            selected_format_id: Some("mp3-128".into()),
+            selected_format_has_video: false,
+            source_metadata: Some(json!({
+                "provider":"bandcamp",
+                "track":"Night-time in the backyard",
+                "artist":"Lucas Santtana",
+                "channel":"Lucas Santtana",
+                "pageMetadata":{"trackId":2065435071}
+            })),
+            resolved_title: Some("Lucas Santtana - Night-time in the backyard".into()),
+            resolved_provider_id: Some("2065435071".into()),
+            chapters: Some(vec![]),
+            expected_content_length: Some(1_000_000),
+            provider_session: None,
+            headers: vec![],
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let store =
+            Store::open(&directory.path().join("exact-bandcamp-production.sqlite")).unwrap();
+        store.save_track(&track).unwrap();
+        let saved_before = store.get_track(&track.id).unwrap().unwrap();
+        let aliases = crate::artist_credit_aliases::VerifiedPlaybackArtistAliases::default();
+        let verify =
+            |expected: &Track, candidate: &mut Candidate, response: &acquisition::PreviewAudio| {
+                verify_with_playback_alias_context_traced(
+                    expected,
+                    &aliases,
+                    candidate,
+                    response,
+                    true,
+                    crate::recording_match::MatchLevel::Balanced,
+                    &store,
+                    crate::recording_match::FlexibleMatchingOptions::default(),
+                    None,
+                )
+            };
+
+        let mut accepted = linked_candidate_with_bandcamp(&track, true).unwrap();
+        let proof = verify(&track, &mut accepted, &audio)
+            .expect("the production verifier should accept fresh exact source identity");
+        assert_eq!(proof.kind, RecordingProofKind::VerifiedExtractor);
+        assert_eq!(accepted.id, track.id);
+        assert_eq!(accepted.duration_seconds, Some(197.76));
+        assert_eq!(
+            accepted.title,
+            "Lucas Santtana - Night-time in the backyard"
+        );
+        assert_eq!(accepted.source_metadata, audio.source_metadata);
+        assert_eq!(store.get_track(&track.id).unwrap().unwrap(), saved_before);
+
+        let rejects = [
+            (
+                "wrong page ID",
+                track.clone(),
+                acquisition::PreviewAudio {
+                    resolved_provider_id: Some("2065435072".into()),
+                    ..audio.clone()
+                },
+            ),
+            (
+                "wrong artist",
+                track.clone(),
+                acquisition::PreviewAudio {
+                    source_metadata: Some(json!({
+                        "provider":"bandcamp",
+                        "track":"Night-time in the backyard",
+                        "artist":"Other Artist",
+                        "channel":"Other Artist"
+                    })),
+                    resolved_title: Some("Other Artist - Night-time in the backyard".into()),
+                    ..audio.clone()
+                },
+            ),
+            (
+                "wrong title",
+                track.clone(),
+                acquisition::PreviewAudio {
+                    source_metadata: Some(json!({
+                        "provider":"bandcamp",
+                        "track":"Other Track",
+                        "artist":"Lucas Santtana",
+                        "channel":"Lucas Santtana"
+                    })),
+                    resolved_title: Some("Lucas Santtana - Other Track".into()),
+                    ..audio.clone()
+                },
+            ),
+            (
+                "requested version",
+                Track {
+                    version: Some("Live".into()),
+                    ..track.clone()
+                },
+                audio.clone(),
+            ),
+            (
+                "ISRC evidence",
+                Track {
+                    isrc: Some("USABC2600001".into()),
+                    ..track.clone()
+                },
+                audio.clone(),
+            ),
+            (
+                "manual identity edit",
+                Track {
+                    provenance: json!({
+                        "playbackMode":"source",
+                        "explicitSourceLock":true,
+                        "manualFields":{"artist":true}
+                    }),
+                    ..track.clone()
+                },
+                audio.clone(),
+            ),
+            (
+                "ambiguous artist credits",
+                Track {
+                    provenance: json!({
+                        "playbackMode":"source",
+                        "explicitSourceLock":true,
+                        "artistCredits":[
+                            {"name":"Lucas Santtana","role":"primary"},
+                            {"name":"Other Artist","role":"primary"}
+                        ]
+                    }),
+                    ..track.clone()
+                },
+                audio.clone(),
+            ),
+        ];
+        for (case, expected, response) in rejects {
+            let mut candidate = linked_candidate_with_bandcamp(&expected, true).unwrap();
+            let before = candidate.clone();
+            assert!(
+                verify(&expected, &mut candidate, &response).is_none(),
+                "{case}"
+            );
+            assert_eq!(
+                serde_json::to_value(&candidate).unwrap(),
+                serde_json::to_value(&before).unwrap(),
+                "failed {case} proof must not mutate candidate"
+            );
+            assert_eq!(store.get_track(&track.id).unwrap().unwrap(), saved_before);
+        }
     }
 
     #[test]

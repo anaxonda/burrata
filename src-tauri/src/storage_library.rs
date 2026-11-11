@@ -4,7 +4,7 @@ use super::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-const LIBRARY_PROJECTION_REVISION: i64 = 3;
+const LIBRARY_PROJECTION_REVISION: i64 = 4;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -246,6 +246,21 @@ fn artist_fallback_is_trustworthy(track: &Track) -> bool {
 
     let artist_source = string_at(provenance, &["/artistSource"]);
     if artist_source == Some("inferred_from_title") {
+        return false;
+    }
+
+    // Soulseek's parsed filename is useful search metadata, but its artist
+    // segment is an unverified peer claim. Keep the stored track and raw
+    // candidate metadata intact; only omit this fallback from the artist
+    // Library projection unless the early manual/catalog identity checks
+    // above found stronger evidence. Structured credits are projected before
+    // this fallback and therefore remain eligible on their own evidence.
+    let unverified_peer_filename = artist_source == Some("filename")
+        && string_at(provenance, &["/identity"]) == Some("unverified peer filename")
+        && (track.provider.eq_ignore_ascii_case("slskd")
+            || string_at(provenance, &["/sourceProvider"]) == Some("slskd")
+            || string_at(provenance, &["/audioCandidate/provider"]) == Some("slskd"));
+    if unverified_peer_filename {
         return false;
     }
 
@@ -1102,16 +1117,30 @@ mod tests {
 
     #[test]
     fn artist_projection_rejects_unverified_title_and_numeric_filename_guesses() {
-        let mut filename_index = track("filename-index");
-        filename_index.album = None;
-        filename_index.artist = "01".into();
-        filename_index.provenance = json!({
-            "artistSource": "filename",
-            "identity": "unverified peer filename"
-        });
-        assert!(track_entities(&filename_index)
-            .iter()
-            .all(|entity| entity.kind != "artist"));
+        for (id, artist) in [
+            ("filename-index", "01"),
+            ("peer-big-thief", "044.BigThief"),
+            ("peer-range", "1-10"),
+            ("peer-numbered-band", "1.10.BigThief"),
+        ] {
+            let mut peer_filename_artist = track(id);
+            peer_filename_artist.provider = "slskd".into();
+            peer_filename_artist.album = None;
+            peer_filename_artist.artist = artist.into();
+            peer_filename_artist.provenance = json!({
+                "artistSource": "filename",
+                "identity": "unverified peer filename",
+                "sourceProvider": "slskd",
+                "manualMetadata": {},
+                "audioCandidate": {"provider": "slskd"}
+            });
+            assert!(
+                track_entities(&peer_filename_artist)
+                    .iter()
+                    .all(|entity| entity.kind != "artist"),
+                "unverified peer filename artist {artist:?} must not become a Library artist"
+            );
+        }
 
         let mut title_inference = track("title-inference");
         title_inference.album = None;
@@ -1135,6 +1164,150 @@ mod tests {
         assert!(track_entities(&playlist_title)
             .iter()
             .all(|entity| entity.kind != "artist"));
+    }
+
+    #[test]
+    fn peer_filename_artist_filter_keeps_saved_rows_and_trusted_artist_evidence() {
+        use sha2::Digest;
+        let (_dir, store) = db();
+        let mut peer_rows = Vec::new();
+        for (id, artist) in [
+            ("ordinal-big-thief", "044.BigThief"),
+            ("ordinal-range", "1-10"),
+            ("ordinal-big-thief-album", "1.10.BigThief"),
+        ] {
+            let mut row = track(id);
+            row.provider = "slskd".into();
+            row.provider_id = format!("{:x}", sha2::Sha256::digest(id.as_bytes()));
+            row.id = format!("slskd:{}", row.provider_id);
+            row.artist = artist.into();
+            row.provenance = json!({
+                "artistSource": "filename",
+                "identity": "unverified peer filename",
+                "sourceProvider": "slskd",
+                "audioCandidate": {"provider": "slskd", "source": {"kind": "soulseek"}}
+            });
+            peer_rows.push(row);
+        }
+        store.save_library_tracks(&peer_rows).unwrap();
+        let raw_metadata = || {
+            let conn = rusqlite::Connection::open_with_flags(
+                _dir.path().join("library.sqlite"),
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+            )
+            .unwrap();
+            let mut stmt = conn.prepare("SELECT l.id,l.metadata,r.manual_metadata FROM catalog_listings l JOIN recordings r ON r.id=l.recording_id ORDER BY l.id").unwrap();
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })
+                .unwrap()
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .unwrap();
+            rows
+        };
+        let raw_before = raw_metadata();
+
+        let saved_rows = store.list_tracks("library", None).unwrap();
+        assert_eq!(saved_rows.len(), peer_rows.len(), "tracks remain saved");
+        for expected in &peer_rows {
+            let saved = saved_rows.iter().find(|row| row.id == expected.id).unwrap();
+            assert_eq!(
+                saved.artist, expected.artist,
+                "raw artist metadata is unchanged"
+            );
+            let mut effective_provenance = expected.provenance.clone();
+            effective_provenance["manualFields"] = json!({});
+            assert_eq!(
+                saved.provenance, effective_provenance,
+                "effective read retains provenance and the existing empty manual-field marker"
+            );
+        }
+        assert_eq!(
+            store
+                .list_library_entities("artist", None, "", 200, 0)
+                .unwrap()
+                .total,
+            0,
+            "unverified filename-only artist labels are omitted from the Library projection",
+        );
+        assert_eq!(
+            raw_metadata(),
+            raw_before,
+            "projection reads leave raw and manual metadata unchanged"
+        );
+
+        let mut manual = track("manual-4-non-blondes");
+        manual.provider = "slskd".into();
+        manual.artist = "4NonBlondes".into();
+        manual.provenance = json!({
+            "artistSource": "filename",
+            "identity": "unverified peer filename",
+            "sourceProvider": "slskd",
+            "manualFields": {"artist": true}
+        });
+        let manual_entity = track_entities(&manual)
+            .into_iter()
+            .find(|entity| entity.kind == "artist")
+            .expect("manual artist override is trusted");
+        assert_eq!(manual_entity.name, "4NonBlondes");
+
+        let mut manual_numbered = track("manual-numbered-artist");
+        manual_numbered.provider = "slskd".into();
+        manual_numbered.artist = "1-10".into();
+        manual_numbered.provenance = json!({
+            "artistSource": "filename",
+            "identity": "unverified peer filename",
+            "sourceProvider": "slskd",
+            "manualFields": {"artist": true}
+        });
+        let numbered_entity = track_entities(&manual_numbered)
+            .into_iter()
+            .find(|entity| entity.kind == "artist")
+            .expect("manual numbered artist remains visible");
+        assert_eq!(numbered_entity.name, "1-10");
+
+        let mut catalog = track("catalog-16bl");
+        catalog.provider = "slskd".into();
+        catalog.artist = "16BL".into();
+        catalog.provenance = json!({
+            "artistSource": "filename",
+            "identity": "unverified peer filename",
+            "sourceProvider": "slskd",
+            "catalog": {"artist": {"provider": "musicbrainz", "id": "16bl-id"}}
+        });
+        let catalog_entity = track_entities(&catalog)
+            .into_iter()
+            .find(|entity| entity.kind == "artist")
+            .expect("catalog-backed artist identity is trusted");
+        assert_eq!(catalog_entity.name, "16BL");
+        assert_eq!(catalog_entity.provider_id.as_deref(), Some("16bl-id"));
+
+        let mut structured = track("structured-21-savage");
+        structured.provider = "slskd".into();
+        structured.artist = "filename guess".into();
+        structured.provenance = json!({
+            "artistSource": "filename",
+            "identity": "unverified peer filename",
+            "sourceProvider": "slskd",
+            "artistCredits": [{
+                "name": "21Savage",
+                "artist": {"provider": "musicbrainz", "id": "21savage-id"}
+            }]
+        });
+        let structured_entity = track_entities(&structured)
+            .into_iter()
+            .find(|entity| entity.kind == "artist")
+            .expect("structured catalog credit is projected independently of the filename guess");
+        assert_eq!(structured_entity.name, "21Savage");
+        assert_eq!(
+            structured_entity.provider_id.as_deref(),
+            Some("21savage-id")
+        );
     }
 
     #[test]

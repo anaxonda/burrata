@@ -1,15 +1,18 @@
-# Burrata 0.1.32
+# Burrata 0.1.33
 
-Draft release notes. Full native-suite, platform-package, installed-artifact, live-provider, and physical audio-output qualification is pending.
+Draft release notes. Local automated checks pass; final-source package, playback, performance, and live-provider qualification remains pending.
 
 - Discogs artist-credit hydration now treats roleless catalog artist credits and `Primary Artist` consistently across Library reads and matching. It preserves uncertainty for `Unknown artist`, and reversed-caption results are accepted only when recording identity is corroborated.
 - Radio favorites retain the canonical saved track ID and provider ID, and report save failures instead of silently targeting a different row.
 - Artist and album browsing handles duplicate profiles and album families more clearly. Artist pages show source and year; album sorting and independent grid/list choices are available.
+- Artist browsing omits unverified peer-filename artist guesses while retaining saved tracks and manual or catalog-backed identities. List cards wrap metadata in narrow windows, and the supported minimum window width is 350 pixels.
 - Library bulk play and queue actions cover all matching pages, up to the 10,000 item bound, rather than only the currently loaded slice.
 - Compact track rows use consistent buffering, downloaded, and missing-file states. Select-only rows without chord keys use buttons and remain keyboard operable.
 - Exact Spotify contributor reads distinguish verified performers from composers and lyricists during playback matching, including legacy rows with freshly verified artist grouping. Identity conflicts and incomplete credits retain their protections; saved metadata is not automatically rewritten.
 - Narrow album headers keep artwork, title and playback actions readable.
 - Matching recognizes equivalent remaster spellings across dash, bracket, and parenthesis labels, and composes mastering labels with live or mix annotations. Years, performer evidence, unknown annotations, and conflicting recording versions remain part of validation.
+- Flexible matching can inspect known remaster/restored-edition alternatives when other releases are allowed. Acceptance requires fresh metadata bound to the source ID, matching title and observed performer names, a known bounded duration, and no conflicting identity evidence. This does not identify the source as the requested master or establish exhaustive credits.
+- Optional Music-catalog discovery reuses the same bounded query plan, including explicitly permitted release-context fallbacks, instead of reintroducing the original release label.
 - Sidebar icon recovery and Settings navigation are clearer, and the active radio station is highlighted. The compact radio bar shows the station name, and source table rows open their source link.
 - Radio browsing uses the available width, and track information wraps long album names without covering controls.
 - Fullscreen playback fits the hero artwork while keeping track details visible below the first fold.
@@ -23,8 +26,8 @@ Draft release notes. Full native-suite, platform-package, installed-artifact, li
 
 ## Qualification status and limits
 
-- Native tests, candidate CI, installed Linux artifacts, and live-provider checks remain pending. Mac and Windows installed-artifact and physical-output checks are not yet qualified.
+- Local default native, frontend, extension, MCP, player, and repository contract suites pass. Candidate CI, final installed artifacts, playback/performance, and live-provider checks remain pending. Physical macOS/Windows output is not qualified.
 - Monochrome can still stall at its 15-second transport limit, and YouTube extraction has intermittent failures. This release does not claim those provider transport or extraction issues are fixed.
 - Legacy v8 cache entries promoted into the Library can still have ambiguous recording identity. There is no automatic cleanup of those entries; playback remains subject to available identity evidence.
 - A resolver or decoder result applies only to its exact recording and provider. It does not prove physical-device output or qualify another provider.
-- The inspected Django restored-album alternatives omit required performer credits or lack a recording binding. Flexible mode continues to refuse those unverified sources; a famous title alone does not establish the requested recording.
+- A source32 isolated Linux check played Django's “Swing 42” with the requested performers under permissive Flexible settings. The remaining restored-album programme and the final source33 installer still need playback qualification; incomplete performer evidence remains a reason to refuse a source.
