@@ -380,8 +380,8 @@ fn parse_answer(
                 .unwrap_or_else(|| captures[0].to_owned())
         })
         .into_owned();
-    let bare_urls =
-        regex::Regex::new(r"(?i)https://[^\s<>()]+").expect("static URL regular expression is valid");
+    let bare_urls = regex::Regex::new(r"(?i)https://[^\s<>()]+")
+        .expect("static URL regular expression is valid");
     let answer = bare_urls
         .replace_all(&answer, |captures: &regex::Captures| {
             let raw = captures[0].trim_end_matches(&['.', ',', ';', ':', '!', '?'][..]);
@@ -800,9 +800,15 @@ mod tests {
         let mut unattested_link = envelope.clone();
         unattested_link["choices"][0]["message"]["content"] =
             json!("The event was at Alexandra Palace. https://invented.example/details");
-        assert!(parse_answer(&unattested_link, "request", "identity".into(), "model", true)
-            .unwrap_err()
-            .contains("untrusted answer"));
+        assert!(parse_answer(
+            &unattested_link,
+            "request",
+            "identity".into(),
+            "model",
+            true
+        )
+        .unwrap_err()
+        .contains("untrusted answer"));
 
         let normalized = json!({"choices":[{"finish_reason":"stop","message":{
             "content":"[Venue](HTTPS://VENUE.EXAMPLE:443/events/usb002)",
