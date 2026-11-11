@@ -370,7 +370,7 @@ fn parse_answer(
             return Err("No source-backed context was found for this item".into());
         }
     }
-    let links = regex::Regex::new(r"\[([^\]\r\n]+)\]\((https://[^\s)]+)\)").unwrap();
+    let links = regex::Regex::new(r"(?i)\[([^\]\r\n]+)\]\((https://[^\s)]+)\)").unwrap();
     let answer = links
         .replace_all(answer, |captures: &regex::Captures| {
             sources
@@ -381,7 +381,7 @@ fn parse_answer(
         })
         .into_owned();
     let bare_urls =
-        regex::Regex::new(r"https://[^\s<>()]+").expect("static URL regular expression is valid");
+        regex::Regex::new(r"(?i)https://[^\s<>()]+").expect("static URL regular expression is valid");
     let answer = bare_urls
         .replace_all(&answer, |captures: &regex::Captures| {
             let raw = captures[0].trim_end_matches(&['.', ',', ';', ':', '!', '?'][..]);
@@ -786,7 +786,7 @@ mod tests {
     #[test]
     fn only_attested_public_url_citations_become_sources() {
         let envelope = json!({"choices":[{"finish_reason":"stop","message":{
-            "content":"The event was at Alexandra Palace. https://invented.example/details",
+            "content":"The event was at Alexandra Palace.",
             "annotations":[
                 {"type":"url_citation","url_citation":{"title":"Venue listing","url":"https://venue.example/events/usb002"}},
                 {"type":"url_citation","url_citation":{"title":"Local service","url":"https://127.0.0.1/private"}},
@@ -796,7 +796,13 @@ mod tests {
         let parsed = parse_answer(&envelope, "request", "identity".into(), "model", true).unwrap();
         assert_eq!(parsed.sources.len(), 1);
         assert_eq!(parsed.sources[0].url, "https://venue.example/events/usb002");
-        assert!(parsed.answer.contains("https://invented.example/details"));
+        assert_eq!(parsed.answer, "The event was at Alexandra Palace.");
+        let mut unattested_link = envelope.clone();
+        unattested_link["choices"][0]["message"]["content"] =
+            json!("The event was at Alexandra Palace. https://invented.example/details");
+        assert!(parse_answer(&unattested_link, "request", "identity".into(), "model", true)
+            .unwrap_err()
+            .contains("untrusted answer"));
 
         let normalized = json!({"choices":[{"finish_reason":"stop","message":{
             "content":"[Venue](HTTPS://VENUE.EXAMPLE:443/events/usb002)",

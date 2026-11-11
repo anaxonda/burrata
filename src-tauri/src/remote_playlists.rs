@@ -8265,7 +8265,7 @@ mod tests {
                         "playlist":{"id":"PLfixture123","title":"Fixture playlist","url":"https://www.youtube.com/playlist?list=PLfixture123","canEdit":true},
                         "entries":[{
                             "entryId":"occ-1","trackId":"existing123","title":"Existing track",
-                            "artist":"Fixture artist","url":"https://www.youtube.com/watch?v=existing123",
+                            "artist":"Fixture artist","artistSource":"recording","url":"https://www.youtube.com/watch?v=existing123",
                             "available":true
                         }],"revision":"rev-1","complete":true,"total":1
                     }))
@@ -8323,7 +8323,19 @@ mod tests {
                         entered.notify_one();
                         release.notified().await;
                     }
-                    let entries = self.entries.lock().unwrap().clone();
+                    // This fixture represents provider rows with an explicit recording
+                    // credit. YouTube's channel/uploader field is never an artist credit.
+                    let entries = self
+                        .entries
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .map(|entry| {
+                            let mut value = serde_json::to_value(entry).unwrap();
+                            value["artistSource"] = json!("recording");
+                            value
+                        })
+                        .collect::<Vec<_>>();
                     let revision = *self.revision.lock().unwrap();
                     let total = entries.len();
                     Ok(json!({
@@ -8577,7 +8589,11 @@ mod tests {
         duration: Option<f64>,
         available: bool,
     ) -> Value {
-        let mut data = json!({"artist":"Fixture artist", "available":available});
+        let mut data = json!({
+            "artist":"Fixture artist",
+            "artistSource":"recording",
+            "available":available
+        });
         if let Some(duration) = duration {
             data["durationSeconds"] = json!(duration);
         }
