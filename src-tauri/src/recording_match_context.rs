@@ -40,6 +40,170 @@ impl ArtistProfileLookupMemo {
     }
 }
 
+/// Return an artist rendering from the authority appropriate to this stage.
+/// Flat playback-catalog rows may contribute only their dedicated
+/// `catalogArtist` field for inspection. Resolved evidence must come from a
+/// fresh extractor record bound to the selected provider ID; stale catalog
+/// fields, channel names, and uploader text cannot establish resolved artist
+/// identity.
+fn candidate_credit_rendering(candidate: &Candidate, stage: MatchStage) -> Option<String> {
+    let metadata = candidate.source_metadata.as_ref()?;
+    match stage {
+        MatchStage::Search => {
+            if candidate.provider != "youtube"
+                || metadata["provider"].as_str() != Some("youtube")
+                || metadata["playbackMusicCatalogCandidate"].as_bool() != Some(true)
+            {
+                return None;
+            }
+            metadata["catalogArtist"]
+                .as_str()
+                .map(str::trim)
+                .filter(|artist| !artist.is_empty() && artist.len() <= 1024)
+                .map(str::to_owned)
+        }
+        MatchStage::Resolved => {
+            let provider_id = candidate.id.strip_prefix("youtube:")?;
+            if candidate.provider != "youtube"
+                || provider_id.is_empty()
+                || metadata["provider"].as_str() != Some("youtube")
+                || metadata["resolvedProviderId"].as_str() != Some(provider_id)
+                || !matches!(
+                    metadata["sourceMetadataOrigin"].as_str(),
+                    Some("ytDlpCandidateMetadata" | "ytDlpFullInfo")
+                )
+            {
+                return None;
+            }
+
+            let mut structured: Option<Vec<String>> = None;
+            for key in ["artists", "artistNames"] {
+                let Some(value) = metadata.get(key).filter(|value| !value.is_null()) else {
+                    continue;
+                };
+                let values = value.as_array()?;
+                if values.is_empty() {
+                    continue;
+                }
+                if values.len() > 32 {
+                    return None;
+                }
+                let names = values
+                    .iter()
+                    .map(|value| {
+                        let name = value.as_str()?.trim();
+                        (!name.is_empty() && name.len() <= 512).then(|| name.to_owned())
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                if let Some(previous) = &structured {
+                    let mut previous_keys = previous
+                        .iter()
+                        .map(|name| crate::matching::normalize_single_artist_name(name))
+                        .collect::<Vec<_>>();
+                    let mut current_keys = names
+                        .iter()
+                        .map(|name| crate::matching::normalize_single_artist_name(name))
+                        .collect::<Vec<_>>();
+                    previous_keys.sort();
+                    current_keys.sort();
+                    if previous_keys != current_keys {
+                        return None;
+                    }
+                } else {
+                    structured = Some(names);
+                }
+            }
+            let rendering = structured
+                .filter(|names| !names.is_empty())
+                .map(|names| names.join(", "))
+                .or_else(|| metadata["artist"].as_str().map(str::to_owned))?;
+            let rendering = rendering.trim();
+            (!rendering.is_empty() && rendering.len() <= 4096).then(|| rendering.to_owned())
+        }
+    }
+}
+
+fn fresh_artist_scalar_conflicts_with_array(
+    candidate: &Candidate,
+    track: &Track,
+    verified_credits: &crate::artist_credit_aliases::VerifiedPlaybackArtistAliases,
+) -> bool {
+    let Some(metadata) = candidate.source_metadata.as_ref() else {
+        return false;
+    };
+    let Some(artist_value) = metadata.get("artist") else {
+        return false;
+    };
+    if artist_value.is_null() {
+        return false;
+    }
+    let Some(artist) = artist_value.as_str().map(str::trim) else {
+        return true;
+    };
+    if artist.is_empty() {
+        return false;
+    }
+    let mut array_sets = Vec::<Vec<String>>::new();
+    for key in ["artists", "artistNames"] {
+        let Some(value) = metadata.get(key).filter(|value| !value.is_null()) else {
+            continue;
+        };
+        let Some(values) = value.as_array() else {
+            return true;
+        };
+        let Some(names) = values
+            .iter()
+            .map(|value| {
+                let name = value.as_str()?.trim();
+                (!name.is_empty() && name.len() <= 512).then(|| name.to_owned())
+            })
+            .collect::<Option<Vec<_>>>()
+        else {
+            return true;
+        };
+        if names.len() > 32 {
+            return true;
+        }
+        if names.is_empty() {
+            continue;
+        }
+        array_sets.push(names);
+    }
+    if array_sets.len() > 1 {
+        let mut expected = array_sets[0]
+            .iter()
+            .map(|name| crate::matching::normalize_single_artist_name(name))
+            .collect::<Vec<_>>();
+        expected.sort();
+        if array_sets.iter().skip(1).any(|names| {
+            let mut actual = names
+                .iter()
+                .map(|name| crate::matching::normalize_single_artist_name(name))
+                .collect::<Vec<_>>();
+            actual.sort();
+            actual != expected
+        }) {
+            return true;
+        }
+    }
+    let array_names = array_sets
+        .iter()
+        .flatten()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    if array_names.iter().any(|name| {
+        crate::matching::normalize_single_artist_name(name)
+            == crate::matching::normalize_single_artist_name(artist)
+    }) || verified_credits
+        .musicbrainz_credit_variant(track, artist)
+        .is_some()
+        || verified_credits.musicbrainz_credit_name_member(track, artist)
+    {
+        return false;
+    }
+    true
+}
+
 impl AssessmentContext {
     pub(crate) fn with_flexible_options(options: recording_match::FlexibleMatchingOptions) -> Self {
         Self {
@@ -1227,6 +1391,481 @@ mod tests {
             "The Bulgarian State Radio and Television Female Vocal Choir"
         );
     }
+
+    #[test]
+    fn musicbrainz_credit_set_matches_catalog_artist_without_materialized_alias_tracks() {
+        use crate::recording_match::{AlternativeKind, MatchAction, MatchLevel, MatchStage};
+
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("mb-credit-set-context.sqlite")).unwrap();
+        let django_id = "650bf385-6f6d-4992-a3b9-779d144920a4";
+        let grappelli_id = "bfc03211-a3a2-4700-8fa3-00968c02c5d0";
+        store
+            .set_retained_provider_cache(
+                "artists.profile.musicbrainz",
+                django_id,
+                &json!({"id":django_id,"name":"Django Reinhardt","aliases":[]}),
+            )
+            .unwrap();
+        store
+            .set_retained_provider_cache(
+                "artists.profile.musicbrainz",
+                grappelli_id,
+                &json!({
+                    "id":grappelli_id,
+                    "name":"Stéphane Grappelli",
+                    "aliases":[
+                        {"name":"Stephane Grappelli","type":"Artist name"},
+                        {"name":"Unrelated Search Hint","type":"Search hint"}
+                    ]
+                }),
+            )
+            .unwrap();
+
+        let release_id = "00000000-0000-4000-8000-000000000901";
+        let recording_id = "00000000-0000-4000-8000-000000000902";
+        let source_url = format!("https://musicbrainz.org/release/{release_id}");
+        let request = Track {
+            id: format!("catalog:musicbrainz:{release_id}:1:2:1:{recording_id}"),
+            provider: "catalog".into(),
+            provider_id: format!("musicbrainz:{release_id}:1:2:1:{recording_id}"),
+            source_url: source_url.clone(),
+            title: "Minor Swing (Restored Edition '25)".into(),
+            artist: "Django Reinhardt & Stéphane Grappelli".into(),
+            duration_seconds: Some(195.0),
+            provenance: json!({
+                "catalogProvider":"musicbrainz",
+                "manualFields":{},
+                "releaseId":release_id,
+                "sourceKind":"catalog",
+                "sourceUrl":source_url,
+                "artistCredits":[
+                    {"artist":{"id":django_id,"provider":"musicbrainz"},
+                     "creditedAs":"Django Reinhardt","joinPhrase":" & ",
+                     "name":"Django Reinhardt","role":"artist credit","sourceUrl":source_url},
+                    {"artist":{"id":grappelli_id,"provider":"musicbrainz"},
+                     "creditedAs":"Stéphane Grappelli","joinPhrase":"",
+                     "name":"Stéphane Grappelli","role":"artist credit","sourceUrl":source_url}
+                ]
+            }),
+            ..Track::default()
+        };
+        let options = crate::recording_match::FlexibleMatchingOptions {
+            allow_other_releases: true,
+            allow_other_performances: true,
+            allow_other_mixes: true,
+            allow_different_lengths: true,
+            max_shorter_by_seconds: 12,
+            max_longer_by_seconds: 45,
+            ..Default::default()
+        };
+        let catalog_candidate = Candidate {
+            id: "youtube:4LkgsHsIQkk".into(),
+            provider: "youtube".into(),
+            title: "Minor Swing".into(),
+            duration_seconds: Some(198.0),
+            source_metadata: Some(json!({
+                "provider":"youtube",
+                "playbackMusicCatalogCandidate":true,
+                "catalogTitle":"Minor Swing",
+                "catalogArtist":"Stephane Grappelli, Django Reinhardt",
+                "duration":198.0
+            })),
+            ..Candidate::default()
+        };
+
+        // The production entry point receives no materialized alias tracks.
+        // It can still use the cached exact-ID profile credit set for the
+        // catalogArtist field, and Search remains inspection-only.
+        let mut search_context = AssessmentContext::with_flexible_options(options.clone());
+        let search = assess_with_aliases_and_context(
+            &store,
+            &request,
+            &catalog_candidate,
+            MatchLevel::Flexible,
+            MatchStage::Search,
+            &[],
+            &[],
+            None,
+            &[],
+            &mut search_context,
+        );
+        assert_eq!(search.dimensions.artists, Comparison::Agree, "{search:?}");
+        assert_eq!(search.action, MatchAction::Inspect, "{search:?}");
+        assert!(search
+            .evidence
+            .as_ref()
+            .and_then(|evidence| evidence.scoped_artist_credit_set_alias.as_ref())
+            .is_some());
+
+        for level in [MatchLevel::Exact, MatchLevel::Balanced] {
+            let mut strict_search_context =
+                AssessmentContext::with_flexible_options(options.clone());
+            let strict_search = assess_with_aliases_and_context(
+                &store,
+                &request,
+                &catalog_candidate,
+                level,
+                MatchStage::Search,
+                &[],
+                &[],
+                None,
+                &[],
+                &mut strict_search_context,
+            );
+            assert_eq!(
+                strict_search.dimensions.artists,
+                Comparison::Agree,
+                "{strict_search:?}"
+            );
+            assert_eq!(
+                strict_search.action,
+                MatchAction::Inspect,
+                "{strict_search:?}"
+            );
+        }
+
+        let mut conflicted_catalog_row = catalog_candidate.clone();
+        conflicted_catalog_row.source_metadata.as_mut().unwrap()["catalogMetadataConflict"] =
+            json!(true);
+        let mut conflicted_search_context =
+            AssessmentContext::with_flexible_options(options.clone());
+        let conflicted_search = assess_with_aliases_and_context(
+            &store,
+            &request,
+            &conflicted_catalog_row,
+            MatchLevel::Flexible,
+            MatchStage::Search,
+            &[],
+            &[],
+            None,
+            &[],
+            &mut conflicted_search_context,
+        );
+        assert_ne!(conflicted_search.action, MatchAction::Accept);
+
+        let fresh_candidate = Candidate {
+            title: "Minor Swing (Remastered 2020)".into(),
+            source_metadata: Some(json!({
+                "provider":"youtube",
+                "resolvedProviderId":"4LkgsHsIQkk",
+                "sourceMetadataOrigin":"ytDlpFullInfo",
+                "track":"Minor Swing (Remastered 2020)",
+                "artist":"Stephane Grappelli, Django Reinhardt",
+                "artists":["Stephane Grappelli", "Django Reinhardt"],
+                "artistCount":2,
+                "duration":198.0
+            })),
+            ..catalog_candidate.clone()
+        };
+        let mut resolved_context = AssessmentContext::with_flexible_options(options.clone());
+        let resolved = assess_with_aliases_and_context(
+            &store,
+            &request,
+            &fresh_candidate,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &[],
+            &[],
+            None,
+            &[],
+            &mut resolved_context,
+        );
+        assert_eq!(resolved.dimensions.title, Comparison::Agree, "{resolved:?}");
+        assert_eq!(
+            resolved.dimensions.artists,
+            Comparison::Agree,
+            "{resolved:?}"
+        );
+        assert_eq!(
+            resolved.dimensions.runtime,
+            Comparison::Agree,
+            "{resolved:?}"
+        );
+        assert_eq!(
+            resolved.dimensions.version,
+            Comparison::Conflict,
+            "{resolved:?}"
+        );
+        assert_eq!(resolved.action, MatchAction::Accept, "{resolved:?}");
+        assert_eq!(resolved.alternative_kind, Some(AlternativeKind::Release));
+        assert!(resolved
+            .evidence
+            .as_ref()
+            .and_then(|evidence| evidence.scoped_artist_credit_set_alias.as_ref())
+            .is_some());
+
+        for level in [MatchLevel::Exact, MatchLevel::Balanced] {
+            let mut strict_context = AssessmentContext::with_flexible_options(options.clone());
+            let strict = assess_with_aliases_and_context(
+                &store,
+                &request,
+                &fresh_candidate,
+                level,
+                MatchStage::Resolved,
+                &[],
+                &[],
+                None,
+                &[],
+                &mut strict_context,
+            );
+            // Equal-priority strict refusals retain the original assessment;
+            // the release conflict must still prevent acceptance.
+            assert_eq!(
+                strict.dimensions.version,
+                Comparison::Conflict,
+                "{strict:?}"
+            );
+            assert_eq!(strict.action, MatchAction::Reject, "{strict:?}");
+        }
+
+        // A singular primary artist may legitimately be one member of the
+        // structured performer list.
+        let mut primary_scalar = fresh_candidate.clone();
+        primary_scalar.source_metadata.as_mut().unwrap()["artist"] = json!("Django Reinhardt");
+        let mut primary_scalar_context = AssessmentContext::with_flexible_options(options.clone());
+        let primary_scalar = assess_with_aliases_and_context(
+            &store,
+            &request,
+            &primary_scalar,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &[],
+            &[],
+            None,
+            &[],
+            &mut primary_scalar_context,
+        );
+        assert_eq!(
+            primary_scalar.action,
+            MatchAction::Accept,
+            "{primary_scalar:?}"
+        );
+
+        // Empty or null arrays mean the structured list is unavailable. A
+        // full scalar credit can still be checked against the verified set.
+        let mut empty_arrays = fresh_candidate.clone();
+        empty_arrays.source_metadata.as_mut().unwrap()["artist"] =
+            json!("Stephane Grappelli, Django Reinhardt");
+        empty_arrays.source_metadata.as_mut().unwrap()["artists"] = json!([]);
+        empty_arrays.source_metadata.as_mut().unwrap()["artistNames"] = json!(null);
+        let mut empty_arrays_context = AssessmentContext::with_flexible_options(options.clone());
+        let empty_arrays = assess_with_aliases_and_context(
+            &store,
+            &request,
+            &empty_arrays,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &[],
+            &[],
+            None,
+            &[],
+            &mut empty_arrays_context,
+        );
+        assert_eq!(empty_arrays.action, MatchAction::Accept, "{empty_arrays:?}");
+
+        // A foreign singular field must not be masked by an otherwise correct
+        // structured array.
+        let mut wrong_scalar = fresh_candidate.clone();
+        wrong_scalar.source_metadata.as_mut().unwrap()["artist"] = json!("Wrong Artist");
+        wrong_scalar.source_metadata.as_mut().unwrap()["artists"] =
+            json!(["Django Reinhardt", "Stéphane Grappelli"]);
+        wrong_scalar.source_metadata.as_mut().unwrap()["artistCount"] = json!(2);
+        let mut wrong_scalar_context = AssessmentContext::with_flexible_options(options.clone());
+        let wrong_scalar = assess_with_aliases_and_context(
+            &store,
+            &request,
+            &wrong_scalar,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &[],
+            &[],
+            None,
+            &[],
+            &mut wrong_scalar_context,
+        );
+        assert_ne!(wrong_scalar.action, MatchAction::Accept, "{wrong_scalar:?}");
+
+        let mut search_hint_scalar = fresh_candidate.clone();
+        search_hint_scalar.source_metadata.as_mut().unwrap()["artist"] =
+            json!("Unrelated Search Hint");
+        search_hint_scalar.source_metadata.as_mut().unwrap()["artists"] =
+            json!(["Django Reinhardt", "Stéphane Grappelli"]);
+        let mut search_hint_context = AssessmentContext::with_flexible_options(options.clone());
+        let search_hint_scalar = assess_with_aliases_and_context(
+            &store,
+            &request,
+            &search_hint_scalar,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &[],
+            &[],
+            None,
+            &[],
+            &mut search_hint_context,
+        );
+        assert_ne!(
+            search_hint_scalar.action,
+            MatchAction::Accept,
+            "{search_hint_scalar:?}"
+        );
+
+        let mut unbound = fresh_candidate.clone();
+        unbound.source_metadata.as_mut().unwrap()["resolvedProviderId"] = json!("different-id");
+        let mut unbound_context = AssessmentContext::with_flexible_options(options.clone());
+        let unbound = assess_with_aliases_and_context(
+            &store,
+            &request,
+            &unbound,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &[],
+            &[],
+            None,
+            &[],
+            &mut unbound_context,
+        );
+        assert_ne!(unbound.action, MatchAction::Accept, "{unbound:?}");
+
+        let mut wrong_isrc_request = request.clone();
+        wrong_isrc_request.isrc = Some("USABC2600001".into());
+        let mut wrong_isrc = fresh_candidate.clone();
+        wrong_isrc.source_metadata.as_mut().unwrap()["isrc"] = json!("USXYZ2600002");
+        let mut wrong_isrc_context = AssessmentContext::with_flexible_options(options.clone());
+        let wrong_isrc = assess_with_aliases_and_context(
+            &store,
+            &wrong_isrc_request,
+            &wrong_isrc,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &[],
+            &[],
+            None,
+            &[],
+            &mut wrong_isrc_context,
+        );
+        assert_eq!(wrong_isrc.action, MatchAction::Reject, "{wrong_isrc:?}");
+
+        let mut uncertain_artist = fresh_candidate.clone();
+        uncertain_artist.source_metadata.as_mut().unwrap()["identityMetadataUncertain"] =
+            json!(true);
+        let mut uncertain_context = AssessmentContext::with_flexible_options(options.clone());
+        let uncertain = assess_with_aliases_and_context(
+            &store,
+            &request,
+            &uncertain_artist,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &[],
+            &[],
+            None,
+            &[],
+            &mut uncertain_context,
+        );
+        assert_ne!(uncertain.action, MatchAction::Accept, "{uncertain:?}");
+
+        let mut malformed_artist_array = fresh_candidate.clone();
+        malformed_artist_array.source_metadata.as_mut().unwrap()["artists"] =
+            json!({"name":"Stephane Grappelli"});
+        let mut malformed_context = AssessmentContext::with_flexible_options(options.clone());
+        let malformed = assess_with_aliases_and_context(
+            &store,
+            &request,
+            &malformed_artist_array,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &[],
+            &[],
+            None,
+            &[],
+            &mut malformed_context,
+        );
+        assert_ne!(malformed.action, MatchAction::Accept, "{malformed:?}");
+
+        let mut contradictory_arrays = fresh_candidate.clone();
+        contradictory_arrays.source_metadata.as_mut().unwrap()["artistNames"] =
+            json!(["Wrong Artist", "Django Reinhardt"]);
+        let mut contradictory_context = AssessmentContext::with_flexible_options(options.clone());
+        let contradictory = assess_with_aliases_and_context(
+            &store,
+            &request,
+            &contradictory_arrays,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &[],
+            &[],
+            None,
+            &[],
+            &mut contradictory_context,
+        );
+        assert_ne!(
+            contradictory.action,
+            MatchAction::Accept,
+            "{contradictory:?}"
+        );
+
+        let mut uploader_only = fresh_candidate.clone();
+        let metadata = uploader_only.source_metadata.as_mut().unwrap();
+        metadata.as_object_mut().unwrap().remove("artist");
+        metadata.as_object_mut().unwrap().remove("artists");
+        metadata.as_object_mut().unwrap().remove("artistCount");
+        metadata["channel"] = json!("Stephane Grappelli, Django Reinhardt");
+        metadata["uploader"] = json!("Stephane Grappelli, Django Reinhardt");
+        let mut uploader_only_context = AssessmentContext::with_flexible_options(options.clone());
+        let uploader_only = assess_with_aliases_and_context(
+            &store,
+            &request,
+            &uploader_only,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &[],
+            &[],
+            None,
+            &[],
+            &mut uploader_only_context,
+        );
+        assert_ne!(
+            uploader_only.action,
+            MatchAction::Accept,
+            "{uploader_only:?}"
+        );
+
+        for (artist, artists) in [
+            ("Django Reinhardt", json!(["Django Reinhardt"])),
+            (
+                "Stephane Grappelli, Django Reinhardt, Quintette du Hot Club de France",
+                json!([
+                    "Stephane Grappelli",
+                    "Django Reinhardt",
+                    "Quintette du Hot Club de France"
+                ]),
+            ),
+            (
+                "Unknown Artist, Django Reinhardt",
+                json!(["Unknown Artist", "Django Reinhardt"]),
+            ),
+        ] {
+            let mut invalid = fresh_candidate.clone();
+            let artist_count = artists.as_array().unwrap().len();
+            invalid.source_metadata.as_mut().unwrap()["artist"] = json!(artist);
+            invalid.source_metadata.as_mut().unwrap()["artists"] = artists;
+            invalid.source_metadata.as_mut().unwrap()["artistCount"] = json!(artist_count);
+            let mut invalid_context = AssessmentContext::with_flexible_options(options.clone());
+            let assessment = assess_with_aliases_and_context(
+                &store,
+                &request,
+                &invalid,
+                MatchLevel::Flexible,
+                MatchStage::Resolved,
+                &[],
+                &[],
+                None,
+                &[],
+                &mut invalid_context,
+            );
+            assert_eq!(assessment.action, MatchAction::Reject, "{assessment:?}");
+        }
+    }
 }
 
 pub(crate) fn priority(a: &MatchAssessment) -> (u8, u8) {
@@ -1460,6 +2099,54 @@ fn assess_with_aliases_and_context_impl(
         if priority(&next) < priority(&best) {
             best = next;
             best_request = variant.clone();
+        }
+    }
+    if track.provider == "catalog"
+        && track.provenance["catalogProvider"].as_str() == Some("musicbrainz")
+    {
+        if let Some(candidate_artist) = candidate_credit_rendering(candidate, stage) {
+            if stage == MatchStage::Resolved
+                && fresh_artist_scalar_conflicts_with_array(candidate, track, &verified_credits)
+            {
+                // A fresh structured artist list cannot override a contradictory
+                // singular artist field. Let the regular evaluator report the
+                // metadata as uncertain so this ambiguity cannot become Accept.
+                let mut uncertain_candidate = candidate.clone();
+                if let Some(metadata) = uncertain_candidate
+                    .source_metadata
+                    .as_mut()
+                    .and_then(serde_json::Value::as_object_mut)
+                {
+                    metadata.insert(
+                        "identityMetadataUncertain".into(),
+                        serde_json::Value::Bool(true),
+                    );
+                }
+                best = recording_match::assess_with_options(
+                    track,
+                    &uncertain_candidate,
+                    level,
+                    stage,
+                    &context.flexible_options,
+                );
+                best_request = track.clone();
+            } else if let Some(variant) =
+                verified_credits.musicbrainz_credit_variant(track, &candidate_artist)
+            {
+                let scoped =
+                    recording_match::assess_with_scoped_artist_credit_set_variant_and_options(
+                        track,
+                        candidate,
+                        level,
+                        stage,
+                        &variant,
+                        &context.flexible_options,
+                    );
+                if priority(&scoped) < priority(&best) {
+                    best = scoped;
+                    best_request = track.clone();
+                }
+            }
         }
     }
     let mut selected_credit_variant = None;

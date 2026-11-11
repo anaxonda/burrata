@@ -2210,18 +2210,42 @@ impl ArtistService {
                 LIST_TTL,
             )
             .await?;
-        let total = data["count"].as_u64().unwrap_or(0) as u32;
-        let items = data["recordings"]
+        let total = data["recording-count"]
+            .as_u64()
+            .or_else(|| data["count"].as_u64())
+            .and_then(|count| u32::try_from(count).ok())
+            .ok_or_else(|| "MusicBrainz recording count is missing or invalid".to_owned())?;
+        if let Some(provider_offset) = data.get("recording-offset") {
+            let provider_offset = provider_offset
+                .as_u64()
+                .and_then(|value| u32::try_from(value).ok())
+                .ok_or_else(|| "MusicBrainz recording offset is invalid".to_owned())?;
+            if provider_offset != offset {
+                return Err("MusicBrainz recording offset did not match the requested page".into());
+            }
+        }
+        let recordings = data["recordings"]
             .as_array()
-            .into_iter()
-            .flatten()
+            .ok_or_else(|| "MusicBrainz recording page is missing or invalid".to_owned())?;
+        let raw_page_len = u32::try_from(recordings.len())
+            .map_err(|_| "MusicBrainz recording page is too large".to_owned())?;
+        if raw_page_len > ARTIST_LIST_PAGE_SIZE {
+            return Err("MusicBrainz recording page exceeded the requested page size".into());
+        }
+        if raw_page_len == 0 && offset < total {
+            return Err("MusicBrainz recording page made no progress".into());
+        }
+        let items = recordings
+            .iter()
             .filter_map(|recording| parse_musicbrainz_recording(recording, artist))
             .collect::<Vec<_>>();
-        let next = if offset + (items.len() as u32) < total {
-            Some((offset + items.len() as u32).to_string())
-        } else {
-            None
-        };
+        let next_offset = offset
+            .checked_add(raw_page_len)
+            .ok_or_else(|| "MusicBrainz recording page offset overflowed".to_owned())?;
+        if next_offset > total {
+            return Err("MusicBrainz recording page exceeded the provider total".into());
+        }
+        let next = (next_offset < total).then(|| next_offset.to_string());
         Ok(ArtistTrackPage {
             artist: artist.clone(),
             items,
@@ -5754,6 +5778,167 @@ mod tests {
             "Discogs search is not scoped to artists: {route}"
         );
         server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn musicbrainz_artist_track_pages_use_recording_count_and_raw_offsets() {
+        use axum::{extract::Query, routing::get, Json, Router};
+        use std::collections::HashMap;
+
+        let offsets = Arc::new(std::sync::Mutex::new(Vec::<u32>::new()));
+        let observed = offsets.clone();
+        let app = Router::new().route(
+            "/ws/2/recording",
+            get(move |Query(query): Query<HashMap<String, String>>| {
+                let observed = observed.clone();
+                async move {
+                    let offset = query
+                        .get("offset")
+                        .and_then(|value| value.parse::<u32>().ok())
+                        .unwrap_or(u32::MAX);
+                    observed.lock().unwrap().push(offset);
+                    let end = if offset == 0 { 100 } else if offset == 100 { 101 } else { offset };
+                    let recordings = (offset..end)
+                        .map(|index| json!({
+                            "id": format!("00000000-0000-4000-8000-{index:012x}"),
+                            "title": format!("Recording {index}"),
+                            "length": 180000,
+                            "artist-credit": [{
+                                "name":"Pulse", "joinphrase":"",
+                                "artist":{"id":"00000000-0000-4000-8000-000000000001","name":"Pulse"}
+                            }]
+                        }))
+                        .collect::<Vec<_>>();
+                    Json(json!({
+                        "recording-count":101,
+                        "recording-offset":offset,
+                        "recordings":recordings
+                    }))
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let store =
+            Arc::new(Store::open(&temp.path().join("artist-track-pagination.sqlite")).unwrap());
+        let mut service = ArtistService::new(store).unwrap();
+        service.endpoints.musicbrainz = format!("http://{address}/ws/2");
+        let artist = ArtistRef {
+            provider: "musicbrainz".into(),
+            id: "00000000-0000-4000-8000-000000000001".into(),
+        };
+        let credentials = ArtistCredentials::default();
+
+        let first = service
+            .get_artist_tracks(&artist, None, &credentials)
+            .await
+            .unwrap();
+        assert_eq!(first.items.len(), 100);
+        assert_eq!(first.next_cursor.as_deref(), Some("100"));
+        let last = service
+            .get_artist_tracks(&artist, first.next_cursor.as_deref(), &credentials)
+            .await
+            .unwrap();
+        assert_eq!(last.items.len(), 1);
+        assert_eq!(last.next_cursor, None);
+        assert_eq!(*offsets.lock().unwrap(), vec![0, 100]);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn artist_track_cursor_advances_by_raw_rows_when_a_recording_is_filtered() {
+        use axum::{extract::Query, routing::get, Json, Router};
+        use std::collections::HashMap;
+
+        let app = Router::new().route(
+            "/ws/2/recording",
+            get(|Query(_query): Query<HashMap<String, String>>| async move {
+                let recordings = (0..100)
+                    .map(|index| {
+                        if index == 99 {
+                            json!({"title":"Malformed row without an ID"})
+                        } else {
+                            json!({
+                                "id": format!("00000000-0000-4000-8000-{index:012x}"),
+                                "title": format!("Recording {index}"),
+                                "length": 180000,
+                                "artist-credit": [{
+                                    "name":"Pulse", "joinphrase":"",
+                                    "artist":{"id":"00000000-0000-4000-8000-000000000001","name":"Pulse"}
+                                }]
+                            })
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                Json(json!({
+                    "recording-count":101,
+                    "recording-offset":0,
+                    "recordings":recordings
+                }))
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let store =
+            Arc::new(Store::open(&temp.path().join("artist-track-filtered-page.sqlite")).unwrap());
+        let mut service = ArtistService::new(store).unwrap();
+        service.endpoints.musicbrainz = format!("http://{address}/ws/2");
+        let artist = ArtistRef {
+            provider: "musicbrainz".into(),
+            id: "00000000-0000-4000-8000-000000000001".into(),
+        };
+        let first = service
+            .get_artist_tracks(&artist, None, &ArtistCredentials::default())
+            .await
+            .unwrap();
+        assert_eq!(first.items.len(), 99);
+        assert_eq!(first.next_cursor.as_deref(), Some("100"));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn musicbrainz_artist_track_pages_reject_invalid_counts_offsets_and_stalls() {
+        use axum::{routing::get, Json, Router};
+        let pages = [
+            json!({"recordings":[]}),
+            json!({"recording-count":-1,"recordings":[]}),
+            json!({"recording-count":4294967296u64,"recordings":[]}),
+            json!({"recording-count":1,"recording-offset":1,"recordings":[]}),
+            json!({"recording-count":1,"recording-offset":"bad","recordings":[]}),
+            json!({"recording-count":1,"recordings":null}),
+            json!({"recording-count":1,"recordings":[]}),
+            json!({"recording-count":0,"recordings":[{}]}),
+            json!({"recording-count":101,"recordings":vec![json!({});101]}),
+        ];
+        for page in pages {
+            let app = Router::new().route(
+                "/ws/2/recording",
+                get(move || {
+                    let page = page.clone();
+                    async move { Json(page) }
+                }),
+            );
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+            let temp = tempfile::tempdir().unwrap();
+            let store = Arc::new(Store::open(&temp.path().join("invalid-page.sqlite")).unwrap());
+            let mut service = ArtistService::new(store).unwrap();
+            service.endpoints.musicbrainz = format!("http://{address}/ws/2");
+            let artist = ArtistRef {
+                provider: "musicbrainz".into(),
+                id: "00000000-0000-4000-8000-000000000001".into(),
+            };
+            assert!(service
+                .get_artist_tracks(&artist, None, &ArtistCredentials::default())
+                .await
+                .is_err());
+            server.abort();
+        }
     }
 
     #[tokio::test]

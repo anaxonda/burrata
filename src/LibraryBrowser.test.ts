@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error Use the browser runtime in jsdom.
 vi.mock('svelte', async () => await import('../node_modules/svelte/src/index-client.js'));
 import LibraryBrowser from './LibraryBrowser.svelte';
+import libraryBrowserSource from './LibraryBrowser.svelte?raw';
+import albumDetailViewSource from './AlbumDetailView.svelte?raw';
 import SaveArtistButton from './SaveArtistButton.svelte';
 import { initialLibraryBrowserState, saveCompleteLibraryAlbum, completeLibraryAlbumTrackCount, type LibraryBrowserState, type LibraryEntity } from './lib/library';
 import type { Track } from './lib/types';
@@ -27,6 +29,33 @@ function render(extra: Record<string, unknown> = {}) {
 }
 
 describe('saved library views', () => {
+  it('keeps a non-own-scrolling album in the outer scroll flow so Load more remains below it', async () => {
+    const pageTracks = Array.from({ length: 200 }, (_, index) => ({
+      ...saved, id: `fixture:page:${index + 1}`, providerId: `page:${index + 1}`, title: `Fixture track ${index + 1}`,
+    }));
+    const album = { ...albumVersion('album:fixture:long', 'Long fixture album', 'Fixture artist', 'musicbrainz', '2000'),
+      trackCount: 400, totalTracks: 400 };
+    const call = vi.fn(async (command: string) => command === 'list_library_entity_tracks'
+      ? { tracks: pageTracks, total: 400 } : { items: [], total: 0 });
+    const { target } = render({
+      browserState: { ...initialLibraryBrowserState(), tab: 'albums', entity: album }, call,
+    });
+    await settle();
+
+    const browser = target.querySelector<HTMLElement>('.library-browser')!;
+    const detail = browser.querySelector<HTMLElement>('.album-detail')!;
+    const loadMore = [...browser.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent?.trim() === 'Load more')!;
+    // jsdom doesn't perform layout. Pin the production CSS contract and use the
+    // real rendered DOM to verify the detail's ownership and sibling ordering.
+    expect(libraryBrowserSource).toContain('.library-browser{min-height:0;flex:1;overflow:auto;');
+    expect(albumDetailViewSource).toContain('.album-detail:not(.owns-scroll){height:auto;overflow:visible;flex-shrink:0}');
+    expect(detail.classList.contains('owns-scroll')).toBe(false);
+    expect(detail.closest('.library-browser')).toBe(browser);
+    expect(loadMore.parentElement).toBe(browser);
+    expect(detail.compareDocumentPosition(loadMore) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('remembers independent artist and album layouts and omits the toggle in track views', async () => {
     expect(initialLibraryBrowserState()).toMatchObject({ artistLayout: 'grid', albumLayout: 'grid' });
     const stateChange = vi.fn((_next: LibraryBrowserState) => {});

@@ -16729,3 +16729,7 @@ mod spotify_role_recovery_regression_tests {
         assert_eq!(expired.io.validations.load(Ordering::SeqCst), 0);
     }
 }
+
+#[cfg(test)]
+#[path = "playback_release_live_tests.rs"]
+mod release_live_tests;

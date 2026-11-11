@@ -221,6 +221,15 @@ jobs:
         with:
           path: .cache/media-tool-sources
           key: media-source-v1-${{ matrix.target }}-${{ hashFiles('scripts/release/locked-tools.json') }}
+      - name: Preseed hash-verified Opus source archive (Windows only)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        env:
+          PYTHON_PATH: ${{ steps.python.outputs.python-path }}
+        run: |
+          python_exe="$(cygpath -u "$PYTHON_PATH")"
+          "$python_exe" scripts/release/preseed-windows-opus-source.py --self-test
+          "$python_exe" scripts/release/preseed-windows-opus-source.py
       - name: Download and verify pinned runtime tools (macOS/Linux)
         if: runner.os != 'Windows'
         env:

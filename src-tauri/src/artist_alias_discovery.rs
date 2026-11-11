@@ -354,6 +354,57 @@ fn lexical_outcome(result: &Result<(), String>) -> &'static str {
         Err(_) => "unavailable",
     }
 }
+// These IDs are request locators only. Fetching an exact artist profile does
+// not bind it to the recording; artist_credit_aliases still verifies the raw
+// release occurrence before using any profile as performer evidence.
+fn requested_musicbrainz_artist_ids(track: &Track) -> Vec<String> {
+    let mut ids = Vec::new();
+    for credit in track.provenance["artistCredits"]
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
+        if credit["artist"]["provider"] != "musicbrainz" {
+            continue;
+        }
+        if let Some(id) = credit["artist"]["id"]
+            .as_str()
+            .filter(|id| aliases::valid_musicbrainz_recording_id(id))
+        {
+            if !ids.iter().any(|known| known == id) {
+                ids.push(id.to_owned());
+                if ids.len() == 16 {
+                    break;
+                }
+            }
+        }
+    }
+    ids
+}
+
+#[cfg(test)]
+mod requested_artist_profile_tests {
+    use super::*;
+
+    #[test]
+    fn exact_profile_locators_preserve_request_order_and_reject_other_namespaces() {
+        let mut track = Track::default();
+        let first = "00000000-0000-4000-8000-000000000002";
+        let second = "00000000-0000-4000-8000-000000000001";
+        track.provenance = json!({"artistCredits":[
+            {"artist":{"provider":"musicbrainz","id":first}},
+            {"artist":{"provider":"spotify","id":second}},
+            {"artist":{"provider":"musicbrainz","id":"invalid"}},
+            {"artist":{"provider":"musicbrainz","id":second}},
+            {"artist":{"provider":"musicbrainz","id":first}}
+        ]});
+        assert_eq!(
+            requested_musicbrainz_artist_ids(&track),
+            vec![first, second]
+        );
+    }
+}
+
 async fn discover_inner(store: &Store, track: &Track) -> Result<(), String> {
     if matches!(
         track.provider.as_str(),
@@ -396,6 +447,19 @@ async fn discover_inner(store: &Store, track: &Track) -> Result<(), String> {
         return Ok(());
     }
     if track.provider == "catalog" && track.provenance["catalogProvider"] == "musicbrainz" {
+        // Prepare the requested profiles before a potentially large release or
+        // optional Wikidata hydration consumes the shared discovery deadline.
+        // Keep successful independent profile reads even if another read fails.
+        for id in requested_musicbrainz_artist_ids(track) {
+            let _ = mb(
+                store,
+                "artists.profile.musicbrainz",
+                &id,
+                "artist",
+                "aliases+url-rels",
+            )
+            .await;
+        }
         if let Some(id) = track.provenance["releaseId"]
             .as_str()
             .filter(|id| aliases::valid_musicbrainz_recording_id(id))

@@ -1,6 +1,12 @@
-# Burrata 0.1.34
+# Burrata 0.1.35
 
 Draft release notes. Final-source automated, package, playback, performance, and live-provider qualification remains pending.
+
+- Optional YouTube Music discovery inspects up to 20 catalog rows within the existing query and time budgets, retaining correctly credited recordings that appear after the first ten results.
+- Exact MusicBrainz artist-profile aliases can match reordered flat performer credits when there is one complete, unambiguous mapping. Featured-credit roles, atomic band names, missing or extra performers, and fresh resolved-source validation keep their existing protections. Stored matching decisions use a new evaluator revision.
+- Native startup recovery can reach its final source fallback if the refreshed stream URL is also denied before first audio. The original deadline, recovery cap, and explicit source locks remain enforced.
+- Library album details keep their natural height so Load more follows the track list. Shared lists retain explicit accessibility semantics when their visual numbering is hidden.
+- Windows builds can populate the Opus source cache from an independently checksum-verified mirror when the primary archive host is unavailable.
 
 - Discogs artist-credit hydration now treats roleless catalog artist credits and `Primary Artist` consistently across Library reads and matching. It preserves uncertainty for `Unknown artist`, and reversed-caption results are accepted only when recording identity is corroborated.
 - Radio favorites retain the canonical saved track ID and provider ID, and report save failures instead of silently targeting a different row.
@@ -24,6 +30,9 @@ Draft release notes. Final-source automated, package, playback, performance, and
 - Isolated Chromium profiles receive their own native-host registration, and managed browser status detects an exited process.
 - Optional song, concert, and set context lookup uses the configured AI connection and labels its results unverified. Optional search auto-queueing is off by default and never starts playback.
 - Lyrics lookup handles identified official uploads with missing artist metadata. Waveform progress updates avoid rebuilding waveform bars.
+
+- MusicBrainz artist recordings continue through all provider pages using raw response offsets, including pages containing malformed rows.
+- Flexible release-context discovery prioritizes the structured primary performer over reordered group aliases. Requested MusicBrainz profiles are prepared before whole-release discovery; recording validation remains required.
 
 ## Qualification status and limits
 

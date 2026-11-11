@@ -752,6 +752,8 @@ const RAW_AUDIO_SEARCH_CACHE_TTL: Duration = Duration::from_secs(2 * 60);
 const RAW_AUDIO_SEARCH_CACHE_MAX: usize = 64;
 const PREVIEW_SEARCH_TIMEOUT: Duration = Duration::from_secs(20);
 const PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT: usize = 10;
+// Optional catalog lookup inspects a broader bounded page so typed credits after flat-like results remain available for review.
+const PLAYBACK_MUSIC_CATALOG_RESULT_LIMIT: usize = 20;
 const OPTIONAL_PLAYBACK_RESEARCH_MAX: Duration = Duration::from_secs(3);
 // Keep one slow CDN range check from consuming the foreground attempt budget;
 // the resolver can spend the remaining shared deadline on same-recording
@@ -4792,7 +4794,7 @@ fn playback_candidate_search_cache_key(
     alternate_artists: &[String],
 ) -> String {
     format!(
-        "{}:playback-source-search-retrieval-2:recording-match-{}:{:?}:{}:{}",
+        "{}:playback-source-search-retrieval-3:recording-match-{}:{:?}:{}:{}",
         search_cache_key(track, provider_ids, settings, 3),
         crate::recording_match::EVALUATOR_VERSION,
         settings.matching_level,
@@ -8666,7 +8668,7 @@ impl AcquisitionManager {
                                             let items =
                                                 crate::youtube_music::search_playback_candidates(
                                                     &query,
-                                                    PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT,
+                                                    PLAYBACK_MUSIC_CATALOG_RESULT_LIMIT,
                                                     query_cancel,
                                                     deadline,
                                                 )
@@ -12886,6 +12888,104 @@ mod tests {
     }
 
     #[test]
+    fn catalog_rank_eleven_preserves_exact_artist_evidence_and_rejects_wrong_artist_neighbors() {
+        use serde_json::json;
+
+        let artist_endpoint = json!({"browseEndpoint":{"browseEndpointContextSupportedConfigs":{"browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_ARTIST"}}}});
+        let renderer = |id: String, artists: &[&str]| {
+            let mut columns = vec![
+                json!({"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Swing 42 (Remastered)"}]}}}),
+            ];
+            for artist in artists {
+                columns.push(json!({"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":artist,"navigationEndpoint":artist_endpoint}]}}}));
+            }
+            json!({"musicResponsiveListItemRenderer":{"videoId":id,"flexColumns":columns,"fixedColumns":[{"musicResponsiveListItemFixedColumnRenderer":{"text":{"simpleText":"2:49"}}}]}})
+        };
+        let mut rows = (0..9)
+            .map(|index| renderer(format!("bad{:08}", index), &["Wrong Artist"]))
+            .collect::<Vec<_>>();
+        rows.push(renderer(
+            "wrongrank10".into(),
+            &["Django Reinhardt", "Wrong Ensemble"],
+        ));
+        rows.push(renderer(
+            "lK_BGCe3q6I".into(),
+            &["Django Reinhardt", "Quintette du Hot Club de France"],
+        ));
+        rows.push(renderer("wrongrank12".into(), &["Wrong Django Ensemble"]));
+        let body = json!({"contents":rows});
+        let track = Track {
+            title: "Swing 42 (Restored Edition '25)".into(),
+            artist: "Django Reinhardt & Quintette du Hot Club de France".into(),
+            duration_seconds: Some(165.0),
+            ..Track::default()
+        };
+        let at_ten =
+            crate::youtube_music::parse_search_response(&body, PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT);
+        assert!(!at_ten.iter().any(|item| item.id == "lK_BGCe3q6I"));
+        let at_catalog_limit =
+            crate::youtube_music::parse_search_response(&body, PLAYBACK_MUSIC_CATALOG_RESULT_LIMIT);
+        assert_eq!(at_catalog_limit.len(), 12);
+        let candidates = playback_music_catalog_candidates(&track, at_catalog_limit);
+        let exact = candidates
+            .iter()
+            .find(|candidate| candidate.id == "youtube:lK_BGCe3q6I")
+            .unwrap();
+        let options = crate::recording_match::FlexibleMatchingOptions {
+            allow_other_releases: true,
+            allow_other_performances: true,
+            allow_other_mixes: true,
+            allow_different_lengths: true,
+            max_shorter_by_seconds: 12,
+            max_longer_by_seconds: 45,
+            ..Default::default()
+        };
+        let exact_assessment = crate::recording_match::assess_with_options(
+            &track,
+            exact,
+            crate::recording_match::MatchLevel::Flexible,
+            crate::recording_match::MatchStage::Search,
+            &options,
+        );
+        assert_eq!(
+            exact_assessment.dimensions.artists,
+            crate::recording_match::Comparison::Agree
+        );
+        assert_eq!(
+            exact_assessment.relationship,
+            crate::recording_match::MatchRelationship::Unresolved
+        );
+        assert_eq!(
+            exact_assessment.action,
+            crate::recording_match::MatchAction::Inspect
+        );
+        assert!(exact_assessment
+            .evidence
+            .as_ref()
+            .unwrap()
+            .missing_performers
+            .is_empty());
+        for id in ["youtube:wrongrank10", "youtube:wrongrank12"] {
+            let wrong = candidates
+                .iter()
+                .find(|candidate| candidate.id == id)
+                .unwrap();
+            let assessment = crate::recording_match::assess_with_options(
+                &track,
+                wrong,
+                crate::recording_match::MatchLevel::Flexible,
+                crate::recording_match::MatchStage::Search,
+                &options,
+            );
+            assert_eq!(
+                assessment.action,
+                crate::recording_match::MatchAction::Reject,
+                "{id}"
+            );
+        }
+    }
+
+    #[test]
     fn music_catalog_locator_retains_distinct_same_title_recordings() {
         let track = Track {
             artist: "Imael Angel".into(),
@@ -15316,7 +15416,14 @@ mod tests {
             ..Default::default()
         };
         let key = playback_candidate_search_cache_key(&track, &providers, &settings, &[]);
-        assert!(key.contains("playback-source-search-retrieval-2"));
+        assert!(key.contains("playback-source-search-retrieval-3"));
+        assert_ne!(
+            key,
+            key.replace(
+                "playback-source-search-retrieval-3",
+                "playback-source-search-retrieval-2"
+            )
+        );
         let mut unrelated_provenance = track.clone();
         unrelated_provenance.provenance["displayOnly"]["source"] = "two".into();
         assert_eq!(
@@ -16320,7 +16427,7 @@ mod tests {
         assert!(selected[0].contains("Minor Swing"));
         assert!(selected[0].contains("Restored Edition"));
         assert!(selected[1].contains("Django Reinhardt"));
-        assert!(selected[1].contains("Stéphane Grappelli"));
+        assert_eq!(selected[1], "Django Reinhardt Minor Swing");
         assert!(selected[1].contains("Minor Swing"));
         assert!(!selected[1].contains("Restored Edition"));
         assert!(selected

@@ -106,6 +106,38 @@ struct VerifiedMusicBrainzCreditSet {
     credit_set: VerifiedCreditSet,
 }
 
+impl VerifiedMusicBrainzCreditSet {
+    fn matching_names(&self, candidate: &str) -> Option<Vec<String>> {
+        if self.artist_ids.len() != self.credit_set.names.len()
+            || self.artist_ids.is_empty()
+            || self.artist_ids.len() > MAX_CREDIT_ARTISTS
+            || self.artist_ids.iter().any(|id| !valid_mbid(id))
+            || self
+                .artist_ids
+                .iter()
+                .collect::<std::collections::HashSet<_>>()
+                .len()
+                != self.artist_ids.len()
+        {
+            return None;
+        }
+        // Exact profile IDs authorize lexical spelling matches only. Flat
+        // credits may be reordered only when one full one-to-one mapping exists.
+        if self.credit_set.names.len() > 1
+            && self.credit_set.join_phrases.iter().all(|join| {
+                matches!(
+                    join.trim().to_ascii_lowercase().as_str(),
+                    "" | "," | "&" | "and"
+                )
+            })
+        {
+            self.credit_set.matching_flat_names_unordered(candidate)
+        } else {
+            self.credit_set.matching_names(candidate)
+        }
+    }
+}
+
 pub(crate) use crate::recording_identity::VerifiedArtistCreditSetVariant;
 
 impl VerifiedCreditSet {
@@ -206,6 +238,136 @@ impl VerifiedCreditSet {
         }
         None
     }
+
+    fn matching_flat_names_unordered(&self, candidate: &str) -> Option<Vec<String>> {
+        const MAX_STATES: usize = 8192;
+        let count = self.names.len();
+        if count < 2
+            || count > MAX_CREDIT_ARTISTS
+            || self.join_phrases.len() != count
+            || self.join_phrases.iter().any(|join| {
+                !matches!(
+                    join.trim().to_ascii_lowercase().as_str(),
+                    "" | "," | "&" | "and"
+                )
+            })
+        {
+            return None;
+        }
+        let normalize_flat = |value: &str| {
+            crate::matching::normalize(
+                &value
+                    .to_lowercase()
+                    .replace('&', " and ")
+                    .replace(',', " and "),
+            )
+        };
+        let candidate = normalize_flat(candidate);
+        if candidate.is_empty() || candidate.len() > 4096 {
+            return None;
+        }
+
+        fn search(
+            names: &[Vec<String>],
+            candidate: &str,
+            offset: usize,
+            used: u16,
+            selected: &mut [Option<String>],
+            order: &mut Vec<usize>,
+            solutions: &mut Vec<(Vec<usize>, Vec<String>)>,
+            states: &mut usize,
+        ) {
+            if solutions.len() > 1 || *states >= 8192 {
+                return;
+            }
+            *states += 1;
+            if used.count_ones() as usize == names.len() {
+                if offset == candidate.len() {
+                    if let Some(solution) = selected.iter().cloned().collect::<Option<Vec<_>>>() {
+                        if !solutions.iter().any(|(mapping, _)| mapping == order) {
+                            solutions.push((order.clone(), solution));
+                        }
+                    }
+                }
+                return;
+            }
+            for index in 0..names.len() {
+                let bit = 1u16 << index;
+                if used & bit != 0 {
+                    continue;
+                }
+                for name in &names[index] {
+                    let fragment = crate::matching::normalize(
+                        &name
+                            .to_lowercase()
+                            .replace('&', " and ")
+                            .replace(',', " and "),
+                    );
+                    if fragment.is_empty() {
+                        continue;
+                    }
+                    let Some(tail) = candidate
+                        .get(offset..)
+                        .and_then(|tail| tail.strip_prefix(&fragment))
+                    else {
+                        continue;
+                    };
+                    selected[index] = Some(name.clone());
+                    order.push(index);
+                    if used.count_ones() as usize + 1 == names.len() {
+                        if tail.is_empty() {
+                            search(
+                                names,
+                                candidate,
+                                candidate.len(),
+                                used | bit,
+                                selected,
+                                order,
+                                solutions,
+                                states,
+                            );
+                        }
+                    } else if let Some(next) = tail.strip_prefix(" and ") {
+                        let next_offset = candidate.len() - next.len();
+                        search(
+                            names,
+                            candidate,
+                            next_offset,
+                            used | bit,
+                            selected,
+                            order,
+                            solutions,
+                            states,
+                        );
+                    }
+                    order.pop();
+                    selected[index] = None;
+                    if solutions.len() > 1 || *states >= 8192 {
+                        return;
+                    }
+                }
+            }
+        }
+
+        let mut solutions = Vec::new();
+        let mut selected = vec![None; count];
+        let mut order = Vec::with_capacity(count);
+        let mut states = 0;
+        search(
+            &self.names,
+            &candidate,
+            0,
+            0,
+            &mut selected,
+            &mut order,
+            &mut solutions,
+            &mut states,
+        );
+        if states >= MAX_STATES || solutions.len() != 1 {
+            return None;
+        }
+        solutions.pop().map(|(_, selected)| selected)
+    }
 }
 
 impl VerifiedPlaybackArtistAliases {
@@ -233,7 +395,7 @@ impl VerifiedPlaybackArtistAliases {
         result
     }
     pub(crate) fn has_verified_credit_sets(&self) -> bool {
-        !self.credit_sets.is_empty()
+        !self.credit_sets.is_empty() || !self.musicbrainz_credit_sets.is_empty()
     }
 
     /// Complete search renderings, excluding the unchanged source spelling.
@@ -292,15 +454,21 @@ impl VerifiedPlaybackArtistAliases {
         if self.source.as_ref() != Some(source) {
             return None;
         }
-        let credits = self
-            .credit_sets
-            .iter()
-            .find(|credits| credits.matches(candidate_artist))
-            .or_else(|| {
-                self.lexical_credit_sets
-                    .iter()
-                    .find(|credits| credits.matches(candidate_artist))
-            })?;
+        let credits = if !self.musicbrainz_credit_sets.is_empty() {
+            self.musicbrainz_credit_sets
+                .iter()
+                .find(|verified| verified.matching_names(candidate_artist).is_some())
+                .map(|verified| &verified.credit_set)
+        } else {
+            self.credit_sets
+                .iter()
+                .find(|credits| credits.matches(candidate_artist))
+                .or_else(|| {
+                    self.lexical_credit_sets
+                        .iter()
+                        .find(|credits| credits.matches(candidate_artist))
+                })
+        }?;
         let mut variant = source.clone();
         variant.artist = candidate_artist.to_owned();
         if let Some(isrc) = &credits.isrc {
@@ -328,9 +496,15 @@ impl VerifiedPlaybackArtistAliases {
         if self.source.as_ref() != Some(source) {
             return None;
         }
-        self.credit_sets
-            .iter()
-            .find_map(|credits| credits.matching_names(candidate_artist))
+        if !self.musicbrainz_credit_sets.is_empty() {
+            self.musicbrainz_credit_sets
+                .iter()
+                .find_map(|verified| verified.matching_names(candidate_artist))
+        } else {
+            self.credit_sets
+                .iter()
+                .find_map(|credits| credits.matching_names(candidate_artist))
+        }
     }
 
     /// These names authorize lexical equivalence only. Callers must keep
@@ -404,7 +578,7 @@ impl VerifiedPlaybackArtistAliases {
             return None;
         }
         self.musicbrainz_credit_sets.iter().find_map(|verified| {
-            let candidate_credits = verified.credit_set.matching_names(candidate_artist)?;
+            let candidate_credits = verified.matching_names(candidate_artist)?;
             let requested_credits = verified
                 .credit_set
                 .names
@@ -421,6 +595,49 @@ impl VerifiedPlaybackArtistAliases {
                 requested_credits,
                 candidate_credits,
             })
+        })
+    }
+
+    /// Whether a single fresh artist name belongs unambiguously to exactly one
+    /// requested MusicBrainz credit, using only the validated credit-set names.
+    /// Search hints have already been excluded while those names are built.
+    pub(crate) fn musicbrainz_credit_name_member(
+        &self,
+        source: &Track,
+        candidate_artist: &str,
+    ) -> bool {
+        if self.source.as_ref() != Some(source) {
+            return false;
+        }
+        let candidate = crate::matching::normalize_single_artist_name(candidate_artist);
+        if candidate.is_empty() {
+            return false;
+        }
+        self.musicbrainz_credit_sets.iter().any(|verified| {
+            if verified.artist_ids.len() != verified.credit_set.names.len()
+                || verified.artist_ids.is_empty()
+                || verified.artist_ids.len() > MAX_CREDIT_ARTISTS
+                || verified.artist_ids.iter().any(|id| !valid_mbid(id))
+                || verified
+                    .artist_ids
+                    .iter()
+                    .collect::<std::collections::HashSet<_>>()
+                    .len()
+                    != verified.artist_ids.len()
+            {
+                return false;
+            }
+            let matching_credits = verified
+                .credit_set
+                .names
+                .iter()
+                .filter(|choices| {
+                    choices.iter().any(|name| {
+                        crate::matching::normalize_single_artist_name(name) == candidate
+                    })
+                })
+                .count();
+            matching_credits == 1
         })
     }
 }
@@ -2132,6 +2349,359 @@ mod tests {
             verified_musicbrainz_joinphrase(&explicit_join, false),
             Some(" feat. ")
         );
+    }
+
+    #[test]
+    fn musicbrainz_verified_flat_credits_allow_only_unique_complete_reordering() {
+        fn profile(store: &Store, id: &str, name: &str, aliases: &[&str]) {
+            store
+                .set_retained_provider_cache(
+                    ARTIST_PROFILE_CACHE,
+                    id,
+                    &json!({
+                        "id":id,
+                        "name":name,
+                        "aliases":aliases.iter().map(|alias| json!({"name":alias,"type":"Artist name"})).collect::<Vec<_>>()
+                    }),
+                )
+                .unwrap();
+        }
+        fn track(credits: &[(&str, &str, &str)]) -> Track {
+            let release_id = "00000000-0000-4000-8000-000000000901";
+            let source_url = format!("https://musicbrainz.org/release/{release_id}");
+            let artist = credits
+                .iter()
+                .map(|(_, name, join)| format!("{name}{join}"))
+                .collect::<String>();
+            Track {
+                id: "catalog:musicbrainz:flat-credit-test".into(),
+                provider: "catalog".into(),
+                provider_id: "musicbrainz:flat-credit-test".into(),
+                source_url: source_url.clone(),
+                artist,
+                title: "Minor Swing (Restored Edition '25)".into(),
+                duration_seconds: Some(195.0),
+                provenance: json!({
+                    "artistCredits":credits.iter().map(|(id,name,join)| json!({
+                        "artist":{"id":id,"provider":"musicbrainz"},
+                        "creditedAs":name,
+                        "joinPhrase":join,
+                        "name":name,
+                        "role":"artist credit",
+                        "sourceUrl":source_url
+                    })).collect::<Vec<_>>(),
+                    "catalogProvider":"musicbrainz",
+                    "releaseId":release_id,
+                    "sourceKind":"catalog",
+                    "sourceUrl":source_url
+                }),
+                ..Track::default()
+            }
+        }
+
+        let directory = tempdir().unwrap();
+        let store = Store::open(&directory.path().join("flat-credit-alias.sqlite")).unwrap();
+        let django_id = "650bf385-6f6d-4992-a3b9-779d144920a4";
+        let grappelli_id = "bfc03211-a3a2-4700-8fa3-00968c02c5d0";
+        profile(&store, django_id, "Django Reinhardt", &[]);
+        profile(
+            &store,
+            grappelli_id,
+            "Stéphane Grappelli",
+            &["Stephane Grappelli"],
+        );
+        let source = track(&[
+            (django_id, "Django Reinhardt", " & "),
+            (grappelli_id, "Stéphane Grappelli", ""),
+        ]);
+        let aliases = cached_verified_playback_artist_aliases(&store, &source);
+        let reordered = "Stephane Grappelli, Django Reinhardt";
+        let materialized = aliases
+            .matching_track(&source, reordered)
+            .expect("exact profile aliases should match a unique full flat credit set");
+        assert_eq!(materialized.artist, reordered);
+        assert!(aliases.matching_track(&source, "").is_none());
+        assert!(aliases
+            .matching_verified_credit_names(&source, "")
+            .is_none());
+        assert_eq!(
+            aliases.matching_verified_credit_names(&source, reordered),
+            Some(vec!["Django Reinhardt".into(), "Stephane Grappelli".into()])
+        );
+        let variant = aliases
+            .musicbrainz_credit_variant(&source, reordered)
+            .expect("variant remains bound to exact source artist IDs");
+        assert_eq!(
+            variant.artist_ids,
+            vec![django_id.to_owned(), grappelli_id.to_owned()]
+        );
+        assert_eq!(
+            variant.requested_credits,
+            vec![
+                "Django Reinhardt".to_owned(),
+                "Stéphane Grappelli".to_owned()
+            ]
+        );
+        assert_eq!(
+            variant.candidate_credits,
+            vec![
+                "Django Reinhardt".to_owned(),
+                "Stephane Grappelli".to_owned()
+            ]
+        );
+        let options = crate::recording_match::FlexibleMatchingOptions {
+            allow_other_releases: true,
+            allow_other_performances: true,
+            allow_other_mixes: true,
+            allow_different_lengths: true,
+            max_shorter_by_seconds: 12,
+            max_longer_by_seconds: 45,
+            ..Default::default()
+        };
+        let catalog_candidate = crate::models::Candidate {
+            id: "youtube:4LkgsHsIQkk".into(),
+            provider: "youtube".into(),
+            title: "Minor Swing".into(),
+            duration_seconds: Some(198.0),
+            confidence: "review".into(),
+            permission: "unknown".into(),
+            source_metadata: Some(json!({
+                "provider":"youtube",
+                "playbackMusicCatalogCandidate":true,
+                "catalogTitle":"Minor Swing",
+                "catalogArtist":reordered
+            })),
+            ..Default::default()
+        };
+        let mut search_context =
+            crate::recording_match_context::AssessmentContext::with_flexible_options(
+                options.clone(),
+            );
+        let search_assessment = crate::recording_match_context::assess_with_aliases_and_context(
+            &store,
+            &source,
+            &catalog_candidate,
+            crate::recording_match::MatchLevel::Flexible,
+            crate::recording_match::MatchStage::Search,
+            std::slice::from_ref(&materialized),
+            &[],
+            None,
+            &[],
+            &mut search_context,
+        );
+        assert_eq!(
+            search_assessment.dimensions.artists,
+            crate::recording_match::Comparison::Agree
+        );
+        assert_eq!(
+            search_assessment.action,
+            crate::recording_match::MatchAction::Inspect
+        );
+        let fresh_without_artist = crate::models::Candidate {
+            source_metadata: Some(json!({"provider":"youtube","channelId":"UC-verified"})),
+            ..catalog_candidate.clone()
+        };
+        let mut resolved_context =
+            crate::recording_match_context::AssessmentContext::with_flexible_options(
+                options.clone(),
+            );
+        let resolved_assessment = crate::recording_match_context::assess_with_aliases_and_context(
+            &store,
+            &source,
+            &fresh_without_artist,
+            crate::recording_match::MatchLevel::Flexible,
+            crate::recording_match::MatchStage::Resolved,
+            std::slice::from_ref(&materialized),
+            &[],
+            None,
+            &[],
+            &mut resolved_context,
+        );
+        assert_eq!(
+            resolved_assessment.dimensions.artists,
+            crate::recording_match::Comparison::Unknown
+        );
+        assert_ne!(
+            resolved_assessment.action,
+            crate::recording_match::MatchAction::Accept
+        );
+        let fresh_with_artist = crate::models::Candidate {
+            title: "Minor Swing (Remastered)".into(),
+            source_metadata: Some(json!({
+                "provider":"youtube",
+                "artist":"Stephane Grappelli, Django Reinhardt",
+                "catalogTitle":"Minor Swing (Remastered)"
+            })),
+            ..catalog_candidate.clone()
+        };
+        let mut fresh_artist_context =
+            crate::recording_match_context::AssessmentContext::with_flexible_options(
+                options.clone(),
+            );
+        let resolved_with_artist = crate::recording_match_context::assess_with_aliases_and_context(
+            &store,
+            &source,
+            &fresh_with_artist,
+            crate::recording_match::MatchLevel::Flexible,
+            crate::recording_match::MatchStage::Resolved,
+            std::slice::from_ref(&materialized),
+            &[],
+            None,
+            &[],
+            &mut fresh_artist_context,
+        );
+        // This synthetic resolved candidate is not bound to fresh extractor
+        // metadata, so its artist string is not trusted for the resolved artist
+        // dimension. The alias normalization above is exercised by the search
+        // candidate; resolved acceptance is checked only with the bound record below.
+        assert_ne!(
+            resolved_with_artist.action,
+            crate::recording_match::MatchAction::Accept,
+            "unbound metadata cannot establish a resolved artist identity"
+        );
+
+        // A realistic fresh yt-dlp resolution is bound to the selected video
+        // ID and carries the same reordered credited names. Under Flexible
+        // release permission, the recognized Remastered 2020 label is an
+        // allowed release-only alternative to the requested restored edition.
+        let fresh_bound_with_artist = crate::models::Candidate {
+            title: "Minor Swing (Remastered 2020)".into(),
+            source_metadata: Some(json!({
+                "provider":"youtube",
+                "resolvedProviderId":"4LkgsHsIQkk",
+                "sourceMetadataOrigin":"ytDlpFullInfo",
+                "track":"Minor Swing (Remastered 2020)",
+                "catalogTitle":"Minor Swing (Remastered 2020)",
+                "artist":"Stephane Grappelli, Django Reinhardt",
+                "artists":["Stephane Grappelli", "Django Reinhardt"],
+                "artistCount":2,
+                "duration":198.0
+            })),
+            ..catalog_candidate.clone()
+        };
+        let mut fresh_bound_context =
+            crate::recording_match_context::AssessmentContext::with_flexible_options(
+                options.clone(),
+            );
+        let fresh_bound_assessment =
+            crate::recording_match_context::assess_with_aliases_and_context(
+                &store,
+                &source,
+                &fresh_bound_with_artist,
+                crate::recording_match::MatchLevel::Flexible,
+                crate::recording_match::MatchStage::Resolved,
+                std::slice::from_ref(&materialized),
+                &[],
+                None,
+                &[],
+                &mut fresh_bound_context,
+            );
+        assert_eq!(
+            fresh_bound_assessment.dimensions.title,
+            crate::recording_match::Comparison::Agree,
+            "{fresh_bound_assessment:?}"
+        );
+        assert_eq!(
+            fresh_bound_assessment.dimensions.artists,
+            crate::recording_match::Comparison::Agree,
+            "{fresh_bound_assessment:?}"
+        );
+        assert_eq!(
+            fresh_bound_assessment.dimensions.runtime,
+            crate::recording_match::Comparison::Agree,
+            "{fresh_bound_assessment:?}"
+        );
+        assert_eq!(
+            fresh_bound_assessment.dimensions.version,
+            crate::recording_match::Comparison::Conflict,
+            "{fresh_bound_assessment:?}"
+        );
+        assert_eq!(
+            fresh_bound_assessment.action,
+            crate::recording_match::MatchAction::Accept,
+            "{fresh_bound_assessment:?}"
+        );
+        assert_eq!(
+            fresh_bound_assessment.alternative_kind,
+            Some(crate::recording_match::AlternativeKind::Release),
+            "{fresh_bound_assessment:?}"
+        );
+
+        for invalid in [
+            "Stephane Grappelli",
+            "Stephane Grappelli, Django Reinhardt, Quintette du Hot Club de France",
+            "Unknown Artist, Django Reinhardt",
+        ] {
+            assert!(
+                aliases.matching_track(&source, invalid).is_none(),
+                "{invalid}"
+            );
+            assert!(
+                aliases
+                    .musicbrainz_credit_variant(&source, invalid)
+                    .is_none(),
+                "{invalid}"
+            );
+        }
+
+        // Flat matching must preserve an atomic artist name containing list punctuation.
+        let atomic_id = "00000000-0000-4000-8000-000000000902";
+        profile(&store, atomic_id, "Earth, Wind & Fire", &[]);
+        let atomic_source = track(&[
+            (atomic_id, "Earth, Wind & Fire", " & "),
+            (django_id, "Django Reinhardt", ""),
+        ]);
+        let atomic_aliases = cached_verified_playback_artist_aliases(&store, &atomic_source);
+        assert!(atomic_aliases
+            .matching_track(&atomic_source, "Django Reinhardt, Earth, Wind & Fire")
+            .is_some());
+
+        // Duplicate alias ownership across the exact request IDs is ambiguous and fails closed.
+        let ambiguous_id = "00000000-0000-4000-8000-000000000903";
+        profile(&store, ambiguous_id, "Other Artist", &["Shared Alias"]);
+        profile(&store, django_id, "Django Reinhardt", &["Shared Alias"]);
+        let ambiguous_source = track(&[
+            (django_id, "Django Reinhardt", " & "),
+            (ambiguous_id, "Other Artist", ""),
+        ]);
+        let ambiguous_aliases = cached_verified_playback_artist_aliases(&store, &ambiguous_source);
+        assert!(ambiguous_aliases
+            .matching_track(&ambiguous_source, "Shared Alias, Shared Alias")
+            .is_none());
+        assert!(ambiguous_aliases
+            .matching_track(&ambiguous_source, "Django Reinhardt, Other Artist")
+            .is_some());
+
+        // Role-bearing joins are never reordered or collapsed into flat "and" joins.
+        let role_source = track(&[
+            (django_id, "Django Reinhardt", " feat. "),
+            (grappelli_id, "Stéphane Grappelli", ""),
+        ]);
+        let role_aliases = cached_verified_playback_artist_aliases(&store, &role_source);
+        assert!(role_aliases
+            .matching_track(&role_source, "Stéphane Grappelli, Django Reinhardt")
+            .is_none());
+        assert!(role_aliases
+            .matching_track(&role_source, "Django Reinhardt feat. Stephane Grappelli")
+            .is_some());
+        assert!(role_aliases
+            .musicbrainz_credit_variant(&role_source, "Django Reinhardt feat. Stephane Grappelli")
+            .is_some());
+        assert!(role_aliases
+            .musicbrainz_credit_variant(&role_source, "Stéphane Grappelli, Django Reinhardt")
+            .is_none());
+
+        let solo_source = track(&[(grappelli_id, "Stéphane Grappelli", "")]);
+        let solo_aliases = cached_verified_playback_artist_aliases(&store, &solo_source);
+        assert!(solo_aliases
+            .matching_track(&solo_source, "Stephane Grappelli")
+            .is_some());
+        assert!(solo_aliases
+            .matching_track(&solo_source, "Unrelated Artist")
+            .is_none());
+        assert!(solo_aliases
+            .musicbrainz_credit_variant(&solo_source, "Stephane Grappelli")
+            .is_some());
     }
 
     #[test]

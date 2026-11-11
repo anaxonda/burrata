@@ -35,6 +35,16 @@ function render(props: Record<string, unknown> = {}) {
 }
 
 describe("TrackList", () => {
+  it("retains named list semantics when list-style removes ordered-list markers", async () => {
+    const target = render({ tracks, listLabel: "Saved album tracks" });
+    await tick();
+    const list = target.querySelector("ol.shared-track-list")!;
+    expect(list.tagName).toBe("OL");
+    expect(list.getAttribute("role")).toBe("list");
+    expect(list.getAttribute("aria-label")).toBe("Saved album tracks");
+    expect(list.querySelectorAll(":scope > li")).toHaveLength(tracks.length);
+  });
+
   it("renders imported track artwork from artworkUrl", async () => {
     const artworkUrl = "https://f4.bcbits.com/img/a12345_10.jpg";
     const target = render({ tracks: [{ ...tracks[0]!, artworkUrl }] });

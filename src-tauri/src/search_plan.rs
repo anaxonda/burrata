@@ -200,11 +200,10 @@ impl SearchPlan {
             .then(|| search_title_without_release(track))
             .flatten();
         if let Some(fallback_title) = release_fallback {
-            let artist = verified_artist_alternatives
-                .first()
-                .map(String::as_str)
-                .or(canonical_artist.as_deref())
-                .or(lead.as_deref());
+            let artist = lead
+                .as_deref()
+                .or_else(|| verified_artist_alternatives.first().map(String::as_str))
+                .or(canonical_artist.as_deref());
             if let Some(artist) = artist {
                 push_query(
                     &mut queries,
@@ -458,7 +457,8 @@ mod tests {
             provenance: json!({"artistCredits":[
                 {"name":"Lead","role":"MAIN_ARTIST"},
                 {"name":"Guest","role":"featured"},
-                {"name":"Composer","role":"composer"}
+                {"name":"Composer","role":"composer"},
+                {"name":"Lyricist","role":"lyricist"}
             ]}),
             ..Track::default()
         };
@@ -725,7 +725,7 @@ mod tests {
     }
 
     #[test]
-    fn release_fallback_preserves_canonical_multi_primary_credits_without_alias() {
+    fn release_fallback_preserves_request_identity_while_querying_structured_primary() {
         let track = Track {
             title: "Minor Swing (Restored Edition '25)".into(),
             version: Some("Restored Edition '25".into()),
@@ -744,10 +744,7 @@ mod tests {
             plan.queries[0].text,
             "Django Reinhardt & Stéphane Grappelli Minor Swing (Restored Edition '25)"
         );
-        assert_eq!(
-            plan.queries[1].text,
-            "Django Reinhardt & Stéphane Grappelli Minor Swing"
-        );
+        assert_eq!(plan.queries[1].text, "Django Reinhardt Minor Swing");
         assert_eq!(
             plan.queries[1].reason,
             SearchQueryReason::ReleaseContextFallback
@@ -806,6 +803,94 @@ mod tests {
                 .queries
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn flexible_release_fallback_uses_ordered_structured_primary_credit() {
+        let track = Track {
+            title: "Swing 42 (Restored Edition '25)".into(),
+            version: Some("Restored Edition '25".into()),
+            artist: "Django Reinhardt & Quintette du Hot Club de France".into(),
+            provenance: json!({"artistCredits":[
+                {"name":"Django Reinhardt","role":"artist credit","joinPhrase":" & ",
+                 "artist":{"provider":"musicbrainz","id":"650bf385-6f6d-4992-a3b9-779d144920a4"}},
+                {"name":"Quintette du Hot Club de France","role":"artist credit","joinPhrase":"",
+                 "artist":{"provider":"musicbrainz","id":"ee55e4e8-807d-49b1-8470-d1c0898ed7cb"}}
+            ]}),
+            ..Track::default()
+        };
+        let original = track.clone();
+
+        let flexible = SearchPlan::for_track_with_release_policy(&track, &[], true);
+        assert_eq!(flexible.queries.len(), MAX_SEARCH_QUERIES);
+        assert_eq!(
+            flexible.queries[0].text,
+            "Django Reinhardt & Quintette du Hot Club de France Swing 42 (Restored Edition '25)"
+        );
+        assert_eq!(
+            flexible.queries[1].reason,
+            SearchQueryReason::ReleaseContextFallback
+        );
+        assert_eq!(flexible.queries[1].artist, "Django Reinhardt");
+        assert_eq!(flexible.queries[1].title, "Swing 42");
+        assert_eq!(flexible.queries[1].text, "Django Reinhardt Swing 42");
+        // A reordered complete alias must not displace the useful lead-artist
+        // query in the only alternate slot.
+        let reordered = SearchPlan::for_track_with_release_policy(
+            &track,
+            &["Quintette du Hot Club de France, Django Reinhardt".into()],
+            true,
+        );
+        assert_eq!(reordered.queries[1].text, "Django Reinhardt Swing 42");
+
+        let strict = SearchPlan::for_track_with_release_policy(&track, &[], false);
+        assert_eq!(strict.queries.len(), MAX_SEARCH_QUERIES);
+        assert_eq!(
+            strict.queries[1].reason,
+            SearchQueryReason::PrimaryPerformer
+        );
+        assert_eq!(
+            strict.queries[1].text,
+            "Django Reinhardt Swing 42 (Restored Edition '25)"
+        );
+
+        let live_remix = Track {
+            title: "Swing 42 (Live Remix) (Restored Edition '25)".into(),
+            ..track.clone()
+        };
+        let flexible_live_remix = SearchPlan::for_track_with_release_policy(&live_remix, &[], true);
+        assert_eq!(
+            flexible_live_remix.queries[1].reason,
+            SearchQueryReason::ReleaseContextFallback
+        );
+        assert_eq!(flexible_live_remix.queries[1].artist, "Django Reinhardt");
+        assert_eq!(
+            flexible_live_remix.queries[1].title,
+            "Swing 42 (Live Remix)"
+        );
+        assert_eq!(track, original);
+    }
+
+    #[test]
+    fn manual_artist_edit_is_not_replaced_by_structured_primary_credit() {
+        let track = Track {
+            title: "Swing 42 (Restored Edition '25)".into(),
+            artist: "User Chosen Artist".into(),
+            provenance: json!({
+                "manualFields":{"artist":true},
+                "artistCredits":[
+                    {"name":"Django Reinhardt","role":"artist credit"},
+                    {"name":"Quintette du Hot Club de France","role":"artist credit"}
+                ]
+            }),
+            ..Track::default()
+        };
+        let plan = SearchPlan::for_track_with_release_policy(&track, &[], true);
+        assert_eq!(plan.queries.len(), MAX_SEARCH_QUERIES);
+        assert_eq!(plan.queries[0].artist, "User Chosen Artist");
+        assert_eq!(plan.queries[1].artist, "User Chosen Artist");
+        assert_eq!(plan.queries[1].title, "Swing 42");
+        assert!(!plan.queries[1].text.contains("Django Reinhardt"));
     }
 
     #[test]

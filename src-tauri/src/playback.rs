@@ -7630,6 +7630,7 @@ fn can_retry_failed_stream(state: &State, message: &str) -> bool {
 }
 fn can_retry_failed_stream_at_stage(state: &State, message: &str, output_failed: bool) -> bool {
     let failure = crate::playback_failure::classify(message);
+    let now = Instant::now();
     let startup_transport = output_failed
         && message.contains("Native HTTP")
         && failure.retryable
@@ -7638,8 +7639,44 @@ fn can_retry_failed_stream_at_stage(state: &State, message: &str, output_failed:
             crate::playback_failure::FailureScope::Source
                 | crate::playback_failure::FailureScope::Global
         )
-        && Instant::now() < state.request_started + state.startup_budget;
-    (state.first_audio_ms.is_some() || startup_transport)
+        && now < state.request_started + state.startup_budget;
+    // A native HTTP failure can start a same-source refresh before first audio.
+    // If that fresh URL is also denied, allow the bounded second recovery to
+    // exclude this candidate and run normal source fallback within the same
+    // request deadline. Initial resolver failures have no recent stall and do
+    // not gain another attempt here.
+    let refreshed_source_denied = !output_failed
+        && state.first_audio_ms.is_none()
+        && state.recovery == 1
+        && failure.retryable
+        && matches!(
+            failure.category,
+            crate::playback_failure::FailureCategory::Network
+                | crate::playback_failure::FailureCategory::RateLimited
+                | crate::playback_failure::FailureCategory::SourceAccess
+                | crate::playback_failure::FailureCategory::SourceUnavailable
+        )
+        && matches!(
+            failure.scope,
+            crate::playback_failure::FailureScope::Source
+                | crate::playback_failure::FailureScope::Global
+        )
+        && now < state.request_started + state.startup_budget
+        && state
+            .recent_stall
+            .as_ref()
+            .is_some_and(|(track_id, candidate_key, at)| {
+                let current_track = state.track().map(|track| track.id.as_str());
+                let current_candidate = state
+                    .candidate
+                    .as_ref()
+                    .map(|candidate| format!("{}:{}", candidate.provider, candidate.id));
+                current_track == Some(track_id.as_str())
+                    && current_candidate.as_deref() == Some(candidate_key.as_str())
+                    && now >= *at
+                    && now.duration_since(*at) <= RECURRING_STALL_WINDOW
+            });
+    (state.first_audio_ms.is_some() || startup_transport || refreshed_source_denied)
         && state.recovery < 2
         && state
             .recovery_deadline
@@ -12451,6 +12488,103 @@ mod tests {
             "Native HTTP byte range: HTTP 403 on initial media response",
             true
         ));
+    }
+
+    #[test]
+    fn startup_denied_fresh_url_allows_one_bounded_fallback_for_unlocked_source() {
+        let first_failure_at = Instant::now();
+        let mut state = State::default();
+        state.queue = vec![Track {
+            id: "track-stale-youtube".into(),
+            provider: "spotify".into(),
+            ..Track::default()
+        }];
+        let selected = Candidate {
+            id: "youtube:video-stale".into(),
+            provider: "youtube".into(),
+            ..Candidate::default()
+        };
+        state.candidate = Some(selected.clone());
+        state.request_started = first_failure_at;
+        state.startup_budget = Duration::from_secs(20);
+
+        // The first native HTTP 403 is the production failure trigger. Its
+        // recurring-stall helper records the matching track/source pair.
+        assert!(can_retry_failed_stream_at_stage(
+            &state,
+            "Native HTTP byte range: HTTP 403 on initial media response",
+            true,
+        ));
+        assert_eq!(
+            record_recurring_transport_stall(&mut state, first_failure_at),
+            RecurringStallDecision::NoRepeatedStall,
+        );
+        assert_eq!(
+            state.recent_stall,
+            Some((
+                "track-stale-youtube".into(),
+                "youtube:youtube:video-stale".into(),
+                first_failure_at,
+            )),
+        );
+
+        // recover_failure increments this after retaining candidate/recent_stall;
+        // start(resume=true) does not clear that history before resolving again.
+        state.recovery += 1;
+        assert_eq!(
+            state
+                .candidate
+                .as_ref()
+                .map(|candidate| (&candidate.provider, &candidate.id)),
+            Some((&selected.provider, &selected.id))
+        );
+        let denied = "Audio source access was denied (HTTP 403)";
+        assert!(can_retry_failed_stream_at_stage(&state, denied, false));
+        let settings = crate::models::Settings::default();
+        assert!(recovery_should_replace_source(
+            2,
+            false,
+            state.track().unwrap(),
+            &settings,
+            false,
+            0,
+        ));
+
+        let original_stall = state.recent_stall.clone();
+        state.candidate = Some(Candidate {
+            id: "youtube:other-video".into(),
+            provider: "youtube".into(),
+            ..Candidate::default()
+        });
+        assert!(!can_retry_failed_stream_at_stage(&state, denied, false));
+        state.candidate = Some(selected.clone());
+        assert!(!can_retry_failed_stream_at_stage(
+            &state,
+            "The resolved audio source identity does not match this recording",
+            false,
+        ));
+        state.recovery = 2;
+        assert!(!can_retry_failed_stream_at_stage(&state, denied, false));
+        state.recovery = 1;
+        state.recent_stall = None;
+        assert!(!can_retry_failed_stream_at_stage(&state, denied, false));
+        state.recent_stall = original_stall;
+
+        let mut locked_track = state.track().unwrap().clone();
+        locked_track.provenance = json!({"explicitSourceLock":true});
+        state.queue[0] = locked_track;
+        assert!(can_retry_failed_stream_at_stage(&state, denied, false));
+        assert!(!recovery_should_replace_source(
+            2,
+            false,
+            state.track().unwrap(),
+            &settings,
+            false,
+            0,
+        ));
+
+        state.request_started = first_failure_at - state.startup_budget - Duration::from_millis(1);
+        assert!(!can_retry_failed_stream_at_stage(&state, denied, false));
     }
 
     #[test]

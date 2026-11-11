@@ -293,7 +293,7 @@
   {/if}
 </div>{/if}
 {#if reorderable}<div class="sr-only" aria-live="polite" aria-atomic="true">{reorderAnnouncement}</div>{/if}
-<ol class="shared-track-list" aria-label={listLabel} data-loaded-logical-rows={loadedLogicalRows} use:handleRowClick>
+<ol class="shared-track-list" role="list" aria-label={listLabel} data-loaded-logical-rows={loadedLogicalRows} use:handleRowClick>
   {#if virtualized && visibleRange.start > 0}<li class="virtual-spacer" aria-hidden="true" style={`height:${visibleRange.start * rowHeight}px`}></li>{/if}
   {#each visibleRows as displayRow, visibleIndex (displayRow.key)}
     {@const index = displayRow.kind === "track" ? displayRow.trackIndex : -1}
