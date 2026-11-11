@@ -1,0 +1,56 @@
+name: Windows FFmpeg source download diagnostic
+
+on:
+  push:
+    branches:
+      - codex/windows-ffmpeg-download-diagnostic-v34
+
+permissions:
+  contents: read
+
+jobs:
+  compare-pinned-source-downloads:
+    name: Compare Python urllib and Windows curl
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - name: Checkout diagnostic harness branch
+        uses: actions/checkout@v7
+
+      - name: Checkout frozen v0.1.34 source
+        uses: actions/checkout@v7
+        with:
+          ref: 2f2f1a0a3f4353e0d997afe2328a3fc9682987fa
+          path: source
+          fetch-depth: 1
+
+      - name: Verify frozen source identity
+        shell: bash
+        run: test "$(git -C source rev-parse HEAD)" = "2f2f1a0a3f4353e0d997afe2328a3fc9682987fa"
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        id: python
+        with:
+          python-version: '3.13'
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            base-devel
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-nasm
+            mingw-w64-x86_64-pkgconf
+
+      - name: Compare urllib and system curl against the locked FFmpeg archive
+        shell: msys2 {0}
+        timeout-minutes: 5
+        env:
+          PYTHON_PATH: ${{ steps.python.outputs.python-path }}
+        run: |
+          python_exe="$(cygpath -u "$PYTHON_PATH")"
+          export BURRATA_MSYS2_BASH="$(cygpath -w /usr/bin/bash.exe)"
+          test -f "$(cygpath -u "$BURRATA_MSYS2_BASH")"
+          "$python_exe" windows34-ffmpeg-download-probe.py --locked-tools "source/scripts/release/locked-tools.json"
