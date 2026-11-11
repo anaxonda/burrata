@@ -258,7 +258,7 @@ pub async fn lookup_media_context(
 pub(crate) async fn lookup_media_context_with_permit(
     connection: LyricsTranslationConnection,
     request: MediaContextRequest,
-    _permit: OwnedSemaphorePermit,
+    permit: OwnedSemaphorePermit,
 ) -> Result<MediaContextResponse, String> {
     let result =
         lookup_media_context_with_transport(connection, request, &ReqwestChatCompletionTransport)
@@ -357,6 +357,21 @@ mod tests {
             },
             requests,
         )
+    }
+
+    #[tokio::test]
+    async fn single_lookup_permit_is_released_when_its_owner_is_cancelled() {
+        let permit = acquire_lookup_permit().unwrap();
+        assert!(acquire_lookup_permit().is_err());
+        let task = tokio::spawn(async move {
+            let _permit = permit;
+            std::future::pending::<()>().await;
+        });
+        task.abort();
+        let _ = task.await;
+        let next = acquire_lookup_permit().expect("cancelled lookup must release its slot");
+        drop(next);
+        assert!(acquire_lookup_permit().is_ok());
     }
 
     #[tokio::test]
