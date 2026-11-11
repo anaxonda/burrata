@@ -44,7 +44,7 @@ jobs:
             mingw-w64-x86_64-nasm
             mingw-w64-x86_64-pkgconf
 
-      - name: Probe ordered locked archives with bounded transports
+      - name: Probe Opus official source and locked mirrors
         shell: msys2 {0}
         timeout-minutes: 5
         env:
@@ -53,4 +53,4 @@ jobs:
           python_exe="$(cygpath -u "$PYTHON_PATH")"
           export BURRATA_MSYS2_BASH="$(cygpath -w /usr/bin/bash.exe)"
           test -f "$(cygpath -u "$BURRATA_MSYS2_BASH")"
-          "$python_exe" windows34-ffmpeg-download-probe.py --locked-tools "source/scripts/release/locked-tools.json"
+          "$python_exe" windows34-opus-mirror-probe.py --locked-tools "source/scripts/release/locked-tools.json"
