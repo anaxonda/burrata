@@ -6877,8 +6877,8 @@ fn resolved_extractor_identity_metadata(
     }
     if candidate.provider == "youtube" {
         if let Some(line) = crate::youtube_recording_metadata::live_performance_line(info) {
-            metadata.insert("performanceVersion".into(), json!("Live"));
-            metadata.insert("performanceEvidence".into(), json!(line));
+            metadata.insert("performanceVersion".into(), serde_json::json!("Live"));
+            metadata.insert("performanceEvidence".into(), serde_json::json!(line));
         }
     }
     if let Some(duration) = info["duration"]
@@ -7076,8 +7076,8 @@ async fn inspect_ytdlp_metadata(
         );
         if candidate.provider == "youtube" {
             if let Some(line) = crate::youtube_recording_metadata::live_performance_line(&info) {
-                metadata.insert("performanceVersion".into(), json!("Live"));
-                metadata.insert("performanceEvidence".into(), json!(line));
+                metadata.insert("performanceVersion".into(), serde_json::json!("Live"));
+                metadata.insert("performanceEvidence".into(), serde_json::json!(line));
             }
         }
     }

@@ -1,4 +1,4 @@
-# Burrata 0.1.38
+# Burrata 0.1.39
 
 This release improves recording metadata, playback discovery, album navigation, lyrics requests and internet-radio setup.
 
