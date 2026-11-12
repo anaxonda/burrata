@@ -2,6 +2,7 @@
   import { territoryLabel } from "./lib/territory-label";
   import { untrack } from "svelte";
   import { call } from "./lib/api";
+  import { plainTextMarkdown } from "./lib/plain-text-markdown";
   import type { Track } from "./lib/types";
   import type { ArtistRef } from "./lib/artist-types";
   import type { RecordingInformationResult, RecordingCatalogInfo, RecordingReleaseInfo } from "./lib/recording-information";
@@ -132,7 +133,7 @@
         ...(contextSourceUrl(targetTrack) ? {sourceUrl:contextSourceUrl(targetTrack)} : {}),
       }});
       if (generation !== contextGeneration || targetKey !== trackTargetKey(target.track, target.targetKind) || response.requestId !== requestId) return;
-      contextAnswer = response.answer;
+      contextAnswer = plainTextMarkdown(response.answer);
       contextSources = (response.sources ?? []).filter(source => typeof source.title === "string" && !!source.title.trim() && isPublicCitationUrl(source.url)).slice(0,8);
       contextAnswerLabel = `${target.label}: ${[targetTrack.title,targetTrack.artist].filter(Boolean).join(" — ")}`;
     } catch (failure) {

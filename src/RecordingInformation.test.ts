@@ -88,6 +88,22 @@ it("sends only the allowlisted metadata on an explicit click and renders the ans
  expect(document.querySelector(".context-result")?.textContent).toContain("<img src=x onerror=alert(1)>");
 });
 
+it("normalizes Markdown in an AI answer without rendering it as HTML or losing URLs",async()=>{
+ apiCall.mockReset().mockImplementation(async(_command:string,args:{request:{requestId:string}})=>({
+  requestId:args.request.requestId,identity:"opaque",
+  answer:"## Event date\n**27 February 2026** — **Fred again** played `USB002`.\n[Official page](https://events.example.org/usb002). <img src=x onerror=alert(1)>",
+  model:"model",provider:"openaiCompatible",
+ }));
+ instance=mount(RecordingInformation,{target:document.body,props:{track,contextLookupConfigured:true,loadRecording:async()=>({resolution:"unresolved",recording:null,candidates:[]})}});
+ await tick();await tick();
+ (document.querySelector(".context-action") as HTMLButtonElement).click();
+ await tick();await tick();
+ const answer=document.querySelector(".context-result>p")!;
+ expect(answer.textContent).toBe("Event date\n27 February 2026 — Fred again played USB002.\nOfficial page (https://events.example.org/usb002). <img src=x onerror=alert(1)>");
+ expect(answer.querySelector("img")).toBeNull();
+ expect(answer.querySelector("a")).toBeNull();
+});
+
 it("lets the user choose song, concert, or set context explicitly",async()=>{
  apiCall.mockReset().mockImplementation(async(_command:string,args:{request:Record<string,unknown>})=>({requestId:args.request.requestId,identity:"opaque",answer:"Context",model:"model",provider:"openaiCompatible"}));
  instance=mount(RecordingInformation,{target:document.body,props:{track,contextLookupConfigured:true,loadRecording:async()=>({resolution:"unresolved",recording:null,candidates:[]})}});
