@@ -1,6 +1,6 @@
 {
   "objective": "Robust recording matching and direct album navigation",
-  "status": "in_progress",
+  "status": "live_spotify_gate_passed_final_album_and_release_qualification_pending",
   "preferences": {
     "spotify": "only with live authenticated session",
     "catalogOrder": [
@@ -14,19 +14,20 @@
       "request": "spotify:71fwMMqK8Kea3FguUUrl2t",
       "source": "youtube:xAJxfiF_0-w",
       "finding": "Fresh public extractor response has three recording-line credits; no nonperformer role for Aldo Asenjo. A verified channel alone cannot close this identity gap.",
-      "status": "role_or_recording_enrichment_pending",
+      "status": "guard_preserved_alternate_verified_source_plays",
       "evidence": "src-tauri/tests/fixtures/macha-official-youtube-identity.json"
     },
     {
       "source": "youtube:H35xiJcS8RY",
       "finding": "Slash-separated performers and accented guest spelling",
-      "status": "matching_regression_passed"
+      "status": "packaged_balanced_playback_passed",
+      "evidence": "docs/verification/macha-spotify-search-after.json"
     },
     {
       "sourceAlbum": "Macha y el Bloque Depresivo",
       "catalogAlbum": "100% lúcidos",
       "finding": "Different titles require verified relationship; a matching song alone must not silently equate albums.",
-      "status": "candidate_navigation_implemented_crosswalk_pending"
+      "status": "actual_programme_regression_added_packaged_retest_pending"
     }
   ],
   "providerAudit": [
@@ -1386,7 +1387,14 @@
       "failed": 0,
       "log": "/tmp/burrata-extension-0211-final.log",
       "companionVersion": "0.2.11",
-      "signedArtifact": "pending final version signing; prior 0.2.10 artifact is superseded"
+      "signedArtifact": {
+        "run": "https://github.com/anaxonda/burrata/actions/runs/43295658914",
+        "version": "0.2.11",
+        "status": "passed",
+        "firefoxSha256": "dc7d01c780c9caa8fbe1b6d02ac294247b1e5001ebe71946542a8ebed94e4158",
+        "chromiumQualificationZipSha256": "fd9895248b88073073c2d72e62683a669edea1cd32cbfdc78aa4af0d12be9a95",
+        "payloadChecks": "Artifact digest, manifest version and background.js bytes checked; Firefox also includes the expected HTTP worker parser and Mozilla signature."
+      }
     },
     "autoplayDisplay": {
       "passed": 10,
@@ -1460,28 +1468,52 @@
       "scope": "Disposable isolated Xvfb profile; station playback not qualified by this check"
     },
     "reportedSpotifyPlayback": {
-      "sourceCommit": "c3b8977ff27ca4ba517ab822e5feb723c0ae64b1",
+      "sourceCommit": "629444111af7a83d7949ee5ee6a7e7641138fc18",
       "matchingLevel": "balanced",
-      "status": "failed",
-      "reason": "Usable source H35xiJcS8RY appeared at metadata rank 15, outside ten-row playback pool.",
-      "replacement": "e4bc101a8b3c8d34ef25c4ced4bd44968efa8ec2 retrieves up to 20 metadata rows, retains extraction/deadline caps and invalidates ten-row completed caches.",
-      "replacementCi": "https://github.com/anaxonda/burrata/actions/runs/43290498382"
+      "status": "passed",
+      "firstAudioMs": 8512,
+      "source": "youtube:H35xiJcS8RY",
+      "decoder": "ffmpeg",
+      "sampleRate": 44100,
+      "channels": 2,
+      "positionAdvanced": true,
+      "freshIdentityCheck": true,
+      "evidence": "docs/verification/macha-spotify-search-after.json",
+      "scope": "Native decoding and advancing playback from the real Spotify search result; no acoustic fingerprint or physical-output claim"
     },
     "nativeRetrievalCi": {
-      "run": "https://github.com/anaxonda/burrata/actions/runs/43290498382",
-      "passed": 2769,
-      "failed": 1,
+      "run": "https://github.com/anaxonda/burrata/actions/runs/43293257495",
+      "passed": 2770,
+      "failed": 0,
       "ignored": 67,
       "newRankFifteenRegression": "passed",
-      "failure": "Older cache invalidation assertion still expected namespace 3; corrected to require namespace 4 and result-limit-20, and distinguish both previous namespace and ten-row keys.",
-      "replacement": "pending"
+      "cacheInvalidationRegression": "passed",
+      "linuxInstalledSmoke": {
+        "deb": "passed",
+        "appimage": "passed",
+        "rpm": "passed"
+      },
+      "scope": "Before final album programme and album-artist changes"
+    },
+    "frontendFullSuite": {
+      "files": 160,
+      "passed": 1639,
+      "failed": 0,
+      "run": "https://github.com/anaxonda/burrata/actions/runs/43293257495"
+    },
+    "searchContinuation": {
+      "evidence": "docs/verification/macha-search-continuation.json",
+      "status": "passed",
+      "originalSettingRestored": true,
+      "queue": "Restored single La Nave del Olvido result, paused after successful replay",
+      "knownLimit": "Amiga and Turista still fail available-source verification; continuation skips those failures and reaches the playable recording."
     }
   },
   "remaining": [
-    "Verify reported Spotify search playback in Balanced with real decoder and advancing position, then continuation/recovery",
-    "Retest direct album navigation in a packaged candidate after UUID fix",
-    "Finish full release CI, publish qualified release and install identical latest artifact locally",
-    "Record provider-specific live limitations separately from passing fixture coverage"
+    "Qualify the final album programme/parser changes in native CI and a packaged runtime",
+    "Retest the required Spotify gate on the exact final release artifact",
+    "Complete cross-platform release CI, publish qualified release and install identical latest artifact locally",
+    "Keep source-specific identity/DRM limitations explicit; do not infer composer roles or relax audio performer validation"
   ],
   "metadataPreservation": {
     "youtubeMusic": "Structured credits and album browse endpoints survive native search, cache provenance, playback locators and restore; final native suite passed.",
@@ -1499,7 +1531,15 @@
     "cache": "24h positive catalog membership bound to request identity and provenance",
     "spotify": "Live account check plus independently fetched complete, paginated album membership; rejects account/album changes, repeated cursors and incomplete totals.",
     "alternateTitles": "Bounded complete source shelves are compared with ordered catalog timelines; unique complete agreement may resolve an alternate title, while isolated recording occurrences remain explicit choices. Five native album regressions pass.",
-    "editionBinding": "Catalog group/master choices bind to the exact edition returned in fetched track provenance, preventing another representative edition from being selected on navigation."
+    "editionBinding": "Catalog group/master choices bind to the exact edition returned in fetched track provenance, preventing another representative edition from being selected on navigation.",
+    "reportedProgramme": {
+      "fixture": "src-tauri/tests/fixtures/macha-album-navigation.json",
+      "finding": "Recording credits split Macha from Bloque Depresivo; the release-level artist is the complete group. Source song label Cada Domingo is shorter than the catalog Cada domingo a las doce. The CD programme agrees in all 14 positions/runtimes; the digital edition reverses the last two tracks.",
+      "change": "Preserve MusicBrainz album artist, permit at most one bounded short label in an otherwise agreeing complete programme of at least ten tracks, and prefer a unique complete programme over weaker single-recording occurrences. Audio matching is unchanged.",
+      "isolatedRustPolicyAudit": "passed correct-edition, version, order, runtime, ambiguity, incomplete-discovery and short-label guards",
+      "nativeFixtureTest": "pending final CI",
+      "packagedRetest": "pending"
+    }
   },
   "externalLimitations": [
     {
@@ -1541,12 +1581,12 @@
     "autoplay": "src-tauri/src/radio.rs"
   },
   "packaging": {
-    "rollback": ".cache/album-playback-update/Burrata_0.1.35_before-album-playback.AppImage",
+    "rollback": "Existing installed public v0.1.35 retained locally; SHA256 04b9a3a8649b2b10158301969912cd8a065da6710853cab63c6c79efc3b55a5d",
     "rollbackChecksum": ".cache/album-playback-update/rollback.sha256",
     "tools": "Pinned AppImage plugin and patchelf checksum verified",
     "frontend": "production build and provider extension staging passed",
     "storageFinding": "Temporary filesystem has usrquota; final test codegen hit quota despite df free space. Removed only this task staged runtime and failed object files; defer package staging until executable is built.",
-    "status": "moving_qualification_to_github_ci",
+    "status": "full_cross_platform_draft_build_next",
     "workerStaging": "Added explicit staging of YouTube session worker and parser; copied bytes match source. Embedded fallback retained.",
     "memoryControls": {
       "jobs": 1,

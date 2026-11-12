@@ -1,0 +1,26 @@
+{
+  "sourceCommit": "629444111af7a83d7949ee5ee6a7e7641138fc18",
+  "matchingLevel": "balanced",
+  "query": "bloque y la macha",
+  "originalContinueSearch": false,
+  "temporaryContinueSearch": true,
+  "restoredContinueSearch": false,
+  "queueTotal": 30,
+  "currentIndex": 2,
+  "reachedTrack": "spotify:71fwMMqK8Kea3FguUUrl2t",
+  "position": 26.749387755102042,
+  "decoder": "ffmpeg",
+  "firstAudioMs": 1128,
+  "skipped": [
+    {
+      "title": "Amiga",
+      "outcome": "skipped",
+      "category": "failed_with_reason"
+    },
+    {
+      "title": "Turista",
+      "outcome": "skipped",
+      "category": "failed_with_reason"
+    }
+  ]
+}

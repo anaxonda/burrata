@@ -38,7 +38,7 @@ pub enum AlbumResolution {
 fn key(value: &str) -> String {
     crate::recording_identity::search_fold(value)
 }
-const MEMBERSHIP_CACHE: &str = "navigation.album-membership.v2";
+const MEMBERSHIP_CACHE: &str = "navigation.album-membership.v3";
 fn cache_key(track: &Track) -> String {
     format!(
         "{:x}",
@@ -110,22 +110,61 @@ fn same_album_timeline(
     source: &[crate::youtube_music::YouTubeMusicItem],
     catalog: &[Track],
 ) -> bool {
-    source.len() >= 2
-        && source.len() == catalog.len()
-        && source.iter().zip(catalog).all(|(left, right)| {
-            let left_title = crate::recording_identity::parse_title(&left.title);
-            let right_title = crate::recording_identity::parse_title(&right.title);
-            !key(&left_title.title).is_empty()
-                && key(&left_title.title) == key(&right_title.title)
-                && left_title.version.as_deref().map(key) == right_title.version.as_deref().map(key)
-                && right.version.as_deref().is_none_or(|v| v.trim().is_empty())
-                && left
-                    .duration_seconds
-                    .zip(right.duration_seconds)
-                    .is_some_and(|(a, b)| {
-                        a.is_finite() && b.is_finite() && a > 0.0 && b > 0.0 && (a - b).abs() <= 2.0
-                    })
-        })
+    if source.len() < 2 || source.len() != catalog.len() {
+        return false;
+    }
+    let mut shortened_titles = 0;
+    let aligned = source.iter().zip(catalog).all(|(left, right)| {
+        let left_title = crate::recording_identity::parse_title(&left.title);
+        let right_title = crate::recording_identity::parse_title(&right.title);
+        let left_key = key(&left_title.title);
+        let right_key = key(&right_title.title);
+        let title_agrees = if left_key == right_key {
+            !left_key.is_empty()
+        } else {
+            let (short, long) = if left_key.len() < right_key.len() {
+                (&left_key, &right_key)
+            } else {
+                (&right_key, &left_key)
+            };
+            // A provider can use a shorter song label ("Cada Domingo").
+            // This is navigation evidence only: at least nine other titles
+            // and every ordered runtime must agree in a complete programme.
+            let shortened = short.split_whitespace().count() >= 2
+                && long.split_whitespace().count() >= 4
+                && long.starts_with(&format!("{short} "));
+            shortened_titles += usize::from(shortened);
+            shortened
+        };
+        title_agrees
+            && left_title.version.as_deref().map(key) == right_title.version.as_deref().map(key)
+            && right.version.as_deref().is_none_or(|v| v.trim().is_empty())
+            && left
+                .duration_seconds
+                .zip(right.duration_seconds)
+                .is_some_and(|(a, b)| {
+                    a.is_finite() && b.is_finite() && a > 0.0 && b > 0.0 && (a - b).abs() <= 2.0
+                })
+    });
+    aligned && (shortened_titles == 0 || source.len() >= 10 && shortened_titles == 1)
+}
+
+fn preferred_choice(choices: &[AlbumChoice], album: &str, incomplete: bool) -> Option<usize> {
+    if incomplete {
+        return None;
+    }
+    let timelines = choices
+        .iter()
+        .enumerate()
+        .filter(|(_, choice)| choice.evidence == AlbumMembershipEvidence::CompleteTimeline)
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    // A complete programme can select one edition even when this song also
+    // occurs on other albums or an edition with a different running order.
+    if timelines.len() == 1 {
+        return Some(timelines[0]);
+    }
+    (choices.len() == 1 && key(&choices[0].release.title) == key(album)).then_some(0)
 }
 
 // A group/master tracklist selects an edition. Keep that fetched edition
@@ -263,6 +302,87 @@ mod tests {
         let mut wrong_duration = source;
         wrong_duration[0].duration_seconds = Some(200.0);
         assert!(!same_album_timeline(&wrong_duration, &catalog));
+    }
+
+    #[test]
+    fn reported_album_programme_selects_cd_edition_despite_one_short_label() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/macha-album-navigation.json"
+        ))
+        .unwrap();
+        let request: Track = serde_json::from_value(fixture["request"].clone()).unwrap();
+        let source: Vec<crate::youtube_music::YouTubeMusicItem> =
+            serde_json::from_value(fixture["sourceAlbum"]["items"].clone()).unwrap();
+        let artist = ArtistRef {
+            provider: "musicbrainz".into(),
+            id: "d50b0808-1c23-43b2-b485-7248849268b2".into(),
+        };
+        let mut choices = Vec::new();
+        let mut cd_tracks = Vec::new();
+        for (index, raw) in fixture["releases"].as_array().unwrap().iter().enumerate() {
+            let id = raw["id"].as_str().unwrap();
+            let url = format!("https://musicbrainz.org/release/{id}");
+            let tracks =
+                crate::artists::parse_musicbrainz_release_tracks(raw, id, &url, false, None);
+            assert_eq!(tracks.len(), 14);
+            assert_eq!(
+                tracks[2].album_artist.as_deref(),
+                Some("Macha y el Bloque Depresivo")
+            );
+            // The album's artist must remain distinct from recording-line credits.
+            assert_eq!(tracks[2].provenance["artistCredits"][0]["name"], "Macha");
+            assert!(recording_member(&request, &tracks));
+            let aligned = same_album_timeline(&source, &tracks);
+            assert_eq!(
+                aligned,
+                index == 0,
+                "The digital edition reverses the last two songs"
+            );
+            let release: ArtistReleaseRef = serde_json::from_value(serde_json::json!({
+                "release":{"provider":"musicbrainz","id":id},"title":raw["title"],
+                "sourceUrl":url,"credits":[],"tracks":[]
+            }))
+            .unwrap();
+            choices.push(AlbumChoice {
+                release,
+                artist: artist.clone(),
+                reason: String::new(),
+                evidence: if aligned {
+                    AlbumMembershipEvidence::CompleteTimeline
+                } else {
+                    AlbumMembershipEvidence::RecordingOccurrence
+                },
+            });
+            if index == 0 {
+                cd_tracks = tracks;
+            }
+        }
+        assert_eq!(
+            preferred_choice(&choices, request.album.as_deref().unwrap(), false),
+            Some(0)
+        );
+        assert_eq!(
+            preferred_choice(&choices, request.album.as_deref().unwrap(), true),
+            None
+        );
+        choices[1].evidence = AlbumMembershipEvidence::CompleteTimeline;
+        assert_eq!(
+            preferred_choice(&choices, request.album.as_deref().unwrap(), false),
+            None
+        );
+        assert!(
+            !same_album_timeline(&source[..9], &cd_tracks[..9]),
+            "Short releases need exact titles"
+        );
+        let mut second_short_label = source.clone();
+        second_short_label[12].title = "Lo Que".into();
+        assert!(!same_album_timeline(&second_short_label, &cd_tracks));
+        let mut wrong_song = source.clone();
+        wrong_song[8].title = "An unrelated song".into();
+        assert!(!same_album_timeline(&wrong_song, &cd_tracks));
+        let mut wrong_version = source;
+        wrong_version[8].title.push_str(" (Live)");
+        assert!(!same_album_timeline(&wrong_version, &cd_tracks));
     }
 }
 pub async fn resolve(state: &crate::AppState, track: &Track) -> Result<AlbumResolution, String> {
@@ -429,14 +549,13 @@ pub async fn resolve(state: &crate::AppState, track: &Track) -> Result<AlbumReso
         )
     });
     choices.dedup_by(|a, b| a.release.release == b.release.release);
-    let result = if choices.len() == 1
-        && !discovery_incomplete
-        && !candidates_truncated
-        && (key(&choices[0].release.title) == key(album)
-            || choices[0].evidence == AlbumMembershipEvidence::CompleteTimeline)
-    {
+    let result = if let Some(index) = preferred_choice(
+        &choices,
+        album,
+        discovery_incomplete || candidates_truncated,
+    ) {
         AlbumResolution::Resolved {
-            destination: choices.remove(0),
+            destination: choices.remove(index),
         }
     } else if !choices.is_empty() {
         AlbumResolution::Ambiguous { choices }

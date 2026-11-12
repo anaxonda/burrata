@@ -1,0 +1,123 @@
+{
+  "case": "Spotify search — La Nave del Olvido",
+  "sourceCommit": "629444111af7a83d7949ee5ee6a7e7641138fc18",
+  "artifactSha256": "b616c5ded70526db46f1909844d96ac1e127a805a7d23e623f425775b7ffd757",
+  "matchingLevel": "balanced",
+  "nativeOperationId": "cd06ea3d-94e1-4018-b7d2-0a657fda939b",
+  "action": {
+    "entrypoint": "search_result",
+    "searchMode": "online",
+    "searchSourceId": "spotify",
+    "query": "bloque y la macha",
+    "visibleTitle": "La Nave del Olvido",
+    "visibleArtist": "Macha Y El Bloque Depresivo, Alvaro Henriquez",
+    "visibleDurationSeconds": 235.542,
+    "action": "renderer_occurrence_token",
+    "selected": true,
+    "acousticContentVerified": false
+  },
+  "samples": [
+    {
+      "status": "playing",
+      "engine": "native",
+      "position": 0.2786394557823129,
+      "duration": 231,
+      "queueTotal": 1,
+      "decoderKind": "ffmpeg",
+      "sampleRate": 44100,
+      "channels": 2,
+      "firstAudioMs": 8512,
+      "sourceProvider": "youtube",
+      "sourceId": "youtube:H35xiJcS8RY",
+      "failure": null
+    },
+    {
+      "status": "playing",
+      "engine": "native",
+      "position": 1.4396371882086167,
+      "duration": 231,
+      "queueTotal": 1,
+      "decoderKind": "ffmpeg",
+      "sampleRate": 44100,
+      "channels": 2,
+      "firstAudioMs": 8512,
+      "sourceProvider": "youtube",
+      "sourceId": "youtube:H35xiJcS8RY",
+      "failure": null
+    },
+    {
+      "status": "playing",
+      "engine": "native",
+      "position": 2.5541950113378684,
+      "duration": 231,
+      "queueTotal": 1,
+      "decoderKind": "ffmpeg",
+      "sampleRate": 44100,
+      "channels": 2,
+      "firstAudioMs": 8512,
+      "sourceProvider": "youtube",
+      "sourceId": "youtube:H35xiJcS8RY",
+      "failure": null
+    },
+    {
+      "status": "playing",
+      "engine": "native",
+      "position": 3.3901133786848074,
+      "duration": 231,
+      "queueTotal": 1,
+      "decoderKind": "ffmpeg",
+      "sampleRate": 44100,
+      "channels": 2,
+      "firstAudioMs": 8512,
+      "sourceProvider": "youtube",
+      "sourceId": "youtube:H35xiJcS8RY",
+      "failure": null
+    }
+  ],
+  "passed": true,
+  "reason": "native decoding with advancing position",
+  "physicalOutputVerified": false,
+  "identityTrace": [
+    {
+      "atUnixMs": 1794514784274,
+      "details": {
+        "candidateArtistMetadataPresent": false,
+        "candidateArtistSpellingsCount": 1,
+        "candidateTitleArtistCreditPresent": true,
+        "catalogDuration": 235.542,
+        "ok": true,
+        "proofKind": "verified_extractor",
+        "providerIdMatches": true,
+        "requestedVersion": false,
+        "resolvedArtistMetadataPresent": false,
+        "resolvedChannelIdPresent": true,
+        "resolvedDuration": 231,
+        "resolvedIdentityMetadataUncertain": false,
+        "resolvedTitleArtistCreditPresent": true,
+        "resolvedTitlePresent": true,
+        "sourceFingerprint": "aeeeb8b4b7b84ed6a30b05aa5ea713c15ddc5372989a605ae06c4269ae07b30e",
+        "sourcePageUrl": "https://www.youtube.com/watch?v=H35xiJcS8RY",
+        "topicUploader": false,
+        "trackFingerprint": "45f3c52a6740bfb215969a9f537f7f06379d91fae098c7ce310bdc170c077905"
+      },
+      "elapsedMs": 6502,
+      "nativeOperationId": "cd06ea3d-94e1-4018-b7d2-0a657fda939b",
+      "phase": "full_identity_check",
+      "provider": "youtube",
+      "resolutionId": "bbff52ee-2d79-4a87-93e5-eeedded2514d"
+    },
+    {
+      "atUnixMs": 1794514785916,
+      "details": {
+        "cancelled": false,
+        "deadline": false,
+        "ok": true
+      },
+      "elapsedMs": 8145,
+      "nativeOperationId": "cd06ea3d-94e1-4018-b7d2-0a657fda939b",
+      "phase": "resolution_end",
+      "provider": "other",
+      "resolutionId": "bbff52ee-2d79-4a87-93e5-eeedded2514d"
+    }
+  ]
+}

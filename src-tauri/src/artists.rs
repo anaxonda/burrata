@@ -3716,7 +3716,7 @@ pub(crate) fn parse_musicbrainz_release_tracks(
         let (id, provider_id) = catalog_track_id("musicbrainz", edition_id, reference_id.as_deref(), &medium.to_string(), &position, *occurrence);
         Track {
             id, provider: "catalog".into(), provider_id, source_url: release_url.clone(),
-            artist, title, album: Some(album.clone()), label: label.clone(), catalog_number: catalog_number.clone(),
+            artist, title, album: Some(album.clone()), album_artist: (!release_artist.trim().is_empty()).then(|| release_artist.clone()), label: label.clone(), catalog_number: catalog_number.clone(),
             duration_seconds: duration_ms.map(|duration| duration as f64 / 1000.0),
             track_number,
             disc_number,

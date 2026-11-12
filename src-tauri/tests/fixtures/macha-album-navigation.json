@@ -1,0 +1,1465 @@
+{
+  "request": {
+    "id": "youtube:xAJxfiF_0-w",
+    "provider": "youtube",
+    "providerId": "xAJxfiF_0-w",
+    "sourceUrl": "https://music.youtube.com/watch?v=xAJxfiF_0-w",
+    "title": "La Nave del Olvido",
+    "artist": "Macha Y El Bloque Depresivo, Alvaro Henríquez",
+    "album": "Macha y el Bloque Depresivo",
+    "durationSeconds": 236.0,
+    "provenance": {
+      "artistCredits": [
+        {
+          "name": "Macha Y El Bloque Depresivo",
+          "provenance": "youtubeMusicStructuredCredits",
+          "providerId": "UC0eD0XPJ5zbPCmP5PCAhqIg"
+        },
+        {
+          "name": "Alvaro Henríquez",
+          "provenance": "youtubeMusicStructuredCredits",
+          "providerId": "UCHQGV80dAOm322owH2YboZQ"
+        }
+      ],
+      "albumBrowseId": "MPREb_utm9zY9hQXJ"
+    },
+    "favorite": false
+  },
+  "sourceAlbum": {
+    "browseId": "MPREb_utm9zY9hQXJ",
+    "items": [
+      {
+        "id": "tmHW-ntiW1M",
+        "title": "Vergüenza Ajena",
+        "artist": "Macha Y El Bloque Depresivo",
+        "album": "Macha y el Bloque Depresivo",
+        "durationSeconds": 158,
+        "url": "https://music.youtube.com/watch?v=tmHW-ntiW1M"
+      },
+      {
+        "id": "cDs6FaX88xQ",
+        "title": "La Carretera",
+        "artist": "Macha Y El Bloque Depresivo",
+        "album": "Macha y el Bloque Depresivo",
+        "durationSeconds": 193,
+        "url": "https://music.youtube.com/watch?v=cDs6FaX88xQ"
+      },
+      {
+        "id": "xAJxfiF_0-w",
+        "title": "La Nave del Olvido",
+        "artist": "Macha Y El Bloque Depresivo & Alvaro Henríquez",
+        "album": "Macha y el Bloque Depresivo",
+        "durationSeconds": 236,
+        "url": "https://music.youtube.com/watch?v=xAJxfiF_0-w"
+      },
+      {
+        "id": "QKQnsnMo7L0",
+        "title": "Pequeña Serenata Diurna",
+        "artist": "Macha Y El Bloque Depresivo & Luciano Cardoso",
+        "album": "Macha y el Bloque Depresivo",
+        "durationSeconds": 262,
+        "url": "https://music.youtube.com/watch?v=QKQnsnMo7L0"
+      },
+      {
+        "id": "ouQxdisAxLo",
+        "title": "No Hay Novedad",
+        "artist": "Macha Y El Bloque Depresivo & Son Rompe Pera",
+        "album": "Macha y el Bloque Depresivo",
+        "durationSeconds": 212,
+        "url": "https://music.youtube.com/watch?v=ouQxdisAxLo"
+      },
+      {
+        "id": "WnFGQfdZ9tw",
+        "title": "Isla de Errores",
+        "artist": "Macha Y El Bloque Depresivo",
+        "album": "Macha y el Bloque Depresivo",
+        "durationSeconds": 125,
+        "url": "https://music.youtube.com/watch?v=WnFGQfdZ9tw"
+      },
+      {
+        "id": "WfWXvUWqkp0",
+        "title": "Continentales",
+        "artist": "Macha Y El Bloque Depresivo",
+        "album": "Macha y el Bloque Depresivo",
+        "durationSeconds": 166,
+        "url": "https://music.youtube.com/watch?v=WfWXvUWqkp0"
+      },
+      {
+        "id": "ggwpSVn8gRA",
+        "title": "El Gran Tirano",
+        "artist": "Macha Y El Bloque Depresivo",
+        "album": "Macha y el Bloque Depresivo",
+        "durationSeconds": 202,
+        "url": "https://music.youtube.com/watch?v=ggwpSVn8gRA"
+      },
+      {
+        "id": "r74wJbRA4tA",
+        "title": "Cada Domingo",
+        "artist": "Macha Y El Bloque Depresivo, Julieta Laso & Julian Herreros Rivera",
+        "album": "Macha y el Bloque Depresivo",
+        "durationSeconds": 281,
+        "url": "https://music.youtube.com/watch?v=r74wJbRA4tA"
+      },
+      {
+        "id": "lxPDvuV9Z88",
+        "title": "Solo Tú",
+        "artist": "Macha Y El Bloque Depresivo & Alvaro Henriquez",
+        "album": "Macha y el Bloque Depresivo",
+        "durationSeconds": 198,
+        "url": "https://music.youtube.com/watch?v=lxPDvuV9Z88"
+      },
+      {
+        "id": "Jmtu7y6sqtY",
+        "title": "En Vano",
+        "artist": "Macha Y El Bloque Depresivo",
+        "album": "Macha y el Bloque Depresivo",
+        "durationSeconds": 215,
+        "url": "https://music.youtube.com/watch?v=Jmtu7y6sqtY"
+      },
+      {
+        "id": "9znSe_Cw7dA",
+        "title": "Así",
+        "artist": "Macha Y El Bloque Depresivo",
+        "album": "Macha y el Bloque Depresivo",
+        "durationSeconds": 165,
+        "url": "https://music.youtube.com/watch?v=9znSe_Cw7dA"
+      },
+      {
+        "id": "lM3YpG88A1M",
+        "title": "Lo Que No Fue No Será",
+        "artist": "Macha Y El Bloque Depresivo",
+        "album": "Macha y el Bloque Depresivo",
+        "durationSeconds": 176,
+        "url": "https://music.youtube.com/watch?v=lM3YpG88A1M"
+      },
+      {
+        "id": "DUg15euIlds",
+        "title": "Mar y Cielo",
+        "artist": "Macha Y El Bloque Depresivo",
+        "album": "Macha y el Bloque Depresivo",
+        "durationSeconds": 145,
+        "url": "https://music.youtube.com/watch?v=DUg15euIlds"
+      }
+    ]
+  },
+  "releases": [
+    {
+      "id": "6c56fb1d-e220-40ee-b836-10b6bf992ab7",
+      "title": "100% lúcidos",
+      "artist-credit": [
+        {
+          "name": "Macha y el Bloque Depresivo",
+          "joinphrase": "",
+          "artist": {
+            "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+            "name": "Macha y el Bloque Depresivo"
+          }
+        }
+      ],
+      "release-group": {
+        "id": "830f149f-3395-412b-8df4-21c2443f8c0e",
+        "title": "100% lúcidos",
+        "primary-type": "Album"
+      },
+      "media": [
+        {
+          "format": "CD",
+          "position": 1,
+          "track-count": 14,
+          "tracks": [
+            {
+              "artist-credit": [
+                {
+                  "artist": {
+                    "country": "CL",
+                    "disambiguation": "",
+                    "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                    "name": "Macha y el Bloque Depresivo",
+                    "sort-name": "Macha y el Bloque Depresivo",
+                    "type": "Group",
+                    "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+                  },
+                  "joinphrase": "",
+                  "name": "Macha y el Bloque Depresivo"
+                }
+              ],
+              "id": "80811a92-149c-45a8-abe2-e68f4e9a29cb",
+              "length": 158640,
+              "number": "1",
+              "position": 1,
+              "recording": {
+                "artist-credit": [
+                  {
+                    "artist": {
+                      "id": "0cf24339-2c87-4477-bdfa-a0c4cd88f179",
+                      "name": "Macha"
+                    },
+                    "joinphrase": " y el ",
+                    "name": "Macha"
+                  },
+                  {
+                    "artist": {
+                      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                      "name": "Macha y el Bloque Depresivo"
+                    },
+                    "joinphrase": "",
+                    "name": "Bloque Depresivo"
+                  }
+                ],
+                "id": "7b6478a5-7c98-46da-8bd5-982d33763613",
+                "length": 158640,
+                "title": "Vergüenza ajena"
+              },
+              "title": "Vergüenza ajena"
+            },
+            {
+              "artist-credit": [
+                {
+                  "artist": {
+                    "country": "CL",
+                    "disambiguation": "",
+                    "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                    "name": "Macha y el Bloque Depresivo",
+                    "sort-name": "Macha y el Bloque Depresivo",
+                    "type": "Group",
+                    "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+                  },
+                  "joinphrase": "",
+                  "name": "Macha y el Bloque Depresivo"
+                }
+              ],
+              "id": "a4cad5cd-b632-4989-be71-f436179562b5",
+              "length": 193586,
+              "number": "2",
+              "position": 2,
+              "recording": {
+                "artist-credit": [
+                  {
+                    "artist": {
+                      "id": "0cf24339-2c87-4477-bdfa-a0c4cd88f179",
+                      "name": "Macha"
+                    },
+                    "joinphrase": " y el ",
+                    "name": "Macha"
+                  },
+                  {
+                    "artist": {
+                      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                      "name": "Macha y el Bloque Depresivo"
+                    },
+                    "joinphrase": "",
+                    "name": "Bloque Depresivo"
+                  }
+                ],
+                "id": "9fca7f2c-7c7b-4318-90f9-25e80064c58e",
+                "length": 193586,
+                "title": "La carretera"
+              },
+              "title": "La carretera"
+            },
+            {
+              "artist-credit": [
+                {
+                  "artist": {
+                    "country": "CL",
+                    "disambiguation": "",
+                    "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                    "name": "Macha y el Bloque Depresivo",
+                    "sort-name": "Macha y el Bloque Depresivo",
+                    "type": "Group",
+                    "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+                  },
+                  "joinphrase": "",
+                  "name": "Macha y el Bloque Depresivo"
+                }
+              ],
+              "id": "98bad803-c6ce-46bd-a9c4-573e341661bc",
+              "length": 236320,
+              "number": "3",
+              "position": 3,
+              "recording": {
+                "artist-credit": [
+                  {
+                    "artist": {
+                      "id": "0cf24339-2c87-4477-bdfa-a0c4cd88f179",
+                      "name": "Macha"
+                    },
+                    "joinphrase": " y el ",
+                    "name": "Macha"
+                  },
+                  {
+                    "artist": {
+                      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                      "name": "Macha y el Bloque Depresivo"
+                    },
+                    "joinphrase": "",
+                    "name": "Bloque Depresivo"
+                  }
+                ],
+                "id": "561cf13e-a74d-496a-8fae-94e00da36467",
+                "length": 236320,
+                "title": "La nave del olvido"
+              },
+              "title": "La nave del olvido"
+            },
+            {
+              "artist-credit": [
+                {
+                  "artist": {
+                    "country": "CL",
+                    "disambiguation": "",
+                    "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                    "name": "Macha y el Bloque Depresivo",
+                    "sort-name": "Macha y el Bloque Depresivo",
+                    "type": "Group",
+                    "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+                  },
+                  "joinphrase": "",
+                  "name": "Macha y el Bloque Depresivo"
+                }
+              ],
+              "id": "9d2939fe-6b43-43f1-b1bb-336e000e703b",
+              "length": 262813,
+              "number": "4",
+              "position": 4,
+              "recording": {
+                "artist-credit": [
+                  {
+                    "artist": {
+                      "id": "0cf24339-2c87-4477-bdfa-a0c4cd88f179",
+                      "name": "Macha"
+                    },
+                    "joinphrase": " y el ",
+                    "name": "Macha"
+                  },
+                  {
+                    "artist": {
+                      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                      "name": "Macha y el Bloque Depresivo"
+                    },
+                    "joinphrase": "",
+                    "name": "Bloque Depresivo"
+                  }
+                ],
+                "id": "020fd93e-5771-42ca-9ff7-f46ef8a734b7",
+                "length": 262813,
+                "title": "Pequeña serenata diurna"
+              },
+              "title": "Pequeña serenata diurna"
+            },
+            {
+              "artist-credit": [
+                {
+                  "artist": {
+                    "country": "CL",
+                    "disambiguation": "",
+                    "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                    "name": "Macha y el Bloque Depresivo",
+                    "sort-name": "Macha y el Bloque Depresivo",
+                    "type": "Group",
+                    "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+                  },
+                  "joinphrase": "",
+                  "name": "Macha y el Bloque Depresivo"
+                }
+              ],
+              "id": "972d9fe8-7c02-4b38-b291-749c389ae8fb",
+              "length": 212586,
+              "number": "5",
+              "position": 5,
+              "recording": {
+                "artist-credit": [
+                  {
+                    "artist": {
+                      "id": "0cf24339-2c87-4477-bdfa-a0c4cd88f179",
+                      "name": "Macha"
+                    },
+                    "joinphrase": " y el ",
+                    "name": "Macha"
+                  },
+                  {
+                    "artist": {
+                      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                      "name": "Macha y el Bloque Depresivo"
+                    },
+                    "joinphrase": "",
+                    "name": "Bloque Depresivo"
+                  }
+                ],
+                "id": "407d4654-6168-4804-ae55-880a025dd09e",
+                "length": 212586,
+                "title": "No hay novedad"
+              },
+              "title": "No hay novedad"
+            },
+            {
+              "artist-credit": [
+                {
+                  "artist": {
+                    "country": "CL",
+                    "disambiguation": "",
+                    "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                    "name": "Macha y el Bloque Depresivo",
+                    "sort-name": "Macha y el Bloque Depresivo",
+                    "type": "Group",
+                    "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+                  },
+                  "joinphrase": "",
+                  "name": "Macha y el Bloque Depresivo"
+                }
+              ],
+              "id": "0d582029-c932-4b8e-ad59-947ba6bb3ee9",
+              "length": 124800,
+              "number": "6",
+              "position": 6,
+              "recording": {
+                "artist-credit": [
+                  {
+                    "artist": {
+                      "id": "0cf24339-2c87-4477-bdfa-a0c4cd88f179",
+                      "name": "Macha"
+                    },
+                    "joinphrase": " y el ",
+                    "name": "Macha"
+                  },
+                  {
+                    "artist": {
+                      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                      "name": "Macha y el Bloque Depresivo"
+                    },
+                    "joinphrase": "",
+                    "name": "Bloque Depresivo"
+                  }
+                ],
+                "id": "6a401168-778c-4a25-937a-533504713074",
+                "length": 124800,
+                "title": "Isla de errores"
+              },
+              "title": "Isla de errores"
+            },
+            {
+              "artist-credit": [
+                {
+                  "artist": {
+                    "country": "CL",
+                    "disambiguation": "",
+                    "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                    "name": "Macha y el Bloque Depresivo",
+                    "sort-name": "Macha y el Bloque Depresivo",
+                    "type": "Group",
+                    "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+                  },
+                  "joinphrase": "",
+                  "name": "Macha y el Bloque Depresivo"
+                }
+              ],
+              "id": "7c34eaa5-28f4-4993-85b9-6d736971f526",
+              "length": 166840,
+              "number": "7",
+              "position": 7,
+              "recording": {
+                "artist-credit": [
+                  {
+                    "artist": {
+                      "id": "0cf24339-2c87-4477-bdfa-a0c4cd88f179",
+                      "name": "Macha"
+                    },
+                    "joinphrase": " y el ",
+                    "name": "Macha"
+                  },
+                  {
+                    "artist": {
+                      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                      "name": "Macha y el Bloque Depresivo"
+                    },
+                    "joinphrase": "",
+                    "name": "Bloque Depresivo"
+                  }
+                ],
+                "id": "bfcea940-51d1-408d-bbbb-4021d3a49220",
+                "length": 166840,
+                "title": "Continentales"
+              },
+              "title": "Continentales"
+            },
+            {
+              "artist-credit": [
+                {
+                  "artist": {
+                    "country": "CL",
+                    "disambiguation": "",
+                    "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                    "name": "Macha y el Bloque Depresivo",
+                    "sort-name": "Macha y el Bloque Depresivo",
+                    "type": "Group",
+                    "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+                  },
+                  "joinphrase": "",
+                  "name": "Macha y el Bloque Depresivo"
+                }
+              ],
+              "id": "85282ecb-0484-4524-b060-a17ea5c2ff9b",
+              "length": 203053,
+              "number": "8",
+              "position": 8,
+              "recording": {
+                "artist-credit": [
+                  {
+                    "artist": {
+                      "id": "0cf24339-2c87-4477-bdfa-a0c4cd88f179",
+                      "name": "Macha"
+                    },
+                    "joinphrase": " y el ",
+                    "name": "Macha"
+                  },
+                  {
+                    "artist": {
+                      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                      "name": "Macha y el Bloque Depresivo"
+                    },
+                    "joinphrase": "",
+                    "name": "Bloque Depresivo"
+                  }
+                ],
+                "id": "4273d9a1-f077-4728-b0b9-ff7dac36e6dc",
+                "length": 203053,
+                "title": "El gran tirano"
+              },
+              "title": "El gran tirano"
+            },
+            {
+              "artist-credit": [
+                {
+                  "artist": {
+                    "country": "CL",
+                    "disambiguation": "",
+                    "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                    "name": "Macha y el Bloque Depresivo",
+                    "sort-name": "Macha y el Bloque Depresivo",
+                    "type": "Group",
+                    "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+                  },
+                  "joinphrase": "",
+                  "name": "Macha y el Bloque Depresivo"
+                }
+              ],
+              "id": "acdc42d1-d1d1-4a2a-8445-d1fb6a1984c7",
+              "length": 280774,
+              "number": "9",
+              "position": 9,
+              "recording": {
+                "artist-credit": [
+                  {
+                    "artist": {
+                      "id": "0cf24339-2c87-4477-bdfa-a0c4cd88f179",
+                      "name": "Macha"
+                    },
+                    "joinphrase": " y el ",
+                    "name": "Macha"
+                  },
+                  {
+                    "artist": {
+                      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                      "name": "Macha y el Bloque Depresivo"
+                    },
+                    "joinphrase": "",
+                    "name": "Bloque Depresivo"
+                  }
+                ],
+                "id": "543c62d6-56c2-45b5-a52c-16f815dd94af",
+                "length": 280774,
+                "title": "Cada domingo a las doce"
+              },
+              "title": "Cada domingo a las doce"
+            },
+            {
+              "artist-credit": [
+                {
+                  "artist": {
+                    "country": "CL",
+                    "disambiguation": "",
+                    "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                    "name": "Macha y el Bloque Depresivo",
+                    "sort-name": "Macha y el Bloque Depresivo",
+                    "type": "Group",
+                    "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+                  },
+                  "joinphrase": "",
+                  "name": "Macha y el Bloque Depresivo"
+                }
+              ],
+              "id": "539527e0-5cd2-4d2e-9f52-c7f94d080edb",
+              "length": 197437,
+              "number": "10",
+              "position": 10,
+              "recording": {
+                "artist-credit": [
+                  {
+                    "artist": {
+                      "id": "0cf24339-2c87-4477-bdfa-a0c4cd88f179",
+                      "name": "Macha"
+                    },
+                    "joinphrase": " y el ",
+                    "name": "Macha"
+                  },
+                  {
+                    "artist": {
+                      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                      "name": "Macha y el Bloque Depresivo"
+                    },
+                    "joinphrase": "",
+                    "name": "Bloque Depresivo"
+                  }
+                ],
+                "id": "88b4e37c-8b68-4cdc-b69d-871da1b6c84b",
+                "length": 197437,
+                "title": "Sólo tú"
+              },
+              "title": "Sólo tú"
+            },
+            {
+              "artist-credit": [
+                {
+                  "artist": {
+                    "country": "CL",
+                    "disambiguation": "",
+                    "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                    "name": "Macha y el Bloque Depresivo",
+                    "sort-name": "Macha y el Bloque Depresivo",
+                    "type": "Group",
+                    "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+                  },
+                  "joinphrase": "",
+                  "name": "Macha y el Bloque Depresivo"
+                }
+              ],
+              "id": "21bd43c6-d2dc-4137-9264-2a37eb39c759",
+              "length": 214520,
+              "number": "11",
+              "position": 11,
+              "recording": {
+                "artist-credit": [
+                  {
+                    "artist": {
+                      "id": "0cf24339-2c87-4477-bdfa-a0c4cd88f179",
+                      "name": "Macha"
+                    },
+                    "joinphrase": " y el ",
+                    "name": "Macha"
+                  },
+                  {
+                    "artist": {
+                      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                      "name": "Macha y el Bloque Depresivo"
+                    },
+                    "joinphrase": "",
+                    "name": "Bloque Depresivo"
+                  }
+                ],
+                "id": "37138f66-4fd1-4060-aa64-b0852a4c9a86",
+                "length": 214520,
+                "title": "En vano"
+              },
+              "title": "En vano"
+            },
+            {
+              "artist-credit": [
+                {
+                  "artist": {
+                    "country": "CL",
+                    "disambiguation": "",
+                    "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                    "name": "Macha y el Bloque Depresivo",
+                    "sort-name": "Macha y el Bloque Depresivo",
+                    "type": "Group",
+                    "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+                  },
+                  "joinphrase": "",
+                  "name": "Macha y el Bloque Depresivo"
+                }
+              ],
+              "id": "72aa6097-04db-4757-8acd-7ef6731c0824",
+              "length": 164373,
+              "number": "12",
+              "position": 12,
+              "recording": {
+                "artist-credit": [
+                  {
+                    "artist": {
+                      "id": "0cf24339-2c87-4477-bdfa-a0c4cd88f179",
+                      "name": "Macha"
+                    },
+                    "joinphrase": " y el ",
+                    "name": "Macha"
+                  },
+                  {
+                    "artist": {
+                      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                      "name": "Macha y el Bloque Depresivo"
+                    },
+                    "joinphrase": "",
+                    "name": "Bloque Depresivo"
+                  }
+                ],
+                "id": "a37c49aa-ba8e-47e8-8311-225615df56b0",
+                "length": 164373,
+                "title": "Así"
+              },
+              "title": "Así"
+            },
+            {
+              "artist-credit": [
+                {
+                  "artist": {
+                    "country": "CL",
+                    "disambiguation": "",
+                    "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                    "name": "Macha y el Bloque Depresivo",
+                    "sort-name": "Macha y el Bloque Depresivo",
+                    "type": "Group",
+                    "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+                  },
+                  "joinphrase": "",
+                  "name": "Macha y el Bloque Depresivo"
+                }
+              ],
+              "id": "379b24a5-15e7-4fe0-874f-4d3f17365107",
+              "length": 175316,
+              "number": "13",
+              "position": 13,
+              "recording": {
+                "artist-credit": [
+                  {
+                    "artist": {
+                      "id": "0cf24339-2c87-4477-bdfa-a0c4cd88f179",
+                      "name": "Macha"
+                    },
+                    "joinphrase": " y el ",
+                    "name": "Macha"
+                  },
+                  {
+                    "artist": {
+                      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                      "name": "Macha y el Bloque Depresivo"
+                    },
+                    "joinphrase": "",
+                    "name": "Bloque Depresivo"
+                  }
+                ],
+                "id": "8b2f6040-3e30-4ca1-aa86-ea9d058389e9",
+                "length": 175316,
+                "title": "Lo que no fue no será"
+              },
+              "title": "Lo que no fue no será"
+            },
+            {
+              "artist-credit": [
+                {
+                  "artist": {
+                    "country": "CL",
+                    "disambiguation": "",
+                    "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                    "name": "Macha y el Bloque Depresivo",
+                    "sort-name": "Macha y el Bloque Depresivo",
+                    "type": "Group",
+                    "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+                  },
+                  "joinphrase": "",
+                  "name": "Macha y el Bloque Depresivo"
+                }
+              ],
+              "id": "281d63ba-3c8b-4790-9e8a-b7ccdeb58d10",
+              "length": 145013,
+              "number": "14",
+              "position": 14,
+              "recording": {
+                "artist-credit": [
+                  {
+                    "artist": {
+                      "id": "0cf24339-2c87-4477-bdfa-a0c4cd88f179",
+                      "name": "Macha"
+                    },
+                    "joinphrase": " y el ",
+                    "name": "Macha"
+                  },
+                  {
+                    "artist": {
+                      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                      "name": "Macha y el Bloque Depresivo"
+                    },
+                    "joinphrase": "",
+                    "name": "Bloque Depresivo"
+                  }
+                ],
+                "id": "bb6b24f3-cec8-4d36-a1d0-ecf819a9a154",
+                "length": 145013,
+                "title": "Mar y cielo"
+              },
+              "title": "Mar y cielo"
+            }
+          ]
+        }
+      ],
+      "date": "2018-10-10"
+    },
+    {
+      "id": "7b337019-a478-41ad-bf5e-2b4ac1171f83",
+      "title": "100% lucidos",
+      "artist-credit": [
+        {
+          "name": "Macha y el Bloque Depresivo",
+          "joinphrase": "",
+          "artist": {
+            "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+            "name": "Macha y el Bloque Depresivo"
+          }
+        }
+      ],
+      "release-group": {
+        "id": "830f149f-3395-412b-8df4-21c2443f8c0e",
+        "title": "100% lúcidos",
+        "primary-type": "Album"
+      },
+      "media": [
+        {
+          "format": "Digital Media",
+          "position": 1,
+          "track-count": 14,
+          "tracks": [
+            {
+              "artist-credit": [
+                {
+                  "artist": {
+                    "country": "CL",
+                    "disambiguation": "",
+                    "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                    "name": "Macha y el Bloque Depresivo",
+                    "sort-name": "Macha y el Bloque Depresivo",
+                    "type": "Group",
+                    "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+                  },
+                  "joinphrase": "",
+                  "name": "Macha y el Bloque Depresivo"
+                }
+              ],
+              "id": "b6c75269-f9cd-48dd-9784-6a0a1a07f789",
+              "length": 158640,
+              "number": "1",
+              "position": 1,
+              "recording": {
+                "artist-credit": [
+                  {
+                    "artist": {
+                      "id": "0cf24339-2c87-4477-bdfa-a0c4cd88f179",
+                      "name": "Macha"
+                    },
+                    "joinphrase": " y el ",
+                    "name": "Macha"
+                  },
+                  {
+                    "artist": {
+                      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                      "name": "Macha y el Bloque Depresivo"
+                    },
+                    "joinphrase": "",
+                    "name": "Bloque Depresivo"
+                  }
+                ],
+                "id": "7b6478a5-7c98-46da-8bd5-982d33763613",
+                "length": 158640,
+                "title": "Vergüenza ajena"
+              },
+              "title": "Verguenza ajena"
+            },
+            {
+              "artist-credit": [
+                {
+                  "artist": {
+                    "country": "CL",
+                    "disambiguation": "",
+                    "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                    "name": "Macha y el Bloque Depresivo",
+                    "sort-name": "Macha y el Bloque Depresivo",
+                    "type": "Group",
+                    "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+                  },
+                  "joinphrase": "",
+                  "name": "Macha y el Bloque Depresivo"
+                }
+              ],
+              "id": "772358a3-2158-4051-90b1-90e64b4cb32c",
+              "length": 193587,
+              "number": "2",
+              "position": 2,
+              "recording": {
+                "artist-credit": [
+                  {
+                    "artist": {
+                      "id": "0cf24339-2c87-4477-bdfa-a0c4cd88f179",
+                      "name": "Macha"
+                    },
+                    "joinphrase": " y el ",
+                    "name": "Macha"
+                  },
+                  {
+                    "artist": {
+                      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                      "name": "Macha y el Bloque Depresivo"
+                    },
+                    "joinphrase": "",
+                    "name": "Bloque Depresivo"
+                  }
+                ],
+                "id": "9fca7f2c-7c7b-4318-90f9-25e80064c58e",
+                "length": 193586,
+                "title": "La carretera"
+              },
+              "title": "La carretera"
+            },
+            {
+              "artist-credit": [
+                {
+                  "artist": {
+                    "country": "CL",
+                    "disambiguation": "",
+                    "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                    "name": "Macha y el Bloque Depresivo",
+                    "sort-name": "Macha y el Bloque Depresivo",
+                    "type": "Group",
+                    "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+                  },
+                  "joinphrase": "",
+                  "name": "Macha y el Bloque Depresivo"
+                }
+              ],
+              "id": "f6b1a1b0-e2b0-4814-ac64-d890b2c3096b",
+              "length": 236320,
+              "number": "3",
+              "position": 3,
+              "recording": {
+                "artist-credit": [
+                  {
+                    "artist": {
+                      "id": "0cf24339-2c87-4477-bdfa-a0c4cd88f179",
+                      "name": "Macha"
+                    },
+                    "joinphrase": " y el ",
+                    "name": "Macha"
+                  },
+                  {
+                    "artist": {
+                      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                      "name": "Macha y el Bloque Depresivo"
+                    },
+                    "joinphrase": "",
+                    "name": "Bloque Depresivo"
+                  }
+                ],
+                "id": "561cf13e-a74d-496a-8fae-94e00da36467",
+                "length": 236320,
+                "title": "La nave del olvido"
+              },
+              "title": "La nave del olvido"
+            },
+            {
+              "artist-credit": [
+                {
+                  "artist": {
+                    "country": "CL",
+                    "disambiguation": "",
+                    "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                    "name": "Macha y el Bloque Depresivo",
+                    "sort-name": "Macha y el Bloque Depresivo",
+                    "type": "Group",
+                    "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+                  },
+                  "joinphrase": "",
+                  "name": "Macha y el Bloque Depresivo"
+                }
+              ],
+              "id": "e868febc-93c9-47b6-a02f-93ba86bf5f19",
+              "length": 262813,
+              "number": "4",
+              "position": 4,
+              "recording": {
+                "artist-credit": [
+                  {
+                    "artist": {
+                      "id": "0cf24339-2c87-4477-bdfa-a0c4cd88f179",
+                      "name": "Macha"
+                    },
+                    "joinphrase": " y el ",
+                    "name": "Macha"
+                  },
+                  {
+                    "artist": {
+                      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                      "name": "Macha y el Bloque Depresivo"
+                    },
+                    "joinphrase": "",
+                    "name": "Bloque Depresivo"
+                  }
+                ],
+                "id": "020fd93e-5771-42ca-9ff7-f46ef8a734b7",
+                "length": 262813,
+                "title": "Pequeña serenata diurna"
+              },
+              "title": "Pequeña serenata diurna"
+            },
+            {
+              "artist-credit": [
+                {
+                  "artist": {
+                    "country": "CL",
+                    "disambiguation": "",
+                    "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                    "name": "Macha y el Bloque Depresivo",
+                    "sort-name": "Macha y el Bloque Depresivo",
+                    "type": "Group",
+                    "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+                  },
+                  "joinphrase": "",
+                  "name": "Macha y el Bloque Depresivo"
+                }
+              ],
+              "id": "3bf87c51-8467-4309-b742-54ae517cce18",
+              "length": 212587,
+              "number": "5",
+              "position": 5,
+              "recording": {
+                "artist-credit": [
+                  {
+                    "artist": {
+                      "id": "0cf24339-2c87-4477-bdfa-a0c4cd88f179",
+                      "name": "Macha"
+                    },
+                    "joinphrase": " y el ",
+                    "name": "Macha"
+                  },
+                  {
+                    "artist": {
+                      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                      "name": "Macha y el Bloque Depresivo"
+                    },
+                    "joinphrase": "",
+                    "name": "Bloque Depresivo"
+                  }
+                ],
+                "id": "407d4654-6168-4804-ae55-880a025dd09e",
+                "length": 212586,
+                "title": "No hay novedad"
+              },
+              "title": "No hay novedad"
+            },
+            {
+              "artist-credit": [
+                {
+                  "artist": {
+                    "country": "CL",
+                    "disambiguation": "",
+                    "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                    "name": "Macha y el Bloque Depresivo",
+                    "sort-name": "Macha y el Bloque Depresivo",
+                    "type": "Group",
+                    "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+                  },
+                  "joinphrase": "",
+                  "name": "Macha y el Bloque Depresivo"
+                }
+              ],
+              "id": "1b13746c-a037-4e51-8f4e-6bcd0045dbfb",
+              "length": 124800,
+              "number": "6",
+              "position": 6,
+              "recording": {
+                "artist-credit": [
+                  {
+                    "artist": {
+                      "id": "0cf24339-2c87-4477-bdfa-a0c4cd88f179",
+                      "name": "Macha"
+                    },
+                    "joinphrase": " y el ",
+                    "name": "Macha"
+                  },
+                  {
+                    "artist": {
+                      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                      "name": "Macha y el Bloque Depresivo"
+                    },
+                    "joinphrase": "",
+                    "name": "Bloque Depresivo"
+                  }
+                ],
+                "id": "6a401168-778c-4a25-937a-533504713074",
+                "length": 124800,
+                "title": "Isla de errores"
+              },
+              "title": "Isla de errores"
+            },
+            {
+              "artist-credit": [
+                {
+                  "artist": {
+                    "country": "CL",
+                    "disambiguation": "",
+                    "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                    "name": "Macha y el Bloque Depresivo",
+                    "sort-name": "Macha y el Bloque Depresivo",
+                    "type": "Group",
+                    "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+                  },
+                  "joinphrase": "",
+                  "name": "Macha y el Bloque Depresivo"
+                }
+              ],
+              "id": "60dcba74-b8e8-4cea-9e22-eb334896458e",
+              "length": 166840,
+              "number": "7",
+              "position": 7,
+              "recording": {
+                "artist-credit": [
+                  {
+                    "artist": {
+                      "id": "0cf24339-2c87-4477-bdfa-a0c4cd88f179",
+                      "name": "Macha"
+                    },
+                    "joinphrase": " y el ",
+                    "name": "Macha"
+                  },
+                  {
+                    "artist": {
+                      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                      "name": "Macha y el Bloque Depresivo"
+                    },
+                    "joinphrase": "",
+                    "name": "Bloque Depresivo"
+                  }
+                ],
+                "id": "bfcea940-51d1-408d-bbbb-4021d3a49220",
+                "length": 166840,
+                "title": "Continentales"
+              },
+              "title": "Continentales"
+            },
+            {
+              "artist-credit": [
+                {
+                  "artist": {
+                    "country": "CL",
+                    "disambiguation": "",
+                    "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                    "name": "Macha y el Bloque Depresivo",
+                    "sort-name": "Macha y el Bloque Depresivo",
+                    "type": "Group",
+                    "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+                  },
+                  "joinphrase": "",
+                  "name": "Macha y el Bloque Depresivo"
+                }
+              ],
+              "id": "b1304c01-6ed6-471a-8481-6ee3030ff7c4",
+              "length": 203053,
+              "number": "8",
+              "position": 8,
+              "recording": {
+                "artist-credit": [
+                  {
+                    "artist": {
+                      "id": "0cf24339-2c87-4477-bdfa-a0c4cd88f179",
+                      "name": "Macha"
+                    },
+                    "joinphrase": " y el ",
+                    "name": "Macha"
+                  },
+                  {
+                    "artist": {
+                      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                      "name": "Macha y el Bloque Depresivo"
+                    },
+                    "joinphrase": "",
+                    "name": "Bloque Depresivo"
+                  }
+                ],
+                "id": "4273d9a1-f077-4728-b0b9-ff7dac36e6dc",
+                "length": 203053,
+                "title": "El gran tirano"
+              },
+              "title": "El gran tirano"
+            },
+            {
+              "artist-credit": [
+                {
+                  "artist": {
+                    "country": "CL",
+                    "disambiguation": "",
+                    "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                    "name": "Macha y el Bloque Depresivo",
+                    "sort-name": "Macha y el Bloque Depresivo",
+                    "type": "Group",
+                    "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+                  },
+                  "joinphrase": "",
+                  "name": "Macha y el Bloque Depresivo"
+                }
+              ],
+              "id": "49f361cb-6934-48f0-a15e-c713039f9045",
+              "length": 280775,
+              "number": "9",
+              "position": 9,
+              "recording": {
+                "artist-credit": [
+                  {
+                    "artist": {
+                      "id": "0cf24339-2c87-4477-bdfa-a0c4cd88f179",
+                      "name": "Macha"
+                    },
+                    "joinphrase": " y el ",
+                    "name": "Macha"
+                  },
+                  {
+                    "artist": {
+                      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                      "name": "Macha y el Bloque Depresivo"
+                    },
+                    "joinphrase": "",
+                    "name": "Bloque Depresivo"
+                  }
+                ],
+                "id": "543c62d6-56c2-45b5-a52c-16f815dd94af",
+                "length": 280774,
+                "title": "Cada domingo a las doce"
+              },
+              "title": "Cada domingo a las doce"
+            },
+            {
+              "artist-credit": [
+                {
+                  "artist": {
+                    "country": "CL",
+                    "disambiguation": "",
+                    "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                    "name": "Macha y el Bloque Depresivo",
+                    "sort-name": "Macha y el Bloque Depresivo",
+                    "type": "Group",
+                    "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+                  },
+                  "joinphrase": "",
+                  "name": "Macha y el Bloque Depresivo"
+                }
+              ],
+              "id": "f38852ec-9ed0-4ee5-b0ba-dd23fbac71b1",
+              "length": 197438,
+              "number": "10",
+              "position": 10,
+              "recording": {
+                "artist-credit": [
+                  {
+                    "artist": {
+                      "id": "0cf24339-2c87-4477-bdfa-a0c4cd88f179",
+                      "name": "Macha"
+                    },
+                    "joinphrase": " y el ",
+                    "name": "Macha"
+                  },
+                  {
+                    "artist": {
+                      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                      "name": "Macha y el Bloque Depresivo"
+                    },
+                    "joinphrase": "",
+                    "name": "Bloque Depresivo"
+                  }
+                ],
+                "id": "88b4e37c-8b68-4cdc-b69d-871da1b6c84b",
+                "length": 197437,
+                "title": "Sólo tú"
+              },
+              "title": "Sóló tú"
+            },
+            {
+              "artist-credit": [
+                {
+                  "artist": {
+                    "country": "CL",
+                    "disambiguation": "",
+                    "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                    "name": "Macha y el Bloque Depresivo",
+                    "sort-name": "Macha y el Bloque Depresivo",
+                    "type": "Group",
+                    "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+                  },
+                  "joinphrase": "",
+                  "name": "Macha y el Bloque Depresivo"
+                }
+              ],
+              "id": "1b23df9b-5c23-47cc-b1c9-6c9a661e520c",
+              "length": 214520,
+              "number": "11",
+              "position": 11,
+              "recording": {
+                "artist-credit": [
+                  {
+                    "artist": {
+                      "id": "0cf24339-2c87-4477-bdfa-a0c4cd88f179",
+                      "name": "Macha"
+                    },
+                    "joinphrase": " y el ",
+                    "name": "Macha"
+                  },
+                  {
+                    "artist": {
+                      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                      "name": "Macha y el Bloque Depresivo"
+                    },
+                    "joinphrase": "",
+                    "name": "Bloque Depresivo"
+                  }
+                ],
+                "id": "37138f66-4fd1-4060-aa64-b0852a4c9a86",
+                "length": 214520,
+                "title": "En vano"
+              },
+              "title": "En vano"
+            },
+            {
+              "artist-credit": [
+                {
+                  "artist": {
+                    "country": "CL",
+                    "disambiguation": "",
+                    "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                    "name": "Macha y el Bloque Depresivo",
+                    "sort-name": "Macha y el Bloque Depresivo",
+                    "type": "Group",
+                    "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+                  },
+                  "joinphrase": "",
+                  "name": "Macha y el Bloque Depresivo"
+                }
+              ],
+              "id": "b0d97495-8f87-4080-a79b-11d6cba22762",
+              "length": 164373,
+              "number": "12",
+              "position": 12,
+              "recording": {
+                "artist-credit": [
+                  {
+                    "artist": {
+                      "id": "0cf24339-2c87-4477-bdfa-a0c4cd88f179",
+                      "name": "Macha"
+                    },
+                    "joinphrase": " y el ",
+                    "name": "Macha"
+                  },
+                  {
+                    "artist": {
+                      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                      "name": "Macha y el Bloque Depresivo"
+                    },
+                    "joinphrase": "",
+                    "name": "Bloque Depresivo"
+                  }
+                ],
+                "id": "a37c49aa-ba8e-47e8-8311-225615df56b0",
+                "length": 164373,
+                "title": "Así"
+              },
+              "title": "Así"
+            },
+            {
+              "artist-credit": [
+                {
+                  "artist": {
+                    "country": "CL",
+                    "disambiguation": "",
+                    "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                    "name": "Macha y el Bloque Depresivo",
+                    "sort-name": "Macha y el Bloque Depresivo",
+                    "type": "Group",
+                    "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+                  },
+                  "joinphrase": "",
+                  "name": "Macha y el Bloque Depresivo"
+                }
+              ],
+              "id": "c6a284b2-8cd7-4ae8-99d9-dbd6067ff36d",
+              "length": 145013,
+              "number": "13",
+              "position": 13,
+              "recording": {
+                "artist-credit": [
+                  {
+                    "artist": {
+                      "id": "0cf24339-2c87-4477-bdfa-a0c4cd88f179",
+                      "name": "Macha"
+                    },
+                    "joinphrase": " y el ",
+                    "name": "Macha"
+                  },
+                  {
+                    "artist": {
+                      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                      "name": "Macha y el Bloque Depresivo"
+                    },
+                    "joinphrase": "",
+                    "name": "Bloque Depresivo"
+                  }
+                ],
+                "id": "bb6b24f3-cec8-4d36-a1d0-ecf819a9a154",
+                "length": 145013,
+                "title": "Mar y cielo"
+              },
+              "title": "Mar y cielo"
+            },
+            {
+              "artist-credit": [
+                {
+                  "artist": {
+                    "country": "CL",
+                    "disambiguation": "",
+                    "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                    "name": "Macha y el Bloque Depresivo",
+                    "sort-name": "Macha y el Bloque Depresivo",
+                    "type": "Group",
+                    "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b"
+                  },
+                  "joinphrase": "",
+                  "name": "Macha y el Bloque Depresivo"
+                }
+              ],
+              "id": "06e5bb22-5cff-4fd8-b322-5c9885bbf165",
+              "length": 175316,
+              "number": "14",
+              "position": 14,
+              "recording": {
+                "artist-credit": [
+                  {
+                    "artist": {
+                      "id": "0cf24339-2c87-4477-bdfa-a0c4cd88f179",
+                      "name": "Macha"
+                    },
+                    "joinphrase": " y el ",
+                    "name": "Macha"
+                  },
+                  {
+                    "artist": {
+                      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+                      "name": "Macha y el Bloque Depresivo"
+                    },
+                    "joinphrase": "",
+                    "name": "Bloque Depresivo"
+                  }
+                ],
+                "id": "8b2f6040-3e30-4ca1-aa86-ea9d058389e9",
+                "length": 175316,
+                "title": "Lo que no fue no será"
+              },
+              "title": "Lo que no fue no sera"
+            }
+          ]
+        }
+      ],
+      "date": "2018-10-05"
+    }
+  ]
+}
