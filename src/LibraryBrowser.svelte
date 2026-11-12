@@ -13,7 +13,7 @@
     call: <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
     onNavigate: (next: LibraryBrowserState) => void;
     onStateChange: (next: LibraryBrowserState) => void;
-    onBrowse: (entry: LibraryEntity) => void;
+    onBrowse: (entry: LibraryEntity, familyProvider?: string | null) => void;
     onPlay: (track: Track, tracks: Track[], index: number, resource?: LoudnessResourceIdentity | null) => void | Promise<void>;
     onQueue: (tracks: Track[], mode: 'append' | 'next', resource?: LoudnessResourceIdentity | null) => void;
     onDownload: (track: Track) => void; onFavorite: (track: Track) => void; onPlaylist: (track: Track) => void;
@@ -39,6 +39,11 @@
   const localAlbumIds=$derived(browserState.entity?.kind==='album'?[...new Set([browserState.entity.id,...(browserState.entity.aliases??[])].filter(id=>id.startsWith('album:ref:local:')))]:[]);
   const trackView = $derived(Boolean(browserState.entity && (browserState.entity.kind === 'album' || browserState.section === 'tracks')));
   const albumDetailView = $derived(browserState.entity?.kind === 'album');
+  const familyProvider = $derived.by(() => {
+    if (!browserState.familyListingId || !tracks.length) return null;
+    const provider = tracks[0]?.provider;
+    return provider && tracks.every(track => track.provider === provider) ? provider : null;
+  });
   const artistListView = $derived(browserState.tab === 'artists' && !browserState.entity);
   const entityLayout = $derived(artistListView ? browserState.artistLayout : browserState.albumLayout);
   const layoutLabel = $derived(artistListView ? 'artists' : 'albums');
@@ -194,9 +199,12 @@
   {#if albumDetailView}
     {@const album = browserState.entity!}
     {@const fullySaved = album.totalTracks != null && album.trackCount === album.totalTracks}
-    {@const providerLabel = album.provider ? `${album.provider[0]!.toUpperCase()}${album.provider.slice(1)}` : 'Saved library'}
+    {@const albumProvider = album.provider || familyProvider}
+    {@const providerLabel = albumProvider ? `${albumProvider[0]!.toUpperCase()}${albumProvider.slice(1)}` : 'Saved library'}
+    {@const hasSpotifyAlbumId = album.provider === 'spotify' && typeof album.providerId === 'string' && /^[A-Za-z0-9]{22}$/.test(album.providerId)}
+    {@const inferredSpotifyFamily = browserState.familyListingId && familyProvider === 'spotify'}
     <AlbumDetailView
-      metadata={{ title: album.name, artist: album.artist, year: album.releaseDate?.slice(0, 4), artworkUrl: album.artworkUrl, sourceLabel: providerLabel, sourceUrl: album.sourceUrl, scopeLabel: album.explicitlySaved ? 'Saved album' : 'Saved tracks from catalog album', trackCountLabel: `${countLabel(album.trackCount, 'saved track')}${total !== album.trackCount ? ` · ${tracks.length} of ${total} matching tracks loaded` : ` · ${tracks.length} loaded`}${album.totalTracks != null ? ` · ${album.trackCount} of ${countLabel(album.totalTracks, 'catalog track')} saved` : ''}` }}
+      metadata={{ title: album.name, artist: album.artist, year: album.releaseDate?.slice(0, 4), artworkUrl: album.artworkUrl, sourceLabel: providerLabel, sourceUrl: album.sourceUrl, scopeLabel: album.explicitlySaved ? 'Saved album' : inferredSpotifyFamily && !hasSpotifyAlbumId ? 'Saved tracks · Spotify album identity not linked' : 'Saved tracks from catalog album', trackCountLabel: `${countLabel(album.trackCount, 'saved track')}${total !== album.trackCount ? ` · ${tracks.length} of ${total} matching tracks loaded` : ` · ${tracks.length} loaded`}${album.totalTracks != null ? ` · ${album.trackCount} of ${countLabel(album.totalTracks, 'catalog track')} saved` : ''}` }}
       albumTracks={tracks} actionTrackCount={album.trackCount} resolveAlbumTracks={resolveAlbumTracks} analysisScopeComplete={fullySaved} analysisIdentity={`${album.id}:${album.trackCount}:${album.totalTracks ?? 'unknown'}:${scopeRevision}`}
       ownsScroll={false} loading={loading} visibleTrackCount={total} loadingMessage="Loading saved tracks…" emptyMessage="No saved tracks match this filter. Album actions still use the full saved scope."
       playAlbumLabel={fullySaved ? '▶ Play album' : '▶ Play saved tracks'} queueAlbumLabel={fullySaved ? '＋ Queue album' : '＋ Queue saved tracks'} downloadAlbumLabel={fullySaved ? 'Download album' : 'Download saved tracks'}
@@ -208,7 +216,7 @@
       minDuration={browserState.minDuration} maxDuration={browserState.maxDuration} onDurationChange={(minDuration, maxDuration) => change({ minDuration, maxDuration })}
       trackListProps={{ tracks, position: (_, index) => index + 1, onPlay, onDownload, onFavorite, onPlaylist, onArtist, onAlbum, onContext, onAddSelectedToPlaylist, onQueue: track => onQueue([track], 'append'), onQueueSelected: items => onQueue(items, 'append'), onNext: track => onQueue([track], 'next'), playingTrack, bufferingTrack, bufferingTrackId, playbackFailed, paused, listLabel: 'Saved album tracks', selectionContext: `library:${album.id}` }}
     >
-      {#snippet headerActions()}<button onclick={() => onBrowse(album)}>Browse catalog</button>{#if localAlbumIds.length}<button onclick={() => showLocalMatch = true}>Match local files</button>{/if}{/snippet}
+      {#snippet headerActions()}<button onclick={() => onBrowse(album, familyProvider)}>{inferredSpotifyFamily && !hasSpotifyAlbumId ? 'Find complete album' : 'Browse catalog'}</button>{#if localAlbumIds.length}<button onclick={() => showLocalMatch = true}>Match local files</button>{/if}{/snippet}
       {#snippet moreActions()}<p>Album actions use the complete saved track scope, in disc and track order.</p>{#if !fullySaved}<p>Album loudness analysis is available after every catalog track is saved. {#if album.totalTracks != null}{album.trackCount} of {album.totalTracks} catalog tracks are saved.{:else}The catalog track count is unknown, so completeness cannot be confirmed.{/if}</p>{/if}{#if album.explicitlySaved}<button onclick={() => void removeSave()}>Remove album save</button>{/if}{/snippet}
       {#snippet notices()}{#if notice}<p role="status">{notice}</p>{/if}{#if error}<p role="alert">{error}</p><button onclick={() => void load({ ...browserState })}>Retry</button>{/if}{#if trackActionError}<p role="alert">{trackActionError}</p>{/if}{#if loading}<p role="status">Loading saved music…</p>{/if}{/snippet}
     </AlbumDetailView>

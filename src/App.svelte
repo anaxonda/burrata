@@ -12,14 +12,27 @@
     await saveCompleteLibraryAlbum(call, releaseLibraryEntity(release, items[0]?.albumArtist ?? items[0]?.artist ?? ""), items, completeLibraryAlbumTrackCount(items, release.trackCount));
     requestLocalPrefixRefresh(undefined, true);
   }
-  async function browseLibraryEntity(entry: LibraryEntity) {
+  async function browseLibraryEntity(entry: LibraryEntity, familyProvider?: string | null) {
+    const sourceRoute = navigationRequest;
+    const libraryEntityId = entry.id;
     if (entry.provider === "local") {
       const canonical = entry.id.match(/^(?:album|artist):ref:(spotify|musicbrainz|discogs|monochrome):(.+)$/);
       if (canonical) entry = { ...entry, provider: canonical[1], providerId: canonical[2] };
     }
-    if (entry.provider === "spotify" && entry.providerId) {
-      if (entry.kind === "album") await openSpotifyAlbum(entry.providerId, entry.name);
-      else await openSpotifyTrackArtist({ provider: "spotify", id: entry.providerId, name: entry.name });
+    const albumProvider = entry.provider ?? (entry.kind === "album" ? familyProvider : null);
+    if (albumProvider === "spotify" && entry.kind === "album") {
+      if (entry.provider === "spotify" && entry.providerId && /^[A-Za-z0-9]{22}$/.test(entry.providerId)) {
+        await openSpotifyAlbum(entry.providerId, entry.name);
+      } else {
+        let freshSources: typeof availableSources = [];
+        try { freshSources = await call<typeof availableSources>("list_search_sources"); } catch { /* Use the catalog fallback if the live connection check is unavailable. */ }
+        if (sourceRoute !== navigationRequest || view !== "library" || libraryBrowser.entity?.id !== libraryEntityId) return;
+        availableSources = freshSources;
+        const spotifyAlbumsAvailable = freshSources.some(source => source.id === "spotify" && source.enabled === true && source.kinds?.includes("album"));
+        await openAlbumSearchByTitle(entry.name, entry.artist, spotifyAlbumsAvailable ? "spotify" : "musicbrainz", sourceRoute);
+      }
+    } else if (entry.provider === "spotify" && entry.providerId) {
+      await openSpotifyTrackArtist({ provider: "spotify", id: entry.providerId, name: entry.name });
     } else if (entry.kind === "artist" && entry.providerId && ["musicbrainz", "discogs", "monochrome"].includes(entry.provider ?? "")) {
       await discoverArtistRef({ provider: entry.provider as ArtistRef["provider"], id: entry.providerId });
     } else if (entry.kind === "album" && entry.providerId && ["musicbrainz", "discogs", "monochrome"].includes(entry.provider ?? "")) {
@@ -868,6 +881,23 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
   }
   type TrackAlbumTarget = { kind: "spotify"; albumId: string } | { kind: "catalog"; release: ArtistReleaseRef; artist: ArtistRef } | { kind: "search"; album: string; artist: string };
   let trackAlbumLookupRequest = 0;
+  async function openAlbumSearchByTitle(title: string, artistName: string, sourceId: "spotify" | "musicbrainz", sourceNavigationRequest: number) {
+    const album = albumHint(title), artist = albumHint(artistName);
+    if (!album || sourceNavigationRequest !== navigationRequest) return;
+    const searchText = [album, artist].filter(Boolean).join(" ");
+    const request = ++trackAlbumLookupRequest;
+    rememberRoute();
+    await navigate("search", false);
+    if (request !== trackAlbumLookupRequest || view !== "search" || navigationRequest !== sourceNavigationRequest + 1) return;
+    searchNavigationSnapshotKey = null;
+    query = searchText;
+    catalogSearchSource = sourceId;
+    catalogSearchKind = "albums";
+    catalogSearchRequest++;
+    searchRelease = null;
+    searchReleaseTracks = [];
+    searchReleaseRequest++;
+  }
   function albumHint(value: unknown): string {
     if (typeof value !== "string") return "";
     const hint = value.normalize("NFKC").trim().replace(/\s+/g, " ");
@@ -7792,7 +7822,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
         </div>{/if}
       </section>
     {:else if view === "library" && (libraryBrowser.tab !== "tracks" || libraryBrowser.entity)}
-      <LazyView loader={loadLibraryBrowser} label="library" componentProps={{ browserState: libraryBrowser, call, onNavigate: navigateLibraryBrowser, onStateChange: (next: LibraryBrowserState) => libraryBrowser = next, onBrowse: (entry: LibraryEntity) => void run(() => browseLibraryEntity(entry)), onPlay: playArtistTrack, onQueue: queueArtistTracks, onDownload: (track: Track) => void openDownloadChooser(track), onFavorite: (track: Track) => void favorite(track), onPlaylist: (track: Track) => void addArtistTrack(track), onArtist: (track: Track) => void discoverArtist(track), onAlbum: (track: Track) => void openTrackAlbum(track), onContext: (track: Track, event: MouseEvent) => { actionTrack = track; actionAnchor = { x: event.clientX, y: event.clientY }; }, onAddSelectedToPlaylist: (items: Track[]) => void addTracksToPlaylist(items), onDownloadAlbum: (items: Track[]) => queueSelected(items), onSearchAlbumSoulseek: (entry: LibraryEntity) => openSoulseekAlbumSearchByTitle(entry.name, entry.artist), soulseekSearchAvailable: soulseekAlbumSearchAvailable, onAddAlbumToPlaylist: addAlbumToPlaylist, onAnalyzeLoudness: (items: Track[], gaps: number) => prepareReleaseLoudnessAnalysis(items, gaps, true), playingTrack, bufferingTrack: playbackLoading ? playingTrack : null, bufferingTrackId: playbackLoading ? playingTrack?.id ?? "" : "", playbackFailed: nativePlaybackStatus === "failed", paused }} />
+      <LazyView loader={loadLibraryBrowser} label="library" componentProps={{ browserState: libraryBrowser, call, onNavigate: navigateLibraryBrowser, onStateChange: (next: LibraryBrowserState) => libraryBrowser = next, onBrowse: (entry: LibraryEntity, familyProvider?: string | null) => void run(() => browseLibraryEntity(entry, familyProvider)), onPlay: playArtistTrack, onQueue: queueArtistTracks, onDownload: (track: Track) => void openDownloadChooser(track), onFavorite: (track: Track) => void favorite(track), onPlaylist: (track: Track) => void addArtistTrack(track), onArtist: (track: Track) => void discoverArtist(track), onAlbum: (track: Track) => void openTrackAlbum(track), onContext: (track: Track, event: MouseEvent) => { actionTrack = track; actionAnchor = { x: event.clientX, y: event.clientY }; }, onAddSelectedToPlaylist: (items: Track[]) => void addTracksToPlaylist(items), onDownloadAlbum: (items: Track[]) => queueSelected(items), onSearchAlbumSoulseek: (entry: LibraryEntity) => openSoulseekAlbumSearchByTitle(entry.name, entry.artist), soulseekSearchAvailable: soulseekAlbumSearchAvailable, onAddAlbumToPlaylist: addAlbumToPlaylist, onAnalyzeLoudness: (items: Track[], gaps: number) => prepareReleaseLoudnessAnalysis(items, gaps, true), playingTrack, bufferingTrack: playbackLoading ? playingTrack : null, bufferingTrackId: playbackLoading ? playingTrack?.id ?? "" : "", playbackFailed: nativePlaybackStatus === "failed", paused }} />
     {:else}
       <div class="toolbar" class:chart-toolbar={view === "charts"} class:library-toolbar={view === "library"} class:empty-library-toolbar={view === "library" && !showCreatePlaylist}>
         {#if view === "charts" && !activeBrowserImport}<select
