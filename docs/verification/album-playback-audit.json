@@ -1426,6 +1426,21 @@
       "check": "0 errors, 0 warnings",
       "build": "passed",
       "change": "Standalone Add radio station dialog; sidebar action preserves current view. Search, stream URL saving, Escape/focus and independent station removal covered."
+    },
+    "appIntegration": {
+      "passed": 327,
+      "failed": 0,
+      "log": "/tmp/burrata-app-integration-qualified.log",
+      "coverage": [
+        "actual context-menu album action to verified catalog release",
+        "authenticated Spotify preference with membership check and primary structured artist",
+        "fallback after missing authentication or membership refusal",
+        "explicit ambiguous-album chooser",
+        "cancellation after route changes",
+        "exact source album endpoint fallback",
+        "standalone station dialog preserves current page and focus",
+        "same-video saved metadata fills autoplay artist outside loaded library page"
+      ]
     }
   },
   "remaining": [
@@ -1503,7 +1518,9 @@
       "branch": "codex/recording-metadata-album-navigation-20261112",
       "workflow": "release.yml",
       "mode": "manual linux_only source qualification; no release publishing",
-      "status": "dispatch_prepared"
+      "status": "superseded_run_for_updated_integration_coverage",
+      "supersededRun": 43279353137,
+      "reason": "Full local frontend run found five old album-navigation expectations. Updated typed-resolver mocks and explicit authentication coverage; all 327 app integration tests now pass."
     }
   },
   "autoplayLibraryCase": {

@@ -1449,13 +1449,13 @@ describe("saved library navigation", () => {
     expect(mocks.call.mock.calls.some(([command, args]) => command === "search_source" && (args as { sourceIds?: string[] }).sourceIds?.includes("spotify") && (args as { query?: string }).query?.includes("PROLIFIC"))).toBe(false);
   });
 
-  it("keeps the clicked album title when leaving a My library search with an unresolved identity", async () => {
+  it("preserves the library search when an album has no verified destination", async () => {
     const track: Track = { ...savedTrack, id: "nipsey-prolific-track", provider: "youtube", providerId: "video-prolific", title: "Super Real", artist: "Nipsey Hussle", albumArtist: "Nipsey Hussle", album: "Prolific", provenance: { sourceKind: "audioSearch" } };
     const originalCall = mocks.call.getMockImplementation()!;
     mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
       if (command === "search_source" && (args?.sourceIds as string[] | undefined)?.includes("library")) return { sourceId: "library", complete: true, results: [{ id: track.id, kind: "track", sourceId: "library", title: track.title, track }] };
       if (command === "list_library_albums_for_track") return [];
-      if (command === "search_albums") return { items: [], nextPage: null, warnings: [] };
+      if (command === "resolve_track_album") return {status:"unavailable",reason:"No verified album membership was found",sourceAlbumUrl:null};
       return originalCall(command, args);
     });
     const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); }; await settle();
@@ -1464,8 +1464,10 @@ describe("saved library navigation", () => {
     const input = document.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
     input.value = "nipsey"; input.dispatchEvent(new Event("input", { bubbles: true })); submitSearch(); await settle();
     document.querySelector<HTMLButtonElement>('[aria-label="Open album Prolific"]')!.click(); await settle(); await settle();
-    expect(input.value).toBe("Prolific");
-    expect(mocks.call.mock.calls.some(([command, args]) => command === "search_source" && (args as { query?: string }).query === "Prolific")).toBe(true);
+    expect(input.value).toBe("nipsey");
+    expect(mocks.call).toHaveBeenCalledWith("resolve_track_album",expect.objectContaining({track:expect.objectContaining({album:"Prolific",artist:"Nipsey Hussle"})}));
+    expect(document.querySelector(".banner.notice")?.textContent).toContain("No verified album membership");
+    expect(mocks.call.mock.calls.some(([command, args]) => command === "search_source" && (args as { query?: string }).query === "Prolific")).toBe(false);
     expect(mocks.call.mock.calls.filter(([command, args]) => command === "search_source" && (args as { query?: string }).query === "nipsey" && (args as { sourceIds?: string[] }).sourceIds?.includes("library")).length).toBe(1);
   });
 
@@ -3855,7 +3857,7 @@ describe("saved recording navigation", () => {
     const track: Track = { ...savedTrack, id: `spotify:track:${trackId}`, provider: "spotify", providerId: trackId, sourceUrl: `https://open.spotify.com/track/${trackId}`, album: album.title, title: "Exact Album Song", provenance: { recordingContext: { albumId, albumUri: `spotify:album:${albumId}` } } };
     const originalCall = mocks.call.getMockImplementation()!;
     mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
-      if (command === "get_managed_provider_session_status") return { accountRevisions: { spotify: 14 }, spotifyAccountId: "fixture-account" };
+      if (command === "get_managed_provider_session_status") return { running:true, accountRevisions: { spotify: 14 }, spotifyAccountId: "fixture-account" };
       if (command === "list_search_sources") return [
         { id: "library", name: "Library", kinds: ["track"], enabled: true },
         { id: "spotify", name: "Spotify", kinds: ["track", "album"], enabled: true },
@@ -3922,17 +3924,107 @@ describe("saved recording navigation", () => {
     expect(document.body.textContent).toContain("Release Track");
   });
 
-  it("finds a noncatalog track's exact album by title and parsed catalog artist identity", async () => {
+  it.each([
+    {running:true, verified:true, destination:"spotify"},
+    {running:true, verified:false, destination:"musicbrainz"},
+    {running:false, verified:true, destination:"musicbrainz"},
+  ])("requires a live Spotify session and verified membership before preferring Spotify: $running/$verified", async ({running,verified,destination}) => {
+    const albumId="7j1iNxlcdkJj864Bu0ETPj", artistId="d50b0808-1c23-43b2-b485-7248849268b2", releaseId="6c56fb1d-e220-40ee-b836-10b6bf992ab7";
+    const track:Track={...savedTrack,id:"youtube:xAJxfiF_0-w",provider:"youtube",providerId:"xAJxfiF_0-w",sourceUrl:"https://music.youtube.com/watch?v=xAJxfiF_0-w",title:"La Nave del Olvido",artist:"Macha Y El Bloque Depresivo, Alvaro Henríquez",album:"Macha y el Bloque Depresivo",durationSeconds:236,provenance:{artistCredits:[{name:"Macha Y El Bloque Depresivo"},{name:"Alvaro Henríquez"}]}};
+    const release:ArtistReleaseRef={release:{provider:"musicbrainz",id:releaseId},title:"100% lúcidos",sourceUrl:`https://musicbrainz.org/release/${releaseId}`,credits:[],tracks:[]};
+    const albumTrack={...track,id:"verified-album-occurrence",provider:"catalog",provenance:{catalogProvider:"musicbrainz",releaseId}};
+    audioSearchResult=[track];discoveryAlbumTracks=[albumTrack];
+    const originalCall=mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async(command:string,args?:Record<string,unknown>)=>{
+      if(command==="get_managed_provider_session_status")return {running,spotifyAccountId:"fixture-account",accountRevisions:{spotify:1}};
+      if(command==="list_search_sources")return [...await originalCall(command,args),{id:"spotify",name:"Spotify",kinds:["album"],enabled:true}];
+      if(command==="search_source"&&(args?.sourceIds as string[]|undefined)?.includes("spotify"))return {sourceId:"spotify",complete:true,nextCursor:null,results:[{id:`spotify:album:${albumId}`,kind:"album",sourceId:"spotify",title:track.album,subtitle:"Macha Y El Bloque Depresivo",url:`https://open.spotify.com/album/${albumId}`}]};
+      if(command==="verify_spotify_album_membership")return verified;
+      if(command==="resolve_track_album")return {status:"resolved",destination:{release,artist:{provider:"musicbrainz",id:artistId},reason:"Complete album timeline",evidence:"completeTimeline"}};
+      if(command==="browse_remote_album_tracks")return {provider:"spotify",accountId:"fixture-account",album:{id:albumId,title:track.album,url:`https://open.spotify.com/album/${albumId}`,artists:["Macha Y El Bloque Depresivo"]},tracks:[track],total:1,complete:true};
+      return originalCall(command,args);
+    });
+    const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
+    await openTestTrackAlbum(track,"YouTube");await settle();
+    if(destination==="spotify"){
+      expect(document.querySelector(".spotify-artist h1")?.textContent).toBe(track.album);
+      expect(mocks.call.mock.calls.some(([command])=>command==="resolve_track_album")).toBe(false);
+    }else expect(document.querySelector(".release-view h1")?.textContent).toBe(release.title);
+    if(running){
+      expect(mocks.call).toHaveBeenCalledWith("search_source",expect.objectContaining({query:`${track.album} Macha Y El Bloque Depresivo`,sourceIds:["spotify"],kinds:["album"]}));
+      expect(mocks.call).toHaveBeenCalledWith("verify_spotify_album_membership",expect.objectContaining({albumId,track:expect.objectContaining({artist:track.artist})}));
+    }else expect(mocks.call.mock.calls.some(([command])=>command==="verify_spotify_album_membership")).toBe(false);
+    expect(track.artist).toBe("Macha Y El Bloque Depresivo, Alvaro Henríquez");
+  });
+
+  it("cancels album resolution and ignores its result after navigation",async()=>{
+    const track:Track={...savedTrack,id:"cancel-album-track",provider:"youtube",album:"Album",provenance:{}};
+    audioSearchResult=[track];
+    let finish!:(result:unknown)=>void;
+    const originalCall=mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async(command:string,args?:Record<string,unknown>)=>{
+      if(command==="resolve_track_album")return new Promise(resolve=>{finish=resolve;});
+      return originalCall(command,args);
+    });
+    const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
+    await openTestTrackAlbum(track,"YouTube");expect(finish).toBeTypeOf("function");
+    [...document.querySelectorAll<HTMLButtonElement>("nav button")].find(button=>button.textContent?.includes("Library"))!.click();await settle();
+    finish({status:"resolved",destination:{release:{release:{provider:"musicbrainz",id:"6c56fb1d-e220-40ee-b836-10b6bf992ab7"},title:"Late album",sourceUrl:"https://musicbrainz.org/release/6c56fb1d-e220-40ee-b836-10b6bf992ab7",credits:[],tracks:[]},artist:{provider:"musicbrainz",id:"d50b0808-1c23-43b2-b485-7248849268b2"}}});await settle();
+    expect(mocks.call).toHaveBeenCalledWith("cancel_remote_read",expect.objectContaining({requestId:expect.stringMatching(/^album-navigation-/)}));
+    expect(document.querySelector(".release-view")).toBeNull();
+    expect(mocks.call.mock.calls.some(([command])=>command==="get_release_tracks")).toBe(false);
+  });
+
+  it("uses an exact source album endpoint when catalog membership is unavailable",async()=>{
+    const track:Track={...savedTrack,id:"source-album-track",provider:"youtube",album:"Source Album",provenance:{albumBrowseId:"MPREb_sourceAlbum"}};
+    audioSearchResult=[track];
+    const originalCall=mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async(command:string,args?:Record<string,unknown>)=>{
+      if(command==="resolve_track_album")return {status:"unavailable",reason:"Catalogs unavailable",sourceAlbumUrl:"https://music.youtube.com/browse/MPREb_sourceAlbum"};
+      return originalCall(command,args);
+    });
+    const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
+    await openTestTrackAlbum(track,"YouTube");
+    expect(mocks.call).toHaveBeenCalledWith("open_external_url",{url:"https://music.youtube.com/browse/MPREb_sourceAlbum"});
+    expect(document.querySelector<HTMLInputElement>('[aria-label="Search music"]')?.value).toBe(track.title);
+  });
+
+  it("opens station creation independently without navigating to the selected station",async()=>{
+    const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Library"]')!.click();await settle();
+    const library=document.querySelector(".library-view-tabs");expect(library).not.toBeNull();
+    const button=document.querySelector<HTMLButtonElement>('[aria-label="Add radio station"]')!;expect(button).not.toBeNull();button.focus();button.click();await settle();
+    expect(document.querySelector("dialog.add-radio-dialog[open]")).not.toBeNull();
+    expect(document.querySelector(".library-view-tabs")).toBe(library);
+    expect(document.querySelector(".radio-page")).toBeNull();
+    document.querySelector("dialog.add-radio-dialog")!.dispatchEvent(new Event("cancel",{cancelable:true}));await settle();
+    expect(document.querySelector("dialog.add-radio-dialog")).toBeNull();expect(document.activeElement).toBe(button);
+  });
+
+  it("fills an autoplay player's missing artist from the same saved video outside the loaded library page",async()=>{
+    const track:Track={...savedTrack,id:"youtube:u_TSn1iO-hg",provider:"youtube",providerId:"u_TSn1iO-hg",sourceUrl:"https://www.youtube.com/watch?v=u_TSn1iO-hg",title:"Qué Es Lo Que Pasa",artist:"",durationSeconds:233,provenance:{sourceKind:"youtubeRadio"}};
+    const saved={...track,artist:"Macha Y El Bloque Depresivo, Vicente Cifuentes",album:track.title,provenance:{}};
+    nativePlaybackSnapshot=makeNativeSnapshot({track,trackId:track.id,entryId:"autoplay-entry",generation:9,queue:[track],queueEntryIds:["autoplay-entry"],currentIndex:0,status:"playing",paused:false,duration:233});explicitNativeFixture=true;
+    const originalCall=mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async(command:string,args?:Record<string,unknown>)=>{
+      if(command==="get_tracks"&&(args?.ids as string[]|undefined)?.includes(track.id))return [saved];
+      return originalCall(command,args);
+    });
+    const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();await settle();
+    expect(mocks.call).toHaveBeenCalledWith("get_tracks",{ids:[track.id]});
+    expect(document.querySelector(".player-track-artist")?.textContent).toBe(saved.artist);
+    expect(nativePlaybackSnapshot.track?.artist).toBe("");expect(nativePlaybackSnapshot.track?.provenance).toEqual({sourceKind:"youtubeRadio"});
+  });
+
+  it("opens a noncatalog track's verified album directly from the context menu", async () => {
     const artistId="11111111-1111-4111-8111-111111111111", releaseId="22222222-2222-4222-8222-222222222222";
     const track:Track={...savedTrack,id:"youtube-album-track",provider:"youtube",providerId:"fixture-video",sourceUrl:"https://youtube.test/watch?v=fixture",title:"Equitoreal",artist:"Featured Vocalist",albumArtist:"Dubtribe Sound System",album:"Bryant Street",provenance:{sourceKind:"audioSearch",catalog:{provider:"musicbrainz",artists:[{provider:"musicbrainz",id:artistId,name:"Dubtribe Sound System"}],artistCount:1}}};
     const release:ArtistReleaseRef={release:{provider:"musicbrainz",id:releaseId},title:"Bryant Street",sourceUrl:`https://musicbrainz.org/release/${releaseId}`,credits:[{name:"Dubtribe Sound System",artist:{provider:"musicbrainz",id:artistId},role:"artist credit",sourceUrl:`https://musicbrainz.org/release/${releaseId}`}],tracks:[]};
-    const wrongArtist={...release,release:{...release.release,id:"33333333-3333-4333-8333-333333333333"},credits:[{...release.credits[0]!,name:"Different Artist",artist:{provider:"musicbrainz" as const,id:"44444444-4444-4444-8444-444444444444"}}]};
-    const wrongTitle={...release,release:{...release.release,id:"55555555-5555-4555-8555-555555555555"},title:"Different Album"};
     audioSearchResult=[track];
     discoveryAlbumTracks=[{...track,id:"album-track-occurrence",provider:"catalog",providerId:"recording",title:"Equitoreal",sourceUrl:release.sourceUrl,provenance:{catalogProvider:"musicbrainz",releaseId}}];
     const originalCall=mocks.call.getMockImplementation()!;
     mocks.call.mockImplementation(async(command:string,args?:Record<string,unknown>)=>{
-      if(command==="search_albums")return {items:[wrongArtist,wrongTitle,release],nextPage:null,warnings:[]};
+      if(command==="resolve_track_album")return {status:"resolved",destination:{release,artist:{provider:"musicbrainz",id:artistId},reason:"Verified recording membership",evidence:"recordingOccurrence"}};
       return originalCall(command,args);
     });
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
@@ -3940,22 +4032,22 @@ describe("saved recording navigation", () => {
     await searchDiscovery("Equitoreal",["YouTube"]);
     const row=[...document.querySelectorAll<HTMLElement>(".result-row")].find(item=>item.textContent?.includes(track.title))!;
     row.querySelector<HTMLElement>(".track-list-viewport li")!.dispatchEvent(new MouseEvent("contextmenu",{bubbles:true,cancelable:true,clientX:360,clientY:220}));await settle();
-    const albumAction=[...document.querySelectorAll<HTMLButtonElement>("dialog.track-menu button")].find(button=>button.textContent?.trim()==="Go to album")!;
+    const albumAction=[...document.querySelectorAll<HTMLButtonElement>("dialog.track-menu button")].find(button=>button.textContent?.trim()==="Find album")!;
     expect(albumAction.disabled).toBe(false);albumAction.click();await settle();await settle();
-    expect(mocks.call).toHaveBeenCalledWith("search_albums",{query:"Bryant Street",page:1,pageSize:20});
+    expect(mocks.call).toHaveBeenCalledWith("resolve_track_album",expect.objectContaining({track:expect.objectContaining({album:"Bryant Street",albumArtist:"Dubtribe Sound System"})}));
     expect(mocks.call).toHaveBeenCalledWith("get_release_tracks",expect.objectContaining({release:expect.objectContaining({release:{provider:"musicbrainz",id:releaseId}}),artist:{provider:"musicbrainz",id:artistId}}));
     expect(document.querySelector(".release-view h1")?.textContent).toBe("Bryant Street");
     expect(audioSearchResult[0]?.album).toBe("Bryant Street");
   });
 
-  it("opens album search choices when a noncatalog album hint matches multiple releases", async () => {
+  it("presents verified album choices without replacing the current search", async () => {
     const artistId="66666666-6666-4666-8666-666666666666";
     const track:Track={...savedTrack,id:"soundcloud-album-track",provider:"soundcloud",providerId:"fixture-track",sourceUrl:"https://soundcloud.test/track",title:"A Song",artist:"An Artist",album:"Shared Album",provenance:{sourceKind:"audioSearch"}};
     const release=(id:string):ArtistReleaseRef=>({release:{provider:"musicbrainz",id},title:"Shared Album",sourceUrl:`https://musicbrainz.org/release/${id}`,credits:[{name:"An Artist",artist:{provider:"musicbrainz",id:artistId},role:"artist credit",sourceUrl:`https://musicbrainz.org/release/${id}`}],tracks:[]});
     audioSearchResult=[track];
     const originalCall=mocks.call.getMockImplementation()!;
     mocks.call.mockImplementation(async(command:string,args?:Record<string,unknown>)=>{
-      if(command==="search_albums")return {items:[release("77777777-7777-4777-8777-777777777777"),release("88888888-8888-4888-8888-888888888888")],nextPage:null,warnings:[]};
+      if(command==="resolve_track_album")return {status:"ambiguous",choices:[release("77777777-7777-4777-8777-777777777777"),release("88888888-8888-4888-8888-888888888888")].map(item=>({release:item,artist:{provider:"musicbrainz",id:artistId},reason:"Verified recording occurrence"}))};
       return originalCall(command,args);
     });
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
@@ -3963,11 +4055,11 @@ describe("saved recording navigation", () => {
     await searchDiscovery("A Song",["SoundCloud"]);
     const row=[...document.querySelectorAll<HTMLElement>(".result-row")].find(item=>item.textContent?.includes(track.title))!;
     row.querySelector<HTMLElement>(".track-list-viewport li")!.dispatchEvent(new MouseEvent("contextmenu",{bubbles:true,cancelable:true,clientX:360,clientY:220}));await settle();
-    [...document.querySelectorAll<HTMLButtonElement>("dialog.track-menu button")].find(button=>button.textContent?.trim()==="Go to album")!.click();await settle();await settle();
-    expect(document.querySelector<HTMLSelectElement>('[aria-label="Search in"]')?.value).toBe("musicbrainz");
-    expect([...document.querySelectorAll<HTMLButtonElement>(".filters button")].find(button=>button.textContent?.trim()==="Albums")?.getAttribute("aria-pressed")).toBe("true");
-    expect(document.querySelector<HTMLInputElement>('[aria-label="Search music"]')?.value).toBe("Shared Album");
-    expect(mocks.call.mock.calls.some(([command,args])=>command==="search_source"&&(args?.kinds as string[]|undefined)?.includes("album"))).toBe(true);
+    [...document.querySelectorAll<HTMLButtonElement>("dialog.track-menu button")].find(button=>button.textContent?.trim()==="Find album")!.click();await settle();await settle();
+    expect(document.querySelector('dialog[aria-label="Choose album"]')).not.toBeNull();
+    expect(document.querySelectorAll('dialog[aria-label="Choose album"] button')).toHaveLength(3);
+    expect(document.querySelector<HTMLInputElement>('[aria-label="Search music"]')?.value).toBe("A Song");
+    expect(mocks.call.mock.calls.some(([command,args])=>command==="search_source"&&args?.query===track.album&&(args?.kinds as string[]|undefined)?.includes("album"))).toBe(false);
   });
 
   it("handles a failed noncatalog album lookup without leaking provider URLs",async()=>{
@@ -3975,7 +4067,7 @@ describe("saved recording navigation", () => {
     audioSearchResult=[track];
     const originalCall=mocks.call.getMockImplementation()!;
     mocks.call.mockImplementation(async(command:string,args?:Record<string,unknown>)=>{
-      if(command==="search_albums")throw new Error("Catalog lookup failed https://private.invalid/?token=secret-token");
+      if(command==="resolve_track_album")throw new Error("Catalog lookup failed https://private.invalid/?token=secret-token");
       return originalCall(command,args);
     });
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
@@ -3983,7 +4075,7 @@ describe("saved recording navigation", () => {
     await searchDiscovery("Song",["YouTube"]);
     const row=[...document.querySelectorAll<HTMLElement>(".result-row")].find(item=>item.textContent?.includes(track.title))!;
     row.querySelector<HTMLElement>(".track-list-viewport li")!.dispatchEvent(new MouseEvent("contextmenu",{bubbles:true,cancelable:true,clientX:360,clientY:220}));await settle();
-    [...document.querySelectorAll<HTMLButtonElement>("dialog.track-menu button")].find(button=>button.textContent?.trim()==="Go to album")!.click();await settle();
+    [...document.querySelectorAll<HTMLButtonElement>("dialog.track-menu button")].find(button=>button.textContent?.trim()==="Find album")!.click();await settle();
     const notice=document.querySelector(".banner.notice")?.textContent??"";
     expect(notice).toContain("Catalog lookup failed");expect(notice).not.toContain("private.invalid");expect(notice).not.toContain("secret-token");
   });
@@ -9804,3 +9896,12 @@ it("keeps the selected public artwork source available for fullscreen upgrades a
   expect(probes).toContain(remote.replace("w120-h120","w600-h600"));
   expect(document.querySelector<HTMLImageElement>(".now-playing-view .hero-art img")?.src).toContain("=w600-h600-l90-rj");
 });
+
+async function openTestTrackAlbum(track: Track, source: string) {
+  [...document.querySelectorAll<HTMLButtonElement>("nav button")].find(button=>button.textContent?.includes("Search"))!.click();await settle();
+  await searchDiscovery(track.title,[source]);
+  const row=[...document.querySelectorAll<HTMLElement>(".result-row")].find(item=>item.textContent?.includes(track.title))!;
+  row.querySelector<HTMLElement>(".track-list-viewport li")!.dispatchEvent(new MouseEvent("contextmenu",{bubbles:true,cancelable:true,clientX:360,clientY:220}));await settle();
+  const action=[...document.querySelectorAll<HTMLButtonElement>("dialog.track-menu button")].find(button=>/^(?:Go to|Find) album$/.test(button.textContent?.trim()??""))!;
+  expect(action).toBeTruthy();expect(action.disabled).toBe(false);action.click();await settle();await settle();
+}
