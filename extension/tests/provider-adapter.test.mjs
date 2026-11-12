@@ -744,3 +744,34 @@ test('authenticated YouTube music rows preserve atomic credits and exact album e
  assert.deepEqual(row.artistCredits.map(credit=>credit.name),['Earth, Wind & Fire','Guest']);
  assert.equal(row.artistCredits[0].joinPhrase,' • ');assert.equal(row.artistCredits[0].providerId,'UCabcdefghijklmnopqrstuv');
 });
+
+test('browser-tab YouTube Music search and playlist preserve credits, album endpoint and run duration',async()=>{
+ const run=(text,pageType,browseId)=>({text,navigationEndpoint:{browseEndpoint:{browseId,browseEndpointContextSupportedConfigs:{browseEndpointContextMusicConfig:{pageType}}}}});
+ const col=runs=>({musicResponsiveListItemFlexColumnRenderer:{text:{runs}}});
+ const row={playlistItemData:{videoId:'abcdefghijk',setVideoId:'entry-one'},flexColumns:[col([{text:'Song'}]),col([
+  run('Earth, Wind & Fire','MUSIC_PAGE_TYPE_ARTIST','UCabcdefghijklmnopqrstuv'),{text:' • '},
+  run('Guest','MUSIC_PAGE_TYPE_ARTIST','UCABCDEFGHIJKLMNOPQRSTUV'),{text:' • '},run('Album','MUSIC_PAGE_TYPE_ALBUM','MPREb_fixture123')
+ ])],fixedColumns:[{musicResponsiveListItemFixedColumnRenderer:{text:{runs:[{text:'3:12'}]}}}]};
+ const body={header:{pageHeaderRenderer:{content:{pageHeaderViewModel:{title:{text:{content:'Fixture playlist'}}}}}},contents:{musicResponsiveListItemRenderer:row}};
+ const fetch=async()=>({ok:true,status:200,text:async()=>JSON.stringify(body)});
+ const chrome={storage:{local:{get:async()=>({}),set:async()=>{}},session:{get:async()=>({}),set:async()=>{}}},runtime:{onMessage:{addListener(){}},lastError:null},action:{setBadgeText(){},setBadgeBackgroundColor(){}},tabs:{onRemoved:{addListener(){}}},alarms:{create(){},onAlarm:{addListener(){}}}};
+ const context=vm.createContext({chrome,fetch,URL,URLSearchParams,Response,TextEncoder,AbortController,location:{hostname:'music.youtube.com',origin:'https://music.youtube.com'},document:{cookie:'',querySelector:()=>null},ytcfg:{data_:{INNERTUBE_CLIENT_NAME:'WEB_REMIX',INNERTUBE_CLIENT_VERSION:'1.20261001.00.00',CHANNEL_ID:fixtureYoutubeChannel,LOGGED_IN:true}},setInterval(){},setTimeout,clearTimeout});
+ vm.runInContext(source,context);
+ for(const operation of ['search','getPlaylist']){
+  const result=JSON.parse(JSON.stringify(await context.runProviderPageOperation('youtube',operation,{query:'Song',kind:'track',playlistId:'PLfixture123456'},{})));
+  assert.equal(result.__burrataProviderError,undefined);
+  if(operation==='getPlaylist')assert.equal(result.playlist.title,'Fixture playlist');
+  const entry=operation==='search'?result.items[0].data:result.entries[0];
+  assert.equal(entry.artist,'Earth, Wind & Fire, Guest');
+  assert.deepEqual(entry.artistCredits.map(credit=>credit.name),['Earth, Wind & Fire','Guest']);
+  assert.equal(entry.artistCredits[0].providerId,'UCabcdefghijklmnopqrstuv');
+  assert.equal(entry.artistCredits[0].joinPhrase,' • ');
+  assert.equal(entry.album,'Album');assert.equal(entry.albumBrowseId,'MPREb_fixture123');assert.equal(entry.durationSeconds,192);
+ }
+ row.flexColumns=[col([{text:'Song'}]),col([{text:'Uploader channel'}])];
+ const untyped=JSON.parse(JSON.stringify(await context.runProviderPageOperation('youtube','search',{query:'Song',kind:'track'},{}))).items[0].data;
+ assert.equal(untyped.artist,'');assert.deepEqual(untyped.artistCredits,[]);assert.equal(untyped.album,'');assert.equal(untyped.albumBrowseId,undefined);
+ row.flexColumns[1]=col([run('First album','MUSIC_PAGE_TYPE_ALBUM','MPREb_first'),run('Second album','MUSIC_PAGE_TYPE_ALBUM','MPREb_second')]);
+ const ambiguous=JSON.parse(JSON.stringify(await context.runProviderPageOperation('youtube','search',{query:'Song',kind:'track'},{}))).items[0].data;
+ assert.equal(ambiguous.album,'');assert.equal(ambiguous.albumBrowseId,undefined);
+});

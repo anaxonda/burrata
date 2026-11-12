@@ -1382,10 +1382,11 @@
       "log": "/tmp/burrata-menu-label-tests.log"
     },
     "extension": {
-      "passed": 118,
+      "passed": 119,
       "failed": 0,
-      "log": "/tmp/burrata-extension-full-qualified.log",
-      "environment": "fixture child processes enabled"
+      "log": "/tmp/burrata-extension-0211-final.log",
+      "companionVersion": "0.2.11",
+      "signedArtifact": "pending final version signing; prior 0.2.10 artifact is superseded"
     },
     "autoplayDisplay": {
       "passed": 10,
@@ -1488,9 +1489,10 @@
     "browserYouTubePending": {
       "source": "extension/youtube-session-provider.js",
       "boundary": "src-tauri/src/remote_playlists.rs RemoteEntry/entry_to_track",
-      "finding": "Semantic runs now retain album browse IDs and individual credits through authenticated search/playlist normalization and RemoteEntry persistence.",
-      "status": "browser_adapter_and_durable_native_import_regressions_passed",
-      "requiredChange": "Preserve semantic album runs and individual artist credits through normalized catalog rows and durable RemoteEntry conversion; add browser and import regressions."
+      "finding": "Native HTTP worker and independent serialized browser-tab adapter now retain semantic album endpoints and individual credits for search and playlist reads. Browser-tab run durations and nested view text are guarded; uploader context remains separate.",
+      "status": "native_http_and_browser_tab_regressions_passed",
+      "requiredChange": "Preserve semantic album runs and individual artist credits through normalized catalog rows and durable RemoteEntry conversion; add browser and import regressions.",
+      "browserAdapterSource": "extension/background.js runProviderPageOperation"
     }
   },
   "albumResolution": {
@@ -1513,8 +1515,16 @@
     "source": "youtube:fr1AFMoBDEw",
     "observedIssue": "Autoplay track has empty artist and unsplit live caption; LRCLIB validation rejects artist.",
     "change": "Autoplay and lyrics fallback now reuse explicit live-performance parser, including named live venues without at/on. Known artists are not overwritten; captions remain unverified.",
-    "status": "native_and_frontend_regressions_passed_packaged_verification_pending",
-    "catalogTrackPackagedCheck": "La Nave del Olvido lyrics rendered successfully in c3b8977; missing-artist autoplay request path remains separately covered by regression tests."
+    "status": "packaged_request_validation_verified",
+    "catalogTrackPackagedCheck": "La Nave del Olvido lyrics rendered successfully in c3b8977; missing-artist autoplay request path remains separately covered by regression tests.",
+    "packagedEvidence": {
+      "sourceCommit": "c3b8977ff27ca4ba517ab822e5feb723c0ae64b1",
+      "sourceId": "fr1AFMoBDEw",
+      "snapshotArtist": "",
+      "title": "Macha Y El Bloque Depresivo - Regresa (live Opéra de Lyon)",
+      "durationSeconds": 383,
+      "outcome": "LRCLIB request succeeds through validation and shows related recording choices; no exact performance is automatically accepted."
+    }
   },
   "restoredMetadata": {
     "source": "src-tauri/src/backup_state.rs",
