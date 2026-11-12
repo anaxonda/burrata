@@ -1447,7 +1447,8 @@
       "change": "UUID v4 per native read; cancellation reuses the exact read ID and stale completion cannot clear a newer read.",
       "tests": {
         "passed": 32,
-        "scope": "App album integration tests, including native request-ID shape and cancellation identity"
+        "scope": "App album integration tests, including native request-ID shape and cancellation identity",
+        "fullAppIntegrationPassed": 327
       },
       "packagedRetest": "pending updated candidate"
     },
@@ -1464,6 +1465,15 @@
       "reason": "Usable source H35xiJcS8RY appeared at metadata rank 15, outside ten-row playback pool.",
       "replacement": "e4bc101a8b3c8d34ef25c4ced4bd44968efa8ec2 retrieves up to 20 metadata rows, retains extraction/deadline caps and invalidates ten-row completed caches.",
       "replacementCi": "https://github.com/anaxonda/burrata/actions/runs/43290498382"
+    },
+    "nativeRetrievalCi": {
+      "run": "https://github.com/anaxonda/burrata/actions/runs/43290498382",
+      "passed": 2769,
+      "failed": 1,
+      "ignored": 67,
+      "newRankFifteenRegression": "passed",
+      "failure": "Older cache invalidation assertion still expected namespace 3; corrected to require namespace 4 and result-limit-20, and distinguish both previous namespace and ten-row keys.",
+      "replacement": "pending"
     }
   },
   "remaining": [

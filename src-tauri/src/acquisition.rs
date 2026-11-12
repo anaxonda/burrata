@@ -15518,14 +15518,15 @@ mod tests {
             ..Default::default()
         };
         let key = playback_candidate_search_cache_key(&track, &providers, &settings, &[]);
-        assert!(key.contains("playback-source-search-retrieval-3"));
+        assert!(key.contains("playback-source-search-retrieval-4:result-limit-20"));
         assert_ne!(
             key,
             key.replace(
-                "playback-source-search-retrieval-3",
-                "playback-source-search-retrieval-2"
+                "playback-source-search-retrieval-4",
+                "playback-source-search-retrieval-3"
             )
         );
+        assert_ne!(key, key.replace("result-limit-20", "result-limit-10"));
         let mut unrelated_provenance = track.clone();
         unrelated_provenance.provenance["displayOnly"]["source"] = "two".into();
         assert_eq!(
