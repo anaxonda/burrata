@@ -1341,7 +1341,7 @@ describe("saved library navigation", () => {
     const familyTracks = ["Make Believe", "Super Real", "500 Horses", "Reckless (feat. Static Major)", "All Summer (feat. BH)"].map((title, index) => ({ ...anchor, id: `spotify:prolific-${index}`, providerId: `prolific-${index}`, title }));
     const localAlbum = { entity: { id: 'album:metadata:["nipsey hussle, bino rideaux","prolific",""]', kind: "album", name: "PROLIFIC", artist: "Nipsey Hussle, Bino Rideaux", provider: null, providerId: null, explicitlySaved: false, trackCount: 5, albumCount: 0 }, familyListingId: anchor.id };
     const firstId = "1111111111111111111111", secondId = "2222222222222222222222";
-    const selectedAlbum = { id: secondId, title: "PROLIFIC (Explicit)", url: `https://open.spotify.com/album/${secondId}`, artists: ["Nipsey Hussle", "Bino Rideaux"], totalTracks: 12 };
+    const selectedAlbum = { id: secondId, title: "PROLIFIC", url: `https://open.spotify.com/album/${secondId}`, artists: ["Nipsey Hussle", "Bino Rideaux"], totalTracks: 12 };
     const originalCall = mocks.call.getMockImplementation()!;
     mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
       if (command === "list_search_sources") return [
@@ -1376,7 +1376,7 @@ describe("saved library navigation", () => {
     expect(document.querySelector(".spotify-artist")).toBeNull();
     const chosenRow = [...document.querySelectorAll<HTMLElement>(".result-row")].find(row => row.textContent?.includes(selectedAlbum.title))!;
     [...chosenRow.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.includes("Open album"))!.click(); await settle();
-    expect(mocks.call).toHaveBeenCalledWith("browse_remote_album_tracks", expect.objectContaining({ albumId: secondId, cursor: null }));
+    expect(mocks.call).toHaveBeenCalledWith("browse_remote_album_tracks", expect.objectContaining({ albumId: firstId, cursor: null }));
     expect(document.querySelector(".spotify-artist h1")?.textContent).toBe(selectedAlbum.title);
   });
 

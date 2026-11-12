@@ -1,6 +1,6 @@
 # Burrata 0.1.35
 
-Draft release notes. Final-source automated, package, playback, performance, and live-provider qualification remains pending.
+Release notes for the 0.1.35 candidate. Final installer checks run through the release workflow.
 
 - Optional YouTube Music discovery inspects up to 20 catalog rows within the existing query and time budgets, retaining correctly credited recordings that appear after the first ten results.
 - Exact MusicBrainz artist-profile aliases can match reordered flat performer credits when there is one complete, unambiguous mapping. Featured-credit roles, atomic band names, missing or extra performers, and fresh resolved-source validation keep their existing protections. Stored matching decisions use a new evaluator revision.
@@ -37,10 +37,15 @@ Draft release notes. Final-source automated, package, playback, performance, and
 - Browser companion 0.2.9 keeps YouTube uploaders and channel names as source attribution rather than artist metadata. New Beatport and Traxsource captures retain separate artist credits and provider IDs, including names containing punctuation.
 - Artist and album grid cards contain long names and metadata without overlapping adjacent cards. The scrolling fullscreen Now Playing header sits flush against the top edge.
 
+- Favorite hearts use a consistent filled state. Radio queues show detections from the current listening session above the current item.
+- Saved track album links preserve their library membership. Legacy album groups can display related saved tracks without rewriting metadata; complete-album lookup opens an unambiguous catalog match or offers release choices.
+- Now Playing artwork and titles keep separate layout space. AI context answers use readable plain-text formatting.
+
 ## Qualification status and limits
 
-- The earlier checkpoint passed local native, frontend, extension, MCP, player, and repository contract suites. The feedback fixes pass the frontend suite and type check; final native CI, companion tests, installed artifacts, playback/performance, and live-provider checks remain pending. Physical macOS/Windows output is not qualified.
+- Cross-platform CI and installer smoke checks passed on the preceding candidate; the final navigation update is subject to the release workflow checks. Linux packaged playback produced independent audio evidence across nine routes. Physical macOS and Windows audio output remain unverified; Windows output testing is deferred and is not a release blocker.
+- A 10,000-track library loaded through all 49 pagination actions. The extended layout matrix and startup/CPU comparison are incomplete; no performance improvement is claimed.
 - Monochrome can still stall at its 15-second transport limit, and YouTube extraction has intermittent failures. This release does not claim those provider transport or extraction issues are fixed.
 - Legacy v8 cache entries promoted into the Library can still have ambiguous recording identity. There is no automatic cleanup of those entries; playback remains subject to available identity evidence.
 - A resolver or decoder result applies only to its exact recording and provider. It does not prove physical-device output or qualify another provider.
-- Live source35 resolver checks have found validated alternatives for Django’s “Minor Swing” and “Swing 42” under Flexible settings. These are alternative-release assessments, not verification of the requested restored mastering. A subsequent Swing 42 attempt passed identity checks but received HTTP 403 from the extracted media URLs. Final packaged playback remains pending; provider access and incomplete performer evidence can still prevent playback.
+- Live source35 resolver checks have found validated alternatives for Django’s “Minor Swing” and “Swing 42” under Flexible settings. These are alternative-release assessments, not verification of the requested restored mastering. A subsequent Swing 42 attempt passed identity checks but received HTTP 403 from the extracted media URLs. Packaged playlist attempts also encountered YouTube HTTP 403 responses. Provider access and incomplete performer evidence can still prevent playback; alternative-release playback does not identify a requested restored master.

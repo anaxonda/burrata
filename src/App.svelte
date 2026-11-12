@@ -29,7 +29,8 @@
         if (sourceRoute !== navigationRequest || view !== "library" || libraryBrowser.entity?.id !== libraryEntityId) return;
         availableSources = freshSources;
         const spotifyAlbumsAvailable = freshSources.some(source => source.id === "spotify" && source.enabled === true && source.kinds?.includes("album"));
-        await openAlbumSearchByTitle(entry.name, entry.artist, spotifyAlbumsAvailable ? "spotify" : "musicbrainz", sourceRoute);
+        if (spotifyAlbumsAvailable) await resolveSpotifyAlbum(entry.name, entry.artist, sourceRoute);
+        else await openAlbumSearchByTitle(entry.name, entry.artist, "musicbrainz", sourceRoute);
       }
     } else if (entry.provider === "spotify" && entry.providerId) {
       await openSpotifyTrackArtist({ provider: "spotify", id: entry.providerId, name: entry.name });
@@ -881,11 +882,29 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
   }
   type TrackAlbumTarget = { kind: "spotify"; albumId: string } | { kind: "catalog"; release: ArtistReleaseRef; artist: ArtistRef } | { kind: "search"; album: string; artist: string };
   let trackAlbumLookupRequest = 0;
-  async function openAlbumSearchByTitle(title: string, artistName: string, sourceId: "spotify" | "musicbrainz", sourceNavigationRequest: number) {
+  async function resolveSpotifyAlbum(title: string, artistName: string, sourceNavigationRequest: number, request = ++trackAlbumLookupRequest) {
+    const albumTitle = albumHint(title), creditedArtist = albumHint(artistName);
+    if (!albumTitle || !creditedArtist || sourceNavigationRequest !== navigationRequest) return;
+    try {
+      const page = await call<{ complete?: boolean; nextCursor?: string | null; results?: Array<{ id: string; kind: string; sourceId: string; title: string; subtitle?: string | null; url?: string | null }> }>("search_source", { query: `${albumTitle} ${creditedArtist}`, sourceIds: ["spotify"], kinds: ["album"], cursor: null });
+      if (request !== trackAlbumLookupRequest || sourceNavigationRequest !== navigationRequest) return;
+      const exact = (page.results ?? []).filter(row => row.sourceId === "spotify" && row.kind === "album" && normalizeArtistLookup(row.title) === normalizeArtistLookup(albumTitle) && normalizeArtistLookup(row.subtitle ?? "") === normalizeArtistLookup(creditedArtist));
+      const identities = exact.flatMap(row => {
+        const id = row.url?.match(/open\.spotify\.com\/album\/([A-Za-z0-9]{22})/)?.[1] ?? row.id.match(/(?:spotify:album:|album:)([A-Za-z0-9]{22})$/)?.[1];
+        return id ? [{ id, title: row.title }] : [];
+      });
+      const unique = [...new Map(identities.map(item => [item.id, item])).values()];
+      if (unique.length === 1 && page.complete === true && !page.nextCursor) { await openSpotifyAlbum(unique[0]!.id, unique[0]!.title); return; }
+    } catch {
+      if (request !== trackAlbumLookupRequest || sourceNavigationRequest !== navigationRequest) return;
+    }
+    await openAlbumSearchByTitle(albumTitle, creditedArtist, "spotify", sourceNavigationRequest, request);
+  }
+  async function openAlbumSearchByTitle(title: string, artistName: string, sourceId: "spotify" | "musicbrainz", sourceNavigationRequest: number, existingRequest?: number) {
     const album = albumHint(title), artist = albumHint(artistName);
     if (!album || sourceNavigationRequest !== navigationRequest) return;
     const searchText = [album, artist].filter(Boolean).join(" ");
-    const request = ++trackAlbumLookupRequest;
+    const request = existingRequest ?? ++trackAlbumLookupRequest;
     rememberRoute();
     await navigate("search", false);
     if (request !== trackAlbumLookupRequest || view !== "search" || navigationRequest !== sourceNavigationRequest + 1) return;
@@ -961,7 +980,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     if (fromLibrarySearch && track.id) {
       try {
         const albums = await call<LibraryAlbumTarget[]>("list_library_albums_for_track", { listingId: track.id });
-        if (!stillOnSourceRoute() || view !== "search") return;
+        if (!stillOnSourceRoute() || (view !== "search" && view !== "library")) return;
         const albumName = albumHint(track.album), albumArtist = albumHint(track.albumArtist) || albumHint(track.artist);
         const sameLabel = (left: string, right: string) => normalizeArtistLookup(left) === normalizeArtistLookup(right);
         const candidates = albums.filter(target => albumName && sameLabel(target.entity.name, albumName) && (Boolean(target.familyListingId) || !albumArtist || !target.entity.artist || sameLabel(target.entity.artist, albumArtist)));
@@ -975,7 +994,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
           return;
         }
       } catch {
-        if (!stillOnSourceRoute() || view !== "search") return;
+        if (!stillOnSourceRoute() || (view !== "search" && view !== "library")) return;
         // Keep the provider-backed album path available if the library index is unavailable.
       }
     }
@@ -984,6 +1003,16 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     if (!target) return;
     if (target.kind === "catalog") { await openSearchAlbum(target.release, target.artist, request); return; }
     if (target.kind === "search") {
+      if (track.provider === "spotify") {
+        let sources: typeof availableSources = [];
+        try { sources = await call<typeof availableSources>("list_search_sources"); } catch { /* Keep the catalog fallback. */ }
+        if (!stillOnSourceRoute()) return;
+        availableSources = sources;
+        if (sources.some(source => source.id === "spotify" && source.enabled && source.kinds?.includes("album"))) {
+          await resolveSpotifyAlbum(target.album, target.artist, ownerNavigation, request);
+          return;
+        }
+      }
       try {
         const result = await call<AlbumSearchPage>("search_albums", { query: target.album, page: 1, pageSize: 20 });
         if (!stillOnSourceRoute()) return;
@@ -7822,7 +7851,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
         </div>{/if}
       </section>
     {:else if view === "library" && (libraryBrowser.tab !== "tracks" || libraryBrowser.entity)}
-      <LazyView loader={loadLibraryBrowser} label="library" componentProps={{ browserState: libraryBrowser, call, onNavigate: navigateLibraryBrowser, onStateChange: (next: LibraryBrowserState) => libraryBrowser = next, onBrowse: (entry: LibraryEntity, familyProvider?: string | null) => void run(() => browseLibraryEntity(entry, familyProvider)), onPlay: playArtistTrack, onQueue: queueArtistTracks, onDownload: (track: Track) => void openDownloadChooser(track), onFavorite: (track: Track) => void favorite(track), onPlaylist: (track: Track) => void addArtistTrack(track), onArtist: (track: Track) => void discoverArtist(track), onAlbum: (track: Track) => void openTrackAlbum(track), onContext: (track: Track, event: MouseEvent) => { actionTrack = track; actionAnchor = { x: event.clientX, y: event.clientY }; }, onAddSelectedToPlaylist: (items: Track[]) => void addTracksToPlaylist(items), onDownloadAlbum: (items: Track[]) => queueSelected(items), onSearchAlbumSoulseek: (entry: LibraryEntity) => openSoulseekAlbumSearchByTitle(entry.name, entry.artist), soulseekSearchAvailable: soulseekAlbumSearchAvailable, onAddAlbumToPlaylist: addAlbumToPlaylist, onAnalyzeLoudness: (items: Track[], gaps: number) => prepareReleaseLoudnessAnalysis(items, gaps, true), playingTrack, bufferingTrack: playbackLoading ? playingTrack : null, bufferingTrackId: playbackLoading ? playingTrack?.id ?? "" : "", playbackFailed: nativePlaybackStatus === "failed", paused }} />
+      <LazyView loader={loadLibraryBrowser} label="library" componentProps={{ browserState: libraryBrowser, call, onNavigate: navigateLibraryBrowser, onStateChange: (next: LibraryBrowserState) => libraryBrowser = next, onBrowse: (entry: LibraryEntity, familyProvider?: string | null) => void run(() => browseLibraryEntity(entry, familyProvider)), onPlay: playArtistTrack, onQueue: queueArtistTracks, onDownload: (track: Track) => void openDownloadChooser(track), onFavorite: (track: Track) => void favorite(track), onPlaylist: (track: Track) => void addArtistTrack(track), onArtist: (track: Track) => void discoverArtist(track), onAlbum: (track: Track) => void openTrackAlbum(track, true), onContext: (track: Track, event: MouseEvent) => { actionTrack = track; actionAnchor = { x: event.clientX, y: event.clientY }; }, onAddSelectedToPlaylist: (items: Track[]) => void addTracksToPlaylist(items), onDownloadAlbum: (items: Track[]) => queueSelected(items), onSearchAlbumSoulseek: (entry: LibraryEntity) => openSoulseekAlbumSearchByTitle(entry.name, entry.artist), soulseekSearchAvailable: soulseekAlbumSearchAvailable, onAddAlbumToPlaylist: addAlbumToPlaylist, onAnalyzeLoudness: (items: Track[], gaps: number) => prepareReleaseLoudnessAnalysis(items, gaps, true), playingTrack, bufferingTrack: playbackLoading ? playingTrack : null, bufferingTrackId: playbackLoading ? playingTrack?.id ?? "" : "", playbackFailed: nativePlaybackStatus === "failed", paused }} />
     {:else}
       <div class="toolbar" class:chart-toolbar={view === "charts"} class:library-toolbar={view === "library"} class:empty-library-toolbar={view === "library" && !showCreatePlaylist}>
         {#if view === "charts" && !activeBrowserImport}<select
@@ -8007,7 +8036,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
             onscroll={(e) => (scrollTop = e.currentTarget.scrollTop)}
           >
             {#if virtualized && startRow > 0}<div class="track-list-virtual-spacer" aria-hidden="true" style={`height:${startRow * rowHeight}px`}></div>{/if}
-            <TrackList playbackFailed={nativePlaybackStatus === "failed"} reorderable={view === "collections" && sort === "rank" && !descending && !filter.trim() && localFilter === "all" && !durationMinimum && !durationMaximum && !playlistReordering && !localPageLoading} reorderCount={view === "collections" ? playlistMoveLimit : undefined} onReorder={movePlaylistEntry} onInvertSelection={() => {if(view === "collections") selectedLocalOccurrences = invertSelection(localOccurrenceRows.map(row=>row.key),selectedLocalOccurrences); else {checked=invertSelection(sorted.map(track=>track.id),checked);mergeConfirmed=false;}}} onAlbum={(track) => void openTrackAlbum(track)} tracks={virtualized ? visibleTracks : sorted} logicalRowCount={sorted.length} rowKeys={(virtualized ? visibleTracks : sorted).map((track,index) => `${track.id}:${(virtualized ? startRow : 0) + index}`)} focusedRowKey={view === "collections" ? focusedPlaylistRowKey : null} listLabel="Recordings" presentation="playlist" playingTrack={playingTrack} bufferingTrack={playbackLoading ? playingTrack : null} {paused} selectionMode={view === "collections" ? localPlaylistSelectionMode : batchSelectionMode} selectedTrackId={selected?.id} selectedTrackIds={view === "collections" ? selectedLocalOccurrences : checked} selectionKeys={view === "collections" ? localOccurrenceRows.slice(virtualized ? startRow : 0, virtualized ? endRow : sorted.length).map(row => row.key) : undefined} selectionLabel={(track, index) => view === "collections" ? `Select occurrence ${(virtualized ? startRow : 0) + index + 1}: ${track.title} for playlist` : `Select ${track.title}`} trackTitle={(track) => [track.title, bpmAnnotation(track), analysisAnnotation(track, "key")].filter(Boolean).join("\n")} position={(_, index) => (virtualized ? startRow : 0) + index + 1} meta={(track) => [track.bpm != null ? `${analysisAnnotation(track, "bpm") ? "≈" : ""}${String(track.bpm)} BPM` : "", track.key ? `${analysisAnnotation(track, "key") ? "≈" : ""}${track.key}` : "", !track.album && track.label ? track.label : "", track.disposition === "shortlist" ? "Shortlisted" : "", rowDownloadFeedback[track.id] ?? ""].filter(Boolean).join(" · ")} onPlay={(track, _window, index) => select(track, "click", (virtualized ? startRow : 0) + index)} onRowSelect={(track, event) => selectTrackRow(track, event)} onFavorite={favorite} onDownload={(track) => void openDownloadChooser(track, undefined, undefined, currentSavedPlaylistContext())} onArtist={(track) => void discoverArtist(track)} onContext={(track, event) => { actionTrack = track; const rect = event.type === "contextmenu" ? null : (event.currentTarget as HTMLElement).getBoundingClientRect(); actionAnchor = rect ? { x: rect.right, y: rect.bottom } : { x: event.clientX, y: event.clientY }; }} onSelect={(track, event, index) => { const checkedNow = (event.currentTarget as HTMLInputElement).checked; if (view === "collections") toggleLocalOccurrence((virtualized ? startRow : 0) + index, checkedNow); else { checked = checkedNow ? [...new Set([...checked, track.id])] : checked.filter(id => id !== track.id); mergeConfirmed = false; } }} virtualizationThreshold={100000} />
+            <TrackList playbackFailed={nativePlaybackStatus === "failed"} reorderable={view === "collections" && sort === "rank" && !descending && !filter.trim() && localFilter === "all" && !durationMinimum && !durationMaximum && !playlistReordering && !localPageLoading} reorderCount={view === "collections" ? playlistMoveLimit : undefined} onReorder={movePlaylistEntry} onInvertSelection={() => {if(view === "collections") selectedLocalOccurrences = invertSelection(localOccurrenceRows.map(row=>row.key),selectedLocalOccurrences); else {checked=invertSelection(sorted.map(track=>track.id),checked);mergeConfirmed=false;}}} onAlbum={(track) => void openTrackAlbum(track, view === "library")} tracks={virtualized ? visibleTracks : sorted} logicalRowCount={sorted.length} rowKeys={(virtualized ? visibleTracks : sorted).map((track,index) => `${track.id}:${(virtualized ? startRow : 0) + index}`)} focusedRowKey={view === "collections" ? focusedPlaylistRowKey : null} listLabel="Recordings" presentation="playlist" playingTrack={playingTrack} bufferingTrack={playbackLoading ? playingTrack : null} {paused} selectionMode={view === "collections" ? localPlaylistSelectionMode : batchSelectionMode} selectedTrackId={selected?.id} selectedTrackIds={view === "collections" ? selectedLocalOccurrences : checked} selectionKeys={view === "collections" ? localOccurrenceRows.slice(virtualized ? startRow : 0, virtualized ? endRow : sorted.length).map(row => row.key) : undefined} selectionLabel={(track, index) => view === "collections" ? `Select occurrence ${(virtualized ? startRow : 0) + index + 1}: ${track.title} for playlist` : `Select ${track.title}`} trackTitle={(track) => [track.title, bpmAnnotation(track), analysisAnnotation(track, "key")].filter(Boolean).join("\n")} position={(_, index) => (virtualized ? startRow : 0) + index + 1} meta={(track) => [track.bpm != null ? `${analysisAnnotation(track, "bpm") ? "≈" : ""}${String(track.bpm)} BPM` : "", track.key ? `${analysisAnnotation(track, "key") ? "≈" : ""}${track.key}` : "", !track.album && track.label ? track.label : "", track.disposition === "shortlist" ? "Shortlisted" : "", rowDownloadFeedback[track.id] ?? ""].filter(Boolean).join(" · ")} onPlay={(track, _window, index) => select(track, "click", (virtualized ? startRow : 0) + index)} onRowSelect={(track, event) => selectTrackRow(track, event)} onFavorite={favorite} onDownload={(track) => void openDownloadChooser(track, undefined, undefined, currentSavedPlaylistContext())} onArtist={(track) => void discoverArtist(track)} onContext={(track, event) => { actionTrack = track; const rect = event.type === "contextmenu" ? null : (event.currentTarget as HTMLElement).getBoundingClientRect(); actionAnchor = rect ? { x: rect.right, y: rect.bottom } : { x: event.clientX, y: event.clientY }; }} onSelect={(track, event, index) => { const checkedNow = (event.currentTarget as HTMLInputElement).checked; if (view === "collections") toggleLocalOccurrence((virtualized ? startRow : 0) + index, checkedNow); else { checked = checkedNow ? [...new Set([...checked, track.id])] : checked.filter(id => id !== track.id); mergeConfirmed = false; } }} virtualizationThreshold={100000} />
             {#if virtualized && endRow < sorted.length}<div class="track-list-virtual-spacer" aria-hidden="true" style={`height:${(sorted.length - endRow) * rowHeight}px`}></div>{/if}
             {#if !sorted.length}<div class="empty">
                 <span>♫</span>
