@@ -4,7 +4,7 @@
 
   import { hasExplicitSourceLock } from "./lib/source-lock";
   const loadLibraryBrowser = () => import("./LibraryBrowser.svelte").then(module => module.default);
-  import { initialLibraryBrowserState, releaseLibraryEntity, saveCompleteLibraryAlbum, completeLibraryAlbumTrackCount, type LibraryBrowserState, type LibraryEntity } from "./lib/library";
+  import { initialLibraryBrowserState, releaseLibraryEntity, saveCompleteLibraryAlbum, completeLibraryAlbumTrackCount, type LibraryAlbumTarget, type LibraryBrowserState, type LibraryEntity } from "./lib/library";
   let libraryBrowser = $state<LibraryBrowserState>(initialLibraryBrowserState());
   function navigateLibraryBrowser(next: LibraryBrowserState) { rememberRoute(); libraryBrowser = next; }
   async function saveTracksToLibrary(items: Track[]) { await call("save_library_tracks", { tracks: items }); requestLocalPrefixRefresh(undefined, true); }
@@ -930,17 +930,17 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     const stillOnSourceRoute = () => request === trackAlbumLookupRequest && ownerNavigation === navigationRequest;
     if (fromLibrarySearch && track.id) {
       try {
-        const albums = await call<LibraryEntity[]>("list_library_albums_for_track", { listingId: track.id });
+        const albums = await call<LibraryAlbumTarget[]>("list_library_albums_for_track", { listingId: track.id });
         if (!stillOnSourceRoute() || view !== "search") return;
         const albumName = albumHint(track.album), albumArtist = albumHint(track.albumArtist) || albumHint(track.artist);
         const sameLabel = (left: string, right: string) => normalizeArtistLookup(left) === normalizeArtistLookup(right);
-        const candidates = albums.filter(album => albumName && sameLabel(album.name, albumName) && (!albumArtist || !album.artist || sameLabel(album.artist, albumArtist)));
-        const explicitlySaved = candidates.filter(album => album.explicitlySaved);
+        const candidates = albums.filter(target => albumName && sameLabel(target.entity.name, albumName) && (Boolean(target.familyListingId) || !albumArtist || !target.entity.artist || sameLabel(target.entity.artist, albumArtist)));
+        const explicitlySaved = candidates.filter(target => target.entity.explicitlySaved);
         const localAlbum = explicitlySaved.length === 1 ? explicitlySaved[0] : candidates.length === 1 ? candidates[0] : null;
         if (localAlbum || candidates.length > 1) {
           rememberRoute();
           librarySource = "all";
-          libraryBrowser = { ...initialLibraryBrowserState(), tab: "albums", entity: localAlbum ?? null, section: "albums", query: localAlbum ? "" : [albumName, albumArtist].filter(Boolean).join(" ") };
+          libraryBrowser = { ...initialLibraryBrowserState(), tab: "albums", entity: localAlbum?.entity ?? null, familyListingId: localAlbum?.familyListingId ?? null, section: "albums", query: localAlbum ? "" : [albumName, albumArtist].filter(Boolean).join(" ") };
           await navigate("library", false);
           return;
         }

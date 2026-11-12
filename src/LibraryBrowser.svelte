@@ -57,7 +57,7 @@
   }
   function open(entry: LibraryEntity) { onNavigate({ ...initialLibraryBrowserState(), tab: browserState.tab, entity: entry, section: 'albums' }); }
   function trackQueryArgs(snapshot: LibraryBrowserState, limit: number, offset: number) {
-    return { id: snapshot.entity!.id, query: snapshot.query, sort: snapshot.sort, descending: snapshot.descending, availability: snapshot.availability, minDuration: parseDurationBound(snapshot.minDuration), maxDuration: parseDurationBound(snapshot.maxDuration), limit, offset };
+    return { id: snapshot.entity!.id, familyListingId: snapshot.familyListingId, query: snapshot.query, sort: snapshot.sort, descending: snapshot.descending, availability: snapshot.availability, minDuration: parseDurationBound(snapshot.minDuration), maxDuration: parseDurationBound(snapshot.maxDuration), limit, offset };
   }
   async function load(snapshot: LibraryBrowserState, append = false) {
     const request = ++generation;

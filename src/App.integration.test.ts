@@ -1300,7 +1300,7 @@ describe("saved library navigation", () => {
     const originalCall = mocks.call.getMockImplementation()!;
     mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
       if (command === "search_source" && (args?.sourceIds as string[] | undefined)?.includes("library")) return { sourceId: "library", complete: true, results: [{ id: track.id, kind: "track", sourceId: "library", title: track.title, track }] };
-      if (command === "list_library_albums_for_track") return [album];
+      if (command === "list_library_albums_for_track") return [{ entity: album, familyListingId: null }];
       if (command === "list_library_entity_tracks") return { tracks: [track], total: 1 };
       return originalCall(command, args);
     });
@@ -1312,6 +1312,28 @@ describe("saved library navigation", () => {
     document.querySelector<HTMLButtonElement>('[aria-label="Open album PROLIFIC"]')!.click(); await settle();
     expect(mocks.call).toHaveBeenCalledWith("list_library_albums_for_track", { listingId: track.id });
     expect(document.querySelector(".album-detail h1")?.textContent).toBe("PROLIFIC");
+  });
+
+  it("shows the saved album family for a featured-track album click", async () => {
+    const anchor: Track = { ...savedTrack, id: "spotify:all-summer", provider: "spotify", providerId: "all-summer", title: "All Summer (feat. BH)", artist: "Nipsey Hussle, Bino Rideaux, BH", album: "PROLIFIC", artworkUrl: "https://i.scdn.co/image/prolific-cover", provenance: {} };
+    const familyTracks = ["Make Believe", "Super Real", "500 Horses", "Reckless (feat. Static Major)", "All Summer (feat. BH)"].map((title, index) => ({ ...anchor, id: `spotify:prolific-${index}`, providerId: `prolific-${index}`, title, artist: index === 4 ? anchor.artist : index === 3 ? "Nipsey Hussle, Bino Rideaux, Static Major" : "Nipsey Hussle, Bino Rideaux" }));
+    const target = { entity: { id: 'album:metadata:["nipsey hussle, bino rideaux, bh","prolific",""]', kind: "album", name: "PROLIFIC", artist: "Nipsey Hussle, Bino Rideaux", provider: "spotify", explicitlySaved: false, trackCount: 5, albumCount: 0 }, familyListingId: anchor.id };
+    const originalCall = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "search_source" && (args?.sourceIds as string[] | undefined)?.includes("library")) return { sourceId: "library", complete: true, results: [{ id: anchor.id, kind: "track", sourceId: "library", title: anchor.title, track: anchor }] };
+      if (command === "list_library_albums_for_track") return [target];
+      if (command === "list_library_entity_tracks" && args?.familyListingId === anchor.id) return { tracks: familyTracks, total: familyTracks.length };
+      return originalCall(command, args);
+    });
+    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); }; await settle();
+    [...document.querySelectorAll<HTMLButtonElement>("nav button")].find(button => button.textContent?.includes("Search"))!.click(); await settle();
+    await selectSearchSources(["My library"]);
+    const input = document.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
+    input.value = "nipsey"; input.dispatchEvent(new Event("input", { bubbles: true })); submitSearch(); await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Open album PROLIFIC"]')!.click(); await settle(); await settle();
+    expect(document.querySelector(".album-detail h1")?.textContent).toBe("PROLIFIC");
+    expect(mocks.call).toHaveBeenCalledWith("list_library_entity_tracks", expect.objectContaining({ familyListingId: anchor.id }));
+    for (const title of ["Make Believe", "Super Real", "500 Horses", "Reckless (feat. Static Major)", "All Summer (feat. BH)"]) expect(document.body.textContent).toContain(title);
   });
 
   it("keeps the clicked album title when leaving a My library search with an unresolved identity", async () => {

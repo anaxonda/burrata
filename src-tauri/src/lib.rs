@@ -1945,7 +1945,7 @@ async fn list_library_entities(
 async fn list_library_albums_for_track(
     state: State<'_, AppState>,
     listing_id: String,
-) -> Result<Vec<storage::library::LibraryEntity>> {
+) -> Result<Vec<storage::library::LibraryAlbumTarget>> {
     let store = state.store.clone();
     tokio::task::spawn_blocking(move || store.list_library_albums_for_track(&listing_id))
         .await
@@ -1956,6 +1956,7 @@ async fn list_library_albums_for_track(
 async fn list_library_entity_tracks(
     state: State<'_, AppState>,
     id: String,
+    family_listing_id: Option<String>,
     query: Option<String>,
     sort: Option<String>,
     descending: Option<bool>,
@@ -1967,17 +1968,31 @@ async fn list_library_entity_tracks(
 ) -> Result<storage::library::LibraryTrackPage> {
     let store = state.store.clone();
     tokio::task::spawn_blocking(move || {
-        store.list_library_entity_tracks(
-            &id,
-            query.as_deref().unwrap_or(""),
-            sort.as_deref().unwrap_or("sourceOrder"),
-            descending.unwrap_or(false),
-            availability.as_deref().unwrap_or("all"),
-            min_duration,
-            max_duration,
-            limit,
-            offset,
-        )
+        if let Some(listing_id) = family_listing_id.as_deref() {
+            store.list_library_album_family_tracks(
+                listing_id,
+                query.as_deref().unwrap_or(""),
+                sort.as_deref().unwrap_or("sourceOrder"),
+                descending.unwrap_or(false),
+                availability.as_deref().unwrap_or("all"),
+                min_duration,
+                max_duration,
+                limit,
+                offset,
+            )
+        } else {
+            store.list_library_entity_tracks(
+                &id,
+                query.as_deref().unwrap_or(""),
+                sort.as_deref().unwrap_or("sourceOrder"),
+                descending.unwrap_or(false),
+                availability.as_deref().unwrap_or("all"),
+                min_duration,
+                max_duration,
+                limit,
+                offset,
+            )
+        }
     })
     .await
     .map_err(|e| e.to_string())?

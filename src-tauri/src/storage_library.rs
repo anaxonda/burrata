@@ -35,6 +35,13 @@ pub struct LibraryEntity {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct LibraryAlbumTarget {
+    pub entity: LibraryEntity,
+    pub family_listing_id: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LibraryEntityPage {
     pub items: Vec<LibraryEntity>,
     pub total: usize,
@@ -194,6 +201,212 @@ fn entity(
         saved_track_ids: Vec::new(),
         aliases: Vec::new(),
     }
+}
+
+fn explicit_album_artist(track: &Track) -> Option<String> {
+    track
+        .album_artist
+        .as_deref()
+        .filter(|name| !name.trim().is_empty())
+        .or_else(|| {
+            string_at(
+                &track.provenance,
+                &[
+                    "/recordingContext/albumArtist",
+                    "/remoteCatalog/albumArtist",
+                    "/catalog/albumArtist",
+                    "/libraryAlbum/artist",
+                ],
+            )
+        })
+        .map(|name| name.trim().to_owned())
+}
+
+fn trimmed_feature_album_artist(track: &Track) -> Option<String> {
+    let title = track.title.as_str();
+    let feature = ["featuring ", "feat. ", "feat ", "ft. ", "ft "]
+        .iter()
+        .filter_map(|marker| {
+            title.char_indices().find_map(|(offset, _)| {
+                let marker_end = offset.checked_add(marker.len())?;
+                title
+                    .get(offset..marker_end)
+                    .filter(|text| text.eq_ignore_ascii_case(marker))
+                    .map(|_| {
+                        title
+                            .get(marker_end..)
+                            .unwrap_or_default()
+                            .split(')')
+                            .next()
+                            .unwrap_or_default()
+                            .trim()
+                    })
+            })
+        })
+        .find(|name| !name.is_empty());
+    let feature = feature?;
+    for separator in [", ", " & ", " and "] {
+        let suffix = format!("{separator}{feature}");
+        if let Some((offset, _)) = track.artist.char_indices().rev().find(|(offset, _)| {
+            track
+                .artist
+                .get(*offset..)
+                .is_some_and(|text| text.eq_ignore_ascii_case(&suffix))
+        }) {
+            let base = track.artist.get(..offset)?.trim_end();
+            if !base.is_empty() {
+                return Some(base.to_owned());
+            }
+        }
+    }
+    None
+}
+
+fn inferred_album_artist(track: &Track) -> String {
+    explicit_album_artist(track)
+        .or_else(|| trimmed_feature_album_artist(track))
+        .unwrap_or_else(|| track.artist.trim().to_owned())
+}
+
+fn provider_album_id(track: &Track) -> Option<&str> {
+    string_at(
+        &track.provenance,
+        &[
+            "/libraryAlbum/id",
+            "/recordingContext/albumId",
+            "/albumId",
+            "/remoteCatalog/albumId",
+            "/catalog/albumId",
+            "/catalog/release/id",
+            "/releaseId",
+        ],
+    )
+}
+
+fn usable_family_artwork(track: &Track) -> Option<&str> {
+    track.artwork_url.as_deref().filter(|url| {
+        let lower = url.to_ascii_lowercase();
+        (lower.starts_with("https://") || lower.starts_with("http://"))
+            && !lower.contains("placeholder")
+            && !lower.contains("default-artwork")
+            && !lower.contains("no-artwork")
+    })
+}
+
+fn base_artist_refs(track: &Track) -> std::collections::BTreeSet<String> {
+    let album_artist = normalized(&inferred_album_artist(track));
+    [
+        track.provenance.pointer("/catalog/artists"),
+        track.provenance.pointer("/remoteCatalog/artistRefs"),
+    ]
+    .into_iter()
+    .flatten()
+    .filter_map(Value::as_array)
+    .flatten()
+    .filter_map(|credit| {
+        let name = string_at(credit, &["/name"])?;
+        let normalized_name = normalized(name);
+        if normalized_name.is_empty() || !album_artist.contains(&normalized_name) {
+            return None;
+        }
+        let provider = string_at(credit, &["/provider"])?;
+        let id = string_at(credit, &["/id"])?;
+        Some(format!("{}:{}", normalized(provider), id))
+    })
+    .collect()
+}
+
+fn compatible_album_family_track(seed: &Track, candidate: &Track) -> bool {
+    let Some(seed_artwork) = usable_family_artwork(seed) else {
+        return false;
+    };
+    let Some(candidate_artwork) = usable_family_artwork(candidate) else {
+        return false;
+    };
+    if seed.provider.is_empty()
+        || !seed.provider.eq_ignore_ascii_case(&candidate.provider)
+        || !normalized(seed.album.as_deref().unwrap_or_default())
+            .eq(&normalized(candidate.album.as_deref().unwrap_or_default()))
+        || seed_artwork != candidate_artwork
+        || !normalized(&inferred_album_artist(seed))
+            .eq(&normalized(&inferred_album_artist(candidate)))
+    {
+        return false;
+    }
+    match (provider_album_id(seed), provider_album_id(candidate)) {
+        (Some(left), Some(right)) if left != right => return false,
+        (Some(_), None) | (None, Some(_)) => return false,
+        _ => {}
+    }
+    let left = base_artist_refs(seed);
+    let right = base_artist_refs(candidate);
+    left.is_empty() || right.is_empty() || !left.is_disjoint(&right)
+}
+
+fn album_family_has_supporting_identity(track: &Track) -> bool {
+    provider_album_id(track).is_some()
+        || explicit_album_artist(track).is_some()
+        || trimmed_feature_album_artist(track).is_some()
+        || !base_artist_refs(track).is_empty()
+}
+
+fn album_family_listing_ids(conn: &Connection, listing_id: &str) -> Result<Vec<String>> {
+    let seed_raw: Option<String> = conn
+        .query_row(
+            "SELECT metadata FROM catalog_listings WHERE id=?1 AND id=recording_id AND in_library=1",
+            [listing_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(err)?;
+    let Some(seed_raw) = seed_raw else {
+        return Ok(Vec::new());
+    };
+    let seed = hydrate(conn, decode::<Track>(seed_raw)?)?;
+    let Some(artwork) = usable_family_artwork(&seed) else {
+        return Ok(vec![seed.id]);
+    };
+    if seed.provider.is_empty() || seed.album.as_deref().is_none_or(str::is_empty) {
+        return Ok(vec![seed.id]);
+    }
+    let mut stmt = conn.prepare(
+        "SELECT id,metadata FROM catalog_listings WHERE id=recording_id AND in_library=1 AND unicode_lower(trim(json_extract(metadata,'$.provider')))=unicode_lower(?1) AND unicode_lower(trim(json_extract(metadata,'$.album')))=unicode_lower(trim(?2)) AND json_extract(metadata,'$.artworkUrl')=?3 ORDER BY id LIMIT 10001",
+    ).map_err(err)?;
+    let rows = stmt
+        .query_map(
+            rusqlite::params![seed.provider, seed.album, artwork],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .map_err(err)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(err)?;
+    if rows.len() > 10_000 {
+        return Err("Saved album family candidates exceed the bounded lookup limit".into());
+    }
+    let candidate_ids = rows.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>();
+    let candidate_tracks = hydrate_page_tracks(
+        conn,
+        rows.into_iter()
+            .map(|(_, raw)| decode::<Track>(raw))
+            .collect::<Result<Vec<_>>>()?,
+    )?;
+    let matched_tracks = candidate_tracks
+        .into_iter()
+        .zip(candidate_ids)
+        .filter(|(track, _)| compatible_album_family_track(&seed, track))
+        .collect::<Vec<_>>();
+    let family_supported = matched_tracks
+        .iter()
+        .any(|(track, _)| album_family_has_supporting_identity(track));
+    let mut matches = matched_tracks
+        .into_iter()
+        .map(|(_, listing)| listing)
+        .collect::<Vec<_>>();
+    if !family_supported || matches.len() < 2 {
+        return Ok(vec![seed.id]);
+    }
+    matches.sort();
+    Ok(matches)
 }
 
 fn string_at<'a>(value: &'a Value, paths: &[&str]) -> Option<&'a str> {
@@ -809,12 +1022,31 @@ impl Store {
     }
 
     /// Return album entities that contain this exact saved catalog listing.
-    pub fn list_library_albums_for_track(&self, listing_id: &str) -> Result<Vec<LibraryEntity>> {
+    pub fn list_library_albums_for_track(
+        &self,
+        listing_id: &str,
+    ) -> Result<Vec<LibraryAlbumTarget>> {
         if listing_id.is_empty() || listing_id.len() > 512 {
             return Ok(Vec::new());
         }
         let conn = self.lock_connection()?;
         refresh(&conn)?;
+        let family_ids = album_family_listing_ids(&conn, listing_id)?;
+        let family_listing_id = (family_ids.len() > 1).then(|| listing_id.to_owned());
+        let family_artist = if family_listing_id.is_some() {
+            conn.query_row(
+                "SELECT metadata FROM catalog_listings WHERE id=?1 AND id=recording_id AND in_library=1",
+                [listing_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(err)?
+            .map(decode::<Track>)
+            .transpose()?
+            .map(|track| inferred_album_artist(&track))
+        } else {
+            None
+        };
         let mut stmt = conn.prepare(
             "SELECT e.payload,(SELECT COUNT(*) FROM library_entity_tracks all_tracks WHERE all_tracks.entity_id=e.id) FROM library_entities e JOIN library_entity_tracks t ON t.entity_id=e.id WHERE e.kind='album' AND t.listing_id=?1 AND EXISTS(SELECT 1 FROM catalog_listings l WHERE l.id=?1 AND l.in_library=1) ORDER BY COALESCE(json_extract(e.payload,'$.explicitlySaved'),0) DESC,e.id",
         ).map_err(err)?;
@@ -826,11 +1058,130 @@ impl Store {
         rows.map(|row| {
             let (payload, track_count) = row.map_err(err)?;
             let mut entity: LibraryEntity = decode(payload)?;
-            entity.track_count = track_count;
+            entity.track_count = if family_listing_id.is_some() {
+                family_ids.len()
+            } else {
+                track_count
+            };
+            if let Some(artist) = family_artist.as_ref() {
+                entity.artist = artist.clone();
+            }
             entity.saved_track_ids.clear();
-            Ok(entity)
+            Ok(LibraryAlbumTarget {
+                entity,
+                family_listing_id: family_listing_id.clone(),
+            })
         })
         .collect()
+    }
+
+    pub fn list_library_album_family_tracks(
+        &self,
+        listing_id: &str,
+        query: &str,
+        sort: &str,
+        descending: bool,
+        availability: &str,
+        min_duration: Option<f64>,
+        max_duration: Option<f64>,
+        limit: usize,
+        offset: usize,
+    ) -> Result<LibraryTrackPage> {
+        let conn = self.lock_connection()?;
+        refresh(&conn)?;
+        let family_ids = album_family_listing_ids(&conn, listing_id)?;
+        if family_ids.is_empty() {
+            return Ok(LibraryTrackPage {
+                tracks: Vec::new(),
+                total: 0,
+            });
+        }
+        let mut source_positions = std::collections::HashMap::new();
+        for chunk in family_ids.chunks(400) {
+            let placeholders = vec!["?"; chunk.len()].join(",");
+            let mut stmt = conn
+                .prepare(&format!(
+                    "SELECT listing_id,MIN(position) FROM library_entity_tracks WHERE listing_id IN ({placeholders}) GROUP BY listing_id"
+                ))
+                .map_err(err)?;
+            let rows = stmt
+                .query_map(rusqlite::params_from_iter(chunk.iter()), |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                })
+                .map_err(err)?;
+            for row in rows {
+                let (id, position) = row.map_err(err)?;
+                source_positions.insert(id, position);
+            }
+        }
+        let mut raw = Vec::with_capacity(family_ids.len());
+        for chunk in family_ids.chunks(400) {
+            let placeholders = vec!["?"; chunk.len()].join(",");
+            let mut stmt = conn
+                .prepare(&format!(
+                    "SELECT metadata FROM catalog_listings WHERE id IN ({placeholders})"
+                ))
+                .map_err(err)?;
+            let rows = stmt
+                .query_map(rusqlite::params_from_iter(chunk.iter()), |row| {
+                    row.get::<_, String>(0)
+                })
+                .map_err(err)?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(err)?;
+            raw.extend(rows);
+        }
+        let mut tracks = hydrate_page_tracks(
+            &conn,
+            raw.into_iter()
+                .map(decode)
+                .collect::<Result<Vec<Track>>>()?,
+        )?;
+        let query = normalized(query);
+        tracks.retain(|track| {
+            let text = normalized(&format!(
+                "{} {} {}",
+                track.title,
+                track.artist,
+                track.album.as_deref().unwrap_or_default()
+            ));
+            let duration = track.duration_seconds;
+            (query.is_empty() || text.contains(&query))
+                && (availability == "all"
+                    || (availability == "local")
+                        == (track.local_availability.as_deref() == Some("available")))
+                && min_duration.is_none_or(|minimum| duration.is_some_and(|value| value >= minimum))
+                && max_duration.is_none_or(|maximum| duration.is_some_and(|value| value <= maximum))
+        });
+        tracks.sort_by(|left, right| {
+            let ordering = match sort {
+                "title" => normalized(&left.title).cmp(&normalized(&right.title)),
+                "artist" => normalized(&left.artist).cmp(&normalized(&right.artist)),
+                "album" => normalized(left.album.as_deref().unwrap_or_default())
+                    .cmp(&normalized(right.album.as_deref().unwrap_or_default())),
+                "releaseDate" => left.release_date.cmp(&right.release_date),
+                "duration" => left
+                    .duration_seconds
+                    .partial_cmp(&right.duration_seconds)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+                _ => source_positions
+                    .get(&left.id)
+                    .cmp(&source_positions.get(&right.id)),
+            };
+            let ordering = if descending {
+                ordering.reverse()
+            } else {
+                ordering
+            };
+            ordering.then_with(|| left.id.cmp(&right.id))
+        });
+        let total = tracks.len();
+        let start = offset.min(total);
+        let end = start.saturating_add(limit.clamp(1, 200)).min(total);
+        Ok(LibraryTrackPage {
+            tracks: tracks[start..end].to_vec(),
+            total,
+        })
     }
 
     pub fn list_library_entities(
@@ -1184,13 +1535,198 @@ mod tests {
 
         let albums = store.list_library_albums_for_track(&saved.id).unwrap();
         assert_eq!(albums.len(), 1);
-        assert_eq!(albums[0].kind, "album");
-        assert_eq!(albums[0].name, "Prolific");
-        assert_eq!(albums[0].track_count, 1);
+        assert_eq!(albums[0].entity.kind, "album");
+        assert_eq!(albums[0].entity.name, "Prolific");
+        assert_eq!(albums[0].entity.track_count, 1);
+        assert_eq!(albums[0].family_listing_id, None);
         assert!(store
             .list_library_albums_for_track("not-a-saved-listing")
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn saved_album_family_uses_feature_credit_artwork_and_provider_without_merging_editions() {
+        let (_dir, store) = db();
+        let mut atomic_credit = track("atomic-credit");
+        atomic_credit.title = "Sample (feat. BH)".into();
+        atomic_credit.artist = "Earth, Wind & Fire, BH".into();
+        atomic_credit.album_artist = None;
+        assert_eq!(inferred_album_artist(&atomic_credit), "Earth, Wind & Fire");
+
+        let artist_refs = json!([
+            {"provider":"spotify","id":"nipsey-id","name":"Nipsey Hussle"},
+            {"provider":"spotify","id":"bino-id","name":"Bino Rideaux"}
+        ]);
+        let mut rows = Vec::new();
+        for (id, title, artist) in [
+            (
+                "make-believe",
+                "Make Believe",
+                "Nipsey Hussle, Bino Rideaux",
+            ),
+            ("super-real", "Super Real", "Nipsey Hussle, Bino Rideaux"),
+            ("five-horses", "500 Horses", "Nipsey Hussle, Bino Rideaux"),
+            (
+                "reckless",
+                "Reckless (feat. Static Major)",
+                "Nipsey Hussle, Bino Rideaux, Static Major",
+            ),
+            (
+                "all-summer",
+                "All Summer (feat. BH)",
+                "Nipsey Hussle, Bino Rideaux, BH",
+            ),
+        ] {
+            let mut saved = track(id);
+            saved.id = format!("spotify:{id}");
+            saved.provider = "spotify".into();
+            saved.provider_id = id.into();
+            saved.title = title.into();
+            saved.artist = artist.into();
+            saved.album_artist = None;
+            saved.album = Some("PROLIFIC".into());
+            saved.artwork_url = Some("https://i.scdn.co/image/prolific-cover".into());
+            saved.track_number = Some((rows.len() + 1) as u32);
+            saved.provenance = if id == "all-summer" {
+                json!({"catalog":{"provider":"spotify","providerId":id,"verified":true}})
+            } else {
+                json!({"catalog":{"provider":"spotify","providerId":id,"verified":true,"artists":artist_refs}})
+            };
+            rows.push(saved);
+        }
+        let mut other_cover = rows[0].clone();
+        other_cover.id = "spotify:other-cover-edition".into();
+        other_cover.provider_id = "other-cover-edition".into();
+        other_cover.artwork_url = Some("https://i.scdn.co/image/other-edition".into());
+        let mut other_artist = rows[0].clone();
+        other_artist.id = "spotify:other-artist-edition".into();
+        other_artist.provider_id = "other-artist-edition".into();
+        other_artist.artist = "Different Artist".into();
+        other_artist.album_artist = Some("Different Artist".into());
+        let mut other_provider = rows[0].clone();
+        other_provider.id = "musicbrainz:other-provider-edition".into();
+        other_provider.provider = "musicbrainz".into();
+        other_provider.provider_id = "other-provider-edition".into();
+        let mut known_other_release = rows[0].clone();
+        known_other_release.id = "spotify:known-other-release".into();
+        known_other_release.provider_id = "known-other-release".into();
+        known_other_release.provenance["recordingContext"] =
+            json!({"albumId":"different-spotify-album"});
+        rows.extend([
+            other_cover,
+            other_artist,
+            other_provider,
+            known_other_release,
+        ]);
+        store.save_library_tracks(&rows).unwrap();
+
+        let targets = store
+            .list_library_albums_for_track("spotify:all-summer")
+            .unwrap();
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].entity.artist, "Nipsey Hussle, Bino Rideaux");
+        assert_eq!(
+            targets[0].family_listing_id.as_deref(),
+            Some("spotify:all-summer")
+        );
+        assert_eq!(targets[0].entity.track_count, 5);
+        let family = store
+            .list_library_album_family_tracks(
+                "spotify:all-summer",
+                "",
+                "sourceOrder",
+                false,
+                "all",
+                None,
+                None,
+                200,
+                0,
+            )
+            .unwrap();
+        assert_eq!(family.total, 5);
+        assert!(family
+            .tracks
+            .iter()
+            .any(|row| row.title == "All Summer (feat. BH)" && row.artist.ends_with(", BH")));
+        assert!(!family
+            .tracks
+            .iter()
+            .any(|row| row.id.ends_with("other-cover-edition")));
+        assert!(!family
+            .tracks
+            .iter()
+            .any(|row| row.id.ends_with("other-artist-edition")));
+        assert!(!family
+            .tracks
+            .iter()
+            .any(|row| row.id.ends_with("other-provider-edition")));
+        assert!(!family
+            .tracks
+            .iter()
+            .any(|row| row.id.ends_with("known-other-release")));
+    }
+
+    #[test]
+    fn album_family_credit_support_must_come_from_a_compatible_member() {
+        let (_dir, store) = db();
+        let mut seed = track("family-seed");
+        seed.album_artist = None;
+        seed.artwork_url = Some("https://example.test/cover.jpg".into());
+        let mut sibling = seed.clone();
+        sibling.id = "fixture:family-sibling".into();
+        sibling.provider_id = "family-sibling".into();
+        sibling.title = "Sibling".into();
+        let mut incompatible = seed.clone();
+        incompatible.id = "fixture:family-other-artist".into();
+        incompatible.provider_id = "family-other-artist".into();
+        incompatible.title = "Other Artist Track".into();
+        incompatible.artist = "Other Artist".into();
+        incompatible.album_artist = Some("Other Artist".into());
+        incompatible.provenance = json!({"catalog":{"artists":[
+            {"provider":"fixture","id":"other-id","name":"Other Artist"}
+        ]}});
+        store
+            .save_library_tracks(&[seed.clone(), sibling, incompatible])
+            .unwrap();
+
+        assert_eq!(
+            album_family_listing_ids(&store.lock_connection().unwrap(), &seed.id).unwrap(),
+            vec![seed.id]
+        );
+    }
+
+    #[test]
+    fn saved_album_family_groups_a_matching_known_album_id() {
+        let (_dir, store) = db();
+        let mut first = track("known-album-first");
+        first.album_artist = None;
+        first.artwork_url = Some("https://example.test/known-cover.jpg".into());
+        first.provenance["recordingContext"] = json!({"albumId":"provider-album-1"});
+        let mut second = first.clone();
+        second.id = "fixture:known-album-second".into();
+        second.provider_id = "known-album-second".into();
+        second.title = "Second Track".into();
+        store
+            .save_library_tracks(&[first.clone(), second.clone()])
+            .unwrap();
+
+        let ids = album_family_listing_ids(&store.lock_connection().unwrap(), &first.id).unwrap();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains(&first.id));
+        assert!(ids.contains(&second.id));
+    }
+
+    #[test]
+    fn feature_credit_parsing_keeps_utf8_boundaries() {
+        let mut featuring = track("unicode-feature");
+        featuring.title = "Sóng (feat. BH)".into();
+        featuring.artist = "Beyoncé, Earth, Wind & Fire, BH".into();
+        featuring.album_artist = None;
+        assert_eq!(
+            inferred_album_artist(&featuring),
+            "Beyoncé, Earth, Wind & Fire"
+        );
     }
 
     #[test]

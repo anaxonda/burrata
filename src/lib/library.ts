@@ -18,6 +18,7 @@ export interface LibraryEntity {
   aliases?: string[];
 }
 export interface LibraryEntityPage { items: LibraryEntity[]; total: number }
+export interface LibraryAlbumTarget { entity: LibraryEntity; familyListingId: string | null }
 export interface LibraryEntityGroup { key: string; entries: LibraryEntity[] }
 export type LibraryEntityLayout = 'grid' | 'list';
 export interface LibraryEntityLayouts { artistLayout: LibraryEntityLayout; albumLayout: LibraryEntityLayout }
@@ -60,6 +61,7 @@ export function groupLibraryEntities(items: readonly LibraryEntity[]): LibraryEn
 export interface LibraryBrowserState {
   tab: 'tracks' | 'artists' | 'albums';
   entity: LibraryEntity | null;
+  familyListingId: string | null;
   section: 'albums' | 'tracks';
   query: string;
   sort: string;
@@ -76,7 +78,7 @@ export interface LibraryBrowserState {
   scroll: number;
   loadedCount: number;
 }
-export const initialLibraryBrowserState = (): LibraryBrowserState => ({ tab: 'tracks', entity: null, section: 'albums', query: '', sort: 'sourceOrder', descending: false, availability: 'all', minDuration: '', maxDuration: '', entitySource: '', entityYear: '', entitySort: 'name', entityDescending: false, ...readLibraryEntityLayouts(), scroll: 0, loadedCount: 200 });
+export const initialLibraryBrowserState = (): LibraryBrowserState => ({ tab: 'tracks', entity: null, familyListingId: null, section: 'albums', query: '', sort: 'sourceOrder', descending: false, availability: 'all', minDuration: '', maxDuration: '', entitySource: '', entityYear: '', entitySort: 'name', entityDescending: false, ...readLibraryEntityLayouts(), scroll: 0, loadedCount: 200 });
 export function releaseLibraryEntity(release: ArtistReleaseRef, artist = ''): LibraryEntity {
   return { id: '', kind: 'album', name: release.title, artist: release.credits.map(c => c.name).join(', ') || artist,
     provider: release.release.provider, providerId: release.release.id, sourceUrl: release.sourceUrl,
