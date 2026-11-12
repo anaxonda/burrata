@@ -6390,6 +6390,23 @@ mod tests {
             })),
             ..Candidate::default()
         };
+        let mut discovery = candidate.clone();
+        discovery.duration_seconds = Some(232.0);
+        discovery.source_metadata = Some(json!({
+            "catalogTitle":discovery.title,"track":discovery.title,"duration":232,
+            "extractor":true,"resolvedProviderId":"H35xiJcS8RY",
+            "sourceMetadataOrigin":"ytDlpCandidateMetadata"
+        }));
+        assert_eq!(
+            assess(
+                &request,
+                &discovery,
+                MatchLevel::Balanced,
+                MatchStage::Search
+            )
+            .action,
+            MatchAction::Inspect
+        );
         for level in [MatchLevel::Balanced, MatchLevel::Flexible] {
             let result = assess(&request, &candidate, level, MatchStage::Resolved);
             assert_eq!(result.action, MatchAction::Accept, "{result:?}");

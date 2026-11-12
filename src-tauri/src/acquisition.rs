@@ -751,7 +751,9 @@ const SEARCH_CACHE_MAX: usize = 128;
 const RAW_AUDIO_SEARCH_CACHE_TTL: Duration = Duration::from_secs(2 * 60);
 const RAW_AUDIO_SEARCH_CACHE_MAX: usize = 64;
 const PREVIEW_SEARCH_TIMEOUT: Duration = Duration::from_secs(20);
-const PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT: usize = 10;
+// Inspect a bounded metadata page before choosing extraction attempts. A valid
+// recording can rank below covers/live uploads; extraction/time caps are separate.
+const PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT: usize = 20;
 // Optional catalog lookup inspects a broader bounded page so typed credits after flat-like results remain available for review.
 const PLAYBACK_MUSIC_CATALOG_RESULT_LIMIT: usize = 20;
 const OPTIONAL_PLAYBACK_RESEARCH_MAX: Duration = Duration::from_secs(3);
@@ -4811,8 +4813,9 @@ fn playback_candidate_search_cache_key(
     alternate_artists: &[String],
 ) -> String {
     format!(
-        "{}:playback-source-search-retrieval-3:recording-match-{}:{:?}:{}:{}",
+        "{}:playback-source-search-retrieval-4:result-limit-{}:recording-match-{}:{:?}:{}:{}",
         search_cache_key(track, provider_ids, settings, 3),
+        PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT,
         crate::recording_match::EVALUATOR_VERSION,
         settings.matching_level,
         serde_json::to_string(&settings.flexible_matching).unwrap_or_default(),
@@ -12939,8 +12942,7 @@ mod tests {
             duration_seconds: Some(165.0),
             ..Track::default()
         };
-        let at_ten =
-            crate::youtube_music::parse_search_response(&body, PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT);
+        let at_ten = crate::youtube_music::parse_search_response(&body, 10);
         assert!(!at_ten.iter().any(|item| item.id == "lK_BGCe3q6I"));
         let at_catalog_limit =
             crate::youtube_music::parse_search_response(&body, PLAYBACK_MUSIC_CATALOG_RESULT_LIMIT);
@@ -13419,6 +13421,85 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
+    async fn playback_retains_late_slash_credit_source_for_balanced_fresh_verification() {
+        let mut entries = (0..21)
+            .map(|index| {
+                serde_json::json!({
+                    "id":format!("bad{index:08}"),
+                    "title":"Other Artist - La Nave del Olvido (Live)",
+                    "duration":180,"uploader":"Other Artist"
+                })
+            })
+            .collect::<Vec<_>>();
+        // The observed usable source ranked fifteenth, behind covers and live uploads.
+        entries[14] = serde_json::json!({
+            "id":"H35xiJcS8RY",
+            "url":"https://www.youtube.com/watch?v=H35xiJcS8RY",
+            "title":"Macha y El Bloque Depresivo/Alvaro Henríquez - La Nave del Olvido",
+            "duration":232,"uploader":"Angelo Ortega"
+        });
+        let output = serde_json::json!({"entries":entries});
+        let (_directory, settings) = fake_tool(&format!("cat <<'JSON'\n{output}\nJSON"));
+        let track = Track {
+            id: "spotify:71fwMMqK8Kea3FguUUrl2t".into(),
+            provider: "spotify".into(),
+            provider_id: "71fwMMqK8Kea3FguUUrl2t".into(),
+            title: "La Nave del Olvido".into(),
+            artist: "Macha Y El Bloque Depresivo, Alvaro Henriquez".into(),
+            duration_seconds: Some(235.542),
+            provenance: serde_json::json!({"artistCredits":[
+                {"name":"Macha Y El Bloque Depresivo"},{"name":"Alvaro Henriquez"}
+            ]}),
+            ..Track::default()
+        };
+        let found = find_candidates_with_cancel(
+            &track,
+            &["youtube".into()],
+            &settings,
+            idle_cancel().1,
+            PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT,
+            Duration::from_secs(2),
+        )
+        .await
+        .unwrap();
+        assert_eq!(found.len(), PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT);
+        assert!(!found
+            .iter()
+            .any(|candidate| candidate.id == "youtube:bad00000020"));
+        let candidate = found
+            .iter()
+            .find(|candidate| candidate.id == "youtube:H35xiJcS8RY")
+            .expect("playback must retain the observed rank-fifteen source");
+        let search = crate::recording_match::assess(
+            &track,
+            candidate,
+            crate::recording_match::MatchLevel::Balanced,
+            crate::recording_match::MatchStage::Search,
+        );
+        assert_eq!(
+            search.action,
+            crate::recording_match::MatchAction::Inspect,
+            "{search:?}"
+        );
+        // Discovery remains provisional; the resolved decision uses a fresh, ID-bound response.
+        let mut fresh = candidate.clone();
+        fresh.source_metadata.as_mut().unwrap()["sourceMetadataOrigin"] =
+            serde_json::json!("ytDlpFullInfo");
+        let resolved = crate::recording_match::assess(
+            &track,
+            &fresh,
+            crate::recording_match::MatchLevel::Balanced,
+            crate::recording_match::MatchStage::Resolved,
+        );
+        assert_eq!(
+            resolved.action,
+            crate::recording_match::MatchAction::Accept,
+            "{resolved:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
     async fn playback_search_uses_provider_alternatives_after_imported_hint() {
         let mut entries = (0..3)
             .map(|index| {
@@ -13439,7 +13520,7 @@ mod tests {
             "uploader":"Stamatis Kraounakis"
         });
         entries.push(exact);
-        entries.extend((4..11).map(|index| {
+        entries.extend((4..21).map(|index| {
             serde_json::json!({
                 "id":format!("unrelated-{index}"),
                 "url":format!("https://www.youtube.com/watch?v=unrelated-{index}"),
@@ -13494,7 +13575,7 @@ mod tests {
             .expect("eligible exact source beyond initial search results");
         assert!(!found
             .iter()
-            .any(|candidate| candidate.id == "youtube:unrelated-10"));
+            .any(|candidate| candidate.id == "youtube:unrelated-20"));
         assert!(crate::source_fallback::playback_recording_matches(
             &track, exact
         ));
@@ -14372,7 +14453,7 @@ mod tests {
         // Feat./ft variants have perfect token coverage and nearly-perfect scores,
         // but the exact contiguous artist-credit condition leaves them at review;
         // the strict matcher rejects their extra credit token. The clean credited
-        // result is high confidence and is within production's ten-result cap.
+        // result is high confidence and is within production's bounded metadata page.
         for rank in [2, 5, 7, 11] {
             assert_eq!(
                 observations[rank - 1].1,

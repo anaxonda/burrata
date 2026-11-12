@@ -1,0 +1,39 @@
+{
+  "case": "Spotify search — La Nave del Olvido",
+  "request": {
+    "provider": "spotify",
+    "providerId": "71fwMMqK8Kea3FguUUrl2t",
+    "durationSeconds": 235.542
+  },
+  "installedBeforeFix": {
+    "sha256": "04b9a3a8649b2b10158301969912cd8a065da6710853cab63c6c79efc3b55a5d"
+  },
+  "searchContinuation": false,
+  "queueCount": 1,
+  "identityCheck": {
+    "phase": "full_identity_check",
+    "provider": "youtube",
+    "elapsedMs": 12510,
+    "details": {
+      "candidateArtistMetadataPresent": false,
+      "candidateArtistSpellingsCount": 2,
+      "candidateTitleArtistCreditPresent": true,
+      "catalogDuration": 235.542,
+      "ok": false,
+      "proofKind": "none",
+      "providerIdMatches": true,
+      "requestedVersion": false,
+      "resolvedArtistMetadataPresent": false,
+      "resolvedChannelIdPresent": true,
+      "resolvedDuration": 231,
+      "resolvedIdentityMetadataUncertain": false,
+      "resolvedTitleArtistCreditPresent": true,
+      "resolvedTitlePresent": true,
+      "sourceFingerprint": "aeeeb8b4b7b84ed6a30b05aa5ea713c15ddc5372989a605ae06c4269ae07b30e",
+      "sourcePageUrl": "https://www.youtube.com/watch?v=H35xiJcS8RY",
+      "topicUploader": false,
+      "trackFingerprint": "45f3c52a6740bfb215969a9f537f7f06379d91fae098c7ce310bdc170c077905"
+    }
+  },
+  "conclusion": "The fresh YouTube source is H35xiJcS8RY, the slash-separated accented collaboration-caption regression addressed by the candidate. Queue continuation is separately disabled."
+}
