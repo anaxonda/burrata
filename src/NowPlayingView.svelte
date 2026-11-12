@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HeartIcon from "./HeartIcon.svelte";
   import { dismissDetails } from "./lib/dismiss-details";
   import { onMount } from "svelte";
   import ArtworkImage from "./ArtworkImage.svelte";
@@ -50,7 +51,7 @@
   <div class="content">
     <div class="hero">
     <div class="hero-art" class:both-art={artworkMode === "both" && Boolean(detectedArtworkUrl)}>{#if artworkMode !== "detected" || !detectedArtworkUrl}<ArtworkImage urls={[artworkUrl, track.artworkUrl]} upgradeCandidates={fullscreenArtworkUpgradeCandidates(sourceArtworkUrl ? {...track, artworkUrl:sourceArtworkUrl} : track)} />{/if}{#if (artworkMode === "detected" || artworkMode === "both") && detectedArtworkUrl}<img class="detected-artwork" src={detectedArtworkUrl} alt="Detected track artwork" />{/if}</div>
-    <div class="recording"><h1>{title}</h1><button class="artist-link" onclick={onArtist}>{track.artist || "Artist unknown"}</button>{#if track.album}<button class="album-link" disabled={!onAlbum} onclick={onAlbum}>{track.album}</button>{/if}<button class="favorite" onclick={onFavorite} aria-label={track.favorite ? "Remove from favorites" : "Add to favorites"} aria-pressed={track.favorite}>{track.favorite ? "♥" : "♡"}</button></div>
+    <div class="recording"><h1>{title}</h1><button class="artist-link" onclick={onArtist}>{track.artist || "Artist unknown"}</button>{#if track.album}<button class="album-link" disabled={!onAlbum} onclick={onAlbum}>{track.album}</button>{/if}<button class="favorite" onclick={onFavorite} aria-label={track.favorite ? "Remove from favorites" : "Add to favorites"} aria-pressed={track.favorite}><HeartIcon filled={track.favorite} /></button></div>
     </div>
     <div class="cards">
       <article class="artist-card"><ArtistInformation {track} {loadArtist} {onArtist} {onArtistRef} />{#if loadRecording}<RecordingInformation {track} {loadRecording} {contextLookupConfigured} {contextLookupRevision} {contextTargets} onRelease={onRecordingRelease} onArtist={onArtistRef} />{/if}</article>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HeartIcon from "./HeartIcon.svelte";
   import { getContext } from "svelte";
   import { SOURCE_OPENER, type SourceOpener } from "./lib/source-opening";
   import { call } from "./lib/api";
@@ -336,7 +337,7 @@
       {#if duration !== null}<span class="duration">{Math.floor(duration / 60)}:{String(Math.floor(duration % 60)).padStart(2, "0")}</span>{/if}
       <div class="row-actions">
         {#if onPlay}<button class="icon-action play" class:buffering={buffering && presentation !== "playlist"} aria-busy={buffering && presentation !== "playlist"} aria-label={buffering && presentation !== "playlist" ? `Buffering ${track.title}` : `Play ${track.title}`} title={buffering && presentation !== "playlist" ? "Buffering audio" : "Play"} onclick={() => onPlay?.(track, tracks, index)}>▶</button>{/if}
-        {#if onFavorite}<button class="icon-action favorite" class:active={track.favorite} aria-label={`${track.favorite ? "Remove" : "Add"} ${track.title} ${track.favorite ? "from" : "to"} favorites`} aria-pressed={track.favorite} title={track.favorite ? "Remove from favorites" : "Add to favorites"} onclick={() => onFavorite?.(track)}>{track.favorite ? "♥" : "♡"}</button>{/if}
+        {#if onFavorite}<button class="icon-action favorite" class:active={track.favorite} aria-label={`${track.favorite ? "Remove" : "Add"} ${track.title} ${track.favorite ? "from" : "to"} favorites`} aria-pressed={track.favorite} title={track.favorite ? "Remove from favorites" : "Add to favorites"} onclick={() => onFavorite?.(track)}><HeartIcon filled={track.favorite} /></button>{/if}
         {#if onDownload}<button class="icon-action" aria-label={`Download ${track.title}`} title="Download" onclick={() => onDownload?.(track)}>↓</button>{/if}
         {#if onContext || onNext || onQueue || onPlaylist || onArtist || onInfo || onFavorite || onDownload || onSelect || onAddSelectedToPlaylist || trackSource(track)}
           <button class="more-trigger row-more" aria-label={`Actions for ${track.title}`} aria-haspopup="dialog" title="Track actions" onclick={(event) => openActions(track, index, event)}>⋯</button>

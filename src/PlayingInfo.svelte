@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HeartIcon from "./HeartIcon.svelte";
   import { getContext } from "svelte";
   import { SOURCE_OPENER, type SourceOpener } from "./lib/source-opening";
   import { liveBpmLabel } from "./lib/live-bpm";
@@ -454,7 +455,7 @@ import { trackSource } from "./lib/source-link";
     {#if loadArtist && track.artist && (!radioLinks.isRadio || track.provenance && (track.provenance as Record<string, unknown>).radioMetadata)}<ArtistInformation {track} {loadArtist} {onArtist} {onArtistRef} compact />{/if}
     {#if loadRecording && (!radioLinks.isRadio || track.provenance && (track.provenance as Record<string, unknown>).radioMetadata)}<RecordingInformation {track} {loadRecording} {contextLookupConfigured} {contextLookupRevision} onRelease={onRecordingRelease} onArtist={onArtistRef} compact />{/if}
     <div class="actions">
-      {#if onFavorite}<button aria-label={favorite ? "Remove from favorites" : "Add to favorites"} aria-pressed={favorite} onclick={onFavorite}>{favorite ? "♥ Favorited" : "♡ Add to favorites"}</button>{/if}
+      {#if onFavorite}<button aria-label={favorite ? "Remove from favorites" : "Add to favorites"} aria-pressed={favorite} onclick={onFavorite}><HeartIcon filled={favorite} /> {favorite ? "Favorited" : "Add to favorites"}</button>{/if}
       {#if onPlay}<button class="primary" onclick={onPlay}>Play</button>{/if}
       {#if onOpenMpv}<button onclick={onOpenMpv}>Open in mpv</button>{/if}
       {#if onIdentifyRadio}<button disabled={identifyingRadio && !onCancelIdentifyRadio} onclick={identifyingRadio ? onCancelIdentifyRadio ?? onIdentifyRadio : onIdentifyRadio}>{identifyingRadio?onCancelIdentifyRadio?`Cancel capture · ${Math.floor(identifyProgress)} / 8 s`:"Identifying…":"Identify song"}</button>{/if}

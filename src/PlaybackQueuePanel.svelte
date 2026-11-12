@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HeartIcon from "./HeartIcon.svelte";
   import TrackDownloadFilter from "./TrackDownloadFilter.svelte";
   let downloadAvailability = $state<"all"|"downloaded"|"not-downloaded">("all");
   $effect(()=>{downloadAvailability;selectedRows=[];selectionAnchor=-1;});
@@ -330,7 +331,7 @@
             <button onkeydown={event=>moveSelectionKey(event,index)} class="track-select" title={`${track.title}${track.artist ? ` · ${track.artist}` : ""}`} aria-label={index === currentIndex ? `${buffering ? "Buffering" : paused ? "Paused" : "Playing"} ${track.title}` : "Play " + track.title} onclick={event => { if(event.ctrlKey||event.metaKey||event.shiftKey)selectQueueRow(index,event);else onPlay(index); }}>
               <span class="track-index">{index === currentIndex ? buffering ? "…" : paused ? "Ⅱ" : "♫" : String(index + 1).padStart(2, "0")}</span>
               <span class="track-copy"><strong>{track.title}{track.version ? " (" + track.version + ")" : ""}</strong><small>{track.artist || "Unknown artist"}{track.album ? " · " + track.album : ""}</small></span>
-              {#if favoriteIds ? favoriteIds.has(track.id) : track.favorite}<span class="queue-favorite" role="img" aria-label="Favorited" title="In Liked Songs">♥</span>{/if}
+              {#if favoriteIds ? favoriteIds.has(track.id) : track.favorite}<span class="queue-favorite" role="img" aria-label="Favorited" title="In Liked Songs"><HeartIcon filled /></span>{/if}
               {#if duration!==null}<span class="track-duration">{time(duration)}</span>{/if}
             </button>
             <details class="queue-more"><summary onclick={event => toggleMoreMenu(event, `queue:${index}`)} aria-label={"More actions for " + track.title} aria-haspopup="menu" aria-expanded={activeMenuKey === `queue:${index}`} title="More actions">⋯</summary>{#if activeMenuKey === `queue:${index}`}<ActionMenu anchorRect={menuAnchor} playerHeight={menuPlayerHeight} label={"Actions for " + track.title} title={track.title} role="menu" class="queue-more-menu" onClose={closeOpenMenu}>
@@ -354,7 +355,7 @@
                 <div class="chapter-child detection-child">
                   <button class="chapter-child-play detection-seek" aria-label={`Seek to ${approximateDetectionTime(observation.detectedAtSeconds)} in ${track.title}`} onclick={() => onSeekDetection?.(track, observation, index)}><span>{approximateDetectionTime(observation.detectedAtSeconds)}</span></button>
                   <button class="detection-track-info" onclick={() => onInfoDetection?.(detectedTrack)}><strong>{observation.title}</strong><span>{observation.artist}</span></button>
-                  {#if favoriteIds?.has(detectedTrack.id)}<span class="queue-favorite" role="img" aria-label="Favorited" title="In Liked Songs">♥</span>{/if}
+                  {#if favoriteIds?.has(detectedTrack.id)}<span class="queue-favorite" role="img" aria-label="Favorited" title="In Liked Songs"><HeartIcon filled /></span>{/if}
                   {#if onAddDetectionToPlaylist}<button class="detection-add" aria-label={`Add ${observation.title} by ${observation.artist} to playlist`} title="Add to playlist" onclick={() => onAddDetectionToPlaylist?.(detectedTrack)}>＋</button>{/if}
                 </div>
               {/each}

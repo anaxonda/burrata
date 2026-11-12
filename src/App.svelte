@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HeartIcon from "./HeartIcon.svelte";
   import { dismissDetails } from "./lib/dismiss-details";
 
   import { hasExplicitSourceLock } from "./lib/source-lock";
@@ -8440,7 +8441,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       </details>{/if}
       {#if !liveRadioPlayback}<button aria-label={completeStreamWaveformVisible ? "Waveform seek bar, full verified stream waveform" : "Waveform seek bar"} title={`${waveformEnabled ? "Disable" : "Enable"} waveform seek bar${waveformRouteUpgradeStatus ? ` · ${waveformRouteUpgradeStatus}` : playbackWaveformReason ? ` · ${playbackWaveformReason}` : ""}`} aria-pressed={waveformEnabled} disabled={!playingTrack} onclick={toggleWaveformSeek}>〰</button>{/if}
       <button aria-label="Full-screen Now Playing" title="Full-screen Now Playing" aria-pressed={showFullNowPlaying} disabled={!playingTrack} onclick={() => { const open = !showFullNowPlaying; openPlayerPanel(null); showFullNowPlaying = open; }}>⤢</button>
-      <button class="player-heart" aria-label={playbackActionTrack?.favorite?"Remove playing track from favorites":"Add playing track to favorites"} aria-pressed={playbackActionTrack?.favorite??false} disabled={!playbackActionTrack || Boolean(liveRadioPlayback&&!currentRadioSong)} title={playbackActionTrack?.favorite ? "Remove playing track from favorites" : "Add playing track to favorites"} onclick={()=>{const track=playbackActionTrack;if(track)void favorite(track);}}>{playbackActionTrack?.favorite?"♥":"♡"}</button>
+      <button class="player-heart" aria-label={playbackActionTrack?.favorite?"Remove playing track from favorites":"Add playing track to favorites"} aria-pressed={playbackActionTrack?.favorite??false} disabled={!playbackActionTrack || Boolean(liveRadioPlayback&&!currentRadioSong)} title={playbackActionTrack?.favorite ? "Remove playing track from favorites" : "Add playing track to favorites"} onclick={()=>{const track=playbackActionTrack;if(track)void favorite(track);}}><HeartIcon filled={playbackActionTrack?.favorite ?? false} /></button>
       <button class="queue-toggle" aria-label="Show playback queue and chapters" title="Queue and chapters" aria-pressed={showQueue} onclick={() => openPlayerPanel(showQueue ? null : "queue")}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 5h16M3 10h16M3 15h8"/><path d="m16 14 5 4-5 4z"/></svg><span>Queue</span></button>
       <label class="player-volume-control" title="Volume">
         <span aria-hidden="true">◖))</span>

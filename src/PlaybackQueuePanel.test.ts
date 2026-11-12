@@ -45,7 +45,7 @@ describe("PlaybackQueuePanel", () => {
 
   it("uses embedded favorite state when no saved favorite list is supplied", async () => {
     const target = render({tracks:[{...track, favorite:true}]}); await tick();
-    expect(target.querySelector('.track-select [aria-label="Favorited"]')?.textContent).toBe("♥");
+    expect(target.querySelector('.track-select [aria-label="Favorited"] svg')?.getAttribute('fill')).toBe("currentColor");
   });
 
   it("requests saved row data only when a queue row enters the viewport", async () => {

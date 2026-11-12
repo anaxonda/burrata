@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HeartIcon from "./HeartIcon.svelte";
   import ActionMenu from "./ActionMenu.svelte";
   import SourceLink from "./SourceLink.svelte";
   import MenuIcon from "./MenuIcon.svelte";
@@ -17,7 +18,7 @@
   {#if onNext}<button onclick={() => action(onNext!)}><MenuIcon name="play"/><span>Play next</span></button>{/if}
   {#if onQueue}<button onclick={() => action(onQueue!)}><MenuIcon name="queue"/><span>Add to queue</span></button>{/if}
   {#if onPlaylist}<button class="primary-action" onclick={() => action(onPlaylist!)}><MenuIcon name="plus"/><span>Add to playlist…</span></button>{/if}
-  {#if onFavorite}<button onclick={() => action(onFavorite!)}><MenuIcon name="heart"/><span>{track.favorite ? "Remove from Liked Songs" : "Add to Liked Songs"}</span></button>{/if}
+  {#if onFavorite}<button onclick={() => action(onFavorite!)}><HeartIcon filled={track.favorite} /><span>{track.favorite ? "Remove from Liked Songs" : "Add to Liked Songs"}</span></button>{/if}
   {#if onRadio}<button class="menu-section" disabled={radioBusy} onclick={() => action(onRadio!)}><MenuIcon name="radio"/><span>{radioBusy ? "Finding radio…" : "Start song radio"}</span></button>{/if}
   {#if onArtist}<button class="menu-section" onclick={() => action(onArtist!)}><MenuIcon name="search"/><span>Open artist</span></button>{/if}
   {#if onGoToAlbum}<button class="menu-section" onclick={() => action(onGoToAlbum!)}><MenuIcon name="album"/><span>Go to album</span></button>{/if}
