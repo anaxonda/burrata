@@ -873,6 +873,12 @@ pub(super) fn verify_with_discogs_credit_variant_and_options_traced(
             kind: RecordingProofKind::ExplicitSource,
         });
     }
+    if !crate::youtube_recording_metadata::catalog_context_matches_request(
+        track,
+        resolved.source_metadata.as_ref().unwrap_or(&Value::Null),
+    ) {
+        return None;
+    }
     let role_credit_assessment = if discogs_credit_variant.is_none() {
         role_context_candidate(track, &resolved, trace)
     } else {
@@ -2187,6 +2193,34 @@ mod tests {
             expected_content_length: None,
             headers: vec![],
         }
+    }
+
+    #[test]
+    fn traced_verification_rejects_album_credit_projection_for_another_request() {
+        let (_directory, store) = store();
+        let mut track = request();
+        track.album = Some("Requested album".into());
+        let mut resolved_audio = audio("Song", json!(["Artist"]));
+        let metadata = resolved_audio.source_metadata.as_mut().unwrap();
+        metadata["artistCreditSource"] = json!("youtubeMusicCatalogVerifiedAlbum");
+        metadata["catalogRequestedAlbum"] = json!("Another album");
+        metadata["catalogRequestedDurationSeconds"] = json!(180.);
+        let mut source = candidate();
+        assert!(verify_with_discogs_credit_variant_and_options_traced(
+            &track,
+            &[],
+            &[],
+            None,
+            &mut source,
+            &resolved_audio,
+            true,
+            MatchLevel::Balanced,
+            &store,
+            None,
+            crate::recording_match::FlexibleMatchingOptions::default(),
+            None,
+        )
+        .is_none());
     }
 
     #[test]
