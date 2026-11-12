@@ -5445,15 +5445,36 @@ async fn resolve_serial(
         }
     }
     let failure = failures.finish(track.duration_seconds.is_none());
+    let identity_rejected = trace
+        .identity_rejected_sources
+        .lock()
+        .is_ok_and(|sources| !sources.is_empty());
+    Err(final_resolution_failure(
+        failure,
+        pinned,
+        multiple_providers,
+        identity_rejected,
+    ))
+}
+
+fn final_resolution_failure(
+    failure: String,
+    pinned: bool,
+    multiple_providers: bool,
+    identity_rejected: bool,
+) -> String {
     if !pinned
         && multiple_providers
         && failure == "Audio source is DRM protected; choose another source"
     {
-        return Err(
-            "One source is DRM protected; no other verified source could be played.".into(),
-        );
+        return if identity_rejected {
+            "One source is DRM protected; other candidates failed recording identity verification."
+                .into()
+        } else {
+            "One source is DRM protected; no other verified source could be played.".into()
+        };
     }
-    Err(failure)
+    failure
 }
 
 fn candidate_artist_spellings(
@@ -15760,6 +15781,24 @@ mod catalog_alias_priority_tests {
         assert!(ordinary.try_spend_extraction_for("soundcloud"));
         assert!(ordinary.try_spend_extraction_for("soundcloud"));
         assert!(!ordinary.try_spend_extraction_for("youtube"));
+    }
+
+    #[test]
+    fn mixed_source_failures_preserve_identity_evidence_without_unpinning() {
+        let drm = "Audio source is DRM protected; choose another source";
+        assert_eq!(
+            final_resolution_failure(drm.into(), false, true, true),
+            "One source is DRM protected; other candidates failed recording identity verification."
+        );
+        assert_eq!(final_resolution_failure(drm.into(), true, true, true), drm);
+        assert_eq!(
+            final_resolution_failure(drm.into(), false, false, true),
+            drm
+        );
+        assert_eq!(
+            final_resolution_failure("Cancelled".into(), false, true, true),
+            "Cancelled"
+        );
     }
 
     #[test]

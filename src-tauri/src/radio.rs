@@ -1386,7 +1386,7 @@ fn parse_mix_entries(
             ..Candidate::default()
         };
         let candidate_json = serde_json::to_value(&candidate).unwrap_or(Value::Null);
-        tracks.push(Track {
+        let mut track = Track {
             id: format!("youtube:{id}"),
             provider: "youtube".into(),
             provider_id: id.to_owned(),
@@ -1406,7 +1406,9 @@ fn parse_mix_entries(
                 "audioCandidate":candidate_json
             }),
             ..Track::default()
-        });
+        };
+        crate::metadata_normalization::normalize_selected_track(&mut track, title, &candidate.url);
+        tracks.push(track);
     }
     tracks
 }
@@ -1502,6 +1504,25 @@ mod tests {
             "unknown"
         );
         assert_eq!(tracks[0].provenance["uploader"], "Channel A");
+    }
+
+    #[test]
+    fn autoplay_live_caption_retains_source_and_supplies_weak_performer_metadata() {
+        let entries = vec![
+            json!({"id":"fr1AFMoBDEw","title":"Macha Y El Bloque Depresivo - Regresa (live Opéra de Lyon)","uploader":"Boa Viagem Music","duration":383}),
+        ];
+        let tracks = parse_mix_entries("catalog:seed", "Seed", "seedVideo01", &entries, 1);
+        assert_eq!(tracks[0].artist, "Macha Y El Bloque Depresivo");
+        assert_eq!(tracks[0].title, "Regresa");
+        assert_eq!(tracks[0].version.as_deref(), Some("live Opéra de Lyon"));
+        assert_eq!(
+            tracks[0].provenance["identity"],
+            "unverified YouTube autoplay recommendation"
+        );
+        assert_eq!(
+            tracks[0].provenance["audioCandidate"]["title"],
+            entries[0]["title"]
+        );
     }
 
     #[test]

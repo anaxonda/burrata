@@ -611,6 +611,11 @@ fn inferred_youtube_upload_identity(
         return None;
     }
     let source_title = title.trim();
+    if let Some(live) =
+        crate::metadata_normalization::infer_live_performance(source_title, None, None)
+    {
+        return Some((live.title, live.artist));
+    }
     let (base, presentation) = crate::matching::split_balanced_trailing_parenthetical(source_title)
         .or_else(|| {
             source_title
@@ -1634,6 +1639,23 @@ mod tests {
         let provider_error = lookup_sui_generis_with_local_search(429, "rate limited", 1).await;
         assert_eq!(provider_error.status, "providerUnavailable");
         assert!(provider_error.plain_lyrics.is_none());
+    }
+
+    #[test]
+    fn youtube_autoplay_live_caption_supplies_lyrics_query_without_mutating_snapshot() {
+        let snapshot = serde_json::json!({"status":"playing","trackId":"youtube:fr1AFMoBDEw","duration":383.0,
+            "track":{"id":"youtube:fr1AFMoBDEw","provider":"youtube","title":"Macha Y El Bloque Depresivo - Regresa (live Opéra de Lyon)","artist":"","durationSeconds":383.0}});
+        let request = request_from_snapshot(&snapshot).unwrap();
+        assert_eq!(request.track_name, "Regresa");
+        assert_eq!(request.artist_name, "Macha Y El Bloque Depresivo");
+        assert!(valid_request(&request));
+        assert_eq!(snapshot["track"]["artist"], "");
+        let mut known = snapshot.clone();
+        known["track"]["artist"] = serde_json::json!("Known catalog artist");
+        assert_eq!(
+            request_from_snapshot(&known).unwrap().artist_name,
+            "Known catalog artist"
+        );
     }
 
     #[test]

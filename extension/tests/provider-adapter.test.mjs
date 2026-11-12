@@ -728,3 +728,19 @@ test('YouTube bootstrap does not borrow a different active-header handle',async(
  });
  assert.equal(calls.filter(call=>call.target.includes('navigation/resolve_url')).length,1);
 });
+
+test('authenticated YouTube music rows preserve atomic credits and exact album endpoints',async()=>{
+ const run=(name,pageType,browseId)=>({text:name,navigationEndpoint:{browseEndpoint:{browseId,browseEndpointContextSupportedConfigs:{browseEndpointContextMusicConfig:{pageType}}}}});
+ const col=runs=>({musicResponsiveListItemFlexColumnRenderer:{text:{runs}}});
+ const body={contents:{musicResponsiveListItemRenderer:{playlistItemData:{videoId:'abcdefghijk'},flexColumns:[
+  col([{text:'Song'}]),col([run('Earth, Wind & Fire','MUSIC_PAGE_TYPE_ARTIST','UCabcdefghijklmnopqrstuv'),{text:' • '},run('Guest','MUSIC_PAGE_TYPE_ARTIST','UCABCDEFGHIJKLMNOPQRSTUV'),run('Album','MUSIC_PAGE_TYPE_ALBUM','MPREb_fixture123')])
+ ],fixedColumns:[{musicResponsiveListItemFixedColumnRenderer:{text:{runs:[{text:'3:12'}]}}}]}}};
+ const bootstrap=youtubeChannelFetch({browseResponse:{}}).fetchImpl;
+ const fetchImpl=async(url,options={})=>String(url).includes('/youtubei/v1/search') ? ({ok:true,status:200,headers:new Headers(),text:async()=>JSON.stringify(body)}) : bootstrap(url,options);
+ const context=makeYoutubeSessionContext(fetchImpl);
+ const result=JSON.parse(JSON.stringify(await context.BurrataYouTubeSessionProvider.run('search',{query:'Song',kind:'track'},youtubeSessionFixture,{fetchImpl})));
+ const row=result.items[0].data;
+ assert.equal(row.album,'Album');assert.equal(row.albumBrowseId,'MPREb_fixture123');
+ assert.deepEqual(row.artistCredits.map(credit=>credit.name),['Earth, Wind & Fire','Guest']);
+ assert.equal(row.artistCredits[0].joinPhrase,' • ');assert.equal(row.artistCredits[0].providerId,'UCabcdefghijklmnopqrstuv');
+});

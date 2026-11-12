@@ -137,6 +137,8 @@
     "allow-cancel-slskd-search",
     "allow-search-artists",
     "allow-search-albums",
+    "allow-resolve-track-album",
+    "allow-verify-spotify-album-membership",
     "allow-cached-spotify-artist-ref",
     "allow-get-artist-profile",
     "allow-get-artist-artwork",

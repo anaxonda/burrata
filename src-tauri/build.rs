@@ -245,6 +245,8 @@ const COMMANDS: &[&str] = &[
     "cancel_slskd_search",
     "search_artists",
     "search_albums",
+    "resolve_track_album",
+    "verify_spotify_album_membership",
     "cached_spotify_artist_ref",
     "get_artist_profile",
     "get_artist_artwork",

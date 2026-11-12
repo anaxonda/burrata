@@ -5,8 +5,9 @@
   import MenuIcon from "./MenuIcon.svelte";
   import { trackSource } from "./lib/source-link";
   import type { Track } from "./lib/types";
-  let { track, onClose, onNext, onQueue, onPlaylist, onFavorite, onDownload, onUpgrade: _onUpgrade, onDetails, onSelect, onRemove, onRadio, onMoreInfo, onOpenMpv, onGoToAlbum, onArtist, onOpenSource, onGoToAlbumUnavailable = false, radioBusy = false, anchor = null, playerHeight = 90 }: {
+  let { track, onClose, onNext, onQueue, onPlaylist, onFavorite, onDownload, onUpgrade: _onUpgrade, onDetails, onSelect, onRemove, onRadio, onMoreInfo, onOpenMpv, onGoToAlbum, onArtist, onOpenSource, albumActionLabel = "Go to album", onGoToAlbumUnavailable = false, radioBusy = false, anchor = null, playerHeight = 90 }: {
     track: Track; onClose: () => void; onNext?: () => void; onQueue?: () => void;
+    albumActionLabel?: "Go to album" | "Find album";
     onPlaylist?: () => void; onFavorite?: () => void; onDownload?: () => void; onUpgrade?: () => void;
     onDetails?: () => void; onSelect?: () => void; onArtist?: () => void; onOpenSource?: () => void; onRemove?: () => void; onRadio?: () => void; onMoreInfo?: () => void; onOpenMpv?: () => void; onGoToAlbum?: () => void; onGoToAlbumUnavailable?: boolean; radioBusy?: boolean; anchor?: { x: number; y: number } | null; playerHeight?: number;
   } = $props();
@@ -21,7 +22,7 @@
   {#if onFavorite}<button onclick={() => action(onFavorite!)}><HeartIcon filled={track.favorite} /><span>{track.favorite ? "Remove from Liked Songs" : "Add to Liked Songs"}</span></button>{/if}
   {#if onRadio}<button class="menu-section" disabled={radioBusy} onclick={() => action(onRadio!)}><MenuIcon name="radio"/><span>{radioBusy ? "Finding radio…" : "Start song radio"}</span></button>{/if}
   {#if onArtist}<button class="menu-section" onclick={() => action(onArtist!)}><MenuIcon name="search"/><span>Open artist</span></button>{/if}
-  {#if onGoToAlbum}<button class="menu-section" onclick={() => action(onGoToAlbum!)}><MenuIcon name="album"/><span>Go to album</span></button>{/if}
+  {#if onGoToAlbum}<button class="menu-section" onclick={() => action(onGoToAlbum!)}><MenuIcon name="album"/><span>{albumActionLabel}</span></button>{/if}
   {#if !onGoToAlbum && onGoToAlbumUnavailable}<button class="menu-section" disabled aria-label="Go to album. Album link unavailable for this track." title="Album link unavailable for this track."><MenuIcon name="album"/><span>Go to album</span></button>{/if}
   {#if onOpenSource}<button class="source-action menu-section" onclick={() => action(onOpenSource!)}><MenuIcon name="external"/><span>Open source</span></button>{:else if hasSource}<div class="source-row menu-section"><SourceLink {track} trailingArrow={false} onOpened={onClose}>{#snippet leadingIcon()}<MenuIcon name="external"/>{/snippet}</SourceLink></div>{/if}
   {#if onDownload}<button onclick={() => action(onDownload!)}><MenuIcon name="download"/><span>Download options…</span></button>{/if}

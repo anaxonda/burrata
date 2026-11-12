@@ -119,6 +119,8 @@ fn infer_named_live_version(
         &version[8..]
     } else if lower.starts_with("live on ") {
         &version[8..]
+    } else if lower.starts_with("live ") && !matches!(lower[5..].trim(), "at" | "on") {
+        &version[5..]
     } else {
         return None;
     };

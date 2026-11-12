@@ -5603,6 +5603,19 @@ fn sanitize_manual_provenance(value: &Value) -> Value {
         return Value::Object(Map::new());
     };
     let mut clean = Map::new();
+    if let Some(id) = object
+        .get("albumBrowseId")
+        .and_then(Value::as_str)
+        .filter(|id| {
+            id.starts_with("MPREb_")
+                && id.len() <= 128
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+        })
+    {
+        clean.insert("albumBrowseId".into(), Value::String(id.to_owned()));
+    }
     for key in [
         "manualFields",
         "dateAdded",
@@ -5708,7 +5721,7 @@ fn sanitize_manual_provenance(value: &Value) -> Value {
                     "name".into(),
                     sanitize_json(&Value::String(name.to_owned())),
                 );
-                for key in ["role", "providerId"] {
+                for key in ["role", "providerId", "creditedAs", "joinPhrase"] {
                     if let Some(value) = credit
                         .get(key)
                         .and_then(Value::as_str)
@@ -6113,6 +6126,24 @@ mod tests {
     use super::*;
     use rusqlite::Connection;
     use sha2::Digest;
+
+    #[test]
+    fn album_endpoint_and_artist_credit_boundaries_survive_safe_projection() {
+        let raw = serde_json::json!({
+            "albumBrowseId":"MPREb_album123", "accessToken":"example-fixture-token",
+            "artistCredits":[{"name":"Act One","role":"artist","providerId":"one","creditedAs":"Act 1","joinPhrase":" & "},
+                {"name":"Act Two","role":"artist","providerId":"two","joinPhrase":""}]
+        });
+        let clean = sanitize_manual_provenance(&raw);
+        assert_eq!(clean["albumBrowseId"], raw["albumBrowseId"]);
+        assert_eq!(clean["artistCredits"], raw["artistCredits"]);
+        assert!(clean.get("accessToken").is_none());
+        let mut invalid = raw;
+        invalid["albumBrowseId"] = serde_json::json!("https://example.test/?token=secret");
+        assert!(sanitize_manual_provenance(&invalid)
+            .get("albumBrowseId")
+            .is_none());
+    }
 
     #[test]
     fn library_artist_album_saves_and_featured_membership_survive_backup_merge() {

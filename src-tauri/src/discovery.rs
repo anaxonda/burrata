@@ -1275,7 +1275,17 @@ impl DiscoveryService {
                     }
                     next_music_continuation = music.continuation;
                     for r in take_unseen_music_items(music.items, &mut seen_music_ids) {
-                        let source_metadata = json!({"provider":"youtube","catalogVerified":false,"artist":r.artist,"song":r.title,"album":r.album,"sourceGenres":[]});
+                        let artist_credits = r
+                            .artist_credits
+                            .iter()
+                            .map(|credit| {
+                                json!({
+                                    "name":credit.name,"providerId":credit.provider_id,
+                                    "provenance":"youtubeMusicStructuredCredits"
+                                })
+                            })
+                            .collect::<Vec<_>>();
+                        let source_metadata = json!({"provider":"youtube","catalogVerified":false,"artist":r.artist,"song":r.title,"album":r.album,"albumBrowseId":r.album_browse_id,"artistCredits":artist_credits,"sourceGenres":[]});
                         let candidate = json!({"id":r.id,"provider":"youtube","url":r.url,"title":r.title,"uploader":r.artist,"durationSeconds":r.duration_seconds,"formats":[],"permission":"unknown","confidence":"review","score":0.0,"reasons":["YouTube Music result; source identity is unverified"],"official":false,"sourceMetadata":source_metadata});
                         let track = Track {
                             id: format!("youtube:{}", r.id),
@@ -1288,7 +1298,7 @@ impl DiscoveryService {
                             isrc: r.isrc.clone(),
                             artwork_url: r.artwork_url.clone(),
                             duration_seconds: r.duration_seconds,
-                            provenance: json!({"source":{"provider":"youtube","id":r.id,"url":r.url,"catalogVerified":false},"sourceMetadata":source_metadata,"audioCandidate":candidate}),
+                            provenance: json!({"source":{"provider":"youtube","id":r.id,"url":r.url,"catalogVerified":false},"sourceMetadata":source_metadata,"artistCredits":artist_credits,"albumBrowseId":r.album_browse_id,"audioCandidate":candidate}),
                             ..Track::default()
                         };
                         out.results.push(DiscoveryResult {
@@ -2774,6 +2784,8 @@ mod tests {
         let fresh = take_unseen_music_items(
             vec![
                 crate::youtube_music::YouTubeMusicItem {
+                    artist_credits: Vec::new(),
+                    album_browse_id: None,
                     id: "duplicate01".into(),
                     title: "duplicate".into(),
                     artist: None,
@@ -2784,6 +2796,8 @@ mod tests {
                     isrc: None,
                 },
                 crate::youtube_music::YouTubeMusicItem {
+                    artist_credits: Vec::new(),
+                    album_browse_id: None,
                     id: "unique00001".into(),
                     title: "unique".into(),
                     artist: None,

@@ -326,8 +326,8 @@ fn track_from(value: &Value, _index: usize) -> Option<Track> {
     let artists = raw.get("artists")?.as_array()?;
     let artist = artists
         .iter()
-        .filter_map(|a| text(a, "name"))
-        .collect::<Vec<_>>()
+        .map(|a| text(a, "name").filter(|name| !name.trim().is_empty()))
+        .collect::<Option<Vec<_>>>()?
         .join(", ");
     if artist.is_empty() {
         return None;
@@ -380,7 +380,13 @@ fn track_from(value: &Value, _index: usize) -> Option<Track> {
         catalog_number: text(release, "catalog_number"),
         rank,
         preview_url: preview,
-        provenance: serde_json::json!({"catalog": "beatport", "raw": raw}),
+        provenance: serde_json::json!({"catalog": "beatport", "raw": raw,
+            "catalogProvider":"beatport", "releaseId":text(release,"id"),
+            "artistCredits":artists.iter().map(|artist| serde_json::json!({
+                "name":text(artist,"name"), "providerId":text(artist,"id"),
+                "provenance":"beatportStructuredCredits"
+            })).collect::<Vec<_>>()
+        }),
         ..Default::default()
     })
 }
@@ -525,6 +531,23 @@ mod tests {
         assert_eq!(chart.tracks[1].rank, Some(7));
         assert!(chart.tracks[1].bpm.is_none());
         assert!(chart.tracks[1].preview_url.is_none());
+    }
+    #[test]
+    fn preserves_atomic_artist_names_and_rejects_partial_credit_arrays() {
+        let mut raw = serde_json::json!({"id":123,"name":"Song","artists":[
+            {"id":1,"name":"Earth, Wind & Fire"},{"id":2,"name":"Guest"}
+        ]});
+        let track = track_from(&raw, 0).unwrap();
+        assert_eq!(
+            track.provenance["artistCredits"][0]["name"],
+            "Earth, Wind & Fire"
+        );
+        assert_eq!(
+            track.provenance["artistCredits"].as_array().unwrap().len(),
+            2
+        );
+        raw["artists"][1] = serde_json::Value::Null;
+        assert!(track_from(&raw, 0).is_none());
     }
     #[test]
     fn search_results_are_unranked_and_chart_excludes_related_tracks() {

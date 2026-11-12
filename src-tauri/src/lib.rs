@@ -9,6 +9,7 @@ extern "C" {}
 
 pub mod acquisition;
 mod album_excerpt_audio;
+mod album_navigation;
 pub mod analysis;
 pub mod analysis_selection;
 pub mod analysis_stream_selection;
@@ -1770,6 +1771,80 @@ async fn search_albums(
             page.unwrap_or(1),
             &artist_credentials(state.connections.clone()).await?,
         )
+        .await
+}
+
+#[tauri::command]
+async fn resolve_track_album(
+    state: State<'_, AppState>,
+    track: Track,
+    request_id: Option<String>,
+) -> Result<album_navigation::AlbumResolution> {
+    state
+        .provider_reads
+        .run(request_id, || async {
+            tokio::time::timeout(
+                std::time::Duration::from_secs(20),
+                album_navigation::resolve(&state, &track),
+            )
+            .await
+            .map_err(|_| "Album lookup timed out".to_owned())?
+        })
+        .await
+}
+
+#[tauri::command]
+async fn verify_spotify_album_membership(
+    state: State<'_, AppState>,
+    track: Track,
+    album_id: String,
+    request_id: Option<String>,
+) -> Result<bool> {
+    state
+        .provider_reads
+        .run(request_id, || async {
+            tokio::time::timeout(std::time::Duration::from_secs(15), async {
+                let mut page = state
+                    .remote_playlists
+                    .browse_album_tracks(&album_id, None)
+                    .await?;
+                let Some(total) = page.total.filter(|total| (1..=1000).contains(total)) else {
+                    return Ok(false);
+                };
+                let account = page.account_id.clone();
+                let title = page.album.title.clone();
+                let artists = page.album.artists.clone();
+                let mut tracks = Vec::new();
+                let mut cursors = std::collections::HashSet::new();
+                for _ in 0..20 {
+                    if page.account_id != account
+                        || page.album.id != album_id
+                        || page.album.title != title
+                        || page.album.artists != artists
+                        || page.total != Some(total)
+                        || page.album.total_tracks != Some(total)
+                        || tracks.len() + page.tracks.len() > total
+                    {
+                        return Ok(false);
+                    }
+                    tracks.append(&mut page.tracks);
+                    let Some(cursor) = page.next_cursor else {
+                        return Ok(tracks.len() == total
+                            && album_navigation::recording_member(&track, &tracks));
+                    };
+                    if !cursors.insert(cursor.clone()) {
+                        return Ok(false);
+                    }
+                    page = state
+                        .remote_playlists
+                        .browse_album_tracks(&album_id, Some(&cursor))
+                        .await?;
+                }
+                Ok(false)
+            })
+            .await
+            .map_err(|_| "Spotify album verification timed out".to_owned())?
+        })
         .await
 }
 #[tauri::command]
@@ -9505,7 +9580,7 @@ pub fn run() {
             open_external_url
             ,get_connections, save_connections, test_connections, get_managed_slskd_download_settings, save_managed_slskd_download_settings, get_slskd_shares, rescan_slskd_shares, add_managed_slskd_share, remove_managed_slskd_share, translate_current_track_lyrics, lookup_media_context,
             start_slskd_search, get_slskd_search, cancel_slskd_search,
-            search_artists, search_albums, get_artist_artwork, cached_spotify_artist_ref, get_artist_profile, get_artist_releases, get_release_tracks, save_library_tracks,
+            search_artists, search_albums, resolve_track_album, verify_spotify_album_membership, get_artist_artwork, cached_spotify_artist_ref, get_artist_profile, get_artist_releases, get_release_tracks, save_library_tracks,
             get_artist_tracks, get_artist_collaborations, resolve_recording_metadata,
             list_directory_browser_roots, list_directory_browser_children, choose_directory_browser_root, add_directory_browser_root, remove_directory_browser_root, browse_directory_browser, start_directory_browser_sort_availability, get_directory_browser_sort_availability, cancel_directory_browser_sort_availability, start_directory_browser_scan, get_directory_browser_scan, cancel_directory_browser_scan,
             import_onetagger_discogs, list_local_playlists, import_local_playlist,

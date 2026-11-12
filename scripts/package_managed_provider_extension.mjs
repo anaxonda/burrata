@@ -23,6 +23,8 @@ const nativeTarget = path.join(root, 'src-tauri', 'resources', 'native-provider-
 await mkdir(path.join(nativeTarget, 'scripts'), { recursive: true });
 await mkdir(path.join(nativeTarget, 'extension'), { recursive: true });
 await copyFile(path.join(root, 'scripts', 'provider-session-worker.mjs'), path.join(nativeTarget, 'scripts', 'provider-session-worker.mjs'));
+await copyFile(path.join(root, 'scripts', 'youtube-session-worker.mjs'), path.join(nativeTarget, 'scripts', 'youtube-session-worker.mjs'));
 await copyFile(path.join(source, 'spotify-auth.js'), path.join(nativeTarget, 'extension', 'spotify-auth.js'));
 await copyFile(path.join(source, 'provider-operations.js'), path.join(nativeTarget, 'extension', 'provider-operations.js'));
+await copyFile(path.join(source, 'youtube-session-provider.js'), path.join(nativeTarget, 'extension', 'youtube-session-provider.js'));
 process.stdout.write(`Staged managed provider extension at ${target}\n`);

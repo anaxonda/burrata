@@ -74,16 +74,16 @@ describe("TrackMenu", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it("offers an exact Go to album navigation action when the parent supplies a catalog target", async () => {
+  it.each(["Go to album", "Find album"] as const)("offers the %s action supplied by the album resolver", async (label) => {
     globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
     Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.setAttribute("open", ""); } });
     const onGoToAlbum = vi.fn(), onClose = vi.fn(), noop = vi.fn();
     const instance = mount(TrackMenu, { target: document.body, props: {
-      track: { ...track, album: "Selected edition" }, onGoToAlbum, onClose, onNext: noop, onQueue: noop,
+      track: { ...track, album: "Selected edition" }, albumActionLabel: label, onGoToAlbum, onClose, onNext: noop, onQueue: noop,
       onPlaylist: noop, onFavorite: noop, onDownload: noop, onDetails: noop, onSelect: noop,
     } as never });
     destroy = () => unmount(instance); await tick();
-    const albumAction = [...document.querySelectorAll<HTMLButtonElement>(".track-menu button")].find(button => button.textContent?.trim() === "Go to album")!;
+    const albumAction = [...document.querySelectorAll<HTMLButtonElement>(".track-menu button")].find(button => button.textContent?.trim() === label)!;
     expect(albumAction).toBeTruthy();
     albumAction.click(); await tick();
     expect(onGoToAlbum).toHaveBeenCalledOnce();

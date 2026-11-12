@@ -422,7 +422,11 @@ fn parse_row(row: ElementRef<'_>, source: &str) -> Option<Track> {
         artwork_url,
         release_date: first_text(row, ".r-date, .release-date").and_then(|v| date(&v)),
         preview_url: preview_from_element(row, source),
-        provenance: serde_json::json!({"metadataSource": source, "remixers": remixers}),
+        provenance: serde_json::json!({"metadataSource": source, "remixers": remixers,
+            "artistCredits":artists.iter().map(|name| serde_json::json!({
+                "name":name,"provenance":"traxsourceStructuredCredits"
+            })).collect::<Vec<_>>()
+        }),
         ..Default::default()
     })
 }
@@ -614,6 +618,7 @@ mod tests {
         assert_eq!(a.title, "All I Do Is Think");
         assert_eq!(a.version.as_deref(), Some("N.W.N. Remix"));
         assert_eq!(a.artist, "Oscar P");
+        assert_eq!(a.provenance["artistCredits"][0]["name"], "Oscar P");
         assert_eq!(a.duration_seconds, Some(383.0));
         assert_eq!(a.label.as_deref(), Some("Kolour Recordings"));
         assert!(a.bpm.is_none());

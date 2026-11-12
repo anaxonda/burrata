@@ -1965,6 +1965,23 @@ fn candidate_from_json(info: &Value, provider: &str) -> Candidate {
         Value::String("ytDlpCandidateMetadata".into()),
     );
     source_metadata.insert("resolvedProviderId".into(), Value::String(id.to_owned()));
+    if info.get("artists").is_some_and(|value| {
+        !value.is_null()
+            && match value.as_array() {
+                Some(values) => {
+                    values.len() > 32
+                        || values.iter().any(|artist| {
+                            artist.as_str().is_none_or(|name| {
+                                name.trim().is_empty() || name.trim().len() > 256
+                            })
+                        })
+                }
+                None => true,
+            }
+    }) {
+        // A scalar fallback must not hide a malformed structured credit list.
+        source_metadata.insert("identityMetadataUncertain".into(), Value::Bool(true));
+    }
     if let Some(title) = metadata_text(&info["track"])
         .or_else(|| metadata_text(&info["title"]))
         .filter(|title| title.len() <= 512)
@@ -6479,6 +6496,8 @@ fn playback_music_catalog_candidate(
         source_metadata: Some(serde_json::json!({
             "provider":"youtube", "playbackMusicCatalogCandidate":true,
             "catalogTitle":item.title, "catalogArtist":artist,
+            "catalogArtistCredits":item.artist_credits,
+            "albumBrowseId":item.album_browse_id,
         })),
         reasons: vec![
             "Music catalog locator; fresh recording identity verification required".into(),
@@ -12993,6 +13012,8 @@ mod tests {
             ..Track::default()
         };
         let item = || crate::youtube_music::YouTubeMusicItem {
+            artist_credits: Vec::new(),
+            album_browse_id: None,
             id: "Hqp8vxkPrI8".into(),
             title: "BAD TIMES".into(),
             artist: Some("Imael Angel".into()),
@@ -18453,6 +18474,25 @@ mod tests {
         assert!(track.title.is_empty());
         assert!(track.artist.is_empty());
         assert_eq!(track.provenance["uploader"], "Channel Name");
+    }
+    #[test]
+    fn malformed_extractor_artist_arrays_remain_uncertain_with_scalar_fallback() {
+        for artists in [
+            serde_json::json!(["Artist", null]),
+            serde_json::json!({"name":"Artist"}),
+            serde_json::json!([""]),
+        ] {
+            let candidate = candidate_from_json(
+                &serde_json::json!({
+                    "id":"xAJxfiF_0-w","title":"Song","artist":"Artist","artists":artists
+                }),
+                "youtube",
+            );
+            assert_eq!(
+                candidate.source_metadata.as_ref().unwrap()["identityMetadataUncertain"],
+                true
+            );
+        }
     }
     #[test]
     fn raw_search_track_recognizes_single_spaced_credit_separators() {

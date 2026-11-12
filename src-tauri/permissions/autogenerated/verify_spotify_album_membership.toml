@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-verify-spotify-album-membership"
+description = "Enables the verify_spotify_album_membership command without any pre-configured scope."
+commands.allow = ["verify_spotify_album_membership"]
+
+[[permission]]
+identifier = "deny-verify-spotify-album-membership"
+description = "Denies the verify_spotify_album_membership command without any pre-configured scope."
+commands.deny = ["verify_spotify_album_membership"]

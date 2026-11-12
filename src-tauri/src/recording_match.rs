@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) const EVALUATOR_VERSION: &str = "32";
+pub(crate) const EVALUATOR_VERSION: &str = "33";
 
 /// Independently selected categories of alternatives for Flexible matching.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -1731,6 +1731,50 @@ fn caption_artist_names(
     Vec::new()
 }
 
+/// Interpret a collaboration caption only against the complete requested set.
+/// A slash is not a global artist delimiter (AC/DC is one act), and accent
+/// folding here supplies comparison evidence, never an alias or saved credit.
+fn request_scoped_collaboration_caption(
+    candidate: &Candidate,
+    meta: &Value,
+    expected: &[String],
+    requested_title: &str,
+) -> Vec<String> {
+    if expected.len() < 2
+        || expected.len() > 16
+        || !matches!(candidate.provider.as_str(), "youtube" | "soundcloud")
+        || !matches!(
+            meta["sourceMetadataOrigin"].as_str(),
+            Some("ytDlpCandidateMetadata" | "ytDlpFullInfo")
+        )
+        || !candidate
+            .id
+            .strip_prefix(&format!("{}:", candidate.provider))
+            .is_some_and(|id| !id.is_empty() && meta["resolvedProviderId"].as_str() == Some(id))
+    {
+        return Vec::new();
+    }
+    for separator in [" - ", " – ", " — ", " | "] {
+        if let Some((prefix, suffix)) = candidate.title.split_once(separator) {
+            if title_key(&base_title(suffix)) != title_key(requested_title) {
+                continue;
+            }
+            let credits = split_credits(
+                &prefix
+                    .replace('/', ",")
+                    .replace(" & ", ",")
+                    .replace(" and ", ","),
+            );
+            if credits.len() == expected.len()
+                && search_folded_covers_requested_credits(expected, &credits)
+            {
+                return credits;
+            }
+        }
+    }
+    Vec::new()
+}
+
 #[derive(Debug, Clone)]
 struct RequestCorroboratedCaptionOrientation {
     title: String,
@@ -2783,6 +2827,25 @@ fn build_comparison(
             Some(&comparison_credit_parts),
         )
     };
+    let collaboration_caption = if !lexical_credit_override
+        && filename_observations.is_none()
+        && canonical_catalog.is_none()
+        && !metadata_declares_artists
+        && names.is_empty()
+        && caption_orientation.is_none()
+        && caption_names.is_empty()
+    {
+        request_scoped_collaboration_caption(
+            candidate,
+            meta,
+            &comparison_credit_parts,
+            &wanted_title,
+        )
+    } else {
+        Vec::new()
+    };
+    let collaboration_caption_coverage = !collaboration_caption.is_empty();
+    caption_names.extend(collaboration_caption);
     // A fresh yt-dlp YouTube or SoundCloud caption can close credits only when its
     // structured artist prefix and feature annotation parse to exactly the
     // requested performer set. Public search display strings, stale catalog
@@ -3004,7 +3067,7 @@ fn build_comparison(
     // bind the candidate to this recording. This does not change canonical
     // names, aliases, or Exact-mode decisions, and it cannot override a
     // closed-world request's additional-credit conflict or edition mismatch.
-    let accent_folded_performer_match = title == Comparison::Agree
+    let isrc_bound_accent_performer_match = title == Comparison::Agree
         && runtime == Comparison::Agree
         && isrc == Comparison::Agree
         && version != Comparison::Conflict
@@ -3020,7 +3083,53 @@ fn build_comparison(
         && version != Comparison::Conflict
         && !request_credits_complete
         && search_folded_covers_requested_credits(&request_credit_parts, &names);
+    let collaboration_caption_artist_match = collaboration_caption_coverage
+        && title == Comparison::Agree
+        && runtime == Comparison::Agree
+        && version != Comparison::Conflict
+        && !conflicting_candidate_versions
+        && !conflicting_request_versions
+        && isrc != Comparison::Conflict
+        && requested_guests.is_empty()
+        && search_folded_covers_requested_credits(&comparison_credit_parts, &names);
+    // Fresh structured credits on the verified primary artist's channel can
+    // corroborate spelling variants without turning the channel into a guest
+    // credit. Preserve Exact policy and closed-world credit requirements.
+    let verified_channel_accent_match = candidate.provider == "youtube"
+        && meta["provider"] == "youtube"
+        && meta["channelIsVerified"] == true
+        && meta["sourceMetadataOrigin"] == "ytDlpFullInfo"
+        && meta["identityMetadataUncertain"] != true
+        && !artist_array_observation.uncertain
+        && artist_array_observation.declared
+        && candidate
+            .id
+            .strip_prefix("youtube:")
+            .is_some_and(|id| !id.is_empty() && meta["resolvedProviderId"].as_str() == Some(id))
+        && request_primary_credits.first().is_some_and(|primary| {
+            names
+                .iter()
+                .any(|name| norm_artist(name) == norm_artist(primary))
+                && meta["channel"]
+                    .as_str()
+                    .is_some_and(|channel| uploader_matches_request_artist(channel, primary))
+        })
+        && title == Comparison::Agree
+        && runtime == Comparison::Agree
+        && version != Comparison::Conflict
+        && isrc != Comparison::Conflict
+        && !request_credits_complete
+        && requested_guests.is_empty()
+        && accent_folded_covers_requested_credits(&request_credit_parts, &names);
+    let accent_folded_performer_match = isrc_bound_accent_performer_match
+        || verified_channel_accent_match
+        || collaboration_caption_artist_match
+            && accent_folded_covers_requested_credits(&comparison_credit_parts, &names);
     if accent_folded_performer_match {
+        artists = Comparison::Agree;
+        artists_flexible = Comparison::Agree;
+    }
+    if collaboration_caption_artist_match {
         artists = Comparison::Agree;
         artists_flexible = Comparison::Agree;
     }
@@ -3110,7 +3219,7 @@ fn build_comparison(
         .map(|s| norm_artist(s))
         .collect::<Vec<_>>();
     let mut actual = names.iter().map(|s| norm_artist(s)).collect::<Vec<_>>();
-    if request_corroborated_caption_artist_match {
+    if request_corroborated_caption_artist_match || verified_channel_accent_match {
         // Preserve provider spelling in `names` and evidence, but compare the
         // single uploader-and-caption-verified accent variant as the request
         // credit. This closes missing/extra bookkeeping only for the same
@@ -6148,6 +6257,217 @@ mod tests {
             MatchStage::Resolved,
         );
         assert_eq!(assessment.action, MatchAction::Enrich);
+    }
+
+    #[test]
+    fn verified_channel_structured_accent_credits_preserve_identity_guards() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/macha-official-youtube-identity.json"
+        ))
+        .unwrap();
+        let source = &fixture["source"];
+        let request = Track {
+            title: "La Nave del Olvido".into(),
+            artist: "Macha Y El Bloque Depresivo, Alvaro Henriquez".into(),
+            duration_seconds: Some(235.542),
+            provenance: json!({"artistCredits":[
+                {"name":"Macha Y El Bloque Depresivo"}, {"name":"Alvaro Henriquez"}
+            ]}),
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:xAJxfiF_0-w".into(),
+            title: request.title.clone(),
+            duration_seconds: Some(236.0),
+            source_metadata: Some(json!({
+                "provider":"youtube", "resolvedProviderId":"xAJxfiF_0-w",
+                "sourceMetadataOrigin":"ytDlpFullInfo", "track":"La Nave del Olvido",
+                "channel":source["channel"], "channelIsVerified":source["channel_is_verified"],
+                "artists":source["artists"],
+                "artistCount":source["artists"].as_array().unwrap().len(), "duration":source["duration"]
+            })),
+            ..Candidate::default()
+        };
+        for stage in [MatchStage::Search, MatchStage::Resolved] {
+            let result = assess(&request, &candidate, MatchLevel::Balanced, stage);
+            assert!(
+                matches!(result.action, MatchAction::Enrich | MatchAction::Inspect),
+                "{result:?}"
+            );
+            assert_eq!(result.dimensions.artists, Comparison::Agree);
+        }
+        assert_eq!(
+            assess(
+                &request,
+                &candidate,
+                MatchLevel::Balanced,
+                MatchStage::Resolved
+            )
+            .action,
+            MatchAction::Enrich
+        );
+        let mut candidate = candidate;
+        candidate.source_metadata.as_mut().unwrap()["artists"] =
+            json!(["Macha Y El Bloque Depresivo", "Alvaro Henríquez"]);
+        candidate.source_metadata.as_mut().unwrap()["artistCount"] = json!(2);
+        assert_eq!(
+            assess(
+                &request,
+                &candidate,
+                MatchLevel::Balanced,
+                MatchStage::Resolved
+            )
+            .action,
+            MatchAction::Accept
+        );
+        for patch in [
+            json!({"resolvedProviderId":"wrong"}),
+            json!({"channelIsVerified":false}),
+            json!({"channel":"Other Artist Official"}),
+            json!({"sourceMetadataOrigin":"ytDlpCandidateMetadata"}),
+            json!({"identityMetadataUncertain":true}),
+            json!({"artists":["Macha Y El Bloque Depresivo","Other Singer"]}),
+            json!({"duration":190.0}),
+            json!({"track":"La Nave del Olvido (Live)"}),
+        ] {
+            let mut changed = candidate.clone();
+            changed
+                .source_metadata
+                .as_mut()
+                .unwrap()
+                .as_object_mut()
+                .unwrap()
+                .extend(patch.as_object().unwrap().clone());
+            assert_ne!(
+                assess(
+                    &request,
+                    &changed,
+                    MatchLevel::Balanced,
+                    MatchStage::Resolved
+                )
+                .action,
+                MatchAction::Accept,
+                "{patch}"
+            );
+        }
+        let mut closed = request;
+        closed.provenance["performerCreditsComplete"] = json!(true);
+        closed.provenance["manualFields"] = json!({"performerCreditsComplete":true});
+        assert_ne!(
+            assess(
+                &closed,
+                &candidate,
+                MatchLevel::Balanced,
+                MatchStage::Resolved
+            )
+            .action,
+            MatchAction::Accept
+        );
+    }
+
+    #[test]
+    fn bound_collaboration_caption_matches_slash_and_accent_credits_in_balanced() {
+        let request = Track {
+            artist: "Macha Y El Bloque Depresivo, Alvaro Henriquez".into(),
+            title: "La Nave del Olvido".into(),
+            duration_seconds: Some(235.542),
+            provenance: json!({"artistCredits":[
+                {"name":"Macha Y El Bloque Depresivo", "providerId":"main"},
+                {"name":"Alvaro Henriquez", "providerId":"guest"}
+            ]}),
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:H35xiJcS8RY".into(),
+            title: "Macha y El Bloque Depresivo/Alvaro Henríquez - La Nave del Olvido".into(),
+            duration_seconds: Some(231.0),
+            source_metadata: Some(json!({
+                "provider":"youtube", "resolvedProviderId":"H35xiJcS8RY",
+                "sourceMetadataOrigin":"ytDlpFullInfo", "duration":231.0,
+                "track":"Macha y El Bloque Depresivo/Alvaro Henríquez - La Nave del Olvido"
+            })),
+            ..Candidate::default()
+        };
+        for level in [MatchLevel::Balanced, MatchLevel::Flexible] {
+            let result = assess(&request, &candidate, level, MatchStage::Resolved);
+            assert_eq!(result.action, MatchAction::Accept, "{result:?}");
+            assert_eq!(result.dimensions.artists, Comparison::Agree);
+            assert!(
+                result
+                    .evidence
+                    .as_ref()
+                    .unwrap()
+                    .accent_folded_performer_match
+            );
+            assert_ne!(result.relationship, MatchRelationship::Alternative);
+        }
+        assert_ne!(
+            assess(
+                &request,
+                &candidate,
+                MatchLevel::Exact,
+                MatchStage::Resolved
+            )
+            .action,
+            MatchAction::Accept
+        );
+        for title in [
+            "Macha y El Bloque Depresivo/Other Singer - La Nave del Olvido",
+            "Macha y El Bloque Depresivo - La Nave del Olvido",
+            "Macha y El Bloque Depresivo/Alvaro Henríquez/Other Singer - La Nave del Olvido",
+            "Macha y El Bloque Depresivo/Alvaro Henríquez - Different Song",
+            "Macha y El Bloque Depresivo/Alvaro Henríquez - La Nave del Olvido (Live)",
+        ] {
+            let mut changed = candidate.clone();
+            changed.title = title.into();
+            changed.source_metadata.as_mut().unwrap()["track"] = json!(title);
+            assert_ne!(
+                assess(
+                    &request,
+                    &changed,
+                    MatchLevel::Balanced,
+                    MatchStage::Resolved
+                )
+                .action,
+                MatchAction::Accept,
+                "{title}"
+            );
+        }
+        for patch in [
+            json!({"duration":210.0}),
+            json!({"duration":null}),
+            json!({"resolvedProviderId":"different"}),
+            json!({"sourceMetadataOrigin":null}),
+            json!({"identityMetadataUncertain":true}),
+            json!({"artists":["Other Singer"]}),
+            json!({"artist":"Other Singer"}),
+            json!({"artists":"malformed"}),
+        ] {
+            let mut changed = candidate.clone();
+            if patch.get("duration").is_some() {
+                changed.duration_seconds = patch["duration"].as_f64();
+            }
+            changed
+                .source_metadata
+                .as_mut()
+                .unwrap()
+                .as_object_mut()
+                .unwrap()
+                .extend(patch.as_object().unwrap().clone());
+            let result = assess(
+                &request,
+                &changed,
+                MatchLevel::Balanced,
+                MatchStage::Resolved,
+            );
+            assert_ne!(result.action, MatchAction::Accept, "{patch}: {result:?}");
+        }
+        assert_eq!(
+            request.artist,
+            "Macha Y El Bloque Depresivo, Alvaro Henriquez"
+        );
     }
 
     #[test]

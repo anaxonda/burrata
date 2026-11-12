@@ -731,6 +731,10 @@ struct RemoteEntry {
     artist: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     channel_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    artist_credits: Vec<crate::browser_bridge::BrowserArtistCredit>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    album_browse_id: Option<String>,
     album: Option<String>,
     duration_seconds: Option<f64>,
     url: String,
@@ -6493,6 +6497,24 @@ fn normalize_catalog_data(data: Option<&Value>, kind: &str, provider: &str) -> R
     // Keep only the recognized source value and bounded channel label; don't pass through
     // arbitrary provider metadata.
     if kind == "track" && provider == "youtube" {
+        if let Some(credits) =
+            explicit_remote_artist_credits(&Value::Object(object.clone()), provider)
+        {
+            result.insert("artistCredits".into(), json!(credits));
+        }
+        if let Some(id) = object
+            .get("albumBrowseId")
+            .and_then(Value::as_str)
+            .filter(|id| {
+                id.starts_with("MPREb_")
+                    && id.len() <= 128
+                    && id
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+            })
+        {
+            result.insert("albumBrowseId".into(), json!(id));
+        }
         if object.get("artistSource").and_then(Value::as_str) == Some("recording") {
             result.insert("artistSource".into(), json!("recording"));
         }
@@ -6807,6 +6829,19 @@ fn parse_remote_entry(value: &Value, provider: &str, occurrence_key: &str) -> Re
         None => "Unavailable track",
     };
     Ok(RemoteEntry {
+        artist_credits: explicit_remote_artist_credits(value, provider).unwrap_or_default(),
+        album_browse_id: value
+            .get("albumBrowseId")
+            .and_then(Value::as_str)
+            .filter(|id| {
+                provider == "youtube"
+                    && id.starts_with("MPREb_")
+                    && id.len() <= 128
+                    && id
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+            })
+            .map(str::to_owned),
         entry_id,
         track_id,
         title: title.to_owned(),
@@ -6897,6 +6932,12 @@ fn entry_to_track(provider: &str, entry: &RemoteEntry, position: usize) -> Track
     }
     if let Some(channel_name) = &entry.channel_name {
         provenance["channelName"] = json!(channel_name);
+    }
+    if !entry.artist_credits.is_empty() {
+        provenance["artistCredits"] = json!(entry.artist_credits);
+    }
+    if let Some(id) = &entry.album_browse_id {
+        provenance["albumBrowseId"] = json!(id);
     }
     Track {
         id: id.clone(),
@@ -8459,6 +8500,8 @@ mod tests {
 
     fn youtube_remote_entry(entry_id: &str, track_id: &str) -> RemoteEntry {
         RemoteEntry {
+            artist_credits: Vec::new(),
+            album_browse_id: None,
             entry_id: entry_id.into(),
             track_id: track_id.into(),
             title: format!("Track {track_id}"),
@@ -8871,6 +8914,8 @@ mod tests {
         });
         let service = RemotePlaylistService::new(store, transport.clone());
         let current_entries = vec![RemoteEntry {
+            artist_credits: Vec::new(),
+            album_browse_id: None,
             entry_id: "occ-1".into(),
             track_id: "existing123".into(),
             title: "Existing track".into(),
@@ -9996,6 +10041,8 @@ mod tests {
         // This is an existing missing-duration listing below the prior cursor, not a new row.
         store.save_track(&track).unwrap();
         let entry = RemoteEntry {
+            artist_credits: Vec::new(),
+            album_browse_id: None,
             entry_id: "entry-new".into(),
             track_id: track_id.into(),
             title: "New import".into(),
@@ -10355,6 +10402,8 @@ mod tests {
     fn youtube_write_plan_requires_unique_verified_occurrences_and_preserves_duplicates() {
         let entries = vec![
             RemoteEntry {
+                artist_credits: Vec::new(),
+                album_browse_id: None,
                 entry_id: "occ-a".into(),
                 track_id: "abcdefghijk".into(),
                 title: "A".into(),
@@ -10369,6 +10418,8 @@ mod tests {
                 views: None,
             },
             RemoteEntry {
+                artist_credits: Vec::new(),
+                album_browse_id: None,
                 entry_id: "occ-b".into(),
                 track_id: "abcdefghijk".into(),
                 title: "A".into(),
@@ -10578,6 +10629,8 @@ mod tests {
 
     fn remote_entry(entry_id: &str, track_id: &str) -> RemoteEntry {
         RemoteEntry {
+            artist_credits: Vec::new(),
+            album_browse_id: None,
             entry_id: entry_id.into(),
             track_id: track_id.into(),
             title: track_id.into(),
@@ -10975,6 +11028,30 @@ mod tests {
             ""
         );
     }
+    #[test]
+    fn youtube_album_and_credit_boundaries_survive_normalization_and_saved_entries() {
+        let row = json!({"id":"abcdefghijk","kind":"track","title":"Song","url":"https://www.youtube.com/watch?v=abcdefghijk","data":{
+            "title":"Song","artist":"Earth, Wind & Fire • Guest","artistSource":"recording",
+            "album":"Album","albumBrowseId":"MPREb_fixture123",
+            "artistCredits":[{"name":"Earth, Wind & Fire","providerId":"UCabcdefghijklmnopqrstuv","joinPhrase":" • "},
+                {"name":"Guest","joinPhrase":""}]
+        }});
+        let normalized = normalize_catalog_item(&row, "youtube", "track").unwrap();
+        let mut data = normalized["data"].clone();
+        data["entryId"] = json!("occurrence-one");
+        data["trackId"] = json!("abcdefghijk");
+        data["url"] = json!("https://www.youtube.com/watch?v=abcdefghijk");
+        let parsed = parse_remote_entry(&data, "youtube", "0").unwrap();
+        let restored: RemoteEntry =
+            serde_json::from_value(serde_json::to_value(parsed).unwrap()).unwrap();
+        let track = entry_to_track("youtube", &restored, 0);
+        assert_eq!(track.album.as_deref(), Some("Album"));
+        assert_eq!(track.provenance["albumBrowseId"], "MPREb_fixture123");
+        assert_eq!(
+            crate::recording_identity::declared_credit_names(&track).unwrap(),
+            vec!["Earth, Wind & Fire", "Guest"]
+        );
+    }
 
     #[test]
     fn playlist_count_distinguishes_known_zero_from_unknown() {
@@ -11121,6 +11198,8 @@ mod tests {
     #[test]
     fn refresh_updates_unavailable_baseline_without_overwriting_user_edits() {
         let unavailable = RemoteEntry {
+            artist_credits: Vec::new(),
+            album_browse_id: None,
             entry_id: "unavailable-1".into(),
             track_id: "unknown-track".into(),
             title: "Old unavailable title".into(),

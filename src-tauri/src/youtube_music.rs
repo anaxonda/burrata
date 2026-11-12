@@ -25,6 +25,17 @@ pub struct YouTubeMusicItem {
     pub url: String,
     pub artwork_url: Option<String>,
     pub isrc: Option<String>,
+    #[serde(default)]
+    pub artist_credits: Vec<YouTubeMusicArtist>,
+    #[serde(default)]
+    pub album_browse_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct YouTubeMusicArtist {
+    pub name: String,
+    pub provider_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -219,13 +230,26 @@ pub fn parse_search_response(body: &Value, limit: usize) -> Vec<YouTubeMusicItem
                 .flat_map(|c| flex_runs(c).iter())
                 .collect::<Vec<_>>();
             let mut artist_names = Vec::new();
+            let mut artist_credits = Vec::new();
             for run in semantic_runs
                 .iter()
                 .filter(|r| run_page_type(r) == Some("MUSIC_PAGE_TYPE_ARTIST"))
             {
                 if let Some(name) = run_label(run) {
                     if !artist_names.contains(&name) {
-                        artist_names.push(name);
+                        artist_names.push(name.clone());
+                        let provider_id = run
+                            .pointer("/navigationEndpoint/browseEndpoint/browseId")
+                            .and_then(Value::as_str)
+                            .filter(|id| {
+                                id.starts_with("UC")
+                                    && id.len() == 24
+                                    && id.bytes().all(|b| {
+                                        b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-')
+                                    })
+                            })
+                            .map(str::to_owned);
+                        artist_credits.push(YouTubeMusicArtist { name, provider_id });
                     }
                 }
             }
@@ -234,7 +258,29 @@ pub fn parse_search_response(body: &Value, limit: usize) -> Vec<YouTubeMusicItem
                 .iter()
                 .find(|r| run_page_type(r) == Some("MUSIC_PAGE_TYPE_ALBUM"))
                 .and_then(|r| run_label(r));
-            let duration=semantic_runs.iter().filter_map(|r|run_label(r).and_then(|s|parse_duration(&s))).last().or_else(||v.pointer("/fixedColumns/0/musicResponsiveListItemFixedColumnRenderer/text/simpleText").and_then(Value::as_str).and_then(parse_duration));
+            let album_browse_id = semantic_runs
+                .iter()
+                .find(|r| run_page_type(r) == Some("MUSIC_PAGE_TYPE_ALBUM"))
+                .and_then(|run| run.pointer("/navigationEndpoint/browseEndpoint/browseId"))
+                .and_then(Value::as_str)
+                .filter(|id| {
+                    id.starts_with("MPREb_")
+                        && id.len() <= 128
+                        && id
+                            .bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+                })
+                .map(str::to_owned);
+            let duration = semantic_runs
+                .iter()
+                .filter_map(|r| run_label(r).and_then(|s| parse_duration(&s)))
+                .last()
+                .or_else(|| {
+                    v.pointer("/fixedColumns/0/musicResponsiveListItemFixedColumnRenderer/text")
+                        .and_then(text)
+                        .as_deref()
+                        .and_then(parse_duration)
+                });
             let artwork = v
                 .pointer("/thumbnail/musicThumbnailRenderer/thumbnail/thumbnails")
                 .or_else(|| v.pointer("/thumbnail/thumbnails"))
@@ -252,6 +298,8 @@ pub fn parse_search_response(body: &Value, limit: usize) -> Vec<YouTubeMusicItem
                     duration_seconds: duration,
                     isrc: None,
                     artwork_url: artwork,
+                    artist_credits,
+                    album_browse_id,
                 });
             }
         }
@@ -530,6 +578,8 @@ pub async fn search_page(
                 duration_seconds: e["duration"].as_f64(),
                 isrc: nonempty_str(&e["isrc"]),
                 artwork_url: nonempty_str(&e["thumbnail"]),
+                artist_credits: Vec::new(),
+                album_browse_id: None,
             })
         })
         .collect();
@@ -722,6 +772,67 @@ mod tests {
                 }
             }
         })
+    }
+
+    #[test]
+    fn album_shelf_rejects_continuations_missing_rows_and_multiple_shelves() {
+        let row = |id: &str| {
+            json!({"musicResponsiveListItemRenderer":{
+                "videoId":id,"title":{"simpleText":"Song"},
+                "fixedColumns":[{"musicResponsiveListItemFixedColumnRenderer":{"text":{"runs":[{"text":"3:56"}]}}}]
+            }})
+        };
+        let shelf = json!({"contents":[row("xAJxfiF_0-w"),row("H35xiJcS8RY")]});
+        let body = json!({"musicShelfRenderer":shelf});
+        assert_eq!(complete_album_shelf(&body).unwrap().len(), 2);
+        let mut continued = body.clone();
+        continued["musicShelfRenderer"]["continuations"] = json!([{"token":"more"}]);
+        assert!(complete_album_shelf(&continued).is_none());
+        let mut missing = body.clone();
+        missing["musicShelfRenderer"]["contents"][1] = json!({"unavailable":true});
+        assert!(complete_album_shelf(&missing).is_none());
+        assert!(complete_album_shelf(&json!([body.clone(), body])).is_none());
+    }
+
+    #[test]
+    fn structured_album_and_artist_endpoints_survive_search_parsing() {
+        let run = |name: &str, kind: &str, id: &str| {
+            json!({
+                "text":name,"navigationEndpoint":{"browseEndpoint":{
+                    "browseId":id,"browseEndpointContextSupportedConfigs":{
+                        "browseEndpointContextMusicConfig":{"pageType":kind}
+                    }
+                }}
+            })
+        };
+        let body = json!({"musicResponsiveListItemRenderer":{
+            "videoId":"xAJxfiF_0-w",
+            "flexColumns":[
+                {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"La Nave del Olvido"}]}}},
+                {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[
+                    run("Main Act","MUSIC_PAGE_TYPE_ARTIST","UCabcdefghijklmnopqrstuv"),
+                    {"text":" • "},
+                    run("Guest","MUSIC_PAGE_TYPE_ARTIST","UCABCDEFGHIJKLMNOPQRSTUV"),
+                    run("Album title","MUSIC_PAGE_TYPE_ALBUM","MPREb_fixture123")
+                ]}}}
+            ]
+        }});
+        let items = parse_search_response(&body, 30);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].artist.as_deref(), Some("Main Act, Guest"));
+        assert_eq!(items[0].artist_credits.len(), 2);
+        assert_eq!(
+            items[0].artist_credits[0].provider_id.as_deref(),
+            Some("UCabcdefghijklmnopqrstuv")
+        );
+        assert_eq!(items[0].album.as_deref(), Some("Album title"));
+        assert_eq!(
+            items[0].album_browse_id.as_deref(),
+            Some("MPREb_fixture123")
+        );
+        let restored: YouTubeMusicItem =
+            serde_json::from_value(serde_json::to_value(&items[0]).unwrap()).unwrap();
+        assert_eq!(restored, items[0]);
     }
 
     #[tokio::test]
@@ -992,4 +1103,96 @@ mod tests {
         assert_eq!(parsed[0].title, "Song Title");
         assert!(parsed[0].artist.is_none());
     }
+}
+
+/// Read one complete, bounded album shelf. Recommendations and continuation
+/// pages cannot establish an album timeline.
+pub(crate) async fn album_tracks(browse_id: &str) -> Result<Vec<YouTubeMusicItem>, String> {
+    if !browse_id.starts_with("MPREb_")
+        || browse_id.len() > 128
+        || !browse_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+    {
+        return Err("Invalid YouTube Music album identity".into());
+    }
+    let client = Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let mut response = client.post("https://music.youtube.com/youtubei/v1/browse")
+        .json(&json!({"context":{"client":{"clientName":"WEB_REMIX","clientVersion":"1.20250101.01.00","hl":"en","gl":"US"}},"browseId":browse_id}))
+        .send().await.map_err(|_| "YouTube album metadata could not be read")?;
+    if !response.status().is_success() {
+        return Err("YouTube album metadata is unavailable".into());
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| "YouTube album metadata could not be read")?
+    {
+        if bytes.len() + chunk.len() > MAX_PLAYBACK_SEARCH_BYTES {
+            return Err("YouTube album metadata exceeds its size limit".into());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let body: Value =
+        serde_json::from_slice(&bytes).map_err(|_| "Invalid YouTube album metadata")?;
+    complete_album_shelf(&body)
+        .ok_or_else(|| "YouTube did not return one complete album tracklist".into())
+}
+
+fn complete_album_shelf(body: &Value) -> Option<Vec<YouTubeMusicItem>> {
+    fn collect<'a>(value: &'a Value, shelves: &mut Vec<&'a Value>) {
+        match value {
+            Value::Object(map) => {
+                for (key, child) in map {
+                    if matches!(
+                        key.as_str(),
+                        "musicShelfRenderer" | "musicPlaylistShelfRenderer"
+                    ) {
+                        shelves.push(child);
+                    } else {
+                        collect(child, shelves);
+                    }
+                }
+            }
+            Value::Array(values) => {
+                for value in values {
+                    collect(value, shelves);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut shelves = Vec::new();
+    collect(body, &mut shelves);
+    let mut complete = Vec::new();
+    for shelf in shelves {
+        let Some(rows) = shelf["contents"].as_array() else {
+            continue;
+        };
+        if !(2..=50).contains(&rows.len())
+            || shelf
+                .get("continuations")
+                .is_some_and(|v| v.as_array().is_none_or(|a| !a.is_empty()))
+            || rows
+                .iter()
+                .any(|row| row.get("musicResponsiveListItemRenderer").is_none())
+        {
+            continue;
+        }
+        let tracks = parse_search_response(shelf, 50);
+        if tracks.len() == rows.len()
+            && tracks.iter().all(|track| {
+                track
+                    .duration_seconds
+                    .is_some_and(|d| d.is_finite() && d > 0.0)
+            })
+        {
+            complete.push(tracks);
+        }
+    }
+    (complete.len() == 1).then(|| complete.remove(0))
 }

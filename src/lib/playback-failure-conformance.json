@@ -394,5 +394,15 @@
       "retryable": false
     },
     "skip": false
+  },
+  {
+    "reason": "One source is DRM protected; other candidates failed recording identity verification.",
+    "failure": {
+      "category": "unsupported_audio",
+      "stage": "extraction",
+      "scope": "source",
+      "retryable": true
+    },
+    "skip": false
   }
 ]

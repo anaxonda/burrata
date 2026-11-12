@@ -615,7 +615,26 @@ fn catalog_entry(raw: &Value, base: &str) -> Option<(Track, Candidate)> {
         isrc,
         artwork_url: artwork,
         source_url: url,
-        provenance: json!({"sourceKind":"audioSearch","audioCandidate":candidate}),
+        album: candidate
+            .source_metadata
+            .as_ref()
+            .and_then(|m| m["album"].as_str())
+            .map(str::to_owned),
+        album_artist: candidate
+            .source_metadata
+            .as_ref()
+            .and_then(|m| m["albumArtist"].as_str())
+            .map(str::to_owned),
+        release_date: candidate
+            .source_metadata
+            .as_ref()
+            .and_then(|m| m["releaseDate"].as_str())
+            .map(str::to_owned),
+        provenance: json!({"sourceKind":"audioSearch","audioCandidate":candidate,
+            "artistCredits":structured_artist_names.iter().map(|name| json!({
+                "name":name,"provenance":"monochromeStructuredCredits"
+            })).collect::<Vec<_>>()
+        }),
         ..Track::default()
     };
     Some((track, candidate))
@@ -1019,7 +1038,10 @@ mod tests {
             "genre":"Folk", "label":"Example Label", "catalogNumber":"CAT-1",
             "notes":{"large":"ignored"}
         });
-        let (_, candidate) = catalog_entry(&raw, BASE).unwrap();
+        let (track, candidate) = catalog_entry(&raw, BASE).unwrap();
+        assert_eq!(track.album.as_deref(), Some("Release"));
+        assert_eq!(track.album_artist.as_deref(), Some("Album Artist"));
+        assert_eq!(track.provenance["artistCredits"][0]["name"], "Artist");
         let metadata = candidate.source_metadata.unwrap();
         assert_eq!(metadata["album"], "Release");
         assert_eq!(metadata["albumArtist"], "Album Artist");

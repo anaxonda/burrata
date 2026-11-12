@@ -75,7 +75,7 @@
     if (parts.length < 2 || parts.length > 3 || parts.some(part => !/^\d+$/.test(part))) return null;
     return parts.reduce((total, part) => total * 60 + Number(part), 0) || null;
   };
-  const viewText = value => typeof value === 'string' ? value : first(text(value), value?.content, value?.dynamicTextViewModel?.text?.content, value?.text?.content, value?.accessibility?.accessibilityData?.label) || '';
+  const viewText = value => typeof value === 'string' ? value : first(text(value), typeof value?.text === 'string' ? value.text : undefined, value?.content, value?.dynamicTextViewModel?.text?.content, value?.text?.content, value?.accessibility?.accessibilityData?.label) || '';
   const isMusicArtistRun = run => run?.navigationEndpoint?.browseEndpoint?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType === 'MUSIC_PAGE_TYPE_ARTIST';
   const musicArtistNames = columns => {
     const names = [];
@@ -87,6 +87,21 @@
       }
     }
     return names;
+  };
+  const musicRecordingMetadata = columns => {
+    const runs = (columns || []).flatMap(column => column?.musicResponsiveListItemFlexColumnRenderer?.text?.runs || []);
+    const seen = new Set();
+    const artistCredits = runs.filter(isMusicArtistRun).flatMap(run => {
+      const name = viewText(run), id = run?.navigationEndpoint?.browseEndpoint?.browseId;
+      if (!name || name.length > 512 || seen.has(name) || seen.size >= 32) return [];
+      seen.add(name);
+      return [{ name, provider: 'youtube', ...(/^UC[A-Za-z0-9_-]{22}$/.test(id || '') ? { providerId: id } : {}) }];
+    });
+    artistCredits.forEach((credit, index) => { credit.joinPhrase = index + 1 < artistCredits.length ? ' • ' : ''; });
+    const albums = runs.filter(run => run?.navigationEndpoint?.browseEndpoint?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType === 'MUSIC_PAGE_TYPE_ALBUM');
+    const album = albums.length === 1 ? viewText(albums[0]) : '';
+    const id = albums.length === 1 ? albums[0]?.navigationEndpoint?.browseEndpoint?.browseId : null;
+    return { artistCredits, album, ...(/^MPREb_[A-Za-z0-9_-]{1,122}$/.test(id || '') ? { albumBrowseId: id } : {}) };
   };
   // Public WEB lockups expose duration in thumbnail bottom-overlay badges,
   // not the content metadata rows (which contain views/publication age).
@@ -193,7 +208,7 @@
         const columns = (x.flexColumns || []).map(column => text(column.musicResponsiveListItemFlexColumnRenderer?.text));
         const artists = musicArtistNames(x.flexColumns);
         const artist = artists.join(' • ');
-        if (id) { const title = columns[0] || '', durationSeconds = duration(text(x.fixedColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text)), url = `https://www.youtube.com/watch?v=${id}`, artworkUrl = image(x.thumbnail); rows.push({ id, kind: 'track', title, subtitle: artist || columns.slice(1).join(' • '), url, artworkUrl, data: { id, provider: 'youtube', trackId: id, title, artist, ...(artists.length ? { artistSource: 'recording' } : {}), album: '', durationSeconds, url, artworkUrl, available: true } }); }
+        if (id) { const title = columns[0] || '', durationSeconds = duration(text(x.fixedColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text)), url = `https://www.youtube.com/watch?v=${id}`, artworkUrl = image(x.thumbnail); rows.push({ id, kind: 'track', title, subtitle: artist || columns.slice(1).join(' • '), url, artworkUrl, data: { id, provider: 'youtube', trackId: id, title, artist, ...(artists.length ? { artistSource: 'recording' } : {}), ...musicRecordingMetadata(x.flexColumns), durationSeconds, url, artworkUrl, available: true } }); }
       }
       if (value.musicTwoRowItemRenderer) {
         const x = value.musicTwoRowItemRenderer, endpoint = x.navigationEndpoint || x.title?.runs?.[0]?.navigationEndpoint, id = endpoint?.browseEndpoint?.browseId || endpoint?.watchEndpoint?.playlistId;
@@ -536,7 +551,7 @@
         const x = value.musicResponsiveListItemRenderer, trackId = x.playlistItemData?.videoId || x.navigationEndpoint?.watchEndpoint?.videoId;
         const columns = (x.flexColumns || []).map(column => text(column.musicResponsiveListItemFlexColumnRenderer?.text));
         const artists = musicArtistNames(x.flexColumns);
-        if (trackId) entries.push({ entryId: x.playlistItemData?.setVideoId || null, trackId, title: columns[0] || '', artist: artists.join(' • '), ...(artists.length ? { artistSource: 'recording' } : {}), album: '', durationSeconds: duration(text(x.fixedColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text)), url: `https://www.youtube.com/watch?v=${trackId}`, artworkUrl: image(x.thumbnail), available: true });
+        if (trackId) entries.push({ entryId: x.playlistItemData?.setVideoId || null, trackId, title: columns[0] || '', artist: artists.join(' • '), ...(artists.length ? { artistSource: 'recording' } : {}), ...musicRecordingMetadata(x.flexColumns), durationSeconds: duration(text(x.fixedColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text)), url: `https://www.youtube.com/watch?v=${trackId}`, artworkUrl: image(x.thumbnail), available: true });
       }
       for (const child of Object.values(value)) walk(child);
     };

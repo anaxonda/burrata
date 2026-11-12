@@ -28,10 +28,10 @@
     history: RadioTrackMetadata[]; historyAvailable: boolean; note: string;
   };
 
-  let { onPlayStation, onArtist, playingStationId = "", onNowPlaying, selectedStationId: requestedStationId = "", showAdd = false, onStationsChanged, onAddClosed, stationNames={}, savedStations,
+  let { onPlayStation, onArtist, playingStationId = "", onNowPlaying, selectedStationId: requestedStationId = "", onStationsChanged, stationNames={}, savedStations,
     onPlayTrack, onDownloadTrack, onFavoriteTrack, onQueueTracks, onAddTrackToPlaylist, onAddSelectedToPlaylist, onTrackContext, onInfoTrack, onTrackAlbum, onOpenHistory, onIdentifyPlayingStation, identifyingPlayingStation = false, currentStationMetadata, playingTrack, bufferingTrack, playingTrackId = "", bufferingTrackId = "", paused = false, favoriteTrackIds = [],
   }:
-    { onPlayStation: (station: RadioStation) => void; onArtist: (track: Track) => void; playingStationId?: string; onNowPlaying?: (station: RadioStation, track: RadioTrackMetadata | null) => void; selectedStationId?: string; showAdd?: boolean; onStationsChanged?: (stations: RadioStation[]) => void; onAddClosed?: () => void;stationNames?:Record<string,string>; savedStations?:RadioStation[];
+    { onPlayStation: (station: RadioStation) => void; onArtist: (track: Track) => void; playingStationId?: string; onNowPlaying?: (station: RadioStation, track: RadioTrackMetadata | null) => void; selectedStationId?: string; onStationsChanged?: (stations: RadioStation[]) => void;stationNames?:Record<string,string>; savedStations?:RadioStation[];
       onPlayTrack?: (track: Track, tracks: Track[], index: number) => void | Promise<void>; onDownloadTrack?: (track: Track) => void | Promise<void>; onFavoriteTrack?: (track: Track) => void | Promise<void>;
       onQueueTracks?: (tracks: Track[], mode: "next" | "append") => void | Promise<void>; onAddTrackToPlaylist?: (track: Track) => void | Promise<void>; onTrackContext?: (track: Track, event: MouseEvent) => void;
       onAddSelectedToPlaylist?: (tracks: Track[]) => void | Promise<void>;
@@ -120,17 +120,7 @@
   let mounted = false;
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
   let requestSerial = 0;
-  let addOpen = $state(false);
-  let dismissedExternalAdd = $state(false);
-  let addMode = $state<"search" | "url">("search");
-  let searchQuery = $state("");
-  let countryFilter = $state("");
-  let tagFilter = $state("");
-  let searchResults = $state<RadioStationSearchResult[]>([]);
-  let searching = $state(false);
-  let addingStationId = $state("");
-  let stationName = $state("");
-  let stationUrl = $state("");
+
   let editStreamOpen = $state(false);
   let editStreamSaving = $state(false);
   let editedStationUrl = $state("");
@@ -303,13 +293,7 @@
       if (playingStationId !== selectedStationId) metadata = null;
       else if (mounted && stations.some((station) => station.id === playingStationId)) void fetchMetadata(playingStationId);
     }
-    if (showAdd) dismissedExternalAdd = false;
   });
-  const addPanelVisible = $derived(addOpen || (showAdd && !dismissedExternalAdd));
-  function toggleAddPanel() {
-    if (addPanelVisible) { addOpen = false; dismissedExternalAdd = true; onAddClosed?.(); }
-    else { dismissedExternalAdd = false; addOpen = true; }
-  }
   function removable(_station: RadioStation) { return true; }
   function stationTags(station: RadioStation, max = 4) {
     return (station.tags ?? "").split(/[;,]/).map((tag) => tag.trim()).filter(Boolean).slice(0, max);
@@ -497,37 +481,6 @@
     } catch (failure) { error = String(failure); }
     finally { loadingStations = false; }
   }
-  async function searchStations() {
-    const query = searchQuery.trim();
-    const country = countryFilter.trim();
-    const tag = tagFilter.trim();
-    if (!query && !country && !tag) { searchResults = []; return; }
-    searching = true; stationActionError = "";
-    try { searchResults = await call<RadioStationSearchResult[]>("search_radio_stations", { query, country: country || null, tag: tag || null, limit: 20 }); }
-    catch (failure) { stationActionError = String(failure); }
-    finally { searching = false; }
-  }
-  async function addSearchStation(station: RadioStationSearchResult) {
-    addingStationId = station.id; stationActionError = "";
-    try {
-      stations = await call<RadioStation[]>("add_radio_station", { station });
-      onStationsChanged?.(stations);
-      activeStationId = station.id; addOpen = false; dismissedExternalAdd = true; onAddClosed?.();
-    } catch (failure) { stationActionError = String(failure); }
-    finally { addingStationId = ""; }
-  }
-  async function addCustomStation() {
-    if (!stationName.trim() || !stationUrl.trim()) return;
-    stationActionError = "";
-    stationActionStatus = "";
-    try {
-      stations = await call<RadioStation[]>("add_custom_radio_station", { name: stationName.trim(), url: stationUrl.trim() });
-      onStationsChanged?.(stations);
-      const added = stations.find((item) => item.id.startsWith("custom:") && item.name === stationName.trim()) ?? stations[stations.length - 1];
-      stationName = ""; stationUrl = ""; addOpen = false; dismissedExternalAdd = true; onAddClosed?.();
-      if (added) activeStationId = added.id;
-    } catch (failure) { stationActionError = String(failure); }
-  }
   async function saveStationStreamUrl() {
     if (!selectedStation || !editedStationUrl.trim() || editStreamSaving) return;
     stationActionError = "";
@@ -604,18 +557,6 @@
       {/key}
     {/if}
     <div><p class="eyebrow">LIVE RADIO</p><h1>{selectedStation?.name ?? "Radio"}</h1><p>{selectedStation?.description || (selectedStation?.country ? `Live internet radio from ${selectedStation.country}.` : "Live internet radio stream.")}</p></div></div><div class="heading-actions">{#if selectedStationWebsite}<a href={selectedStationWebsite} target="_blank" rel="noreferrer">Station website ↗</a>{/if}</div></header>
-  {#if addPanelVisible}
-    <section class="station-add" aria-label="Add radio station">
-      <div class="add-tabs" role="tablist" aria-label="Add station method"><button role="tab" aria-selected={addMode === "search"} class:active={addMode === "search"} onclick={() => (addMode = "search")}>Search</button><button role="tab" aria-selected={addMode === "url"} class:active={addMode === "url"} onclick={() => (addMode = "url")}>Stream URL</button></div>
-      {#if addMode === "search"}
-        <form class="station-search" onsubmit={(event) => { event.preventDefault(); void searchStations(); }}><label>Search internet radio <span><input aria-label="Search internet radio" bind:value={searchQuery} placeholder="Station name or keyword" /><button disabled={searching || (!searchQuery.trim() && !countryFilter.trim() && !tagFilter.trim())}>{searching ? "Searching…" : "Search"}</button></span></label><div class="radio-filters"><label>Country<input aria-label="Station country filter" bind:value={countryFilter} placeholder="Any country" /></label><label>Genre<input aria-label="Station genre filter" bind:value={tagFilter} placeholder="Any genre" /></label></div></form>
-        {#if searchResults.length}<ul class="search-results" aria-label="Station search results">{#each searchResults as station (station.id)}<li><div><strong>{station.name}</strong><small>{[station.country, stationTags(station, 3).join(" · "), station.codec, (station.bitrateKbps ?? station.bitrate) ? `${station.bitrateKbps ?? station.bitrate} kbps` : ""].filter(Boolean).join(" · ") || "Internet radio"}</small></div><button disabled={addingStationId === station.id} onclick={() => void addSearchStation(station)}>{addingStationId === station.id ? "Adding…" : "Add"}</button></li>{/each}</ul>{:else if (searchQuery.trim() || countryFilter.trim() || tagFilter.trim()) && !searching}<p class="radio-empty">No matching stations yet. Try a country or genre.</p>{/if}
-      {:else}
-        <form class="station-search custom-station" onsubmit={(event) => { event.preventDefault(); void addCustomStation(); }}><label>Station name<input aria-label="Station name" bind:value={stationName} /></label><label>Stream URL<input aria-label="Stream URL" type="url" bind:value={stationUrl} placeholder="https://…" /></label><button disabled={!stationName.trim() || !stationUrl.trim()}>Add stream</button><small>Use a direct audio stream URL. HLS playlists are supported when the app can play them.</small></form>
-      {/if}
-      {#if stationActionError}<p role="alert" class="error">{stationActionError}</p>{/if}
-    </section>
-  {/if}
   {#if loadingStations && !stations.length}<p role="status">Loading stations…</p>{/if}
   {#if stations.length && !requestedStationId}<nav class="stations" aria-label="Radio stations">
     {#each stations as station (station.id)}
@@ -670,7 +611,7 @@
 </section>
 
 <style>
-  .radio-page{box-sizing:border-box;flex:1 1 auto;min-height:0;min-width:0;width:100%;overflow-y:auto;overscroll-behavior:contain;overflow-wrap:anywhere;margin:0;padding:clamp(16px,2%,32px);color:var(--text);container-type:inline-size}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:24px}.page-heading h1{margin:3px 0;font-size:clamp(24px,4vw,34px)}.page-heading p:not(.eyebrow){margin:5px 0;color:var(--muted)}.heading-actions{display:flex;align-items:center;gap:12px}.heading-actions>a{color:var(--accent);font-size:13px}.add-button,.station-search button,.search-results button,.remove-station{border:1px solid var(--line);border-radius:7px;padding:7px 11px;background:var(--raised);color:var(--text)}.eyebrow{margin:0;color:var(--muted);font-size:10px;font-weight:650;letter-spacing:.12em}.stations{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,205px),1fr));gap:10px}.station-card{display:flex;align-items:center;gap:12px;min-height:78px;padding:14px;border:1px solid var(--line);border-radius:11px;background:var(--surface);color:var(--text);text-align:left}.station-card.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}.station-mark{display:grid;place-items:center;width:40px;height:40px;border-radius:9px;background:var(--raised);font-size:22px}.station-copy{display:grid;gap:5px;flex:1;min-width:0}.station-copy small{color:var(--muted);font-size:11px}.play-icon{color:var(--accent)}.station-add{margin:0 0 18px;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}.add-tabs{display:flex;gap:5px;margin-bottom:12px}.add-tabs button{border:0;border-radius:6px;padding:8px 12px;background:transparent;color:var(--muted)}.add-tabs button.active{background:var(--raised);color:var(--text)}.station-search label{display:grid;gap:6px;color:var(--muted);font-size:12px}.station-search label span{display:flex;gap:8px}.station-search input{min-width:0;width:100%;padding:9px;border:1px solid var(--line);border-radius:7px;background:var(--raised);color:var(--text)}.radio-filters{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:9px}.custom-station{display:grid;grid-template-columns:1fr 1.4fr auto;align-items:end;gap:10px}.custom-station small{grid-column:1/-1;color:var(--muted)}.search-results{list-style:none;margin:10px 0 0;padding:0;max-height:280px;overflow:auto}.search-results li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid var(--line)}.search-results li div{display:grid;gap:3px;min-width:0}.search-results li small{color:var(--muted);font-size:11px}.remove-station{padding:4px 7px;font-size:10px}.radio-now-playing,.history{margin-top:26px;padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}.station-details{margin:7px 0;color:var(--muted);font-size:12px;line-height:1.5}.station-actions{display:flex;gap:8px;margin:10px 0}.radio-track-card{display:grid;grid-template-columns:128px minmax(0,1fr);gap:18px;align-items:center;margin-top:12px}.radio-track-card :global(img),:global(.art-placeholder){width:128px;aspect-ratio:1;object-fit:cover;border-radius:9px;background:var(--raised)}:global(.art-placeholder){display:grid;place-items:center;color:var(--muted);font-size:44px}.radio-track-copy{min-width:0}.radio-track-copy h2{margin:0 0 6px;font-size:22px}.radio-track-copy p{margin:8px 0;color:var(--muted);font-size:13px}.artist-link{border:0;padding:0;background:transparent;color:var(--accent);text-align:left;font-size:16px;text-decoration:underline}.radio-empty{color:var(--muted);font-size:12px;line-height:1.5}.history h2{margin:0 0 9px;font-size:15px}.history h2 small{color:var(--muted);font-weight:400}.error{padding:12px;border:1px solid #a44;border-radius:8px;color:#ff9c9c}@media(max-width:560px){.page-heading{display:block}.heading-actions{margin-top:10px;flex-wrap:wrap}.radio-track-card{grid-template-columns:88px minmax(0,1fr);gap:12px}.radio-track-card :global(img),:global(.art-placeholder){width:88px}.radio-track-copy h2{font-size:18px}.radio-now-playing,.history{padding:13px}.custom-station{grid-template-columns:1fr}.custom-station small{grid-column:auto}.radio-filters{grid-template-columns:1fr}}
+  .radio-page{box-sizing:border-box;flex:1 1 auto;min-height:0;min-width:0;width:100%;overflow-y:auto;overscroll-behavior:contain;overflow-wrap:anywhere;margin:0;padding:clamp(16px,2%,32px);color:var(--text);container-type:inline-size}.page-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:24px}.page-heading h1{margin:3px 0;font-size:clamp(24px,4vw,34px)}.page-heading p:not(.eyebrow){margin:5px 0;color:var(--muted)}.heading-actions{display:flex;align-items:center;gap:12px}.heading-actions>a{color:var(--accent);font-size:13px}.add-button,.remove-station{border:1px solid var(--line);border-radius:7px;padding:7px 11px;background:var(--raised);color:var(--text)}.eyebrow{margin:0;color:var(--muted);font-size:10px;font-weight:650;letter-spacing:.12em}.stations{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,205px),1fr));gap:10px}.station-card{display:flex;align-items:center;gap:12px;min-height:78px;padding:14px;border:1px solid var(--line);border-radius:11px;background:var(--surface);color:var(--text);text-align:left}.station-card.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}.station-mark{display:grid;place-items:center;width:40px;height:40px;border-radius:9px;background:var(--raised);font-size:22px}.station-copy{display:grid;gap:5px;flex:1;min-width:0}.station-copy small{color:var(--muted);font-size:11px}.play-icon{color:var(--accent)}.remove-station{padding:4px 7px;font-size:10px}.radio-now-playing,.history{margin-top:26px;padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}.station-details{margin:7px 0;color:var(--muted);font-size:12px;line-height:1.5}.station-actions{display:flex;gap:8px;margin:10px 0}.radio-track-card{display:grid;grid-template-columns:128px minmax(0,1fr);gap:18px;align-items:center;margin-top:12px}.radio-track-card :global(img),:global(.art-placeholder){width:128px;aspect-ratio:1;object-fit:cover;border-radius:9px;background:var(--raised)}:global(.art-placeholder){display:grid;place-items:center;color:var(--muted);font-size:44px}.radio-track-copy{min-width:0}.radio-track-copy h2{margin:0 0 6px;font-size:22px}.radio-track-copy p{margin:8px 0;color:var(--muted);font-size:13px}.artist-link{border:0;padding:0;background:transparent;color:var(--accent);text-align:left;font-size:16px;text-decoration:underline}.radio-empty{color:var(--muted);font-size:12px;line-height:1.5}.history h2{margin:0 0 9px;font-size:15px}.history h2 small{color:var(--muted);font-weight:400}.error{padding:12px;border:1px solid #a44;border-radius:8px;color:#ff9c9c}@media(max-width:560px){.page-heading{display:block}.heading-actions{margin-top:10px;flex-wrap:wrap}.radio-track-card{grid-template-columns:88px minmax(0,1fr);gap:12px}.radio-track-card :global(img),:global(.art-placeholder){width:88px}.radio-track-copy h2{font-size:18px}.radio-now-playing,.history{padding:13px}}
   @container (max-width: 640px){.page-heading{flex-wrap:wrap}.heading-actions{flex-wrap:wrap}.station-identity{flex:1 1 260px}.station-actions{flex-wrap:wrap}.radio-track-card{grid-template-columns:88px minmax(0,1fr);gap:12px}.radio-track-card :global(img),:global(.art-placeholder){width:88px}.radio-track-copy h2{overflow-wrap:anywhere;font-size:18px}.radio-now-playing,.history{padding:13px}}
   .station-identity{display:flex;align-items:center;gap:12px;min-width:0}:global(.station-favicon),:global(.station-art-placeholder){width:38px;height:38px;object-fit:contain;border-radius:7px}:global(.station-art-placeholder){display:grid;place-items:center;flex:none;background:var(--raised);color:var(--muted);font-size:20px}.station-identity>div{min-width:0}.identify-button{border:1px solid var(--line);border-radius:7px;padding:7px 11px;background:var(--raised);color:var(--text)}
   .history-pagination{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:12px;font-size:12px;color:var(--muted)}.history-pagination button{border:1px solid var(--line);border-radius:6px;padding:6px 10px;background:var(--raised);color:var(--text)}.history-pagination button:disabled{opacity:.45}
