@@ -26,9 +26,10 @@ async fn resolve_fixture_track(index: usize) {
     settings.streaming_fallback_enabled = false;
     settings.playback_startup_timeout_seconds = 20;
     settings.matching_level = crate::recording_match::MatchLevel::Flexible;
+    // Match the release-only Flexible policy used by the saved Django album UI case.
     settings.flexible_matching.allow_other_releases = true;
-    settings.flexible_matching.allow_other_performances = true;
-    settings.flexible_matching.allow_other_mixes = true;
+    settings.flexible_matching.allow_other_performances = false;
+    settings.flexible_matching.allow_other_mixes = false;
     settings.flexible_matching.allow_other_artists = false;
     settings.flexible_matching.allow_different_lengths = true;
     settings.flexible_matching.max_shorter_by_seconds = 12;
