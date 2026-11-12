@@ -906,9 +906,14 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       const unique = [...new Map(identities.map(item => [item.id, item])).values()];
       if (unique.length === 1 && page.complete === true && !page.nextCursor) {
         if (membershipTrack) {
-          activeAlbumRead = `album-navigation-${request}`;
-          const verified = await call<boolean>("verify_spotify_album_membership", { track: membershipTrack, albumId: unique[0]!.id, requestId: activeAlbumRead });
-          activeAlbumRead = null;
+          const readId = crypto.randomUUID();
+          activeAlbumRead = readId;
+          let verified = false;
+          try {
+            verified = await call<boolean>("verify_spotify_album_membership", { track: membershipTrack, albumId: unique[0]!.id, requestId: readId });
+          } finally {
+            if (activeAlbumRead === readId) activeAlbumRead = null;
+          }
           if (request !== trackAlbumLookupRequest || sourceNavigationRequest !== navigationRequest) return false;
           if (!verified) return false;
         }
@@ -1029,8 +1034,9 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
           if (await resolveSpotifyAlbum(target.album, target.artist, ownerNavigation, request, false, track)) return;
         }
       }
+      const readId = crypto.randomUUID();
       try {
-        activeAlbumRead = `album-navigation-${request}`;
+        activeAlbumRead = readId;
         setNotice("Finding album…");
         const resolved = await call<{
           status: "resolved" | "ambiguous" | "unavailable";
@@ -1038,7 +1044,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
           choices?: Array<{ release: ArtistReleaseRef; artist: ArtistRef; reason: string }>;
           reason?: string;
           sourceAlbumUrl?: string | null;
-        }>("resolve_track_album", { track, requestId: `album-navigation-${request}` });
+        }>("resolve_track_album", { track, requestId: readId });
         if (!stillOnSourceRoute()) return;
         activeAlbumRead = null;
         setNotice("");
@@ -1060,7 +1066,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
         setNotice(resolved.reason || "No verified album was found for this track.");
         return;
       } catch (failure) {
-        if (activeAlbumRead === `album-navigation-${request}` && stillOnSourceRoute()) {
+        if (activeAlbumRead === readId && stillOnSourceRoute()) {
           activeAlbumRead = null;
           setNotice(safePreviewError(failure));
         }

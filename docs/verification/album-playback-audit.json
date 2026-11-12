@@ -1341,7 +1341,7 @@
         "log": "/tmp/burrata-remote-credit-tests.log"
       }
     },
-    "packagedApp": "pending",
+    "packagedApp": "c3b8977 Linux CI and installed smoke passed; live Spotify gate failed; replacement qualification running",
     "contracts": {
       "command": "python3 scripts/check_contracts.py",
       "passed": 8
@@ -1441,13 +1441,36 @@
         "standalone station dialog preserves current page and focus",
         "same-video saved metadata fills autoplay artist outside loaded library page"
       ]
+    },
+    "albumReadRequestContract": {
+      "finding": "Packaged Find album rejected album-navigation-N before catalog lookup because ProviderReadRequests requires a UUID.",
+      "change": "UUID v4 per native read; cancellation reuses the exact read ID and stale completion cannot clear a newer read.",
+      "tests": {
+        "passed": 32,
+        "scope": "App album integration tests, including native request-ID shape and cancellation identity"
+      },
+      "packagedRetest": "pending updated candidate"
+    },
+    "addRadioStationDialog": {
+      "sourceCommit": "c3b8977ff27ca4ba517ab822e5feb723c0ae64b1",
+      "status": "packaged_ui_passed",
+      "observed": "Add radio station opens a focused modal over Library and over Radio Paradise Main Mix; the underlying view remains selected.",
+      "scope": "Disposable isolated Xvfb profile; station playback not qualified by this check"
+    },
+    "reportedSpotifyPlayback": {
+      "sourceCommit": "c3b8977ff27ca4ba517ab822e5feb723c0ae64b1",
+      "matchingLevel": "balanced",
+      "status": "failed",
+      "reason": "Usable source H35xiJcS8RY appeared at metadata rank 15, outside ten-row playback pool.",
+      "replacement": "e4bc101a8b3c8d34ef25c4ced4bd44968efa8ec2 retrieves up to 20 metadata rows, retains extraction/deadline caps and invalidates ten-row completed caches.",
+      "replacementCi": "https://github.com/anaxonda/burrata/actions/runs/43290498382"
     }
   },
   "remaining": [
-    "Build and qualify updated packaged executable, then replace installed app with rollback",
-    "Verify reported Balanced playback, album navigation, lyrics and autoplay metadata in the updated runtime",
-    "Qualify provider and entrypoint paths beyond fixture coverage, documenting unavailable live services",
-    "Resolve official-video additional contributor only with independent role or recording evidence"
+    "Verify reported Spotify search playback in Balanced with real decoder and advancing position, then continuation/recovery",
+    "Retest direct album navigation in a packaged candidate after UUID fix",
+    "Finish full release CI, publish qualified release and install identical latest artifact locally",
+    "Record provider-specific live limitations separately from passing fixture coverage"
   ],
   "metadataPreservation": {
     "youtubeMusic": "Structured credits and album browse endpoints survive native search, cache provenance, playback locators and restore; final native suite passed.",
@@ -1480,7 +1503,8 @@
     "source": "youtube:fr1AFMoBDEw",
     "observedIssue": "Autoplay track has empty artist and unsplit live caption; LRCLIB validation rejects artist.",
     "change": "Autoplay and lyrics fallback now reuse explicit live-performance parser, including named live venues without at/on. Known artists are not overwritten; captions remain unverified.",
-    "status": "native_and_frontend_regressions_passed_packaged_verification_pending"
+    "status": "native_and_frontend_regressions_passed_packaged_verification_pending",
+    "catalogTrackPackagedCheck": "La Nave del Olvido lyrics rendered successfully in c3b8977; missing-artist autoplay request path remains separately covered by regression tests."
   },
   "restoredMetadata": {
     "source": "src-tauri/src/backup_state.rs",
@@ -1528,7 +1552,15 @@
     "observed": "Saved YouTube Music item has Macha Y El Bloque Depresivo, Vicente Cifuentes credits; autoplay constructs a separate queue snapshot with missing artist.",
     "sourcePolicy": "youtubeRadio pins the autoplay video; saved ordinary YouTube Music item without source lock remains eligible for recording-matched fallback.",
     "change": "Uses the exact saved video to fill missing metadata even outside the loaded library page. Bounded positive/negative cache shares reads; generation and queue-entry guards reject stale UI updates. Queue source binding is preserved.",
-    "status": "16_focused_frontend_tests_passed_runtime_verification_pending"
+    "status": "packaged_display_verified",
+    "packagedEvidence": {
+      "sourceCommit": "c3b8977ff27ca4ba517ab822e5feb723c0ae64b1",
+      "profile": "isolated paused native profile with exact saved video",
+      "nativeQueueArtist": "",
+      "renderedPlaybarArtist": "Macha Y El Bloque Depresivo, Vicente Cifuentes",
+      "renderedNowPlayingArtist": "Macha Y El Bloque Depresivo, Vicente Cifuentes",
+      "sourceBinding": "Original queue provider, ID and youtubeRadio provenance retained; display projection only"
+    }
   },
   "liveCatalogReads": {
     "spotifyAlbum": {

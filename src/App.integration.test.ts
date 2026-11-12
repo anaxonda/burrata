@@ -3939,8 +3939,11 @@ describe("saved recording navigation", () => {
       if(command==="get_managed_provider_session_status")return {running,spotifyAccountId:"fixture-account",accountRevisions:{spotify:1}};
       if(command==="list_search_sources")return [...await originalCall(command,args),{id:"spotify",name:"Spotify",kinds:["album"],enabled:true}];
       if(command==="search_source"&&(args?.sourceIds as string[]|undefined)?.includes("spotify"))return {sourceId:"spotify",complete:true,nextCursor:null,results:[{id:`spotify:album:${albumId}`,kind:"album",sourceId:"spotify",title:track.album,subtitle:"Macha Y El Bloque Depresivo",url:`https://open.spotify.com/album/${albumId}`}]};
-      if(command==="verify_spotify_album_membership")return verified;
-      if(command==="resolve_track_album")return {status:"resolved",destination:{release,artist:{provider:"musicbrainz",id:artistId},reason:"Complete album timeline",evidence:"completeTimeline"}};
+      if(command==="verify_spotify_album_membership" || command==="resolve_track_album") {
+        expect(args?.requestId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+        if(command==="verify_spotify_album_membership")return verified;
+        return {status:"resolved",destination:{release,artist:{provider:"musicbrainz",id:artistId},reason:"Complete album timeline",evidence:"completeTimeline"}};
+      }
       if(command==="browse_remote_album_tracks")return {provider:"spotify",accountId:"fixture-account",album:{id:albumId,title:track.album,url:`https://open.spotify.com/album/${albumId}`,artists:["Macha Y El Bloque Depresivo"]},tracks:[track],total:1,complete:true};
       return originalCall(command,args);
     });
@@ -3970,7 +3973,9 @@ describe("saved recording navigation", () => {
     await openTestTrackAlbum(track,"YouTube");expect(finish).toBeTypeOf("function");
     [...document.querySelectorAll<HTMLButtonElement>("nav button")].find(button=>button.textContent?.includes("Library"))!.click();await settle();
     finish({status:"resolved",destination:{release:{release:{provider:"musicbrainz",id:"6c56fb1d-e220-40ee-b836-10b6bf992ab7"},title:"Late album",sourceUrl:"https://musicbrainz.org/release/6c56fb1d-e220-40ee-b836-10b6bf992ab7",credits:[],tracks:[]},artist:{provider:"musicbrainz",id:"d50b0808-1c23-43b2-b485-7248849268b2"}}});await settle();
-    expect(mocks.call).toHaveBeenCalledWith("cancel_remote_read",expect.objectContaining({requestId:expect.stringMatching(/^album-navigation-/)}));
+    const readId=mocks.call.mock.calls.find(([command])=>command==="resolve_track_album")?.[1]?.requestId;
+    expect(readId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    expect(mocks.call).toHaveBeenCalledWith("cancel_remote_read",{requestId:readId});
     expect(document.querySelector(".release-view")).toBeNull();
     expect(mocks.call.mock.calls.some(([command])=>command==="get_release_tracks")).toBe(false);
   });
