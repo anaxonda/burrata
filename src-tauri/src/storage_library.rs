@@ -1148,8 +1148,7 @@ impl Store {
             let duration = track.duration_seconds;
             (query.is_empty() || text.contains(&query))
                 && (availability == "all"
-                    || (availability == "local")
-                        == (track.local_availability.as_deref() == Some("available")))
+                    || (availability == "local") == (track.local_availability == "available"))
                 && min_duration.is_none_or(|minimum| duration.is_some_and(|value| value >= minimum))
                 && max_duration.is_none_or(|maximum| duration.is_some_and(|value| value <= maximum))
         });
