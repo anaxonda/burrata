@@ -775,3 +775,29 @@ test('browser-tab YouTube Music search and playlist preserve credits, album endp
  const ambiguous=JSON.parse(JSON.stringify(await context.runProviderPageOperation('youtube','search',{query:'Song',kind:'track'},{}))).items[0].data;
  assert.equal(ambiguous.album,'');assert.equal(ambiguous.albumBrowseId,undefined);
 });
+
+test('Spotify HTTP and serialized browser search retain atomic credits and exact album context',async()=>{
+ const trackId='71fwMMqK8Kea3FguUUrl2t',albumId='7j1iNxlcdkJj864Bu0ETPj';
+ const data={uri:`spotify:track:${trackId}`,name:'La Nave del Olvido',duration:{totalMilliseconds:235542},trackNumber:3,
+  artists:{items:[{uri:'spotify:artist:1pdmhuBAqiOFaFuXRvLoyy',profile:{name:'Macha Y El Bloque Depresivo'}},{uri:'spotify:artist:45H7NFSk6h7YyYP6BiB3EP',profile:{name:'Alvaro Henriquez'}}]},
+  albumOfTrack:{uri:`spotify:album:${albumId}`,name:'Macha y el Bloque Depresivo',date:{isoString:'2018-10-05'}}};
+ for(const adapter of ['http','browser']){
+  const fetch=async(url,options={})=>{
+   const target=String(url);let body;
+   if(target.includes('/api/token'))body={accessToken:'TEST-FIXTURE-CREDENTIAL-578BC7AF1F-page-owned-token',isAnonymous:false};
+   else {const request=JSON.parse(options.body);if(request.operationName==='profileAttributes')body={data:{me:{profile:{uri:'spotify:user:fixture-account',name:'Fixture'}}}};
+    else if(request.operationName==='searchDesktop')body={data:{searchV2:{tracksV2:{items:[{item:{data}}],totalCount:1}}}};
+    else throw new Error('Unexpected fixture operation '+request.operationName);}
+   return {ok:true,status:200,text:async()=>JSON.stringify(body)};
+  };
+  const chrome={storage:{local:{get:async()=>({}),set:async()=>{}},session:{get:async()=>({}),set:async()=>{}}},runtime:{onMessage:{addListener(){}},lastError:null},action:{setBadgeText(){},setBadgeBackgroundColor(){}},tabs:{onRemoved:{addListener(){}}},alarms:{create(){},onAlarm:{addListener(){}}}};
+  const context=vm.createContext({chrome,fetch,crypto:webcrypto,URL,URLSearchParams,Response,TextEncoder,AbortController,location:{hostname:'open.spotify.com',origin:'https://open.spotify.com'},setInterval(){},setTimeout,clearTimeout});
+  vm.runInContext(source,context);vm.runInContext(sharedSpotifySource,context);
+  const hashes={profileAttributes:{hash:'a'.repeat(64)},searchDesktop:{hash:'b'.repeat(64)},totp:{code:'123456',version:61}};
+  const raw=adapter==='http'?await context.BurrataSpotifyProvider.run('spotify','search',{query:'La Nave del Olvido',kind:'track'},hashes):await context.runProviderPageOperation('spotify','search',{query:'La Nave del Olvido',kind:'track'},hashes);
+  const result=JSON.parse(JSON.stringify(raw));assert.equal(result.__burrataProviderError,undefined,adapter);
+  const row=result.items[0].data;assert.equal(row.artistCount,2,adapter);assert.equal(row.artistRefs[0].name,'Macha Y El Bloque Depresivo',adapter);
+  assert.deepEqual(row.recordingContext,{albumId,albumUri:`spotify:album:${albumId}`,trackNumber:3,releaseDate:'2018-10-05'},adapter);
+  assert.equal(row.durationSeconds,235.542,adapter);
+ }
+});

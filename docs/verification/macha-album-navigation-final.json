@@ -1,0 +1,85 @@
+{
+  "sourceCommit": "a55add2dd093014db496d5c8ec70741480abe0b4",
+  "coldCatalogCache": true,
+  "initialCatalogCacheEntries": 0,
+  "resolved": true,
+  "elapsedSeconds": 6.61,
+  "destination": {
+    "destination": {
+      "artist": {
+        "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+        "provider": "musicbrainz"
+      },
+      "evidence": "completeTimeline",
+      "reason": "Complete ordered source and catalog album timelines agree",
+      "release": {
+        "artworkUrls": [
+          "https://coverartarchive.org/release/6c56fb1d-e220-40ee-b836-10b6bf992ab7/front-250",
+          "https://coverartarchive.org/release-group/830f149f-3395-412b-8df4-21c2443f8c0e/front-250"
+        ],
+        "catalogNumber": null,
+        "country": "CL",
+        "credits": [
+          {
+            "artist": {
+              "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Macha y el Bloque Depresivo",
+            "joinPhrase": "",
+            "name": "Macha y el Bloque Depresivo",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/6c56fb1d-e220-40ee-b836-10b6bf992ab7"
+          }
+        ],
+        "format": "CD",
+        "label": "Perros con Tiña",
+        "primaryType": "Album",
+        "release": {
+          "id": "6c56fb1d-e220-40ee-b836-10b6bf992ab7",
+          "provider": "musicbrainz"
+        },
+        "releaseDate": "2018-10-10",
+        "sourceUrl": "https://musicbrainz.org/release/6c56fb1d-e220-40ee-b836-10b6bf992ab7",
+        "title": "100% lúcidos",
+        "trackCount": 14,
+        "tracks": [],
+        "year": 2018
+      }
+    },
+    "status": "resolved"
+  },
+  "catalogueRequestsCached": [
+    [
+      "albums.search.musicbrainz.v2",
+      1
+    ],
+    [
+      "artists.release-tracks.musicbrainz",
+      2
+    ],
+    [
+      "artists.releases.musicbrainz.v2",
+      1
+    ],
+    [
+      "artists.search.musicbrainz",
+      1
+    ],
+    [
+      "navigation.album-membership.v4",
+      1
+    ]
+  ],
+  "artifactSha256": "f4a8299d301153a490e8c1ec8a9b6803bfa1fc76b30426bedb299e95eac08af8",
+  "installedVersion": "0.1.37",
+  "catalogueCacheScope": "artists.*, albums.*, navigation.album-membership.* cleared immediately before the observed Find album click in the disposable profile; YouTube cache was retained.",
+  "observedUi": {
+    "album": "100% lúcidos",
+    "artist": "Macha y el Bloque Depresivo",
+    "loadedTrackCount": 14,
+    "directAlbumView": true,
+    "addStationIndependentModal": true,
+    "autoplayPlaybarSavedArtistVisible": true
+  }
+}

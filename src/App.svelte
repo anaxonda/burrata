@@ -80,7 +80,7 @@
   import { translateLyricsInChunks, type TranslationProgress } from "./lib/lyrics-translation-progress";
   import { visibleLyricsTrack as makeVisibleLyricsTrack, lyricsTrackWithPlaybackDuration } from "./lib/lyrics-request";
   import { autoplayTrackWithLibraryMetadata, createAutoplayMetadataLookup } from "./lib/autoplay-track-metadata";
-  import { albumLookupArtist, directCatalogAlbumTarget } from "./lib/album-navigation";
+  import { albumLookupArtist, directCatalogAlbumTarget, freshSpotifyAlbumContext } from "./lib/album-navigation";
   import { playbackOperationTrace, type PlaybackOperationTrace } from "./lib/native-playback";
 import { isCurrentLiveBpmEstimate, isCurrentLiveKeyEstimate } from "./lib/live-bpm";
 import { readLiveMeasurementCache, saveLiveMeasurements, type LiveMeasurementCacheRecord, type LiveMeasurementCacheApi, type LiveMeasurementResource } from "./lib/live-measurement-cache";
@@ -1031,6 +1031,22 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
         if (!stillOnSourceRoute()) return;
         availableSources = sources;
         if (sources.some(source => source.id === "spotify" && source.enabled && source.kinds?.includes("album"))) {
+          if (track.provider === "spotify" && sources.some(source=>source.id==="spotify" && source.enabled && source.kinds?.includes("track"))) {
+            try {
+              setNotice("Finding album…");
+              const page=await call<{results?:Array<{track?:Track|null}>}>("search_source",{
+                query:`${track.title.trim()} ${albumLookupArtist(track)}`.trim(),sourceIds:["spotify"],kinds:["track"],cursor:null,
+              });
+              if (!stillOnSourceRoute()) return;
+              setNotice("");
+              const exact=(page.results??[]).flatMap(row=>row.track?.id===track.id?[row.track]:[]);
+              const context=exact.length===1?freshSpotifyAlbumContext(track,exact[0]!):null;
+              if (context) { await openSpotifyAlbum(context.albumId,track.album?.trim()||"");return; }
+            } catch {
+              if (!stillOnSourceRoute()) return;
+              setNotice("");
+            }
+          }
           if (await resolveSpotifyAlbum(target.album, target.artist, ownerNavigation, request, false, track)) return;
         }
       }

@@ -4045,6 +4045,36 @@ describe("saved recording navigation", () => {
     expect(audioSearchResult[0]?.album).toBe("Bryant Street");
   });
 
+  it.each([false,true])("opens the Spotify track's exact album (legacy context: %s)",async(legacy)=>{
+    const {providerNavigationSnapshots}=await import("./lib/provider-navigation-snapshots");providerNavigationSnapshots.clear();
+    const id="71fwMMqK8Kea3FguUUrl2t",albumId="7j1iNxlcdkJj864Bu0ETPj",albumTitle="Macha y el Bloque Depresivo";
+    const provenance={catalog:{provider:"spotify",providerId:id,verified:true,artists:[{provider:"spotify",id:"1pdmhuBAqiOFaFuXRvLoyy",name:"Macha Y El Bloque Depresivo"},{provider:"spotify",id:"45H7NFSk6h7YyYP6BiB3EP",name:"Alvaro Henriquez"}],artistCount:2}};
+    const context={albumId,albumUri:`spotify:album:${albumId}`};
+    const fresh:Track={...savedTrack,id:`spotify:${id}`,provider:"spotify",providerId:id,sourceUrl:`https://open.spotify.com/track/${id}`,title:"La Nave del Olvido",artist:"Macha Y El Bloque Depresivo, Alvaro Henriquez",album:albumTitle,durationSeconds:235.542,provenance:{...provenance,recordingContext:context}};
+    const track:Track={...fresh,provenance:legacy?provenance:fresh.provenance};
+    const original=mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async(command:string,args?:Record<string,unknown>)=>{
+      if(command==="get_managed_provider_session_status")return {running:true,spotifyAccountId:"fixture-account",accountRevisions:{spotify:1}};
+      if(command==="list_search_sources")return [{id:"spotify",name:"Spotify",kinds:["track","album"],enabled:true}];
+      if(command==="search_source"){
+        const item=String(args?.query).includes("Macha")?fresh:track;
+        return {sourceId:"spotify",complete:true,results:[{id:item.id,kind:"track",sourceId:"spotify",title:item.title,track:item}]};
+      }
+      if(command==="browse_remote_album_tracks")return {provider:"spotify",accountId:"fixture-account",album:{id:albumId,title:albumTitle,url:`https://open.spotify.com/album/${albumId}`,artists:["Macha Y El Bloque Depresivo"]},tracks:[],total:0,complete:true};
+      return original(command,args);
+    });
+    const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Search"]')!.click();await settle();
+    await searchDiscovery(track.title,["Spotify"]);
+    const row=[...document.querySelectorAll<HTMLElement>(".result-row")].find(item=>item.textContent?.includes(track.title))!;
+    row.querySelector<HTMLElement>(".track-list-viewport li")!.dispatchEvent(new MouseEvent("contextmenu",{bubbles:true,cancelable:true,clientX:360,clientY:220}));await settle();
+    [...document.querySelectorAll<HTMLButtonElement>("dialog.track-menu button")].find(button=>/^(?:Find|Go to) album$/.test(button.textContent?.trim()||""))!.click();await settle();await settle();await settle();
+    await vi.waitFor(()=>expect(mocks.call.mock.calls.some(([command,args])=>command==="browse_remote_album_tracks" && args?.albumId===albumId)).toBe(true));
+    expect(document.querySelector(".spotify-artist h1")?.textContent).toBe(albumTitle);
+    expect(mocks.call.mock.calls.some(([command])=>command==="resolve_track_album")).toBe(false);
+    expect(track.provenance).toEqual(legacy?provenance:fresh.provenance);
+  });
+
   it("presents verified album choices without replacing the current search", async () => {
     const artistId="66666666-6666-4666-8666-666666666666";
     const track:Track={...savedTrack,id:"soundcloud-album-track",provider:"soundcloud",providerId:"fixture-track",sourceUrl:"https://soundcloud.test/track",title:"A Song",artist:"An Artist",album:"Shared Album",provenance:{sourceKind:"audioSearch"}};

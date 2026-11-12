@@ -795,6 +795,24 @@ mod tests {
     }
 
     #[test]
+    fn captured_playback_search_retains_official_album_and_distinct_live_version() {
+        let f: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/macha-official-source-selection.json"
+        ))
+        .unwrap();
+        let items = parse_search_response(&f["nativeSearch"], 20);
+        assert_eq!(items.len(), 3);
+        let expected: YouTubeMusicItem = serde_json::from_value(f["catalogItem"].clone()).unwrap();
+        assert_eq!(items[0].id, expected.id);
+        assert_eq!(items[0].artist_credits, expected.artist_credits);
+        assert_eq!(items[0].album_browse_id, expected.album_browse_id);
+        assert_eq!(items[0].album, expected.album);
+        assert_eq!(items[0].duration_seconds, Some(236.));
+        assert_eq!(items[1].album.as_deref(), Some("Lado A"));
+        assert!(items[2].title.contains("En Vivo"));
+    }
+
+    #[test]
     fn structured_album_and_artist_endpoints_survive_search_parsing() {
         let run = |name: &str, kind: &str, id: &str| {
             json!({

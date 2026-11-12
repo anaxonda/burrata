@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) const EVALUATOR_VERSION: &str = "33";
+pub(crate) const EVALUATOR_VERSION: &str = "34";
 
 /// Independently selected categories of alternatives for Flexible matching.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -863,7 +863,10 @@ fn prepared_semantic_observations(
         let field = observation.origin.field.as_str();
         if matches!(
             field,
-            "version" | "sourceMetadata.version" | "sourceMetadata.mix"
+            "version"
+                | "sourceMetadata.version"
+                | "sourceMetadata.mix"
+                | "sourceMetadata.performanceVersion"
         ) {
             if !observation.parsed.original.trim().is_empty() {
                 values.push(semantic_version(
@@ -2372,7 +2375,13 @@ fn prepare_observations(
             complete: false,
         });
     }
-    for field in ["track", "catalogTitle", "version", "mix"] {
+    for field in [
+        "track",
+        "catalogTitle",
+        "version",
+        "mix",
+        "performanceVersion",
+    ] {
         if let Some(text) = meta[field].as_str() {
             actual.texts.push(TextObservation {
                 origin: origin(
@@ -4149,7 +4158,7 @@ pub(crate) fn alternative_rank(
         .semantic_versions()
         .map(str::to_owned)
         .collect::<Vec<_>>();
-    for field in ["version", "mix"] {
+    for field in ["version", "mix", "performanceVersion"] {
         if let Some(value) = metadata[field].as_str() {
             labels.push(value.to_owned());
         }

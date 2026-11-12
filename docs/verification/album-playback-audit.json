@@ -1510,10 +1510,9 @@
     }
   },
   "remaining": [
-    "Qualify the final album programme/parser changes in native CI and a packaged runtime",
-    "Retest the required Spotify gate on the exact final release artifact",
-    "Complete cross-platform release CI, publish qualified release and install identical latest artifact locally",
-    "Keep source-specific identity/DRM limitations explicit; do not infer composer roles or relax audio performer validation"
+    "Prefer and verify the official requested recording over unlabelled concert uploads; native decoding alone is insufficient",
+    "Invalidate weak remembered sources/search results and retest correct-source playback on a new final artifact",
+    "Complete platform packaging and publish only the corrected qualified release"
   ],
   "metadataPreservation": {
     "youtubeMusic": "Structured credits and album browse endpoints survive native search, cache provenance, playback locators and restore; final native suite passed.",
@@ -1537,8 +1536,8 @@
       "finding": "Recording credits split Macha from Bloque Depresivo; the release-level artist is the complete group. Source song label Cada Domingo is shorter than the catalog Cada domingo a las doce. The CD programme agrees in all 14 positions/runtimes; the digital edition reverses the last two tracks.",
       "change": "Preserve MusicBrainz album artist, permit at most one bounded short label in an otherwise agreeing complete programme of at least ten tracks, and prefer a unique complete programme over weaker single-recording occurrences. Audio matching is unchanged.",
       "isolatedRustPolicyAudit": "passed correct-edition, version, order, runtime, ambiguity, incomplete-discovery and short-label guards",
-      "nativeFixtureTest": "pending final CI",
-      "packagedRetest": "pending"
+      "nativeFixtureTest": "passed final Linux/macOS/Windows Rust suites",
+      "packagedRetest": "passed direct 14-track 100% lúcidos CD view, cold catalogue cache"
     },
     "coldLookup": {
       "withheldCandidate": "548d15aaaca79887fd9c535bd2b604278ed0f3b6",
@@ -1548,7 +1547,12 @@
       "coldPackagedNavigation": "failed 20-second lookup deadline; candidate not published",
       "correction": "Use complete validated exact-artist editions instead of redundant broad groups. Inspect possible equal-count programmes first. After full programme proof skip known different-sized editions; retain unknown counts. Complete snapshot markers required for every catalogue row. Partial rows, totals, credits or pagination retain fallback ambiguity.",
       "isolatedPolicyAudit": "passed with real normalized discography fixture; raw row parser test pending native CI",
-      "finalPackagedRetest": "pending"
+      "finalPackagedRetest": {
+        "status": "passed",
+        "elapsedSeconds": 6.61,
+        "initialCatalogueCacheEntries": 0,
+        "evidence": "docs/verification/macha-album-navigation-final.json"
+      }
     }
   },
   "externalLimitations": [
@@ -1663,5 +1667,55 @@
     "additionalTaskCacheCleanup": "584 MiB matching-audit target plus redundant 188 MiB smoke executable",
     "protected": "installed executable, rollback app, live library, library backup snapshots and verification reports",
     "rootPackageCache": "4.76 GiB eligible, cleanup blocked by sudo requiring a password; root retains 4.9 GB free"
+  },
+  "finalArtifactQualification": {
+    "sourceCommit": "a55add2dd093014db496d5c8ec70741480abe0b4",
+    "version": "0.1.37",
+    "appImageSha256": "f4a8299d301153a490e8c1ec8a9b6803bfa1fc76b30426bedb299e95eac08af8",
+    "spotifyBalancedGate": {
+      "status": "failed_performance_identity",
+      "firstAudioMs": 926,
+      "evidence": "docs/verification/macha-spotify-search-final.json",
+      "nativeDecodingPassed": true,
+      "userAudition": "Selected upload is a live concert performance. Withhold public release."
+    },
+    "coldAlbumGate": {
+      "status": "passed",
+      "elapsedSeconds": 6.61,
+      "evidence": "docs/verification/macha-album-navigation-final.json"
+    },
+    "linuxNativeSuite": {
+      "passed": 2774,
+      "failed": 0,
+      "ignored": 67
+    },
+    "frontendSuite": {
+      "files": 160,
+      "passed": 1639,
+      "failed": 0
+    },
+    "libraryCountsUnchanged": true,
+    "remaining": "Correct official-recording selection and version evidence; repeat correct-source gate before public release"
+  },
+  "studioSourceCorrection": {
+    "withheldVersion": "0.1.37",
+    "userFinding": "Balanced automatically selected a live-concert upload, H35xiJcS8RY. Native decoding and metadata agreement did not establish the requested performance.",
+    "officialSource": "youtube:xAJxfiF_0-w",
+    "fixture": "src-tauri/tests/fixtures/macha-official-source-selection.json",
+    "changes": [
+      "Research official music catalogue even when a caption is classified; prioritize matching album locators without bypassing extraction",
+      "Reconcile linked catalogue artists only with fresh verified-channel distributor album metadata; retain extra untyped names as unclassified credits",
+      "Retain explicit recorded-performance evidence independently from livestream status",
+      "Bind reconciliation, extraction cache and replay to album/duration context; invalidate evaluator/search caches",
+      "Preserve Spotify album IDs through normalization and displayed tracks, with exact-ID legacy snapshot hydration"
+    ],
+    "localTests": {
+      "isolatedMatching": 223,
+      "focusedFrontend": 335,
+      "companion": 120,
+      "svelteErrors": 0,
+      "svelteWarnings": 0
+    },
+    "remaining": "Final native/platform CI and correct-source live gates"
   }
 }

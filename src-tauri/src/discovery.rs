@@ -495,6 +495,9 @@ fn append_remote_catalog_results(out: &mut DiscoveryPage, source_id: &str, page:
             let album = native.get("album").and_then(Value::as_str).map(str::to_owned);
             let mut provenance = json!({"catalog":{"provider":source_id,"providerId":id,"verified":source_id == "spotify"},"remoteCatalog":native.clone()});
             if source_id == "spotify" {
+                if let Ok(Some(context)) = crate::remote_playlists::parse_spotify_recording_context(&native) {
+                    provenance["recordingContext"] = context;
+                }
                 // Preserve valid duplicate credits and the provider's named-credit
                 // count. Missing/invalid/truncated identities remain visibly
                 // incomplete to the UI, rather than becoming a false exact match.
@@ -2372,6 +2375,30 @@ mod tests {
                 .unwrap()
                 .kinds,
             vec!["artist", "album", "track", "file"]
+        );
+    }
+    #[test]
+    fn spotify_search_album_context_reaches_the_displayed_track() {
+        let mut page = DiscoveryPage {
+            source_id: "spotify".into(),
+            results: vec![],
+            next_cursor: None,
+            complete: true,
+            progress: None,
+            warnings: vec![],
+        };
+        let context = json!({"albumId":"7j1iNxlcdkJj864Bu0ETPj","albumUri":"spotify:album:7j1iNxlcdkJj864Bu0ETPj","trackNumber":3});
+        append_remote_catalog_results(
+            &mut page,
+            "spotify",
+            &json!({"items":[{
+                "id":"71fwMMqK8Kea3FguUUrl2t","kind":"track","title":"La Nave del Olvido",
+                "data":{"artist":"Macha Y El Bloque Depresivo, Alvaro Henriquez","recordingContext":context}
+            }]}),
+        );
+        assert_eq!(
+            page.results[0].track.as_ref().unwrap().provenance["recordingContext"],
+            context
         );
     }
     #[test]

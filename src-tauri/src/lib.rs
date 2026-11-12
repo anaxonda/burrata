@@ -142,6 +142,7 @@ pub mod youtube_channel;
 mod youtube_direct_experiment;
 mod youtube_download_recovery;
 pub mod youtube_music;
+pub(crate) mod youtube_recording_metadata;
 pub mod youtube_support;
 mod youtube_web_search;
 use acquisition::{AcquisitionManager, AcquisitionProvider};

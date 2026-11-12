@@ -485,7 +485,18 @@ pub(super) fn priority(
     candidate: &Candidate,
     result: CandidateGateResult,
     _level: MatchLevel,
-) -> (u8, u8, u8, u8, u64, u16, u8, u8) {
+) -> (u8, u8, u8, u8, u8, u64, u16, u8, u8) {
+    let source_preference = if result.shared.relationship == MatchRelationship::Alternative {
+        3
+    } else if result.shared.proof_strength != ProofStrength::MetadataOnly {
+        0
+    } else if result.path.accepted()
+        && crate::youtube_recording_metadata::preferred_album_locator(_track, candidate)
+    {
+        1
+    } else {
+        2
+    };
     let topic_priority =
         if crate::source_fallback::is_exact_versioned_topic_candidate(_track, candidate) {
             0
@@ -505,6 +516,7 @@ pub(super) fn priority(
     let (relationship, action, proof, ambiguity, path, topic) =
         shared_priority(result.shared, result.path, topic_priority);
     (
+        source_preference,
         relationship,
         action,
         result.shared.alternative_category,
@@ -666,6 +678,12 @@ pub(super) fn verify_with_discogs_credit_variant(
         return Some(VerifiedRecordingProof {
             kind: RecordingProofKind::ExplicitSource,
         });
+    }
+    if !crate::youtube_recording_metadata::catalog_context_matches_request(
+        track,
+        resolved.source_metadata.as_ref().unwrap_or(&Value::Null),
+    ) {
+        return None;
     }
     let a = if let Some(variant) = discogs_credit_variant {
         crate::recording_match_context::assess_with_artist_credit_set_variant(
@@ -1076,10 +1094,49 @@ fn bounded_identity_metadata(metadata: &Value) -> Value {
         "trackId",
         "version",
         "workId",
+        "performanceVersion",
+        "performanceEvidence",
+        "artistCreditSource",
+        "catalogAlbum",
+        "catalogRequestedAlbum",
+        "catalogDurationSeconds",
+        "catalogRequestedDurationSeconds",
+        "albumBrowseId",
+        "reportedSourceArtists",
+        "unclassifiedSourceArtistCredits",
+        "catalogArtistCredits",
     ] {
         let Some(value) = metadata.get(field) else {
             continue;
         };
+        if field == "catalogArtistCredits" {
+            let rows = value
+                .as_array()
+                .filter(|rows| !rows.is_empty() && rows.len() <= 32)
+                .and_then(|rows| {
+                    rows.iter()
+                        .map(|row| {
+                            let name = row["name"].as_str().map(str::trim).filter(|v| {
+                                !v.is_empty()
+                                    && v.chars().count() <= 256
+                                    && !v.chars().any(char::is_control)
+                            })?;
+                            let id = row["providerId"].as_str().filter(|v| {
+                                v.starts_with("UC")
+                                    && v.len() == 24
+                                    && v.bytes().all(|b| {
+                                        b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-')
+                                    })
+                            })?;
+                            Some(json!({"name":name,"providerId":id}))
+                        })
+                        .collect::<Option<Vec<_>>>()
+                });
+            if let Some(rows) = rows {
+                result.insert(field.to_owned(), json!(rows));
+            }
+            continue;
+        }
         let bounded = match value {
             Value::String(text)
                 if text.chars().count() <= 1024 && !text.chars().any(char::is_control) =>
@@ -1113,6 +1170,12 @@ pub(super) fn cached_direct_allowed(
     candidate: &Candidate,
     level: MatchLevel,
 ) -> bool {
+    if !crate::youtube_recording_metadata::catalog_context_matches_request(
+        track,
+        candidate.source_metadata.as_ref().unwrap_or(&Value::Null),
+    ) {
+        return false;
+    }
     let Some(m) = candidate
         .source_metadata
         .as_ref()
@@ -1191,6 +1254,59 @@ mod tests {
             request_fingerprint(&track, MatchLevel::Exact)
         );
     }
+    #[test]
+    fn official_album_locator_precedes_caption_only_recording_without_bypassing_verification() {
+        let f: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/macha-official-source-selection.json"
+        ))
+        .unwrap();
+        let request: Track = serde_json::from_value(f["request"].clone()).unwrap();
+        let row = &f["catalogItem"];
+        let catalog = Candidate {
+            id: format!("youtube:{}", row["id"].as_str().unwrap()),
+            provider: "youtube".into(),
+            title: row["title"].as_str().unwrap().into(),
+            duration_seconds: row["durationSeconds"].as_f64(),
+            source_metadata: Some(
+                json!({"provider":"youtube","playbackMusicCatalogCandidate":true,"catalogTitle":row["title"],"catalogArtistCredits":row["artistCredits"],"catalogAlbum":row["album"],"albumBrowseId":row["albumBrowseId"],"catalogDurationSeconds":row["durationSeconds"],"catalogRequestedAlbum":request.album,"catalogRequestedDurationSeconds":request.duration_seconds}),
+            ),
+            ..Default::default()
+        };
+        let caption = Candidate {
+            id: "youtube:H35xiJcS8RY".into(),
+            provider: "youtube".into(),
+            title: f["concertFullInfo"]["title"].as_str().unwrap().into(),
+            ..Default::default()
+        };
+        let gate = |relationship, path| CandidateGateResult {
+            path,
+            artist_alias_lookahead: false,
+            shared: SharedEvidenceRank {
+                relationship,
+                action: MatchAction::Inspect,
+                proof_strength: ProofStrength::MetadataOnly,
+                ambiguity_count: 0,
+                alternative_category: 0,
+            },
+        };
+        assert!(
+            priority(
+                &request,
+                &catalog,
+                gate(
+                    MatchRelationship::Unresolved,
+                    CandidateGatePath::PolicyInspect
+                ),
+                MatchLevel::Balanced
+            ) < priority(
+                &request,
+                &caption,
+                gate(MatchRelationship::Exact, CandidateGatePath::PolicyExact),
+                MatchLevel::Balanced
+            )
+        );
+    }
+
     #[test]
     fn flexible_rank_prefers_category_then_proof_then_duration() {
         let track = Track {

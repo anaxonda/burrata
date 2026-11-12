@@ -1589,7 +1589,7 @@ pub struct RemoteArtistTracksPage {
     pub total: Option<usize>,
 }
 
-fn parse_spotify_recording_context(value: &Value) -> Result<Option<Value>> {
+pub(crate) fn parse_spotify_recording_context(value: &Value) -> Result<Option<Value>> {
     let Some(context) = value.get("recordingContext") else {
         return Ok(None);
     };
@@ -6527,6 +6527,9 @@ fn normalize_catalog_data(data: Option<&Value>, kind: &str, provider: &str) -> R
         }
     }
     if kind == "track" && provider == "spotify" {
+        if let Some(context) = parse_spotify_recording_context(&Value::Object(object.clone()))? {
+            result.insert("recordingContext".into(), context);
+        }
         // Keep raw credit count separate from validated identities: filtering or
         // truncation must not turn incomplete credits into a false exact match.
         if let Some(count) = object.get("artistCount").and_then(Value::as_u64) {
@@ -10817,6 +10820,20 @@ mod tests {
         let parsed = parse_remote_entry(&row, "spotify", "0").unwrap();
         assert_eq!(parsed.title, "Valid title");
         assert_eq!(parsed.entry_id, "uid-1");
+    }
+
+    #[test]
+    fn spotify_search_normalization_keeps_validated_album_context() {
+        let context = json!({"albumId":"7j1iNxlcdkJj864Bu0ETPj","albumUri":"spotify:album:7j1iNxlcdkJj864Bu0ETPj","trackNumber":3});
+        let mut data = json!({"trackId":"71fwMMqK8Kea3FguUUrl2t","title":"La Nave del Olvido","recordingContext":context});
+        let normalized = normalize_catalog_data(Some(&data), "track", "spotify").unwrap();
+        assert_eq!(normalized["recordingContext"], context);
+        assert!(normalize_catalog_data(Some(&data), "track", "youtube")
+            .unwrap()
+            .get("recordingContext")
+            .is_none());
+        data["recordingContext"]["albumUri"] = json!("spotify:album:aaaaaaaaaaaaaaaaaaaaaa");
+        assert!(normalize_catalog_data(Some(&data), "track", "spotify").is_err());
     }
 
     #[test]

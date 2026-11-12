@@ -4592,7 +4592,7 @@ async fn complete_playback_candidate_search_observed_with_level<F, Fut, R>(
     deadline: crate::playback_sources::PlaybackDeadline,
     catalog: F,
     observe_flat_batch: Option<Box<dyn FnOnce(Vec<Candidate>) + Send>>,
-    matching_level: crate::recording_match::MatchLevel,
+    _matching_level: crate::recording_match::MatchLevel,
 ) -> Result<(Vec<Candidate>, bool), String>
 where
     F: FnOnce() -> Fut,
@@ -4618,15 +4618,10 @@ where
                 "" | "original" | "original mix"
             )
         })
+        // A classified caption (including a rejected live/cover alternative)
+        // cannot establish that we have researched the album's official item.
         && !found.iter().any(|candidate| {
-            crate::recording_match::assess(
-                track,
-                candidate,
-                matching_level,
-                crate::recording_match::MatchStage::Search,
-            )
-            .relationship
-                != crate::recording_match::MatchRelationship::Unresolved
+            crate::youtube_recording_metadata::preferred_album_locator(track,candidate)
         });
     let mut cacheable = !optional_eligible;
     if optional_eligible && !optional_budget.is_zero() {
@@ -4716,13 +4711,19 @@ fn merge_catalog_candidate_metadata(flat: &mut Option<Value>, catalog: Option<&V
         .and_then(Value::as_bool)
         == Some(true);
     let metadata_conflict = if existing_has_catalog {
-        let conflict = ["catalogArtist", "catalogTitle"].into_iter().any(|key| {
-            match (target.get(key), catalog.get(key)) {
-                (Some(Value::String(existing)), Some(Value::String(incoming))) => {
-                    existing != incoming
-                }
-                _ => false,
+        let conflict = [
+            "catalogArtist",
+            "catalogTitle",
+            "catalogAlbum",
+            "albumBrowseId",
+            "catalogDurationSeconds",
+        ]
+        .into_iter()
+        .any(|key| match (target.get(key), catalog.get(key)) {
+            (Some(existing), Some(incoming)) if !existing.is_null() && !incoming.is_null() => {
+                existing != incoming
             }
+            _ => false,
         });
         if conflict {
             target.remove("catalogArtist");
@@ -4737,6 +4738,13 @@ fn merge_catalog_candidate_metadata(flat: &mut Option<Value>, catalog: Option<&V
     } else {
         false
     };
+    if !existing_has_catalog
+        && catalog.get("playbackMusicCatalogCandidate") == Some(&Value::Bool(true))
+    {
+        if let Some(raw) = target.get("artists").cloned() {
+            target.insert("flatReportedArtistCredits".into(), raw);
+        }
+    }
     for (key, value) in catalog {
         // Music catalog fields are structured retrieval evidence. A flat row
         // that lacks those fields must not erase them during ID deduplication.
@@ -4747,7 +4755,11 @@ fn merge_catalog_candidate_metadata(flat: &mut Option<Value>, catalog: Option<&V
             || (!existing_has_catalog
                 && matches!(
                     key.as_str(),
-                    "playbackMusicCatalogCandidate" | "catalogArtist" | "catalogTitle"
+                    "playbackMusicCatalogCandidate"
+                        | "catalogArtist"
+                        | "catalogTitle"
+                        | "artists"
+                        | "artistCount"
                 ))
         {
             target.insert(key.clone(), value.clone());
@@ -4813,7 +4825,7 @@ fn playback_candidate_search_cache_key(
     alternate_artists: &[String],
 ) -> String {
     format!(
-        "{}:playback-source-search-retrieval-4:result-limit-{}:recording-match-{}:{:?}:{}:{}",
+        "{}:playback-source-search-retrieval-5:result-limit-{}:recording-match-{}:{:?}:{}:{}",
         search_cache_key(track, provider_ids, settings, 3),
         PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT,
         crate::recording_match::EVALUATOR_VERSION,
@@ -4853,6 +4865,7 @@ fn preview_audio_cache_key(
         settings.js_runtime_path,
         alternate_format,
         PLAYBACK_EXTRACTION_PROFILE,
+        crate::youtube_recording_metadata::catalog_context_key(candidate),
     ])
     .to_string()
 }
@@ -6500,7 +6513,13 @@ fn playback_music_catalog_candidate(
             "provider":"youtube", "playbackMusicCatalogCandidate":true,
             "catalogTitle":item.title, "catalogArtist":artist,
             "catalogArtistCredits":item.artist_credits,
+            "artists":item.artist_credits.iter().map(|credit|credit.name.clone()).collect::<Vec<_>>(),
+            "artistCount":(!item.artist_credits.is_empty()).then_some(item.artist_credits.len()),
             "albumBrowseId":item.album_browse_id,
+            "catalogAlbum":item.album,
+            "catalogDurationSeconds":item.duration_seconds,
+            "catalogRequestedAlbum":track.album,
+            "catalogRequestedDurationSeconds":track.duration_seconds,
         })),
         reasons: vec![
             "Music catalog locator; fresh recording identity verification required".into(),
@@ -6684,7 +6703,10 @@ fn resolved_extractor_identity_metadata(
     {
         return None;
     }
-    let mut metadata = richer
+    let catalog_projection = crate::youtube_recording_metadata::catalog_identity(candidate, info);
+    let has_catalog_projection = catalog_projection.is_some();
+    let mut metadata = catalog_projection
+        .or(richer)
         .and_then(|value| value.as_object().cloned())
         .unwrap_or_default();
     metadata.insert("provider".into(), Value::String(candidate.provider.clone()));
@@ -6772,7 +6794,10 @@ fn resolved_extractor_identity_metadata(
         // block caption fallback instead.
         uncertain = true;
     }
-    if let Some(names) = fresh_artist_names.as_ref() {
+    if let Some(names) = fresh_artist_names
+        .as_ref()
+        .filter(|_| !has_catalog_projection)
+    {
         if let Some(Value::Array(rich_names)) = metadata.get("artists") {
             let normalize = |values: &[Value]| {
                 let mut keys = values
@@ -6848,6 +6873,12 @@ fn resolved_extractor_identity_metadata(
             None => !value.is_null(),
         }) {
             uncertain = true;
+        }
+    }
+    if candidate.provider == "youtube" {
+        if let Some(line) = crate::youtube_recording_metadata::live_performance_line(info) {
+            metadata.insert("performanceVersion".into(), json!("Live"));
+            metadata.insert("performanceEvidence".into(), json!(line));
         }
     }
     if let Some(duration) = info["duration"]
@@ -7043,6 +7074,12 @@ async fn inspect_ytdlp_metadata(
             "sourceMetadataOrigin".into(),
             Value::String("ytDlpFullInfo".into()),
         );
+        if candidate.provider == "youtube" {
+            if let Some(line) = crate::youtube_recording_metadata::live_performance_line(&info) {
+                metadata.insert("performanceVersion".into(), json!("Live"));
+                metadata.insert("performanceEvidence".into(), json!(line));
+            }
+        }
     }
     if result.url.is_empty() {
         result.url = candidate.url.clone();
@@ -12097,6 +12134,65 @@ mod tests {
     }
 
     #[test]
+    fn official_catalogue_and_fresh_source_keep_distinct_credit_scopes() {
+        let f: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/macha-official-source-selection.json"
+        ))
+        .unwrap();
+        let request: Track = serde_json::from_value(f["request"].clone()).unwrap();
+        let item: crate::youtube_music::YouTubeMusicItem =
+            serde_json::from_value(f["catalogItem"].clone()).unwrap();
+        let catalog = playback_music_catalog_candidate(&request, item).unwrap();
+        let flat = candidate_from_json(&f["officialFullInfo"], "youtube");
+        let combined = merge_playback_candidate_rows(vec![flat], vec![catalog]);
+        let candidate = &combined[0];
+        assert_eq!(
+            candidate.source_metadata.as_ref().unwrap()["artistCount"],
+            2
+        );
+        assert_eq!(
+            candidate.source_metadata.as_ref().unwrap()["flatReportedArtistCredits"]
+                .as_array()
+                .unwrap()
+                .len(),
+            3
+        );
+        let metadata = resolved_extractor_identity_metadata(
+            candidate,
+            &f["officialFullInfo"],
+            verified_youtube_channel_metadata(candidate, &f["officialFullInfo"]),
+        )
+        .unwrap();
+        assert_eq!(metadata["artistCount"], 2);
+        assert_eq!(
+            metadata["unclassifiedSourceArtistCredits"],
+            json!(["Aldo Asenjo"])
+        );
+        assert_ne!(metadata["identityMetadataUncertain"], true);
+        let mut resolved = candidate.clone();
+        resolved.title = f["officialFullInfo"]["title"].as_str().unwrap().into();
+        resolved.source_metadata = Some(metadata);
+        assert_eq!(
+            crate::recording_match::assess(
+                &request,
+                &resolved,
+                crate::recording_match::MatchLevel::Balanced,
+                crate::recording_match::MatchStage::Resolved
+            )
+            .action,
+            crate::recording_match::MatchAction::Accept
+        );
+        let concert = candidate_from_json(&f["concertFullInfo"], "youtube");
+        let metadata =
+            resolved_extractor_identity_metadata(&concert, &f["concertFullInfo"], None).unwrap();
+        assert_eq!(metadata["performanceVersion"], "Live");
+        assert!(metadata["performanceEvidence"]
+            .as_str()
+            .unwrap()
+            .contains("Teatro Caupolicán"));
+    }
+
+    #[test]
     fn download_policy_snapshot_survives_settings_change() {
         let mut track = Track::default();
         assert_eq!(
@@ -13761,6 +13857,53 @@ mod tests {
                 .is_err(),
             "the full search must remain pending until catalog settles"
         );
+    }
+
+    #[tokio::test]
+    async fn classified_captions_do_not_skip_official_album_catalogue_research() {
+        let f: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/macha-official-source-selection.json"
+        ))
+        .unwrap();
+        let request: Track = serde_json::from_value(f["request"].clone()).unwrap();
+        for suffix in ["", " (Live)"] {
+            let title = format!("{} - {}{suffix}", request.artist, request.title);
+            let flat = Candidate {
+                id: "youtube:H35xiJcS8RY".into(),
+                provider: "youtube".into(),
+                title: title.clone(),
+                duration_seconds: request.duration_seconds,
+                source_metadata: Some(
+                    json!({"provider":"youtube","resolvedProviderId":"H35xiJcS8RY","sourceMetadataOrigin":"ytDlpCandidateMetadata","track":title,
+                    "artists":["Macha Y El Bloque Depresivo","Alvaro Henriquez"],"artistCount":2}),
+                ),
+                ..Default::default()
+            };
+            let calls = std::sync::atomic::AtomicUsize::new(0);
+            let (_tx, cancel) = idle_cancel();
+            let item: crate::youtube_music::YouTubeMusicItem =
+                serde_json::from_value(f["catalogItem"].clone()).unwrap();
+            let official = playback_music_catalog_candidate(&request, item).unwrap();
+            let (rows, complete) = complete_playback_candidate_search_observed_with_level(
+                &request,
+                &["youtube".into()],
+                None,
+                vec![flat],
+                cancel,
+                crate::playback_sources::PlaybackDeadline::after(Duration::from_secs(20)),
+                || async {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Ok(vec![official])
+                },
+                None,
+                crate::recording_match::MatchLevel::Balanced,
+            )
+            .await
+            .unwrap();
+            assert_eq!(calls.load(Ordering::SeqCst), 1, "{suffix}");
+            assert!(complete);
+            assert!(rows.iter().any(|row| row.id == "youtube:xAJxfiF_0-w"));
+        }
     }
 
     #[tokio::test]
@@ -15518,11 +15661,11 @@ mod tests {
             ..Default::default()
         };
         let key = playback_candidate_search_cache_key(&track, &providers, &settings, &[]);
-        assert!(key.contains("playback-source-search-retrieval-4:result-limit-20"));
+        assert!(key.contains("playback-source-search-retrieval-5:result-limit-20"));
         assert_ne!(
             key,
             key.replace(
-                "playback-source-search-retrieval-4",
+                "playback-source-search-retrieval-5",
                 "playback-source-search-retrieval-3"
             )
         );

@@ -5,6 +5,29 @@ function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+/** An exact authenticated search row may restore an older snapshot's album locator.
+ * This returns navigation context only; it does not replace track tags or audio identity. */
+export function freshSpotifyAlbumContext(original: Track, current: Track): {albumId:string;albumUri:string} | null {
+  const id = original.providerId;
+  if (original.provider !== "spotify" || current.provider !== "spotify" || !/^[A-Za-z0-9]{22}$/.test(id)
+    || original.id !== `spotify:${id}` || current.id !== original.id || current.providerId !== id
+    || original.sourceUrl !== `https://open.spotify.com/track/${id}` || current.sourceUrl !== original.sourceUrl
+    || original.title !== current.title || original.artist !== current.artist || original.album !== current.album) return null;
+  const manual = record(record(original.provenance).manualFields);
+  if (["artist","title","album","durationSeconds"].some(key=>manual[key]===true)) return null;
+  if (original.durationSeconds != null && (current.durationSeconds == null
+    || !Number.isFinite(original.durationSeconds) || !Number.isFinite(current.durationSeconds)
+    || original.durationSeconds<=0 || current.durationSeconds<=0
+    || Math.abs(original.durationSeconds-current.durationSeconds)>1)) return null;
+  const p=record(current.provenance), context=record(p.recordingContext);
+  const catalog=record(p.catalog);
+  if (catalog.provider!=="spotify" || catalog.verified!==true || catalog.providerId!==id) return null;
+  if (typeof context.albumId!=="string" || !/^[A-Za-z0-9]{22}$/.test(context.albumId)
+    || context.albumUri!==`spotify:album:${context.albumId}`
+    || (p.albumId!==undefined && p.albumId!==context.albumId)) return null;
+  return {albumId:context.albumId,albumUri:context.albumUri};
+}
+
 /** An album search hint uses provider credit boundaries, never punctuation guesses. */
 export function albumLookupArtist(track: Track): string {
   const explicit = track.albumArtist?.trim();
@@ -19,6 +42,13 @@ export function albumLookupArtist(track: Track): string {
       || /^(?:artist(?: credit)?|main(?: artist)?|primary(?: artist)?|performer|featured(?: artist)?|vocals?)$/i.test(String(value.role).trim()));
     if (credit) return String(credit.name).trim();
   }
+  const catalog = record(provenance.catalog), providerCredits = catalog.artists;
+  if (track.provider === "spotify" && catalog.provider === "spotify" && catalog.verified === true
+    && Array.isArray(providerCredits) && providerCredits.length > 0 && providerCredits.every(value => {
+      const credit = record(value);
+      return credit.provider === "spotify" && typeof credit.id === "string" && /^[A-Za-z0-9]{22}$/.test(credit.id)
+        && typeof credit.name === "string" && credit.name.trim();
+    })) return String(record(providerCredits[0]).name).trim();
   return track.artist.trim();
 }
 

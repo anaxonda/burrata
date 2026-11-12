@@ -74,7 +74,7 @@
       "failure": null
     }
   ],
-  "passed": true,
+  "passed": false,
   "reason": "native decoding with advancing position",
   "physicalOutputVerified": false,
   "identityTrace": [
@@ -119,5 +119,7 @@
       "provider": "other",
       "resolutionId": "bbff52ee-2d79-4a87-93e5-eeedded2514d"
     }
-  ]
+  ],
+  "nativeDecodingPassed": true,
+  "subsequentUserAudition": "The selected H35xiJcS8RY upload is a concert performance; this evidence establishes decoding only and does not satisfy studio-recording selection."
 }

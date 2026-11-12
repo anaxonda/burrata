@@ -1,0 +1,109 @@
+{
+  "case": "Spotify search — La Nave del Olvido",
+  "sourceCommit": "a55add2dd093014db496d5c8ec70741480abe0b4",
+  "artifactSha256": "f4a8299d301153a490e8c1ec8a9b6803bfa1fc76b30426bedb299e95eac08af8",
+  "automationEndpointBoundToArtifact": true,
+  "matchingLevel": "balanced",
+  "nativeOperationId": "daccd9ba-e61e-4c1a-b919-37353a6a3fc3",
+  "action": {
+    "entrypoint": "search_result",
+    "searchMode": "online",
+    "searchSourceId": "spotify",
+    "query": "bloque y la macha",
+    "visibleTitle": "La Nave del Olvido",
+    "visibleArtist": "Macha Y El Bloque Depresivo, Alvaro Henriquez",
+    "visibleDurationSeconds": 235.542,
+    "action": "renderer_occurrence_token",
+    "selected": true,
+    "acousticContentVerified": false
+  },
+  "samples": [
+    {
+      "status": "playing",
+      "engine": "native",
+      "position": 0,
+      "duration": 231,
+      "queueTotal": 1,
+      "decoderKind": "ffmpeg",
+      "sampleRate": 44100,
+      "channels": 2,
+      "firstAudioMs": 926,
+      "sourceProvider": "youtube",
+      "sourceId": "youtube:H35xiJcS8RY",
+      "failure": null
+    },
+    {
+      "status": "playing",
+      "engine": "native",
+      "position": 0.8359183673469388,
+      "duration": 231,
+      "queueTotal": 1,
+      "decoderKind": "ffmpeg",
+      "sampleRate": 44100,
+      "channels": 2,
+      "firstAudioMs": 926,
+      "sourceProvider": "youtube",
+      "sourceId": "youtube:H35xiJcS8RY",
+      "failure": null
+    },
+    {
+      "status": "playing",
+      "engine": "native",
+      "position": 1.9969160997732427,
+      "duration": 231,
+      "queueTotal": 1,
+      "decoderKind": "ffmpeg",
+      "sampleRate": 44100,
+      "channels": 2,
+      "firstAudioMs": 926,
+      "sourceProvider": "youtube",
+      "sourceId": "youtube:H35xiJcS8RY",
+      "failure": null
+    },
+    {
+      "status": "playing",
+      "engine": "native",
+      "position": 3.111473922902494,
+      "duration": 231,
+      "queueTotal": 1,
+      "decoderKind": "ffmpeg",
+      "sampleRate": 44100,
+      "channels": 2,
+      "firstAudioMs": 926,
+      "sourceProvider": "youtube",
+      "sourceId": "youtube:H35xiJcS8RY",
+      "failure": null
+    }
+  ],
+  "passed": false,
+  "reason": "User audition identified a live-concert performance in the automatically selected H35xiJcS8RY upload; metadata agreement and native decoding did not establish the requested studio recording.",
+  "physicalOutputVerified": false,
+  "requestedTrackId": "spotify:71fwMMqK8Kea3FguUUrl2t",
+  "installedVersion": "0.1.37",
+  "matching": {
+    "evaluatorVersion": "33",
+    "level": "balanced",
+    "action": "accept",
+    "relationship": "probable",
+    "proofStrength": "metadataOnly"
+  },
+  "postCheck": {
+    "paused": true,
+    "queueTotal": 1,
+    "libraryCounts": {
+      "tracks": 5918,
+      "assets": 119,
+      "playlists": 59
+    },
+    "libraryCountsUnchanged": true,
+    "searchContinuationEnabled": false
+  },
+  "sourceCacheScope": "Final-artifact replay; does not claim a new uncached extractor request or acoustic identity proof.",
+  "nativeDecodingPassed": true,
+  "userReportedPerformanceMismatch": {
+    "reportedMatchingLevel": "balanced",
+    "sourceId": "youtube:H35xiJcS8RY",
+    "observed": "live concert",
+    "requested": "studio recording"
+  }
+}
