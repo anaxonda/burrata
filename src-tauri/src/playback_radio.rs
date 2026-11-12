@@ -35,6 +35,7 @@ pub fn spawn(
     generation: u64,
     station: RadioStation,
     listening_session_id: String,
+    initial_metadata: Option<RadioTrackMetadata>,
     tap: Arc<PcmTap>,
     store: Arc<Store>,
     history: Arc<PlaybackHistory>,
@@ -44,6 +45,7 @@ pub fn spawn(
 ) {
     tauri::async_runtime::spawn(async move {
         let mut transitions = MetadataTransitions::default();
+        transitions.seed(initial_metadata.as_ref());
         let mut live_history: Vec<Value> = Vec::new();
         let mut audible_since: Option<Instant> = None;
         let mut validation = StationMetadataValidation::default();
@@ -329,14 +331,22 @@ struct MetadataTransitions {
 }
 
 impl MetadataTransitions {
+    fn seed(&mut self, metadata: Option<&RadioTrackMetadata>) {
+        if let Some(metadata) = metadata.filter(|item| valid_track(item)) {
+            self.current = Some((
+                metadata.artist.trim().to_lowercase(),
+                metadata.title.trim().to_lowercase(),
+            ));
+            self.occurrence = 1;
+        }
+    }
     /// Returns the new occurrence number only on a track transition. Callers
     /// skip this while paused or buffering, so silence in the observation stream
     /// does not create an artificial expiry.
     fn observe(&mut self, metadata: Option<&RadioTrackMetadata>) -> Option<u64> {
         let Some(metadata) = metadata.filter(|item| valid_track(item)) else {
-            // Missing metadata on an active poll ends this occurrence. If the
-            // same song later reappears, it receives a new occurrence key.
-            self.current = None;
+            // A metadata gap does not prove a song transition. Keep the last
+            // identity so A -> gap -> A remains one occurrence.
             return None;
         };
         let identity = (
@@ -401,13 +411,16 @@ mod tests {
     }
 
     #[test]
-    fn repeated_metadata_is_one_occurrence_and_expiry_allows_reappearance() {
+    fn metadata_gaps_keep_occurrence_but_a_real_song_return_starts_another() {
         let song = track("Artist", "Song");
+        let other = track("Artist", "Other");
         let mut transitions = MetadataTransitions::default();
         assert_eq!(transitions.observe(Some(&song)), Some(1));
         assert_eq!(transitions.observe(Some(&song)), None);
         assert_eq!(transitions.observe(None), None);
-        assert_eq!(transitions.observe(Some(&song)), Some(2));
+        assert_eq!(transitions.observe(Some(&song)), None);
+        assert_eq!(transitions.observe(Some(&other)), Some(2));
+        assert_eq!(transitions.observe(Some(&song)), Some(3));
     }
 
     #[test]

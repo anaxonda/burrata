@@ -207,11 +207,11 @@ describe("PlaybackQueuePanel", () => {
     expect(onAddDetectionsToPlaylist).toHaveBeenCalledWith([expect.objectContaining({title:"Recognized Song"})]);
   });
 
-  it("shows the current radio song with an identify action and retains previous listens with normal actions", async () => {
+  it("shows prior session detections above the current radio song with normal actions", async () => {
     const onIdentifyRadio = vi.fn(), onPlayRadioTrack = vi.fn(), onContextRadioTrack = vi.fn();
     const target = render({
       radioNowPlaying: radioTrack, radioStationName: "Late Night FM", radioRecognizing: false, onIdentifyRadio,
-      radioHistory: [{ id: "listen-occurrence-1", track: heardTrack, playedAt: "2026-10-14T12:30:00Z", stationName: "Late Night FM" }],
+      radioQueueHistory: [{ id: "listen-occurrence-1", track: heardTrack, playedAt: "2026-10-14T12:30:00Z", stationName: "Late Night FM" }],
       onPlayRadioTrack, onContextRadioTrack,
     });
     expect(target.querySelector('[aria-label="Radio currently playing"]')?.textContent).toContain("Known On Air Song");
@@ -219,11 +219,11 @@ describe("PlaybackQueuePanel", () => {
     target.querySelector<HTMLButtonElement>(".identify")!.click();
     expect(onIdentifyRadio).toHaveBeenCalledOnce();
 
-    target.querySelector<HTMLButtonElement>(".history-toggle")!.click();
-    await tick();
+    expect(target.querySelector('[aria-label="Previously detected on this radio session"]')?.textContent).toContain("Played earlier this session");
     expect(target.querySelector(".history-list")?.textContent).toContain("Previously Heard Song");
-    expect(target.querySelector(".history-list")?.textContent).toContain("Late Night FM");
-    target.querySelector<HTMLButtonElement>('[aria-label="Play Previously Heard Song"]')!.click();
+    expect(target.querySelector(".history-list")?.textContent).toContain("Detected on Late Night FM");
+    expect(target.querySelector('[aria-label="Previously detected on this radio session"]')!.compareDocumentPosition(target.querySelector('[aria-label="Radio currently playing"]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    target.querySelector<HTMLButtonElement>('[aria-label="Play detected radio track Previously Heard Song"]')!.click();
     target.querySelector<HTMLButtonElement>('[aria-label="Actions for Previously Heard Song"]')!.click();
     target.querySelector<HTMLButtonElement>('[aria-label="Actions for Known On Air Song"]')!.click();
     expect(onPlayRadioTrack).toHaveBeenCalledWith(heardTrack);

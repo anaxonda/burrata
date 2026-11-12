@@ -9290,15 +9290,25 @@ describe("native playback frontend", () => {
     expect(mocks.call.mock.calls.some(([command,args])=>command==="playback_command"&&(args as {command:{action?:string}}).command.action==="play")).toBe(false);
   });
 
-  it("uses canonical radio metadata and retains older repeats in native radio history", async () => {
+  it("uses canonical radio metadata, keeps session repeats in queue, and preserves all-time radio history", async () => {
     const stationTrack:Track={...savedTrack,id:"station-radio",provider:"radio",providerId:"station-1",title:"Station Feed",artist:"Radio Station",provenance:{sourceKind:"radio",stationId:"station-1"}};
     const currentRadioTrack:Track={...savedTrack,id:`radio_song:${nativeRadioSongHash}`,providerId:nativeRadioSongHash,title:"Current Song",artist:"Radio Artist",provider:"radio_song"};
+    radioStationState=[{id:"station-1",name:"Test Station",streamUrl:"https://example.test/live",sourceUrl:"https://example.test",provider:"custom",isCustom:true}];
+    historyEntries=[{id:"older-all-time",track:{...currentRadioTrack,title:"Older unrelated station song",provenance:{radioStationId:"station-1",radioStationName:"Test Station"}},provider:"radio",sessionId:"all-time-session",playedAt:"2026-10-12T10:00:00Z"}];
     mountNative(makeNativeSnapshot({
       revision:40,generation:8,status:"playing",trackId:stationTrack.id,track:stationTrack,queue:[stationTrack],currentIndex:0,paused:false,
-      radioNowPlaying:{id:currentRadioTrack.id,title:currentRadioTrack.title,artist:currentRadioTrack.artist,stationName:"Test Station",metadata:{stationId:"station-1",title:currentRadioTrack.title,artist:currentRadioTrack.artist,sourceUrl:"https://example.test/song",metadataConfidence:"high"}},
+      radioNowPlaying:{id:currentRadioTrack.id,title:currentRadioTrack.title,artist:currentRadioTrack.artist,stationName:"Test Station",occurrenceId:"current-occurrence",metadata:{stationId:"station-1",title:currentRadioTrack.title,artist:currentRadioTrack.artist,sourceUrl:"https://example.test/song",metadataConfidence:"high"}},
+      radioSessionId:"session-current",
+      radioOccurrenceId:"current-occurrence",
+      radioQueueHistory:[
+        {id:"current-occurrence",occurrenceId:"current-occurrence",sessionId:"session-current",stationId:"station-1",track:currentRadioTrack,playedAt:"2026-10-14T10:02:00Z",stationName:"Test Station"},
+        {id:"prior-repeat",occurrenceId:"prior-repeat",sessionId:"session-current",stationId:"station-1",track:currentRadioTrack,playedAt:"2026-10-14T10:00:00Z",stationName:"Test Station"},
+        {id:"old-station-session",occurrenceId:"old-station-session",sessionId:"session-old",stationId:"station-old",track:{...currentRadioTrack,title:"Older unrelated station song"},playedAt:"2026-10-13T10:00:00Z",stationName:"Other Station"},
+      ],
       radioHistory:[
         {id:"current-occurrence",track:currentRadioTrack,playedAt:"2026-10-14T10:00:00Z",stationName:"Test Station"},
-        {id:"prior-occurrence",track:{...currentRadioTrack,title:"Earlier Repeat"},playedAt:"2026-10-13T10:00:00Z",stationName:"Test Station"},
+        {id:"prior-occurrence",track:currentRadioTrack,playedAt:"2026-10-13T10:00:00Z",stationName:"Test Station"},
+        {id:"older-all-time",track:{...currentRadioTrack,title:"Older unrelated station song"},playedAt:"2026-10-12T10:00:00Z",stationName:"Other Station"},
       ],
     }));
     await settle();
@@ -9308,9 +9318,14 @@ describe("native playback frontend", () => {
     document.querySelector<HTMLButtonElement>('[aria-label="Show playback queue and chapters"]')!.click();
     await settle();
     expect(document.querySelector(".playback-queue-panel .radio-current")?.textContent).toContain("Current Song");
-    document.querySelector<HTMLButtonElement>(".playback-queue-panel .history-toggle")!.click();
+    const priorSession=document.querySelector<HTMLElement>('[aria-label="Previously detected on this radio session"]');
+    expect(priorSession?.textContent).toContain("Current Song");
+    expect(priorSession?.textContent).not.toContain("Older unrelated station song");
+    expect(priorSession!.compareDocumentPosition(document.querySelector('[aria-label="Radio currently playing"]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    eventHandlers.get("automation-ui-navigation")!({event:"automation-ui-navigation",id:1,payload:{requestId:"all-time-radio-history",target:{kind:"view",view:"radio"}}});
     await settle();
-    expect(document.querySelector(".playback-queue-panel .radio-history")?.textContent).toContain("Earlier Repeat");
+    expect(mocks.call).toHaveBeenCalledWith("search_playback_history",{options:expect.objectContaining({provider:"radio",stationId:"station-1"})});
+    expect(document.body.textContent).toContain("Older unrelated station song");
   });
 
   it("favorites the canonical current native radio song and keeps it favorited through a stale snapshot", async () => {

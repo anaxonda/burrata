@@ -721,6 +721,9 @@ struct State {
     steady_http_stream: bool,
     radio_now: Value,
     radio_history: Vec<Value>,
+    radio_queue_history: Vec<Value>,
+    radio_occurrence_id: Option<String>,
+    radio_metadata_identity: Option<(String, String)>,
     last_saved: Instant,
     last_local_storage_failure: Option<Value>,
     last_source_failure: Option<Value>,
@@ -815,6 +818,9 @@ impl Default for State {
             steady_http_stream: false,
             radio_now: Value::Null,
             radio_history: vec![],
+            radio_queue_history: vec![],
+            radio_occurrence_id: None,
+            radio_metadata_identity: None,
             last_saved: Instant::now(),
             last_local_storage_failure: None,
             last_source_failure: None,
@@ -901,7 +907,7 @@ impl State {
         .into_iter()
         .flatten()
         .collect::<Vec<_>>();
-        let mut value = json!({"engine":if native{"native"}else{"webview"},"revision":self.revision,"queueRevision":self.queue_revision,"queuedOperationId":self.queued_operation_id,"generation":self.generation,"status":self.status,"trackId":self.track().map(|t|&t.id),"track":self.track(),"entryId":self.entries.get(self.index),"candidate":self.candidate,"currentIndex":if self.queue.is_empty(){-1}else{self.index as i64},"position":self.position,"duration":self.duration,"volume":self.volume,"repeat":self.repeat,"shuffle":self.shuffle,"paused":self.status!="playing","canSeek":self.station.is_none()&&self.duration>0.,"canVolume":true,"playerMessage":self.message,"quality":self.quality,"loudnessNormalization":self.loudness_status,"chapter":self.chapter(),"radioNowPlaying":self.radio_now,"radioHistory":self.radio_history,"seekSerial":self.seek_serial,"previewKind":"native","diagnostics":{"firstAudioMs":self.first_audio_ms,"sourceReadyMs":self.source_ready_ms,"seekFirstAudioMs":self.seek_first_audio_ms,"operationId":self.operation_id,"operationKind":self.operation_kind,"operationTrace":operation_trace,"clientStartedAtMs":self.operation_client_started_at_ms,"clickToIpcMs":self.operation_click_to_ipc_ms,"commandSerializedBytes":self.operation_command_bytes,"seekOperationId":self.seek_operation_id,"seekTrace":seek_trace,"seekClientStartedAtMs":self.seek_client_started_at_ms,"seekClickToIpcMs":self.seek_click_to_ipc_ms,"seekCommandSerializedBytes":self.seek_command_bytes,"seekOperationFirstAudioMs":self.seek_operation_first_audio_ms,"recoveryCount":self.recovery,"bufferingCount":self.buffering_count,"decoder":self.decoder_diagnostics,"lastBuffering":self.last_buffering,"lastRecovery":self.last_recovery,"lastLocalStorageFailure":self.last_local_storage_failure,"lastSourceFailure":self.last_source_failure,"lastSkippedTrackFailure":self.last_skipped_track_failure}});
+        let mut value = json!({"engine":if native{"native"}else{"webview"},"revision":self.revision,"queueRevision":self.queue_revision,"queuedOperationId":self.queued_operation_id,"generation":self.generation,"status":self.status,"trackId":self.track().map(|t|&t.id),"track":self.track(),"entryId":self.entries.get(self.index),"candidate":self.candidate,"currentIndex":if self.queue.is_empty(){-1}else{self.index as i64},"position":self.position,"duration":self.duration,"volume":self.volume,"repeat":self.repeat,"shuffle":self.shuffle,"paused":self.status!="playing","canSeek":self.station.is_none()&&self.duration>0.,"canVolume":true,"playerMessage":self.message,"quality":self.quality,"loudnessNormalization":self.loudness_status,"chapter":self.chapter(),"radioNowPlaying":self.radio_now,"radioHistory":self.radio_history,"radioQueueHistory":self.radio_queue_history,"radioSessionId":if self.station.is_some(){Some(self.session.as_str())}else{None},"radioOccurrenceId":self.radio_occurrence_id,"seekSerial":self.seek_serial,"previewKind":"native","diagnostics":{"firstAudioMs":self.first_audio_ms,"sourceReadyMs":self.source_ready_ms,"seekFirstAudioMs":self.seek_first_audio_ms,"operationId":self.operation_id,"operationKind":self.operation_kind,"operationTrace":operation_trace,"clientStartedAtMs":self.operation_client_started_at_ms,"clickToIpcMs":self.operation_click_to_ipc_ms,"commandSerializedBytes":self.operation_command_bytes,"seekOperationId":self.seek_operation_id,"seekTrace":seek_trace,"seekClientStartedAtMs":self.seek_client_started_at_ms,"seekClickToIpcMs":self.seek_click_to_ipc_ms,"seekCommandSerializedBytes":self.seek_command_bytes,"seekOperationFirstAudioMs":self.seek_operation_first_audio_ms,"recoveryCount":self.recovery,"bufferingCount":self.buffering_count,"decoder":self.decoder_diagnostics,"lastBuffering":self.last_buffering,"lastRecovery":self.last_recovery,"lastLocalStorageFailure":self.last_local_storage_failure,"lastSourceFailure":self.last_source_failure,"lastSkippedTrackFailure":self.last_skipped_track_failure}});
         value["transition"] = self.crossfade_transition.as_ref().filter(|transition| self.generation == transition.to_generation).map_or(Value::Null, |transition| json!({
             "fromEntryId":transition.from_entry,"toEntryId":transition.to_entry,"progress":transition.progress
         }));
@@ -4444,10 +4450,15 @@ impl PlaybackService {
         };
         self.cancel();
         let (tx, rx) = watch::channel(false);
-        let (g, track, session, recovery, startup_deadline, album_context) = {
+        let (g, track, session, initial_radio_metadata, recovery, startup_deadline, album_context) = {
             let mut s = self.inner.state.lock().unwrap();
             let Some(track) = s.track().cloned() else {
                 return;
+            };
+            let initial_radio_metadata = if resume {
+                serde_json::from_value(s.radio_now["metadata"].clone()).ok()
+            } else {
+                None
             };
             s.startup_budget = startup_budget;
             s.pause_when_ready = pause_when_ready;
@@ -4487,6 +4498,11 @@ impl PlaybackService {
             s.station = None;
             s.radio_now = Value::Null;
             s.radio_history.clear();
+            if !resume {
+                s.radio_queue_history.clear();
+                s.radio_occurrence_id = None;
+                s.radio_metadata_identity = None;
+            }
             if !resume || s.session.is_empty() {
                 s.recovery_deadline = None;
                 s.recovered_audio_since = None;
@@ -4505,6 +4521,7 @@ impl PlaybackService {
                 s.generation,
                 track,
                 s.session.clone(),
+                initial_radio_metadata,
                 s.recovery,
                 restart_deadline(&s),
                 s.entries
@@ -4875,6 +4892,7 @@ impl PlaybackService {
                             g,
                             station,
                             session.clone(),
+                            initial_radio_metadata.clone(),
                             service.inner.output.tap(),
                             service.inner.store.clone(),
                             service.inner.history.clone(),
@@ -6295,7 +6313,7 @@ impl PlaybackService {
     fn radio_event(&self, event: RadioEvent) {
         let RadioEvent::Metadata {
             generation,
-            station: _,
+            station: event_station,
             metadata,
             history,
         } = event;
@@ -6303,10 +6321,26 @@ impl PlaybackService {
         if s.generation != generation || s.station.is_none() {
             return;
         }
-        let station = s.station.as_ref().unwrap();
+        let station = s.station.as_ref().unwrap_or(&event_station).clone();
+        let session = s.session.clone();
+        let occurrence_id = {
+            let state: &mut State = &mut s;
+            update_radio_queue_occurrence(
+                &mut state.radio_queue_history,
+                &mut state.radio_metadata_identity,
+                &mut state.radio_occurrence_id,
+                &session,
+                &station,
+                metadata.as_ref(),
+            )
+        };
         s.radio_now = metadata
             .as_ref()
-            .map(|m| radio_now_playing_snapshot_value(station, m))
+            .map(|m| {
+                let mut now = radio_now_playing_snapshot_value(&station, m);
+                now["occurrenceId"] = occurrence_id.clone().map_or(Value::Null, Value::String);
+                now
+            })
             .unwrap_or(Value::Null);
         s.radio_history = history;
         s.revision += 1;
@@ -6428,12 +6462,8 @@ impl PlaybackService {
             })
         });
         let mut history = if already_current {
-            self.inner
-                .state
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .radio_history
-                .clone()
+            let state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+            state.radio_history.clone()
         } else {
             crate::playback_radio::history_for_station(
                 &self.inner.history,
@@ -6452,7 +6482,7 @@ impl PlaybackService {
                 metadata,
             );
             let track = crate::playback_history::radio_song_track(&station, metadata);
-            history.insert(0,json!({"id":uuid::Uuid::new_v4().to_string(),"track":track,"playedAt":now,"stationName":station.name}));
+            history.insert(0,json!({"id":uuid::Uuid::new_v4().to_string(),"track":track.clone(),"playedAt":now,"stationName":station.name}));
         }
         crate::radio::record_played_radio_identification(
             &station.id,
@@ -6995,6 +7025,48 @@ fn radio_now_playing_snapshot_value(
         "stationName": station.name,
         "metadata": metadata,
     })
+}
+fn update_radio_queue_occurrence(
+    queue_history: &mut Vec<Value>,
+    current_identity: &mut Option<(String, String)>,
+    current_occurrence_id: &mut Option<String>,
+    session_id: &str,
+    station: &RadioStation,
+    metadata: Option<&crate::radio::RadioTrackMetadata>,
+) -> Option<String> {
+    let Some(metadata) = metadata.filter(|item| !item.title.trim().is_empty()) else {
+        return current_occurrence_id.clone();
+    };
+    let normalize = |value: &str| {
+        value
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase()
+    };
+    let identity = (normalize(&metadata.artist), normalize(&metadata.title));
+    if current_identity.as_ref() == Some(&identity) {
+        return current_occurrence_id.clone();
+    }
+
+    let occurrence_id = format!("radio-occurrence:{}", uuid::Uuid::new_v4());
+    let played_at = chrono::Utc::now().to_rfc3339();
+    queue_history.insert(
+        0,
+        json!({
+            "id": occurrence_id,
+            "occurrenceId": occurrence_id,
+            "sessionId": session_id,
+            "stationId": station.id,
+            "track": crate::playback_history::radio_song_track(station, metadata),
+            "playedAt": played_at,
+            "stationName": station.name,
+        }),
+    );
+    queue_history.truncate(100);
+    *current_identity = Some(identity);
+    *current_occurrence_id = Some(occurrence_id.clone());
+    Some(occurrence_id)
 }
 fn same_radio_song(current: &Value, identified: &crate::radio::RadioTrackMetadata) -> bool {
     let metadata = &current["metadata"];
@@ -12952,6 +13024,122 @@ mod tests {
         assert!(same_radio_song(&current, &metadata));
         let other_station = json!({"artist":"Artist Name","title":"Current Song","metadata":{"stationId":"station-2"}});
         assert!(!same_radio_song(&other_station, &metadata));
+    }
+
+    #[test]
+    fn radio_occurrences_survive_metadata_gaps_and_coalesce_producers() {
+        let station = crate::radio::RadioStation {
+            id: "station-1".into(),
+            name: "Test FM".into(),
+            stream_url: String::new(),
+            source_url: String::new(),
+            provider: None,
+            country: None,
+            tags: None,
+            homepage_url: None,
+            favicon_url: None,
+            bitrate_kbps: None,
+            codec: None,
+            language: None,
+            is_custom: false,
+        };
+        let metadata = |title: &str| crate::radio::RadioTrackMetadata {
+            identifiers: None,
+            station_id: station.id.clone(),
+            artist: "Artist".into(),
+            title: title.into(),
+            album: None,
+            year: None,
+            artwork_url: None,
+            source_url: String::new(),
+            observed_at: None,
+            metadata_confidence: "station metadata".into(),
+        };
+        let a = metadata("A");
+        let b = metadata("B");
+        let mut rows = Vec::new();
+        let mut identity = None;
+        let mut occurrence = None;
+
+        let first_a = update_radio_queue_occurrence(
+            &mut rows,
+            &mut identity,
+            &mut occurrence,
+            "session-1",
+            &station,
+            Some(&a),
+        );
+        assert_eq!(
+            update_radio_queue_occurrence(
+                &mut rows,
+                &mut identity,
+                &mut occurrence,
+                "session-1",
+                &station,
+                None,
+            ),
+            first_a
+        );
+        assert_eq!(
+            update_radio_queue_occurrence(
+                &mut rows,
+                &mut identity,
+                &mut occurrence,
+                "session-1",
+                &station,
+                Some(&a),
+            ),
+            first_a
+        );
+        // Manual recognition and the worker report the same current song through
+        // the same state owner, so their producer boundary adds no second row.
+        assert_eq!(
+            update_radio_queue_occurrence(
+                &mut rows,
+                &mut identity,
+                &mut occurrence,
+                "session-1",
+                &station,
+                Some(&a),
+            ),
+            first_a
+        );
+        assert_eq!(rows.len(), 1);
+
+        let second = update_radio_queue_occurrence(
+            &mut rows,
+            &mut identity,
+            &mut occurrence,
+            "session-1",
+            &station,
+            Some(&b),
+        );
+        let repeated_a = update_radio_queue_occurrence(
+            &mut rows,
+            &mut identity,
+            &mut occurrence,
+            "session-1",
+            &station,
+            Some(&a),
+        );
+        assert_ne!(first_a, second);
+        assert_ne!(first_a, repeated_a);
+        assert_eq!(rows.len(), 3);
+
+        // A true station restart clears the session-owned occurrence state.
+        rows.clear();
+        identity = None;
+        occurrence = None;
+        let restarted = update_radio_queue_occurrence(
+            &mut rows,
+            &mut identity,
+            &mut occurrence,
+            "session-2",
+            &station,
+            Some(&a),
+        );
+        assert_ne!(first_a, restarted);
+        assert_eq!(rows[0]["sessionId"], "session-2");
     }
 
     #[test]

@@ -56,7 +56,7 @@
     onAddDetectionsToPlaylist,
     radioNowPlaying = null,
     radioStationName = "",
-    radioHistory = [],
+    radioQueueHistory = [],
     radioRecognizing = false,
     radioIdentifyProgress = 0,
     onIdentifyCurrent,
@@ -109,7 +109,7 @@
     onQueueAllChapters?: (parent: Track, chapters: Chapter[]) => void;
     radioNowPlaying?: Track | null;
     radioStationName?: string;
-    radioHistory?: { id: string; track: Track; playedAt: string; stationName: string }[];
+    radioQueueHistory?: { id: string; track: Track; playedAt: string; stationName: string }[];
     radioRecognizing?: boolean;
     radioIdentifyProgress?: number;
     onIdentifyCurrent?: () => void;
@@ -232,7 +232,6 @@
     return Boolean(left && right && left.parentTrackId === right.parentTrackId && left.chapterId === right.chapterId
       && left.sourceUrl === right.sourceUrl && left.startTime === right.startTime && left.endTime === right.endTime);
   }
-  let radioHistoryExpanded = $state(false);
   let openMoreMenu: HTMLDetailsElement | null = null;
   let activeMenuKey = $state<string | null>(null);
   let menuAnchor = $state<MenuAnchorRect | null>(null);
@@ -387,6 +386,23 @@
       <div class="queue-empty"><span aria-hidden="true">♫</span><strong>Your queue is empty</strong><p>Choose a track to start listening.</p></div>
     {/if}
 
+    {#if radioQueueHistory.length}
+      <section class="radio-history" aria-label="Previously detected on this radio session">
+        <header><p class="eyebrow">DETECTED RADIO · {radioStationName || "CURRENT STATION"}</p><h3>Played earlier this session</h3></header>
+        <div class="history-list">
+          {#each radioQueueHistory.filter(item=>downloadAvailability === "all" || (downloadAvailability === "downloaded" ? isTrackDownloaded(item.track) : !isTrackDownloaded(item.track))) as occurrence (occurrence.id)}
+            <article class="history-row">
+              <button class="history-play" aria-label={"Play detected radio track " + occurrence.track.title} onclick={() => onPlayRadioTrack?.(occurrence.track)}>
+                <strong>{occurrence.track.title}</strong><small>{occurrence.track.artist || "Unknown artist"} · Detected on {occurrence.stationName}</small>
+                <time datetime={occurrence.playedAt}>{new Date(occurrence.playedAt).toLocaleString()}</time>
+              </button>
+              {#if onContextRadioTrack}<button class="radio-more" aria-label={"Actions for " + occurrence.track.title} onclick={() => onContextRadioTrack?.(occurrence.track)}>⋯</button>{/if}
+            </article>
+          {/each}
+        </div>
+      </section>
+    {/if}
+
     {#if radioNowPlaying || onIdentifyRadio}
       <section class="radio-current" aria-label="Radio currently playing">
         <header><div><p class="eyebrow">LIVE RADIO</p><h3>{radioStationName || "Current station"}</h3></div>
@@ -398,26 +414,6 @@
       </section>
     {/if}
 
-    {#if radioHistory.length}
-      <section class="radio-history" aria-label="Previously played on radio">
-        <button class="history-toggle" aria-expanded={radioHistoryExpanded} onclick={() => radioHistoryExpanded = !radioHistoryExpanded}>
-          <span>Previously played on radio</span><span>{radioHistory.length} {radioHistoryExpanded ? "⌃" : "⌄"}</span>
-        </button>
-        {#if radioHistoryExpanded}
-          <div class="history-list">
-            {#each radioHistory.filter(item=>downloadAvailability === "all" || (downloadAvailability === "downloaded" ? isTrackDownloaded(item.track) : !isTrackDownloaded(item.track))) as occurrence (occurrence.id)}
-              <article class="history-row">
-                <button class="history-play" aria-label={"Play " + occurrence.track.title} onclick={() => onPlayRadioTrack?.(occurrence.track)}>
-                  <strong>{occurrence.track.title}</strong><small>{occurrence.track.artist || "Unknown artist"} · {occurrence.stationName}</small>
-                  <time datetime={occurrence.playedAt}>{new Date(occurrence.playedAt).toLocaleString()}</time>
-                </button>
-                {#if onContextRadioTrack}<button class="radio-more" aria-label={"Actions for " + occurrence.track.title} onclick={() => onContextRadioTrack?.(occurrence.track)}>⋯</button>{/if}
-              </article>
-            {/each}
-          </div>
-        {/if}
-      </section>
-    {/if}
 
     {#if chapters.length}
       <section class="chapter-list" aria-label="Chapters">
@@ -567,8 +563,6 @@
   .radio-now-row .radio-track { flex:1; }
   .radio-more { flex:0 0 40px; }
   .radio-history { padding-top: 7px; }
-  .history-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 36px; padding: 5px 2px; background: transparent; color: var(--text); text-align: left; font-size: 11px; font-weight: 600; }
-  .history-toggle span:last-child { color: var(--muted); font-size: 10px; }
   .history-list { display: grid; gap: 3px; }
   .history-row { display: flex; align-items: center; min-width: 0; gap: 4px; padding: 4px 0; border-top: 1px solid color-mix(in srgb, var(--line) 66%, transparent); }
   .history-play { display: grid; flex: 1; min-width: 0; gap: 3px; padding: 5px 3px; background: transparent; text-align: left; }
