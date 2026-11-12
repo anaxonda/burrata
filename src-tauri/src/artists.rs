@@ -1805,13 +1805,23 @@ impl ArtistService {
         if let Some(mbid) = mbid.filter(|id| valid_mbid(id)) {
             if let Some(offset) = mb_offset {
                 match self.fetch_musicbrainz_releases(&mbid, offset, artist).await {
-                    Ok((page_items, more, raw_len)) => {
+                    Ok((page_items, more, raw_len, partial)) => {
                         items.extend(page_items);
                         mb_offset = more.then(|| offset.saturating_add(raw_len));
+                        if partial {
+                            warnings.push(
+                                "MusicBrainz release rows were incomplete or unrecognized.".into(),
+                            );
+                        }
                         source_coverage.push(ArtistSourceCoverage {
                             provider: "musicbrainz".into(),
-                            status: "available".into(),
-                            detail: "Paginated release and track data loaded.".into(),
+                            status: if partial { "partial" } else { "available" }.into(),
+                            detail: if partial {
+                                "Some releases could not be read."
+                            } else {
+                                "Paginated release and track data loaded."
+                            }
+                            .into(),
                             source_url: Some(format!("https://musicbrainz.org/artist/{mbid}")),
                         });
                     }
@@ -2116,7 +2126,7 @@ impl ArtistService {
         mbid: &str,
         offset: u32,
         selected_artist: &ArtistRef,
-    ) -> Result<(Vec<ArtistReleaseRef>, bool, u32), String> {
+    ) -> Result<(Vec<ArtistReleaseRef>, bool, u32, bool), String> {
         let query = vec![
             ("artist", mbid.to_owned()),
             ("limit", ARTIST_LIST_PAGE_SIZE.to_string()),
@@ -2132,18 +2142,11 @@ impl ArtistService {
                 LIST_TTL,
             )
             .await?;
-        let count = data["release-count"]
-            .as_u64()
-            .or_else(|| data["count"].as_u64())
-            .unwrap_or(0) as u32;
-        let raw_len = data["releases"].as_array().map_or(0, Vec::len) as u32;
-        let releases = data["releases"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|release| parse_musicbrainz_release(release, selected_artist))
-            .collect();
-        Ok((releases, offset.saturating_add(raw_len) < count, raw_len))
+        Ok(parse_musicbrainz_release_page(
+            &data,
+            offset,
+            selected_artist,
+        ))
     }
 
     async fn fetch_discogs_releases(
@@ -3554,7 +3557,10 @@ fn discogs_album_track_count(data: &Value) -> Option<usize> {
     Some(total)
 }
 
-fn mark_library_album_snapshot(mut tracks: Vec<Track>, expected: Option<usize>) -> Vec<Track> {
+pub(crate) fn mark_library_album_snapshot(
+    mut tracks: Vec<Track>,
+    expected: Option<usize>,
+) -> Vec<Track> {
     let complete = expected == Some(tracks.len()) && !tracks.is_empty();
     for track in &mut tracks {
         if !track.provenance.is_object() {
@@ -3923,6 +3929,39 @@ fn parse_musicbrainz_release_group(value: &Value) -> Option<ArtistReleaseRef> {
     })
 }
 
+fn parse_musicbrainz_release_page(
+    data: &Value,
+    offset: u32,
+    artist: &ArtistRef,
+) -> (Vec<ArtistReleaseRef>, bool, u32, bool) {
+    let rows = data["releases"].as_array();
+    let raw_len = rows.map_or(0, Vec::len) as u32;
+    let count = data["release-count"]
+        .as_u64()
+        .or_else(|| data["count"].as_u64())
+        .and_then(|count| u32::try_from(count).ok());
+    let releases = rows
+        .into_iter()
+        .flatten()
+        .filter_map(|row| parse_musicbrainz_release(row, artist))
+        .collect::<Vec<_>>();
+    let unique = releases
+        .iter()
+        .map(|release| &release.release.id)
+        .collect::<std::collections::HashSet<_>>()
+        .len();
+    let end = offset.checked_add(raw_len);
+    let partial = rows.is_none()
+        || count.is_none()
+        || releases.len() != raw_len as usize
+        || unique != releases.len()
+        || end
+            .zip(count)
+            .is_none_or(|(end, count)| end > count || raw_len == 0 && end < count);
+    let more = raw_len > 0 && end.zip(count).is_some_and(|(end, count)| end < count);
+    (releases, more, raw_len, partial)
+}
+
 fn parse_musicbrainz_release(value: &Value, artist: &ArtistRef) -> Option<ArtistReleaseRef> {
     let id = value["id"].as_str()?.to_owned();
     let title = value["title"]
@@ -3954,10 +3993,11 @@ fn parse_musicbrainz_release(value: &Value, artist: &ArtistRef) -> Option<Artist
         .collect::<Vec<_>>();
     let track_count = media
         .iter()
-        .filter_map(|item| item["track-count"].as_u64())
-        .sum::<u64>()
-        .try_into()
-        .ok();
+        .try_fold(0u64, |total, item| {
+            total.checked_add(item["track-count"].as_u64()?)
+        })
+        .filter(|total| !media.is_empty() && *total > 0)
+        .and_then(|total| u32::try_from(total).ok());
     let format = media
         .iter()
         .filter_map(|item| item["format"].as_str())
@@ -4758,6 +4798,68 @@ async fn discogs_rate_limit() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn release_page_completeness_requires_totals_and_every_distinct_row() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/macha-album-navigation.json"
+        ))
+        .unwrap();
+        let artist = ArtistRef {
+            provider: "musicbrainz".into(),
+            id: "d50b0808-1c23-43b2-b485-7248849268b2".into(),
+        };
+        let body = json!({"release-count":2,"releases":fixture["releases"]});
+        let (items, more, raw, partial) = parse_musicbrainz_release_page(&body, 0, &artist);
+        assert_eq!((items.len(), more, raw, partial), (2, false, 2, false));
+        let mut paginated = body.clone();
+        paginated["release-count"] = 3.into();
+        let (_, more, _, partial) = parse_musicbrainz_release_page(&paginated, 0, &artist);
+        assert!(more && !partial);
+        let mut missing_count = body.clone();
+        missing_count
+            .as_object_mut()
+            .unwrap()
+            .remove("release-count");
+        assert!(parse_musicbrainz_release_page(&missing_count, 0, &artist).3);
+        let mut unknown_row = body.clone();
+        unknown_row["release-count"] = 3.into();
+        unknown_row["releases"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"id":"not-a-release"}));
+        let (items, more, raw, partial) = parse_musicbrainz_release_page(&unknown_row, 0, &artist);
+        assert_eq!((items.len(), more, raw, partial), (2, false, 3, true));
+        let mut duplicate = body.clone();
+        duplicate["release-count"] = 3.into();
+        duplicate["releases"]
+            .as_array_mut()
+            .unwrap()
+            .push(fixture["releases"][0].clone());
+        assert!(parse_musicbrainz_release_page(&duplicate, 0, &artist).3);
+        assert!(
+            parse_musicbrainz_release_page(&json!({"release-count":2,"releases":[]}), 0, &artist).3
+        );
+        assert!(parse_musicbrainz_release_page(&json!({"release-count":0}), 0, &artist).3);
+        let mut missing_media_count = fixture["releases"][0].clone();
+        missing_media_count["media"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("track-count");
+        assert_eq!(
+            parse_musicbrainz_release(&missing_media_count, &artist)
+                .unwrap()
+                .track_count,
+            None
+        );
+        missing_media_count["media"] = json!([]);
+        assert_eq!(
+            parse_musicbrainz_release(&missing_media_count, &artist)
+                .unwrap()
+                .track_count,
+            None
+        );
+    }
+
     #[test]
     fn library_album_completeness_uses_loaded_media_and_detects_skipped_rows() {
         let mut data = json!({"title":"Album","media":[{"position":1,"track-count":2,"tracks":[{"position":1,"title":"One","recording":{"title":"One"}},{"position":2,"title":"Two","recording":{"title":"Two"}}]}]});

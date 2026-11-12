@@ -1,6 +1,6 @@
 //! Album navigation resolves recording membership separately from display text.
 use crate::{
-    artists::{ArtistRef, ArtistReleaseRef},
+    artists::{ArtistRef, ArtistReleasePage, ArtistReleaseRef},
     models::Track,
 };
 use serde::{Deserialize, Serialize};
@@ -38,7 +38,7 @@ pub enum AlbumResolution {
 fn key(value: &str) -> String {
     crate::recording_identity::search_fold(value)
 }
-const MEMBERSHIP_CACHE: &str = "navigation.album-membership.v3";
+const MEMBERSHIP_CACHE: &str = "navigation.album-membership.v4";
 fn cache_key(track: &Track) -> String {
     format!(
         "{:x}",
@@ -165,6 +165,75 @@ fn preferred_choice(choices: &[AlbumChoice], album: &str, incomplete: bool) -> O
         return Some(timelines[0]);
     }
     (choices.len() == 1 && key(&choices[0].release.title) == key(album)).then_some(0)
+}
+
+fn complete_primary_discography(page: &ArtistReleasePage, artist: &ArtistRef) -> bool {
+    let coverage = page
+        .source_coverage
+        .iter()
+        .filter(|source| source.provider == artist.provider)
+        .collect::<Vec<_>>();
+    let editions = page
+        .items
+        .iter()
+        .filter(|release| release.release.provider == artist.provider)
+        .collect::<Vec<_>>();
+    artist.provider == "musicbrainz"
+        && page.artist == *artist
+        && page.next_cursor.is_none()
+        && coverage.len() == 1
+        && coverage[0].status == "available"
+        && !editions.is_empty()
+        && editions.iter().all(|release| {
+            crate::spotify_mb_crosswalk::valid_mbid(&release.release.id)
+                && release.source_url
+                    == format!("https://musicbrainz.org/release/{}", release.release.id)
+                && release
+                    .credits
+                    .iter()
+                    .any(|credit| credit.artist.as_ref() == Some(artist))
+        })
+}
+
+fn include_artist_editions(
+    candidates: &mut Vec<ArtistReleaseRef>,
+    page: ArtistReleasePage,
+    artist: &ArtistRef,
+) -> bool {
+    let complete = complete_primary_discography(&page, artist);
+    if complete {
+        // Complete artist editions supersede broad search's duplicate group
+        // representatives. Partial pages must retain those fallback locators.
+        candidates.retain(|release| release.release.provider != artist.provider);
+    }
+    candidates.extend(page.items);
+    complete
+}
+
+fn programme_count_conflicts(release: &ArtistReleaseRef, source_count: Option<usize>) -> bool {
+    source_count
+        .zip(release.track_count.filter(|count| *count > 0))
+        .is_some_and(|(source, catalog)| source != catalog as usize)
+}
+
+fn complete_catalog_timeline(tracks: &[Track]) -> bool {
+    !tracks.is_empty()
+        && tracks.iter().all(|track| {
+            track.provenance["libraryAlbumSnapshot"]["complete"] == true
+                && track.provenance["libraryAlbumSnapshot"]["total"].as_u64()
+                    == Some(tracks.len() as u64)
+        })
+}
+
+fn needs_tracklist(
+    release: &ArtistReleaseRef,
+    source_count: Option<usize>,
+    programme_found: bool,
+) -> bool {
+    // Once a complete programme is verified, a known different-sized edition
+    // cannot compete with it. Unknown counts and all possible full matches
+    // still need inspection; weak occurrences are researched if no programme matches.
+    !programme_found || !programme_count_conflicts(release, source_count)
 }
 
 // A group/master tracklist selects an edition. Keep that fetched edition
@@ -322,8 +391,10 @@ mod tests {
         for (index, raw) in fixture["releases"].as_array().unwrap().iter().enumerate() {
             let id = raw["id"].as_str().unwrap();
             let url = format!("https://musicbrainz.org/release/{id}");
-            let tracks =
-                crate::artists::parse_musicbrainz_release_tracks(raw, id, &url, false, None);
+            let tracks = crate::artists::mark_library_album_snapshot(
+                crate::artists::parse_musicbrainz_release_tracks(raw, id, &url, false, None),
+                Some(14),
+            );
             assert_eq!(tracks.len(), 14);
             assert_eq!(
                 tracks[2].album_artist.as_deref(),
@@ -332,7 +403,8 @@ mod tests {
             // The album's artist must remain distinct from recording-line credits.
             assert_eq!(tracks[2].provenance["artistCredits"][0]["name"], "Macha");
             assert!(recording_member(&request, &tracks));
-            let aligned = same_album_timeline(&source, &tracks);
+            let aligned =
+                complete_catalog_timeline(&tracks) && same_album_timeline(&source, &tracks);
             assert_eq!(
                 aligned,
                 index == 0,
@@ -383,6 +455,104 @@ mod tests {
         let mut wrong_version = source;
         wrong_version[8].title.push_str(" (Live)");
         assert!(!same_album_timeline(&wrong_version, &cd_tracks));
+    }
+
+    #[test]
+    fn complete_catalogue_programme_requires_every_normalized_snapshot_row() {
+        assert!(!complete_catalog_timeline(&[]));
+        let row = Track {
+            provenance: serde_json::json!({"libraryAlbumSnapshot":{"complete":true,"total":2}}),
+            ..Default::default()
+        };
+        let mut tracks = vec![row.clone(), row];
+        assert!(complete_catalog_timeline(&tracks));
+        assert!(!complete_catalog_timeline(&tracks[..1]));
+        tracks[1].provenance["libraryAlbumSnapshot"]["complete"] = false.into();
+        assert!(!complete_catalog_timeline(&tracks));
+        tracks[1].provenance = serde_json::json!({});
+        assert!(!complete_catalog_timeline(&tracks));
+    }
+
+    #[test]
+    fn complete_discography_avoids_redundant_groups_and_researches_possible_programmes_first() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/macha-album-navigation.json"
+        ))
+        .unwrap();
+        let page: ArtistReleasePage =
+            serde_json::from_value(fixture["discography"].clone()).unwrap();
+        let artist = page.artist.clone();
+        assert!(complete_primary_discography(&page, &artist));
+        let mut group = page.items[5].clone();
+        group.release.id = "830f149f-3395-412b-8df4-21c2443f8c0e".into();
+        group.source_url = format!("https://musicbrainz.org/release-group/{}", group.release.id);
+        group.track_count = None;
+        let mut candidates = vec![group.clone()];
+        assert!(include_artist_editions(
+            &mut candidates,
+            page.clone(),
+            &artist
+        ));
+        assert_eq!(candidates.len(), 9);
+        assert!(candidates
+            .iter()
+            .all(|release| !release.source_url.contains("release-group/")));
+        candidates.sort_by_key(|release| programme_count_conflicts(release, Some(14)));
+        assert_eq!(
+            candidates[0].release.id,
+            "6c56fb1d-e220-40ee-b836-10b6bf992ab7"
+        );
+        assert_eq!(
+            candidates[1].release.id,
+            "7b337019-a478-41ad-bf5e-2b4ac1171f83"
+        );
+        assert_eq!(
+            candidates
+                .iter()
+                .filter(|release| needs_tracklist(release, Some(14), true))
+                .count(),
+            2
+        );
+        assert!(
+            needs_tracklist(&group, Some(14), true),
+            "Unknown counts still need inspection"
+        );
+        group.track_count = Some(0);
+        assert!(needs_tracklist(&group, Some(14), true));
+        assert!(candidates
+            .iter()
+            .all(|release| needs_tracklist(release, Some(14), false)));
+        assert!(candidates
+            .iter()
+            .all(|release| needs_tracklist(release, None, true)));
+        for next_cursor in [Some("r3:100:x".to_owned()), None] {
+            let mut incomplete = page.clone();
+            incomplete.next_cursor = next_cursor;
+            if incomplete.next_cursor.is_none() {
+                incomplete
+                    .source_coverage
+                    .iter_mut()
+                    .find(|source| source.provider == "musicbrainz")
+                    .unwrap()
+                    .status = "partial".into();
+            }
+            let mut fallback = vec![group.clone()];
+            assert!(!include_artist_editions(&mut fallback, incomplete, &artist));
+            assert_eq!(fallback.len(), 10);
+            assert!(fallback
+                .iter()
+                .any(|release| release.source_url.contains("release-group/")));
+        }
+        let mut wrong_artist = artist.clone();
+        wrong_artist.id = "00000000-0000-4000-8000-000000000000".into();
+        assert!(!complete_primary_discography(&page, &wrong_artist));
+        let mut unknown_artist = page.clone();
+        unknown_artist.items[0].credits.clear();
+        assert!(!complete_primary_discography(&unknown_artist, &artist));
+        let mut unbound = page;
+        unbound.items[0].source_url =
+            "https://musicbrainz.org/release-group/830f149f-3395-412b-8df4-21c2443f8c0e".into();
+        assert!(!complete_primary_discography(&unbound, &artist));
     }
 }
 pub async fn resolve(state: &crate::AppState, track: &Track) -> Result<AlbumResolution, String> {
@@ -445,6 +615,7 @@ pub async fn resolve(state: &crate::AppState, track: &Track) -> Result<AlbumReso
     // Preserve catalog ambiguity; do not silently pick an edition from page one.
     let mut choices = Vec::new();
     let mut candidates = page.items;
+    let mut catalog_artist = None;
     let mut discovery_incomplete = page.next_page.is_some();
     let exact_album_found = candidates.iter().any(|release| {
         key(&release.title) == key(album)
@@ -471,13 +642,26 @@ pub async fn resolve(state: &crate::AppState, track: &Track) -> Result<AlbumReso
                 .filter(|row| key(&row.name) == key(&artist))
                 .collect::<Vec<_>>();
             if exact.len() == 1 {
+                catalog_artist = Some(exact[0].artist.clone());
                 if let Ok(releases) = state
                     .artists
                     .get_artist_releases(&exact[0].artist, None, &credentials)
                     .await
                 {
-                    discovery_incomplete |= releases.next_cursor.is_some();
-                    candidates.extend(releases.items);
+                    discovery_incomplete |= releases.next_cursor.is_some()
+                        || releases.source_coverage.iter().any(|source| {
+                            matches!(source.status.as_str(), "partial" | "unavailable")
+                        });
+                    let complete =
+                        include_artist_editions(&mut candidates, releases, &exact[0].artist);
+                    if complete
+                        && credentials
+                            .discogs_token
+                            .as_deref()
+                            .is_none_or(|token| token.trim().is_empty())
+                    {
+                        discovery_incomplete = false;
+                    }
                 }
             }
         }
@@ -490,13 +674,28 @@ pub async fn resolve(state: &crate::AppState, track: &Track) -> Result<AlbumReso
         )
     });
     candidates.dedup_by(|a, b| a.release == b.release);
+    let source_count = source_timeline.as_ref().map(Vec::len);
+    candidates.sort_by_key(|release| programme_count_conflicts(release, source_count));
     let candidates_truncated = candidates.len() > 20;
     for release in candidates.into_iter().take(20) {
-        let Some(credit) = release
-            .credits
-            .iter()
-            .find(|credit| key(&credit.name) == key(&artist))
-        else {
+        if !needs_tracklist(
+            &release,
+            source_count,
+            choices.iter().any(|choice: &AlbumChoice| {
+                choice.evidence == AlbumMembershipEvidence::CompleteTimeline
+            }),
+        ) {
+            continue;
+        }
+        let Some(credit) = release.credits.iter().find(|credit| {
+            match catalog_artist
+                .as_ref()
+                .filter(|known| known.provider == release.release.provider)
+            {
+                Some(known) => credit.artist.as_ref() == Some(known),
+                None => key(&credit.name) == key(&artist),
+            }
+        }) else {
             continue;
         };
         let Some(artist_ref) = credit.artist.clone() else {
@@ -509,9 +708,10 @@ pub async fn resolve(state: &crate::AppState, track: &Track) -> Result<AlbumReso
         else {
             continue;
         };
-        let timeline_matches = source_timeline
-            .as_ref()
-            .is_some_and(|source| same_album_timeline(source, &tracks));
+        let timeline_matches = complete_catalog_timeline(&tracks)
+            && source_timeline
+                .as_ref()
+                .is_some_and(|source| same_album_timeline(source, &tracks));
         if release
             .track_count
             .is_some_and(|count| count as usize != tracks.len())

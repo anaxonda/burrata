@@ -1539,6 +1539,16 @@
       "isolatedRustPolicyAudit": "passed correct-edition, version, order, runtime, ambiguity, incomplete-discovery and short-label guards",
       "nativeFixtureTest": "pending final CI",
       "packagedRetest": "pending"
+    },
+    "coldLookup": {
+      "withheldCandidate": "548d15aaaca79887fd9c535bd2b604278ed0f3b6",
+      "ci": "https://github.com/anaxonda/burrata/actions/runs/43302617292",
+      "allPlatformBuilds": "passed",
+      "warmPackagedNavigation": "passed exact MusicBrainz CD 6c56fb1d-e220-40ee-b836-10b6bf992ab7, 14 tracks",
+      "coldPackagedNavigation": "failed 20-second lookup deadline; candidate not published",
+      "correction": "Use complete validated exact-artist editions instead of redundant broad groups. Inspect possible equal-count programmes first. After full programme proof skip known different-sized editions; retain unknown counts. Complete snapshot markers required for every catalogue row. Partial rows, totals, credits or pagination retain fallback ambiguity.",
+      "isolatedPolicyAudit": "passed with real normalized discography fixture; raw row parser test pending native CI",
+      "finalPackagedRetest": "pending"
     }
   },
   "externalLimitations": [

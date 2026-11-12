@@ -1461,5 +1461,353 @@
       ],
       "date": "2018-10-05"
     }
-  ]
+  ],
+  "discography": {
+    "artist": {
+      "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+      "provider": "musicbrainz"
+    },
+    "items": [
+      {
+        "artworkUrls": [
+          "https://coverartarchive.org/release/13b55091-2b45-4959-b025-aef5498c1749/front-250",
+          "https://coverartarchive.org/release-group/ebcf1c0a-7a0c-47a2-8921-50b8e39122ef/front-250"
+        ],
+        "catalogNumber": null,
+        "country": "CL",
+        "credits": [
+          {
+            "artist": {
+              "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Macha y el Bloque Depresivo",
+            "joinPhrase": "",
+            "name": "Macha y el Bloque Depresivo",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/13b55091-2b45-4959-b025-aef5498c1749"
+          }
+        ],
+        "format": "Digital Media",
+        "label": "Perros con Tiña",
+        "primaryType": "EP",
+        "release": {
+          "id": "13b55091-2b45-4959-b025-aef5498c1749",
+          "provider": "musicbrainz"
+        },
+        "releaseDate": "2022",
+        "sourceUrl": "https://musicbrainz.org/release/13b55091-2b45-4959-b025-aef5498c1749",
+        "title": "Sesiones La Habana",
+        "trackCount": 6,
+        "tracks": [],
+        "year": 2022
+      },
+      {
+        "artworkUrls": [
+          "https://coverartarchive.org/release/442ab856-fc85-49b1-9414-715d3ebb1240/front-250",
+          "https://coverartarchive.org/release-group/92c128ed-658b-41eb-be61-b25cbd287fd9/front-250"
+        ],
+        "catalogNumber": null,
+        "country": "CL",
+        "credits": [
+          {
+            "artist": {
+              "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Macha y el Bloque Depresivo",
+            "joinPhrase": "",
+            "name": "Macha y el Bloque Depresivo",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/442ab856-fc85-49b1-9414-715d3ebb1240"
+          }
+        ],
+        "format": "Digital Media",
+        "label": null,
+        "primaryType": "Album",
+        "release": {
+          "id": "442ab856-fc85-49b1-9414-715d3ebb1240",
+          "provider": "musicbrainz"
+        },
+        "releaseDate": "2024-10-11",
+        "sourceUrl": "https://musicbrainz.org/release/442ab856-fc85-49b1-9414-715d3ebb1240",
+        "title": "Bronceado de Cantina",
+        "trackCount": 9,
+        "tracks": [],
+        "year": 2024
+      },
+      {
+        "artworkUrls": [
+          "https://coverartarchive.org/release-group/82a19522-f0cb-45f7-9996-00f7879f5a92/front-250"
+        ],
+        "catalogNumber": null,
+        "country": "CL",
+        "credits": [
+          {
+            "artist": {
+              "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Macha y el Bloque Depresivo",
+            "joinPhrase": " & ",
+            "name": "Macha y el Bloque Depresivo",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/5330cce8-67a8-4cba-9644-e02514191fb2"
+          },
+          {
+            "artist": {
+              "id": "efe8f3da-2797-48b6-a396-2f1df966dcfa",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "La Dame Blanche",
+            "joinPhrase": "",
+            "name": "La Dame Blanche",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/5330cce8-67a8-4cba-9644-e02514191fb2"
+          }
+        ],
+        "format": "Digital Media",
+        "label": null,
+        "primaryType": "Single",
+        "release": {
+          "id": "5330cce8-67a8-4cba-9644-e02514191fb2",
+          "provider": "musicbrainz"
+        },
+        "releaseDate": "2020-06-21",
+        "sourceUrl": "https://musicbrainz.org/release/5330cce8-67a8-4cba-9644-e02514191fb2",
+        "title": "Procuro Olvidarte / Pásalo Bien",
+        "trackCount": 1,
+        "tracks": [],
+        "year": 2020
+      },
+      {
+        "artworkUrls": [
+          "https://coverartarchive.org/release/570157ed-1fba-48d5-bc3d-6189f1a6241b/front-250",
+          "https://coverartarchive.org/release-group/c3fc8f83-f009-4a50-8b38-007e7e0442b4/front-250"
+        ],
+        "catalogNumber": null,
+        "country": "XW",
+        "credits": [
+          {
+            "artist": {
+              "id": "3f043ab8-a237-43b1-a242-6f5754c21646",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "La-33",
+            "joinPhrase": " & ",
+            "name": "La-33",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/570157ed-1fba-48d5-bc3d-6189f1a6241b"
+          },
+          {
+            "artist": {
+              "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Macha y el Bloque Depresivo",
+            "joinPhrase": "",
+            "name": "Macha y el Bloque Depresivo",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/570157ed-1fba-48d5-bc3d-6189f1a6241b"
+          }
+        ],
+        "format": "Digital Media",
+        "label": "El Sagrado",
+        "primaryType": "Single",
+        "release": {
+          "id": "570157ed-1fba-48d5-bc3d-6189f1a6241b",
+          "provider": "musicbrainz"
+        },
+        "releaseDate": "2024-06-28",
+        "sourceUrl": "https://musicbrainz.org/release/570157ed-1fba-48d5-bc3d-6189f1a6241b",
+        "title": "El mago y la publicidad",
+        "trackCount": 1,
+        "tracks": [],
+        "year": 2024
+      },
+      {
+        "artworkUrls": [
+          "https://coverartarchive.org/release-group/bbdac334-1954-4c9f-be54-a791ae5b75f2/front-250"
+        ],
+        "catalogNumber": null,
+        "country": "XW",
+        "credits": [
+          {
+            "artist": {
+              "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Macha Y El Bloque Depresivo",
+            "joinPhrase": "",
+            "name": "Macha Y El Bloque Depresivo",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/674ac3f0-1887-473f-8227-5e480deb1f16"
+          }
+        ],
+        "format": "Digital Media",
+        "label": "Macha y El Bloque Depresivo",
+        "primaryType": "Single",
+        "release": {
+          "id": "674ac3f0-1887-473f-8227-5e480deb1f16",
+          "provider": "musicbrainz"
+        },
+        "releaseDate": "2024-10-11",
+        "sourceUrl": "https://musicbrainz.org/release/674ac3f0-1887-473f-8227-5e480deb1f16",
+        "title": "Amiga",
+        "trackCount": 1,
+        "tracks": [],
+        "year": 2024
+      },
+      {
+        "artworkUrls": [
+          "https://coverartarchive.org/release/6c56fb1d-e220-40ee-b836-10b6bf992ab7/front-250",
+          "https://coverartarchive.org/release-group/830f149f-3395-412b-8df4-21c2443f8c0e/front-250"
+        ],
+        "catalogNumber": null,
+        "country": "CL",
+        "credits": [
+          {
+            "artist": {
+              "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Macha y el Bloque Depresivo",
+            "joinPhrase": "",
+            "name": "Macha y el Bloque Depresivo",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/6c56fb1d-e220-40ee-b836-10b6bf992ab7"
+          }
+        ],
+        "format": "CD",
+        "label": "Perros con Tiña",
+        "primaryType": "Album",
+        "release": {
+          "id": "6c56fb1d-e220-40ee-b836-10b6bf992ab7",
+          "provider": "musicbrainz"
+        },
+        "releaseDate": "2018-10-10",
+        "sourceUrl": "https://musicbrainz.org/release/6c56fb1d-e220-40ee-b836-10b6bf992ab7",
+        "title": "100% lúcidos",
+        "trackCount": 14,
+        "tracks": [],
+        "year": 2018
+      },
+      {
+        "artworkUrls": [
+          "https://coverartarchive.org/release-group/830f149f-3395-412b-8df4-21c2443f8c0e/front-250"
+        ],
+        "catalogNumber": null,
+        "country": null,
+        "credits": [
+          {
+            "artist": {
+              "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Macha y el Bloque Depresivo",
+            "joinPhrase": "",
+            "name": "Macha y el Bloque Depresivo",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/7b337019-a478-41ad-bf5e-2b4ac1171f83"
+          }
+        ],
+        "format": "Digital Media",
+        "label": "Barbès Records",
+        "primaryType": "Album",
+        "release": {
+          "id": "7b337019-a478-41ad-bf5e-2b4ac1171f83",
+          "provider": "musicbrainz"
+        },
+        "releaseDate": "2018-10-05",
+        "sourceUrl": "https://musicbrainz.org/release/7b337019-a478-41ad-bf5e-2b4ac1171f83",
+        "title": "100% lucidos",
+        "trackCount": 14,
+        "tracks": [],
+        "year": 2018
+      },
+      {
+        "artworkUrls": [
+          "https://coverartarchive.org/release-group/d8644572-5603-400b-bbed-7e7d9c969853/front-250"
+        ],
+        "catalogNumber": null,
+        "country": "CL",
+        "credits": [
+          {
+            "artist": {
+              "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Macha y el Bloque Depresivo",
+            "joinPhrase": "",
+            "name": "Macha y el Bloque Depresivo",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/d4b2e510-4f90-4965-b2fc-8b152c614dea"
+          }
+        ],
+        "format": "7\" Vinyl",
+        "label": "Perros con Tiña",
+        "primaryType": "Single",
+        "release": {
+          "id": "d4b2e510-4f90-4965-b2fc-8b152c614dea",
+          "provider": "musicbrainz"
+        },
+        "releaseDate": "2022",
+        "sourceUrl": "https://musicbrainz.org/release/d4b2e510-4f90-4965-b2fc-8b152c614dea",
+        "title": "Sesiones La Habana",
+        "trackCount": 2,
+        "tracks": [],
+        "year": 2022
+      },
+      {
+        "artworkUrls": [
+          "https://coverartarchive.org/release/f6a07ac1-8402-4f40-a337-9675a2f30258/front-250",
+          "https://coverartarchive.org/release-group/ae4a787a-8a10-44f3-acbc-4c2b02b3e05f/front-250"
+        ],
+        "catalogNumber": null,
+        "country": "CL",
+        "credits": [
+          {
+            "artist": {
+              "id": "d50b0808-1c23-43b2-b485-7248849268b2",
+              "provider": "musicbrainz"
+            },
+            "creditedAs": "Macha y el Bloque Depresivo",
+            "joinPhrase": "",
+            "name": "Macha y el Bloque Depresivo",
+            "role": "artist credit",
+            "sourceUrl": "https://musicbrainz.org/release/f6a07ac1-8402-4f40-a337-9675a2f30258"
+          }
+        ],
+        "format": "Digital Media",
+        "label": "[no label]",
+        "primaryType": "Album",
+        "release": {
+          "id": "f6a07ac1-8402-4f40-a337-9675a2f30258",
+          "provider": "musicbrainz"
+        },
+        "releaseDate": "2024-12-23",
+        "sourceUrl": "https://musicbrainz.org/release/f6a07ac1-8402-4f40-a337-9675a2f30258",
+        "title": "Desde Ciudad de México (En Vivo)",
+        "trackCount": 15,
+        "tracks": [],
+        "year": 2024
+      }
+    ],
+    "nextCursor": null,
+    "sourceCoverage": [
+      {
+        "detail": "Paginated release and track data loaded.",
+        "provider": "musicbrainz",
+        "sourceUrl": "https://musicbrainz.org/artist/d50b0808-1c23-43b2-b485-7248849268b2",
+        "status": "available"
+      },
+      {
+        "detail": "No explicit Discogs identity link is recorded.",
+        "provider": "discogs",
+        "sourceUrl": null,
+        "status": "not linked"
+      }
+    ],
+    "warnings": []
+  }
 }
