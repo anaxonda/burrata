@@ -808,6 +808,31 @@ impl Store {
         .transpose()
     }
 
+    /// Return album entities that contain this exact saved catalog listing.
+    pub fn list_library_albums_for_track(&self, listing_id: &str) -> Result<Vec<LibraryEntity>> {
+        if listing_id.is_empty() || listing_id.len() > 512 {
+            return Ok(Vec::new());
+        }
+        let conn = self.lock_connection()?;
+        refresh(&conn)?;
+        let mut stmt = conn.prepare(
+            "SELECT e.payload,(SELECT COUNT(*) FROM library_entity_tracks all_tracks WHERE all_tracks.entity_id=e.id) FROM library_entities e JOIN library_entity_tracks t ON t.entity_id=e.id WHERE e.kind='album' AND t.listing_id=?1 AND EXISTS(SELECT 1 FROM catalog_listings l WHERE l.id=?1 AND l.in_library=1) ORDER BY COALESCE(json_extract(e.payload,'$.explicitlySaved'),0) DESC,e.id",
+        ).map_err(err)?;
+        let rows = stmt
+            .query_map([listing_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, usize>(1)?))
+            })
+            .map_err(err)?;
+        rows.map(|row| {
+            let (payload, track_count) = row.map_err(err)?;
+            let mut entity: LibraryEntity = decode(payload)?;
+            entity.track_count = track_count;
+            entity.saved_track_ids.clear();
+            Ok(entity)
+        })
+        .collect()
+    }
+
     pub fn list_library_entities(
         &self,
         kind: &str,
@@ -1146,6 +1171,26 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(&dir.path().join("library.sqlite")).unwrap();
         (dir, store)
+    }
+
+    #[test]
+    fn exact_saved_listing_resolves_its_local_album_membership() {
+        let (_dir, store) = db();
+        let mut saved = track("exact-album-listing");
+        saved.title = "Super Real".into();
+        saved.artist = "Nipsey Hussle".into();
+        saved.album = Some("Prolific".into());
+        store.save_library_tracks(&[saved.clone()]).unwrap();
+
+        let albums = store.list_library_albums_for_track(&saved.id).unwrap();
+        assert_eq!(albums.len(), 1);
+        assert_eq!(albums[0].kind, "album");
+        assert_eq!(albums[0].name, "Prolific");
+        assert_eq!(albums[0].track_count, 1);
+        assert!(store
+            .list_library_albums_for_track("not-a-saved-listing")
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

@@ -820,9 +820,14 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     await loadAutotagState();
     return result;
   }
-  async function openSearchAlbum(release:ArtistReleaseRef, artistHint?:ArtistRef|null) {
+  async function openSearchAlbum(release:ArtistReleaseRef, artistHint?:ArtistRef|null, trackAlbumRequest?:number) {
     rememberRoute();
-    if (view !== "search") await navigate("search", false);
+    const isSearchView = () => view === "search";
+    if (!isSearchView()) {
+      const ownerNavigation = navigationRequest;
+      await navigate("search", false);
+      if (!isSearchView() || (trackAlbumRequest !== undefined && (trackAlbumRequest !== trackAlbumLookupRequest || navigationRequest !== ownerNavigation + 1))) return;
+    }
     clearSearchPanelInstance();
     const request=++searchReleaseRequest;
     searchRelease=release;searchReleaseTracks=[];searchReleaseError="";searchReleaseBusy=true;
@@ -919,15 +924,38 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     const sourceUrl = `https://musicbrainz.org/release/${releaseId}`;
     return { kind: "catalog", artist, release: { release: { provider: "musicbrainz", id: releaseId }, title: track.album?.trim() || track.title, tracks: [], sourceUrl, credits: validCredits } };
   }
-  async function openTrackAlbum(track: Track) {
+  async function openTrackAlbum(track: Track, fromLibrarySearch = false) {
+    const request = ++trackAlbumLookupRequest, ownerNavigation = navigationRequest;
+    const stillOnSourceRoute = () => request === trackAlbumLookupRequest && ownerNavigation === navigationRequest;
+    if (fromLibrarySearch && track.id) {
+      try {
+        const albums = await call<LibraryEntity[]>("list_library_albums_for_track", { listingId: track.id });
+        if (!stillOnSourceRoute() || view !== "search") return;
+        const albumName = albumHint(track.album), albumArtist = albumHint(track.albumArtist) || albumHint(track.artist);
+        const sameLabel = (left: string, right: string) => normalizeArtistLookup(left) === normalizeArtistLookup(right);
+        const candidates = albums.filter(album => albumName && sameLabel(album.name, albumName) && (!albumArtist || !album.artist || sameLabel(album.artist, albumArtist)));
+        const explicitlySaved = candidates.filter(album => album.explicitlySaved);
+        const localAlbum = explicitlySaved.length === 1 ? explicitlySaved[0] : candidates.length === 1 ? candidates[0] : null;
+        if (localAlbum || candidates.length > 1) {
+          rememberRoute();
+          librarySource = "all";
+          libraryBrowser = { ...initialLibraryBrowserState(), tab: "albums", entity: localAlbum ?? null, section: "albums", query: localAlbum ? "" : [albumName, albumArtist].filter(Boolean).join(" ") };
+          await navigate("library", false);
+          return;
+        }
+      } catch {
+        if (!stillOnSourceRoute() || view !== "search") return;
+        // Keep the provider-backed album path available if the library index is unavailable.
+      }
+    }
+    if (!stillOnSourceRoute()) return;
     const target = trackAlbumTarget(track);
     if (!target) return;
-    if (target.kind === "catalog") { await openSearchAlbum(target.release, target.artist); return; }
+    if (target.kind === "catalog") { await openSearchAlbum(target.release, target.artist, request); return; }
     if (target.kind === "search") {
-      const request = ++trackAlbumLookupRequest, ownerNavigation = navigationRequest;
       try {
         const result = await call<AlbumSearchPage>("search_albums", { query: target.album, page: 1, pageSize: 20 });
-        if (request !== trackAlbumLookupRequest || ownerNavigation !== navigationRequest) return;
+        if (!stillOnSourceRoute()) return;
         const titleKey = normalizeArtistLookup(target.album), artistKey = normalizeArtistLookup(target.artist);
         const provenance = track.provenance && typeof track.provenance === "object" ? track.provenance as Record<string, unknown> : {};
         const catalog = provenance.catalog && typeof provenance.catalog === "object" ? provenance.catalog as Record<string, unknown> : {};
@@ -941,14 +969,20 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
         const exact = result.items.filter(release => normalizeArtistLookup(release.title) === titleKey &&
           release.credits.some(credit => normalizeArtistLookup(credit.name) === artistKey &&
             (!knownArtistIds.length || knownArtistIds.some(identity => credit.artist?.provider === identity.provider && credit.artist.id === identity.id))));
-        if (exact.length === 1) { await openSearchAlbum(exact[0]!); return; }
+        if (exact.length === 1) { await openSearchAlbum(exact[0]!, undefined, request); return; }
         // No exact match or multiple editions: let the existing album search
         // show the catalog choices instead of guessing at a release.
+        rememberRoute();
+        await navigate("search", false);
+        if (request !== trackAlbumLookupRequest || view !== "search" || navigationRequest !== ownerNavigation + 1) return;
+        searchNavigationSnapshotKey = null;
         query = target.album;
         catalogSearchSource = "musicbrainz";
         catalogSearchKind = "albums";
         catalogSearchRequest++;
-        await navigate("search");
+        searchRelease = null;
+        searchReleaseTracks = [];
+        searchReleaseRequest++;
       } catch (failure) {
         if (request === trackAlbumLookupRequest && ownerNavigation === navigationRequest) setNotice(safePreviewError(failure));
       }
@@ -7305,7 +7339,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     startupReadStorage: backupStartupReadStorage,
     searchArtists: (value: string) => searchArtists(value, 1).then(page => page.results),
     loadArtistProfile: loadArtistProfileArtwork,
-    onTrackAlbum: (track: Track) => void openTrackAlbum(track),
+    onTrackAlbum: (track: Track, fromLibrary?: boolean) => void openTrackAlbum(track, fromLibrary),
     navigationSnapshotKey: searchNavigationSnapshotKey,
     automationSearch, automationSearchCancelled,
     onAutomationSearchComplete: completeAutomationSearch,

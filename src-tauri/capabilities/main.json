@@ -147,6 +147,7 @@
     "allow-set-local-album-match",
     "allow-get-library-entity",
     "allow-get-playlist-artwork",
+    "allow-list-library-albums-for-track",
     "allow-list-library-entities",
     "allow-list-library-entity-tracks",
     "allow-save-library-artist",

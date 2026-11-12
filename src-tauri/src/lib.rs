@@ -1942,6 +1942,17 @@ async fn list_library_entities(
 }
 
 #[tauri::command]
+async fn list_library_albums_for_track(
+    state: State<'_, AppState>,
+    listing_id: String,
+) -> Result<Vec<storage::library::LibraryEntity>> {
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || store.list_library_albums_for_track(&listing_id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 async fn list_library_entity_tracks(
     state: State<'_, AppState>,
     id: String,
@@ -9391,7 +9402,7 @@ pub fn run() {
             list_tracks,
             list_favorite_track_ids,
             list_tracks_page,
-            list_local_album_matches, set_local_album_match, get_library_entity, get_playlist_artwork, list_library_entities, list_library_entity_tracks, save_library_artist, save_library_album, remove_library_entity_save,
+            list_local_album_matches, set_local_album_match, get_library_entity, get_playlist_artwork, list_library_entities, list_library_albums_for_track, list_library_entity_tracks, save_library_artist, save_library_album, remove_library_entity_save,
             list_track_prefix,
             get_tracks,
             identify_playing_track,

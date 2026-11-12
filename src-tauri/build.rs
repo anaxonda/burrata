@@ -256,6 +256,7 @@ const COMMANDS: &[&str] = &[
     "get_library_entity",
     "get_playlist_artwork",
     "list_library_entities",
+    "list_library_albums_for_track",
     "list_library_entity_tracks",
     "save_library_artist",
     "save_library_album",
