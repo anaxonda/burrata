@@ -17,7 +17,7 @@ fn duration(value: &Value) -> Option<f64> {
         .as_f64()
         .filter(|v| v.is_finite() && *v > 0. && *v <= 86_400.)
 }
-fn channel_id(value: &str) -> bool {
+pub(crate) fn channel_id(value: &str) -> bool {
     value.len() == 24
         && value.starts_with("UC")
         && value
@@ -71,6 +71,9 @@ pub(crate) fn catalog_album_artists(candidate: &Candidate) -> Option<Vec<String>
             return None;
         }
         names.push(name.to_owned());
+    }
+    if key(&names.join(", ")) != key(text(&meta["catalogArtist"], 8192)?) {
+        return None;
     }
     text(&meta["catalogTitle"], 512)?;
     Some(names)
@@ -328,6 +331,10 @@ mod tests {
             assert!(catalog_identity(&c, &info).is_none(), "{field}");
         }
         let mut wrong = c.clone();
+        wrong.source_metadata.as_mut().unwrap()["catalogArtist"] =
+            json!("Macha Y El Bloque Depresivo, Alvaro Henríquez, Another singer");
+        assert!(catalog_identity(&wrong, &f["officialFullInfo"]).is_none());
+        wrong = c.clone();
         wrong.source_metadata.as_mut().unwrap()["catalogRequestedAlbum"] = json!("Live album");
         assert!(catalog_identity(&wrong, &f["officialFullInfo"]).is_none());
         wrong = c;

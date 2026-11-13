@@ -6500,6 +6500,35 @@ fn playback_music_catalog_candidate(
         return None;
     }
     let artist = crate::source_fallback::youtube_catalog_artist_credit(&item.title, &item.artist?);
+    let mut metadata = serde_json::json!({
+        "provider":"youtube", "playbackMusicCatalogCandidate":true,
+        "catalogTitle":item.title, "catalogArtist":artist,
+        "catalogArtistCredits":item.artist_credits,
+        "albumBrowseId":item.album_browse_id,
+        "catalogAlbum":item.album,
+        "catalogDurationSeconds":item.duration_seconds,
+        "catalogRequestedAlbum":track.album,
+        "catalogRequestedDurationSeconds":track.duration_seconds,
+    });
+    // Unlinked catalogue names remain retrieval hints, including contradictions.
+    // Promote the atomic rows into generic source-artist evidence only when
+    // every row has its validated artist endpoint. Fresh extraction is still
+    // required before any catalogue reconciliation can verify playback.
+    if !item.artist_credits.is_empty()
+        && item.artist_credits.iter().all(|credit| {
+            credit
+                .provider_id
+                .as_deref()
+                .is_some_and(crate::youtube_recording_metadata::channel_id)
+        })
+    {
+        metadata["artists"] = serde_json::json!(item
+            .artist_credits
+            .iter()
+            .map(|credit| credit.name.clone())
+            .collect::<Vec<_>>());
+        metadata["artistCount"] = serde_json::json!(item.artist_credits.len());
+    }
     let candidate = Candidate {
         id: format!("youtube:{}", item.id),
         provider: "youtube".into(),
@@ -6509,18 +6538,7 @@ fn playback_music_catalog_candidate(
         confidence: "review".into(),
         permission: "unknown".into(),
         score: 0.7,
-        source_metadata: Some(serde_json::json!({
-            "provider":"youtube", "playbackMusicCatalogCandidate":true,
-            "catalogTitle":item.title, "catalogArtist":artist,
-            "catalogArtistCredits":item.artist_credits,
-            "artists":item.artist_credits.iter().map(|credit|credit.name.clone()).collect::<Vec<_>>(),
-            "artistCount":(!item.artist_credits.is_empty()).then_some(item.artist_credits.len()),
-            "albumBrowseId":item.album_browse_id,
-            "catalogAlbum":item.album,
-            "catalogDurationSeconds":item.duration_seconds,
-            "catalogRequestedAlbum":track.album,
-            "catalogRequestedDurationSeconds":track.duration_seconds,
-        })),
+        source_metadata: Some(metadata),
         reasons: vec![
             "Music catalog locator; fresh recording identity verification required".into(),
         ],
@@ -13044,6 +13062,13 @@ mod tests {
             crate::youtube_music::parse_search_response(&body, PLAYBACK_MUSIC_CATALOG_RESULT_LIMIT);
         assert_eq!(at_catalog_limit.len(), 12);
         let candidates = playback_music_catalog_candidates(&track, at_catalog_limit);
+        assert!(
+            candidates.iter().all(|candidate| {
+                let metadata = candidate.source_metadata.as_ref().unwrap();
+                metadata.get("artists").is_none() && metadata.get("artistCount").is_none()
+            }),
+            "unlinked catalogue hints must not become generic source artist evidence"
+        );
         let exact = candidates
             .iter()
             .find(|candidate| candidate.id == "youtube:lK_BGCe3q6I")

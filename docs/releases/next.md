@@ -1,9 +1,9 @@
-# Burrata 0.1.41
+# Burrata 0.1.42
 
 This release improves recording metadata, playback discovery, album navigation, lyrics requests and internet-radio setup.
 
 - Playback can verify slash-separated collaboration captions and accented artist spellings against the complete requested performer set in Balanced mode. Fresh extractor metadata must remain bound to the selected source ID; extra performers and conflicting versions retain their checks.
-- Automatic YouTube lookup researches the music catalogue before settling for uploader captions and gives an exact album locator extraction priority. Fresh verified-channel, distributor-generated metadata must agree on video ID, linked artists, album, title and bounded runtime. Untyped additional credits remain visible as unclassified names; no composer or band-member role is inferred.
+- Automatic YouTube lookup researches the music catalogue before settling for uploader captions and gives an exact album locator extraction priority. Fresh verified-channel, distributor-generated metadata must agree on video ID, the full linked artist list, album, title and bounded runtime. Catalogue names without linked artist IDs remain retrieval hints. Untyped additional credits are preserved in source metadata as unclassified names; no composer or band-member role is inferred.
 - Recorded-performance evidence in bounded descriptions is retained separately from livestream status. Balanced mode rejects a known concert performance for an unqualified album recording. Matching and search caches are invalidated for the new policy.
 - Playback searches retain up to 20 source metadata rows so correctly credited recordings below covers and live uploads remain available for verification. Extraction attempts and playback deadlines stay bounded, and older ten-row search caches are invalidated.
 - YouTube Music search and imports preserve individual artist credits, album browse IDs and album-track durations. Browser Companion 0.2.12 carries this metadata through authenticated search and playlist imports. Beatport, Traxsource, Monochrome and restored tracks preserve structured credits more consistently.
@@ -18,10 +18,10 @@ This release improves recording metadata, playback discovery, album navigation, 
 
 ## Qualification
 
-Earlier candidates passed native decoding, but user audition identified the selected upload as a concert performance. Those releases were withheld. The corrected policy and official-source fixture pass 223 isolated matching tests; 335 focused frontend tests, 120 companion tests and Svelte checks pass. Final native/platform builds, automatic official-source playback and album-navigation retests remain pending.
+Earlier candidates passed native decoding, but user audition identified the selected upload as a concert performance. Those releases were withheld. The corrected policy and official-source fixture pass 223 isolated matching tests and three focused catalogue-metadata probes; 335 focused frontend tests, 120 companion tests and Svelte checks pass. Final native/platform builds, automatic official-source playback and album-navigation retests remain pending.
 
 Linux, macOS and Windows installer results will be recorded separately. Hosted-runner smoke tests do not establish fresh-customer-machine behavior. Physical macOS and Windows audio output remain unverified; Windows output testing may be explicitly deferred as in the preceding release.
 
 Provider availability, DRM and incomplete recording identity can still prevent playback. These changes do not claim universal provider access or automatic repair of ambiguous legacy library entries.
 
-The live “Amiga” and “Turista” source attempts still failed verification in this qualification. Continuation skipped them successfully. This release does not claim every Spotify result has an available verified audio source.
+In the earlier 0.1.37 qualification, “Amiga” and “Turista” attempts failed verification and continuation skipped them. Their corrected-candidate retests remain pending. These changes do not claim every Spotify result has an available verified audio source.

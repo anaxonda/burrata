@@ -1274,7 +1274,7 @@ mod tests {
             title: row["title"].as_str().unwrap().into(),
             duration_seconds: row["durationSeconds"].as_f64(),
             source_metadata: Some(
-                json!({"provider":"youtube","playbackMusicCatalogCandidate":true,"catalogTitle":row["title"],"catalogArtistCredits":row["artistCredits"],"catalogAlbum":row["album"],"albumBrowseId":row["albumBrowseId"],"catalogDurationSeconds":row["durationSeconds"],"catalogRequestedAlbum":request.album,"catalogRequestedDurationSeconds":request.duration_seconds}),
+                json!({"provider":"youtube","playbackMusicCatalogCandidate":true,"catalogTitle":row["title"],"catalogArtist":row["artist"],"catalogArtistCredits":row["artistCredits"],"catalogAlbum":row["album"],"albumBrowseId":row["albumBrowseId"],"catalogDurationSeconds":row["durationSeconds"],"catalogRequestedAlbum":request.album,"catalogRequestedDurationSeconds":request.duration_seconds}),
             ),
             ..Default::default()
         };
