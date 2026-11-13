@@ -12166,7 +12166,7 @@ mod tests {
         assert_eq!(metadata["artistCount"], 2);
         assert_eq!(
             metadata["unclassifiedSourceArtistCredits"],
-            json!(["Aldo Asenjo"])
+            serde_json::json!(["Aldo Asenjo"])
         );
         assert_ne!(metadata["identityMetadataUncertain"], true);
         let mut resolved = candidate.clone();
@@ -13874,7 +13874,7 @@ mod tests {
                 title: title.clone(),
                 duration_seconds: request.duration_seconds,
                 source_metadata: Some(
-                    json!({"provider":"youtube","resolvedProviderId":"H35xiJcS8RY","sourceMetadataOrigin":"ytDlpCandidateMetadata","track":title,
+                    serde_json::json!({"provider":"youtube","resolvedProviderId":"H35xiJcS8RY","sourceMetadataOrigin":"ytDlpCandidateMetadata","track":title,
                     "artists":["Macha Y El Bloque Depresivo","Alvaro Henriquez"],"artistCount":2}),
                 ),
                 ..Default::default()
