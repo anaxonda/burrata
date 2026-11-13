@@ -1,9 +1,9 @@
 {
-  "sourceCommit": "a55add2dd093014db496d5c8ec70741480abe0b4",
+  "sourceCommit": "80038bb03ea3bc73aa920cb865732ddadccede96",
   "coldCatalogCache": true,
   "initialCatalogCacheEntries": 0,
   "resolved": true,
-  "elapsedSeconds": 6.61,
+  "elapsedSeconds": 6.11,
   "destination": {
     "destination": {
       "artist": {
@@ -71,15 +71,27 @@
       1
     ]
   ],
-  "artifactSha256": "f4a8299d301153a490e8c1ec8a9b6803bfa1fc76b30426bedb299e95eac08af8",
-  "installedVersion": "0.1.37",
-  "catalogueCacheScope": "artists.*, albums.*, navigation.album-membership.* cleared immediately before the observed Find album click in the disposable profile; YouTube cache was retained.",
+  "artifactSha256": "873261588b59d30a58024a662e30828e5a0c899ef17a39d47bbd2f5a9851c62b",
+  "installedVersion": "0.1.43",
   "observedUi": {
     "album": "100% lúcidos",
     "artist": "Macha y el Bloque Depresivo",
     "loadedTrackCount": 14,
     "directAlbumView": true,
     "addStationIndependentModal": true,
-    "autoplayPlaybarSavedArtistVisible": true
+    "autoplayPlaybarSavedArtistVisible": true,
+    "nativeAutoplayLyricsRendered": true,
+    "rawAutoplayArtistStillMissing": true
+  },
+  "catalogueCacheScope": "artists.*, albums.*, navigation.album-membership.* cleared immediately before actual Find album click in disposable profile; YouTube cache retained.",
+  "spotifyMenu": {
+    "passed": true,
+    "action": "actual Go to album context-menu click",
+    "provider": "spotify",
+    "albumId": "7j1iNxlcdkJj864Bu0ETPj",
+    "title": "Macha y el Bloque Depresivo",
+    "releaseDate": "2018-10-05",
+    "loadedTrackCount": 14,
+    "directAlbumView": true
   }
 }

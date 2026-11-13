@@ -47,23 +47,33 @@ export async function playVisibleSearchOccurrence(call, expected) {
     query: expected.query, sourceId: expected.searchSourceId, kind: expected.kind,
   }), 'search_ui');
   if (search?.status !== 'complete' && search?.status !== 'ready') throw new Error('search_ui_not_complete');
-  const page = toolResult(await call('inspect_search_ui', { offset: 0, limit: 100 }), 'inspect_search_ui');
-  if (page?.status !== 'ready' || !/^[0-9a-f-]{36}$/i.test(page.revision ?? '') || !Array.isArray(page.rows)) {
-    throw new Error('search_ui_rows_unavailable');
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const page = toolResult(await call('inspect_search_ui', { offset: 0, limit: 100 }), 'inspect_search_ui');
+    if (page?.status !== 'ready' || !/^[0-9a-f-]{36}$/i.test(page.revision ?? '') || !Array.isArray(page.rows)) {
+      throw new Error('search_ui_rows_unavailable');
+    }
+    const rows = page.rows.filter((row) => row.sourceId === expected.searchSourceId
+      && row.title === expected.title && row.artist === expected.artist
+      && Number.isFinite(row.durationSeconds)
+      && Math.abs(row.durationSeconds - expected.expectedDurationSeconds) <= 1);
+    if (rows.length !== 1) throw new Error(rows.length ? 'search_occurrence_ambiguous' : 'search_occurrence_missing');
+    const row = rows[0];
+    const result = toolResult(await call('play_search_result', {
+      revision: page.revision, occurrenceToken: row.occurrenceToken,
+    }), 'play_search_result');
+    // These explicit refusals did not dispatch playback. Reinspect the changed
+    // row set; a timeout or uncertain response must never trigger a second click.
+    if (result?.status === 'stale' || result?.status === 'expired') continue;
+    if (result?.status !== 'dispatched') throw new Error('search_occurrence_not_dispatched');
+    if (result.revision !== page.revision || result.sourceId !== row.sourceId) {
+      throw new Error('search_occurrence_dispatch_mismatch');
+    }
+    return { entrypoint: 'search_result', searchMode: page.mode, searchSourceId: expected.searchSourceId,
+      query: expected.query, visibleTitle: row.title, visibleArtist: row.artist,
+      visibleDurationSeconds: row.durationSeconds, action: 'renderer_occurrence_token',
+      selected: true, dispatchStatus: result.status, acousticContentVerified: false };
   }
-  const rows = page.rows.filter((row) => row.sourceId === expected.searchSourceId
-    && row.title === expected.title && row.artist === expected.artist
-    && Number.isFinite(row.durationSeconds)
-    && Math.abs(row.durationSeconds - expected.expectedDurationSeconds) <= 1);
-  if (rows.length !== 1) throw new Error(rows.length ? 'search_occurrence_ambiguous' : 'search_occurrence_missing');
-  const row = rows[0];
-  const result = toolResult(await call('play_search_result', {
-    revision: page.revision, occurrenceToken: row.occurrenceToken,
-  }), 'play_search_result');
-  return { entrypoint: 'search_result', searchMode: page.mode, searchSourceId: expected.searchSourceId,
-    query: expected.query, visibleTitle: row.title, visibleArtist: row.artist,
-    visibleDurationSeconds: row.durationSeconds, action: 'renderer_occurrence_token',
-    selected: result?.ok !== false, acousticContentVerified: false };
+  throw new Error('search_occurrence_not_dispatched');
 }
 
 export async function verifyPrivateX11Target({ profile, appPid, xvfbPid, display }) {

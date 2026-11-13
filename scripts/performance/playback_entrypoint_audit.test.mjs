@@ -39,7 +39,7 @@ test('search entrypoint plays the one exact visible renderer occurrence by expir
     if (name === 'inspect_search_ui') return { result: { status: 'ready', mode: 'online', revision: '123e4567-e89b-12d3-a456-426614174000', rows: [
       { occurrenceToken: '123e4567-e89b-12d3-a456-426614174001', sourceId: 'youtube', title: 'Track', artist: 'Artist', durationSeconds: 245.5 },
     ] } };
-    return { result: { ok: true } };
+    return { result: { status:'dispatched', revision:'123e4567-e89b-12d3-a456-426614174000', sourceId:'youtube' } };
   };
   const result = await playVisibleSearchOccurrence(call, { entrypoint: 'search_result', query: 'Artist Track',
     searchSourceId: 'youtube', kind: 'tracks', title: 'Track', artist: 'Artist', expectedDurationSeconds: 245.48 });
@@ -66,7 +66,7 @@ test('Spotify-imported saved rows can be selected through the visible Library se
         { occurrenceToken: '123e4567-e89b-12d3-a456-426614174011', sourceId: 'library',
           title: 'Revelator', artist: 'Gillian Welch', durationSeconds: 380 },
       ] } };
-    return { result: { ok: true } };
+    return { result: { status:'dispatched', revision:'123e4567-e89b-12d3-a456-426614174010', sourceId:'library' } };
   };
   const result = await playVisibleSearchOccurrence(call, { entrypoint: 'search_result', query: 'Gillian Welch Revelator',
     searchSourceId: 'library', kind: 'tracks', title: 'Revelator', artist: 'Gillian Welch', expectedDurationSeconds: 380 });
@@ -109,4 +109,30 @@ test('wrong source identity and silent startup remain failures', () => {
     { status: 'failed', reason: 'wrong_provider' });
   assert.deepEqual(assessEntryPointPlayback(before, { ...after, diagnostics: {} }, spec),
     { status: 'failed', reason: 'startup_not_observed' });
+});
+
+
+test('search audit reinspects explicit stale refusals and requires a bound dispatch acknowledgement', async () => {
+  const expected={entrypoint:'search_result',query:'Track',searchSourceId:'youtube',kind:'tracks',title:'Track',artist:'Artist',expectedDurationSeconds:200};
+  const revision='123e4567-e89b-12d3-a456-426614174000';
+  const page={status:'ready',mode:'online',revision,rows:[{occurrenceToken:'123e4567-e89b-12d3-a456-426614174001',sourceId:'youtube',title:'Track',artist:'Artist',durationSeconds:200}]};
+  for (const outcome of ['stale_then_dispatch','stale','expired','unavailable','mismatch','legacy_ok']) {
+    let plays=0,inspects=0;
+    const call=async name=>{
+      if(name==='search_ui')return {result:{status:'complete'}};
+      if(name==='inspect_search_ui'){inspects++;return {result:page};}
+      plays++;
+      if(outcome==='stale_then_dispatch')return {result:plays===1?{status:'stale'}:{status:'dispatched',revision,sourceId:'youtube'}};
+      if(outcome==='mismatch')return {result:{status:'dispatched',revision,sourceId:'spotify'}};
+      if(outcome==='legacy_ok')return {result:{ok:true}};
+      return {result:{status:outcome}};
+    };
+    if(outcome==='stale_then_dispatch') {
+      assert.equal((await playVisibleSearchOccurrence(call,expected)).dispatchStatus,'dispatched');
+      assert.equal(plays,2);assert.equal(inspects,2);
+    } else {
+      await assert.rejects(playVisibleSearchOccurrence(call,expected),/search_occurrence_(?:not_dispatched|dispatch_mismatch)/);
+      assert.equal(plays,['stale','expired'].includes(outcome)?3:1);
+    }
+  }
 });

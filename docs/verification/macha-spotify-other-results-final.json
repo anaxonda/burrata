@@ -1,0 +1,63 @@
+{
+  "sourceCommit": "80038bb03ea3bc73aa920cb865732ddadccede96",
+  "artifactSha256": "873261588b59d30a58024a662e30828e5a0c899ef17a39d47bbd2f5a9851c62b",
+  "installedVersion": "0.1.43",
+  "matchingLevel": "balanced",
+  "entrypoint": "actual renderer Spotify search occurrence with acknowledged dispatch",
+  "results": [
+    {
+      "title": "Amiga",
+      "passed": true,
+      "sourceCommit": "80038bb03ea3bc73aa920cb865732ddadccede96",
+      "artifactSha256": "873261588b59d30a58024a662e30828e5a0c899ef17a39d47bbd2f5a9851c62b",
+      "matchingLevel": "balanced",
+      "position": 3.2043537414965986,
+      "startedAtPosition": 0.09287981859410431,
+      "decoderKind": "ffmpeg",
+      "nativeOperationId": "b434ef94-a47e-4fcb-8c38-72fa6ee65e60",
+      "status": "playing",
+      "requestedId": "spotify:7fFHqdtHpZK59BKeNFsQAD",
+      "requestedAlbum": "Bronceado de Cantina",
+      "firstAudioMs": 709,
+      "sourceId": "youtube:yqrG4Fu6Pcw",
+      "artistCreditSource": "youtubeMusicCatalogVerifiedAlbum",
+      "sourceArtists": [
+        "Macha Y El Bloque Depresivo"
+      ],
+      "unclassifiedCredits": [
+        "Luis Gómez Escolar"
+      ],
+      "failure": null,
+      "message": "Playing audio"
+    },
+    {
+      "title": "Turista",
+      "passed": true,
+      "sourceCommit": "80038bb03ea3bc73aa920cb865732ddadccede96",
+      "artifactSha256": "873261588b59d30a58024a662e30828e5a0c899ef17a39d47bbd2f5a9851c62b",
+      "matchingLevel": "balanced",
+      "position": 3.297233560090703,
+      "startedAtPosition": 0.13931972789115646,
+      "decoderKind": "ffmpeg",
+      "nativeOperationId": "b285d897-84d6-4654-9008-8f9f0edda8b7",
+      "status": "playing",
+      "requestedId": "spotify:2Lk4eKx3eWaB4uxWguNXq0",
+      "requestedAlbum": "Bronceado de Cantina",
+      "firstAudioMs": 714,
+      "sourceId": "youtube:eQc3EnDySA0",
+      "artistCreditSource": "youtubeMusicCatalogVerifiedAlbum",
+      "sourceArtists": [
+        "Macha Y El Bloque Depresivo"
+      ],
+      "unclassifiedCredits": [
+        "By Scott H Dittrich, Marco Borrero, Benito Antonio Martinez Ocasio, Jonathan Asperil and ROBERTO JOSE JR ROSADO TORRES",
+        "Marco Borrero BMI pub designee (BMI), Howard Hues Music (BMI), Magnificent Music, Inc. BMI Pub Designee (BMI) and Warner-Tamerlane Publishing Corp. (BMI)",
+        "All rights on behalf of Marco Borrero BMI pub designee, Howard Hues Music, Magnificent Music, Inc. BMI Pub Designee and Warner-Tamerlane Publishing Corp. administered by WARNER CHAPPELL MUSIC PUBLISHING CHILE LTDA."
+      ],
+      "failure": null,
+      "message": "Playing audio"
+    }
+  ],
+  "coldAmigaFirstAudioMs": 8932,
+  "physicalOutputVerified": false
+}

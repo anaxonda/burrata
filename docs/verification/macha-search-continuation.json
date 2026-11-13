@@ -1,27 +1,30 @@
 {
-  "sourceCommit": "629444111af7a83d7949ee5ee6a7e7641138fc18",
+  "sourceCommit": "80038bb03ea3bc73aa920cb865732ddadccede96",
+  "installedVersion": "0.1.43",
   "matchingLevel": "balanced",
-  "query": "bloque y la macha",
   "originalContinueSearch": false,
   "temporaryContinueSearch": true,
-  "restoredContinueSearch": false,
+  "passed": true,
+  "action": {
+    "entrypoint": "search_result",
+    "searchMode": "online",
+    "searchSourceId": "spotify",
+    "query": "bloque y la macha",
+    "visibleTitle": "Amiga",
+    "visibleArtist": "Macha Y El Bloque Depresivo",
+    "visibleDurationSeconds": 216.533,
+    "action": "renderer_occurrence_token",
+    "selected": true,
+    "dispatchStatus": "dispatched",
+    "acousticContentVerified": false
+  },
   "queueTotal": 30,
-  "currentIndex": 2,
-  "reachedTrack": "spotify:71fwMMqK8Kea3FguUUrl2t",
-  "position": 26.749387755102042,
+  "currentIndex": 1,
+  "position": 3.2043537414965986,
+  "sourceId": "youtube:yqrG4Fu6Pcw",
   "decoder": "ffmpeg",
-  "firstAudioMs": 1128,
-  "skipped": [
-    {
-      "title": "Amiga",
-      "outcome": "skipped",
-      "category": "failed_with_reason"
-    },
-    {
-      "title": "Turista",
-      "outcome": "skipped",
-      "category": "failed_with_reason"
-    }
-  ],
-  "performanceScope": "Queue/continuation evidence only: the played H35xiJcS8RY source was later identified as a concert performance and does not qualify the requested studio recording."
+  "firstAudioMs": 605,
+  "nativeOperationId": "9da0cc33-ed38-43dc-9d06-aa63fe0eb598",
+  "restoredContinueSearch": false,
+  "artifactSha256": "873261588b59d30a58024a662e30828e5a0c899ef17a39d47bbd2f5a9851c62b"
 }

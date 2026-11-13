@@ -1,10 +1,10 @@
 {
   "case": "Spotify search — La Nave del Olvido",
-  "sourceCommit": "a55add2dd093014db496d5c8ec70741480abe0b4",
-  "artifactSha256": "f4a8299d301153a490e8c1ec8a9b6803bfa1fc76b30426bedb299e95eac08af8",
+  "sourceCommit": "80038bb03ea3bc73aa920cb865732ddadccede96",
+  "artifactSha256": "873261588b59d30a58024a662e30828e5a0c899ef17a39d47bbd2f5a9851c62b",
   "automationEndpointBoundToArtifact": true,
   "matchingLevel": "balanced",
-  "nativeOperationId": "daccd9ba-e61e-4c1a-b919-37353a6a3fc3",
+  "nativeOperationId": "1f7080b0-f148-4a19-9387-56dfb8310ff9",
   "action": {
     "entrypoint": "search_result",
     "searchMode": "online",
@@ -15,95 +15,109 @@
     "visibleDurationSeconds": 235.542,
     "action": "renderer_occurrence_token",
     "selected": true,
+    "dispatchStatus": "dispatched",
     "acousticContentVerified": false
   },
   "samples": [
     {
       "status": "playing",
       "engine": "native",
-      "position": 0,
-      "duration": 231,
+      "position": 0.5572789115646258,
+      "duration": 236,
       "queueTotal": 1,
       "decoderKind": "ffmpeg",
       "sampleRate": 44100,
       "channels": 2,
-      "firstAudioMs": 926,
+      "firstAudioMs": 1370,
       "sourceProvider": "youtube",
-      "sourceId": "youtube:H35xiJcS8RY",
+      "sourceId": "youtube:xAJxfiF_0-w",
       "failure": null
     },
     {
       "status": "playing",
       "engine": "native",
-      "position": 0.8359183673469388,
-      "duration": 231,
+      "position": 1.3931972789115645,
+      "duration": 236,
       "queueTotal": 1,
       "decoderKind": "ffmpeg",
       "sampleRate": 44100,
       "channels": 2,
-      "firstAudioMs": 926,
+      "firstAudioMs": 1370,
       "sourceProvider": "youtube",
-      "sourceId": "youtube:H35xiJcS8RY",
+      "sourceId": "youtube:xAJxfiF_0-w",
       "failure": null
     },
     {
       "status": "playing",
       "engine": "native",
-      "position": 1.9969160997732427,
-      "duration": 231,
+      "position": 2.5541950113378684,
+      "duration": 236,
       "queueTotal": 1,
       "decoderKind": "ffmpeg",
       "sampleRate": 44100,
       "channels": 2,
-      "firstAudioMs": 926,
+      "firstAudioMs": 1370,
       "sourceProvider": "youtube",
-      "sourceId": "youtube:H35xiJcS8RY",
+      "sourceId": "youtube:xAJxfiF_0-w",
       "failure": null
     },
     {
       "status": "playing",
       "engine": "native",
-      "position": 3.111473922902494,
-      "duration": 231,
+      "position": 3.3901133786848074,
+      "duration": 236,
       "queueTotal": 1,
       "decoderKind": "ffmpeg",
       "sampleRate": 44100,
       "channels": 2,
-      "firstAudioMs": 926,
+      "firstAudioMs": 1370,
       "sourceProvider": "youtube",
-      "sourceId": "youtube:H35xiJcS8RY",
+      "sourceId": "youtube:xAJxfiF_0-w",
+      "failure": null
+    },
+    {
+      "status": "playing",
+      "engine": "native",
+      "position": 4.504671201814059,
+      "duration": 236,
+      "queueTotal": 1,
+      "decoderKind": "ffmpeg",
+      "sampleRate": 44100,
+      "channels": 2,
+      "firstAudioMs": 1370,
+      "sourceProvider": "youtube",
+      "sourceId": "youtube:xAJxfiF_0-w",
       "failure": null
     }
   ],
-  "passed": false,
-  "reason": "User audition identified a live-concert performance in the automatically selected H35xiJcS8RY upload; metadata agreement and native decoding did not establish the requested studio recording.",
+  "albumContext": {
+    "albumId": "7j1iNxlcdkJj864Bu0ETPj",
+    "albumUri": "spotify:album:7j1iNxlcdkJj864Bu0ETPj"
+  },
+  "boundedSourceEvidence": {
+    "sourceId": "youtube:xAJxfiF_0-w",
+    "artistCreditSource": "youtubeMusicCatalogVerifiedAlbum",
+    "artists": [
+      "Macha Y El Bloque Depresivo",
+      "Alvaro Henríquez"
+    ],
+    "reportedSourceArtists": [
+      "Macha Y El Bloque Depresivo",
+      "Alvaro Henríquez",
+      "Aldo Asenjo"
+    ],
+    "unclassifiedSourceArtistCredits": [
+      "Aldo Asenjo"
+    ],
+    "evaluatorVersion": "35"
+  },
+  "passed": true,
+  "reason": "native decoding with advancing position",
   "physicalOutputVerified": false,
+  "installedVersion": "0.1.43",
   "requestedTrackId": "spotify:71fwMMqK8Kea3FguUUrl2t",
-  "installedVersion": "0.1.37",
-  "matching": {
-    "evaluatorVersion": "33",
-    "level": "balanced",
-    "action": "accept",
-    "relationship": "probable",
-    "proofStrength": "metadataOnly"
-  },
-  "postCheck": {
-    "paused": true,
-    "queueTotal": 1,
-    "libraryCounts": {
-      "tracks": 5918,
-      "assets": 119,
-      "playlists": 59
-    },
-    "libraryCountsUnchanged": true,
-    "searchContinuationEnabled": false
-  },
-  "sourceCacheScope": "Final-artifact replay; does not claim a new uncached extractor request or acoustic identity proof.",
-  "nativeDecodingPassed": true,
-  "userReportedPerformanceMismatch": {
-    "reportedMatchingLevel": "balanced",
-    "sourceId": "youtube:H35xiJcS8RY",
-    "observed": "live concert",
-    "requested": "studio recording"
-  }
+  "runScope": "Final installed artifact on normal desktop; warm source cache; renderer dispatch acknowledged and endpoint bound to native process.",
+  "coldFirstAudioMs": 9039,
+  "knownConcertSourceRejected": "youtube:H35xiJcS8RY",
+  "libraryCountsUnchanged": true
 }

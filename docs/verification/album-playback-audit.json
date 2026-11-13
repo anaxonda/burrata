@@ -1,6 +1,6 @@
 {
   "objective": "Robust recording matching and direct album navigation",
-  "status": "lyrics_and_compilation_corrections_pending_final_ci_and_runtime",
+  "status": "final_0.1.43_qualified_ready_for_publication",
   "preferences": {
     "spotify": "only with live authenticated session",
     "catalogOrder": [
@@ -1348,8 +1348,9 @@
       "passed": 8
     },
     "entrypointHarness": {
-      "passed": 2,
-      "scope": "harness behavior only; no live playback claim"
+      "status": "passed",
+      "tests": 11,
+      "change": "Require revision/source-bound dispatched acknowledgement; retry only explicit stale/expired refusals, at most three inspections. No retries on uncertain outcome."
     },
     "format": "rustfmt applied to changed Rust sources; diff whitespace check passed",
     "matchingMatrix": {
@@ -1513,9 +1514,7 @@
     }
   },
   "remaining": [
-    "Prefer and verify the official requested recording over unlabelled concert uploads; native decoding alone is insufficient",
-    "Invalidate weak remembered sources/search results and retest correct-source playback on a new final artifact",
-    "Complete platform packaging and publish only the corrected qualified release"
+    "Publish qualified 0.1.43 main and support releases and verify public asset digests"
   ],
   "metadataPreservation": {
     "youtubeMusic": "Structured credits and album browse endpoints survive native search, cache provenance, playback locators and restore; final native suite passed.",
@@ -1572,7 +1571,7 @@
     "source": "youtube:fr1AFMoBDEw",
     "observedIssue": "Autoplay track has empty artist and unsplit live caption; LRCLIB validation rejects artist.",
     "change": "Autoplay and lyrics fallback now reuse explicit live-performance parser, including named live venues without at/on. Known artists are not overwritten; captions remain unverified.",
-    "status": "packaged_request_validation_verified",
+    "status": "passed final 0.1.43 native saved-video metadata and actual packaged lyrics rendering",
     "catalogTrackPackagedCheck": "La Nave del Olvido lyrics rendered successfully in c3b8977; missing-artist autoplay request path remains separately covered by regression tests.",
     "packagedEvidence": {
       "sourceCommit": "c3b8977ff27ca4ba517ab822e5feb723c0ae64b1",
@@ -1603,7 +1602,7 @@
     "tools": "Pinned AppImage plugin and patchelf checksum verified",
     "frontend": "production build and provider extension staging passed",
     "storageFinding": "Temporary filesystem has usrquota; final test codegen hit quota despite df free space. Removed only this task staged runtime and failed object files; defer package staging until executable is built.",
-    "status": "full_cross_platform_draft_build_next",
+    "status": "Final 0.1.43 CI passed all platforms and installed RPM; exact installed image qualified",
     "workerStaging": "Added explicit staging of YouTube session worker and parser; copied bytes match source. Embedded fallback retained.",
     "memoryControls": {
       "jobs": 1,
@@ -1629,7 +1628,7 @@
     "observed": "Saved YouTube Music item has Macha Y El Bloque Depresivo, Vicente Cifuentes credits; autoplay constructs a separate queue snapshot with missing artist.",
     "sourcePolicy": "youtubeRadio pins the autoplay video; saved ordinary YouTube Music item without source lock remains eligible for recording-matched fallback.",
     "change": "Uses the exact saved video to fill missing metadata even outside the loaded library page. Bounded positive/negative cache shares reads; generation and queue-entry guards reject stale UI updates. Queue source binding is preserved.",
-    "status": "packaged_display_verified",
+    "status": "passed final 0.1.43 actual playbar artist and native lyrics; source binding preserved",
     "packagedEvidence": {
       "sourceCommit": "c3b8977ff27ca4ba517ab822e5feb723c0ae64b1",
       "profile": "isolated paused native profile with exact saved video",
@@ -1669,36 +1668,61 @@
     "obsoleteWorkspaceCacheBytes": 2600582801,
     "additionalTaskCacheCleanup": "584 MiB matching-audit target plus redundant 188 MiB smoke executable",
     "protected": "installed executable, rollback app, live library, library backup snapshots and verification reports",
-    "rootPackageCache": "4.76 GiB eligible, cleanup blocked by sudo requiring a password; root retains 4.9 GB free"
+    "rootPackageCache": "4.76 GiB eligible, cleanup blocked by sudo requiring a password; root retains 4.9 GB free",
+    "finalTaskCleanup": "Removed obsolete 0.1.42 installer/cache, 104 MiB isolated policy target, owned private test profile, Xvfb and private DBus after returning 0.1.43 to normal desktop. Kept rollback and library snapshots."
   },
   "finalArtifactQualification": {
-    "sourceCommit": "a55add2dd093014db496d5c8ec70741480abe0b4",
-    "version": "0.1.37",
-    "appImageSha256": "f4a8299d301153a490e8c1ec8a9b6803bfa1fc76b30426bedb299e95eac08af8",
-    "spotifyBalancedGate": {
-      "status": "failed_performance_identity",
-      "firstAudioMs": 926,
-      "evidence": "docs/verification/macha-spotify-search-final.json",
-      "nativeDecodingPassed": true,
-      "userAudition": "Selected upload is a live concert performance. Withhold public release."
-    },
-    "coldAlbumGate": {
-      "status": "passed",
-      "elapsedSeconds": 6.61,
-      "evidence": "docs/verification/macha-album-navigation-final.json"
-    },
+    "sourceCommit": "80038bb03ea3bc73aa920cb865732ddadccede96",
+    "version": "0.1.43",
+    "appImageSha256": "873261588b59d30a58024a662e30828e5a0c899ef17a39d47bbd2f5a9851c62b",
+    "ciRun": "https://github.com/anaxonda/burrata/actions/runs/43346862151",
+    "allPlatformCI": "success",
     "linuxNativeSuite": {
-      "passed": 2774,
+      "passed": 2792,
       "failed": 0,
       "ignored": 67
     },
     "frontendSuite": {
       "files": 160,
-      "passed": 1639,
+      "passed": 1644,
       "failed": 0
     },
+    "spotifyBalancedGate": {
+      "status": "passed_official_source",
+      "source": "youtube:xAJxfiF_0-w",
+      "coldFirstAudioMs": 9039,
+      "desktopReplayFirstAudioMs": 1370,
+      "evidence": "docs/verification/macha-spotify-search-final.json"
+    },
+    "otherSpotifyResults": {
+      "status": "both_passed",
+      "evidence": "docs/verification/macha-spotify-other-results-final.json"
+    },
+    "searchContinuation": {
+      "passed": true,
+      "queueTotal": 30,
+      "originalPreferenceRestored": true,
+      "evidence": "docs/verification/macha-search-continuation.json"
+    },
+    "albumNavigation": {
+      "spotifyDirect14Tracks": true,
+      "youtubeToMusicBrainzDirect14Tracks": true,
+      "coldCatalogSeconds": 6.11,
+      "evidence": "docs/verification/macha-album-navigation-final.json"
+    },
+    "nativeAutoplayLyricsRendered": true,
+    "savedAutoplayArtistVisible": true,
+    "rawQueueSourceBindingPreserved": true,
+    "addStationSeparateDialog": true,
+    "normalDesktopProcess": 2176556,
+    "libraryCounts": {
+      "tracks": 5918,
+      "assets": 119,
+      "playlists": 59
+    },
     "libraryCountsUnchanged": true,
-    "remaining": "Correct official-recording selection and version evidence; repeat correct-source gate before public release"
+    "physicalOutputVerified": false,
+    "remaining": "Public release publication and digest verification"
   },
   "studioSourceCorrection": {
     "withheldVersion": "0.1.37",
@@ -1719,12 +1743,12 @@
       "svelteErrors": 0,
       "svelteWarnings": 0
     },
-    "remaining": "Final native/platform CI and correct-source live gates",
+    "remaining": "Complete; see finalArtifactQualification",
     "candidate": {
       "version": "0.1.43",
-      "sourceCommit": null,
-      "ciRun": null,
-      "status": "local_checks_passed_pending_ci"
+      "sourceCommit": "80038bb03ea3bc73aa920cb865732ddadccede96",
+      "ciRun": "https://github.com/anaxonda/burrata/actions/runs/43346862151",
+      "status": "all_platform_ci_and_packaged_gates_passed"
     },
     "catalogueEvidenceCorrection": {
       "priorNativeSuite": {
@@ -1745,7 +1769,7 @@
         "partialCreditDiagnosticPassed": 1,
         "scope": "Small isolated harness compiles the production catalogue builder and pure matching modules, without building the desktop app."
       },
-      "remaining": "Full native CI and packaged playback/navigation qualification"
+      "remaining": "Complete; full native CI and packaged playback passed"
     }
   },
   "spotifyAlbumRoutingCorrection": {
@@ -1766,7 +1790,7 @@
       "complete": true,
       "scope": "Exact provider album read using the running 0.1.37 transport; does not qualify the corrected frontend route."
     },
-    "remaining": "New packaged Spotify route and non-Spotify cold-cache retests"
+    "remaining": "Complete; actual final packaged Spotify menu opened exact album with all 14 tracks"
   },
   "packaged042Qualification": {
     "sourceCommit": "42dd686b5304564e56b2bc6d80ba487dd088c585",
@@ -1873,7 +1897,31 @@
         "message": "Playback extraction attempts exhausted"
       }
     ],
-    "publication": "withheld; task-owned drafts removed"
+    "publication": "withheld; task-owned drafts removed",
+    "explicitYouTubeSourceAvailability": [
+      {
+        "title": "Amiga",
+        "passed": true,
+        "status": "playing",
+        "requestedId": "youtube:yqrG4Fu6Pcw",
+        "requestedAlbum": "Amiga",
+        "firstAudioMs": 1036,
+        "sourceId": "youtube:yqrG4Fu6Pcw",
+        "failure": null,
+        "message": "Playing audio"
+      },
+      {
+        "title": "Turista",
+        "passed": true,
+        "status": "playing",
+        "requestedId": "youtube:eQc3EnDySA0",
+        "requestedAlbum": "Turista",
+        "firstAudioMs": 1424,
+        "sourceId": "youtube:eQc3EnDySA0",
+        "failure": null,
+        "message": "Playing audio"
+      }
+    ]
   },
   "finalCorrections": {
     "nativeLyrics": "All native lyrics operations use one snapshot projection that fills missing autoplay metadata only from the exact saved YouTube video; queue and source binding are unchanged. Manual blanks and excerpts retain their guards.",
@@ -1885,6 +1933,35 @@
       "svelteErrors": 0,
       "svelteWarnings": 0
     },
-    "remaining": "Final 0.1.43 native/platform CI; packaged lyrics, all three Spotify recordings, warm replay and album navigation; public release and final installed version"
+    "remaining": "All runtime and CI gates passed; public release publication remains."
+  },
+  "prior037ArtifactQualification": {
+    "sourceCommit": "a55add2dd093014db496d5c8ec70741480abe0b4",
+    "version": "0.1.37",
+    "appImageSha256": "f4a8299d301153a490e8c1ec8a9b6803bfa1fc76b30426bedb299e95eac08af8",
+    "spotifyBalancedGate": {
+      "status": "failed_performance_identity",
+      "firstAudioMs": 926,
+      "evidence": "docs/verification/macha-spotify-search-final.json",
+      "nativeDecodingPassed": true,
+      "userAudition": "Selected upload is a live concert performance. Withhold public release."
+    },
+    "coldAlbumGate": {
+      "status": "passed",
+      "elapsedSeconds": 6.61,
+      "evidence": "docs/verification/macha-album-navigation-final.json"
+    },
+    "linuxNativeSuite": {
+      "passed": 2774,
+      "failed": 0,
+      "ignored": 67
+    },
+    "frontendSuite": {
+      "files": 160,
+      "passed": 1639,
+      "failed": 0
+    },
+    "libraryCountsUnchanged": true,
+    "remaining": "Correct official-recording selection and version evidence; repeat correct-source gate before public release"
   }
 }
