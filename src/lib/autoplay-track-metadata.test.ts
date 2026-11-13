@@ -29,6 +29,15 @@ it("preserves known queue metadata and does not project onto catalog requests", 
   }
 });
 
+it("preserves manual blanks and rejects a noncanonical video identity", () => {
+  const manualArtist={...queued,provenance:{sourceKind:"youtubeRadio",manualFields:{artist:true}}};
+  expect(autoplayTrackWithLibraryMetadata(manualArtist,[saved])).toBe(manualArtist);
+  const manualAlbum={...queued,album:null,provenance:{sourceKind:"youtubeRadio",manualFields:{album:true}}};
+  expect(autoplayTrackWithLibraryMetadata(manualAlbum,[saved])).toMatchObject({artist:saved.artist,album:null});
+  const invalid={...queued,id:"another-provider:arbitrary"};
+  expect(autoplayTrackWithLibraryMetadata(invalid,[{...saved,id:invalid.id}])).toBe(invalid);
+});
+
 it("reads the exact saved ID outside the loaded page and shares concurrent reads", async () => {
   let calls = 0;
   const lookup = createAutoplayMetadataLookup(async id => { calls++; expect(id).toBe(queued.id); return [saved]; });

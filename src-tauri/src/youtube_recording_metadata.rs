@@ -41,10 +41,8 @@ pub(crate) fn catalog_album_artists(candidate: &Candidate) -> Option<Vec<String>
     {
         return None;
     }
-    let album = text(&meta["catalogAlbum"], 512)?;
-    if key(album) != key(text(&meta["catalogRequestedAlbum"], 512)?) {
-        return None;
-    }
+    text(&meta["catalogAlbum"], 512)?;
+    text(&meta["catalogRequestedAlbum"], 512)?;
     let source = duration(&meta["catalogDurationSeconds"])?;
     if (source - duration(&meta["catalogRequestedDurationSeconds"])?).abs() > 1.5 {
         return None;
@@ -82,6 +80,17 @@ pub(crate) fn catalog_album_artists(candidate: &Candidate) -> Option<Vec<String>
 /// Research the exact album's linked item before a caption-only upload. This
 /// grants extraction priority, never permission to skip fresh source verification.
 pub(crate) fn preferred_album_locator(track: &Track, candidate: &Candidate) -> bool {
+    preferred_recording_locator(track, candidate)
+        && candidate.source_metadata.as_ref().is_some_and(|meta| {
+            track.album.as_deref().is_some_and(|album| {
+                key(album) == key(meta["catalogAlbum"].as_str().unwrap_or_default())
+            })
+        })
+}
+
+/// A compilation may reuse a recording whose canonical video belongs to a
+/// single. Keep both release labels and the request scope; do not equate albums.
+pub(crate) fn preferred_recording_locator(track: &Track, candidate: &Candidate) -> bool {
     let Some(names) = catalog_album_artists(candidate) else {
         return false;
     };
@@ -118,7 +127,7 @@ pub(crate) fn catalog_context_key(candidate: &Candidate) -> Option<Value> {
     catalog_album_artists(candidate)?;
     let m = candidate.source_metadata.as_ref()?;
     Some(json!([
-        "music-album-credits-1",
+        "music-album-credits-2",
         candidate.id,
         key(m["catalogTitle"].as_str()?),
         key(m["catalogAlbum"].as_str()?),
@@ -336,12 +345,56 @@ mod tests {
         assert!(catalog_identity(&wrong, &f["officialFullInfo"]).is_none());
         wrong = c.clone();
         wrong.source_metadata.as_mut().unwrap()["catalogRequestedAlbum"] = json!("Live album");
-        assert!(catalog_identity(&wrong, &f["officialFullInfo"]).is_none());
+        let request: Track = serde_json::from_value(f["request"].clone()).unwrap();
+        assert!(!preferred_recording_locator(&request, &wrong));
+        let projected = catalog_identity(&wrong, &f["officialFullInfo"]).unwrap();
+        assert!(!catalog_context_matches_request(&request, &projected));
         wrong = c;
         wrong.source_metadata.as_mut().unwrap()["catalogArtistCredits"][0]["providerId"] =
             Value::Null;
         assert!(catalog_identity(&wrong, &f["officialFullInfo"]).is_none());
     }
+    #[test]
+    fn compilation_requests_keep_distinct_releases_and_verify_the_same_recording() {
+        use crate::recording_match::{assess, MatchAction, MatchLevel, MatchStage};
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/macha-compilation-recordings.json"
+        ))
+        .unwrap();
+        for row in fixture["cases"].as_array().unwrap() {
+            let request: Track = serde_json::from_value(row["request"].clone()).unwrap();
+            let mut source = candidate(row);
+            assert!(!preferred_album_locator(&request, &source));
+            assert!(preferred_recording_locator(&request, &source));
+            let mut metadata = catalog_identity(&source, &row["officialFullInfo"]).unwrap();
+            assert_ne!(metadata["album"].as_str(), request.album.as_deref());
+            assert_eq!(metadata["artistCount"], 1);
+            assert!(
+                metadata["unclassifiedSourceArtistCredits"]
+                    .as_array()
+                    .unwrap()
+                    .len()
+                    >= 1
+            );
+            metadata["sourceMetadataOrigin"] = json!("ytDlpFullInfo");
+            metadata["resolvedProviderId"] = row["officialFullInfo"]["id"].clone();
+            source.source_metadata = Some(metadata);
+            let assessed = assess(
+                &request,
+                &source,
+                MatchLevel::Balanced,
+                MatchStage::Resolved,
+            );
+            assert_eq!(
+                assessed.action,
+                MatchAction::Accept,
+                "{}: {assessed:?}",
+                request.title
+            );
+            assert_eq!(request.album.as_deref(), Some("Bronceado de Cantina"));
+        }
+    }
+
     #[test]
     fn observed_album_recording_passes_balanced_and_recorded_concert_does_not() {
         use crate::recording_match::{assess, Comparison, MatchAction, MatchLevel, MatchStage};

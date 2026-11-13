@@ -1,6 +1,6 @@
 {
   "objective": "Robust recording matching and direct album navigation",
-  "status": "live_spotify_gate_passed_final_album_and_release_qualification_pending",
+  "status": "lyrics_and_compilation_corrections_pending_final_ci_and_runtime",
   "preferences": {
     "spotify": "only with live authenticated session",
     "catalogOrder": [
@@ -13,14 +13,14 @@
     {
       "request": "spotify:71fwMMqK8Kea3FguUUrl2t",
       "source": "youtube:xAJxfiF_0-w",
-      "finding": "Fresh public extractor response has three recording-line credits; no nonperformer role for Aldo Asenjo. A verified channel alone cannot close this identity gap.",
-      "status": "guard_preserved_alternate_verified_source_plays",
+      "finding": "Linked YouTube Music recording artists agree with Spotify. Fresh verified-channel distributor album metadata may reconcile those linked artists while retaining the third raw extractor name as an unclassified credit; no composer or member role is inferred.",
+      "status": "corrected_catalogue_credit_reconciliation_pending_packaged_gate",
       "evidence": "src-tauri/tests/fixtures/macha-official-youtube-identity.json"
     },
     {
       "source": "youtube:H35xiJcS8RY",
-      "finding": "Slash-separated performers and accented guest spelling",
-      "status": "packaged_balanced_playback_passed",
+      "finding": "User audition confirmed a recorded concert despite a clean caption and not-live livestream status. Native decoding alone did not qualify the recording.",
+      "status": "withheld_wrong_performance",
       "evidence": "docs/verification/macha-spotify-search-after.json"
     },
     {
@@ -1470,7 +1470,7 @@
     "reportedSpotifyPlayback": {
       "sourceCommit": "629444111af7a83d7949ee5ee6a7e7641138fc18",
       "matchingLevel": "balanced",
-      "status": "passed",
+      "status": "native_decoding_passed_performance_failed",
       "firstAudioMs": 8512,
       "source": "youtube:H35xiJcS8RY",
       "decoder": "ffmpeg",
@@ -1479,7 +1479,10 @@
       "positionAdvanced": true,
       "freshIdentityCheck": true,
       "evidence": "docs/verification/macha-spotify-search-after.json",
-      "scope": "Native decoding and advancing playback from the real Spotify search result; no acoustic fingerprint or physical-output claim"
+      "scope": "Native decoding and advancing playback from the real Spotify search result; no acoustic fingerprint or physical-output claim",
+      "nativeDecodingPassed": true,
+      "recordingQualificationPassed": false,
+      "subsequentFinding": "The selected source is a concert performance. It does not qualify the requested album recording."
     },
     "nativeRetrievalCi": {
       "run": "https://github.com/anaxonda/burrata/actions/runs/43293257495",
@@ -1716,6 +1719,172 @@
       "svelteErrors": 0,
       "svelteWarnings": 0
     },
-    "remaining": "Final native/platform CI and correct-source live gates"
+    "remaining": "Final native/platform CI and correct-source live gates",
+    "candidate": {
+      "version": "0.1.43",
+      "sourceCommit": null,
+      "ciRun": null,
+      "status": "local_checks_passed_pending_ci"
+    },
+    "catalogueEvidenceCorrection": {
+      "priorNativeSuite": {
+        "version": "0.1.41",
+        "passed": 2785,
+        "failed": 1,
+        "ignored": 67,
+        "failure": "catalog_rank_eleven_preserves_exact_artist_evidence_and_rejects_wrong_artist_neighbors"
+      },
+      "cause": "Unlinked catalogue name rows were promoted into generic structured artists. The shared open-world partial-credit policy then returned Inspect for the wrong ensemble.",
+      "changes": [
+        "Keep names and nullable IDs as catalogue hints; generic artist arrays require all validated linked IDs",
+        "Require linked artist rows to render the full catalogue artist string before fresh album-credit reconciliation"
+      ],
+      "isolatedAudit": {
+        "existingTestsPassed": 223,
+        "productionBuilderProbesPassed": 2,
+        "partialCreditDiagnosticPassed": 1,
+        "scope": "Small isolated harness compiles the production catalogue builder and pure matching modules, without building the desktop app."
+      },
+      "remaining": "Full native CI and packaged playback/navigation qualification"
+    }
+  },
+  "spotifyAlbumRoutingCorrection": {
+    "reportedVersion": "0.1.37",
+    "userMessage": "No verified album membership was found",
+    "trackId": "71fwMMqK8Kea3FguUUrl2t",
+    "albumId": "7j1iNxlcdkJj864Bu0ETPj",
+    "cause": "Spotify normalization and displayed search tracks dropped validated recordingContext.albumId; a combined collaboration artist then sent legacy rows through unsuccessful catalogue fallback.",
+    "changes": [
+      "Preserve validated recordingContext through both search hops",
+      "Recover an older unchanged exact Spotify track album locator from authenticated search",
+      "Use atomic primary artist boundaries for album hints"
+    ],
+    "liveProviderRead": {
+      "albumTitle": "Macha y el Bloque Depresivo",
+      "trackCount": 14,
+      "requestedTrackOccurrences": 1,
+      "complete": true,
+      "scope": "Exact provider album read using the running 0.1.37 transport; does not qualify the corrected frontend route."
+    },
+    "remaining": "New packaged Spotify route and non-Spotify cold-cache retests"
+  },
+  "packaged042Qualification": {
+    "sourceCommit": "42dd686b5304564e56b2bc6d80ba487dd088c585",
+    "artifactSha256": "03728e48cc50b71df040c5e469581b619a022c028a7f78e6d839bbadfd719d2e",
+    "allPlatformCI": "passed",
+    "linuxNativePassed": 2786,
+    "frontendPassed": 1643,
+    "reportedSpotifyTrack": {
+      "passed": true,
+      "sourceId": "youtube:xAJxfiF_0-w",
+      "matchingLevel": "balanced",
+      "coldFirstAudioMs": 10433,
+      "warmReplay": "passed",
+      "exactSpotifyAlbumId": "7j1iNxlcdkJj864Bu0ETPj",
+      "actualGoToAlbum": "Opened exact Spotify album with 14 tracks"
+    },
+    "nonSpotifyColdAlbum": {
+      "passed": true,
+      "elapsedSeconds": 5.61,
+      "directAlbum": "100% lúcidos",
+      "tracks": 14
+    },
+    "addStationDialog": "passed as independent focused modal over the album",
+    "autoplayArtistDisplay": "passed; exact saved video artist shown without changing raw queue binding",
+    "lyrics": "failed: native requests still used the raw missing artist",
+    "otherSpotifyResults": [
+      {
+        "title": "Amiga",
+        "passed": false,
+        "status": "failed",
+        "requestedId": "spotify:7fFHqdtHpZK59BKeNFsQAD",
+        "requestedAlbum": "Bronceado de Cantina",
+        "firstAudioMs": null,
+        "failure": {
+          "category": "unsupported_audio",
+          "providerAttempts": [
+            {
+              "attemptPhase": "extraction",
+              "category": "recording_identity_mismatch",
+              "observedElapsedMs": 7493,
+              "phaseElapsedMs": 6148,
+              "providerClass": "youtube",
+              "retryable": false,
+              "stage": "extraction"
+            },
+            {
+              "attemptPhase": "extraction",
+              "category": "unsupported_audio",
+              "observedElapsedMs": 11165,
+              "phaseElapsedMs": 1916,
+              "providerClass": "soundcloud",
+              "retryable": true,
+              "stage": "extraction"
+            }
+          ],
+          "retryable": true,
+          "scope": "source",
+          "stage": "extraction"
+        },
+        "message": "One source is DRM protected; other candidates failed recording identity verification."
+      },
+      {
+        "title": "Turista",
+        "passed": false,
+        "status": "failed",
+        "requestedId": "spotify:2Lk4eKx3eWaB4uxWguNXq0",
+        "requestedAlbum": "Bronceado de Cantina",
+        "firstAudioMs": null,
+        "failure": {
+          "category": "unknown",
+          "providerAttempts": [
+            {
+              "attemptPhase": "extraction",
+              "category": "recording_identity_mismatch",
+              "observedElapsedMs": 5891,
+              "phaseElapsedMs": 4502,
+              "providerClass": "youtube",
+              "retryable": false,
+              "stage": "extraction"
+            },
+            {
+              "attemptPhase": "extraction",
+              "category": "unknown",
+              "observedElapsedMs": 5892,
+              "phaseElapsedMs": 1,
+              "providerClass": "youtube",
+              "retryable": false,
+              "stage": "extraction"
+            },
+            {
+              "attemptPhase": "extraction",
+              "category": "unsupported_audio",
+              "observedElapsedMs": 6990,
+              "phaseElapsedMs": 2000,
+              "providerClass": "soundcloud",
+              "retryable": true,
+              "stage": "extraction"
+            }
+          ],
+          "retryable": false,
+          "scope": "unknown",
+          "stage": "unknown"
+        },
+        "message": "Playback extraction attempts exhausted"
+      }
+    ],
+    "publication": "withheld; task-owned drafts removed"
+  },
+  "finalCorrections": {
+    "nativeLyrics": "All native lyrics operations use one snapshot projection that fills missing autoplay metadata only from the exact saved YouTube video; queue and source binding are unchanged. Manual blanks and excerpts retain their guards.",
+    "recordingCredits": "Source single and requested compilation album labels stay distinct. Linked recording artists require fresh source ID, canonical source album, title, runtime and verified channel; raw writer/publisher aggregates remain unclassified metadata.",
+    "ranking": "Requested album locators precede other canonical recording locators, then generic metadata, then alternative recordings.",
+    "localChecks": {
+      "isolatedMatchingAndMetadata": 231,
+      "focusedFrontend": 342,
+      "svelteErrors": 0,
+      "svelteWarnings": 0
+    },
+    "remaining": "Final 0.1.43 native/platform CI; packaged lyrics, all three Spotify recordings, warm replay and album navigation; public release and final installed version"
   }
 }

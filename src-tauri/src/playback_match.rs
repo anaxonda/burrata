@@ -487,15 +487,19 @@ pub(super) fn priority(
     _level: MatchLevel,
 ) -> (u8, u8, u8, u8, u8, u64, u16, u8, u8) {
     let source_preference = if result.shared.relationship == MatchRelationship::Alternative {
-        3
+        4
     } else if result.shared.proof_strength != ProofStrength::MetadataOnly {
         0
     } else if result.path.accepted()
         && crate::youtube_recording_metadata::preferred_album_locator(_track, candidate)
     {
         1
-    } else {
+    } else if result.path.accepted()
+        && crate::youtube_recording_metadata::preferred_recording_locator(_track, candidate)
+    {
         2
+    } else {
+        3
     };
     let topic_priority =
         if crate::source_fallback::is_exact_versioned_topic_candidate(_track, candidate) {
@@ -1311,6 +1315,22 @@ mod tests {
                 MatchLevel::Balanced
             )
         );
+        let mut another_release = catalog.clone();
+        another_release.source_metadata.as_mut().unwrap()["catalogAlbum"] =
+            json!("Another release");
+        let locator_rank = |candidate: &Candidate| {
+            priority(
+                &request,
+                candidate,
+                gate(
+                    MatchRelationship::Unresolved,
+                    CandidateGatePath::PolicyInspect,
+                ),
+                MatchLevel::Balanced,
+            )
+        };
+        assert!(locator_rank(&catalog) < locator_rank(&another_release));
+        assert!(locator_rank(&another_release) < locator_rank(&caption));
     }
 
     #[test]

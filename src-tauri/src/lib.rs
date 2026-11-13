@@ -61,6 +61,7 @@ pub mod loudness_analysis;
 pub mod loudness_manager;
 pub mod lyrics;
 mod lyrics_aliases;
+pub(crate) mod lyrics_autoplay_metadata;
 mod lyrics_discovery;
 pub mod lyrics_translation;
 mod main_ui_capture;
@@ -7521,12 +7522,19 @@ fn authorize_detected_lyrics_input(
     Ok(visible)
 }
 
+fn current_lyrics_snapshot(state: &AppState) -> serde_json::Value {
+    let snapshot = state.playback.snapshot_page(0, 1);
+    let saved = lyrics_autoplay_metadata::lookup_id(&snapshot)
+        .and_then(|id| state.store.get_track(id).ok().flatten());
+    lyrics_autoplay_metadata::with_saved_metadata(snapshot, saved.as_ref())
+}
+
 #[tauri::command]
 async fn get_current_track_lyrics(
     state: State<'_, AppState>,
     visible_track: Option<lyrics::LyricsRequestInput>,
 ) -> Result<lyrics_discovery::Document> {
-    let snapshot = state.playback.snapshot_page(0, 1);
+    let snapshot = current_lyrics_snapshot(&state);
     let visible_track = authorize_detected_lyrics_input(&state, &snapshot, visible_track)?;
     Ok(lyrics_discovery::current(&snapshot, visible_track, &state.store, &state.artists).await)
 }
@@ -7535,7 +7543,7 @@ async fn search_current_track_lyric_candidates(
     state: State<'_, AppState>,
     visible_track: Option<lyrics::LyricsRequestInput>,
 ) -> Result<lyrics_discovery::Page> {
-    let snapshot = state.playback.snapshot_page(0, 1);
+    let snapshot = current_lyrics_snapshot(&state);
     let visible_track = authorize_detected_lyrics_input(&state, &snapshot, visible_track)?;
     Ok(lyrics_discovery::search(&snapshot, visible_track, &state.store, &state.artists).await)
 }
@@ -7546,7 +7554,7 @@ fn select_current_track_lyric_candidate(
     scope_id: String,
     candidate_id: String,
 ) -> Result<lyrics_discovery::Document> {
-    let snapshot = state.playback.snapshot_page(0, 1);
+    let snapshot = current_lyrics_snapshot(&state);
     let visible_track = authorize_detected_lyrics_input(&state, &snapshot, visible_track)?;
     let result = lyrics_discovery::choose(&snapshot, visible_track, &scope_id, &candidate_id)?;
     lyrics_discovery::remember(&state.store, &scope_id, &candidate_id)?;
@@ -7564,7 +7572,7 @@ async fn export_current_track_lyrics_text(
     if text.trim().is_empty() || text.len() > 131072 || text.contains('\0') {
         return Err("Lyrics text is empty or too large".into());
     }
-    let snapshot = state.playback.snapshot_page(0, 1);
+    let snapshot = current_lyrics_snapshot(&state);
     let visible_track = authorize_detected_lyrics_input(&state, &snapshot, visible_track)?;
     let current =
         lyrics_discovery::current(&snapshot, visible_track, &state.store, &state.artists).await;
@@ -7596,7 +7604,7 @@ async fn save_current_track_lyrics_to_file(
     visible_track: Option<lyrics::LyricsRequestInput>,
     source_hash: String,
 ) -> Result<serde_json::Value> {
-    let snapshot = state.playback.snapshot_page(0, 1);
+    let snapshot = current_lyrics_snapshot(&state);
     let visible_track = authorize_detected_lyrics_input(&state, &snapshot, visible_track)?;
     if lyrics::detected_request(visible_track.as_ref()).is_some() {
         return Err(
@@ -7614,7 +7622,7 @@ async fn save_current_track_lyrics_to_file(
         &state.artists,
     )
     .await;
-    if lyrics_discovery::context(&state.playback.snapshot_page(0, 1), visible_track)
+    if lyrics_discovery::context(&current_lyrics_snapshot(&state), visible_track)
         .map(|v| v.0)
         .as_deref()
         != Some(scope.as_str())
@@ -7671,7 +7679,7 @@ async fn translate_current_track_lyrics(
     line_end: Option<usize>,
     use_fallback: Option<bool>,
 ) -> Result<lyrics_translation::LyricsTranslationResponse> {
-    let snapshot = state.playback.snapshot_page(0, 1);
+    let snapshot = current_lyrics_snapshot(&state);
     let visible_track = authorize_detected_lyrics_input(&state, &snapshot, visible_track)?;
     let selected = lyrics_discovery::selected(&snapshot, visible_track.clone())
         .or_else(|| lyrics_discovery::remembered(&state.store, &snapshot, visible_track.clone()));

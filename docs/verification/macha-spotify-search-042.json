@@ -1,0 +1,205 @@
+{
+  "case": "Spotify search — La Nave del Olvido",
+  "sourceCommit": "42dd686b5304564e56b2bc6d80ba487dd088c585",
+  "artifactSha256": "03728e48cc50b71df040c5e469581b619a022c028a7f78e6d839bbadfd719d2e",
+  "automationEndpointBoundToArtifact": true,
+  "matchingLevel": "balanced",
+  "nativeOperationId": "c3aab308-8ee8-4c37-9314-a585b3b4181d",
+  "action": {
+    "entrypoint": "search_result",
+    "searchMode": "online",
+    "searchSourceId": "spotify",
+    "query": "bloque y la macha",
+    "visibleTitle": "La Nave del Olvido",
+    "visibleArtist": "Macha Y El Bloque Depresivo, Alvaro Henriquez",
+    "visibleDurationSeconds": 235.542,
+    "action": "renderer_occurrence_token",
+    "selected": true,
+    "acousticContentVerified": false
+  },
+  "samples": [
+    {
+      "status": "playing",
+      "engine": "native",
+      "position": 0.4179591836734694,
+      "duration": 236,
+      "queueTotal": 1,
+      "decoderKind": "ffmpeg",
+      "sampleRate": 44100,
+      "channels": 2,
+      "firstAudioMs": 10433,
+      "sourceProvider": "youtube",
+      "sourceId": "youtube:xAJxfiF_0-w",
+      "failure": null
+    },
+    {
+      "status": "playing",
+      "engine": "native",
+      "position": 1.5789569160997732,
+      "duration": 236,
+      "queueTotal": 1,
+      "decoderKind": "ffmpeg",
+      "sampleRate": 44100,
+      "channels": 2,
+      "firstAudioMs": 10433,
+      "sourceProvider": "youtube",
+      "sourceId": "youtube:xAJxfiF_0-w",
+      "failure": null
+    },
+    {
+      "status": "playing",
+      "engine": "native",
+      "position": 2.414875283446712,
+      "duration": 236,
+      "queueTotal": 1,
+      "decoderKind": "ffmpeg",
+      "sampleRate": 44100,
+      "channels": 2,
+      "firstAudioMs": 10433,
+      "sourceProvider": "youtube",
+      "sourceId": "youtube:xAJxfiF_0-w",
+      "failure": null
+    },
+    {
+      "status": "playing",
+      "engine": "native",
+      "position": 3.5294331065759637,
+      "duration": 236,
+      "queueTotal": 1,
+      "decoderKind": "ffmpeg",
+      "sampleRate": 44100,
+      "channels": 2,
+      "firstAudioMs": 10433,
+      "sourceProvider": "youtube",
+      "sourceId": "youtube:xAJxfiF_0-w",
+      "failure": null
+    }
+  ],
+  "albumContext": {
+    "albumId": "7j1iNxlcdkJj864Bu0ETPj",
+    "albumUri": "spotify:album:7j1iNxlcdkJj864Bu0ETPj"
+  },
+  "boundedSourceEvidence": {
+    "sourceId": "youtube:xAJxfiF_0-w",
+    "artistCreditSource": "youtubeMusicCatalogVerifiedAlbum",
+    "artists": [
+      "Macha Y El Bloque Depresivo",
+      "Alvaro Henríquez"
+    ],
+    "reportedSourceArtists": [
+      "Macha Y El Bloque Depresivo",
+      "Alvaro Henríquez",
+      "Aldo Asenjo"
+    ],
+    "unclassifiedSourceArtistCredits": [
+      "Aldo Asenjo"
+    ],
+    "evaluatorVersion": "34"
+  },
+  "passed": true,
+  "reason": "native decoding with advancing position",
+  "physicalOutputVerified": false,
+  "warmReplay": {
+    "case": "Spotify search — La Nave del Olvido",
+    "sourceCommit": "42dd686b5304564e56b2bc6d80ba487dd088c585",
+    "artifactSha256": "03728e48cc50b71df040c5e469581b619a022c028a7f78e6d839bbadfd719d2e",
+    "automationEndpointBoundToArtifact": true,
+    "matchingLevel": "balanced",
+    "nativeOperationId": "e5fea360-6627-4453-b1ff-fd285df0d3d6",
+    "action": {
+      "entrypoint": "search_result",
+      "searchMode": "online",
+      "searchSourceId": "spotify",
+      "query": "bloque y la macha",
+      "visibleTitle": "La Nave del Olvido",
+      "visibleArtist": "Macha Y El Bloque Depresivo, Alvaro Henriquez",
+      "visibleDurationSeconds": 235.542,
+      "action": "renderer_occurrence_token",
+      "selected": true,
+      "acousticContentVerified": false
+    },
+    "samples": [
+      {
+        "status": "playing",
+        "engine": "native",
+        "position": 0.6501587301587302,
+        "duration": 236,
+        "queueTotal": 1,
+        "decoderKind": "ffmpeg",
+        "sampleRate": 44100,
+        "channels": 2,
+        "firstAudioMs": 1170,
+        "sourceProvider": "youtube",
+        "sourceId": "youtube:xAJxfiF_0-w",
+        "failure": null
+      },
+      {
+        "status": "playing",
+        "engine": "native",
+        "position": 1.811156462585034,
+        "duration": 236,
+        "queueTotal": 1,
+        "decoderKind": "ffmpeg",
+        "sampleRate": 44100,
+        "channels": 2,
+        "firstAudioMs": 1170,
+        "sourceProvider": "youtube",
+        "sourceId": "youtube:xAJxfiF_0-w",
+        "failure": null
+      },
+      {
+        "status": "playing",
+        "engine": "native",
+        "position": 2.647074829931973,
+        "duration": 236,
+        "queueTotal": 1,
+        "decoderKind": "ffmpeg",
+        "sampleRate": 44100,
+        "channels": 2,
+        "firstAudioMs": 1170,
+        "sourceProvider": "youtube",
+        "sourceId": "youtube:xAJxfiF_0-w",
+        "failure": null
+      },
+      {
+        "status": "playing",
+        "engine": "native",
+        "position": 3.7616326530612243,
+        "duration": 236,
+        "queueTotal": 1,
+        "decoderKind": "ffmpeg",
+        "sampleRate": 44100,
+        "channels": 2,
+        "firstAudioMs": 1170,
+        "sourceProvider": "youtube",
+        "sourceId": "youtube:xAJxfiF_0-w",
+        "failure": null
+      }
+    ],
+    "albumContext": {
+      "albumId": "7j1iNxlcdkJj864Bu0ETPj",
+      "albumUri": "spotify:album:7j1iNxlcdkJj864Bu0ETPj"
+    },
+    "boundedSourceEvidence": {
+      "sourceId": "youtube:xAJxfiF_0-w",
+      "artistCreditSource": "youtubeMusicCatalogVerifiedAlbum",
+      "artists": [
+        "Macha Y El Bloque Depresivo",
+        "Alvaro Henríquez"
+      ],
+      "reportedSourceArtists": [
+        "Macha Y El Bloque Depresivo",
+        "Alvaro Henríquez",
+        "Aldo Asenjo"
+      ],
+      "unclassifiedSourceArtistCredits": [
+        "Aldo Asenjo"
+      ],
+      "evaluatorVersion": "34"
+    },
+    "passed": true,
+    "reason": "native decoding with advancing position",
+    "physicalOutputVerified": false
+  },
+  "qualificationScope": "Correct official-source Spotify playback; 0.1.42 withheld because separate lyrics and compilation checks failed."
+}

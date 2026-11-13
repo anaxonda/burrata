@@ -1,9 +1,9 @@
-# Burrata 0.1.42
+# Burrata 0.1.43
 
 This release improves recording metadata, playback discovery, album navigation, lyrics requests and internet-radio setup.
 
 - Playback can verify slash-separated collaboration captions and accented artist spellings against the complete requested performer set in Balanced mode. Fresh extractor metadata must remain bound to the selected source ID; extra performers and conflicting versions retain their checks.
-- Automatic YouTube lookup researches the music catalogue before settling for uploader captions and gives an exact album locator extraction priority. Fresh verified-channel, distributor-generated metadata must agree on video ID, the full linked artist list, album, title and bounded runtime. Catalogue names without linked artist IDs remain retrieval hints. Untyped additional credits are preserved in source metadata as unclassified names; no composer or band-member role is inferred.
+- Automatic YouTube lookup researches the music catalogue before settling for uploader captions and gives an exact album locator extraction priority. Fresh verified-channel, distributor-generated metadata must agree on video ID, the full linked artist list, album, title and bounded runtime. Catalogue names without linked artist IDs remain retrieval hints. Compilation and single-release labels stay separate while the same verified source recording can be matched; exact requested-album locators retain priority. Bounded raw publisher-credit aggregates are retained separately from linked recording artists. Untyped additional credits are preserved in source metadata as unclassified names; no composer or band-member role is inferred.
 - Recorded-performance evidence in bounded descriptions is retained separately from livestream status. Balanced mode rejects a known concert performance for an unqualified album recording. Matching and search caches are invalidated for the new policy.
 - Playback searches retain up to 20 source metadata rows so correctly credited recordings below covers and live uploads remain available for verification. Extraction attempts and playback deadlines stay bounded, and older ten-row search caches are invalidated.
 - YouTube Music search and imports preserve individual artist credits, album browse IDs and album-track durations. Browser Companion 0.2.12 carries this metadata through authenticated search and playlist imports. Beatport, Traxsource, Monochrome and restored tracks preserve structured credits more consistently.
@@ -11,17 +11,17 @@ This release improves recording metadata, playback discovery, album navigation, 
 - Cold album lookup uses complete validated artist editions to avoid duplicate group lookups and checks possible matching programmes first. Unknown counts and partial catalogues retain their fallback paths; the lookup deadline remains bounded.
 - Spotify search rows preserve validated album IDs through normalization and displayed tracks. Older unchanged Spotify snapshots may recover an album locator from an exact authenticated search result, preserving tags and playback binding.
 - Album lookup and cancellation use native-valid UUID request IDs. Navigation changes discard stale lookup results.
-- YouTube autoplay fills a missing displayed artist from the exact saved video, including library entries beyond the loaded page. The playbar, Now Playing and lyrics use that display metadata while the autoplay source binding remains intact.
+- YouTube autoplay fills a missing displayed artist from the exact saved video, including library entries beyond the loaded page. The playbar and Now Playing use that display metadata while the autoplay source binding remains intact. Native lyrics requests also read the exact saved video metadata, so a missing raw autoplay artist no longer blocks lookup; selection, translation and export use the same scoped request. Manual blanks and excerpts retain their guards.
 - Lyrics requests can recover title and artist from supported explicit live-performance captions when the artist is missing. Unknown uploaders are not promoted into artist metadata.
 - Add station opens its own focused dialog with Search and Stream URL tabs, preserving the selected station or other page underneath.
 - Playback errors distinguish a DRM-protected source from other rejected recording matches.
 
 ## Qualification
 
-Earlier candidates passed native decoding, but user audition identified the selected upload as a concert performance. Those releases were withheld. The corrected policy and official-source fixture pass 223 isolated matching tests and three focused catalogue-metadata probes; 335 focused frontend tests, 120 companion tests and Svelte checks pass. Final native/platform builds, automatic official-source playback and album-navigation retests remain pending.
+0.1.42 passed all-platform CI, including 2,786 Linux native tests, 1,643 frontend tests, installer smoke checks and the installed RPM check. Its installed Balanced-mode Spotify search played the official “La Nave del Olvido” album upload, preserved the exact Spotify album ID and replayed correctly from cache. The actual Spotify album menu opened all 14 tracks directly. With an empty catalogue cache, the YouTube album action opened the verified 14-track MusicBrainz release in 5.61 seconds; Add station remained a separate dialog.
+
+That candidate was withheld after packaged checks found a remaining native lyrics metadata gap and rejected compilation requests for “Amiga” and “Turista”. The corrections include captured source fixtures, native metadata guards and request-scope regressions. The corrections pass 231 isolated matching/metadata checks, 342 focused frontend tests and Svelte checks with no errors or warnings. Final 0.1.43 CI, packaged lyrics, all three reported Spotify recordings and album-navigation retests remain pending.
 
 Linux, macOS and Windows installer results will be recorded separately. Hosted-runner smoke tests do not establish fresh-customer-machine behavior. Physical macOS and Windows audio output remain unverified; Windows output testing may be explicitly deferred as in the preceding release.
 
 Provider availability, DRM and incomplete recording identity can still prevent playback. These changes do not claim universal provider access or automatic repair of ambiguous legacy library entries.
-
-In the earlier 0.1.37 qualification, “Amiga” and “Turista” attempts failed verification and continuation skipped them. Their corrected-candidate retests remain pending. These changes do not claim every Spotify result has an available verified audio source.

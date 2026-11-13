@@ -1642,6 +1642,36 @@ mod tests {
     }
 
     #[test]
+    fn saved_autoplay_artist_supplies_a_valid_native_lyrics_request() {
+        let saved = crate::models::Track {
+            id: "youtube:u_TSn1iO-hg".into(),
+            provider: "youtube".into(),
+            provider_id: "u_TSn1iO-hg".into(),
+            source_url: "https://music.youtube.com/watch?v=u_TSn1iO-hg".into(),
+            title: "Qué Es Lo Que Pasa".into(),
+            artist: "Macha Y El Bloque Depresivo, Vicente Cifuentes".into(),
+            duration_seconds: Some(232.),
+            ..Default::default()
+        };
+        let mut autoplay = saved.clone();
+        autoplay.artist.clear();
+        autoplay.duration_seconds = Some(233.);
+        autoplay.provenance = serde_json::json!({"sourceKind":"youtubeRadio"});
+        let raw = serde_json::json!({"engine":"native","status":"paused","duration":233.,"track":autoplay});
+        assert!(!valid_request(
+            &request_for_current_track(&raw, None).unwrap()
+        ));
+        let projected =
+            crate::lyrics_autoplay_metadata::with_saved_metadata(raw.clone(), Some(&saved));
+        let request = request_for_current_track(&projected, None).unwrap();
+        assert!(valid_request(&request));
+        assert_eq!(request.artist_name, saved.artist);
+        assert_eq!(request.track_name, saved.title);
+        assert_eq!(request.duration_seconds, 233.);
+        assert_eq!(raw["track"]["artist"], "");
+    }
+
+    #[test]
     fn youtube_autoplay_live_caption_supplies_lyrics_query_without_mutating_snapshot() {
         let snapshot = serde_json::json!({"status":"playing","trackId":"youtube:fr1AFMoBDEw","duration":383.0,
             "track":{"id":"youtube:fr1AFMoBDEw","provider":"youtube","title":"Macha Y El Bloque Depresivo - Regresa (live Opéra de Lyon)","artist":"","durationSeconds":383.0}});

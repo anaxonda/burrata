@@ -4825,7 +4825,7 @@ fn playback_candidate_search_cache_key(
     alternate_artists: &[String],
 ) -> String {
     format!(
-        "{}:playback-source-search-retrieval-5:result-limit-{}:recording-match-{}:{:?}:{}:{}",
+        "{}:playback-source-search-retrieval-6:result-limit-{}:recording-match-{}:{:?}:{}:{}",
         search_cache_key(track, provider_ids, settings, 3),
         PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT,
         crate::recording_match::EVALUATOR_VERSION,
@@ -6780,7 +6780,10 @@ fn resolved_extractor_identity_metadata(
         }
         _ => None,
     };
-    let fresh_artist = safe_text("artist", 512);
+    // The extractor may concatenate performers, writers and publisher credits
+    // into this one field. A validated catalogue projection keeps those raw
+    // rows separately; its aggregate must not be mistaken for one artist name.
+    let fresh_artist = safe_text("artist", if has_catalog_projection { 16_384 } else { 512 });
     if fresh_artist.is_none()
         && info
             .get("artist")
@@ -12211,6 +12214,48 @@ mod tests {
     }
 
     #[test]
+    fn compilation_source_credits_do_not_promote_publisher_aggregates_to_performers() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/macha-compilation-recordings.json"
+        ))
+        .unwrap();
+        for row in fixture["cases"].as_array().unwrap() {
+            let request: Track = serde_json::from_value(row["request"].clone()).unwrap();
+            let item = serde_json::from_value(row["catalogItem"].clone()).unwrap();
+            let mut candidate = playback_music_catalog_candidate(&request, item).unwrap();
+            let metadata =
+                resolved_extractor_identity_metadata(&candidate, &row["officialFullInfo"], None)
+                    .unwrap();
+            assert_ne!(
+                metadata["identityMetadataUncertain"], true,
+                "{}",
+                request.title
+            );
+            assert_eq!(
+                metadata["artists"],
+                serde_json::json!(["Macha Y El Bloque Depresivo"])
+            );
+            assert_eq!(
+                metadata["reportedSourceArtists"],
+                row["officialFullInfo"]["artists"]
+            );
+            candidate.source_metadata = Some(metadata);
+            assert_eq!(
+                crate::recording_match::assess(
+                    &request,
+                    &candidate,
+                    crate::recording_match::MatchLevel::Balanced,
+                    crate::recording_match::MatchStage::Resolved
+                )
+                .action,
+                crate::recording_match::MatchAction::Accept,
+                "{}",
+                request.title
+            );
+        }
+    }
+
+    #[test]
     fn download_policy_snapshot_survives_settings_change() {
         let mut track = Track::default();
         assert_eq!(
@@ -15686,11 +15731,11 @@ mod tests {
             ..Default::default()
         };
         let key = playback_candidate_search_cache_key(&track, &providers, &settings, &[]);
-        assert!(key.contains("playback-source-search-retrieval-5:result-limit-20"));
+        assert!(key.contains("playback-source-search-retrieval-6:result-limit-20"));
         assert_ne!(
             key,
             key.replace(
-                "playback-source-search-retrieval-5",
+                "playback-source-search-retrieval-6",
                 "playback-source-search-retrieval-3"
             )
         );

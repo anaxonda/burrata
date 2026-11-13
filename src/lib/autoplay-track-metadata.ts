@@ -1,7 +1,7 @@
 import type { Track } from "./types";
 
 function videoId(track: Track): string | null {
-  if (track.provider !== "youtube" || !/^[A-Za-z0-9_-]{11}$/.test(track.providerId)) return null;
+  if (track.provider !== "youtube" || !/^[A-Za-z0-9_-]{11}$/.test(track.providerId) || track.id !== `youtube:${track.providerId}`) return null;
   try {
     const url = new URL(track.sourceUrl);
     if (url.protocol !== "https:" || url.username || url.password) return null;
@@ -16,13 +16,15 @@ function videoId(track: Track): string | null {
  */
 export function autoplayTrackWithLibraryMetadata(track: Track, library: readonly Track[]): Track {
   if ((track.provenance as Record<string, unknown> | null)?.sourceKind !== "youtubeRadio"
+    || (track.provenance as {manualFields?:{artist?:boolean}} | null)?.manualFields?.artist === true
     || track.artist.trim() || track.playbackRange) return track;
   const id = videoId(track);
   if (!id) return track;
   const saved = library.filter(item => item.id === track.id && videoId(item) === id && !item.playbackRange && item.artist.trim());
   if (saved.length !== 1) return track;
-  return {...track, artist: saved[0].artist, album: track.album || saved[0].album,
-    albumArtist: track.albumArtist || saved[0].albumArtist};
+  const manual=(track.provenance as {manualFields?:{album?:boolean;albumArtist?:boolean}} | null)?.manualFields;
+  return {...track, artist: saved[0].artist, album: manual?.album ? track.album : track.album || saved[0].album,
+    albumArtist: manual?.albumArtist ? track.albumArtist : track.albumArtist || saved[0].albumArtist};
 }
 
 /** Read the exact saved ID even when it is outside the loaded library page. */
@@ -30,6 +32,7 @@ export function createAutoplayMetadataLookup(read: (id: string) => Promise<Track
   const cache = new Map<string, {expires: number; tracks: Track[]}>();
   const pending = new Map<string, Promise<Track[]>>();
   const eligible = (track: Track) => !track.artist.trim() && !track.playbackRange
+    && (track.provenance as {manualFields?:{artist?:boolean}} | null)?.manualFields?.artist !== true
     && (track.provenance as Record<string, unknown> | null)?.sourceKind === "youtubeRadio" && videoId(track) !== null;
   const peek = (track: Track): Track => {
     const cached = cache.get(track.id);
