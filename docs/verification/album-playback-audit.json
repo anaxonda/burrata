@@ -1,6 +1,6 @@
 {
   "objective": "Robust recording matching and direct album navigation",
-  "status": "final_0.1.43_qualified_ready_for_publication",
+  "status": "complete_public_0.1.43_installed_and_qualified",
   "preferences": {
     "spotify": "only with live authenticated session",
     "catalogOrder": [
@@ -1513,9 +1513,7 @@
       "knownLimit": "Amiga and Turista still fail available-source verification; continuation skips those failures and reaches the playable recording."
     }
   },
-  "remaining": [
-    "Publish qualified 0.1.43 main and support releases and verify public asset digests"
-  ],
+  "remaining": [],
   "metadataPreservation": {
     "youtubeMusic": "Structured credits and album browse endpoints survive native search, cache provenance, playback locators and restore; final native suite passed.",
     "youtubeAlbumDurations": "Album fixed-column duration text supports both runs and simpleText; shelf regression uses runs.",
@@ -1722,7 +1720,8 @@
     },
     "libraryCountsUnchanged": true,
     "physicalOutputVerified": false,
-    "remaining": "Public release publication and digest verification"
+    "remaining": [],
+    "publication": "public_latest_verified_checksums_match_installed_image"
   },
   "studioSourceCorrection": {
     "withheldVersion": "0.1.37",
@@ -1933,7 +1932,7 @@
       "svelteErrors": 0,
       "svelteWarnings": 0
     },
-    "remaining": "All runtime and CI gates passed; public release publication remains."
+    "remaining": []
   },
   "prior037ArtifactQualification": {
     "sourceCommit": "a55add2dd093014db496d5c8ec70741480abe0b4",
@@ -1963,5 +1962,21 @@
     },
     "libraryCountsUnchanged": true,
     "remaining": "Correct official-recording selection and version evidence; repeat correct-source gate before public release"
+  },
+  "publication": {
+    "tag": "v0.1.43",
+    "sourceCommit": "80038bb03ea3bc73aa920cb865732ddadccede96",
+    "public": true,
+    "latest": true,
+    "url": "https://github.com/anaxonda/burrata/releases/tag/v0.1.43",
+    "supportUrl": "https://github.com/anaxonda/burrata/releases/tag/support-v0.1.43",
+    "assetCount": 8,
+    "publishedAt": "2026-11-13T02:51:12Z",
+    "publicChecksumsMatchAssetDigests": true,
+    "installedAppImageMatchesPublicChecksum": true,
+    "installedSha256": "873261588b59d30a58024a662e30828e5a0c899ef17a39d47bbd2f5a9851c62b",
+    "installedVersion": "0.1.43",
+    "installedPath": "/home/loki/.local/opt/burrata/Burrata_0.1.43_amd64.AppImage",
+    "ciRun": "https://github.com/anaxonda/burrata/actions/runs/43346862151"
   }
 }
