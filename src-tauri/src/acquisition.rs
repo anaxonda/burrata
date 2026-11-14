@@ -11831,6 +11831,44 @@ async fn download_direct(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn reported_nipsey_fallback_retains_fresh_performers_and_matches_recording() {
+        let info: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/nipsey-i-just-wanna-know-public-metadata.json"
+        ))
+        .unwrap();
+        let source = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:xLYVp_i_bYA".into(),
+            title: info["title"].as_str().unwrap().into(),
+            duration_seconds: Some(226.),
+            ..Default::default()
+        };
+        let richer = verified_youtube_channel_metadata(&source, &info);
+        let metadata = resolved_extractor_identity_metadata(&source, &info, richer).unwrap();
+        let mut resolved = source;
+        resolved.source_metadata = Some(metadata);
+        let request = Track {
+            provider: "soundcloud".into(),
+            provider_id: "2380644396".into(),
+            id: "soundcloud:2380644396".into(),
+            title: info["title"].as_str().unwrap().into(),
+            artist: "Nipsey Hussle, Bino Rideaux".into(),
+            duration_seconds: Some(226.232),
+            ..Default::default()
+        };
+        let result = crate::recording_match::assess(
+            &request,
+            &resolved,
+            crate::recording_match::MatchLevel::Balanced,
+            crate::recording_match::MatchStage::Resolved,
+        );
+        assert_eq!(
+            result.action,
+            crate::recording_match::MatchAction::Accept,
+            "{result:?}"
+        );
+    }
     use super::*;
 
     #[tokio::test]

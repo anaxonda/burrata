@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) const EVALUATOR_VERSION: &str = "35";
+pub(crate) const EVALUATOR_VERSION: &str = "36";
 
 /// Independently selected categories of alternatives for Flexible matching.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -2761,9 +2761,28 @@ fn build_comparison(
         .featured_credit
         .clone()
         .into_iter()
-        .chain(identity_guests)
+        .chain(identity_guests.iter().cloned())
         .chain(guest_from_title(&track.title))
         .collect::<Vec<_>>();
+    let artist_array_observation = artist_array_observation(meta);
+    if !artist_array_observation.uncertain {
+        // A feature annotation can name several people in one string. Split
+        // it only when independent structured artist rows corroborate every
+        // component; preserve a matching atomic act name before splitting.
+        requested_guests = requested_guests
+            .iter()
+            .flat_map(|guest| {
+                if identity_guests
+                    .iter()
+                    .any(|declared| norm_artist(declared) == norm_artist(guest))
+                {
+                    vec![guest.clone()]
+                } else {
+                    expanded_credits(std::slice::from_ref(guest), &artist_array_observation.names)
+                }
+            })
+            .collect();
+    }
     requested_guests.sort();
     requested_guests.dedup();
     let mut request_primary_credits = primary_credit_override
@@ -2811,7 +2830,6 @@ fn build_comparison(
                 .unwrap_or_else(|| credit.clone())
         })
         .collect::<Vec<_>>();
-    let artist_array_observation = artist_array_observation(meta);
     let mut names = if artist_array_observation.uncertain {
         Vec::new()
     } else if let Some(orientation) = &caption_orientation {
@@ -2935,6 +2953,11 @@ fn build_comparison(
         caption_features_for_requested_title(raw_candidate, &track.title, &comparison_credit_parts)
     } else {
         guest_from_title(raw_candidate)
+    };
+    let actual_guests = if artist_array_observation.uncertain {
+        actual_guests
+    } else {
+        expanded_credits(&actual_guests, &artist_array_observation.names)
     };
     let mut guests = features_match(&requested_guests, &actual_guests);
     if lexical_credit_override && requested_guests.is_empty() && !actual_guests.is_empty() {
@@ -4384,6 +4407,62 @@ pub(crate) fn assess_with_scoped_artist_credit_set_variant_and_options(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn captured_nipsey_feature_group_requires_each_actual_performer() {
+        use super::*;
+        let info: serde_json::Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/nipsey-i-just-wanna-know-public-metadata.json"
+        ))
+        .unwrap();
+        let track = Track {
+            title: info["title"].as_str().unwrap().into(),
+            artist: "Nipsey Hussle, Bino Rideaux".into(),
+            duration_seconds: Some(226.232),
+            ..Default::default()
+        };
+        let candidate = Candidate {
+            id: "youtube:xLYVp_i_bYA".into(),
+            provider: "youtube".into(),
+            title: track.title.clone(),
+            duration_seconds: Some(226.),
+            source_metadata: Some(
+                serde_json::json!({"provider":"youtube", "track":info["track"],
+                "channel":info["channel"],"channelId":info["channel_id"],"channelIsVerified":true,
+                "artists":info["artists"],"artistCount":4}),
+            ),
+            ..Default::default()
+        };
+        for level in [MatchLevel::Balanced, MatchLevel::Flexible] {
+            assert_eq!(
+                assess(&track, &candidate, level, MatchStage::Resolved).action,
+                MatchAction::Accept
+            );
+            for bad in [
+                serde_json::json!(["Nipsey Hussle", "Bino Rideaux", "Ty Dolla $ign"]),
+                serde_json::json!([
+                    "Nipsey Hussle",
+                    "Wrong Main Artist",
+                    "Ty Dolla $ign",
+                    "Cardi B"
+                ]),
+                serde_json::json!(["Nipsey Hussle", "Bino Rideaux", "Other Guest", "Cardi B"]),
+            ] {
+                let mut wrong = candidate.clone();
+                wrong.source_metadata.as_mut().unwrap()["artists"] = bad;
+                assert_ne!(
+                    assess(&track, &wrong, level, MatchStage::Resolved).action,
+                    MatchAction::Accept
+                );
+            }
+            let mut wrong = candidate.clone();
+            wrong.title.push_str(" (Live)");
+            wrong.source_metadata.as_mut().unwrap()["track"] = serde_json::json!(wrong.title);
+            assert_ne!(
+                assess(&track, &wrong, level, MatchStage::Resolved).action,
+                MatchAction::Accept
+            );
+        }
+    }
     use super::*;
     use serde_json::json;
 

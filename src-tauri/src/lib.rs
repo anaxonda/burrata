@@ -90,6 +90,7 @@ pub mod playback_diagnostics;
 mod playback_diagnostics_context;
 pub mod playback_failure;
 pub mod playback_history;
+mod playback_policy;
 pub mod playback_radio;
 pub mod playback_sources;
 pub mod playing_track_detections;
@@ -9603,6 +9604,7 @@ pub fn run() {
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::Exit) {
                 let state = app.state::<AppState>();
+                state.playback.flush_checkpoint_for_exit();
                 state.sort_availability_backfill.stop();
                 if let Err(error) = tauri::async_runtime::block_on(state.playback.shutdown_identification_for_exit()) { eprintln!("Recognition shutdown: {error}"); }
                 if let Err(error) = tauri::async_runtime::block_on(state.webview_identification.shutdown_for_exit()) { eprintln!("WebView recognition shutdown: {error}"); }

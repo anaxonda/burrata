@@ -285,6 +285,8 @@ pub(crate) fn project(snapshot: &Value, target_triple: &str) -> Value {
                 "premature_ended",
                 "output_interrupted",
                 "decoder_failure",
+                "output_failed",
+                "source_resolution",
             ],
         ) {
             safe.insert("trigger".into(), json!(trigger));
@@ -296,6 +298,21 @@ pub(crate) fn project(snapshot: &Value, target_triple: &str) -> Value {
         }
         if let Some(n) = bounded_float(last.get("positionSeconds"), 86_400.0) {
             safe.insert("positionSeconds".into(), json!(n));
+        }
+        if let Some(causes) = last.get("causes").and_then(Value::as_array) {
+            let causes = causes
+                .iter()
+                .take(4)
+                .filter_map(|value| {
+                    let mut failure = serde_json::from_value::<
+                        crate::playback_failure::PlaybackFailure,
+                    >(value.clone())
+                    .ok()?;
+                    failure.provider_attempts.clear();
+                    serde_json::to_value(failure).ok()
+                })
+                .collect::<Vec<_>>();
+            safe.insert("causes".into(), json!(causes));
         }
         if !safe.is_empty() {
             context.insert("lastRecovery".into(), Value::Object(safe));

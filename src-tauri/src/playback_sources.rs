@@ -32,7 +32,7 @@ const SOURCE_COMPETING_VERSIONS: &str = "Several distinct versions match this re
 /// Tokio's multithread runtime, so isolate the settings read from async timers
 /// while preserving the single-connection mutex and profile-lock ordering.
 fn store_settings_blocking(store: &Store) -> Result<Settings, String> {
-    run_store_on_blocking_worker(|| store.settings())
+    store.playback_settings()
 }
 
 fn run_store_on_blocking_worker<T>(operation: impl FnOnce() -> T) -> T {
@@ -7950,17 +7950,42 @@ async fn recover_inner(
         });
     }
     let mut candidate = candidate.clone();
-    let audio = acquisition
-        .extract_playback_audio_fresh_or_prepared_traced(
+    // Use the same bounded, exact-video AAC resolver that starts explicit
+    // YouTube playback. A stall must not force an otherwise working source
+    // onto a different client/token profile just because this is recovery.
+    let direct_audio = if pinned
+        && direct_youtube_enabled()
+        && acquisition::uses_managed_ytdlp(&settings.yt_dlp_path)
+        && direct_youtube_explicit_id(track, &candidate, 2).is_some()
+    {
+        try_direct_youtube_explicit_recovery(
+            acquisition,
+            track,
             &candidate,
-            &settings,
             cancel.clone(),
-            alternate_format,
-            trace.clone(),
+            &trace,
             deadline,
-            None,
         )
-        .await?;
+        .await?
+    } else {
+        None
+    };
+    let direct_validated = direct_audio.is_some();
+    let audio = if let Some(audio) = direct_audio {
+        audio
+    } else {
+        acquisition
+            .extract_playback_audio_fresh_or_prepared_traced(
+                &candidate,
+                &settings,
+                cancel.clone(),
+                alternate_format,
+                trace.clone(),
+                deadline,
+                None,
+            )
+            .await?
+    };
     if !fresh_candidate_audio_identity_matches(track, &candidate, &audio) {
         return Err(
             "The refreshed audio source did not resolve to the same provider recording".into(),
@@ -7975,7 +8000,7 @@ async fn recover_inner(
     include_candidate_aliases(&mut aliases, track, &candidate, Some(&audio));
     let _ = trace.await_spotify_track_role_context(track).await;
     let requires_identity_check = !pinned || candidate.provider == "bandcamp";
-    if verify_with_playback_alias_context_traced(
+    let proof = verify_with_playback_alias_context_traced(
         track,
         &aliases,
         &mut candidate,
@@ -7985,14 +8010,32 @@ async fn recover_inner(
         store,
         settings.flexible_matching,
         Some(&trace),
-    )
-    .is_none()
-    {
+    );
+    if proof.is_none() {
         return Err("The refreshed audio source identity does not match this recording".into());
     }
-    let audio = acquisition
-        .validate_playback_audio_traced(&candidate, audio, cancel, trace, deadline)
-        .await?;
+    let audio = if direct_validated {
+        audio
+    } else {
+        // Initial playback and recovery share the same verified-ID transport
+        // rescue. A newly extracted URL returning 403 is not a reason to
+        // discard a recording that has just passed identity verification.
+        validate_or_recover_denied_source(
+            acquisition,
+            track,
+            &settings,
+            &candidate,
+            audio,
+            proof,
+            pinned,
+            !strict_recording_verification,
+            2,
+            cancel,
+            &trace,
+            deadline,
+        )
+        .await?
+    };
     let duration = audio
         .duration_seconds
         .or(candidate.duration_seconds)

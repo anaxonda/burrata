@@ -318,6 +318,13 @@ jobs:
           bash scripts/dev/tests/isolated-music-root.test.sh
       - name: Decode deterministic native playback fixture without audio hardware
         run: python3 scripts/release/test-native-playback-contract.py
+      - name: Check playback recovery and full-track measurement regressions
+        if: runner.os == 'Linux'
+        timeout-minutes: 5
+        run: |
+          node --test scripts/performance/full_track_reliability.test.mjs
+          cargo run --locked --manifest-path scripts/playback-core-audit/Cargo.toml
+          python3 scripts/performance/playback_stream_faults.py --ffmpeg "src-tauri/resources/tools/${{ matrix.target }}/ffmpeg" --output .cache/playback-stream-faults.json
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
         timeout-minutes: 45
         # Public-provider qualification is an explicit live run. Unit fixtures

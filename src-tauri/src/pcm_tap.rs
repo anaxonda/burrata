@@ -34,11 +34,38 @@ const WORKER_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_s
 const VERIFIED_END_DELIVERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
 struct SampleBatch {
+    recycle: Option<std_mpsc::SyncSender<Vec<f32>>>,
     generation: u64,
     sample_rate: u32,
     channels: u16,
     samples: Vec<f32>,
     playback_end_position_seconds: Option<f64>,
+}
+
+impl Drop for SampleBatch {
+    fn drop(&mut self) {
+        if let Some(recycle) = self.recycle.as_ref() {
+            let mut samples = std::mem::take(&mut self.samples);
+            samples.clear();
+            let _ = recycle.try_send(samples);
+        }
+    }
+}
+
+struct BatchPool {
+    sender: std_mpsc::SyncSender<Vec<f32>>,
+    receiver: std_mpsc::Receiver<Vec<f32>>,
+}
+impl BatchPool {
+    fn new(capacity: usize) -> Self {
+        let (sender, receiver) = std_mpsc::sync_channel(CHANNEL_BATCHES);
+        for _ in 0..CHANNEL_BATCHES {
+            sender
+                .try_send(Vec::with_capacity(capacity))
+                .expect("new PCM pool has capacity");
+        }
+        Self { sender, receiver }
+    }
 }
 
 struct CaptureRequest {
@@ -332,6 +359,7 @@ impl PcmTap {
             generation,
             sample_rate: sample_rate.max(1),
             channels,
+            pool: BatchPool::new(batch_capacity),
             pending: Vec::with_capacity(batch_capacity),
             pending_playback_end_position_seconds: None,
         }
@@ -608,6 +636,7 @@ pub struct PcmTapWriter {
     generation: u64,
     sample_rate: u32,
     channels: u16,
+    pool: BatchPool,
     pending: Vec<f32>,
     pending_playback_end_position_seconds: Option<f64>,
 }
@@ -631,10 +660,18 @@ impl PcmTapWriter {
         if self.pending.is_empty() {
             return;
         }
-        let samples = std::mem::replace(&mut self.pending, Vec::with_capacity(CHUNK_SAMPLES));
+        // No allocation or wait on the device callback. If the worker is
+        // behind, discard analysis samples and retain the callback's buffer.
+        let Ok(next) = self.pool.receiver.try_recv() else {
+            self.pending.clear();
+            self.pending_playback_end_position_seconds = None;
+            return;
+        };
+        let samples = std::mem::replace(&mut self.pending, next);
         if self
             .sender
             .try_send(SampleBatch {
+                recycle: Some(self.pool.sender.clone()),
                 generation: self.generation,
                 sample_rate: self.sample_rate,
                 channels: self.channels,
@@ -697,7 +734,7 @@ fn append_batch(
     let limit = (*sample_rate as usize)
         .saturating_mul(*channels as usize)
         .saturating_mul(WINDOW_SECONDS);
-    ring.extend(batch.samples);
+    ring.extend(batch.samples.iter().copied());
     while ring.len() > limit {
         ring.pop_front();
     }
@@ -1187,6 +1224,27 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
+    #[test]
+    fn blocked_analysis_worker_drops_batches_without_growing_callback_buffers() {
+        let (sender, _receiver) = mpsc::channel(CHANNEL_BATCHES);
+        let capacity = CHUNK_SAMPLES;
+        let mut writer = PcmTapWriter {
+            sender,
+            current_generation: Arc::new(AtomicU64::new(0)),
+            generation: 1,
+            sample_rate: 48_000,
+            channels: 2,
+            pool: BatchPool::new(capacity),
+            pending: Vec::with_capacity(capacity),
+            pending_playback_end_position_seconds: None,
+        };
+        for _ in 0..(CHANNEL_BATCHES + 8) * CHUNK_SAMPLES {
+            writer.push(0.25);
+        }
+        assert_eq!(writer.pending.capacity(), capacity);
+        assert!(writer.pending.len() < capacity);
+        assert_eq!(writer.current_generation.load(Ordering::Acquire), 1);
+    }
     fn positioned_batch(
         generation: u64,
         start: f64,
@@ -1195,6 +1253,7 @@ mod tests {
     ) -> SampleBatch {
         let frames = (duration * f64::from(sample_rate)).round() as usize;
         SampleBatch {
+            recycle: None,
             generation,
             sample_rate,
             channels: 1,
@@ -1373,6 +1432,7 @@ mod tests {
             generation: 1,
             sample_rate: 48_000,
             channels: 2,
+            pool: BatchPool::new(CHUNK_SAMPLES),
             pending: Vec::with_capacity(CHUNK_SAMPLES),
             pending_playback_end_position_seconds: None,
         };
@@ -1400,6 +1460,7 @@ mod tests {
             generation: 1,
             sample_rate: 48_000,
             channels: 6,
+            pool: BatchPool::new(CHUNK_SAMPLES + 2),
             pending: Vec::with_capacity(CHUNK_SAMPLES + 2),
             pending_playback_end_position_seconds: None,
         };
@@ -1436,6 +1497,7 @@ mod tests {
             generation: 9,
             sample_rate: 48_000,
             channels: 2,
+            pool: BatchPool::new(CHUNK_SAMPLES),
             pending: Vec::with_capacity(CHUNK_SAMPLES),
             pending_playback_end_position_seconds: None,
         };
@@ -1493,6 +1555,7 @@ mod tests {
             &mut ring,
             &mut playback_end,
             SampleBatch {
+                recycle: None,
                 generation: 4,
                 sample_rate: 10,
                 channels: 1,
@@ -1507,6 +1570,7 @@ mod tests {
             &mut ring,
             &mut playback_end,
             SampleBatch {
+                recycle: None,
                 generation: 4,
                 sample_rate: 10,
                 channels: 1,
@@ -1528,6 +1592,7 @@ mod tests {
             &mut ring,
             &mut playback_end,
             SampleBatch {
+                recycle: None,
                 generation: 4,
                 sample_rate: 10,
                 channels: 1,

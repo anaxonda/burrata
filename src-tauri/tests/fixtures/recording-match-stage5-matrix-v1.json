@@ -1576,6 +1576,83 @@
           }
         }
       }
+    },
+    {
+      "id": "nipsey-compound-feature-source",
+      "labels": {
+        "evidenceBasis": "publicSourceObservation",
+        "candidateProof": "freshExtractorMetadata",
+        "uncertainty": "The request reconstructs the observed SoundCloud search row; only the public YouTube metadata was independently captured.",
+        "sourceReference": "nipsey-i-just-wanna-know-public-metadata.json",
+        "synthetic": false
+      },
+      "request": {
+        "id": "soundcloud:2380644396",
+        "provider": "soundcloud",
+        "providerId": "2380644396",
+        "artist": "Nipsey Hussle, Bino Rideaux",
+        "title": "I Just Wanna Know (feat. Ty Dolla $ign & Cardi B)",
+        "durationSeconds": 226.232
+      },
+      "candidate": {
+        "id": "youtube:xLYVp_i_bYA",
+        "provider": "youtube",
+        "title": "I Just Wanna Know (feat. Ty Dolla $ign & Cardi B)",
+        "url": "https://www.youtube.com/watch?v=xLYVp_i_bYA",
+        "durationSeconds": 226,
+        "sourceMetadata": {
+          "provider": "youtube",
+          "resolvedProviderId": "xLYVp_i_bYA",
+          "sourceMetadataOrigin": "ytDlpFullInfo",
+          "channel": "Nipsey Hussle",
+          "channelId": "UCzyMypIMUep5W0J3R3PC87Q",
+          "channelIsVerified": true,
+          "track": "I Just Wanna Know (feat. Ty Dolla $ign & Cardi B)",
+          "artists": [
+            "Nipsey Hussle",
+            "Bino Rideaux",
+            "Ty Dolla $ign",
+            "Cardi B"
+          ],
+          "artistCount": 4
+        }
+      },
+      "expectations": {
+        "Search": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Exact",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Exact",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          }
+        },
+        "Resolved": {
+          "Exact": {
+            "relationship": "Unresolved",
+            "action": "Inspect",
+            "proofStrength": "metadataOnly"
+          },
+          "Balanced": {
+            "relationship": "Exact",
+            "action": "Accept",
+            "proofStrength": "metadataOnly"
+          },
+          "Flexible": {
+            "relationship": "Exact",
+            "action": "Accept",
+            "proofStrength": "metadataOnly"
+          }
+        }
+      }
     }
   ],
   "metamorphicTests": [

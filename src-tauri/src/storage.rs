@@ -137,6 +137,7 @@ pub(crate) fn expand_playlist_snapshot_refs(
 }
 
 pub struct Store {
+    playback_settings: std::sync::RwLock<Option<Settings>>,
     pub(crate) playlist_incremental: Mutex<crate::playlist_incremental::Cache>,
     connection: Mutex<Connection>,
     library_barrier: LibraryWriteBarrier,
@@ -1219,6 +1220,7 @@ impl Store {
         conn.execute_batch("CREATE INDEX IF NOT EXISTS collection_members_recording_sync ON collection_members(recording_id,collection_id);").map_err(err)?;
         crate::playlist_incremental::install(&conn)?;
         let store = Self {
+            playback_settings: std::sync::RwLock::new(None),
             playlist_incremental: Mutex::new(crate::playlist_incremental::Cache::default()),
             connection: Mutex::new(conn),
             library_barrier: Arc::new(RwLock::new(())),
@@ -1384,6 +1386,14 @@ impl Store {
             })
         })
     }
+    /// Playback consumes a coherent in-memory snapshot. Saves refresh it only
+    /// after SQLite commits; backup restore replaces the Store on restart.
+    pub(crate) fn playback_settings(&self) -> Result<Settings> {
+        if let Some(settings) = self.playback_settings.read().map_err(err)?.as_ref() {
+            return Ok(settings.clone());
+        }
+        self.settings()
+    }
     pub fn settings(&self) -> Result<Settings> {
         let conn = self.lock_connection()?;
         let raw: Option<String> = conn
@@ -1395,7 +1405,9 @@ impl Store {
             .optional()
             .map_err(err)?;
         let Some(raw) = raw else {
-            return Ok(Settings::default());
+            let settings = Settings::default();
+            *self.playback_settings.write().map_err(err)? = Some(settings.clone());
+            return Ok(settings);
         };
         let value: serde_json::Value = decode(raw)?;
         let migration = value.get("flexibleMatching").is_none();
@@ -1408,6 +1420,7 @@ impl Store {
             )
             .map_err(err)?;
         }
+        *self.playback_settings.write().map_err(err)? = Some(settings.clone());
         Ok(settings)
     }
     pub fn save_settings(&self, settings: &Settings) -> Result<()> {
@@ -1416,7 +1429,9 @@ impl Store {
         let mut settings = settings.clone();
         normalize_streaming_fallback_policy(&mut settings)?;
         let encoded = encode(&settings)?;
-        self.lock_connection()?.execute("INSERT INTO settings(key,value) VALUES('application',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE settings.value != excluded.value", [encoded]).map_err(err)?;
+        let conn = self.lock_connection()?;
+        conn.execute("INSERT INTO settings(key,value) VALUES('application',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE settings.value != excluded.value", [encoded]).map_err(err)?;
+        *self.playback_settings.write().map_err(err)? = Some(settings);
         Ok(())
     }
     pub fn get_json_preference(&self, key: &str) -> Result<Option<serde_json::Value>> {
@@ -7988,6 +8003,22 @@ fn copy_provenance_value(target: &mut Track, key: &str, value: serde_json::Value
 mod tests {
     use super::*;
     use crate::models::Candidate;
+    #[test]
+    fn playback_settings_are_available_while_sqlite_is_busy_and_follow_committed_saves() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("library.sqlite")).unwrap();
+        let mut settings = store.settings().unwrap();
+        settings.playback_startup_timeout_seconds = 30;
+        store.save_settings(&settings).unwrap();
+        let _database = store.lock_connection().unwrap();
+        assert_eq!(
+            store
+                .playback_settings()
+                .unwrap()
+                .playback_startup_timeout_seconds,
+            30
+        );
+    }
     #[test]
     fn durable_analysis_cache_round_trips_and_refreshes_lru() {
         let directory = tempfile::tempdir().unwrap();

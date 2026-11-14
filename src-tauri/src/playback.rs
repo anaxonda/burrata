@@ -30,7 +30,7 @@ use tokio::sync::{mpsc, watch};
 const SESSION_KEY: &str = "nativePlaybackSession.v1";
 const QUEUE_KEY: &str = "nativePlaybackQueue.v1";
 const ENGINE_KEY: &str = "playbackEngine.v1";
-const STEADY_BUFFERING_RECOVERY_DELAY: Duration = Duration::from_secs(5);
+const STEADY_BUFFERING_RECOVERY_DELAY: Duration = crate::playback_policy::BUFFERING_GRACE;
 const RECURRING_STALL_WINDOW: Duration = Duration::from_secs(90);
 const RECOVERY_HEALTHY_RESET: Duration = Duration::from_secs(60);
 const MAX_RECURRING_SOURCE_SWAPS: u8 = 2;
@@ -1545,6 +1545,7 @@ struct Inner {
     state: Mutex<State>,
     pending_native_sources: Mutex<HashMap<String, PendingNativeSource>>,
     persistence: Mutex<()>,
+    persistence_requested: watch::Sender<u64>,
     commands: tokio::sync::Mutex<()>,
     migration_pending: AtomicBool,
     output: NativeOutput,
@@ -1993,6 +1994,7 @@ impl PlaybackService {
         history: Arc<PlaybackHistory>,
     ) -> Result<Arc<Self>, String> {
         let migration_pending = crate::native_session_migration::needs_legacy_session(&store)?;
+        let _ = store.playback_settings()?;
         let (events_tx, mut events) = mpsc::unbounded_channel();
         let output = NativeOutput::new(events_tx)?;
         let (updates, _) = watch::channel(json!({"engine":"native","status":"idle"}));
@@ -2020,6 +2022,7 @@ impl PlaybackService {
             }
         }
         let observed_analysis = crate::observed_analysis::ObservedAnalysis::new(store.clone());
+        let (persistence_requested, mut persistence_requests) = watch::channel(0u64);
         let analysis_event_app = app.clone();
         observed_analysis.set_event_sink(Arc::new(move |payload| {
             let _ = analysis_event_app.emit("stream-analysis-updated", payload);
@@ -2034,6 +2037,7 @@ impl PlaybackService {
                 state: Mutex::new(state),
                 pending_native_sources: Mutex::new(HashMap::new()),
                 persistence: Mutex::new(()),
+                persistence_requested,
                 commands: tokio::sync::Mutex::new(()),
                 migration_pending: AtomicBool::new(migration_pending),
                 output,
@@ -2046,6 +2050,16 @@ impl PlaybackService {
                 playing_track_identifications: PlayingTrackIdentifications::default(),
                 radio_events,
             }),
+        });
+        let weak = Arc::downgrade(&service);
+        tauri::async_runtime::spawn(async move {
+            while persistence_requests.changed().await.is_ok() {
+                persistence_requests.borrow_and_update();
+                let Some(service) = weak.upgrade() else { break };
+                // A single writer preserves checkpoint order and coalesces position
+                // updates while SQLite is busy. Never hold the command lock here.
+                let _ = tokio::task::spawn_blocking(move || service.persist_blocking()).await;
+            }
         });
         let weak = Arc::downgrade(&service);
         tauri::async_runtime::spawn(async move {
@@ -2150,7 +2164,7 @@ impl PlaybackService {
             ffmpeg: self
                 .inner
                 .store
-                .settings()
+                .playback_settings()
                 .map(|settings| crate::tools::executable(&settings.ffmpeg_path, "ffmpeg"))
                 .unwrap_or_else(|_| "ffmpeg".into()),
             headers: vec![],
@@ -3243,7 +3257,7 @@ impl PlaybackService {
     /// Estimate BPM and provisional key only from the current native playback
     /// generation. These are ephemeral display values, never Track metadata.
     pub async fn live_playback_estimates(&self) -> Result<Option<LivePlaybackEstimates>, String> {
-        if !self.native_enabled() || !self.inner.store.settings()?.live_bpm_enabled {
+        if !self.native_enabled() || !self.inner.store.playback_settings()?.live_bpm_enabled {
             return Ok(None);
         }
         let (generation, seek_serial, track_id) = {
@@ -3285,7 +3299,7 @@ impl PlaybackService {
             return Ok(None);
         }
 
-        if !self.native_enabled() || !self.inner.store.settings()?.live_bpm_enabled {
+        if !self.native_enabled() || !self.inner.store.playback_settings()?.live_bpm_enabled {
             return Ok(None);
         }
         let state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -3466,7 +3480,7 @@ impl PlaybackService {
         let matching_level = self
             .inner
             .store
-            .settings()
+            .playback_settings()
             .map_err(|_| "Playback matching policy unavailable")?
             .matching_level;
         if source_generation == 0
@@ -3689,7 +3703,11 @@ impl PlaybackService {
         let operation_received_at = Instant::now();
         let operation_received_wall_ms = system_time_ms();
         let _command = self.inner.commands.lock().await;
-        let budget = self.inner.store.settings()?.playback_startup_timeout();
+        let budget = self
+            .inner
+            .store
+            .playback_settings()?
+            .playback_startup_timeout();
         self.inner.state.lock().unwrap().startup_budget = budget;
         if let Some(expected) = expected_epoch {
             let current = self.inner.state.lock().unwrap().queued_intent_epoch;
@@ -4433,7 +4451,7 @@ impl PlaybackService {
         let startup_budget = self
             .inner
             .store
-            .settings()
+            .playback_settings()
             .map(|settings| settings.playback_startup_timeout())
             .unwrap_or(crate::playback_sources::PLAYBACK_RESOLUTION_DEADLINE);
         let position = if self
@@ -4638,16 +4656,21 @@ impl PlaybackService {
                     let deadline = crate::playback_sources::PlaybackDeadline::at(
                         tokio::time::Instant::from_std(startup_deadline),
                     );
-                    let replace_source = service.inner.store.settings().is_ok_and(|settings| {
-                        recovery_should_replace_source(
-                            recovery,
-                            !strict_recording_verification,
-                            &track,
-                            &settings,
-                            replace_on_recurrence,
-                            source_swaps,
-                        )
-                    });
+                    let replace_source =
+                        service
+                            .inner
+                            .store
+                            .playback_settings()
+                            .is_ok_and(|settings| {
+                                recovery_should_replace_source(
+                                    recovery,
+                                    !strict_recording_verification,
+                                    &track,
+                                    &settings,
+                                    replace_on_recurrence,
+                                    source_swaps,
+                                )
+                            });
                     if replace_source {
                         if let Ok(mut state) = service.inner.state.lock() {
                             if state.generation == g {
@@ -4902,7 +4925,7 @@ impl PlaybackService {
                         );
                     }
                     if let (Some(candidate), Ok(settings)) =
-                        (chapter_candidate, service.inner.store.settings())
+                        (chapter_candidate, service.inner.store.playback_settings())
                     {
                         let enriched_service = service.clone();
                         let track = track.clone();
@@ -5079,14 +5102,14 @@ impl PlaybackService {
             if still_owned {
                 service.recover_failure(
                     generation,
-                    "Audio stalled for five seconds after playback started. Check the connection or choose another source.",
+                    "Audio stalled for 15 seconds after playback started. Check the connection or choose another source.",
                     RecoveryTrigger::SteadyBufferingTimeout,
                 );
             }
         });
     }
     fn recover_failure(&self, g: u64, message: &str, trigger: RecoveryTrigger) {
-        let settings = self.inner.store.settings().ok();
+        let settings = self.inner.store.playback_settings().ok();
         let recovery = {
             let mut s = self.inner.state.lock().unwrap();
             if !matches!(s.status.as_str(), "resolving" | "buffering" | "playing")
@@ -5110,6 +5133,9 @@ impl PlaybackService {
                     message,
                     trigger == RecoveryTrigger::OutputFailed,
                 );
+            if s.first_audio_ms.is_some() || s.recovery > 0 {
+                record_recovery_cause(&mut s, message);
+            }
             let recurring_decision =
                 if can_recover && failure_counts_as_native_transport_stall(trigger, message) {
                     record_recurring_transport_stall(&mut s, Instant::now())
@@ -5135,7 +5161,7 @@ impl PlaybackService {
                 let deadline = if s.first_audio_ms.is_none() {
                     s.request_started + budget
                 } else {
-                    Instant::now() + budget
+                    Instant::now() + budget.max(crate::playback_policy::RECOVERY_BUDGET)
                 };
                 s.recovery_deadline.get_or_insert(deadline);
                 s.recovered_audio_since = None;
@@ -5198,7 +5224,8 @@ impl PlaybackService {
         }
     }
     fn invalidate_candidate_preview_audio(&self, candidate: Option<&Candidate>) {
-        let (Some(candidate), Ok(settings)) = (candidate, self.inner.store.settings()) else {
+        let (Some(candidate), Ok(settings)) = (candidate, self.inner.store.playback_settings())
+        else {
             return;
         };
         self.inner
@@ -5240,7 +5267,20 @@ impl PlaybackService {
     }
     async fn output_event(&self, event: OutputEvent) {
         let _command = self.inner.commands.lock().await;
+        let event = match event {
+            OutputEvent::ProgressReady => {
+                let Some((generation, seconds)) = self.inner.output.take_latest_progress() else {
+                    return;
+                };
+                OutputEvent::Position {
+                    generation,
+                    seconds,
+                }
+            }
+            event => event,
+        };
         match event {
+            OutputEvent::ProgressReady => return,
             OutputEvent::GaplessCompleted {
                 from_generation,
                 to_generation,
@@ -5858,7 +5898,7 @@ impl PlaybackService {
                 let discovery_stop_for_owner = discovery_stop.clone();
                 tauri::async_runtime::spawn(async move {
                     let discovery = async {
-                        let settings = background_service.inner.store.settings()?;
+                        let settings = background_service.inner.store.playback_settings()?;
                         let mut providers = vec![settings.preferred_streaming_source.clone()];
                         if settings.streaming_fallback_enabled {
                             providers.extend(settings.streaming_fallback_sources.iter().cloned());
@@ -6062,28 +6102,34 @@ impl PlaybackService {
                 );
             }
             let opus_decoder_capability = active_opus_decoder_capability(&resolved.source);
-            let crossfade_seconds = service.inner.store.settings().ok().and_then(|settings| {
-                let eligible = settings.crossfade_enabled
-                    && s.repeat != "one"
-                    && owner.index != s.index
-                    && s.duration_verified
-                    && s.duration.is_finite()
-                    && s.duration > 0.0
-                    && s.station.is_none()
-                    && s.offset == 0.0
-                    && s.end.is_none()
-                    && s.quality["sourceKind"] != "approximateAlbumExcerpt"
-                    && resolved.quality["sourceKind"] != "approximateAlbumExcerpt"
-                    && s.track().is_some_and(|current| {
-                        current.provider != "radio" && current.playback_range.is_none()
-                    })
-                    && track.provider != "radio"
-                    && track.playback_range.is_none()
-                    && resolved.station.is_none()
-                    && offset == 0.0
-                    && end.is_none();
-                eligible.then_some(settings.crossfade_seconds)
-            });
+            let crossfade_seconds =
+                service
+                    .inner
+                    .store
+                    .playback_settings()
+                    .ok()
+                    .and_then(|settings| {
+                        let eligible = settings.crossfade_enabled
+                            && s.repeat != "one"
+                            && owner.index != s.index
+                            && s.duration_verified
+                            && s.duration.is_finite()
+                            && s.duration > 0.0
+                            && s.station.is_none()
+                            && s.offset == 0.0
+                            && s.end.is_none()
+                            && s.quality["sourceKind"] != "approximateAlbumExcerpt"
+                            && resolved.quality["sourceKind"] != "approximateAlbumExcerpt"
+                            && s.track().is_some_and(|current| {
+                                current.provider != "radio" && current.playback_range.is_none()
+                            })
+                            && track.provider != "radio"
+                            && track.playback_range.is_none()
+                            && resolved.station.is_none()
+                            && offset == 0.0
+                            && end.is_none();
+                        eligible.then_some(settings.crossfade_seconds)
+                    });
             s.preload = Some(Preloaded {
                 preparation_trace: Some(trace.clone()),
                 generation,
@@ -6249,20 +6295,29 @@ impl PlaybackService {
             })
         };
         if let Some((session, track, chapter, provider)) = data {
-            let _ = self.inner.history.record_enriched(
-                &self.inner.store,
-                &session,
-                provider.as_deref().unwrap_or(&track.provider),
-                &track,
-                if chapter.is_null() {
-                    None
-                } else {
-                    Some(chapter)
-                },
-            );
+            let store = self.inner.store.clone();
+            let history = self.inner.history.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                let _ = history.record_enriched(
+                    &store,
+                    &session,
+                    provider.as_deref().unwrap_or(&track.provider),
+                    &track,
+                    if chapter.is_null() {
+                        None
+                    } else {
+                        Some(chapter)
+                    },
+                );
+            });
         }
     }
     fn persist(&self) {
+        self.inner
+            .persistence_requested
+            .send_modify(|revision| *revision = revision.wrapping_add(1));
+    }
+    fn persist_blocking(&self) {
         if self.inner.migration_pending.load(Ordering::Acquire) {
             return;
         }
@@ -6272,6 +6327,9 @@ impl PlaybackService {
             |queue, session| self.inner.store.save_playback_checkpoint(queue, session),
             || {},
         );
+    }
+    pub fn flush_checkpoint_for_exit(&self) {
+        self.persist_blocking();
     }
     fn advance(&self, direction: i32, ended: bool) {
         let (next, natural_queue_end) = {
@@ -7617,6 +7675,12 @@ enum RecoveryTrigger {
 
 // Retain the failing decoder facts across recovery and successful audio.
 fn record_recovery_facts(state: &mut State, trigger: RecoveryTrigger) {
+    let causes = state
+        .last_recovery
+        .as_ref()
+        .and_then(|value| value.get("causes"))
+        .cloned()
+        .unwrap_or_else(|| json!([]));
     let trigger = match trigger {
         RecoveryTrigger::OutputFailed => "output_failed",
         RecoveryTrigger::PrematureEnded => "premature_ended",
@@ -7648,7 +7712,23 @@ fn record_recovery_facts(state: &mut State, trigger: RecoveryTrigger) {
         "operationId":operation(&state.operation_id),"seekOperationId":operation(&state.seek_operation_id),
         "recoveryAttempt":state.recovery.saturating_add(1),
         "positionSeconds":state.position.is_finite().then_some(state.position.max(0.)),
-        "decoderEvidence":"last_started_snapshot","decoder":decoder}));
+        "decoderEvidence":"last_started_snapshot","decoder":decoder,"causes":causes}));
+}
+
+fn record_recovery_cause(state: &mut State, message: &str) {
+    let operation = state.operation_id.clone();
+    let value = state.last_recovery.get_or_insert_with(|| json!({}));
+    if value["operationId"].as_str() != operation.as_deref() {
+        *value = json!({"operationId":operation});
+    }
+    if !value["causes"].is_array() {
+        value["causes"] = json!([]);
+    }
+    let causes = value["causes"].as_array_mut().unwrap();
+    if causes.len() >= 4 {
+        causes.remove(0);
+    }
+    causes.push(json!(crate::playback_failure::classify(message)));
 }
 
 fn can_bypass_failed_local(
@@ -7678,7 +7758,7 @@ fn can_bypass_failed_local(
     let now = Instant::now();
     trigger == RecoveryTrigger::OutputFailed
         && !state.bypass_failed_local
-        && state.recovery < 2
+        && state.recovery < crate::playback_policy::MAX_RECOVERY_ATTEMPTS
         && state.quality["sourceKind"] == "localAsset"
         && crate::playback_sources::can_bypass_failed_local(track, state.explicit_source, settings)
         && !matches!(
@@ -7749,7 +7829,7 @@ fn can_retry_failed_stream_at_stage(state: &State, message: &str, output_failed:
                     && now.duration_since(*at) <= RECURRING_STALL_WINDOW
             });
     (state.first_audio_ms.is_some() || startup_transport || refreshed_source_denied)
-        && state.recovery < 2
+        && state.recovery < crate::playback_policy::MAX_RECOVERY_ATTEMPTS
         && state
             .recovery_deadline
             .is_none_or(|deadline| Instant::now() < deadline)
@@ -7757,8 +7837,11 @@ fn can_retry_failed_stream_at_stage(state: &State, message: &str, output_failed:
             .seek_requested
             .is_none_or(|started| Instant::now() < started + state.startup_budget)
         && (state.candidate.is_some() || state.station.is_some())
-        && !message.to_ascii_lowercase().contains("output device")
-        && !message.contains("Cancelled")
+        && !matches!(
+            failure.category,
+            crate::playback_failure::FailureCategory::Output
+                | crate::playback_failure::FailureCategory::Cancelled
+        )
 }
 
 fn deadline_owned_by_active_operation(
@@ -7789,7 +7872,10 @@ enum RecurringStallDecision {
 }
 
 fn record_recurring_transport_stall(state: &mut State, now: Instant) -> RecurringStallDecision {
-    if state.station.is_some() || state.seek_requested.is_some() || state.recovery >= 2 {
+    if state.station.is_some()
+        || state.seek_requested.is_some()
+        || state.recovery >= crate::playback_policy::MAX_RECOVERY_ATTEMPTS
+    {
         return RecurringStallDecision::NoRepeatedStall;
     }
     let (Some(track), Some(candidate)) = (state.track(), state.candidate.as_ref()) else {
@@ -7888,9 +7974,11 @@ fn recovery_can_replace_source(
     track: &Track,
     settings: &crate::models::Settings,
 ) -> bool {
-    attempt >= 2
-        && !explicit
-        && !crate::playback_sources::source_resolution_is_pinned(track, false, settings, true)
+    crate::playback_policy::recovery_step(
+        attempt,
+        !explicit
+            && !crate::playback_sources::source_resolution_is_pinned(track, false, settings, true),
+    ) == crate::playback_policy::RecoveryStep::VerifiedAlternative
 }
 
 fn recovery_should_replace_source(
@@ -8409,6 +8497,42 @@ fn shuffle_upcoming(state: &mut State) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn recovery_journal_keeps_the_denial_before_timeout_and_resets_for_new_intent() {
+        let mut state = State::default();
+        state.operation_id = Some("first".into());
+        record_recovery_cause(
+            &mut state,
+            "Native HTTP byte range: HTTP 403 on media response",
+        );
+        record_recovery_facts(&mut state, RecoveryTrigger::OutputFailed);
+        record_recovery_cause(&mut state, "Audio source extraction timed out");
+        let causes = state.last_recovery.as_ref().unwrap()["causes"]
+            .as_array()
+            .unwrap();
+        assert_eq!(causes.len(), 2);
+        assert_eq!(causes[0]["httpStatus"], 403);
+        assert_eq!(causes[1]["category"], "timeout");
+        state.operation_id = Some("second".into());
+        record_recovery_cause(&mut state, "Cancelled");
+        assert_eq!(
+            state.last_recovery.as_ref().unwrap()["causes"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        for _ in 0..10 {
+            record_recovery_cause(&mut state, "Audio source extraction timed out");
+        }
+        assert_eq!(
+            state.last_recovery.as_ref().unwrap()["causes"]
+                .as_array()
+                .unwrap()
+                .len(),
+            4
+        );
+    }
     include!("playback_paused_startup_resume_tests.rs");
     use super::*;
 
@@ -10499,7 +10623,7 @@ mod tests {
         let started = Instant::now();
         assert_eq!(
             steady_buffering_deadline(started),
-            started + Duration::from_secs(5)
+            started + crate::playback_policy::BUFFERING_GRACE
         );
         let mut state = State::default();
         state.generation = 42;

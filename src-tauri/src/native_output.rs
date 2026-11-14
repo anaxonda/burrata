@@ -7,6 +7,8 @@ mod continuous_resample;
 mod native_crossfade;
 #[path = "native_http.rs"]
 mod native_http;
+#[path = "output_progress.rs"]
+mod output_progress;
 #[path = "native_storage_fault.rs"]
 pub(crate) mod storage_fault;
 
@@ -594,6 +596,7 @@ impl<T: std::io::Seek> std::io::Seek for TimedStreamReader<T> {
 
 #[derive(Debug, Clone)]
 pub enum OutputEvent {
+    ProgressReady,
     // Diagnostic evidence only; never advances the queue.
     GaplessCompleted {
         from_generation: u64,
@@ -651,6 +654,7 @@ pub enum OutputEvent {
 }
 
 pub struct NativeOutput {
+    progress: Arc<output_progress::LatestProgress>,
     tx: std_mpsc::Sender<OutputCommand>,
     worker: Option<JoinHandle<()>>,
     tap: Arc<crate::pcm_tap::PcmTap>,
@@ -661,11 +665,14 @@ impl NativeOutput {
         let (tx, rx) = std_mpsc::channel();
         let tap = crate::pcm_tap::PcmTap::new();
         let worker_tap = tap.clone();
+        let progress = Arc::new(output_progress::LatestProgress::default());
+        let worker_progress = progress.clone();
         let worker = thread::Builder::new()
             .name("burrata-audio-output".into())
-            .spawn(move || run_worker(rx, events, worker_tap))
+            .spawn(move || run_worker(rx, events, worker_tap, worker_progress))
             .map_err(|e| format!("could not start audio output thread: {e}"))?;
         Ok(Self {
+            progress,
             tx,
             worker: Some(worker),
             tap,
@@ -674,6 +681,9 @@ impl NativeOutput {
 
     pub fn tap(&self) -> Arc<crate::pcm_tap::PcmTap> {
         self.tap.clone()
+    }
+    pub(crate) fn take_latest_progress(&self) -> Option<(u64, f64)> {
+        self.progress.take()
     }
 
     pub fn send(&self, command: OutputCommand) -> Result<(), String> {
@@ -1234,10 +1244,13 @@ fn coalesce_seeks(
     command
 }
 
+use output_progress::OutputProgressWatch;
+
 fn run_worker(
     rx: std_mpsc::Receiver<OutputCommand>,
     events: UnboundedSender<OutputEvent>,
     tap: Arc<crate::pcm_tap::PcmTap>,
+    progress: Arc<output_progress::LatestProgress>,
 ) {
     let mut player: Option<Playback> = None;
     let mut sink: Option<rodio::MixerDeviceSink> = None;
@@ -1246,6 +1259,7 @@ fn run_worker(
     let mut reconnect: Option<Reconnect> = None;
     let mut volume = 1.0f32;
     let mut last_position = Instant::now();
+    let mut progress_watch = OutputProgressWatch::default();
     let mut pending = None;
     loop {
         let command = pending
@@ -1705,6 +1719,23 @@ fn run_worker(
             Err(std_mpsc::RecvTimeoutError::Disconnected) => break,
             Err(std_mpsc::RecvTimeoutError::Timeout) => {}
         }
+        if let Some(current) = player.as_ref() {
+            if progress_watch.stalled(
+                current.active_generation.load(Ordering::Acquire),
+                current.samples.load(Ordering::Relaxed),
+                !current.paused
+                    && !current.buffering.load(Ordering::Relaxed)
+                    && !current.player.empty(),
+                Instant::now(),
+            ) {
+                *device_error.lock().unwrap_or_else(|e| e.into_inner()) =
+                    Some("audio output stopped consuming samples".into());
+                device_lost.store(true, Ordering::Relaxed);
+                progress_watch.observed = None;
+            }
+        } else {
+            progress_watch.observed = None;
+        }
         if device_lost.swap(false, Ordering::Relaxed) {
             if let Some(mut current) = player.take() {
                 let reason = device_error
@@ -1843,10 +1874,9 @@ fn run_worker(
                     + samples as f64
                         / (current.sample_rate.load(Ordering::Relaxed) as f64
                             * current.channels.load(Ordering::Relaxed) as f64);
-                let _ = events.send(OutputEvent::Position {
-                    generation: current.active_generation.load(Ordering::Relaxed),
-                    seconds,
-                });
+                if progress.update(current.active_generation.load(Ordering::Relaxed), seconds) {
+                    let _ = events.send(OutputEvent::ProgressReady);
+                }
                 last_position = Instant::now();
             }
             if current.player.empty() {
@@ -2183,7 +2213,7 @@ fn start_playback_with_reserve_policy_and_gain(
         output_channels,
         reserve_policy,
     );
-    let (sample_tx, sample_rx) = std_mpsc::sync_channel(16);
+    let (sample_tx, sample_rx) = std_mpsc::sync_channel(crate::playback_policy::PCM_BLOCK_CAPACITY);
     let samples = Arc::new(AtomicU64::new(0));
     // The queue and clock use the immutable output-device format. Decoder metadata
     // lives separately because a source may begin at a different rate/channel count.
@@ -2287,7 +2317,7 @@ fn start_playback_with_reserve_policy_and_gain(
         reserve_diagnostics: None,
         decoder_session: decoder_session.clone(),
         rx: sample_rx,
-        pending: VecDeque::new(),
+        pending: VecDeque::with_capacity(4096),
         channels: output_channels,
         sample_rate: output_rate,
         samples_played: samples.clone(),
@@ -2399,7 +2429,7 @@ fn append_source(
         u8,
     )>,
 ) -> Arc<AtomicBool> {
-    let (tx, rx) = std_mpsc::sync_channel(16);
+    let (tx, rx) = std_mpsc::sync_channel(crate::playback_policy::PCM_BLOCK_CAPACITY);
     let cancel = Arc::new(AtomicBool::new(false));
     let duration_bits = Arc::new(AtomicU64::new(f64::NAN.to_bits()));
     let decoder_diagnostics = Arc::new(std::sync::Mutex::new(None));
@@ -2486,7 +2516,7 @@ fn append_source(
         reserve_diagnostics: None,
         decoder_session,
         rx,
-        pending: VecDeque::new(),
+        pending: VecDeque::with_capacity(4096),
         channels: output_channels,
         sample_rate: output_rate,
         samples_played,
@@ -2821,9 +2851,9 @@ impl QueuedSamples {
 
     fn start_diagnostics(&self) -> Option<DecoderDiagnostics> {
         self.decoder_diagnostics
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
+            .try_lock()
+            .ok()
+            .and_then(|value| value.clone())
             .map(|mut value| {
                 value.startup_reserve = self.reserve_diagnostics.clone();
                 value
@@ -4236,7 +4266,7 @@ fn decode_ffmpeg_with_diagnostics(
         "-loglevel",
         "error",
         "-rw_timeout",
-        "5000000",
+        crate::playback_policy::NETWORK_READ_TIMEOUT_US,
     ]);
     // Offline TCP fixtures must stay on the bound loopback socket even when
     // the host environment supplies an HTTP proxy. Production is unchanged.
@@ -4590,6 +4620,21 @@ mod tests {
     use std::io::Write;
     use std::net::TcpListener;
 
+    #[test]
+    fn diagnostic_contention_does_not_block_actual_pcm_consumption() {
+        let mut voice = queued_gain_fixture(48_000, 2, 0.0);
+        voice.pending.push_back(0.25);
+        let diagnostics = voice.decoder_diagnostics.clone();
+        let held = diagnostics.lock().unwrap();
+        let (sent, received) = std_mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            let _ = sent.send(voice.next());
+        });
+        let result = received.recv_timeout(Duration::from_millis(250));
+        drop(held);
+        worker.join().unwrap();
+        assert_eq!(result.unwrap(), Some(0.25));
+    }
     fn queued_gain_fixture(sample_rate: u32, channels: u16, initial_gain_db: f32) -> QueuedSamples {
         queued_gain_fixture_with_observers(sample_rate, channels, initial_gain_db).0
     }
