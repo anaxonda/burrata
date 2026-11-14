@@ -254,7 +254,7 @@ import { ObservedWaveformCache, prepareObservedWaveformBinding, type PreparedObs
   import AddRadioStationDialog from "./AddRadioStationDialog.svelte";
   import { PlaybackQueue, savePlaybackQueue, loadPlaybackQueue } from "./lib/playback-queue";
   import { applyPendingBackupPlaybackRestore, type BackupPlaybackRestoreAck, type PendingBackupPlaybackRestore } from "./lib/backup-playback-hydration";
-  import { consumeStartupPlaybackControls, persistPlaybackControlsWhenOwned } from "./lib/playback-controls";
+  import { consumeStartupPlaybackControls, persistPlaybackControlsWhenOwned, playbackToggleAction } from "./lib/playback-controls";
   import { lyricsTiming } from "./lib/lyrics-timing.svelte";
   import { startAfterBackupHydration } from "./lib/backup-startup-gate";
   import { artistPlaybackTracks } from "./lib/artist-playback";
@@ -1943,7 +1943,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       const isNew=skippedMessage!==lastSkippedTrackFailureKey;
       lastSkippedTrackFailureKey=skippedMessage;
       if(!failure && isNew)setNotice(skippedMessage, "persistent", "playbackSkip");
-    }else lastSkippedTrackFailureKey="";
+    }else {lastSkippedTrackFailureKey="";clearPlaybackSkipNotice();}
     nativeEngineEnabled=snapshot.engine==="native";nativePlaybackStatus=snapshot.status;nativePlaybackGeneration=snapshot.generation;nativeNaturalQueueEnd=snapshot.naturalQueueEnd===true;
     if (snapshot.engine !== "native") return;
     const snapshotTrack = snapshot.track ? {...autoplayMetadataLookup.peek(autoplayTrackWithLibraryMetadata(snapshot.track, tracks)),favorite:favoriteTrackIds.includes(snapshot.track.id)} : null;
@@ -4456,10 +4456,11 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
   }
   function toggleCurrentPlayback() {
 
-    if(!paused)reportQueuedPlaybackPhase("paused");
+    const action = playbackToggleAction(paused, playbackLoading);
+    if(action === "pause")reportQueuedPlaybackPhase("paused");
 
-      if (paused && nativePlaybackStatus === "ended" && nativeNaturalQueueEnd) cancelNaturalQueueRadioContinuation();
-      void nativeCommand({action:paused ? "resume" : "pause"});
+      if (action === "resume" && nativePlaybackStatus === "ended" && nativeNaturalQueueEnd) cancelNaturalQueueRadioContinuation();
+      void nativeCommand({action});
       return;
 
   }
@@ -8550,7 +8551,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
         <p>{playingTrack ? `Could not play ${playingTrack.title}.` : "Playback unavailable."}</p>
         <div class="player-error-actions">
           <InfoPopover placement="top" label="Playback error details">{playerErrorMessage}</InfoPopover>
-          <button type="button" aria-label="Retry playback" onclick={() => { if (playingTrack) void startPreview(playingTrack, true, false, queueTracks, queueIndex); }}>Retry</button>
+          <button type="button" aria-label="Retry playback" onclick={() => { if (playingTrack) void nativeCommand({action:"resume"}); }}>Retry</button>
           <button type="button" aria-label="Open playing track information" onclick={() => { infoTrack = null; openPlayerPanel("info"); }}>Track info</button>
         </div>
       </div>

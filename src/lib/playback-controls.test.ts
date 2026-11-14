@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { consumeStartupPlaybackControls, persistPlaybackControlsWhenOwned, readPlaybackControls } from "./playback-controls";
+import { consumeStartupPlaybackControls, persistPlaybackControlsWhenOwned, readPlaybackControls, playbackToggleAction } from "./playback-controls";
+
+it("pauses loading playback even when the backend reports buffering as paused", () => {
+  expect(playbackToggleAction(true, true)).toBe("pause");
+  expect(playbackToggleAction(false, true)).toBe("pause");
+  expect(playbackToggleAction(false, false)).toBe("pause");
+  expect(playbackToggleAction(true, false)).toBe("resume");
+});
 
 describe("persistent playback controls", () => {
   it("loads durable controls on a second cold start after the restore marker is gone", () => {

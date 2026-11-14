@@ -12799,6 +12799,7 @@ mod tests {
     #[test]
     fn failed_resume_clears_stale_attempt_metrics_but_paused_resume_keeps_them() {
         let mut state = State::default();
+        state.position = 37.;
         state.status = "paused".into();
         state.recovery = 2;
         state.first_audio_ms = Some(12_345);
@@ -12815,6 +12816,7 @@ mod tests {
         assert_eq!(state.first_audio_ms, None);
         assert_eq!(state.source_ready_ms, None);
         assert_eq!(state.buffering_count, 0);
+        assert_eq!(state.resume_target(), (37., false, true));
     }
 
     #[test]

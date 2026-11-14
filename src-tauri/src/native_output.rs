@@ -1547,8 +1547,7 @@ fn run_worker(
             }
             Ok(OutputCommand::Resume) => {
                 if let Some(current) = player.as_mut() {
-                    current.player.play();
-                    current.paused = false;
+                    resume_playback(current, &events);
                 } else if let Some(reconnect) = reconnect.as_mut() {
                     reconnect.paused = false;
                 }
@@ -1923,6 +1922,19 @@ fn buffering_event(current: &Playback) -> OutputEvent {
                 .snapshot(current.samples.load(Ordering::Relaxed)),
         ),
     }
+}
+
+fn resume_playback(current: &mut Playback, events: &UnboundedSender<OutputEvent>) {
+    // Pause retires the service's buffering watchdog. Re-announce an existing
+    // underrun on resume so it gets a fresh deadline, even if no PCM arrives.
+    // Retain the pending Started transition, including when PCM arrives before
+    // the worker's next poll after this notification.
+    if current.paused && current.buffering.load(Ordering::Relaxed) {
+        let _ = events.send(buffering_event(current));
+        current.buffering_reported = true;
+    }
+    current.player.play();
+    current.paused = false;
 }
 
 fn active_storage_failure_event(
@@ -6224,6 +6236,58 @@ mod tests {
             crossfade_in_progress: Arc::new(AtomicBool::new(false)),
             paused: false,
         }
+    }
+
+    #[test]
+    fn resuming_an_existing_underrun_rearms_buffering_without_losing_started() {
+        let (activation_tx, activation_rx) = std_mpsc::channel();
+        let mut current = recovery_playback_fixture(
+            AudioSource {
+                input: "fixture.wav".into(),
+                ffmpeg: "unused".into(),
+                headers: vec![],
+                decoder_hint: None,
+                cenc: None,
+            },
+            activation_rx,
+            activation_tx,
+        );
+        current.paused = true;
+        current.buffering.store(true, Ordering::Relaxed);
+        current.buffering_reported = true;
+        let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
+        resume_playback(&mut current, &events);
+        assert!(matches!(
+            received.try_recv(),
+            Ok(OutputEvent::Buffering { generation: 1, .. })
+        ));
+        assert!(!current.paused);
+        assert!(current.buffering_reported);
+        resume_playback(&mut current, &events);
+        assert!(
+            received.try_recv().is_err(),
+            "an already playing resume must not restart the watchdog"
+        );
+        current.paused = true;
+        current.buffering.store(false, Ordering::Relaxed);
+        resume_playback(&mut current, &events);
+        assert!(
+            received.try_recv().is_err(),
+            "a filled buffer must not report a new underrun"
+        );
+        assert!(
+            current.buffering_reported,
+            "the pending Started transition must remain reportable"
+        );
+        current.paused = true;
+        current.buffering.store(true, Ordering::Relaxed);
+        current.buffering_reported = false;
+        resume_playback(&mut current, &events);
+        assert!(matches!(
+            received.try_recv(),
+            Ok(OutputEvent::Buffering { .. })
+        ));
+        assert!(current.buffering_reported, "new PCM must produce Started even when resume precedes the worker's first underrun poll");
     }
 
     #[test]

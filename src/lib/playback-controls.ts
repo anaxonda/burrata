@@ -3,6 +3,11 @@ export const ENGINE_SWITCH_CONTROLS_KEY = "burrata.engine-switch-controls.v1";
 
 export interface PlaybackControls { volume: number; shuffle: boolean }
 
+/** A loading player still owns a play intent; its transport button pauses it. */
+export function playbackToggleAction(paused: boolean, loading: boolean): "pause" | "resume" {
+  return loading || !paused ? "pause" : "resume";
+}
+
 export function parsePlaybackControls(value: unknown): PlaybackControls | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const controls = value as Partial<PlaybackControls>;

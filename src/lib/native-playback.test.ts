@@ -8,6 +8,49 @@ function snapshot(revision:number,generation=2):NativePlaybackSnapshot {
 }
 
 describe("native transition ownership", () => {
+  it("hydrates a changed queue even when a newer position arrives before the full response", async () => {
+    const handlers=new Map<string,(event:{payload:unknown})=>void>();
+    let respond!: (value:NativePlaybackSnapshot)=>void;
+    const initial={...snapshot(3),queueRevision:1};
+    const invoke=vi.fn().mockResolvedValueOnce(initial).mockImplementationOnce(()=>new Promise<NativePlaybackSnapshot>(resolve=>{respond=resolve;}));
+    const listen=vi.fn(async<T>(event:string,handler:(event:{payload:T})=>void)=>{handlers.set(event,handler as (event:{payload:unknown})=>void);return ()=>{};});
+    const bridge=new NativePlaybackBridge(invoke as never,listen as never);
+    await bridge.initialize(()=>{},()=>{});
+    const replacement={...snapshot(4),queueRevision:2,queue:[track,{...track,id:"next"}]};
+    const {queue:omitted,...delta}=replacement;
+    handlers.get("native-playback-state")?.({payload:delta});
+    handlers.get("native-playback-position")?.({payload:{generation:2,revision:5,position:4}});
+    respond(replacement);
+    await Promise.resolve();await Promise.resolve();
+    expect(bridge.snapshot).toMatchObject({queueRevision:2,revision:5,position:4});
+    expect(bridge.snapshot?.queue).toEqual(replacement.queue);
+    bridge.dispose();
+  });
+  it("applies a newer pause state even if a later position event was delivered first", async () => {
+    const handlers=new Map<string,(event:{payload:unknown})=>void>();
+    const listen=vi.fn(async<T>(event:string,handler:(event:{payload:T})=>void)=>{handlers.set(event,handler as (event:{payload:unknown})=>void);return ()=>{};});
+    const bridge=new NativePlaybackBridge(vi.fn().mockResolvedValue(snapshot(3)) as never,listen as never);
+    await bridge.initialize(()=>{},()=>{});
+    handlers.get("native-playback-position")?.({payload:{generation:2,revision:5,position:4}});
+    handlers.get("native-playback-state")?.({payload:{...snapshot(4),status:"paused",paused:true,position:3.8}});
+    expect(bridge.snapshot).toMatchObject({status:"paused",paused:true,position:4,revision:5});
+    bridge.dispose();
+  });
+  it("keeps initial queue hydration independent from a newer position revision", async () => {
+    const handlers=new Map<string,(event:{payload:unknown})=>void>();
+    const replacement={...snapshot(4),queueRevision:2,queue:[track,{...track,id:"next"}]};
+    const invoke=vi.fn(async()=>{
+      handlers.get("native-playback-state")?.({payload:{...snapshot(3),queueRevision:1}});
+      handlers.get("native-playback-position")?.({payload:{generation:2,revision:5,position:4}});
+      return replacement;
+    });
+    const listen=vi.fn(async<T>(event:string,handler:(event:{payload:T})=>void)=>{handlers.set(event,handler as (event:{payload:unknown})=>void);return ()=>{};});
+    const bridge=new NativePlaybackBridge(invoke as never,listen as never);
+    const result=await bridge.initialize(()=>{},()=>{});
+    expect(result).toMatchObject({queueRevision:2,revision:5,position:4});
+    expect(result.queue).toEqual(replacement.queue);
+    bridge.dispose();
+  });
   it("forwards a bounded transition only for the current queue and rejects stale updates", () => {
     const bridge = new NativePlaybackBridge(vi.fn(), vi.fn());
     const initial = {...snapshot(5), entryId:"a", queue:[track,track], queueEntryIds:["a","b"], queueRevision:3, transition:{fromEntryId:"a",toEntryId:"b",progress:.5,private:"hidden"}};

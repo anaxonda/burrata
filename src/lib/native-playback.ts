@@ -63,6 +63,18 @@ export class NativePlaybackBridge {
   private pendingState: NativeStateEvent | null = null;
   private lifecycle = 0;
   private refreshingQueue = false;
+  private stateRevision = -1;
+  private latestPosition: NativePositionEvent | null = null;
+
+  private withPosition(snapshot: NativePlaybackSnapshot, event: NativePositionEvent): NativePlaybackSnapshot {
+    return {...snapshot,
+      revision: Math.max(snapshot.revision, event.revision ?? snapshot.revision),
+      position:event.position,
+      ...(event.duration !== undefined ? {duration:event.duration} : {}),
+      ...(event.chapter !== undefined ? {chapter:event.chapter} : {}),
+      ...(event.quality !== undefined ? {quality:event.quality} : {}),
+    };
+  }
 
   constructor(
     private invoke: <T>(command: string, args?: Record<string, unknown>) => Promise<T>,
@@ -97,13 +109,8 @@ export class NativePlaybackBridge {
         if (lifecycle !== this.lifecycle) return;
         if (!this.snapshot || payload.generation !== this.snapshot.generation ||
             payload.revision !== undefined && payload.revision < this.snapshot.revision) return;
-        this.snapshot = { ...this.snapshot,
-          ...(payload.revision !== undefined ? {revision:payload.revision} : {}),
-          position:payload.position,
-          ...(payload.duration !== undefined ? {duration:payload.duration} : {}),
-          ...(payload.chapter !== undefined ? {chapter:payload.chapter} : {}),
-          ...(payload.quality !== undefined ? {quality:payload.quality} : {}),
-        };
+        this.latestPosition = payload;
+        this.snapshot = this.withPosition(this.snapshot, payload);
         onPosition(payload);
       });
       if (lifecycle !== this.lifecycle) { stopPosition(); ensureCurrent(); }
@@ -117,7 +124,7 @@ export class NativePlaybackBridge {
         ensureCurrent();
       }
       const latest = this.snapshot as NativePlaybackSnapshot | null;
-      if (!latest || initial.revision > latest.revision || !receivedStateEvent && initial.revision >= latest.revision) {
+      if (!latest || initial.revision > this.stateRevision || !receivedStateEvent && initial.revision >= this.stateRevision) {
         this.acceptSnapshot(initial);
         onState(this.snapshot!);
       }
@@ -135,22 +142,32 @@ export class NativePlaybackBridge {
 
   acceptSnapshot(snapshot: NativeStateEvent): boolean {
     snapshot = {...snapshot, failure:nativeSnapshotFailure(snapshot), paused:snapshot.status === "failed" || snapshot.paused};
-    if (this.snapshot && snapshot.revision < this.snapshot.revision) return false;
+    // Position messages have their own delivery order. They must not suppress
+    // an unseen pause, buffering state or queue carried by an earlier revision.
+    if (snapshot.revision < this.stateRevision) return false;
+    if (!Array.isArray(snapshot.queue) && (!this.snapshot ||
+        snapshot.queueRevision !== undefined && snapshot.queueRevision !== this.snapshot.queueRevision)) {
+      if (!this.pendingState || snapshot.revision >= this.pendingState.revision) this.pendingState = snapshot;
+      return false;
+    }
     const entryIds = snapshot.queueEntryIds ?? (this.snapshot && snapshot.queueRevision === this.snapshot.queueRevision ? this.snapshot.queueEntryIds : undefined);
     const queue = Array.isArray(snapshot.queue) ? snapshot.queue : this.snapshot?.queue;
     const owned = queue && entryIds && queue.length === entryIds.length && Number.isSafeInteger(snapshot.currentIndex) && entryIds[snapshot.currentIndex] === snapshot.entryId;
     snapshot = {...snapshot, queueEntryIds:entryIds, transition:owned ? nativePlaybackTransition(snapshot.transition, snapshot.entryId, entryIds) : null};
     if (!Array.isArray(snapshot.queue)) {
-      if (!this.snapshot || snapshot.queueRevision !== undefined && snapshot.queueRevision !== this.snapshot.queueRevision) {
-        if (!this.pendingState || snapshot.revision >= this.pendingState.revision) this.pendingState = snapshot;
-        return false;
-      }
-      this.snapshot = {...snapshot,queue:this.snapshot.queue};
+      this.stateRevision = snapshot.revision;
+      this.snapshot = {...snapshot,queue:this.snapshot!.queue};
     } else {
+      this.stateRevision = snapshot.revision;
       this.snapshot = snapshot as NativePlaybackSnapshot;
       const pending = this.pendingState;
       this.pendingState = null;
       if (pending && pending.revision > snapshot.revision) this.acceptSnapshot(pending);
+    }
+    const position = this.latestPosition;
+    if (position?.generation !== this.snapshot.generation) this.latestPosition = null;
+    else if (position.revision !== undefined && position.revision > this.snapshot.revision) {
+      this.snapshot = this.withPosition(this.snapshot, position);
     }
     return true;
   }
@@ -164,6 +181,8 @@ export class NativePlaybackBridge {
     this.stopState = undefined; this.stopPosition = undefined;
     this.pendingState = null;
     this.refreshingQueue = false;
+    this.stateRevision = -1;
+    this.latestPosition = null;
     this.lifecycle++;
     for (const stop of stops) { try { stop?.(); } catch { /* Continue releasing the remaining listener. */ } }
   }

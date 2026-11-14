@@ -8262,14 +8262,27 @@ describe("native playback frontend", () => {
     await settle();
     expect(document.querySelector(".banner.notice")?.textContent).toContain("No playable audio match");
     expect(document.querySelector(".player-error")).toBeNull();
+    emitNative({ ...next, revision: 7, queueRevision: 3, diagnostics: { lastSourceFailure: null, lastSkippedTrackFailure: null } });
+    await settle();
+    expect(document.querySelector(".banner.notice")).toBeNull();
   });
 
-  it("retries the active duplicate occurrence in a native queue", async () => {
+  it.each(["resolving", "buffering"] as const)("pauses %s playback when the loading button is clicked", async status => {
+    mountNative(makeNativeSnapshot({status,paused:true,position:37}));
+    await settle();
+    mocks.call.mockClear();
+    document.querySelector<HTMLButtonElement>('[aria-label="Pause loading playback"]')!.click();
+    await settle();
+    expect(mocks.call).toHaveBeenCalledWith("playback_command", {command:expect.objectContaining({action:"pause"})});
+    expect(mocks.call.mock.calls.some(([name,args])=>name==="playback_command" && (args as {command?:{action?:string}})?.command?.action==="resume")).toBe(false);
+  });
+
+  it("retries the active duplicate occurrence without rebuilding its queue or resetting its position", async () => {
     const duplicateQueue = [savedTrack, secondTrack, savedTrack];
     mountNative(makeNativeSnapshot({
       revision: 49, generation: 10, status: "failed", trackId: savedTrack.id, track: savedTrack,
       queue: duplicateQueue, queueRevision: 51, queueEntryIds: ["saved-first-occurrence", "second-track-occurrence", "saved-active-occurrence"],
-      currentIndex: 2, paused: false, playerMessage: "Unavailable",
+      currentIndex: 2, paused: false, position: 37, playerMessage: "Unavailable",
       diagnostics: { lastSourceFailure: { trackId: savedTrack.id, title: savedTrack.title, artist: savedTrack.artist, reason: "No eligible audio source" } },
     }));
     await settle();
@@ -8277,12 +8290,12 @@ describe("native playback frontend", () => {
     document.querySelector<HTMLButtonElement>('[aria-label="Retry playback"]')!.click();
     await settle();
     expect(mocks.call).toHaveBeenCalledWith("playback_command", { command: expect.objectContaining({
-      action: "select", index: 2, expectedQueueRevision: 51, expectedEntryId: "saved-active-occurrence",
+      action: "resume",
     }) });
     const selectedIndexes = mocks.call.mock.calls
       .filter(([command, args]) => command === "playback_command" && (args as { command?: { action?: string } })?.command?.action === "select")
       .map(([, args]) => (args as { command: { index: number } }).command.index);
-    expect(selectedIndexes).toEqual([2]);
+    expect(selectedIndexes).toEqual([]);
   });
 
   it("opens an active source without pausing or seeking when source-open preferences are off", async () => {

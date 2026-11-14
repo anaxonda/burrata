@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "candidateVersion": "0.1.44",
+  "reviewedBaseCommit": "f7e0e228d6841e75351ae3f4e25676442b0770f7",
+  "scope": [
+    "Source identity, DRM fallback and fresh signed-URL recovery",
+    "Startup, seek, pause, resume and recovery deadline ownership",
+    "Device progress, PCM buffering and audio callback work",
+    "Queue handoff, speculative preparation and cancellation",
+    "Checkpoint persistence and settings access during playback",
+    "Frontend state/position ordering, loading controls, retry and error notices"
+  ],
+  "findings": [
+    {
+      "problem": "Loading and buffering report paused=true, so the button labelled Pause loading playback sent Resume.",
+      "resolution": "Choose Pause from loading intent, independently of the paused observation.",
+      "coverage": "Actual App DOM integration tests for resolving and buffering, plus transport-control tests."
+    },
+    {
+      "problem": "Retry rebuilt the current selection and restarted it at zero.",
+      "resolution": "Use Native Resume to retain the active occurrence, source selection and interrupted position.",
+      "coverage": "Duplicate-occurrence App integration test and native resume-target assertion."
+    },
+    {
+      "problem": "A position update could advance the revision past an unseen pause state or full queue response, leaving stale UI state.",
+      "resolution": "Track accepted state revisions independently and retain newer positions for the same generation.",
+      "coverage": "Deferred queue hydration, reordered pause/position delivery and initial hydration regression tests."
+    },
+    {
+      "problem": "External playback requests could leave an obsolete persistent skip banner after Native cleared its failure.",
+      "resolution": "Clear only the playback-owned notice when the corresponding backend failure disappears.",
+      "coverage": "App integration test for clearing a skip notice on the next external playback state."
+    },
+    {
+      "problem": "Pause retired the buffering watchdog; resuming the same underrun did not necessarily create a new buffering event.",
+      "resolution": "Re-announce the underrun on resume and retain the pending Started transition even if PCM arrives before the next worker poll.",
+      "coverage": "Native regression using the real player control helper without audio hardware; live pause/resume qualification required before publication."
+    }
+  ],
+  "localValidation": {
+    "frontendTestsPassed": 1650,
+    "frontendTestsFailed": 0,
+    "typecheckErrors": 0,
+    "typecheckWarnings": 0,
+    "contractChecksPassed": 8,
+    "releaseWorkflowChecksPassed": 22,
+    "nativeBuildPolicy": "Native compilation and the full native suite run in GitHub CI to avoid local memory pressure."
+  },
+  "releaseGates": [
+    "Native platform builds, complete test suites, packaged tool and installer qualification",
+    "Actual Linux candidate playback, including pause/resume of an underrun",
+    "Responsive playback UI inspection and retention of verified DRM fallback behavior",
+    "Review exact draft inventories, source commit and asset checksums before publication"
+  ],
+  "knownQualificationLimit": "Windows hosted-runner audio-output consumption may be explicitly deferred only for the existing narrow output_device_unavailable condition. Such evidence remains UNVERIFIED, never PCM success. Physical customer machines and OS security prompts remain outside hosted-runner qualification."
+}
