@@ -1,0 +1,156 @@
+{
+  "schemaVersion": 1,
+  "completedAtUtc": "2026-11-14T18:47:48.520867+00:00",
+  "verdict": "PASS_REPORTED_LINUX_REPRODUCTIONS",
+  "sourceCommit": "626d537dc35ceecf29c622cef6969a900e23051b",
+  "githubRun": {
+    "id": 43623019286,
+    "url": "https://github.com/anaxonda/burrata/actions/runs/43623019286",
+    "conclusion": "success",
+    "linuxOnly": true,
+    "publishedRelease": false,
+    "nativeUnitTestsPassed": 2801,
+    "nativeUnitTestsFailed": 0,
+    "nativeUnitTestsIgnored": 67,
+    "matchingGatePassed": true,
+    "recoveryRegressionChecksPassed": true,
+    "debAppImageAndRpmSmokePassed": true
+  },
+  "artifact": {
+    "name": "native-playback-deb-626d537dc35ceecf29c622cef6969a900e23051b",
+    "package": "Burrata_0.1.43_amd64.deb",
+    "installerSha256": "10840440438e704a785331620304f066e2d7d16a2284888e3bd74ce3fb474fcb",
+    "executableSha256": "5d86dcd4dc9b2118516aac37f801624760b102da0bb3c6cf999c2cf4ae4c4921"
+  },
+  "environment": {
+    "target": "x86_64-unknown-linux-gnu",
+    "ciOperatingSystem": "Ubuntu 22.04",
+    "playbackOperatingSystem": "Arch Linux",
+    "backend": "native",
+    "launchMethod": "Extracted exact CI DEB payload with bundled tools; separate temporary profile and private virtual audio sink",
+    "matchingLevel": "balanced",
+    "playbackStartupTimeoutSeconds": 20,
+    "backgroundSourcePreparation": true,
+    "preferredStreamingSource": "youtube",
+    "streamingFallbackSources": [
+      "youtube"
+    ],
+    "playlistMirroringEnabled": false,
+    "cacheScope": "Fresh isolated profile; sequential cases reuse normal app caches. Injected-stall trial is a warm replay.",
+    "harnessSha256": "560cd505a9d001f2c069da7c66bff3b1390538f88986851281797e2a19d88cdc"
+  },
+  "reportedCases": [
+    {
+      "title": "I Just Wanna Know (feat. Ty Dolla $ign & Cardi B)",
+      "requestedTrackId": "soundcloud:2380644396",
+      "outcome": "completed",
+      "expectedDurationSeconds": 226.232,
+      "consumedPcmEndSeconds": 226.19573696145125,
+      "cleanDecodedEofVerified": true,
+      "naturalQueueEnd": true,
+      "recoveryCount": 0,
+      "serviceFirstAudioMs": 18756,
+      "sourceProvider": "youtube",
+      "verifiedSourcePageUrl": "https://www.youtube.com/watch?v=xLYVp_i_bYA",
+      "recordingProof": "verified_extractor"
+    },
+    {
+      "title": "WNBA",
+      "requestedTrackId": "catalog:musicbrainz:82d38a42-e0b1-42cc-93b3-c49a4a742c4d:1:2:1:57dc483c-05e3-4fc9-ba8f-370e9000dcb1",
+      "outcome": "completed",
+      "expectedDurationSeconds": 178,
+      "consumedPcmEndSeconds": 178.0839909297052,
+      "cleanDecodedEofVerified": true,
+      "naturalQueueEnd": true,
+      "recoveryCount": 0,
+      "serviceFirstAudioMs": 11420,
+      "sourceProvider": "youtube",
+      "verifiedSourcePageUrl": "https://www.youtube.com/watch?v=2bBUYJblpx4",
+      "recordingProof": "verified_extractor"
+    },
+    {
+      "title": "Slap the City",
+      "requestedTrackId": "catalog:musicbrainz:82d38a42-e0b1-42cc-93b3-c49a4a742c4d:1:3:1:3a79e5c9-a23d-439b-a1d8-ae3ae80e39ba",
+      "outcome": "completed",
+      "expectedDurationSeconds": 202,
+      "consumedPcmEndSeconds": 202.1166439909297,
+      "cleanDecodedEofVerified": true,
+      "naturalQueueEnd": true,
+      "recoveryCount": 0,
+      "serviceFirstAudioMs": 11982,
+      "sourceProvider": "youtube",
+      "verifiedSourcePageUrl": "https://www.youtube.com/watch?v=dNWeAdH4YuU",
+      "recordingProof": "verified_extractor"
+    },
+    {
+      "title": "Bacc of the Bach",
+      "requestedTrackId": "musicbrainz:7161e81d-0d0a-4f5e-af8e-5ba6f1109677",
+      "outcome": "completed",
+      "expectedDurationSeconds": 197.9,
+      "consumedPcmEndSeconds": 197.91383219954648,
+      "cleanDecodedEofVerified": true,
+      "naturalQueueEnd": true,
+      "recoveryCount": 0,
+      "serviceFirstAudioMs": 10359,
+      "sourceProvider": "youtube",
+      "verifiedSourcePageUrl": "https://www.youtube.com/watch?v=rpCswezRrLs",
+      "recordingProof": "verified_extractor"
+    }
+  ],
+  "drmFallback": {
+    "requestedTrackId": "soundcloud:2380644396",
+    "initialProvider": "soundcloud",
+    "extractorReason": "drm_protected",
+    "fallbackProvider": "youtube",
+    "verifiedSourcePageUrl": "https://www.youtube.com/watch?v=xLYVp_i_bYA",
+    "completedToCleanEof": true
+  },
+  "injectedStalls": {
+    "method": "SIGSTOP/SIGCONT only of the uniquely verified, actively writing FFmpeg child of the isolated app. Prepared successor decoders excluded; resume guaranteed in cleanup.",
+    "requestedTrackId": "catalog:musicbrainz:82d38a42-e0b1-42cc-93b3-c49a4a742c4d:1:2:1:57dc483c-05e3-4fc9-ba8f-370e9000dcb1",
+    "successorTrackId": "catalog:musicbrainz:82d38a42-e0b1-42cc-93b3-c49a4a742c4d:1:3:1:3a79e5c9-a23d-439b-a1d8-ae3ae80e39ba",
+    "shortStall": {
+      "pauseSeconds": 9,
+      "recoveryAttempts": 0,
+      "sameDecoderRetained": true
+    },
+    "severeStall": {
+      "pauseSeconds": 24,
+      "recoveryAttemptsObserved": 1,
+      "trigger": "steady_buffering_timeout",
+      "positionAtRecoverySeconds": 64.09285714285714,
+      "encounteredHttpStatus": 403,
+      "recordingAssessment": "exact/accept",
+      "verifiedSameVideoTransportRescueSucceeded": true,
+      "verifiedSourcePageUrl": "https://www.youtube.com/watch?v=2bBUYJblpx4",
+      "resolverElapsedMsAtRescueCompletion": 6687,
+      "cleanDecodedEofSeconds": 178.0839909297052,
+      "sameFullLengthAsUninterruptedControl": true,
+      "earlySkipObserved": false
+    },
+    "naturalSuccessorStarted": true,
+    "successorFirstAudioMs": 1047,
+    "successorObservedPlayingSeconds": 5.045238095238095,
+    "successorIntentionallyPausedAfterQualification": true
+  },
+  "networkGapRegression": {
+    "oldFiveSecondReadTimeoutReproducedTruncation": true,
+    "newTwentySecondReadTimeoutCompletedThirtySecondFixtureAcrossSixAndTwelveSecondGaps": true
+  },
+  "outputProof": {
+    "route": "candidate-only null sink monitor",
+    "capturedSeconds": 1.1145578231292517,
+    "rms": 0.5122723932136422,
+    "peak": 1.0219709873199463,
+    "rawAudioRetained": false
+  },
+  "cleanup": {
+    "candidateAndBundledHelperProcessesStopped": true,
+    "privateAudioModuleRemoved": true,
+    "systemInstallationReplaced": false
+  },
+  "limits": [
+    "The affected macOS machine, hardware and network have not been tested.",
+    "Four named reported recordings plus one additional full WNBA fault trial; this does not establish a catalog-wide reliability rate."
+  ]
+}

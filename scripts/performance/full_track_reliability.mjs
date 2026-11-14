@@ -6,6 +6,13 @@ import {randomUUID} from 'node:crypto';
 import {writeFile} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
 
+export function completionOutcome(state, result) {
+  if (!result.started || !state.naturalQueueEnd) return 'unverified_end';
+  if (!Number.isFinite(result.expectedDurationSeconds) || result.expectedDurationSeconds <= 0) return 'missing_expected_duration';
+  if (!Number.isFinite(state.position) || state.position < result.expectedDurationSeconds - 3) return 'early_end';
+  return 'completed';
+}
+
 export function summarize(results) {
   const timings = results.filter(r => Number.isFinite(r.serviceFirstAudioMs))
     .map(r => r.serviceFirstAudioMs).sort((a, b) => a - b);
@@ -49,7 +56,8 @@ async function main() {
         const state = await call('playback_state', {limit: 1});
         if (!selected && state.trackId === trackId && state.queuedOperationId === result.operationId) {
           selected = true;
-          if (Number.isFinite(state.duration) && state.duration > 0) deadline = Math.min(deadline, Date.now() + (state.duration + 180) * 1000);
+          result.expectedDurationSeconds = state.track?.durationSeconds ?? state.duration;
+          if (Number.isFinite(result.expectedDurationSeconds) && result.expectedDurationSeconds > 0) deadline = Math.min(deadline, Date.now() + (result.expectedDurationSeconds + 180) * 1000);
         }
         if (selected && state.trackId !== trackId) { result.outcome = 'unexpected_transition'; break; }
         if (!selected && Date.now() > startupDeadline) { result.outcome = 'start_not_selected'; break; }
@@ -60,13 +68,19 @@ async function main() {
           result.samples.push({at: Date.now(), status: state.status, position: state.position,
             generation: state.generation, bufferingCount: d.bufferingCount, recoveryCount: d.recoveryCount});
           if (result.samples.length > 2000) result.samples.shift();
-          result.lastRecovery = d.lastRecovery;
-          result.failure = state.failure;
-          if (state.status === 'ended') { result.outcome = result.started && state.naturalQueueEnd ? 'completed' : 'unverified_end'; break; }
+          result.lastRecovery = d.lastRecovery ?? result.lastRecovery;
+          result.failure = state.failure ?? d.lastSourceFailure ?? result.failure;
+          result.recoveryCount = Math.max(result.recoveryCount ?? 0, d.recoveryCount ?? 0);
+          result.bufferingCount = Math.max(result.bufferingCount ?? 0, d.bufferingCount ?? 0);
+          result.finalPositionSeconds = state.position;
+          result.naturalQueueEnd = state.naturalQueueEnd;
+          result.sourceProvider = state.candidate?.provider;
+          if (state.status === 'ended') { result.outcome = completionOutcome(state, result); break; }
           if (state.status === 'failed') { result.outcome = 'failed'; break; }
           if (state.status === 'paused') { result.outcome = 'interrupted'; break; }
           if (!result.started && Date.now() > startupDeadline) { result.outcome = 'startup_timeout'; break; }
           if (result.started && Date.now() - progressedAt > 90000) { result.outcome = 'no_output_progress'; break; }
+          if (result.samples.length % 10 === 0) await save();
         }
         await new Promise(resolve => setTimeout(resolve, 1000));
       }

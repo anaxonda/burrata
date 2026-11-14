@@ -1,6 +1,13 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {summarize} from './full_track_reliability.mjs';
+import {completionOutcome, summarize} from './full_track_reliability.mjs';
+test('clean EOF must cover the requested duration to qualify as completion', () => {
+  const result = {started: true, expectedDurationSeconds: 226.232};
+  assert.equal(completionOutcome({naturalQueueEnd: true, position: 15}, result), 'early_end');
+  assert.equal(completionOutcome({naturalQueueEnd: false, position: 226.195}, result), 'unverified_end');
+  assert.equal(completionOutcome({naturalQueueEnd: true, position: 226.195}, result), 'completed');
+  assert.equal(completionOutcome({naturalQueueEnd: true, position: 226.195}, {started: true}), 'missing_expected_duration');
+});
 test('failed starts and interrupted songs stay in reliability denominators', () => {
   const report = summarize([
     {started: false, outcome: 'startup_timeout'},
