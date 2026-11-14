@@ -1859,7 +1859,7 @@ fn run_worker(
                         .clone();
                 }
                 let _ = events.send(OutputEvent::Started {
-                    generation: current.active_generation.load(Ordering::Relaxed),
+                    generation: current.generation,
                     duration: current.source_duration,
                     sample_rate: current.source_sample_rate,
                     channels: current.source_channels,
@@ -1914,7 +1914,9 @@ fn run_worker(
 
 fn buffering_event(current: &Playback) -> OutputEvent {
     OutputEvent::Buffering {
-        generation: current.active_generation.load(Ordering::Relaxed),
+        // Callback adoption can precede the worker's Activation message. The
+        // diagnostics still belong to the worker's adopted source.
+        generation: current.generation,
         diagnostics: Some(
             current
                 .decoder_session
@@ -6288,6 +6290,10 @@ mod tests {
             Ok(OutputEvent::Buffering { .. })
         ));
         assert!(current.buffering_reported, "new PCM must produce Started even when resume precedes the worker's first underrun poll");
+        current.paused = true;
+        current.active_generation.store(2, Ordering::Release);
+        resume_playback(&mut current, &events);
+        assert!(matches!(received.try_recv(), Ok(OutputEvent::Buffering { generation: 1, .. })), "callback adoption must not relabel the previous source's diagnostics as successor generation 2");
     }
 
     #[test]

@@ -42,6 +42,11 @@
       "coverage": "Native resume-budget regression plus live pause/resume of an induced underrun before publication."
     }
   ],
+  "additionalOwnershipFinding": {
+    "problem": "The callback may adopt a successor before the worker receives its metadata; status notifications could attach previous-source metadata to the new generation.",
+    "resolution": "Bind buffering diagnostics and worker Started metadata to the worker's adopted source generation. Global consumed-position counters retain their existing ownership.",
+    "coverage": "Native resume regression advances the callback generation before worker adoption and rejects relabelled source diagnostics."
+  },
   "localValidation": {
     "frontendTestsPassed": 1650,
     "frontendTestsFailed": 0,
