@@ -1,0 +1,213 @@
+{
+  "schemaVersion": 1,
+  "version": "0.1.44",
+  "sourceCommit": "4402fb6a0739b31753248e453fa90612b5f6b8b4",
+  "runId": 43639237305,
+  "runUrl": "https://github.com/anaxonda/burrata/actions/runs/43639237305",
+  "published": true,
+  "audit": "docs/verification/playback-architecture-audit-0.1.44.json",
+  "validation": {
+    "frontend": {
+      "frontendTestsPassed": 1650,
+      "typecheckErrors": 0,
+      "typecheckWarnings": 0,
+      "contractsPassed": 8,
+      "releaseWorkflowTestsPassed": 22,
+      "productionFrontendBuildPassed": true,
+      "secretScanPassed": true
+    },
+    "nativeUnitSuites": {
+      "linux": {
+        "passed": 2803,
+        "ignored": 67
+      },
+      "macOS": {
+        "passed": 2758,
+        "ignored": 61
+      },
+      "windows": {
+        "passed": 2670,
+        "ignored": 61
+      }
+    },
+    "ciConclusion": "success",
+    "allInstallerChecksPassedWithDocumentedWindowsAudioDeferral": true
+  },
+  "reportedRecordings": [
+    {
+      "trackId": "soundcloud:2380644396",
+      "outcome": "completed",
+      "expectedDurationSeconds": 226.232,
+      "finalPositionSeconds": 226.19573696145125,
+      "firstAudioMs": 12314,
+      "recoveryCount": 0
+    },
+    {
+      "trackId": "catalog:musicbrainz:82d38a42-e0b1-42cc-93b3-c49a4a742c4d:1:2:1:57dc483c-05e3-4fc9-ba8f-370e9000dcb1",
+      "outcome": "completed",
+      "expectedDurationSeconds": 178,
+      "finalPositionSeconds": 178.0839909297052,
+      "serviceFirstAudioMs": 10970,
+      "recoveryCount": 0
+    },
+    {
+      "trackId": "catalog:musicbrainz:82d38a42-e0b1-42cc-93b3-c49a4a742c4d:1:3:1:3a79e5c9-a23d-439b-a1d8-ae3ae80e39ba",
+      "outcome": "completed",
+      "expectedDurationSeconds": 202,
+      "finalPositionSeconds": 202.1166439909297,
+      "serviceFirstAudioMs": 11027,
+      "recoveryCount": 0
+    },
+    {
+      "trackId": "musicbrainz:7161e81d-0d0a-4f5e-af8e-5ba6f1109677",
+      "outcome": "completed",
+      "expectedDurationSeconds": 197.9,
+      "finalPositionSeconds": 197.91383219954648,
+      "serviceFirstAudioMs": 9478,
+      "recoveryCount": 0
+    }
+  ],
+  "drm": {
+    "observedReason": "drm_protected",
+    "fallback": "https://www.youtube.com/watch?v=xLYVp_i_bYA",
+    "recordingIdentityVerified": true,
+    "naturalEof": true,
+    "observerNote": "Terminal observer ended at 127.68s; playback continued independently. Native clean_eof and subsequent playback_state ended/naturalQueueEnd=true observed at 226.19573696145125s."
+  },
+  "controlledRecovery": {
+    "outcome": "primary_completed_and_successor_playing",
+    "lastPrimaryObservedPosition": 177.64174603174604,
+    "successorFirstAudioMs": 1049,
+    "faults": [
+      {
+        "targetPosition": 20,
+        "pauseSeconds": 9,
+        "beforePosition": 20.49047619047619,
+        "beforeRecoveryCount": 0,
+        "operationId": "77018348-c3d9-48c0-aace-c3f56b599bd3",
+        "activeDecoderWriteDelta": 278528,
+        "decoderReplacedDuringPause": false
+      },
+      {
+        "targetPosition": 60,
+        "pauseSeconds": 24,
+        "beforePosition": 60.394126984126984,
+        "beforeRecoveryCount": 0,
+        "operationId": "77018348-c3d9-48c0-aace-c3f56b599bd3",
+        "activeDecoderWriteDelta": 294912,
+        "decoderReplacedDuringPause": true
+      },
+      {
+        "targetPosition": 84,
+        "pauseSeconds": 100,
+        "beforePosition": 84.01079365079364,
+        "beforeRecoveryCount": 0,
+        "operationId": "77018348-c3d9-48c0-aace-c3f56b599bd3",
+        "activeDecoderWriteDelta": 262144,
+        "intentionalPauseExpected": true,
+        "pausePositionSeconds": 87.91079365079365,
+        "pauseDurationSeconds": 40,
+        "resumeRequestedAtUnixMs": 1794692777328,
+        "resumeCommandMs": 7499,
+        "resumedAtUnixMs": 1794692784827,
+        "resumeToRecoveredAudioMs": 8003,
+        "decoderReplacedDuringPause": true
+      }
+    ],
+    "realHttp403ObservedAndRecovered": true,
+    "http403EvidenceOperationId": "63d7ce3a-f729-4dbc-a6b6-af704d882442",
+    "originalTimingHarnessNote": "First media-command observer used a 10-second timeout although the API waits for audio startup (45 seconds maximum). Playback recovered and handed off; the complete timing run was repeated with a 65-second observation bound and passed.",
+    "noUnexpectedSkip": true
+  },
+  "ui": {
+    "actualAppCaptured": true,
+    "manuallyViewed": true,
+    "checks": [
+      {
+        "file": "layout-1280.json",
+        "viewport": {
+          "height": 900.0,
+          "width": 1440.0
+        },
+        "findings": []
+      },
+      {
+        "file": "layout-narrow.json",
+        "viewport": {
+          "height": 600.0,
+          "width": 720.0
+        },
+        "findings": []
+      },
+      {
+        "file": "layout-buffering.json",
+        "viewport": {
+          "height": 600.0,
+          "width": 720.0
+        },
+        "findings": []
+      },
+      {
+        "file": "layout-paused.json",
+        "viewport": {
+          "height": 600.0,
+          "width": 720.0
+        },
+        "findings": []
+      }
+    ],
+    "observations": [
+      "Loading and recovering show Pause.",
+      "Intentional paused underrun shows Play and holds the playhead.",
+      "Long featured-artist title truncates in narrow footer.",
+      "Transport and seek controls remain usable at 720x600."
+    ],
+    "windowManagerNote": "Tiling initially ignored resize; only the owned test window was floated for actual 720x600 inspection."
+  },
+  "pcm": {
+    "samples": 98304,
+    "seconds": 1.1145578231292517,
+    "rms": 0.38376364471801977,
+    "rawAudioRetained": false
+  },
+  "assets": {
+    "sourceCommit": "4402fb6a0739b31753248e453fa90612b5f6b8b4",
+    "runId": 43639237305,
+    "runConclusion": "success",
+    "mainTag": "v0.1.44",
+    "supportTag": "support-v0.1.44",
+    "mainReleaseId": 445608735,
+    "supportReleaseId": 445608608,
+    "mainAssetCount": 8,
+    "mainChecksumsMatchUploadedDigests": true,
+    "supportChecksumsMatchUploadedDigests": true,
+    "allPlatformInventoriesMatchCommit": true,
+    "testedLinuxInstallerMatchesDraft": true,
+    "testedLinuxInstallerSha256": "6a9b30b00cd0146df6cc956588509dec632164ac66444ea6325cfc1d4fc2edbb",
+    "published": true
+  },
+  "qualificationLimits": [
+    "Windows hosted runner has no output device: Native output/PCM consumption remains UNVERIFIED.",
+    "Hosted CI does not qualify customer-machine security prompts or physical audio hardware."
+  ],
+  "publicVerification": {
+    "latestTag": "v0.1.44",
+    "url": "https://github.com/anaxonda/burrata/releases/tag/v0.1.44",
+    "publishedAt": "2026-11-14T21:49:20Z",
+    "publicAnonymousApiVerified": true,
+    "assetCount": 8,
+    "publicAssetDigestsMatchTestedManifest": true,
+    "publicLinuxDownloadReadable": true,
+    "mainAndSupportTagSourceCommit": "4402fb6a0739b31753248e453fa90612b5f6b8b4",
+    "supportReleasePublic": true,
+    "supportIsPrerelease": true
+  },
+  "cleanup": {
+    "candidateAndBundledHelpersStopped": true,
+    "ownedVirtualSinkRemoved": true,
+    "temporaryProfileRemoved": true,
+    "extractedPayloadRemoved": true,
+    "installerAndEvidenceRetained": true,
+    "systemInstallationReplaced": false
+  }
+}
