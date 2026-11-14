@@ -35,6 +35,11 @@
       "problem": "Pause retired the buffering watchdog; resuming the same underrun did not necessarily create a new buffering event.",
       "resolution": "Re-announce the underrun on resume and retain the pending Started transition even if PCM arrives before the next worker poll.",
       "coverage": "Native regression using the real player control helper without audio hardware; live pause/resume qualification required before publication."
+    },
+    {
+      "problem": "Resume after a recent stall could start a source-refresh deadline before buffering grace, leaving too little time for a fresh signed URL.",
+      "resolution": "Ready decoders start any future recovery budget at the next failure; restarted decoders receive a fresh bounded recovery opportunity while first startup retains its configured limit.",
+      "coverage": "Native resume-budget regression plus live pause/resume of an induced underrun before publication."
     }
   ],
   "localValidation": {

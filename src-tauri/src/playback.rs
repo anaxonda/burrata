@@ -4041,12 +4041,7 @@ impl PlaybackService {
                     let mut seek_watchdog = None;
                     self.change(|s| {
                         self.inner.audible.send_replace(s.volume > 0.);
-                        if has_native_stall_history(s) {
-                            let now = Instant::now();
-                            s.recovery_deadline = Some(now + s.startup_budget);
-                            s.recovered_audio_since = Some((now, s.position));
-                            s.healthy_output_since = Some((now, s.position, s.seek_serial));
-                        }
+                        arm_native_stall_resume(s, Instant::now(), true);
                         if pending_seek.is_some() {
                             arm_resumed_seek_metrics(s, Instant::now());
                             s.seek_watchdog_epoch = s.seek_watchdog_epoch.wrapping_add(1);
@@ -4086,11 +4081,7 @@ impl PlaybackService {
                     if continuing {
                         self.change(|s| {
                             arm_paused_startup_resume(s, Instant::now());
-                            if has_native_stall_history(s) {
-                                s.recovery_deadline = Some(Instant::now() + s.startup_budget);
-                                s.recovered_audio_since = None;
-                                s.healthy_output_since = None;
-                            }
+                            arm_native_stall_resume(s, Instant::now(), false);
                         });
                     }
                     if pending_seek.is_some() {
@@ -8068,6 +8059,27 @@ fn arm_paused_startup_resume(state: &mut State, resumed_at: Instant) {
         state.request_started = resumed_at;
         state.recovery_deadline = None;
     }
+}
+
+fn arm_native_stall_resume(state: &mut State, resumed_at: Instant, ready: bool) {
+    if !has_native_stall_history(state) {
+        return;
+    }
+    // A running decoder needs no extraction deadline. If it underruns again,
+    // start the recovery budget at that failure, after the buffering grace.
+    // A restarted decoder needs a fresh bounded opportunity immediately.
+    state.recovery_deadline = (!ready).then(|| {
+        resumed_at
+            + if state.first_audio_ms.is_some() {
+                state
+                    .startup_budget
+                    .max(crate::playback_policy::RECOVERY_BUDGET)
+            } else {
+                state.startup_budget
+            }
+    });
+    state.recovered_audio_since = ready.then_some((resumed_at, state.position));
+    state.healthy_output_since = ready.then_some((resumed_at, state.position, state.seek_serial));
 }
 
 // Paused seeks defer decoder latency until Resume, while receipt latency still
@@ -12817,6 +12829,38 @@ mod tests {
         assert_eq!(state.source_ready_ms, None);
         assert_eq!(state.buffering_count, 0);
         assert_eq!(state.resume_target(), (37., false, true));
+    }
+
+    #[test]
+    fn resumed_stall_budget_starts_after_buffering_grace_but_startup_stays_bounded() {
+        let now = Instant::now();
+        let mut state = State::default();
+        state.startup_budget = Duration::from_secs(20);
+        state.first_audio_ms = Some(250);
+        state.position = 37.;
+        state.recent_stall = Some(("recording".into(), "candidate".into(), now));
+        state.recovery_deadline = Some(now - Duration::from_secs(1));
+        arm_native_stall_resume(&mut state, now, true);
+        assert!(
+            state.recovery_deadline.is_none(),
+            "buffering grace must not consume a future source refresh budget"
+        );
+        assert_eq!(state.recovered_audio_since, Some((now, 37.)));
+        arm_native_stall_resume(&mut state, now, false);
+        assert_eq!(
+            restart_deadline(&state),
+            now + crate::playback_policy::RECOVERY_BUDGET
+        );
+        state.first_audio_ms = None;
+        arm_native_stall_resume(&mut state, now, false);
+        assert_eq!(restart_deadline(&state), now + state.startup_budget);
+        state.recent_stall = None;
+        let previous_deadline = state.recovery_deadline;
+        arm_native_stall_resume(&mut state, now, true);
+        assert_eq!(
+            state.recovery_deadline, previous_deadline,
+            "unrelated resume deadlines must remain owned by their original operation"
+        );
     }
 
     #[test]
