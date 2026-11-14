@@ -1606,6 +1606,9 @@ mod tests {
         let (_dir, store) = db();
         let mut saved = track("spotify-recording");
         saved.provider = "spotify".into();
+        saved.provider_id = "10kPtnOQEYspBU9WDLy0mY".into();
+        saved.id = format!("spotify:{}", saved.provider_id);
+        saved.source_url = format!("https://open.spotify.com/track/{}", saved.provider_id);
         saved.duration_seconds = Some(161.0);
         saved.title = "Mac 11 On the Dresser".into();
         store.save_library_tracks(&[saved.clone()]).unwrap();
