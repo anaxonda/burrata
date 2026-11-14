@@ -477,7 +477,7 @@ fn playback_status(snapshot: &JsonValue) -> &'static str {
         .as_str()
         .or_else(|| snapshot["playbackStatus"].as_str())
     {
-        Some("playing" | "Playing") => "Playing",
+        Some("playing" | "Playing" | "resolving" | "buffering") => "Playing",
         Some("paused" | "Paused") => "Paused",
         Some("idle" | "stopped" | "Stopped") => "Stopped",
         _ => {
@@ -670,6 +670,9 @@ mod tests {
     fn maps_playback_state_and_repeat_modes_to_mpris_values() {
         assert_eq!(playback_status(&json!({"status":"playing"})), "Playing");
         assert_eq!(playback_status(&json!({"status":"paused"})), "Paused");
+        for status in ["resolving", "buffering"] {
+            assert_eq!(playback_status(&json!({"status":status,"paused":true,"trackId":"current"})), "Playing", "media Play/Pause must pause active loading intent, and Play must not restart resolution");
+        }
         assert_eq!(playback_status(&json!({})), "Stopped");
         assert_eq!(
             playback_status(&json!({"status":"idle","trackId":"old"})),

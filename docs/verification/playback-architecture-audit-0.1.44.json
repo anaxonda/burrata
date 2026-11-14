@@ -42,6 +42,11 @@
       "coverage": "Native resume-budget regression plus live pause/resume of an induced underrun before publication."
     }
   ],
+  "systemTransportFinding": {
+    "problem": "Linux MPRIS treated resolving/buffering as paused, so media Play/Pause could resume or restart active loading instead of pausing it.",
+    "resolution": "Report active loading intent as Playing to keep media Play/Pause and idempotent Play consistent with the repaired UI.",
+    "coverage": "MPRIS state-mapping regression with paused=true during resolving and buffering."
+  },
   "additionalOwnershipFinding": {
     "problem": "The callback may adopt a successor before the worker receives its metadata; status notifications could attach previous-source metadata to the new generation.",
     "resolution": "Bind buffering diagnostics and worker Started metadata to the worker's adopted source generation. Global consumed-position counters retain their existing ownership.",
