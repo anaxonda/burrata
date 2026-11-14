@@ -1294,46 +1294,35 @@ afterEach(async () => {
 afterEach(() => { if (vi.isFakeTimers()) vi.useRealTimers(); });
 
 describe("saved library navigation", () => {
-  it("opens the exact local album from a My library track result", async () => {
-    const track: Track = { ...savedTrack, id: "spotify:5kgYNe2OZIJjjgkVOM7xiy", provider: "spotify", providerId: "5kgYNe2OZIJjjgkVOM7xiy", title: "Super Real", artist: "Nipsey Hussle, Bino Rideaux", album: "PROLIFIC", provenance: {} };
-    const album = { id: 'album:metadata:["nipsey hussle, bino rideaux","prolific",""]', kind: "album", name: "PROLIFIC", artist: "Nipsey Hussle, Bino Rideaux", explicitlySaved: false, trackCount: 1, albumCount: 0 };
+  it.each(["library", "library-search"])("opens the complete public album from %s without Spotify and marks saved songs", async (origin) => {
+    const track: Track = { ...savedTrack, id: "spotify:10kPtnOQEYspBU9WDLy0mY", provider: "spotify", providerId: "10kPtnOQEYspBU9WDLy0mY", title: "Mac 11 On the Dresser", artist: "Nipsey Hussle", album: "The Marathon", durationSeconds: 161, provenance: {} };
+    const artist = { provider: "musicbrainz" as const, id: "11111111-1111-4111-8111-111111111111" };
+    const release: ArtistReleaseRef = { release: { provider: "musicbrainz", id: "22222222-2222-4222-8222-222222222222" }, title: "The Marathon", sourceUrl: "https://musicbrainz.org/release/22222222-2222-4222-8222-222222222222", credits: [{ name: track.artist, artist, role: "artist credit", sourceUrl: "" }], trackCount: 2, tracks: [] };
+    savedChartTracks = [track];
+    discoveryAlbumTracks = [{ ...track, provider: "catalog", id: "catalog:mac-11" }, { ...track, provider: "catalog", id: "catalog:missing-song", title: "A track not yet saved" }];
     const originalCall = mocks.call.getMockImplementation()!;
     mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "get_managed_provider_session_status") return { running: false, spotifyAccountId: null };
       if (command === "search_source" && (args?.sourceIds as string[] | undefined)?.includes("library")) return { sourceId: "library", complete: true, results: [{ id: track.id, kind: "track", sourceId: "library", title: track.title, track }] };
-      if (command === "list_library_albums_for_track") return [{ entity: album, familyListingId: null }];
-      if (command === "list_library_entity_tracks") return { tracks: [track], total: 1 };
+      if (command === "resolve_track_album") return { status: "resolved", destination: { release, artist, reason: "Verified recording membership", evidence: "recordingOccurrence" } };
+      if (command === "get_library_track_membership") return ["catalog:mac-11"];
       return originalCall(command, args);
     });
     const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); }; await settle();
-    [...document.querySelectorAll<HTMLButtonElement>("nav button")].find(button => button.textContent?.includes("Search"))!.click(); await settle();
-    await selectSearchSources(["My library"]);
-    const input = document.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
-    input.value = "nipsey"; input.dispatchEvent(new Event("input", { bubbles: true })); submitSearch(); await settle();
-    document.querySelector<HTMLButtonElement>('[aria-label="Open album PROLIFIC"]')!.click(); await settle();
-    expect(mocks.call).toHaveBeenCalledWith("list_library_albums_for_track", { listingId: track.id });
-    expect(document.querySelector(".album-detail h1")?.textContent).toBe("PROLIFIC");
-  });
-
-  it("shows the saved album family for a featured-track album click", async () => {
-    const anchor: Track = { ...savedTrack, id: "spotify:all-summer", provider: "spotify", providerId: "all-summer", title: "All Summer (feat. BH)", artist: "Nipsey Hussle, Bino Rideaux, BH", album: "PROLIFIC", artworkUrl: "https://i.scdn.co/image/prolific-cover", provenance: {} };
-    const familyTracks = ["Make Believe", "Super Real", "500 Horses", "Reckless (feat. Static Major)", "All Summer (feat. BH)"].map((title, index) => ({ ...anchor, id: `spotify:prolific-${index}`, providerId: `prolific-${index}`, title, artist: index === 4 ? anchor.artist : index === 3 ? "Nipsey Hussle, Bino Rideaux, Static Major" : "Nipsey Hussle, Bino Rideaux" }));
-    const target = { entity: { id: 'album:metadata:["nipsey hussle, bino rideaux, bh","prolific",""]', kind: "album", name: "PROLIFIC", artist: "Nipsey Hussle, Bino Rideaux", provider: null, explicitlySaved: false, trackCount: 5, albumCount: 0 }, familyListingId: anchor.id };
-    const originalCall = mocks.call.getMockImplementation()!;
-    mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
-      if (command === "search_source" && (args?.sourceIds as string[] | undefined)?.includes("library")) return { sourceId: "library", complete: true, results: [{ id: anchor.id, kind: "track", sourceId: "library", title: anchor.title, track: anchor }] };
-      if (command === "list_library_albums_for_track") return [target];
-      if (command === "list_library_entity_tracks" && args?.familyListingId === anchor.id) return { tracks: familyTracks, total: familyTracks.length };
-      return originalCall(command, args);
-    });
-    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); }; await settle();
-    [...document.querySelectorAll<HTMLButtonElement>("nav button")].find(button => button.textContent?.includes("Search"))!.click(); await settle();
-    await selectSearchSources(["My library"]);
-    const input = document.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
-    input.value = "nipsey"; input.dispatchEvent(new Event("input", { bubbles: true })); submitSearch(); await settle();
-    document.querySelector<HTMLButtonElement>('[aria-label="Open album PROLIFIC"]')!.click(); await settle(); await settle();
-    expect(document.querySelector(".album-detail h1")?.textContent).toBe("PROLIFIC");
-    expect(mocks.call).toHaveBeenCalledWith("list_library_entity_tracks", expect.objectContaining({ familyListingId: anchor.id }));
-    for (const title of ["Make Believe", "Super Real", "500 Horses", "Reckless (feat. Static Major)", "All Summer (feat. BH)"]) expect(document.body.textContent).toContain(title);
+    if (origin === "library-search") {
+      [...document.querySelectorAll<HTMLButtonElement>("nav button")].find(button => button.textContent?.includes("Search"))!.click(); await settle();
+      await selectSearchSources(["My library"]);
+      const input = document.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
+      input.value = "nipsey"; input.dispatchEvent(new Event("input", { bubbles: true })); submitSearch(); await settle();
+    }
+    document.querySelector<HTMLButtonElement>('[aria-label="Open album The Marathon"]')!.click(); await settle(); await settle();
+    expect(mocks.call).toHaveBeenCalledWith("resolve_track_album", expect.objectContaining({ track: expect.objectContaining({ id: track.id }) }));
+    expect(mocks.call.mock.calls.some(([command]) => command === "list_library_albums_for_track")).toBe(false);
+    expect(document.querySelector(".release-view h1")?.textContent).toBe("The Marathon");
+    expect(document.querySelector(".release-view")?.textContent).toContain("A track not yet saved");
+    expect(document.querySelectorAll('.release-view [aria-label="In library"]')).toHaveLength(1);
+    expect(document.querySelector('.release-view [aria-label="In library"]')?.closest("li")?.textContent).toContain(track.title);
+    expect(mocks.call.mock.calls.some(([command]) => command === "browse_remote_album_tracks")).toBe(false);
   });
 
   it("offers full Spotify album choices for a saved family with no album ID", async () => {
@@ -1350,8 +1339,9 @@ describe("saved library navigation", () => {
         { id: "spotify", name: "Spotify", kinds: ["track", "album"], enabled: true },
       ];
       if (command === "search_source" && (args?.sourceIds as string[] | undefined)?.includes("library")) return { sourceId: "library", complete: true, results: [{ id: anchor.id, kind: "track", sourceId: "library", title: anchor.title, track: anchor }] };
+      if (command === "list_library_entities") return { items: [{ ...localAlbum.entity, provider: "spotify" }], total: 1 };
       if (command === "list_library_albums_for_track") return [localAlbum];
-      if (command === "list_library_entity_tracks" && args?.familyListingId === anchor.id) return { tracks: familyTracks, total: familyTracks.length };
+      if (command === "list_library_entity_tracks") return { tracks: familyTracks, total: familyTracks.length };
       if (command === "search_source" && (args?.sourceIds as string[] | undefined)?.includes("spotify") && (args?.kinds as string[] | undefined)?.includes("album")) return { sourceId: "spotify", complete: true, results: [
         { id: `spotify:album:${firstId}`, kind: "album", sourceId: "spotify", title: "PROLIFIC", subtitle: "Nipsey Hussle, Bino Rideaux", url: `https://open.spotify.com/album/${firstId}` },
         { id: `spotify:album:${secondId}`, kind: "album", sourceId: "spotify", title: selectedAlbum.title, subtitle: "Nipsey Hussle, Bino Rideaux", url: selectedAlbum.url },
@@ -1361,14 +1351,10 @@ describe("saved library navigation", () => {
       return originalCall(command, args);
     });
     const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); }; await settle();
-    [...document.querySelectorAll<HTMLButtonElement>("nav button")].find(button => button.textContent?.includes("Search"))!.click(); await settle();
-    await selectSearchSources(["My library"]);
-    const input = document.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
-    input.value = "nipsey"; input.dispatchEvent(new Event("input", { bubbles: true })); submitSearch(); await settle();
-    document.querySelector<HTMLButtonElement>('[aria-label="Open album PROLIFIC"]')!.click(); await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".library-view-tabs button")].find(button => button.textContent === "Albums")!.click(); await settle();
+    document.querySelector<HTMLButtonElement>(".entity-card")!.click(); await settle();
     expect(document.querySelector(".album-detail h1")?.textContent).toBe("PROLIFIC");
-    expect(document.querySelector(".album-detail")?.textContent).toContain("Spotify album identity not linked");
-    [...document.querySelectorAll<HTMLButtonElement>(".album-detail button")].find(button => button.textContent?.trim() === "Find complete album")!.click(); await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".album-detail button")].find(button => button.textContent?.trim() === "Browse catalog")!.click(); await settle();
     expect(document.querySelector<HTMLInputElement>('[aria-label="Search music"]')?.value).toBe("PROLIFIC Nipsey Hussle, Bino Rideaux");
     expect(document.querySelector<HTMLSelectElement>('[aria-label="Search in"]')?.value).toBe("spotify");
     expect(mocks.call).toHaveBeenCalledWith("search_source", expect.objectContaining({ query: "PROLIFIC Nipsey Hussle, Bino Rideaux", sourceIds: ["spotify"], kinds: expect.arrayContaining(["album"]) }));
@@ -1391,17 +1377,15 @@ describe("saved library navigation", () => {
         { id: "musicbrainz", name: "MusicBrainz", kinds: ["track", "album"], enabled: true },
       ];
       if (command === "search_source" && (args?.sourceIds as string[] | undefined)?.includes("library")) return { sourceId: "library", complete: true, results: [{ id: anchor.id, kind: "track", sourceId: "library", title: anchor.title, track: anchor }] };
+      if (command === "list_library_entities") return { items: [{ ...target.entity, provider: "spotify" }], total: 1 };
       if (command === "list_library_albums_for_track") return [target];
-      if (command === "list_library_entity_tracks" && args?.familyListingId === anchor.id) return { tracks: familyTracks, total: familyTracks.length };
+      if (command === "list_library_entity_tracks") return { tracks: familyTracks, total: familyTracks.length };
       return originalCall(command, args);
     });
     const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); }; await settle();
-    [...document.querySelectorAll<HTMLButtonElement>("nav button")].find(button => button.textContent?.includes("Search"))!.click(); await settle();
-    await selectSearchSources(["My library"]);
-    const input = document.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
-    input.value = "nipsey"; input.dispatchEvent(new Event("input", { bubbles: true })); submitSearch(); await settle();
-    document.querySelector<HTMLButtonElement>('[aria-label="Open album PROLIFIC"]')!.click(); await settle();
-    [...document.querySelectorAll<HTMLButtonElement>(".album-detail button")].find(button => button.textContent?.trim() === "Find complete album")!.click(); await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".library-view-tabs button")].find(button => button.textContent === "Albums")!.click(); await settle();
+    document.querySelector<HTMLButtonElement>(".entity-card")!.click(); await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".album-detail button")].find(button => button.textContent?.trim() === "Browse catalog")!.click(); await settle();
     expect(document.querySelector<HTMLInputElement>('[aria-label="Search music"]')?.value).toBe("PROLIFIC Nipsey Hussle, Bino Rideaux");
     expect(document.querySelector<HTMLSelectElement>('[aria-label="Search in"]')?.value).toBe("musicbrainz");
   });
@@ -1425,18 +1409,16 @@ describe("saved library navigation", () => {
         ];
       }
       if (command === "search_source" && (args?.sourceIds as string[] | undefined)?.includes("library")) return { sourceId: "library", complete: true, results: [{ id: anchor.id, kind: "track", sourceId: "library", title: anchor.title, track: anchor }] };
+      if (command === "list_library_entities") return { items: [{ ...target.entity, provider: "spotify" }], total: 1 };
       if (command === "list_library_albums_for_track") return [target];
-      if (command === "list_library_entity_tracks" && args?.familyListingId === anchor.id) return { tracks: familyTracks, total: familyTracks.length };
+      if (command === "list_library_entity_tracks") return { tracks: familyTracks, total: familyTracks.length };
       return originalCall(command, args);
     });
     const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); }; await settle();
-    [...document.querySelectorAll<HTMLButtonElement>("nav button")].find(button => button.textContent?.includes("Search"))!.click(); await settle();
-    await selectSearchSources(["My library"]);
-    const input = document.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
-    input.value = "nipsey"; input.dispatchEvent(new Event("input", { bubbles: true })); submitSearch(); await settle();
-    document.querySelector<HTMLButtonElement>('[aria-label="Open album PROLIFIC"]')!.click(); await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".library-view-tabs button")].find(button => button.textContent === "Albums")!.click(); await settle();
+    document.querySelector<HTMLButtonElement>(".entity-card")!.click(); await settle();
     deferNextSources = true;
-    [...document.querySelectorAll<HTMLButtonElement>(".album-detail button")].find(button => button.textContent?.trim() === "Find complete album")!.click();
+    [...document.querySelectorAll<HTMLButtonElement>(".album-detail button")].find(button => button.textContent?.trim() === "Browse catalog")!.click();
     await tick();
     expect(finishSources).toBeTypeOf("function");
     [...document.querySelectorAll<HTMLButtonElement>("nav button")].find(button => button.textContent?.includes("Search"))!.click(); await settle();
@@ -1471,13 +1453,13 @@ describe("saved library navigation", () => {
     expect(mocks.call.mock.calls.filter(([command, args]) => command === "search_source" && (args as { query?: string }).query === "nipsey" && (args as { sourceIds?: string[] }).sourceIds?.includes("library")).length).toBe(1);
   });
 
-  it("ignores a failed local album lookup after the user navigates away", async () => {
+  it("ignores a failed public album lookup after the user navigates away", async () => {
     const track: Track = { ...savedTrack, id: "nipsey-prolific-race", provider: "youtube", providerId: "video-prolific", title: "Super Real", artist: "Nipsey Hussle", album: "Prolific", provenance: { sourceKind: "audioSearch" } };
     let rejectLookup!: (reason: Error) => void;
     const originalCall = mocks.call.getMockImplementation()!;
     mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
       if (command === "search_source" && (args?.sourceIds as string[] | undefined)?.includes("library")) return { sourceId: "library", complete: true, results: [{ id: track.id, kind: "track", sourceId: "library", title: track.title, track }] };
-      if (command === "list_library_albums_for_track") return new Promise((_resolve, reject) => { rejectLookup = reject; });
+      if (command === "resolve_track_album") return new Promise((_resolve, reject) => { rejectLookup = reject; });
       if (command === "search_albums") return { items: [], nextPage: null, warnings: [] };
       return originalCall(command, args);
     });
@@ -1486,7 +1468,7 @@ describe("saved library navigation", () => {
     await selectSearchSources(["My library"]);
     const input = document.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
     input.value = "nipsey"; input.dispatchEvent(new Event("input", { bubbles: true })); submitSearch(); await settle();
-    document.querySelector<HTMLButtonElement>('[aria-label="Open album Prolific"]')!.click(); await tick();
+    document.querySelector<HTMLButtonElement>('[aria-label="Open album Prolific"]')!.click(); await settle();
     [...document.querySelectorAll<HTMLButtonElement>("nav button")].find(button => button.textContent?.includes("Library"))!.click(); await settle();
     rejectLookup(new Error("late lookup failure")); await settle();
     expect(document.querySelector('[aria-label="Search music"]')).toBeNull();

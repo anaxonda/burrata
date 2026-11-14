@@ -3554,6 +3554,11 @@ impl PlaybackService {
     fn publish(&self) {
         let (full, lite, queue_revision, include_queue) = {
             let mut s = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+            // Keep optional provider jobs out of the whole playback session,
+            // including muted output and source recovery. Observe while holding
+            // the state lock so concurrent publications cannot reopen the gate
+            // using an older paused snapshot.
+            crate::source_preparation::observe_playback_status(&s.status);
             let include_queue = s.published_queue_revision != Some(s.queue_revision);
             let revision = s.queue_revision;
             (

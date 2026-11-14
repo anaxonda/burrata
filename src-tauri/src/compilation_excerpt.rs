@@ -324,7 +324,25 @@ pub(crate) fn test_eligible_excerpt_proof(track: &Track) -> Value {
 #[derive(Default)]
 struct WorkerGate {
     active: Option<watch::Sender<bool>>,
-    last_foreground: Option<Instant>,
+    policy: crate::background_work_policy::BackgroundWorkPolicy,
+}
+
+impl WorkerGate {
+    fn observe_playback(&mut self, status: &str, now: Instant) {
+        if self.policy.observe_playback(status, now) {
+            if let Some(stop) = &self.active {
+                stop.send_replace(true);
+            }
+        }
+    }
+
+    fn register_if_quiet(&mut self, now: Instant, stop: watch::Sender<bool>) -> bool {
+        if !self.policy.quiet_remaining(now).is_zero() {
+            return false;
+        }
+        self.active = Some(stop);
+        true
+    }
 }
 fn worker_gate() -> &'static Mutex<WorkerGate> {
     static GATE: OnceLock<Mutex<WorkerGate>> = OnceLock::new();
@@ -345,10 +363,16 @@ impl Drop for PendingKey {
 
 pub(crate) fn yield_to_playback() {
     if let Ok(mut gate) = worker_gate().lock() {
-        gate.last_foreground = Some(Instant::now());
+        gate.policy.foreground(Instant::now());
         if let Some(stop) = &gate.active {
             stop.send_replace(true);
         }
+    }
+}
+
+pub(crate) fn observe_playback_status(status: &str, now: Instant) {
+    if let Ok(mut gate) = worker_gate().lock() {
+        gate.observe_playback(status, now);
     }
 }
 
@@ -419,29 +443,23 @@ pub(crate) fn schedule(acquisition: Arc<AcquisitionManager>, track: Track, setti
             let Ok(_worker) = worker.acquire_owned().await else {
                 return;
             };
+            let (stop_tx, mut cancel) = watch::channel(false);
             loop {
                 let wait = worker_gate()
                     .lock()
-                    .ok()
-                    .and_then(|gate| gate.last_foreground)
-                    .map(|when| Duration::from_secs(30).saturating_sub(when.elapsed()))
-                    .unwrap_or_default();
-                if wait.is_zero() {
-                    break;
+                    .map(|gate| gate.policy.quiet_remaining(Instant::now()))
+                    .unwrap_or(Duration::from_secs(30));
+                if !wait.is_zero() {
+                    tokio::time::sleep(wait.min(Duration::from_secs(30))).await;
+                    continue;
                 }
-                tokio::time::sleep(wait.min(Duration::from_secs(30))).await;
-            }
-            let (stop_tx, mut cancel) = watch::channel(false);
-            if let Ok(mut gate) = worker_gate().lock() {
-                if gate
-                    .last_foreground
-                    .is_some_and(|when| when.elapsed() < Duration::from_secs(30))
-                {
+                if let Ok(mut gate) = worker_gate().lock() {
+                    if gate.register_if_quiet(Instant::now(), stop_tx.clone()) {
+                        break;
+                    }
+                } else {
                     return;
                 }
-                gate.active = Some(stop_tx.clone());
-            } else {
-                return;
             }
             let store = acquisition.alias_store();
             let work_settings = store.settings();
@@ -1554,6 +1572,22 @@ fn _deadline_for_background() -> PlaybackDeadline {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compilation_worker_is_cancelled_and_stays_blocked_during_playback() {
+        let mut gate = WorkerGate::default();
+        let now = Instant::now();
+        let (first, cancelled) = watch::channel(false);
+        assert!(gate.register_if_quiet(now, first));
+        gate.observe_playback("buffering", now);
+        assert!(*cancelled.borrow());
+
+        let (next, _) = watch::channel(false);
+        assert!(!gate.register_if_quiet(now + Duration::from_secs(3600), next.clone()));
+        gate.observe_playback("ended", now + Duration::from_secs(3601));
+        assert!(!gate.register_if_quiet(now + Duration::from_secs(3630), next.clone()));
+        assert!(gate.register_if_quiet(now + Duration::from_secs(3631), next));
+    }
 
     #[test]
     fn excerpt_fingerprint_binds_flexible_permissions() {

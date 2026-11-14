@@ -23,6 +23,7 @@ mod artwork_protocol_trace;
 mod artwork_resource_probe;
 pub mod automation;
 pub mod autotag;
+mod background_work_policy;
 pub mod backup;
 pub mod backup_archive;
 pub mod backup_auxiliary;
@@ -1975,6 +1976,17 @@ async fn get_library_entity(
     tokio::task::spawn_blocking(move || store.library_saved_entity_status(&id))
         .await
         .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn get_library_track_membership(
+    state: State<'_, AppState>,
+    tracks: Vec<Track>,
+) -> Result<Vec<String>> {
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || store.library_track_membership(&tracks))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -9502,7 +9514,7 @@ pub fn run() {
             list_tracks,
             list_favorite_track_ids,
             list_tracks_page,
-            list_local_album_matches, set_local_album_match, get_library_entity, get_playlist_artwork, list_library_entities, list_library_albums_for_track, list_library_entity_tracks, save_library_artist, save_library_album, remove_library_entity_save,
+            list_local_album_matches, set_local_album_match, get_library_entity, get_library_track_membership, get_playlist_artwork, list_library_entities, list_library_albums_for_track, list_library_entity_tracks, save_library_artist, save_library_album, remove_library_entity_save,
             list_track_prefix,
             get_tracks,
             identify_playing_track,

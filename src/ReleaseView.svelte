@@ -128,6 +128,7 @@
   ];
   const trackListProps: Omit<ComponentProps<typeof TrackList>, "presentation"> = $derived({
     tracks: visibleTracks,
+    showLibraryStatus: true,
     selectionContext: `release:${release.sourceUrl}`,
     selectionKeys: visibleOccurrences.map(row => String(row.sourceIndex)),
     selectionTracks: albumTracks,

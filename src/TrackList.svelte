@@ -1,6 +1,7 @@
 <script lang="ts">
   import HeartIcon from "./HeartIcon.svelte";
-  import { getContext } from "svelte";
+  import { getContext, onMount } from "svelte";
+  import { readLibraryTrackMembership } from "./lib/library-track-membership";
   import { SOURCE_OPENER, type SourceOpener } from "./lib/source-opening";
   import { call } from "./lib/api";
   import type { Track } from "./lib/types";
@@ -17,10 +18,11 @@
   import { playlistDropIndex } from "./lib/playlist-reorder";
 
   let {
-    tracks, orderedRows, onPlay, onDownload, onFavorite, onNext, onQueue, onPlaylist, onArtist, onAlbum, onInfo,
+    tracks, orderedRows, onPlay, onDownload, onFavorite, onNext, onQueue, onPlaylist, onArtist, onAlbum, onInfo, showLibraryStatus = false,
     onContext, onSelect, onRowSelect, onAddSelectedToPlaylist, onQueueSelected, onInvertSelection, selectionContext, selectionKeys, rowKeys, selectionTracks, selectionTrackKeys, selectedTrackIds = [], selectedTrackId, focusedRowKey, selectionLabel, trackTitle, selectionMode: controlledSelectionMode, position, meta, timestamp, playingTrack, bufferingTrack, playingTrackId = "", bufferingTrackId = "", paused = false, playbackFailed = false, listLabel = "Tracks", logicalRowCount, initialScroll, onScroll, virtualizationThreshold = 200, presentation = "default", reorderable = false, reorderCount, onReorder,
   }: {
     tracks: Track[];
+    showLibraryStatus?: boolean;
     orderedRows?: Array<{ kind: "track"; key: string; trackIndex: number } | { kind: "status"; key: string; title: string; detail: string }>;
     onPlay?: (track: Track, tracks: Track[], index: number) => void | Promise<void>;
     onDownload?: (track: Track) => void | Promise<void>;
@@ -74,6 +76,26 @@
     initialScroll?: number;
     onScroll?: (scrollTop: number) => void;
   } = $props();
+  let savedLibraryIds = $state(new Set<string>());
+  let libraryStatusRevision = $state(0);
+  $effect(() => {
+    const source = selectionTracks ?? tracks;
+    const revision = libraryStatusRevision;
+    const enabled = showLibraryStatus;
+    let current = true;
+    savedLibraryIds = new Set();
+    if (enabled && source.length) {
+      void readLibraryTrackMembership(source, call, () => current).then(ids => {
+        if (current) savedLibraryIds = ids;
+      }).catch(() => { /* A failed read never becomes a saved badge. */ });
+    }
+    return () => { current = false; };
+  });
+  onMount(() => {
+    const refresh = () => { libraryStatusRevision++; };
+    window.addEventListener("library-changed", refresh);
+    return () => window.removeEventListener("library-changed", refresh);
+  });
   let menu = $state<{track: Track; index: number; event: MouseEvent; anchor: {x: number; y: number}} | null>(null);
   let scrollTop = $state(0);
   let viewportHeight = $state(560);
@@ -333,6 +355,7 @@
         </div>
         {#if presentation !== "playlist" && timestamp?.(track, index)}<time class="track-time" title={timestamp(track, index)?.full}>{timestamp(track, index)?.label}</time>{/if}
       </div>
+      {#if showLibraryStatus && savedLibraryIds.has(track.id)}<span class="library-saved-status" role="img" aria-label="In library" title={`${track.title} is in your library`}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7" /></svg></span>{/if}
       {#if presentation === "playlist" && timestamp?.(track, index)}<time class="track-time playlist-time" title={timestamp(track, index)?.full}>{timestamp(track, index)?.label}</time>{/if}
       {#if duration !== null}<span class="duration">{Math.floor(duration / 60)}:{String(Math.floor(duration % 60)).padStart(2, "0")}</span>{/if}
       <div class="row-actions">
@@ -392,4 +415,6 @@
 
   .icon-action:focus-visible,.more-trigger:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   .playback-playing-icon{display:block;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .library-saved-status{display:inline-flex;flex:0 0 16px;color:#87ce68}
+  .library-saved-status svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
 </style>

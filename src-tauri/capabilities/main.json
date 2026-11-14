@@ -148,6 +148,7 @@
     "allow-list-local-album-matches",
     "allow-set-local-album-match",
     "allow-get-library-entity",
+    "allow-get-library-track-membership",
     "allow-get-playlist-artwork",
     "allow-list-library-albums-for-track",
     "allow-list-library-entities",

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-library-track-membership"
+description = "Enables the get_library_track_membership command without any pre-configured scope."
+commands.allow = ["get_library_track_membership"]
+
+[[permission]]
+identifier = "deny-get-library-track-membership"
+description = "Denies the get_library_track_membership command without any pre-configured scope."
+commands.deny = ["get_library_track_membership"]

@@ -11,28 +11,34 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::sync::{watch, Semaphore};
 
-const FOREGROUND_QUIET_PERIOD: Duration = Duration::from_secs(30);
+const FOREGROUND_QUIET_PERIOD: Duration = crate::background_work_policy::QUIET_PERIOD;
 const MAX_QUIET_WAIT: Duration = Duration::from_secs(30);
 
 #[derive(Default)]
 struct PreparationGate {
     active: Option<(u64, watch::Sender<bool>)>,
-    last_foreground: Option<Instant>,
+    policy: crate::background_work_policy::BackgroundWorkPolicy,
     next_job_id: u64,
 }
 
 impl PreparationGate {
     fn foreground(&mut self, now: Instant) {
-        self.last_foreground = Some(now);
+        self.policy.foreground(now);
         if let Some((_, stop)) = &self.active {
             stop.send_replace(true);
         }
     }
 
     fn quiet_remaining(&self, now: Instant) -> Duration {
-        self.last_foreground
-            .map(|last| FOREGROUND_QUIET_PERIOD.saturating_sub(now.saturating_duration_since(last)))
-            .unwrap_or_default()
+        self.policy.quiet_remaining(now)
+    }
+
+    fn observe_playback(&mut self, status: &str, now: Instant) {
+        if self.policy.observe_playback(status, now) {
+            if let Some((_, stop)) = &self.active {
+                stop.send_replace(true);
+            }
+        }
     }
 
     /// Called while holding the same gate lock as `foreground`, so a play
@@ -69,6 +75,14 @@ pub(crate) fn yield_to_playback() {
     }
 }
 
+pub(crate) fn observe_playback_status(status: &str) {
+    let now = Instant::now();
+    if let Ok(mut state) = gate().lock() {
+        state.observe_playback(status, now);
+    }
+    crate::compilation_excerpt::observe_playback_status(status, now);
+}
+
 async fn wait_for_quiet_and_register(stop: watch::Sender<bool>) -> Option<u64> {
     loop {
         let remaining = gate()
@@ -103,7 +117,8 @@ fn acquire_worker_write(store: &Store) -> Option<LibraryWritePermit> {
     store.try_library_write().ok()
 }
 /// At most 100 queued jobs, one provider operation at a time. A play click
-/// cancels the active job and keeps queued work deferred until 30 seconds pass.
+/// cancels the active job. Queued work waits until playback has been inactive
+/// for 30 seconds; an interrupted job is retried rather than discarded.
 pub(crate) fn schedule(acquisition: Arc<AcquisitionManager>, tracks: Vec<Track>) {
     let store = acquisition.alias_store();
     if crate::restore_work_policy::is_paused(&store, AutomaticWorkKind::BackgroundSourcePreparation)
@@ -127,136 +142,141 @@ pub(crate) fn schedule(acquisition: Arc<AcquisitionManager>, tracks: Vec<Track>)
             let Ok(_permit) = slots.acquire_owned().await else {
                 return;
             };
-            let (stop, cancel) = watch::channel(false);
-            let Some(active_id) = wait_for_quiet_and_register(stop).await else {
-                return;
-            };
-            // Re-read after the quiet period, since the player/library/settings
-            // may have changed while this queued task was waiting.
-            let store = acquisition.alias_store();
-            // Restore staging must exclude the whole provider-backed worker,
-            // not just its final cache write. Acquire only after the foreground
-            // quiet wait so ordinary playback keeps restore responsive.
-            let Some(_library_write) = acquire_worker_write(&store) else {
-                if let Ok(mut state) = gate().lock() {
-                    state.clear_active(active_id);
+            loop {
+                let (stop, cancel) = watch::channel(false);
+                let Some(active_id) = wait_for_quiet_and_register(stop).await else {
+                    return;
+                };
+                // Re-read after the quiet period, since the player/library/settings
+                // may have changed while this queued task was waiting.
+                let store = acquisition.alias_store();
+                // Restore staging must exclude the whole provider-backed worker,
+                // not just its final cache write. Acquire only after the foreground
+                // quiet wait so ordinary playback keeps restore responsive.
+                let Some(_library_write) = acquire_worker_write(&store) else {
+                    if let Ok(mut state) = gate().lock() {
+                        state.clear_active(active_id);
+                    }
+                    return;
+                };
+                let Ok(Some(saved)) = store.get_library_track(&track.id) else {
+                    if let Ok(mut state) = gate().lock() {
+                        state.clear_active(active_id);
+                    }
+                    return;
+                };
+                if !eligible(&saved) {
+                    if let Ok(mut state) = gate().lock() {
+                        state.clear_active(active_id);
+                    }
+                    return;
                 }
-                return;
-            };
-            let Ok(Some(saved)) = store.get_library_track(&track.id) else {
-                if let Ok(mut state) = gate().lock() {
-                    state.clear_active(active_id);
+                let Ok(settings) = store.settings() else {
+                    if let Ok(mut state) = gate().lock() {
+                        state.clear_active(active_id);
+                    }
+                    return;
+                };
+                if !settings.background_source_preparation || !settings.streaming_fallback_enabled {
+                    if let Ok(mut state) = gate().lock() {
+                        state.clear_active(active_id);
+                    }
+                    return;
                 }
-                return;
-            };
-            if !eligible(&saved) {
-                if let Ok(mut state) = gate().lock() {
-                    state.clear_active(active_id);
-                }
-                return;
-            }
-            let Ok(settings) = store.settings() else {
-                if let Ok(mut state) = gate().lock() {
-                    state.clear_active(active_id);
-                }
-                return;
-            };
-            if !settings.background_source_preparation || !settings.streaming_fallback_enabled {
-                if let Ok(mut state) = gate().lock() {
-                    state.clear_active(active_id);
-                }
-                return;
-            }
-            let Ok(key) = crate::remote_playlists::alias_hydration_key(&saved) else {
-                if let Ok(mut state) = gate().lock() {
-                    state.clear_active(active_id);
-                }
-                return;
-            };
-            let key = format!("matching-v1:{:?}:{key}", settings.matching_level);
-            const CACHE: &str = "playback.background-preparation.v2";
-            if store
-                .get_provider_cache(CACHE, &key)
-                .ok()
-                .flatten()
-                .is_some()
-            {
-                if let Ok(mut state) = gate().lock() {
-                    state.clear_active(active_id);
-                }
-                return;
-            }
-            let started = std::time::Instant::now();
-            let deadline = PlaybackDeadline::after(Duration::from_secs(20));
-            let result = tokio::time::timeout_at(
-                deadline.instant(),
-                crate::playback_sources::resolve_with_trace_context(
-                    &store,
-                    &acquisition,
-                    &saved,
-                    None,
-                    cancel.clone(),
-                    Some("preparation:radio-source".into()),
-                    None,
-                    None,
-                ),
-            )
-            .await;
-            let mut provider = result
-                .as_ref()
-                .ok()
-                .and_then(|r| r.as_ref().ok())
-                .and_then(|s| s.candidate.as_ref())
-                .map(|c| c.provider.clone())
-                .unwrap_or_else(|| "catalog".into());
-            let mut ready = matches!(result, Ok(Ok(_)));
-            if !ready
-                && !*cancel.borrow()
-                && crate::bandcamp_fallback::eligible(&saved, &settings, false, 2)
-            {
-                let deadline = PlaybackDeadline::after(Duration::from_secs(45));
-                provider = "bandcamp".into();
-                ready = matches!(
-                    tokio::time::timeout_at(
-                        deadline.instant(),
-                        crate::bandcamp_fallback::resolve(
-                            &store,
-                            &acquisition,
-                            &saved,
-                            &settings,
-                            cancel.clone(),
-                            SourceTrace::new(None, None, None),
-                            deadline,
-                            &[],
-                            true
-                        )
-                    )
-                    .await,
-                    Ok(Ok(_))
-                );
-            }
-            if !*cancel.borrow() {
-                // Fingerprint includes identity/manual edits; failures expire sooner.
-                let unchanged = store
-                    .get_library_track(&saved.id)
+                let Ok(key) = crate::remote_playlists::alias_hydration_key(&saved) else {
+                    if let Ok(mut state) = gate().lock() {
+                        state.clear_active(active_id);
+                    }
+                    return;
+                };
+                let key = format!("matching-v1:{:?}:{key}", settings.matching_level);
+                const CACHE: &str = "playback.background-preparation.v2";
+                if store
+                    .get_provider_cache(CACHE, &key)
                     .ok()
                     .flatten()
-                    .and_then(|t| crate::remote_playlists::alias_hydration_key(&t).ok())
-                    == Some(key.rsplit(':').next().unwrap_or_default().to_owned());
-                if unchanged {
-                    let _ = store.set_provider_cache(
-                        CACHE,
-                        &key,
-                        &json!({"ready":ready,"elapsedMs":started.elapsed().as_millis()}),
-                        if ready { 7 * 86400 } else { 3600 },
+                    .is_some()
+                {
+                    if let Ok(mut state) = gate().lock() {
+                        state.clear_active(active_id);
+                    }
+                    return;
+                }
+                let started = std::time::Instant::now();
+                let deadline = PlaybackDeadline::after(Duration::from_secs(20));
+                let result = tokio::time::timeout_at(
+                    deadline.instant(),
+                    crate::playback_sources::resolve_with_trace_context(
+                        &store,
+                        &acquisition,
+                        &saved,
+                        None,
+                        cancel.clone(),
+                        Some("preparation:radio-source".into()),
+                        None,
+                        None,
+                    ),
+                )
+                .await;
+                let mut provider = result
+                    .as_ref()
+                    .ok()
+                    .and_then(|r| r.as_ref().ok())
+                    .and_then(|s| s.candidate.as_ref())
+                    .map(|c| c.provider.clone())
+                    .unwrap_or_else(|| "catalog".into());
+                let mut ready = matches!(result, Ok(Ok(_)));
+                if !ready
+                    && !*cancel.borrow()
+                    && crate::bandcamp_fallback::eligible(&saved, &settings, false, 2)
+                {
+                    let deadline = PlaybackDeadline::after(Duration::from_secs(45));
+                    provider = "bandcamp".into();
+                    ready = matches!(
+                        tokio::time::timeout_at(
+                            deadline.instant(),
+                            crate::bandcamp_fallback::resolve(
+                                &store,
+                                &acquisition,
+                                &saved,
+                                &settings,
+                                cancel.clone(),
+                                SourceTrace::new(None, None, None),
+                                deadline,
+                                &[],
+                                true
+                            )
+                        )
+                        .await,
+                        Ok(Ok(_))
                     );
-                    if ready {
-                        acquisition.notify_source_ready(&saved, &provider);
+                }
+                if !*cancel.borrow() {
+                    // Fingerprint includes identity/manual edits; failures expire sooner.
+                    let unchanged = store
+                        .get_library_track(&saved.id)
+                        .ok()
+                        .flatten()
+                        .and_then(|t| crate::remote_playlists::alias_hydration_key(&t).ok())
+                        == Some(key.rsplit(':').next().unwrap_or_default().to_owned());
+                    if unchanged {
+                        let _ = store.set_provider_cache(
+                            CACHE,
+                            &key,
+                            &json!({"ready":ready,"elapsedMs":started.elapsed().as_millis()}),
+                            if ready { 7 * 86400 } else { 3600 },
+                        );
+                        if ready {
+                            acquisition.notify_source_ready(&saved, &provider);
+                        }
                     }
                 }
-            }
-            if let Ok(mut current) = gate().lock() {
-                current.clear_active(active_id);
+                if let Ok(mut current) = gate().lock() {
+                    current.clear_active(active_id);
+                }
+                if !*cancel.borrow() {
+                    break;
+                }
             }
         });
     }
@@ -382,6 +402,34 @@ mod tests {
         state.foreground(now + Duration::from_secs(1));
 
         assert!(*cancel.borrow());
+    }
+
+    #[test]
+    fn playback_cancels_registered_work_and_blocks_replacement_until_idle() {
+        let now = Instant::now();
+        let mut state = PreparationGate::default();
+        let (stop, cancel) = watch::channel(false);
+        let first = state.register_if_quiet(now, stop).unwrap();
+        state.observe_playback("playing", now);
+        assert!(*cancel.borrow());
+        state.clear_active(first);
+
+        let (next, _) = watch::channel(false);
+        assert!(state
+            .register_if_quiet(now + Duration::from_secs(300), next.clone())
+            .is_none());
+        state.observe_playback("paused", now + Duration::from_secs(301));
+        assert!(state
+            .register_if_quiet(now + Duration::from_secs(330), next.clone())
+            .is_none());
+        let second = state
+            .register_if_quiet(now + Duration::from_secs(331), next.clone())
+            .unwrap();
+        // Late cleanup from the cancelled job cannot unregister a replacement.
+        state.clear_active(first);
+        assert_eq!(state.active.as_ref().map(|(id, _)| *id), Some(second));
+        state.observe_playback("resolving", now + Duration::from_secs(332));
+        assert!(*next.borrow());
     }
 
     #[test]

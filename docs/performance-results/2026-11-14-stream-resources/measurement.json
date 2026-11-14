@@ -1,0 +1,204 @@
+{
+  "schemaVersion": 1,
+  "appVersion": "0.1.44",
+  "platform": "Linux",
+  "logicalCpus": 8,
+  "track": {
+    "id": "spotify:10kPtnOQEYspBU9WDLy0mY",
+    "title": "Mac 11 On the Dresser",
+    "artist": "Nipsey Hussle",
+    "album": "The Marathon",
+    "catalogDurationSeconds": 161,
+    "actualSource": "soundcloud",
+    "actualSourceId": "245309394",
+    "format": "AAC HLS, stereo 44100 Hz, reported 160 kbps"
+  },
+  "method": "Read-only /proc process and thread sampling of the running AppImage plus descendants, at 1-second intervals. Resume the already resolved paused track; no cold-start CPU claim. Original queue retained and track paused after measurement. No settings changed.",
+  "measurements": {
+    "paused-baseline": {
+      "durationSeconds": 20.03,
+      "avgCpuPercentOneCore": 27.96,
+      "peakOneSecondCpuPercentOneCore": 163.802,
+      "cpuSeconds": 5.6,
+      "peakSummedRssMiB": 1529.9,
+      "processCpuAveragePercentOneCore": {
+        "WebKitNetworkPr": 0.0,
+        "WebKitWebProces": 0.4,
+        "burrata": 3.64,
+        "MainThread": 9.19,
+        "ffmpeg": 0.0,
+        "yt-dlp": 14.73
+      }
+    },
+    "stream": {
+      "durationSeconds": 100.05,
+      "avgCpuPercentOneCore": 47.05,
+      "peakOneSecondCpuPercentOneCore": 231.862,
+      "cpuSeconds": 47.08,
+      "peakSummedRssMiB": 1588.0,
+      "processCpuAveragePercentOneCore": {
+        "WebKitNetworkPr": 0.02,
+        "WebKitWebProces": 10.66,
+        "burrata": 9.71,
+        "MainThread": 9.05,
+        "ffmpeg": 0.67,
+        "yt-dlp": 16.94
+      }
+    },
+    "paused-after": {
+      "durationSeconds": 20.06,
+      "avgCpuPercentOneCore": 21.99,
+      "peakOneSecondCpuPercentOneCore": 61.124,
+      "cpuSeconds": 4.41,
+      "peakSummedRssMiB": 889.8,
+      "processCpuAveragePercentOneCore": {
+        "WebKitNetworkPr": 0.0,
+        "WebKitWebProces": 9.52,
+        "ffmpeg": 0.0,
+        "burrata": 12.47
+      }
+    },
+    "paused-settled": {
+      "durationSeconds": 20.05,
+      "avgCpuPercentOneCore": 4.84,
+      "peakOneSecondCpuPercentOneCore": 18.423,
+      "cpuSeconds": 0.97,
+      "peakSummedRssMiB": 922.5,
+      "processCpuAveragePercentOneCore": {
+        "WebKitNetworkPr": 0.05,
+        "WebKitWebProces": 1.85,
+        "ffmpeg": 0.0,
+        "burrata": 2.94
+      }
+    }
+  },
+  "streamMemorySnapshot": {
+    "atUnixMs": 1794695467746,
+    "processes": [
+      {
+        "pid": 3211938,
+        "name": "yt-dlp",
+        "Rss": 2502656,
+        "Pss": 296960,
+        "Private_Clean": 0,
+        "Private_Dirty": 253952
+      },
+      {
+        "pid": 3192770,
+        "name": "WebKitNetworkPr",
+        "Rss": 115789824,
+        "Pss": 84959232,
+        "Private_Clean": 5480448,
+        "Private_Dirty": 66576384
+      },
+      {
+        "pid": 3211941,
+        "name": "yt-dlp",
+        "Rss": 80060416,
+        "Pss": 74119168,
+        "Private_Clean": 32768,
+        "Private_Dirty": 73887744
+      },
+      {
+        "pid": 3212262,
+        "name": "yt-dlp",
+        "Rss": 2437120,
+        "Pss": 296960,
+        "Private_Clean": 0,
+        "Private_Dirty": 253952
+      },
+      {
+        "pid": 3212263,
+        "name": "yt-dlp",
+        "Rss": 2433024,
+        "Pss": 292864,
+        "Private_Clean": 0,
+        "Private_Dirty": 249856
+      },
+      {
+        "pid": 3200137,
+        "name": "MainThread",
+        "Rss": 169689088,
+        "Pss": 142682112,
+        "Private_Clean": 12853248,
+        "Private_Dirty": 107978752
+      },
+      {
+        "pid": 3197646,
+        "name": "ffmpeg",
+        "Rss": 23003136,
+        "Pss": 19376128,
+        "Private_Clean": 12050432,
+        "Private_Dirty": 7213056
+      },
+      {
+        "pid": 3192789,
+        "name": "WebKitWebProces",
+        "Rss": 355614720,
+        "Pss": 285799424,
+        "Private_Clean": 62275584,
+        "Private_Dirty": 190308352
+      },
+      {
+        "pid": 3192695,
+        "name": "burrata",
+        "Rss": 406073344,
+        "Pss": 341638144,
+        "Private_Clean": 50982912,
+        "Private_Dirty": 260620288
+      }
+    ],
+    "pssMiB": 905.4765625,
+    "rssMiB": 1103.9765625,
+    "logicalCpus": 8
+  },
+  "relevantSettings": {
+    "autoPreview": false,
+    "playbackDiagnosticsEnabled": true,
+    "liveBpmEnabled": true,
+    "playbackStartupTimeoutSeconds": 20,
+    "preferredStreamingSource": "youtube",
+    "streamingFallbackEnabled": true,
+    "streamingFallbackDelayMs": 1500,
+    "streamingFallbackSources": [
+      "youtube",
+      "soundcloud",
+      "bandcamp"
+    ],
+    "streamingFallbackPolicyVersion": 1,
+    "backgroundSourcePreparation": true,
+    "compactPlaybackBar": true
+  },
+  "findings": [
+    "Repeated yt-dlp/Node helper work accounts for most CPU bursts and also occurs while playback is paused.",
+    "Saved-radio source preparation enabled; 20 preparation jobs finished in the preceding 15 minutes, with successive lookups commonly taking 6-16 seconds.",
+    "FFmpeg decoding averaged less than 1 percent of one core; app/UI incur additional sustained load.",
+    "Background source-preparation gate defers work for 30 seconds after foreground lookup; it does not suspend preparation for the duration of active playback."
+  ],
+  "limits": [
+    "100 percent CPU means one logical core; eight logical cores are available.",
+    "Summed RSS can double-count shared pages; proportional memory snapshot is preferable and is not a peak.",
+    "Tasks that appear and exit between samples and CPU before first observation are omitted.",
+    "No fan RPM, package power or Mac hardware measurements; helper attribution uses process names, safe command-role flags, diagnostics and background-preparation cache records.",
+    "No controlled settings A/B experiment performed."
+  ],
+  "settledPausedMainProcessThreads": {
+    "data-loop.0": 1.1,
+    "cpal_alsa_out": 1.0,
+    "burrata": 0.3,
+    "burrata-mpris": 0.2,
+    "burrata-ffmpeg-": 0.2,
+    "PressureMonitor": 0.1,
+    "burrata-audio-o": 0.05,
+    "gmain": 0.0,
+    "gdbus": 0.0,
+    "dconf worker": 0.0
+  },
+  "finalState": {
+    "status": "paused",
+    "positionSeconds": 136.21204081632652,
+    "queueCount": 31,
+    "queuePreserved": true,
+    "settingsChanged": false
+  }
+}

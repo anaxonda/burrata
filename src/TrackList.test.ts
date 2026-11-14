@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // @ts-expect-error Match the browser runtime used by the direct import above.
 vi.mock("svelte", async () => await import("../node_modules/svelte/src/index-client.js"));
 import TrackList from "./TrackList.svelte";
+import * as api from "./lib/api";
 import { SOURCE_OPENER } from "./lib/source-opening";
 // @ts-expect-error Reuse the reactive prop proxy for context-replacement coverage.
 import { proxy } from "../node_modules/svelte/src/internal/client/proxy.js";
@@ -35,6 +36,25 @@ function render(props: Record<string, unknown> = {}) {
 }
 
 describe("TrackList", () => {
+  it("shows green saved marks only for confirmed library members and refreshes after a save", async () => {
+    const membership = vi.spyOn(api, "call").mockResolvedValue([tracks[0]!.id]);
+    const target = render({ showLibraryStatus: true });
+    for (let i = 0; i < 8; i++) await tick();
+    expect(target.querySelectorAll('[aria-label="In library"]')).toHaveLength(1);
+    expect(target.querySelector('[aria-label="In library"]')?.closest("li")?.textContent).toContain(tracks[0]!.title);
+    membership.mockResolvedValue(tracks.map(track => track.id));
+    window.dispatchEvent(new Event("library-changed"));
+    for (let i = 0; i < 8; i++) await tick();
+    expect(target.querySelectorAll('[aria-label="In library"]')).toHaveLength(2);
+  });
+
+  it("does not show a saved mark for a failed membership lookup", async () => {
+    vi.spyOn(api, "call").mockRejectedValue(new Error("Read failed"));
+    const target = render({ showLibraryStatus: true });
+    for (let i = 0; i < 8; i++) await tick();
+    expect(target.querySelector('[aria-label="In library"]')).toBeNull();
+  });
+
   it("retains named list semantics when list-style removes ordered-list markers", async () => {
     const target = render({ tracks, listLabel: "Saved album tracks" });
     await tick();

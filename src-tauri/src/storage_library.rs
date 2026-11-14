@@ -520,6 +520,53 @@ fn artist_fallback_is_trustworthy(track: &Track) -> bool {
 /// Only catalog services may publish an edge, after checking an exact public
 /// URL relation. Display names are never identity evidence.
 impl Store {
+    /// Read saved membership in one bounded batch. Cached catalog rows alone
+    /// are not saves. Cross-provider badges require the same album and complete
+    /// artist display credit, title/version and duration (including ISRC checks).
+    pub fn library_track_membership(&self, tracks: &[Track]) -> Result<Vec<String>> {
+        if tracks.len() > 500 {
+            return Err("At most 500 tracks can be checked at once".into());
+        }
+        let conn = self.lock_connection()?;
+        let mut exact = conn.prepare("SELECT EXISTS(SELECT 1 FROM catalog_listings l JOIN catalog_listings c ON c.id=l.recording_id WHERE l.id=?1 AND c.in_library=1)").map_err(err)?;
+        let mut albums = HashMap::<String, Vec<Track>>::new();
+        let mut saved = Vec::new();
+        for track in tracks {
+            let present: bool = exact
+                .query_row([&track.id], |row| row.get(0))
+                .map_err(err)?;
+            if present {
+                saved.push(track.id.clone());
+                continue;
+            }
+            let Some(album) = track
+                .album
+                .as_deref()
+                .filter(|name| !name.trim().is_empty())
+            else {
+                continue;
+            };
+            if !albums.contains_key(album) {
+                let mut query = conn.prepare("SELECT metadata FROM catalog_listings WHERE id=recording_id AND in_library=1 AND json_extract(metadata,'$.album')=?1 COLLATE NOCASE").map_err(err)?;
+                let rows = query
+                    .query_map([album], |row| row.get::<_, String>(0))
+                    .map_err(err)?;
+                let items = rows
+                    .map(|row| decode::<Track>(row.map_err(err)?))
+                    .collect::<Result<Vec<_>>>()?;
+                albums.insert(album.to_owned(), items);
+            }
+            if albums[album].iter().any(|item| {
+                crate::recording_identity::search_fold(&item.artist)
+                    == crate::recording_identity::search_fold(&track.artist)
+                    && crate::album_navigation::recording_member(track, std::slice::from_ref(item))
+            }) {
+                saved.push(track.id.clone());
+            }
+        }
+        Ok(saved)
+    }
+
     pub(crate) fn link_library_entities(
         &self,
         kind: &str,
@@ -1521,6 +1568,88 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(&dir.path().join("library.sqlite")).unwrap();
         (dir, store)
+    }
+
+    #[test]
+    fn album_badges_only_include_saved_recordings_not_cached_catalog_rows() {
+        let (_dir, store) = db();
+        let saved = track("saved");
+        let cached = track("cached");
+        store.save_library_tracks(&[saved.clone()]).unwrap();
+        store.cache_track(&cached).unwrap();
+        assert_eq!(
+            store
+                .library_track_membership(&[saved.clone(), cached])
+                .unwrap(),
+            vec![saved.id]
+        );
+    }
+
+    #[test]
+    fn album_badges_follow_verified_recording_merges() {
+        let (_dir, store) = db();
+        let saved = track("saved-primary");
+        let alias = track("verified-alias");
+        store.save_library_tracks(&[saved.clone()]).unwrap();
+        store.cache_track(&alias).unwrap();
+        store
+            .merge_recordings(&saved.id, std::slice::from_ref(&alias.id))
+            .unwrap();
+        assert_eq!(
+            store.library_track_membership(&[alias.clone()]).unwrap(),
+            vec![alias.id]
+        );
+    }
+
+    #[test]
+    fn public_catalog_album_can_mark_a_saved_spotify_recording_without_authentication() {
+        let (_dir, store) = db();
+        let mut saved = track("spotify-recording");
+        saved.provider = "spotify".into();
+        saved.duration_seconds = Some(161.0);
+        saved.title = "Mac 11 On the Dresser".into();
+        store.save_library_tracks(&[saved.clone()]).unwrap();
+        let mut catalog = saved.clone();
+        catalog.id = "catalog:musicbrainz:recording".into();
+        catalog.provider = "catalog".into();
+        catalog.provider_id = "recording".into();
+        catalog.duration_seconds = Some(161.5);
+        assert_eq!(
+            store.library_track_membership(&[catalog.clone()]).unwrap(),
+            vec![catalog.id.clone()]
+        );
+        for field in ["artist", "duration", "version", "isrc", "album"] {
+            let mut wrong = catalog.clone();
+            match field {
+                "artist" => wrong.artist = "A different performer".into(),
+                "duration" => wrong.duration_seconds = Some(190.0),
+                "version" => wrong.version = Some("live".into()),
+                "isrc" => {
+                    wrong.isrc = Some("USAAA2600001".into());
+                    saved.isrc = Some("USAAA2600002".into());
+                    store.save_library_tracks(&[saved.clone()]).unwrap();
+                }
+                _ => wrong.album = Some("Another album".into()),
+            }
+            assert!(
+                store.library_track_membership(&[wrong]).unwrap().is_empty(),
+                "{field}"
+            );
+        }
+    }
+
+    #[test]
+    fn membership_reads_are_bounded_and_do_not_save_catalog_tracks() {
+        let (_dir, store) = db();
+        let catalog = track("not-saved");
+        assert!(store
+            .library_track_membership(&vec![catalog.clone(); 501])
+            .is_err());
+        assert!(store
+            .library_track_membership(&[catalog.clone()])
+            .unwrap()
+            .is_empty());
+        assert!(store.get_library_track(&catalog.id).unwrap().is_none());
     }
 
     #[test]
