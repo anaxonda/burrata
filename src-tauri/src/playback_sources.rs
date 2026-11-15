@@ -4096,7 +4096,7 @@ async fn resolve_serial(
                 continue;
             }
             let started = Instant::now();
-            let result = crate::bandcamp_fallback::resolve(
+            let result = Box::pin(crate::bandcamp_fallback::resolve(
                 store,
                 acquisition,
                 track,
@@ -4106,7 +4106,7 @@ async fn resolve_serial(
                 deadline,
                 failed,
                 false,
-            )
+            ))
             .await;
             trace.event(
                 "bandcamp_fallback_end",
