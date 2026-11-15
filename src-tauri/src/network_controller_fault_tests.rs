@@ -19,6 +19,10 @@ async fn until(
             return state;
         }
         assert!(
+            !matches!(state["status"].as_str(), Some("failed" | "ended")),
+            "Unexpected terminal network playback state: {state}"
+        );
+        assert!(
             Instant::now() < deadline,
             "network controller deadline: {state}"
         );
@@ -56,6 +60,12 @@ async fn network_faults_use_controller_recovery_and_preserve_user_intent() {
     ] {
         let fixture = Fixture::new_with_duration("sndcdn.com", 24);
         fixture.mode(&format!("controller-{mode}"));
+        for reference in [
+            "https://soundcloud.com/synthetic-fixture/111",
+            "https://soundcloud.com/synthetic-fixture/222",
+        ] {
+            playback_test_transport::register_reference(&fixture._registration, reference);
+        }
         fixture
             .store
             .save_playback_checkpoint_and_engine(None, None, Some(&json!("native")))

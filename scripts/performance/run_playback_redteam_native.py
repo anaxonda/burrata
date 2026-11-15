@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run opt-in synthetic decoder faults, with no device or public-provider requests."""
+"""Run opt-in synthetic decoder faults, with no physical device or public-provider requests."""
 import argparse
 from contextlib import contextmanager, nullcontext
 import os

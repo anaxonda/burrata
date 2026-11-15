@@ -3,7 +3,7 @@
 //! production-build registration exists. Each RAII entry owns one exact host.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     net::SocketAddr,
     sync::{Arc, Mutex, OnceLock},
 };
@@ -12,6 +12,7 @@ use std::{
 struct Fixture {
     address: SocketAddr,
     ca: Arc<Vec<u8>>,
+    references: HashSet<String>,
 }
 fn fixtures() -> &'static Mutex<HashMap<String, Fixture>> {
     static FIXTURES: OnceLock<Mutex<HashMap<String, Fixture>>> = OnceLock::new();
@@ -38,11 +39,37 @@ pub(crate) fn register(host: String, address: SocketAddr, ca: Vec<u8>) -> Regist
             host.clone(),
             Fixture {
                 address,
-                ca: Arc::new(ca)
+                ca: Arc::new(ca),
+                references: HashSet::new(),
             }
         )
         .is_none());
     Registration(host)
+}
+// Source extraction validates these exact synthetic reference URLs before
+// invoking the fake helper. This supplies DNS only, never TLS trust for a real
+// provider hostname. Ownership remains with the exact fixture registration.
+pub(crate) fn register_reference(owner: &Registration, value: &str) {
+    assert!([
+        "https://soundcloud.com/synthetic-fixture/111",
+        "https://soundcloud.com/synthetic-fixture/222",
+    ]
+    .contains(&value));
+    fixtures()
+        .lock()
+        .unwrap()
+        .get_mut(&owner.0)
+        .unwrap()
+        .references
+        .insert(value.into());
+}
+pub(crate) fn reference_address(url: &url::Url) -> Option<SocketAddr> {
+    fixtures().lock().unwrap().values().find_map(|fixture| {
+        fixture
+            .references
+            .contains(url.as_str())
+            .then_some(fixture.address)
+    })
 }
 fn lookup(url: &url::Url) -> Option<Fixture> {
     if url.scheme() != "https" || url.port_or_known_default() != Some(443) {
@@ -93,6 +120,20 @@ fn synthetic_tls_registration_is_exact_host_https_and_raii_scoped() {
             b"test-only-not-a-valid-certificate".to_vec(),
         );
         assert_eq!(fixture_address(&url), Some(([8, 8, 8, 8], 443).into()));
+        let reference = url::Url::parse("https://soundcloud.com/synthetic-fixture/111").unwrap();
+        register_reference(&guard, reference.as_str());
+        assert_eq!(
+            reference_address(&reference),
+            Some(([8, 8, 8, 8], 443).into())
+        );
+        assert!(
+            fixture_address(&reference).is_none(),
+            "reference DNS never grants TLS trust"
+        );
+        assert!(reference_address(
+            &url::Url::parse("https://soundcloud.com/synthetic-fixture/222").unwrap()
+        )
+        .is_none());
         for other in [
             format!("http://{host}/a"),
             format!("https://{host}:8443/a"),
@@ -105,5 +146,6 @@ fn synthetic_tls_registration_is_exact_host_https_and_raii_scoped() {
         }
         drop(guard);
         assert!(fixture_address(&url).is_none());
+        assert!(reference_address(&reference).is_none());
     }
 }

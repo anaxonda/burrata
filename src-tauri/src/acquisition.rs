@@ -1370,7 +1370,9 @@ pub(crate) async fn with_playback_test_public_addresses<F: std::future::Future>(
 
 pub(crate) async fn public_addresses(url: &url::Url) -> Result<Vec<std::net::SocketAddr>, String> {
     #[cfg(test)]
-    if let Some(address) = playback_test_transport::fixture_address(url) {
+    if let Some(address) = playback_test_transport::fixture_address(url)
+        .or_else(|| playback_test_transport::reference_address(url))
+    {
         if !is_public_ip(address.ip()) || address.port() != 443 {
             return Err("Synthetic playback fixture address violates public HTTPS policy".into());
         }
