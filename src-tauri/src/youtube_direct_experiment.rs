@@ -459,14 +459,33 @@ impl DirectExperiment {
             deadline: deadline.min(started + Duration::from_millis(request.budget_ms)),
             cancel,
         };
+        self.resolve_with_fetch(request, started, &budget, |spec, stage| {
+            self.fetch(spec, &budget, stage)
+        })
+        .await
+    }
+
+    async fn resolve_with_fetch<F, Fut>(
+        &self,
+        request: &Request,
+        started: Instant,
+        budget: &Budget,
+        mut fetch: F,
+    ) -> Result<Resolved>
+    where
+        F: FnMut(Spec, &'static str) -> Fut,
+        Fut: Future<Output = Result<(u16, String)>>,
+    {
         let mut timings = BTreeMap::new();
         let mut visitor = None;
         if request.visitor_mode == VisitorMode::AnonymousSource {
             let mut visitor_failure = fail("VISITOR_CONTEXT_UNAVAILABLE", "visitorHomepage");
             for source in [VisitorSource::ServiceWorker, VisitorSource::Homepage] {
                 let at = Instant::now();
-                let fetched = self
-                    .fetch(visitor_spec(request, source), &budget, source.stage())
+                let fetched = budget
+                    .run(source.stage(), async {
+                        fetch(visitor_spec(request, source), source.stage()).await
+                    })
                     .await;
                 timings.insert(
                     source.stage().to_owned(),
@@ -493,10 +512,34 @@ impl DirectExperiment {
             }
         }
         let at = Instant::now();
-        let (status, text) = self
-            .fetch(player_spec(request, visitor.as_ref())?, &budget, "player")
+        let (mut status, mut text) = budget
+            .run("player", async {
+                fetch(player_spec(request, visitor.as_ref())?, "player").await
+            })
             .await?;
         timings.insert("player".into(), at.elapsed().as_secs_f64() * 1000.0);
+        if status == 400 && request.visitor_mode == VisitorMode::AnonymousSource {
+            // A syntactically valid anonymous visitor can still be rejected by
+            // the player. Refresh it from the music origin and retry this exact
+            // video/format once. Never extend the original deadline, retry a
+            // recording/playability rejection, or reuse the rejected visitor.
+            let source = VisitorSource::Homepage;
+            let at = Instant::now();
+            let (visitor_status, visitor_text) = budget
+                .run(source.stage(), async {
+                    fetch(visitor_spec(request, source), source.stage()).await
+                })
+                .await?;
+            let fresh = parse_visitor_response(visitor_status, &visitor_text, source)?;
+            timings.insert("visitorRefresh".into(), at.elapsed().as_secs_f64() * 1000.0);
+            let at = Instant::now();
+            (status, text) = budget
+                .run("player", async {
+                    fetch(player_spec(request, Some(&fresh))?, "player").await
+                })
+                .await?;
+            timings.insert("playerRetry".into(), at.elapsed().as_secs_f64() * 1000.0);
+        }
         budget
             .run("parse", async {
                 let mut selected = select_player_response(status, &text, request, unix_ms())?;
@@ -816,6 +859,162 @@ mod tests {
         let mut row = vec![Value::Null; 14];
         row[13] = value;
         format!(")]}}'\n{}", json!([[null, null, [[row]]]]))
+    }
+
+    async fn rejected_visitor_case(
+        first_status: u16,
+        retry_status: u16,
+        mode: VisitorMode,
+        terminal: Option<&str>,
+    ) -> (Result<Resolved>, Vec<(String, Option<Value>)>) {
+        let experiment = DirectExperiment::new().unwrap();
+        let mut req = request();
+        req.visitor_mode = mode;
+        req.format_id = 140;
+        let (stop, cancel) = watch::channel(false);
+        let budget = Budget {
+            deadline: Instant::now()
+                + if terminal == Some("timeout") {
+                    Duration::from_millis(100)
+                } else {
+                    Duration::from_secs(5)
+                },
+            cancel,
+        };
+        let mut calls = Vec::new();
+        let mut players = 0;
+        let resolved = experiment
+            .resolve_with_fetch(&req, Instant::now(), &budget, |spec, stage| {
+                calls.push((stage.to_owned(), spec.body.clone()));
+                let response = match stage {
+                    "visitorServiceWorker" => (200, sw(json!("rejected-private-visitor"))),
+                    "visitorHomepage" => {
+                        if terminal == Some("cancel") {
+                            stop.send(true).unwrap();
+                        }
+                        (
+                            if terminal == Some("unavailable") {
+                                503
+                            } else {
+                                200
+                            },
+                            "{\"VISITOR_DATA\":\"fresh-private-visitor\"}".into(),
+                        )
+                    }
+                    "player" => {
+                        players += 1;
+                        let status = if players == 1 {
+                            first_status
+                        } else {
+                            retry_status
+                        };
+                        {
+                            let mut response = body();
+                            if players > 1 && terminal == Some("mismatch") {
+                                response["videoDetails"]["videoId"] = json!("abcdefghijk");
+                            }
+                            response["streamingData"]["adaptiveFormats"][0]["itag"] = json!(140);
+                            response["streamingData"]["adaptiveFormats"][0]["mimeType"] =
+                                json!(AAC);
+                            (status, response.to_string())
+                        }
+                    }
+                    _ => panic!("unexpected fetch stage"),
+                };
+                async move {
+                    if stage == "visitorHomepage" && terminal == Some("timeout") {
+                        std::future::pending::<()>().await;
+                    }
+                    Ok(response)
+                }
+            })
+            .await;
+        (resolved, calls)
+    }
+
+    #[tokio::test]
+    async fn rejected_anonymous_visitor_refreshes_once_without_changing_recording() {
+        let (resolved, calls) =
+            rejected_visitor_case(400, 200, VisitorMode::AnonymousSource, None).await;
+        let resolved = resolved.unwrap();
+        assert!(resolved.report.stages.contains_key("playerRetry"));
+        assert_eq!(resolved.report.format_id, 140);
+        assert_eq!(
+            calls.iter().map(|c| c.0.as_str()).collect::<Vec<_>>(),
+            [
+                "visitorServiceWorker",
+                "player",
+                "visitorHomepage",
+                "player"
+            ]
+        );
+        let first = calls[1].1.as_ref().unwrap();
+        let retry = calls[3].1.as_ref().unwrap();
+        assert_eq!(first["videoId"], retry["videoId"]);
+        assert_eq!(first["videoId"], request().video_id);
+        assert_eq!(
+            first["context"]["client"]["visitorData"],
+            "rejected-private-visitor"
+        );
+        assert_eq!(
+            retry["context"]["client"]["visitorData"],
+            "fresh-private-visitor"
+        );
+    }
+
+    #[tokio::test]
+    async fn persistent_bad_request_stops_after_one_fresh_visitor() {
+        let (resolved, calls) =
+            rejected_visitor_case(400, 400, VisitorMode::AnonymousSource, None).await;
+        assert_eq!(resolved.unwrap_err().http_status, Some(400));
+        assert_eq!(calls.len(), 4);
+    }
+
+    #[tokio::test]
+    async fn fresh_visitor_retry_keeps_recording_identity_validation() {
+        let (resolved, calls) =
+            rejected_visitor_case(400, 200, VisitorMode::AnonymousSource, Some("mismatch")).await;
+        assert_eq!(resolved.unwrap_err().code, "RECORDING_MISMATCH");
+        assert_eq!(calls.len(), 4);
+    }
+
+    #[tokio::test]
+    async fn failed_visitor_refresh_never_reuses_rejected_context() {
+        let (resolved, calls) =
+            rejected_visitor_case(400, 200, VisitorMode::AnonymousSource, Some("unavailable"))
+                .await;
+        let error = resolved.unwrap_err();
+        assert_eq!(error.code, "VISITOR_CONTEXT_UNAVAILABLE");
+        assert_eq!(error.http_status, Some(503));
+        assert_eq!(calls.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn visitor_refresh_does_not_retry_other_player_failures_or_anonymous_omit() {
+        for status in [200, 302, 403, 429, 500, 503] {
+            let (_, calls) =
+                rejected_visitor_case(status, 200, VisitorMode::AnonymousSource, None).await;
+            assert_eq!(calls.len(), 2, "unexpected retry for {status}");
+        }
+        let (resolved, calls) = rejected_visitor_case(400, 200, VisitorMode::Omit, None).await;
+        assert_eq!(resolved.unwrap_err().http_status, Some(400));
+        assert_eq!(calls.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn cancellation_during_visitor_refresh_never_sends_second_player() {
+        let (resolved, calls) =
+            rejected_visitor_case(400, 200, VisitorMode::AnonymousSource, Some("cancel")).await;
+        assert_eq!(resolved.unwrap_err().code, "CANCELLED");
+        assert_eq!(calls.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn visitor_refresh_uses_the_original_absolute_deadline() {
+        let (resolved, calls) =
+            rejected_visitor_case(400, 200, VisitorMode::AnonymousSource, Some("timeout")).await;
+        assert_eq!(resolved.unwrap_err().code, "TIMEOUT");
+        assert_eq!(calls.len(), 3);
     }
 
     #[test]
