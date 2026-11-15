@@ -95,8 +95,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def controller_response(self, mode, value, data):
         initial = self.path == "/a-1.mp3"
-        if value is None and initial and mode in ("controller-403", "controller-429", "controller-503"):
-            status = int(mode.rsplit("-", 1)[1])
+        denied = initial or (mode == "controller-fallback" and self.path == "/a-2.mp3")
+        if value is None and denied and mode in ("controller-403", "controller-429", "controller-503", "controller-fallback"):
+            status = 403 if mode == "controller-fallback" else int(mode.rsplit("-", 1)[1])
             self.record(status, "injected_status")
             self.send_response(status)
             self.send_header("Content-Length", "0")
@@ -113,7 +114,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.record(status, "injected_range" if bad_range else "response")
         self.send_response(status)
         self.send_header("Content-Type", "audio/mpeg")
-        self.send_header("Content-Length", str(end - start + 1))
+        if not (initial and value is None and mode == "controller-no-length-truncate"):
+            length = min(len(data), 4 * 24000) if initial and value is None and mode == "controller-short-body" else end - start + 1
+            self.send_header("Content-Length", str(length))
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("ETag", '"controller-fixture-v1"')
         self.send_header("Connection", "close")
@@ -122,13 +125,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         try:
             if not initial or value:
+                if initial and value and start > 1024 and mode == "controller-stall":
+                    self.record(status, "held_range")
+                    until = time.monotonic() + 22
+                    while not (root / "release").exists() and time.monotonic() < until:
+                        time.sleep(.02)
                 self.wfile.write(data[start:end + 1])
                 return
             prefix = min(len(data), 4 * 24000)
             self.wfile.write(data[:prefix])
             self.wfile.flush()
             self.record(status, "prefix_delivered")
-            if mode == "controller-truncate":
+            if mode in ("controller-truncate", "controller-no-length-truncate", "controller-short-body"):
                 return
             if mode in ("controller-stall", "controller-cancel", "controller-pause"):
                 until = time.monotonic() + 22

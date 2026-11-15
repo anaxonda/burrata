@@ -69,7 +69,7 @@ def main():
         ('tls_fault_recovery', 'native_output::remote_recovery_composition_tests::controlled_remote_tls_resolver_decoder_composition', True, 240),
         ('expired_source_fallback', 'native_output::remote_recovery_composition_tests::expired_stream_advances_to_valid_fallback_but_selected_source_stays_locked', True, 180),
     ]
-    scenarios.append(('network_controller', 'native_output::remote_recovery_composition_tests::controller_fault_tests::network_faults_use_controller_recovery_and_preserve_user_intent', True, 240))
+    scenarios.append(('network_controller', 'native_output::remote_recovery_composition_tests::controller_fault_tests::network_faults_use_controller_recovery_and_preserve_user_intent', True, 420))
     rows = []
     for name, test, namespace, budget in scenarios:
         command = [binary, test, '--exact', '--ignored', '--nocapture', '--test-threads=1']
