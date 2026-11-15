@@ -5187,11 +5187,11 @@ async fn extract_preview_audio_with_prepared_alternate(
         trace.event("dns_source_end", &candidate.provider, serde_json::json!({"durationMs":dns_started.elapsed().as_millis(), "ok":addresses_result.is_ok(), "addressCount":addresses_result.as_ref().map_or(0, Vec::len)}));
     }
     let _addresses = addresses_result?;
-    // No new helper/broker work when both shared extraction slots are gone.
-    // The atomic reservation immediately before process launch remains decisive.
+    // Avoid helper/broker work if neither ordinary extraction nor the bounded
+    // distinct-provider rescue is available. Launch still reserves atomically.
     if trace
         .as_ref()
-        .is_some_and(|trace| trace.extraction_attempts_used() >= 2)
+        .is_some_and(|trace| !trace.can_spend_extraction_for(&candidate.provider))
     {
         return Err(crate::playback_sources::EXTRACTION_ATTEMPTS_EXHAUSTED.into());
     }

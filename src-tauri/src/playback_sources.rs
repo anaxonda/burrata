@@ -648,6 +648,14 @@ impl SourceTrace {
 
     // The ordinary limit is two. After a source-specific failure, allow at
     // most one additional extraction, exclusively on a different provider.
+    /// Advisory preflight only; the launch-time reservation remains atomic.
+    pub(crate) fn can_spend_extraction_for(&self, provider: &str) -> bool {
+        self.extraction_attempts_used() < 2
+            || self.source_rescue.lock().is_ok_and(|state| {
+                !state.1 && state.0.as_deref().is_some_and(|failed| failed != provider)
+            })
+    }
+
     pub(crate) fn try_spend_extraction_for(&self, provider: &str) -> bool {
         if self.try_spend_extraction() {
             return true;
@@ -5344,6 +5352,9 @@ async fn resolve_serial(
                                 .min(u64::MAX as u128) as u64,
                         ),
                     );
+                    // Keep the concrete first failure if the fresh retry cannot
+                    // even launch (for example, a shared extraction budget).
+                    failures.record(error.clone());
                     transient_retry_attempted = true;
                     alias_pass.attempted(&provider);
                     provider_attempt_count += 1;
@@ -15960,6 +15971,35 @@ mod catalog_alias_priority_tests {
             assert!(trace.try_spend_extraction_for("youtube"));
             assert!(!trace.try_spend_extraction_for("soundcloud"), "{error}");
         }
+    }
+
+    #[test]
+    fn extraction_preflight_preserves_the_distinct_provider_rescue_without_spending_it() {
+        let trace = SourceTrace::new(None, None, None);
+        assert!(trace.try_spend_extraction_for("soundcloud"));
+        trace.note_source_failure(
+            "soundcloud",
+            "Audio source is DRM protected; choose another source",
+            false,
+        );
+        assert!(trace.try_spend_extraction_for("soundcloud"));
+        assert!(!trace.can_spend_extraction_for("soundcloud"));
+        assert!(trace.can_spend_extraction_for("youtube"));
+        assert!(trace.can_spend_extraction_for("youtube"));
+        assert_eq!(trace.extraction_attempts_used(), 2);
+        assert!(trace.try_spend_extraction_for("youtube"));
+        assert_eq!(trace.extraction_attempts_used(), 3);
+        assert!(!trace.can_spend_extraction_for("bandcamp"));
+        assert!(!trace.try_spend_extraction_for("bandcamp"));
+        let pinned = SourceTrace::new(None, None, None);
+        assert!(pinned.try_spend_extraction_for("soundcloud"));
+        pinned.note_source_failure(
+            "soundcloud",
+            "Audio source is DRM protected; choose another source",
+            true,
+        );
+        assert!(pinned.try_spend_extraction_for("soundcloud"));
+        assert!(!pinned.can_spend_extraction_for("youtube"));
     }
 
     #[test]
