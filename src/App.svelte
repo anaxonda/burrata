@@ -1925,6 +1925,16 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     nativeEngineEnabled=snapshot.engine==="native";nativePlaybackStatus=snapshot.status;nativePlaybackGeneration=snapshot.generation;nativeNaturalQueueEnd=snapshot.naturalQueueEnd===true;
     if (snapshot.engine !== "native") return;
     const snapshotTrack = snapshot.track ? {...autoplayMetadataLookup.peek(autoplayTrackWithLibraryMetadata(snapshot.track, tracks)),favorite:favoriteTrackIds.includes(snapshot.track.id)} : null;
+    if (snapshotTrack?.artworkUrl) {
+      const source = snapshotTrack.artworkUrl;
+      const nativePath = snapshot.track?.artworkFilePath;
+      const cached = nativePath ? {path:nativePath,url:playable(nativePath)} : artworkCache.get(source);
+      if (cached) {
+        artworkCache.set(source,cached);
+        artworkFilePaths.set(snapshotTrack.id,cached.path);
+        snapshotTrack.artworkUrl=cached.url;
+      }
+    }
     if (snapshotTrack && !snapshotTrack.artist.trim()) {
       void autoplayMetadataLookup.load(snapshotTrack).then(hydrated => {
         if (!hydrated.artist.trim() || nativeSnapshot?.generation !== snapshot.generation || nativeSnapshot?.entryId !== snapshot.entryId || playingTrack?.id !== snapshotTrack.id) return;

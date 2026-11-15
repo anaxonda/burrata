@@ -9459,6 +9459,18 @@ describe("native playback frontend", () => {
     expect(document.querySelector(".player-track-artist")?.textContent).toContain(title.startsWith("<") ? "Rafael, Luch" : "Gotta Be Cool");
   });
 
+  it("preserves cached cover art through progress updates and accepts an upgraded native cache file", async () => {
+    const track={...savedTrack,artworkUrl:"https://geo-static.traxsource.com/scripts/image.php/52x52/abcdef.jpg"};
+    mountNative(makeNativeSnapshot({revision:4,generation:9,status:"playing",trackId:track.id,track,queue:[track],currentIndex:0,paused:false}));
+    await settle();
+    const image=()=>document.querySelector<HTMLImageElement>("footer.player .mini-art img")?.getAttribute("src");
+    const cached=image();expect(cached).toBeTruthy();expect(cached).not.toBe(track.artworkUrl);
+    emitNative(makeNativeSnapshot({revision:5,generation:9,status:"playing",trackId:track.id,track,queue:[track],currentIndex:0,paused:false,position:5}));
+    await settle();expect(image()).toBe(cached);
+    emitNative(makeNativeSnapshot({revision:6,generation:9,status:"playing",trackId:track.id,track:{...track,artworkFilePath:"/upgraded-cover.jpg"},queue:[track],currentIndex:0,paused:false,position:6}));
+    await settle();expect(image()).toContain("upgraded-cover.jpg");
+  });
+
   it("sends chapter-relative seek positions and clears buffering when native output starts", async () => {
     const chapterTrack:Track={...savedTrack,id:"chapter-one",title:"Chapter One",playbackRange:{parentTrackId:"full-set",chapterId:"chapter-one",sourceUrl:"https://example.test/full-set",startTime:72,endTime:102,parentTitle:"Full Set"}};
     mountNative(makeNativeSnapshot({revision:4,generation:9,status:"buffering",trackId:chapterTrack.id,track:chapterTrack,queue:[chapterTrack],currentIndex:0,paused:false,position:3,duration:30,canSeek:true,playerMessage:"Buffering audio…"}));
