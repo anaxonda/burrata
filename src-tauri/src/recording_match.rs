@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) const EVALUATOR_VERSION: &str = "36";
+pub(crate) const EVALUATOR_VERSION: &str = "37";
 
 /// Independently selected categories of alternatives for Flexible matching.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -1503,6 +1503,27 @@ pub(crate) fn semantic_version(title: &str, version: &str) -> String {
     if level_work(&parse_title(title).title).is_some() {
         if let Some(difficulty) = difficulty_label(version) {
             return format!("{difficulty} difficulty");
+        }
+    }
+    // A catalog may repeat the title's featured credit in its mix-name field.
+    // That is guest evidence, not an unknown recording edition. Only suppress
+    // a field consisting solely of the same already-declared guest annotation.
+    let field = crate::recording_identity::parse_recording_text(&format!("Version ({version})"));
+    if !field.parsing_incomplete
+        && field.annotations.len() == 1
+        && field.annotations[0].kind == crate::recording_identity::AnnotationKind::FeaturedCredit
+    {
+        let field_credit = parse_title(&format!("Version ({version})")).featured_credit;
+        let title_credit = parse_title(title).featured_credit;
+        if field_credit
+            .as_ref()
+            .zip(title_credit.as_ref())
+            .is_some_and(|(a, b)| {
+                crate::matching::normalize_single_artist_name(a)
+                    == crate::matching::normalize_single_artist_name(b)
+            })
+        {
+            return String::new();
         }
     }
     let normalized = crate::matching::normalize_version_for_title(title, version);

@@ -176,7 +176,7 @@ fn valid_musicbrainz_id(value: &str) -> bool {
 }
 
 /// Parsing behavior is versioned alongside evaluator/cache semantics.
-pub(crate) const PARSER_VERSION: &str = "5";
+pub(crate) const PARSER_VERSION: &str = "6";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -882,6 +882,7 @@ fn explicit_recording_version(label: &str) -> bool {
             | "cover"
             | "radio edit"
             | "remix"
+            | "extended"
             | "extended mix"
             | "dub"
             | "acapella"
@@ -909,6 +910,7 @@ pub(crate) fn canonical_version_key(label: &str) -> String {
     let normalized = crate::matching::normalize_version(label);
     let normalized = remaster_version_key(&normalized).unwrap_or(normalized);
     match normalized.as_str() {
+        "extended" => "extended mix".to_owned(),
         "acapella" | "acappella" | "a capella" => "a cappella".to_owned(),
         _ => normalized,
     }
@@ -959,7 +961,8 @@ pub(crate) fn version_categories(label: &str) -> VersionCategories {
                     | "mono"
                     | "stereo"
             )
-        }) || n.contains("a capella")
+        }) || n == "extended"
+            || n.contains("a capella")
             || n.contains("a cappella")
             || n.contains("extended version")
             || n == "sped up"

@@ -455,3 +455,61 @@ fn original_labels_still_conflict_with_explicit_performance_or_mix() {
         }
     }
 }
+
+#[test]
+fn bare_extended_is_a_recording_version_not_an_unresolved_annotation() {
+    let (mut request, candidate) = pair("Song (Extended)", "Song (Extended Mix)");
+    request.version = Some("Extended".into());
+    assert_same_recording(&request, &candidate);
+    for wrong in ["Song (Radio Edit)", "Song (Live)", "Song (DJ Remix)"] {
+        let (_, candidate) = pair("Song", wrong);
+        assert_ne!(
+            assess(
+                &request,
+                &candidate,
+                MatchLevel::Balanced,
+                MatchStage::Resolved
+            )
+            .action,
+            MatchAction::Accept
+        );
+    }
+    let parsed = crate::recording_identity::parse_recording_text("Song (Extended)");
+    assert_eq!(parsed.base_title, "Song");
+    assert_eq!(
+        parsed.semantic_versions().collect::<Vec<_>>(),
+        vec!["Extended"]
+    );
+}
+
+#[test]
+fn a_duplicate_feature_in_mix_field_does_not_create_a_requested_edition() {
+    assert_eq!(
+        crate::recording_match::semantic_version("Say What (feat. Chuala)", "feat. Chuala"),
+        ""
+    );
+    assert!(!crate::recording_match::semantic_version(
+        "Say What (feat. Chuala)",
+        "feat. Other Guest"
+    )
+    .is_empty());
+    assert!(!crate::recording_match::semantic_version("Say What", "feat. Chuala").is_empty());
+    assert!(
+        !crate::recording_match::semantic_version("Say What (feat. Chuala)", "DJ Remix").is_empty()
+    );
+    let (mut request, mut candidate) = pair("Say What (feat. Chuala)", "Say What (feat. Chuala)");
+    request.version = Some("feat. Chuala".into());
+    request.artist = "Keinemusik".into();
+    candidate.source_metadata.as_mut().unwrap()["artistNames"] = json!(["Keinemusik", "Chuala"]);
+    // Guest matching is evaluated independently of the empty semantic edition.
+    assert_eq!(
+        assess(
+            &request,
+            &candidate,
+            MatchLevel::Balanced,
+            MatchStage::Resolved
+        )
+        .action,
+        MatchAction::Accept
+    );
+}
