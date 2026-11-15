@@ -321,8 +321,10 @@ fn safe_media(input: &str) -> Option<String> {
 }
 fn track_from(value: &Value, _index: usize) -> Option<Track> {
     let raw = value.get("track").unwrap_or(value);
-    let id = text(raw, "id")?;
-    let title = text(raw, "name").or_else(|| text(raw, "title"))?;
+    let id = text(raw, "id").or_else(|| text(raw, "track_id"))?;
+    let title = text(raw, "name")
+        .or_else(|| text(raw, "title"))
+        .or_else(|| text(raw, "track_name"))?;
     let artists = raw.get("artists")?.as_array()?;
     let artist = artists
         .iter()
@@ -370,6 +372,7 @@ fn track_from(value: &Value, _index: usize) -> Option<Track> {
         genre: genre.clone(),
         normalized_genre: genre.map(|s| s.to_lowercase()),
         duration_seconds: number(raw, "length_ms")
+            .or_else(|| number(raw, "track_length_ms"))
             .map(|n| n / 1000.)
             .or_else(|| number(raw, "duration")),
         bpm: number(raw, "bpm"),
@@ -516,6 +519,36 @@ mod tests {
         assert!(genres.iter().any(|g| g.name == "Rock"
             && g.chart_url == "https://www.beatport.com/genre/rock/109/top-100"));
     }
+    #[test]
+    fn current_exact_track_pages_recover_duration_and_keep_recommendations_out_of_charts() {
+        let rows: Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/beatport-current-track-details.json"
+        ))
+        .unwrap();
+        for (raw, seconds) in rows
+            .as_array()
+            .unwrap()
+            .iter()
+            .zip([286.080, 416.500, 275.835, 291.562])
+        {
+            let body = format!(
+                "<script id=\"__NEXT_DATA__\">{}</script>",
+                serde_json::json!({"props":{"pageProps":{"dehydratedState":{"queries":[{"state":{"data":raw}}]}}}})
+            );
+            let url = format!("https://www.beatport.com/track/-/{}", raw["track_id"]);
+            let details = parse_chart(&body, &url).unwrap();
+            assert_eq!(details.tracks.len(), 1);
+            assert_eq!(details.tracks[0].duration_seconds, Some(seconds));
+            assert_eq!(details.tracks[0].provider_id, raw["track_id"].to_string());
+            assert_eq!(details.tracks[0].isrc.as_deref(), raw["isrc"].as_str());
+            assert!(parse_chart(
+                &body,
+                "https://www.beatport.com/genre/afro-house/89/top-100"
+            )
+            .is_err());
+        }
+    }
+
     #[test]
     fn preserves_chart_rank_version_and_unknown_fields() {
         let chart = parse_chart(

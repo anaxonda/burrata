@@ -1,0 +1,118 @@
+[
+  {
+    "track_id": 28886180,
+    "track_name": "Pump up the Jam",
+    "mix_name": "Original Mix",
+    "track_length_ms": 286080,
+    "artists": [
+      {
+        "id": 574910,
+        "name": "Lizwi",
+        "type": "Artist",
+        "slug": "lizwi"
+      },
+      {
+        "id": 720678,
+        "name": "Aaron Sevilla",
+        "type": "Artist",
+        "slug": "aaron-sevilla"
+      },
+      {
+        "id": 803872,
+        "name": "Br\u00f8der",
+        "type": "Artist",
+        "slug": "br\u00f8der"
+      },
+      {
+        "id": 1287784,
+        "name": "SENATVS",
+        "type": "Artist",
+        "slug": "senatvs"
+      }
+    ],
+    "isrc": "GXBNP2683366",
+    "bpm": 125,
+    "key": "C Major"
+  },
+  {
+    "track_id": 19657454,
+    "track_name": "Say What (feat. Chuala)",
+    "mix_name": "feat. Chuala",
+    "track_length_ms": 416500,
+    "artists": [
+      {
+        "id": 61960,
+        "name": "&ME",
+        "type": "Artist",
+        "slug": "me"
+      },
+      {
+        "id": 86455,
+        "name": "Rampa",
+        "type": "Artist",
+        "slug": "rampa"
+      },
+      {
+        "id": 106408,
+        "name": "Adam Port",
+        "type": "Artist",
+        "slug": "adam-port"
+      },
+      {
+        "id": 112605,
+        "name": "Keinemusik",
+        "type": "Artist",
+        "slug": "keinemusik"
+      },
+      {
+        "id": 990849,
+        "name": "chuala",
+        "type": "Artist",
+        "slug": "chuala"
+      }
+    ],
+    "isrc": "DEEC33501586",
+    "bpm": 120,
+    "key": "C Major"
+  },
+  {
+    "track_id": 30517289,
+    "track_name": "100% Pure Love (Extended)",
+    "mix_name": "Extended",
+    "track_length_ms": 275835,
+    "artists": [
+      {
+        "id": 227187,
+        "name": "Yas Cepeda",
+        "type": "Artist",
+        "slug": "yas-cepeda"
+      },
+      {
+        "id": 1077001,
+        "name": "Karl8 & Andrea Monta",
+        "type": "Artist",
+        "slug": "karl8-andrea-monta"
+      }
+    ],
+    "isrc": "GBF9X2600495",
+    "bpm": 126,
+    "key": "G Minor"
+  },
+  {
+    "track_id": 30754798,
+    "track_name": "Shadows",
+    "mix_name": "Extended",
+    "track_length_ms": 291562,
+    "artists": [
+      {
+        "id": 258359,
+        "name": "Breyth",
+        "type": "Artist",
+        "slug": "breyth"
+      }
+    ],
+    "isrc": "QMFME2628439",
+    "bpm": 120,
+    "key": "Gb Major"
+  }
+]

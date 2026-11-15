@@ -57,6 +57,7 @@ pub(crate) const EXTRACTION_ATTEMPTS_EXHAUSTED: &str = "Playback extraction atte
 enum ResolutionFailureKind {
     NoResults,
     ProviderSearchDeadline,
+    ExtractionBudget,
     IdentityRejected,
     SourceOrSearch,
     Retryable,
@@ -102,7 +103,7 @@ impl ResolutionFailure {
         } else if message == EXTRACTION_ATTEMPTS_EXHAUSTED
             || message == "Playback extraction attempt budget exhausted"
         {
-            ResolutionFailureKind::SourceOrSearch
+            ResolutionFailureKind::ExtractionBudget
         } else if ["deadline", "timed out", "timeout", "budget"]
             .iter()
             .any(|marker| lower.contains(marker))
@@ -1739,6 +1740,17 @@ async fn resolve_inner(
                 if let Some(resolved) = resolved { prepared_track = resolved; }
             }
             let mut effective_track = prepared_track;
+            // Recover missing exact-catalog facts before spending scarce audio
+            // extractions. Exact catalog IDs never authorize a different mix.
+            let early_catalog_refresh = should_refresh_incomplete_catalog(
+                &effective_track, selected.is_some(), &settings,
+            );
+            if early_catalog_refresh {
+                effective_track = refresh_incomplete_catalog(
+                    effective_track, cancel.clone(), deadline,
+                    |request| async move { acquisition.refresh_playback_catalog_track(&request).await },
+                ).await?;
+            }
             let excerpt_request_track = effective_track.clone();
             crate::recording_identity::hydrate_identifiers(&mut effective_track);
             // A valid registered download takes priority over an online binding.
@@ -1846,7 +1858,7 @@ async fn resolve_inner(
                 && (refresh_failure_kind == Some(ResolutionFailureKind::IdentityRejected)
                     || trace.identity_rejected_sources.lock().is_ok_and(|sources| !sources.is_empty()));
             if (refresh_after_identity_rejection || refresh_after_empty_search)
-                && automatic_source && !*cancel.borrow() && !deadline.remaining().is_zero()
+                && !early_catalog_refresh && automatic_source && !*cancel.borrow() && !deadline.remaining().is_zero()
             {
                 let fresh = tokio::select! {
                     biased;
@@ -1934,6 +1946,56 @@ fn refreshed_candidate_exclusions(
         })
         .cloned()
         .collect()
+}
+
+fn should_refresh_incomplete_catalog(track: &Track, selected: bool, settings: &Settings) -> bool {
+    matches!(track.provider.as_str(), "beatport" | "traxsource")
+        && supports_catalog_playback_refresh(track)
+        && track.duration_seconds.is_none()
+        && track.provenance["manualFields"]["durationSeconds"] != true
+        && track.local_path.is_none()
+        && track.asset_id.is_none()
+        && track.playback_range.is_none()
+        && !source_resolution_is_pinned(track, selected, settings, true)
+}
+
+async fn refresh_incomplete_catalog<F, Fut>(
+    track: Track,
+    cancel: watch::Receiver<bool>,
+    deadline: PlaybackDeadline,
+    fetch: F,
+) -> Result<Track, String>
+where
+    F: FnOnce(Track) -> Fut,
+    Fut: std::future::Future<Output = Result<Option<Track>, String>>,
+{
+    if *cancel.borrow() {
+        return Err("Cancelled".into());
+    }
+    // Leave most of the shared startup deadline for source search and decoding.
+    let opportunity = deadline.remaining().min(Duration::from_secs(4));
+    if opportunity < Duration::from_millis(250) {
+        return Ok(track);
+    }
+    let result = tokio::select! {
+        biased;
+        _ = wait_for_cancellation(cancel.clone()) => return Err("Cancelled".into()),
+        result = tokio::time::timeout(opportunity, fetch(track.clone())) => result,
+    };
+    if *cancel.borrow() {
+        return Err("Cancelled".into());
+    }
+    Ok(result
+        .ok()
+        .and_then(Result::ok)
+        .flatten()
+        .filter(|fresh| {
+            fresh
+                .duration_seconds
+                .is_some_and(|d| d.is_finite() && (1.0..=86_400.0).contains(&d))
+        })
+        .and_then(|fresh| refreshed_request_track(&track, &fresh))
+        .unwrap_or(track))
 }
 
 fn supports_catalog_playback_refresh(track: &Track) -> bool {
@@ -15930,7 +15992,7 @@ mod catalog_alias_priority_tests {
         ] {
             assert_eq!(
                 ResolutionFailure::new(error.into()).kind,
-                ResolutionFailureKind::SourceOrSearch
+                ResolutionFailureKind::ExtractionBudget
             );
         }
         assert_eq!(
@@ -16815,3 +16877,172 @@ mod spotify_role_recovery_regression_tests {
 #[cfg(test)]
 #[path = "playback_release_live_tests.rs"]
 mod release_live_tests;
+#[cfg(test)]
+mod incomplete_catalog_tests {
+    use super::*;
+
+    fn request() -> Track {
+        Track {
+            id: "beatport:28886180".into(),
+            provider: "beatport".into(),
+            provider_id: "28886180".into(),
+            title: "Pump up the Jam".into(),
+            artist: "Lizwi, Aaron Sevilla, Brøder, SENATVS".into(),
+            version: Some("Original Mix".into()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn legacy_catalog_refresh_excludes_downloads_locks_edits_and_other_mixes() {
+        let settings = Settings::default();
+        let track = request();
+        assert!(should_refresh_incomplete_catalog(&track, false, &settings));
+        assert!(!should_refresh_incomplete_catalog(&track, true, &settings));
+        for variant in 0..6 {
+            let mut changed = track.clone();
+            match variant {
+                0 => changed.local_path = Some("registered.opus".into()),
+                1 => changed.asset_id = Some("asset".into()),
+                2 => changed.duration_seconds = Some(286.),
+                3 => changed.provenance = json!({"manualFields":{"durationSeconds":true}}),
+                4 => changed.provenance = json!({"explicitSourceLock":true}),
+                _ => changed.provider_id = "../other".into(),
+            }
+            assert!(
+                !should_refresh_incomplete_catalog(&changed, false, &settings),
+                "{variant}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn exact_refresh_enriches_before_audio_attempts_without_mutating_saved_identity() {
+        let track = request();
+        let original = serde_json::to_value(&track).unwrap();
+        let (_stop, cancel) = watch::channel(false);
+        let trace = SourceTrace::new(None, None, None);
+        let refreshed = refresh_incomplete_catalog(
+            track.clone(),
+            cancel,
+            PlaybackDeadline::after(Duration::from_secs(5)),
+            |mut fresh| async move {
+                fresh.duration_seconds = Some(286.0605);
+                Ok(Some(fresh))
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(refreshed.duration_seconds, Some(286.0605));
+        assert_eq!(refreshed.id, track.id);
+        assert_eq!(trace.extraction_attempts_used(), 0);
+        assert_eq!(serde_json::to_value(&track).unwrap(), original);
+    }
+
+    #[tokio::test]
+    async fn incomplete_refresh_fails_closed_on_version_identity_and_bad_duration() {
+        for variant in 0..5 {
+            let track = request();
+            let (_stop, cancel) = watch::channel(false);
+            let refreshed = refresh_incomplete_catalog(
+                track.clone(),
+                cancel,
+                PlaybackDeadline::after(Duration::from_secs(5)),
+                |mut fresh| async move {
+                    fresh.duration_seconds = Some(286.);
+                    match variant {
+                        0 => fresh.provider_id = "different".into(),
+                        1 => fresh.version = Some("Radio Edit".into()),
+                        2 => fresh.duration_seconds = Some(f64::NAN),
+                        3 => fresh.duration_seconds = Some(0.),
+                        _ => fresh.duration_seconds = None,
+                    }
+                    Ok(Some(fresh))
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                serde_json::to_value(refreshed).unwrap(),
+                serde_json::to_value(track).unwrap()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn incomplete_refresh_cancellation_and_deadline_do_not_start_more_work() {
+        let (stop, cancel) = watch::channel(true);
+        let result = refresh_incomplete_catalog(
+            request(),
+            cancel,
+            PlaybackDeadline::after(Duration::from_secs(1)),
+            |_| async { panic!("must not fetch after cancel") },
+        )
+        .await;
+        assert_eq!(result.unwrap_err(), "Cancelled");
+        stop.send_replace(false);
+        let (_stop, cancel) = watch::channel(false);
+        let track = request();
+        let result = refresh_incomplete_catalog(
+            track.clone(),
+            cancel,
+            PlaybackDeadline::after(Duration::ZERO),
+            |_| async { panic!("must not fetch after deadline") },
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.id, track.id);
+        let (stop, cancel) = watch::channel(false);
+        let result = refresh_incomplete_catalog(
+            track,
+            cancel,
+            PlaybackDeadline::after(Duration::from_secs(1)),
+            |_| async move {
+                stop.send_replace(true);
+                Ok(Some(request()))
+            },
+        )
+        .await;
+        assert_eq!(result.unwrap_err(), "Cancelled");
+    }
+
+    #[tokio::test]
+    async fn incomplete_refresh_timeout_or_provider_failure_retains_original_request() {
+        for timeout in [false, true] {
+            let original = request();
+            let (_stop, cancel) = watch::channel(false);
+            let result = refresh_incomplete_catalog(
+                original.clone(),
+                cancel,
+                PlaybackDeadline::after(Duration::from_millis(300)),
+                |_| async move {
+                    if timeout {
+                        std::future::pending::<()>().await;
+                    }
+                    Err("Beatport denied public catalog access (403)".into())
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                serde_json::to_value(result).unwrap(),
+                serde_json::to_value(original).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn extraction_budget_never_hides_identity_evidence_in_either_provider_order() {
+        let identity = "The resolved audio source identity does not match this recording";
+        for errors in [
+            [identity, EXTRACTION_ATTEMPTS_EXHAUSTED],
+            [EXTRACTION_ATTEMPTS_EXHAUSTED, identity],
+        ] {
+            let mut failures = SerialResolutionFailures::default();
+            for error in errors {
+                failures.record(error.into());
+            }
+            assert_eq!(failures.finish(true), identity);
+        }
+    }
+}
