@@ -90,17 +90,51 @@
       "nativeAudioFixture": "passed"
     },
     "nativeCompilationLocal": false,
-    "installersBuilt": false,
+    "installersBuilt": true,
     "publicReleasePublished": false,
-    "installedAppChanged": false,
+    "installedAppChanged": true,
     "supersededRun": {
       "runId": 43745897683,
       "reason": "Superseded after adding the restored-playlist mirror preview worker; not a test failure."
     },
     "limits": [
       "No packaged macOS reproduction or affected-user timing measurement.",
-      "Opt-in adversarial playback fixtures were not rerun for these settings/command-threading changes; existing default and alternate native suites passed.",
-      "Installed application remains unchanged; these changes are verified source, not a newly installed release."
-    ]
+      "Opt-in adversarial playback fixtures were not rerun for these settings/command-threading changes; existing default and alternate native suites passed."
+    ],
+    "localInstallation": {
+      "sourceCommit": "63ef0a361f5c095d503931b3b9154e123b9c1069",
+      "runId": 43747614344,
+      "target": "/home/loki/.local/opt/burrata/Burrata_0.1.44_fixes_63ef0a3_amd64.AppImage",
+      "sha256": "b65197d32de7a712ba6180c03b7d52b513817a6241939d303fc2cb75cabf244e",
+      "executableSha256": "1c087ac1eec2165f07d62bef5fb5c5d9fb95af171368135d37d2e37b05566f48",
+      "activated": true,
+      "queuePreserved": true,
+      "positionPreserved": true,
+      "volumePreserved": true,
+      "afterStatus": "paused",
+      "frontendReady": true,
+      "previousBuildsRetained": true,
+      "settingsNavigation": [
+        {
+          "category": "connections",
+          "elapsedMs": 1645.0
+        },
+        {
+          "category": "library",
+          "elapsedMs": 1328.7
+        },
+        {
+          "category": "connections",
+          "elapsedMs": 1557.0
+        }
+      ]
+    },
+    "installerCI": {
+      "runId": 43747614344,
+      "url": "https://github.com/anaxonda/burrata/actions/runs/43747614344",
+      "status": "success",
+      "debSmoke": "passed",
+      "appImageSmoke": "passed"
+    }
   }
 }
