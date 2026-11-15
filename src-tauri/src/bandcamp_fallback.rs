@@ -1086,7 +1086,7 @@ pub(crate) fn schedule_verification(
         let trace = SourceTrace::new(None, None, None);
         let deadline = PlaybackDeadline::after(Duration::from_secs(45));
         let started = std::time::Instant::now();
-        let result = bounded(
+        let verification = bounded(
             cancel.clone(),
             deadline,
             resolve(
@@ -1100,8 +1100,21 @@ pub(crate) fn schedule_verification(
                 &[],
                 true,
             ),
-        )
-        .await;
+        );
+        tokio::pin!(verification);
+        let mut validity = tokio::time::interval(Duration::from_secs(1));
+        let result = loop {
+            tokio::select! {
+                result = &mut verification => break result,
+                _ = validity.tick() => {
+                    let enabled = store.playback_settings().is_ok_and(|current|
+                        current.streaming_fallback_enabled && current.bandcamp_fallback_enabled);
+                    if !enabled || ensure_recording_still_current(&store, &track, true).is_err() {
+                        break Err("Recording verification superseded".to_owned());
+                    }
+                }
+            }
+        };
         trace.event("bandcamp_reference_verification_end","bandcamp",json!({"accepted":result.is_ok(),"elapsedMs":started.elapsed().as_millis(),"background":true}));
         if result.is_ok() {
             acquisition.notify_bandcamp_source_ready(&track);
