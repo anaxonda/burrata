@@ -139,6 +139,14 @@ pub fn classify(reason: &str) -> PlaybackFailure {
     use FailureStage as Stage;
     let message = reason.trim().to_lowercase();
     let status = http_status(&message);
+    if message == "audio extraction helper could not start"
+        || extractor_diagnostic_reason(reason) == "helper_unpack_failed"
+    {
+        // The helper failed before inspecting the recording. Preserve that
+        // distinction through safe error redaction and queue classification.
+        return failure(Parser, Stage::Extraction, Global, true, None);
+    }
+
     let exact_no_match = reason
         == "No audio results were returned by the available providers. Open the catalog source or choose another source.";
     let exact_identity = [
@@ -536,6 +544,14 @@ pub fn safe_extractor_error(raw: &str) -> String {
         RecordingIdentityMismatch => {
             "Audio source recording identity could not be verified; choose another source"
         }
+        Parser
+            if extractor_diagnostic_reason(raw) == "helper_unpack_failed"
+                || raw
+                    .trim()
+                    .eq_ignore_ascii_case("Audio extraction helper could not start") =>
+        {
+            "Audio extraction helper could not start"
+        }
         Storage => "Audio source storage operation failed",
         Output => "Audio output device failed",
         _ => "Audio source extraction failed",
@@ -569,6 +585,22 @@ mod tests {
         assert!(!classify("ffmpeg exited with status exit status: 1: invalid data").retryable);
     }
     use super::*;
+    #[test]
+    fn helper_unpack_failure_survives_safe_redaction_without_blame_on_recording() {
+        let raw = "yt-dlp failed exit 255: [PYI-123:ERROR] Failed to extract private/file: decompression failed";
+        let safe = safe_extractor_error(raw);
+        assert_eq!(safe, "Audio extraction helper could not start");
+        for value in [classify_extractor_failure(raw), classify(&safe)] {
+            assert_eq!(value.category, FailureCategory::Parser);
+            assert_eq!(value.stage, FailureStage::Extraction);
+            assert_eq!(value.scope, FailureScope::Global);
+            assert!(value.retryable);
+        }
+        assert_ne!(
+            classify("Unable to extract video data").scope,
+            FailureScope::Global
+        );
+    }
     #[test]
     fn extractor_details_distinguish_remote_debugging_failures_without_text() {
         assert_eq!(
