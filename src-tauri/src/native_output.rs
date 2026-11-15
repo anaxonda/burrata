@@ -3461,6 +3461,10 @@ fn decode_with_session_and_diagnostics(
             let rt = network_runtime()?;
             let uri = reqwest::Url::parse(&input).map_err(|e| e.to_string())?;
             let headers = source.headers.clone();
+            let verified_length = source
+                .decoder_hint
+                .as_ref()
+                .and_then(|hint| hint.content_length);
             let storage_faults = session.storage_faults.clone();
             let stream_stats = session.stream_stats.clone();
             stream_stats.network_reader.store(true, Ordering::Relaxed);
@@ -3501,9 +3505,13 @@ fn decode_with_session_and_diagnostics(
                     let client = builder.build().map_err(|e| e.to_string())?;
                     let uri =
                         stream_reqwest::Url::parse(uri.as_str()).map_err(|e| e.to_string())?;
-                    let stream = HttpStream::new(native_http::NativeHttpClient::new(client), uri)
-                        .await
-                        .map_err(|e| e.to_string())?;
+                    let stream = HttpStream::new(
+                        native_http::NativeHttpClient::new(client)
+                            .with_verified_length(verified_length),
+                        uri,
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
                     let content_type = stream
                         .content_type()
                         .as_ref()

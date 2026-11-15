@@ -87,6 +87,9 @@ impl Fixture {
         Self::new_with_duration(suffix, 4)
     }
     fn new_with_duration(suffix: &str, seconds: u32) -> Self {
+        Self::new_with_encoding(suffix, seconds, false)
+    }
+    fn new_with_encoding(suffix: &str, seconds: u32, wav: bool) -> Self {
         use std::os::unix::fs::PermissionsExt;
         no_egress_namespace();
         let directory = tempfile::tempdir().unwrap();
@@ -149,6 +152,8 @@ impl Fixture {
         checked(cmd);
         let media = root.join("fixture.mp3");
         let audio = format!("aevalsrc=0.2*sin(2*PI*440*t)|0.2*sin(2*PI*660*t):s=48000:d={seconds}");
+        let media_codec = if wav { "pcm_s16le" } else { "mp3" };
+        let media_ext = if wav { "wav" } else { "mp3" };
         let mut cmd = Command::new("ffmpeg");
         cmd.args([
             "-nostdin",
@@ -160,11 +165,14 @@ impl Fixture {
             "-i",
             &audio,
             "-c:a",
-            "libmp3lame",
+            if wav { "pcm_s16le" } else { "libmp3lame" },
             "-b:a",
             "192k",
-        ])
-        .arg(&media);
+        ]);
+        if wav {
+            cmd.args(["-f", "wav"]);
+        }
+        cmd.arg(&media);
         checked(cmd);
         let size = std::fs::metadata(&media).unwrap().len();
         let server_script = root.join("server.py");
@@ -211,7 +219,7 @@ else:
  n=int(count.read_text())+1 if count.exists() else 1
  count.write_text(str(n))
  path=('a-'+str(n)) if i=='111' else 'b'
- print(json.dumps({{'id':i,'title':'Fixture Artist - Synthetic Stereo Fixture','track':'Synthetic Stereo Fixture','artist':'Fixture Artist','artists':['Fixture Artist'],'uploader':'Fixture Artist','duration':{seconds},'webpage_url':q,'url':'https://{host}/'+path+'.mp3','acodec':'mp3','vcodec':'none','protocol':'https','ext':'mp3','filesize':{size}}}))
+ print(json.dumps({{'id':i,'title':'Fixture Artist - Synthetic Stereo Fixture','track':'Synthetic Stereo Fixture','artist':'Fixture Artist','artists':['Fixture Artist'],'uploader':'Fixture Artist','duration':{seconds},'webpage_url':q,'url':'https://{host}/'+path+'.mp3','acodec':'{media_codec}','vcodec':'none','protocol':'https','ext':'{media_ext}','filesize':{size}}}))
 "##,
             root = root.to_string_lossy()
         );

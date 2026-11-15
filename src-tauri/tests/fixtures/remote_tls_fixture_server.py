@@ -110,10 +110,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             start = int(first)
             end = min(int(last) if last else len(data) - 1, len(data) - 1)
             status = 206
-        bad_range = initial and start > 1024 and mode == "controller-bad-range"
+        bad_range = initial and start > 1024 and mode == "controller-bad-range" and (root / "active-media").exists()
         self.record(status, "injected_range" if bad_range else "response")
         self.send_response(status)
-        self.send_header("Content-Type", "audio/mpeg")
+        self.send_header("Content-Type", "audio/wav" if data.startswith(b"RIFF") else "audio/mpeg")
         if not (initial and value is None and mode == "controller-no-length-truncate"):
             length = min(len(data), 4 * 24000) if initial and value is None and mode == "controller-short-body" else end - start + 1
             self.send_header("Content-Length", str(length))
@@ -132,24 +132,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         time.sleep(.02)
                 self.wfile.write(data[start:end + 1])
                 return
-            prefix = min(len(data), 4 * 24000)
+            (root / "active-media").touch()
+            prefix = min(len(data), 4 * (192000 if data.startswith(b"RIFF") else 24000))
             self.wfile.write(data[:prefix])
             self.wfile.flush()
             self.record(status, "prefix_delivered")
             if mode in ("controller-truncate", "controller-no-length-truncate", "controller-short-body"):
                 return
-            if mode in ("controller-stall", "controller-cancel", "controller-pause"):
+            if mode in ("controller-stall", "controller-cancel", "controller-pause", "controller-bad-range"):
                 until = time.monotonic() + 22
                 while not (root / "release").exists() and time.monotonic() < until:
                     time.sleep(.02)
                 self.record(status, "gap_released")
-            if mode == "controller-bad-range":
-                for offset in range(prefix, len(data), 2400):
-                    self.wfile.write(data[offset:offset + 2400])
-                    self.wfile.flush()
-                    time.sleep(.1)
-            else:
-                self.wfile.write(data[prefix:])
+            self.wfile.write(data[prefix:])
         except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
             pass
 

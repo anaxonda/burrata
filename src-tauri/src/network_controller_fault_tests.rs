@@ -46,6 +46,7 @@ async fn network_faults_use_controller_recovery_and_preserve_user_intent() {
         .unwrap();
     let mut failures = Vec::new();
     for mode in [
+        "healthy",
         "403",
         "429",
         "503",
@@ -58,7 +59,7 @@ async fn network_faults_use_controller_recovery_and_preserve_user_intent() {
         "no-length-truncate",
         "short-body",
     ] {
-        let fixture = Fixture::new_with_duration("sndcdn.com", 24);
+        let fixture = Fixture::new_with_encoding("sndcdn.com", 24, mode == "bad-range");
         fixture.mode(&format!("controller-{mode}"));
         for reference in [
             "https://soundcloud.com/synthetic-fixture/111",
@@ -90,7 +91,15 @@ async fn network_faults_use_controller_recovery_and_preserve_user_intent() {
             .await
             .unwrap();
         let outcome = AssertUnwindSafe(async {
-            if matches!(mode, "cancel" | "pause") {
+            if mode == "healthy" {
+                let complete = until(&service, 32, |s| s["status"] == "ended").await;
+                assert_eq!(complete["trackId"], fixture.track.id);
+                assert!(
+                    complete["position"].as_f64().unwrap() >= 23.5,
+                    "healthy stream must consume the full programme"
+                );
+                assert!(complete["diagnostics"]["lastSkippedTrackFailure"].is_null());
+            } else if matches!(mode, "cancel" | "pause") {
                 until(&service, 12, |s| s["status"] == "playing").await;
                 until(&service, 10, |s| s["status"] == "buffering").await;
                 let action = if mode == "cancel" { "stop" } else { "pause" };
@@ -136,6 +145,12 @@ async fn network_faults_use_controller_recovery_and_preserve_user_intent() {
                 .await;
                 assert_eq!(recovered["trackId"], fixture.track.id);
                 assert_eq!(recovered["currentIndex"], 0);
+                if mode == "bad-range" {
+                    assert!(
+                        recovered["position"].as_f64().unwrap() >= 17.5,
+                        "range failure recovery must preserve the requested seek"
+                    );
+                }
                 if mode == "fallback" {
                     assert_eq!(recovered["candidate"]["id"], "soundcloud:222");
                 }

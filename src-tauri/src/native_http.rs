@@ -90,6 +90,7 @@ impl Representation {
 pub struct NativeHttpClient {
     client: reqwest::Client,
     representation: Arc<Mutex<Option<Representation>>>,
+    verified_length: Option<u64>,
 }
 
 impl NativeHttpClient {
@@ -97,7 +98,16 @@ impl NativeHttpClient {
         Self {
             client,
             representation: Arc::new(Mutex::new(None)),
+            verified_length: None,
         }
+    }
+
+    /// Preserve the exact byte length already checked by source preflight.
+    /// A later 200 response must not redefine a finite recording as a short file,
+    /// or lose its EOF check merely by omitting Content-Length.
+    pub fn with_verified_length(mut self, length: Option<u64>) -> Self {
+        self.verified_length = length.filter(|length| *length > 0);
+        self
     }
 
     fn representation(&self) -> Result<Option<Representation>, NativeHttpError> {
@@ -140,7 +150,7 @@ impl Client for NativeHttpClient {
         if length == Some(0) {
             return Err(invalid("media response is empty"));
         }
-        let total = match response.status() {
+        let mut total = match response.status() {
             reqwest::StatusCode::OK => {
                 if response.headers().contains_key(header::CONTENT_RANGE) {
                     return Err(invalid("200 response unexpectedly contains Content-Range"));
@@ -159,6 +169,12 @@ impl Client for NativeHttpClient {
             }
             _ => unreachable!("initial status checked above"),
         };
+        if let Some(verified) = self.verified_length {
+            if total.is_some_and(|length| length != verified) {
+                return Err(invalid("resource length changed since source verification"));
+            }
+            total = Some(verified);
+        }
         let representation = Representation {
             total,
             etag: header_text(response.headers(), header::ETAG)?.map(str::to_owned),
@@ -583,6 +599,61 @@ mod tests {
             assert!(client.get_range(&url, 4, None).await.is_err(), "{headers}");
             worker.join().unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn verified_initial_length_checks_close_delimited_eof_and_accepts_complete_body() {
+        for body in ["0123456789", "012"] {
+            let (url, _, worker) = fixture(vec![response("200 OK", "", body)]);
+            let client = client().with_verified_length(Some(10));
+            let response = client.get(&url).await.unwrap();
+            assert_eq!(response.content_length(), Some(10));
+            let result = collect(response).await;
+            if body.len() == 10 {
+                assert_eq!(result.unwrap(), body.as_bytes());
+            } else {
+                let failure = crate::playback_failure::classify(&result.unwrap_err().to_string());
+                assert!(failure.retryable);
+                assert_eq!(
+                    failure.stage,
+                    crate::playback_failure::FailureStage::Transport
+                );
+            }
+            worker.join().unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn verified_initial_length_rejects_changed_200_and_206_representations() {
+        for reply in [
+            response("200 OK", "Content-Length: 3\r\n", "012"),
+            response(
+                "206 Partial Content",
+                "Content-Length: 9\r\nContent-Range: bytes 0-8/9\r\n",
+                "012345678",
+            ),
+        ] {
+            let (url, _, worker) = fixture(vec![reply]);
+            let error = client()
+                .with_verified_length(Some(10))
+                .get(&url)
+                .await
+                .err()
+                .expect("preflight length must survive the media response")
+                .to_string();
+            assert!(error.contains("length changed since source verification"));
+            assert!(crate::playback_failure::classify(&error).retryable);
+            worker.join().unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn unverified_unknown_length_streams_keep_close_delimited_behavior() {
+        let (url, _, worker) = fixture(vec![response("200 OK", "", "012")]);
+        let response = client().get(&url).await.unwrap();
+        assert_eq!(response.content_length(), None);
+        assert_eq!(collect(response).await.unwrap(), b"012");
+        worker.join().unwrap();
     }
 
     #[tokio::test]
