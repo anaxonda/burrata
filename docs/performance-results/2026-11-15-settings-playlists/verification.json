@@ -1,0 +1,106 @@
+{
+  "sourceCommit": "21e5e2edb28050041d0b81fac282da74170699ff",
+  "scope": "Settings simplification, tab navigation, playlist append/create feedback. No running player controls, credentials, provider accounts or installed files changed.",
+  "visualReview": {
+    "method": "Actual Svelte settings components and shared app CSS rendered with synthetic IPC responses in an isolated headless Chromium profile. Not an installed macOS reproduction.",
+    "widths": [
+      1100,
+      520
+    ],
+    "screenshots": [
+      "connections-before.png",
+      "connections-after.png",
+      "connections-narrow.png",
+      "ai-narrow.png",
+      "library-before.png",
+      "library-after.png"
+    ],
+    "removedFeatures": [],
+    "consolidated": [
+      "Integrations navigation into Connections; legacy integrations navigation target retained",
+      "Shared AI endpoint/model/key separated from lyrics controls; existing credential storage key retained"
+    ],
+    "minimized": [
+      "Browser companion and assistant tools are collapsed and setup discovery is lazy",
+      "Playlist write-sync settings are collapsed with an On/Off summary",
+      "Nine playlist shortcuts render only when expanded",
+      "Soulseek shares and download settings load only when expanded"
+    ],
+    "layoutFixes": [
+      "Checkbox labels use horizontal layout",
+      "Settings card headings no longer inherit page-header layout",
+      "Account playlist sidebar visibility moved to Library settings"
+    ]
+  },
+  "responsiveness": {
+    "syntheticPlaylistCount": 2000,
+    "initialOptionCountBefore": 20009,
+    "initialOptionCountAfter": 2000,
+    "baselineMountMs": 837.7,
+    "afterMountSamplesMs": [
+      146.5,
+      198.7
+    ],
+    "measurementLimit": "One baseline and two modified component mounts through two animation frames; illustrative regression evidence, not a statistical or affected-Mac benchmark.",
+    "otherFixes": [
+      "Keep connection forms mounted only within Settings to retain drafts and avoid repeated service/keyring loads on tab changes",
+      "Ignore initial connection responses after component destruction",
+      "Move setup filesystem discovery, collection listing, playlist creation and unique collection writes to blocking workers instead of the Tauri UI thread",
+      "Move restored playlist mirror inspection, triggered by Library settings, to a blocking worker; its filesystem reads and review-token calculation no longer run on the UI thread."
+    ]
+  },
+  "playlistWrites": {
+    "fixes": [
+      "Use dialog-local write state, not the global Working header indicator",
+      "Close after successful write, without waiting for sidebar/favorites reads",
+      "Refresh favorites only when the destination is the favorites playlist",
+      "Do not invite duplicate append retries if post-write refresh or shortcut assignment fails",
+      "Preserve existing single-flight and picker generation protection",
+      "Reuse the already-created playlist after an actual append failure"
+    ],
+    "tests": [
+      "Delayed append keeps picker open and single-flights writes",
+      "Slow sidebar refresh does not delay successful completion",
+      "Refresh failure after successful append leaves picker closed and does not repeat write",
+      "Create-and-add retry reuses created playlist",
+      "Stale picker hydration ignored",
+      "AI drafts retained across settings tabs without another get_connections request"
+    ]
+  },
+  "validation": {
+    "frontend": {
+      "passed": 1662,
+      "files": 161,
+      "workers": 1
+    },
+    "typecheck": {
+      "errors": 0,
+      "warnings": 0
+    },
+    "rustfmt": "passed",
+    "nativeCI": {
+      "runId": 43746398440,
+      "url": "https://github.com/anaxonda/burrata/actions/runs/43746398440",
+      "status": "success",
+      "nativeTestsPerConfiguration": 2839,
+      "configurations": 2,
+      "ignoredPerConfiguration": 68,
+      "frontendTests": 1662,
+      "frontendBuild": "passed",
+      "nativeAudioFixture": "passed"
+    },
+    "nativeCompilationLocal": false,
+    "installersBuilt": false,
+    "publicReleasePublished": false,
+    "installedAppChanged": false,
+    "supersededRun": {
+      "runId": 43745897683,
+      "reason": "Superseded after adding the restored-playlist mirror preview worker; not a test failure."
+    },
+    "limits": [
+      "No packaged macOS reproduction or affected-user timing measurement.",
+      "Opt-in adversarial playback fixtures were not rerun for these settings/command-threading changes; existing default and alternate native suites passed.",
+      "Installed application remains unchanged; these changes are verified source, not a newly installed release."
+    ]
+  }
+}
