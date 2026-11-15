@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "e184315fdd2e4135e6bbfb8e193bcccc0c787086",
+  "ci": {
+    "url": "https://github.com/anaxonda/burrata/actions/runs/43673697765",
+    "conclusion": "success",
+    "frontendPassed": 1658,
+    "nativePassedPerConfiguration": 2827,
+    "nativeConfigurations": 2,
+    "nativeIgnoredPerConfiguration": 67,
+    "typecheckErrors": 0,
+    "typecheckWarnings": 0,
+    "linuxDebSmokePassed": true,
+    "linuxAppImageSmokePassed": true,
+    "allDownloadedChecksumsVerified": true
+  },
+  "reportedTrack": {
+    "id": "traxsource:14972893",
+    "title": "Gotta Be Cool",
+    "artist": "Rafael, Luch",
+    "version": "Luch Remix (6:58)",
+    "sourceYouTubeId": "enJ2i8ic8Yc"
+  },
+  "chapterFix": {
+    "reportedSourceChapter": {
+      "title": "<Untitled Chapter 1>",
+      "startSeconds": 0,
+      "endSeconds": 418
+    },
+    "canonicalTrackTitlePreserved": true,
+    "meaningfulChapterTitlesRetained": true,
+    "generatedPlaceholderTitlesIgnored": true,
+    "frontendAndNativeMediaControlsCoveredByTests": true
+  },
+  "artworkFix": {
+    "sourceImages": [
+      {
+        "url": "https://geo-static.traxsource.com/scripts/image.php/52x52/49c4611c5ae806b7294cb13da0196815.jpg",
+        "dimensions": [
+          52,
+          52
+        ],
+        "bytes": 1268,
+        "sha256": "8a27559c62cb28ffeb2dc7e81fa39e6f19fd6f2f28d6bffaa27ee280c1e4f36e"
+      },
+      {
+        "url": "https://geo-static.traxsource.com/scripts/image.php/600x600/49c4611c5ae806b7294cb13da0196815.jpg",
+        "dimensions": [
+          600,
+          600
+        ],
+        "bytes": 45136,
+        "sha256": "f3b28b8d9600542a83913b18109afa1a93fc31952346b8e01cc3e15d98b9dbb2"
+      }
+    ],
+    "sameCoverAssetRetained": true,
+    "existingThumbnailCacheReplaced": true,
+    "originalAndPreferredCacheKeysShareUpgradedContent": true,
+    "nativeMediaArtworkUsesUpgradedFile": true,
+    "cachedArtworkSurvivesProgressUpdates": true,
+    "fallback": "Retain the original cover when the display-sized request fails.",
+    "playbackStartupWaitsForArtwork": false
+  },
+  "installedArtifactVerification": {
+    "appImageSha256": "3c5927684e8c59f60b31542ed75abe0049a84fae3bb4ffa25ffdf2869cda72df",
+    "executableSha256": "c412d879078c057dccd6f34b7c30adde77b32246f25578b6f4199d5bcd67cce2",
+    "firstAudioMs": 7784,
+    "finalStatus": "paused",
+    "finalPosition": 5.1380952380952385,
+    "title": "Gotta Be Cool",
+    "artist": "Rafael, Luch",
+    "chapter": null,
+    "artworkDimensions": [
+      600,
+      600
+    ],
+    "artworkBytes": 45136,
+    "startedAndRemainedMuted": true,
+    "testAppVolume": 0,
+    "pulseStreamIdentityIsolated": true,
+    "initialActualSinkWasPrivate": true,
+    "actualSinkVerified": true,
+    "testSinkInputMuted": true,
+    "systemMediaMetadataVerified": true,
+    "uiCapture": {
+      "height": 777,
+      "mimeType": "image/png",
+      "width": 957
+    }
+  },
+  "verificationScope": "Muted startup and metadata/artwork validation through five seconds of native playback; this is not a full-track reliability run.",
+  "priorAttempts": {
+    "43671922378": "New test fixture initially lacked serde_json:: qualification; corrected.",
+    "43672297542": "Native and frontend checks passed; packaging superseded to include artwork persistence through progress updates.",
+    "installerHarnessRetry": "The public automation API intentionally strips file paths. Replaced the invalid API-path assertion with a direct read of the isolated instance MPRIS metadata."
+  },
+  "localInstallation": {
+    "fileName": "Burrata_0.1.44_fixes_e184315_amd64.AppImage",
+    "launcherUpdated": true,
+    "activated": false,
+    "activation": "next launch",
+    "currentInstanceRestarted": false,
+    "controlsIssuedToNormalPlayer": false,
+    "previousBuildRetained": true,
+    "testAppsAndSinksRemoved": true,
+    "publicReleaseCreated": false
+  },
+  "uiCaptureSha256": "8eb4d4a30eb844886ab30233ec05d08a7d40bcab391e908149f7d2af551a465b"
+}
