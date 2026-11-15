@@ -9026,10 +9026,15 @@ fn set_history_mirror_options(
     playlist_sync::set_history_mirror_options(&state.store, options)
 }
 #[tauri::command]
-fn preview_restored_playlist_sync(
+async fn preview_restored_playlist_sync(
     state: State<'_, AppState>,
 ) -> Result<playlist_sync::RestoredSyncResumePreview> {
-    playlist_sync::preview_restored_playlist_sync(&state.store, &state.store.settings()?)
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || {
+        playlist_sync::preview_restored_playlist_sync(&store, &store.settings()?)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 #[tauri::command]
 fn resume_reviewed_restored_playlist_sync(
