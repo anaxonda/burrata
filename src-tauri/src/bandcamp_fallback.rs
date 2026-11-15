@@ -24,7 +24,7 @@ const MAX_AUDIO: usize = 10 * 1024 * 1024;
 const RATE: usize = 8000;
 
 fn fingerprint(track: &Track) -> String {
-    format!("{:x}", Sha256::digest(json!({"id":track.id,"provider":track.provider,"providerId":track.provider_id,"sourceUrl":track.source_url,"title":track.title,"artist":track.artist,"album":track.album,"version":track.version,"duration":track.duration_seconds,"isrc":track.isrc}).to_string().as_bytes()))
+    crate::recording_verification::request_fingerprint(track)
 }
 fn ensure_recording_still_current(
     store: &Store,
@@ -665,6 +665,7 @@ fn proof_identity(proof: &Value, fallback_title: &str, fallback_artist: &str) ->
 /// Route the verified Bandcamp identity through the shared 3-level policy.
 /// Strong audio/album proofs are added to cloned policy inputs only; the saved
 /// request and its provider metadata remain untouched.
+#[cfg(test)]
 fn shared_policy_assessment(
     track: &Track,
     candidate: &Candidate,
@@ -673,6 +674,28 @@ fn shared_policy_assessment(
     duration: Option<f64>,
     binding: Option<&str>,
     level: crate::recording_match::MatchLevel,
+) -> Option<crate::recording_match::MatchAssessment> {
+    shared_policy_assessment_with_options(
+        track,
+        candidate,
+        title,
+        artist,
+        duration,
+        binding,
+        level,
+        &crate::recording_match::FlexibleMatchingOptions::default(),
+    )
+}
+
+fn shared_policy_assessment_with_options(
+    track: &Track,
+    candidate: &Candidate,
+    title: &str,
+    artist: &str,
+    duration: Option<f64>,
+    binding: Option<&str>,
+    level: crate::recording_match::MatchLevel,
+    options: &crate::recording_match::FlexibleMatchingOptions,
 ) -> Option<crate::recording_match::MatchAssessment> {
     let mut requested = track.clone();
     let mut evaluated = candidate.clone();
@@ -694,11 +717,12 @@ fn shared_policy_assessment(
     evaluated.duration_seconds = duration;
     evaluated.source_metadata = Some(metadata);
 
-    let assessment = crate::recording_match::assess(
+    let assessment = crate::recording_match::assess_with_options(
         &requested,
         &evaluated,
         level,
         crate::recording_match::MatchStage::Resolved,
+        options,
     );
     (assessment.action == crate::recording_match::MatchAction::Accept
         && assessment.relationship != crate::recording_match::MatchRelationship::Alternative)
@@ -923,7 +947,7 @@ pub(crate) async fn resolve(
             strong_binding_id(&proof, &candidate, &audio)
         };
         let (policy_title, policy_artist) = proof_identity(&proof, fresh_title, artist);
-        let assessment = shared_policy_assessment(
+        let assessment = shared_policy_assessment_with_options(
             track,
             &candidate,
             &policy_title,
@@ -931,6 +955,7 @@ pub(crate) async fn resolve(
             audio.duration_seconds,
             binding.as_deref(),
             settings.matching_level,
+            &settings.flexible_matching,
         );
         let Some(assessment) = assessment else {
             // The independent source proof remains necessary, and the shared
@@ -1014,10 +1039,8 @@ pub(crate) async fn resolve(
 pub(crate) fn schedule_verification(
     acquisition: &AcquisitionManager,
     track: &Track,
-    settings: &Settings,
+    _settings: &Settings,
 ) {
-    use std::sync::{Arc, OnceLock};
-    static SLOTS: OnceLock<Arc<tokio::sync::Semaphore>> = OnceLock::new();
     let store = acquisition.alias_store();
     let key = fingerprint(track);
     if !store
@@ -1033,11 +1056,7 @@ pub(crate) fn schedule_verification(
     {
         return;
     }
-    let Ok(permit) = SLOTS
-        .get_or_init(|| Arc::new(tokio::sync::Semaphore::new(1)))
-        .clone()
-        .try_acquire_owned()
-    else {
+    let Some(permit) = crate::recording_verification::try_start(key.clone()) else {
         return;
     };
     if store
@@ -1053,10 +1072,17 @@ pub(crate) fn schedule_verification(
     }
     let acquisition = acquisition.clone();
     let track = track.clone();
-    let settings = settings.clone();
     tokio::spawn(async move {
         let _permit = permit;
         let (_stop, cancel) = watch::channel(false);
+        let settings = match store.playback_settings() {
+            Ok(current)
+                if current.streaming_fallback_enabled && current.bandcamp_fallback_enabled =>
+            {
+                current
+            }
+            _ => return,
+        };
         let trace = SourceTrace::new(None, None, None);
         let deadline = PlaybackDeadline::after(Duration::from_secs(45));
         let started = std::time::Instant::now();
