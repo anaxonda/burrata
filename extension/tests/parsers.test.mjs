@@ -358,3 +358,14 @@ test('Traxsource preserves remixers separately from primary artists and retains 
  const page=doc('<h1>Top 1</h1><div class="trk-row"><span class="tnum">1</span><div class="title"><a href="/track/12/song">Song</a><span class="version">Remix</span></div><div class="artists"><a href="/artist/1/artist">Artist</a><span class="remixers"><a href="/artist/2/remixer">Remixer</a></span></div><a class="label" href="/label/3/label">Label</a><span class="catalog-number">CAT001</span></div>',url);
  const e=extract(page,url).entries[0];assert.equal(e.artist,'Artist');assert.deepEqual(e.metadata.remixers,['Remixer']);assert.equal(e.catalogNumber,'CAT001');
 });
+
+
+test('current Beatport chart fields preserve duration and exclude unranked related tracks',()=>{
+ const current={track_id:19657454,track_name:'Say What (feat. Chuala)',mix_name:'feat. Chuala',track_length_ms:416500,artists:[{id:1,name:'Keinemusik'},{id:2,name:'chuala'}]};
+ const page=doc('<script id="__NEXT_DATA__">'+JSON.stringify({data:[{position:7,track:current},{...current,track_id:30754798,track_name:'Related recording'}]})+'</script>');
+ const result=extract(page,'https://www.beatport.com/genre/afro-house/89/top-100');
+ assert.equal(result.entries.length,1);
+ assert.equal(result.entries[0].providerId,'19657454');
+ assert.equal(result.entries[0].durationSeconds,416.5);
+ assert.equal(result.entries[0].rank,7);
+});
