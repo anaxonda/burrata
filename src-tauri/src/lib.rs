@@ -6363,9 +6363,14 @@ fn restore_collection(state: State<'_, AppState>, collection_id: String) -> Resu
     state.store.restore_collection(&collection_id)
 }
 #[tauri::command]
-fn create_collection(state: State<'_, AppState>, name: String) -> Result<Collection> {
-    let _library_write = state.store.try_library_write()?;
-    state.store.create_collection(&name)
+async fn create_collection(state: State<'_, AppState>, name: String) -> Result<Collection> {
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || {
+        let _library_write = store.try_library_write()?;
+        store.create_collection(&name)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 #[tauri::command]
 fn rename_collection(
@@ -6392,15 +6397,20 @@ fn remove_from_collection(
     Ok(target_id)
 }
 #[tauri::command]
-fn add_to_collection(
+async fn add_to_collection(
     state: State<'_, AppState>,
     collection_id: String,
     tracks: Vec<Track>,
 ) -> Result<()> {
-    let _library_write = state.store.try_library_write()?;
-    let target_id = playlist_sync::ensure_editable_collection(&state.store, &collection_id)?;
-    state.store.add_to_collection(&target_id, &tracks)?;
-    playlist_preferences::resync_favorite_flags_after_collection_change(&state.store, &target_id)
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || {
+        let _library_write = store.try_library_write()?;
+        let target_id = playlist_sync::ensure_editable_collection(&store, &collection_id)?;
+        store.add_to_collection(&target_id, &tracks)?;
+        playlist_preferences::resync_favorite_flags_after_collection_change(&store, &target_id)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 #[tauri::command]
 async fn append_playlist_entries(
