@@ -180,6 +180,13 @@ pub fn classify(reason: &str) -> PlaybackFailure {
     if has_any(&message, &["cancel", "superseded"]) {
         return failure(Cancelled, Stage::Resolver, Operation, false, status);
     }
+    if message == "audio decoder stopped unexpectedly"
+        || message.starts_with("ffmpeg exited with status signal:")
+    {
+        // A decoder worker/process failed, rather than the output device.
+        // Keeping this source-scoped allows a bounded restart of a valid file.
+        return failure(Output, Stage::Output, Source, true, status);
+    }
     if message.contains("transport timeout failed") {
         return failure(Timeout, Stage::Transport, Global, true, status);
     }
@@ -544,6 +551,23 @@ pub fn sanitize_extractor_failure(raw: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn decoder_termination_is_retryable_but_distinct_from_device_and_format_failures() {
+        for message in [
+            "Audio decoder stopped unexpectedly",
+            "ffmpeg exited with status signal: 9 (SIGKILL):",
+        ] {
+            let value = classify(message);
+            assert_eq!(value.category, FailureCategory::Output);
+            assert_eq!(value.scope, FailureScope::Source);
+            assert!(value.retryable);
+        }
+        assert_eq!(
+            classify("audio output device disconnected").scope,
+            FailureScope::Global
+        );
+        assert!(!classify("ffmpeg exited with status exit status: 1: invalid data").retryable);
+    }
     use super::*;
     #[test]
     fn extractor_details_distinguish_remote_debugging_failures_without_text() {

@@ -7779,6 +7779,11 @@ fn can_retry_failed_stream(state: &State, message: &str) -> bool {
 }
 fn can_retry_failed_stream_at_stage(state: &State, message: &str, output_failed: bool) -> bool {
     let failure = crate::playback_failure::classify(message);
+    let decoder_terminated = output_failed
+        && failure.category == crate::playback_failure::FailureCategory::Output
+        && failure.scope == crate::playback_failure::FailureScope::Source;
+    let local_decoder =
+        decoder_terminated && state.quality["sourceKind"].as_str() == Some("localAsset");
     let now = Instant::now();
     let startup_transport = output_failed
         && message.contains("Native HTTP")
@@ -7833,12 +7838,10 @@ fn can_retry_failed_stream_at_stage(state: &State, message: &str, output_failed:
         && state
             .seek_requested
             .is_none_or(|started| Instant::now() < started + state.startup_budget)
-        && (state.candidate.is_some() || state.station.is_some())
-        && !matches!(
-            failure.category,
-            crate::playback_failure::FailureCategory::Output
-                | crate::playback_failure::FailureCategory::Cancelled
-        )
+        && (state.candidate.is_some() || state.station.is_some() || local_decoder)
+        && failure.category != crate::playback_failure::FailureCategory::Cancelled
+        && (failure.category != crate::playback_failure::FailureCategory::Output
+            || decoder_terminated)
 }
 
 fn deadline_owned_by_active_operation(
@@ -8543,6 +8546,30 @@ fn shuffle_upcoming(state: &mut State) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn local_decoder_termination_can_restart_but_keeps_recovery_limits_and_device_failures() {
+        let mut state = State::default();
+        state.first_audio_ms = Some(10);
+        state.quality = json!({"sourceKind":"localAsset"});
+        let message = "ffmpeg exited with status signal: 9 (SIGKILL):";
+        assert!(can_retry_failed_stream_at_stage(&state, message, true));
+        assert!(!can_retry_failed_stream_at_stage(&state, message, false));
+        assert!(!can_retry_failed_stream_at_stage(
+            &state,
+            "audio output device disconnected",
+            true
+        ));
+        assert!(!can_retry_failed_stream_at_stage(
+            &state,
+            "ffmpeg exited with status exit status: 1: invalid data",
+            true
+        ));
+        state.recovery = crate::playback_policy::MAX_RECOVERY_ATTEMPTS;
+        assert!(!can_retry_failed_stream_at_stage(&state, message, true));
+        state.recovery = 0;
+        state.first_audio_ms = None;
+        assert!(!can_retry_failed_stream_at_stage(&state, message, true));
+    }
     #[test]
     fn clean_seek_eof_finishes_buffering_without_extending_duration_or_claiming_first_audio() {
         let mut state = State::default();
