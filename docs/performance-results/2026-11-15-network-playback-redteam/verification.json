@@ -1,0 +1,1005 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "eb6168ae657ff4a5b4f4e0ca8f4c8b2c2e062ac8",
+  "finding": {
+    "name": "Verified finite stream can be accepted as a short completed recording",
+    "before": {
+      "productionBaselineSource": "cf2847108a00704001b0b7a2a652f8254e77afc9",
+      "testFixtureSource": "6864fca38f12426a7a5535cb236005bbfa568926",
+      "runId": 43737726120,
+      "prematureCompletionCases": [
+        {
+          "mode": "no-length-truncate",
+          "status": "ended",
+          "position": 3.936984126984127,
+          "duration": 3.936984126984127,
+          "recoveryCount": 0,
+          "requestedProgrammeSeconds": 24,
+          "decoder": {
+            "bytesRead": 8192,
+            "bytesReceived": 96000,
+            "channels": 2,
+            "codecHint": "mp3",
+            "contentRangeTotal": null,
+            "contentType": "audio/mpeg",
+            "decoderKind": "rodio",
+            "decoderReused": false,
+            "decoderSetupMs": 1,
+            "firstDecodedBlockMs": 20,
+            "inputContentLength": null,
+            "readerReused": false,
+            "readerSetupMs": 15,
+            "sampleRate": 48000,
+            "totalDurationSeconds": 24.0
+          }
+        },
+        {
+          "mode": "short-body",
+          "status": "ended",
+          "position": 3.936984126984127,
+          "duration": 3.936984126984127,
+          "recoveryCount": 0,
+          "requestedProgrammeSeconds": 24,
+          "decoder": {
+            "bytesRead": 8192,
+            "bytesReceived": 96000,
+            "channels": 2,
+            "codecHint": "mp3",
+            "contentRangeTotal": null,
+            "contentType": "audio/mpeg",
+            "decoderKind": "rodio",
+            "decoderReused": false,
+            "decoderSetupMs": 1,
+            "firstDecodedBlockMs": 21,
+            "inputContentLength": 96000,
+            "readerReused": false,
+            "readerSetupMs": 16,
+            "sampleRate": 48000,
+            "totalDurationSeconds": 24.0
+          }
+        }
+      ],
+      "passedControllerCases": [
+        "403",
+        "429",
+        "503",
+        "truncate",
+        "stall",
+        "cancel",
+        "pause",
+        "fallback"
+      ],
+      "unexercisedRangeCaseIsNotAnAppFinding": true
+    },
+    "cause": "Native HTTP initialized its expected byte count from the media response and discarded the exact size already validated by source preflight. A missing or shorter Content-Length could therefore redefine a 24-second recording as a valid 3.94-second file.",
+    "fix": "Carry the verified source byte length into NativeHttpClient. Reject initial 200/206 representation lengths that differ from that proof. Use the verified count to check EOF and resume ranges when the media response omits Content-Length. Preserve existing behavior for streams without a verified length.",
+    "catalogueDurationUsedAsFailureHeuristic": false,
+    "newHTTPUnitRegressions": [
+      "verified_initial_length_checks_close_delimited_eof_and_accepts_complete_body",
+      "verified_initial_length_rejects_changed_200_and_206_representations",
+      "unverified_unknown_length_streams_keep_close_delimited_behavior"
+    ]
+  },
+  "ci": {
+    "url": "https://github.com/anaxonda/burrata/actions/runs/43739678838",
+    "sourceCommit": "eb6168ae657ff4a5b4f4e0ca8f4c8b2c2e062ac8",
+    "conclusion": "success",
+    "checksConclusion": "success",
+    "frontendPassed": 1658,
+    "nativePassedPerConfiguration": 2839,
+    "nativeConfigurations": 2,
+    "nativeIgnoredPerConfiguration": 68,
+    "typecheckErrors": 0,
+    "typecheckWarnings": 0,
+    "linuxDebSmokePassed": true,
+    "linuxAppImageSmokePassed": true
+  },
+  "controllerStreaming": {
+    "scope": "Real PlaybackService, source resolver, HTTPS transport, decoder, and private muted Linux OS output. Tauri runtime has no webview. Synthetic source-reference DNS and exact fixture-host TLS trust are compiled only for tests.",
+    "passed": 12,
+    "failed": 0,
+    "cases": [
+      {
+        "mode": "healthy",
+        "passed": true,
+        "elapsedSeconds": 24.305494709,
+        "status": "ended",
+        "trackId": "spotify:1234567890123456789012",
+        "candidateId": "soundcloud:111",
+        "position": 24.0,
+        "duration": 24.0,
+        "firstAudioMs": 275,
+        "recoveryCount": 0,
+        "decoderKind": "rodio",
+        "requests": [
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": "bytes=0-1023",
+            "stage": "response",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": null,
+            "stage": "response",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": null,
+            "stage": "prefix_delivered",
+            "status": 200
+          }
+        ]
+      },
+      {
+        "mode": "403",
+        "passed": true,
+        "elapsedSeconds": 1.68950245,
+        "status": "playing",
+        "trackId": "spotify:1234567890123456789012",
+        "candidateId": "soundcloud:111",
+        "position": 0.5106349206349207,
+        "duration": 24.0,
+        "firstAudioMs": 1178,
+        "recoveryCount": 1,
+        "decoderKind": "rodio",
+        "requests": [
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": "bytes=0-1023",
+            "stage": "response",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": null,
+            "stage": "injected_status",
+            "status": 403
+          },
+          {
+            "method": "GET",
+            "path": "/a-2.mp3",
+            "range": "bytes=0-1023",
+            "stage": "response",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-2.mp3",
+            "range": null,
+            "stage": "response",
+            "status": 200
+          }
+        ]
+      },
+      {
+        "mode": "429",
+        "passed": true,
+        "elapsedSeconds": 1.688571354,
+        "status": "playing",
+        "trackId": "spotify:1234567890123456789012",
+        "candidateId": "soundcloud:111",
+        "position": 0.7582539682539683,
+        "duration": 24.0,
+        "firstAudioMs": 911,
+        "recoveryCount": 1,
+        "decoderKind": "rodio",
+        "requests": [
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": "bytes=0-1023",
+            "stage": "response",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": null,
+            "stage": "injected_status",
+            "status": 429
+          },
+          {
+            "method": "GET",
+            "path": "/a-2.mp3",
+            "range": "bytes=0-1023",
+            "stage": "response",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-2.mp3",
+            "range": null,
+            "stage": "response",
+            "status": 200
+          }
+        ]
+      },
+      {
+        "mode": "503",
+        "passed": true,
+        "elapsedSeconds": 1.430016966,
+        "status": "playing",
+        "trackId": "spotify:1234567890123456789012",
+        "candidateId": "soundcloud:111",
+        "position": 0.6344444444444445,
+        "duration": 24.0,
+        "firstAudioMs": 771,
+        "recoveryCount": 1,
+        "decoderKind": "rodio",
+        "requests": [
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": "bytes=0-1023",
+            "stage": "response",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": null,
+            "stage": "injected_status",
+            "status": 503
+          },
+          {
+            "method": "GET",
+            "path": "/a-2.mp3",
+            "range": "bytes=0-1023",
+            "stage": "response",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-2.mp3",
+            "range": null,
+            "stage": "response",
+            "status": 200
+          }
+        ]
+      },
+      {
+        "mode": "truncate",
+        "passed": true,
+        "elapsedSeconds": 7.8699298760000005,
+        "status": "playing",
+        "trackId": "spotify:1234567890123456789012",
+        "candidateId": "soundcloud:111",
+        "position": 6.654761904761905,
+        "duration": 24.0,
+        "firstAudioMs": 1226,
+        "recoveryCount": 0,
+        "decoderKind": "rodio",
+        "requests": [
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": "bytes=0-1023",
+            "stage": "response",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": null,
+            "stage": "response",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": null,
+            "stage": "prefix_delivered",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": "bytes=96000-577196",
+            "stage": "response",
+            "status": 206
+          }
+        ]
+      },
+      {
+        "mode": "stall",
+        "passed": true,
+        "elapsedSeconds": 19.663543195,
+        "status": "playing",
+        "trackId": "spotify:1234567890123456789012",
+        "candidateId": "soundcloud:111",
+        "position": 3.095238095238095,
+        "duration": 24.0,
+        "firstAudioMs": 1232,
+        "recoveryCount": 1,
+        "decoderKind": "rodio",
+        "requests": [
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": "bytes=0-1023",
+            "stage": "response",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": null,
+            "stage": "response",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": null,
+            "stage": "prefix_delivered",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": "bytes=96000-",
+            "stage": "response",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": "bytes=96000-",
+            "stage": "held_range",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": "bytes=96000-",
+            "stage": "response",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": "bytes=96000-",
+            "stage": "held_range",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": "bytes=96000-",
+            "stage": "response",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": "bytes=96000-",
+            "stage": "held_range",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-2.mp3",
+            "range": "bytes=0-1023",
+            "stage": "response",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-2.mp3",
+            "range": null,
+            "stage": "response",
+            "status": 200
+          }
+        ]
+      },
+      {
+        "mode": "bad-range",
+        "passed": true,
+        "elapsedSeconds": 1.95454466,
+        "status": "playing",
+        "trackId": "spotify:1234567890123456789012",
+        "candidateId": "soundcloud:111",
+        "position": 18.58809523809524,
+        "duration": 24.0,
+        "firstAudioMs": 1211,
+        "recoveryCount": 1,
+        "decoderKind": "rodio",
+        "requests": [
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": "bytes=0-1023",
+            "stage": "response",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": "bytes=4607054-4608077",
+            "stage": "response",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": null,
+            "stage": "response",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": null,
+            "stage": "prefix_delivered",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": "bytes=3456078-4608077",
+            "stage": "injected_range",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-2.mp3",
+            "range": "bytes=0-1023",
+            "stage": "response",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-2.mp3",
+            "range": "bytes=4607054-4608077",
+            "stage": "response",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-2.mp3",
+            "range": null,
+            "stage": "response",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/a-2.mp3",
+            "range": "bytes=3456078-4608077",
+            "stage": "response",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-2.mp3",
+            "range": "bytes=229376-3456077",
+            "stage": "response",
+            "status": 206
+          }
+        ]
+      },
+      {
+        "mode": "cancel",
+        "passed": true,
+        "elapsedSeconds": 5.824953043,
+        "status": "idle",
+        "trackId": "spotify:1234567890123456789012",
+        "candidateId": "soundcloud:111",
+        "position": 0.0,
+        "duration": 24.0,
+        "firstAudioMs": 1134,
+        "recoveryCount": 0,
+        "decoderKind": "rodio",
+        "requests": [
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": "bytes=0-1023",
+            "stage": "response",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": null,
+            "stage": "response",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": null,
+            "stage": "prefix_delivered",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": null,
+            "stage": "gap_released",
+            "status": 200
+          }
+        ]
+      },
+      {
+        "mode": "pause",
+        "passed": true,
+        "elapsedSeconds": 6.454524835,
+        "status": "playing",
+        "trackId": "spotify:1234567890123456789012",
+        "candidateId": "soundcloud:111",
+        "position": 3.0023809523809524,
+        "duration": 24.0,
+        "firstAudioMs": 1186,
+        "recoveryCount": 0,
+        "decoderKind": "rodio",
+        "requests": [
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": "bytes=0-1023",
+            "stage": "response",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": null,
+            "stage": "response",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": null,
+            "stage": "prefix_delivered",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": null,
+            "stage": "gap_released",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": null,
+            "stage": "response",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": null,
+            "stage": "prefix_delivered",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": null,
+            "stage": "gap_released",
+            "status": 200
+          }
+        ]
+      },
+      {
+        "mode": "fallback",
+        "passed": true,
+        "elapsedSeconds": 1.6642477709999999,
+        "status": "playing",
+        "trackId": "spotify:1234567890123456789012",
+        "candidateId": "soundcloud:222",
+        "position": 0.6344444444444445,
+        "duration": 24.0,
+        "firstAudioMs": 1012,
+        "recoveryCount": 2,
+        "decoderKind": "rodio",
+        "requests": [
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": "bytes=0-1023",
+            "stage": "response",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": null,
+            "stage": "injected_status",
+            "status": 403
+          },
+          {
+            "method": "GET",
+            "path": "/a-2.mp3",
+            "range": "bytes=0-1023",
+            "stage": "response",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-2.mp3",
+            "range": null,
+            "stage": "injected_status",
+            "status": 403
+          },
+          {
+            "method": "GET",
+            "path": "/b.mp3",
+            "range": "bytes=0-1023",
+            "stage": "response",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/b.mp3",
+            "range": null,
+            "stage": "response",
+            "status": 200
+          }
+        ]
+      },
+      {
+        "mode": "no-length-truncate",
+        "passed": true,
+        "elapsedSeconds": 7.582115974,
+        "status": "playing",
+        "trackId": "spotify:1234567890123456789012",
+        "candidateId": "soundcloud:111",
+        "position": 6.561904761904762,
+        "duration": 24.0,
+        "firstAudioMs": 1021,
+        "recoveryCount": 0,
+        "decoderKind": "rodio",
+        "requests": [
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": "bytes=0-1023",
+            "stage": "response",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": null,
+            "stage": "response",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": null,
+            "stage": "prefix_delivered",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": "bytes=96000-577196",
+            "stage": "response",
+            "status": 206
+          }
+        ]
+      },
+      {
+        "mode": "short-body",
+        "passed": true,
+        "elapsedSeconds": 1.695369449,
+        "status": "playing",
+        "trackId": "spotify:1234567890123456789012",
+        "candidateId": "soundcloud:111",
+        "position": 0.6653968253968254,
+        "duration": 24.0,
+        "firstAudioMs": 1014,
+        "recoveryCount": 1,
+        "decoderKind": "rodio",
+        "requests": [
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": "bytes=0-1023",
+            "stage": "response",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": null,
+            "stage": "response",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/a-1.mp3",
+            "range": null,
+            "stage": "prefix_delivered",
+            "status": 200
+          },
+          {
+            "method": "GET",
+            "path": "/a-2.mp3",
+            "range": "bytes=0-1023",
+            "stage": "response",
+            "status": 206
+          },
+          {
+            "method": "GET",
+            "path": "/a-2.mp3",
+            "range": null,
+            "stage": "response",
+            "status": 200
+          }
+        ]
+      }
+    ],
+    "canonicalTrackPreserved": true,
+    "faultRequestsBounded": true,
+    "badRangeReallyInjected": true,
+    "healthyFullTrackSeconds": 24.0
+  },
+  "decoderResolverFixtures": {
+    "scope": "synthetic decoder/resolver and production playback-controller fixtures; private muted CI output; no public egress",
+    "cases": [
+      {
+        "name": "cached_seek_body_gap",
+        "test": "native_output::tests::cached_rodio_seek_same_range_body_gap_starves_then_recovers",
+        "networkNamespace": false,
+        "deadlineSeconds": 90,
+        "exitCode": 0,
+        "passed": true,
+        "elapsedSeconds": 11.438
+      },
+      {
+        "name": "paced_delivery_gap",
+        "test": "native_output::tests::decoded_startup_reserve_independent_timeline_ab_bridges_bounded_body_gap",
+        "networkNamespace": false,
+        "deadlineSeconds": 120,
+        "exitCode": 0,
+        "passed": true,
+        "elapsedSeconds": 13.639
+      },
+      {
+        "name": "tls_fault_recovery",
+        "test": "native_output::remote_recovery_composition_tests::controlled_remote_tls_resolver_decoder_composition",
+        "networkNamespace": true,
+        "deadlineSeconds": 240,
+        "exitCode": 0,
+        "passed": true,
+        "elapsedSeconds": 6.127
+      },
+      {
+        "name": "expired_source_fallback",
+        "test": "native_output::remote_recovery_composition_tests::expired_stream_advances_to_valid_fallback_but_selected_source_stays_locked",
+        "networkNamespace": true,
+        "deadlineSeconds": 180,
+        "exitCode": 0,
+        "passed": true,
+        "elapsedSeconds": 2.118
+      },
+      {
+        "name": "network_controller",
+        "test": "native_output::remote_recovery_composition_tests::controller_fault_tests::network_faults_use_controller_recovery_and_preserve_user_intent",
+        "networkNamespace": true,
+        "deadlineSeconds": 420,
+        "exitCode": 0,
+        "passed": true,
+        "elapsedSeconds": 92.734
+      }
+    ]
+  },
+  "installedRegression": {
+    "appImageSha256": "bbf4454f3ede449e8af6005b97085bc4de005050bb57dc81d884b5a0c7d72765",
+    "executableSha256": "6db6ced704db15cbcdacd36fe78207d5bd0cdcdf8566bcc5c4dd8a5f3d8dbd40",
+    "passed": 28,
+    "failed": 0,
+    "mutedThroughout": true,
+    "actualPrivateSinkVerified": true,
+    "clientIdentityIsolated": true,
+    "cases": [
+      {
+        "name": "baseline_pause_resume",
+        "outcome": "passed",
+        "elapsedSeconds": 0.796
+      },
+      {
+        "name": "verify_private_muted_route",
+        "outcome": "passed",
+        "elapsedSeconds": 0.085
+      },
+      {
+        "name": "rapid_queue_replacement_latest_wins",
+        "outcome": "passed",
+        "elapsedSeconds": 0.512
+      },
+      {
+        "name": "pause_while_starting",
+        "outcome": "passed",
+        "elapsedSeconds": 0.843
+      },
+      {
+        "name": "rapid_seeks_latest_wins",
+        "outcome": "passed",
+        "elapsedSeconds": 0.462
+      },
+      {
+        "name": "paused_seek_then_resume",
+        "outcome": "passed",
+        "elapsedSeconds": 0.38
+      },
+      {
+        "name": "pause_during_seek",
+        "outcome": "passed",
+        "elapsedSeconds": 0.411
+      },
+      {
+        "name": "invalid_missing_empty_then_valid",
+        "outcome": "passed",
+        "elapsedSeconds": 0.097
+      },
+      {
+        "name": "all_invalid_with_repeat_all_is_bounded",
+        "outcome": "passed",
+        "elapsedSeconds": 0.701
+      },
+      {
+        "name": "seek_to_end_advances_once",
+        "outcome": "passed",
+        "elapsedSeconds": 0.622
+      },
+      {
+        "name": "short_track_repeat_one",
+        "outcome": "passed",
+        "elapsedSeconds": 2.094
+      },
+      {
+        "name": "extreme_finite_seek_does_not_crash",
+        "outcome": "passed",
+        "elapsedSeconds": 0.108
+      },
+      {
+        "name": "owned_output_suspend_pause_resume",
+        "outcome": "passed",
+        "elapsedSeconds": 1.104
+      },
+      {
+        "name": "stop_during_seek_stays_stopped",
+        "outcome": "passed",
+        "elapsedSeconds": 0.605
+      },
+      {
+        "name": "next_during_seek_does_not_inherit_old_position",
+        "outcome": "passed",
+        "elapsedSeconds": 0.372
+      },
+      {
+        "name": "manual_next_overrides_repeat_one",
+        "outcome": "passed",
+        "elapsedSeconds": 0.08
+      },
+      {
+        "name": "stopped_queue_does_not_promote_preload",
+        "outcome": "passed",
+        "elapsedSeconds": 2.458
+      },
+      {
+        "name": "pause_during_failed_entry_skip_does_not_autoplay",
+        "outcome": "passed",
+        "elapsedSeconds": 1.066
+      },
+      {
+        "name": "duplicate_recordings_have_distinct_queue_occurrences",
+        "outcome": "passed",
+        "elapsedSeconds": 4.014
+      },
+      {
+        "name": "invalid_controls_leave_valid_playback_running",
+        "outcome": "passed",
+        "elapsedSeconds": 0.055
+      },
+      {
+        "name": "unknown_queue_request_does_not_stop_current_audio",
+        "outcome": "passed",
+        "elapsedSeconds": 0.45
+      },
+      {
+        "name": "seek_after_natural_end_resumes_selected_position",
+        "outcome": "passed",
+        "elapsedSeconds": 2.113
+      },
+      {
+        "name": "seek_past_physical_eof",
+        "outcome": "passed",
+        "elapsedSeconds": 0.447
+      },
+      {
+        "name": "owned_decoder_stall_recovers_same_recording",
+        "outcome": "passed",
+        "elapsedSeconds": 4.513
+      },
+      {
+        "name": "pause_during_decoder_stall_keeps_user_intent",
+        "outcome": "passed",
+        "elapsedSeconds": 3.664
+      },
+      {
+        "name": "killed_owned_decoder_restarts_same_recording",
+        "outcome": "passed",
+        "elapsedSeconds": 1.082
+      },
+      {
+        "name": "decoder_death_while_paused_resumes_valid_audio",
+        "outcome": "passed",
+        "elapsedSeconds": 8.482
+      },
+      {
+        "name": "repeated_decoder_death_has_finite_retries",
+        "outcome": "passed",
+        "elapsedSeconds": 1.732
+      }
+    ]
+  },
+  "artifact": {
+    "sourceCommit": "eb6168ae657ff4a5b4f4e0ca8f4c8b2c2e062ac8",
+    "runId": 43739678838,
+    "conclusion": "success",
+    "artifactName": "burrata-linux-eb6168ae657ff4a5b4f4e0ca8f4c8b2c2e062ac8",
+    "artifactId": 14173641506,
+    "allDownloadedChecksumsVerified": true,
+    "zipCrcVerified": true,
+    "downloadMode": "AppImage plus manifest and smoke evidence only",
+    "downloadConnections": 8,
+    "appImage": "/home/loki/.local/opt/burrata/Burrata_0.1.44_fixes_eb6168a_amd64.AppImage",
+    "appImageSha256": "bbf4454f3ede449e8af6005b97085bc4de005050bb57dc81d884b5a0c7d72765",
+    "downloadedAppImage": "/home/loki/projects/burrata/.cache/network-redteam-20261115/candidate-assets-ranged/Burrata_0.1.44_amd64.AppImage",
+    "downloadCopyRemovedAfterHashVerifiedStaging": true
+  },
+  "cleanup": {
+    "testAppExited": true,
+    "testSinkRemoved": true,
+    "testAudioInputsRemoved": true,
+    "decoderPanicsInInstalledRun": 0
+  },
+  "localDeployment": {
+    "target": "/home/loki/.local/opt/burrata/Burrata_0.1.44_fixes_eb6168a_amd64.AppImage",
+    "sha256": "bbf4454f3ede449e8af6005b97085bc4de005050bb57dc81d884b5a0c7d72765",
+    "sourceCommit": "eb6168ae657ff4a5b4f4e0ca8f4c8b2c2e062ac8",
+    "activated": false,
+    "nextLaunch": true,
+    "previousBuildRetained": true,
+    "previousTarget": "/home/loki/.local/opt/burrata/Burrata_0.1.44_fixes_cf28471_amd64.AppImage"
+  },
+  "reproduction": {
+    "workflow": "ci.yml",
+    "inputs": {
+      "linux_only": true,
+      "tests_only": false,
+      "playback_redteam": true
+    },
+    "controllerTest": "native_output::remote_recovery_composition_tests::controller_fault_tests::network_faults_use_controller_recovery_and_preserve_user_intent",
+    "runner": "scripts/performance/run_playback_redteam_native.py",
+    "installedHarness": "scripts/performance/run_playback_redteam_installed.py"
+  },
+  "resourcePolicy": {
+    "nativeBuilds": "GitHub CI",
+    "localInstancesAtOnce": 1,
+    "ordinaryPlayerControlled": false,
+    "accountCredentialsUsed": false,
+    "duplicateDownloadBytesFreed": 779666416
+  },
+  "scopeLimits": [
+    "Controlled synthetic HTTPS faults with no public egress; not live-provider outage qualification.",
+    "No macOS/Windows physical output or Wi-Fi/router-failure qualification.",
+    "A genuinely blocked origin still invokes the existing 15-second steady-buffering grace; recovery is not seamless.",
+    "The 12 controller cases include one complete healthy track. Fault cases prove forward progress, same recording ownership, recovery/fallback, and cancellation rather than complete programme playback in every fault case."
+  ]
+}
