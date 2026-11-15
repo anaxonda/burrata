@@ -176,7 +176,7 @@ fn valid_musicbrainz_id(value: &str) -> bool {
 }
 
 /// Parsing behavior is versioned alongside evaluator/cache semantics.
-pub(crate) const PARSER_VERSION: &str = "6";
+pub(crate) const PARSER_VERSION: &str = "7";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -870,6 +870,13 @@ pub fn parse_title(value: &str) -> ParsedRecordingTitle {
 
 /// Shared semantic label vocabulary. Delimiter handling is separate from
 /// classification, and unknown labels remain literal evidence.
+fn is_video_version(label: &str) -> bool {
+    matches!(
+        crate::matching::normalize(label).as_str(),
+        "video version" | "version video" | "version videoclip" | "videoclip version"
+    )
+}
+
 fn explicit_recording_version(label: &str) -> bool {
     let lower = label.trim().to_ascii_lowercase();
     matches!(
@@ -895,9 +902,10 @@ fn explicit_recording_version(label: &str) -> bool {
             | "slowed"
             | "slowed + reverb"
             | "slowed and reverb"
-    ) || ["live at ", "live on ", "live in ", "cover by "]
-        .iter()
-        .any(|prefix| lower.starts_with(prefix))
+    ) || is_video_version(label)
+        || ["live at ", "live on ", "live in ", "cover by "]
+            .iter()
+            .any(|prefix| lower.starts_with(prefix))
         || is_release_version(&lower)
         || [" remix", " mix", " edit", " version", " cover", " dub"]
             .iter()
@@ -907,6 +915,9 @@ fn explicit_recording_version(label: &str) -> bool {
 /// One spelling key for structured fields and parsed version annotations.
 /// This never removes recording-changing words or collapses distinct years.
 pub(crate) fn canonical_version_key(label: &str) -> String {
+    if is_video_version(label) {
+        return "video version".to_owned();
+    }
     let normalized = crate::matching::normalize_version(label);
     let normalized = remaster_version_key(&normalized).unwrap_or(normalized);
     match normalized.as_str() {
@@ -961,7 +972,8 @@ pub(crate) fn version_categories(label: &str) -> VersionCategories {
                     | "mono"
                     | "stereo"
             )
-        }) || n == "extended"
+        }) || is_video_version(label)
+            || n == "extended"
             || n.contains("a capella")
             || n.contains("a cappella")
             || n.contains("extended version")
@@ -1050,7 +1062,8 @@ fn trailing_dash_version(value: &str) -> Option<(&str, &str)> {
             | "slowed"
             | "slowed reverb"
             | "slowed and reverb"
-    ) || normalized == "remix"
+    ) || is_video_version(label)
+        || normalized == "remix"
         || normalized.ends_with(" remix")
         || normalized.ends_with(" dub")
         || remaster_version_key(label).is_some())
@@ -1115,6 +1128,30 @@ fn trailing_feature_credit(value: &str) -> Option<(&str, &str)> {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn video_editions_are_semantic_versions_across_languages() {
+        for label in [
+            "Video Version",
+            "Versión Video",
+            "Version Video",
+            "Versión Videoclip",
+        ] {
+            for title in [format!("Song ({label})"), format!("Song - {label}")] {
+                let parsed = parse_recording_text(&title);
+                assert_eq!(parsed.base_title, "Song", "{title}");
+                assert_eq!(parsed.annotations[0].kind, AnnotationKind::SemanticVersion);
+            }
+            assert_eq!(canonical_version_key(label), "video version");
+            assert!(version_categories(label).mix);
+        }
+        assert!(!is_video_version("Official Video"));
+        assert!(!is_video_version("Version Video Remix"));
+        assert_ne!(
+            canonical_version_key("Radio Edit"),
+            canonical_version_key("Versión Video")
+        );
+    }
+
     #[test]
     fn spanish_official_audio_is_only_a_neutral_presentation_label() {
         let parsed = parse_recording_text("Song (Audio Oficial)");

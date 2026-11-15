@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) const EVALUATOR_VERSION: &str = "37";
+pub(crate) const EVALUATOR_VERSION: &str = "38";
 // Repeated whitespace is also a common uploader artist/title separator.
 const CAPTION_SEPARATORS: [&str; 5] = [" - ", " – ", " — ", " | ", "  "];
 
