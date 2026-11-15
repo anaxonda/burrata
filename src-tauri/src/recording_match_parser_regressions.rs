@@ -513,3 +513,50 @@ fn a_duplicate_feature_in_mix_field_does_not_create_a_requested_edition() {
         MatchAction::Accept
     );
 }
+
+#[test]
+fn spaced_artist_title_caption_is_inspectable_without_proving_missing_guest_credits() {
+    let request = Track {
+        provider: "spotify".into(),
+        artist: "Karamelo Santo, Manu Chao".into(),
+        title: "La Picadura".into(),
+        duration_seconds: Some(214.146),
+        ..Track::default()
+    };
+    let candidate = Candidate {
+        provider: "youtube".into(),
+        id: "youtube:lY6AsjXwNqQ".into(),
+        title: "Karamelo Santo   La Picadura".into(),
+        duration_seconds: Some(214.),
+        ..Candidate::default()
+    };
+    let search = assess(
+        &request,
+        &candidate,
+        MatchLevel::Balanced,
+        MatchStage::Search,
+    );
+    assert_eq!(
+        search.dimensions.title,
+        crate::recording_match::Comparison::Agree
+    );
+    assert_eq!(search.action, MatchAction::Inspect);
+    assert_ne!(
+        assess(
+            &request,
+            &candidate,
+            MatchLevel::Balanced,
+            MatchStage::Resolved
+        )
+        .action,
+        MatchAction::Accept
+    );
+    let wrong = Candidate {
+        title: "Karamelo Santo   Different Song".into(),
+        ..candidate.clone()
+    };
+    assert_eq!(
+        assess(&request, &wrong, MatchLevel::Balanced, MatchStage::Search).action,
+        MatchAction::Reject
+    );
+}

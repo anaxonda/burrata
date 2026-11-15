@@ -12,6 +12,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub(crate) const EVALUATOR_VERSION: &str = "37";
+// Repeated whitespace is also a common uploader artist/title separator.
+const CAPTION_SEPARATORS: [&str; 5] = [" - ", " – ", " — ", " | ", "  "];
 
 /// Independently selected categories of alternatives for Flexible matching.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -534,7 +536,7 @@ fn caption_features_for_requested_title(
     if wanted.is_empty() || raw.len() > 2048 {
         return Vec::new();
     }
-    for separator in [" - ", " – ", " — ", " | "] {
+    for separator in CAPTION_SEPARATORS {
         for (index, _) in raw.match_indices(separator) {
             let prefix = raw[..index].trim();
             let suffix = raw[index + separator.len()..].trim();
@@ -1633,7 +1635,7 @@ fn caption_track_title(raw: &str, requested: &str, caption: &str, label: Option<
         return raw.to_owned();
     }
     for source in [raw, caption] {
-        for separator in [" - ", " – ", " — ", " | "] {
+        for separator in CAPTION_SEPARATORS {
             for (index, _) in source.match_indices(separator) {
                 let suffix = &source[index + separator.len()..];
                 let cleaned = suffix.trim();
@@ -1660,7 +1662,7 @@ fn caption_artist_names(
     guests: &[String],
     expected_override: Option<&[String]>,
 ) -> Vec<String> {
-    for separator in [" - ", " – ", " — ", " | "] {
+    for separator in CAPTION_SEPARATORS {
         if let Some((prefix, suffix)) = caption.split_once(separator) {
             let expected_names = expected_override
                 .map(|credits| credits.to_vec())
@@ -1778,7 +1780,7 @@ fn request_scoped_collaboration_caption(
     {
         return Vec::new();
     }
-    for separator in [" - ", " – ", " — ", " | "] {
+    for separator in CAPTION_SEPARATORS {
         if let Some((prefix, suffix)) = candidate.title.split_once(separator) {
             if title_key(&base_title(suffix)) != title_key(requested_title) {
                 continue;
@@ -1926,7 +1928,7 @@ fn request_corroborated_caption_orientation(
         return None;
     }
     let mut matches = Vec::new();
-    for separator in [" - ", " – ", " — ", " | "] {
+    for separator in CAPTION_SEPARATORS {
         for (index, _) in caption.match_indices(separator) {
             let left = caption[..index].trim();
             let right = caption[index + separator.len()..].trim();
