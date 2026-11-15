@@ -1,0 +1,520 @@
+{
+  "scope": "Read-only investigation. Normal playback untouched. Download decoded silently to null output.",
+  "findings": {
+    "download": {
+      "trackId": "beatport:28886180",
+      "assetId": "e20c9380-80bd-4451-91d3-9d9ae4434f50",
+      "duration": 286.0605,
+      "registeredHashMatches": true,
+      "fullDecodeExitCode": 0
+    },
+    "spotifyListing": {
+      "trackId": "spotify:5fPPJ5AlDwK85SMC0W6eZt",
+      "duration": 194,
+      "localAssets": 0
+    },
+    "oldPumpFailure": "No retained trace conclusively identifies the original request; error artist order matches Spotify listing. Do not merge identities without recording/version proof.",
+    "currentFailures": [
+      "Chulo: missing duration and insufficient verified source identity",
+      "Say What: extracted YouTube candidates rejected, SoundCloud extraction failed, final extraction-budget message masks identity evidence",
+      "100% Pure Love: extracted Topic candidate rejected despite matching provider id; identity dimensions need further review",
+      "Shadows: extracted YouTube candidates rejected, final extraction-budget message masks identity evidence"
+    ],
+    "architecture": "should_prepare_catalog_duration excludes Beatport; imported Beatport rows lack duration. A broader provider-specific enrichment path is required, not merely toggling this predicate."
+  },
+  "events": [
+    {
+      "atUnixMs": 1794770468887,
+      "details": {
+        "selected": false
+      },
+      "elapsedMs": 0,
+      "nativeOperationId": "native-892f7326-7c33-4399-ae82-7cc276d4cc22",
+      "phase": "resolution_start",
+      "provider": "other",
+      "resolutionId": "b38aef1f-a4d0-458d-aa9e-e1088541cfad"
+    },
+    {
+      "atUnixMs": 1794770474583,
+      "details": {
+        "extraPerformerCount": 0,
+        "missingPerformerCount": 0,
+        "proofStrength": "metadataOnly",
+        "sharedAction": "enrich",
+        "sharedDimensions": {
+          "artists": "agree",
+          "guests": "agree",
+          "isrc": "unknown",
+          "runtime": "unknown",
+          "title": "agree",
+          "version": "unknown",
+          "work": "unknown"
+        },
+        "sharedReasons": [
+          "titleAgrees",
+          "artistAgrees",
+          "guestAgrees"
+        ],
+        "sharedRelationship": "probable",
+        "unresolvedAnnotationCount": 0
+      },
+      "elapsedMs": 5696,
+      "nativeOperationId": "native-892f7326-7c33-4399-ae82-7cc276d4cc22",
+      "phase": "resolved_recording_assessment",
+      "provider": "youtube",
+      "resolutionId": "b38aef1f-a4d0-458d-aa9e-e1088541cfad"
+    },
+    {
+      "atUnixMs": 1794770474583,
+      "details": {
+        "candidateArtistMetadataPresent": false,
+        "candidateArtistSpellingsCount": 5,
+        "candidateTitleArtistCreditPresent": true,
+        "ok": false,
+        "proofKind": "none",
+        "providerIdMatches": true,
+        "requestedVersion": true,
+        "resolvedArtistMetadataPresent": false,
+        "resolvedChannelIdPresent": true,
+        "resolvedDuration": 416,
+        "resolvedIdentityMetadataUncertain": false,
+        "resolvedTitleArtistCreditPresent": true,
+        "resolvedTitlePresent": true,
+        "sourceFingerprint": "5e9de23b3e16d0afe8267fe59c30bc234188a3604cd79acb0506433d55b69969",
+        "sourcePageUrl": "https://www.youtube.com/watch?v=i-chh5MzM1s",
+        "topicUploader": false,
+        "trackFingerprint": "11c65abd104a6f61683c7cc855247f2c9d8e978e2c651031de0018db9010c4f4"
+      },
+      "elapsedMs": 5696,
+      "nativeOperationId": "native-892f7326-7c33-4399-ae82-7cc276d4cc22",
+      "phase": "full_identity_check",
+      "provider": "youtube",
+      "resolutionId": "b38aef1f-a4d0-458d-aa9e-e1088541cfad"
+    },
+    {
+      "atUnixMs": 1794770474583,
+      "details": {
+        "attemptPhase": "extraction",
+        "category": "recording_identity_mismatch",
+        "observedElapsedMs": 5696,
+        "phaseElapsedMs": 5095,
+        "providerClass": "youtube",
+        "retryable": false,
+        "stage": "extraction"
+      },
+      "elapsedMs": 5696,
+      "nativeOperationId": "native-892f7326-7c33-4399-ae82-7cc276d4cc22",
+      "phase": "provider_attempt",
+      "provider": "youtube",
+      "resolutionId": "b38aef1f-a4d0-458d-aa9e-e1088541cfad"
+    },
+    {
+      "atUnixMs": 1794770478975,
+      "details": {
+        "attemptPhase": "extraction",
+        "category": "unknown",
+        "observedElapsedMs": 10088,
+        "phaseElapsedMs": 46,
+        "providerClass": "soundcloud",
+        "retryable": false,
+        "stage": "extraction"
+      },
+      "elapsedMs": 10088,
+      "nativeOperationId": "native-892f7326-7c33-4399-ae82-7cc276d4cc22",
+      "phase": "provider_attempt",
+      "provider": "soundcloud",
+      "resolutionId": "b38aef1f-a4d0-458d-aa9e-e1088541cfad"
+    },
+    {
+      "atUnixMs": 1794770479516,
+      "details": {
+        "extraPerformerCount": 0,
+        "missingPerformerCount": 0,
+        "proofStrength": "metadataOnly",
+        "sharedAction": "enrich",
+        "sharedDimensions": {
+          "artists": "agree",
+          "guests": "agree",
+          "isrc": "unknown",
+          "runtime": "unknown",
+          "title": "unknown",
+          "version": "unknown",
+          "work": "unknown"
+        },
+        "sharedReasons": [
+          "artistAgrees",
+          "guestAgrees",
+          "unresolvedAnnotation"
+        ],
+        "sharedRelationship": "unresolved",
+        "unresolvedAnnotationCount": 1
+      },
+      "elapsedMs": 10629,
+      "nativeOperationId": "native-892f7326-7c33-4399-ae82-7cc276d4cc22",
+      "phase": "resolved_recording_assessment",
+      "provider": "youtube",
+      "resolutionId": "b38aef1f-a4d0-458d-aa9e-e1088541cfad"
+    },
+    {
+      "atUnixMs": 1794770479516,
+      "details": {
+        "candidateArtistMetadataPresent": false,
+        "candidateArtistSpellingsCount": 2,
+        "candidateTitleArtistCreditPresent": true,
+        "ok": false,
+        "proofKind": "none",
+        "providerIdMatches": true,
+        "requestedVersion": true,
+        "resolvedArtistMetadataPresent": false,
+        "resolvedChannelIdPresent": true,
+        "resolvedDuration": 417,
+        "resolvedIdentityMetadataUncertain": false,
+        "resolvedTitleArtistCreditPresent": true,
+        "resolvedTitlePresent": true,
+        "sourceFingerprint": "c5f2093c7dbc17473c446e3cf4ff10bbcaf840f3ba3e603fecdf4db388b08e33",
+        "sourcePageUrl": "https://www.youtube.com/watch?v=AG-N8cMchhc",
+        "topicUploader": false,
+        "trackFingerprint": "11c65abd104a6f61683c7cc855247f2c9d8e978e2c651031de0018db9010c4f4"
+      },
+      "elapsedMs": 10629,
+      "nativeOperationId": "native-892f7326-7c33-4399-ae82-7cc276d4cc22",
+      "phase": "full_identity_check",
+      "provider": "youtube",
+      "resolutionId": "b38aef1f-a4d0-458d-aa9e-e1088541cfad"
+    },
+    {
+      "atUnixMs": 1794770479516,
+      "details": {
+        "attemptPhase": "extraction",
+        "category": "recording_identity_mismatch",
+        "observedElapsedMs": 10629,
+        "phaseElapsedMs": 4932,
+        "providerClass": "youtube",
+        "retryable": false,
+        "stage": "extraction"
+      },
+      "elapsedMs": 10629,
+      "nativeOperationId": "native-892f7326-7c33-4399-ae82-7cc276d4cc22",
+      "phase": "provider_attempt",
+      "provider": "youtube",
+      "resolutionId": "b38aef1f-a4d0-458d-aa9e-e1088541cfad"
+    },
+    {
+      "atUnixMs": 1794770481624,
+      "details": {
+        "cancelled": false,
+        "category": "unknown",
+        "deadline": false,
+        "ok": false
+      },
+      "elapsedMs": 12736,
+      "nativeOperationId": "native-892f7326-7c33-4399-ae82-7cc276d4cc22",
+      "phase": "resolution_end",
+      "provider": "other",
+      "resolutionId": "b38aef1f-a4d0-458d-aa9e-e1088541cfad"
+    },
+    {
+      "atUnixMs": 1794770481625,
+      "details": {
+        "selected": false
+      },
+      "elapsedMs": 0,
+      "nativeOperationId": "native-b91b95ee-e75e-42c0-a46d-c6437649c9a1",
+      "phase": "resolution_start",
+      "provider": "other",
+      "resolutionId": "c594b8b8-8c8a-49df-b8e6-d49f01752172"
+    },
+    {
+      "atUnixMs": 1794770487258,
+      "details": {
+        "extraPerformerCount": 0,
+        "missingPerformerCount": 0,
+        "proofStrength": "metadataOnly",
+        "sharedAction": "enrich",
+        "sharedDimensions": {
+          "artists": "agree",
+          "guests": "unknown",
+          "isrc": "unknown",
+          "runtime": "unknown",
+          "title": "agree",
+          "version": "unknown",
+          "work": "unknown"
+        },
+        "sharedReasons": [
+          "titleAgrees",
+          "artistAgrees"
+        ],
+        "sharedRelationship": "unresolved",
+        "unresolvedAnnotationCount": 3
+      },
+      "elapsedMs": 5633,
+      "nativeOperationId": "native-b91b95ee-e75e-42c0-a46d-c6437649c9a1",
+      "phase": "resolved_recording_assessment",
+      "provider": "youtube",
+      "resolutionId": "c594b8b8-8c8a-49df-b8e6-d49f01752172"
+    },
+    {
+      "atUnixMs": 1794770487258,
+      "details": {
+        "candidateArtistMetadataPresent": false,
+        "candidateArtistSpellingsCount": 2,
+        "candidateTitleArtistCreditPresent": false,
+        "ok": false,
+        "proofKind": "none",
+        "providerIdMatches": true,
+        "requestedVersion": true,
+        "resolvedArtistMetadataPresent": true,
+        "resolvedChannelIdPresent": true,
+        "resolvedDuration": 276,
+        "resolvedIdentityMetadataUncertain": false,
+        "resolvedTitleArtistCreditPresent": false,
+        "resolvedTitlePresent": true,
+        "sourceFingerprint": "8a7668d8a755ef12d832621d81d4e50144b2a150188988aa686387507b9cb0e8",
+        "sourcePageUrl": "https://www.youtube.com/watch?v=XRay2JJZnVI",
+        "topicUploader": true,
+        "trackFingerprint": "c7564db90c604528ddacf442a39aca913222371cb5356e5151e42748d3b2c9ac"
+      },
+      "elapsedMs": 5633,
+      "nativeOperationId": "native-b91b95ee-e75e-42c0-a46d-c6437649c9a1",
+      "phase": "full_identity_check",
+      "provider": "youtube",
+      "resolutionId": "c594b8b8-8c8a-49df-b8e6-d49f01752172"
+    },
+    {
+      "atUnixMs": 1794770487258,
+      "details": {
+        "attemptPhase": "extraction",
+        "category": "recording_identity_mismatch",
+        "observedElapsedMs": 5633,
+        "phaseElapsedMs": 5317,
+        "providerClass": "youtube",
+        "retryable": false,
+        "stage": "extraction"
+      },
+      "elapsedMs": 5633,
+      "nativeOperationId": "native-b91b95ee-e75e-42c0-a46d-c6437649c9a1",
+      "phase": "provider_attempt",
+      "provider": "youtube",
+      "resolutionId": "c594b8b8-8c8a-49df-b8e6-d49f01752172"
+    },
+    {
+      "atUnixMs": 1794770489119,
+      "details": {
+        "cancelled": false,
+        "category": "recording_identity_mismatch",
+        "deadline": false,
+        "ok": false
+      },
+      "elapsedMs": 7494,
+      "nativeOperationId": "native-b91b95ee-e75e-42c0-a46d-c6437649c9a1",
+      "phase": "resolution_end",
+      "provider": "other",
+      "resolutionId": "c594b8b8-8c8a-49df-b8e6-d49f01752172"
+    },
+    {
+      "atUnixMs": 1794770489120,
+      "details": {
+        "selected": false
+      },
+      "elapsedMs": 0,
+      "nativeOperationId": "native-258f850b-24ea-4d4b-a4e3-d3a786412a5d",
+      "phase": "resolution_start",
+      "provider": "other",
+      "resolutionId": "978c3ed2-f649-442d-938b-bedc4ba9b94a"
+    },
+    {
+      "atUnixMs": 1794770494827,
+      "details": {
+        "extraPerformerCount": 0,
+        "missingPerformerCount": 0,
+        "proofStrength": "metadataOnly",
+        "sharedAction": "enrich",
+        "sharedDimensions": {
+          "artists": "agree",
+          "guests": "unknown",
+          "isrc": "unknown",
+          "runtime": "unknown",
+          "title": "agree",
+          "version": "unknown",
+          "work": "unknown"
+        },
+        "sharedReasons": [
+          "titleAgrees",
+          "artistAgrees"
+        ],
+        "sharedRelationship": "probable",
+        "unresolvedAnnotationCount": 0
+      },
+      "elapsedMs": 5706,
+      "nativeOperationId": "native-258f850b-24ea-4d4b-a4e3-d3a786412a5d",
+      "phase": "resolved_recording_assessment",
+      "provider": "youtube",
+      "resolutionId": "978c3ed2-f649-442d-938b-bedc4ba9b94a"
+    },
+    {
+      "atUnixMs": 1794770494827,
+      "details": {
+        "candidateArtistMetadataPresent": false,
+        "candidateArtistSpellingsCount": 2,
+        "candidateTitleArtistCreditPresent": true,
+        "ok": false,
+        "proofKind": "none",
+        "providerIdMatches": true,
+        "requestedVersion": true,
+        "resolvedArtistMetadataPresent": true,
+        "resolvedChannelIdPresent": true,
+        "resolvedDuration": 204,
+        "resolvedIdentityMetadataUncertain": false,
+        "resolvedTitleArtistCreditPresent": true,
+        "resolvedTitlePresent": true,
+        "sourceFingerprint": "5c8e4c03f7136e32e8835bb7fd7916fc5f206e26b5f0223c1613948cbc17f768",
+        "sourcePageUrl": "https://www.youtube.com/watch?v=S0ShLTUcSWM",
+        "topicUploader": false,
+        "trackFingerprint": "08a77fc3e8e96b932eb96406cc5f9c15694b2dfd66f3dc86d406b4254284a777"
+      },
+      "elapsedMs": 5706,
+      "nativeOperationId": "native-258f850b-24ea-4d4b-a4e3-d3a786412a5d",
+      "phase": "full_identity_check",
+      "provider": "youtube",
+      "resolutionId": "978c3ed2-f649-442d-938b-bedc4ba9b94a"
+    },
+    {
+      "atUnixMs": 1794770494827,
+      "details": {
+        "attemptPhase": "extraction",
+        "category": "recording_identity_mismatch",
+        "observedElapsedMs": 5706,
+        "phaseElapsedMs": 5300,
+        "providerClass": "youtube",
+        "retryable": false,
+        "stage": "extraction"
+      },
+      "elapsedMs": 5706,
+      "nativeOperationId": "native-258f850b-24ea-4d4b-a4e3-d3a786412a5d",
+      "phase": "provider_attempt",
+      "provider": "youtube",
+      "resolutionId": "978c3ed2-f649-442d-938b-bedc4ba9b94a"
+    },
+    {
+      "atUnixMs": 1794770497118,
+      "details": {
+        "attemptPhase": "extraction",
+        "category": "unknown",
+        "observedElapsedMs": 7997,
+        "phaseElapsedMs": 0,
+        "providerClass": "soundcloud",
+        "retryable": false,
+        "stage": "extraction"
+      },
+      "elapsedMs": 7997,
+      "nativeOperationId": "native-258f850b-24ea-4d4b-a4e3-d3a786412a5d",
+      "phase": "provider_attempt",
+      "provider": "soundcloud",
+      "resolutionId": "978c3ed2-f649-442d-938b-bedc4ba9b94a"
+    },
+    {
+      "atUnixMs": 1794770497118,
+      "details": {
+        "attemptPhase": "extraction",
+        "category": "unknown",
+        "observedElapsedMs": 7998,
+        "phaseElapsedMs": 0,
+        "providerClass": "soundcloud",
+        "retryable": false,
+        "stage": "extraction"
+      },
+      "elapsedMs": 7998,
+      "nativeOperationId": "native-258f850b-24ea-4d4b-a4e3-d3a786412a5d",
+      "phase": "provider_attempt",
+      "provider": "soundcloud",
+      "resolutionId": "978c3ed2-f649-442d-938b-bedc4ba9b94a"
+    },
+    {
+      "atUnixMs": 1794770500249,
+      "details": {
+        "extraPerformerCount": 0,
+        "missingPerformerCount": 0,
+        "proofStrength": "metadataOnly",
+        "sharedAction": "enrich",
+        "sharedDimensions": {
+          "artists": "agree",
+          "guests": "unknown",
+          "isrc": "unknown",
+          "runtime": "unknown",
+          "title": "agree",
+          "version": "unknown",
+          "work": "unknown"
+        },
+        "sharedReasons": [
+          "titleAgrees",
+          "artistAgrees"
+        ],
+        "sharedRelationship": "probable",
+        "unresolvedAnnotationCount": 0
+      },
+      "elapsedMs": 11128,
+      "nativeOperationId": "native-258f850b-24ea-4d4b-a4e3-d3a786412a5d",
+      "phase": "resolved_recording_assessment",
+      "provider": "youtube",
+      "resolutionId": "978c3ed2-f649-442d-938b-bedc4ba9b94a"
+    },
+    {
+      "atUnixMs": 1794770500249,
+      "details": {
+        "candidateArtistMetadataPresent": false,
+        "candidateArtistSpellingsCount": 2,
+        "candidateTitleArtistCreditPresent": true,
+        "ok": false,
+        "proofKind": "none",
+        "providerIdMatches": true,
+        "requestedVersion": true,
+        "resolvedArtistMetadataPresent": false,
+        "resolvedChannelIdPresent": true,
+        "resolvedDuration": 292,
+        "resolvedIdentityMetadataUncertain": false,
+        "resolvedTitleArtistCreditPresent": true,
+        "resolvedTitlePresent": true,
+        "sourceFingerprint": "5a7d116f56ca8ca85128b4b220213df67e2370fd8546e51da055cb993a728063",
+        "sourcePageUrl": "https://www.youtube.com/watch?v=FTWMmu2HBVA",
+        "topicUploader": false,
+        "trackFingerprint": "08a77fc3e8e96b932eb96406cc5f9c15694b2dfd66f3dc86d406b4254284a777"
+      },
+      "elapsedMs": 11128,
+      "nativeOperationId": "native-258f850b-24ea-4d4b-a4e3-d3a786412a5d",
+      "phase": "full_identity_check",
+      "provider": "youtube",
+      "resolutionId": "978c3ed2-f649-442d-938b-bedc4ba9b94a"
+    },
+    {
+      "atUnixMs": 1794770500249,
+      "details": {
+        "attemptPhase": "extraction",
+        "category": "recording_identity_mismatch",
+        "observedElapsedMs": 11128,
+        "phaseElapsedMs": 5422,
+        "providerClass": "youtube",
+        "retryable": false,
+        "stage": "extraction"
+      },
+      "elapsedMs": 11128,
+      "nativeOperationId": "native-258f850b-24ea-4d4b-a4e3-d3a786412a5d",
+      "phase": "provider_attempt",
+      "provider": "youtube",
+      "resolutionId": "978c3ed2-f649-442d-938b-bedc4ba9b94a"
+    },
+    {
+      "atUnixMs": 1794770501082,
+      "details": {
+        "cancelled": false,
+        "category": "unknown",
+        "deadline": false,
+        "ok": false
+      },
+      "elapsedMs": 11961,
+      "nativeOperationId": "native-258f850b-24ea-4d4b-a4e3-d3a786412a5d",
+      "phase": "resolution_end",
+      "provider": "other",
+      "resolutionId": "978c3ed2-f649-442d-938b-bedc4ba9b94a"
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "scope": "Current-schema and general resolver fixes only; no migration of old-extension imports. User playback and settings untouched. Exact catalog recovery capped at four seconds and half remaining operation budget.",
+  "sourceCommit": "ff529c6043a07fd277824c34e0af1cfbba80b222",
+  "liveCatalog": [
+    {
+      "track_id": 30517289,
+      "track_name": "100% Pure Love (Extended)",
+      "mix_name": "Extended",
+      "track_length_ms": 275835,
+      "isrc": "GBF9X2600495"
+    },
+    {
+      "track_id": 28886180,
+      "track_name": "Pump up the Jam",
+      "mix_name": "Original Mix",
+      "track_length_ms": 286080,
+      "isrc": "GXBNP2683366"
+    },
+    {
+      "track_id": 30754798,
+      "track_name": "Shadows",
+      "mix_name": "Extended",
+      "track_length_ms": 291562,
+      "isrc": "QMFME2628439"
+    },
+    {
+      "track_id": 19657454,
+      "track_name": "Say What (feat. Chuala)",
+      "mix_name": "feat. Chuala",
+      "track_length_ms": 416500,
+      "isrc": "DEEC33501586"
+    }
+  ],
+  "fixes": [
+    "Parse current track_id, track_name and track_length_ms alongside older schema fields",
+    "Perform one bounded exact-provider metadata read before audio extraction for incomplete unlocked Beatport/Traxsource requests",
+    "Preserve identity rejection and concrete source failures over extraction-budget exhaustion",
+    "Extension structured chart parser accepts current field names while retaining explicit rank requirement"
+  ],
+  "limits": [
+    "No end-to-end successful playback claim for reported online recordings yet",
+    "Original Pump up the Jam failure request identity cannot be conclusively recovered; separate Spotify listing has no local asset and differs in duration",
+    "New metadata enrichment is request-scoped and preserves version conflict rejection and manual fields; saved library rows are not rewritten"
+  ],
+  "CI": {
+    "run": 43753302476,
+    "url": "https://github.com/anaxonda/burrata/actions/runs/43753302476",
+    "status": "success"
+  },
+  "validation": {
+    "extensionTestsPassed": 121,
+    "contractChecks": "passed",
+    "heavyNativeCompilationLocal": false,
+    "newPlaybackPerformedOnUserInstance": false,
+    "nativeTests": "passed",
+    "nativeTestsPerConfiguration": 2846,
+    "nativeConfigurations": 2,
+    "nativeIgnoredPerConfiguration": 68,
+    "frontendTestsPassed": 1662,
+    "typecheckErrors": 0,
+    "typecheckWarnings": 0,
+    "installedAppUpdated": false,
+    "publicReleasePublished": false
+  },
+  "scopeConclusion": "Retained only current-schema compatibility and general playback-resolution/error-reporting fixes. No old-extension migration or speculative recording merge."
+}
