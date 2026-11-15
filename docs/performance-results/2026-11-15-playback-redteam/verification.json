@@ -1,0 +1,492 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "cf2847108a00704001b0b7a2a652f8254e77afc9",
+  "findings": [
+    {
+      "name": "Unrepresentable seek panics a decoder worker",
+      "before": "An accepted seek to 1e300 seconds panicked the decoder and left the player buffering until its watchdog.",
+      "fix": "Validate positions before mutating playback; check decoder clock and sample-counter ranges; contain codec panics in the ordinary failure path.",
+      "regressions": [
+        "extreme_finite_seek_does_not_crash",
+        "native decoder worker panic and seek-boundary unit tests"
+      ]
+    },
+    {
+      "name": "Clean EOF after a seek is discarded before first PCM",
+      "before": "Seeking to 30 seconds in a 24-second local file produced clean EOF, but the playing-only completion guard ignored it while buffering. The player waited for the seek watchdog.",
+      "fix": "Complete the owned seek occurrence on clean empty EOF, preserving duration and excluding empty seek completion from verified decoded coverage. Respect pause and generation ownership.",
+      "regressions": [
+        "seek_past_physical_eof",
+        "seek_to_end_advances_once",
+        "paused and stale generation EOF unit tests"
+      ]
+    },
+    {
+      "name": "Unexpected decoder termination cannot recover valid local audio",
+      "before": "SIGKILL of the isolated packaged FFmpeg process was classified unknown/non-retryable; local assets also failed the candidate eligibility check. The same failure occurred after resuming a paused decoder.",
+      "fix": "Classify unexpected decoder termination as a source-scoped output failure and permit local decoder restarts through existing bounded recovery. Preserve retry limits, cancellation, deadlines, and device-error handling.",
+      "regressions": [
+        "killed_owned_decoder_restarts_same_recording",
+        "decoder_death_while_paused_resumes_valid_audio",
+        "repeated_decoder_death_has_finite_retries"
+      ]
+    }
+  ],
+  "baseline": {
+    "sourceCommit": "e184315fdd2e4135e6bbfb8e193bcccc0c787086",
+    "appImageSha256": "3c5927684e8c59f60b31542ed75abe0049a84fae3bb4ffa25ffdf2869cda72df",
+    "unknownTrackHarnessCorrection": "The API correctly rejected an unknown ID; the rerun expects that rejection and checks that current playback continues."
+  },
+  "ci": {
+    "url": "https://github.com/anaxonda/burrata/actions/runs/43690584804",
+    "conclusion": "success",
+    "frontendPassed": 1658,
+    "nativePassedPerConfiguration": 2836,
+    "nativeConfigurations": 2,
+    "nativeIgnoredPerConfiguration": 67,
+    "typecheckErrors": 0,
+    "typecheckWarnings": 0,
+    "linuxDebSmokePassed": true,
+    "linuxAppImageSmokePassed": true,
+    "allDownloadedChecksumsVerified": true,
+    "optInTransportFaults": {
+      "scope": "synthetic decoder/resolver fixtures; no audio device or public egress",
+      "cases": [
+        {
+          "name": "cached_seek_body_gap",
+          "test": "native_output::tests::cached_rodio_seek_same_range_body_gap_starves_then_recovers",
+          "networkNamespace": false,
+          "deadlineSeconds": 90,
+          "exitCode": 0,
+          "passed": true,
+          "elapsedSeconds": 11.489
+        },
+        {
+          "name": "paced_delivery_gap",
+          "test": "native_output::tests::decoded_startup_reserve_independent_timeline_ab_bridges_bounded_body_gap",
+          "networkNamespace": false,
+          "deadlineSeconds": 120,
+          "exitCode": 0,
+          "passed": true,
+          "elapsedSeconds": 13.639
+        },
+        {
+          "name": "tls_fault_recovery",
+          "test": "native_output::remote_recovery_composition_tests::controlled_remote_tls_resolver_decoder_composition",
+          "networkNamespace": true,
+          "deadlineSeconds": 240,
+          "exitCode": 0,
+          "passed": true,
+          "elapsedSeconds": 6.234
+        },
+        {
+          "name": "expired_source_fallback",
+          "test": "native_output::remote_recovery_composition_tests::expired_stream_advances_to_valid_fallback_but_selected_source_stays_locked",
+          "networkNamespace": true,
+          "deadlineSeconds": 180,
+          "exitCode": 0,
+          "passed": true,
+          "elapsedSeconds": 2.669
+        }
+      ]
+    }
+  },
+  "installedApp": {
+    "appImageSha256": "de759e822377591c1be8213ea25b912f799507154c5896d4f28da70b34754866",
+    "executableSha256": "078eda7236f2358a110a6f152c3310d585ad3c9a178036b32db81e063bbd7be4",
+    "passed": 28,
+    "failed": 0,
+    "startedAndRemainedMuted": true,
+    "actualPrivateSinkVerified": true,
+    "audioClientIdentityIsolated": true,
+    "cases": [
+      {
+        "name": "baseline_pause_resume",
+        "outcome": "passed",
+        "elapsedSeconds": 0.809
+      },
+      {
+        "name": "verify_private_muted_route",
+        "outcome": "passed",
+        "elapsedSeconds": 0.09
+      },
+      {
+        "name": "rapid_queue_replacement_latest_wins",
+        "outcome": "passed",
+        "elapsedSeconds": 0.493
+      },
+      {
+        "name": "pause_while_starting",
+        "outcome": "passed",
+        "elapsedSeconds": 0.838
+      },
+      {
+        "name": "rapid_seeks_latest_wins",
+        "outcome": "passed",
+        "elapsedSeconds": 0.459
+      },
+      {
+        "name": "paused_seek_then_resume",
+        "outcome": "passed",
+        "elapsedSeconds": 0.378
+      },
+      {
+        "name": "pause_during_seek",
+        "outcome": "passed",
+        "elapsedSeconds": 0.446
+      },
+      {
+        "name": "invalid_missing_empty_then_valid",
+        "outcome": "passed",
+        "elapsedSeconds": 0.094
+      },
+      {
+        "name": "all_invalid_with_repeat_all_is_bounded",
+        "outcome": "passed",
+        "elapsedSeconds": 0.666
+      },
+      {
+        "name": "seek_to_end_advances_once",
+        "outcome": "passed",
+        "elapsedSeconds": 0.628
+      },
+      {
+        "name": "short_track_repeat_one",
+        "outcome": "passed",
+        "elapsedSeconds": 2.065
+      },
+      {
+        "name": "extreme_finite_seek_does_not_crash",
+        "outcome": "passed",
+        "elapsedSeconds": 0.073
+      },
+      {
+        "name": "owned_output_suspend_pause_resume",
+        "outcome": "passed",
+        "elapsedSeconds": 1.136
+      },
+      {
+        "name": "stop_during_seek_stays_stopped",
+        "outcome": "passed",
+        "elapsedSeconds": 0.567
+      },
+      {
+        "name": "next_during_seek_does_not_inherit_old_position",
+        "outcome": "passed",
+        "elapsedSeconds": 0.387
+      },
+      {
+        "name": "manual_next_overrides_repeat_one",
+        "outcome": "passed",
+        "elapsedSeconds": 0.108
+      },
+      {
+        "name": "stopped_queue_does_not_promote_preload",
+        "outcome": "passed",
+        "elapsedSeconds": 2.459
+      },
+      {
+        "name": "pause_during_failed_entry_skip_does_not_autoplay",
+        "outcome": "passed",
+        "elapsedSeconds": 1.077
+      },
+      {
+        "name": "duplicate_recordings_have_distinct_queue_occurrences",
+        "outcome": "passed",
+        "elapsedSeconds": 4.034
+      },
+      {
+        "name": "invalid_controls_leave_valid_playback_running",
+        "outcome": "passed",
+        "elapsedSeconds": 0.097
+      },
+      {
+        "name": "unknown_queue_request_does_not_stop_current_audio",
+        "outcome": "passed",
+        "elapsedSeconds": 0.449
+      },
+      {
+        "name": "seek_after_natural_end_resumes_selected_position",
+        "outcome": "passed",
+        "elapsedSeconds": 2.114
+      },
+      {
+        "name": "seek_past_physical_eof",
+        "outcome": "passed",
+        "elapsedSeconds": 0.473
+      },
+      {
+        "name": "owned_decoder_stall_recovers_same_recording",
+        "outcome": "passed",
+        "elapsedSeconds": 4.457
+      },
+      {
+        "name": "pause_during_decoder_stall_keeps_user_intent",
+        "outcome": "passed",
+        "elapsedSeconds": 3.906
+      },
+      {
+        "name": "killed_owned_decoder_restarts_same_recording",
+        "outcome": "passed",
+        "elapsedSeconds": 1.05
+      },
+      {
+        "name": "decoder_death_while_paused_resumes_valid_audio",
+        "outcome": "passed",
+        "elapsedSeconds": 8.506
+      },
+      {
+        "name": "repeated_decoder_death_has_finite_retries",
+        "outcome": "passed",
+        "elapsedSeconds": 1.631
+      }
+    ],
+    "seekPastEof": [
+      {
+        "requested": 30,
+        "beforeDuration": 24.0,
+        "afterStatus": "ended",
+        "position": 24.0
+      },
+      {
+        "requested": 1000,
+        "beforeDuration": 24.0,
+        "afterStatus": "ended",
+        "position": 24.0
+      },
+      {
+        "requested": 1000000000000.0,
+        "beforeDuration": 24.0,
+        "afterStatus": "ended",
+        "position": 24.0
+      },
+      {
+        "requested": 1e+18,
+        "beforeDuration": 24.0,
+        "afterStatus": "failed",
+        "position": 1e+18
+      }
+    ],
+    "decoderRestart": {
+      "previousGeneration": 192,
+      "recoveredGeneration": 193,
+      "recoveryCount": 1,
+      "initialPosition": 0.12380952380952381,
+      "laterPosition": 0.7582539682539683
+    },
+    "pausedDecoderResumeObservations": [
+      {
+        "status": "playing",
+        "position": 0.02,
+        "generation": 196,
+        "recovery": 0
+      },
+      {
+        "status": "playing",
+        "position": 0.02,
+        "generation": 197,
+        "recovery": 1
+      },
+      {
+        "status": "playing",
+        "position": 0.23666666666666666,
+        "generation": 197,
+        "recovery": 1
+      },
+      {
+        "status": "playing",
+        "position": 0.8247619047619048,
+        "generation": 197,
+        "recovery": 1
+      },
+      {
+        "status": "playing",
+        "position": 1.1033333333333333,
+        "generation": 197,
+        "recovery": 1
+      },
+      {
+        "status": "playing",
+        "position": 1.6604761904761904,
+        "generation": 197,
+        "recovery": 1
+      },
+      {
+        "status": "playing",
+        "position": 1.9390476190476191,
+        "generation": 197,
+        "recovery": 1
+      },
+      {
+        "status": "playing",
+        "position": 2.4961904761904763,
+        "generation": 197,
+        "recovery": 1
+      },
+      {
+        "status": "playing",
+        "position": 2.8057142857142856,
+        "generation": 197,
+        "recovery": 1
+      },
+      {
+        "status": "playing",
+        "position": 3.0533333333333332,
+        "generation": 197,
+        "recovery": 1
+      },
+      {
+        "status": "playing",
+        "position": 3.6104761904761906,
+        "generation": 197,
+        "recovery": 1
+      },
+      {
+        "status": "playing",
+        "position": 3.92,
+        "generation": 197,
+        "recovery": 1
+      },
+      {
+        "status": "playing",
+        "position": 4.477142857142857,
+        "generation": 197,
+        "recovery": 1
+      },
+      {
+        "status": "playing",
+        "position": 4.755714285714285,
+        "generation": 197,
+        "recovery": 1
+      },
+      {
+        "status": "playing",
+        "position": 5.312857142857142,
+        "generation": 197,
+        "recovery": 0
+      },
+      {
+        "status": "playing",
+        "position": 5.56047619047619,
+        "generation": 197,
+        "recovery": 0
+      },
+      {
+        "status": "playing",
+        "position": 6.121065759637188,
+        "generation": 197,
+        "recovery": 0
+      },
+      {
+        "status": "playing",
+        "position": 6.427142857142857,
+        "generation": 197,
+        "recovery": 0
+      },
+      {
+        "status": "playing",
+        "position": 6.736666666666666,
+        "generation": 197,
+        "recovery": 0
+      },
+      {
+        "status": "playing",
+        "position": 7.293809523809523,
+        "generation": 197,
+        "recovery": 0
+      }
+    ]
+  },
+  "transportReadTimeoutControl": [
+    {
+      "gapSeconds": 0,
+      "readTimeoutSeconds": 20.0,
+      "requests": [
+        {
+          "range": "bytes=0-",
+          "start": 0
+        }
+      ],
+      "exitCode": 0,
+      "decodedSeconds": 30.00018140589569,
+      "elapsedSeconds": 0.054,
+      "errorClass": null
+    },
+    {
+      "gapSeconds": 6,
+      "readTimeoutSeconds": 5,
+      "requests": [
+        {
+          "range": "bytes=0-",
+          "start": 0
+        }
+      ],
+      "exitCode": 183,
+      "decodedSeconds": 14.79111111111111,
+      "elapsedSeconds": 5.162,
+      "errorClass": "decoder_failed"
+    },
+    {
+      "gapSeconds": 6,
+      "readTimeoutSeconds": 20.0,
+      "requests": [
+        {
+          "range": "bytes=0-",
+          "start": 0
+        }
+      ],
+      "exitCode": 0,
+      "decodedSeconds": 30.00018140589569,
+      "elapsedSeconds": 6.06,
+      "errorClass": null
+    },
+    {
+      "gapSeconds": 12,
+      "readTimeoutSeconds": 20.0,
+      "requests": [
+        {
+          "range": "bytes=0-",
+          "start": 0
+        }
+      ],
+      "exitCode": 0,
+      "decodedSeconds": 30.00018140589569,
+      "elapsedSeconds": 12.054,
+      "errorClass": null
+    }
+  ],
+  "reproduction": {
+    "installedHarness": "scripts/performance/run_playback_redteam_installed.py",
+    "command": "python3 scripts/performance/run_playback_redteam_installed.py --appimage /absolute/path/to/Burrata.AppImage --output .cache/playback-redteam-rerun",
+    "installedHarnessSha256": "843604f68ab7533a7783a02c816e277122d27dcdd3b6210cd502f1787985fd0e",
+    "ciInput": "playback_redteam=true",
+    "ciHarness": "scripts/performance/run_playback_redteam_native.py"
+  },
+  "resourcePolicy": {
+    "nativeCompilation": "GitHub CI only",
+    "localAppInstancesAtOnce": 1,
+    "syntheticLibraryListings": 0,
+    "accountCredentialsUsed": false,
+    "ordinaryPlayerControlled": false
+  },
+  "localDeployment": {
+    "target": "/home/loki/.local/opt/burrata/Burrata_0.1.44_fixes_cf28471_amd64.AppImage",
+    "sha256": "de759e822377591c1be8213ea25b912f799507154c5896d4f28da70b34754866",
+    "sourceCommit": "cf2847108a00704001b0b7a2a652f8254e77afc9",
+    "activated": false,
+    "nextLaunch": true,
+    "previousBuildRetained": true,
+    "previousTarget": "/home/loki/.local/opt/burrata/Burrata_0.1.44_fixes_e184315_amd64.AppImage"
+  },
+  "scopeLimits": [
+    "Installed fault tests used Linux, synthetic local files, and a private muted virtual audio output.",
+    "Transport composition fixtures used synthetic HTTP/TLS services and explicitly driven resolver recovery; they do not prove PlaybackService recovery or physical output. Installed decoder fault tests separately exercise PlaybackService automatic recovery.",
+    "No macOS/Windows physical-device qualification or exhaustive failure coverage is claimed."
+  ],
+  "cleanup": {
+    "testAppExited": true,
+    "testSinkRemoved": true,
+    "testAudioInputsRemoved": true,
+    "decoderPanicsInFixedRun": 0
+  }
+}
