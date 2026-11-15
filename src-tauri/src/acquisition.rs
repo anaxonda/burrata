@@ -17553,8 +17553,7 @@ mod tests {
     }
     #[test]
     fn generated_source_chapters_do_not_become_track_titles() {
-        let info =
-            json!({"chapters":[{"start_time":0.,"end_time":418.,"title":"<Untitled Chapter 1>"}]});
+        let info = serde_json::json!({"chapters":[{"start_time":0.,"end_time":418.,"title":"<Untitled Chapter 1>"}]});
         assert!(parse_source_chapters(&info).is_none());
     }
     #[test]
