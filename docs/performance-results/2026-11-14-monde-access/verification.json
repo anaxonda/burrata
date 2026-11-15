@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "654d372865ea7a1ebf6cce6f8a66cb1f66a19773",
+  "track": {
+    "id": "spotify:4zD7GnXyl94mNCbyaNw6xf",
+    "title": "Monde",
+    "artist": "Luidji, Ryan Koffi",
+    "catalogDurationSeconds": 216,
+    "verifiedYouTubeId": "YVsEGsU9i24"
+  },
+  "reportedFailure": {
+    "primaryAudioHttpStatus": 403,
+    "sameVideoAlternatePlayerHttpStatus": 400,
+    "resolutionFailedAfterMs": 7504,
+    "rootCauseOfUpstream400": "Not established from sanitized diagnostics; a fresh request for the same ID subsequently succeeded."
+  },
+  "fix": {
+    "behavior": "Retry an anonymous player HTTP 400 once with a newly fetched music-homepage visitor context, retaining the same video and requested audio format.",
+    "absoluteDeadlinePreserved": true,
+    "recordingIdentityAndStreamAccessChecksPreserved": true,
+    "ordinarySuccessfulRequestsDoNotRetry": true
+  },
+  "ci": {
+    "url": "https://github.com/anaxonda/burrata/actions/runs/43667673582",
+    "conclusion": "success",
+    "nativePassedPerConfiguration": 2821,
+    "nativeConfigurations": 2,
+    "nativeIgnoredPerConfiguration": 67,
+    "frontendPassed": 1654,
+    "typecheckErrors": 0,
+    "typecheckWarnings": 0,
+    "newRecoveryTestsPassedPerConfiguration": 7,
+    "linuxDebSmokePassed": true,
+    "linuxAppImageSmokePassed": true,
+    "allDownloadedChecksumsVerified": true
+  },
+  "liveBaseline": {
+    "appImageSha256": "7af2325fd6d711ca30bba95105409451677578b4ee41fbb22a6cbdaeae556c8a",
+    "executableSha256": "f1f8e1742c548d67083088ebbfadb142a86a18f537dc414da47bf5965a0a4933",
+    "finalStatus": "ended",
+    "finalPosition": 216.0021768707483,
+    "naturalQueueEnd": true,
+    "firstAudioMs": 14685
+  },
+  "livePatchedBuild": {
+    "appImageSha256": "3fabe0b97b66cd4bfabe97557c03a4644211f844319735108f72416d4679f609",
+    "executableSha256": "a708e26947c2fcedf5cbc986e806231b08b84209f7f613f86b0ccf81d279a291",
+    "finalStatus": "ended",
+    "finalPosition": 216.0021768707483,
+    "naturalQueueEnd": true,
+    "firstAudioMs": 14988,
+    "naturalCompletionWithoutSeeking": true,
+    "primary403Observed": true,
+    "alternateTransportSucceeded": true,
+    "live400RetryObserved": false,
+    "live400RetryQualification": "The HTTP 400 branch is covered by deterministic production-resolver tests; this live run received a successful first alternate response."
+  },
+  "testAudioIncident": {
+    "requestedSink": "burrata_resource_monde-candidate",
+    "actualSinkVerified": false,
+    "userReportedOutput": "living room AirPlay speakers",
+    "mistake": "The initial test checked the advisory target.object property and raised test-app volume, without verifying the actual sink index.",
+    "mitigation": "Set test app volume to zero and mute the requested null sink; leave the normal instance under user control.",
+    "testAppMutedAtPositionSeconds": 180.42142857142858,
+    "completedWithTestAppVolumeZero": true,
+    "futureTests": "Start and remain at app volume zero; mute the owned test sink and sink input; verify actual sink index before any test audio is allowed.",
+    "testAppsAndPrivateSinksRemoved": true
+  },
+  "testHarnessStartupAttempt": {
+    "playbackAttempted": false,
+    "failure": "Window hiding ran before frontend readiness.",
+    "correction": "Wait for frontend readiness, then select the exact test window by container ID and PID."
+  },
+  "localInstallation": {
+    "fileName": "Burrata_0.1.44_fixes_654d372_amd64.AppImage",
+    "launcherUpdated": true,
+    "activeInstanceRestarted": false,
+    "activation": "next launch",
+    "previousBuildRetained": true,
+    "publicReleaseCreated": false
+  }
+}
