@@ -1973,7 +1973,7 @@ where
         return Err("Cancelled".into());
     }
     // Leave most of the shared startup deadline for source search and decoding.
-    let opportunity = deadline.remaining().min(Duration::from_secs(4));
+    let opportunity = (deadline.remaining() / 2).min(Duration::from_secs(4));
     if opportunity < Duration::from_millis(250) {
         return Ok(track);
     }
@@ -17014,7 +17014,7 @@ mod incomplete_catalog_tests {
             let result = refresh_incomplete_catalog(
                 original.clone(),
                 cancel,
-                PlaybackDeadline::after(Duration::from_millis(300)),
+                PlaybackDeadline::after(Duration::from_millis(600)),
                 |_| async move {
                     if timeout {
                         std::future::pending::<()>().await;
