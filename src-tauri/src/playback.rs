@@ -3819,7 +3819,7 @@ impl PlaybackService {
                 if candidate_only && candidate.is_none() {
                     return Err("Source audition requires a selected audio candidate".into());
                 }
-                let position = positive(command.get("position"), 0.)?;
+                let position = playback_position_value(command.get("position"), 0.)?;
                 self.cancel();
                 self.change(|s| {
                     begin_operation(
@@ -4101,7 +4101,7 @@ impl PlaybackService {
                 });
             }
             "seek" => {
-                let position = positive(command.get("position"), 0.)?;
+                let position = playback_position_value(command.get("position"), 0.)?;
                 let (
                     duration,
                     explicit_range,
@@ -5571,7 +5571,7 @@ impl PlaybackService {
             }
             OutputEvent::Ended { generation } => {
                 if self.current(generation) {
-                    let (premature, eof_snapshot) = {
+                    let (premature, eof_snapshot, seek_without_audio) = {
                         let s = self.inner.state.lock().unwrap();
                         if matches!(s.status.as_str(), "failed" | "paused" | "idle" | "ended") {
                             return;
@@ -5582,6 +5582,7 @@ impl PlaybackService {
                                 && crate::playback_diagnostics::is_enabled()
                                 && s.generation == generation)
                                 .then(|| s.snapshot(true, false)),
+                            seek_ended_without_audio(&s, generation),
                         )
                     };
                     if premature {
@@ -5601,8 +5602,11 @@ impl PlaybackService {
                             let state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
                             // A chapter/range end and a radio disconnect do not
                             // establish whole-track coverage.
-                            (state.offset == 0.0 && state.end.is_none() && state.station.is_none())
-                                .then_some(state.position)
+                            (!seek_without_audio
+                                && state.offset == 0.0
+                                && state.end.is_none()
+                                && state.station.is_none())
+                            .then_some(state.position)
                         };
                         if let Some(duration) = duration {
                             let tap = self.inner.output.tap();
@@ -5616,13 +5620,9 @@ impl PlaybackService {
                         }
                         let eof_snapshot = {
                             let mut state = self.inner.state.lock().unwrap();
-                            if state.generation != generation || state.status != "playing" {
+                            if !finish_clean_eof(&mut state, generation, seek_without_audio) {
                                 return;
                             }
-                            if state.station.is_none() && state.end.is_none() {
-                                state.duration = state.position;
-                            }
-                            state.failed_occurrence_ids.clear();
                             (self.native_enabled() && crate::playback_diagnostics::is_enabled())
                                 .then(|| state.snapshot(true, false))
                         };
@@ -7061,6 +7061,11 @@ fn positive(value: Option<&Value>, default: f64) -> Result<f64, String> {
     }
     Ok(value)
 }
+fn playback_position_value(value: Option<&Value>, default: f64) -> Result<f64, String> {
+    let seconds = positive(value, default)?;
+    crate::playback_policy::position_duration(seconds)?;
+    Ok(seconds)
+}
 fn radio_now_playing_snapshot_value(
     station: &crate::radio::RadioStation,
     metadata: &crate::radio::RadioTrackMetadata,
@@ -7445,7 +7450,7 @@ fn restore_state(state: &mut State, saved: &Value) -> Result<(), String> {
             })
     });
     // Validate fallible fields before changing the live queue.
-    let position = positive(saved.get("position"), 0.)?;
+    let position = playback_position_value(saved.get("position"), 0.)?;
     let volume = positive(saved.get("volume"), 0.8)?.min(1.);
     state.queue = tracks;
     state.entries = entries;
@@ -8021,6 +8026,34 @@ fn deferred_seek_status(status: &str, output_ready: bool) -> bool {
     matches!(status, "idle" | "ended") || status == "paused" && !output_ready
 }
 
+fn seek_ended_without_audio(state: &State, generation: u64) -> bool {
+    state.generation == generation
+        && state.status == "buffering"
+        && state.pending_seek_generation == Some(generation)
+}
+
+fn finish_clean_eof(state: &mut State, generation: u64, seek_without_audio: bool) -> bool {
+    if state.generation != generation
+        || (state.status != "playing"
+            && !(seek_without_audio && seek_ended_without_audio(state, generation)))
+    {
+        return false;
+    }
+    if seek_without_audio {
+        // A seek past EOF has no first frame. Complete the queue occurrence,
+        // but do not extend duration or claim decoded/consumed coverage.
+        if state.duration > 0.0 {
+            state.position = state.position.min(state.duration);
+        }
+        state.pending_seek_generation = None;
+        state.seek_requested = None;
+    } else if state.station.is_none() && state.end.is_none() {
+        state.duration = state.position;
+    }
+    state.failed_occurrence_ids.clear();
+    true
+}
+
 fn defer_paused_seek(state: &mut State) {
     state.status = "paused".into();
     state.natural_queue_end = false;
@@ -8510,6 +8543,51 @@ fn shuffle_upcoming(state: &mut State) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn clean_seek_eof_finishes_buffering_without_extending_duration_or_claiming_first_audio() {
+        let mut state = State::default();
+        state.generation = 7;
+        state.status = "buffering".into();
+        state.pending_seek_generation = Some(7);
+        state.position = 30.;
+        state.duration = 24.;
+        assert!(seek_ended_without_audio(&state, 7));
+        assert!(finish_clean_eof(&mut state, 7, true));
+        assert_eq!(state.position, 24.);
+        assert_eq!(state.duration, 24.);
+        assert_eq!(state.pending_seek_generation, None);
+        assert_eq!(state.seek_first_audio_ms, None);
+    }
+
+    #[test]
+    fn clean_seek_eof_does_not_override_pause_cancellation_or_other_generations() {
+        for status in ["paused", "idle", "failed", "ended"] {
+            let mut state = State::default();
+            state.generation = 7;
+            state.status = status.into();
+            state.pending_seek_generation = Some(7);
+            state.position = 30.;
+            state.duration = 24.;
+            assert!(!finish_clean_eof(&mut state, 7, true));
+            assert_eq!(state.position, 30.);
+        }
+        let mut state = State::default();
+        state.generation = 8;
+        state.status = "buffering".into();
+        state.pending_seek_generation = Some(8);
+        assert!(!finish_clean_eof(&mut state, 7, true));
+        state.pending_seek_generation = None;
+        assert!(!finish_clean_eof(&mut state, 8, true));
+    }
+
+    #[test]
+    fn invalid_position_values_are_rejected_before_use_by_play_seek_and_restore() {
+        assert!(playback_position_value(Some(&json!(1e300)), 0.).is_err());
+        assert_eq!(
+            playback_position_value(Some(&json!(30.25)), 0.).unwrap(),
+            30.25
+        );
+    }
     #[test]
     fn placeholder_source_chapters_do_not_replace_catalog_track_metadata() {
         let mut state = State::default();

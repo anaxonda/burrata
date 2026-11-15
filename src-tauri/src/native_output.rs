@@ -3,6 +3,8 @@
 
 #[path = "native_resample.rs"]
 mod continuous_resample;
+#[path = "decoder_worker.rs"]
+mod decoder_worker;
 #[path = "native_crossfade.rs"]
 mod native_crossfade;
 #[path = "native_http.rs"]
@@ -2280,21 +2282,23 @@ fn start_playback_with_reserve_policy_and_gain(
                 events: ev.clone(),
                 generation,
             });
-            if let Err(message) = decode_with_session_and_diagnostics(
-                src,
-                position,
-                end,
-                output_rate,
-                output_channels,
-                sample_tx,
-                sw,
-                sr,
-                ch,
-                dur,
-                Some(decoder_info),
-                cc,
-                worker_session,
-            ) {
+            if let Err(message) = decoder_worker::run(|| {
+                decode_with_session_and_diagnostics(
+                    src,
+                    position,
+                    end,
+                    output_rate,
+                    output_channels,
+                    sample_tx,
+                    sw,
+                    sr,
+                    ch,
+                    dur,
+                    Some(decoder_info),
+                    cc,
+                    worker_session,
+                )
+            }) {
                 if !decode_cancelled.load(Ordering::Relaxed) {
                     if !failed.swap(true, Ordering::AcqRel) {
                         if overlap_for_decoder.load(Ordering::Acquire) {
@@ -2488,21 +2492,23 @@ fn append_source(
                 _sender: tx.clone(),
             };
 
-            if let Err(message) = decode_with_session_and_diagnostics(
-                src,
-                position,
-                end,
-                output_rate,
-                output_channels,
-                tx,
-                Arc::new(AtomicU64::new(0)),
-                rate_writer,
-                channels_writer,
-                dur,
-                Some(decoder_info),
-                cc,
-                worker_session,
-            ) {
+            if let Err(message) = decoder_worker::run(|| {
+                decode_with_session_and_diagnostics(
+                    src,
+                    position,
+                    end,
+                    output_rate,
+                    output_channels,
+                    tx,
+                    Arc::new(AtomicU64::new(0)),
+                    rate_writer,
+                    channels_writer,
+                    dur,
+                    Some(decoder_info),
+                    cc,
+                    worker_session,
+                )
+            }) {
                 if !decode_cancelled.load(Ordering::Relaxed) {
                     if storage_faults.get().is_none() {
                         *failure_session
@@ -3316,6 +3322,11 @@ fn decode_with_session_and_diagnostics(
     session: Arc<DecoderSession>,
 ) -> Result<(), String> {
     let decode_started = Instant::now();
+    let seek_position = crate::playback_policy::position_duration(position)?;
+    let initial_samples = position * f64::from(output_rate) * f64::from(output_channels);
+    if !initial_samples.is_finite() || initial_samples >= u64::MAX as f64 {
+        return Err("Playback position exceeds the decoder sample clock".into());
+    }
     let reader_bytes_at_start = session.stream_stats.bytes_read.load(Ordering::Relaxed);
     let use_ffmpeg = should_use_ffmpeg_for_source(&source);
     if requests_opus_head_gain_policy(&source) && !use_ffmpeg {
@@ -3728,7 +3739,7 @@ fn decode_with_session_and_diagnostics(
         *diagnostics_out.lock().unwrap_or_else(|e| e.into_inner()) = Some(diagnostics);
     }
     let seek_error = if reused || position > 0.0 {
-        decoder.try_seek(Duration::from_secs_f64(position)).err()
+        decoder.try_seek(seek_position).err()
     } else {
         None
     };
@@ -3801,8 +3812,7 @@ fn decode_with_session_and_diagnostics(
         NonZeroU16::new(output_channels).unwrap(),
         NonZeroU32::new(output_rate).unwrap(),
     );
-    let mut decoded_samples =
-        (position.max(0.0) * output_rate as f64 * output_channels as f64) as u64;
+    let mut decoded_samples = initial_samples as u64;
     let mut sent_samples = 0u64;
     let mut block = Vec::with_capacity(4096);
     let mut first_block_recorded = false;
@@ -3816,7 +3826,7 @@ fn decode_with_session_and_diagnostics(
             break;
         }
         block.push(sample);
-        decoded_samples += 1;
+        decoded_samples = decoded_samples.saturating_add(1);
         if block.len() == 4096 {
             if session.storage_faults.get().is_some() {
                 return Err("Local playback storage failed".into());
@@ -4753,6 +4763,36 @@ mod tests {
         assert_eq!(frozen.active_generation.load(Ordering::Acquire), 1);
         assert!(frozen_activations.try_recv().is_err());
         assert!(frozen_events.try_recv().is_err());
+    }
+
+    #[test]
+    fn impossible_seek_positions_fail_before_opening_or_decoding_a_source() {
+        for position in [1e300, 1e18] {
+            let (tx, _rx) = std_mpsc::sync_channel(1);
+            let result = decode_to_blocks(
+                AudioSource {
+                    input: "nonexistent-redteam-source.wav".into(),
+                    ffmpeg: "not-used".into(),
+                    headers: vec![],
+                    decoder_hint: None,
+                    cenc: None,
+                },
+                position,
+                None,
+                48000,
+                2,
+                tx,
+                Arc::new(AtomicU64::new(0)),
+                Arc::new(std::sync::atomic::AtomicU32::new(0)),
+                Arc::new(std::sync::atomic::AtomicU32::new(0)),
+                Arc::new(AtomicU64::new(0)),
+                Arc::new(AtomicBool::new(false)),
+            );
+            assert!(result
+                .unwrap_err()
+                .to_ascii_lowercase()
+                .contains("position"));
+        }
     }
 
     #[test]

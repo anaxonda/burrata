@@ -2,6 +2,11 @@
 //! an occurrence that has already delivered audio.
 use std::time::Duration;
 
+pub(crate) fn position_duration(seconds: f64) -> Result<Duration, String> {
+    Duration::try_from_secs_f64(seconds)
+        .map_err(|_| "Playback position is outside the supported time range".to_owned())
+}
+
 pub(crate) const BUFFERING_GRACE: Duration = Duration::from_secs(15);
 pub(crate) const NETWORK_READ_TIMEOUT_US: &str = "20000000";
 pub(crate) const RECOVERY_BUDGET: Duration = Duration::from_secs(30);
@@ -29,6 +34,17 @@ pub(crate) fn recovery_step(attempt: u8, alternatives_allowed: bool) -> Recovery
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn positions_must_fit_the_decoder_clock_without_capping_catalog_estimates() {
+        for value in [f64::NAN, f64::INFINITY, -1.0, 1e300] {
+            assert!(position_duration(value).is_err());
+        }
+        assert_eq!(
+            position_duration(30.25).unwrap(),
+            Duration::from_millis(30250)
+        );
+        assert!(position_duration(86_400.).is_ok());
+    }
     #[test]
     fn recovery_refreshes_then_uses_verified_alternatives_with_a_finite_end() {
         assert_eq!(recovery_step(1, true), RecoveryStep::RefreshSameSource);
