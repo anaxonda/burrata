@@ -12,6 +12,10 @@ export interface PlaybackRange {
 
 export type RangedTrack = Track & { playbackRange?: PlaybackRange; inferredArtist?: string | null };
 
+export function isPlaceholderChapterTitle(title: string): boolean {
+  return /^<untitled chapter \d+>$/i.test(title.trim());
+}
+
 export function validChapterRange(chapter: Pick<Chapter, "startTime" | "endTime">, duration?: number | null): boolean {
   return Number.isFinite(chapter.startTime) && Number.isFinite(chapter.endTime) && chapter.startTime >= 0 && chapter.endTime > chapter.startTime && (!Number.isFinite(duration) || duration == null || chapter.endTime <= duration);
 }
@@ -91,12 +95,12 @@ export function chapterRelativePosition(track: Track, absolutePosition: number):
 
 export function activeChapter(chapters: readonly Chapter[], position: number): Chapter | null {
   if (!Number.isFinite(position)) return null;
-  return chapters.find((chapter) => validChapterRange(chapter) && position >= chapter.startTime && position < chapter.endTime) ?? null;
+  return chapters.find((chapter) => !isPlaceholderChapterTitle(chapter.title) && validChapterRange(chapter) && position >= chapter.startTime && position < chapter.endTime) ?? null;
 }
 
 /** Match a native chapter report to the candidate's canonical chapter by its exact source range. */
 export function chapterForRange(chapters: readonly Chapter[], range: Pick<PlaybackRange, "startTime" | "endTime">): Chapter | null {
-  return chapters.find((chapter) => chapter.startTime === range.startTime && chapter.endTime === range.endTime) ?? null;
+  return chapters.find((chapter) => !isPlaceholderChapterTitle(chapter.title) && chapter.startTime === range.startTime && chapter.endTime === range.endTime) ?? null;
 }
 
 function clamp(value: number, low: number, high: number): number {

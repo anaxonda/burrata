@@ -932,11 +932,6 @@ impl State {
         };
         value["diagnostics"]["startupTimeoutSeconds"] = json!(self.startup_budget.as_secs());
         value["queueTotal"] = json!(self.queue.len());
-        if let Some(chapter) = value["chapter"]["title"].as_str().map(str::to_owned) {
-            if let Some(track) = value["track"].as_object_mut() {
-                track.insert("title".into(), json!(chapter));
-            }
-        }
         if let Some(title) = self.radio_now["title"].as_str() {
             value["track"]["title"] = json!(title);
             value["track"]["artist"] = self.radio_now["artist"].clone();
@@ -1026,7 +1021,8 @@ impl State {
             .and_then(|c| c.chapters.as_ref())
             .and_then(|cs| {
                 cs.iter()
-                    .find(|c| c.start_seconds <= self.position && c.end_seconds > self.position)
+                    .find(|c| !crate::models::is_placeholder_chapter_title(&c.title)
+                        && c.start_seconds <= self.position && c.end_seconds > self.position)
             })
             .map(|c| json!({"title":c.title,"startSeconds":c.start_seconds,"endSeconds":c.end_seconds}))
             .unwrap_or(Value::Null)
@@ -8514,6 +8510,31 @@ fn shuffle_upcoming(state: &mut State) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn placeholder_source_chapters_do_not_replace_catalog_track_metadata() {
+        let mut state = State::default();
+        state.queue = vec![Track {
+            title: "Gotta Be Cool".into(),
+            artist: "Rafael, Luch".into(),
+            ..Track::default()
+        }];
+        state.position = 168.;
+        state.candidate = Some(Candidate {chapters:Some(vec![serde_json::from_value(json!({"id":"chapter-0","title":"<Untitled Chapter 1>","startTime":0.,"endTime":418.,"confidence":"source_metadata_unverified"})).unwrap()]),..Candidate::default()});
+        let snapshot = state.snapshot(true, true);
+        assert_eq!(snapshot["track"]["title"], "Gotta Be Cool");
+        assert_eq!(snapshot["track"]["artist"], "Rafael, Luch");
+        assert!(snapshot["chapter"].is_null());
+        state.candidate.as_mut().unwrap().chapters.as_mut().unwrap()[0].title =
+            "Opening song".into();
+        assert_eq!(
+            state.snapshot(true, true)["chapter"]["title"],
+            "Opening song"
+        );
+        assert_eq!(
+            state.snapshot(true, true)["track"]["title"],
+            "Gotta Be Cool"
+        );
+    }
     #[test]
     fn recovery_journal_keeps_the_denial_before_timeout_and_resets_for_new_intent() {
         let mut state = State::default();

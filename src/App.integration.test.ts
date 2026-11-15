@@ -9450,6 +9450,15 @@ describe("native playback frontend", () => {
     expect(mocks.call).toHaveBeenCalledWith("playback_command",{command:expect.objectContaining({action:"play",tracks:[savedTrack,changedTrack],index:1,candidate:undefined,position:0})});
   });
 
+  it.each(["<Untitled Chapter 1>", "Opening song"])("handles a native source chapter titled %s", async (title) => {
+    const track = {...savedTrack,title:"Gotta Be Cool",artist:"Rafael, Luch"};
+    const candidate = {...youtubeCandidate(track),chapters:[{id:"source-chapter",title,startTime:0,endTime:418,confidence:"source_metadata_unverified"}]};
+    mountNative(makeNativeSnapshot({revision:4,generation:9,status:"playing",trackId:track.id,track,queue:[track],currentIndex:0,paused:false,position:168,duration:418,candidate,chapter:{title,startSeconds:0,endSeconds:418}}));
+    await settle();
+    expect(document.querySelector(".player-track-title")?.textContent).toContain(title.startsWith("<") ? "Gotta Be Cool" : "Opening song");
+    expect(document.querySelector(".player-track-artist")?.textContent).toContain(title.startsWith("<") ? "Rafael, Luch" : "Gotta Be Cool");
+  });
+
   it("sends chapter-relative seek positions and clears buffering when native output starts", async () => {
     const chapterTrack:Track={...savedTrack,id:"chapter-one",title:"Chapter One",playbackRange:{parentTrackId:"full-set",chapterId:"chapter-one",sourceUrl:"https://example.test/full-set",startTime:72,endTime:102,parentTitle:"Full Set"}};
     mountNative(makeNativeSnapshot({revision:4,generation:9,status:"buffering",trackId:chapterTrack.id,track:chapterTrack,queue:[chapterTrack],currentIndex:0,paused:false,position:3,duration:30,canSeek:true,playerMessage:"Buffering audio…"}));

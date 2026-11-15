@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeChapter, chapterAbsolutePosition, chapterForRange, chapterRelativePosition, validChapterRange, virtualChapterTrack } from "./chapters";
+import { activeChapter, chapterAbsolutePosition, chapterForRange, chapterRelativePosition, validChapterRange, virtualChapterTrack, isPlaceholderChapterTitle } from "./chapters";
 import type { Candidate, Chapter, Track } from "./types";
 
 const parent = { id: "recording-1", provider: "catalog", providerId: "mb-1", sourceUrl: "catalog-url", artist: "Album Artist", title: "Long Mix", favorite: false, provenance: { sourceKind: "catalog" } } as Track;
@@ -7,6 +7,19 @@ const candidate = { id: "candidate", provider: "youtube", url: "https://audio.te
 const chapter = { id: "chapter-1", title: "Opening", startTime: 120, endTime: 240, confidence: "high", suggestedTrack: { ...parent, artist: "Inferred Artist", title: "Opening" } } as Chapter;
 
 describe("chapter playback helpers", () => {
+  it("ignores generated placeholder labels without suppressing meaningful chapter names", () => {
+    for (const title of ["<Untitled Chapter 1>", " <untitled chapter 12> "]) {
+      const placeholder = {...chapter, title};
+      expect(isPlaceholderChapterTitle(title)).toBe(true);
+      expect(activeChapter([placeholder], 150)).toBeNull();
+      expect(chapterForRange([placeholder], placeholder)).toBeNull();
+    }
+    for (const title of ["Untitled", "Chapter 1", "Opening", "Song <Untitled Chapter 1>"]) {
+      const named = {...chapter, title};
+      expect(isPlaceholderChapterTitle(title)).toBe(false);
+      expect(activeChapter([named], 150)).toBe(named);
+    }
+  });
   it("validates finite positive ranges bounded by candidate duration", () => {
     expect(validChapterRange(chapter, 240)).toBe(true);
     expect(validChapterRange({ ...chapter, endTime: 241 }, 240)).toBe(false);

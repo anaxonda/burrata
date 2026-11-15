@@ -5,6 +5,52 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 const BUDGET: u64 = 256 * 1024 * 1024;
+
+/// Resize only the selected Traxsource cover, retaining its host and asset ID.
+pub(crate) fn preferred_source(value: &str) -> String {
+    let Ok(mut url) = url::Url::parse(value) else {
+        return value.into();
+    };
+    if url.scheme() != "https"
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || !matches!(
+            url.host_str(),
+            Some("geo-static.traxsource.com" | "geo-w-static.traxsource.com")
+        )
+    {
+        return value.into();
+    }
+    let parts: Vec<_> = url.path().split('/').collect();
+    if parts.len() != 5 || parts[1] != "scripts" || parts[2] != "image.php" {
+        return value.into();
+    }
+    let Some((width, height)) = parts[3]
+        .split_once('x')
+        .and_then(|(w, h)| Some((w.parse::<u16>().ok()?, h.parse::<u16>().ok()?)))
+    else {
+        return value.into();
+    };
+    let Some((hash, extension)) = parts[4].rsplit_once('.') else {
+        return value.into();
+    };
+    if width == 0
+        || height == 0
+        || width >= 600
+        || height >= 600
+        || hash.is_empty()
+        || !hash.bytes().all(|c| c.is_ascii_hexdigit())
+        || !matches!(extension, "jpg" | "jpeg" | "png")
+    {
+        return value.into();
+    }
+    let path = format!("/scripts/image.php/600x600/{}", parts[4]);
+    url.set_path(&path);
+    url.into()
+}
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
@@ -183,7 +229,7 @@ fn read_regular_file(path: &Path) -> std::io::Result<Vec<u8>> {
     read_regular_file_limited(path, BUDGET)
 }
 
-fn read_regular_file_limited(path: &Path, limit: u64) -> std::io::Result<Vec<u8>> {
+pub(crate) fn read_regular_file_limited(path: &Path, limit: u64) -> std::io::Result<Vec<u8>> {
     if !safe_regular_file(path) {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
@@ -254,6 +300,24 @@ fn prune(directory: &Path, budget: u64, keep: &Path) -> std::io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn upgrades_the_exact_traxsource_cover_without_downsizing_or_changing_identity() {
+        let cover="https://geo-static.traxsource.com/scripts/image.php/52x52/49c4611c5ae806b7294cb13da0196815.jpg";
+        assert_eq!(preferred_source(cover), cover.replace("52x52", "600x600"));
+        assert!(
+            preferred_source(&cover.replace("geo-static", "geo-w-static")).contains("/600x600/")
+        );
+        for source in [
+            cover.replace("52x52", "1200x1200"),
+            cover.replace("geo-static.traxsource.com", "other.example"),
+            format!("{cover}?size=52"),
+            cover.replace("https://", "https://user@"),
+            cover.replace("https://", "http://"),
+            "asset://localhost/cover.jpg".into(),
+        ] {
+            assert_eq!(preferred_source(&source), source);
+        }
+    }
     use super::*;
     #[test]
     fn identical_images_share_a_file_and_missing_images_are_cache_misses() {

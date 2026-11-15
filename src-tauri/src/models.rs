@@ -300,6 +300,37 @@ pub struct Chapter {
     pub suggestion_confidence: Option<String>,
 }
 
+/// yt-dlp synthesizes these labels when a source supplies no chapter name.
+/// Literal titles such as "Untitled" and "Chapter 1" remain valid names.
+pub fn is_placeholder_chapter_title(title: &str) -> bool {
+    let lower = title.trim().to_ascii_lowercase();
+    lower
+        .strip_prefix("<untitled chapter ")
+        .and_then(|value| value.strip_suffix('>'))
+        .is_some_and(|number| !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()))
+}
+
+#[cfg(test)]
+mod chapter_title_tests {
+    use super::is_placeholder_chapter_title;
+
+    #[test]
+    fn rejects_only_generated_untitled_chapter_labels() {
+        for title in ["<Untitled Chapter 1>", " <untitled chapter 12> "] {
+            assert!(is_placeholder_chapter_title(title));
+        }
+        for title in [
+            "Untitled",
+            "Chapter 1",
+            "Opening",
+            "<Untitled Chapter One>",
+            "Song <Untitled Chapter 1>",
+        ] {
+            assert!(!is_placeholder_chapter_title(title), "{title}");
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum CandidateSource {

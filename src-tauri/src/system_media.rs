@@ -244,8 +244,10 @@ struct TrackMetadata {
 fn track_metadata(snapshot: &JsonValue) -> TrackMetadata {
     let track = &snapshot["track"];
     TrackMetadata {
-        title: track["title"]
+        title: snapshot["chapter"]["title"]
             .as_str()
+            .filter(|title| !crate::models::is_placeholder_chapter_title(title))
+            .or_else(|| track["title"].as_str())
             .or_else(|| snapshot["title"].as_str())
             .map(str::to_owned),
         artist: track["artist"]
@@ -351,6 +353,17 @@ fn playback_status(snapshot: &JsonValue) -> PlaybackStatus {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn named_chapters_are_displayed_without_promoting_generated_placeholders() {
+        for (title, expected) in [
+            ("Opening song", "Opening song"),
+            ("<Untitled Chapter 1>", "Gotta Be Cool"),
+        ] {
+            let snapshot =
+                serde_json::json!({"track":{"title":"Gotta Be Cool"},"chapter":{"title":title}});
+            assert_eq!(track_metadata(&snapshot).title.as_deref(), Some(expected));
+        }
+    }
     use super::*;
     use serde_json::json;
 

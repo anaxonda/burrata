@@ -2078,6 +2078,7 @@ fn parse_source_chapters(info: &Value) -> Option<Vec<Chapter>> {
                         || start_seconds < 0.0
                         || end_seconds <= start_seconds
                         || title.is_empty()
+                        || crate::models::is_placeholder_chapter_title(title)
                     {
                         return None;
                     }
@@ -17549,6 +17550,12 @@ mod tests {
         assert_eq!(chapters.len(), 2);
         assert_eq!(chapters[1].title, "Song");
         assert_eq!(chapters[1].confidence, "source_metadata_unverified");
+    }
+    #[test]
+    fn generated_source_chapters_do_not_become_track_titles() {
+        let info =
+            json!({"chapters":[{"start_time":0.,"end_time":418.,"title":"<Untitled Chapter 1>"}]});
+        assert!(parse_source_chapters(&info).is_none());
     }
     #[test]
     fn playback_flat_youtube_bare_id_is_canonicalized_without_broadening_url_admission() {

@@ -1462,6 +1462,29 @@ async fn cache_artwork(app: tauri::AppHandle, url: String) -> Result<String> {
         .app_data_dir()
         .map_err(|e| e.to_string())?
         .join("artwork");
+    let preferred = artwork_cache::preferred_source(&url);
+    if preferred != url {
+        let cached = cached_artwork_path(&directory, &preferred)?
+            .and_then(|path| artwork_cache::read_regular_file_limited(&path, 8 * 1024 * 1024).ok())
+            .filter(|bytes| media::artwork_extension(bytes).is_ok());
+        let bytes = if cached.is_some() {
+            cached
+        } else {
+            media::artwork(&Track {
+                artwork_url: Some(preferred.clone()),
+                ..Track::default()
+            })
+            .await
+            .ok()
+            .flatten()
+        };
+        if let Some(bytes) = bytes {
+            cache_artwork_bytes(&app, &preferred, &bytes)?;
+            // Refresh the original thumbnail key too: native system controls
+            // and existing saved tracks continue to look up that original URL.
+            return cache_artwork_bytes(&app, &url, &bytes);
+        }
+    }
     if let Some(path) = cached_artwork_path(&directory, &url)? {
         app.asset_protocol_scope()
             .allow_file(&path)

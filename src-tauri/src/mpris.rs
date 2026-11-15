@@ -579,8 +579,10 @@ fn into_owned<T: Into<Value<'static>>>(value: T) -> OwnedValue {
 fn metadata(snapshot: &JsonValue, artwork_dir: Option<&Path>) -> HashMap<String, OwnedValue> {
     let mut result = HashMap::new();
     let track = &snapshot["track"];
-    let title = track["title"]
+    let title = snapshot["chapter"]["title"]
         .as_str()
+        .filter(|title| !crate::models::is_placeholder_chapter_title(title))
+        .or_else(|| track["title"].as_str())
         .or_else(|| snapshot["title"].as_str())
         .unwrap_or("");
     let artist = track["artist"]
@@ -700,6 +702,22 @@ mod tests {
             duration_seconds(&json!({"duration":205,"track":{"durationSeconds":211}})),
             205.0
         );
+    }
+
+    #[test]
+    fn media_controls_use_named_chapters_without_changing_the_parent_title() {
+        for (title, expected) in [
+            ("Opening song", "Opening song"),
+            ("<Untitled Chapter 1>", "Gotta Be Cool"),
+        ] {
+            let snapshot = json!({"trackId":"song","track":{"title":"Gotta Be Cool","artist":"Rafael, Luch"},"chapter":{"title":title}});
+            let projected = metadata(&snapshot, None);
+            assert_eq!(
+                String::try_from(projected["xesam:title"].try_clone().unwrap()).unwrap(),
+                expected
+            );
+            assert_eq!(snapshot["track"]["title"], "Gotta Be Cool");
+        }
     }
 
     #[test]
