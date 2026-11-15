@@ -39,6 +39,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         data = ((root / "fixture.webm").read_bytes()
                 if self.path.endswith(".webm") and (root / "fixture.webm").exists()
                 else (root / "fixture.mp3").read_bytes())
+        if mode.startswith("controller-"):
+            return self.controller_response(mode, value, data)
         if mode.startswith("pinned-"):
             denied = (self.path == "/preflight-1.mp3"
                       or (mode != "pinned-non403" and self.path == "/prepared-alt.webm")
@@ -87,6 +89,59 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_header("Content-Range", f"bytes {start}-{end}/{len(data)}")
             self.end_headers()
             self.wfile.write(data[start:end + 1])
+        except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
+            pass
+
+
+    def controller_response(self, mode, value, data):
+        initial = self.path == "/a-1.mp3"
+        if value is None and initial and mode in ("controller-403", "controller-429", "controller-503"):
+            status = int(mode.rsplit("-", 1)[1])
+            self.record(status, "injected_status")
+            self.send_response(status)
+            self.send_header("Content-Length", "0")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            return
+        start, end, status = 0, len(data) - 1, 200
+        if value:
+            first, last = value.removeprefix("bytes=").split("-")
+            start = int(first)
+            end = min(int(last) if last else len(data) - 1, len(data) - 1)
+            status = 206
+        bad_range = initial and start > 1024 and mode == "controller-bad-range"
+        self.record(status, "injected_range" if bad_range else "response")
+        self.send_response(status)
+        self.send_header("Content-Type", "audio/mpeg")
+        self.send_header("Content-Length", str(end - start + 1))
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("ETag", '"controller-fixture-v1"')
+        self.send_header("Connection", "close")
+        if status == 206:
+            self.send_header("Content-Range", f"bytes {start + int(bad_range)}-{end}/{len(data)}")
+        self.end_headers()
+        try:
+            if not initial or value:
+                self.wfile.write(data[start:end + 1])
+                return
+            prefix = min(len(data), 4 * 24000)
+            self.wfile.write(data[:prefix])
+            self.wfile.flush()
+            self.record(status, "prefix_delivered")
+            if mode == "controller-truncate":
+                return
+            if mode in ("controller-stall", "controller-cancel", "controller-pause"):
+                until = time.monotonic() + 22
+                while not (root / "release").exists() and time.monotonic() < until:
+                    time.sleep(.02)
+                self.record(status, "gap_released")
+            if mode == "controller-bad-range":
+                for offset in range(prefix, len(data), 2400):
+                    self.wfile.write(data[offset:offset + 2400])
+                    self.wfile.flush()
+                    time.sleep(.1)
+            else:
+                self.wfile.write(data[prefix:])
         except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
             pass
 

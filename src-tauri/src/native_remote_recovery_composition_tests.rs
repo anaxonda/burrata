@@ -84,6 +84,9 @@ impl Fixture {
         Self::new_with_media_suffix("sndcdn.com")
     }
     fn new_with_media_suffix(suffix: &str) -> Self {
+        Self::new_with_duration(suffix, 4)
+    }
+    fn new_with_duration(suffix: &str, seconds: u32) -> Self {
         use std::os::unix::fs::PermissionsExt;
         no_egress_namespace();
         let directory = tempfile::tempdir().unwrap();
@@ -145,6 +148,7 @@ impl Fixture {
             .arg(&cert);
         checked(cmd);
         let media = root.join("fixture.mp3");
+        let audio = format!("aevalsrc=0.2*sin(2*PI*440*t)|0.2*sin(2*PI*660*t):s=48000:d={seconds}");
         let mut cmd = Command::new("ffmpeg");
         cmd.args([
             "-nostdin",
@@ -154,7 +158,7 @@ impl Fixture {
             "-f",
             "lavfi",
             "-i",
-            "aevalsrc=0.2*sin(2*PI*440*t)|0.2*sin(2*PI*660*t):s=48000:d=4",
+            &audio,
             "-c:a",
             "libmp3lame",
             "-b:a",
@@ -200,14 +204,14 @@ root=pathlib.Path({root:?})
 q=sys.argv[-1]
 with open(root/'helper.jsonl','a') as f:f.write(json.dumps({{'query':q,'pid':os.getpid()}})+'\n')
 if q.startswith('scsearch'):
- print(json.dumps({{'entries':[{{'id':i,'title':'Fixture Artist - Synthetic Stereo Fixture','track':'Synthetic Stereo Fixture','artist':'Fixture Artist','artists':['Fixture Artist'],'uploader':'Fixture Artist','duration':4,'webpage_url':'https://soundcloud.com/synthetic-fixture/'+i}} for i in ['111','222']]}}))
+ print(json.dumps({{'entries':[{{'id':i,'title':'Fixture Artist - Synthetic Stereo Fixture','track':'Synthetic Stereo Fixture','artist':'Fixture Artist','artists':['Fixture Artist'],'uploader':'Fixture Artist','duration':{seconds},'webpage_url':'https://soundcloud.com/synthetic-fixture/'+i}} for i in ['111','222']]}}))
 else:
  i=q.rsplit('/',1)[-1]
  count=root/('extract-'+i)
  n=int(count.read_text())+1 if count.exists() else 1
  count.write_text(str(n))
  path=('a-'+str(n)) if i=='111' else 'b'
- print(json.dumps({{'id':i,'title':'Fixture Artist - Synthetic Stereo Fixture','track':'Synthetic Stereo Fixture','artist':'Fixture Artist','artists':['Fixture Artist'],'uploader':'Fixture Artist','duration':4,'webpage_url':q,'url':'https://{host}/'+path+'.mp3','acodec':'mp3','vcodec':'none','protocol':'https','ext':'mp3','filesize':{size}}}))
+ print(json.dumps({{'id':i,'title':'Fixture Artist - Synthetic Stereo Fixture','track':'Synthetic Stereo Fixture','artist':'Fixture Artist','artists':['Fixture Artist'],'uploader':'Fixture Artist','duration':{seconds},'webpage_url':q,'url':'https://{host}/'+path+'.mp3','acodec':'mp3','vcodec':'none','protocol':'https','ext':'mp3','filesize':{size}}}))
 "##,
             root = root.to_string_lossy()
         );
@@ -227,7 +231,7 @@ else:
             source_url: "https://open.spotify.com/track/1234567890123456789012".into(),
             title: "Synthetic Stereo Fixture".into(),
             artist: "Fixture Artist".into(),
-            duration_seconds: Some(4.),
+            duration_seconds: Some(seconds as f64),
             ..Track::default()
         };
         store.save_track(&track).unwrap();
@@ -831,3 +835,7 @@ fn remote_composition_pcm_gate_rejects_truncation_late_silence_and_swapped_lanes
 }
 
 include!("native_pinned_preflight_recovery_tests.rs");
+
+#[cfg(target_os = "linux")]
+#[path = "network_controller_fault_tests.rs"]
+mod controller_fault_tests;
