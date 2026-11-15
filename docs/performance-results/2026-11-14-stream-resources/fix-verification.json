@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "d9304ce4f9d434b736fbc14644084eb5220c9432",
+  "ciRunId": 43651514093,
+  "ciUrl": "https://github.com/anaxonda/burrata/actions/runs/43651514093",
+  "ciConclusion": "success",
+  "tests": {
+    "frontendPassed": 1654,
+    "nativePassed": 2814,
+    "nativeIgnored": 67,
+    "typecheckErrors": 0,
+    "typecheckWarnings": 0,
+    "contractChecksPassed": 8
+  },
+  "cpuFix": {
+    "behavior": "Optional saved-radio lookup and compilation verification stay suspended throughout resolving, buffering and playing, independently of volume. A 30-second quiet period follows inactive playback. Interrupted saved-radio work retries afterward. Next-track preparation remains available.",
+    "track": "Nipsey Hussle \u2014 Mac 11 On the Dresser",
+    "source": "SoundCloud",
+    "comparison": {
+      "baseline-hidden": {
+        "0-90": {
+          "avgCpuPercentOneCore": 45.63,
+          "peakCpuPercentOneCore": 208.136,
+          "processAverages": {
+            "burrata": 9.32,
+            "WebKitNetworkPr": 0.01,
+            "yt-dlp": 13.66,
+            "WebKitWebProces": 12.82,
+            "MainThread": 8.89,
+            "ffmpeg": 0.93
+          }
+        },
+        "30-90": {
+          "avgCpuPercentOneCore": 45.62,
+          "peakCpuPercentOneCore": 173.412,
+          "processAverages": {
+            "ffmpeg": 0.89,
+            "burrata": 8.68,
+            "WebKitNetworkPr": 0.02,
+            "WebKitWebProces": 10.81,
+            "yt-dlp": 15.86,
+            "MainThread": 9.35
+          }
+        }
+      },
+      "candidate-hidden": {
+        "0-90": {
+          "avgCpuPercentOneCore": 33.15,
+          "peakCpuPercentOneCore": 175.649,
+          "processAverages": {
+            "WebKitNetworkPr": 0.03,
+            "yt-dlp": 2.84,
+            "burrata": 10.45,
+            "WebKitWebProces": 14.75,
+            "MainThread": 3.94,
+            "ffmpeg": 1.13
+          }
+        },
+        "30-90": {
+          "avgCpuPercentOneCore": 25.89,
+          "peakCpuPercentOneCore": 36.694,
+          "processAverages": {
+            "burrata": 10.62,
+            "WebKitWebProces": 14.02,
+            "ffmpeg": 1.22,
+            "WebKitNetworkPr": 0.03
+          }
+        }
+      }
+    },
+    "steadyCpuReductionPercent": 43.2,
+    "steadyPeakReductionPercent": 78.8,
+    "backgroundLookupsDuringPlayback": {
+      "released": 4,
+      "fixed": 0
+    },
+    "firstAudioMs": {
+      "released": 7427,
+      "fixed": 7268
+    },
+    "fullLengthQualification": {
+      "backgroundJobsCompletedDuringPlayback": 0,
+      "backgroundJobsCompletedAfterIdle": 1,
+      "backgroundResolutionStartsAfterResume": 0,
+      "trackCompletedNaturally": true,
+      "finalPositionSeconds": 161.0768253968254
+    },
+    "measurementLimits": [
+      "Single paired 90-second Linux trials, fresh profiles and four public saved-radio preparation jobs. 100 percent CPU means one logical core.",
+      "Both matched trial windows were hidden. The first trial pair had different rendering costs and is excluded from the comparative CPU conclusion.",
+      "Initial foreground source extraction still uses helpers and can cause a short CPU burst; this change removes unrelated background lookup during playback.",
+      "Visible UI retains a separate rendering cost; this is not a fan-RPM or Mac-hardware measurement."
+    ]
+  },
+  "albumFix": {
+    "behavior": "Album links on library tracks and My library search results open the complete catalog release. Album rows show an accessible green check for saved recordings.",
+    "spotifySignInRequired": false,
+    "membership": "Bounded, local-only batched reads. Exact saved/merged identity or conservative album, artist, title/version, duration and ISRC evidence. Cached search results alone do not count as saved.",
+    "coverage": [
+      "Both library entry points with no Spotify session and a complete public album containing unsaved tracks.",
+      "Saved badges, failed reads, save-event refresh, bounded batches and cancellation on navigation.",
+      "Native cross-provider membership without authentication, incompatible artist/version/duration/ISRC, cache-only negatives and merged identities."
+    ]
+  },
+  "localInstallation": {
+    "appImageFilename": "Burrata_0.1.44_fixes_d9304ce_amd64.AppImage",
+    "appImageSha256": "7af2325fd6d711ca30bba95105409451677578b4ee41fbb22a6cbdaeae556c8a",
+    "executableSha256": "f1f8e1742c548d67083088ebbfadb142a86a18f537dc414da47bf5965a0a4933",
+    "queuePreserved": true,
+    "positionPreserved": true,
+    "volumePreserved": true,
+    "libraryCountPreserved": true,
+    "confirmedAccountsPreserved": true,
+    "rollbackReleaseRetained": true,
+    "publicReleaseChanged": false,
+    "note": "The local installation is a verified CI patch build identifying commit d9304ce; its package version remains 0.1.44."
+  },
+  "cleanup": {
+    "allIsolatedTestAppsStopped": true,
+    "allOwnedVirtualSinksRemoved": true,
+    "normalAppRunningPatchedBuild": true,
+    "nativeCompilationKeptInCI": true
+  }
+}
