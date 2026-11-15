@@ -168,7 +168,7 @@
     </section>
 
     {/if}
-    {#if category === "integrations" && setup?.mcpCommand?.length}<details><summary>Connect an assistant</summary><p>Use this command to connect a compatible assistant to Burrata.</p><code class="command">{setup.mcpCommand.join(" ")}</code></details>{/if}
+    {#if (category === "connections" || category === "integrations") && setup?.mcpCommand?.length}<details><summary>Connect an assistant</summary><p>Use this command to connect a compatible assistant to Burrata.</p><code class="command">{setup.mcpCommand.join(" ")}</code></details>{/if}
     {#if category === "all" || category === "playback"}<section class="tool-section" aria-labelledby="recognition-title">
       <div class="section-heading"><h3 id="recognition-title">Radio recognition</h3><InfoPopover label="About radio recognition">Burrata sends a short sample of the radio stream for identification. This uses network data and processing.</InfoPopover></div>
       <label class="check"><input type="checkbox" checked={radioRecognition} disabled={busy} onchange={(event) => void saveRecognition(event.currentTarget.checked)} /> Enable radio track recognition</label>

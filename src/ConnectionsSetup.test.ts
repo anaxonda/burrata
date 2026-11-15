@@ -16,6 +16,10 @@ const status = {
 const managedDownloadSettings = { slots: 32, speedLimitKib: null, retryAttempts: 3, retryDelayMs: 5000, retryMaxDelayMs: 60000, partialPolicy: "resume" as const };
 let destroy: (() => void) | undefined;
 afterEach(() => { destroy?.(); destroy = undefined; document.body.innerHTML = ""; callMock.mockReset(); });
+async function openSoulseek(target: HTMLElement) {
+  const details = [...target.querySelectorAll('details')].find(item => item.querySelector('summary')?.textContent?.startsWith('Soulseek'))!;
+  details.open = true; details.dispatchEvent(new Event('toggle')); await settle();
+}
 async function settle() { for (let i = 0; i < 8; i++) await Promise.resolve(); await tick(); }
 function render() {
   const target = document.createElement("div"); document.body.append(target);
@@ -45,15 +49,15 @@ describe("ConnectionsSetup Soulseek shares", () => {
     const target = render(); await settle();
     const enabled = target.querySelector<HTMLInputElement>('#lyrics-translation-connection input[type="checkbox"]')!;
     enabled.checked = true; enabled.dispatchEvent(new Event("change", { bubbles: true }));
-    const endpoint = target.querySelector<HTMLInputElement>('[aria-label="Lyrics translation endpoint"]')!;
+    const endpoint = target.querySelector<HTMLInputElement>('[aria-label="AI API endpoint"]')!;
     endpoint.value = "https://translator.example/v1"; endpoint.dispatchEvent(new Event("input", { bubbles: true }));
-    const model = target.querySelector<HTMLInputElement>('[aria-label="Lyrics translation model"]')!;
+    const model = target.querySelector<HTMLInputElement>('[aria-label="AI model"]')!;
     model.value = "synthetic-model"; model.dispatchEvent(new Event("input", { bubbles: true }));
     target.querySelector<HTMLButtonElement>('[aria-label="Translation language"]')!.click(); await settle();
     const language = target.querySelector<HTMLInputElement>('[aria-label="Search translation languages"]')!;
     language.value = "Spanish"; language.dispatchEvent(new Event("input", { bubbles: true }));await settle();
     target.querySelector<HTMLButtonElement>('[role="option"]')!.click();await settle();
-    const key = target.querySelector<HTMLInputElement>('[aria-label="Lyrics translation API key"]')!;
+    const key = target.querySelector<HTMLInputElement>('[aria-label="AI API key"]')!;
     key.value = "synthetic-secret"; key.dispatchEvent(new Event("input", { bubbles: true }));
     [...target.querySelectorAll<HTMLLabelElement>("label.check")].find(label => label.textContent?.includes("Keep new credentials only for this session"))?.querySelector<HTMLInputElement>("input")?.click();
     target.querySelector<HTMLButtonElement>(".detail-actions button.primary")!.click(); await settle();
@@ -75,8 +79,8 @@ describe("ConnectionsSetup Soulseek shares", () => {
     const target = render(); await settle();
     const service = target.querySelector<HTMLSelectElement>('[aria-label="Lyrics translation service"]')!;
     service.value = "googleFree"; service.dispatchEvent(new Event("change", { bubbles: true })); await tick();
-    expect(target.querySelector('[aria-label="Lyrics translation API key"]')).toBeNull();
-    expect(target.querySelector('[aria-label="Lyrics translation endpoint"]')).toBeNull();
+    expect(target.querySelector('[aria-label="AI API key"]')).not.toBeNull();
+    expect(target.querySelector('[aria-label="AI API endpoint"]')).not.toBeNull();
     target.querySelector<HTMLInputElement>('#lyrics-translation-connection input[type="checkbox"]')!.click();
     target.querySelector<HTMLButtonElement>(".detail-actions button.primary")!.click(); await settle();
     expect(saveUpdate.settings.lyricsTranslation).toMatchObject({ provider: "googleFree", enabled: true, targetLanguage: "en" });
@@ -93,7 +97,7 @@ describe("ConnectionsSetup Soulseek shares", () => {
       if (command === "remove_managed_slskd_share") return { ...managed, shares: [] };
       throw new Error(`Unexpected command ${command}`);
     });
-    const target = render(); await settle();
+    const target = render(); await settle(); await openSoulseek(target);
     expect(target.textContent).toContain("Folders shared by slskd");
     expect(target.textContent).toContain("Public music");
     expect(target.textContent).toContain("/music/public");
@@ -116,7 +120,7 @@ describe("ConnectionsSetup Soulseek shares", () => {
     callMock.mockImplementation(async (command: string) => command === "get_connections" ? {
       ...status,
     } : command === "get_slskd_shares" ? ({ managed: false, canEdit: false, guidance: "Edit shares in slskd", shares: [] }) : command === "get_managed_slskd_download_settings" ? ({ managed: false, canEdit: false, settings: null, guidance: "Download settings are read-only for this separately configured slskd service." }) : command === "rescan_slskd_shares" ? ({ managed: false, canEdit: false, guidance: "Edit shares in slskd", shares: [] }) : []);
-    const target = render(); await settle();
+    const target = render(); await settle(); await openSoulseek(target);
     expect(callMock).toHaveBeenCalledWith("get_slskd_shares");
     expect(target.textContent).toContain("No shared folders reported by slskd.");
     expect(target.querySelector<HTMLInputElement>('[aria-label="slskd API key"]')?.type).toBe("password");
@@ -136,7 +140,7 @@ describe("ConnectionsSetup Soulseek shares", () => {
       throw new Error(`Unexpected command ${command}`);
     });
 
-    const target = render(); await settle();
+    const target = render(); await settle(); await openSoulseek(target);
     expect(callMock).toHaveBeenCalledWith("get_managed_slskd_download_settings");
     expect(target.querySelector<HTMLInputElement>('[aria-label="Concurrent download slots"]')?.value).toBe("32");
     expect(target.textContent).toContain("Applying changes restarts the managed slskd service");
@@ -163,7 +167,7 @@ describe("ConnectionsSetup Soulseek shares", () => {
       if (command === "get_managed_slskd_download_settings") return { managed: false, canEdit: false, settings: null, guidance: "Download settings are read-only for this separately configured slskd service." };
       throw new Error(`Unexpected command ${command}`);
     });
-    const target = render(); await settle();
+    const target = render(); await settle(); await openSoulseek(target);
     expect(target.textContent).toContain("Download settings are read-only for this separately configured slskd service.");
     expect(target.querySelector('[aria-label="Concurrent download slots"]')).toBeNull();
     expect([...target.querySelectorAll("button")].some((button) => button.textContent?.includes("Apply download settings"))).toBe(false);
@@ -181,7 +185,7 @@ it("loads nondefault managed values and refreshes from the raw apply response wi
     if(command==="save_managed_slskd_download_settings")return{managed:true,canEdit:true,settings:refreshed,guidance:"Applied settings"};
     throw new Error(`Unexpected command ${command}`);
   });
-  const target=render();await settle();
+  const target=render();await settle();await openSoulseek(target);
   expect(target.querySelector<HTMLInputElement>('[aria-label="Concurrent download slots"]')?.value).toBe("17");
   expect(target.querySelector<HTMLInputElement>('[aria-label="Download speed limit (KiB/s)"]')?.value).toBe("2048");
   expect(target.querySelector<HTMLInputElement>('[aria-label="Automatic retry attempts"]')?.value).toBe("7");
@@ -191,4 +195,10 @@ it("loads nondefault managed values and refreshes from the raw apply response wi
   expect(target.querySelector<HTMLInputElement>('[aria-label="Concurrent download slots"]')?.value).toBe("18");
   expect(target.querySelector<HTMLInputElement>('[aria-label="Download speed limit (KiB/s)"]')?.value).toBe("1024");
   expect(target.textContent).toContain("Applied settings");expect(target.textContent).not.toMatch(/DataCloneError|cannot be cloned/);
+});
+
+it("does not load Soulseek services when the section is closed", async () => {
+  callMock.mockResolvedValue(status);
+  render(); await settle();
+  expect(callMock.mock.calls.map(([command]) => command)).toEqual(["get_connections"]);
 });

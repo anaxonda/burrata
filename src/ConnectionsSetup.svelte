@@ -1,6 +1,6 @@
 <script lang="ts">
   import LanguagePicker from "./LanguagePicker.svelte";
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { call, desktop } from "./lib/api";
   interface LyricsTranslationConfig { provider?: "openaiCompatible" | "googleFree" | "auto"; enabled: boolean; baseUrl: string; model: string; targetLanguage: string }
   interface Config { slskd: { enabled: boolean; baseUrl: string; downloadsPath: string }; discogsEnabled: boolean; lastfmEnabled: boolean; acoustidEnabled?: boolean; lyricsTranslation?: LyricsTranslationConfig }
@@ -17,13 +17,16 @@
   let checks = $state<{ provider: string; available: boolean; message: string }[]>([]);
   let slskdSharesStatus = $state<SlskdSharesStatus | null>(null), shareDirectoryPath = $state(""), sharesBusy = $state(false), sharesLoading = $state(false), sharesMessage = $state("");
   let downloadState = $state<ManagedDownloadState | null>(null), downloadDraft = $state<ManagedDownloadSettings>({ slots: 32, speedLimitKib: null, retryAttempts: 3, retryDelayMs: 5000, retryMaxDelayMs: 60000, partialPolicy: "resume" }), downloadBusy = $state(false), downloadLoading = $state(false), downloadMessage = $state("");
+  let alive = true;
+  let slskdOpen = $state(false);
+  onDestroy(() => { alive = false; });
   function apply(value: Status) {
+    if (!alive) return;
     status = value; config = structuredClone(value.settings);
     config.lyricsTranslation ??= { enabled: false, baseUrl: "https://api.openai.com/v1", model: "", targetLanguage: "en" };
     config.slskd.baseUrl ||= "http://localhost:5030";
     onChanged(value);
-    void loadShares(value);
-    void loadDownloadSettings(value);
+    if (slskdOpen) { void loadShares(value); void loadDownloadSettings(value); }
   }
   function applyDownloadState(value: ManagedDownloadState) {
     // Clone the plain IPC response before assigning it to reactive state.
@@ -121,9 +124,24 @@
 </script>
 
 <section class="settings-card connection-card" aria-labelledby="connections-title">
-  <h2 id="connections-title">Sources & artist discovery</h2>
-  <p>Connect once, then find music from Search or any track’s Download button.</p>
-  <details>
+  <h2 id="connections-title">API keys & services</h2>
+  <p>Optional services for discovery, summaries and translation.</p>
+  <details id="ai-connection"><summary>AI summaries &amp; translation · {credentialLabel(status?.lyricsTranslationCredential)}</summary>
+    <p>One AI connection for song summaries, set context and optional lyrics translation.</p>
+    <button type="button" onclick={() => { config.lyricsTranslation!.baseUrl = "https://openrouter.ai/api/v1"; config.lyricsTranslation!.model = "openai/gpt-6-luna"; }}>Use OpenRouter · GPT-6 Luna</button>
+    <label>API endpoint<input aria-label="AI API endpoint" type="url" autocomplete="url" bind:value={config.lyricsTranslation!.baseUrl} placeholder="https://openrouter.ai/api/v1" /></label>
+    <label>Model<input aria-label="AI model" type="text" autocomplete="off" bind:value={config.lyricsTranslation!.model} placeholder="openai/gpt-6-luna" /></label>
+    <label>API key<input aria-label="AI API key" type="password" autocomplete="new-password" bind:value={lyricsTranslationKey} placeholder={status?.lyricsTranslationCredential?.present ? "Leave blank to keep saved key" : "Provider API key"} /></label>
+    {#if status?.lyricsTranslationCredential?.present}<label class="check"><input type="checkbox" bind:checked={clear.lyricsTranslation} /> Remove saved AI key</label>{/if}
+    <small>Your AI provider may charge for use. Summaries work even when lyrics translation is off.</small>
+  </details>
+  <details id="lyrics-translation-connection"><summary>Lyrics translation · {config.lyricsTranslation?.enabled ? "On" : "Off"}</summary>
+    <label class="check"><input type="checkbox" bind:checked={config.lyricsTranslation!.enabled} /> Enable lyrics translation</label>
+    <label>Service<select aria-label="Lyrics translation service" value={config.lyricsTranslation!.provider ?? "openaiCompatible"} onchange={(event) => { config.lyricsTranslation!.provider = event.currentTarget.value as "openaiCompatible" | "googleFree" | "auto"; }}><option value="auto">Free first · AI fallback</option><option value="googleFree">Google Translate · free</option><option value="openaiCompatible">AI · shared connection</option></select></label>
+    <small>{config.lyricsTranslation!.provider === "googleFree" ? "No API key required. The free service may be rate limited." : "Uses the AI connection above. Translation starts when you choose Show translation."}</small>
+    <LanguagePicker value={config.lyricsTranslation!.targetLanguage} onChange={language=>{config.lyricsTranslation!.targetLanguage=language;}} />
+  </details>
+  <details ontoggle={(event) => { slskdOpen = event.currentTarget.open; if (slskdOpen && status) { void loadShares(); void loadDownloadSettings(); } }}>
     <summary>Soulseek / slskd · {credentialLabel(status?.slskdCredential)}</summary>
     <p>Run slskd on this computer as a separate background service. Burrata uses its API and copies completed files from its download folder; you do not need a public server.</p>
     <label class="check"><input type="checkbox" bind:checked={config.slskd.enabled} /> Enable Soulseek search and downloads</label>
@@ -200,21 +218,9 @@
     <label class="check"><input type="checkbox" bind:checked={clear.acoustid} /> Remove saved AcoustID key</label>
     <button onclick={()=>void guide("https://acoustid.org/webservice")}>AcoustID setup ↗</button>
   </details>
-  <details id="lyrics-translation-connection"><summary>Lyrics translation · {config.lyricsTranslation?.provider === "auto" ? "Free first · API fallback" : config.lyricsTranslation?.provider === "googleFree" ? "Google Translate" : credentialLabel(status?.lyricsTranslationCredential)}</summary>
-    <p>Translate timed or plain lyrics side by side with the original. Translation runs only when you click Show translation; source timestamps stay unchanged. Song and set context also uses the configured API key, endpoint, and model when available, independently of this translation setting.</p>
-    <label>Service<select aria-label="Lyrics translation service" value={config.lyricsTranslation!.provider ?? "openaiCompatible"} onchange={(event) => { config.lyricsTranslation!.provider = event.currentTarget.value as "openaiCompatible" | "googleFree" | "auto"; }}><option value="auto">Free first · API fallback</option><option value="googleFree">Google Translate · free</option><option value="openaiCompatible">AI · your API key</option></select></label>
-    <label class="check"><input type="checkbox" bind:checked={config.lyricsTranslation!.enabled} /> Enable lyrics translation</label>
-    {#if config.lyricsTranslation!.provider !== "googleFree"}<button type="button" onclick={() => { config.lyricsTranslation!.baseUrl = "https://openrouter.ai/api/v1"; config.lyricsTranslation!.model = "openai/gpt-6-luna"; if (!config.lyricsTranslation!.targetLanguage) config.lyricsTranslation!.targetLanguage = "en"; }}>Use OpenRouter · GPT-6 Luna</button><label>API endpoint<input aria-label="Lyrics translation endpoint" type="url" autocomplete="url" bind:value={config.lyricsTranslation!.baseUrl} placeholder="https://openrouter.ai/api/v1" /></label>
-    <label>Model<input aria-label="Lyrics translation model" type="text" autocomplete="off" bind:value={config.lyricsTranslation!.model} placeholder="openai/gpt-6-luna" /></label>
-    <label>API key<input aria-label="Lyrics translation API key" type="password" autocomplete="new-password" bind:value={lyricsTranslationKey} placeholder={status?.lyricsTranslationCredential?.present ? "Leave blank to keep saved key" : "Provider API key"} /></label>
-    <label class="check"><input type="checkbox" bind:checked={clear.lyricsTranslation} /> Remove saved translation key</label>
-    <small>Your AI provider may charge for use. Its API key stays in the secure credential store or in memory for this session.</small>
-    {:else}<small>No API key required. The free Google service may be temporarily rate limited.</small>{/if}
-    <LanguagePicker value={config.lyricsTranslation!.targetLanguage} onChange={language=>{config.lyricsTranslation!.targetLanguage=language;}} />
-  </details>
   <label class="check"><input type="checkbox" bind:checked={sessionOnly} /> Keep new credentials only for this session</label>
   <small>Credentials use your operating system’s secure store. Choose session-only if it is unavailable; keys are never saved in the library database.</small>
-  <div class="detail-actions"><button class="primary" disabled={busy} onclick={() => void save()}>Save connections</button><button disabled={busy} onclick={() => void test()}>Test saved connections</button></div>
+  <div class="detail-actions"><button class="primary" disabled={busy || !status} onclick={() => void save()}>Save connections</button><button disabled={busy || !status} onclick={() => void test()}>Test saved connections</button></div>
   {#if message}<p role="status">{message}</p>{/if}
   {#each checks as check}<p>{check.available ? "✓" : "○"} {check.provider}: {check.message}</p>{/each}
 </section>

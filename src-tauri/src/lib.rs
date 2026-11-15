@@ -167,11 +167,19 @@ fn release_resource_root(app: &tauri::AppHandle) -> Result<PathBuf> {
     })
 }
 #[tauri::command]
-fn get_release_setup(
+async fn get_release_setup(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value> {
-    let settings = state.store.settings()?;
+    let store = state.store.clone();
+    // Filesystem/tool discovery must not block Tauri's UI thread during navigation.
+    tokio::task::spawn_blocking(move || release_setup_snapshot(&app, &store))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn release_setup_snapshot(app: &tauri::AppHandle, store: &Store) -> Result<serde_json::Value> {
+    let settings = store.settings()?;
     let paths = [
         ("yt-dlp", settings.yt_dlp_path.as_str()),
         ("ffmpeg", settings.ffmpeg_path.as_str()),
@@ -192,7 +200,7 @@ fn get_release_setup(
         serde_json::json!({"name":name,"path":path,"origin":origin})
     });
     let mcp = tools::bundled_executable("burrata-mcp").unwrap_or(
-        release_resource_root(&app)?
+        release_resource_root(app)?
             .join("tools")
             .join(tools::target_triple())
             .join(if cfg!(windows) {
@@ -201,9 +209,14 @@ fn get_release_setup(
                 "burrata-mcp"
             }),
     );
-    Ok(
-        serde_json::json!({"setupComplete":state.store.get_json_preference("releaseSetupComplete.v1")?.unwrap_or(serde_json::json!(false)),"musicDirectory":settings.music_directory,"radioRecognition":state.store.get_json_preference("radioRecognitionEnabled.v1")?.unwrap_or(serde_json::json!(true)),"mcpCommand":[mcp],"browser":install_integration::status(),"toolPaths":paths}),
-    )
+    Ok(serde_json::json!({
+        "setupComplete": store.get_json_preference("releaseSetupComplete.v1")?.unwrap_or(serde_json::json!(false)),
+        "musicDirectory": settings.music_directory,
+        "radioRecognition": store.get_json_preference("radioRecognitionEnabled.v1")?.unwrap_or(serde_json::json!(true)),
+        "mcpCommand": [mcp],
+        "browser": install_integration::status(),
+        "toolPaths": paths,
+    }))
 }
 #[tauri::command]
 fn complete_release_setup(state: State<'_, AppState>, radio_recognition: bool) -> Result<()> {
@@ -6329,8 +6342,11 @@ fn update_track(state: State<'_, AppState>, track: Track) -> Result<Track> {
     Ok(updated)
 }
 #[tauri::command]
-fn list_collections(state: State<'_, AppState>) -> Result<Vec<Collection>> {
-    state.store.list_collections()
+async fn list_collections(state: State<'_, AppState>) -> Result<Vec<Collection>> {
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || store.list_collections())
+        .await
+        .map_err(|error| error.to_string())?
 }
 #[tauri::command]
 fn list_deleted_collections(state: State<'_, AppState>) -> Result<Vec<Collection>> {

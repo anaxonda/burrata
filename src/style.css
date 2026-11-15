@@ -1232,7 +1232,8 @@ audio {
 }
 .settings-card,
 .connection-card,
-.settings > section {
+.settings > section,
+.settings-connections > section {
   margin: 14px 0;
   padding: 15px 16px;
   border: 1px solid var(--line);
@@ -1241,12 +1242,14 @@ audio {
 }
 .settings-card > :first-child,
 .connection-card > :first-child,
-.settings > section > :first-child {
+.settings > section > :first-child,
+.settings-connections > section > :first-child {
   margin-top: 0;
 }
 .settings-card > :last-child,
 .connection-card > :last-child,
-.settings > section > :last-child {
+.settings > section > :last-child,
+.settings-connections > section > :last-child {
   margin-bottom: 0;
 }
 .settings > p {
@@ -2195,7 +2198,8 @@ tr.spacer td {
   }
   .settings-card,
   .connection-card,
-  .settings > section {
+  .settings > section,
+  .settings-connections > section {
     padding: 13px;
   }
   .embed-player {
@@ -2482,3 +2486,9 @@ body .shared-track-list .more-menu a:focus-visible {
     inset -2px 0 0 color-mix(in srgb, var(--line) 42%, var(--accent) 58%),
     14px 0 34px #0003;
 }
+
+/* Preserve connection drafts while switching settings tabs without retaining layout. */
+.settings-connections { display:contents; }
+.settings-connections[hidden] { display:none; }
+.settings-connections > .settings-card h2 { font-size:15px; }
+.settings-connections > .settings-card > p { font-size:11px; line-height:1.6; }

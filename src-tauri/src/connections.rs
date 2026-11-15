@@ -213,7 +213,7 @@ impl ConnectionManager {
             lastfm_credential: self.credential_status_if_enabled("lastfm", settings.lastfm_enabled),
             acoustid_credential: self
                 .credential_status_if_enabled("acoustid", settings.acoustid_enabled),
-            lyrics_translation_credential: if translation_credential_visible {
+            lyrics_translation_credential: if context_configured || translation_credential_visible {
                 lyrics_credential
             } else {
                 CredentialStatus::default()
@@ -724,7 +724,7 @@ mod tests {
             status.settings.lyrics_translation.provider,
             LyricsTranslationProvider::GoogleFree
         );
-        assert!(!status.lyrics_translation_credential.present);
+        assert!(status.lyrics_translation_credential.present);
         assert!(status.context_lookup_available);
         let connection = manager.media_context_connection().unwrap();
         assert_eq!(

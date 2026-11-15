@@ -10,6 +10,7 @@
     includeYtdlpSearchDefault?: boolean;
     onYtdlpSearchDefaultChange?: (enabled: boolean) => void;
   } = $props();
+  let shortcutsOpen = $state(false);
   let newName = $state("");
   let bindings = $state<string[]>([]);
   let saving = $state(false);
@@ -84,10 +85,10 @@
       {#each collections as collection}<option value={collection.id}>{collection.name}</option>{/each}
     </select>
   </label>
-  <header>
-    <h3>Playlist shortcuts</h3>
-    <p>Assign playlists and keys to the nine shortcut slots. Empty slots stay unassigned.</p>
-  </header>
+  <details bind:open={shortcutsOpen}>
+    <summary>Playlist shortcuts</summary>
+    {#if shortcutsOpen}
+    <p>Assign playlists and keys to the nine shortcut slots.</p>
   <div class="slots">
     {#each Array.from({ length: 9 }, (_, index) => index) as slot}
       <div class="slot-card">
@@ -111,6 +112,8 @@
     <input bind:value={newName} maxlength="120" placeholder="New playlist name" aria-label="New playlist name" disabled={saving} />
     <button type="submit" disabled={saving || !newName.trim()}>Create playlist</button>
   </form>
+    {/if}
+  </details>
   <header>
     <h3>Playlist exports</h3>
     <p>Choose whether optional search links are included by default. Each export can override this.</p>
@@ -125,15 +128,18 @@
 
 <style>
   .playlist-settings { display:grid; gap:14px; }
+  header { display:block; padding:0; border:0; background:transparent; }
+  .export-search-default input { width:16px; height:16px; flex:none; }
   h3 { margin:0 0 4px; font-size:15px; }
   p { margin:0; color:var(--muted); font-size:12px; }
+  summary { cursor:pointer; font-weight:600; padding:10px 0; }
   .slots { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
   .slot-card { min-width:0; display:grid; gap:6px; padding:8px; border:1px solid var(--line); border-radius:8px; }
   .favorites-target { display:flex; align-items:center; gap:10px; max-width:480px; }
   .favorites-target > span { width:90px; flex:none; }
   .binding { margin-left:34px; }
   .binding > span { width:25px; color:var(--muted); font-size:10px; }
-  label { display:flex; align-items:center; gap:8px; min-width:0; }
+  label { display:flex; flex-direction:row; align-items:center; gap:8px; min-width:0; }
   .key { display:grid; place-items:center; width:26px; height:26px; flex:none; border:1px solid var(--line); border-radius:6px; color:var(--muted); font-size:11px; }
   select,input { min-width:0; width:100%; }
   form { display:flex; gap:8px; }

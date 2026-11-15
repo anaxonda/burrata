@@ -192,7 +192,7 @@
             </button>
           {/if}
         </div>
-        {#if account}<label class="write-sync-setting"><input type="checkbox" checked={account.writeSyncEnabled === true} disabled={busy !== null || (provider === "youtube" && !account.connected && account.writeSyncEnabled !== true)} onchange={(event)=>void setWriteSync(provider as Provider, event.currentTarget.checked, event.currentTarget)}/><span>Allow writing playlist changes to {providerName(provider as Provider)}</span></label><p class="remote-account-hint">{provider === "youtube" ? "Writes are experimental. They run only after opt-in and review of a complete, editable preview." : "Changes are sent only after you choose Sync and review them."}</p>{/if}
+        {#if account}<details class="playlist-sync-options"><summary>Playlist sync · {account.writeSyncEnabled ? "On" : "Off"}</summary><label class="write-sync-setting"><input type="checkbox" checked={account.writeSyncEnabled === true} disabled={busy !== null || (provider === "youtube" && !account.connected && account.writeSyncEnabled !== true)} onchange={(event)=>void setWriteSync(provider as Provider, event.currentTarget.checked, event.currentTarget)}/><span>Allow writing playlist changes to {providerName(provider as Provider)}</span></label><p class="remote-account-hint">{provider === "youtube" ? "Writes are experimental. They run only after opt-in and review of a complete, editable preview." : "Changes are sent only after you choose Sync and review them."}</p></details>{/if}
         {#if message[provider as Provider] && !pausedAccount}<p class="remote-account-message" role="status">{message[provider as Provider]}</p>{/if}
       </article>
     {/each}
@@ -236,6 +236,7 @@
   .managed-provider summary { cursor:pointer; font-size:12px; font-weight:600; }
   .managed-provider > p { margin:7px 0; color:var(--muted); font-size:12px; line-height:1.45; }
   .managed-confirmation { width:100%; }
+  .remote-account-panel header { display:block; padding:0 0 14px; border:0; background:transparent; }
   .remote-account-panel header h2 { margin:0; font-size:16px; }
   .remote-account-panel header p,.remote-account-card p { margin:5px 0 0; color:var(--muted); font-size:12px; line-height:1.45; }
   .remote-account-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
@@ -249,7 +250,8 @@
   .remote-account-actions button { min-height:30px; font-size:11px; }
   .remote-account-actions .primary { color:var(--text); }
   .remote-account-actions .quiet { background:transparent; }
-  .write-sync-setting { display:flex; gap:8px; align-items:flex-start; font-size:12px; line-height:1.4; }
+  .playlist-sync-options summary { cursor:pointer; font-size:12px; color:var(--muted); }
+  .write-sync-setting { display:flex; flex-direction:row; gap:8px; align-items:flex-start; font-size:12px; line-height:1.4; }
   .write-sync-setting input { width:16px; height:16px; min-width:16px; padding:0; flex:0 0 16px; margin:2px 0 0; }
   .remote-account-message { overflow-wrap:anywhere; color:var(--warning,#d39c45)!important; }
   .handoff-code-copy { overflow-wrap:anywhere; padding:8px; border:1px solid var(--line); border-radius:7px; background:var(--raised); }

@@ -16,3 +16,12 @@ it("labels troubleshooting clearly while preserving the advanced category", () =
   expect(onchange).toHaveBeenCalledWith("advanced");
   unmount(instance);
 });
+
+it("consolidates integrations into Connections and preserves old links", () => {
+  const target = document.createElement("div");
+  const instance = mount(SettingsNavigation, { target, props: { active: "integrations", onchange: vi.fn() } });
+  expect(target.querySelectorAll("button")).toHaveLength(6);
+  expect(target.querySelector('[aria-current="page"]')?.textContent).toBe("Connections");
+  expect(target.textContent).not.toContain("Integrations");
+  unmount(instance);
+});

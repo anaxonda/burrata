@@ -734,6 +734,12 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
   });
   type SettingsCategory = "general"|"playback"|"library"|"downloads"|"connections"|"integrations"|"advanced";
   let settingsCategory = $state<SettingsCategory>("general");
+  let connectionToolsOpen = $state(false);
+  let connectionsVisited = $state(false);
+  $effect(() => {
+    if (view !== "settings") connectionsVisited = false;
+    else if (settingsCategory === "connections" || settingsCategory === "integrations") connectionsVisited = true;
+  });
   type PlaylistPreferences = { favoritesPlaylistId: string; shortcuts: (string|null)[]; shortcutBindings?: string[] };
   let playlistPreferences = $state<PlaylistPreferences>({ favoritesPlaylistId:"", shortcuts:Array(9).fill(null) });
   let includeYtdlpSearchDefault = $state(false);
@@ -4517,7 +4523,11 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     playlistPreferences=await call<PlaylistPreferences>("get_playlist_preferences");
     const target=playlistPreferences.shortcuts[slot];
     if(!target){shortcutSlot=slot;await addArtistTrack(track);return;}
-    await run(async()=>{await appendPlaylistItems({collectionId:target,tracks:[track]});await refreshFavorites();setNotice(`Added ${track.title} to ${collections.find(item=>item.id===target)?.name??"playlist"}.`);});
+    try {
+      await appendPlaylistItems({collectionId:target,tracks:[track]});
+      setNotice(`Added ${track.title} to ${collections.find(item=>item.id===target)?.name??"playlist"}.`);
+      refreshAfterPlaylistWrite(target);
+    } catch (failure) { error = String(failure); }
   }
   function playlistShortcut(event:KeyboardEvent):number {
     if(event.repeat || (event.target as HTMLElement)?.closest("input,textarea,select,[contenteditable],dialog") || downloadTrack || playlistTrack || renameTarget)return -1;
@@ -5074,49 +5084,57 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     if (job.state === "cancelled") return { cancelled: true };
     return { partial };
   }
+  // Once the write succeeds, refresh failures must not invite a duplicate append.
+  function refreshAfterPlaylistWrite(destinationId: string) {
+    const refresh = destinationId === playlistPreferences.favoritesPlaylistId
+      ? refreshFavorites() : refreshCollections();
+    void refresh.catch(failure => setNotice(`Playlist saved; could not refresh its display: ${String(failure)}`));
+    requestLocalPrefixRefresh(undefined, true);
+  }
+  async function finishPlaylistShortcut(destinationId: string, generation: number) {
+    if (generation !== playlistPickerGeneration || shortcutSlot === null) return;
+    const slot = shortcutSlot;
+    shortcutSlot = null;
+    try { playlistPreferences = await call<PlaylistPreferences>("set_playlist_shortcut", { slot, collectionId: destinationId }); }
+    catch (failure) { setNotice(`Playlist saved; could not assign shortcut: ${String(failure)}`); }
+  }
   async function addArtistTrackToPlaylist() {
     const track = playlistTrack;
     if (!track || playlistWriteBusy || !playlistDestinations.some(destination => destination.id === playlistDestinationId)) return;
     const items = playlistTracks.length ? playlistTracks : [track];
     const destinationId = playlistDestinationId, generation = playlistPickerGeneration;
     const legacyUniqueCollection = destinationId === "favorites" || destinationId === "history" || destinationId === DOWNLOADS_PLAYLIST_ID || destinationId === playlistPreferences.favoritesPlaylistId;
-    playlistWriteBusy = true;
-    let saved = false;
-    try { const result = await run(async () => {
+    playlistWriteBusy = true; error = "";
+    try {
       await call(legacyUniqueCollection ? "add_to_collection" : "append_playlist_entries", { collectionId: destinationId, tracks: items });
-      collections = await call<Collection[]>("list_collections");
-      if(generation === playlistPickerGeneration && shortcutSlot!==null){playlistPreferences=await call<PlaylistPreferences>("set_playlist_shortcut",{slot:shortcutSlot,collectionId:destinationId});shortcutSlot=null;}
-      await refreshFavorites();
+      if (generation === playlistPickerGeneration) { pendingCreatedPlaylist = null; playlistTrack = null; playlistTracks = []; }
       setNotice(legacyUniqueCollection ? "Added to playlist. This collection keeps one copy of each recording." : `${items.length === 1 ? "Track" : `${items.length} tracks`} added to playlist.`);
-      if (generation === playlistPickerGeneration) pendingCreatedPlaylist = null;
-      return true;
-    }); saved = result === true; }
+      void finishPlaylistShortcut(destinationId, generation);
+      refreshAfterPlaylistWrite(destinationId);
+    } catch (failure) { error = String(failure); }
     finally { playlistWriteBusy = false; }
-    if (saved && generation === playlistPickerGeneration) { playlistTrack = null; playlistTracks = []; }
   }
   async function createPlaylistForArtistTrack() {
     const track = playlistTrack;
     if (!track || playlistWriteBusy || !newCollection.trim()) return;
     const items = playlistTracks.length ? playlistTracks : [track];
     const generation = playlistPickerGeneration;
-    playlistWriteBusy = true;
-    let saved = false;
-    try { const result = await run(async () => {
+    playlistWriteBusy = true; error = "";
+    try {
       const retrying = pendingCreatedPlaylist?.generation === generation && pendingCreatedPlaylist.collection.name === newCollection.trim() ? pendingCreatedPlaylist.collection : null;
       const created = retrying ?? await call<Collection>("create_collection", { name: newCollection.trim() });
-      pendingCreatedPlaylist = { collection: created, generation };
-      if (!retrying) collections = await call<Collection[]>("list_collections");
+      if (generation === playlistPickerGeneration) pendingCreatedPlaylist = { collection: created, generation };
+      if (!collections.some(item => item.id === created.id)) collections = [...collections, created];
       await call("append_playlist_entries", { collectionId: created.id, tracks: items });
-      collections = await call<Collection[]>("list_collections");
-      if (generation === playlistPickerGeneration) { playlistDestinationId = created.id; newCollection = ""; }
-      if(generation === playlistPickerGeneration && shortcutSlot!==null){playlistPreferences=await call<PlaylistPreferences>("set_playlist_shortcut",{slot:shortcutSlot,collectionId:created.id});shortcutSlot=null;}
-      await refreshFavorites();
+      if (generation === playlistPickerGeneration) {
+        playlistDestinationId = created.id; newCollection = "";
+        pendingCreatedPlaylist = null; playlistTrack = null; playlistTracks = [];
+      }
       setNotice(`Created ${created.name} and added ${items.length === 1 ? track.title : `${items.length} tracks`}.`);
-      if (generation === playlistPickerGeneration) pendingCreatedPlaylist = null;
-      return true;
-    }); saved = result === true; }
+      void finishPlaylistShortcut(created.id, generation);
+      refreshAfterPlaylistWrite(created.id);
+    } catch (failure) { error = String(failure); }
     finally { playlistWriteBusy = false; }
-    if (saved && generation === playlistPickerGeneration) { playlistTrack = null; playlistTracks = []; }
   }
   async function searchArtists(query: string, page: number) {
     return call<ArtistSearchPage>("search_artists", { query, page, pageSize: 20 });
@@ -7698,7 +7716,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
           </details>
         </section>
         {/if}
-        {#if ["connections","integrations","advanced"].includes(settingsCategory)}<ReleaseSetup category={settingsCategory} onSettingsChanged={()=>void call<Settings>("get_settings").then(value=>settings={...value,matchingLevel:value.matchingLevel??"balanced",playbackStartupTimeoutSeconds:value.playbackStartupTimeoutSeconds??20})}/>{/if}
+        {#if settingsCategory === "advanced"}<ReleaseSetup category={settingsCategory} onSettingsChanged={()=>void call<Settings>("get_settings").then(value=>settings={...value,matchingLevel:value.matchingLevel??"balanced",playbackStartupTimeoutSeconds:value.playbackStartupTimeoutSeconds??20})}/>{/if}
         {#if settingsCategory === "playback" || settingsCategory === "downloads"}
         <section class="settings-basic-card recording-matching-card" aria-label="Recording matching"><div class="settings-label-help"><label for="recording-matching">Recording matching</label><InfoPopover label="About recording matching">This app-wide rule applies to both playback and downloads. Exact requires complete recording agreement. Balanced allows metadata and credit variations while preserving the requested recording. Flexible can substitute another live version, cover or remix, labeled when used.</InfoPopover></div>
           <select id="recording-matching" aria-label="Recording match level" value={settings.matchingLevel ?? "balanced"} onchange={(event) => { settings.matchingLevel = event.currentTarget.value as "exact" | "balanced" | "flexible"; void saveSettingsFields(["matchingLevel"], "Recording matching saved."); }}>
@@ -7739,6 +7757,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
           {/if}
         </div>{/if}
         {#if settingsCategory === "library"}
+        <AccountPlaylistSettings value={sidebarLayout.showAccountPlaylists} onChange={(value) => void persistSidebar({...sidebarLayout,showAccountPlaylists:value})} />
         <PlaylistSettings preferences={playlistPreferences} collections={visibleCollections.filter(item=>!latestImports.some(imported=>imported.collectionId===item.id))} {call} includeYtdlpSearchDefault={includeYtdlpSearchDefault} onYtdlpSearchDefaultChange={(enabled)=>includeYtdlpSearchDefault=enabled} onchange={(value)=>{playlistPreferences=value;void refreshFavorites();}} oncollections={()=>refreshCollections()}/>
         <section class="settings-basic-card" aria-label="Local playlist copies"><h2>Local playlist copies</h2>
         <label class="settings-option"><input type="checkbox" aria-label="Keep local M3U playlist copies" disabled={Boolean(busy)} checked={settings.playlistMirroringEnabled !== false} onchange={(event) => { settings.playlistMirroringEnabled = event.currentTarget.checked; void saveSettingsFields(["playlistMirroringEnabled"], "Playlist mirroring preference saved."); }} /><span><strong>Keep local M3U playlist copies</strong><small>Automatically read and update playlists, Liked Songs, and listening history as M3U8 files in your Music/Playlists folder. Off leaves existing files in place. Manual playlist import and export remain available.</small></span></label>
@@ -7793,12 +7812,15 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
         <ReleaseSetup category="playback" onSettingsChanged={()=>void call<Settings>("get_settings").then(value=>settings={...value,matchingLevel:value.matchingLevel??"balanced",playbackStartupTimeoutSeconds:value.playbackStartupTimeoutSeconds??20})}/>
         {/if}
         {#if settingsCategory === "downloads"}<AutotagSetup {...autotagSettings} onConfigureAcoustId={()=>void configureAcoustId()} acoustIdConfigured={autotagSettings.acoustidConfigured} onChanged={(change)=>autotagSettings={...autotagSettings,...change}} onSave={()=>void run(async()=>{autotagSettings=await call("save_autotag_settings",{enabled:autotagSettings.enabled,shazamFallback:autotagSettings.shazamFallback});})} />
-        {/if}{#if settingsCategory === "connections"}<AccountPlaylistSettings value={sidebarLayout.showAccountPlaylists} onChange={(value) => void persistSidebar({...sidebarLayout,showAccountPlaylists:value})} /><BrowserConnections {call} onWriteSyncChange={(provider,enabled)=>remotePlaylistWriteSyncEnabled={...remotePlaylistWriteSyncEnabled,[provider]:enabled}} onChanged={() => { void call<typeof availableSources>("list_search_sources").then(sources => availableSources = sources).catch(() => {}); }} onBrowse={(source)=>void searchProviderPlaylists(source)} /><ConnectionsSetup onChanged={(status) => { slskdEnabled = status.settings.slskd.enabled; lyricsTranslationLanguage=status.settings.lyricsTranslation?.targetLanguage ?? "en";lyricsTranslationEnabled=status.settings.lyricsTranslation?.enabled===true; lyricsTranslationCredentialPresent=status.settings.lyricsTranslation?.provider === "googleFree" || status.settings.lyricsTranslation?.provider === "auto" || status.lyricsTranslationCredential?.present===true;contextLookupConfigured=status.contextLookupAvailable===true;contextLookupRevision++; sourceCapabilities={soulseek:slskdEnabled,discogs:status.settings.discogsEnabled}; void call<typeof availableSources>("list_search_sources").then(sources=>availableSources=sources).catch(()=>{}); void loadAutotagState().catch(()=>{}); }} />
-        {/if}{#if settingsCategory === "advanced"}<div class="settings-details-body">
+        {/if}{#if connectionsVisited}<div class="settings-connections" hidden={settingsCategory !== "connections" && settingsCategory !== "integrations"}><BrowserConnections {call} onWriteSyncChange={(provider,enabled)=>remotePlaylistWriteSyncEnabled={...remotePlaylistWriteSyncEnabled,[provider]:enabled}} onChanged={() => { void call<typeof availableSources>("list_search_sources").then(sources => availableSources = sources).catch(() => {}); }} onBrowse={(source)=>void searchProviderPlaylists(source)} /><ConnectionsSetup onChanged={(status) => { slskdEnabled = status.settings.slskd.enabled; lyricsTranslationLanguage=status.settings.lyricsTranslation?.targetLanguage ?? "en";lyricsTranslationEnabled=status.settings.lyricsTranslation?.enabled===true; lyricsTranslationCredentialPresent=status.settings.lyricsTranslation?.provider === "googleFree" || status.settings.lyricsTranslation?.provider === "auto" || status.lyricsTranslationCredential?.present===true;contextLookupConfigured=status.contextLookupAvailable===true;contextLookupRevision++; sourceCapabilities={soulseek:slskdEnabled,discogs:status.settings.discogsEnabled}; void call<typeof availableSources>("list_search_sources").then(sources=>availableSources=sources).catch(()=>{}); void loadAutotagState().catch(()=>{}); }} />
+        </div>{/if}{#if settingsCategory === "advanced"}<div class="settings-details-body">
           <LazyView loader={loadPlaybackDiagnosticsSettings} label="playback diagnostics settings" componentProps={{ call, enabled: settings.playbackDiagnosticsEnabled === true, onEnabledChange: savePlaybackDiagnosticsEnabled }} />
           <ToolSetup {settings} {dependencies} onChange={(value)=>(settings=value)} onCheck={()=>void run(async()=>(dependencies=await call<Dependency[]>("check_dependencies")))} onSave={()=>void saveSettingsFields(["ytDlpPath","ffmpegPath","ffprobePath","jsRuntimePath"],"Tool paths saved.")} checking={busy>0} />
         </div>
-        {/if}{#if settingsCategory === "integrations"}<details class="settings-advanced" open><summary><strong>Assistant permissions</strong><span>Control access to your player and library</span></summary>
+        {/if}{#if settingsCategory === "connections" || settingsCategory === "integrations"}
+        <details class="settings-advanced" bind:open={connectionToolsOpen}><summary><strong>Browser companion &amp; assistants</strong><span>Connect external tools and manage their permissions</span></summary>
+          {#if connectionToolsOpen}<ReleaseSetup category="connections" />{/if}
+          <h3>Assistant permissions</h3>
           <section class="automation-settings"><p>Allow a connected assistant to use the player and library.</p><label class="settings-option"><input type="checkbox" bind:checked={automationPermissions.control} onchange={()=>void saveAutomationPermissions()} /><span>Allow playback and playlist changes</span></label><label class="settings-option"><input type="checkbox" bind:checked={automationPermissions.manage} onchange={()=>void saveAutomationPermissions()} /><span>Allow downloads and audio analysis</span></label></section>
         </details>{/if}
       </section>

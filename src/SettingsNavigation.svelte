@@ -7,14 +7,13 @@
     { id: "library", label: "Library" },
     { id: "downloads", label: "Downloads" },
     { id: "connections", label: "Connections" },
-    { id: "integrations", label: "Integrations" },
     { id: "advanced", label: "Troubleshooting" },
   ];
 </script>
 
 <nav class="settings-nav" aria-label="Settings categories">
   {#each categories as category}
-    <button type="button" class:active={active === category.id} aria-current={active === category.id ? "page" : undefined}
+    <button type="button" class:active={(active === "integrations" ? "connections" : active) === category.id} aria-current={(active === "integrations" ? "connections" : active) === category.id ? "page" : undefined}
       onclick={() => onchange(category.id)}>{category.label}</button>
   {/each}
 </nav>

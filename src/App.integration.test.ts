@@ -7108,11 +7108,34 @@ describe("saved recording navigation", () => {
     expect(document.querySelector(".add-playlist-result")?.textContent).toBe("Add to library");
   });
 
+  it("preserves AI drafts and avoids repeated connection loads across settings tabs", async () => {
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    eventHandlers.get("automation-ui-navigation")!({event:"automation-ui-navigation",id:1,payload:{requestId:"settings-connections-draft",target:{kind:"view",view:"settings",settingsCategory:"connections"}}});
+    await settle();
+    const model = document.querySelector<HTMLInputElement>('[aria-label="AI model"]')!;
+    model.value = "unsaved-model"; model.dispatchEvent(new Event("input", { bubbles: true }));
+    const connectionReads = mocks.call.mock.calls.filter(([command]) => command === "get_connections").length;
+    const navigation = document.querySelector('[aria-label="Settings categories"]')!;
+    [...navigation.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === "Library")!.click();
+    await settle();
+    expect(document.querySelector('.settings-connections')?.hasAttribute('hidden')).toBe(true);
+    expect(document.querySelector('[aria-label="Playlist shortcut 1"]')).toBeNull();
+    [...navigation.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === "Connections")!.click();
+    await settle();
+    expect(document.querySelector<HTMLInputElement>('[aria-label="AI model"]')?.value).toBe("unsaved-model");
+    expect(mocks.call.mock.calls.filter(([command]) => command === "get_connections")).toHaveLength(connectionReads);
+  });
+
   it("single-flights a bulk playlist append and keeps the picker open until the write finishes", async () => {
     const original = mocks.call.getMockImplementation()!;
+    let holdRefresh = false;
+    let finishRefresh: ((value: Collection[]) => void) | undefined;
     let finishAppend: (() => void) | undefined;
     mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
       if (command === "append_playlist_entries") return new Promise<void>(resolve => { finishAppend = resolve; });
+      if (holdRefresh && command === "list_collections") return new Promise<Collection[]>(resolve => { finishRefresh = resolve; });
       return original(command, args);
     });
     audioSearchResult = [savedTrack, secondTrack];
@@ -7133,7 +7156,37 @@ describe("saved recording navigation", () => {
     add.click(); await settle(); add.click(); await settle();
     expect(mocks.call.mock.calls.filter(([command]) => command === "append_playlist_entries")).toHaveLength(1);
     expect(add.disabled).toBe(true);
+    expect(document.querySelector(".busy")).toBeNull();
+    const favoritesReads = mocks.call.mock.calls.filter(([command]) => command === "list_favorite_track_ids").length;
+    holdRefresh = true;
     finishAppend?.(); await settle();
+    expect(document.querySelector(".playlist-picker-dialog")).toBeNull();
+    expect(mocks.call.mock.calls.filter(([command]) => command === "list_favorite_track_ids")).toHaveLength(favoritesReads);
+    // Resolving the independent sidebar refresh must not reopen the picker.
+    finishRefresh?.([...collections]); await settle();
+  });
+
+
+  it("keeps a successful append committed when the sidebar refresh fails", async () => {
+    const original = mocks.call.getMockImplementation()!;
+    let written = false;
+    mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "append_playlist_entries") { written = true; return; }
+      if (written && command === "list_collections") throw new Error("Refresh unavailable");
+      return original(command, args);
+    });
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle(); await chooseTrackAction("Add to playlist…");
+    const destination = document.querySelector<HTMLSelectElement>('[aria-label="Choose playlist for track"]')!;
+    destination.value = "collection-empty"; destination.dispatchEvent(new Event("change", { bubbles: true })); await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".playlist-picker-dialog button")].find(button => button.textContent?.trim() === "Add to playlist")!.click();
+    await settle();
+    expect(written).toBe(true);
+    expect(document.querySelector(".playlist-picker-dialog")).toBeNull();
+    expect(document.querySelector(".busy")).toBeNull();
+    expect(document.body.textContent).toContain("Playlist saved; could not refresh its display");
+    expect(mocks.call.mock.calls.filter(([command]) => command === "append_playlist_entries")).toHaveLength(1);
   });
 
   it("ignores stale collection hydration when a newer bulk picker selection opens", async () => {
