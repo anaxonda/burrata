@@ -6134,7 +6134,9 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
   async function queueSavedPlaylist(id: string) {
     if (view === "collections" && collectionId === id) return playCurrentPlaylist("queue");
     try {
-      const items = await call<Track[]>("list_tracks", { view: "collections", collectionId: id });
+      const items = view === "charts" && activeBrowserImport?.collectionId === id
+        ? [...tracks]
+        : await call<Track[]>("list_tracks", { view: "collections", collectionId: id });
       if (!Array.isArray(items)) throw new Error("The saved playlist could not be read.");
       if (items.length) await nativeCommand({ action: "queue", tracks: items, mode: "append" });
       else setNotice("This playlist has no saved tracks to queue.");
