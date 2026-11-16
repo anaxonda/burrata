@@ -81,6 +81,34 @@ export function virtualChapterTrack(parent: Track, candidate: Candidate, chapter
   } as RangedTrack;
 }
 
+/** A timeline heading is not an identified recording. Explicit chapter playback
+ * still uses virtualChapterTrack; passive playback actions require catalog proof. */
+export function identifiedChapterTrack(parent: Track, candidate: Candidate, chapter: Chapter): RangedTrack | null {
+  const suggestion = chapter.suggestedTrack;
+  if (chapter.suggestionConfidence !== "exact_unique_catalog_match" || !suggestion?.title?.trim() || !suggestion.artist?.trim()) return null;
+  const track = virtualChapterTrack(parent, candidate, chapter);
+  return track ? {...track, title: suggestion.title, artist: suggestion.artist} : null;
+}
+
+/** Keep generic chapter headings bound to their source for context lookups. */
+export function chapterContextTrack(track: Track): Track {
+  if (track.provider !== "chapter") return track;
+  const provenance = track.provenance as Record<string, unknown> | undefined;
+  const storedParent = provenance?.parentTrack as Track | undefined;
+  const candidate = provenance?.audioCandidate as Candidate | undefined;
+  const range = track.playbackRange;
+  const parent = storedParent && typeof storedParent.title === "string" && typeof storedParent.provider === "string" && typeof storedParent.id === "string" ? storedParent
+    : range?.parentTitle ? {...track, id: range.parentTrackId, title: range.parentTitle, artist: "", provider: candidate?.provider ?? "other", sourceUrl: range.sourceUrl, playbackRange: undefined} : null;
+  if (!parent) return track;
+  return parent;
+}
+
+export function chapterContextDetails(track: Track): {title: string; artist?: string; startSeconds: number; endSeconds: number} | undefined {
+  const range = track.playbackRange;
+  if (!range || !validChapterRange({startTime: range.startTime, endTime: range.endTime})) return undefined;
+  return {title: track.title, ...(track.artist.trim() ? {artist: track.artist} : {}), startSeconds: range.startTime, endSeconds: range.endTime};
+}
+
 export function chapterAbsolutePosition(track: Track, relativePosition: number): number {
   const range = (track as RangedTrack).playbackRange;
   if (!range) return Math.max(0, relativePosition);

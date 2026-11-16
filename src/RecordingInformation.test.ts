@@ -8,12 +8,27 @@ import RecordingInformation from "./RecordingInformation.svelte";
 import RecordingInformationHarness from "./test-harnesses/RecordingInformationHarness.svelte";
 import type { Track } from "./lib/types";
 import type { RecordingCatalogInfo } from "./lib/recording-information";
+import { virtualChapterTrack } from "./lib/chapters";
+import type { Candidate } from "./lib/types";
 const apiCall = vi.hoisted(() => vi.fn());
 vi.mock("./lib/api", () => ({call: apiCall}));
 const track: Track = {id:"radio-song",provider:"radio_song",providerId:"one",sourceUrl:"",title:"Love Like This",artist:"Faith Evans",favorite:false,provenance:{}};
 const recording: RecordingCatalogInfo = {provider:"musicbrainz",id:"recording",title:track.title,artist:track.artist,version:null,firstReleaseDate:"1998",durationSeconds:240,isrcs:[],genres:["R&B"],sourceUrl:"",recordingArtist:{name:track.artist,artist:{provider:"musicbrainz",id:"artist"}},releases:[{provider:"musicbrainz",id:"album",title:"Keep the Faith",date:"1998",country:"US",sourceUrl:""}]};
 let instance: ReturnType<typeof mount> | undefined;
 afterEach(async()=>{if(instance){await unmount(instance);instance=undefined;}document.body.innerHTML="";});
+it("binds an unverified chapter AI lookup to the parent set title and public YouTube source",async()=>{
+ apiCall.mockReset().mockImplementation(async(_command:string,args:{request:{requestId:string}})=>({requestId:args.request.requestId,identity:"opaque",answer:"Set context",model:"model",provider:"openaiCompatible"}));
+ const source:Track={...track,id:"youtube:644UU55eyzk",provider:"youtube",title:"Frankie Knuckles | Boiler Room: NYC",artist:"",sourceUrl:"https://www.youtube.com/watch?v=644UU55eyzk"};
+ const candidate={provider:"youtube",url:source.sourceUrl,title:source.title,durationSeconds:3981} as Candidate;
+ const chapter=virtualChapterTrack(source,candidate,{id:"intro",title:"Introduction and tribute",startTime:0,endTime:114,confidence:"source_metadata_unverified"})!;
+ instance=mount(RecordingInformation,{target:document.body,props:{track:source,contextTargets:[{track:chapter,label:"Current item",targetKind:"song"},{track:source,label:"Playing source",targetKind:"set"}],contextLookupConfigured:true,loadRecording:async()=>({resolution:"unresolved",recording:null,candidates:[]})}});
+ await tick();await tick();
+ expect(apiCall).not.toHaveBeenCalled();
+ (document.querySelector(".context-action") as HTMLButtonElement).click();await tick();await tick();
+ expect(apiCall.mock.calls[0][1].request).toMatchObject({title:source.title,sourceUrl:source.sourceUrl,sourceKind:"youtube",targetKind:"auto",chapter:{title:"Introduction and tribute",startSeconds:0,endSeconds:114}});
+ expect(document.querySelector(".context-result strong")?.textContent).toContain(source.title);
+ expect(document.querySelector(".context-result strong")?.textContent).toContain("Chapter: Introduction and tribute");
+});
 it("routes discovered artist and album links without changing the saved track",async()=>{
  const onArtist=vi.fn(),onRelease=vi.fn(); const before=JSON.stringify(track);
  instance=mount(RecordingInformation,{target:document.body,props:{track,loadRecording:async()=>({resolution:"exact_isrc",recording,candidates:[]}),onArtist,onRelease}});

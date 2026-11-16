@@ -3,6 +3,7 @@
   import { untrack } from "svelte";
   import { call } from "./lib/api";
   import { plainTextMarkdown } from "./lib/plain-text-markdown";
+  import { chapterContextTrack, chapterContextDetails } from "./lib/chapters";
   import type { Track } from "./lib/types";
   import type { ArtistRef } from "./lib/artist-types";
   import type { RecordingInformationResult, RecordingCatalogInfo, RecordingReleaseInfo } from "./lib/recording-information";
@@ -54,11 +55,12 @@
     return {track, targetKind: kind, label: kind === "set" ? "This DJ set" : kind === "concert" ? "This concert" : "This song"};
   });
   const visibleContextTargets = $derived.by(() => {
-    if (!contextTargets?.length) return [inferredContextTarget];
+    const targets = contextTargets?.length ? contextTargets : [inferredContextTarget];
     // Prefer the active detected song; otherwise use the first meaningful active target.
-    return [contextTargets.find(item => item.targetKind === "song") ?? contextTargets[0]];
+    const target = targets.find(item => item.targetKind === "song") ?? targets[0];
+    return [{...target, track: chapterContextTrack(target.track), chapter: chapterContextDetails(target.track)}];
   });
-  const contextScope = $derived(JSON.stringify([contextLookupConfigured, contextLookupRevision, visibleContextTargets.map(item => [trackTargetKey(item.track, item.targetKind), item.label])]));
+  const contextScope = $derived(JSON.stringify([contextLookupConfigured, contextLookupRevision, visibleContextTargets.map(item => [trackTargetKey(item.track, item.targetKind), item.label, item.chapter])]));
   $effect(() => {
     contextScope;
     contextGeneration++;
@@ -116,7 +118,7 @@
         && ![".local", ".internal", ".localhost"].some(suffix => host.endsWith(suffix));
     } catch { return false; }
   }
-  async function lookupContext(target: ContextTarget) {
+  async function lookupContext(target: (typeof visibleContextTargets)[number]) {
     if (!contextLookupConfigured || contextPending) return;
     const targetTrack = target.track;
     const title = boundedText(targetTrack.title, 512);
@@ -138,13 +140,14 @@
         version: boundedText(targetTrack.version, 256),
         sourceKind: sourceKind(targetTrack),
         targetKind: "auto",
+        ...(target.chapter ? {chapter: {...target.chapter, title: boundedText(target.chapter.title,512), artist: boundedText(target.chapter.artist,256)}} : {}),
         date: boundedText(targetTrack.recordingDate, 32),
         ...(contextSourceUrl(targetTrack) ? {sourceUrl:contextSourceUrl(targetTrack)} : {}),
       }});
       if (generation !== contextGeneration || targetKey !== trackTargetKey(target.track, target.targetKind) || response.requestId !== requestId) return;
       contextAnswer = plainTextMarkdown(response.answer);
       contextSources = (response.sources ?? []).filter(source => typeof source.title === "string" && !!source.title.trim() && isPublicCitationUrl(source.url)).slice(0,8);
-      contextAnswerLabel = `Context for ${[targetTrack.title,targetTrack.artist].filter(Boolean).join(" — ")}`;
+      contextAnswerLabel = `Context for ${[targetTrack.title,targetTrack.artist].filter(Boolean).join(" — ")}${target.chapter ? ` · Chapter: ${target.chapter.title}` : ""}`;
     } catch (failure) {
       if (generation === contextGeneration && targetKey === trackTargetKey(target.track, target.targetKind)) contextError = String(failure).includes("source-backed") ? "No reliable source information was found for this item." : "Could not look up context. Check the configured AI connection and try again.";
     } finally {

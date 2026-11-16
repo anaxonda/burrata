@@ -230,7 +230,7 @@ import { ObservedWaveformCache, prepareObservedWaveformBinding, type PreparedObs
   import { searchUiControlExpired } from "./lib/search-ui-control-revision";
   import AutotagSetup from "./AutotagSetup.svelte";
   import AutotagReview, { type AutotagJob } from "./AutotagReview.svelte";
-  import { virtualChapterTrack, chapterPlaybackRange, chapterForRange, chapterAbsolutePosition, chapterRelativePosition, isPlaceholderChapterTitle } from "./lib/chapters";
+  import { virtualChapterTrack, identifiedChapterTrack, chapterPlaybackRange, chapterForRange, chapterAbsolutePosition, chapterRelativePosition, isPlaceholderChapterTitle } from "./lib/chapters";
   import ReleaseSetup from "./ReleaseSetup.svelte";
   import SettingsNavigation from "./SettingsNavigation.svelte";
   import PlaylistSettings from "./PlaylistSettings.svelte";
@@ -3863,8 +3863,9 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     return source ? `${preview.isExcerpt ? "Preview from" : "Streaming from"} ${source}` : "Streaming audio";
   });
   const activeRecordingMatch = $derived(((nativeSnapshot?.candidate?.sourceMetadata?.matching as Preview["matching"] | undefined) ?? nativeSnapshot?.quality?.matching));
-  const playingTitle = $derived(playingTrack?.playbackRange ? playingTrack.title : activeChapter?.title ?? playingTrack?.title ?? preview?.title ?? "Nothing playing");
-  const playbackActionTrack = $derived.by(()=>{const chapter=(nativeCanonicalChapter);const track=currentRadioSong ?? (playingTrack && !playingTrack.playbackRange && playingCandidate && chapter ? virtualChapterTrack(playingTrack,playingCandidate,chapter) : null) ?? playingTrack;return track?{...track,favorite:favoriteTrackIds.includes(track.id)||track.favorite}:null;});
+  const identifiedPlayingChapter = $derived(playingTrack && !playingTrack.playbackRange && playingCandidate && nativeCanonicalChapter ? identifiedChapterTrack(playingTrack,playingCandidate,nativeCanonicalChapter) : null);
+  const playingTitle = $derived(identifiedPlayingChapter?.title ?? playingTrack?.title ?? preview?.title ?? "Nothing playing");
+  const playbackActionTrack = $derived.by(()=>{const track=currentRadioSong ?? identifiedPlayingChapter ?? playingTrack;return track?{...track,favorite:favoriteTrackIds.includes(track.id)||track.favorite}:null;});
   const expandedPlayingTrack = $derived.by(() => {
     const track = playbackActionTrack;
     const match = activeRecordingMatch;
@@ -8592,7 +8593,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       </div>
       <div class="player-track-copy">
         <strong class="player-track-title">{activeRecordingMatch?.assessment.relationship === "alternative" ? activeRecordingMatch.resolvedRecording.title : playingTitle}</strong>
-        <small class="player-track-artist">{activeRecordingMatch?.assessment.relationship === "alternative" ? activeRecordingMatch.resolvedRecording.artist ?? "Alternative performer" : playingTrack?.playbackRange?.parentTitle ?? (activeChapter ? playingTrack?.title : playingTrack?.artist) ?? (playingTrack ? "Artist unknown" : "Select a recording")}</small>
+        <small class="player-track-artist">{activeRecordingMatch?.assessment.relationship === "alternative" ? activeRecordingMatch.resolvedRecording.artist ?? "Alternative performer" : playingTrack?.playbackRange?.parentTitle ?? identifiedPlayingChapter?.artist ?? (activeChapter ? `Chapter: ${activeChapter.title}` : playingTrack?.artist) ?? (playingTrack ? "Artist unknown" : "Select a recording")}</small>
         <AlternativeSourceNotice matching={activeRecordingMatch} requestedTitle={activeRecordingMatch?.requestedRecording?.title ?? playingTrack?.title} requestedArtist={activeRecordingMatch?.requestedRecording?.artist ?? playingTrack?.artist} />
         <small class="player-status" role={liveRadioPlayback ? undefined : "status"} title={previewStatus}>
           {#if liveRadioPlayback}

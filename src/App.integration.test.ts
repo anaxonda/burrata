@@ -8328,6 +8328,16 @@ describe("native playback frontend", () => {
     expect(mocks.call.mock.calls.some(([name,args])=>name==="playback_command" && (args as {command?:{action?:string}})?.command?.action==="resume")).toBe(false);
   });
 
+  it.each(["paused", "failed", "ended", "idle"] as const)("clears the playbar loading ring when buffering becomes %s", async status => {
+    mountNative(makeNativeSnapshot({revision:1,status:"buffering",paused:false}));
+    await settle();
+    expect(document.querySelector("footer.player .play-button-loading-ring")).not.toBeNull();
+    emitNative(makeNativeSnapshot({revision:2,status,paused:true}));
+    await settle();
+    expect(document.querySelector("footer.player .play-button-loading-ring")).toBeNull();
+    expect(document.querySelector("footer.player .play-button")?.getAttribute("aria-busy")).toBe("false");
+  });
+
   it("retries the active duplicate occurrence without rebuilding its queue or resetting its position", async () => {
     const duplicateQueue = [savedTrack, secondTrack, savedTrack];
     mountNative(makeNativeSnapshot({
@@ -9519,13 +9529,13 @@ describe("native playback frontend", () => {
     expect(mocks.call).toHaveBeenCalledWith("playback_command",{command:expect.objectContaining({action:"play",tracks:[savedTrack,changedTrack],index:1,candidate:undefined,position:0})});
   });
 
-  it.each(["<Untitled Chapter 1>", "Opening song"])("handles a native source chapter titled %s", async (title) => {
+  it.each(["<Untitled Chapter 1>", "Opening song", "Introduction and tribute"])("handles a native source chapter titled %s", async (title) => {
     const track = {...savedTrack,title:"Gotta Be Cool",artist:"Rafael, Luch"};
     const candidate = {...youtubeCandidate(track),chapters:[{id:"source-chapter",title,startTime:0,endTime:418,confidence:"source_metadata_unverified"}]};
     mountNative(makeNativeSnapshot({revision:4,generation:9,status:"playing",trackId:track.id,track,queue:[track],currentIndex:0,paused:false,position:168,duration:418,candidate,chapter:{title,startSeconds:0,endSeconds:418}}));
     await settle();
-    expect(document.querySelector(".player-track-title")?.textContent).toContain(title.startsWith("<") ? "Gotta Be Cool" : "Opening song");
-    expect(document.querySelector(".player-track-artist")?.textContent).toContain(title.startsWith("<") ? "Rafael, Luch" : "Gotta Be Cool");
+    expect(document.querySelector(".player-track-title")?.textContent).toContain("Gotta Be Cool");
+    expect(document.querySelector(".player-track-artist")?.textContent).toContain(title.startsWith("<") ? "Rafael, Luch" : `Chapter: ${title}`);
   });
 
   it("preserves cached cover art through progress updates and accepts an upgraded native cache file", async () => {
