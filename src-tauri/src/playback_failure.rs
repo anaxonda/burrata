@@ -140,7 +140,8 @@ pub fn classify(reason: &str) -> PlaybackFailure {
     let message = reason.trim().to_lowercase();
     let status = http_status(&message);
     if message == "audio extraction helper could not start"
-        || extractor_diagnostic_reason(reason) == "helper_unpack_failed"
+        || (message.contains("failed to extract")
+            && (message.contains("[pyi-") || message.contains("pyinstaller")))
     {
         // The helper failed before inspecting the recording. Preserve that
         // distinction through safe error redaction and queue classification.
