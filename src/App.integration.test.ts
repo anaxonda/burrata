@@ -2988,6 +2988,7 @@ describe("saved recording navigation", () => {
       ...collectionTrack,
       id: "duplicate-occurrence",
       title: "Pinned source",
+      artworkUrl: "https://example.test/playlist-cover.jpg",
       provider: "youtube" as const,
       providerId: "pinned-video-id",
       sourceUrl: "https://youtube.com/watch?v=pinned-video-id",
@@ -3009,6 +3010,11 @@ describe("saved recording navigation", () => {
     await settle();
     collectionCard().click();
     await settle();
+
+    const header = document.querySelector<HTMLElement>("header.playlist-header")!;
+    expect(header.children[1]?.querySelector("h1")?.textContent).toContain("Saved Collection");
+    expect(header.querySelector(".playlist-ambient")).not.toBeNull();
+    expect(header.lastElementChild?.classList.contains("playlist-ambient")).toBe(true);
 
     const sort = document.querySelector<HTMLSelectElement>('[aria-label="Sort tracks"]')!;
     sort.value = "title";

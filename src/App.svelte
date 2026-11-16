@@ -7587,7 +7587,6 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     activeJobs={jobs.filter((job) => !["completed", "failed", "cancelled", "waiting_for_source", "interrupted"].includes(job.state)).length} />
   <main inert={showFullNowPlaying}>
     <header class:playlist-header={playlistHeroVisible}>
-      {#if playlistHeroVisible && playlistHeroArtwork[0]}<img class="playlist-ambient" src={playlistHeroArtwork[0]} alt="" aria-hidden="true" />{/if}
       <div class="navigation-controls"><button aria-label="Go back" disabled={restoringRoute || !backRoutes.length} onclick={() => void travelRoute("back")}>←</button><button aria-label="Go forward" disabled={restoringRoute || !forwardRoutes.length} onclick={() => void travelRoute("forward")}>→</button></div>
       <div class:playlist-identity={playlistHeroVisible}>
         {#if playlistHeroVisible}<div class="playlist-hero-cover" aria-hidden="true">
@@ -7634,6 +7633,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
           onclick={() => void createNewPlaylist()}>＋ New playlist</button
         >{/if}
       </div>
+      {#if playlistHeroVisible && playlistHeroArtwork[0]}<img class="playlist-ambient" src={playlistHeroArtwork[0]} alt="" aria-hidden="true" />{/if}
     </header>
     {#if backupHydrationReady}<SoulseekWishlist startupStorage={backupStartupPersistence} visible={showSavedSoulseekSearches} onClose={()=>showSavedSoulseekSearches=false} onReview={async(value)=>{showSavedSoulseekSearches=false;await navigate("search");query=value;catalogSearchSource="soulseek";catalogSearchKind="tracks";catalogSearchRequest++;}} />{/if}
     {#if !desktop()}<div class="banner">
