@@ -80,7 +80,27 @@ fn runtime_window(duration: f64) -> (f64, f64) {
     (duration - margin, duration + margin)
 }
 
-fn candidate(asset: &LocalAsset) -> Candidate {
+fn candidate(asset: &LocalAsset) -> Option<Candidate> {
+    // Prefer the acquired source's retained observations over tags copied from
+    // a requested catalog entry. They remain tied to this registered file.
+    if let Some(raw) = asset
+        .track
+        .provenance
+        .get("audioCandidate")
+        .filter(|v| !v.is_null())
+    {
+        let mut candidate: Candidate = serde_json::from_value(raw.clone()).ok()?;
+        candidate.duration_seconds = asset.duration_seconds;
+        candidate.permission = "owned".into();
+        if let Some(metadata) = candidate
+            .source_metadata
+            .as_mut()
+            .and_then(|v| v.as_object_mut())
+        {
+            metadata.insert("duration".into(), serde_json::json!(asset.duration_seconds));
+        }
+        return Some(candidate);
+    }
     let t = &asset.track;
     let title = t
         .version
@@ -88,8 +108,8 @@ fn candidate(asset: &LocalAsset) -> Candidate {
         .filter(|v| !v.trim().is_empty())
         .map(|v| format!("{} ({v})", t.title))
         .unwrap_or_else(|| t.title.clone());
-    let duration = asset.duration_seconds.or(t.duration_seconds);
-    Candidate {
+    let duration = asset.duration_seconds;
+    Some(Candidate {
         id: format!("local:{}", asset.id),
         provider: "local".into(),
         url: format!("local:{}", asset.id),
@@ -100,14 +120,15 @@ fn candidate(asset: &LocalAsset) -> Candidate {
         source_metadata: Some(serde_json::json!({"track":title,"artist":t.artist,
             "duration":duration,"isrc":t.isrc,"sourceMetadataOrigin":"registeredLocalAsset"})),
         ..Default::default()
-    }
+    })
 }
 
 pub(super) fn accepts(request: &Track, asset: &LocalAsset, settings: &Settings) -> bool {
     if matches!(
         request.provider.as_str(),
         "local" | "radio" | "youtube" | "soundcloud" | "import"
-    ) || request.playback_range.is_some()
+    ) || request.provenance.get("portablePlaybackSource").is_some()
+        || request.playback_range.is_some()
         || crate::playback_sources::source_resolution_is_pinned(request, false, settings, false)
         || asset.track.playback_range.is_some()
         || asset.track.provenance["automaticExcerpt"].is_object()
@@ -117,14 +138,16 @@ pub(super) fn accepts(request: &Track, asset: &LocalAsset, settings: &Settings) 
             .is_some_and(|d| d.is_finite() && d > 0.)
         || !asset
             .duration_seconds
-            .or(asset.track.duration_seconds)
             .is_some_and(|d| d.is_finite() && d > 0.)
     {
         return false;
     }
+    let Some(candidate) = candidate(asset) else {
+        return false;
+    };
     let assessment = crate::recording_match::assess_with_options(
         request,
-        &candidate(asset),
+        &candidate,
         settings.matching_level,
         MatchStage::Resolved,
         &settings.flexible_matching,

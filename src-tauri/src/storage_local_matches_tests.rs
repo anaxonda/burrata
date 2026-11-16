@@ -426,3 +426,135 @@ fn retained_cross_file_playback_hint_is_rechecked_for_title_version_mode_and_sou
     );
     assert!(prepared.asset_id.is_none());
 }
+
+#[test]
+fn reviewed_portable_source_disables_cross_file_hydration_and_preflight_reuse() {
+    let (dir, store) = db();
+    let mut requested = request();
+    requested.provenance["portablePlaybackSource"] = serde_json::json!({
+        "provider": "monochrome",
+        "sourceId": "reviewed-source",
+        "matchingLevel": "exact",
+        "sourceHash": "a".repeat(64)
+    });
+    store.save_track(&requested).unwrap();
+    add_matching_asset(&dir, &store, "portable-locked-file");
+
+    let loaded = store.get_track(&requested.id).unwrap().unwrap();
+    assert!(loaded.asset_id.is_none());
+    assert!(loaded.local_path.is_none());
+
+    let mut queued_with_retained_file = requested;
+    queued_with_retained_file.asset_id = Some("portable-locked-file".into());
+    queued_with_retained_file.local_path = Some(
+        dir.path()
+            .join("portable-locked-file.flac")
+            .to_string_lossy()
+            .into_owned(),
+    );
+    queued_with_retained_file.local_availability = "available".into();
+    let prepared = crate::playback_sources::reconcile_stale_local_asset(
+        &store,
+        &queued_with_retained_file,
+        true,
+    )
+    .unwrap();
+    assert!(prepared.asset_id.is_none());
+    assert!(prepared.local_path.is_none());
+}
+
+#[test]
+fn retained_audio_candidate_mismatch_overrides_matching_local_file_tags() {
+    let (dir, store) = db();
+    let requested = request();
+    store.save_track(&requested).unwrap();
+    let path = dir.path().join("tag-match-wrong-source.flac");
+    let mut tagged = asset(
+        "tag-match-wrong-source",
+        "Baba",
+        Some("Extended Mix"),
+        "Amadou & Mariam",
+        Some(294.2405),
+        None,
+        &path,
+        true,
+    );
+    let observed_source = crate::models::Candidate {
+        id: "youtube:wrong-recording".into(),
+        provider: "youtube".into(),
+        url: "https://www.youtube.com/watch?v=wrong-recording".into(),
+        title: "Different Song".into(),
+        uploader: Some("Different Artist".into()),
+        duration_seconds: Some(294.2405),
+        source_metadata: Some(serde_json::json!({
+            "track": "Different Song",
+            "artist": "Different Artist",
+            "artists": ["Different Artist"],
+            "artistCount": 1,
+            "duration": 294.2405,
+            "sourceMetadataOrigin": "ytDlpFullInfo"
+        })),
+        ..Default::default()
+    };
+    tagged.track.provenance["audioCandidate"] = serde_json::to_value(observed_source).unwrap();
+    store.save_asset(&tagged).unwrap();
+
+    let loaded = store.get_track(&requested.id).unwrap().unwrap();
+    assert!(
+        loaded.asset_id.is_none(),
+        "stale matching tags cannot override the retained source"
+    );
+    assert!(loaded.local_path.is_none());
+}
+
+#[test]
+fn cross_recording_match_requires_measured_asset_duration_but_canonical_file_does_not() {
+    let (dir, store) = db();
+    let requested = request();
+    store.save_track(&requested).unwrap();
+    let path = dir.path().join("unmeasured-cross-file.flac");
+    let mut unmeasured = asset(
+        "unmeasured-cross-file",
+        "Baba",
+        Some("Extended Mix"),
+        "Amadou & Mariam",
+        Some(294.2405),
+        None,
+        &path,
+        true,
+    );
+    unmeasured.duration_seconds = None;
+    assert!(unmeasured.track.duration_seconds.is_some());
+    store.save_asset(&unmeasured).unwrap();
+    let loaded = store.get_track(&requested.id).unwrap().unwrap();
+    assert!(loaded.asset_id.is_none());
+    assert!(loaded.local_path.is_none());
+
+    let (canonical_dir, canonical_store) = db();
+    let canonical = request();
+    canonical_store.save_track(&canonical).unwrap();
+    let canonical_path = canonical_dir.path().join("canonical-unmeasured.flac");
+    let mut own_asset = asset(
+        "canonical-unmeasured",
+        &canonical.title,
+        None,
+        &canonical.artist,
+        canonical.duration_seconds,
+        None,
+        &canonical_path,
+        true,
+    );
+    own_asset.recording_id = canonical.id.clone();
+    own_asset.track = canonical.clone();
+    own_asset.duration_seconds = None;
+    canonical_store.save_asset(&own_asset).unwrap();
+    let canonical_loaded = canonical_store.get_track(&canonical.id).unwrap().unwrap();
+    assert_eq!(
+        canonical_loaded.asset_id.as_deref(),
+        Some("canonical-unmeasured")
+    );
+    assert_eq!(
+        canonical_loaded.local_path.as_deref(),
+        Some(canonical_path.to_str().unwrap())
+    );
+}

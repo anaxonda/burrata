@@ -2212,8 +2212,13 @@ pub(crate) fn reconcile_stale_local_asset(
     if let Some(asset) = store.get_asset_by_path(path)? {
         let same_recording =
             store.recording_id(&incoming.id).ok().as_deref() == Some(asset.recording_id.as_str());
-        if !explicit_source
-            && !same_recording
+        let direct_local_choice = matches!(
+            incoming.provider.as_str(),
+            "local" | "upload" | "slsk" | "slskd"
+        ) || incoming.source_url.starts_with("file:")
+            || incoming.source_url.starts_with("local:");
+        if !same_recording
+            && !direct_local_choice
             && !crate::storage::local_asset_matches_request(incoming, &asset, &settings)
         {
             return Ok(without_stale_local_asset(incoming));
