@@ -560,3 +560,132 @@ fn spaced_artist_title_caption_is_inspectable_without_proving_missing_guest_cred
         MatchAction::Reject
     );
 }
+
+#[test]
+fn quoted_artist_title_captions_preserve_mode_and_length_permissions() {
+    let request = Track {
+        provider: "spotify".into(),
+        artist: "Artist".into(),
+        title: "Song (Versión Video)".into(),
+        duration_seconds: Some(200.),
+        ..Default::default()
+    };
+    let options = FlexibleMatchingOptions {
+        allow_other_releases: true,
+        allow_other_performances: true,
+        allow_other_mixes: true,
+        allow_other_artists: false,
+        allow_different_lengths: true,
+        max_shorter_by_seconds: 30,
+        max_longer_by_seconds: 30,
+        ..Default::default()
+    };
+    for title in [
+        "Artist \"Song\"",
+        "Artist “Song”",
+        "Artist 'Song'",
+        "Artist ‘Song’",
+    ] {
+        let candidate = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:abcdefghijk".into(),
+            title: title.into(),
+            duration_seconds: Some(180.),
+            source_metadata: Some(
+                json!({"provider":"youtube","resolvedProviderId":"abcdefghijk",
+                "sourceMetadataOrigin":"ytDlpFullInfo","duration":180.0,"channel":"Uploader"}),
+            ),
+            ..Default::default()
+        };
+        let flexible = assess_with_options(
+            &request,
+            &candidate,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &options,
+        );
+        assert_eq!(
+            flexible.dimensions.title,
+            crate::recording_match::Comparison::Agree,
+            "{title}: {flexible:?}"
+        );
+        assert_eq!(
+            flexible.dimensions.artists,
+            crate::recording_match::Comparison::Agree,
+            "{title}: {flexible:?}"
+        );
+        assert_eq!(
+            flexible.action,
+            MatchAction::Accept,
+            "{title}: {flexible:?}"
+        );
+        for mode in [MatchLevel::Exact, MatchLevel::Balanced] {
+            assert_ne!(
+                assess_with_options(&request, &candidate, mode, MatchStage::Resolved, &options)
+                    .action,
+                MatchAction::Accept
+            );
+        }
+        let mut prohibited = options;
+        prohibited.allow_other_mixes = false;
+        assert_ne!(
+            assess_with_options(
+                &request,
+                &candidate,
+                MatchLevel::Flexible,
+                MatchStage::Resolved,
+                &prohibited
+            )
+            .action,
+            MatchAction::Accept
+        );
+        for bad in [
+            "Other Artist \"Song\"",
+            "Artist \"Different Song\"",
+            "Artist \"Song",
+            "Artist \"Song \"Remix\"\"",
+        ] {
+            let mut wrong = candidate.clone();
+            wrong.title = bad.into();
+            assert_ne!(
+                assess_with_options(
+                    &request,
+                    &wrong,
+                    MatchLevel::Flexible,
+                    MatchStage::Resolved,
+                    &options
+                )
+                .action,
+                MatchAction::Accept,
+                "{bad}"
+            );
+        }
+        let plain = Track {
+            title: "Song".into(),
+            ..request.clone()
+        };
+        let mut live = candidate.clone();
+        live.title = "Artist \"Song (Live)\"".into();
+        live.duration_seconds = Some(200.);
+        live.source_metadata.as_mut().unwrap()["duration"] = json!(200.);
+        assert_ne!(
+            assess(&plain, &live, MatchLevel::Balanced, MatchStage::Resolved).action,
+            MatchAction::Accept,
+            "Quoted presentation must not hide the live edition"
+        );
+        let mut too_short = candidate.clone();
+        too_short.duration_seconds = Some(150.);
+        too_short.source_metadata.as_mut().unwrap()["duration"] = json!(150.);
+        assert_ne!(
+            assess_with_options(
+                &request,
+                &too_short,
+                MatchLevel::Flexible,
+                MatchStage::Resolved,
+                &options
+            )
+            .action,
+            MatchAction::Accept
+        );
+    }
+}

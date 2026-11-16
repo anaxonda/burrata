@@ -11,9 +11,36 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) const EVALUATOR_VERSION: &str = "38";
+pub(crate) const EVALUATOR_VERSION: &str = "39";
 // Repeated whitespace is also a common uploader artist/title separator.
 const CAPTION_SEPARATORS: [&str; 5] = [" - ", " – ", " — ", " | ", "  "];
+
+/// Caption boundaries are presentation evidence, never a recording identifier.
+/// Quoted titles must be complete and balanced; dangling or nested quotes stay
+/// literal. Keep legacy separator order and first/all-occurrence behavior.
+fn caption_splits(raw: &str, all_occurrences: bool) -> impl Iterator<Item = (&str, &str)> {
+    let legacy = CAPTION_SEPARATORS.into_iter().flat_map(move |separator| {
+        raw.match_indices(separator)
+            .take(if all_occurrences { usize::MAX } else { 1 })
+            .map(move |(index, _)| (&raw[..index], &raw[index + separator.len()..]))
+    });
+    let trimmed = raw.trim_end();
+    let quoted = [(" \"", '"'), (" “", '”'), (" ‘", '’'), (" '", '\'')]
+        .into_iter()
+        .filter_map(move |(marker, close)| {
+            let (artist, suffix) = trimmed.split_once(marker)?;
+            let title = suffix.strip_suffix(close)?;
+            let open = marker.chars().last()?;
+            (!artist.trim().is_empty()
+                && !title.trim().is_empty()
+                && !title.contains(open)
+                && !title.contains(close))
+            .then_some((artist, title))
+        });
+    legacy
+        .chain(quoted)
+        .take(if raw.len() > 2048 { 0 } else { usize::MAX })
+}
 
 /// Independently selected categories of alternatives for Flexible matching.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -536,22 +563,20 @@ fn caption_features_for_requested_title(
     if wanted.is_empty() || raw.len() > 2048 {
         return Vec::new();
     }
-    for separator in CAPTION_SEPARATORS {
-        for (index, _) in raw.match_indices(separator) {
-            let prefix = raw[..index].trim();
-            let suffix = raw[index + separator.len()..].trim();
-            if title_key(&caption_base_without_features(suffix)) == wanted {
-                let prefix_is_expected_whole_credit = expected_credits
-                    .iter()
-                    .any(|credit| norm_artist(credit) == norm_artist(prefix));
-                let mut features = if prefix_is_expected_whole_credit {
-                    Vec::new()
-                } else {
-                    caption_feature_credits(prefix)
-                };
-                features.extend(caption_feature_credits(suffix));
-                return features;
-            }
+    for (prefix, suffix) in caption_splits(raw, true) {
+        let prefix = prefix.trim();
+        let suffix = suffix.trim();
+        if title_key(&caption_base_without_features(suffix)) == wanted {
+            let prefix_is_expected_whole_credit = expected_credits
+                .iter()
+                .any(|credit| norm_artist(credit) == norm_artist(prefix));
+            let mut features = if prefix_is_expected_whole_credit {
+                Vec::new()
+            } else {
+                caption_feature_credits(prefix)
+            };
+            features.extend(caption_feature_credits(suffix));
+            return features;
         }
     }
     guest_from_title(raw)
@@ -1635,21 +1660,17 @@ fn caption_track_title(raw: &str, requested: &str, caption: &str, label: Option<
         return raw.to_owned();
     }
     for source in [raw, caption] {
-        for separator in CAPTION_SEPARATORS {
-            for (index, _) in source.match_indices(separator) {
-                let suffix = &source[index + separator.len()..];
-                let cleaned = suffix.trim();
-                if title_key(cleaned) == title_key(requested) {
-                    return cleaned.to_owned();
-                }
-                if let Some((without_label, tail)) = cleaned.rsplit_once(" [") {
-                    let known = label.is_some_and(|known| {
-                        tail.ends_with(']')
-                            && label_key(&tail[..tail.len() - 1]) == label_key(known)
-                    });
-                    if known && title_key(without_label.trim()) == title_key(requested) {
-                        return without_label.trim().to_owned();
-                    }
+        for (_, suffix) in caption_splits(source, true) {
+            let cleaned = suffix.trim();
+            if title_key(cleaned) == title_key(requested) {
+                return cleaned.to_owned();
+            }
+            if let Some((without_label, tail)) = cleaned.rsplit_once(" [") {
+                let known = label.is_some_and(|known| {
+                    tail.ends_with(']') && label_key(&tail[..tail.len() - 1]) == label_key(known)
+                });
+                if known && title_key(without_label.trim()) == title_key(requested) {
+                    return without_label.trim().to_owned();
                 }
             }
         }
@@ -1662,96 +1683,94 @@ fn caption_artist_names(
     guests: &[String],
     expected_override: Option<&[String]>,
 ) -> Vec<String> {
-    for separator in CAPTION_SEPARATORS {
-        if let Some((prefix, suffix)) = caption.split_once(separator) {
-            let expected_names = expected_override
-                .map(|credits| credits.to_vec())
-                .unwrap_or_else(|| requested_credit_parts(expected_artist, guests));
-            // A bare feature phrase in the artist field can be an atomic act
-            // name (for example, "Band Featuring Friends"). Preserve that
-            // whole name when no separately verified/structured credit list
-            // was supplied; otherwise a caption can split the name into a
-            // false main-artist/guest pair.
-            let expected_is_atomic_feature_name = expected_override.is_none()
-                && guests.is_empty()
-                && parse_title(expected_artist).featured_credit.is_some();
-            let expected = if expected_is_atomic_feature_name {
-                vec![norm_artist(expected_artist)]
-            } else {
-                expected_names
-                    .into_iter()
-                    .map(|name| norm_artist(&name))
-                    .collect::<Vec<_>>()
-            };
-            // A structured expected credit that matches the whole caption
-            // prefix is atomic, even if its proper name contains words such
-            // as "Featuring" or "with".
-            let prefix_is_expected_whole_credit = expected_override
-                .map(|credits| {
-                    credits.iter().any(|credit| {
-                        !credit.trim().is_empty() && norm_artist(prefix) == norm_artist(credit)
-                    })
+    for (prefix, suffix) in caption_splits(caption, false) {
+        let expected_names = expected_override
+            .map(|credits| credits.to_vec())
+            .unwrap_or_else(|| requested_credit_parts(expected_artist, guests));
+        // A bare feature phrase in the artist field can be an atomic act
+        // name (for example, "Band Featuring Friends"). Preserve that
+        // whole name when no separately verified/structured credit list
+        // was supplied; otherwise a caption can split the name into a
+        // false main-artist/guest pair.
+        let expected_is_atomic_feature_name = expected_override.is_none()
+            && guests.is_empty()
+            && parse_title(expected_artist).featured_credit.is_some();
+        let expected = if expected_is_atomic_feature_name {
+            vec![norm_artist(expected_artist)]
+        } else {
+            expected_names
+                .into_iter()
+                .map(|name| norm_artist(&name))
+                .collect::<Vec<_>>()
+        };
+        // A structured expected credit that matches the whole caption
+        // prefix is atomic, even if its proper name contains words such
+        // as "Featuring" or "with".
+        let prefix_is_expected_whole_credit = expected_override
+            .map(|credits| {
+                credits.iter().any(|credit| {
+                    !credit.trim().is_empty() && norm_artist(prefix) == norm_artist(credit)
                 })
-                .unwrap_or_else(|| {
-                    guests.is_empty()
-                        && !expected_artist.trim().is_empty()
-                        && norm_artist(prefix) == norm_artist(expected_artist)
-                });
-            let mut featured = if prefix_is_expected_whole_credit {
-                Vec::new()
-            } else {
-                caption_feature_credits(prefix)
-            };
-            featured.extend(caption_feature_credits(suffix));
-            let suffix = base_title(suffix);
-            if !featured.is_empty() {
-                let parts = |credit: &str| {
-                    // Preserve an exact whole-act spelling before interpreting
-                    // standalone collaboration separators, including x and ×.
-                    if expected.contains(&norm_artist(credit)) {
-                        return vec![credit.trim().to_owned()];
-                    }
-                    split_credits(
-                        &credit
-                            .replace(" & ", ",")
-                            .replace(" and ", ",")
-                            .replace(" x ", ",")
-                            .replace(" X ", ",")
-                            .replace(" × ", ","),
-                    )
-                };
-                let main_prefix = caption_base_without_features(prefix);
-                let mut combined = parts(&main_prefix);
-                combined.extend(featured.iter().flat_map(|guest| parts(guest)));
-                let mut keys = std::collections::HashSet::new();
-                combined.retain(|credit| keys.insert(norm_artist(credit)));
-                let expected = expected
-                    .into_iter()
-                    .collect::<std::collections::HashSet<_>>();
-                if !suffix.is_empty()
-                    && !keys.contains("")
-                    && keys.len() == expected.len()
-                    && keys.iter().all(|credit| expected.contains(credit))
-                {
-                    return combined;
+            })
+            .unwrap_or_else(|| {
+                guests.is_empty()
+                    && !expected_artist.trim().is_empty()
+                    && norm_artist(prefix) == norm_artist(expected_artist)
+            });
+        let mut featured = if prefix_is_expected_whole_credit {
+            Vec::new()
+        } else {
+            caption_feature_credits(prefix)
+        };
+        featured.extend(caption_feature_credits(suffix));
+        let suffix = base_title(suffix);
+        if !featured.is_empty() {
+            let parts = |credit: &str| {
+                // Preserve an exact whole-act spelling before interpreting
+                // standalone collaboration separators, including x and ×.
+                if expected.contains(&norm_artist(credit)) {
+                    return vec![credit.trim().to_owned()];
                 }
-                // An explicit extra/wrong guest cannot be discarded in favor
-                // of a partial prefix that happens to name the main performer.
-                return Vec::new();
+                split_credits(
+                    &credit
+                        .replace(" & ", ",")
+                        .replace(" and ", ",")
+                        .replace(" x ", ",")
+                        .replace(" X ", ",")
+                        .replace(" × ", ","),
+                )
+            };
+            let main_prefix = caption_base_without_features(prefix);
+            let mut combined = parts(&main_prefix);
+            combined.extend(featured.iter().flat_map(|guest| parts(guest)));
+            let mut keys = std::collections::HashSet::new();
+            combined.retain(|credit| keys.insert(norm_artist(credit)));
+            let expected = expected
+                .into_iter()
+                .collect::<std::collections::HashSet<_>>();
+            if !suffix.is_empty()
+                && !keys.contains("")
+                && keys.len() == expected.len()
+                && keys.iter().all(|credit| expected.contains(credit))
+            {
+                return combined;
             }
-            let prefix_credits = split_credits(&prefix.replace(" & ", ",").replace(" and ", ","));
-            let credits_match = norm_artist(prefix) == norm_artist(expected_artist)
-                || (prefix_credits.len() > 1
-                    && prefix_credits
-                        .iter()
-                        .map(|p| norm_artist(p))
-                        .all(|p| expected.contains(&p))
-                    && expected
-                        .iter()
-                        .all(|p| prefix_credits.iter().any(|c| norm_artist(c) == *p)));
-            if credits_match && !suffix.is_empty() {
-                return vec![prefix.trim().to_owned()];
-            }
+            // An explicit extra/wrong guest cannot be discarded in favor
+            // of a partial prefix that happens to name the main performer.
+            return Vec::new();
+        }
+        let prefix_credits = split_credits(&prefix.replace(" & ", ",").replace(" and ", ","));
+        let credits_match = norm_artist(prefix) == norm_artist(expected_artist)
+            || (prefix_credits.len() > 1
+                && prefix_credits
+                    .iter()
+                    .map(|p| norm_artist(p))
+                    .all(|p| expected.contains(&p))
+                && expected
+                    .iter()
+                    .all(|p| prefix_credits.iter().any(|c| norm_artist(c) == *p)));
+        if credits_match && !suffix.is_empty() {
+            return vec![prefix.trim().to_owned()];
         }
     }
     Vec::new()
@@ -1780,22 +1799,20 @@ fn request_scoped_collaboration_caption(
     {
         return Vec::new();
     }
-    for separator in CAPTION_SEPARATORS {
-        if let Some((prefix, suffix)) = candidate.title.split_once(separator) {
-            if title_key(&base_title(suffix)) != title_key(requested_title) {
-                continue;
-            }
-            let credits = split_credits(
-                &prefix
-                    .replace('/', ",")
-                    .replace(" & ", ",")
-                    .replace(" and ", ","),
-            );
-            if credits.len() == expected.len()
-                && search_folded_covers_requested_credits(expected, &credits)
-            {
-                return credits;
-            }
+    for (prefix, suffix) in caption_splits(&candidate.title, false) {
+        if title_key(&base_title(suffix)) != title_key(requested_title) {
+            continue;
+        }
+        let credits = split_credits(
+            &prefix
+                .replace('/', ",")
+                .replace(" & ", ",")
+                .replace(" and ", ","),
+        );
+        if credits.len() == expected.len()
+            && search_folded_covers_requested_credits(expected, &credits)
+        {
+            return credits;
         }
     }
     Vec::new()
@@ -1928,35 +1945,33 @@ fn request_corroborated_caption_orientation(
         return None;
     }
     let mut matches = Vec::new();
-    for separator in CAPTION_SEPARATORS {
-        for (index, _) in caption.match_indices(separator) {
-            let left = caption[..index].trim();
-            let right = caption[index + separator.len()..].trim();
-            if left.is_empty() || right.is_empty() {
-                continue;
-            }
-            let right_artist_matches =
-                crate::recording_identity::search_fold(right) == requested_artist_key;
-            let left_title_matches = crate::recording_identity::search_fold(&title_key(left))
-                == crate::recording_identity::search_fold(&requested_title_key);
-            if !right_artist_matches || !left_title_matches {
-                continue;
-            }
-            // Refuse this alternate reading if the same boundary also supports
-            // the ordinary artist-first orientation. That protects short or
-            // identical artist/title captions from ambiguous reinterpretation.
-            let left_artist_matches =
-                crate::recording_identity::search_fold(left) == requested_artist_key;
-            let right_title_matches = crate::recording_identity::search_fold(&title_key(right))
-                == crate::recording_identity::search_fold(&requested_title_key);
-            if left_artist_matches && right_title_matches {
-                continue;
-            }
-            matches.push(RequestCorroboratedCaptionOrientation {
-                title: left.to_owned(),
-                artist: right.to_owned(),
-            });
+    for (left, right) in caption_splits(caption, true) {
+        let left = left.trim();
+        let right = right.trim();
+        if left.is_empty() || right.is_empty() {
+            continue;
         }
+        let right_artist_matches =
+            crate::recording_identity::search_fold(right) == requested_artist_key;
+        let left_title_matches = crate::recording_identity::search_fold(&title_key(left))
+            == crate::recording_identity::search_fold(&requested_title_key);
+        if !right_artist_matches || !left_title_matches {
+            continue;
+        }
+        // Refuse this alternate reading if the same boundary also supports
+        // the ordinary artist-first orientation. That protects short or
+        // identical artist/title captions from ambiguous reinterpretation.
+        let left_artist_matches =
+            crate::recording_identity::search_fold(left) == requested_artist_key;
+        let right_title_matches = crate::recording_identity::search_fold(&title_key(right))
+            == crate::recording_identity::search_fold(&requested_title_key);
+        if left_artist_matches && right_title_matches {
+            continue;
+        }
+        matches.push(RequestCorroboratedCaptionOrientation {
+            title: left.to_owned(),
+            artist: right.to_owned(),
+        });
     }
     matches.dedup_by(|a, b| {
         title_key(&a.title) == title_key(&b.title)
