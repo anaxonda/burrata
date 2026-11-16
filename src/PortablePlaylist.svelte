@@ -181,7 +181,7 @@
   .portable-playlist-dialog::backdrop { background:color-mix(in srgb,#050806 76%,transparent); backdrop-filter:blur(5px); }
   header,.actions { display:flex; align-items:center; gap:10px; justify-content:space-between; }
   header p { margin:3px 0 0; color:var(--muted); } h2 { margin:0; font-size:1.2rem; }
-  .actions { justify-content:flex-start; margin:18px 0 12px; } .primary { background:var(--accent,#7aa2ff); color:var(--accent-contrast,#111); font-weight:650; }
+  .actions { justify-content:flex-start; margin:18px 0 12px; } .primary { background:var(--accent,#7aa2ff); color:var(--base,#101412); font-weight:650; }
   p { line-height:1.45; } .privacy { margin:16px 0 0; color:var(--muted); }
   .preview { display:grid; gap:4px; margin:12px 0 18px; padding:12px; border:1px solid var(--line,#444); border-radius:8px; } .preview span { color:var(--muted); font-size:.9rem; }
   .advanced,.privacy-details { border-top:1px solid var(--line,#444); padding-top:12px; margin-top:12px; } summary { cursor:pointer; font-weight:600; } details > p { color:var(--muted); font-size:.9rem; }

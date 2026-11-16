@@ -6,8 +6,8 @@ import {JSDOM} from 'jsdom';
 import * as parsers from '../parsers.js';
 
 const source=readFileSync(new URL('../content.js',import.meta.url),'utf8').replace(
-  /const \{extract,mergeSnapshots,isVerification,diagnosticSample\}=await import\([^;]+\);/,
-  'const {extract,mergeSnapshots,isVerification,diagnosticSample}=globalThis.parserFunctions;',
+  /const \{extract,extractTrackSelection,mergeSnapshots,isVerification,diagnosticSample\}=await import\([^;]+\);/,
+  'const {extract,extractTrackSelection,mergeSnapshots,isVerification,diagnosticSample}=globalThis.parserFunctions;',
 );
 
 function capturePage(){

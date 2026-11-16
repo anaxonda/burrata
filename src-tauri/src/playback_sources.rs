@@ -3177,7 +3177,14 @@ fn should_prepare_catalog_duration(track: &Track, selected: bool, settings: &Set
         return false;
     }
     let unpinned = !source_resolution_is_pinned(track, selected, settings, true);
-    (track.provider == "radio_song" && unpinned)
+    (matches!(
+        track.provider.as_str(),
+        "radio_song" | "import" | "beatport" | "traxsource"
+    ) && unpinned
+        && track.provenance["manualFields"]["durationSeconds"] != true
+        && track.playback_range.is_none()
+        && track.local_path.is_none()
+        && track.asset_id.is_none())
         || (track.provider == "catalog"
             && track.provenance["catalogProvider"] == "discogs"
             && track.provenance["sourceKind"] == "catalog"
@@ -12782,6 +12789,23 @@ mod tests {
         };
         assert!(should_prepare_catalog_duration(&radio, false, &settings));
         assert!(!should_prepare_catalog_duration(&radio, true, &settings));
+        let mut imported = Track {
+            provider: "import".into(),
+            title: "How Far (Chalé)".into(),
+            artist: "SOLTO (FR), BELLIL BROTHERS".into(),
+            ..Track::default()
+        };
+        assert!(should_prepare_catalog_duration(&imported, false, &settings));
+        assert!(!should_prepare_catalog_duration(&imported, true, &settings));
+        imported.provenance = json!({"manualFields":{"durationSeconds":true}});
+        assert!(!should_prepare_catalog_duration(
+            &imported, false, &settings
+        ));
+        imported.provenance = json!({});
+        imported.duration_seconds = Some(334.0);
+        assert!(!should_prepare_catalog_duration(
+            &imported, false, &settings
+        ));
 
         let discogs = Track {
             provider: "catalog".into(),

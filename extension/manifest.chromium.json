@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Burrata Browser Companion",
-  "version": "0.2.13",
+  "version": "0.2.14",
   "description": "Import public music pages and optionally connect your browser session to the local Burrata desktop app.",
   "permissions": [
     "activeTab",
     "scripting",
     "nativeMessaging",
+    "contextMenus",
     "storage",
     "alarms"
   ],
@@ -23,7 +24,9 @@
     "https://www.last.fm/*",
     "https://last.fm/*",
     "https://bandcamp.com/*",
-    "https://*.bandcamp.com/*"
+    "https://*.bandcamp.com/*",
+    "https://soundcloud.com/*",
+    "https://www.soundcloud.com/*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -51,7 +54,9 @@
         "https://www.last.fm/*",
         "https://last.fm/*",
         "https://bandcamp.com/*",
-        "https://*.bandcamp.com/*"
+        "https://*.bandcamp.com/*",
+        "https://soundcloud.com/*",
+        "https://www.soundcloud.com/*"
       ]
     }
   ],

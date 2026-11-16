@@ -553,7 +553,7 @@
   .radio-current,.radio-history { padding: 12px 13px; border-top: 1px solid var(--line); }
   .radio-current > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .radio-current h3 { margin: 0; font-size: 12px; }
-  .identify { min-height: 34px; padding: 6px 10px; border-radius: 7px; background: var(--accent); color: var(--accent-contrast, #111); font-size: 10px; font-weight: 650; }
+  .identify { min-height: 34px; padding: 6px 10px; border-radius: 7px; background: var(--accent); color: var(--base, #101412); font-size: 10px; font-weight: 650; }
   .identify:disabled { opacity: .6; }
   .radio-track { display: grid; min-width: 0; gap: 3px; margin-top: 8px; }
   .radio-track strong,.radio-track small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -1,9 +1,10 @@
 if(!globalThis.BurrataSpotifyAuth&&typeof importScripts==='function')importScripts('spotify-auth.js');
 if(!globalThis.BurrataSpotifyProvider&&typeof importScripts==='function')importScripts('provider-operations.js');
 const api=globalThis.browser||chrome;
-const sites=['https://www.beatport.com/*','https://www.traxsource.com/*','https://open.spotify.com/*','https://www.youtube.com/*','https://music.youtube.com/*','https://www.shazam.com/*','https://shazam.com/*','https://www.last.fm/*','https://last.fm/*','https://bandcamp.com/*','https://*.bandcamp.com/*'];
+const sites=['https://www.beatport.com/*','https://www.traxsource.com/*','https://open.spotify.com/*','https://www.youtube.com/*','https://music.youtube.com/*','https://www.shazam.com/*','https://shazam.com/*','https://www.last.fm/*','https://last.fm/*','https://bandcamp.com/*','https://*.bandcamp.com/*','https://soundcloud.com/*','https://www.soundcloud.com/*'];
 let port=null,waiters=[],nativeBusy=Promise.resolve(),pollBusy=false;
 let lastError='',requestTabs=new Map(),enabled=false;
+let targetCollectionId='',lastContextAction='';
 const providerOperations=new Map();
 let cachedSpotifyHashes={};
 let managedSessionId=null;
@@ -15,8 +16,10 @@ const SPOTIFY_HASHES={profileAttributes:'53bcb064f6cd18c23f752bc324a791194d20df6
 // Chromium may suspend its MV3 worker while the user completes verification.
 // Session storage survives worker restarts without retaining stale tab IDs after
 // the browser itself restarts.
-const ready=Promise.all([api.storage.local.get(['enabled','spotifyHashes','providerMutationOperations']),api.storage.session.get(['requestTabs','providerOperations'])]).then(async ([settings,session])=>{
+const ready=Promise.all([api.storage.local.get(['enabled','spotifyHashes','providerMutationOperations','targetCollectionId','lastContextAction']),api.storage.session.get(['requestTabs','providerOperations'])]).then(async ([settings,session])=>{
   enabled=!!settings.enabled;
+  targetCollectionId=typeof settings.targetCollectionId==='string'?settings.targetCollectionId:'';
+  lastContextAction=typeof settings.lastContextAction==='string'?settings.lastContextAction:'';
   cachedSpotifyHashes=settings.spotifyHashes||{};
   requestTabs=new Map(session.requestTabs||[]);
   for(const [id,record] of session.providerOperations||[])providerOperations.set(id,record);
@@ -26,6 +29,45 @@ const ready=Promise.all([api.storage.local.get(['enabled','spotifyHashes','provi
   let recoveredRead=false;
   for(const [id,record] of providerOperations){if(record?.state==='running'&&!record.mutation){providerOperations.delete(id);recoveredRead=true;}}
   if(recoveredRead)await persistProviderOperations();
+});
+async function installTrackContextMenu(){
+  if(!api.contextMenus?.removeAll||!api.contextMenus?.create)return;
+  try{
+    await api.contextMenus.removeAll();
+    api.contextMenus.create({id:'burrata-add-track-to-playlist',title:'Add track to Burrata playlist',contexts:['link','page'],documentUrlPatterns:sites});
+  }catch{/* The import popup remains available if this browser does not expose context menus. */}
+}
+void ready.then(installTrackContextMenu);
+api.runtime.onInstalled?.addListener(()=>{void installTrackContextMenu();});
+async function addContextMenuTrack(info,tab){
+  try{
+    await ready;
+    if(!targetCollectionId)throw errorResult('UNSUPPORTED','Choose a Burrata playlist in the extension settings first.');
+    const pageUrl=info.pageUrl||tab?.url;
+    if(!tab?.id||!supported(pageUrl))throw errorResult('UNSUPPORTED','Open a supported public music page first.');
+    if(info.linkUrl&&!supported(info.linkUrl))throw errorResult('UNSUPPORTED','The selected link is not from a supported public music source.');
+    await api.scripting.executeScript({target:{tabId:tab.id},files:['content.js']});
+    let selection;
+    for(let i=0;i<5;i++){
+      try{selection=await api.tabs.sendMessage(tab.id,{type:'captureTrackForPlaylist',targetUrl:info.linkUrl||null});break;}catch(error){
+        if(i===4)throw new Error('Could not read this track link. Reload the provider tab and try again.');
+        await new Promise(resolve=>setTimeout(resolve,100));
+      }
+    }
+    if(selection?.error)throw new Error(selection.error);
+    if(!selection?.snapshot||selection.snapshot.entries?.length!==1||!selection.targetUrl)throw new Error('The page did not identify exactly one public track.');
+    const response=await native({type:'appendTrackToCollection',collectionId:targetCollectionId,targetUrl:selection.targetUrl,snapshot:selection.snapshot});
+    const result=response.result||{};
+    lastContextAction=`Added ${result.artist||'track'} — ${result.trackTitle||''} to ${result.collectionName||'playlist'}`.trim();
+    await api.storage.local.set({lastContextAction});lastError='';badge('✓');
+  }catch(error){
+    lastError=error?.message||String(error);lastContextAction=lastError;
+    try{await api.storage.local.set({lastContextAction});}catch{/* report through the badge */}
+    badge('!');
+  }
+}
+api.contextMenus?.onClicked?.addListener((info,tab)=>{
+  if(info.menuItemId==='burrata-add-track-to-playlist')void addContextMenuTrack(info,tab);
 });
 const managedSessionReady=(async()=>{await ready;try{const response=await fetch(api.runtime.getURL('managed-session.json'));if(response.ok){const value=await response.json();if(typeof value.sessionId==='string'&&/^[A-Za-z0-9-]{16,128}$/.test(value.sessionId)){managedSessionId=value.sessionId;enabled=true;await api.storage.local.set({enabled:true});}}}catch{/* absent in the user-installed companion */}})();
 const errorResult=(code,message)=>{const error=new Error(message);error.code=code;return error;};
@@ -355,16 +397,31 @@ function badge(text){api.action.setBadgeText({text});api.action.setBadgeBackgrou
 function disconnect(error){port=null;lastError=error;badge(error?'!':'');for(const w of waiters.splice(0)){clearTimeout(w.timeout);w.reject(new Error(error));}}
 function connect(){
   if(port)return;
-  port=api.runtime.connectNative('org.burrata.browser');
-  port.onMessage.addListener(reply=>{const w=waiters.shift();if(w){clearTimeout(w.timeout);reply.ok?w.resolve(reply):w.reject(new Error(reply.error||'Native host failed'));}});
-  port.onDisconnect.addListener(()=>disconnect(!enabled&&!waiters.length?'':api.runtime.lastError?.message||'Native host disconnected. Open Burrata and install its browser host.'));
+  const connected=api.runtime.connectNative('org.burrata.browser');port=connected;
+  connected.onMessage.addListener(reply=>{if(port!==connected)return;const w=waiters.shift();if(w){clearTimeout(w.timeout);w.resolve(reply);}});
+  connected.onDisconnect.addListener(()=>{
+    if(port!==connected)return;
+    disconnect(!enabled&&!waiters.length?'':api.runtime.lastError?.message||'Native host disconnected. Open Burrata and install its browser host.');
+  });
 }
 function native(message){
   const payload=message.type==='poll'?{...message,providerProtocolVersion:2,providerCapabilities:['structuredArtistCreditsV1','spotifyTrackCreditsV1'],...(managedSessionId?{managedSessionId}:{})}:message.type==='heartbeat'?{...message,providerProtocolVersion:enabled?2:0,providerCapabilities:['structuredArtistCreditsV1','spotifyTrackCreditsV1'],...(managedSessionId?{managedSessionId}:{})}:message;
   const run=()=>new Promise((resolve,reject)=>{
-      try{if(new TextEncoder().encode(JSON.stringify(payload)).length>1024*1024)throw new Error('Capture exceeds the 1 MiB bridge limit. Import a smaller chart, playlist, or album.');connect();const limit=payload.type==='importAlbumCollection'?120000:payload.type==='providerResult'?90000:payload.type==='youtubeSessionHandoff'?45000:30000;const w={resolve,reject,timeout:setTimeout(()=>{port?.disconnect();disconnect(`Burrata did not reply within ${Math.round(limit/1000)} seconds.`);},limit)};waiters.push(w);port.postMessage(payload);}catch(e){reject(e);}
+      try{if(new TextEncoder().encode(JSON.stringify(payload)).length>1024*1024)throw new Error('Capture exceeds the 1 MiB bridge limit. Import a smaller chart, playlist, or album.');connect();const connected=port,limit=payload.type==='importAlbumCollection'?120000:payload.type==='providerResult'?90000:payload.type==='youtubeSessionHandoff'?45000:30000;const w={resolve,reject,timeout:setTimeout(()=>{connected?.disconnect();if(port===connected)disconnect(`Burrata did not reply within ${Math.round(limit/1000)} seconds.`);},limit)};waiters.push(w);connected.postMessage(payload);}catch(e){reject(e);}
   });
-  const result=nativeBusy.then(run,run);nativeBusy=result.catch(()=>{});return result;
+  const exchange=async()=>{
+    let response=await run();
+    if(!response?.ok&&response?.error==='Invalid native request'){
+      const stale=port;
+      if(stale){port=null;try{stale.disconnect();}catch{/* retry opens a fresh native-host process */}}
+      response=await run();
+      if(!response?.ok&&response?.error==='Invalid native request')throw new Error('The installed Burrata browser host is outdated. Restart Burrata to refresh it, then try again.');
+    }
+    if(!response?.ok)throw new Error(response?.error||'Native host failed');
+    lastError='';
+    return response;
+  };
+  const result=nativeBusy.then(exchange,exchange);nativeBusy=result.catch(()=>{});return result;
 }
 async function verification(tabId,requestId){
   await api.tabs.update(tabId,{active:true});const tab=await api.tabs.get(tabId);await api.windows.update(tab.windowId,{focused:true});
@@ -400,7 +457,7 @@ async function waitLoaded(tabId){
   for(let i=0;i<40;i++){const t=await api.tabs.get(tabId);if(t.status==='complete'){await new Promise(r=>setTimeout(r,1200));return;}await new Promise(r=>setTimeout(r,500));}
   throw new Error('Provider page took too long to load.');
 }
-function supported(url){try{const u=new URL(url),host=u.hostname.toLowerCase();return u.protocol==='https:'&&(['www.beatport.com','beatport.com','www.traxsource.com','traxsource.com','open.spotify.com','www.youtube.com','music.youtube.com','www.shazam.com','shazam.com','www.last.fm','last.fm','bandcamp.com'].includes(host)||host.endsWith('.bandcamp.com'));}catch{return false;}}
+function supported(url){try{const u=new URL(url),host=u.hostname.toLowerCase();return u.protocol==='https:'&&(['www.beatport.com','beatport.com','www.traxsource.com','traxsource.com','open.spotify.com','www.youtube.com','music.youtube.com','www.shazam.com','shazam.com','www.last.fm','last.fm','bandcamp.com','soundcloud.com','www.soundcloud.com'].includes(host)||host.endsWith('.bandcamp.com'));}catch{return false;}}
 async function poll(){
   await Promise.all([ready,managedSessionReady]);
   if(pollBusy)return;pollBusy=true;
@@ -437,9 +494,20 @@ api.runtime.onMessage.addListener((message,sender,respond)=>{
     }
     if(message.type==='status'){
       try{await native({type:'heartbeat'});lastError='';}catch(error){lastError=error.message;}
-      return {enabled,error:lastError,connected:!!port};
+      return {enabled,error:lastError,connected:!!port,lastContextAction,targetCollectionId};
     }
     if(message.type==='enable'){enabled=message.enabled;await api.storage.local.set({enabled});if(enabled)await poll();else port?.disconnect();return {enabled};}
+    if(message.type==='listTargetCollections'){
+      if(sender?.tab||sender?.url!==api.runtime.getURL('popup.html'))throw errorResult('UNSUPPORTED','Choose a playlist from the Burrata companion popup.');
+      const response=await native({type:'listTargetCollections'});
+      return {collections:response.collections||[]};
+    }
+    if(message.type==='setTargetCollection'){
+      if(sender?.tab||sender?.url!==api.runtime.getURL('popup.html'))throw errorResult('UNSUPPORTED','Choose a playlist from the Burrata companion popup.');
+      const value=typeof message.collectionId==='string'?message.collectionId:'';
+      if(value.length>128)throw errorResult('UNSUPPORTED','Playlist selection is invalid.');
+      targetCollectionId=value;await api.storage.local.set({targetCollectionId:value});return {targetCollectionId:value};
+    }
     if(message.type==='diagnosticCurrent'){
       const [tab]=await api.tabs.query({active:true,currentWindow:true});
       if(!tab?.id||!supported(tab.url))throw new Error('Open a supported provider chart, playlist, or album page.');

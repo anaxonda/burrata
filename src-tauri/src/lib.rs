@@ -9265,6 +9265,14 @@ pub fn run() {
             // restored database pair is never swapped under open writers.
             let profile_lock = backup_manager::acquire_profile_lock(&dir)
                 .map_err(std::io::Error::other)?;
+            // A browser extension updates independently of the desktop app.
+            // Keep already registered standard hosts on this app's protocol;
+            // isolated/custom profiles must not replace the normal profile's host.
+            if std::env::var_os("BURRATA_APP_DATA").is_none() {
+                if let Err(failure) = install_integration::refresh_registered_host(&resources) {
+                    log::warn!("Could not refresh the registered browser helper: {failure}");
+                }
+            }
             let backup_staging = backup_staging::BackupStaging::open(&dir)?;
             backup_staging.cleanup_abandoned()?;
             let restored_profile = backup_manager::apply_pending_restore_with_staging(&dir, &backup_staging)

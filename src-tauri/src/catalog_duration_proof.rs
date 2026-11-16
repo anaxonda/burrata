@@ -27,8 +27,10 @@ fn key(track: &Track) -> String {
     )
 }
 fn eligible(track: &Track) -> bool {
-    track.provider == "radio_song"
-        && track.duration_seconds.is_none()
+    matches!(
+        track.provider.as_str(),
+        "radio_song" | "import" | "beatport" | "traxsource"
+    ) && track.duration_seconds.is_none()
         && track.playback_range.is_none()
         && track.local_path.is_none()
         && track.asset_id.is_none()
@@ -37,7 +39,57 @@ fn eligible(track: &Track) -> bool {
             .is_none_or(|chapters| chapters.is_empty())
         && !track.title.trim().is_empty()
         && !track.artist.trim().is_empty()
+        && (!matches!(
+            track.provider.as_str(),
+            "import" | "beatport" | "traxsource"
+        ) || !crate::recording_identity::placeholder_title(&track.title))
         && track.provenance["manualFields"]["durationSeconds"] != true
+}
+fn catalog_title_version_key(title: &str, version: Option<&str>) -> Option<(String, String)> {
+    let title = match version.filter(|value| !value.trim().is_empty()) {
+        Some(version) => format!("{title} ({version})"),
+        None => title.to_owned(),
+    };
+    let parsed = crate::recording_identity::parse_recording_text(&title);
+    if parsed.parsing_incomplete {
+        return None;
+    }
+    let versions = parsed
+        .semantic_versions()
+        .map(crate::recording_identity::canonical_version_key)
+        .collect::<std::collections::BTreeSet<_>>();
+    if versions.len() > 1 {
+        return None;
+    }
+    Some((
+        parsed.normalized_title_key?,
+        versions.into_iter().next().unwrap_or_default(),
+    ))
+}
+fn same_catalog_title(track: &Track, title: &str) -> bool {
+    if !matches!(
+        track.provider.as_str(),
+        "import" | "beatport" | "traxsource"
+    ) {
+        return crate::matching::normalize(&track.title) == crate::matching::normalize(title);
+    }
+    let left = catalog_title_version_key(&track.title, None);
+    let right = catalog_title_version_key(title, None);
+    matches!((left,right),(Some((a,_)),Some((b,_))) if a == b)
+}
+fn same_catalog_title_version(track: &Track, data: &Value) -> bool {
+    let title = data["title"].as_str().unwrap_or_default();
+    if matches!(
+        track.provider.as_str(),
+        "import" | "beatport" | "traxsource"
+    ) {
+        let expected = catalog_title_version_key(&track.title, track.version.as_deref());
+        return expected.is_some()
+            && expected == catalog_title_version_key(title, data["version"].as_str());
+    }
+    same_catalog_title(track, title)
+        && crate::matching::normalize_version(track.version.as_deref().unwrap_or_default())
+            == crate::matching::normalize_version(data["version"].as_str().unwrap_or_default())
 }
 fn isrc(value: &str) -> Option<String> {
     crate::recording_identity::normalize_isrc(value)
@@ -159,10 +211,7 @@ fn matches_identity(track: &Track, row: &Value) -> bool {
     };
     row["kind"] == "track"
         && row["id"].as_str().is_some_and(valid_spotify_id)
-        && crate::matching::normalize(&track.title)
-            == crate::matching::normalize(data["title"].as_str().unwrap_or_default())
-        && crate::matching::normalize_version(track.version.as_deref().unwrap_or_default())
-            == crate::matching::normalize_version(data["version"].as_str().unwrap_or_default())
+        && same_catalog_title_version(track, data)
         && data["artistCount"].as_u64() == Some(refs.len() as u64)
         && full_credits(&track.artist, refs)
         && track.album.as_deref().is_none_or(|album| {
@@ -181,8 +230,7 @@ fn choose_with_code(
     // An incomplete same-title row could be another supported recording;
     // filtering it out would manufacture uniqueness from missing evidence.
     if rows.iter().any(|r| {
-        crate::matching::normalize(r["data"]["title"].as_str().unwrap_or_default())
-            == crate::matching::normalize(&track.title)
+        same_catalog_title(track, r["data"]["title"].as_str().unwrap_or_default())
             && r["data"]["artistRefs"].as_array().is_none_or(|refs| {
                 refs.is_empty() || r["data"]["artistCount"].as_u64() != Some(refs.len() as u64)
             })
@@ -748,10 +796,19 @@ impl RemotePlaylistService {
             // Provider field syntax bounds the result set to title hits. A free-text
             // query fills pages with unrelated recommendations and can never
             // supply the complete evidence required by terminal_page.
-            let title = original.title.replace(['"', '\\', '\n', '\r'], " ");
+            let title = if matches!(original.provider.as_str(), "import" | "beatport" | "traxsource") {
+                crate::recording_identity::parse_recording_text(&original.title).title_without_recognized_annotations()
+            } else { original.title.clone() }.replace(['"', '\\', '\n', '\r'], " ");
             let recognition_code = recognized_isrc(original);
             let query = recognition_code.as_ref().map(|code| format!("isrc:{code}"))
-                .unwrap_or_else(|| format!("track:\"{}\"", title.trim()));
+                .unwrap_or_else(|| {
+                    let mut query = format!("track:\"{}\"", title.trim());
+                    if matches!(original.provider.as_str(), "import" | "beatport" | "traxsource") {
+                        let artist = original.artist.split(',').next().unwrap_or("").replace(['"','\\','\n','\r'], " ");
+                        if !artist.trim().is_empty() { query.push_str(&format!(" artist:\"{}\"",artist.trim())); }
+                    }
+                    query
+                });
             if query.len() > 256 {
                 return Ok(None);
             }
@@ -802,8 +859,7 @@ impl RemotePlaylistService {
                 .iter()
                 .enumerate()
                 .filter(|(_, row)| {
-                    crate::matching::normalize(row["title"].as_str().unwrap_or_default())
-                        == crate::matching::normalize(&original.title)
+                    same_catalog_title(original,row["title"].as_str().unwrap_or_default())
                 })
                 .map(|(index, _)| index)
                 .collect::<Vec<_>>();
@@ -1298,6 +1354,104 @@ mod tests {
     }
     fn proof(track: &Track, rows: Vec<Value>) -> Value {
         json!({"version":1,"original":identity(track),"accountId":"account","checkedAt":chrono::Utc::now().timestamp(),"page":{"provider":"spotify","nextCursor":null,"rawCount":rows.len(),"unrecognizedCount":0,"items":rows}})
+    }
+    #[test]
+    fn weak_import_uses_independent_catalog_runtime_and_shared_version_parsing() {
+        let original = Track {
+            id: "import:fixture".into(),
+            provider: "import".into(),
+            title: "How Far (Chalé)".into(),
+            version: Some("Extended Mix".into()),
+            ..track()
+        };
+        assert!(eligible(&original));
+        let mut catalog = row("0123456789012345678901");
+        catalog["title"] = json!("How Far (Chalé) - Extended Mix");
+        catalog["data"]["title"] = catalog["title"].clone();
+        catalog["data"]["durationSeconds"] = json!(334.0);
+        let prepared = materialize(
+            &original,
+            &proof(&original, vec![catalog.clone()]),
+            "account",
+        )
+        .unwrap();
+        assert_eq!(prepared.track.id, original.id);
+        assert_eq!(prepared.track.provider, "import");
+        assert_eq!(prepared.track.title, original.title);
+        assert_eq!(prepared.track.duration_seconds, Some(334.0));
+        for provider in ["beatport", "traxsource"] {
+            let request = Track {
+                id: format!("{provider}:fixture"),
+                provider: provider.into(),
+                ..original.clone()
+            };
+            assert!(eligible(&request));
+            let enriched =
+                materialize(&request, &proof(&request, vec![catalog.clone()]), "account")
+                    .expect("catalog-backed chart imports should recover missing runtime");
+            assert_eq!(enriched.track.id, request.id);
+            assert_eq!(enriched.track.provider, provider);
+            assert_eq!(enriched.track.duration_seconds, Some(334.0));
+        }
+        let title_version = Track {
+            title: "How Far (Chalé) - Extended Mix".into(),
+            version: None,
+            ..original.clone()
+        };
+        assert!(materialize(
+            &title_version,
+            &proof(&title_version, vec![catalog.clone()]),
+            "account"
+        )
+        .is_some());
+        catalog["title"] = json!("How Far (Chalé)");
+        catalog["data"]["title"] = catalog["title"].clone();
+        assert!(
+            materialize(&original, &proof(&original, vec![catalog]), "account").is_none(),
+            "radio version cannot supply extended runtime"
+        );
+        let mut locked = original;
+        locked.provenance = json!({"manualFields":{"durationSeconds":true}});
+        assert!(!eligible(&locked));
+    }
+
+    #[test]
+    fn weak_import_catalog_proof_rejects_conflicts_incomplete_credits_and_wrong_account() {
+        let original = Track {
+            id: "import:fixture".into(),
+            provider: "import".into(),
+            ..track()
+        };
+        let good = row("0123456789012345678901");
+        for case in [
+            "credits", "version", "title", "account", "partial", "duration",
+        ] {
+            let mut catalog = good.clone();
+            match case {
+                "credits" => catalog["data"]["artistCount"] = json!(3),
+                "version" => catalog["data"]["version"] = json!("Radio Edit"),
+                "title" => catalog["data"]["title"] = json!("Different Recording"),
+                "duration" => catalog["data"]["durationSeconds"] = Value::Null,
+                _ => {}
+            }
+            let mut evidence = proof(&original, vec![catalog]);
+            if case == "account" {
+                evidence["accountId"] = json!("other");
+            }
+            if case == "partial" {
+                evidence["page"]["complete"] = json!(false);
+            }
+            assert!(
+                materialize(&original, &evidence, "account").is_none(),
+                "{case}"
+            );
+        }
+        let conflict = Track {
+            title: "Exact Recording (Radio Edit)".into(),
+            version: Some("Extended Mix".into()),
+            ..original
+        };
+        assert!(catalog_title_version_key(&conflict.title, conflict.version.as_deref()).is_none());
     }
     #[test]
     fn real_nighttime_catalog_page_distinguishes_full_credits_and_remixes() {

@@ -9,7 +9,7 @@
   // The legacy boolean must not prevent a fresh extension from installing its listener.
   const state={revision,cancelled:false,listener:null,busy:false};
   globalThis.burrataCaptureState=state;
-  const {extract,mergeSnapshots,isVerification,diagnosticSample}=await import(`${api.runtime.getURL('parsers.js')}?capture=${revision}-${Date.now()}`);
+  const {extract,extractTrackSelection,mergeSnapshots,isVerification,diagnosticSample}=await import(`${api.runtime.getURL('parsers.js')}?capture=${revision}-${Date.now()}`);
   if(state.cancelled)return;
   const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   const checkCurrent=()=>{if(state.cancelled)throw new Error('The extension was reloaded during capture. Click Import current page again.');};
@@ -66,14 +66,22 @@
   function noRowsError(provider){
     // Diagnostic counts identify parser/loading failures without exposing page content.
     const trackLinks=document.querySelectorAll('a[href*="/track/"]').length;
-    const selectors={beatport:'[data-testid*="track"],[data-track-id],tr,[role="row"]',traxsource:'.trk-row',spotify:'[data-testid="tracklist-row"],[role="row"][aria-rowindex]',youtube:'ytd-playlist-video-renderer,ytmusic-responsive-list-item-renderer,yt-lockup-view-model',shazam:'a[href*="/song/"]',lastfm:'.chartlist-row,[data-testid="chartlist-row"],tr,[role="row"]',bandcamp:'.track_row_view,[data-testid="track-row"]'};
+    const selectors={beatport:'[data-testid*="track"],[data-track-id],tr,[role="row"]',traxsource:'.trk-row',spotify:'[data-testid="tracklist-row"],[role="row"][aria-rowindex]',youtube:'ytd-playlist-video-renderer,ytmusic-responsive-list-item-renderer,yt-lockup-view-model',shazam:'a[href*="/song/"]',lastfm:'.chartlist-row,[data-testid="chartlist-row"],tr,[role="row"]',bandcamp:'.track_row_view,[data-testid="track-row"]',soundcloud:'.soundList__item,[data-testid="sound"]'};
     const rows=document.querySelectorAll(selectors[provider]||'a[href]').length;
-    const name={beatport:'Beatport',traxsource:'Traxsource',spotify:'Spotify',youtube:'YouTube',shazam:'Shazam',lastfm:'Last.fm',bandcamp:'Bandcamp'}[provider]||'Provider';
+    const name={beatport:'Beatport',traxsource:'Traxsource',spotify:'Spotify',youtube:'YouTube',shazam:'Shazam',lastfm:'Last.fm',bandcamp:'Bandcamp',soundcloud:'SoundCloud'}[provider]||'Provider';
     const jsonScripts=provider==='beatport'?document.querySelectorAll('script#__NEXT_DATA__,script[type="application/json"]').length:null;
     const counts=`${trackLinks} track links, ${rows} row candidates${jsonScripts===null?'':`, ${jsonScripts} metadata scripts`}`;
     return new Error(`${name}: no supported tracks after waiting 8 seconds (${counts}; capture ${revision}). Open the actual ${provider==='spotify'?'playlist or album':'chart'} page and let tracks load. If tracks are visible, reload the extension and provider tab, then retry; the provider page structure may have changed.`);
   }
   state.listener=(message,_sender,respond)=>{
+    if(message.type==='captureTrackForPlaylist'){
+      try{
+        checkCurrent();
+        if(gated())throw new Error('Complete provider verification before adding a track.');
+        respond(extractTrackSelection(document,location.href,message.targetUrl||null));
+      }catch(error){respond({error:error.message});}
+      return;
+    }
     if(message.type==='diagnostic'){
       try{
         checkCurrent();const diagnostic=diagnosticSample(document,location.href);

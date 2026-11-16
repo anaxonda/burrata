@@ -151,6 +151,16 @@ enum NativeRequest {
         #[serde(default)]
         preview: bool,
     },
+    #[serde(rename = "listTargetCollections")]
+    ListTargetCollections,
+    #[serde(rename = "appendTrackToCollection")]
+    AppendTrackToCollection {
+        #[serde(rename = "collectionId")]
+        collection_id: String,
+        #[serde(rename = "targetUrl")]
+        target_url: String,
+        snapshot: BrowserSnapshot,
+    },
     #[serde(rename = "applyImportPreview")]
     ApplyImportPreview {
         #[serde(rename = "previewId")]
@@ -235,6 +245,7 @@ pub fn provider_from_url(value: &str) -> Result<&'static str, String> {
         Some("music.youtube.com" | "www.youtube.com" | "youtube.com") => "youtube",
         Some("shazam.com" | "www.shazam.com") => "shazam",
         Some("last.fm" | "www.last.fm") => "lastfm",
+        Some("soundcloud.com" | "www.soundcloud.com") => "soundcloud",
         Some(host) if host == "bandcamp.com" || host.ends_with(".bandcamp.com") => "bandcamp",
         _ => return Err("Unsupported collection source URL".into()),
     };
@@ -250,6 +261,7 @@ fn provider_url(value: &str, provider: &str) -> Result<url::Url, String> {
         "youtube" => &["music.youtube.com", "www.youtube.com", "youtube.com"],
         "shazam" => &["shazam.com", "www.shazam.com"],
         "lastfm" => &["last.fm", "www.last.fm"],
+        "soundcloud" => &["soundcloud.com", "www.soundcloud.com"],
         "bandcamp" => &["bandcamp.com"],
         _ => return Err("Unsupported browser provider".into()),
     };
@@ -268,6 +280,22 @@ fn provider_url(value: &str, provider: &str) -> Result<url::Url, String> {
         if let Some(path) = spotify_unlocalized_path(u.path()) {
             u.set_path(&path);
         }
+    }
+    if provider == "soundcloud"
+        && [
+            "s_token",
+            "secret_token",
+            "access_token",
+            "oauth_token",
+            "token",
+        ]
+        .iter()
+        .any(|key| {
+            u.query_pairs()
+                .any(|(query_key, _)| query_key.eq_ignore_ascii_case(key))
+        })
+    {
+        return Err("Private SoundCloud track URLs are not supported".into());
     }
     u.set_fragment(None);
     let preserved = if provider == "lastfm" {
@@ -329,10 +357,45 @@ fn canonical_id(provider: &str, u: Option<&url::Url>, id: Option<&str>) -> Optio
                 .unwrap_or_default()
         })
         .unwrap_or_default();
-    if matches!(provider, "lastfm" | "bandcamp") {
+    if matches!(provider, "lastfm" | "bandcamp" | "soundcloud") {
         let valid = u.filter(|url| {
             if provider == "bandcamp" {
                 url.path().starts_with("/track/")
+            } else if provider == "soundcloud" {
+                let parts: Vec<_> = url
+                    .path_segments()
+                    .map(|p| p.filter(|s| !s.is_empty()).collect())
+                    .unwrap_or_default();
+                let reserved = [
+                    "sets",
+                    "you",
+                    "discover",
+                    "search",
+                    "stream",
+                    "upload",
+                    "stations",
+                    "groups",
+                    "tags",
+                    "popular",
+                    "charts",
+                    "pages",
+                    "users",
+                    "tracks",
+                    "playlists",
+                    "services",
+                    "stories",
+                ];
+                parts.len() == 2
+                    && parts.iter().all(|part| {
+                        !part.is_empty()
+                            && part.len() <= 100
+                            && part.bytes().all(|byte| {
+                                byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'-')
+                            })
+                    })
+                    && parts
+                        .iter()
+                        .all(|part| !reserved.contains(&part.to_ascii_lowercase().as_str()))
             } else {
                 url.path().starts_with("/music/") && url.path().contains("/_/")
             }
@@ -357,6 +420,7 @@ fn canonical_id(provider: &str, u: Option<&url::Url>, id: Option<&str>) -> Optio
             .position(|p| *p == "track")
             .and_then(|i| parts.get(i + 1).copied()),
         "youtube" => youtube_url_id.as_deref(),
+        "soundcloud" => None,
         _ => None,
     };
     let valid = |s: &str| match provider {
@@ -796,6 +860,14 @@ impl BrowserBridge {
         });
         let router = Router::new()
             .route("/browser/import", post(import_route))
+            .route(
+                "/browser/target-collections",
+                post(target_collections_route),
+            )
+            .route(
+                "/browser/append-track-to-collection",
+                post(append_track_to_collection_route),
+            )
             .route("/browser/heartbeat", post(heartbeat_route))
             .route("/browser/poll", post(poll_route))
             .route("/browser/status", post(status_route))
@@ -1214,6 +1286,129 @@ async fn import_route(
             (StatusCode::OK, Json(json!({"ok":true,"result":result})))
         }
         Err(e) => (StatusCode::BAD_REQUEST, error(e)),
+    }
+}
+
+async fn target_collections_route(
+    State(b): State<Arc<BrowserBridge>>,
+    headers: HeaderMap,
+    Json(request): Json<NativeRequest>,
+) -> (StatusCode, Json<Value>) {
+    if !b.authorize(&headers) {
+        return (StatusCode::UNAUTHORIZED, error("Unauthorized"));
+    }
+    if !matches!(request, NativeRequest::ListTargetCollections) {
+        return (
+            StatusCode::BAD_REQUEST,
+            error("Expected target collection request"),
+        );
+    }
+    b.seen();
+    match b.store.list_collections() {
+        Ok(collections) => (
+            StatusCode::OK,
+            Json(
+                json!({"ok":true,"collections":collections.into_iter().filter(|collection| collection.id != crate::storage::DOWNLOADS_COLLECTION_ID).collect::<Vec<_>>()}),
+            ),
+        ),
+        Err(message) => (StatusCode::BAD_REQUEST, error(message)),
+    }
+}
+
+fn validate_context_menu_track(
+    snapshot: &BrowserSnapshot,
+    target_url: &str,
+) -> Result<Chart, String> {
+    if snapshot.entries.len() != 1 {
+        return Err("A playlist add must contain exactly one rendered track".into());
+    }
+    let target = provider_url(target_url, &snapshot.provider)?;
+    let entry = &snapshot.entries[0];
+    let source_url = entry
+        .source_url
+        .as_deref()
+        .ok_or("Selected track is missing its public source URL")?;
+    let source = provider_url(source_url, &snapshot.provider)?;
+    if canonical_id(&snapshot.provider, Some(&target), None).is_none()
+        || canonical_id(
+            &snapshot.provider,
+            Some(&target),
+            entry.provider_id.as_deref(),
+        )
+        .is_none()
+        || canonical_id(&snapshot.provider, Some(&source), None)
+            != canonical_id(&snapshot.provider, Some(&target), None)
+    {
+        return Err("Selected track URL does not match the rendered track".into());
+    }
+    let chart = validate_snapshot(snapshot)?;
+    if chart.tracks.len() != 1 {
+        return Err("A playlist add must resolve to exactly one track".into());
+    }
+    Ok(chart)
+}
+
+async fn append_track_to_collection_route(
+    State(b): State<Arc<BrowserBridge>>,
+    headers: HeaderMap,
+    Json(request): Json<NativeRequest>,
+) -> (StatusCode, Json<Value>) {
+    if !b.authorize(&headers) {
+        return (StatusCode::UNAUTHORIZED, error("Unauthorized"));
+    }
+    b.seen();
+    let NativeRequest::AppendTrackToCollection {
+        collection_id,
+        target_url,
+        snapshot,
+    } = request
+    else {
+        return (
+            StatusCode::BAD_REQUEST,
+            error("Expected single-track collection add"),
+        );
+    };
+    let chart = match validate_context_menu_track(&snapshot, &target_url) {
+        Ok(chart) => chart,
+        Err(message) => return (StatusCode::BAD_REQUEST, error(message)),
+    };
+    let Some(track) = chart.tracks.first() else {
+        return (
+            StatusCode::BAD_REQUEST,
+            error("Selected track was not imported"),
+        );
+    };
+    let added = (|| -> Result<String, String> {
+        let _library_write = b.store.try_library_write()?;
+        let target_id = crate::playlist_sync::ensure_editable_collection(&b.store, &collection_id)?;
+        b.store
+            .add_to_collection(&target_id, std::slice::from_ref(track))?;
+        crate::playlist_preferences::resync_favorite_flags_after_collection_change(
+            &b.store, &target_id,
+        )?;
+        Ok(target_id)
+    })();
+    match added {
+        Ok(target_id) => {
+            let _ = b.app.emit(
+                "automation-library-changed",
+                json!({"at":chrono::Utc::now().to_rfc3339()}),
+            );
+            let collection_name = b
+                .store
+                .list_collections()
+                .ok()
+                .and_then(|collections| collections.into_iter().find(|item| item.id == target_id))
+                .map(|collection| collection.name)
+                .unwrap_or_else(|| "playlist".into());
+            (
+                StatusCode::OK,
+                Json(
+                    json!({"ok":true,"result":{"collectionId":target_id,"collectionName":collection_name,"trackTitle":track.title,"artist":track.artist}}),
+                ),
+            )
+        }
+        Err(message) => (StatusCode::BAD_REQUEST, error(message)),
     }
 }
 
@@ -2082,6 +2277,8 @@ async fn forward_native(client: &reqwest::Client, d: &Discovery, r: &NativeReque
         NativeRequest::Import { .. }
         | NativeRequest::ImportAlbumCollection { .. }
         | NativeRequest::ApplyImportPreview { .. } => "browser/import",
+        NativeRequest::ListTargetCollections => "browser/target-collections",
+        NativeRequest::AppendTrackToCollection { .. } => "browser/append-track-to-collection",
         NativeRequest::Heartbeat { .. } => "browser/heartbeat",
         NativeRequest::Poll { .. } => "browser/poll",
         NativeRequest::Status { .. } => "browser/status",
@@ -2340,6 +2537,72 @@ mod tests {
             json!([])
         );
     }
+    fn traxsource_single_track_snapshot() -> BrowserSnapshot {
+        let mut capture = snapshot();
+        capture.provider = "traxsource".into();
+        capture.kind = "chart".into();
+        capture.source_url = "https://www.traxsource.com/genre/13/deep-house/top".into();
+        capture.entries[0].provider_id = Some("123".into());
+        capture.entries[0].source_url = Some("https://www.traxsource.com/track/123/hello".into());
+        capture.entries[0].artist = "Artist".into();
+        capture.entries[0].title = "Hello".into();
+        capture.entries[0].rank = Some(1);
+        capture
+    }
+
+    #[test]
+    fn context_menu_track_requires_exact_single_rendered_track_and_target_identity() {
+        let capture = traxsource_single_track_snapshot();
+        let chart = validate_context_menu_track(
+            &capture,
+            "https://www.traxsource.com/track/123/hello?from=chart",
+        )
+        .unwrap();
+        assert_eq!(chart.tracks.len(), 1);
+        assert_eq!(chart.tracks[0].provider_id, "123");
+
+        assert!(validate_context_menu_track(
+            &capture,
+            "https://www.traxsource.com/track/456/another-song",
+        )
+        .is_err());
+        assert!(validate_context_menu_track(&capture, "https://example.com/track/123").is_err());
+
+        let mut multiple = capture.clone();
+        multiple.entries.push(multiple.entries[0].clone());
+        multiple.entries[1].position = 2;
+        assert!(validate_context_menu_track(
+            &multiple,
+            "https://www.traxsource.com/track/123/hello",
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn context_menu_native_requests_have_separate_closed_shapes() {
+        let list: NativeRequest =
+            serde_json::from_value(json!({"type":"listTargetCollections"})).unwrap();
+        assert!(matches!(list, NativeRequest::ListTargetCollections));
+        let append: NativeRequest = serde_json::from_value(json!({
+            "type":"appendTrackToCollection",
+            "collectionId":"collection-1",
+            "targetUrl":"https://www.traxsource.com/track/123/hello",
+            "snapshot":serde_json::to_value(traxsource_single_track_snapshot()).unwrap()
+        }))
+        .unwrap();
+        assert!(matches!(
+            append,
+            NativeRequest::AppendTrackToCollection { .. }
+        ));
+        assert!(serde_json::from_value::<NativeRequest>(json!({
+            "type":"appendTrackToCollection",
+            "collectionId":"collection-1",
+            "targetUrl":"https://www.traxsource.com/track/123/hello",
+            "snapshot":serde_json::to_value(traxsource_single_track_snapshot()).unwrap(),
+            "overwrite":true
+        }))
+        .is_err());
+    }
     #[test]
     fn raw_page_title_is_retained_in_track_provenance() {
         let mut imported = snapshot();
@@ -2368,6 +2631,11 @@ mod tests {
                 "https://artist.bandcamp.com/album/album",
                 "https://artist.bandcamp.com/track/song",
             ),
+            (
+                "soundcloud",
+                "https://soundcloud.com/discover",
+                "https://soundcloud.com/artist/public-track",
+            ),
         ] {
             assert_eq!(provider_from_url(source).unwrap(), provider);
             let mut s = snapshot();
@@ -2392,6 +2660,10 @@ mod tests {
             "https://user:secret@www.last.fm/charts",
             "http://www.shazam.com/charts/top-200/world",
             "https://www.last.fm:8000/charts",
+            "https://soundcloud.com/artist/track?secret_token=private",
+            "https://soundcloud.com/artist/track?S_TOKEN=private",
+            "https://soundcloud.com/artist/sets",
+            "https://soundcloud.com/artist/track%2Fprivate",
         ] {
             assert!(provider_from_url(value).is_err());
         }

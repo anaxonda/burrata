@@ -2,10 +2,17 @@
 
 Firefox first, with a Chromium Manifest V3 variant. Page imports extract selected
 public chart, playlist, and album metadata from supported sites: Beatport,
-Traxsource, Spotify, public YouTube videos and playlists, Shazam, Last.fm, and
-Bandcamp. Page imports do not send cookies, tokens, audio, or the complete page.
+Traxsource, Spotify, public YouTube videos and playlists, Shazam, Last.fm,
+Bandcamp, and public SoundCloud tracks. Page imports do not send cookies, tokens,
+audio, or the complete page.
 Provider operations and the separate, explicitly consented YouTube session handoff
 have their own access flows. Provider access restrictions require your interaction.
+
+The extension can also add one track to a selected Burrata playlist from the browser
+context menu when the current page parser exposes that exact public track link.
+Choose a saved playlist in the companion's **Connections** settings first. This
+adds the parsed public metadata only; it does not replace playlist contents or
+create a playlist when no target is selected.
 
 For the implementation history, latest Beatport fix, and validation status, see the
 [chart and playlist import summary](../docs/chart-playlist-imports.md).
@@ -15,7 +22,7 @@ For the implementation history, latest Beatport fix, and validation status, see 
 First [install Burrata for your system](../docs/install.md) and open it. Download
 an extension from the **same main release's Assets** on
 [Burrata releases](https://github.com/anaxonda/burrata/releases).
-The extension version is separate from the app version: app 0.1.3 ships extension 0.2.2.
+The extension version is separate from the app version: app 0.1.48 ships extension 0.2.14.
 
 ### Firefox
 
@@ -106,6 +113,8 @@ access and consent.
   Last.fm supports its Top Tracks chart and a user's track library; chart ranks come from
   explicit row positions, while a paginated library remains incomplete unless all tracks
   and an explicit total are present.
+- SoundCloud context-menu capture is limited to public single-track pages and rejects
+  set/profile routes and private-token URLs.
 - Bandcamp album capture reads the album's explicit embedded tracklist. Collection pages
   are imported only when they render actual song rows; album cards are not converted into
   tracks. Bandcamp Discover imports up to 20 rendered album URLs and then reads each album’s explicit public tracklist; failed albums produce partial-import warnings.

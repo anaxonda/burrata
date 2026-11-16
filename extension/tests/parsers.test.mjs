@@ -2,11 +2,37 @@ import test from 'node:test';
 import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 import {JSDOM} from 'jsdom';
-import {extract,mergeSnapshots,providerFor,isVerification} from '../parsers.js';
+import {extract,extractTrackSelection,mergeSnapshots,providerFor,isVerification} from '../parsers.js';
 const doc=(html,url='https://www.last.fm/charts')=>new JSDOM(html,{url}).window.document;
 test('Traxsource preserves explicit rank, version and contributor separation',()=>{
  const s=extract(doc('<h1>Deep House Top 100</h1><div class="trk-row"><span class="tnum">8</span><div class="title"><a href="/track/123/hello">Hello</a><span class="version">Extended Mix</span> (6:32)</div><div class="artists"><a>Artist</a><span class="remixers"><a>Remixer</a></span></div><div class="label">Label</div></div>'),'https://www.traxsource.com/genre/13/deep-house/top');
  assert.equal(s.entries[0].artist,'Artist');assert.equal(s.entries[0].rank,8);assert.equal(s.entries[0].durationSeconds,392);assert.equal(s.expectedTotal,100);assert.equal(mergeSnapshots([s]).complete,false);
+});
+test('context-menu selection returns only the exact rendered public track link',()=>{
+ const url='https://www.traxsource.com/genre/13/deep-house/top';
+ const page=doc('<h1>Deep House Top 2</h1><div class="trk-row"><span class="tnum">1</span><div class="title"><a href="/track/123/hello">Hello</a><span class="version">Extended Mix</span></div><div class="artists"><a>Artist</a></div></div><div class="trk-row"><span class="tnum">2</span><div class="title"><a href="/track/456/world">World</a></div><div class="artists"><a>Other Artist</a></div></div>',url);
+ const result=extractTrackSelection(page,url,'https://www.traxsource.com/track/123/hello?from=chart');
+ assert.equal(result.snapshot.entries.length,1);assert.equal(result.snapshot.entries[0].providerId,'123');
+ assert.equal(result.snapshot.complete,false);assert.equal(result.snapshot.expectedTotal,null);
+ assert.throws(()=>extractTrackSelection(page,url,'https://www.traxsource.com/track/999/missing'),/not uniquely rendered/);
+ assert.throws(()=>extractTrackSelection(page,url),/Right-click a track link/);
+});
+test('Traxsource and Beatport detail pages provide one track when charts omit the current row',()=>{
+ const tx=extract(doc('<main><h1>Long Road</h1><a href="/artist/42/Elena">Elena</a><span class="version">Extended Mix</span><span class="track-length">6:12</span></main>'),'https://www.traxsource.com/track/123/long-road');
+ assert.equal(tx.entries.length,1);assert.equal(tx.entries[0].providerId,'123');assert.equal(tx.entries[0].artist,'Elena');assert.equal(tx.entries[0].version,'Extended Mix');assert.equal(tx.entries[0].durationSeconds,372);
+ const bp=extract(doc(`<main><h1>Night Drive</h1><script type="application/ld+json">${JSON.stringify({'@type':'MusicRecording',name:'Night Drive',url:'https://www.beatport.com/track/night-drive/456',byArtist:{'@type':'MusicGroup',name:'DJ North'}})}</script></main>`),'https://www.beatport.com/track/night-drive/456');
+ assert.equal(bp.entries.length,1);assert.equal(bp.entries[0].providerId,'456');assert.equal(bp.entries[0].artist,'DJ North');
+ const unknown=extract(doc('<main><h1>Unknown</h1></main>'),'https://www.traxsource.com/track/789/unknown');assert.equal(unknown.entries.length,0);
+});
+test('SoundCloud context menu accepts a public single track and rejects sets and private tokens',()=>{
+ const url='https://soundcloud.com/dj-north/night-drive';
+ const page=doc(`<h1>Night Drive</h1><meta property="al:ios:url" content="soundcloud://tracks:987654321"><script type="application/ld+json">${JSON.stringify({'@type':'MusicRecording',name:'Night Drive',url,byArtist:{'@type':'Person',name:'DJ North'},duration:'PT3M4S'})}</script>`,url);
+ assert.equal(providerFor(url),'soundcloud');
+ const selection=extractTrackSelection(page,url,'https://www.soundcloud.com/dj-north/night-drive?utm_source=menu');
+ assert.equal(selection.snapshot.entries.length,1);assert.equal(selection.snapshot.entries[0].providerId,'987654321');assert.equal(selection.snapshot.entries[0].durationSeconds,184);assert.equal(selection.targetUrl,url);
+ assert.throws(()=>extract(doc('<h1>Set</h1>'),'https://soundcloud.com/dj-north/sets'),/public SoundCloud track page/);
+ assert.throws(()=>extract(page,`${url}?secret_token=private`),/Private SoundCloud/);
+ assert.throws(()=>extract(page,'https://soundcloud.com/dj-north/night-drive/similar'),/public SoundCloud/);
 });
 test('Beatport discards auxiliary unranked tracks and private fields',()=>{
  const s=extract(doc('<h1>House Top 2</h1><script id="__NEXT_DATA__">'+JSON.stringify({token:'secret',data:[{id:9,name:'Related',artists:[{name:'X'}]},{position:2,track:{id:12,name:'Chart',artists:[{name:'Y'}],mix_name:'Radio Edit',length_ms:180000,authorization:'secret'}}]})+'</script>'),'https://www.beatport.com/genre/house/5/top-100');
@@ -279,6 +305,14 @@ test('Bandcamp album imports explicit TralbumData tracks; collections never conv
  const songRows=extract(doc('<h1>Mix</h1><div class="track_row_view"><img src="https://f4.bcbits.com/img/a123.jpg"><a href="/track/song">Song</a><a href="/artist">Artist</a></div><div class="track_row_view"><img srcset="https://f4.bcbits.com/img/a124_2.jpg 2x"><a href="/track/song-two">Song Two</a><a href="/artist">Artist</a></div><div class="track_row_view"><a href="/track/song-three">Song Three</a><a href="/artist">Artist</a></div><div class="track_row_view"><img src="data:image/gif;base64,AAAA"><a href="/track/song-four">Song Four</a><a href="/artist">Artist</a></div>'),'https://bandcamp.com/collection/example');
  assert.equal(songRows.kind,'playlist');assert.deepEqual(songRows.entries.map(e=>e.providerId),[null,null,null,null]);assert.match(songRows.entries[0].sourceUrl,/\/track\/song$/);assert.deepEqual(songRows.entries.map(e=>e.artworkUrl),['https://f4.bcbits.com/img/a123.jpg','https://f4.bcbits.com/img/a124_2.jpg',null,null]);
  assert.throws(()=>extract(doc('<h1>Collection</h1><a href="/album/lp">LP!</a>'),'https://bandcamp.com/collection/example'),/collections list albums, not song tracks/);
+});
+test('Bandcamp public single-track pages support page-context add only for their exact track',()=>{
+ const url='https://artist.bandcamp.com/track/song';
+ const data={artist:'Artist',album_title:'Release',trackinfo:[{track_id:77,title:'Song',title_link:'/track/song',track_num:2,duration:123}]};
+ const page=doc(`<script data-tralbum>${JSON.stringify(data)}</script><h1>Song</h1>`,url);
+ const selection=extractTrackSelection(page,url);
+ assert.equal(selection.targetUrl,url);assert.equal(selection.snapshot.entries.length,1);assert.equal(selection.snapshot.entries[0].providerId,'77');assert.equal(selection.snapshot.entries[0].artist,'Artist');
+ assert.throws(()=>extractTrackSelection(doc('<h1>Set</h1>'),'https://artist.bandcamp.com/track/not-in-metadata'),/explicit album tracklist|exact public track/);
 });
 
 test('Bandcamp Discover captures only rendered artist album URLs, not track/card text',()=>{

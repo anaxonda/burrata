@@ -33,7 +33,7 @@
     summary { width: fit-content; color: #dce8df; font-weight: 600; cursor: pointer; }
     .help-copy { display: grid; gap: 7px; padding: 8px 0 0; font-size: 12px; }
     label { display: block; color: #dce5dd; font-weight: 600; }
-    input[type="text"] { width: 100%; min-height: 36px; margin-top: 4px; padding: 7px 9px; border: 1px solid #46534a; border-radius: 6px; background: #101411; color: #f0f5f1; font: inherit; }
+    input[type="text"], select { width: 100%; min-height: 36px; margin-top: 4px; padding: 7px 9px; border: 1px solid #46534a; border-radius: 6px; background: #101411; color: #f0f5f1; font: inherit; }
     .consent { display: grid; grid-template-columns: 16px minmax(0,1fr); align-items: start; gap: 8px; color: #c4cec6; font-size: 12px; font-weight: 400; }
     .consent input { width: 15px; height: 15px; margin: 2px 0 0; accent-color: #b8ec8c; }
     #youtube-check-account, #youtube-handoff { width: 100%; }
@@ -64,7 +64,7 @@
         <div class="help-copy">
           <button id="diagnostic" class="quiet-button" type="button">Save parser diagnostic</button>
           <p class="fine-print">Saves one sanitized public track row locally. Cookies, JSON scripts, and forms are excluded. Nothing is uploaded.</p>
-          <p>Beatport, Traxsource, Shazam, Last.fm, Spotify playlists or albums, public YouTube videos or playlists, Bandcamp albums, and Bandcamp Discover pages.</p>
+          <p>Beatport, Traxsource, Shazam, Last.fm, Spotify playlists or albums, public YouTube videos or playlists, Bandcamp albums or tracks, and public SoundCloud tracks.</p>
           <p>Keep Burrata running. Spotify capture may scroll for up to 25 seconds and restores your position. Shazam and Last.fm preserve explicit ranks; Bandcamp Discover reads up to 20 rendered album cards. Verification requires your interaction.</p>
           <p>Public YouTube page imports do not require sign-in. Importing this page works separately from browser-assisted access.</p>
         </div>
@@ -76,6 +76,14 @@
         <h2 id="settings-heading" tabindex="-1">Connections</h2>
         <button id="show-import" class="quiet-button" type="button" aria-controls="import-view">Back to import</button>
       </div>
+      <section aria-labelledby="playlist-target-heading">
+        <h3 id="playlist-target-heading">Track context menu</h3>
+        <p>Choose the Burrata playlist for tracks you add from a supported public music page. Right-click a rendered track link to add that track.</p>
+        <label for="context-playlist-select">Target playlist</label>
+        <select id="context-playlist-select"><option value="">Choose a Burrata playlist…</option></select>
+        <button id="refresh-target-playlists" class="quiet-button" type="button">Refresh playlists</button>
+        <p id="context-playlist-status" class="fine-print" role="status" aria-live="polite"></p>
+      </section>
       <section aria-labelledby="browser-access-heading">
         <h3 id="browser-access-heading">Browser-assisted access</h3>
         <p>In-app sign-in in Burrata Settings → Connections is preferred. This optional mode lets Burrata use your signed-in browser session for provider requests and app-driven imports.</p>

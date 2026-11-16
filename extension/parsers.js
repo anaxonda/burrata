@@ -1,5 +1,5 @@
 // Only explicitly selected public catalog fields leave the browser.
-export const sites = ['https://www.beatport.com/*', 'https://www.traxsource.com/*', 'https://open.spotify.com/*', 'https://www.youtube.com/*', 'https://music.youtube.com/*', 'https://www.shazam.com/*', 'https://www.last.fm/*', 'https://last.fm/*', 'https://bandcamp.com/*', 'https://*.bandcamp.com/*'];
+export const sites = ['https://www.beatport.com/*', 'https://www.traxsource.com/*', 'https://open.spotify.com/*', 'https://www.youtube.com/*', 'https://music.youtube.com/*', 'https://www.shazam.com/*', 'https://www.last.fm/*', 'https://last.fm/*', 'https://bandcamp.com/*', 'https://*.bandcamp.com/*', 'https://soundcloud.com/*', 'https://www.soundcloud.com/*'];
 export function providerFor(url) {
   const u = new URL(url);
   if (u.protocol !== 'https:') throw new Error('Use an HTTPS provider page.');
@@ -7,6 +7,7 @@ export function providerFor(url) {
   if(host==='www.shazam.com'||host==='shazam.com')return 'shazam';
   if(host==='www.last.fm'||host==='last.fm')return 'lastfm';
   if(host==='bandcamp.com'||host.endsWith('.bandcamp.com'))return 'bandcamp';
+  if(host==='soundcloud.com'||host==='www.soundcloud.com')return 'soundcloud';
   if(host==='www.youtube.com'||host==='music.youtube.com')return 'youtube';
   return ({'www.beatport.com':'beatport','beatport.com':'beatport','www.traxsource.com':'traxsource','traxsource.com':'traxsource','open.spotify.com':'spotify'})[host] || null;
 }
@@ -112,6 +113,90 @@ function shazamJsonEntries(doc,url){
   };
   for(const value of scripts)walk(value);
   return found.map(item=>entry(item.id,link(item.href,url)||`https://www.shazam.com/song/${item.id}`,item.artist,item.title,item.rank,{rank:item.rank,artworkUrl:link(item.artwork,url),isrc:item.isrc}));
+}
+
+function soundcloudTrackPath(url){
+ const parts=url.pathname.split('/').filter(Boolean),reserved=new Set(['sets','you','discover','search','stream','upload','stations','groups','tags','popular','charts','pages','users','tracks','playlists','services','stories']);
+ return (url.hostname==='soundcloud.com'||url.hostname==='www.soundcloud.com')&&parts.length===2&&!parts.some(part=>reserved.has(part.toLowerCase()))&&parts.every(part=>/^[A-Za-z0-9_.-]{1,100}$/.test(part));
+}
+function soundcloudTrackId(doc,canonicalUrl){
+ for(const selector of ['meta[property="al:ios:url"]','meta[property="al:android:url"]','meta[name="twitter:app:url:iphone"]','meta[name="twitter:app:url:googleplay"]']){
+  const value=doc.querySelector(selector)?.getAttribute('content')||'';
+  const id=value.match(/(?:soundcloud:|soundcloud:\/\/)tracks:(\d{1,20})/i)?.[1];if(id)return id;
+ }
+ for(const node of doc.querySelectorAll('[data-permalink-url][data-item-id],[data-permalink-url][data-track-id]')){
+  const permalink=pageLink(node.getAttribute('data-permalink-url'),canonicalUrl);if(permalink!==canonicalUrl)continue;
+  const id=node.getAttribute('data-item-id')||node.getAttribute('data-track-id');if(/^\d{1,20}$/.test(id||''))return id;
+ }
+ return null;
+}
+function soundcloudJsonLd(doc,canonicalUrl){
+ let result=null,visited=0;
+ const walk=(value,depth=0)=>{
+  if(!value||typeof value!=='object'||depth>16||visited++>10000)return;
+  if(Array.isArray(value)){for(const child of value)walk(child,depth+1);return;}
+  const types=Array.isArray(value['@type'])?value['@type']:[value['@type']];
+  if(types.some(type=>type==='MusicRecording')&&typeof value.name==='string'){
+   const byArtist=Array.isArray(value.byArtist)?value.byArtist:[value.byArtist];
+   const names=byArtist.map(artist=>typeof artist==='string'?artist:artist?.name).filter(name=>typeof name==='string'&&name.trim());
+   const url=typeof value.url==='string'?value.url:typeof value['@id']==='string'?value['@id']:null;
+   if(names.length&&url&&(()=>{try{const parsed=new URL(url,canonicalUrl);parsed.search='';parsed.hash='';return parsed.href===canonicalUrl;}catch{return false;}})()){
+    result={title:value.name.trim(),artist:[...new Set(names)].join(', '),duration:value.duration||null};return;
+   }
+  }
+  for(const child of Object.values(value))walk(child,depth+1);
+ };
+ for(const script of doc.querySelectorAll('script[type="application/ld+json"]')){
+  const raw=script.textContent||'';if(raw.length>500000)continue;
+  try{walk(JSON.parse(raw));}catch{/* unrelated or malformed structured data */}
+  if(result)break;
+ }
+ return result;
+}
+function isoDurationSeconds(value){
+ if(typeof value!=='string')return null;
+ const match=/^PT(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?$/i.exec(value.trim());
+ if(!match)return null;
+ const seconds=Number(match[1]||0)*3600+Number(match[2]||0)*60+Number(match[3]||0);
+ return Number.isFinite(seconds)&&seconds>0?seconds:null;
+}
+function catalogTrackDetail(doc,url,provider){
+ const page=new URL(url),id=provider==='traxsource'?page.pathname.match(/^\/track\/(\d+)(?:\/|$)/)?.[1]:provider==='beatport'?page.pathname.match(/^\/track\/(?:[^/]+\/)?(\d+)(?:\/|$)/)?.[1]:null;
+ if(!id)return null;
+ const canonical=pageLink(page.href,page.href);if(!canonical)return null;
+ const structured=soundcloudJsonLd(doc,canonical);
+ const heading=doc.querySelector('main h1,[role="main"] h1,h1');
+ const title=structured?.title||youtubeText(heading);
+ let artistNames=[];
+ if(structured?.artist)artistNames=structured.artist.split(/,\s*/).filter(Boolean);
+ else {
+  for(let node=heading?.parentElement,depth=0;node&&depth<6;node=node.parentElement,depth++){
+   const anchors=[...node.querySelectorAll('a[href*="/artist/"]')].filter(anchor=>!anchor.closest('.remixer,.remixers'));
+   const names=[...new Set(anchors.map(anchor=>anchor.textContent.trim()).filter(Boolean))];
+   if(names.length&&names.length<=8){artistNames=names;break;}
+   if(node.querySelectorAll('a[href*="/track/"]').length>1)break;
+  }
+  if(!artistNames.length)artistNames=[...new Set([...doc.querySelectorAll('.artists a[href*="/artist/"],.artist a[href*="/artist/"]')].filter(anchor=>!anchor.closest('.remixer,.remixers')).map(anchor=>anchor.textContent.trim()).filter(Boolean))];
+ }
+ const artist=[...new Set(artistNames)].join(', ');
+ if(!title||!artist)return null;
+ const duration=isoDurationSeconds(structured?.duration)||time(text(doc,'.track-length,.duration,.track__duration,.track-duration'));
+ const credits=artistNames.map((name,index)=>({name,role:'artist',providerId:null,joinPhrase:index<artistNames.length-1?', ':'',provenance:`${provider}RenderedArtistLink`}));
+ const data=entry(id,canonical,artist,title,1,{durationSeconds:duration,version:text(doc,'.version,.mix-name,.track-mix'),artistCredits:credits,metadata:{artistUrls:[],remixers:[]}});
+ return {schemaVersion:1,provider,kind:'chart',title,sourceUrl:canonical,capturedAt:new Date().toISOString(),complete:true,expectedTotal:1,warnings:[],entries:[data]};
+}
+function extractSoundCloud(doc,url){
+ const page=new URL(url);
+ if(!soundcloudTrackPath(page))throw new Error('Open a public SoundCloud track page.');
+ if(['s_token','secret_token','access_token','oauth_token','token'].some(key=>page.searchParams.has(key)))throw new Error('Private SoundCloud links cannot be imported. Open the public track URL.');
+ const canonical=pageLink(page.href,page.href);if(!canonical)throw new Error('SoundCloud track URL is invalid.');
+ const structured=soundcloudJsonLd(doc,canonical);
+ const title=structured?.title||text(doc,'.soundTitle__title')||text(doc,'main h1,h1');
+ const artist=structured?.artist||text(doc,'.soundTitle__username');
+ if(!title||!artist)throw new Error('SoundCloud did not render a public track title and artist.');
+ const trackId=soundcloudTrackId(doc,canonical);
+ const duration=isoDurationSeconds(structured?.duration)||time(text(doc,'.playbackTimeline__duration,.sound__meta .sc-ministats'));
+ return {schemaVersion:1,provider:'soundcloud',kind:'chart',title:`${artist} — ${title}`,sourceUrl:canonical,capturedAt:new Date().toISOString(),complete:true,expectedTotal:1,warnings:[],entries:[entry(trackId,canonical,artist,title,1,{durationSeconds:duration,metadata:{soundcloudTrackId:trackId}})]};
 }
 function shazamDomEntries(doc,url){
   const found=[],seen=new Set();
@@ -223,6 +308,13 @@ function bandcampAlbum(doc,url){
   });
   if(!entries.length)throw new Error('Bandcamp album metadata did not contain importable songs.');
   return {schemaVersion:1,provider:'bandcamp',kind:'album',title,sourceUrl:url,capturedAt:new Date().toISOString(),complete:false,expectedTotal:data.trackinfo.length,warnings:entries.length===data.trackinfo.length?[]:['Some album tracks lacked a stable provider ID or title and were omitted.'],entries};
+}
+function bandcampTrack(doc,url){
+ const page=pageLink(url,url);if(!page||!/^https:\/\/[^/]+\.bandcamp\.com\/track\/[^/]+$/.test(page))throw new Error('Open a public Bandcamp track page.');
+ const album=bandcampAlbum(doc,page),path=new URL(page).pathname;
+ const matches=album.entries.filter(item=>item.sourceUrl&&new URL(item.sourceUrl).pathname===path);
+ if(matches.length!==1)throw new Error('Bandcamp did not expose metadata for this exact public track.');
+ return {...album,kind:'chart',title:matches[0].title,sourceUrl:page,complete:true,expectedTotal:1,warnings:[],entries:[{...matches[0],position:1,rank:null}]};
 }
 function bandcampCollection(doc,url){
   const rows=[...doc.querySelectorAll('#track_table .track_row_view,.track_row_view,[data-testid="track-row"]')],entries=[];
@@ -347,13 +439,15 @@ function extractYouTube(doc,url){
 }
 export function extract(doc, url) {
   const provider = providerFor(url);
-  if (!provider) throw new Error('Open a supported Beatport, Traxsource, Spotify, YouTube, Shazam, Last.fm or Bandcamp page.');
+  if (!provider) throw new Error('Open a supported Beatport, Traxsource, Spotify, YouTube, Shazam, Last.fm, Bandcamp or public SoundCloud track page.');
   if (isVerification(doc)) throw new Error('Complete provider verification in this browser tab, then import again.');
   if(provider==='youtube')return extractYouTube(doc,url);
+  if(provider==='soundcloud')return extractSoundCloud(doc,url);
   if(provider==='shazam')return extractShazam(doc,url);
   if(provider==='lastfm')return extractLastfm(doc,url);
   if(provider==='bandcamp'){
     const path=new URL(url).pathname;
+    if(/^\/track\/[^/]+\/?$/i.test(path))return bandcampTrack(doc,url);
     if(/^\/discover\/[^/]+\/?$/i.test(path))return bandcampDiscover(doc,url);
     if(/^\/album\/[^/]+\/?$/i.test(path))return bandcampAlbum(doc,url);
     if(/^\/(?:collection|collections)(?:\/[^/]+)?\/?$/i.test(path)||/^\/music\/?$/i.test(path))return bandcampCollection(doc,url);
@@ -490,6 +584,9 @@ export function extract(doc, url) {
       entries.push(entry(id,sourceUrl,artist,a.textContent.trim(),explicit,{artistCredits:renderedArtistCredits(row,url,'spotify'),metadata:{...rowMetadata(row,url),availability:row.getAttribute('aria-disabled')==='true'?'unavailable':'available'},artworkUrl:link(row.querySelector('img')?.getAttribute('src'),url),album:text(row,'a[href*="/album/"]'),durationSeconds:time(text(row,'[aria-colindex="5"]') || [...row.querySelectorAll('[role="gridcell"]')].at(-1)?.textContent || row.textContent)}));
     }
   }
+  if(!entries.length&&(provider==='traxsource'||provider==='beatport')){
+    const detail=catalogTrackDetail(doc,url,provider);if(detail)return detail;
+  }
   let title=text(doc,'main h1,[role="main"] h1')||text(doc,'h1')||doc.title;
   // Spotify album pages expose the album artist beside the album heading.
   // Keep this strictly tied to that header metadata; track-row artists describe
@@ -504,6 +601,38 @@ export function extract(doc, url) {
   entries=entries.map(e=>Object.fromEntries(Object.entries({...e,...(albumArtwork?{artworkUrl:albumArtwork,album:title}:{})}).map(([k,v])=>[k,typeof v==='string'?v.slice(0,2000):typeof v==='number'?(Number.isFinite(v)?v:null):k==='metadata'||k==='artistCredits'?v:null])));
   return {schemaVersion:1,provider,kind:provider==='spotify'?spotifyKind:'chart',title,sourceUrl,capturedAt:new Date().toISOString(),complete:false,expectedTotal,warnings:[],entries};
 }
+
+function selectedTrackIdentity(provider, value, base) {
+  const url=new URL(value,base);
+  if(url.protocol!=='https:'||providerFor(url.href)!==provider||url.username||url.password)throw new Error('Select a public track link from this provider page.');
+  const path=url.pathname.replace(/^\/intl-[a-z]{2}(?:-[a-z]{2})?(?=\/)/i,'');
+  let id=null;
+  if(provider==='traxsource')id=path.match(/^\/track\/(\d+)(?:\/|$)/)?.[1];
+  else if(provider==='beatport')id=path.match(/^\/track\/(?:[^/]+\/)?(\d+)(?:\/|$)/)?.[1];
+  else if(provider==='spotify')id=path.match(/^\/track\/([A-Za-z0-9]{22})(?:\/|$)/)?.[1];
+  else if(provider==='youtube')id=url.searchParams.get('v')?.match(/^[A-Za-z0-9_-]{1,128}$/)?.[0]||null;
+  else if(provider==='shazam')id=path.match(/^\/song\/(\d+)(?:\/|$)/)?.[1];
+  else if(provider==='lastfm')id=/^\/music\/[^/]+\/_\/[^/]+\/?$/.test(path)?`${url.host}${path}`:null;
+  else if(provider==='bandcamp')id=/^\/track\/[^/]+\/?$/.test(path)?`${url.host}${path}`:null;
+  else if(provider==='soundcloud')id=soundcloudTrackPath(url)?`${url.hostname.replace(/^www\./,'')}${path.replace(/\/$/,'')}`:null;
+  if(!id)throw new Error('This page does not expose a supported public track link.');
+  return `${provider}:${id}`;
+}
+
+// Return only the row selected by a context-menu link. Page context menus are
+// allowed only when the current page itself identifies exactly one recording.
+export function extractTrackSelection(doc, url, targetUrl=null) {
+  const snapshot=extract(doc,url);
+  let entries=snapshot.entries;
+  if(targetUrl){
+    const identity=selectedTrackIdentity(snapshot.provider,targetUrl,url);
+    entries=entries.filter(entry=>entry.sourceUrl&&selectedTrackIdentity(snapshot.provider,entry.sourceUrl,url)===identity);
+  }
+  if(entries.length!==1)throw new Error(targetUrl?'The selected track was not uniquely rendered on this page.':'This page does not identify exactly one track. Right-click a track link instead.');
+  const entry=entries[0];
+  return {snapshot:{...snapshot,complete:false,expectedTotal:null,warnings:[],entries:[entry]},targetUrl:entry.sourceUrl};
+}
+
 export function mergeSnapshots(snapshots) {
   const snapshot={...snapshots[0], entries:[],warnings:[...new Set(snapshots.flatMap(s=>s.warnings||[]))]};const positions=new Map();
   // Keep repeated occurrences. Native app deduplicates IDs preserving occurrence provenance.
@@ -527,11 +656,11 @@ export function diagnosticSample(doc, url) {
     try {
       const u=new URL(value,url);
       if(u.protocol!=='https:' || providerFor(u.href)!==provider)return null;
-      const valid=provider==='shazam'?/^\/song\/\d+(?:\/|$)/.test(u.pathname):provider==='lastfm'?/^\/music\/[^/]+\/_\/[^/]+\/?$/.test(u.pathname):provider==='bandcamp'?/^\/track\/[^/]+\/?$/.test(u.pathname):/^\/(?:track|artist|label|genre|release|album)\//.test(u.pathname);
+      const valid=provider==='shazam'?/^\/song\/\d+(?:\/|$)/.test(u.pathname):provider==='lastfm'?/^\/music\/[^/]+\/_\/[^/]+\/?$/.test(u.pathname):provider==='bandcamp'?/^\/track\/[^/]+\/?$/.test(u.pathname):provider==='soundcloud'?soundcloudTrackPath(u):/^\/(?:track|artist|label|genre|release|album)\//.test(u.pathname);
       return valid ? u.pathname : null;
     }catch{return null;}
   };
-  const selector=provider==='shazam'?'a[href*="/song/"]':provider==='lastfm'?'a[href*="/music/"]':'a[href*="/track/"]';
+  const selector=provider==='shazam'?'a[href*="/song/"]':provider==='lastfm'?'a[href*="/music/"]':provider==='soundcloud'?'a[href]':'a[href*="/track/"]';
   const ids=node=>new Set([...node.querySelectorAll(selector)].map(a=>canonicalPath(a.getAttribute('href'))).filter(Boolean));
   const first=[...doc.querySelectorAll(selector)].find(a=>canonicalPath(a.getAttribute('href'))&&a.textContent.trim());
   if(!first)throw new Error('No public track link found to diagnose.');

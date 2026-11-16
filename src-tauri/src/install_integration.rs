@@ -160,38 +160,165 @@ pub(crate) fn chromium_extension_id() -> Result<String, String> {
 }
 
 fn installed_host_executable(resource_dir: &Path) -> Result<PathBuf, String> {
+    let source = bundled_host_path(resource_dir, crate::tools::target_triple(), cfg!(windows));
+    let target = managed_host_path(&source, &default_host_path(), cfg!(windows))?;
+    copy_host_if_changed(&source, &target)?;
+    Ok(target)
+}
+
+fn default_host_path() -> PathBuf {
     let name = if cfg!(windows) {
         "burrata-browser-host.exe"
     } else {
         "burrata-browser-host"
     };
-    let source = bundled_host_path(resource_dir, crate::tools::target_triple(), cfg!(windows));
+    data_home()
+        .join("org.burrata.discovery/integrations")
+        .join(name)
+}
+
+fn managed_host_path(source: &Path, fixed_path: &Path, windows: bool) -> Result<PathBuf, String> {
+    if !windows {
+        return Ok(fixed_path.to_path_buf());
+    }
+    let parent = fixed_path
+        .parent()
+        .ok_or("Browser host directory unavailable")?;
+    let stem = fixed_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .ok_or("Browser host filename unavailable")?;
+    let extension = fixed_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .ok_or("Browser host extension unavailable")?;
+    let digest = crate::media::hash_file(source)?;
+    Ok(parent.join(format!("{stem}-{digest}.{extension}")))
+}
+
+fn is_managed_host_path(path: &Path, fixed_path: &Path, windows: bool) -> bool {
+    if path == fixed_path {
+        return true;
+    }
+    if !windows || path.parent() != fixed_path.parent() {
+        return false;
+    }
+    let Some(stem) = fixed_path.file_stem().and_then(|value| value.to_str()) else {
+        return false;
+    };
+    let Some(filename) = path.file_name().and_then(|value| value.to_str()) else {
+        return false;
+    };
+    let Some(extension) = fixed_path.extension().and_then(|value| value.to_str()) else {
+        return false;
+    };
+    let Some(digest) = filename
+        .strip_prefix(&format!("{stem}-"))
+        .and_then(|name| name.strip_suffix(&format!(".{extension}")))
+    else {
+        return false;
+    };
+    digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn copy_host_if_changed(source: &Path, target: &Path) -> Result<bool, String> {
     if !source.is_file() {
         return Err(format!(
             "Bundled browser host is missing: {}",
             source.display()
         ));
     }
-    let target = data_home()
-        .join("org.burrata.discovery/integrations")
-        .join(name);
-    if source != target {
-        fs::create_dir_all(target.parent().unwrap()).map_err(|e| e.to_string())?;
-        // Copy via a temporary file so a running/old host is never partially overwritten.
-        let tmp = target.with_extension(if cfg!(windows) { "tmp.exe" } else { "tmp" });
-        fs::copy(&source, &tmp).map_err(|e| format!("Could not install browser host: {e}"))?;
+    if source == target
+        || (target.is_file()
+            && crate::media::hash_file(source)? == crate::media::hash_file(target)?)
+    {
+        return Ok(false);
+    }
+    {
+        let parent = target
+            .parent()
+            .ok_or("Browser host directory unavailable")?;
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        let tmp = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+        fs::copy(source, tmp.path()).map_err(|e| format!("Could not install browser host: {e}"))?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&tmp, fs::Permissions::from_mode(0o700))
+            fs::set_permissions(tmp.path(), fs::Permissions::from_mode(0o700))
                 .map_err(|e| e.to_string())?;
         }
-        if target.exists() {
-            fs::remove_file(&target).map_err(|e| e.to_string())?;
-        }
-        fs::rename(tmp, &target).map_err(|e| e.to_string())?;
+        tmp.as_file().sync_all().map_err(|e| e.to_string())?;
+        // persist replaces atomically on Unix and Windows, retaining the old
+        // executable if publication fails (for example an occupied Windows file).
+        tmp.persist(target).map_err(|e| e.error.to_string())?;
     }
-    Ok(target)
+    Ok(true)
+}
+
+fn refresh_registered_host_from_paths(
+    source: &Path,
+    fixed_path: &Path,
+    manifests: &[PathBuf],
+    windows: bool,
+) -> Result<bool, String> {
+    let target = managed_host_path(source, fixed_path, windows)?;
+    if fs::symlink_metadata(&target).is_ok_and(|meta| meta.file_type().is_symlink()) {
+        return Ok(false);
+    }
+    let mut owned_manifests = Vec::new();
+    for path in manifests {
+        if !fs::metadata(path).is_ok_and(|m| m.len() <= 65536) {
+            continue;
+        }
+        let Some(mut value) = fs::read(path)
+            .ok()
+            .and_then(|raw| serde_json::from_slice::<serde_json::Value>(&raw).ok())
+        else {
+            continue;
+        };
+        let registered_path = value["path"].as_str().map(PathBuf::from);
+        if value["name"] == HOST
+            && value["type"] == "stdio"
+            && registered_path
+                .as_deref()
+                .is_some_and(|path| is_managed_host_path(path, fixed_path, windows))
+        {
+            if let Some(object) = value.as_object_mut() {
+                object.insert(
+                    "path".into(),
+                    serde_json::Value::String(target.to_string_lossy().into_owned()),
+                );
+            }
+            let path_changed = registered_path.as_deref() != Some(target.as_path());
+            owned_manifests.push((path, value, path_changed));
+        }
+    }
+    if owned_manifests.is_empty() {
+        return Ok(false);
+    }
+    let mut changed = copy_host_if_changed(source, &target)?;
+    for (path, value, path_changed) in owned_manifests {
+        if path_changed {
+            let bytes = serde_json::to_vec_pretty(&value).map_err(|error| error.to_string())?;
+            write_manifest(path, &bytes)?;
+            changed = true;
+        }
+    }
+    Ok(changed)
+}
+
+/// Update only the standard helper for existing registrations. Custom paths,
+/// manifests, browser pairing and unregistered browsers remain user-owned.
+pub(crate) fn refresh_registered_host(resource_dir: &Path) -> Result<bool, String> {
+    let home = dirs::home_dir().ok_or("Home directory unavailable")?;
+    let manifests =
+        Browser::all().map(|browser| browser.directory(&home).join(format!("{HOST}.json")));
+    refresh_registered_host_from_paths(
+        &bundled_host_path(resource_dir, crate::tools::target_triple(), cfg!(windows)),
+        &default_host_path(),
+        &manifests,
+        cfg!(windows),
+    )
 }
 
 fn bundled_host_path(resource_dir: &Path, target: &str, windows: bool) -> PathBuf {
@@ -249,14 +376,15 @@ fn registry(browser: Browser, manifest: &Path, remove: bool) -> Result<(), Strin
 }
 
 fn write_manifest(target: &Path, bytes: &[u8]) -> Result<(), String> {
-    let tmp = target.with_extension("json.tmp");
-    fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
-    // Unix rename replaces atomically; Windows requires deleting an existing target first.
-    #[cfg(windows)]
-    if target.exists() {
-        fs::remove_file(target).map_err(|e| e.to_string())?;
-    }
-    fs::rename(&tmp, target).map_err(|e| e.to_string())
+    use std::io::Write;
+    let parent = target
+        .parent()
+        .ok_or("Browser manifest directory unavailable")?;
+    let mut tmp = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+    tmp.write_all(bytes).map_err(|e| e.to_string())?;
+    tmp.as_file().sync_all().map_err(|e| e.to_string())?;
+    tmp.persist(target).map_err(|e| e.error.to_string())?;
+    Ok(())
 }
 
 pub fn status() -> InstallStatus {
@@ -384,6 +512,143 @@ fn mcp_launcher_candidates(current_exe: &Path, target: &str, windows: bool) -> V
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn registered_helper_refresh_preserves_manifests_and_skips_identical_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("bundled-host");
+        let target = dir.path().join("installed-host");
+        let manifest_path = dir.path().join("host.json");
+        fs::write(&source, b"new protocol").unwrap();
+        fs::write(&target, b"old protocol").unwrap();
+        let manifest_bytes =
+            serde_json::to_vec(&manifest(Browser::Firefox, &target).unwrap()).unwrap();
+        fs::write(&manifest_path, &manifest_bytes).unwrap();
+        assert!(refresh_registered_host_from_paths(
+            &source,
+            &target,
+            std::slice::from_ref(&manifest_path),
+            false,
+        )
+        .unwrap());
+        assert_eq!(fs::read(&target).unwrap(), b"new protocol");
+        assert_eq!(fs::read(&manifest_path).unwrap(), manifest_bytes);
+        let modified = fs::metadata(&target).unwrap().modified().unwrap();
+        assert!(!refresh_registered_host_from_paths(
+            &source,
+            &target,
+            std::slice::from_ref(&manifest_path),
+            false,
+        )
+        .unwrap());
+        assert_eq!(fs::metadata(&target).unwrap().modified().unwrap(), modified);
+        fs::remove_file(&target).unwrap();
+        assert!(
+            refresh_registered_host_from_paths(&source, &target, &[manifest_path], false).unwrap()
+        );
+    }
+
+    #[test]
+    fn refresh_does_not_register_browsers_or_replace_custom_helpers() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("bundled-host");
+        let target = dir.path().join("standard-host");
+        let custom = dir.path().join("custom-host");
+        let manifest_path = dir.path().join("host.json");
+        fs::write(&source, b"new").unwrap();
+        fs::write(&custom, b"custom").unwrap();
+        assert!(!refresh_registered_host_from_paths(&source, &target, &[], false).unwrap());
+        assert!(!target.exists());
+        fs::write(
+            &manifest_path,
+            serde_json::to_vec(&manifest(Browser::Firefox, &custom).unwrap()).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            !refresh_registered_host_from_paths(&source, &target, &[manifest_path], false).unwrap()
+        );
+        assert!(!target.exists());
+        assert_eq!(fs::read(custom).unwrap(), b"custom");
+    }
+
+    #[test]
+    fn failed_helper_refresh_keeps_the_existing_executable() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("installed-host");
+        fs::write(&target, b"old working host").unwrap();
+        assert!(copy_host_if_changed(&dir.path().join("missing-bundle"), &target).is_err());
+        assert_eq!(fs::read(target).unwrap(), b"old working host");
+    }
+
+    #[test]
+    fn windows_refresh_publishes_immutable_helper_and_preserves_owned_manifest_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("bundled-host.exe");
+        let old_source = dir.path().join("previous-host.exe");
+        let fixed_path = dir.path().join("burrata-browser-host.exe");
+        let manifest_path = dir.path().join("host.json");
+        fs::write(&source, b"new protocol").unwrap();
+        fs::write(&old_source, b"old protocol").unwrap();
+        fs::write(&fixed_path, b"legacy locked executable").unwrap();
+        let old_managed_path = managed_host_path(&old_source, &fixed_path, true).unwrap();
+        fs::write(&old_managed_path, b"old protocol").unwrap();
+        let new_managed_path = managed_host_path(&source, &fixed_path, true).unwrap();
+        assert_ne!(old_managed_path, new_managed_path);
+        let mut owned = manifest(Browser::Chrome, &old_managed_path).unwrap();
+        owned["allowed_origins"] = serde_json::json!([
+            "chrome-extension://existing-pairing/",
+            "chrome-extension://additional-pairing/"
+        ]);
+        owned["customInstallerData"] = serde_json::json!({"keep": true});
+        let original_origins = owned["allowed_origins"].clone();
+        let original_custom = owned["customInstallerData"].clone();
+        fs::write(&manifest_path, serde_json::to_vec_pretty(&owned).unwrap()).unwrap();
+
+        assert!(refresh_registered_host_from_paths(
+            &source,
+            &fixed_path,
+            std::slice::from_ref(&manifest_path),
+            true,
+        )
+        .unwrap());
+        assert_eq!(fs::read(&fixed_path).unwrap(), b"legacy locked executable");
+        assert_eq!(fs::read(&old_managed_path).unwrap(), b"old protocol");
+        assert_eq!(fs::read(&new_managed_path).unwrap(), b"new protocol");
+        let refreshed: serde_json::Value =
+            serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+        assert_eq!(
+            refreshed["path"],
+            new_managed_path.to_string_lossy().as_ref()
+        );
+        assert_eq!(refreshed["allowed_origins"], original_origins);
+        assert_eq!(refreshed["customInstallerData"], original_custom);
+        assert!(
+            !refresh_registered_host_from_paths(&source, &fixed_path, &[manifest_path], true,)
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn windows_refresh_leaves_custom_helper_paths_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("bundled-host.exe");
+        let fixed_path = dir.path().join("burrata-browser-host.exe");
+        let custom_path = dir.path().join("custom-browser-host.exe");
+        let manifest_path = dir.path().join("host.json");
+        fs::write(&source, b"new protocol").unwrap();
+        fs::write(&custom_path, b"custom helper").unwrap();
+        fs::write(
+            &manifest_path,
+            serde_json::to_vec(&manifest(Browser::Chrome, &custom_path).unwrap()).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            !refresh_registered_host_from_paths(&source, &fixed_path, &[manifest_path], true,)
+                .unwrap()
+        );
+        assert!(!fixed_path.exists());
+        assert_eq!(fs::read(custom_path).unwrap(), b"custom helper");
+    }
+
     #[test]
     fn registration_manifests_preserve_committed_extension_ids() {
         let path = Path::new("/tmp/burrata-browser-host");

@@ -87,7 +87,7 @@
   .portable-history-dialog header { display:flex; align-items:center; justify-content:space-between; }
   .portable-history-dialog h2 { margin:0; }
   .actions { display:flex; justify-content:flex-start; margin:18px 0 12px; }
-  .primary { background:var(--accent,#7aa2ff); color:var(--accent-contrast,#111); font-weight:650; }
+  .primary { background:var(--accent,#7aa2ff); color:var(--base,#101412); font-weight:650; }
   .preview { display:grid; gap:4px; margin:12px 0 18px; padding:12px; border:1px solid var(--line,#444); border-radius:8px; }
   .preview span { color:var(--muted); font-size:.9rem; }
   .advanced,.privacy-details { border-top:1px solid var(--line,#444); padding-top:12px; margin-top:12px; }
