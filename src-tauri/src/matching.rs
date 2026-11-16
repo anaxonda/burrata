@@ -3,7 +3,9 @@ use crate::models::{Candidate, Track};
 use std::{borrow::Cow, collections::HashSet};
 
 pub fn normalize(value: &str) -> String {
-    icu_normalizer::ComposingNormalizerBorrowed::new_nfc()
+    // Width and compatibility variants must agree with local artist discovery.
+    // Keep accents and script differences: this is not transliteration.
+    icu_normalizer::ComposingNormalizerBorrowed::new_nfkc()
         .normalize(value)
         .to_lowercase()
         .chars()
@@ -383,6 +385,17 @@ pub fn score_candidate(track: &Track, candidate: &mut Candidate) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unicode_compatibility_artist_names_agree_without_folding_accents_or_scripts() {
+        assert_eq!(
+            normalize("Ａster\u{00A0}feat. Guest"),
+            normalize("Aster feat. Guest")
+        );
+        assert_eq!(normalize("Café"), normalize("Cafe\u{0301}"));
+        assert_ne!(normalize("Café"), normalize("Cafe"));
+        assert_ne!(normalize("Aster"), normalize("Аster")); // Cyrillic A
+    }
 
     #[test]
     fn single_artist_name_normalization_only_equates_ampersand_and_and() {
