@@ -10740,7 +10740,7 @@ mod tests {
         local.artist = "Aster feat. Guest".into();
         local.title = "Song".into();
         local.version = Some(String::new());
-        local.duration_seconds = Some(200.);
+        local.duration_seconds = Some(180.);
         store.save_track(&local).unwrap();
         let path = dir.path().join("artist-playback-featured.flac");
         std::fs::write(&path, b"fixture audio").unwrap();
@@ -10758,7 +10758,7 @@ mod tests {
         source.provider_id = "featured".into();
         source.artist = "Ａster\u{00A0}feat. Guest".into();
         source.version = None;
-        source.duration_seconds = Some(200.);
+        source.duration_seconds = Some(180.);
         let matches = store
             .match_artist_playback_sources(&["Main profile artist".into()], &[source])
             .unwrap();

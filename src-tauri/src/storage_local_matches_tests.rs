@@ -562,3 +562,24 @@ fn cross_recording_match_requires_measured_asset_duration_but_canonical_file_doe
         Some(canonical_path.to_str().unwrap())
     );
 }
+
+#[test]
+fn local_match_indexes_allow_raw_sqlite_backup_integrity_and_writes() {
+    let (dir, store) = db();
+    store.save_track(&request()).unwrap();
+    add_matching_asset(&dir, &store, "portable-index");
+    drop(store);
+
+    // Backup/restore and older app connections do not register our query UDFs.
+    let conn = Connection::open(dir.path().join("local-matches.sqlite")).unwrap();
+    let integrity: String = conn
+        .query_row("PRAGMA integrity_check", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(integrity, "ok");
+    conn.execute("UPDATE local_assets SET payload=payload", [])
+        .unwrap();
+    conn.execute("UPDATE catalog_listings SET metadata=metadata", [])
+        .unwrap();
+    conn.execute("UPDATE recordings SET manual_metadata=manual_metadata", [])
+        .unwrap();
+}

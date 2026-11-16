@@ -7,42 +7,25 @@ const LISTING_LIMIT: usize = 256;
 
 const CANDIDATE_SQL: &str = r#"
 SELECT a.id,a.path,a.hash,a.payload FROM local_assets a
-WHERE a.id IN (
-    SELECT id FROM local_assets
-    WHERE artist_match_key(json_extract(payload,'$.track.artist'))=?1
-      AND CAST(json_extract(payload,'$.durationSeconds') AS REAL) BETWEEN ?2 AND ?3
-    UNION
-    SELECT a.id FROM recordings r JOIN local_assets a ON a.recording_id=r.id
-    WHERE artist_match_key(json_extract(r.manual_metadata,'$.artist'))=?1
-      AND CAST(json_extract(a.payload,'$.durationSeconds') AS REAL) BETWEEN ?2 AND ?3
-)
-AND length(a.payload)<=262144
-AND local_recording_title_key(COALESCE(
-    (SELECT json_extract(r.manual_metadata,'$.title') FROM recordings r WHERE r.id=a.recording_id),
-    json_extract(a.payload,'$.track.title')))=?5
+JOIN recordings r ON r.id=a.recording_id
+WHERE json_valid(a.payload)
+  AND CAST(json_extract(a.payload,'$.durationSeconds') AS REAL) BETWEEN ?2 AND ?3
+  AND artist_match_key(COALESCE(json_extract(r.manual_metadata,'$.artist'),
+      json_extract(a.payload,'$.track.artist')))=?1
+  AND local_recording_title_key(COALESCE(json_extract(r.manual_metadata,'$.title'),
+      json_extract(a.payload,'$.track.title')))=?5
+  AND length(a.payload)<=262144
 ORDER BY a.rowid LIMIT ?4
 "#;
 
 const LISTING_SQL: &str = r#"
 SELECT l.id,l.metadata,r.favorite,r.disposition,r.manual_metadata
 FROM catalog_listings l JOIN recordings r ON r.id=l.recording_id
-WHERE l.id IN (
-    SELECT id FROM catalog_listings
-    WHERE artist_match_key(json_extract(metadata,'$.artist'))=?1
-      AND CAST(json_extract(metadata,'$.durationSeconds') AS REAL) BETWEEN ?2 AND ?3
-    UNION
-    SELECT l.id FROM recordings r JOIN catalog_listings l ON l.recording_id=r.id
-    WHERE artist_match_key(json_extract(r.manual_metadata,'$.artist'))=?1
-      AND CAST(COALESCE(json_extract(r.manual_metadata,'$.durationSeconds'),
-          json_extract(l.metadata,'$.durationSeconds')) AS REAL) BETWEEN ?2 AND ?3
-    UNION
-    SELECT l.id FROM catalog_listings l JOIN recordings r ON r.id=l.recording_id
-    WHERE artist_match_key(json_extract(l.metadata,'$.artist'))=?1
-      AND CAST(json_extract(r.manual_metadata,'$.durationSeconds') AS REAL) BETWEEN ?2 AND ?3
-)
-AND length(l.metadata)<=262144
+JOIN page_local_match_keys k ON k.listing_id=l.id
+WHERE k.artist=?1 AND k.duration BETWEEN ?2 AND ?3
 AND local_recording_title_key(COALESCE(json_extract(r.manual_metadata,'$.title'),
     json_extract(l.metadata,'$.title')))=?5
+AND length(l.metadata)<=262144
 LIMIT ?4
 "#;
 
@@ -67,11 +50,14 @@ pub(super) fn install(conn: &Connection) -> Result<()> {
         },
     )
     .map_err(err)?;
-    // Use a function already present in older releases: these optional indexes
-    // must not make the profile unwritable after an executable rollback.
-    conn.execute_batch("CREATE INDEX IF NOT EXISTS local_asset_artist_runtime_v1 ON local_assets(artist_match_key(json_extract(payload,'$.track.artist')),CAST(json_extract(payload,'$.durationSeconds') AS REAL));
-        CREATE INDEX IF NOT EXISTS local_listing_artist_runtime_v1 ON catalog_listings(artist_match_key(json_extract(metadata,'$.artist')),CAST(json_extract(metadata,'$.durationSeconds') AS REAL));
-        CREATE INDEX IF NOT EXISTS local_manual_artist_v1 ON recordings(artist_match_key(json_extract(manual_metadata,'$.artist')));")
+    // Persistent indexes use only SQLite built-ins. Backup/restore and older
+    // executables can read/write the profile without app-specific functions.
+    conn.execute_batch("DROP INDEX IF EXISTS local_asset_artist_runtime_v1;
+        DROP INDEX IF EXISTS local_listing_artist_runtime_v1;
+        DROP INDEX IF EXISTS local_manual_artist_v1;
+        CREATE INDEX IF NOT EXISTS local_asset_runtime_v1 ON local_assets(CAST(json_extract(payload,'$.durationSeconds') AS REAL)) WHERE json_valid(payload);
+        DROP INDEX IF EXISTS local_listing_runtime_v1;
+        DROP INDEX IF EXISTS local_manual_runtime_v1;")
         .map_err(err)
 }
 
@@ -253,6 +239,25 @@ pub(super) fn selected(
 pub(super) fn populate_available(conn: &Connection, settings: &Settings) -> Result<()> {
     conn.execute_batch("CREATE TEMP TABLE IF NOT EXISTS page_local_matches(listing_id TEXT PRIMARY KEY); DELETE FROM page_local_matches;").map_err(err)?;
     conn.execute_batch("CREATE TEMP TABLE IF NOT EXISTS page_local_match_checks(listing_id TEXT PRIMARY KEY); DELETE FROM page_local_match_checks;").map_err(err)?;
+    // Build small, disposable keys once for this filter request. Keeping these
+    // in SQLite avoids repeatedly normalizing every duration-compatible listing
+    // for each asset, without persistent UDF indexes or stale background caches.
+    conn.execute_batch(
+        "CREATE TEMP TABLE IF NOT EXISTS page_local_match_keys(
+        listing_id TEXT PRIMARY KEY, artist TEXT, duration REAL);
+        CREATE INDEX IF NOT EXISTS page_local_match_keys_artist_runtime
+        ON page_local_match_keys(artist,duration);
+        DELETE FROM page_local_match_keys;
+        INSERT INTO page_local_match_keys
+        SELECT l.id,artist_match_key(COALESCE(json_extract(r.manual_metadata,'$.artist'),
+            json_extract(l.metadata,'$.artist'))),
+            CAST(COALESCE(json_extract(r.manual_metadata,'$.durationSeconds'),
+            json_extract(l.metadata,'$.durationSeconds')) AS REAL)
+        FROM catalog_listings l JOIN recordings r ON r.id=l.recording_id
+        WHERE json_valid(l.metadata) AND json_valid(r.manual_metadata)
+            AND length(l.metadata)<=262144;",
+    )
+    .map_err(err)?;
     // Stream assets rather than materializing the entire library's payloads.
     let mut assets = conn
         .prepare_cached(
