@@ -7989,7 +7989,7 @@ fn finish_hydration(
         // matching analysis only fill fields that remain absent after overrides.
         let manual_has_bpm = manual.get("bpm").is_some();
         let manual_has_key = manual.get("key").is_some();
-        if track.bpm.is_none() && !manual_has_bpm {
+        if !cross_recording && track.bpm.is_none() && !manual_has_bpm {
             track.bpm = asset.track.bpm;
             if track.bpm.is_some() {
                 copy_analysis_provenance(&mut track, &asset.track, "bpmAnalysis");
@@ -8003,7 +8003,7 @@ fn finish_hydration(
                 }
             }
         }
-        if track.key.is_none() && !manual_has_key {
+        if !cross_recording && track.key.is_none() && !manual_has_key {
             track.key = asset.track.key.clone();
             if track.key.is_some() {
                 copy_analysis_provenance(&mut track, &asset.track, "keyAnalysis");

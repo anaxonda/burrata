@@ -245,9 +245,9 @@ pub(super) fn selected(
     let Some(row) = find(conn, request, settings)? else {
         return Ok(None);
     };
-    let analysis = conn.query_row("SELECT status,version,payload FROM asset_analyses WHERE asset_id=?1 AND file_hash=?2 ORDER BY updated_at DESC LIMIT 1",
-        params![row.0,row.2], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional().map_err(err)?;
-    Ok(Some((row, analysis, true)))
+    // File reuse only supplies a path/badge. Keep catalog metadata and its sort
+    // projections intact; technical facts remain available via the file list.
+    Ok(Some((row, None, true)))
 }
 
 pub(super) fn populate_available(conn: &Connection, settings: &Settings) -> Result<()> {

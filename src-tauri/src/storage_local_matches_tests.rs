@@ -53,6 +53,8 @@ fn asset(
     track.version = version.map(str::to_owned);
     track.isrc = isrc.map(str::to_owned);
     track.album = Some("File Tag Album".into());
+    track.bpm = Some(99.);
+    track.key = Some("Cm".into());
     LocalAsset {
         id: id.into(),
         recording_id: track.id.clone(),
@@ -131,6 +133,8 @@ fn exact_cross_provider_file_hydrates_without_merging_recordings() {
     assert_eq!(loaded.id, requested.id);
     assert_eq!(loaded.title, "Baba - Extended Mix");
     assert_eq!(loaded.album.as_deref(), Some("Requested Provider Album"));
+    assert_eq!(loaded.bpm, requested.bpm);
+    assert_eq!(loaded.key, requested.key);
     assert_eq!(loaded.asset_id.as_deref(), Some("baba-file"));
     assert_eq!(
         loaded.local_path.as_deref(),
