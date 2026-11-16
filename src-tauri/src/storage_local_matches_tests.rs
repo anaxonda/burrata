@@ -171,21 +171,7 @@ fn install_verified_spotify_bulgarian_alias(store: &Store, request: &Track) {
 }
 
 fn verified_spotify_two_performer_track() -> Track {
-    Track {
-        id: "spotify:cccccccccccccccccccccc".into(),
-        provider: "spotify".into(),
-        provider_id: "cccccccccccccccccccccc".into(),
-        source_url: "https://open.spotify.com/track/cccccccccccccccccccccc".into(),
-        title: "Song of Two Choirs".into(),
-        artist: "Choir Alpha & Choir Beta".into(),
-        duration_seconds: Some(190.0),
-        isrc: Some("USNO18716512".into()),
-        provenance: serde_json::json!({
-            "catalog":{"verified":true,"provider":"spotify","providerId":"cccccccccccccccccccccc","artistCount":2,"artists":[{"provider":"spotify","id":"bbbbbbbbbbbbbbbbbbbbbb","name":"Choir Alpha"},{"provider":"spotify","id":"dddddddddddddddddddddd","name":"Choir Beta"}]},
-            "remoteCatalog":{"trackId":"cccccccccccccccccccccc","title":"Song of Two Choirs","artist":"Choir Alpha & Choir Beta","durationSeconds":190.0,"isrc":"USNO18716512","artistCount":2,"artistRefs":[{"provider":"spotify","id":"bbbbbbbbbbbbbbbbbbbbbb","name":"Choir Alpha","joinPhrase":" & "},{"provider":"spotify","id":"dddddddddddddddddddddd","name":"Choir Beta","joinPhrase":""}]}
-        }),
-        ..Default::default()
-    }
+    crate::spotify_catalog_identity::test_fixtures::two_performer_track()
 }
 
 fn install_verified_two_performer_alias(store: &Store, request: &Track) {

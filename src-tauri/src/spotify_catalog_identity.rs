@@ -139,3 +139,46 @@ pub(crate) fn spotify_artist_credit_fingerprint(
 pub(crate) fn valid_spotify_id(value: &str) -> bool {
     value.len() == 22 && value.bytes().all(|byte| byte.is_ascii_alphanumeric())
 }
+
+#[cfg(test)]
+pub(crate) mod test_fixtures {
+    use super::*;
+    pub(crate) fn two_performer_track() -> Track {
+        Track {
+            id: "spotify:cccccccccccccccccccccc".into(),
+            provider: "spotify".into(),
+            provider_id: "cccccccccccccccccccccc".into(),
+            source_url: "https://open.spotify.com/track/cccccccccccccccccccccc".into(),
+            title: "Song of Two Choirs".into(),
+            artist: "Choir Alpha, Choir Beta".into(),
+            duration_seconds: Some(190.0),
+            isrc: Some("USNO18716512".into()),
+            provenance: serde_json::json!({
+                "catalog":{"verified":true,"provider":"spotify","providerId":"cccccccccccccccccccccc","artistCount":2,"artists":[{"provider":"spotify","id":"bbbbbbbbbbbbbbbbbbbbbb","name":"Choir Alpha"},{"provider":"spotify","id":"dddddddddddddddddddddd","name":"Choir Beta"}]},
+                "remoteCatalog":{"trackId":"cccccccccccccccccccccc","title":"Song of Two Choirs","artist":"Choir Alpha, Choir Beta","durationSeconds":190.0,"isrc":"USNO18716512","artistCount":2,"artistRefs":[{"provider":"spotify","id":"bbbbbbbbbbbbbbbbbbbbbb","name":"Choir Alpha","joinPhrase":" & "},{"provider":"spotify","id":"dddddddddddddddddddddd","name":"Choir Beta","joinPhrase":""}]}
+            }),
+            ..Default::default()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn complete_two_performer_fixture_matches_spotify_rendering() {
+        let track = test_fixtures::two_performer_track();
+        let fingerprint = spotify_artist_credit_fingerprint(&track)
+            .expect("shared fixture must represent the actual comma-separated Spotify rendering");
+        assert_eq!(fingerprint.artists.len(), 2);
+    }
+
+    #[test]
+    fn modified_credit_rendering_does_not_authorize_a_cached_crosswalk() {
+        let mut track = test_fixtures::two_performer_track();
+        track.artist = "Choir Alpha & Choir Beta".into();
+        track.provenance["remoteCatalog"]["artist"] = serde_json::json!(track.artist);
+        assert!(spotify_artist_credit_fingerprint(&track).is_none());
+    }
+}
