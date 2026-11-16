@@ -1,0 +1,125 @@
+{
+  "firstInstalledCandidate": {
+    "sourceCommit": "def3252a400e173c981554285420163237138336",
+    "appImageSha256": "b4a03734de5d7f37331fd90cf7815e5ae2a08555e6b0643ccf7b1cab2c34034b",
+    "cases": [
+      {
+        "trackId": "beatport:28886180",
+        "outcome": "passed",
+        "naturalCompletion": true,
+        "finalPosition": 286.053514739229,
+        "duration": 286.053514739229,
+        "firstAudioMs": 273,
+        "maximumProgressGapSeconds": 1.15,
+        "error": null
+      },
+      {
+        "trackId": "beatport:19657454",
+        "outcome": "failed",
+        "naturalCompletion": null,
+        "finalPosition": null,
+        "duration": null,
+        "firstAudioMs": null,
+        "maximumProgressGapSeconds": null,
+        "error": "{'category': 'recording_identity_mismatch', 'providerAttempts': [{'attemptPhase': 'extraction', 'category': 'recording_identity_mismatch', 'observedElapsedMs': 7801, 'phaseElapsedMs': 6018, 'providerClass': 'youtube', 'retryable': False, 'stage': 'extraction'}, {'attemptPhase': 'extraction', 'category': 'unknown', 'observedElapsedMs': 7803, 'phaseElapsedMs': 1, 'providerClass': 'youtube', 'retryable': False, 'stage': 'extraction'}, {'attemptPhase': 'extraction', 'category': 'recording_identity_mismatch', 'observedElapsedMs': 10234, 'phaseElapsedMs': 2812, 'providerClass': 'soundcloud', 'retryable': False, 'stage': 'extraction'}], 'retryable': False, 'scope': 'recording', 'stage': 'resolver'}"
+      },
+      {
+        "trackId": "beatport:30517289",
+        "outcome": "failed",
+        "naturalCompletion": null,
+        "finalPosition": null,
+        "duration": null,
+        "firstAudioMs": null,
+        "maximumProgressGapSeconds": null,
+        "error": "{'category': 'recording_identity_mismatch', 'providerAttempts': [{'attemptPhase': 'extraction', 'category': 'recording_identity_mismatch', 'observedElapsedMs': 7444, 'phaseElapsedMs': 4976, 'providerClass': 'youtube', 'retryable': False, 'stage': 'extraction'}], 'retryable': False, 'scope': 'recording', 'stage': 'resolver'}"
+      },
+      {
+        "trackId": "beatport:30754798",
+        "outcome": "failed",
+        "naturalCompletion": null,
+        "finalPosition": null,
+        "duration": null,
+        "firstAudioMs": null,
+        "maximumProgressGapSeconds": null,
+        "error": "{'category': 'recording_identity_mismatch', 'providerAttempts': [{'attemptPhase': 'extraction', 'category': 'recording_identity_mismatch', 'observedElapsedMs': 5914, 'phaseElapsedMs': 4747, 'providerClass': 'youtube', 'retryable': False, 'stage': 'extraction'}, {'attemptPhase': 'extraction', 'category': 'unknown', 'observedElapsedMs': 5916, 'phaseElapsedMs': 1, 'providerClass': 'youtube', 'retryable': False, 'stage': 'extraction'}, {'attemptPhase': 'extraction', 'category': 'recording_identity_mismatch', 'observedElapsedMs': 8148, 'phaseElapsedMs': 2588, 'providerClass': 'soundcloud', 'retryable': False, 'stage': 'extraction'}, {'attemptPhase': 'extraction', 'category': 'unknown', 'observedElapsedMs': 8149, 'phaseElapsedMs': 1, 'providerClass': 'soundcloud', 'retryable': False, 'stage': 'extraction'}], 'retryable': False, 'scope': 'recording', 'stage': 'resolver'}"
+      },
+      {
+        "trackId": "spotify:5ly7UvPj20lns2yRCSSN2Y",
+        "outcome": "failed",
+        "naturalCompletion": null,
+        "finalPosition": null,
+        "duration": null,
+        "firstAudioMs": null,
+        "maximumProgressGapSeconds": null,
+        "error": "{'category': 'recording_identity_mismatch', 'providerAttempts': [{'attemptPhase': 'extraction', 'category': 'recording_identity_mismatch', 'observedElapsedMs': 6594, 'phaseElapsedMs': 4509, 'providerClass': 'youtube', 'retryable': False, 'stage': 'extraction'}], 'retryable': False, 'scope': 'recording', 'stage': 'resolver'}"
+      },
+      {
+        "trackId": "spotify:7iX1EB9P9d9rGBnShbaTML",
+        "outcome": "failed",
+        "naturalCompletion": null,
+        "finalPosition": null,
+        "duration": null,
+        "firstAudioMs": null,
+        "maximumProgressGapSeconds": null,
+        "error": "{'category': 'unsupported_audio', 'providerAttempts': [{'attemptPhase': 'extraction', 'category': 'unsupported_audio', 'observedElapsedMs': 5303, 'phaseElapsedMs': 2132, 'providerClass': 'soundcloud', 'retryable': True, 'stage': 'extraction'}], 'retryable': True, 'scope': 'source', 'stage': 'extraction'}"
+      }
+    ],
+    "conclusion": "Initial metadata and reporting fixes did not resolve the three streaming Beatport cases. Native traces confirmed recovered catalog duration but unresolved recording-version semantics.",
+    "fixtureSetupFailures": "Two initial explicit-source cases lacked required favorite metadata and did not start playback; fixed in the temporary test fixture and rerun separately. These were not app failures."
+  },
+  "baseline": [
+    {
+      "trackId": "beatport:28886180",
+      "outcome": "passed",
+      "naturalCompletion": true,
+      "finalPosition": 286.053514739229,
+      "duration": 286.053514739229,
+      "firstAudioMs": 297,
+      "maximumProgressGapSeconds": 1.17,
+      "error": null
+    },
+    {
+      "trackId": "beatport:19657454",
+      "outcome": "failed",
+      "naturalCompletion": null,
+      "finalPosition": null,
+      "duration": null,
+      "firstAudioMs": null,
+      "maximumProgressGapSeconds": null,
+      "error": "{'category': 'unknown', 'providerAttempts': [{'attemptPhase': 'extraction', 'category': 'recording_identity_mismatch', 'observedElapsedMs': 8684, 'phaseElapsedMs': 7139, 'providerClass': 'youtube', 'retryable': False, 'stage': 'extraction'}, {'attemptPhase': 'extraction', 'category': 'unknown', 'observedElapsedMs': 8685, 'phaseElapsedMs': 1, 'providerClass': 'youtube', 'retryable': False, 'stage': 'extraction'}, {'attemptPhase': 'extraction', 'category': 'recording_identity_mismatch', 'observedElapsedMs': 10397, 'phaseElapsedMs': 3340, 'providerClass': 'soundcloud', 'retryable': False, 'stage': 'extraction'}], 'retryable': False, 'scope': 'unknown', 'stage': 'unknown'}"
+    },
+    {
+      "trackId": "beatport:30517289",
+      "outcome": "failed",
+      "naturalCompletion": null,
+      "finalPosition": null,
+      "duration": null,
+      "firstAudioMs": null,
+      "maximumProgressGapSeconds": null,
+      "error": "{'category': 'recording_identity_mismatch', 'providerAttempts': [{'attemptPhase': 'extraction', 'category': 'recording_identity_mismatch', 'observedElapsedMs': 6120, 'phaseElapsedMs': 5598, 'providerClass': 'youtube', 'retryable': False, 'stage': 'extraction'}], 'retryable': False, 'scope': 'recording', 'stage': 'resolver'}"
+    },
+    {
+      "trackId": "beatport:30754798",
+      "outcome": "failed",
+      "naturalCompletion": null,
+      "finalPosition": null,
+      "duration": null,
+      "firstAudioMs": null,
+      "maximumProgressGapSeconds": null,
+      "error": "{'category': 'unknown', 'providerAttempts': [{'attemptPhase': 'extraction', 'category': 'recording_identity_mismatch', 'observedElapsedMs': 6564, 'phaseElapsedMs': 5878, 'providerClass': 'youtube', 'retryable': False, 'stage': 'extraction'}, {'attemptPhase': 'extraction', 'category': 'unknown', 'observedElapsedMs': 6566, 'phaseElapsedMs': 1, 'providerClass': 'youtube', 'retryable': False, 'stage': 'extraction'}, {'attemptPhase': 'extraction', 'category': 'recording_identity_mismatch', 'observedElapsedMs': 9063, 'phaseElapsedMs': 3041, 'providerClass': 'soundcloud', 'retryable': False, 'stage': 'extraction'}, {'attemptPhase': 'extraction', 'category': 'unknown', 'observedElapsedMs': 9064, 'phaseElapsedMs': 0, 'providerClass': 'soundcloud', 'retryable': False, 'stage': 'extraction'}], 'retryable': False, 'scope': 'unknown', 'stage': 'unknown'}"
+    }
+  ],
+  "additionalFixes": [
+    "Recognize bare Extended labels and canonicalize Extended to Extended Mix",
+    "Do not treat a guest credit repeated in mix_name as an independent requested edition",
+    "Advisory extractor preflight honors the already-reserved single distinct-provider rescue; final atomic reservation still enforces the existing limit",
+    "Retain original source error when a fresh retry cannot launch",
+    "Repeated-whitespace artist/title captions are eligible for inspection, without bypassing resolved identity checks"
+  ],
+  "finalSourceCommit": "90be86f9f209031fa2cb229660ce2bffc82b1aec",
+  "finalCI": {
+    "runId": 43759826311,
+    "status": "pending"
+  },
+  "finalInstalledPlayback": "pending"
+}

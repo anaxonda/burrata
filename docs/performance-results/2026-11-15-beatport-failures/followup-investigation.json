@@ -1,0 +1,27 @@
+{
+  "beatportLatestFailures": {
+    "reason": "helper_unpack_failed",
+    "exitCode": 255,
+    "affected": [
+      "100% Pure Love",
+      "Shadows"
+    ],
+    "qualification": "Failures occurred before extraction; do not classify as recording mismatch. Fresh isolated rerun in progress.",
+    "rootCause": "Unpack failure cause not yet established; disk and temporary storage constrained."
+  },
+  "losGuachos": {
+    "artistAlbumUrl": "https://karamelosanto.bandcamp.com/album/los-guachos",
+    "listedTracks": [
+      {
+        "title": "La Picadura",
+        "duration": "3:34"
+      },
+      {
+        "title": "Que No Digan Nunca (version Video)",
+        "duration": "3:25"
+      }
+    ],
+    "finding": "Artist album provides a source route and supports the full video-version title. Exact automatic catalog matching remains unverified.",
+    "test": "Fresh isolated test with Bandcamp fallback queued."
+  }
+}

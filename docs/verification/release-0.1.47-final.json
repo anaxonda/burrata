@@ -1,0 +1,761 @@
+{
+  "schemaVersion": 1,
+  "version": "0.1.47",
+  "sourceCommit": "4442d64cca2fc9270bcb28a7d549c443f5c0738d",
+  "appImageSha256": "9db349e536573466160aed721faf1bdfe29faacdb80624bc13f2e29b88c19e0b",
+  "ci": {
+    "schemaVersion": 1,
+    "runId": 43815095878,
+    "runUrl": "https://github.com/anaxonda/burrata/actions/runs/43815095878",
+    "conclusion": "success",
+    "sourceCommit": "4442d64cca2fc9270bcb28a7d549c443f5c0738d",
+    "job": "Checks (ubuntu-22.04)",
+    "frontend": {
+      "svelteCheck": {
+        "errors": 0,
+        "warnings": 0
+      },
+      "vitest": {
+        "filesPassed": 161,
+        "testsPassed": 1662,
+        "failed": 0
+      },
+      "extension": {
+        "testsPassed": 121,
+        "failed": 0
+      },
+      "providerWorkerAuthFixtures": {
+        "testsPassed": 153,
+        "failed": 0
+      },
+      "mcp": {
+        "testsPassed": 12,
+        "failed": 0
+      },
+      "player": {
+        "testsPassed": 5,
+        "failed": 0
+      },
+      "playbackMeasurementValidity": {
+        "testsPassed": 42,
+        "failed": 0
+      },
+      "installedNativeAudioSmokeProtocol": {
+        "testsPassed": 129,
+        "failed": 0
+      },
+      "productionBuild": "passed",
+      "mcpBuild": "passed"
+    },
+    "native": {
+      "default": {
+        "libraryPassed": 2858,
+        "failed": 0,
+        "ignored": 68,
+        "otherBinaryPassed": 3
+      },
+      "experimentalDirectResolver": {
+        "libraryPassed": 2858,
+        "failed": 0,
+        "ignored": 68
+      },
+      "targetedFilteredTestEachMode": {
+        "passed": 1,
+        "failed": 0,
+        "filtered": 2925
+      },
+      "formatCheck": "passed"
+    },
+    "adversarialPlayback": {
+      "status": "passed",
+      "faultFixtures": {
+        "count": 5,
+        "allPassed": true,
+        "names": [
+          "cached_seek_body_gap",
+          "paced_delivery_gap",
+          "tls_fault_recovery",
+          "expired_source_fallback",
+          "network_controller"
+        ]
+      },
+      "controllerScenarios": {
+        "count": 12,
+        "allPassed": true,
+        "modes": [
+          "healthy",
+          "403",
+          "429",
+          "503",
+          "truncate",
+          "stall",
+          "bad-range",
+          "cancel",
+          "pause",
+          "fallback",
+          "no-length-truncate",
+          "short-body"
+        ]
+      },
+      "scope": "synthetic decoder/resolver and production playback-controller fixtures; private muted CI output; no public egress"
+    },
+    "artifacts": {
+      "rawChecksLog": ".cache/representative-playback/ci-v0.1.47/checks.log",
+      "redteamEvidence": ".cache/representative-playback/ci-v0.1.47/redteam/"
+    }
+  },
+  "releaseBuild": {
+    "schemaVersion": 1,
+    "runId": 43815985834,
+    "runUrl": "https://github.com/anaxonda/burrata/actions/runs/43815985834",
+    "runConclusion": "success",
+    "tag": "v0.1.47",
+    "sourceCommit": "4442d64cca2fc9270bcb28a7d549c443f5c0738d",
+    "tagSourceVerified": true,
+    "platforms": {
+      "macos-arm64": {
+        "buildAndInstalledSmoke": "passed"
+      },
+      "linux-x64": {
+        "buildAndInstalledSmoke": "passed",
+        "appImageSmoke": "passed"
+      },
+      "windows-x64": {
+        "buildAndInstalledSmoke": "passed_with_deferred_checks",
+        "installerInstalled": true,
+        "packagedToolsAndMediaFixtures": "passed",
+        "guiNativeHostAndMcp": "passed",
+        "audio": {
+          "status": "deferred",
+          "verificationStatus": "UNVERIFIED",
+          "reasonCode": "output_device_unavailable",
+          "structuredDiagnosticProvesUnavailableOutput": true,
+          "failureStep": "play_fixture",
+          "failureTool": "play_tracks",
+          "nativeState": {
+            "engine": "native",
+            "status": "failed",
+            "failureCategory": "output",
+            "failureStage": "output",
+            "hasCurrentTrack": true
+          },
+          "qualificationStatus": "WINDOWS_NATIVE_AUDIO_OUTPUT_UNVERIFIED",
+          "evidence": ".cache/representative-playback/release47-windows-smoke/release-smoke-evidence.json"
+        }
+      },
+      "linux-rpm-installed-smoke": "passed"
+    },
+    "metadataFiles": ".cache/representative-playback/release47-audit/",
+    "prePublicationAssetAudit": {
+      "main": {
+        "tag": "v0.1.47",
+        "isDraft": true,
+        "isPrerelease": true,
+        "tagRefCommit": "4442d64cca2fc9270bcb28a7d549c443f5c0738d",
+        "assetCount": 8,
+        "manifestPayloadCount": 7,
+        "manifestMatchesAllPayloadDigests": true,
+        "assets": [
+          "Burrata-0.1.47-1.x86_64.rpm",
+          "Burrata_0.1.47_aarch64.dmg",
+          "Burrata_0.1.47_amd64.AppImage",
+          "Burrata_0.1.47_amd64.deb",
+          "Burrata_0.1.47_x64-setup.exe",
+          "chrome-extension-0.2.13.zip",
+          "firefox-extension-0.2.13.xpi",
+          "SHA256SUMS.txt"
+        ]
+      },
+      "support": {
+        "tag": "support-v0.1.47",
+        "isDraft": true,
+        "isPrerelease": true,
+        "targetCommit": "4442d64cca2fc9270bcb28a7d549c443f5c0738d",
+        "assetCount": 107,
+        "manifestPayloadCount": 106,
+        "manifestMatchesAllPayloadDigests": true,
+        "inventoryFiles": 4,
+        "allInventoriesMatchTagAndSourceCommit": true
+      }
+    },
+    "auditScope": "Asset/source/digest audit performed while releases were drafts; final public state is recorded in publication."
+  },
+  "representativePlayback": {
+    "exact": {
+      "counts": {
+        "passed": 6,
+        "no-match": 5,
+        "source-unavailable": 1
+      },
+      "scope": "22-second playback sample plus pause/resume, seek and warm replay; no full-track claim",
+      "peakProcessTreeRssKiB": 818836,
+      "cases": [
+        {
+          "trackId": "catalog:musicbrainz:02287994-984b-4ef7-ade6-5ee7d38d5ce4:1:1:1:ebd58a14-7fa4-4c83-862b-3a0adb135cc1",
+          "title": "Essence",
+          "provider": "catalog",
+          "outcome": "passed",
+          "firstAudioMs": 10347,
+          "warmReplayMs": 1403,
+          "warmFirstAudioMs": 1377,
+          "seekReadyMs": 268,
+          "maximumProgressGapSeconds": 1.13,
+          "peakGuiRssKiB": 220580,
+          "peakProcessTreeRssKiB": 576780
+        },
+        {
+          "trackId": "musicbrainz:00082c8e-d89c-42fb-8967-64f38510bc4f",
+          "title": "Dance for Me",
+          "provider": "musicbrainz",
+          "outcome": "no-match",
+          "peakGuiRssKiB": 228668,
+          "peakProcessTreeRssKiB": 597264
+        },
+        {
+          "trackId": "musicbrainz:000bb147-6818-4693-9745-2ebd6bbfefff",
+          "title": "Polegnala E Toudora",
+          "provider": "musicbrainz",
+          "outcome": "no-match",
+          "peakGuiRssKiB": 228736,
+          "peakProcessTreeRssKiB": 597896
+        },
+        {
+          "trackId": "spotify:00SmB7n85SKROGjybsyq5i",
+          "title": "Bongo Bong",
+          "provider": "spotify",
+          "outcome": "passed",
+          "firstAudioMs": 6564,
+          "warmReplayMs": 868,
+          "warmFirstAudioMs": 847,
+          "seekReadyMs": 494,
+          "maximumProgressGapSeconds": 1.11,
+          "peakGuiRssKiB": 233844,
+          "peakProcessTreeRssKiB": 603240
+        },
+        {
+          "trackId": "spotify:00i0O74dXdaKKdCrqHnfXm",
+          "title": "La Mordidita (feat. Yotuel)",
+          "provider": "spotify",
+          "outcome": "passed",
+          "firstAudioMs": 7154,
+          "warmReplayMs": 471,
+          "warmFirstAudioMs": 419,
+          "seekReadyMs": 484,
+          "maximumProgressGapSeconds": 1.09,
+          "peakGuiRssKiB": 242108,
+          "peakProcessTreeRssKiB": 618264
+        },
+        {
+          "trackId": "youtube:-0e1y1yWXTs",
+          "title": "Habibi",
+          "provider": "youtube",
+          "outcome": "passed",
+          "firstAudioMs": 517,
+          "warmReplayMs": 623,
+          "warmFirstAudioMs": 609,
+          "seekReadyMs": 574,
+          "maximumProgressGapSeconds": 1.16,
+          "peakGuiRssKiB": 244124,
+          "peakProcessTreeRssKiB": 618988
+        },
+        {
+          "trackId": "bandcamp:bb3bb3cdcded6827a089bc05d54b6174668ac2d1803b375c0391b9ff96153bf2",
+          "title": "CHANCE",
+          "provider": "bandcamp",
+          "outcome": "passed",
+          "firstAudioMs": 1263,
+          "warmReplayMs": 1000,
+          "warmFirstAudioMs": 962,
+          "seekReadyMs": 98,
+          "maximumProgressGapSeconds": 1.11,
+          "peakGuiRssKiB": 250888,
+          "peakProcessTreeRssKiB": 624324
+        },
+        {
+          "trackId": "beatport:30754798",
+          "title": "Shadows",
+          "provider": "beatport",
+          "outcome": "no-match",
+          "peakGuiRssKiB": 254188,
+          "peakProcessTreeRssKiB": 626808
+        },
+        {
+          "trackId": "beatport:30517289",
+          "title": "100% Pure Love (Extended)",
+          "provider": "beatport",
+          "outcome": "no-match",
+          "peakGuiRssKiB": 259088,
+          "peakProcessTreeRssKiB": 631212
+        },
+        {
+          "trackId": "spotify:5ly7UvPj20lns2yRCSSN2Y",
+          "title": "La Picadura",
+          "provider": "spotify",
+          "outcome": "no-match",
+          "peakGuiRssKiB": 261116,
+          "peakProcessTreeRssKiB": 634628
+        },
+        {
+          "trackId": "spotify:7iX1EB9P9d9rGBnShbaTML",
+          "title": "Nunca (Versi\u00f3n Video)",
+          "provider": "spotify",
+          "outcome": "source-unavailable",
+          "peakGuiRssKiB": 266580,
+          "peakProcessTreeRssKiB": 642692
+        },
+        {
+          "trackId": "soundcloud:2426106033",
+          "title": "Breyth - Shadows",
+          "provider": "soundcloud",
+          "outcome": "passed",
+          "firstAudioMs": 976,
+          "warmReplayMs": 731,
+          "warmFirstAudioMs": 721,
+          "seekReadyMs": 1338,
+          "maximumProgressGapSeconds": 1.12,
+          "peakGuiRssKiB": 269908,
+          "peakProcessTreeRssKiB": 818836
+        }
+      ]
+    },
+    "balanced": {
+      "counts": {
+        "passed": 7,
+        "no-match": 4,
+        "source-unavailable": 1
+      },
+      "scope": "22-second playback sample plus pause/resume, seek and warm replay; no full-track claim",
+      "peakProcessTreeRssKiB": 647960,
+      "cases": [
+        {
+          "trackId": "catalog:musicbrainz:02287994-984b-4ef7-ade6-5ee7d38d5ce4:1:1:1:ebd58a14-7fa4-4c83-862b-3a0adb135cc1",
+          "title": "Essence",
+          "provider": "catalog",
+          "outcome": "passed",
+          "firstAudioMs": 10769,
+          "warmReplayMs": 1061,
+          "warmFirstAudioMs": 1014,
+          "seekReadyMs": 487,
+          "maximumProgressGapSeconds": 1.14,
+          "peakGuiRssKiB": 223092,
+          "peakProcessTreeRssKiB": 589316
+        },
+        {
+          "trackId": "musicbrainz:00082c8e-d89c-42fb-8967-64f38510bc4f",
+          "title": "Dance for Me",
+          "provider": "musicbrainz",
+          "outcome": "no-match",
+          "peakGuiRssKiB": 232180,
+          "peakProcessTreeRssKiB": 604732
+        },
+        {
+          "trackId": "musicbrainz:000bb147-6818-4693-9745-2ebd6bbfefff",
+          "title": "Polegnala E Toudora",
+          "provider": "musicbrainz",
+          "outcome": "no-match",
+          "peakGuiRssKiB": 232280,
+          "peakProcessTreeRssKiB": 607168
+        },
+        {
+          "trackId": "spotify:00SmB7n85SKROGjybsyq5i",
+          "title": "Bongo Bong",
+          "provider": "spotify",
+          "outcome": "passed",
+          "firstAudioMs": 7041,
+          "warmReplayMs": 521,
+          "warmFirstAudioMs": 489,
+          "seekReadyMs": 376,
+          "maximumProgressGapSeconds": 1.15,
+          "peakGuiRssKiB": 237072,
+          "peakProcessTreeRssKiB": 614872
+        },
+        {
+          "trackId": "spotify:00i0O74dXdaKKdCrqHnfXm",
+          "title": "La Mordidita (feat. Yotuel)",
+          "provider": "spotify",
+          "outcome": "passed",
+          "firstAudioMs": 7389,
+          "warmReplayMs": 606,
+          "warmFirstAudioMs": 571,
+          "seekReadyMs": 369,
+          "maximumProgressGapSeconds": 1.09,
+          "peakGuiRssKiB": 239312,
+          "peakProcessTreeRssKiB": 623900
+        },
+        {
+          "trackId": "youtube:-0e1y1yWXTs",
+          "title": "Habibi",
+          "provider": "youtube",
+          "outcome": "passed",
+          "firstAudioMs": 440,
+          "warmReplayMs": 524,
+          "warmFirstAudioMs": 487,
+          "seekReadyMs": 523,
+          "maximumProgressGapSeconds": 1.11,
+          "peakGuiRssKiB": 246100,
+          "peakProcessTreeRssKiB": 624536
+        },
+        {
+          "trackId": "bandcamp:bb3bb3cdcded6827a089bc05d54b6174668ac2d1803b375c0391b9ff96153bf2",
+          "title": "CHANCE",
+          "provider": "bandcamp",
+          "outcome": "passed",
+          "firstAudioMs": 1008,
+          "warmReplayMs": 1185,
+          "warmFirstAudioMs": 1152,
+          "seekReadyMs": 95,
+          "maximumProgressGapSeconds": 1.13,
+          "peakGuiRssKiB": 249840,
+          "peakProcessTreeRssKiB": 632872
+        },
+        {
+          "trackId": "beatport:30754798",
+          "title": "Shadows",
+          "provider": "beatport",
+          "outcome": "no-match",
+          "peakGuiRssKiB": 257052,
+          "peakProcessTreeRssKiB": 634328
+        },
+        {
+          "trackId": "beatport:30517289",
+          "title": "100% Pure Love (Extended)",
+          "provider": "beatport",
+          "outcome": "passed",
+          "firstAudioMs": 5572,
+          "warmReplayMs": 816,
+          "warmFirstAudioMs": 766,
+          "seekReadyMs": 367,
+          "maximumProgressGapSeconds": 1.14,
+          "peakGuiRssKiB": 257852,
+          "peakProcessTreeRssKiB": 639388
+        },
+        {
+          "trackId": "spotify:5ly7UvPj20lns2yRCSSN2Y",
+          "title": "La Picadura",
+          "provider": "spotify",
+          "outcome": "no-match",
+          "peakGuiRssKiB": 259896,
+          "peakProcessTreeRssKiB": 640812
+        },
+        {
+          "trackId": "spotify:7iX1EB9P9d9rGBnShbaTML",
+          "title": "Nunca (Versi\u00f3n Video)",
+          "provider": "spotify",
+          "outcome": "source-unavailable",
+          "peakGuiRssKiB": 261656,
+          "peakProcessTreeRssKiB": 644784
+        },
+        {
+          "trackId": "soundcloud:2426106033",
+          "title": "Breyth - Shadows",
+          "provider": "soundcloud",
+          "outcome": "passed",
+          "firstAudioMs": 1004,
+          "warmReplayMs": 730,
+          "warmFirstAudioMs": 704,
+          "seekReadyMs": 1101,
+          "maximumProgressGapSeconds": 1.12,
+          "peakGuiRssKiB": 265032,
+          "peakProcessTreeRssKiB": 647960
+        }
+      ]
+    },
+    "flexible": {
+      "counts": {
+        "passed": 10,
+        "no-match": 1,
+        "source-unavailable": 1
+      },
+      "scope": "22-second playback sample plus pause/resume, seek and warm replay; no full-track claim",
+      "peakProcessTreeRssKiB": 659128,
+      "cases": [
+        {
+          "trackId": "catalog:musicbrainz:02287994-984b-4ef7-ade6-5ee7d38d5ce4:1:1:1:ebd58a14-7fa4-4c83-862b-3a0adb135cc1",
+          "title": "Essence",
+          "provider": "catalog",
+          "outcome": "passed",
+          "firstAudioMs": 12322,
+          "warmReplayMs": 1028,
+          "warmFirstAudioMs": 975,
+          "seekReadyMs": 494,
+          "maximumProgressGapSeconds": 1.15,
+          "peakGuiRssKiB": 216944,
+          "peakProcessTreeRssKiB": 571052
+        },
+        {
+          "trackId": "musicbrainz:00082c8e-d89c-42fb-8967-64f38510bc4f",
+          "title": "Dance for Me",
+          "provider": "musicbrainz",
+          "outcome": "passed",
+          "firstAudioMs": 6887,
+          "warmReplayMs": 844,
+          "warmFirstAudioMs": 794,
+          "seekReadyMs": 575,
+          "maximumProgressGapSeconds": 1.1,
+          "peakGuiRssKiB": 225860,
+          "peakProcessTreeRssKiB": 588564
+        },
+        {
+          "trackId": "musicbrainz:000bb147-6818-4693-9745-2ebd6bbfefff",
+          "title": "Polegnala E Toudora",
+          "provider": "musicbrainz",
+          "outcome": "no-match",
+          "peakGuiRssKiB": 227548,
+          "peakProcessTreeRssKiB": 594256
+        },
+        {
+          "trackId": "spotify:00SmB7n85SKROGjybsyq5i",
+          "title": "Bongo Bong",
+          "provider": "spotify",
+          "outcome": "passed",
+          "firstAudioMs": 7044,
+          "warmReplayMs": 679,
+          "warmFirstAudioMs": 664,
+          "seekReadyMs": 362,
+          "maximumProgressGapSeconds": 1.16,
+          "peakGuiRssKiB": 230576,
+          "peakProcessTreeRssKiB": 599820
+        },
+        {
+          "trackId": "spotify:00i0O74dXdaKKdCrqHnfXm",
+          "title": "La Mordidita (feat. Yotuel)",
+          "provider": "spotify",
+          "outcome": "passed",
+          "firstAudioMs": 7110,
+          "warmReplayMs": 427,
+          "warmFirstAudioMs": 415,
+          "seekReadyMs": 367,
+          "maximumProgressGapSeconds": 1.15,
+          "peakGuiRssKiB": 233816,
+          "peakProcessTreeRssKiB": 607096
+        },
+        {
+          "trackId": "youtube:-0e1y1yWXTs",
+          "title": "Habibi",
+          "provider": "youtube",
+          "outcome": "passed",
+          "firstAudioMs": 829,
+          "warmReplayMs": 695,
+          "warmFirstAudioMs": 666,
+          "seekReadyMs": 443,
+          "maximumProgressGapSeconds": 1.13,
+          "peakGuiRssKiB": 237072,
+          "peakProcessTreeRssKiB": 606848
+        },
+        {
+          "trackId": "bandcamp:bb3bb3cdcded6827a089bc05d54b6174668ac2d1803b375c0391b9ff96153bf2",
+          "title": "CHANCE",
+          "provider": "bandcamp",
+          "outcome": "passed",
+          "firstAudioMs": 1205,
+          "warmReplayMs": 819,
+          "warmFirstAudioMs": 780,
+          "seekReadyMs": 94,
+          "maximumProgressGapSeconds": 1.11,
+          "peakGuiRssKiB": 240332,
+          "peakProcessTreeRssKiB": 614172
+        },
+        {
+          "trackId": "beatport:30754798",
+          "title": "Shadows",
+          "provider": "beatport",
+          "outcome": "passed",
+          "firstAudioMs": 6739,
+          "warmReplayMs": 1113,
+          "warmFirstAudioMs": 1083,
+          "seekReadyMs": 230,
+          "maximumProgressGapSeconds": 1.15,
+          "peakGuiRssKiB": 248360,
+          "peakProcessTreeRssKiB": 622484
+        },
+        {
+          "trackId": "beatport:30517289",
+          "title": "100% Pure Love (Extended)",
+          "provider": "beatport",
+          "outcome": "passed",
+          "firstAudioMs": 6356,
+          "warmReplayMs": 948,
+          "warmFirstAudioMs": 923,
+          "seekReadyMs": 367,
+          "maximumProgressGapSeconds": 1.1,
+          "peakGuiRssKiB": 250672,
+          "peakProcessTreeRssKiB": 626932
+        },
+        {
+          "trackId": "spotify:5ly7UvPj20lns2yRCSSN2Y",
+          "title": "La Picadura",
+          "provider": "spotify",
+          "outcome": "passed",
+          "firstAudioMs": 8013,
+          "warmReplayMs": 600,
+          "warmFirstAudioMs": 583,
+          "seekReadyMs": 351,
+          "maximumProgressGapSeconds": 1.1,
+          "peakGuiRssKiB": 256656,
+          "peakProcessTreeRssKiB": 638024
+        },
+        {
+          "trackId": "spotify:7iX1EB9P9d9rGBnShbaTML",
+          "title": "Nunca (Versi\u00f3n Video)",
+          "provider": "spotify",
+          "outcome": "source-unavailable",
+          "peakGuiRssKiB": 264068,
+          "peakProcessTreeRssKiB": 640244
+        },
+        {
+          "trackId": "soundcloud:2426106033",
+          "title": "Breyth - Shadows",
+          "provider": "soundcloud",
+          "outcome": "passed",
+          "firstAudioMs": 3738,
+          "warmReplayMs": 682,
+          "warmFirstAudioMs": 647,
+          "seekReadyMs": 1286,
+          "maximumProgressGapSeconds": 1.15,
+          "peakGuiRssKiB": 265464,
+          "peakProcessTreeRssKiB": 659128
+        }
+      ]
+    }
+  },
+  "backgroundVerification": {
+    "track": "La Picadura",
+    "idleWaitSeconds": 80,
+    "autoplay": false,
+    "retryOutcome": "no-match",
+    "limitation": "Idle retry did not produce a verified Balanced match."
+  },
+  "naturalCompletion": [
+    {
+      "trackId": "spotify:00SmB7n85SKROGjybsyq5i",
+      "title": "Bongo Bong",
+      "duration": 158.43990929705217,
+      "finalPosition": 158.43990929705217,
+      "firstAudioMs": 7397,
+      "maximumProgressGapSeconds": 1.16,
+      "peakProcessTreeRssKiB": 608524,
+      "naturalCompletion": true,
+      "catalogCompletionVerified": true
+    },
+    {
+      "trackId": "youtube:-0e1y1yWXTs",
+      "title": "Habibi",
+      "duration": 298.2008163265306,
+      "finalPosition": 298.2008163265306,
+      "firstAudioMs": 1002,
+      "maximumProgressGapSeconds": 1.15,
+      "peakProcessTreeRssKiB": 623412,
+      "naturalCompletion": true,
+      "catalogCompletionVerified": true
+    }
+  ],
+  "installedFaultTests": {
+    "passed": 28,
+    "failed": 0,
+    "scope": "Installed production player in disposable muted profile; deterministic fixture faults and control races."
+  },
+  "startupComparison": {
+    "baseline": {
+      "trials": [
+        {
+          "firstAudioMs": 9268,
+          "warmReplayMs": 561,
+          "warmFirstAudioMs": 538,
+          "peakProcessTreeRssKiB": 554964
+        },
+        {
+          "firstAudioMs": 8407,
+          "warmReplayMs": 632,
+          "warmFirstAudioMs": 626,
+          "peakProcessTreeRssKiB": 558772
+        },
+        {
+          "firstAudioMs": 8611,
+          "warmReplayMs": 524,
+          "warmFirstAudioMs": 499,
+          "peakProcessTreeRssKiB": 559520
+        }
+      ],
+      "medianFirstAudioMs": 8611,
+      "medianWarmReplayMs": 561,
+      "appImageSha256": "b65197d32de7a712ba6180c03b7d52b513817a6241939d303fc2cb75cabf244e"
+    },
+    "candidate": {
+      "trials": [
+        {
+          "firstAudioMs": 8399,
+          "warmReplayMs": 555,
+          "warmFirstAudioMs": 511,
+          "peakProcessTreeRssKiB": 558788
+        },
+        {
+          "firstAudioMs": 8711,
+          "warmReplayMs": 601,
+          "warmFirstAudioMs": 559,
+          "peakProcessTreeRssKiB": 556912
+        },
+        {
+          "firstAudioMs": 8096,
+          "warmReplayMs": 692,
+          "warmFirstAudioMs": 637,
+          "peakProcessTreeRssKiB": 558492
+        }
+      ],
+      "medianFirstAudioMs": 8399,
+      "medianWarmReplayMs": 601,
+      "appImageSha256": "9db349e536573466160aed721faf1bdfe29faacdb80624bc13f2e29b88c19e0b"
+    },
+    "medianFirstAudioChangeMs": -212,
+    "scope": "Three sequential paired trials of Bongo Bong with identical disposable profile/settings; live network variability remains.",
+    "conclusion": "No meaningful startup slowdown observed in these three paired live-network trials; warm replay median601ms versus561ms baseline. Not a statistical performance guarantee."
+  },
+  "visual": {
+    "widths": [
+      1200,
+      760
+    ],
+    "artworkCollageAndTintedHeader": "visually inspected",
+    "singleDownloadMenuAction": true,
+    "addToQueuePreservesImportVersionScope": true
+  },
+  "environmentQualification": {
+    "profileStorage": "Workspace disk; original tmpfs test attempts retained separately and excluded from results.",
+    "tmpfsFailure": "Confirmed EDQUOT writes in two concurrent unchanged helper launches; three disk-based helper launches passed. No production source change needed.",
+    "seekFixtureCorrection": "Wait for seek completion within15seconds and verify position; do not treat ordinary1second seek buffering as terminal failure."
+  },
+  "limitations": [
+    "No verified match and source-unavailable outcomes are not playback passes.",
+    "Shadows and La Picadura catalog entries did not match in Balanced; both passed in Flexible.",
+    "Nunca remained source-unavailable in all three modes. Its suggested quoted-title source now has agreeing title/artist evidence, but was not automatically found or played; early download assessment requests enrichment, not acceptance.",
+    "Windows installed checks passed with proven unavailable-output-device deferral; native output/PCM consumption remains UNVERIFIED."
+  ],
+  "publication": {
+    "status": "published",
+    "latestPublicTag": "v0.1.47",
+    "mainUrl": "https://github.com/anaxonda/burrata/releases/tag/v0.1.47",
+    "supportUrl": "https://github.com/anaxonda/burrata/releases/tag/support-v0.1.47",
+    "mainPublishedAt": "2026-11-16T07:35:55Z",
+    "supportPublishedAt": "2026-11-16T07:35:45Z",
+    "anonymousPublicApiVerified": true,
+    "anonymousPublicPageVerified": true,
+    "anonymousChecksumAssetVerified": true,
+    "assetCount": 8,
+    "supportAssetCount": 107,
+    "mainManifestMatchesPayloadDigests": true,
+    "installedAppImageMatchesPublishedAsset": true
+  },
+  "localUpgrade": {
+    "activated": true,
+    "sha256": "9db349e536573466160aed721faf1bdfe29faacdb80624bc13f2e29b88c19e0b",
+    "executableSha256": "4856f26c062b982aa747e732cd1ae0b6023e67f8158641d48f31bfd6330e3f77",
+    "frontendReady": true,
+    "queuePreserved": true,
+    "positionPreserved": true,
+    "volumePreserved": true,
+    "afterStatus": "paused",
+    "previousBuildsRetained": true,
+    "version": "0.1.47",
+    "automaticPlayback": false
+  },
+  "resourceScope": "One isolated test app at a time; muted sink; no local production Rust build. Process-tree RSS sums include shared pages and helpers, so they are an upper-bound observation."
+}

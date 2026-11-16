@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "scope": "Chronological investigation snapshots; not final release qualification. Later results supersede pending/rerun statuses in earlier files.",
+  "finalQualification": "../../verification/release-0.1.47-final.json",
+  "files": {
+    "direct-source-results.json": "Explicit-source playback only; does not establish automatic catalog identity.",
+    "followup-investigation.json": "Point-in-time investigation; queued reruns and helper failures are historical.",
+    "installed-followup.json": "Earlier candidate and baseline snapshot; pending final CI and install fields are historical.",
+    "nunca-trace.json": "Historical automatic resolver failure and public-source observations.",
+    "picadura-source.json": "Source evidence preserves uncertainty; matching title and duration alone do not prove recording identity.",
+    "picadura-trace.json": "Historical resolver failure and source probes."
+  },
+  "privacy": "These snapshots contain public source-page links, not expiring media URLs or credentials."
+}

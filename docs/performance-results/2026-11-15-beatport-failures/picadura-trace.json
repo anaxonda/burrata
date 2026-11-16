@@ -1,0 +1,1415 @@
+{
+  "failure": [
+    {
+      "artist": "Karamelo Santo, Manu Chao",
+      "category": "source_identity_mismatch",
+      "durationSeconds": 214.146,
+      "entryId": "d5391e28-5fd1-4caa-abc7-926f5269121a",
+      "generation": 40,
+      "operationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "outcome": "skipped",
+      "provider": "spotify",
+      "providerId": "5ly7UvPj20lns2yRCSSN2Y",
+      "queueRevision": 138,
+      "reason": "The resolved audio source identity does not match this recording",
+      "title": "La Picadura",
+      "trackId": "spotify:5ly7UvPj20lns2yRCSSN2Y",
+      "version": null
+    }
+  ],
+  "events": [
+    {
+      "atUnixMs": 1794772349300,
+      "details": {
+        "selected": false
+      },
+      "elapsedMs": 0,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "resolution_start",
+      "provider": "other",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772349300,
+      "details": {},
+      "elapsedMs": 0,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "settings_read_start",
+      "provider": "spotify",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772349300,
+      "details": {
+        "durationMs": 0
+      },
+      "elapsedMs": 0,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "settings_read_end",
+      "provider": "spotify",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772349311,
+      "details": {
+        "aliases": 1,
+        "durationMs": 10.46738,
+        "verifiedCreditSets": true
+      },
+      "elapsedMs": 10,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "alias_cache_lookup_end",
+      "provider": "spotify",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772349311,
+      "details": {
+        "pinned": false
+      },
+      "elapsedMs": 10,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "provider_start",
+      "provider": "youtube",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772349311,
+      "details": {},
+      "elapsedMs": 11,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "search_start",
+      "provider": "youtube",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772349312,
+      "details": {
+        "resultCount": 20
+      },
+      "elapsedMs": 11,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "playback_candidate_search_cache_hit",
+      "provider": "youtube",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772349312,
+      "details": {
+        "ok": true
+      },
+      "elapsedMs": 11,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "search_end",
+      "provider": "youtube",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772349324,
+      "details": {
+        "aliases": 1,
+        "durationMs": 10.037773999999999,
+        "verifiedCreditSets": true
+      },
+      "elapsedMs": 24,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "alias_cache_lookup_end",
+      "provider": "spotify",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772349324,
+      "details": {
+        "pinned": false
+      },
+      "elapsedMs": 24,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "provider_start",
+      "provider": "soundcloud",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772349325,
+      "details": {},
+      "elapsedMs": 24,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "search_start",
+      "provider": "soundcloud",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772349325,
+      "details": {
+        "resultCount": 1
+      },
+      "elapsedMs": 24,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "playback_candidate_search_cache_hit",
+      "provider": "soundcloud",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772349325,
+      "details": {
+        "ok": true
+      },
+      "elapsedMs": 24,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "search_end",
+      "provider": "soundcloud",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772350102,
+      "details": {
+        "available": true,
+        "durationMs": 800,
+        "roleOutcome": "available",
+        "roleStage": "retain_context"
+      },
+      "elapsedMs": 801,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "spotify_track_role_context",
+      "provider": "spotify",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772350270,
+      "details": {
+        "candidateRowsLimit": 200,
+        "candidateRowsTruncated": false,
+        "counts": {
+          "candidatesEvaluatedBeforeForegroundCap": 20,
+          "confidenceLow": 18,
+          "durationDeltaGt5s": 16,
+          "durationDeltaLe5s": 4,
+          "requestedTitlePhrasePresentInCandidateTitle": 3
+        },
+        "scope": "candidatesEvaluatedBeforeForegroundCap"
+      },
+      "elapsedMs": 969,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "candidate_gate_evidence",
+      "provider": "youtube",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772350270,
+      "details": {
+        "candidateRowsLimit": 200,
+        "candidateRowsTruncated": false,
+        "firstOrdinal": 1,
+        "rows": [
+          {
+            "accepted": true,
+            "candidateDurationSeconds": 215,
+            "canonicalArtistPhrasePresent": false,
+            "catalogDurationSeconds": 214.146,
+            "catalogTitleExact": false,
+            "confidenceClass": "review",
+            "descriptiveDurationWithinFiveSeconds": true,
+            "descriptiveVersionTextPresentOrNotRequired": true,
+            "gate": "policy_inspect",
+            "ordinal": 1,
+            "permissionClass": "unknown",
+            "providerClass": "youtube",
+            "provisionalCanonicalMatch": false,
+            "provisionalVerifiedAliasMatch": false,
+            "recordingCanonicalMatch": false,
+            "recordingVerifiedAliasMatch": false,
+            "requestedTitlePhrasePresent": true,
+            "requestedVersionPresent": false,
+            "sharedAction": "inspect",
+            "sharedDimensions": {
+              "artists": "unknown",
+              "guests": "unknown",
+              "isrc": "unknown",
+              "runtime": "agree",
+              "title": "agree",
+              "version": "unknown",
+              "work": "unknown"
+            },
+            "sharedReasons": [
+              "titleAgrees",
+              "runtimeAgrees"
+            ],
+            "sharedRelationship": "unresolved",
+            "sourcePageUrl": "https://www.youtube.com/watch?v=bAvKJ3BpW0w",
+            "topicCanonicalMatch": false,
+            "topicVerifiedAliasMatch": false,
+            "verifiedAliasArtistPhrasePresent": false,
+            "versionConflictFlag": false
+          },
+          {
+            "accepted": false,
+            "candidateDurationSeconds": 215,
+            "canonicalArtistPhrasePresent": false,
+            "catalogDurationSeconds": 214.146,
+            "catalogTitleExact": false,
+            "confidenceClass": "review",
+            "descriptiveDurationWithinFiveSeconds": true,
+            "descriptiveVersionTextPresentOrNotRequired": true,
+            "gate": "rejected",
+            "ordinal": 2,
+            "permissionClass": "unknown",
+            "providerClass": "youtube",
+            "provisionalCanonicalMatch": false,
+            "provisionalVerifiedAliasMatch": false,
+            "recordingCanonicalMatch": false,
+            "recordingVerifiedAliasMatch": false,
+            "requestedTitlePhrasePresent": true,
+            "requestedVersionPresent": false,
+            "sharedAction": "reject",
+            "sharedDimensions": {
+              "artists": "unknown",
+              "guests": "unknown",
+              "isrc": "unknown",
+              "runtime": "agree",
+              "title": "conflict",
+              "version": "unknown",
+              "work": "unknown"
+            },
+            "sharedReasons": [
+              "runtimeAgrees",
+              "titleConflict"
+            ],
+            "sharedRelationship": "unresolved",
+            "sourcePageUrl": "https://www.youtube.com/watch?v=lY6AsjXwNqQ",
+            "topicCanonicalMatch": false,
+            "topicVerifiedAliasMatch": false,
+            "verifiedAliasArtistPhrasePresent": false,
+            "versionConflictFlag": false
+          },
+          {
+            "accepted": false,
+            "candidateDurationSeconds": 395,
+            "canonicalArtistPhrasePresent": false,
+            "catalogDurationSeconds": 214.146,
+            "catalogTitleExact": false,
+            "confidenceClass": "low",
+            "descriptiveDurationWithinFiveSeconds": false,
+            "descriptiveVersionTextPresentOrNotRequired": true,
+            "gate": "rejected",
+            "ordinal": 3,
+            "permissionClass": "unknown",
+            "providerClass": "youtube",
+            "provisionalCanonicalMatch": false,
+            "provisionalVerifiedAliasMatch": false,
+            "recordingCanonicalMatch": false,
+            "recordingVerifiedAliasMatch": false,
+            "requestedTitlePhrasePresent": true,
+            "requestedVersionPresent": false,
+            "sharedAction": "reject",
+            "sharedDimensions": {
+              "artists": "unknown",
+              "guests": "unknown",
+              "isrc": "unknown",
+              "runtime": "conflict",
+              "title": "conflict",
+              "version": "unknown",
+              "work": "unknown"
+            },
+            "sharedReasons": [
+              "runtimeConflict",
+              "titleConflict"
+            ],
+            "sharedRelationship": "unresolved",
+            "sourcePageUrl": "https://www.youtube.com/watch?v=LVqVWzDxv98",
+            "topicCanonicalMatch": false,
+            "topicVerifiedAliasMatch": false,
+            "verifiedAliasArtistPhrasePresent": false,
+            "versionConflictFlag": false
+          },
+          {
+            "accepted": false,
+            "candidateDurationSeconds": 210,
+            "canonicalArtistPhrasePresent": false,
+            "catalogDurationSeconds": 214.146,
+            "catalogTitleExact": false,
+            "confidenceClass": "low",
+            "descriptiveDurationWithinFiveSeconds": true,
+            "descriptiveVersionTextPresentOrNotRequired": true,
+            "gate": "rejected",
+            "ordinal": 4,
+            "permissionClass": "unknown",
+            "providerClass": "youtube",
+            "provisionalCanonicalMatch": false,
+            "provisionalVerifiedAliasMatch": false,
+            "recordingCanonicalMatch": false,
+            "recordingVerifiedAliasMatch": false,
+            "requestedTitlePhrasePresent": false,
+            "requestedVersionPresent": false,
+            "sharedAction": "reject",
+            "sharedDimensions": {
+              "artists": "unknown",
+              "guests": "unknown",
+              "isrc": "unknown",
+              "runtime": "agree",
+              "title": "conflict",
+              "version": "unknown",
+              "work": "unknown"
+            },
+            "sharedReasons": [
+              "runtimeAgrees",
+              "titleConflict"
+            ],
+            "sharedRelationship": "unresolved",
+            "sourcePageUrl": "https://www.youtube.com/watch?v=IhlCU2hAE-M",
+            "topicCanonicalMatch": false,
+            "topicVerifiedAliasMatch": false,
+            "verifiedAliasArtistPhrasePresent": false,
+            "versionConflictFlag": false
+          },
+          {
+            "accepted": false,
+            "candidateDurationSeconds": 208,
+            "canonicalArtistPhrasePresent": false,
+            "catalogDurationSeconds": 214.146,
+            "catalogTitleExact": false,
+            "confidenceClass": "low",
+            "descriptiveDurationWithinFiveSeconds": false,
+            "descriptiveVersionTextPresentOrNotRequired": true,
+            "gate": "rejected",
+            "ordinal": 5,
+            "permissionClass": "unknown",
+            "providerClass": "youtube",
+            "provisionalCanonicalMatch": false,
+            "provisionalVerifiedAliasMatch": false,
+            "recordingCanonicalMatch": false,
+            "recordingVerifiedAliasMatch": false,
+            "requestedTitlePhrasePresent": false,
+            "requestedVersionPresent": false,
+            "sharedAction": "reject",
+            "sharedDimensions": {
+              "artists": "unknown",
+              "guests": "unknown",
+              "isrc": "unknown",
+              "runtime": "conflict",
+              "title": "conflict",
+              "version": "unknown",
+              "work": "unknown"
+            },
+            "sharedReasons": [
+              "runtimeConflict",
+              "titleConflict"
+            ],
+            "sharedRelationship": "unresolved",
+            "sourcePageUrl": "https://www.youtube.com/watch?v=Twk7GOrQOJg",
+            "topicCanonicalMatch": false,
+            "topicVerifiedAliasMatch": false,
+            "verifiedAliasArtistPhrasePresent": false,
+            "versionConflictFlag": false
+          },
+          {
+            "accepted": false,
+            "candidateDurationSeconds": 228,
+            "canonicalArtistPhrasePresent": false,
+            "catalogDurationSeconds": 214.146,
+            "catalogTitleExact": false,
+            "confidenceClass": "low",
+            "descriptiveDurationWithinFiveSeconds": false,
+            "descriptiveVersionTextPresentOrNotRequired": true,
+            "gate": "rejected",
+            "ordinal": 6,
+            "permissionClass": "unknown",
+            "providerClass": "youtube",
+            "provisionalCanonicalMatch": false,
+            "provisionalVerifiedAliasMatch": false,
+            "recordingCanonicalMatch": false,
+            "recordingVerifiedAliasMatch": false,
+            "requestedTitlePhrasePresent": false,
+            "requestedVersionPresent": false,
+            "sharedAction": "reject",
+            "sharedDimensions": {
+              "artists": "unknown",
+              "guests": "unknown",
+              "isrc": "unknown",
+              "runtime": "conflict",
+              "title": "conflict",
+              "version": "unknown",
+              "work": "unknown"
+            },
+            "sharedReasons": [
+              "runtimeConflict",
+              "titleConflict"
+            ],
+            "sharedRelationship": "unresolved",
+            "sourcePageUrl": "https://www.youtube.com/watch?v=_MP0GovsjRQ",
+            "topicCanonicalMatch": false,
+            "topicVerifiedAliasMatch": false,
+            "verifiedAliasArtistPhrasePresent": false,
+            "versionConflictFlag": false
+          }
+        ],
+        "totalCandidates": 20
+      },
+      "elapsedMs": 969,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "candidate_gate_evidence_rows",
+      "provider": "youtube",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772350270,
+      "details": {
+        "candidateRowsLimit": 200,
+        "candidateRowsTruncated": false,
+        "firstOrdinal": 7,
+        "rows": [
+          {
+            "accepted": false,
+            "candidateDurationSeconds": 180,
+            "canonicalArtistPhrasePresent": false,
+            "catalogDurationSeconds": 214.146,
+            "catalogTitleExact": false,
+            "confidenceClass": "low",
+            "descriptiveDurationWithinFiveSeconds": false,
+            "descriptiveVersionTextPresentOrNotRequired": true,
+            "gate": "rejected",
+            "ordinal": 7,
+            "permissionClass": "unknown",
+            "providerClass": "youtube",
+            "provisionalCanonicalMatch": false,
+            "provisionalVerifiedAliasMatch": false,
+            "recordingCanonicalMatch": false,
+            "recordingVerifiedAliasMatch": false,
+            "requestedTitlePhrasePresent": false,
+            "requestedVersionPresent": false,
+            "sharedAction": "reject",
+            "sharedDimensions": {
+              "artists": "unknown",
+              "guests": "unknown",
+              "isrc": "unknown",
+              "runtime": "conflict",
+              "title": "conflict",
+              "version": "unknown",
+              "work": "unknown"
+            },
+            "sharedReasons": [
+              "runtimeConflict",
+              "titleConflict"
+            ],
+            "sharedRelationship": "unresolved",
+            "sourcePageUrl": "https://www.youtube.com/watch?v=vHrmt4PPq2U",
+            "topicCanonicalMatch": false,
+            "topicVerifiedAliasMatch": false,
+            "verifiedAliasArtistPhrasePresent": false,
+            "versionConflictFlag": false
+          },
+          {
+            "accepted": false,
+            "candidateDurationSeconds": 2230,
+            "canonicalArtistPhrasePresent": false,
+            "catalogDurationSeconds": 214.146,
+            "catalogTitleExact": false,
+            "confidenceClass": "low",
+            "descriptiveDurationWithinFiveSeconds": false,
+            "descriptiveVersionTextPresentOrNotRequired": true,
+            "gate": "rejected",
+            "ordinal": 8,
+            "permissionClass": "unknown",
+            "providerClass": "youtube",
+            "provisionalCanonicalMatch": false,
+            "provisionalVerifiedAliasMatch": false,
+            "recordingCanonicalMatch": false,
+            "recordingVerifiedAliasMatch": false,
+            "requestedTitlePhrasePresent": false,
+            "requestedVersionPresent": false,
+            "sharedAction": "reject",
+            "sharedDimensions": {
+              "artists": "unknown",
+              "guests": "unknown",
+              "isrc": "unknown",
+              "runtime": "conflict",
+              "title": "conflict",
+              "version": "unknown",
+              "work": "unknown"
+            },
+            "sharedReasons": [
+              "runtimeConflict",
+              "titleConflict"
+            ],
+            "sharedRelationship": "unresolved",
+            "sourcePageUrl": "https://www.youtube.com/watch?v=I0cIe5H-p0k",
+            "topicCanonicalMatch": false,
+            "topicVerifiedAliasMatch": false,
+            "verifiedAliasArtistPhrasePresent": false,
+            "versionConflictFlag": false
+          },
+          {
+            "accepted": false,
+            "candidateDurationSeconds": 3389,
+            "canonicalArtistPhrasePresent": false,
+            "catalogDurationSeconds": 214.146,
+            "catalogTitleExact": false,
+            "confidenceClass": "low",
+            "descriptiveDurationWithinFiveSeconds": false,
+            "descriptiveVersionTextPresentOrNotRequired": true,
+            "gate": "rejected",
+            "ordinal": 9,
+            "permissionClass": "unknown",
+            "providerClass": "youtube",
+            "provisionalCanonicalMatch": false,
+            "provisionalVerifiedAliasMatch": false,
+            "recordingCanonicalMatch": false,
+            "recordingVerifiedAliasMatch": false,
+            "requestedTitlePhrasePresent": false,
+            "requestedVersionPresent": false,
+            "sharedAction": "reject",
+            "sharedDimensions": {
+              "artists": "unknown",
+              "guests": "unknown",
+              "isrc": "unknown",
+              "runtime": "conflict",
+              "title": "conflict",
+              "version": "unknown",
+              "work": "unknown"
+            },
+            "sharedReasons": [
+              "runtimeConflict",
+              "titleConflict"
+            ],
+            "sharedRelationship": "unresolved",
+            "sourcePageUrl": "https://www.youtube.com/watch?v=sYmOgReUB-g",
+            "topicCanonicalMatch": false,
+            "topicVerifiedAliasMatch": false,
+            "verifiedAliasArtistPhrasePresent": false,
+            "versionConflictFlag": false
+          },
+          {
+            "accepted": false,
+            "candidateDurationSeconds": 160,
+            "canonicalArtistPhrasePresent": false,
+            "catalogDurationSeconds": 214.146,
+            "catalogTitleExact": false,
+            "confidenceClass": "low",
+            "descriptiveDurationWithinFiveSeconds": false,
+            "descriptiveVersionTextPresentOrNotRequired": true,
+            "gate": "rejected",
+            "ordinal": 10,
+            "permissionClass": "unknown",
+            "providerClass": "youtube",
+            "provisionalCanonicalMatch": false,
+            "provisionalVerifiedAliasMatch": false,
+            "recordingCanonicalMatch": false,
+            "recordingVerifiedAliasMatch": false,
+            "requestedTitlePhrasePresent": false,
+            "requestedVersionPresent": false,
+            "sharedAction": "reject",
+            "sharedDimensions": {
+              "artists": "unknown",
+              "guests": "unknown",
+              "isrc": "unknown",
+              "runtime": "conflict",
+              "title": "conflict",
+              "version": "unknown",
+              "work": "unknown"
+            },
+            "sharedReasons": [
+              "runtimeConflict",
+              "titleConflict"
+            ],
+            "sharedRelationship": "unresolved",
+            "sourcePageUrl": "https://www.youtube.com/watch?v=f_5VNK7MvNE",
+            "topicCanonicalMatch": false,
+            "topicVerifiedAliasMatch": false,
+            "verifiedAliasArtistPhrasePresent": false,
+            "versionConflictFlag": false
+          },
+          {
+            "accepted": false,
+            "candidateDurationSeconds": 3475,
+            "canonicalArtistPhrasePresent": false,
+            "catalogDurationSeconds": 214.146,
+            "catalogTitleExact": false,
+            "confidenceClass": "low",
+            "descriptiveDurationWithinFiveSeconds": false,
+            "descriptiveVersionTextPresentOrNotRequired": true,
+            "gate": "rejected",
+            "ordinal": 11,
+            "permissionClass": "unknown",
+            "providerClass": "youtube",
+            "provisionalCanonicalMatch": false,
+            "provisionalVerifiedAliasMatch": false,
+            "recordingCanonicalMatch": false,
+            "recordingVerifiedAliasMatch": false,
+            "requestedTitlePhrasePresent": false,
+            "requestedVersionPresent": false,
+            "sharedAction": "reject",
+            "sharedDimensions": {
+              "artists": "unknown",
+              "guests": "unknown",
+              "isrc": "unknown",
+              "runtime": "conflict",
+              "title": "conflict",
+              "version": "unknown",
+              "work": "unknown"
+            },
+            "sharedReasons": [
+              "runtimeConflict",
+              "titleConflict"
+            ],
+            "sharedRelationship": "unresolved",
+            "sourcePageUrl": "https://www.youtube.com/watch?v=P_o37s1l5YI",
+            "topicCanonicalMatch": false,
+            "topicVerifiedAliasMatch": false,
+            "verifiedAliasArtistPhrasePresent": false,
+            "versionConflictFlag": false
+          },
+          {
+            "accepted": false,
+            "candidateDurationSeconds": 557,
+            "canonicalArtistPhrasePresent": false,
+            "catalogDurationSeconds": 214.146,
+            "catalogTitleExact": false,
+            "confidenceClass": "low",
+            "descriptiveDurationWithinFiveSeconds": false,
+            "descriptiveVersionTextPresentOrNotRequired": true,
+            "gate": "rejected",
+            "ordinal": 12,
+            "permissionClass": "unknown",
+            "providerClass": "youtube",
+            "provisionalCanonicalMatch": false,
+            "provisionalVerifiedAliasMatch": false,
+            "recordingCanonicalMatch": false,
+            "recordingVerifiedAliasMatch": false,
+            "requestedTitlePhrasePresent": false,
+            "requestedVersionPresent": false,
+            "sharedAction": "reject",
+            "sharedDimensions": {
+              "artists": "unknown",
+              "guests": "unknown",
+              "isrc": "unknown",
+              "runtime": "conflict",
+              "title": "conflict",
+              "version": "unknown",
+              "work": "unknown"
+            },
+            "sharedReasons": [
+              "runtimeConflict",
+              "titleConflict"
+            ],
+            "sharedRelationship": "unresolved",
+            "sourcePageUrl": "https://www.youtube.com/watch?v=UbRcTAyKoOk",
+            "topicCanonicalMatch": false,
+            "topicVerifiedAliasMatch": false,
+            "verifiedAliasArtistPhrasePresent": false,
+            "versionConflictFlag": false
+          }
+        ],
+        "totalCandidates": 20
+      },
+      "elapsedMs": 969,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "candidate_gate_evidence_rows",
+      "provider": "youtube",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772350270,
+      "details": {
+        "candidateRowsLimit": 200,
+        "candidateRowsTruncated": false,
+        "firstOrdinal": 13,
+        "rows": [
+          {
+            "accepted": false,
+            "candidateDurationSeconds": 142,
+            "canonicalArtistPhrasePresent": false,
+            "catalogDurationSeconds": 214.146,
+            "catalogTitleExact": false,
+            "confidenceClass": "low",
+            "descriptiveDurationWithinFiveSeconds": false,
+            "descriptiveVersionTextPresentOrNotRequired": true,
+            "gate": "rejected",
+            "ordinal": 13,
+            "permissionClass": "unknown",
+            "providerClass": "youtube",
+            "provisionalCanonicalMatch": false,
+            "provisionalVerifiedAliasMatch": false,
+            "recordingCanonicalMatch": false,
+            "recordingVerifiedAliasMatch": false,
+            "requestedTitlePhrasePresent": false,
+            "requestedVersionPresent": false,
+            "sharedAction": "reject",
+            "sharedDimensions": {
+              "artists": "unknown",
+              "guests": "unknown",
+              "isrc": "unknown",
+              "runtime": "conflict",
+              "title": "conflict",
+              "version": "unknown",
+              "work": "unknown"
+            },
+            "sharedReasons": [
+              "runtimeConflict",
+              "titleConflict"
+            ],
+            "sharedRelationship": "unresolved",
+            "sourcePageUrl": "https://www.youtube.com/watch?v=aAZoLDHNZcA",
+            "topicCanonicalMatch": false,
+            "topicVerifiedAliasMatch": false,
+            "verifiedAliasArtistPhrasePresent": false,
+            "versionConflictFlag": false
+          },
+          {
+            "accepted": false,
+            "candidateDurationSeconds": 214,
+            "canonicalArtistPhrasePresent": false,
+            "catalogDurationSeconds": 214.146,
+            "catalogTitleExact": false,
+            "confidenceClass": "low",
+            "descriptiveDurationWithinFiveSeconds": true,
+            "descriptiveVersionTextPresentOrNotRequired": true,
+            "gate": "rejected",
+            "ordinal": 14,
+            "permissionClass": "unknown",
+            "providerClass": "youtube",
+            "provisionalCanonicalMatch": false,
+            "provisionalVerifiedAliasMatch": false,
+            "recordingCanonicalMatch": false,
+            "recordingVerifiedAliasMatch": false,
+            "requestedTitlePhrasePresent": false,
+            "requestedVersionPresent": false,
+            "sharedAction": "reject",
+            "sharedDimensions": {
+              "artists": "unknown",
+              "guests": "unknown",
+              "isrc": "unknown",
+              "runtime": "agree",
+              "title": "conflict",
+              "version": "conflict",
+              "work": "unknown"
+            },
+            "sharedReasons": [
+              "runtimeAgrees",
+              "versionConflict",
+              "titleConflict"
+            ],
+            "sharedRelationship": "unresolved",
+            "sourcePageUrl": "https://www.youtube.com/watch?v=6xAjzRG-Al8",
+            "topicCanonicalMatch": false,
+            "topicVerifiedAliasMatch": false,
+            "verifiedAliasArtistPhrasePresent": false,
+            "versionConflictFlag": false
+          },
+          {
+            "accepted": false,
+            "candidateDurationSeconds": 461,
+            "canonicalArtistPhrasePresent": false,
+            "catalogDurationSeconds": 214.146,
+            "catalogTitleExact": false,
+            "confidenceClass": "low",
+            "descriptiveDurationWithinFiveSeconds": false,
+            "descriptiveVersionTextPresentOrNotRequired": true,
+            "gate": "rejected",
+            "ordinal": 15,
+            "permissionClass": "unknown",
+            "providerClass": "youtube",
+            "provisionalCanonicalMatch": false,
+            "provisionalVerifiedAliasMatch": false,
+            "recordingCanonicalMatch": false,
+            "recordingVerifiedAliasMatch": false,
+            "requestedTitlePhrasePresent": false,
+            "requestedVersionPresent": false,
+            "sharedAction": "reject",
+            "sharedDimensions": {
+              "artists": "unknown",
+              "guests": "unknown",
+              "isrc": "unknown",
+              "runtime": "conflict",
+              "title": "conflict",
+              "version": "unknown",
+              "work": "unknown"
+            },
+            "sharedReasons": [
+              "runtimeConflict",
+              "titleConflict"
+            ],
+            "sharedRelationship": "unresolved",
+            "sourcePageUrl": "https://www.youtube.com/watch?v=JFVJSERME2U",
+            "topicCanonicalMatch": false,
+            "topicVerifiedAliasMatch": false,
+            "verifiedAliasArtistPhrasePresent": false,
+            "versionConflictFlag": false
+          },
+          {
+            "accepted": false,
+            "candidateDurationSeconds": 234,
+            "canonicalArtistPhrasePresent": false,
+            "catalogDurationSeconds": 214.146,
+            "catalogTitleExact": false,
+            "confidenceClass": "low",
+            "descriptiveDurationWithinFiveSeconds": false,
+            "descriptiveVersionTextPresentOrNotRequired": true,
+            "gate": "rejected",
+            "ordinal": 16,
+            "permissionClass": "unknown",
+            "providerClass": "youtube",
+            "provisionalCanonicalMatch": false,
+            "provisionalVerifiedAliasMatch": false,
+            "recordingCanonicalMatch": false,
+            "recordingVerifiedAliasMatch": false,
+            "requestedTitlePhrasePresent": false,
+            "requestedVersionPresent": false,
+            "sharedAction": "reject",
+            "sharedDimensions": {
+              "artists": "unknown",
+              "guests": "unknown",
+              "isrc": "unknown",
+              "runtime": "conflict",
+              "title": "conflict",
+              "version": "unknown",
+              "work": "unknown"
+            },
+            "sharedReasons": [
+              "runtimeConflict",
+              "titleConflict"
+            ],
+            "sharedRelationship": "unresolved",
+            "sourcePageUrl": "https://www.youtube.com/watch?v=MwE3iRLqyRw",
+            "topicCanonicalMatch": false,
+            "topicVerifiedAliasMatch": false,
+            "verifiedAliasArtistPhrasePresent": false,
+            "versionConflictFlag": false
+          },
+          {
+            "accepted": false,
+            "candidateDurationSeconds": 190,
+            "canonicalArtistPhrasePresent": false,
+            "catalogDurationSeconds": 214.146,
+            "catalogTitleExact": false,
+            "confidenceClass": "low",
+            "descriptiveDurationWithinFiveSeconds": false,
+            "descriptiveVersionTextPresentOrNotRequired": true,
+            "gate": "rejected",
+            "ordinal": 17,
+            "permissionClass": "unknown",
+            "providerClass": "youtube",
+            "provisionalCanonicalMatch": false,
+            "provisionalVerifiedAliasMatch": false,
+            "recordingCanonicalMatch": false,
+            "recordingVerifiedAliasMatch": false,
+            "requestedTitlePhrasePresent": false,
+            "requestedVersionPresent": false,
+            "sharedAction": "reject",
+            "sharedDimensions": {
+              "artists": "unknown",
+              "guests": "unknown",
+              "isrc": "unknown",
+              "runtime": "conflict",
+              "title": "conflict",
+              "version": "unknown",
+              "work": "unknown"
+            },
+            "sharedReasons": [
+              "runtimeConflict",
+              "titleConflict"
+            ],
+            "sharedRelationship": "unresolved",
+            "sourcePageUrl": "https://www.youtube.com/watch?v=Seu2VvbQuEU",
+            "topicCanonicalMatch": false,
+            "topicVerifiedAliasMatch": false,
+            "verifiedAliasArtistPhrasePresent": false,
+            "versionConflictFlag": false
+          },
+          {
+            "accepted": false,
+            "candidateDurationSeconds": 194,
+            "canonicalArtistPhrasePresent": false,
+            "catalogDurationSeconds": 214.146,
+            "catalogTitleExact": false,
+            "confidenceClass": "low",
+            "descriptiveDurationWithinFiveSeconds": false,
+            "descriptiveVersionTextPresentOrNotRequired": true,
+            "gate": "rejected",
+            "ordinal": 18,
+            "permissionClass": "unknown",
+            "providerClass": "youtube",
+            "provisionalCanonicalMatch": false,
+            "provisionalVerifiedAliasMatch": false,
+            "recordingCanonicalMatch": false,
+            "recordingVerifiedAliasMatch": false,
+            "requestedTitlePhrasePresent": false,
+            "requestedVersionPresent": false,
+            "sharedAction": "reject",
+            "sharedDimensions": {
+              "artists": "unknown",
+              "guests": "unknown",
+              "isrc": "unknown",
+              "runtime": "conflict",
+              "title": "conflict",
+              "version": "unknown",
+              "work": "unknown"
+            },
+            "sharedReasons": [
+              "runtimeConflict",
+              "titleConflict"
+            ],
+            "sharedRelationship": "unresolved",
+            "sourcePageUrl": "https://www.youtube.com/watch?v=aiaOaH3QgpM",
+            "topicCanonicalMatch": false,
+            "topicVerifiedAliasMatch": false,
+            "verifiedAliasArtistPhrasePresent": false,
+            "versionConflictFlag": false
+          }
+        ],
+        "totalCandidates": 20
+      },
+      "elapsedMs": 970,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "candidate_gate_evidence_rows",
+      "provider": "youtube",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772350271,
+      "details": {
+        "candidateRowsLimit": 200,
+        "candidateRowsTruncated": false,
+        "firstOrdinal": 19,
+        "rows": [
+          {
+            "accepted": false,
+            "candidateDurationSeconds": 289,
+            "canonicalArtistPhrasePresent": false,
+            "catalogDurationSeconds": 214.146,
+            "catalogTitleExact": false,
+            "confidenceClass": "low",
+            "descriptiveDurationWithinFiveSeconds": false,
+            "descriptiveVersionTextPresentOrNotRequired": true,
+            "gate": "rejected",
+            "ordinal": 19,
+            "permissionClass": "unknown",
+            "providerClass": "youtube",
+            "provisionalCanonicalMatch": false,
+            "provisionalVerifiedAliasMatch": false,
+            "recordingCanonicalMatch": false,
+            "recordingVerifiedAliasMatch": false,
+            "requestedTitlePhrasePresent": false,
+            "requestedVersionPresent": false,
+            "sharedAction": "reject",
+            "sharedDimensions": {
+              "artists": "unknown",
+              "guests": "unknown",
+              "isrc": "unknown",
+              "runtime": "conflict",
+              "title": "conflict",
+              "version": "unknown",
+              "work": "unknown"
+            },
+            "sharedReasons": [
+              "runtimeConflict",
+              "titleConflict"
+            ],
+            "sharedRelationship": "unresolved",
+            "sourcePageUrl": "https://www.youtube.com/watch?v=Hsc7ioqFkcs",
+            "topicCanonicalMatch": false,
+            "topicVerifiedAliasMatch": false,
+            "verifiedAliasArtistPhrasePresent": false,
+            "versionConflictFlag": false
+          },
+          {
+            "accepted": false,
+            "candidateDurationSeconds": 168,
+            "canonicalArtistPhrasePresent": false,
+            "catalogDurationSeconds": 214.146,
+            "catalogTitleExact": false,
+            "confidenceClass": "low",
+            "descriptiveDurationWithinFiveSeconds": false,
+            "descriptiveVersionTextPresentOrNotRequired": true,
+            "gate": "rejected",
+            "ordinal": 20,
+            "permissionClass": "unknown",
+            "providerClass": "youtube",
+            "provisionalCanonicalMatch": false,
+            "provisionalVerifiedAliasMatch": false,
+            "recordingCanonicalMatch": false,
+            "recordingVerifiedAliasMatch": false,
+            "requestedTitlePhrasePresent": false,
+            "requestedVersionPresent": false,
+            "sharedAction": "reject",
+            "sharedDimensions": {
+              "artists": "unknown",
+              "guests": "unknown",
+              "isrc": "unknown",
+              "runtime": "conflict",
+              "title": "conflict",
+              "version": "unknown",
+              "work": "unknown"
+            },
+            "sharedReasons": [
+              "runtimeConflict",
+              "titleConflict"
+            ],
+            "sharedRelationship": "unresolved",
+            "sourcePageUrl": "https://www.youtube.com/watch?v=T_c8bbP0oYw",
+            "topicCanonicalMatch": false,
+            "topicVerifiedAliasMatch": false,
+            "verifiedAliasArtistPhrasePresent": false,
+            "versionConflictFlag": false
+          }
+        ],
+        "totalCandidates": 20
+      },
+      "elapsedMs": 970,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "candidate_gate_evidence_rows",
+      "provider": "youtube",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772350271,
+      "details": {
+        "eligible": 1
+      },
+      "elapsedMs": 970,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "candidate_gate",
+      "provider": "youtube",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772350271,
+      "details": {
+        "attempt": 1,
+        "sourceFingerprint": "5313d9e13de6ff988c5128e8f49ad378aeb761e75dde27b403031714a7e0ae0c",
+        "sourcePageUrl": "https://www.youtube.com/watch?v=bAvKJ3BpW0w",
+        "trackFingerprint": "5a7780f0b8a1cad93e0a4e77d93d92c01eb51b2e3657225b875f9d20aaf3e377"
+      },
+      "elapsedMs": 970,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "extract_and_validate_start",
+      "provider": "youtube",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772350271,
+      "details": {
+        "sharedLookupId": "cf44674f-1727-4aa4-ae05-90bad69bef18"
+      },
+      "elapsedMs": 970,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "preview_audio_lookup_start",
+      "provider": "youtube",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772350271,
+      "details": {
+        "sharedLookupId": "cf44674f-1727-4aa4-ae05-90bad69bef18"
+      },
+      "elapsedMs": 970,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "preview_audio_cache_hit",
+      "provider": "youtube",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772350283,
+      "details": {
+        "extraPerformerCount": 3,
+        "missingPerformerCount": 0,
+        "proofStrength": "metadataOnly",
+        "sharedAction": "enrich",
+        "sharedDimensions": {
+          "artists": "agree",
+          "guests": "unknown",
+          "isrc": "unknown",
+          "runtime": "agree",
+          "title": "agree",
+          "version": "unknown",
+          "work": "unknown"
+        },
+        "sharedReasons": [
+          "titleAgrees",
+          "artistAgrees",
+          "runtimeAgrees"
+        ],
+        "sharedRelationship": "probable",
+        "unresolvedAnnotationCount": 0
+      },
+      "elapsedMs": 982,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "resolved_recording_assessment",
+      "provider": "youtube",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772350283,
+      "details": {
+        "candidateArtistMetadataPresent": true,
+        "candidateArtistSpellingsCount": 3,
+        "candidateTitleArtistCreditPresent": false,
+        "catalogDuration": 214.146,
+        "ok": false,
+        "proofKind": "none",
+        "providerIdMatches": true,
+        "requestedVersion": false,
+        "resolvedArtistMetadataPresent": true,
+        "resolvedChannelIdPresent": true,
+        "resolvedDuration": 214,
+        "resolvedIdentityMetadataUncertain": false,
+        "resolvedTitleArtistCreditPresent": false,
+        "resolvedTitlePresent": true,
+        "sourceFingerprint": "5313d9e13de6ff988c5128e8f49ad378aeb761e75dde27b403031714a7e0ae0c",
+        "sourcePageUrl": "https://www.youtube.com/watch?v=bAvKJ3BpW0w",
+        "topicUploader": false,
+        "trackFingerprint": "5a7780f0b8a1cad93e0a4e77d93d92c01eb51b2e3657225b875f9d20aaf3e377"
+      },
+      "elapsedMs": 982,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "full_identity_check",
+      "provider": "youtube",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772350283,
+      "details": {
+        "attempt": 1,
+        "ok": false,
+        "sourceFingerprint": "5313d9e13de6ff988c5128e8f49ad378aeb761e75dde27b403031714a7e0ae0c",
+        "sourcePageUrl": "https://www.youtube.com/watch?v=bAvKJ3BpW0w",
+        "trackFingerprint": "5a7780f0b8a1cad93e0a4e77d93d92c01eb51b2e3657225b875f9d20aaf3e377"
+      },
+      "elapsedMs": 982,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "extract_and_validate_end",
+      "provider": "youtube",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772350283,
+      "details": {
+        "attempt": 1,
+        "ok": false,
+        "sourceFingerprint": "5313d9e13de6ff988c5128e8f49ad378aeb761e75dde27b403031714a7e0ae0c",
+        "sourcePageUrl": "https://www.youtube.com/watch?v=bAvKJ3BpW0w",
+        "trackFingerprint": "5a7780f0b8a1cad93e0a4e77d93d92c01eb51b2e3657225b875f9d20aaf3e377"
+      },
+      "elapsedMs": 982,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "extract_and_validate_end",
+      "provider": "youtube",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772350283,
+      "details": {
+        "attemptPhase": "extraction",
+        "category": "recording_identity_mismatch",
+        "observedElapsedMs": 982,
+        "phaseElapsedMs": 12,
+        "providerClass": "youtube",
+        "retryable": false,
+        "stage": "extraction"
+      },
+      "elapsedMs": 982,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "provider_attempt",
+      "provider": "youtube",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772350304,
+      "details": {
+        "candidateRowsLimit": 200,
+        "candidateRowsTruncated": false,
+        "counts": {
+          "candidatesEvaluatedBeforeForegroundCap": 1,
+          "confidenceLow": 1,
+          "durationDeltaGt5s": 1,
+          "requestedTitlePhrasePresentInCandidateTitle": 1
+        },
+        "scope": "candidatesEvaluatedBeforeForegroundCap"
+      },
+      "elapsedMs": 1004,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "candidate_gate_evidence",
+      "provider": "soundcloud",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772350304,
+      "details": {
+        "candidateRowsLimit": 200,
+        "candidateRowsTruncated": false,
+        "firstOrdinal": 1,
+        "rows": [
+          {
+            "accepted": false,
+            "candidateDurationSeconds": 30,
+            "canonicalArtistPhrasePresent": false,
+            "catalogDurationSeconds": 214.146,
+            "catalogTitleExact": false,
+            "confidenceClass": "low",
+            "descriptiveDurationWithinFiveSeconds": false,
+            "descriptiveVersionTextPresentOrNotRequired": true,
+            "gate": "rejected",
+            "ordinal": 1,
+            "permissionClass": "unknown",
+            "providerClass": "soundcloud",
+            "provisionalCanonicalMatch": false,
+            "provisionalVerifiedAliasMatch": false,
+            "recordingCanonicalMatch": false,
+            "recordingVerifiedAliasMatch": false,
+            "requestedTitlePhrasePresent": true,
+            "requestedVersionPresent": false,
+            "sharedAction": "reject",
+            "sharedDimensions": {
+              "artists": "unknown",
+              "guests": "unknown",
+              "isrc": "unknown",
+              "runtime": "conflict",
+              "title": "agree",
+              "version": "unknown",
+              "work": "unknown"
+            },
+            "sharedReasons": [
+              "titleAgrees",
+              "runtimeConflict",
+              "previewTooShort"
+            ],
+            "sharedRelationship": "unresolved",
+            "sourcePageUrl": "https://soundcloud.com/karamelosantoofficial/la-picadura-feat-manu-chao",
+            "topicCanonicalMatch": false,
+            "topicVerifiedAliasMatch": false,
+            "verifiedAliasArtistPhrasePresent": false,
+            "versionConflictFlag": false
+          }
+        ],
+        "totalCandidates": 1
+      },
+      "elapsedMs": 1004,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "candidate_gate_evidence_rows",
+      "provider": "soundcloud",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772350304,
+      "details": {
+        "eligible": 0
+      },
+      "elapsedMs": 1004,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "candidate_gate",
+      "provider": "soundcloud",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772350304,
+      "details": {
+        "pinned": false
+      },
+      "elapsedMs": 1004,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "provider_start",
+      "provider": "other",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772350305,
+      "details": {
+        "accepted": false,
+        "elapsedMs": 0
+      },
+      "elapsedMs": 1004,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "other",
+      "provider": "other",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772350898,
+      "details": {
+        "attempt": 1,
+        "role": "head"
+      },
+      "elapsedMs": 1597,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "stream_probe_start",
+      "provider": "other",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772350990,
+      "details": {
+        "attempt": 1,
+        "durationMs": 92,
+        "ok": true,
+        "role": "head",
+        "status": 206
+      },
+      "elapsedMs": 1689,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "stream_probe_end",
+      "provider": "other",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772350990,
+      "details": {
+        "attempt": 1,
+        "role": "tail"
+      },
+      "elapsedMs": 1690,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "stream_probe_start",
+      "provider": "other",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772351025,
+      "details": {
+        "attempt": 1,
+        "durationMs": 34,
+        "ok": true,
+        "role": "tail",
+        "status": 206
+      },
+      "elapsedMs": 1724,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "stream_probe_end",
+      "provider": "other",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772351271,
+      "details": {
+        "accepted": false,
+        "elapsedMs": 966
+      },
+      "elapsedMs": 1970,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "bandcamp_fallback_end",
+      "provider": "other",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772351271,
+      "details": {
+        "reason": "ineligible"
+      },
+      "elapsedMs": 1970,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "alias_lookup_skipped",
+      "provider": "spotify",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    },
+    {
+      "atUnixMs": 1794772351978,
+      "details": {
+        "cancelled": false,
+        "category": "recording_identity_mismatch",
+        "deadline": false,
+        "ok": false
+      },
+      "elapsedMs": 2678,
+      "nativeOperationId": "native-e75604b1-b96b-4be7-883d-0c84adab5a7c",
+      "phase": "resolution_end",
+      "provider": "other",
+      "resolutionId": "cd3611f2-2f33-4b01-b676-f57cd03ec35e"
+    }
+  ]
+}

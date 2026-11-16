@@ -1,0 +1,41 @@
+{
+  "scope": "Explicit source-selection tests in isolated muted Linux profiles. Successful streaming does not establish an automatic catalog recording crosswalk. No controls sent to the user instance.",
+  "tests": [
+    {
+      "trackId": "youtube:qcaUsJj15wk",
+      "title": "Que No Digan Nunca (Official Video)",
+      "outcome": "passed",
+      "naturalCompletion": true,
+      "finalPosition": 205.21795918367346,
+      "duration": 205.21795918367346,
+      "firstAudioMs": 7918,
+      "maximumProgressGapSeconds": 1.15,
+      "actualMutedSinkVerified": true,
+      "error": null
+    },
+    {
+      "trackId": "youtube:bAvKJ3BpW0w",
+      "title": "La Picadura (full guest credits)",
+      "outcome": "failed",
+      "naturalCompletion": null,
+      "finalPosition": null,
+      "duration": null,
+      "firstAudioMs": null,
+      "maximumProgressGapSeconds": null,
+      "actualMutedSinkVerified": null,
+      "error": "{'category': 'unknown', 'providerAttempts': [{'attemptPhase': 'extraction', 'category': 'source_access', 'httpStatus': 403, 'observedElapsedMs': 8673, 'phaseElapsedMs': 8300, 'providerClass': 'youtube', 'retryable': True, 'stage': 'extraction'}, {'attemptPhase': 'extraction', 'category': 'unknown', 'observedElapsedMs': 8677, 'phaseElapsedMs': 4, 'providerClass': 'youtube', 'retryable': False, 'stage': 'extraction'}], 'retryable': False, 'scope': 'unknown', 'stage': 'unknown'}"
+    },
+    {
+      "trackId": "youtube:lY6AsjXwNqQ",
+      "title": "Karamelo Santo La Picadura",
+      "outcome": "passed",
+      "naturalCompletion": true,
+      "finalPosition": 214.4130612244898,
+      "duration": 214.4130612244898,
+      "firstAudioMs": 1260,
+      "maximumProgressGapSeconds": 1.15,
+      "actualMutedSinkVerified": true,
+      "error": null
+    }
+  ]
+}
