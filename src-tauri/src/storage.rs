@@ -7770,6 +7770,15 @@ type AssetHydrationRow = (String, String, String, String);
 type AnalysisHydrationRow = (String, String, String);
 type SelectedHydrationAsset = (AssetHydrationRow, Option<AnalysisHydrationRow>, bool);
 
+/// Recheck request-scoped file reuse after queue/settings changes; never a merge.
+pub(crate) fn local_asset_matches_request(
+    request: &Track,
+    asset: &LocalAsset,
+    settings: &Settings,
+) -> bool {
+    local_matches::accepts(request, asset, settings)
+}
+
 fn hydrate(conn: &Connection, track: Track) -> Result<Track> {
     let values: RecordingHydration = conn.query_row("SELECT r.favorite,r.disposition,r.manual_metadata FROM recordings r JOIN catalog_listings l ON l.recording_id=r.id WHERE l.id=?1", [&track.id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).map_err(err)?;
     let (track, manual) = apply_hydration_metadata(track, values)?;

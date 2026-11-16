@@ -2210,6 +2210,14 @@ pub(crate) fn reconcile_stale_local_asset(
     };
     let settings = store.settings()?;
     if let Some(asset) = store.get_asset_by_path(path)? {
+        let same_recording =
+            store.recording_id(&incoming.id).ok().as_deref() == Some(asset.recording_id.as_str());
+        if !explicit_source
+            && !same_recording
+            && !crate::storage::local_asset_matches_request(incoming, &asset, &settings)
+        {
+            return Ok(without_stale_local_asset(incoming));
+        }
         if !crate::compilation_excerpt::asset_proof_is_eligible_with_options(
             incoming,
             &asset.track.provenance,

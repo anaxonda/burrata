@@ -5,6 +5,47 @@ use crate::recording_match::{MatchAction, MatchRelationship, MatchStage};
 const CANDIDATE_LIMIT: usize = 64;
 const LISTING_LIMIT: usize = 256;
 
+const CANDIDATE_SQL: &str = r#"
+SELECT a.id,a.path,a.hash,a.payload FROM local_assets a
+WHERE a.id IN (
+    SELECT id FROM local_assets
+    WHERE artist_match_key(json_extract(payload,'$.track.artist'))=?1
+      AND CAST(json_extract(payload,'$.durationSeconds') AS REAL) BETWEEN ?2 AND ?3
+    UNION
+    SELECT a.id FROM recordings r JOIN local_assets a ON a.recording_id=r.id
+    WHERE artist_match_key(json_extract(r.manual_metadata,'$.artist'))=?1
+      AND CAST(json_extract(a.payload,'$.durationSeconds') AS REAL) BETWEEN ?2 AND ?3
+)
+AND length(a.payload)<=262144
+AND local_recording_title_key(COALESCE(
+    (SELECT json_extract(r.manual_metadata,'$.title') FROM recordings r WHERE r.id=a.recording_id),
+    json_extract(a.payload,'$.track.title')))=?5
+ORDER BY a.rowid LIMIT ?4
+"#;
+
+const LISTING_SQL: &str = r#"
+SELECT l.id,l.metadata,r.favorite,r.disposition,r.manual_metadata
+FROM catalog_listings l JOIN recordings r ON r.id=l.recording_id
+WHERE l.id IN (
+    SELECT id FROM catalog_listings
+    WHERE artist_match_key(json_extract(metadata,'$.artist'))=?1
+      AND CAST(json_extract(metadata,'$.durationSeconds') AS REAL) BETWEEN ?2 AND ?3
+    UNION
+    SELECT l.id FROM recordings r JOIN catalog_listings l ON l.recording_id=r.id
+    WHERE artist_match_key(json_extract(r.manual_metadata,'$.artist'))=?1
+      AND CAST(COALESCE(json_extract(r.manual_metadata,'$.durationSeconds'),
+          json_extract(l.metadata,'$.durationSeconds')) AS REAL) BETWEEN ?2 AND ?3
+    UNION
+    SELECT l.id FROM catalog_listings l JOIN recordings r ON r.id=l.recording_id
+    WHERE artist_match_key(json_extract(l.metadata,'$.artist'))=?1
+      AND CAST(json_extract(r.manual_metadata,'$.durationSeconds') AS REAL) BETWEEN ?2 AND ?3
+)
+AND length(l.metadata)<=262144
+AND local_recording_title_key(COALESCE(json_extract(r.manual_metadata,'$.title'),
+    json_extract(l.metadata,'$.title')))=?5
+LIMIT ?4
+"#;
+
 pub(super) fn title_key(value: &str) -> Option<String> {
     let parsed = crate::recording_identity::parse_recording_text(value);
     (!parsed.parsing_incomplete)
@@ -13,6 +54,19 @@ pub(super) fn title_key(value: &str) -> Option<String> {
 }
 
 pub(super) fn install(conn: &Connection) -> Result<()> {
+    // Query-only function: persisted indexes intentionally do not depend on it.
+    conn.create_scalar_function(
+        "local_recording_title_key",
+        1,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |context| {
+            Ok(context
+                .get::<Option<String>>(0)?
+                .as_deref()
+                .and_then(title_key))
+        },
+    )
+    .map_err(err)?;
     // Use a function already present in older releases: these optional indexes
     // must not make the profile unwritable after an executable rollback.
     conn.execute_batch("CREATE INDEX IF NOT EXISTS local_asset_artist_runtime_v1 ON local_assets(artist_match_key(json_extract(payload,'$.track.artist')),CAST(json_extract(payload,'$.durationSeconds') AS REAL));
@@ -85,8 +139,10 @@ fn effective_asset(conn: &Connection, row: &AssetHydrationRow) -> Result<Option<
     }
     let mut asset: LocalAsset = decode(row.3.clone())?;
     // Apply saved user edits without recursively hydrating another local match.
-    let values = conn.query_row("SELECT r.favorite,r.disposition,r.manual_metadata FROM recordings r JOIN local_assets a ON a.recording_id=r.id WHERE a.id=?1", [&row.0],
-        |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).map_err(err)?;
+    let (values,recording_id): (RecordingHydration,String) = conn.query_row("SELECT r.favorite,r.disposition,r.manual_metadata,r.id FROM recordings r JOIN local_assets a ON a.recording_id=r.id WHERE a.id=?1", [&row.0],
+        |r| Ok(((r.get(0)?,r.get(1)?,r.get(2)?),r.get(3)?))).map_err(err)?;
+    asset.id = row.0.clone();
+    asset.recording_id = recording_id;
     asset.track = apply_hydration_metadata(asset.track, values)?.0;
     asset.path = row.1.clone();
     asset.hash = row.2.clone();
@@ -126,15 +182,16 @@ pub(super) fn find(
         return Ok(None);
     }
     let (min, max) = runtime_window(duration);
-    let mut stmt = conn.prepare_cached(
-        "SELECT a.id,a.path,a.hash,a.payload FROM local_assets a WHERE a.id IN (
-           SELECT id FROM local_assets WHERE artist_match_key(json_extract(payload,'$.track.artist'))=?1 AND CAST(json_extract(payload,'$.durationSeconds') AS REAL) BETWEEN ?2 AND ?3
-           UNION SELECT a.id FROM recordings r JOIN local_assets a ON a.recording_id=r.id
-             WHERE artist_match_key(json_extract(r.manual_metadata,'$.artist'))=?1 AND CAST(json_extract(a.payload,'$.durationSeconds') AS REAL) BETWEEN ?2 AND ?3
-         ) AND length(a.payload)<=262144 ORDER BY a.rowid LIMIT ?4").map_err(err)?;
+    let mut stmt = conn.prepare_cached(CANDIDATE_SQL).map_err(err)?;
     let rows = stmt
         .query_map(
-            params![artist, min, max, (CANDIDATE_LIMIT + 1) as i64],
+            params![
+                artist,
+                min,
+                max,
+                (CANDIDATE_LIMIT + 1) as i64,
+                title_key(&request.title)
+            ],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .map_err(err)?
@@ -196,15 +253,24 @@ pub(super) fn populate_available(conn: &Connection, settings: &Settings) -> Resu
         }
         let (min, max) = runtime_window(duration);
         let rows = {
-            let mut stmt=conn.prepare_cached("SELECT l.id,l.metadata,r.favorite,r.disposition,r.manual_metadata FROM catalog_listings l JOIN recordings r ON r.id=l.recording_id WHERE l.id IN (SELECT id FROM catalog_listings WHERE artist_match_key(json_extract(metadata,'$.artist'))=?1 AND CAST(json_extract(metadata,'$.durationSeconds') AS REAL) BETWEEN ?2 AND ?3 UNION SELECT l.id FROM recordings r JOIN catalog_listings l ON l.recording_id=r.id WHERE artist_match_key(json_extract(r.manual_metadata,'$.artist'))=?1 AND CAST(COALESCE(json_extract(r.manual_metadata,'$.durationSeconds'),json_extract(l.metadata,'$.durationSeconds')) AS REAL) BETWEEN ?2 AND ?3 UNION SELECT l.id FROM catalog_listings l JOIN recordings r ON r.id=l.recording_id WHERE artist_match_key(json_extract(l.metadata,'$.artist'))=?1 AND CAST(json_extract(r.manual_metadata,'$.durationSeconds') AS REAL) BETWEEN ?2 AND ?3) AND length(l.metadata)<=262144 LIMIT ?4").map_err(err)?;
+            let mut stmt = conn.prepare_cached(LISTING_SQL).map_err(err)?;
             let mapped = stmt
-                .query_map(params![artist, min, max, (LISTING_LIMIT + 1) as i64], |r| {
-                    Ok((
-                        r.get::<_, String>(0)?,
-                        r.get::<_, String>(1)?,
-                        (r.get(2)?, r.get(3)?, r.get(4)?),
-                    ))
-                })
+                .query_map(
+                    params![
+                        artist,
+                        min,
+                        max,
+                        (LISTING_LIMIT + 1) as i64,
+                        title_key(&asset.track.title)
+                    ],
+                    |r| {
+                        Ok((
+                            r.get::<_, String>(0)?,
+                            r.get::<_, String>(1)?,
+                            (r.get(2)?, r.get(3)?, r.get(4)?),
+                        ))
+                    },
+                )
                 .map_err(err)?;
             mapped
                 .collect::<std::result::Result<Vec<_>, _>>()

@@ -44,6 +44,11 @@ fn asset(
     if create_file {
         std::fs::write(path, b"registered local audio fixture").unwrap();
     }
+    let hash = if create_file {
+        crate::media::hash_file(path).unwrap()
+    } else {
+        format!("hash-{id}")
+    };
     let mut track = track(&format!("asset-{id}"), "local", title, artist, duration);
     track.version = version.map(str::to_owned);
     track.isrc = isrc.map(str::to_owned);
@@ -52,7 +57,7 @@ fn asset(
         id: id.into(),
         recording_id: track.id.clone(),
         path: path.to_string_lossy().into_owned(),
-        hash: format!("hash-{id}"),
+        hash,
         source_codec: "flac".into(),
         final_codec: "flac".into(),
         source_bitrate: None,
@@ -317,4 +322,107 @@ fn incompatible_edition_artist_isrc_or_unknown_runtime_does_not_match() {
         );
         assert!(loaded.local_path.is_none(), "{id}");
     }
+}
+
+#[test]
+fn no_isrc_exact_identity_respects_balanced_flexible_and_exact_modes_without_merging() {
+    let (dir, store) = db();
+    let requested = request();
+    store.save_track(&requested).unwrap();
+    add_matching_asset(&dir, &store, "mode-policy-file");
+    let requested_recording = store.recording_id(&requested.id).unwrap();
+    let asset_recording = store.recording_id("local:asset-mode-policy-file").unwrap();
+    assert_ne!(requested_recording, asset_recording);
+
+    for (level, expected_available) in [
+        (crate::recording_match::MatchLevel::Balanced, true),
+        (crate::recording_match::MatchLevel::Flexible, true),
+        (crate::recording_match::MatchLevel::Exact, false),
+    ] {
+        let mut settings = store.settings().unwrap();
+        settings.matching_level = level;
+        store.save_settings(&settings).unwrap();
+        let loaded = store.get_track(&requested.id).unwrap().unwrap();
+        assert_eq!(
+            loaded.asset_id.as_deref() == Some("mode-policy-file"),
+            expected_available,
+            "unexpected local match under {level:?}"
+        );
+        assert_eq!(
+            loaded.local_path.is_some(),
+            expected_available,
+            "path availability should follow the current policy"
+        );
+        assert_eq!(
+            store.recording_id(&requested.id).unwrap(),
+            requested_recording
+        );
+        assert_eq!(
+            store.recording_id("local:asset-mode-policy-file").unwrap(),
+            asset_recording
+        );
+    }
+}
+
+#[test]
+fn retained_cross_file_playback_hint_is_rechecked_for_title_version_mode_and_source_lock() {
+    let (dir, store) = db();
+    let requested = request();
+    store.save_track(&requested).unwrap();
+    add_matching_asset(&dir, &store, "preflight-baba-file");
+    let retained = store.get_track(&requested.id).unwrap().unwrap();
+    assert_eq!(retained.asset_id.as_deref(), Some("preflight-baba-file"));
+    assert!(retained.local_path.is_some());
+
+    let mut changed_title = retained.clone();
+    changed_title.title = "Different Song".into();
+    let prepared =
+        crate::playback_sources::reconcile_stale_local_asset(&store, &changed_title, false)
+            .unwrap();
+    assert!(
+        prepared.local_path.is_none(),
+        "a stale title must drop the retained file hint"
+    );
+    assert!(prepared.asset_id.is_none());
+
+    let mut changed_version = retained.clone();
+    changed_version.version = Some("Live Mix".into());
+    let prepared =
+        crate::playback_sources::reconcile_stale_local_asset(&store, &changed_version, false)
+            .unwrap();
+    assert!(
+        prepared.local_path.is_none(),
+        "a stale version must drop the retained file hint"
+    );
+    assert!(prepared.asset_id.is_none());
+
+    let mut settings = store.settings().unwrap();
+    settings.matching_level = crate::recording_match::MatchLevel::Exact;
+    store.save_settings(&settings).unwrap();
+    let prepared =
+        crate::playback_sources::reconcile_stale_local_asset(&store, &retained, false).unwrap();
+    assert!(
+        prepared.local_path.is_none(),
+        "a policy change must invalidate a no-ISRC hint"
+    );
+    assert!(prepared.asset_id.is_none());
+
+    settings.matching_level = crate::recording_match::MatchLevel::Balanced;
+    store.save_settings(&settings).unwrap();
+    assert!(store
+        .get_track(&requested.id)
+        .unwrap()
+        .unwrap()
+        .local_path
+        .is_some());
+    let mut explicit_lock = requested;
+    explicit_lock.provenance["explicitSourceLock"] = serde_json::Value::Bool(true);
+    let prepared =
+        crate::playback_sources::reconcile_stale_local_asset(&store, &explicit_lock, false)
+            .unwrap();
+    assert!(
+        prepared.local_path.is_none(),
+        "a pathless explicit lock must not discover a cross-file"
+    );
+    assert!(prepared.asset_id.is_none());
 }
