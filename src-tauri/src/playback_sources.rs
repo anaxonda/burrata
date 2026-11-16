@@ -1728,7 +1728,7 @@ async fn resolve_inner(
     } else {
         track
     };
-    resolve_after_local_preflight(store, track, explicit_source, |prepared_track| {
+    resolve_after_local_preflight(store, track, explicit_source || bypass_local, |prepared_track| {
         Box::pin(async move {
             let mut prepared_track = prepared_track;
             if selected.is_none() && prepared_track.local_path.is_none()
@@ -2195,6 +2195,17 @@ pub(crate) fn reconcile_stale_local_asset(
     explicit_source: bool,
 ) -> Result<Track, String> {
     let Some(path) = incoming.local_path.as_deref() else {
+        if !explicit_source {
+            if let Some(saved) = store.get_track(&incoming.id)? {
+                if saved.local_availability == "available" && saved.local_path.is_some() {
+                    let mut prepared = incoming.clone();
+                    prepared.local_path = saved.local_path;
+                    prepared.asset_id = saved.asset_id;
+                    prepared.local_availability = saved.local_availability;
+                    return reconcile_stale_local_asset(store, &prepared, explicit_source);
+                }
+            }
+        }
         return Ok(incoming.clone());
     };
     let settings = store.settings()?;

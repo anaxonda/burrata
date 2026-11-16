@@ -20,6 +20,11 @@ use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 pub mod library;
 #[path = "storage_local_albums.rs"]
 pub mod local_albums;
+#[cfg(test)]
+#[path = "storage_local_matches_tests.rs"]
+mod local_match_tests;
+#[path = "storage_local_matches.rs"]
+mod local_matches;
 #[path = "storage_playlist_artwork.rs"]
 mod playlist_artwork;
 
@@ -552,6 +557,7 @@ fn materialize_artist_asset_candidates(
     }
     Ok(())
 }
+#[cfg(test)]
 fn unique_artist_playback_match(source: &Track, assets: &[LocalAsset]) -> Option<usize> {
     if source.local_availability == "available"
         && source
@@ -1219,6 +1225,7 @@ impl Store {
         .map_err(err)?;
         conn.execute_batch("CREATE INDEX IF NOT EXISTS collection_members_recording_sync ON collection_members(recording_id,collection_id);").map_err(err)?;
         crate::playlist_incremental::install(&conn)?;
+        local_matches::install(&conn)?;
         let store = Self {
             playback_settings: std::sync::RwLock::new(None),
             playlist_incremental: Mutex::new(crate::playlist_incremental::Cache::default()),
@@ -3425,6 +3432,7 @@ impl Store {
                     insert.execute([recording_id]).map_err(err)?;
                 }
             }
+            local_matches::populate_available(&conn, &current_matching_settings(&conn))?;
         }
         #[cfg(test)]
         let local_presence_micros =
@@ -3544,10 +3552,10 @@ impl Store {
         if let Some(value) = availability.filter(|v| *v != "all") {
             conditions.push(match value {
                 "local" => {
-                    "EXISTS(SELECT 1 FROM page_local_recordings a WHERE a.recording_id=r.id)".into()
+                    "(EXISTS(SELECT 1 FROM page_local_recordings a WHERE a.recording_id=r.id) OR EXISTS(SELECT 1 FROM page_local_matches a WHERE a.listing_id=l.id))".into()
                 }
                 "not-local" => {
-                    "NOT EXISTS(SELECT 1 FROM page_local_recordings a WHERE a.recording_id=r.id)"
+                    "NOT (EXISTS(SELECT 1 FROM page_local_recordings a WHERE a.recording_id=r.id) OR EXISTS(SELECT 1 FROM page_local_matches a WHERE a.listing_id=l.id))"
                         .into()
                 }
                 _ => "1=0".into(),
@@ -3556,7 +3564,7 @@ impl Store {
         if let Some(value) = provider.filter(|v| *v != "all") {
             match value {
                 "local" => conditions.push(
-                    "EXISTS(SELECT 1 FROM page_local_recordings a WHERE a.recording_id=r.id)"
+                    "(EXISTS(SELECT 1 FROM page_local_recordings a WHERE a.recording_id=r.id) OR EXISTS(SELECT 1 FROM page_local_matches a WHERE a.listing_id=l.id))"
                         .into(),
                 ),
                 "personal" => {}
@@ -6058,7 +6066,7 @@ impl Store {
                 asset.recording_id = recording_id;
                 let (track, manual) = apply_hydration_metadata(asset.track, values)?;
                 let analysis = analyses.remove(&(selected.0.clone(), selected.2.clone()));
-                asset.track = finish_hydration(track, manual, Some((selected, analysis)))?;
+                asset.track = finish_hydration(track, manual, Some((selected, analysis, false)))?;
                 result.push(asset);
             }
         }
@@ -6396,34 +6404,18 @@ impl Store {
                     .into(),
             );
         }
-        let mut names = artist_names.to_vec();
-        names.extend(source_tracks.iter().map(|track| track.artist.clone()));
-        let requested = names
-            .iter()
-            .map(|name| normalize_artist_name(name))
-            .filter(|name| !name.is_empty())
-            .collect::<std::collections::HashSet<_>>();
-        if requested.is_empty() || source_tracks.is_empty() {
-            return Ok(vec![None; source_tracks.len()]);
-        }
         let conn = self.lock_connection()?;
-        materialize_artist_asset_candidates(&conn, &requested, Some(source_tracks))?;
-        let mut stmt = conn
-            .prepare("SELECT asset_json FROM artist_page_effective_assets")
-            .map_err(err)?;
-        let rows = stmt
-            .query_map([], |row| row.get::<_, String>(0))
-            .map_err(err)?;
-        let assets = rows
-            .map(|row| decode(row.map_err(err)?))
-            .collect::<Result<Vec<LocalAsset>>>()?;
-        Ok(source_tracks
+        let settings = current_matching_settings(&conn);
+        source_tracks
             .iter()
-            .map(|source| {
-                unique_artist_playback_match(source, &assets).map(|index| assets[index].clone())
+            .map(|request| {
+                local_matches::find(&conn, request, &settings)?
+                    .map(|row| local_matches::effective_file(&conn, &row))
+                    .transpose()
             })
-            .collect())
+            .collect()
     }
+
     pub fn list_assets(&self) -> Result<Vec<LocalAsset>> {
         let conn = self.lock_connection()?;
         let mut stmt = conn
@@ -6468,6 +6460,26 @@ impl Store {
                 .entry(track_id)
                 .or_default()
                 .push(hydrate_asset(&conn, decode(payload)?)?);
+        }
+        let settings = current_matching_settings(&conn);
+        for id in &ids {
+            let files = grouped.entry(id.clone()).or_default();
+            if !files.iter().any(|file| Path::new(&file.path).is_file()) {
+                let raw: Option<String> = conn
+                    .query_row(
+                        "SELECT metadata FROM catalog_listings WHERE id=?1",
+                        [id],
+                        |r| r.get(0),
+                    )
+                    .optional()
+                    .map_err(err)?;
+                if let Some(raw) = raw {
+                    let request = hydrate(&conn, decode(raw)?)?;
+                    if let Some(row) = local_matches::find(&conn, &request, &settings)? {
+                        files.push(local_matches::effective_file(&conn, &row)?);
+                    }
+                }
+            }
         }
         Ok(ids
             .into_iter()
@@ -6592,8 +6604,28 @@ impl Store {
         let rows = stmt
             .query_map([track_id], |row| row.get::<_, String>(0))
             .map_err(err)?;
-        rows.map(|row| hydrate_asset(&conn, decode(row.map_err(err)?)?))
-            .collect()
+        let mut files = rows
+            .map(|row| hydrate_asset(&conn, decode(row.map_err(err)?)?))
+            .collect::<Result<Vec<_>>>()?;
+        if !files.iter().any(|file| Path::new(&file.path).is_file()) {
+            let raw: Option<String> = conn
+                .query_row(
+                    "SELECT metadata FROM catalog_listings WHERE id=?1",
+                    [track_id],
+                    |r| r.get(0),
+                )
+                .optional()
+                .map_err(err)?;
+            if let Some(raw) = raw {
+                let request = hydrate(&conn, decode(raw)?)?;
+                if let Some(row) =
+                    local_matches::find(&conn, &request, &current_matching_settings(&conn))?
+                {
+                    files.push(local_matches::effective_file(&conn, &row)?);
+                }
+            }
+        }
+        Ok(files)
     }
 
     /// Return active named collections that actually contain this listing's recording.
@@ -7718,8 +7750,16 @@ fn hydrate_track_chunk(conn: &Connection, tracks: Vec<Track>) -> Result<Vec<Trac
                 .and_then(Option::as_ref)
                 .map(|row| {
                     let analysis = analyses.get(&(row.0.clone(), row.2.clone())).cloned();
-                    (row.clone(), analysis)
+                    (row.clone(), analysis, false)
                 });
+            let selected = if selected
+                .as_ref()
+                .is_none_or(|(row, _, _)| !Path::new(&row.1).is_file())
+            {
+                local_matches::selected(conn, &track, &matching_settings)?.or(selected)
+            } else {
+                selected
+            };
             finish_hydration(track, manual, selected)
         })
         .collect()
@@ -7728,7 +7768,7 @@ fn hydrate_track_chunk(conn: &Connection, tracks: Vec<Track>) -> Result<Vec<Trac
 type RecordingHydration = (bool, Option<String>, String);
 type AssetHydrationRow = (String, String, String, String);
 type AnalysisHydrationRow = (String, String, String);
-type SelectedHydrationAsset = (AssetHydrationRow, Option<AnalysisHydrationRow>);
+type SelectedHydrationAsset = (AssetHydrationRow, Option<AnalysisHydrationRow>, bool);
 
 fn hydrate(conn: &Connection, track: Track) -> Result<Track> {
     let values: RecordingHydration = conn.query_row("SELECT r.favorite,r.disposition,r.manual_metadata FROM recordings r JOIN catalog_listings l ON l.recording_id=r.id WHERE l.id=?1", [&track.id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).map_err(err)?;
@@ -7796,12 +7836,19 @@ fn load_hydration_asset(
     let preferred = preferred.map(decode::<String>).transpose()?;
     let eligible = eligible_hydration_rows(&asset_rows, request, &current_matching_settings(conn));
     let row = select_hydration_asset(&eligible, preferred.as_deref());
+    if row.as_ref().is_none_or(|row| !Path::new(&row.1).is_file()) {
+        if let Some(selected) =
+            local_matches::selected(conn, request, &current_matching_settings(conn))?
+        {
+            return Ok(Some(selected));
+        }
+    }
     row.map(|row| {
         let analysis = conn.query_row(
             "SELECT status,version,payload FROM asset_analyses WHERE asset_id=?1 AND file_hash=?2 ORDER BY updated_at DESC LIMIT 1",
             params![row.0, row.2], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         ).optional().map_err(err)?;
-        Ok((row, analysis))
+        Ok((row, analysis, false))
     }).transpose()
 }
 
@@ -7873,7 +7920,11 @@ fn finish_hydration(
     track.asset_id = None;
     track.local_path = None;
     track.local_availability = "none".into();
-    if let Some(((asset_id, path, _hash, payload), analysis)) = selected {
+    if let Some(((asset_id, path, _hash, payload), analysis, cross_recording)) = selected {
+        if cross_recording {
+            track.provenance["localPlaybackMatch"] =
+                serde_json::json!("shared exact recording policy");
+        }
         let asset: LocalAsset = decode(payload)?;
         if asset.track.provenance["automaticExcerpt"].is_object() {
             if !track.provenance.is_object() {
@@ -7882,7 +7933,7 @@ fn finish_hydration(
             track.provenance["approximateExcerpt"] =
                 asset.track.provenance["automaticExcerpt"].clone();
         }
-        if asset.track.provenance["autotag"].is_object() {
+        if !cross_recording && asset.track.provenance["autotag"].is_object() {
             let overlay = serde_json::to_value(&asset.track).map_err(err)?;
             let mut display = serde_json::to_value(&track).map_err(err)?;
             for field in [
@@ -10680,6 +10731,7 @@ mod tests {
         local.artist = "Aster feat. Guest".into();
         local.title = "Song".into();
         local.version = Some(String::new());
+        local.duration_seconds = Some(200.);
         store.save_track(&local).unwrap();
         let path = dir.path().join("artist-playback-featured.flac");
         std::fs::write(&path, b"fixture audio").unwrap();
@@ -10697,7 +10749,7 @@ mod tests {
         source.provider_id = "featured".into();
         source.artist = "Ａster\u{00A0}feat. Guest".into();
         source.version = None;
-        source.duration_seconds = None;
+        source.duration_seconds = Some(200.);
         let matches = store
             .match_artist_playback_sources(&["Main profile artist".into()], &[source])
             .unwrap();
