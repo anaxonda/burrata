@@ -310,11 +310,11 @@
 }
 
 /* Playlist identity and artwork share a compact, responsive hero. */
-.app-shell > main > header.playlist-header { position:relative; overflow:hidden; isolation:isolate; padding:20px 22px; align-items:flex-start; background:linear-gradient(145deg,color-mix(in srgb,var(--accent) 13%,var(--panel)),var(--bg)); }
+.app-shell > main > header.playlist-header { position:relative; overflow:hidden; isolation:isolate; padding:20px 22px; align-items:flex-start; background:linear-gradient(145deg,color-mix(in srgb,var(--accent) 13%,var(--surface)),var(--base)); }
 .playlist-header > :not(.playlist-ambient) { position:relative; z-index:1; }
 .playlist-header .playlist-ambient { position:absolute; inset:-35%; width:170%; height:170%; object-fit:cover; filter:blur(50px); opacity:.2; pointer-events:none; z-index:-1; }
 .playlist-header .playlist-identity { display:flex; align-items:flex-end; gap:20px; flex:1 1 300px; min-width:0; }
-.playlist-hero-cover { display:grid; flex:0 0 clamp(96px,15vw,164px); width:clamp(96px,15vw,164px); aspect-ratio:1; overflow:hidden; border-radius:6px; background:var(--panel); box-shadow:0 8px 24px #0004; }
+.playlist-hero-cover { display:grid; flex:0 0 clamp(96px,15vw,164px); width:clamp(96px,15vw,164px); aspect-ratio:1; overflow:hidden; border-radius:6px; background:var(--surface); box-shadow:0 8px 24px #0004; }
 .playlist-hero-cover.collage { grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; }
 .playlist-hero-cover img { width:100%; height:100%; object-fit:cover; min-height:0; }
 .playlist-hero-cover span { margin:auto; font-size:44px; opacity:.5; }
