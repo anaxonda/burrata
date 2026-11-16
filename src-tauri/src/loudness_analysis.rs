@@ -1581,16 +1581,16 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn analysis_timeout_kills_a_stalled_ffmpeg_child() {
-        use std::os::unix::fs::PermissionsExt;
-        let directory = tempfile::tempdir().unwrap();
-        let script = directory.path().join("stalled-ffmpeg");
-        std::fs::write(&script, b"#!/bin/sh\nexec sleep 10\n").unwrap();
-        let mut permissions = std::fs::metadata(&script).unwrap().permissions();
-        permissions.set_mode(0o700);
-        std::fs::set_permissions(&script, permissions).unwrap();
-        let result = run_loudnorm_with_timeout(
-            Path::new("/dev/null"),
-            &script,
+        // Execute the installed shell directly: writing an executable script
+        // immediately before exec can fail with ETXTBSY on CI overlay filesystems.
+        // This fixture tests child timeout/reaping, not executable staging.
+        let mut command = Command::new("/bin/sh");
+        command
+            .args(["-c", "exec sleep 10"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+        let result = run_bounded_ffmpeg(
+            command,
             Arc::new(AtomicBool::new(false)),
             Duration::from_millis(50),
         );
