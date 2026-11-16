@@ -104,16 +104,17 @@ it("normalizes Markdown in an AI answer without rendering it as HTML or losing U
  expect(answer.querySelector("a")).toBeNull();
 });
 
-it("lets the user choose song, concert, or set context explicitly",async()=>{
+it("automatically detects a DJ set from saved source metadata",async()=>{
  apiCall.mockReset().mockImplementation(async(_command:string,args:{request:Record<string,unknown>})=>({requestId:args.request.requestId,identity:"opaque",answer:"Context",model:"model",provider:"openaiCompatible"}));
- instance=mount(RecordingInformation,{target:document.body,props:{track,contextLookupConfigured:true,loadRecording:async()=>({resolution:"unresolved",recording:null,candidates:[]})}});
+ const djSet={...track,provenance:{sourceKind:"set"}};
+ instance=mount(RecordingInformation,{target:document.body,props:{track:djSet,contextLookupConfigured:true,loadRecording:async()=>({resolution:"unresolved",recording:null,candidates:[]})}});
  await tick();await tick();
- const kind=document.querySelector<HTMLSelectElement>('[aria-label="Context type"]')!;
- kind.value="set";kind.dispatchEvent(new Event("change"));await tick();
+ expect(document.querySelector('[aria-label="Context type"]')).toBeNull();
+ expect(document.querySelector(".context-action")?.getAttribute("aria-label")).toContain("Love Like This");
  (document.querySelector(".context-action") as HTMLButtonElement).click();
  await tick();await tick();
- expect(apiCall.mock.calls[0][1].request.targetKind).toBe("set");
- expect(document.querySelector(".context-result strong")?.textContent).toContain("This DJ set");
+ expect(apiCall.mock.calls[0][1].request.targetKind).toBe("auto");
+ expect(document.querySelector(".context-result strong")?.textContent).toContain("Context for");
 });
 
 it("separates answer labeling from the answer and renders only valid returned sources",async()=>{
@@ -153,16 +154,19 @@ it("sends a canonical public YouTube locator and omits private or nonstandard so
  expect(apiCall.mock.calls[1][1].request).not.toHaveProperty("sourceUrl");
 });
 
-it("offers separate detected song and full-set lookups in fullscreen context",async()=>{
+it("automatically chooses the detected song when a full set is also available",async()=>{
  apiCall.mockReset().mockImplementation(async(_command:string,args:{request:Record<string,unknown>})=>({requestId:args.request.requestId,identity:"opaque",answer:"Context",model:"model",provider:"openaiCompatible"}));
  const detected={...track,title:"Detected song",artist:"Detected artist"};
  const fullSet={...track,provider:"youtube",title:"Long DJ mix",artist:"DJ",sourceUrl:"https://youtube.com/watch?v=private"};
  instance=mount(RecordingInformation,{target:document.body,props:{track:fullSet,contextLookupConfigured:true,contextTargets:[{track:detected,label:"Detected song",targetKind:"song"},{track:fullSet,label:"Full set",targetKind:"set"}],loadRecording:async()=>({resolution:"unresolved",recording:null,candidates:[]})}});
  await tick();await tick();
  const buttons=[...document.querySelectorAll<HTMLButtonElement>(".context-action")];
- expect(buttons.map(button=>button.textContent)).toEqual(["Ask AI about Detected song","Ask AI about Full set"]);
+ expect(buttons).toHaveLength(1);
+ expect(buttons[0].textContent).toBe("Ask AI");
+ expect(buttons[0].getAttribute("aria-label")).toContain("Detected song");
+ expect(document.querySelector('[aria-label="Context type"]')).toBeNull();
  buttons[0].click();await tick();await tick();
- expect(apiCall.mock.calls[0][1].request).toMatchObject({title:"Detected song",artist:"Detected artist",targetKind:"song"});
+ expect(apiCall.mock.calls[0][1].request).toMatchObject({title:"Detected song",artist:"Detected artist",targetKind:"auto"});
 });
 
 it("suppresses stale lookup success and error across A to B to A metadata changes",async()=>{

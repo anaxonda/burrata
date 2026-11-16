@@ -251,6 +251,8 @@ const COMMANDS: &[&str] = &[
     "get_artist_profile",
     "get_artist_artwork",
     "get_artist_releases",
+    "get_artist_discography",
+    "get_release_editions",
     "get_release_tracks",
     "save_library_tracks",
     "list_local_album_matches",

@@ -766,7 +766,9 @@ beforeEach(() => {
         });
       }
       case "get_artist_tracks": return { artist: args?.artist, items: [], source: "MusicBrainz", warnings: [] };
-      case "get_artist_releases": return { artist: args?.artist, items: [], warnings: [] };
+      case "get_artist_discography":
+      case "get_artist_releases":
+      case "get_release_editions": return { artist: args?.artist, items: [], nextCursor: null, sourceCoverage: [], warnings: [] };
       case "get_release_tracks": return discoveryAlbumTracks;
       case "get_artist_collaborations": return { artist: args?.artist, items: [], warnings: [] };
       case "resolve_recording_metadata": return {
@@ -5761,6 +5763,7 @@ describe("saved recording navigation", () => {
   it("opens an exact catalog release and routes its revision-guarded download through the loaded album action", async () => {
     const artist={provider:"musicbrainz",id:"123e4567-e89b-12d3-a456-426614174000"} as const;
     const releaseId="223e4567-e89b-12d3-a456-426614174001";
+    const releaseGroupId="323e4567-e89b-12d3-a456-426614174002";
     const release:ArtistReleaseRef={release:{provider:"musicbrainz",id:releaseId},title:"Exact Release",sourceUrl:`https://musicbrainz.org/release/${releaseId}`,tracks:[],credits:[{name:"Exact Artist",role:"artist",artist,sourceUrl:`https://musicbrainz.org/artist/${artist.id}`}]};
     discoveryAlbumTracks=[{...savedTrack,id:"exact-release-track",sourceUrl:release.sourceUrl,provenance:{catalogProvider:"musicbrainz",releaseId}}];
     configuredMusicDirectory="/music";
@@ -5768,6 +5771,7 @@ describe("saved recording navigation", () => {
     let deferSettings=false,finishBatchSettings:((settings:Settings)=>void)|undefined;
     const originalCall=mocks.call.getMockImplementation()!;
     mocks.call.mockImplementation(async(command:string,args?:Record<string,unknown>)=>{
+      if(command==="get_artist_discography")return {artist,items:[{...release,release:{provider:"musicbrainz",id:releaseGroupId},sourceUrl:`https://musicbrainz.org/release-group/${releaseGroupId}`}],nextCursor:null,warnings:[]};
       if(command==="get_artist_releases")return {artist,items:[release],nextCursor:null,warnings:[]};
       if(command==="get_settings"&&deferSettings)return await new Promise<Settings>(resolve=>{finishBatchSettings=resolve;});
       return originalCall(command,args);
@@ -5775,6 +5779,8 @@ describe("saved recording navigation", () => {
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
     eventHandlers.get("automation-ui-navigation")!({event:"automation-ui-navigation",id:101,payload:{requestId:"exact-release-nav",target:{kind:"catalog_release",catalogArtist:artist,catalogRelease:release.release}}});
     await settle();await settle();
+    expect(mocks.call).toHaveBeenCalledWith("get_artist_discography", { artist, cursor: null });
+    expect(mocks.call).toHaveBeenCalledWith("get_artist_releases", { artist, cursor: null });
     expect(document.querySelector(".release-view h1")?.textContent).toBe("Exact Release");
     const navigationCompletion=mocks.call.mock.calls.find(([command,args])=>command==="automation_ui_navigation_complete"&&args?.requestId==="exact-release-nav")?.[1];
     expect(navigationCompletion).toMatchObject({destination:releaseId,status:"complete",trackCount:1});

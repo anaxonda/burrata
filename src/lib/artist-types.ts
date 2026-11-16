@@ -218,6 +218,7 @@ export interface ArtistPageProps {
   searchArtists: (query: string, page: number) => Promise<ArtistSearchPage>;
   getArtistProfile: (artist: ArtistRef) => Promise<ArtistProfile>;
   getArtistReleases: (artist: ArtistRef, cursor?: string | null) => Promise<ArtistReleasePage>;
+  getReleaseEditions?: (releaseGroup: ArtistReleaseRef, artist: ArtistRef, cursor?: string | null) => Promise<ArtistReleasePage>;
   getReleaseTracks?: (release: ArtistReleaseRef, artist: ArtistRef) => Promise<Track[]>;
   getArtistTracks: (artist: ArtistRef, cursor?: string | null) => Promise<ArtistTrackPage>;
   getArtistCollaborations: (artist: ArtistRef, cursor?: string | null) => Promise<ArtistCollaborationPage>;

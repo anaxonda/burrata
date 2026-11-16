@@ -267,6 +267,12 @@ fn sync_incremental(
     roots.dedup();
     let archive_root = mirror_root.as_ref().map(|root| root.join("Archives"));
     let files = crate::playlist_incremental::fingerprint(&roots, archive_root.as_deref())?;
+    let mut dependency_hash = Sha256::new();
+    dependency_hash.update(files.as_bytes());
+    for path in store.local_match_dependency_paths()? {
+        crate::playlist_incremental::stamp_path(&mut dependency_hash, Path::new(&path));
+    }
+    let files = format!("{:x}", dependency_hash.finalize());
     let token = format!(
         "{}:{}:{:?}:{}:{:?}:{:?}",
         revisions.generation,
@@ -10709,3 +10715,7 @@ mod tests {
         .is_none());
     }
 }
+
+#[cfg(test)]
+#[path = "playlist_cross_local_tests.rs"]
+mod cross_local_tests;

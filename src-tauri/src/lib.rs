@@ -1943,6 +1943,38 @@ async fn get_artist_releases(
         .await
 }
 #[tauri::command]
+async fn get_artist_discography(
+    state: State<'_, AppState>,
+    artist: artists::ArtistRef,
+    cursor: Option<String>,
+) -> Result<artists::ArtistReleasePage> {
+    state
+        .artists
+        .get_artist_discography(
+            &artist,
+            cursor.as_deref(),
+            &artist_credentials(state.connections.clone()).await?,
+        )
+        .await
+}
+#[tauri::command]
+async fn get_release_editions(
+    state: State<'_, AppState>,
+    release: artists::ArtistReleaseRef,
+    artist: artists::ArtistRef,
+    cursor: Option<String>,
+) -> Result<artists::ArtistReleasePage> {
+    state
+        .artists
+        .get_release_editions(
+            &release,
+            &artist,
+            cursor.as_deref(),
+            &artist_credentials(state.connections.clone()).await?,
+        )
+        .await
+}
+#[tauri::command]
 async fn get_release_tracks(
     state: State<'_, AppState>,
     release: artists::ArtistReleaseRef,
@@ -9657,7 +9689,7 @@ pub fn run() {
             open_external_url
             ,get_connections, save_connections, test_connections, get_managed_slskd_download_settings, save_managed_slskd_download_settings, get_slskd_shares, rescan_slskd_shares, add_managed_slskd_share, remove_managed_slskd_share, translate_current_track_lyrics, lookup_media_context,
             start_slskd_search, get_slskd_search, cancel_slskd_search,
-            search_artists, search_albums, resolve_track_album, verify_spotify_album_membership, get_artist_artwork, cached_spotify_artist_ref, get_artist_profile, get_artist_releases, get_release_tracks, save_library_tracks,
+            search_artists, search_albums, resolve_track_album, verify_spotify_album_membership, get_artist_artwork, cached_spotify_artist_ref, get_artist_profile, get_artist_releases, get_artist_discography, get_release_editions, get_release_tracks, save_library_tracks,
             get_artist_tracks, get_artist_collaborations, resolve_recording_metadata,
             list_directory_browser_roots, list_directory_browser_children, choose_directory_browser_root, add_directory_browser_root, remove_directory_browser_root, browse_directory_browser, start_directory_browser_sort_availability, get_directory_browser_sort_availability, cancel_directory_browser_sort_availability, start_directory_browser_scan, get_directory_browser_scan, cancel_directory_browser_scan,
             import_onetagger_discogs, list_local_playlists, import_local_playlist,

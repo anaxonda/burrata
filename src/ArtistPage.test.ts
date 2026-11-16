@@ -319,7 +319,7 @@ describe("ArtistPage", () => {
     const first = release("same", "Release", "https://musicbrainz.org/release/same", "Album");
     const target = render({ initialArtistRef: { provider: "musicbrainz", id: "artist-1" }, initialSection: "releases",
       getArtistProfile: async () => profile(artist("artist-1"), emptyReleasePage("artist-1", [first], "next")),
-      getArtistReleases: async () => emptyReleasePage("artist-1", [first, { ...first, sourceUrl: "https://musicbrainz.org/release-group/same" }]),
+      getArtistReleases: async () => emptyReleasePage("artist-1", [first, { ...first, sourceUrl: "https://musicbrainz.org/release/master/same" }]),
     });
     await settle();
     [...target.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("Load more releases"))?.click();
@@ -616,6 +616,118 @@ describe("ArtistPage", () => {
     expect(target.querySelector(".catalog-count")?.textContent).toContain("2 albums · 3 editions loaded");
   });
 
+  it("shares release-order pagination when the same artist re-enters the discography", async () => {
+    const ref = artist("release-order-flight", "Order Artist");
+    const index = release("rg-order", "Indexed Album", "https://musicbrainz.org/release-group/rg-order", "Album");
+    let resolvePage!: (page: ArtistReleasePage) => void;
+    const getArtistReleases = vi.fn((_artist: { id: string }, cursor?: string | null) => {
+      if (!cursor) return Promise.resolve(emptyReleasePage(ref.artist.id, [index], "next-cursor"));
+      return new Promise<ArtistReleasePage>(resolve => { resolvePage = resolve; });
+    });
+    const target = render({ initialArtistRef: ref.artist, initialSection: "releases", getArtistReleases,
+      getArtistProfile: async () => profile(ref, emptyReleasePage(ref.artist.id, [index], "next-cursor")) });
+    await settle();
+    target.querySelector<HTMLButtonElement>('.tabs button:nth-child(2)')!.click();
+    await settle();
+    expect(getArtistReleases.mock.calls.filter(call => call[1] === "next-cursor")).toHaveLength(1);
+    resolvePage(emptyReleasePage(ref.artist.id, [], null));
+    await settle();
+  });
+
+  it("keeps release pages loaded during a pending profile lookup", async () => {
+    const ref = artist("profile-index-race", "Race Artist");
+    const first = release("rg-first", "First Indexed Album", "https://musicbrainz.org/release-group/rg-first", "Album");
+    const second = release("rg-second", "Second Indexed Album", "https://musicbrainz.org/release-group/rg-second", "Album");
+    let resolveProfile!: (value: ArtistProfile) => void;
+    const getArtistProfile = vi.fn(() => new Promise<ArtistProfile>(resolve => { resolveProfile = resolve; }));
+    const getArtistReleases = vi.fn(async (_artist: { id: string }, cursor?: string | null) => cursor
+      ? emptyReleasePage(ref.artist.id, [second])
+      : emptyReleasePage(ref.artist.id, [first], "index-cursor"));
+    const target = render({ initialArtistRef: ref.artist, initialSection: "overview", getArtistProfile, getArtistReleases });
+    await settle();
+    target.querySelector<HTMLButtonElement>('.tabs button:nth-child(2)')!.click();
+    await settle();
+    expect(target.querySelector(".release-list")?.textContent).toContain("First Indexed Album");
+    expect(getArtistProfile).toHaveBeenCalledTimes(1);
+    expect(getArtistReleases).toHaveBeenCalledWith(ref.artist, "index-cursor");
+    expect(target.querySelector(".release-list")?.textContent).toContain("Second Indexed Album");
+    resolveProfile(profile(ref, emptyReleasePage(ref.artist.id, [])));
+    await settle();
+    expect(target.querySelectorAll(".release-card")).toHaveLength(2);
+  });
+
+  it("clears an unavailable warning after retry and continues through the returned cursor", async () => {
+    const ref = artist("retry-discography", "Retry Artist");
+    const first = release("retry-first", "Recovered Album", "https://musicbrainz.org/release-group/retry-first", "Album");
+    const second = release("retry-second", "Next Album", "https://musicbrainz.org/release-group/retry-second", "Album");
+    const getArtistReleases = vi.fn(async (_artist: { id: string }, cursor?: string | null) => {
+      if (cursor === "retry-cursor") return { ...emptyReleasePage(ref.artist.id, [first], "second-cursor"), sourceCoverage: [{ provider: "musicbrainz", status: "available", detail: "Recovered" }], warnings: [] };
+      if (cursor === "second-cursor") return emptyReleasePage(ref.artist.id, [second]);
+      throw new Error(`Unexpected release cursor ${cursor}`);
+    });
+    const target = render({ initialArtistRef: ref.artist, initialSection: "releases", getArtistReleases,
+      getArtistProfile: async () => profile(ref, { ...emptyReleasePage(ref.artist.id, [], "retry-cursor"), sourceCoverage: [{ provider: "musicbrainz", status: "unavailable", detail: "Timed out" }], warnings: ["MusicBrainz unavailable"] }) });
+    await settle();
+    expect(target.textContent).toContain("MusicBrainz unavailable");
+    const retry = [...target.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim() === "Retry releases")!;
+    retry.click(); await settle();
+    expect(getArtistReleases).toHaveBeenCalledWith(ref.artist, "retry-cursor");
+    expect(getArtistReleases).toHaveBeenCalledWith(ref.artist, "second-cursor");
+    expect(target.querySelector(".release-list")?.textContent).toContain("Recovered Album");
+    expect(target.querySelector(".release-list")?.textContent).toContain("Next Album");
+    expect(target.querySelector(".notice")?.textContent).not.toContain("MusicBrainz unavailable");
+  });
+
+  it("keeps distinct MusicBrainz release groups with the same title as separate albums", async () => {
+    const ref = artist("same-title-groups", "Group Artist");
+    const first = release("group-id-one", "Same Title", "https://musicbrainz.org/release-group/group-id-one", "Album");
+    const second = release("group-id-two", "Same Title", "https://musicbrainz.org/release-group/group-id-two", "Album");
+    const otherProvider: ArtistReleaseRef = { ...release("discogs-same-title", "Same Title", "https://discogs.com/release/123", "Album"), release: { provider: "discogs", id: "123" } };
+    const target = render({ initialArtistRef: ref.artist, initialSection: "releases",
+      getArtistProfile: async () => profile(ref, emptyReleasePage(ref.artist.id, [first, second, otherProvider])) });
+    await settle();
+    expect(target.querySelectorAll(".release-card")).toHaveLength(3);
+    expect(target.querySelector(".catalog-count")?.textContent).toContain("3 albums loaded");
+  });
+
+  it("groups a legacy cross-provider edition with its only matching MusicBrainz group", async () => {
+    const ref = artist("single-title-group", "Single Group Artist");
+    const group = release("unique-group", "Unique Album", "https://musicbrainz.org/release-group/unique-group", "Album");
+    const otherProvider: ArtistReleaseRef = { ...release("discogs-unique", "Unique Album", "https://discogs.com/release/456", "Album"), release: { provider: "discogs", id: "456" } };
+    const target = render({ initialArtistRef: ref.artist, initialSection: "releases",
+      getArtistProfile: async () => profile(ref, emptyReleasePage(ref.artist.id, [group, otherProvider])) });
+    await settle();
+    expect(target.querySelectorAll(".release-card")).toHaveLength(1);
+    expect(target.querySelector<HTMLSelectElement>('[aria-label="Edition of Unique Album"]')?.options.length).toBe(2);
+  });
+
+  it("loads MusicBrainz editions only on request and uses the selected exact edition for tracks", async () => {
+    const ref = artist("lazy-editions", "Edition Artist");
+    const group = release("group-lazy", "Lazy Album", "https://musicbrainz.org/release-group/group-lazy", "Album");
+    const edition: ArtistReleaseRef = { ...release("exact-lazy", "Lazy Album", "https://musicbrainz.org/release/exact-lazy", "Album"), year: 2023 };
+    const groupTracks: Track[] = [{ id: "group-track", provider: "musicbrainz", providerId: "g", sourceUrl: group.sourceUrl, artist: ref.name, title: "Representative", favorite: false, provenance: {} }];
+    const editionTracks: Track[] = [{ id: "edition-track", provider: "musicbrainz", providerId: "e", sourceUrl: edition.sourceUrl, artist: ref.name, title: "Exact edition track", favorite: false, provenance: {} }];
+    const getReleaseEditions = vi.fn(async () => emptyReleasePage(ref.artist.id, [edition]));
+    const getReleaseTracks = vi.fn(async (releaseRef: ArtistReleaseRef) => releaseRef.sourceUrl === edition.sourceUrl ? editionTracks : groupTracks);
+    const target = render({ initialArtistRef: ref.artist, initialSection: "releases", getReleaseEditions, getReleaseTracks, onPlayTrack: vi.fn(),
+      getArtistProfile: async () => profile(ref, emptyReleasePage(ref.artist.id, [group])) });
+    await settle();
+    expect(getReleaseEditions).not.toHaveBeenCalled();
+    expect(target.querySelector(".catalog-count")?.textContent).toContain("1 album loaded");
+    expect(target.querySelector(".catalog-count")?.textContent).not.toContain("editions loaded");
+    expect(target.querySelector(".release-list")?.textContent).not.toContain("? tracks");
+    target.querySelector<HTMLButtonElement>('[aria-label="Play album Lazy Album"]')!.click(); await settle();
+    expect(getReleaseEditions).not.toHaveBeenCalled();
+    [...target.querySelectorAll<HTMLButtonElement>(".release-actions button")].find(button => button.textContent?.trim() === "Tracks")!.click(); await settle();
+    expect(getReleaseEditions).not.toHaveBeenCalled();
+    target.querySelector<HTMLButtonElement>(".edition-discovery button")!.click(); await settle();
+    expect(getReleaseEditions).toHaveBeenCalledTimes(1);
+    const select = target.querySelector<HTMLSelectElement>('[aria-label="Edition of Lazy Album"]')!;
+    select.value = edition.sourceUrl; select.dispatchEvent(new Event("change", { bubbles: true })); await settle();
+    expect(getReleaseTracks).toHaveBeenCalledWith(edition, ref.artist);
+    expect(target.querySelector(".expanded-tracks")?.textContent).toContain("Exact edition track");
+  });
+
   it("downloads the complete selected edition after loading its tracks", async () => {
     const ref = artist("download", "Download Artist");
     const album = release("album-download", "Download Record", "https://musicbrainz.org/release/download", "Album");
@@ -725,6 +837,7 @@ describe("artist discography ordering", () => {
       datedRelease("older", "Older Album", "2013-06-01"),
     ], "page-2");
     const getArtistReleases = vi.fn(async (_artist: { id: string }, cursor?: string | null) => {
+      if (!cursor) return firstPage;
       expect(cursor).toBe("page-2");
       return emptyReleasePage(ref.artist.id, [
         datedRelease("newest", "Newest Album", "2018-12-01"),

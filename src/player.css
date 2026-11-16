@@ -1,5 +1,6 @@
 /* Persistent three-zone player. Keep these selectors specific enough to follow app-wide CSS. */
 footer.player {
+  --button-min-height: 0px;
   display: grid;
   grid-template-columns: minmax(220px, 0.9fr) minmax(280px, 1.1fr) minmax(320px, 1.2fr);
   grid-template-rows: minmax(44px, auto) 32px auto;
@@ -397,14 +398,14 @@ footer.player .player-heart[aria-pressed="true"] { color:#f1768d; }
 
 @media (max-width: 719px) {
   footer.player {
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-rows: minmax(40px, auto) 32px 32px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(40px, auto) 38px 32px 32px auto;
     gap: 3px 7px;
     min-height: 88px;
     padding: 4px 9px calc(4px + env(safe-area-inset-bottom));
   }
   footer.player > .now-playing {
-    grid-column: 1;
+    grid-column: 1 / -1;
     grid-row: 1;
     min-height: 40px;
     padding: 2px;
@@ -422,7 +423,7 @@ footer.player .player-heart[aria-pressed="true"] { color:#f1768d; }
   footer.player .player-status { display: none; }
   footer.player .player-error {
     grid-column: 1 / -1;
-    grid-row: 4;
+    grid-row: 5;
     align-items: stretch;
     flex-direction: column;
     gap: 7px;
@@ -431,9 +432,9 @@ footer.player .player-heart[aria-pressed="true"] { color:#f1768d; }
   footer.player .player-error-actions { justify-content: flex-end; }
   footer.player .player-center { display: contents; }
   footer.player .player-transport {
-    grid-column: 2;
-    grid-row: 1;
-    justify-content: flex-end;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: center;
     gap: 1px;
   }
   footer.player .player-transport button,
@@ -451,7 +452,7 @@ footer.player .player-heart[aria-pressed="true"] { color:#f1768d; }
   }
   footer.player .player-scrubber {
     grid-column: 1 / -1;
-    grid-row: 2;
+    grid-row: 3;
     gap: 4px;
   }
   footer.player .player-scrubber .time {
@@ -462,7 +463,7 @@ footer.player .player-heart[aria-pressed="true"] { color:#f1768d; }
   footer.player .seek { min-width: 20px; height: 4px; }
   footer.player .player-right {
     grid-column: 1 / -1;
-    grid-row: 3;
+    grid-row: 4;
     flex-wrap: nowrap;
     justify-content: flex-end;
     gap: 2px;
@@ -655,7 +656,8 @@ footer.player.compact .player-volume-control .volume {
 
 @media (max-width: 719px) {
   footer.player.compact {
-    grid-template-rows: minmax(36px, auto) 30px 32px auto;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(36px, auto) 38px 30px 32px auto;
     gap: 2px 6px;
     min-height: 0;
     padding: 3px 8px calc(3px + env(safe-area-inset-bottom));
@@ -708,7 +710,7 @@ footer.player.compact .player-volume-control .volume {
   }
 
   footer.player.compact .player-scrubber {
-    grid-row: 2;
+    grid-row: 3;
     min-height: 30px;
   }
 
@@ -718,7 +720,7 @@ footer.player.compact .player-volume-control .volume {
   }
 
   footer.player.compact .player-right {
-    grid-row: 3;
+    grid-row: 4;
     flex-wrap: nowrap;
     gap: 2px;
   }
@@ -733,7 +735,7 @@ footer.player.compact .player-volume-control .volume {
   }
 
   footer.player.compact .player-error {
-    grid-row: 4;
+    grid-row: 5;
   }
 }
 
@@ -843,7 +845,8 @@ footer.player.radio-live .radio-live-label {
 
 @media (max-width: 719px) {
   footer.player.radio-live {
-    grid-template-rows: minmax(36px, auto) 32px auto;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(36px, auto) 38px auto;
     gap: 2px 6px;
     padding-top: 3px;
     padding-bottom: calc(3px + env(safe-area-inset-bottom));
@@ -864,11 +867,19 @@ footer.player.radio-live .radio-live-label {
   }
 
   footer.player.radio-live .player-right {
-    grid-row: 2;
+    grid-row: 3;
+    grid-column: 1 / -1;
+    justify-content: center;
   }
 
   footer.player.radio-live .player-error {
-    grid-row: 3;
+    grid-row: 4;
+  }
+
+  footer.player.radio-live .player-transport {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: center;
   }
 }
 

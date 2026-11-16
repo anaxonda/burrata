@@ -43,13 +43,16 @@ textarea {
     box-shadow 140ms ease;
 }
 button {
+  min-height: var(--button-min-height, 34px);
   cursor: pointer;
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 8px 12px;
+  border-radius: var(--button-radius, 7px);
+  padding: 7px 12px;
   font-size: 12px;
+  font-weight: 550;
+  line-height: 1.25;
   white-space: nowrap;
 }
 button:hover:not(:disabled) {
@@ -57,8 +60,8 @@ button:hover:not(:disabled) {
   color: var(--accent);
 }
 button:disabled {
-  opacity: 0.4;
-  cursor: default;
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 input,
 select,
@@ -86,6 +89,8 @@ textarea:focus-visible {
   outline-offset: 2px;
 }
 .app-shell {
+  --button-min-height: 34px;
+  --button-radius: 7px;
   --base: #101412;
   --surface: #191e1b;
   --context-menu-surface: #242424;
@@ -99,6 +104,7 @@ textarea:focus-visible {
   --text: #e5ebe7;
   --muted: #94a399;
   --accent: #b8ec8c;
+  --danger: #f08a78;
   color-scheme: dark;
   display: grid;
   grid-template-columns: 184px 1fr;
@@ -125,6 +131,7 @@ textarea:focus-visible {
   --text: #233229;
   --muted: #617265;
   --accent: #42792e;
+  --danger: #a62c29;
   color-scheme: light;
 }
 select {
@@ -283,6 +290,20 @@ h3 {
   color: var(--base);
   font-weight: 650;
 }
+.secondary {
+  background: transparent;
+  color: var(--text);
+}
+.danger {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--line));
+}
+.danger:hover:not(:disabled) {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 16%, var(--surface));
+  border-color: var(--danger);
+}
 .primary:hover:not(:disabled) {
   color: var(--base);
   filter: brightness(1.07);
@@ -425,6 +446,7 @@ th {
   color: var(--muted);
 }
 th button {
+  min-height: 0;
   font-size: 10px;
   padding: 0;
   border: 0;
@@ -473,6 +495,7 @@ tbody tr.rejected {
   text-overflow: ellipsis;
 }
 .favorite {
+  min-height: 0;
   padding: 2px 5px;
   border: 0;
   background: transparent;
@@ -489,6 +512,7 @@ tbody tr.rejected {
 .row-actions button {
   width: 32px;
   height: 32px;
+  min-height: 32px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -528,6 +552,7 @@ tbody tr.rejected {
 }
 .row-actions .favorite {
   width: 27px;
+  min-height: 0;
   min-width: 27px;
   border-color: transparent;
   background: transparent;
@@ -791,6 +816,7 @@ tbody tr.rejected {
   gap: 8px;
 }
 .transport button {
+  min-height: 0;
   border: 0;
   background: transparent;
   padding: 8px;

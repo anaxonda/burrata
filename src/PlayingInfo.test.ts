@@ -65,6 +65,63 @@ describe("PlayingInfo internet-radio links", () => {
     expect(Array.from(target.querySelectorAll("dl > div")).find(row => row.querySelector("dt")?.textContent === "Source")).toBeUndefined();
     expect(callMock).not.toHaveBeenCalled();
   });
+
+  it("copies only the public station page and gives accessible status feedback", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const target = render(radioTrack); await settle();
+    const copy = target.querySelector<HTMLButtonElement>('button[aria-label="Copy audio source link"]')!;
+    expect(copy).toBeTruthy();
+    copy.click(); await settle();
+    expect(writeText).toHaveBeenCalledWith("https://station.example/about");
+    expect(writeText).not.toHaveBeenCalledWith("https://stream.example/live.mp3");
+    expect(target.querySelector('[role="status"]')?.textContent).toBe("Source link copied.");
+  });
+
+  it("copies the resolved YouTube audio candidate rather than its Spotify catalog source", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const spotifyTrack: Track = { ...radioTrack, id: "spotify:track:1", provider: "spotify", sourceUrl: "https://open.spotify.com/track/track123", title: "Resolved song", provenance: {} };
+    const candidate = { id: "youtube:video123", provider: "youtube", url: "https://www.youtube.com/watch?v=AbCdEf123_-", title: "Resolved YouTube upload", formats: [], permission: "allowed", confidence: "high", score: 1, reasons: [], official: false };
+    const target = render(spotifyTrack, { candidate }); await settle();
+    const audioRow = Array.from(target.querySelectorAll("dl > div")).find(row => row.querySelector("dt")?.textContent === "Audio source")!;
+    audioRow.querySelector<HTMLButtonElement>('button[aria-label="Copy audio source link"]')!.click(); await settle();
+    expect(writeText).toHaveBeenCalledWith("https://www.youtube.com/watch?v=AbCdEf123_-");
+    expect(writeText).not.toHaveBeenCalledWith("https://open.spotify.com/track/track123");
+    expect([...target.querySelectorAll("dt")].some(label => label.textContent === "Source")).toBe(false);
+  });
+
+  it("does not expose a signed playback URL through the copy action", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const target = render({ ...radioTrack, provenance: { ...(radioTrack.provenance as Record<string, unknown>), radioStationUrl: "https://station.example/page?token=secret" } }); await settle();
+    expect(target.querySelector('button[aria-label="Copy audio source link"]')).toBeNull();
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it("reports clipboard failures", async () => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn().mockRejectedValue(new Error("blocked")) } });
+    const target = render(radioTrack); await settle();
+    target.querySelector<HTMLButtonElement>('button[aria-label="Copy audio source link"]')!.click(); await settle();
+    expect(target.querySelector('[role="status"]')?.textContent).toBe("Could not copy the source link.");
+  });
+});
+
+describe("PlayingInfo AI context targets", () => {
+  it("forwards the active playback context targets into recording information", async () => {
+    const parent: Track = { ...radioTrack, id: "mix:one", provider: "youtube", title: "DJ Mix", artist: "DJ", sourceUrl: "https://youtube.com/watch?v=AbCdEf123_-", provenance: {} };
+    const active: Track = { ...parent, id: "chapter:one", provider: "local", title: "Detected song", artist: "Singer", playbackRange: { parentTrackId: parent.id, chapterId: "chapter-1", sourceUrl: parent.sourceUrl!, startTime: 30, endTime: 210, parentTitle: parent.title } };
+    const contextTargets = [{ track: active, label: "Detected song", targetKind: "song" as const }, { track: parent, label: "Full set", targetKind: "set" as const }];
+    const target = render(parent, {
+      contextLookupConfigured: true,
+      contextTargets,
+      loadRecording: async () => ({ resolution: "unresolved", recording: null, candidates: [] }),
+    });
+    await settle();
+    const action = target.querySelector<HTMLButtonElement>(".context-action");
+    expect(action?.textContent).toBe("Ask AI");
+    expect(action?.getAttribute("aria-label")).toContain("Detected song");
+  });
 });
 
 describe("PlayingInfo compact metadata", () => {

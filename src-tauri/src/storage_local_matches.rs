@@ -56,8 +56,10 @@ pub(super) fn install(conn: &Connection) -> Result<()> {
         DROP INDEX IF EXISTS local_listing_artist_runtime_v1;
         DROP INDEX IF EXISTS local_manual_artist_v1;
         CREATE INDEX IF NOT EXISTS local_asset_runtime_v1 ON local_assets(CAST(json_extract(payload,'$.durationSeconds') AS REAL)) WHERE json_valid(payload);
-        DROP INDEX IF EXISTS local_listing_runtime_v1;
-        DROP INDEX IF EXISTS local_manual_runtime_v1;")
+        CREATE INDEX IF NOT EXISTS local_listing_runtime_v1 ON catalog_listings(CAST(json_extract(metadata,'$.durationSeconds') AS REAL)) WHERE json_valid(metadata);
+        CREATE INDEX IF NOT EXISTS local_manual_runtime_v1 ON recordings(CAST(json_extract(manual_metadata,'$.durationSeconds') AS REAL)) WHERE json_valid(manual_metadata);
+        CREATE TEMP TABLE IF NOT EXISTS local_match_dependencies(listing_id TEXT NOT NULL,asset_id TEXT NOT NULL,PRIMARY KEY(listing_id,asset_id));
+        CREATE INDEX IF NOT EXISTS local_match_dependencies_asset ON local_match_dependencies(asset_id);")
         .map_err(err)
 }
 
@@ -208,6 +210,12 @@ pub(super) fn find(
         .map_err(err)?;
     if rows.len() > CANDIDATE_LIMIT {
         return Ok(None);
+    }
+    // Remember candidate dependencies, including currently missing files. This
+    // stores no matching decision and never changes catalog recording identity.
+    // The existing mirror watcher uses them for cheap file metadata stamps.
+    for row in &rows {
+        conn.execute("INSERT OR IGNORE INTO local_match_dependencies SELECT id,?2 FROM catalog_listings WHERE id=?1", params![request.id,row.0]).map_err(err)?;
     }
     let mut found = None;
     for row in rows {

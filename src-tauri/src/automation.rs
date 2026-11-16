@@ -6395,7 +6395,18 @@ impl AutomationService {
                 let cursor = cursor_arg(&a)?;
                 let found = self
                     .artists
-                    .get_artist_releases(&artist, cursor, &self.artist_credentials()?)
+                    .get_artist_discography(&artist, cursor, &self.artist_credentials()?)
+                    .await
+                    .map_err(ToolError::failed)?;
+                json!(found)
+            }
+            "get_release_editions" => {
+                let artist = artist_arg(&a)?;
+                let release = release_arg(&a)?;
+                let cursor = cursor_arg(&a)?;
+                let found = self
+                    .artists
+                    .get_release_editions(&release, &artist, cursor, &self.artist_credentials()?)
                     .await
                     .map_err(ToolError::failed)?;
                 json!(found)
@@ -7662,6 +7673,7 @@ fn tool_scope(name: &str) -> Option<&'static str> {
         | "search_tracks"
         | "search_artists"
         | "get_artist_discography"
+        | "get_release_editions"
         | "get_release_tracks"
         | "get_artist_tracks"
         | "get_artist_collaborations"
@@ -8742,7 +8754,7 @@ fn tool_definitions() -> Vec<Value> {
  ("return_youtube_login_to_music","After completing Google sign-in, return the owned YouTube window to Music; requires the Google sign-in origin and a valid YouTube authentication cookie", "control"),
  ("start_managed_provider_background","Enable the confirmed provider session without reopening login", "control"),
  ("stop_managed_provider_session","Stop provider jobs and close the owned login window", "control"),
- ("search_library","Search local library", "read"),("list_tracks_page","Read one filtered and sorted page from a saved library view", "read"),("get_track","Get a library track", "read"),("library_stats","Get library counts", "read"),("list_playlists","List playlists and browser snapshot versions", "read"),("get_playlist","Get playlist tracks and browser versions", "read"),("search_tracks","Search catalog providers", "read"),("search_artists","Search artists", "read"),("get_artist_discography","Get paginated artist discography", "read"),("get_release_tracks","Get ordered tracks for an artist release", "read"),("get_artist_tracks","Get paginated recordings for an artist", "read"),("get_artist_collaborations","Get paginated artist relationships", "read"),("get_artist_profile","Get public artist profile and saved top tracks", "read"),("get_app_status","Get application and playback status", "read"),("capture_main_ui","Capture only the main Burrata UI as a bounded PNG, without desktop capture or focus changes", "read"),("inspect_playback_layout","Inspect visible player UI geometry and report layout overlaps; read-only, returns no playback metadata", "read"),("inspect_native_output","Inspect consumed PCM statistics for the explicitly enabled synthetic installed-artifact fixture", "read"),("get_live_bpm","Read the opt-in approximate tempo estimate from the latest native playback PCM window; returns null when disabled or unavailable and never edits track metadata", "read"),("resize_app_window","Resize the main application in logical pixels", "control"),("get_song_radio","Get bounded YouTube autoplay Mix recommendations for a track; does not alter playback", "read"),("search_playback_history","Search recent playback history", "read"),("list_playback_history","List recent playback history", "read"),("get_playback_history_entry","Get a playback history entry by session ID", "read"),
+ ("search_library","Search local library", "read"),("list_tracks_page","Read one filtered and sorted page from a saved library view", "read"),("get_track","Get a library track", "read"),("library_stats","Get library counts", "read"),("list_playlists","List playlists and browser snapshot versions", "read"),("get_playlist","Get playlist tracks and browser versions", "read"),("search_tracks","Search catalog providers", "read"),("search_artists","Search artists", "read"),("get_artist_discography","Get paginated artist discography", "read"),("get_release_editions","Get editions of an artist release", "read"),("get_release_tracks","Get ordered tracks for an artist release", "read"),("get_artist_tracks","Get paginated recordings for an artist", "read"),("get_artist_collaborations","Get paginated artist relationships", "read"),("get_artist_profile","Get public artist profile and saved top tracks", "read"),("get_app_status","Get application and playback status", "read"),("capture_main_ui","Capture only the main Burrata UI as a bounded PNG, without desktop capture or focus changes", "read"),("inspect_playback_layout","Inspect visible player UI geometry and report layout overlaps; read-only, returns no playback metadata", "read"),("inspect_native_output","Inspect consumed PCM statistics for the explicitly enabled synthetic installed-artifact fixture", "read"),("get_live_bpm","Read the opt-in approximate tempo estimate from the latest native playback PCM window; returns null when disabled or unavailable and never edits track metadata", "read"),("resize_app_window","Resize the main application in logical pixels", "control"),("get_song_radio","Get bounded YouTube autoplay Mix recommendations for a track; does not alter playback", "read"),("search_playback_history","Search recent playback history", "read"),("list_playback_history","List recent playback history", "read"),("get_playback_history_entry","Get a playback history entry by session ID", "read"),
  ("discover_music","Search selected music sources with independent result pages", "read"),("poll_music_search","Poll a Soulseek discovery search", "read"),("inspect_source_chapters","Inspect source chapters and register stable chapter tracks", "read"),("get_autotag_status","Get paginated autotag review jobs", "read"),("retry_autotag","Retry an autotag job", "manage"),("repair_download_source_tags","Fill missing tags from the exact completed download source; local-only, no recognition or catalog lookup, identity remains unverified", "manage"),("review_autotag_candidate","Select a catalog candidate for autotag review", "manage"),("apply_autotag_review","Apply approved autotag fields", "manage"),("play_chapter","Play a registered chapter track", "control"),
  ("inspect_spotify_artist_page","Inspect fixed Spotify artist-list guard counts and enums without content or identifiers", "read"),
  ("inspect_spotify_profile_page","Inspect one bounded Spotify profile page or full-profile summary; returns ordered playlist-ID hashes and counts only", "read"),
@@ -8824,7 +8836,7 @@ fn tool_definitions() -> Vec<Value> {
  "get_playback_history_entry"=>(json!({"sessionId":{"type":"string","minLength":1,"maxLength":300}}),json!(["sessionId"])),
  "get_track"=>(json!({"trackId":{"type":"string"}}),json!(["trackId"])),"list_playlists"=>(json!({"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":100}}),json!([])),"get_playlist"=>(json!({"playlistId":{"type":"string"},"snapshotId":{"type":"string"},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":100}}),json!(["playlistId"])),
  "search_tracks"=>(json!({"query":{"type":"string"},"providers":{"type":"array","items":{"type":"string","enum":["library","musicbrainz","youtube","soundcloud","bandcamp","soulseek","monochrome"]}}}),json!(["query"])),
- "search_artists"=>(json!({"query":{"type":"string"},"page":{"type":"integer","minimum":1,"maximum":200}}),json!(["query"])),"get_artist_discography"|"get_artist_tracks"|"get_artist_collaborations"=>(json!({"artist":{"type":"object","properties":{"provider":{"type":"string","enum":["musicbrainz","discogs"]},"id":{"type":"string"}},"required":["provider","id"],"additionalProperties":false},"cursor":{"type":"string"}}),json!(["artist"])),"get_artist_profile"=>(json!({"artist":{"type":"object","properties":{"provider":{"type":"string","enum":["musicbrainz","discogs"]},"id":{"type":"string"}},"required":["provider","id"],"additionalProperties":false}}),json!(["artist"])),"get_release_tracks"=>(json!({"release":release_ref_schema(),"artist":artist_ref_schema()}),json!(["release","artist"])),
+ "search_artists"=>(json!({"query":{"type":"string"},"page":{"type":"integer","minimum":1,"maximum":200}}),json!(["query"])),"get_artist_discography"|"get_artist_tracks"|"get_artist_collaborations"=>(json!({"artist":{"type":"object","properties":{"provider":{"type":"string","enum":["musicbrainz","discogs"]},"id":{"type":"string"}},"required":["provider","id"],"additionalProperties":false},"cursor":{"type":"string"}}),json!(["artist"])),"get_artist_profile"=>(json!({"artist":{"type":"object","properties":{"provider":{"type":"string","enum":["musicbrainz","discogs"]},"id":{"type":"string"}},"required":["provider","id"],"additionalProperties":false}}),json!(["artist"])),"get_release_tracks"=>(json!({"release":release_ref_schema(),"artist":artist_ref_schema()}),json!(["release","artist"])),"get_release_editions"=>(json!({"release":release_ref_schema(),"artist":artist_ref_schema(),"cursor":{"type":"string"}}),json!(["release","artist"])),
  "playback_state"=>(json!({"offset":{"type":"integer","minimum":0,"maximum":1000000},"limit":{"type":"integer","minimum":1,"maximum":200}}),json!([])),
  "inspect_native_output"|"get_live_bpm"|"get_acquisition_preferences"=>(json!({}),json!([])),
  "set_live_bpm_enabled"=>(json!({"enabled":{"type":"boolean"}}),json!(["enabled"])),
@@ -11745,6 +11757,51 @@ mod tests {
         assert_eq!(release_arg(&args).unwrap().release.id, "release-id");
         assert_eq!(
             release_arg(&json!({"release":{}})).unwrap_err().code,
+            "INVALID_ARGUMENT"
+        );
+    }
+
+    #[test]
+    fn slow_artist_catalog_tools_are_read_scoped_and_paged() {
+        let definitions = tool_definitions();
+        let discography = definitions
+            .iter()
+            .find(|tool| tool["name"] == "get_artist_discography")
+            .unwrap();
+        assert_eq!(tool_scope("get_artist_discography"), Some("read"));
+        assert_eq!(discography["scope"], "read");
+        assert_eq!(discography["inputSchema"]["required"], json!(["artist"]));
+        assert_eq!(discography["inputSchema"]["additionalProperties"], false);
+
+        let editions = definitions
+            .iter()
+            .find(|tool| tool["name"] == "get_release_editions")
+            .unwrap();
+        assert_eq!(tool_scope("get_release_editions"), Some("read"));
+        assert_eq!(editions["scope"], "read");
+        assert_eq!(
+            editions["inputSchema"]["required"],
+            json!(["release", "artist"])
+        );
+        assert_eq!(
+            editions["inputSchema"]["properties"]["cursor"]["type"],
+            "string"
+        );
+        assert_eq!(editions["inputSchema"]["additionalProperties"], false);
+
+        let args = json!({
+            "artist":{"provider":"musicbrainz","id":"artist-id"},
+            "release":{
+                "release":{"provider":"musicbrainz","id":"release-id"},
+                "title":"Example release"
+            },
+            "cursor":"opaque-page-token"
+        });
+        assert_eq!(artist_arg(&args).unwrap().id, "artist-id");
+        assert_eq!(release_arg(&args).unwrap().release.id, "release-id");
+        assert_eq!(cursor_arg(&args).unwrap(), Some("opaque-page-token"));
+        assert_eq!(
+            cursor_arg(&json!({"cursor":42})).unwrap_err().code,
             "INVALID_ARGUMENT"
         );
     }

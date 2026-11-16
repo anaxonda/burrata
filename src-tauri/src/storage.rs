@@ -1224,8 +1224,8 @@ impl Store {
         )
         .map_err(err)?;
         conn.execute_batch("CREATE INDEX IF NOT EXISTS collection_members_recording_sync ON collection_members(recording_id,collection_id);").map_err(err)?;
-        crate::playlist_incremental::install(&conn)?;
         local_matches::install(&conn)?;
+        crate::playlist_incremental::install(&conn)?;
         let store = Self {
             playback_settings: std::sync::RwLock::new(None),
             playlist_incremental: Mutex::new(crate::playlist_incremental::Cache::default()),
@@ -1729,12 +1729,22 @@ impl Store {
             .map_err(err)?;
         Ok((generation, external))
     }
+    pub(crate) fn local_match_dependency_paths(&self) -> Result<Vec<String>> {
+        let conn = self.lock_connection()?;
+        let mut statement = conn.prepare("SELECT DISTINCT a.path FROM local_assets a JOIN local_match_dependencies d ON d.asset_id=a.id ORDER BY a.path").map_err(err)?;
+        let rows = statement.query_map([], |row| row.get(0)).map_err(err)?;
+        rows.collect::<std::result::Result<_, _>>().map_err(err)
+    }
     pub(crate) fn playlist_asset_paths(&self, id: &str) -> Result<Vec<String>> {
         let conn = self.lock_connection()?;
-        let mut statement = conn.prepare("SELECT DISTINCT path FROM local_assets WHERE recording_id IN (
+        let mut statement = conn.prepare("WITH member_recordings AS (
             SELECT recording_id FROM collection_members WHERE collection_id=?1
             UNION SELECT l.recording_id FROM playlist_ordered_entries e JOIN catalog_listings l ON l.id=e.listing_id WHERE e.collection_id=?1
-            UNION SELECT id FROM recordings WHERE ?1='favorites' AND favorite=1)").map_err(err)?;
+            UNION SELECT id FROM recordings WHERE ?1='favorites' AND favorite=1)
+            SELECT path FROM local_assets WHERE recording_id IN member_recordings
+            UNION SELECT a.path FROM local_assets a JOIN local_match_dependencies d ON d.asset_id=a.id
+                JOIN catalog_listings l ON l.id=d.listing_id WHERE l.recording_id IN member_recordings
+            ORDER BY path").map_err(err)?;
         let rows = statement.query_map([id], |row| row.get(0)).map_err(err)?;
         rows.collect::<std::result::Result<_, _>>().map_err(err)
     }

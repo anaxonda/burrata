@@ -223,6 +223,11 @@ pub struct ArtistService {
     store: Arc<Store>,
     client: Client,
     endpoints: Endpoints,
+    requests: Arc<
+        tokio::sync::Mutex<
+            std::collections::HashMap<[u8; 32], std::sync::Weak<tokio::sync::Mutex<()>>>,
+        >,
+    >,
 }
 
 impl ArtistService {
@@ -239,6 +244,7 @@ impl ArtistService {
         Ok(Self {
             store,
             client,
+            requests: Arc::default(),
             endpoints: Endpoints {
                 musicbrainz: MUSICBRAINZ.into(),
                 discogs: DISCOGS.into(),
@@ -260,6 +266,47 @@ impl ArtistService {
         if let Some(value) = self.store.get_provider_cache(namespace, cache_key)? {
             return Ok(value);
         }
+        // Identical profile/tab requests share one cache fill. Weak entries
+        // disappear after completion; there is no worker, timer, or task cache.
+        let key: [u8; 32] =
+            Sha256::digest(format!("{namespace}\0{cache_key}\0{url}").as_bytes()).into();
+        let gate = {
+            let mut requests = self.requests.lock().await;
+            requests.retain(|_, request| request.strong_count() > 0);
+            if let Some(gate) = requests.get(&key).and_then(std::sync::Weak::upgrade) {
+                gate
+            } else {
+                if requests.len() >= 128 {
+                    return Err("Too many catalog requests; try again shortly".into());
+                }
+                let gate = Arc::new(tokio::sync::Mutex::new(()));
+                requests.insert(key, Arc::downgrade(&gate));
+                gate
+            }
+        };
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        let _guard = tokio::time::timeout_at(deadline, gate.lock())
+            .await
+            .map_err(|_| "Catalog request timed out; try again".to_owned())?;
+        if let Some(value) = self.store.get_provider_cache(namespace, cache_key)? {
+            return Ok(value);
+        }
+        tokio::time::timeout_at(
+            deadline,
+            self.get_json_uncached(namespace, cache_key, url, ttl, discogs_token),
+        )
+        .await
+        .map_err(|_| "Catalog request timed out; try again".to_owned())?
+    }
+
+    async fn get_json_uncached(
+        &self,
+        namespace: &str,
+        cache_key: &str,
+        url: Url,
+        ttl: u64,
+        discogs_token: Option<&str>,
+    ) -> Result<Value, String> {
         let mut last_error = String::new();
         for attempt in 0..3 {
             if namespace.contains("musicbrainz") {
@@ -278,10 +325,21 @@ impl ArtistService {
             // reqwest errors can include the full request URL. Last.fm credentials
             // are query parameters, so keep transport errors free of URL details.
             crate::diagnostic_metrics::record_http_send_attempt();
-            let response = request
-                .send()
-                .await
-                .map_err(|_| "Provider request failed; check your network connection".to_owned())?;
+            let mut response = match request.send().await {
+                Ok(response) => response,
+                Err(error) => {
+                    last_error = if error.is_timeout() {
+                        "Provider request timed out; try again".into()
+                    } else {
+                        "Provider connection failed; try again".into()
+                    };
+                    if attempt == 0 && (error.is_timeout() || error.is_connect()) {
+                        tokio::time::sleep(Duration::from_millis(250)).await;
+                        continue;
+                    }
+                    return Err(last_error);
+                }
+            };
             let status = response.status();
             if matches!(status.as_u16(), 429 | 502 | 503 | 504) && attempt < 2 {
                 let retry_after = response
@@ -295,17 +353,33 @@ impl ArtistService {
                 tokio::time::sleep(Duration::from_secs(retry_after)).await;
                 continue;
             }
-            let body = response
-                .text()
-                .await
-                .map_err(|_| "Provider response could not be read".to_owned())?;
             if !status.is_success() {
                 if namespace.contains("monochrome") {
                     return Err(format!("Monochrome catalog returned HTTP {status}"));
                 }
                 return Err(format!("Provider returned HTTP {status}"));
             }
-            let value: Value = serde_json::from_str(&body)
+            const BODY_LIMIT: usize = 8 * 1024 * 1024;
+            if response
+                .content_length()
+                .is_some_and(|length| length > BODY_LIMIT as u64)
+            {
+                return Err("Catalog response exceeds size limit".into());
+            }
+            let mut body = Vec::new();
+            while let Some(chunk) = response.chunk().await.map_err(|error| {
+                if error.is_timeout() {
+                    "Provider response timed out; try again".to_owned()
+                } else {
+                    "Provider response could not be read".to_owned()
+                }
+            })? {
+                if chunk.len() > BODY_LIMIT.saturating_sub(body.len()) {
+                    return Err("Catalog response exceeds size limit".into());
+                }
+                body.extend_from_slice(&chunk);
+            }
+            let value: Value = serde_json::from_slice(&body)
                 .map_err(|error| format!("Provider returned invalid JSON: {error}"))?;
             if value.get("error").is_some() {
                 return Err("Provider rejected the request or credential".into());
@@ -1565,7 +1639,7 @@ impl ArtistService {
             }
         }
         let releases = self
-            .get_artist_releases(artist, None, credentials)
+            .get_artist_discography(artist, None, credentials)
             .await
             .unwrap_or_else(|error| {
                 warnings.push(format!("Artist releases unavailable: {error}"));
@@ -1731,11 +1805,38 @@ impl ArtistService {
             .await
     }
 
+    /// Compact album index for browsing. Exact edition discovery remains lazy
+    /// and the legacy all-editions API remains available for identity lookups.
+    pub async fn get_artist_discography(
+        &self,
+        artist: &ArtistRef,
+        cursor: Option<&str>,
+        credentials: &ArtistCredentials,
+    ) -> Result<ArtistReleasePage, String> {
+        // Finish an older caller's all-editions cursor without changing its meaning.
+        if cursor.is_some_and(|cursor| cursor.starts_with("r3:")) {
+            return self.get_artist_releases(artist, cursor, credentials).await;
+        }
+        self.get_artist_releases_kind(artist, cursor, credentials, true)
+            .await
+    }
+
     pub async fn get_artist_releases(
         &self,
         artist: &ArtistRef,
         cursor: Option<&str>,
         credentials: &ArtistCredentials,
+    ) -> Result<ArtistReleasePage, String> {
+        self.get_artist_releases_kind(artist, cursor, credentials, false)
+            .await
+    }
+
+    async fn get_artist_releases_kind(
+        &self,
+        artist: &ArtistRef,
+        cursor: Option<&str>,
+        credentials: &ArtistCredentials,
+        album_index: bool,
     ) -> Result<ArtistReleasePage, String> {
         validate_artist_ref(artist)?;
         if artist.provider == "monochrome" {
@@ -1783,7 +1884,19 @@ impl ArtistService {
                 warnings: credentials.warnings.clone(),
             });
         }
-        let (mut mb_offset, mut discogs_page) = parse_release_cursor(cursor)?;
+        let normalized_cursor = if album_index {
+            cursor
+                .map(|cursor| {
+                    cursor
+                        .strip_prefix("g1:")
+                        .map(|rest| format!("r3:{rest}"))
+                        .ok_or("Invalid discography cursor")
+                })
+                .transpose()?
+        } else {
+            cursor.map(str::to_owned)
+        };
+        let (mut mb_offset, mut discogs_page) = parse_release_cursor(normalized_cursor.as_deref())?;
         let mut warnings = credentials.warnings.clone();
         let mut source_coverage = Vec::new();
         let mut items = Vec::new();
@@ -1802,9 +1915,42 @@ impl ArtistService {
             ),
             _ => return Err("Unsupported artist identity provider".into()),
         };
+        // Separate providers can work concurrently; each still observes its
+        // own rate limiter. No task is spawned after this request is dropped.
+        let mb_request = async {
+            if let (Some(mbid), Some(offset)) =
+                (mbid.as_deref().filter(|id| valid_mbid(id)), mb_offset)
+            {
+                if album_index {
+                    self.fetch_musicbrainz_album_index(mbid, offset).await
+                } else {
+                    self.fetch_musicbrainz_releases(mbid, offset, artist).await
+                }
+            } else {
+                Ok((Vec::new(), false, 0, false))
+            }
+        };
+        let discogs_request = async {
+            if let (Some(id), Some(page), Some(token)) = (
+                discogs_id
+                    .as_deref()
+                    .filter(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_digit())),
+                discogs_page,
+                credentials
+                    .discogs_token
+                    .as_deref()
+                    .filter(|token| !token.trim().is_empty()),
+            ) {
+                self.fetch_discogs_releases(id, page, token, album_index)
+                    .await
+            } else {
+                Ok((Vec::new(), false))
+            }
+        };
+        let (mb_response, discogs_response) = tokio::join!(mb_request, discogs_request);
         if let Some(mbid) = mbid.filter(|id| valid_mbid(id)) {
             if let Some(offset) = mb_offset {
-                match self.fetch_musicbrainz_releases(&mbid, offset, artist).await {
+                match mb_response {
                     Ok((page_items, more, raw_len, partial)) => {
                         items.extend(page_items);
                         mb_offset = more.then(|| offset.saturating_add(raw_len));
@@ -1819,7 +1965,11 @@ impl ArtistService {
                             detail: if partial {
                                 "Some releases could not be read."
                             } else {
-                                "Paginated release and track data loaded."
+                                if album_index {
+                                    "Album index loaded; edition details load on request."
+                                } else {
+                                    "Paginated release and track data loaded."
+                                }
                             }
                             .into(),
                             source_url: Some(format!("https://musicbrainz.org/artist/{mbid}")),
@@ -1849,13 +1999,13 @@ impl ArtistService {
             discogs_id.filter(|id| id.chars().all(|character| character.is_ascii_digit()))
         {
             let url = format!("https://www.discogs.com/artist/{discogs_id}");
-            if let Some(token) = credentials
+            if let Some(_token) = credentials
                 .discogs_token
                 .as_deref()
                 .filter(|value| !value.trim().is_empty())
             {
                 if let Some(page) = discogs_page {
-                    match self.fetch_discogs_releases(&discogs_id, page, token).await {
+                    match discogs_response {
                         Ok((page_items, more)) => {
                             items.extend(page_items);
                             discogs_page = more.then(|| page.saturating_add(1));
@@ -1923,10 +2073,11 @@ impl ArtistService {
                 deduped.push(item);
             }
         }
+        let prefix = if album_index { "g1" } else { "r3" };
         let next_cursor = match (mb_offset, discogs_page) {
-            (Some(mb), Some(discogs)) => Some(format!("r3:{mb}:{discogs}")),
-            (Some(mb), None) => Some(format!("r3:{mb}:x")),
-            (None, Some(discogs)) => Some(format!("r3:x:{discogs}")),
+            (Some(mb), Some(discogs)) => Some(format!("{prefix}:{mb}:{discogs}")),
+            (Some(mb), None) => Some(format!("{prefix}:{mb}:x")),
+            (None, Some(discogs)) => Some(format!("{prefix}:x:{discogs}")),
             (None, None) => None,
         };
         Ok(ArtistReleasePage {
@@ -2121,6 +2272,119 @@ impl ArtistService {
         Ok(edition)
     }
 
+    async fn fetch_musicbrainz_album_index(
+        &self,
+        mbid: &str,
+        offset: u32,
+    ) -> Result<(Vec<ArtistReleaseRef>, bool, u32, bool), String> {
+        let data = self
+            .musicbrainz_json(
+                "release-group",
+                &[
+                    ("artist", mbid.to_owned()),
+                    ("limit", ARTIST_LIST_PAGE_SIZE.to_string()),
+                    ("offset", offset.to_string()),
+                    ("inc", "artist-credits".into()),
+                ],
+                "artists.discography.musicbrainz.v1",
+                &format!("{mbid}:{offset}"),
+                LIST_TTL,
+            )
+            .await?;
+        let rows = data["release-groups"].as_array();
+        let raw_len = rows.map_or(0, Vec::len) as u32;
+        let count = data["release-group-count"]
+            .as_u64()
+            .and_then(|count| u32::try_from(count).ok());
+        let items: Vec<_> = rows
+            .into_iter()
+            .flatten()
+            .filter_map(parse_musicbrainz_release_group)
+            .filter(|release| valid_crosswalk_mbid(&release.release.id))
+            .collect();
+        let unique = items
+            .iter()
+            .map(|release| &release.release.id)
+            .collect::<std::collections::HashSet<_>>()
+            .len();
+        let end = offset.checked_add(raw_len);
+        let partial = rows.is_none()
+            || count.is_none()
+            || items.len() != raw_len as usize
+            || unique != items.len()
+            || end
+                .zip(count)
+                .is_none_or(|(end, count)| end > count || raw_len == 0 && end < count);
+        let more = raw_len > 0 && end.zip(count).is_some_and(|(end, count)| end < count);
+        Ok((items, more, raw_len, partial))
+    }
+
+    /// Exact editions are requested only when a user opens the edition picker.
+    pub async fn get_release_editions(
+        &self,
+        release: &ArtistReleaseRef,
+        artist: &ArtistRef,
+        cursor: Option<&str>,
+        _credentials: &ArtistCredentials,
+    ) -> Result<ArtistReleasePage, String> {
+        validate_artist_ref(artist)?;
+        if release.release.provider != "musicbrainz"
+            || !valid_crosswalk_mbid(&release.release.id)
+            || trusted_musicbrainz_release_entity(&release.source_url, &release.release.id)
+                .as_deref()
+                != Some("release-group")
+        {
+            return Err("Edition browsing requires an exact MusicBrainz release group".into());
+        }
+        let offset = match cursor {
+            None => 0,
+            Some(cursor) => cursor
+                .strip_prefix("e1:")
+                .and_then(|cursor| cursor.split_once(':'))
+                .filter(|(id, _)| *id == release.release.id)
+                .and_then(|(_, offset)| offset.parse::<u32>().ok())
+                .filter(|offset| *offset <= 100_000)
+                .ok_or("Invalid release edition cursor")?,
+        };
+        let data = self
+            .musicbrainz_json(
+                "release",
+                &[
+                    ("release-group", release.release.id.clone()),
+                    ("limit", ARTIST_LIST_PAGE_SIZE.to_string()),
+                    ("offset", offset.to_string()),
+                    ("inc", "artist-credits+labels+media+release-groups".into()),
+                ],
+                "artists.editions.musicbrainz.v1",
+                &format!("{}:{offset}", release.release.id),
+                LIST_TTL,
+            )
+            .await?;
+        let (items, more, raw_len, partial) = parse_musicbrainz_release_page(&data, offset, artist);
+        Ok(ArtistReleasePage {
+            artist: artist.clone(),
+            items,
+            next_cursor: more.then(|| {
+                format!(
+                    "e1:{}:{}",
+                    release.release.id,
+                    offset.saturating_add(raw_len)
+                )
+            }),
+            source_coverage: vec![ArtistSourceCoverage {
+                provider: "musicbrainz".into(),
+                status: if partial { "partial" } else { "available" }.into(),
+                detail: "Edition details loaded on request.".into(),
+                source_url: Some(release.source_url.clone()),
+            }],
+            warnings: if partial {
+                vec!["Some MusicBrainz editions could not be read.".into()]
+            } else {
+                vec![]
+            },
+        })
+    }
+
     async fn fetch_musicbrainz_releases(
         &self,
         mbid: &str,
@@ -2154,18 +2418,26 @@ impl ArtistService {
         discogs_id: &str,
         page: u32,
         token: &str,
+        newest_first: bool,
     ) -> Result<(Vec<ArtistReleaseRef>, bool), String> {
         let query = vec![
             ("page", page.to_string()),
             ("per_page", ARTIST_LIST_PAGE_SIZE.to_string()),
             ("sort", "year".into()),
-            ("sort_order", "asc".into()),
+            (
+                "sort_order",
+                if newest_first { "desc" } else { "asc" }.into(),
+            ),
         ];
         let data = self
             .discogs_json(
                 &format!("artists/{discogs_id}/releases"),
                 &query,
-                "artists.releases.discogs",
+                if newest_first {
+                    "artists.discography.discogs.v1"
+                } else {
+                    "artists.releases.discogs"
+                },
                 &format!("{discogs_id}:{page}"),
                 LIST_TTL,
                 token,
@@ -6533,3 +6805,7 @@ mod tests {
         assert!(error.contains("Spotify album occurrence"));
     }
 }
+
+#[cfg(test)]
+#[path = "artists_discography_tests.rs"]
+mod discography_tests;

@@ -25,7 +25,6 @@
   let contextSources = $state<{title:string;url:string}[]>([]);
   let contextError = $state("");
   let contextPending = $state(false);
-  let contextKind = $state<"song" | "concert" | "set">("song");
   let contextGeneration = 0;
   const evidence = $derived((track.provenance ?? {}) as Record<string,unknown>);
   const imported = $derived(importedOverride ?? (evidence.importMetadata ?? {}) as Record<string,unknown>);
@@ -47,8 +46,18 @@
     const range = value.playbackRange;
     return JSON.stringify([value.id, value.provider, value.title, value.artist, value.album ?? "", value.version ?? "", value.recordingDate ?? "", value.sourceUrl ?? "", range ? [range.parentTrackId,range.chapterId,range.startTime,range.endTime] : null, targetKind]);
   }
-  const defaultContextTargets = $derived.by((): ContextTarget[] => [{track, label: contextKind === "set" ? "This DJ set" : contextKind === "concert" ? "This concert" : "This song", targetKind: contextKind}]);
-  const visibleContextTargets = $derived(contextTargets?.length ? contextTargets : defaultContextTargets);
+  const inferredContextTarget = $derived.by((): ContextTarget => {
+    const provenance = (track.provenance ?? {}) as Record<string, unknown>;
+    const kind: ContextTarget["targetKind"] = track.playbackRange ? "song"
+      : provenance.sourceKind === "concert" || provenance.mediaKind === "concert" ? "concert"
+      : provenance.sourceKind === "set" || provenance.mediaKind === "set" || provenance.sourceKind === "dj_set" ? "set" : "song";
+    return {track, targetKind: kind, label: kind === "set" ? "This DJ set" : kind === "concert" ? "This concert" : "This song"};
+  });
+  const visibleContextTargets = $derived.by(() => {
+    if (!contextTargets?.length) return [inferredContextTarget];
+    // Prefer the active detected song; otherwise use the first meaningful active target.
+    return [contextTargets.find(item => item.targetKind === "song") ?? contextTargets[0]];
+  });
   const contextScope = $derived(JSON.stringify([contextLookupConfigured, contextLookupRevision, visibleContextTargets.map(item => [trackTargetKey(item.track, item.targetKind), item.label])]));
   $effect(() => {
     contextScope;
@@ -128,14 +137,14 @@
         album: boundedText(targetTrack.album, 256),
         version: boundedText(targetTrack.version, 256),
         sourceKind: sourceKind(targetTrack),
-        targetKind: target.targetKind,
+        targetKind: "auto",
         date: boundedText(targetTrack.recordingDate, 32),
         ...(contextSourceUrl(targetTrack) ? {sourceUrl:contextSourceUrl(targetTrack)} : {}),
       }});
       if (generation !== contextGeneration || targetKey !== trackTargetKey(target.track, target.targetKind) || response.requestId !== requestId) return;
       contextAnswer = plainTextMarkdown(response.answer);
       contextSources = (response.sources ?? []).filter(source => typeof source.title === "string" && !!source.title.trim() && isPublicCitationUrl(source.url)).slice(0,8);
-      contextAnswerLabel = `${target.label}: ${[targetTrack.title,targetTrack.artist].filter(Boolean).join(" — ")}`;
+      contextAnswerLabel = `Context for ${[targetTrack.title,targetTrack.artist].filter(Boolean).join(" — ")}`;
     } catch (failure) {
       if (generation === contextGeneration && targetKey === trackTargetKey(target.track, target.targetKind)) contextError = String(failure).includes("source-backed") ? "No reliable source information was found for this item." : "Could not look up context. Check the configured AI connection and try again.";
     } finally {
@@ -165,10 +174,8 @@
 <section class="recording-information" class:compact aria-label="Recording catalog information">
   <h2>Song information</h2>
   {#if contextLookupConfigured}<section class="context-lookup" aria-label="AI song and set context">
-    <h3>Song / set context</h3>
-    {#if !contextTargets?.length}<label class="context-kind">Context type<select aria-label="Context type" bind:value={contextKind}><option value="song">Song</option><option value="concert">Concert</option><option value="set">DJ set</option></select></label>{/if}
     {#each visibleContextTargets as target (trackTargetKey(target.track, target.targetKind))}
-      <button class="context-action" disabled={!contextLookupConfigured || contextPending} onclick={() => void lookupContext(target)}>Ask AI about {target.label}</button>
+      <button class="context-action" aria-label={`Ask AI about ${[target.track.title,target.track.artist].filter(Boolean).join(" by ")}`} title="Ask AI about this item" disabled={!contextLookupConfigured || contextPending} onclick={() => void lookupContext(target)}>Ask AI</button>
     {/each}
     {#if contextPending}<p role="status">Looking up context…</p>{/if}
     {#if contextError}<p role="alert">{contextError}</p>{/if}

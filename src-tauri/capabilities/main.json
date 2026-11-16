@@ -143,6 +143,8 @@
     "allow-get-artist-profile",
     "allow-get-artist-artwork",
     "allow-get-artist-releases",
+    "allow-get-artist-discography",
+    "allow-get-release-editions",
     "allow-get-release-tracks",
     "allow-save-library-tracks",
     "allow-list-local-album-matches",

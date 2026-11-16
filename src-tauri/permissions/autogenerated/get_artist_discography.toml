@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-artist-discography"
+description = "Enables the get_artist_discography command without any pre-configured scope."
+commands.allow = ["get_artist_discography"]
+
+[[permission]]
+identifier = "deny-get-artist-discography"
+description = "Denies the get_artist_discography command without any pre-configured scope."
+commands.deny = ["get_artist_discography"]

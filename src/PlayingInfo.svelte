@@ -15,6 +15,7 @@
   import type { PlayingTrackDetectionView } from "./lib/playing-track-detection";
   import { detectedObservationTrack } from "./lib/detected-track";
 import { trackSource } from "./lib/source-link";
+  import MenuIcon from "./MenuIcon.svelte";
   import type { Track, Candidate, LocalAsset, LiveBpmEstimate, LiveKeyEstimate } from "./lib/types";
   import type { TrackLibrarySummary } from "./lib/track-library-summary";
   import { loudnessMeasurementSourceLabel, type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus } from "./lib/loudness-normalization";
@@ -43,6 +44,7 @@ import { trackSource } from "./lib/source-link";
     loadRecording,
     contextLookupConfigured = false,
     contextLookupRevision = 0,
+    contextTargets = undefined,
     onRecordingRelease,
     onAlbum,
     onDownload,
@@ -93,6 +95,7 @@ import { trackSource } from "./lib/source-link";
     loadRecording?: (track: Track) => Promise<RecordingInformationResult>;
     contextLookupConfigured?: boolean;
     contextLookupRevision?: number;
+    contextTargets?: { track: Track; label: string; targetKind: "song" | "concert" | "set" }[];
     onRecordingRelease?: (release:RecordingReleaseInfo, artist:ArtistRef|null) => void;
     onAlbum?: () => void;
     onDownload: () => void;
@@ -173,6 +176,31 @@ import { trackSource } from "./lib/source-link";
 
   const sourceOpener = getContext<SourceOpener | undefined>(SOURCE_OPENER);
   let sourceOpenError = $state("");
+  let sourceCopyStatus = $state("");
+  let sourceCopyGeneration = 0;
+  function copyableSourceUrl(value: unknown): string {
+    if (typeof value !== "string") return "";
+    try {
+      const url = new URL(value);
+      if (url.protocol !== "https:" || url.username || url.password || !url.hostname.includes(".") ||
+        /^(localhost|127\.|0\.|10\.|192\.168\.|169\.254\.)/.test(url.hostname) ||
+        [".local", ".internal", ".localhost"].some(suffix => url.hostname.endsWith(suffix)) ||
+        url.pathname.split("/").some(part => /^s-[A-Za-z0-9_-]+$/.test(part)) ||
+        [...url.searchParams.keys()].some(key => /(?:token|signature|^sig$|secret|auth|credential|session|policy|expires|^key$|x-amz)/i.test(key))) return "";
+      return url.href;
+    } catch { return ""; }
+  }
+  async function copyAudioSource(url: string) {
+    const generation = ++sourceCopyGeneration;
+    const copiedTrackId = track.id;
+    sourceCopyStatus = "";
+    try {
+      await navigator.clipboard.writeText(url);
+      if (generation === sourceCopyGeneration && copiedTrackId === track.id && [copyableSourceUrl(sourcePage?.url), copyableSourceUrl(candidate?.url)].includes(url)) sourceCopyStatus = "Source link copied.";
+    } catch {
+      if (generation === sourceCopyGeneration && copiedTrackId === track.id && [copyableSourceUrl(sourcePage?.url), copyableSourceUrl(candidate?.url)].includes(url)) sourceCopyStatus = "Could not copy the source link.";
+    }
+  }
   async function openAudioSource(event: MouseEvent, url: string) {
     event.preventDefault();
     sourceOpenError = "";
@@ -241,6 +269,12 @@ import { trackSource } from "./lib/source-link";
   const sourcePage = $derived.by(() => {
     if (radioLinks.isRadio) return radioLinks.stationUrl ? { url: radioLinks.stationUrl, label: displayedStationName } : null;
     return !candidate?.url ? trackSource(track) : null;
+  });
+  $effect(() => {
+    const identity = JSON.stringify([track.id, sourcePage?.url ?? "", candidate?.url ?? ""]);
+    void identity;
+    sourceCopyGeneration++;
+    sourceCopyStatus = "";
   });
   const views = $derived(metadataCount(track,candidate,["views", "viewCount", "view_count"]));
   const plays = $derived(metadataCount(track,candidate,["plays", "playCount", "play_count", "playcount"]));
@@ -434,9 +468,9 @@ import { trackSource } from "./lib/source-link";
       {#if views !== null}<div><dt>Views</dt><dd>{formatCount(views)}</dd></div>{/if}
       {#if plays !== null}<div><dt>Source plays</dt><dd>{formatCount(plays)}</dd></div>{/if}
       {#if catalogProvider && catalogProvider !== "catalog"}<div><dt>Metadata source</dt><dd>{providerLabel(catalogProvider)}</dd></div>{/if}
-      {#if sourcePage}<div class:radio-source={radioLinks.isRadio}><dt>Source</dt><dd><a href={sourcePage.url} target="_blank" rel="noopener noreferrer" onclick={event => void openAudioSource(event, sourcePage!.url)}>{radioLinks.isRadio ? `${displayedStationName} ↗` : `Open ${sourcePage.label} ↗`}</a></dd></div>{/if}
+      {#if sourcePage}<div class:radio-source={radioLinks.isRadio}><dt>Source</dt><dd><a href={sourcePage.url} target="_blank" rel="noopener noreferrer" onclick={event => void openAudioSource(event, sourcePage!.url)}>{radioLinks.isRadio ? `${displayedStationName} ↗` : `Open ${sourcePage.label} ↗`}</a>{#if (radioLinks.isRadio || !candidate?.url && ["youtube","soundcloud","bandcamp"].includes(track.provider)) && copyableSourceUrl(sourcePage.url)}<button type="button" class="copy-source" aria-label={radioLinks.isRadio ? "Copy station page link" : "Copy audio source link"} title={radioLinks.isRadio ? "Copy station page link" : "Copy audio source link"} onclick={() => void copyAudioSource(copyableSourceUrl(sourcePage!.url))}><MenuIcon name="copy" /></button>{/if}</dd></div>{/if}
       {#if candidate?.provider}<div><dt>Audio provider</dt><dd>{providerLabel(candidate.provider)}</dd></div>{/if}
-      {#if candidate?.title}<div><dt>Audio source</dt><dd title={candidate.title}>{#if candidate.url && /^https:\/\//i.test(candidate.url)}<a href={candidate.url} target="_blank" rel="noopener noreferrer" onclick={event => void openAudioSource(event, candidate!.url!)}>{candidate.title} ↗</a>{:else}{candidate.title}{/if}</dd></div>{/if}
+      {#if candidate?.title}<div><dt>Audio source</dt><dd title={candidate.title}>{#if candidate.url && /^https:\/\//i.test(candidate.url)}<a href={candidate.url} target="_blank" rel="noopener noreferrer" onclick={event => void openAudioSource(event, candidate!.url!)}>{candidate.title} ↗</a>{:else}{candidate.title}{/if}{#if copyableSourceUrl(candidate.url)}<button type="button" class="copy-source" aria-label="Copy audio source link" title="Copy audio source link" onclick={() => void copyAudioSource(copyableSourceUrl(candidate!.url))}><MenuIcon name="copy" /></button>{/if}</dd></div>{/if}
       {#if candidate?.uploader}<div><dt>Uploader</dt><dd title={candidate.uploader}>{candidate.uploader}</dd></div>{/if}
       {#if track.bpm}<div><dt>Tempo</dt><dd>{track.bpm} BPM{estimateNote(track, "bpm")}</dd></div>{:else if analysisEstimate?.bpm && Number.isFinite(analysisEstimate.bpm.bpm) && analysisEstimate.bpm.bpm > 0}<div><dt>Tempo</dt><dd>{analysisEstimate.bpm.bpm} BPM · estimated from audio</dd></div>{:else if analysisStatus}<div><dt>Tempo</dt><dd>{analysisStatusText()}</dd></div>{/if}
       {#if currentLiveBpm || acceptedLastLiveBpm}<div class="live-bpm" title={currentLiveBpm ? `Approximate tempo estimated from ${currentLiveBpm.windowSeconds.toFixed(1)} seconds of current playback` : undefined}><dt>{currentLiveBpm ? "Live BPM" : "Last BPM"}</dt><dd>{currentLiveBpm ? liveBpmLabel(currentLiveBpm) : `${acceptedLastLiveBpm!.value} BPM`}{#if acceptedLastLiveBpm}<small class="last-measurement">{lastMeasurementText(acceptedLastLiveBpm.measuredAt, acceptedLastLiveBpm.positionSeconds)}</small>{/if}</dd></div>{:else if currentLiveStatus}<div class="live-bpm" title={liveBpmStatusReason ?? undefined}><dt>Live BPM</dt><dd>{liveBpmStatusReason ? liveBpmStatusReason.slice(0, 160) : {disabled:"Disabled · enable in Settings → Playback",unsupported:"This source has no supported Web Audio PCM route",paused:"Paused",warming:"Listening for audio…",estimating:"Estimating BPM…",insufficient:"No live BPM reading yet",waiting:"Waiting for the current playback buffer…",unavailable:"Estimate temporarily unavailable"}[currentLiveStatus]}</dd></div>{/if}
@@ -450,10 +484,11 @@ import { trackSource } from "./lib/source-link";
       {/if}
     </dl>
 
+    {#if sourceCopyStatus}<p class="source-copy-status" role="status">{sourceCopyStatus}</p>{/if}
     {#if sourceOpenError}<p role="status">{sourceOpenError}</p>{/if}
 
     {#if loadArtist && track.artist && (!radioLinks.isRadio || track.provenance && (track.provenance as Record<string, unknown>).radioMetadata)}<ArtistInformation {track} {loadArtist} {onArtist} {onArtistRef} compact />{/if}
-    {#if loadRecording && (!radioLinks.isRadio || track.provenance && (track.provenance as Record<string, unknown>).radioMetadata)}<RecordingInformation {track} {loadRecording} {contextLookupConfigured} {contextLookupRevision} onRelease={onRecordingRelease} onArtist={onArtistRef} compact />{/if}
+    {#if loadRecording && (!radioLinks.isRadio || track.provenance && (track.provenance as Record<string, unknown>).radioMetadata)}<RecordingInformation {track} {loadRecording} {contextLookupConfigured} {contextLookupRevision} {contextTargets} onRelease={onRecordingRelease} onArtist={onArtistRef} compact />{/if}
     <div class="actions">
       {#if onFavorite}<button aria-label={favorite ? "Remove from favorites" : "Add to favorites"} aria-pressed={favorite} onclick={onFavorite}><HeartIcon filled={favorite} /> {favorite ? "Favorited" : "Add to favorites"}</button>{/if}
       {#if onPlay}<button class="primary" onclick={onPlay}>Play</button>{/if}
@@ -521,7 +556,10 @@ import { trackSource } from "./lib/source-link";
   dl > div { display: flex; justify-content: space-between; gap: 10px; min-width: 0; padding: 8px 0; border-bottom: 1px solid var(--line); }
   dt { flex: 0 0 auto; color: var(--muted); font-size: 11px; }
   dd { min-width: 0; margin: 0; overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+  dd:has(.copy-source){display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:5px;overflow:hidden}
+  dd:has(.copy-source)>a{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .radio-source dd,.radio-source dd a { overflow: visible; overflow-wrap: anywhere; text-overflow: clip; white-space: normal; }
+  .copy-source{display:inline-grid;place-items:center;width:28px;min-height:28px;height:28px;margin-left:5px;padding:3px;border:1px solid var(--line);border-radius:var(--button-radius,7px);background:transparent;color:var(--muted);vertical-align:middle;cursor:pointer}.copy-source:hover{color:var(--accent);border-color:var(--accent)}.copy-source :global(svg){width:15px;height:15px}.source-copy-status{display:block;margin-top:3px;color:var(--muted);font-size:10px}
   .last-measurement { display:block; color:var(--muted); font-size:9px; font-weight:400; white-space:normal; }
   .actions { display: flex; flex-wrap: wrap; align-self: stretch; width: 100%; min-width: 0; max-width: 100%; gap: 8px; margin-top: auto; padding-top: 17px; }
   .actions button { min-width: 0; max-width: 100%; min-height: 40px; padding: 8px 12px; overflow-wrap: anywhere; white-space: normal; touch-action:manipulation; }

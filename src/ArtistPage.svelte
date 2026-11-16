@@ -35,6 +35,7 @@
     searchArtists,
     getArtistProfile,
     getArtistReleases,
+    getReleaseEditions,
     getReleaseTracks,
     getArtistTracks,
     getArtistCollaborations,
@@ -118,11 +119,18 @@
   let expandedRelease = $state("");
   let editionByGroup = $state<Record<string, string>>({});
   let releaseTrackCache = $state<Record<string, Track[]>>({});
+  type CachedEditionPage = ArtistReleasePage & { loadedPages: number };
+  let releaseEditionPages = $state<Record<string, CachedEditionPage>>({});
+  let loadingReleaseEditions = $state<Record<string, boolean>>({});
+  let releaseEditionErrors = $state<Record<string, string>>({});
   let loadingRelease = $state<Record<string, boolean>>({});
   let albumSaveState = $state<Record<string, { status: "saving" | "saved" | "error"; message: string }>>({});
   let albumActionState = $state<Record<string, { busy: boolean; message: string }>>({});
   let releaseLoadErrors = $state<Record<string, string>>({});
   const releaseTrackLoads = new Map<string, Promise<Track[]>>();
+  const releasePageLoads = new Map<string, Promise<ArtistReleasePage>>();
+  const releaseEditionLoads = new Map<string, Promise<boolean>>();
+  const releaseOrderLoads = new Map<string, Promise<void>>();
   let lastInitialSection = $state<"overview" | "releases" | "tracks" | "collaborations" | "local">("overview");
   let pageElement = $state<HTMLElement | null>(null);
   let lastInitialScroll = $state(0);
@@ -142,14 +150,16 @@
   onDestroy(() => { navigationDestroyed=true; navigationRestoreGeneration++; requestGeneration++; localArtistRequestGeneration++; });
   function nativeNavigationSnapshot() {
     return { controls:{query, section, releaseFilter, releaseQuery, releaseProvider, releaseSort, trackQuery, trackSort, trackSortDirection, trackMinDuration, trackMaxDuration, releaseTrackQuery, releaseTrackSort, releaseTrackSortDirection, releaseTrackMinDuration, releaseTrackMaxDuration, trackAvailability, topTrackQuery, topTrackSort, topTrackDirection, topTrackMinDuration, topTrackMaxDuration, localArtistQuery, localArtistSort, localArtistDirection, localArtistMinDuration, localArtistMaxDuration, localArtistAvailability, expandedRelease, editionByGroup:{...editionByGroup}}, selectedArtist, profile, releases, tracks, collaborations, results, searchPage, searchHasMore, searchWarnings,
-      localArtistTracks,localArtistTotal,localArtistSortAvailability,releaseTrackCache:{...releaseTrackCache},
+      localArtistTracks,localArtistTotal,localArtistSortAvailability,releaseTrackCache:{...releaseTrackCache},releaseEditionPages:{...releaseEditionPages},
+      loadedEditionPageTargets:Object.entries(releaseEditionPages).map(([sourceUrl,page])=>({sourceUrl,loadedPages:page.loadedPages})),
       loadedReleases:releases?.items.length??0,loadedTracks:tracks?.items.length??0,loadedCollaborations:collaborations?.items.length??0,loadedLocal:localArtistTracks.length,loadedSearch:results.length,
       scroll:pageElement?.scrollTop??0,needsRefetch:false };
   }
   export function captureNavigationSnapshot(key:string):string {
     const snapshot=nativeNavigationSnapshot();
-    const rows=results.length+(profile?.topTracks.length??0)+(releases?.items.length??0)+(tracks?.items.length??0)+(collaborations?.items.length??0)+localArtistTracks.length+Object.values(releaseTrackCache).reduce((sum,rows)=>sum+rows.length,0);
-    providerNavigationSnapshots.put({kind:"artist-page",key,accountScope:"public-catalog",snapshot,rows,stripRows:value=>({...value,profile:null,releases:null,tracks:null,collaborations:null,results:[],localArtistTracks:[],releaseTrackCache:{},needsRefetch:true})});
+    const editionRows=Object.values(releaseEditionPages).reduce((sum,page)=>sum+page.items.length,0);
+    const rows=results.length+(profile?.topTracks.length??0)+(releases?.items.length??0)+(tracks?.items.length??0)+(collaborations?.items.length??0)+localArtistTracks.length+Object.values(releaseTrackCache).reduce((sum,rows)=>sum+rows.length,0)+editionRows;
+    providerNavigationSnapshots.put({kind:"artist-page",key,accountScope:"public-catalog",snapshot,rows,stripRows:value=>({...value,profile:null,releases:null,tracks:null,collaborations:null,results:[],localArtistTracks:[],releaseTrackCache:{},releaseEditionPages:{},needsRefetch:true})});
     return key;
   }
   export async function restoreNavigationSnapshot(key:string) {
@@ -176,13 +186,26 @@
         while(isCurrent()&&Date.now()<deadline&&tracks?.nextCursor&&(tracks.items.length<saved.loadedTracks)){const before=tracks.items.length;if(!await guarded(moreTracks))return;if(!isCurrent()||tracks.items.length<=before)break;}
         while(isCurrent()&&Date.now()<deadline&&collaborations?.nextCursor&&(collaborations.items.length<saved.loadedCollaborations)){const before=collaborations.items.length;if(!await guarded(moreCollaborations))return;if(collaborations.items.length<=before)break;}
         if(saved.controls.section==="local"&&onLoadLocalAssetsPage){if(!await guarded(()=>loadLocalArtistPage(false)))return;while(isCurrent()&&Date.now()<deadline&&localArtistTracks.length<Math.min(saved.loadedLocal,localArtistTotal)){const before=localArtistTracks.length;if(!await guarded(()=>loadLocalArtistPage(true)))return;if(localArtistTracks.length<=before)break;}}
+        for(const target of saved.loadedEditionPageTargets??[]){
+          const groupRef=releases?.items.find(item=>item.sourceUrl===target.sourceUrl);
+          if(!groupRef||!getReleaseEditions)continue;
+          let cursor:string|null=null;
+          for(let page=0;page<target.loadedPages&&Date.now()<deadline&&isCurrent();page++){
+            const before=releaseEditionPages[groupRef.sourceUrl]?.loadedPages??0;
+            if(!await guarded(()=>loadReleaseEditions(groupRef,cursor)))return;
+            const loaded=releaseEditionPages[groupRef.sourceUrl];
+            if(!loaded||loaded.loadedPages<=before)break;
+            cursor=loaded.nextCursor??null;
+            if(!cursor)break;
+          }
+        }
         if(!isCurrent())return;applyControls();
         const group=releaseGroups.find(group=>group.key===saved.controls.expandedRelease);
         if(group){if(!await guarded(()=>loadReleaseTracks(selectedEdition(group))))return;}
       } else {if(!await guarded(runSearch))return;const deadline=Date.now()+15_000;while(isCurrent()&&Date.now()<deadline&&searchHasMore&&results.length<saved.loadedSearch){const before=results.length;if(!await guarded(moreSearchResults))return;if(results.length<=before)break;}}
     } else {
       profile=saved.profile;releases=saved.releases;tracks=saved.tracks;collaborations=saved.collaborations;results=saved.results;searchPage=saved.searchPage;searchHasMore=saved.searchHasMore;searchWarnings=saved.searchWarnings;
-      localArtistTracks=saved.localArtistTracks;localArtistTotal=saved.localArtistTotal;localArtistSortAvailability=saved.localArtistSortAvailability;releaseTrackCache={...saved.releaseTrackCache};
+      localArtistTracks=saved.localArtistTracks;localArtistTotal=saved.localArtistTotal;localArtistSortAvailability=saved.localArtistSortAvailability;releaseTrackCache={...saved.releaseTrackCache};releaseEditionPages={...saved.releaseEditionPages};
     }
     if(!isCurrent())return;scrollRestorePending=false;await tick();if(isCurrent()&&pageElement)pageElement.scrollTop=saved.scroll;
   }
@@ -348,6 +371,51 @@
     return [...result.values()];
   }
 
+  function releaseGroupKey(release: ArtistReleaseRef): string {
+    return isReleaseGroup(release)
+      ? `${release.release.provider}:group:${release.release.id}`
+      : `${normalizeName(release.title)}|${normalizeName(release.primaryType ?? release.format ?? "release")}`;
+  }
+
+  async function fetchReleasePage(artist: ArtistRef, cursor: string | null | undefined, generation: number): Promise<ArtistReleasePage> {
+    const key = `${generation}:${artist.provider}:${artist.id}:${cursor ?? "first"}`;
+    const existing = releasePageLoads.get(key);
+    if (existing) return existing;
+    let task!: Promise<ArtistReleasePage>;
+    task = (async () => {
+      try {
+        const page = await getArtistReleases(artist, cursor);
+        if (generation === requestGeneration) {
+          if (cursor == null && releases) {
+            // A profile may return its compact index while this independent
+            // request is in flight. Merge rows without rewinding pagination.
+            const preserveNextCursor = releases.items.length > 0 && Boolean(releases.nextCursor);
+            releases = {
+              ...releases,
+              ...page,
+              items: dedupeReleases([...releases.items, ...page.items]),
+              nextCursor: preserveNextCursor ? releases.nextCursor : page.nextCursor,
+              warnings: page.warnings,
+              sourceCoverage: page.sourceCoverage,
+            };
+          } else {
+            releases = {
+              ...page,
+              items: dedupeReleases([...(releases?.items ?? []), ...page.items]),
+              warnings: page.warnings,
+              sourceCoverage: page.sourceCoverage,
+            };
+          }
+        }
+        return page;
+      } finally {
+        if (releasePageLoads.get(key) === task) releasePageLoads.delete(key);
+      }
+    })();
+    releasePageLoads.set(key, task);
+    return task;
+  }
+
   function matchesReleaseFilter(release: ArtistReleaseRef): boolean {
     if (releaseFilter === "All") return true;
     const type = release.primaryType?.toLocaleLowerCase();
@@ -363,10 +431,31 @@
     const items = dedupeReleases(releases?.items ?? []).filter(matchesReleaseFilter)
       .filter((release) => releaseProvider === "All sources" || release.release.provider === releaseProvider)
       .filter((release) => !releaseQuery.trim() || normalizeName(`${release.title} ${release.year ?? ""} ${release.format ?? ""} ${release.tracks.map(track => track.title).join(" ")} ${(releaseTrackCache[release.sourceUrl] ?? []).map((track) => track.title).join(" ")}`).includes(normalizeName(releaseQuery)));
+    const groupRefsByTitle = new Map<string, ArtistReleaseRef[]>();
+    for (const item of items.filter(isReleaseGroup)) {
+      const titleKey = `${normalizeName(item.title)}|${normalizeName(item.primaryType ?? item.format ?? "release")}`;
+      groupRefsByTitle.set(titleKey, [...(groupRefsByTitle.get(titleKey) ?? []), item]);
+    }
+    const itemGroupKey = (item: ArtistReleaseRef) => {
+      const titleKey = `${normalizeName(item.title)}|${normalizeName(item.primaryType ?? item.format ?? "release")}`;
+      const matchingGroups = groupRefsByTitle.get(titleKey) ?? [];
+      // Keep legacy cross-provider edition grouping when exactly one MB group
+      // can own the title; ambiguous same-title groups stay independent.
+      if (!isReleaseGroup(item) && matchingGroups.length === 1) return releaseGroupKey(matchingGroups[0]);
+      return releaseGroupKey(item);
+    };
     const groups = new Map<string, ArtistReleaseRef[]>();
     for (const item of items) {
-      const key = `${normalizeName(item.title)}|${normalizeName(item.primaryType ?? item.format ?? "release")}`;
+      const key = itemGroupKey(item);
       groups.set(key, [...(groups.get(key) ?? []), item]);
+    }
+    // Release-group references are album index entries. Editions are fetched
+    // only on request and stay attached to the group that returned them.
+    for (const [sourceUrl, page] of Object.entries(releaseEditionPages)) {
+      const parent = items.find(item => item.sourceUrl === sourceUrl);
+      if (!parent) continue;
+      const key = releaseGroupKey(parent);
+      groups.set(key, dedupeReleases([...(groups.get(key) ?? []), ...page.items]));
     }
     const result = [...groups.entries()].map(([key, editions]) => ({ key, editions: editions.sort((a,b) => (b.releaseDate ?? `${b.year ?? 0}`).localeCompare(a.releaseDate ?? `${a.year ?? 0}`)) }));
     const chronology = (group: typeof result[number]) => {
@@ -386,7 +475,49 @@
   });
 
   function selectedEdition(group: { key: string; editions: ArtistReleaseRef[] }): ArtistReleaseRef {
-    return group.editions.find((edition) => edition.sourceUrl === editionByGroup[group.key]) ?? group.editions[0];
+    return group.editions.find((edition) => edition.sourceUrl === editionByGroup[group.key])
+      ?? group.editions.find(isReleaseGroup)
+      ?? group.editions[0];
+  }
+
+  function isReleaseGroup(release: ArtistReleaseRef): boolean {
+    return release.release.provider === "musicbrainz" && /\/release-group\//.test(release.sourceUrl);
+  }
+
+  async function loadReleaseEditions(groupRef: ArtistReleaseRef, cursor: string | null = null): Promise<boolean> {
+    if (!selectedArtist || !getReleaseEditions || !isReleaseGroup(groupRef)) return false;
+    const generation = requestGeneration, artist = selectedArtist.artist;
+    const key = `${generation}:${artist.provider}:${artist.id}:${groupRef.sourceUrl}:${cursor ?? "first"}`;
+    const existing = releaseEditionLoads.get(key);
+    if (existing) return existing;
+    const current = releaseEditionPages[groupRef.sourceUrl];
+    if (!cursor && current) return true;
+    if (cursor && current && current.nextCursor !== cursor) return true;
+    loadingReleaseEditions = { ...loadingReleaseEditions, [groupRef.sourceUrl]: true };
+    releaseEditionErrors = { ...releaseEditionErrors, [groupRef.sourceUrl]: "" };
+    let task!: Promise<boolean>;
+    task = (async () => {
+      try {
+        const page = await getReleaseEditions(groupRef, artist, cursor);
+        if (generation !== requestGeneration) return false;
+        const previous = releaseEditionPages[groupRef.sourceUrl];
+        releaseEditionPages = { ...releaseEditionPages, [groupRef.sourceUrl]: {
+          ...page,
+          items: dedupeReleases([...(previous?.items ?? []), ...page.items]),
+          warnings: [...new Set([...(previous?.warnings ?? []), ...page.warnings])],
+          loadedPages: (previous?.loadedPages ?? 0) + 1,
+        }};
+        return true;
+      } catch (cause) {
+        if (generation === requestGeneration) releaseEditionErrors = { ...releaseEditionErrors, [groupRef.sourceUrl]: message(cause) };
+        return false;
+      } finally {
+        if (releaseEditionLoads.get(key) === task) releaseEditionLoads.delete(key);
+        if (generation === requestGeneration) loadingReleaseEditions = { ...loadingReleaseEditions, [groupRef.sourceUrl]: false };
+      }
+    })();
+    releaseEditionLoads.set(key, task);
+    return task;
   }
 
   async function loadReleaseTracks(release: ArtistReleaseRef) {
@@ -568,7 +699,7 @@
     const generation = ++requestGeneration;
     busy = true; error = ""; review = null;
     loadingReleaseOrder = false;
-    releaseTrackCache = {}; loadingRelease = {}; releaseLoadErrors = {}; expandedRelease = ""; editionByGroup = {};
+    releaseTrackCache = {}; releaseEditionPages = {}; loadingReleaseEditions = {}; releaseEditionErrors = {}; loadingRelease = {}; releaseLoadErrors = {}; expandedRelease = ""; editionByGroup = {};
     localArtistRequestGeneration++; localArtistTracks = []; localArtistTotal = 0; localArtistSortAvailability = null; localArtistLoading = false;
     selectedArtist = artist; profile = null; section = initialSection;
     scrollRestorePending = true;
@@ -578,7 +709,7 @@
       if (generation !== requestGeneration) return;
       selectedArtist = result.artist;
       profile = result;
-      releases = result.releases;
+      if (!releases) releases = result.releases;
       if (section === "releases" || section === "tracks") await loadSection(section);
       if (section === "local" && onLoadLocalAssetsPage) resetLocalArtistQuery();
     } catch (cause) { if (generation === requestGeneration) error = message(cause); }
@@ -621,6 +752,7 @@
     releases = null;
     tracks = null;
     collaborations = null;
+    releaseEditionPages = {}; loadingReleaseEditions = {}; releaseEditionErrors = {};
   }
 
   async function loadSection(next: typeof section) {
@@ -636,9 +768,8 @@
     const generation = requestGeneration;
     busy = true; error = "";
     try {
-      if (next === "releases" && (!releases || !releases.items.length)) {
-        const result = await getArtistReleases(selectedArtist.artist);
-        if (generation === requestGeneration) releases = result;
+      if (next === "releases" && !releases) {
+        await fetchReleasePage(selectedArtist.artist, null, generation);
       }
       if ((next === "tracks" || next === "overview") && (!tracks || (!tracks.items.length && tracks.warnings.length))) {
         const result = await getArtistTracks(selectedArtist.artist);
@@ -657,19 +788,29 @@
   async function completeReleaseOrder(generation: number) {
     if (!selectedArtist || !releases?.nextCursor || releases.warnings.length) return;
     const artist = selectedArtist.artist;
-    const seen = new Set<string>();
-    loadingReleaseOrder = true;
-    try {
-      for (let page = 0; page < 20 && generation === requestGeneration && section === "releases" && releases?.nextCursor; page++) {
-        const cursor = releases.nextCursor;
-        if (seen.has(cursor)) break;
-        seen.add(cursor);
-        const next = await getArtistReleases(artist, cursor);
-        if (generation !== requestGeneration) return;
-        releases = { ...next, items: dedupeReleases([...releases.items, ...next.items]) };
-        if (next.warnings.length) break;
+    const taskKey = `${generation}:${artist.provider}:${artist.id}`;
+    const existing = releaseOrderLoads.get(taskKey);
+    if (existing) return existing;
+    let task!: Promise<void>;
+    task = (async () => {
+      const seen = new Set<string>();
+      loadingReleaseOrder = true;
+      try {
+        for (let page = 0; page < 20 && generation === requestGeneration && section === "releases" && releases?.nextCursor; page++) {
+          const cursor = releases.nextCursor;
+          if (seen.has(cursor)) break;
+          seen.add(cursor);
+          const next = await fetchReleasePage(artist, cursor, generation);
+          if (generation !== requestGeneration) return;
+          if (next.warnings.length) break;
+        }
+      } finally {
+        if (releaseOrderLoads.get(taskKey) === task) releaseOrderLoads.delete(taskKey);
+        if (generation === requestGeneration) loadingReleaseOrder = false;
       }
-    } finally { if (generation === requestGeneration) loadingReleaseOrder = false; }
+    })();
+    releaseOrderLoads.set(taskKey, task);
+    return task;
   }
 
   async function moreReleases() {
@@ -678,9 +819,8 @@
     const artist = selectedArtist.artist;
     busy = true;
     try {
-      const next = await getArtistReleases(artist, releases.nextCursor);
+      const next = await fetchReleasePage(artist, releases.nextCursor, generation);
       if (generation !== requestGeneration) return;
-      releases = { ...next, items: dedupeReleases([...releases.items, ...next.items]) };
       await completeReleaseOrder(generation);
     } catch (cause) { if (generation === requestGeneration) error = message(cause); }
     finally { if (generation === requestGeneration) busy = false; }
@@ -761,7 +901,7 @@
   </header>
   <form class="search" onsubmit={(event) => { event.preventDefault(); void runSearch(); }}>
     <input bind:value={query} placeholder="Search artist name" aria-label="Search artist name" />
-    <button type="submit" disabled={busy || !query.trim()}>{busy ? "Loading…" : "Search"}</button>
+    <button class="primary" type="submit" disabled={busy || !query.trim()}>{busy ? "Loading…" : "Search"}</button>
   </form>
   {/if}
   {#if error}<p class="notice error" role="alert">{error}</p>{/if}
@@ -837,19 +977,22 @@
         <select bind:value={releaseProvider} aria-label="Source provider"><option>All sources</option>{#each [...new Set((releases?.items ?? []).map((item) => item.release.provider))] as provider}<option value={provider}>{providerLabel(provider)}</option>{/each}</select>
         <select bind:value={releaseSort} aria-label="Sort releases"><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="title">Title A–Z</option></select>
       </div>
-      <p class="muted catalog-count">{releaseGroups.length} {releaseGroups.length === 1 ? "album" : "albums"} · {releaseGroups.reduce((count, group) => count + group.editions.length, 0)} editions loaded</p>
+      {@const hasGroupIndex = (releases?.items ?? []).some(isReleaseGroup)}
+      {@const loadedEditionCount = releaseGroups.reduce((count, group) => count + group.editions.filter(edition => !isReleaseGroup(edition)).length, 0)}
+      <p class="muted catalog-count">{#if hasGroupIndex}{releaseGroups.length} {releaseGroups.length === 1 ? "album" : "albums"} loaded{#if loadedEditionCount} · {loadedEditionCount} editions loaded{/if}{:else}{releaseGroups.length} {releaseGroups.length === 1 ? "album" : "albums"} · {loadedEditionCount} editions loaded{/if}</p>
       {#if loadingReleaseOrder}<p class="muted" role="status">Loading remaining releases to order albums…</p>{:else if releases?.nextCursor && !releases.warnings.length}<p class="muted">More releases are available; order applies to the albums loaded so far.</p>{/if}
       <div class="release-list">{#each releaseGroups as group (group.key)}
         {@const release = selectedEdition(group)}
         {@const artworkTrack = (releaseTrackCache[release.sourceUrl] ?? []).find((track) => track.artworkUrl)}
         {@const artworkSources = [...(artworkTrack ? trackArtworkSources(artworkTrack) : []), ...(release.artworkUrls ?? []), musicBrainzCover(release.sourceUrl)]}
-        <article class="release-card" aria-busy={Boolean(loadingRelease[release.sourceUrl])}><div class="release-card-header"><div class="release-card-main"><div class="release-art" aria-hidden="true"><ArtworkImage urls={artworkSources} /></div><div class="release-info"><small class="release-source">{providerLabel(release.release.provider)}</small><button class="album-title" aria-expanded={expandedRelease === group.key} onclick={() => void toggleRelease(group)}><strong>{release.title}</strong></button><p>{release.year ?? "Year unknown"}{#if release.country} · {territoryLabel(release.country)}{/if}{#if release.label} · {release.label}{/if}</p><small>{release.format ?? release.primaryType ?? "Format unknown"}{#if release.catalogNumber} · {release.catalogNumber}{/if} · {release.trackCount ?? "?"} tracks</small></div></div>
+        <article class="release-card" aria-busy={Boolean(loadingRelease[release.sourceUrl])}><div class="release-card-header"><div class="release-card-main"><div class="release-art" aria-hidden="true"><ArtworkImage urls={artworkSources} /></div><div class="release-info"><small class="release-source">{providerLabel(release.release.provider)}</small><button class="album-title" aria-expanded={expandedRelease === group.key} onclick={() => void toggleRelease(group)}><strong>{release.title}</strong></button><p>{release.year ?? "Year unknown"}{#if release.country} · {territoryLabel(release.country)}{/if}{#if release.label} · {release.label}{/if}</p><small>{release.format ?? release.primaryType ?? "Format unknown"}{#if release.catalogNumber} · {release.catalogNumber}{/if}{#if release.trackCount != null} · {release.trackCount} tracks{/if}</small></div></div>
           <div class="release-actions">{#if onSaveAlbumToLibrary && onAddAlbumToPlaylist}<button class="secondary" disabled={albumSaveState[release.sourceUrl]?.status === "saving"} onclick={() => void saveAlbumToLibrary(release, group.key)}>Save album</button>{/if}{#if onSaveLoadedTracks}<button class="secondary" disabled={albumSaveState[release.sourceUrl]?.status === "saving"} onclick={() => void saveAlbumToLibrary(release, group.key, false, true)}>Save loaded tracks</button>{/if}<button class="secondary" aria-label={`Play album ${release.title}`} onclick={() => void playRelease(release)} disabled={!getReleaseTracks || !onPlayTrack || loadingRelease[release.sourceUrl]}>{loadingRelease[release.sourceUrl] ? "Loading tracks…" : "Play album"}</button><details class="release-menu"><summary aria-label={`More actions for ${release.title}`}>More</summary><div class="release-menu-content"><button class="secondary" aria-label={`Queue album ${release.title}`} onclick={() => void queueRelease(release, "append")} disabled={!getReleaseTracks || !onQueueTracks || loadingRelease[release.sourceUrl]}>Queue</button><button class="secondary" aria-label={`Play album ${release.title} next`} onclick={() => void queueRelease(release, "next")} disabled={!getReleaseTracks || !onQueueTracks || loadingRelease[release.sourceUrl]}>Play next</button>{#if onDownloadAlbum}<button class="secondary" aria-label={`Download album ${release.title}`} onclick={() => void downloadRelease(release)} disabled={!getReleaseTracks || loadingRelease[release.sourceUrl] || albumActionState[release.sourceUrl]?.busy}>Download album</button>{/if}{#if onSearchAlbumSoulseek}<button class="secondary" aria-label={`Search album ${release.title} on Soulseek`} disabled={!soulseekSearchAvailable || albumActionState[release.sourceUrl]?.busy} title={!soulseekSearchAvailable ? "Enable and configure Soulseek in Settings → Connections to search albums." : undefined} onclick={() => void searchReleaseSoulseek(release)}>Search album on Soulseek</button>{#if !soulseekSearchAvailable}<small>Enable and configure Soulseek in Settings → Connections.</small>{/if}{/if}{#if onAddAlbumToPlaylist || onSaveAlbumToLibrary}<button class="secondary" aria-label={onAddAlbumToPlaylist ? `Add album ${release.title} to playlist` : `Save album ${release.title} to library`} onclick={() => void saveAlbumToLibrary(release, group.key, Boolean(onAddAlbumToPlaylist))} disabled={!getReleaseTracks || loadingRelease[release.sourceUrl] || albumSaveState[release.sourceUrl]?.status === "saving"}>{albumSaveState[release.sourceUrl]?.status === "saving" ? (onAddAlbumToPlaylist ? "Loading…" : "Saving…") : onAddAlbumToPlaylist ? "Add to playlist" : albumSaveState[release.sourceUrl]?.status === "saved" ? "Saved" : "Save to library"}</button>{/if}</div></details><button class="secondary" aria-expanded={expandedRelease === group.key} onclick={() => void toggleRelease(group)}>Tracks</button></div>{#if albumActionState[release.sourceUrl]?.message}<p class="album-action-status" role="status">{albumActionState[release.sourceUrl].message}</p>{/if}</div>
           {#if loadingRelease[release.sourceUrl]}<p class="muted album-load-status" role="status">Loading tracks for {release.title}…</p>{:else if releaseLoadErrors[release.sourceUrl]}<p class="notice error" role="alert">Could not load tracks for {release.title}: {releaseLoadErrors[release.sourceUrl]}</p>{/if}
           {#if (onAddAlbumToPlaylist || onSaveAlbumToLibrary) && albumSaveState[release.sourceUrl]}<p class={`notice album-save-status ${albumSaveState[release.sourceUrl].status === "error" ? "error" : ""}`} aria-live="polite">{albumSaveState[release.sourceUrl].message}</p>{/if}
           {#if release.tracks.length && !getReleaseTracks}<details class="source-track-details"><summary>Track titles from source · {release.tracks.length}</summary><ol class="release-tracklist">{#each release.tracks as sourceTrack, trackIndex (trackIndex)}<li>{sourceTrack.position ? `${sourceTrack.position}. ` : ""}{sourceTrack.title}</li>{/each}</ol></details>{/if}
-          {#if group.editions.length > 1}<label class="edition-select">Edition <select value={release.sourceUrl} onchange={(event) => { editionByGroup = { ...editionByGroup, [group.key]: event.currentTarget.value }; const chosen = group.editions.find((item) => item.sourceUrl === event.currentTarget.value); if (chosen && expandedRelease === group.key) void loadReleaseTracks(chosen); }} aria-label={`Edition of ${release.title}`}>{#each group.editions as edition (edition.sourceUrl)}<option value={edition.sourceUrl}>{edition.year ?? "Year unknown"} · {providerLabel(edition.release.provider)}{edition.country ? ` · ${territoryLabel(edition.country)}` : ""}</option>{/each}</select></label>{/if}
+          {#if group.editions.length > 1}<label class="edition-select">Edition <select value={release.sourceUrl} onchange={(event) => { editionByGroup = { ...editionByGroup, [group.key]: event.currentTarget.value }; const chosen = group.editions.find((item) => item.sourceUrl === event.currentTarget.value); if (chosen && expandedRelease === group.key) void loadReleaseTracks(chosen); }} aria-label={`Edition of ${release.title}`}>{#each group.editions as edition (edition.sourceUrl)}<option value={edition.sourceUrl}>{isReleaseGroup(edition) ? "MusicBrainz release group · representative" : `${edition.year ?? "Year unknown"} · ${providerLabel(edition.release.provider)}${edition.country ? ` · ${territoryLabel(edition.country)}` : ""}`}</option>{/each}</select></label>{/if}
           {#if expandedRelease === group.key}<div class="expanded-tracks">
+            {#if group.editions.find(isReleaseGroup) && getReleaseEditions}{@const groupRef = group.editions.find(isReleaseGroup)!}<div class="edition-discovery">{#if !releaseEditionPages[groupRef.sourceUrl]}<button class="secondary" onclick={() => void loadReleaseEditions(groupRef)} disabled={loadingReleaseEditions[groupRef.sourceUrl]}>{loadingReleaseEditions[groupRef.sourceUrl] ? "Loading editions…" : "Choose edition"}</button>{:else if releaseEditionPages[groupRef.sourceUrl].nextCursor}<button class="secondary" onclick={() => void loadReleaseEditions(groupRef, releaseEditionPages[groupRef.sourceUrl].nextCursor)} disabled={loadingReleaseEditions[groupRef.sourceUrl]}>More editions</button>{:else}<p class="muted" role="status">All available editions loaded.</p>{/if}{#if releaseEditionErrors[groupRef.sourceUrl]}<p class="notice error" role="alert">Could not load editions: {releaseEditionErrors[groupRef.sourceUrl]}</p>{/if}{#if releaseEditionPages[groupRef.sourceUrl]?.warnings.length}<p class="notice">{releaseEditionPages[groupRef.sourceUrl].warnings.join(" · ")}</p>{/if}</div>{/if}
             {#if !loadingRelease[release.sourceUrl] && (releaseTrackCache[release.sourceUrl] ?? []).length}
               {@const sourceTracks = releaseTrackCache[release.sourceUrl] ?? []}
               {@const visibleReleaseOccurrences = filteredReleaseOccurrences(sourceTracks)}
@@ -947,7 +1090,7 @@
       </article>{/each}{/if}
       {#each review.fields as field (field.key)}<label class="field"><input type="checkbox" checked={selectedFields.includes(field.key as MetadataFieldKey)} onchange={(event) => toggleField(field.key as MetadataFieldKey, event.currentTarget.checked)} /><span><strong>{field.key}</strong><span>{field.value ?? "(empty)"}</span><small><a href={field.sourceUrl} target="_blank" rel="noreferrer">{field.source} ↗</a>{#if field.note} · {field.note}{/if}</small></span></label>{/each}
       {#if review.credits.length}<h4>Credits (source roles retained)</h4><p>{review.credits.map((credit) => `${credit.name} — ${credit.role}`).join(" · ")}</p>{/if}
-      <button onclick={() => void applyReview()} disabled={busy || !selectedFields.length || !activeTrack}>Apply selected fields</button>
+      <button class="primary" onclick={() => void applyReview()} disabled={busy || !selectedFields.length || !activeTrack}>Apply selected fields</button>
       <button class="secondary" onclick={() => { review = null; }}>Dismiss</button>
     </section>
   {/if}
@@ -960,7 +1103,7 @@
   h2,h3,h4,p{margin:.25rem 0}h2{font-size:1.4rem}h3{font-size:1rem}.eyebrow,.source,small,.muted{color:var(--muted,#a3a8ae);font-size:.82rem}.eyebrow{letter-spacing:.09em;font-weight:700}
   .search{display:flex;gap:.5rem}.search input{flex:1;min-width:80px}.search input,input[type=checkbox]{accent-color:var(--accent,#67c3a5)}
   input:not([type=checkbox]){background:var(--input,#22262b);border:1px solid var(--border,#383d43);color:inherit;border-radius:7px;padding:.65rem}
-  button{border:0;border-radius:7px;padding:.6rem .8rem;background:var(--accent,#67c3a5);color:#111;font-weight:650;cursor:pointer}button:disabled{opacity:.5;cursor:default}.secondary,.back{background:transparent;color:inherit;border:1px solid var(--border,#383d43)}.back{align-self:start}
+  .back{background:transparent;color:var(--text);border:1px solid var(--line);align-self:start}
   .results,.release-list{display:flex;flex-direction:column;gap:.5rem;min-width:0}.artist-result,.release-list article{width:100%;min-width:0;text-align:left;background:var(--input,#22262b);color:inherit;border:1px solid var(--border,#383d43);padding:.8rem;border-radius:8px;overflow-wrap:anywhere}.artist-result span{min-width:0;overflow-wrap:anywhere}.artist-result span:first-child{display:flex;flex-direction:column;gap:.2rem}.artist-result .source{text-align:right}.artist-heading{justify-content:flex-start;min-width:0}.artist-heading>div{min-width:0;overflow-wrap:anywhere}.artist-portrait{width:84px;height:84px;object-fit:cover;border-radius:8px}.tabs{display:flex;gap:.35rem;overflow:auto;border-bottom:1px solid var(--border,#383d43);max-width:100%}.tabs button{white-space:nowrap;background:transparent;color:inherit;border-radius:6px 6px 0 0}.tabs button.active{background:var(--accent,#67c3a5);color:#111}
   .artist-provider-action{display:block;margin-top:.5rem}.notice{padding:.65rem .8rem;border-left:3px solid var(--accent,#67c3a5);background:var(--input,#22262b);border-radius:4px}.error{border-color:#ec7373}.overview-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:.75rem}.overview-grid article,.review{padding:.8rem;border:1px solid var(--border,#383d43);border-radius:8px}.bio{white-space:pre-wrap;max-height:12rem;overflow:auto}.links{display:flex;gap:.75rem;flex-wrap:wrap}.release-list article{align-items:flex-start}.release-list article>div{min-width:0}.review{display:flex;flex-direction:column;gap:.6rem}.field{display:flex;gap:.65rem;align-items:flex-start;padding:.5rem;border:1px solid var(--border,#383d43);border-radius:6px}.field>span{display:flex;flex-direction:column;gap:.2rem}.candidate{justify-content:space-between;padding:.5rem 0}
   .release-menu{position:relative}.release-menu summary{cursor:pointer;list-style:none;border:1px solid var(--border,#383d43);border-radius:6px;padding:.43rem .58rem;font-size:.8rem}.release-menu-content{position:absolute;z-index:5;right:0;top:100%;display:flex;flex-direction:column;gap:.25rem;min-width:10rem;padding:.4rem;background:var(--input,#22262b);border:1px solid var(--border,#383d43);border-radius:6px;box-shadow:0 4px 12px #0008}.release-menu-content button{text-align:left}.album-load-status{margin:0}

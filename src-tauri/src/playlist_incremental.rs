@@ -19,6 +19,36 @@ pub(crate) struct Revisions {
     pub external: i64,
 }
 
+// These queries only discover which mirrors may need refreshing. The shared
+// recording matcher still decides whether a file can actually be reused.
+fn potential_local_match_listings(row: &str) -> String {
+    format!(
+        r#"WITH asset AS MATERIALIZED (
+        SELECT artist_match_key(COALESCE(json_extract(r.manual_metadata,'$.artist'),json_extract({row}.payload,'$.track.artist'))) artist,
+            local_recording_title_key(COALESCE(json_extract(r.manual_metadata,'$.title'),json_extract({row}.payload,'$.track.title'))) title,
+            CAST(json_extract({row}.payload,'$.durationSeconds') AS REAL) duration
+        FROM recordings r WHERE r.id={row}.recording_id AND json_valid({row}.payload)
+    ), candidates AS MATERIALIZED (
+        SELECT l.id FROM asset a JOIN catalog_listings l
+        ON CAST(json_extract(l.metadata,'$.durationSeconds') AS REAL) BETWEEN MIN(a.duration*0.9,a.duration-10) AND MAX(a.duration*1.1,a.duration+10)
+        WHERE json_valid(l.metadata)
+        UNION
+        SELECT l.id FROM asset a JOIN recordings r
+        ON CAST(json_extract(r.manual_metadata,'$.durationSeconds') AS REAL) BETWEEN MIN(a.duration*0.9,a.duration-10) AND MAX(a.duration*1.1,a.duration+10)
+        JOIN catalog_listings l ON l.recording_id=r.id WHERE json_valid(r.manual_metadata)
+    ) SELECT l.id FROM candidates c JOIN catalog_listings l ON l.id=c.id
+        JOIN recordings r ON r.id=l.recording_id JOIN asset a
+        WHERE artist_match_key(COALESCE(json_extract(r.manual_metadata,'$.artist'),json_extract(l.metadata,'$.artist')))=a.artist
+        AND local_recording_title_key(COALESCE(json_extract(r.manual_metadata,'$.title'),json_extract(l.metadata,'$.title')))=a.title"#
+    )
+}
+fn local_match_collections(row: &str) -> String {
+    format!("WITH matched AS MATERIALIZED (SELECT d.listing_id,l.recording_id,r.favorite FROM local_match_dependencies d JOIN catalog_listings l ON l.id=d.listing_id JOIN recordings r ON r.id=l.recording_id WHERE d.asset_id={row}.id)
+        SELECT m.collection_id FROM collection_members m JOIN matched d ON d.recording_id=m.recording_id
+        UNION SELECT e.collection_id FROM playlist_ordered_entries e JOIN matched d ON d.listing_id=e.listing_id
+        UNION SELECT 'favorites' WHERE EXISTS(SELECT 1 FROM matched WHERE favorite=1)")
+}
+
 pub(crate) fn install(conn: &Connection) -> Result<(), String> {
     conn.execute_batch("CREATE TEMP TABLE playlist_sync_epoch(id INTEGER PRIMARY KEY,generation INTEGER NOT NULL,global INTEGER NOT NULL);
         INSERT INTO playlist_sync_epoch VALUES(1,0,0);
@@ -79,6 +109,18 @@ pub(crate) fn install(conn: &Connection) -> Result<(), String> {
                             _ => " WHEN OLD.payload IS NOT NEW.payload OR OLD.status IS NOT NEW.status".into(),
                         };
                     }
+                    if table == "local_assets" {
+                        if event != "INSERT" {
+                            body.push_str(&mark(&local_match_collections("OLD")));
+                            body.push_str(
+                                "DELETE FROM local_match_dependencies WHERE asset_id=OLD.id;",
+                            );
+                        }
+                        if event != "DELETE" {
+                            body.push_str(&format!("INSERT OR IGNORE INTO local_match_dependencies SELECT id,NEW.id FROM ({});", potential_local_match_listings("NEW")));
+                            body.push_str(&mark(&local_match_collections("NEW")));
+                        }
+                    }
                     let mut affected = Vec::new();
                     for row in &refs {
                         let recording = if table == "recordings" {
@@ -108,8 +150,21 @@ pub(crate) fn install(conn: &Connection) -> Result<(), String> {
                         body.push_str(&mark(&select));
                         affected.push(select);
                     }
-                    let relevant = format!("EXISTS(SELECT 1 FROM ({}))", affected.join(" UNION "));
-                    condition = if condition.is_empty() {
+                    let mut relevant =
+                        format!("EXISTS(SELECT 1 FROM ({}))", affected.join(" UNION "));
+                    if table == "recordings" && event == "UPDATE" {
+                        // A user edit to registered file identity can create or
+                        // remove cross-record matches. Such edits are rare;
+                        // ordinary asset changes use targeted dependencies.
+                        let edited_file = "(OLD.manual_metadata IS NOT NEW.manual_metadata AND EXISTS(SELECT 1 FROM local_assets WHERE recording_id=NEW.id))";
+                        body.push_str(&format!("UPDATE playlist_sync_epoch SET global=generation WHERE id=1 AND {edited_file};"));
+                        relevant = format!("({relevant} OR {edited_file})");
+                    }
+                    condition = if table == "local_assets" {
+                        // The dependency map must be refreshed even if the
+                        // asset's own recording has no playlist membership.
+                        condition
+                    } else if condition.is_empty() {
                         format!(" WHEN {relevant}")
                     } else {
                         format!(
@@ -135,7 +190,7 @@ pub(crate) fn install(conn: &Connection) -> Result<(), String> {
                     // Transport, playback bookmarks, caches and volume changes do not dirty playlists.
                     condition = format!(" WHEN {row}.key IN ('playlistMirrorOptions.v1','playlistHierarchy.v1','sidebarLayout.v1','playlistPreferences.v1','playlistHistoryMirror.v1','includeRadioSongsInPlaybackHistory.v1')");
                     if event == "UPDATE" {
-                        condition.push_str(" OR (NEW.key='application' AND (json_extract(OLD.value,'$.musicDirectory') IS NOT json_extract(NEW.value,'$.musicDirectory') OR json_extract(OLD.value,'$.playlistDirectories') IS NOT json_extract(NEW.value,'$.playlistDirectories') OR json_extract(OLD.value,'$.playlistMirroringEnabled') IS NOT json_extract(NEW.value,'$.playlistMirroringEnabled')))
+                        condition.push_str(" OR (NEW.key='application' AND (json_extract(OLD.value,'$.musicDirectory') IS NOT json_extract(NEW.value,'$.musicDirectory') OR json_extract(OLD.value,'$.playlistDirectories') IS NOT json_extract(NEW.value,'$.playlistDirectories') OR json_extract(OLD.value,'$.playlistMirroringEnabled') IS NOT json_extract(NEW.value,'$.playlistMirroringEnabled') OR json_extract(OLD.value,'$.matchingLevel') IS NOT json_extract(NEW.value,'$.matchingLevel') OR json_extract(OLD.value,'$.flexibleMatching') IS NOT json_extract(NEW.value,'$.flexibleMatching')))
                             OR (NEW.key='playlistSync.v1' AND json_extract(OLD.value,'$.writesPaused') IS NOT json_extract(NEW.value,'$.writesPaused'))");
                     } else {
                         condition.push_str(&format!(
