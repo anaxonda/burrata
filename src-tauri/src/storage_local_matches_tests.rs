@@ -298,7 +298,7 @@ fn verified_spotify_musicbrainz_artist_alias_enables_bounded_local_reuse_and_ava
         false,
     );
     assert!(
-        crate::storage_local_matches::accepts_with_aliases(
+        super::local_matches::accepts_with_aliases(
             &request,
             &candidate_asset,
             &Settings::default(),
