@@ -112,12 +112,12 @@ mod recognition_input;
 pub mod recording_filename;
 pub mod recording_identity;
 pub mod recording_match;
-mod recording_verification;
 mod recording_match_aliases;
 mod recording_match_context;
 #[cfg(test)]
 mod recording_match_corpus;
 mod recording_timing_identity;
+mod recording_verification;
 pub mod remote_playlists;
 pub mod restore_work_policy;
 pub(crate) mod search_plan;
