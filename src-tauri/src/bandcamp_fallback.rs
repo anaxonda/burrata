@@ -1059,22 +1059,14 @@ pub(crate) fn schedule_verification(
     let Some(permit) = crate::recording_verification::try_start(key.clone()) else {
         return;
     };
-    if store
-        .set_provider_cache(
-            "playback.bandcamp-reference-jobs.v1",
-            &key,
-            &json!({"attemptedAt":chrono::Utc::now().timestamp()}),
-            300,
-        )
-        .is_err()
-    {
-        return;
-    }
     let acquisition = acquisition.clone();
     let track = track.clone();
     tokio::spawn(async move {
         let _permit = permit;
-        let (_stop, cancel) = watch::channel(false);
+        if !_permit.wait_until_quiet().await {
+            return;
+        }
+        let cancel = _permit.cancel.clone();
         let settings = match store.playback_settings() {
             Ok(current)
                 if current.streaming_fallback_enabled && current.bandcamp_fallback_enabled =>
@@ -1083,6 +1075,17 @@ pub(crate) fn schedule_verification(
             }
             _ => return,
         };
+        if store
+            .set_provider_cache(
+                "playback.bandcamp-reference-jobs.v1",
+                &key,
+                &json!({"attemptedAt":chrono::Utc::now().timestamp()}),
+                300,
+            )
+            .is_err()
+        {
+            return;
+        }
         let trace = SourceTrace::new(None, None, None);
         let deadline = PlaybackDeadline::after(Duration::from_secs(45));
         let started = std::time::Instant::now();

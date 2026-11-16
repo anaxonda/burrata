@@ -3034,9 +3034,10 @@ describe("saved recording navigation", () => {
     expect(playedTracks[1]).toEqual(repeated);
     expect(playedTracks[204]).toEqual(final);
 
-    const queue = document.querySelector<HTMLButtonElement>('[aria-label="Queue all 205 saved tracks in playlist order, ignoring filters"]')!;
-    expect(queue.disabled).toBe(false);
-    queue.click();
+    document.querySelector<HTMLButtonElement>('[aria-label="Playlist context menu"]')!.click();
+    await settle();
+    const playlistMenu = document.querySelector<HTMLDialogElement>('dialog.playlist-menu[aria-label="Actions for playlist Saved Collection"]')!;
+    [...playlistMenu.querySelectorAll<HTMLButtonElement>("button")].find((item) => menuActionText(item) === "Add to queue")!.click();
     await settle();
     expect(mocks.call).toHaveBeenCalledWith("playback_command", expect.objectContaining({
       command: expect.objectContaining({ action: "queue", tracks: savedRows, mode: "append" }),
@@ -3100,7 +3101,10 @@ describe("saved recording navigation", () => {
     collectionCard("Empty Collection").click();
     await settle();
     expect(document.querySelector<HTMLButtonElement>('[aria-label="Play all 0 saved tracks in playlist order, ignoring filters"]')?.disabled).toBe(true);
-    expect(document.querySelector<HTMLButtonElement>('[aria-label="Queue all 0 saved tracks in playlist order, ignoring filters"]')?.disabled).toBe(true);
+    document.querySelector<HTMLButtonElement>('[aria-label="Playlist context menu"]')!.click();
+    await settle();
+    const playlistMenu = document.querySelector<HTMLDialogElement>('dialog.playlist-menu[aria-label="Actions for playlist Empty Collection"]')!;
+    expect([...playlistMenu.querySelectorAll<HTMLButtonElement>("button")].some((item) => menuActionText(item) === "Add to queue")).toBe(false);
   });
 
   it("removes one recording directly from its active playlist only", async () => {
