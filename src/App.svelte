@@ -72,6 +72,8 @@
   import { createAutomationPlaybackPublisher, queueProjectionRevision, type PlaybackStateAck } from "./lib/automation-playback-publisher";
 
   import { measurePlaybackLayout } from "./lib/playback-layout";
+  import PlaylistArtwork from "./PlaylistArtwork.svelte";
+  import { safeArtworkUrls } from "./lib/artwork-url";
   import { inspectArtworkImages } from "./lib/artwork-diagnostics";
   import { ArtworkDisplayCache } from "./lib/artwork-display";
   import { metadataCount } from "./lib/provider-counts";
@@ -2824,6 +2826,11 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
   const currentCollection = $derived(
     collections.find((c) => c.id === collectionId),
   );
+  const playlistHeroVisible = $derived(view === "collections" || (view === "charts" && Boolean(activeBrowserImport)));
+  const playlistHeroArtwork = $derived(playlistHeroVisible
+    ? safeArtworkUrls([...new Set(tracks.slice(0, 16).map(track => track.artworkUrl))], 4)
+    : []);
+  const playlistHeroCount = $derived(view === "collections" ? currentCollection?.trackCount ?? 0 : activeBrowserImport?.capturedCount ?? tracks.length);
   function savedPlaylistContext(id: string): PlaylistContext | undefined {
     // Imported and synced playlists count once they are present as saved local collections.
     // Remote source IDs that were never saved have no matching local collection.
@@ -6124,6 +6131,15 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       if (request === playlistPlaybackRequest) playlistPlaybackAction = null;
     }
   }
+  async function queueSavedPlaylist(id: string) {
+    if (view === "collections" && collectionId === id) return playCurrentPlaylist("queue");
+    try {
+      const items = await call<Track[]>("list_tracks", { view: "collections", collectionId: id });
+      if (!Array.isArray(items)) throw new Error("The saved playlist could not be read.");
+      if (items.length) await nativeCommand({ action: "queue", tracks: items, mode: "append" });
+      else setNotice("This playlist has no saved tracks to queue.");
+    } catch (failure) { error = String(failure); }
+  }
   let downloadSortField = $state<TrackSortField>("sourceOrder"),downloadSortDirection = $state<SortDirection>("asc"),downloadMinDuration=$state(""),downloadMaxDuration=$state("");
   const sortedDownloadJobs=$derived.by(()=>{
     const byId=new Map(jobs.map(job=>[job.id,job]));
@@ -7568,9 +7584,15 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     onImport={() => void createNewPlaylist()} onSettings={() => void navigate("settings")} onDownloads={() => { openPlayerPanel("downloads"); void refreshJobs(); }}
     activeJobs={jobs.filter((job) => !["completed", "failed", "cancelled", "waiting_for_source", "interrupted"].includes(job.state)).length} />
   <main inert={showFullNowPlaying}>
-    <header class:playlist-header={view === "collections"}>
+    <header class:playlist-header={playlistHeroVisible}>
+      {#if playlistHeroVisible && playlistHeroArtwork[0]}<img class="playlist-ambient" src={playlistHeroArtwork[0]} alt="" aria-hidden="true" />{/if}
       <div class="navigation-controls"><button aria-label="Go back" disabled={restoringRoute || !backRoutes.length} onclick={() => void travelRoute("back")}>←</button><button aria-label="Go forward" disabled={restoringRoute || !forwardRoutes.length} onclick={() => void travelRoute("forward")}>→</button></div>
-      <div>
+      <div class:playlist-identity={playlistHeroVisible}>
+        {#if playlistHeroVisible}<div class="playlist-hero-cover" aria-hidden="true">
+          <PlaylistArtwork urls={playlistHeroArtwork} fallback="♫" />
+        </div>{/if}
+        <div class:playlist-title-copy={playlistHeroVisible}>
+        {#if playlistHeroVisible}<span class="playlist-kind">Playlist</span>{/if}
         <div class="eyebrow">DISCOVER · AUDITION · COLLECT</div>
         <h1>
           {view === "directory-browser" ? "Folders" : view === "source-browser" ? (provider === "spotify" ? "Spotify" : provider === "youtube" ? "YouTube" : provider === "lastfm" ? "Last.fm" : provider === "shazam" ? "Shazam" : "Bandcamp") : view === "charts"
@@ -7582,6 +7604,8 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
         {#if currentPlaylistCreator?.ownerName || currentPlaylistCreator?.ownerId}
           <p class="playlist-creator">By {#if currentPlaylistCreator.ownerUrl}<button class="creator-profile-link" title="Browse Spotify creator playlists" onclick={() => void openCurrentPlaylistCreator()}>{currentPlaylistCreator.ownerName || currentPlaylistCreator.ownerId} ↗</button>{:else}{currentPlaylistCreator.ownerName || currentPlaylistCreator.ownerId}{/if}</p>
         {/if}
+        {#if playlistHeroVisible}<p class="playlist-summary">{playlistHeroCount.toLocaleString()} tracks</p>{/if}
+        </div>
       </div>
       <div class="header-actions">
         {#if view === "library"}
@@ -7957,17 +7981,17 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
           {#if renamingPlaylist}<input aria-label="Playlist name" bind:value={renamePlaylistName} onkeydown={(event)=>{if(event.key==="Enter")void renameCurrentPlaylist();if(event.key==="Escape")renamingPlaylist=false;}} /><button onclick={()=>void renameCurrentPlaylist()}>Save name</button>{/if}
           {#if currentPlaylistCreator}<button disabled={Boolean(busy)} onclick={()=>void refreshLinkedPlaylist(collectionId)}>Refresh</button>{#if (currentPlaylistCreator.provider === "spotify" || currentPlaylistCreator.provider === "youtube") && currentPlaylistCreator.canEdit}<LazyView loader={loadPlaylistSync} label="playlist sync" componentProps={{call,bindingId:currentPlaylistCreator.bindingId,enabled:remotePlaylistWriteSyncEnabled[currentPlaylistCreator.provider as "spotify" | "youtube"],onApplied:()=>refreshLinkedPlaylist(collectionId)}} />{/if}{/if}<button class="playlist-context-trigger" aria-label="Playlist context menu" title="More playlist actions" onclick={openCurrentPlaylistMenu}>⋯</button>{/if}
       </div>
-      {#if view === "charts"}<div class="chart-context">
+      {#if view === "charts"}<div class="chart-context" class:import-context={Boolean(activeBrowserImport)}>
           <span
             >{activeBrowserImport ? "" : chart?.title ?? "Genre charts"}{#if chart?.stale}<span class="tag"
                 >Cached</span
               >{/if}</span
           >
           <div class="chart-source-actions">
-            {#if activeBrowserImport}<button disabled={batchRunning} onclick={() => void downloadPlaylist(activeBrowserImport!.collectionId, true)}>↓ Download playlist</button><button class="playlist-context-trigger" aria-label="Playlist context menu" title="Playlist actions" onclick={openCurrentPlaylistMenu}>⋯</button>{:else if chart}<button class="playlist-context-trigger" aria-label="Playlist context menu" title="Playlist actions" onclick={openCurrentPlaylistMenu}>⋯</button>{/if}
+            {#if activeBrowserImport}<button class="playlist-context-trigger" aria-label="Playlist context menu" title="Playlist actions" onclick={openCurrentPlaylistMenu}>⋯</button>{:else if chart}<button class="playlist-context-trigger" aria-label="Playlist context menu" title="Playlist actions" onclick={openCurrentPlaylistMenu}>⋯</button>{/if}
 
             {#if activeBrowserImport}<label>Import date<select aria-label="Imported playlist version" value={importDateFilter || activeBrowserImport.id} onchange={(event) => { if (event.currentTarget.value === "all") void run(showAllImportDates); else { const version = browserImports.find((item) => item.id === event.currentTarget.value); if (version) void run(() => openBrowserImport(version)); } }}><option value="all">All import dates</option>{#each browserImports.filter((item) => item.sourceUrl === activeBrowserImport?.sourceUrl) as version}<option value={version.id}>{new Date(version.fetchedAt).toLocaleString()} · {version.capturedCount} tracks{version.complete ? "" : " · partial"}</option>{/each}</select></label>{/if}
-            {#if chart}<small class="chart-date"
+            {#if chart && !activeBrowserImport}<small class="chart-date"
                 >{new Date(chart.fetchedAt).toLocaleString()}</small
               >{/if}{#if snapshots.length}<select class="desktop-chart-snapshot"
                 aria-label="Saved chart snapshots"
@@ -8514,7 +8538,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
   {#if showReleaseSetup}<dialog open class="download-dialog release-onboarding" aria-label="Welcome to Burrata"><ReleaseSetup onboarding onSettingsChanged={()=>void call<Settings>("get_settings").then(value=>settings={...value,matchingLevel:value.matchingLevel??"balanced",playbackStartupTimeoutSeconds:value.playbackStartupTimeoutSeconds??20})} onComplete={()=>showReleaseSetup=false}/></dialog>{/if}
   {#if renameTarget}<dialog class="download-dialog playlist-picker-dialog" use:activateRenameDialog aria-label={`Rename ${renameTarget.kind}`} tabindex="-1"><form onsubmit={(event)=>{event.preventDefault();void saveSidebarRename();}}><h2>Rename {renameTarget.kind==="radio"?"station":"playlist"}</h2><label>Name<input aria-label="New name" maxlength="160" bind:value={sidebarRenameValue}/></label><footer><button type="button" onclick={()=>renameTarget=null}>Cancel</button><button class="primary" disabled={!sidebarRenameValue.trim()}>Save</button></footer></form></dialog>{/if}
   {#if radioActions}{@const menu=radioActions}<PlaylistMenu onDelete={()=>void removeSidebarStation(menu.station)} kind="radio station" name={menu.station.name} anchor={menu.anchor} {playerHeight} onRename={()=>startSidebarRename("radio",menu.station.id,menu.station.name)} onOpen={()=>{selectedRadioStationId=menu.station.id;void navigate("radio");}} onOpenSource={()=>void openSourceToRefresh(menu.station.homepageUrl??menu.station.sourceUrl)} onClose={()=>radioActions=null}/>{/if}
-  {#if playlistActions}{@const menu = playlistActions}<PlaylistMenu onRefresh={remotePlaylistBindings.some(binding=>binding.collectionId===menu.collection.id||binding.sourceCollectionId===menu.collection.id)?()=>void refreshLinkedPlaylist(menu.collection.id):undefined} onExport={collections.some(item=>item.id===menu.collection.id)||menu.collection.id==="favorites"?()=>{portablePlaylistInitialMode="export";if(menu.collection.id==="favorites")portablePlaylistTarget={id:"favorites",name:menu.collection.name,trackCount:favoriteTrackIds.length};else portablePlaylistTarget=menu.collection;}:menu.collection.id==="history"?()=>showPortableHistory=true:undefined} onMoveToFolder={collections.some(item=>item.id===menu.collection.id)||menu.collection.id==="favorites"?()=>{portablePlaylistInitialMode="folder";if(menu.collection.id==="favorites")portablePlaylistTarget={id:"favorites",name:menu.collection.name,trackCount:favoriteTrackIds.length};else portablePlaylistTarget=menu.collection;}:undefined} onCopy={menu.collection.id==="favorites"||menu.collection.id===playlistPreferences.favoritesPlaylistId?()=>void copyFavoritesPlaylist():activeBrowserImport?.collectionId===menu.collection.id?()=>void run(copyCurrentImport):undefined} onRename={()=>startSidebarRename("playlist",menu.collection.id,menu.collection.name)} onDownload={collections.some(item=>item.id===menu.collection.id)?()=>void downloadPlaylist(menu.collection.id):undefined} onOpenSource={(sourceUrlForCollection(menu.collection.id) || (menu.collection.id===chart?.id?currentChartSourceUrl:null)) ? () => void openSourceToRefresh((sourceUrlForCollection(menu.collection.id) || currentChartSourceUrl)!) : undefined} name={menu.collection.name} anchor={menu.anchor} {playerHeight} onClose={() => (playlistActions = null)} onOpen={() => void openPlaylist(menu.collection.id)} onMirrorSettings={collections.some(item=>item.id===menu.collection.id)||menu.collection.id==="favorites"||menu.collection.id==="history"?() => playlistMirrorSettingsTarget = { collectionId: menu.collection.id, name: menu.collection.name }:undefined} onDelete={menu.collection.id!==DOWNLOADS_PLAYLIST_ID && collections.some(item=>item.id===menu.collection.id)?()=>void deletePlaylist(menu.collection):undefined} />{/if}
+  {#if playlistActions}{@const menu = playlistActions}<PlaylistMenu onQueue={collections.some(item=>item.id===menu.collection.id)?()=>void queueSavedPlaylist(menu.collection.id):undefined} onRefresh={remotePlaylistBindings.some(binding=>binding.collectionId===menu.collection.id||binding.sourceCollectionId===menu.collection.id)?()=>void refreshLinkedPlaylist(menu.collection.id):undefined} onExport={collections.some(item=>item.id===menu.collection.id)||menu.collection.id==="favorites"?()=>{portablePlaylistInitialMode="export";if(menu.collection.id==="favorites")portablePlaylistTarget={id:"favorites",name:menu.collection.name,trackCount:favoriteTrackIds.length};else portablePlaylistTarget=menu.collection;}:menu.collection.id==="history"?()=>showPortableHistory=true:undefined} onMoveToFolder={collections.some(item=>item.id===menu.collection.id)||menu.collection.id==="favorites"?()=>{portablePlaylistInitialMode="folder";if(menu.collection.id==="favorites")portablePlaylistTarget={id:"favorites",name:menu.collection.name,trackCount:favoriteTrackIds.length};else portablePlaylistTarget=menu.collection;}:undefined} onCopy={menu.collection.id==="favorites"||menu.collection.id===playlistPreferences.favoritesPlaylistId?()=>void copyFavoritesPlaylist():activeBrowserImport?.collectionId===menu.collection.id?()=>void run(copyCurrentImport):undefined} onRename={()=>startSidebarRename("playlist",menu.collection.id,menu.collection.name)} onDownload={collections.some(item=>item.id===menu.collection.id)?()=>void downloadPlaylist(menu.collection.id):undefined} onOpenSource={(sourceUrlForCollection(menu.collection.id) || (menu.collection.id===chart?.id?currentChartSourceUrl:null)) ? () => void openSourceToRefresh((sourceUrlForCollection(menu.collection.id) || currentChartSourceUrl)!) : undefined} name={menu.collection.name} anchor={menu.anchor} {playerHeight} onClose={() => (playlistActions = null)} onOpen={() => void openPlaylist(menu.collection.id)} onMirrorSettings={collections.some(item=>item.id===menu.collection.id)||menu.collection.id==="favorites"||menu.collection.id==="history"?() => playlistMirrorSettingsTarget = { collectionId: menu.collection.id, name: menu.collection.name }:undefined} onDelete={menu.collection.id!==DOWNLOADS_PLAYLIST_ID && collections.some(item=>item.id===menu.collection.id)?()=>void deletePlaylist(menu.collection):undefined} />{/if}
   {#if actionTrack}{@const menuTrack = actionTrack}{@const albumTarget = trackAlbumTarget(menuTrack)}<TrackMenu track={menuTrack} onRadio={() => void startSongRadio(menuTrack)} radioBusy={radioBusy === menuTrack.id} anchor={actionAnchor} {playerHeight} onRemove={view === "collections" ? () => void removePlaylistTrack(menuTrack) : undefined} onClose={() => (actionTrack = null)} onNext={() => queueArtistTracks([menuTrack], "next")} onQueue={() => queueArtistTracks([menuTrack], "append")} onPlaylist={() => void addArtistTrack(menuTrack)} albumActionLabel={albumTarget?.kind === "search" ? "Find album" : "Go to album"} onGoToAlbum={albumTarget ? () => void openTrackAlbum(menuTrack) : undefined} onGoToAlbumUnavailable={!albumTarget} onFavorite={() => void favorite(menuTrack)} onDownload={() => void openDownloadChooser(menuTrack, undefined, undefined, currentSavedPlaylistContext())} onUpgrade={()=>void openDownloadChooser(menuTrack)} onMoreInfo={() => searchMoreInfo(menuTrack,importedAudioCandidate(menuTrack))} onArtist={() => void discoverArtist(menuTrack)} onOpenMpv={mpvAvailable?()=>void openTrackInMpv(menuTrack):undefined} onDetails={() => openPlayerPanel("info", menuTrack)} onSelect={() => { if (view === "collections") localPlaylistSelectionMode = true; else batchSelectionMode = true; if (!checked.includes(menuTrack.id)) checked = [...checked, menuTrack.id]; }} />{/if}
   {#if infoSearchTarget}<TrackInfoSearch track={infoSearchTarget.track} candidate={infoSearchTarget.candidate} chapterTitle={infoSearchTarget.chapterTitle} onClose={() => (infoSearchTarget=null)} onCatalogSearch={openCatalogInfoSearch} onWebSearch={openWebInfoSearch} onOpenSource={openInfoSource} />{/if}
   {#if showFullNowPlaying && playingTrack}

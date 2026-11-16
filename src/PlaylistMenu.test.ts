@@ -25,18 +25,23 @@ describe("PlaylistMenu", () => {
     Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value(this: HTMLDialogElement) { this.setAttribute("open", ""); } });
     const target = document.createElement("div"); document.body.append(target);
     const onMoveToFolder = vi.fn();
+    const onQueue = vi.fn();
     const onClose = vi.fn();
     const instance = mount(PlaylistMenu, { target, props: {
       name: "Evening set", anchor: { x: 40, y: 40 }, playerHeight: 90,
-      onClose, onOpen: vi.fn(), onMoveToFolder,
+      onClose, onOpen: vi.fn(), onMoveToFolder, onQueue, onDownload: vi.fn(),
     } as never });
     cleanup = () => unmount(instance);
     await tick();
     const move = [...target.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim() === "Move to folder…")!;
     expect(move).toBeTruthy();
+    const buttons = [...target.querySelectorAll<HTMLButtonElement>("button")];
+    expect(buttons.filter(button => button.textContent?.trim() === "Download playlist")).toHaveLength(1);
+    buttons.find(button => button.textContent?.trim() === "Add to queue")!.click();
+    expect(onQueue).toHaveBeenCalledOnce();
     move.click();
     expect(onMoveToFolder).toHaveBeenCalledOnce();
-    expect(onClose).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledTimes(2);
   });
 
   it("uses contained dialog focus, restores the opener on unmount, and closes on Escape", async () => {

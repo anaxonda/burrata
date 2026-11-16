@@ -1,11 +1,12 @@
 <script lang="ts">
   import ActionMenu from "./ActionMenu.svelte";
   import MenuIcon from "./MenuIcon.svelte";
-  let { name, anchor, playerHeight, onClose, onOpen, onDelete, onDownload, onOpenSource, onRename, onExport, onMoveToFolder, onCopy, onRefresh, onMirrorSettings, kind="playlist" }: { name: string; anchor: { x: number; y: number }; playerHeight: number; onClose: () => void; onOpen: () => void; onDelete?: () => void; onRename?:()=>void;kind?:"playlist"|"radio station"; onDownload?: () => void; onRefresh?: () => void; onExport?: () => void; onMoveToFolder?: () => void; onCopy?: () => void; onOpenSource?: () => void; onMirrorSettings?: () => void } = $props();
+  let { name, anchor, playerHeight, onClose, onOpen, onDelete, onDownload, onQueue, onOpenSource, onRename, onExport, onMoveToFolder, onCopy, onRefresh, onMirrorSettings, kind="playlist" }: { name: string; anchor: { x: number; y: number }; playerHeight: number; onClose: () => void; onOpen: () => void; onDelete?: () => void; onRename?:()=>void;kind?:"playlist"|"radio station"; onDownload?: () => void; onQueue?: () => void; onRefresh?: () => void; onExport?: () => void; onMoveToFolder?: () => void; onCopy?: () => void; onOpenSource?: () => void; onMirrorSettings?: () => void } = $props();
   function action(callback: () => void) { callback(); onClose(); }
 </script>
 <ActionMenu class="playlist-menu" label={`Actions for ${kind} ${name}`} title={name} closeLabel="Close playlist actions" {anchor} {playerHeight} {onClose}>
   <button class="primary-action" onclick={() => action(onOpen)}><MenuIcon name="play"/><span>Open {kind}</span></button>
+  {#if onQueue}<button onclick={() => action(onQueue!)}><MenuIcon name="queue"/><span>Add to queue</span></button>{/if}
   {#if onRename}<button onclick={()=>action(onRename!)}><MenuIcon name="edit"/><span>Rename</span></button>{/if}
   {#if onRefresh}<button onclick={() => action(onRefresh!)}><MenuIcon name="refresh"/><span>Refresh playlist</span></button>{/if}
   {#if onOpenSource}<button class="menu-section" title={kind === "radio station" ? "Open the station website" : onRefresh ? "Open the original playlist in your browser" : "Opens the original source. Refresh it, then use the browser extension to capture an updated import."} onclick={() => action(onOpenSource!)}><MenuIcon name="external"/><span>{kind === "radio station" ? "Open station website" : onRefresh ? "Open source" : "Open source to refresh"}</span></button>{/if}
