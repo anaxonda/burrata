@@ -2171,6 +2171,8 @@ describe("saved recording navigation", () => {
     await settle();
     [...document.querySelectorAll<HTMLButtonElement>(".chart-toolbar button")].find((button) => button.textContent?.includes("Browse Top 100"))!.click();
     await settle();
+    expect(document.querySelector("header.playlist-header h1")?.textContent).toContain(chart.title);
+    expect(document.querySelector("header.playlist-header .playlist-hero-cover")).not.toBeNull();
     document.querySelector<HTMLButtonElement>('[aria-label="Playlist context menu"]')!.click(); await settle();
     const openSource = [...document.querySelectorAll<HTMLButtonElement>(".playlist-menu button")].find(button => menuActionText(button).includes("Open source to refresh"))!;
     expect(menuActionText(openSource)).toContain("Open source to refresh");
@@ -2982,6 +2984,24 @@ describe("saved recording navigation", () => {
       collectionId: "collection-full", trackIds: [collectionTrack.id],
     });
     expect(document.querySelector(".shared-track-list")?.textContent).not.toContain("Existing Collection Member");
+  });
+
+  it.each(["bandcamp","youtube","local"])("uses the shared playlist header for %s collections", async provider => {
+    delayedBrowserImports=Promise.resolve([]);
+    mockCollectionRows=[{...collectionTrack,provider,artworkUrl:"https://example.test/cover.jpg"}];
+    const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
+    collectionCard().click();await settle();
+    expect(document.querySelector("header.playlist-header h1")?.textContent).toContain("Saved Collection");
+    expect(document.querySelector("header.playlist-header .playlist-hero-cover img")).not.toBeNull();
+    expect(document.querySelector("header.playlist-header .playlist-ambient")).not.toBeNull();
+  });
+
+  it("uses the shared playlist header for virtual Liked Songs", async () => {
+    playlistPreferences={...playlistPreferences,favoritesPlaylistId:""};
+    const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".playlist-card")].find(button=>button.textContent?.includes("Liked Songs"))!.click();await settle();
+    expect(document.querySelector("header.playlist-header h1")?.textContent).toContain("Liked Songs");
+    expect(document.querySelector("header.playlist-header .playlist-hero-cover")).not.toBeNull();
   });
 
   it("plays and queues every saved playlist occurrence in stored order, independent of the visible filters", async () => {
@@ -8215,6 +8235,22 @@ describe("native playback frontend", () => {
     await settle();
     expect(document.querySelector(".player-status")?.textContent).toBe("Paused");
     expect(document.querySelector(".player-error")).toBeNull();
+  });
+
+  it("dismisses a playback error without controlling playback and shows a new failure", async () => {
+    const failed=makeNativeSnapshot({revision:1,generation:7,status:"failed",diagnostics:{lastSourceFailure:{trackId:savedTrack.id,title:savedTrack.title,artist:savedTrack.artist,reason:"Source unavailable"}}});
+    mountNative(failed);await settle();mocks.call.mockClear();
+    document.querySelector<HTMLButtonElement>('[aria-label="Dismiss playback error"]')!.click();await settle();
+    expect(document.querySelector(".player-error")).toBeNull();
+    expect(document.activeElement).toBe(document.querySelector("footer.player .play-button"));
+    expect(mocks.call.mock.calls.some(([name])=>name==="playback_command")).toBe(false);
+    emitNative({...failed,revision:2,position:1});await settle();
+    expect(document.querySelector(".player-error")).toBeNull();
+    emitNative({...failed,revision:3,generation:8});await settle();
+    expect(document.querySelector('[aria-label="Dismiss playback error"]')).not.toBeNull();
+    document.querySelector<HTMLButtonElement>('[aria-label="Dismiss playback error"]')!.click();await settle();
+    emitNative({...failed,revision:4,generation:8,diagnostics:{lastSourceFailure:{...failed.diagnostics!.lastSourceFailure!,reason:"Different failure"}}});await settle();
+    expect(document.querySelector(".player-error")?.textContent).toContain("Different failure");
   });
 
   it("clears a playback-skip notice for explicit MCP native next and previous", async () => {

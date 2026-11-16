@@ -2827,11 +2827,11 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
   const currentCollection = $derived(
     collections.find((c) => c.id === collectionId),
   );
-  const playlistHeroVisible = $derived(view === "collections" || (view === "charts" && Boolean(activeBrowserImport)));
+  const playlistHeroVisible = $derived(view === "collections" || view === "favorites" || (view === "charts" && Boolean(activeBrowserImport || chart)));
   const playlistHeroArtwork = $derived(playlistHeroVisible
     ? safeArtworkUrls([...new Set(tracks.slice(0, 16).map(track => track.artworkUrl))], 4)
     : []);
-  const playlistHeroCount = $derived(view === "collections" ? currentCollection?.trackCount ?? 0 : activeBrowserImport?.capturedCount ?? tracks.length);
+  const playlistHeroCount = $derived(view === "collections" ? currentCollection?.trackCount ?? 0 : view === "favorites" ? favoriteTrackIds.length : activeBrowserImport?.capturedCount ?? tracks.length);
   function savedPlaylistContext(id: string): PlaylistContext | undefined {
     // Imported and synced playlists count once they are present as saved local collections.
     // Remote source IDs that were never saved have no matching local collection.
@@ -4377,6 +4377,13 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       return safeNativeFailurePart(nativeSnapshot.playerMessage, "Playback failed.");
 
   });
+  let dismissedPlayerErrorKey = $state("");
+  const playerErrorKey = $derived(playerErrorMessage ? JSON.stringify([nativeSnapshot?.generation,nativeSnapshot?.entryId,nativeSnapshot?.trackId,playerErrorMessage]) : "");
+  $effect(() => { if (!playerErrorMessage) dismissedPlayerErrorKey = ""; });
+  function dismissPlayerError() {
+    dismissedPlayerErrorKey = playerErrorKey;
+    document.querySelector<HTMLButtonElement>("#burrata-playback-controls .play-button")?.focus();
+  }
   const playerStatusMessage = $derived.by(() => {
 
       switch (nativeSnapshot?.status) {
@@ -7615,14 +7622,14 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       <div class="navigation-controls"><button aria-label="Go back" disabled={restoringRoute || !backRoutes.length} onclick={() => void travelRoute("back")}>←</button><button aria-label="Go forward" disabled={restoringRoute || !forwardRoutes.length} onclick={() => void travelRoute("forward")}>→</button></div>
       <div class:playlist-identity={playlistHeroVisible}>
         {#if playlistHeroVisible}<div class="playlist-hero-cover" aria-hidden="true">
-          <PlaylistArtwork urls={playlistHeroArtwork} fallback="♫" />
+          <PlaylistArtwork urls={playlistHeroArtwork} fallback={view === "favorites" ? "♥" : "♫"} />
         </div>{/if}
         <div class:playlist-title-copy={playlistHeroVisible}>
         {#if playlistHeroVisible}<span class="playlist-kind">Playlist</span>{/if}
         <div class="eyebrow">DISCOVER · AUDITION · COLLECT</div>
         <h1>
           {view === "directory-browser" ? "Folders" : view === "source-browser" ? (provider === "spotify" ? "Spotify" : provider === "youtube" ? "YouTube" : provider === "lastfm" ? "Last.fm" : provider === "shazam" ? "Shazam" : "Bandcamp") : view === "charts"
-            ? (activeBrowserImport ? (sidebarLayout.names?.[activeBrowserImport.collectionId]??playlistTitle(activeBrowserImport.title,activeBrowserImport.provider)) : "Top 100")
+            ? (activeBrowserImport ? (sidebarLayout.names?.[activeBrowserImport.collectionId]??playlistTitle(activeBrowserImport.title,activeBrowserImport.provider)) : chart?.title ?? "Top 100")
             : view === "collections"
               ? (sidebarLayout.names?.[collectionId]??namedCollections.find(item=>item.id===collectionId)?.name ?? "Playlists")
               : view === "favorites" ? (sidebarLayout.names?.favorites??"Liked Songs") : view === "history" ? (sidebarLayout.names?.history??"Listening history") : view[0].toUpperCase() + view.slice(1)}
@@ -8009,7 +8016,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       </div>
       {#if view === "charts"}<div class="chart-context" class:import-context={Boolean(activeBrowserImport)}>
           <span
-            >{activeBrowserImport ? "" : chart?.title ?? "Genre charts"}{#if chart?.stale}<span class="tag"
+            >{playlistHeroVisible ? "" : chart?.title ?? "Genre charts"}{#if chart?.stale}<span class="tag"
                 >Cached</span
               >{/if}</span
           >
@@ -8608,13 +8615,13 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       {#if playingRadioStation && playingTrack}<StationInfo compact track={playingTrack} stationName={playingRadioStation.name} stationUrl={playingRadioStation.homepageUrl ?? playingRadioStation.sourceUrl} streamUrl={playingRadioStation.streamUrl} />{/if}
     </div>
 
-    {#if playerErrorMessage}
+    {#if playerErrorMessage && dismissedPlayerErrorKey !== playerErrorKey}
       <div class="player-error" role="alert" aria-live="assertive">
-        <p>{playingTrack ? `Could not play ${playingTrack.title}.` : "Playback unavailable."}</p>
+        <p title={playerErrorMessage}>{playingTrack ? `Could not play ${playingTrack.title}.` : "Playback unavailable."}</p>
         <div class="player-error-actions">
-          <InfoPopover placement="top" label="Playback error details">{playerErrorMessage}</InfoPopover>
-          <button type="button" aria-label="Retry playback" onclick={() => { if (playingTrack) void nativeCommand({action:"resume"}); }}>Retry</button>
-          <button type="button" aria-label="Open playing track information" onclick={() => { infoTrack = null; openPlayerPanel("info"); }}>Track info</button>
+          <InfoPopover placement="top" label="Playback error details"><p>{playerErrorMessage}</p><button type="button" aria-label="Open playing track information" onclick={() => { infoTrack = null; openPlayerPanel("info"); }}>Track info</button></InfoPopover>
+          <button class="player-error-retry" type="button" aria-label="Retry playback" onclick={() => { if (playingTrack) void nativeCommand({action:"resume"}); }}>Retry</button>
+          <button class="player-error-dismiss" type="button" aria-label="Dismiss playback error" title="Dismiss playback error" onclick={dismissPlayerError}><span aria-hidden="true">×</span></button>
         </div>
       </div>
     {/if}

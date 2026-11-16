@@ -4,6 +4,8 @@
   import { trackSortAvailabilityForSources, trackSortOptionLabelForSources } from "./lib/track-sort-availability";
   import { onDestroy, tick, untrack } from "svelte";
   import TrackList from "./TrackList.svelte";
+  import PlaylistArtwork from "./PlaylistArtwork.svelte";
+  import { safeArtworkUrls } from "./lib/artwork-url";
   import TrackDurationFilter from "./TrackDurationFilter.svelte";
   import { ProviderReadCancellation } from "./lib/provider-read-cancellation";
   import { filterTracks, parseDurationBound, sortTracks, type SortDirection, type TrackSortField } from "./lib/track-sort";
@@ -103,6 +105,9 @@
       ? `${loaded} of ${total} ${total === 1 ? "track" : "tracks"} loaded`
       : `${loaded} ${loadedNoun} loaded`;
   });
+  const playlistCoverUrl = $derived(safeArtworkUrls([page?.artworkUrl, page?.imageUrl], 1)[0] ?? null);
+  const playlistArtworkUrls = $derived(safeArtworkUrls([...new Set(tracks.slice(0, 16).map(track => track.artworkUrl))], 4));
+  const playlistBackdrop = $derived(playlistCoverUrl ?? playlistArtworkUrls[0] ?? "");
   const emptyStateMessage = $derived.by(() => {
     if (tracks.length > 0 || error) return "";
     if (page?.complete === true && page.total === 0) return "This playlist is empty.";
@@ -321,12 +326,18 @@
 </script>
 
 <section class="remote-playlist-detail" aria-labelledby="remote-playlist-detail-title" bind:this={scrollElement} onscroll={(event) => { scrollTop = (event.currentTarget as HTMLElement).scrollTop; }}>
-  <header class="remote-detail-header">
+  <header class="remote-detail-header playlist-header">
     <button class="remote-detail-back" onclick={() => { cancelRestore(); onBack(); }}>← Back to playlists</button>
-    <h2 id="remote-playlist-detail-title">{page?.title || "Remote playlist"}</h2>
-    {#if ownerUrl()}<button class="remote-detail-owner" aria-label={provider === "spotify" && onBrowseOwner ? `Browse ${page?.ownerName || "creator"} playlists` : `Open ${page?.ownerName || "creator"} profile in browser`} title={provider === "spotify" && onBrowseOwner ? `Browse ${page?.ownerName || "creator"} playlists` : `Open ${page?.ownerName || "creator"} profile in browser`} onclick={openOwner}>{page?.ownerName || "Open creator profile"}</button>{:else if page?.ownerName}<span class="remote-detail-owner-name">{page.ownerName}</span>{/if}
-    <p>{loadedScopeLabel}{page?.visibility ? ` · ${page.visibility}` : ""}{page?.complete === false ? " · Snapshot incomplete" : page && page.complete !== true ? " · Completeness unknown" : ""}</p>
-    <div class="remote-detail-actions">
+    <div class="playlist-identity">
+      <div class="playlist-hero-cover" aria-hidden="true"><PlaylistArtwork coverUrl={playlistCoverUrl} urls={playlistArtworkUrls} fallback="♫" /></div>
+      <div class="playlist-title-copy">
+        <span class="playlist-kind">{provider === "spotify" ? "Spotify playlist" : "YouTube playlist"}</span>
+        <h2 id="remote-playlist-detail-title">{page?.title || "Remote playlist"}</h2>
+        {#if ownerUrl()}<p class="playlist-creator">By <button class="creator-profile-link remote-detail-owner" aria-label={provider === "spotify" && onBrowseOwner ? `Browse ${page?.ownerName || "creator"} playlists` : `Open ${page?.ownerName || "creator"} profile in browser`} title={provider === "spotify" && onBrowseOwner ? `Browse ${page?.ownerName || "creator"} playlists` : `Open ${page?.ownerName || "creator"} profile in browser`} onclick={openOwner}>{page?.ownerName || "Open creator profile"}</button></p>{:else if page?.ownerName}<p class="playlist-creator">By {page.ownerName}</p>{/if}
+        <p class="playlist-summary">{loadedScopeLabel}{page?.visibility ? ` · ${page.visibility}` : ""}{page?.complete === false ? " · Snapshot incomplete" : page && page.complete !== true ? " · Completeness unknown" : ""}</p>
+      </div>
+    </div>
+    <div class="remote-detail-actions header-actions">
       {#if tracks.length}
         <button onclick={playAll} disabled={!visibleTracks.length}>Play {actionScope}</button>
         <button onclick={() => queueAll("append")} disabled={!visibleTracks.length}>Queue {actionScope}</button>
@@ -334,6 +345,7 @@
       {/if}
       <button class="primary" onclick={() => void addToLibrary()} disabled={adding}>Add to library</button>
     </div>
+    {#if playlistBackdrop}<img class="playlist-ambient" src={playlistBackdrop} alt="" aria-hidden="true" />{/if}
   </header>
   <div class="remote-detail-tools">
     <input aria-label="Filter playlist tracks" bind:value={filter} oninput={cancelRestore} placeholder="Filter tracks by title, artist, or album" />
@@ -354,13 +366,11 @@
 
 <style>
   .remote-playlist-detail { box-sizing:border-box; flex:1 1 0; min-width:0; min-height:0; height:auto; overflow:auto; display:flex; flex-direction:column; align-items:stretch; gap:8px; color:var(--text); }
-  .remote-playlist-detail h2 { flex:1 1 220px; min-width:0; margin:0; font-size:18px; line-height:1.3; overflow-wrap:anywhere; }
-  .remote-detail-header { box-sizing:border-box; flex:none; min-width:0; min-height:0; height:auto; display:flex; flex-direction:row; flex-wrap:wrap; justify-content:flex-start; align-items:center; align-content:flex-start; gap:6px 12px; padding:8px 12px; }
-  .remote-detail-header p { flex:0 0 auto; margin:0; color:var(--muted); font-size:11px; }
+  .remote-playlist-detail h2 { flex:1 1 220px; min-width:0; margin:0; overflow-wrap:anywhere; }
+  .remote-detail-header { box-sizing:border-box; flex:none; min-width:0; min-height:0; height:auto; display:flex; flex-direction:row; flex-wrap:wrap; justify-content:flex-start; align-content:flex-start; gap:6px 12px; }
   .remote-detail-back,.remote-detail-owner { justify-self:start; padding:0; border:0; background:transparent; color:var(--accent,#8e9df2); font-size:11px; line-height:1.4; }
   .remote-detail-back { flex:0 0 100%; text-align:left; }
   .remote-detail-owner { flex:0 1 auto; }
-  .remote-detail-owner-name { color:var(--muted); font-size:11px; }
   .remote-detail-actions,.remote-detail-tools { display:flex; flex:none; flex-wrap:wrap; align-items:center; align-content:flex-start; gap:6px; min-width:0; min-height:0; height:auto; }
   .remote-detail-actions button,.remote-detail-more,.remote-detail-progress button { min-height:32px; height:auto; padding:6px 9px; font-size:11px; white-space:nowrap; }
   .remote-detail-tools { box-sizing:border-box; padding:4px 12px; }

@@ -36,6 +36,46 @@ function render(call: (command: string, args?: Record<string, unknown>) => Promi
 }
 
 describe("RemotePlaylistDetail", () => {
+  it.each(["spotify", "youtube"] as const)("renders the shared artwork hero for %s playlists", async provider => {
+    const rows = [{ ...track(`${provider}-hero`), artworkUrl: "https://images.example/remote-cover.jpg" }];
+    const call = vi.fn(async (command: string) => {
+      if (command === "browse_remote_playlist") return {
+        provider, playlistId: "hero-id", title: "Remote hero playlist", artworkUrl: "https://images.example/playlist-cover.jpg",
+        ownerName: "Playlist owner", tracks: rows, total: 1, complete: true,
+      };
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const target = render(call, {
+      provider,
+      playlistUrl: provider === "spotify" ? "https://open.spotify.com/playlist/hero-id" : "https://www.youtube.com/playlist?list=hero-id",
+    });
+    await settle();
+    const header = target.querySelector("header.remote-detail-header.playlist-header")!;
+    expect(header.querySelector(".playlist-identity .playlist-hero-cover img")?.getAttribute("src")).toBe("https://images.example/playlist-cover.jpg");
+    expect(header.querySelector(".playlist-kind")?.textContent).toBe(provider === "spotify" ? "Spotify playlist" : "YouTube playlist");
+    expect(header.querySelector(".playlist-title-copy h2")?.textContent).toBe("Remote hero playlist");
+    expect(header.querySelector(".playlist-creator")?.textContent).toContain("Playlist owner");
+    expect(header.querySelector(".playlist-summary")?.textContent).toContain("1 track");
+    expect(header.querySelector(".playlist-ambient")?.getAttribute("src")).toBe("https://images.example/playlist-cover.jpg");
+    expect([...header.querySelectorAll<HTMLButtonElement>(".remote-detail-actions button")].map(button => button.textContent?.trim())).toEqual([
+      "Play all tracks", "Queue all tracks", "Play all tracks next", "Add to library",
+    ]);
+  });
+
+  it("uses a safe loaded-track collage when remote playlist artwork is absent", async () => {
+    const rows = ["cover-one", "cover-two", "cover-three", "cover-four"].map((id, index) => ({
+      ...track(`collage-${index}`), artworkUrl: `https://images.example/${id}.jpg`,
+    }));
+    const call = vi.fn(async (command: string) => {
+      if (command === "browse_remote_playlist") return { provider: "youtube", playlistId: "collage", title: "Collage playlist", tracks: rows, total: rows.length, complete: true };
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const target = render(call, { provider: "youtube", playlistUrl: "https://www.youtube.com/playlist?list=collage" });
+    await settle();
+    expect(target.querySelectorAll(".playlist-hero-cover .playlist-artwork.collage img")).toHaveLength(4);
+    expect(target.querySelector(".playlist-ambient")?.getAttribute("src")).toBe("https://images.example/cover-one.jpg");
+  });
+
   it("distinguishes a confirmed empty playlist from a failed incomplete track load", async () => {
     const emptyCall = vi.fn(async (command: string) => {
       if (command === "browse_remote_playlist") return { provider: "youtube", playlistId: "yt-empty", title: "Empty playlist", tracks: [], total: 0, complete: true };

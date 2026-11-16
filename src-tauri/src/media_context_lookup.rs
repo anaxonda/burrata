@@ -652,7 +652,7 @@ mod tests {
         assert!(body["messages"][0]["content"]
             .as_str()
             .unwrap()
-            .contains("an unrelated page with a similar title is not evidence"));
+            .contains("optional chapter"));
         assert!(body["messages"][0]["content"]
             .as_str()
             .unwrap()
@@ -713,6 +713,10 @@ mod tests {
         let openrouter_body = request_body(&request(), &openrouter_connection);
         assert_eq!(openrouter_body["reasoning"]["effort"], "none");
         assert_eq!(openrouter_body["tools"][0]["type"], "openrouter:web_search");
+        assert!(openrouter_body["messages"][0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("an unrelated page with a similar title is not evidence"));
         assert_eq!(openrouter_body["tools"][0]["parameters"]["max_uses"], 2);
         assert!(openrouter_body.get("temperature").is_none());
     }

@@ -135,9 +135,9 @@ footer.player .player-error {
   grid-row: 3;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
   min-width: 0;
-  padding: 8px 10px;
+  padding: 3px 6px;
   border: 1px solid color-mix(in srgb, #ef8f73 42%, var(--line));
   border-left: 3px solid #ef8f73;
   border-radius: 7px;
@@ -145,11 +145,13 @@ footer.player .player-error {
   color: var(--text);
 }
 
-footer.player .player-error p {
+footer.player .player-error > p {
+  flex: 1 1 auto;
   min-width: 0;
   margin: 0;
-  overflow-wrap: anywhere;
-  white-space: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 11px;
   line-height: 1.45;
 }
@@ -162,8 +164,8 @@ footer.player .player-error-actions {
 }
 
 footer.player .player-error-actions button {
-  min-height: 32px;
-  padding: 5px 9px;
+  min-height: 28px;
+  padding: 3px 7px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--surface);
@@ -171,10 +173,11 @@ footer.player .player-error-actions button {
   font-size: 11px;
 }
 
-footer.player .player-error-actions button:first-child {
+footer.player .player-error-actions .player-error-retry {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
   color: var(--accent);
 }
+footer.player .player-error-actions .player-error-dismiss { width:28px; padding:0; font-size:18px; }
 
 footer.player .player-center {
   display: contents;
@@ -424,10 +427,10 @@ footer.player .player-heart[aria-pressed="true"] { color:#f1768d; }
   footer.player .player-error {
     grid-column: 1 / -1;
     grid-row: 5;
-    align-items: stretch;
-    flex-direction: column;
-    gap: 7px;
-    padding: 8px;
+    align-items: center;
+    flex-direction: row;
+    gap: 6px;
+    padding: 3px 5px;
   }
   footer.player .player-error-actions { justify-content: flex-end; }
   footer.player .player-center { display: contents; }

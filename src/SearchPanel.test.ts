@@ -39,26 +39,54 @@ function render(props: Record<string, unknown> = {}) {
 }
 
 describe("SearchPanel", () => {
-  it("debounces accessible artist suggestions and opens the selected artist", async () => {
+  it("adds Bandcamp alongside Spotify without losing the current source or querying unrelated providers", async () => {
+    const searchSource=vi.fn(async(_request:{sourceIds:string[]})=>({complete:true,results:[]}));
+    const target=render({initialSources:["spotify"],availableSources:[{id:"spotify",name:"Spotify",enabled:true,kinds:["track","artist","album"]},{id:"bandcamp",name:"Bandcamp",kinds:["track","artist","album"]},{id:"musicbrainz",name:"MusicBrainz",kinds:["track","artist","album"]}],searchSource});
+    await settle();
+    const input=target.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
+    input.value="Bamba Wassoulou Groove";input.dispatchEvent(new Event("input",{bubbles:true}));
+    target.querySelector("form")!.dispatchEvent(new Event("submit",{bubbles:true,cancelable:true}));await settle();
+    const calls=searchSource.mock.calls.length;
+    target.querySelector<HTMLButtonElement>('[aria-label="Choose multiple search sources"]')!.click();await settle();
+    expect(searchSource).toHaveBeenCalledTimes(calls);
+    const labels=[...target.querySelectorAll<HTMLLabelElement>('[aria-label="Choose online sources"] label')];
+    expect(labels.map(label=>label.textContent?.trim())).toContain("Spotify");
+    expect(labels.find(label=>label.textContent?.trim()==="Spotify")!.querySelector<HTMLInputElement>("input")!.checked).toBe(true);
+    const bandcamp=labels.find(label=>label.textContent?.trim()==="Bandcamp")!.querySelector<HTMLInputElement>("input")!;
+    bandcamp.checked=true;bandcamp.dispatchEvent(new Event("change",{bubbles:true}));await settle();
+    expect(searchSource.mock.calls.some(([request])=>request.sourceIds.includes("spotify"))).toBe(true);
+    expect(searchSource.mock.calls.some(([request])=>request.sourceIds.includes("bandcamp"))).toBe(true);
+    expect(searchSource.mock.calls.some(([request])=>request.sourceIds.includes("musicbrainz"))).toBe(false);
+    expect(JSON.parse(storage.get("burrata.discovery.search-scope.v2")!)).toMatchObject({sourceId:"custom",sourceIds:["spotify","bandcamp"]});
+  });
+
+  it.each(["Artists","Albums"])("shows Bandcamp %s filters and links their results to the source page", async label => {
+    const kind=label==="Artists"?"artist":"album";
+    const url=kind==="artist"?"https://fixture.bandcamp.com/":"https://fixture.bandcamp.com/album/record";
+    const searchSource=vi.fn(async()=>({complete:true,results:[{id:`bandcamp:${kind}:1`,sourceId:"bandcamp",kind,title:"Fixture",url}]}));
+    const target=render({initialSources:["bandcamp"],searchSource});await settle();
+    [...target.querySelectorAll<HTMLButtonElement>(".filters button")].find(button=>button.textContent===label)!.click();
+    const input=target.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;input.value="Fixture";input.dispatchEvent(new Event("input",{bubbles:true}));
+    target.querySelector("form")!.dispatchEvent(new Event("submit",{bubbles:true,cancelable:true}));await settle();
+    expect(searchSource).toHaveBeenCalledWith(expect.objectContaining({sourceIds:["bandcamp"],kinds:[kind]}));
+    expect(target.querySelector<HTMLAnchorElement>(`a[href="${url}"]`)?.textContent).toContain(`Open ${kind} page`);
+  });
+
+  it("does not request artist suggestions while typing; results require explicit search", async () => {
     vi.useFakeTimers();
     const artist = { provider: "musicbrainz", id: "nipsey" } as const;
     const searchArtists = vi.fn(async () => [{ artist, name: "Nipsey Hussle", country: "US", sourceUrl: "https://musicbrainz.org/artist/nipsey" }]);
-    const onArtist = vi.fn();
-    const target = render({ searchArtists, onArtist });
+    const target = render({ searchArtists });
     const input = target.querySelector<HTMLInputElement>("[aria-label='Search music']")!;
+    input.focus();
     input.value = "nipsey"; input.dispatchEvent(new Event("input", { bubbles: true }));
     await settle();
+    await vi.advanceTimersByTimeAsync(1000); await settle();
     expect(searchArtists).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(300); await settle();
-    expect(searchArtists).toHaveBeenCalledWith("nipsey");
     expect(input.getAttribute("role")).toBe("combobox");
-    expect(input.getAttribute("aria-expanded")).toBe("true");
-    const suggestion = target.querySelector<HTMLButtonElement>("#artist-search-suggestion-0")!;
-    expect(suggestion.textContent).toContain("Nipsey Hussle");
-    suggestion.click();
-    await settle();
-    expect(onArtist).toHaveBeenCalledWith(artist);
+    expect(input.getAttribute("aria-autocomplete")).toBe("none");
     expect(input.getAttribute("aria-expanded")).toBe("false");
+    expect(target.querySelector('[aria-label="Artist suggestions"]')).toBeNull();
   });
 
   it("labels a Soulseek peer folder as unverified and uses the browsed exact tracks for batch actions", async () => {

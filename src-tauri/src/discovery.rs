@@ -302,9 +302,9 @@ pub fn source_registry(connections: &ConnectionManager) -> Result<Vec<SourceCapa
         cap("soundcloud", &["track", "video"], true, None),
         cap(
             "bandcamp",
-            &["track"],
+            &["artist", "album", "track"],
             true,
-            Some("Public track search; streaming availability is checked on the track page"),
+            Some("Public artist, album and track search; streaming availability is checked on the track page"),
         ),
         cap(
             "monochrome",
@@ -904,13 +904,15 @@ impl DiscoveryService {
                 }
             }
             "bandcamp" => {
-                if kind_ok(&request, "track") {
-                    let tracks = crate::providers::bandcamp::Bandcamp::new()
-                        .search_tracks(q)
-                        .await?;
-                    for track in tracks.into_iter().take(limit) {
+                let items = crate::providers::bandcamp::Bandcamp::new()
+                    .search(q, &request.kinds)
+                    .await?;
+                for mut item in items {
+                    if let Some(track) = item.track.take() {
                         let track = self.store.cache_track(&track)?;
                         out.results.push(track_result(source_id, track));
+                    } else {
+                        out.results.push(bandcamp_result(source_id, item));
                     }
                 }
             }
@@ -1548,6 +1550,23 @@ fn track_result(source: &str, t: Track) -> DiscoveryResult {
         artwork_url: t.artwork_url.clone(),
         data: json!({"provenance":t.provenance,"providerId":t.provider_id}),
         track: Some(t),
+    }
+}
+
+fn bandcamp_result(
+    source: &str,
+    item: crate::providers::bandcamp::SearchResult,
+) -> DiscoveryResult {
+    DiscoveryResult {
+        id: item.id,
+        kind: item.kind,
+        source_id: source.into(),
+        title: item.title,
+        subtitle: item.subtitle,
+        url: Some(item.url),
+        artwork_url: item.artwork_url,
+        track: item.track,
+        data: item.data,
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2360,7 +2379,7 @@ mod tests {
             .find(|source| source.id == "bandcamp")
             .unwrap();
         assert!(bandcamp.enabled);
-        assert_eq!(bandcamp.kinds, vec!["track"]);
+        assert_eq!(bandcamp.kinds, vec!["artist", "album", "track"]);
         assert!(
             !registry
                 .iter()
@@ -2376,6 +2395,45 @@ mod tests {
                 .kinds,
             vec!["artist", "album", "track", "file"]
         );
+    }
+
+    #[test]
+    fn bandcamp_artist_and_album_results_do_not_become_fake_tracks() {
+        for (kind, id, title) in [
+            ("artist", "bandcamp:artist:21", "Artist Page"),
+            ("album", "bandcamp:album:22", "First Record"),
+        ] {
+            let result = bandcamp_result(
+                "bandcamp",
+                crate::providers::bandcamp::SearchResult {
+                    id: id.into(),
+                    kind: kind.into(),
+                    title: title.into(),
+                    subtitle: Some("Artist Page".into()),
+                    url: if kind == "artist" {
+                        "https://artistpage.bandcamp.com/".into()
+                    } else {
+                        "https://artistpage.bandcamp.com/album/fixture".into()
+                    },
+                    artwork_url: None,
+                    track: None,
+                    data: json!({"provider":"bandcamp","providerId":if kind == "artist" { "21" } else { "22" }}),
+                },
+            );
+            assert_eq!(result.source_id, "bandcamp");
+            assert_eq!(result.kind, kind);
+            assert_eq!(result.id, id);
+            assert_eq!(result.title, title);
+            assert!(result.track.is_none());
+            assert_eq!(
+                result.url.as_deref(),
+                Some(if kind == "artist" {
+                    "https://artistpage.bandcamp.com/"
+                } else {
+                    "https://artistpage.bandcamp.com/album/fixture"
+                })
+            );
+        }
     }
     #[test]
     fn spotify_search_album_context_reaches_the_displayed_track() {
