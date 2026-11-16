@@ -1246,8 +1246,10 @@ pub(crate) fn verified_spotify_request_credit_refs(
 /// Validate that a raw MusicBrainz recording and every artist profile link the
 /// exact saved Spotify credits in order. This is used by both prewarming and
 /// playback-time cache reads so a stale/forged sidecar cannot authorize aliases.
-pub(crate) fn verify_spotify_artist_credit_recording(
-    store: &Store,
+pub(crate) fn verify_spotify_artist_credit_recording<
+    R: crate::storage::CachedProviderRead + ?Sized,
+>(
+    store: &R,
     track: &Track,
     recording_id: &str,
 ) -> Option<(SpotifyArtistCreditFingerprint, String, usize)> {
@@ -1255,9 +1257,8 @@ pub(crate) fn verify_spotify_artist_credit_recording(
         return None;
     }
     let fingerprint = spotify_artist_credit_fingerprint(track)?;
-    let recording = store
-        .get_provider_cache(SPOTIFY_RECORDING_CREDIT_RAW_CACHE, recording_id)
-        .ok()??;
+    let recording =
+        store.cached_provider_value(SPOTIFY_RECORDING_CREDIT_RAW_CACHE, recording_id)?;
     if recording.get("id").and_then(Value::as_str) != Some(recording_id)
         || crate::matching::normalize(recording.get("title").and_then(Value::as_str)?)
             != crate::matching::normalize(&fingerprint.title)
@@ -1310,9 +1311,7 @@ pub(crate) fn verify_spotify_artist_credit_recording(
         {
             return None;
         }
-        let profile = store
-            .get_provider_cache(SPOTIFY_RECORDING_CREDIT_PROFILE_CACHE, mbid)
-            .ok()??;
+        let profile = store.cached_provider_value(SPOTIFY_RECORDING_CREDIT_PROFILE_CACHE, mbid)?;
         if profile.get("id").and_then(Value::as_str) != Some(mbid)
             || profile.get("name").and_then(Value::as_str) != Some(canonical_name)
             || !profile_has_exact_spotify_artist_url(&profile, &spotify_artist.id)
@@ -1329,6 +1328,25 @@ pub(crate) fn verify_spotify_artist_credit_recording(
         None => return None,
     };
     Some((fingerprint, verified_isrc, credits.len()))
+}
+
+/// Revalidate the existing cached Spotify↔MusicBrainz recording-credit
+/// crosswalk on an already-locked connection and return only source-scoped
+/// performer spelling variants. No provider requests or global aliases.
+pub(crate) fn cached_local_playback_artist_aliases(
+    conn: &rusqlite::Connection,
+    track: &Track,
+) -> Vec<Track> {
+    if track.provenance["manualFields"]["artist"] == true
+        || track.provenance["manualFields"]["artistCredits"] == true
+    {
+        return Vec::new();
+    }
+    cached_verified_spotify_recording_artist_id_alias_tracks_with_context(
+        conn,
+        track,
+        &mut Vec::new(),
+    )
 }
 
 pub(crate) fn invalidate_spotify_artist_credit_recording(
@@ -1433,15 +1451,17 @@ fn cached_verified_spotify_recording_artist_id_alias_tracks(
     )
 }
 
-fn cached_verified_spotify_recording_artist_id_alias_tracks_with_context(
-    store: &Store,
+fn cached_verified_spotify_recording_artist_id_alias_tracks_with_context<
+    R: crate::storage::CachedProviderRead + ?Sized,
+>(
+    store: &R,
     track: &Track,
     credit_sets: &mut Vec<VerifiedCreditSet>,
 ) -> Vec<Track> {
     let Some(fingerprint) = spotify_artist_credit_fingerprint(track) else {
         return Vec::new();
     };
-    let Ok(Some(saved)) = store.get_library_track(&track.id) else {
+    let Some(saved) = store.cached_library_track(&track.id) else {
         return Vec::new();
     };
     let hydrated_saved = crate::remote_playlists::read_alias_hydrated_track(store, &saved);
@@ -1450,8 +1470,8 @@ fn cached_verified_spotify_recording_artist_id_alias_tracks_with_context(
     {
         return Vec::new();
     }
-    let Ok(Some(sidecar)) =
-        store.get_provider_cache(SPOTIFY_RECORDING_CREDIT_CACHE, &track.provider_id)
+    let Some(sidecar) =
+        store.cached_provider_value(SPOTIFY_RECORDING_CREDIT_CACHE, &track.provider_id)
     else {
         return Vec::new();
     };
@@ -1478,8 +1498,8 @@ fn cached_verified_spotify_recording_artist_id_alias_tracks_with_context(
     else {
         return Vec::new();
     };
-    let Ok(Some(recording)) =
-        store.get_provider_cache(SPOTIFY_RECORDING_CREDIT_RAW_CACHE, recording_id)
+    let Some(recording) =
+        store.cached_provider_value(SPOTIFY_RECORDING_CREDIT_RAW_CACHE, recording_id)
     else {
         return Vec::new();
     };
@@ -1506,8 +1526,8 @@ fn cached_verified_spotify_recording_artist_id_alias_tracks_with_context(
             return Vec::new();
         };
         credited_names.push(credit_name.to_owned());
-        let Ok(Some(profile)) =
-            store.get_provider_cache(SPOTIFY_RECORDING_CREDIT_PROFILE_CACHE, mbid)
+        let Some(profile) =
+            store.cached_provider_value(SPOTIFY_RECORDING_CREDIT_PROFILE_CACHE, mbid)
         else {
             return Vec::new();
         };

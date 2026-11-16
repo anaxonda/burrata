@@ -116,6 +116,168 @@ fn page(
         .0
 }
 
+fn verified_spotify_bulgarian_track() -> Track {
+    Track {
+        id: "spotify:aaaaaaaaaaaaaaaaaaaaaa".into(),
+        provider: "spotify".into(),
+        provider_id: "aaaaaaaaaaaaaaaaaaaaaa".into(),
+        source_url: "https://open.spotify.com/track/aaaaaaaaaaaaaaaaaaaaaa".into(),
+        title: "Mir Stanke le (Harvest Song from Thrace)".into(),
+        artist: "Bulgarian State Television Female Choir".into(),
+        duration_seconds: Some(190.0),
+        isrc: Some("USNO18716511".into()),
+        provenance: serde_json::json!({
+            "catalog":{"verified":true,"provider":"spotify","providerId":"aaaaaaaaaaaaaaaaaaaaaa","artistCount":1,"artists":[{"provider":"spotify","id":"bbbbbbbbbbbbbbbbbbbbbb","name":"Bulgarian State Television Female Choir"}]},
+            "remoteCatalog":{"trackId":"aaaaaaaaaaaaaaaaaaaaaa","title":"Mir Stanke le (Harvest Song from Thrace)","artist":"Bulgarian State Television Female Choir","durationSeconds":190.0,"isrc":"USNO18716511","artistCount":1,"artistRefs":[{"provider":"spotify","id":"bbbbbbbbbbbbbbbbbbbbbb","name":"Bulgarian State Television Female Choir"}]}
+        }),
+        ..Default::default()
+    }
+}
+
+fn install_verified_spotify_bulgarian_alias(store: &Store, request: &Track) {
+    let recording_id = "00000000-0000-4000-8000-000000000091";
+    let artist_id = "00000000-0000-4000-8000-000000000092";
+    let recording = serde_json::json!({
+        "id":recording_id,"title":request.title,"length":190000,"isrcs":["USNO18716511"],
+        "artist-credit":[{"name":"Bulgarian State Television Female Choir","joinphrase":"","artist":{"id":artist_id,"name":"The Bulgarian State Radio and Television Female Vocal Choir"}}]
+    });
+    let profile = serde_json::json!({
+        "id":artist_id,"name":"The Bulgarian State Radio and Television Female Vocal Choir",
+        "aliases":[{"name":"Bulgarian State Television Female Choir"}],
+        "relations":[{"url":{"resource":"https://open.spotify.com/artist/bbbbbbbbbbbbbbbbbbbbbb"}}]
+    });
+    store
+        .set_provider_cache(
+            "artists.spotify-recording-credit-crosswalk.musicbrainz-recording",
+            recording_id,
+            &recording,
+            3600,
+        )
+        .unwrap();
+    store
+        .set_provider_cache(
+            "artists.spotify-recording-credit-crosswalk.musicbrainz-artist",
+            artist_id,
+            &profile,
+            3600,
+        )
+        .unwrap();
+    crate::artist_credit_aliases::write_verified_spotify_artist_credit_recording(
+        store,
+        request,
+        recording_id,
+    )
+    .unwrap();
+}
+
+fn add_bulgarian_asset(
+    dir: &tempfile::TempDir,
+    store: &Store,
+    id: &str,
+    duration: f64,
+    version: Option<&str>,
+) {
+    let path = dir.path().join(format!("{id}.flac"));
+    store
+        .save_asset(&asset(
+            id,
+            "Mir Stanke Le",
+            version,
+            "The Bulgarian State Radio and Television Female Vocal Choir",
+            Some(duration),
+            Some("USNO18716511"),
+            &path,
+            true,
+        ))
+        .unwrap();
+}
+
+#[test]
+fn verified_spotify_musicbrainz_artist_alias_enables_bounded_local_reuse_and_availability() {
+    let (dir, store) = db();
+    let request = verified_spotify_bulgarian_track();
+    store.save_track(&request).unwrap();
+    install_verified_spotify_bulgarian_alias(&store, &request);
+    add_bulgarian_asset(&dir, &store, "bulgarian-verified", 191.0, None);
+
+    let loaded = store.get_track(&request.id).unwrap().unwrap();
+    assert_eq!(loaded.asset_id.as_deref(), Some("bulgarian-verified"));
+    assert_eq!(
+        loaded.local_path.as_deref(),
+        Some(
+            dir.path()
+                .join("bulgarian-verified.flac")
+                .to_string_lossy()
+                .as_ref()
+        )
+    );
+    assert!(page(&store, "library", None, Some("local"), None)
+        .iter()
+        .any(|track| track.id == request.id));
+}
+
+#[test]
+fn local_artist_alias_requires_verified_crosswalk_and_exact_version_and_runtime() {
+    for (id, verified, duration, version) in [
+        ("unverified", false, 191.0, None),
+        ("wrong-runtime", true, 197.0, None),
+        ("wrong-version", true, 191.0, Some("Live")),
+    ] {
+        let (dir, store) = db();
+        let request = verified_spotify_bulgarian_track();
+        store.save_track(&request).unwrap();
+        if verified {
+            install_verified_spotify_bulgarian_alias(&store, &request);
+        }
+        add_bulgarian_asset(&dir, &store, id, duration, version);
+        let loaded = store.get_track(&request.id).unwrap().unwrap();
+        assert!(
+            loaded.asset_id.is_none(),
+            "{id} must not reuse a local file"
+        );
+        assert!(
+            loaded.local_path.is_none(),
+            "{id} must not expose a local path"
+        );
+    }
+}
+
+#[test]
+fn ambiguous_files_matching_a_verified_artist_alias_fail_closed() {
+    let (dir, store) = db();
+    let request = verified_spotify_bulgarian_track();
+    store.save_track(&request).unwrap();
+    install_verified_spotify_bulgarian_alias(&store, &request);
+    add_bulgarian_asset(&dir, &store, "bulgarian-one", 191.0, None);
+    add_bulgarian_asset(&dir, &store, "bulgarian-two", 191.0, None);
+    let loaded = store.get_track(&request.id).unwrap().unwrap();
+    assert!(loaded.asset_id.is_none());
+    assert!(loaded.local_path.is_none());
+    assert!(!page(&store, "library", None, Some("local"), None)
+        .iter()
+        .any(|track| track.id == request.id));
+}
+
+#[test]
+fn manually_edited_artist_invalidates_cached_alias_even_when_listing_json_is_stale() {
+    let (dir, store) = db();
+    let original = verified_spotify_bulgarian_track();
+    store.save_track(&original).unwrap();
+    install_verified_spotify_bulgarian_alias(&store, &original);
+    add_bulgarian_asset(&dir, &store, "bulgarian-manual-artist", 191.0, None);
+
+    let mut edited = original.clone();
+    edited.artist = "Different manually edited artist".into();
+    let saved = store.update_track(&edited).unwrap();
+    assert_eq!(saved.artist, edited.artist);
+    assert_eq!(saved.provenance["manualFields"]["artist"], true);
+    assert!(
+        saved.asset_id.is_none(),
+        "a stale raw listing must not restore the cached alias"
+    );
+    assert!(saved.local_path.is_none());
+}
+
 #[test]
 fn exact_cross_provider_file_hydrates_without_merging_recordings() {
     let (dir, store) = db();

@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) const EVALUATOR_VERSION: &str = "40";
+pub(crate) const EVALUATOR_VERSION: &str = "41";
 // Repeated whitespace is also a common uploader artist/title separator.
 const CAPTION_SEPARATORS: [&str; 5] = [" - ", " – ", " — ", " | ", "  "];
 
@@ -994,12 +994,142 @@ fn prepared_unknown_annotation(
         })
 }
 
+fn verified_request_catalog(track: &Track) -> bool {
+    let catalog = &track.provenance["catalog"];
+    let id = track.provider_id.as_str();
+    let source_matches = match track.provider.as_str() {
+        "musicbrainz" if catalog["provider"] == "musicbrainz" => {
+            let id = id.strip_prefix("musicbrainz:").unwrap_or(id);
+            catalog["verified"] == true
+                && catalog["recordingId"].as_str() == Some(id)
+                && track.source_url == format!("https://musicbrainz.org/recording/{id}")
+        }
+        "spotify" if catalog["provider"] == "spotify" => {
+            catalog["verified"] == true
+                && catalog["providerId"].as_str() == Some(id)
+                && id.len() == 22
+                && id.bytes().all(|byte| byte.is_ascii_alphanumeric())
+                && track.source_url == format!("https://open.spotify.com/track/{id}")
+        }
+        _ => false,
+    };
+    source_matches
+        && track.provenance["manualFields"]["genre"] != true
+        && track.provenance["manualFields"]["releaseDate"] != true
+}
+
+fn release_month(value: &str) -> Option<(u32, u32)> {
+    let parts = value.split('-').collect::<Vec<_>>();
+    if !matches!(parts.len(), 2 | 3) {
+        return None;
+    }
+    if parts[0].len() != 4
+        || parts[1].len() != 2
+        || parts
+            .iter()
+            .any(|part| part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()))
+    {
+        return None;
+    }
+    let year = parts[0].parse::<u32>().ok()?;
+    let month = parts[1].parse::<u32>().ok()?;
+    if !(1..=12).contains(&month) || !(1000..=9999).contains(&year) {
+        return None;
+    }
+    match parts.as_slice() {
+        [_, _] => Some((year, month)),
+        [_, _, day] => {
+            if day.len() != 2 {
+                return None;
+            }
+            let day = day.parse::<u32>().ok()?;
+            let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+            let max_day = match month {
+                2 if leap => 29,
+                2 => 28,
+                4 | 6 | 9 | 11 => 30,
+                _ => 31,
+            };
+            (1..=max_day).contains(&day).then_some((year, month))
+        }
+        _ => None,
+    }
+}
+
+fn annotation_release_month(value: &str) -> Option<(u32, u32)> {
+    let normalized = crate::matching::normalize(value);
+    let mut parts = normalized.split_whitespace();
+    let month = match parts.next()? {
+        "jan" | "january" => 1,
+        "feb" | "february" => 2,
+        "mar" | "march" => 3,
+        "apr" | "april" => 4,
+        "may" => 5,
+        "jun" | "june" => 6,
+        "jul" | "july" => 7,
+        "aug" | "august" => 8,
+        "sep" | "sept" | "september" => 9,
+        "oct" | "october" => 10,
+        "nov" | "november" => 11,
+        "dec" | "december" => 12,
+        _ => return None,
+    };
+    let year_text = parts.next()?;
+    if year_text.len() != 4 || parts.next().is_some() {
+        return None;
+    }
+    let year = year_text.parse::<u32>().ok()?;
+    (1000..=9999).contains(&year).then_some((year, month))
+}
+
+fn request_catalog_annotation_matches(
+    track: &Track,
+    parsed: &crate::recording_identity::ParsedRecordingText,
+    annotation: &crate::recording_identity::TextAnnotation,
+) -> bool {
+    if !verified_request_catalog(track) || annotation.kind != AnnotationKind::Unresolved {
+        return false;
+    }
+    let Some(span) = parsed
+        .original
+        .get(annotation.span.start..annotation.span.end)
+    else {
+        return false;
+    };
+    let span = span.trim();
+    let is_square = span.starts_with('[') && span.ends_with(']');
+    let is_parenthetical = span.starts_with('(') && span.ends_with(')');
+    if is_square {
+        return track.genre.as_deref().is_some_and(|genre| {
+            !genre.trim().is_empty()
+                && crate::matching::normalize(genre)
+                    == crate::matching::normalize(&annotation.value)
+        });
+    }
+    is_parenthetical
+        && track
+            .release_date
+            .as_deref()
+            .and_then(release_month)
+            .is_some_and(|catalog_month| {
+                annotation_release_month(&annotation.value) == Some(catalog_month)
+            })
+}
+
+#[derive(Debug, Default)]
+struct CandidateTitleGlossMatch {
+    base_title_matches: bool,
+    catalog_annotations_corroborated: bool,
+}
+
 fn unresolved_candidate_gloss_matches_base_title(
     request: &PreparedRecordingEvidence,
     candidate: &PreparedRecordingEvidence,
+    track: &Track,
     requested_title: &str,
     candidate_title: &str,
-) -> bool {
+    label: Option<&str>,
+) -> CandidateTitleGlossMatch {
     if request.texts.iter().any(|text| {
         text.parsed
             .annotations
@@ -1010,15 +1140,21 @@ fn unresolved_candidate_gloss_matches_base_title(
         .iter()
         .any(|text| text.parsed.parsing_incomplete)
     {
-        return false;
+        return CandidateTitleGlossMatch::default();
     }
     let requested_key = title_key(requested_title);
     // The ordinary comparison deliberately leaves unknown parenthetical text
     // attached to the title. Here we test the base title only after the exact
     // identifier/runtime gates and the single unresolved annotation check.
-    let candidate_base = parse_recording_text(candidate_title).base_title;
+    let candidate_parsed = parse_recording_text(candidate_title);
+    let candidate_base = caption_track_title(
+        &candidate_parsed.base_title,
+        requested_title,
+        &candidate_parsed.base_title,
+        label,
+    );
     if requested_key.is_empty() || requested_key != title_key(&candidate_base) {
-        return false;
+        return CandidateTitleGlossMatch::default();
     }
     let unknown = candidate
         .texts
@@ -1034,11 +1170,24 @@ fn unresolved_candidate_gloss_matches_base_title(
                 .annotations
                 .iter()
                 .filter(|annotation| annotation.kind == AnnotationKind::Unresolved)
-                .map(|annotation| crate::matching::normalize(&annotation.value))
+                .map(move |annotation| (&text.parsed, annotation))
         })
+        .collect::<Vec<_>>();
+    let distinct = unknown
+        .iter()
+        .map(|(_, annotation)| crate::matching::normalize(&annotation.value))
         .filter(|value| !value.is_empty())
         .collect::<std::collections::HashSet<_>>();
-    unknown.len() == 1
+    let catalog_annotations_corroborated = !unknown.is_empty()
+        && unknown.iter().all(|(parsed, annotation)| {
+            request_catalog_annotation_matches(track, parsed, annotation)
+        });
+    CandidateTitleGlossMatch {
+        // Preserve the existing, single-unresolved-gloss path. It still needs
+        // its existing exact-identifier/runtime gate in the evaluator.
+        base_title_matches: distinct.len() == 1 || catalog_annotations_corroborated,
+        catalog_annotations_corroborated,
+    }
 }
 
 fn split_credits(value: &str) -> Vec<String> {
@@ -2070,6 +2219,7 @@ struct ComparisonFacts {
     search_music_catalog: bool,
     unresolved_annotation: bool,
     unresolved_candidate_title_gloss: bool,
+    catalog_annotation_title_gloss: bool,
     empty_title: bool,
     empty_artist: bool,
     conflicting_request_versions: bool,
@@ -2767,13 +2917,20 @@ fn build_comparison(
             known_label,
             canonical_catalog,
         );
-    let unresolved_candidate_title_gloss = unresolved_annotation
-        && unresolved_candidate_gloss_matches_base_title(
-            request_evidence,
-            candidate_evidence,
-            &request_title.title,
-            &candidate_title,
-        );
+    let gloss_match = unresolved_annotation
+        .then(|| {
+            unresolved_candidate_gloss_matches_base_title(
+                request_evidence,
+                candidate_evidence,
+                track,
+                &request_title.title,
+                &candidate_title,
+                known_label,
+            )
+        })
+        .unwrap_or_default();
+    let unresolved_candidate_title_gloss = gloss_match.base_title_matches;
+    let catalog_annotation_title_gloss = gloss_match.catalog_annotations_corroborated;
     let empty_title =
         title_key(&request_title.title).is_empty() || title_key(&candidate_title).is_empty();
     let title = if recording_scoped_title_alias {
@@ -3422,6 +3579,7 @@ fn build_comparison(
         search_music_catalog: meta["playbackMusicCatalogCandidate"].as_bool() == Some(true),
         unresolved_annotation,
         unresolved_candidate_title_gloss,
+        catalog_annotation_title_gloss,
         empty_title,
         empty_artist,
         conflicting_request_versions,
@@ -3526,7 +3684,7 @@ fn assess_prepared_inner(
         MatchLevel::Balanced => facts.dimensions.artists,
         MatchLevel::Flexible => facts.artists_flexible,
     };
-    let unresolved_gloss_identity = policy.allow_catalog_runtime_exception
+    let legacy_unresolved_gloss_identity = policy.allow_catalog_runtime_exception
         && stage == MatchStage::Resolved
         && facts.unresolved_candidate_title_gloss
         && isrc == Comparison::Agree
@@ -3534,6 +3692,29 @@ fn assess_prepared_inner(
         && artists == Comparison::Agree
         && guests != Comparison::Conflict
         && version != Comparison::Conflict;
+    let catalog_annotation_version_agrees = if facts.requested_semantic.is_empty() {
+        facts.actual_version.is_empty()
+    } else {
+        version == Comparison::Agree
+    };
+    let catalog_annotation_gloss_identity = policy.allow_catalog_runtime_exception
+        && stage == MatchStage::Resolved
+        && facts.catalog_annotation_title_gloss
+        && facts.complete_fresh_extractor_recording
+        && facts.credits_complete
+        && facts.request_credits_complete
+        && runtime == Comparison::Agree
+        && artists == Comparison::Agree
+        && guests != Comparison::Conflict
+        && catalog_annotation_version_agrees
+        && isrc != Comparison::Conflict
+        && !facts.request_identifier_conflict
+        && !facts.catalog_id_conflict
+        && !facts.conflicting_request_versions
+        && !facts.conflicting_candidate_versions
+        && !facts.parsing_incomplete;
+    let unresolved_gloss_identity =
+        legacy_unresolved_gloss_identity || catalog_annotation_gloss_identity;
     let title_identity_matches = title == Comparison::Agree || unresolved_gloss_identity;
     let ComparisonFacts {
         requested_guests,
@@ -9465,6 +9646,212 @@ mod stage_one_regressions {
                     MatchAction::Accept
                 }
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod catalog_annotation_gloss_tests {
+    use super::*;
+    use serde_json::json;
+
+    const RECORDING_ID: &str = "37f0cdd3-2ee4-43b5-a16a-f22a3863e30f";
+    const MAIN_ARTIST_ID: &str = "3c8949b0-a58f-4dd3-af85-f8eac2d2a2c4";
+    const SECOND_ARTIST_ID: &str = "e5be8445-a7f9-4656-b4b1-0a3a20ad1c33";
+
+    fn request() -> Track {
+        Track {
+            id: format!("musicbrainz:{RECORDING_ID}"),
+            provider: "musicbrainz".into(),
+            provider_id: RECORDING_ID.into(),
+            source_url: format!("https://musicbrainz.org/recording/{RECORDING_ID}"),
+            title: "Dunya".into(),
+            artist: "Mark Di Meo, Rose Caviar".into(),
+            version: Some("Extended Mix".into()),
+            genre: Some("Afro House".into()),
+            release_date: Some("2026-10-07".into()),
+            duration_seconds: Some(288.0),
+            provenance: json!({
+                "catalog": {
+                    "provider":"musicbrainz",
+                    "recordingId":RECORDING_ID,
+                    "verified":true,
+                    "performerCreditsComplete":true,
+                    "artistCount":2,
+                    "artists":[
+                        {"provider":"musicbrainz","id":MAIN_ARTIST_ID,"name":"Mark Di Meo","role":"artist"},
+                        {"provider":"musicbrainz","id":SECOND_ARTIST_ID,"name":"Rose Caviar","role":"artist"}
+                    ]
+                }
+            }),
+            ..Track::default()
+        }
+    }
+
+    fn candidate() -> Candidate {
+        let title = "Mark Di Meo, Rose Caviar - Dunya (Extended Mix) [AFRO HOUSE] (Oct. 2026)";
+        Candidate {
+            id: "youtube:5JW2u7FYaCQ".into(),
+            provider: "youtube".into(),
+            url: "https://www.youtube.com/watch?v=5JW2u7FYaCQ".into(),
+            title: title.into(),
+            duration_seconds: Some(288.0),
+            source_metadata: Some(json!({
+                "provider":"youtube",
+                "track":title,
+                "version":"Extended Mix",
+                "resolvedProviderId":"5JW2u7FYaCQ",
+                "sourceMetadataOrigin":"ytDlpCandidateMetadata",
+                "performerCreditsComplete":true,
+                "artists":["Mark Di Meo","Rose Caviar"],
+                "artistCount":2
+            })),
+            ..Candidate::default()
+        }
+    }
+
+    #[test]
+    fn catalog_genre_and_release_month_corroborate_only_the_exact_uploader_suffixes() {
+        let request = request();
+        let candidate = candidate();
+        assert!(verified_request_catalog(&request));
+        assert!(annotation_release_month("Oct. 2026").is_some());
+        assert_eq!(release_month("2026-10-01-garbage"), None);
+        assert_eq!(release_month("2026-1"), None);
+        assert_eq!(release_month("2026-10-1"), None);
+        assert_eq!(release_month("2026-+1-01"), None);
+        assert_eq!(release_month("2026-10-+1"), None);
+        assert_eq!(release_month("2026-02-29"), None);
+        assert_eq!(release_month("2024-02-29"), Some((2024, 2)));
+        let prepared = prepare(&request, &candidate);
+        assert!(prepared.facts.unresolved_candidate_title_gloss);
+        assert!(prepared.facts.catalog_annotation_title_gloss);
+
+        let exact = assess(
+            &request,
+            &candidate,
+            MatchLevel::Exact,
+            MatchStage::Resolved,
+        );
+        assert_ne!(exact.action, MatchAction::Accept, "{exact:?}");
+        assert!(exact.reasons.contains(&MatchReason::UnresolvedAnnotation));
+        for level in [MatchLevel::Balanced, MatchLevel::Flexible] {
+            let result = assess(&request, &candidate, level, MatchStage::Resolved);
+            assert_eq!(result.action, MatchAction::Accept, "{level:?}: {result:?}");
+            assert_eq!(result.dimensions.version, Comparison::Agree, "{result:?}");
+            assert_eq!(result.dimensions.runtime, Comparison::Agree, "{result:?}");
+            assert!(result.evidence.as_ref().unwrap().complete_performer_credits);
+            let annotations = &result.evidence.as_ref().unwrap().unresolved_annotations;
+            assert_eq!(annotations.len(), 4, "preserve both title observations");
+            assert_eq!(
+                annotations
+                    .iter()
+                    .map(|observation| observation.annotation.value.as_str())
+                    .collect::<std::collections::HashSet<_>>()
+                    .len(),
+                2
+            );
+        }
+    }
+
+    #[test]
+    fn catalog_annotation_gloss_fails_closed_without_all_corroboration_and_identity_gates() {
+        for (name, mutate) in [
+            ("missing genre", 0),
+            ("wrong genre", 1),
+            ("missing date", 2),
+            ("wrong date", 3),
+            ("malformed date", 4),
+            ("runtime conflict", 5),
+            ("version conflict", 6),
+            ("live evidence", 7),
+            ("manual genre", 8),
+            ("unbound request", 9),
+            ("manual release date", 10),
+            ("source id conflict", 11),
+            ("ISRC conflict", 12),
+        ] {
+            let mut request = request();
+            let mut candidate = candidate();
+            match mutate {
+                0 => request.genre = None,
+                1 => request.genre = Some("Deep House".into()),
+                2 => request.release_date = None,
+                3 => request.release_date = Some("2026-09-01".into()),
+                4 => request.release_date = Some("2026-10-01-garbage".into()),
+                5 => candidate.duration_seconds = Some(270.0),
+                6 => candidate.source_metadata.as_mut().unwrap()["version"] = json!("Radio Edit"),
+                7 => {
+                    candidate.title.push_str(" (Live)");
+                    candidate.source_metadata.as_mut().unwrap()["track"] = json!(candidate.title);
+                }
+                8 => request.provenance["manualFields"]["genre"] = json!(true),
+                9 => {
+                    request.source_url =
+                        "https://musicbrainz.org/recording/00000000-0000-0000-0000-000000000000"
+                            .into()
+                }
+                10 => request.provenance["manualFields"]["releaseDate"] = json!(true),
+                11 => {
+                    candidate.source_metadata.as_mut().unwrap()["resolvedProviderId"] =
+                        json!("wrong-upload-id")
+                }
+                12 => {
+                    request.isrc = Some("USABC2600001".into());
+                    candidate.source_metadata.as_mut().unwrap()["isrc"] = json!("USDEF2600001");
+                }
+                _ => unreachable!(),
+            }
+            for level in [
+                MatchLevel::Exact,
+                MatchLevel::Balanced,
+                MatchLevel::Flexible,
+            ] {
+                let result = assess(&request, &candidate, level, MatchStage::Resolved);
+                assert_ne!(
+                    result.action,
+                    MatchAction::Accept,
+                    "{name} {level:?}: {result:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn browser_imported_beatport_tags_do_not_supply_closed_world_request_credit_proof() {
+        let mut request = request();
+        request.id = "beatport:30573209".into();
+        request.provider = "beatport".into();
+        request.provider_id = "30573209".into();
+        request.source_url = "https://www.beatport.com/track/dunya/30573209".into();
+        request.provenance = json!({
+            "browserImport":true,
+            "captureProvider":"beatport",
+            "sourceKind":"chart",
+            "identity":"unverified browser capture",
+            "rawCaptures":[{
+                "providerId":"30573209",
+                "sourceUrl":"https://www.beatport.com/track/dunya/30573209",
+                "title":"Dunya",
+                "artist":"Mark Di Meo, Rose Caviar",
+                "version":"Extended Mix",
+                "genre":"Afro House",
+                "releaseDate":"2026-10-07"
+            }],
+            "artistCredits":[
+                {"name":"Mark Di Meo","provenance":"beatportStructuredCredits"},
+                {"name":"Rose Caviar","provenance":"beatportStructuredCredits"}
+            ]
+        });
+        let candidate = candidate();
+        for level in [
+            MatchLevel::Exact,
+            MatchLevel::Balanced,
+            MatchLevel::Flexible,
+        ] {
+            let result = assess(&request, &candidate, level, MatchStage::Resolved);
+            assert_ne!(result.action, MatchAction::Accept, "{level:?}: {result:?}");
+            assert!(result.reasons.contains(&MatchReason::UnresolvedAnnotation));
         }
     }
 }

@@ -85,8 +85,10 @@ available can be imported.
 - Firefox: install the newer signed XPI through **Install Add-on From File…**.
 - Chrome/Edge: replace the files in the same permanent extracted folder with the
   newer ZIP contents, then choose **Reload** on Burrata's extension card.
-- After either update, reload provider tabs. After an app update or move, use
-  **Connect browser companion** again and restart the browser if disconnected.
+- After either update, reload provider tabs. Burrata refreshes an already registered
+  bundled browser helper when the app starts, preserving browser registration and
+  pairing. Restart Burrata after updating it. If the companion remains disconnected,
+  use **Connect browser companion** in Settings and restart the browser.
 
 The local bridge is a compiled console helper and does not open another Burrata
 window. Windows registration uses per-user registry entries. Page imports do not

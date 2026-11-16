@@ -252,6 +252,43 @@ pub fn provider_from_url(value: &str) -> Result<&'static str, String> {
     provider_url(value, provider)?;
     Ok(provider)
 }
+fn public_soundcloud_track_url(url: &url::Url) -> bool {
+    let parts: Vec<_> = url
+        .path_segments()
+        .map(|p| p.filter(|s| !s.is_empty()).collect())
+        .unwrap_or_default();
+    let reserved = [
+        "sets",
+        "you",
+        "discover",
+        "search",
+        "stream",
+        "upload",
+        "stations",
+        "groups",
+        "tags",
+        "popular",
+        "charts",
+        "pages",
+        "users",
+        "tracks",
+        "playlists",
+        "services",
+        "stories",
+    ];
+    parts.len() == 2
+        && parts.iter().all(|part| {
+            !part.is_empty()
+                && part.len() <= 100
+                && part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'-'))
+        })
+        && parts
+            .iter()
+            .all(|part| !reserved.contains(&part.to_ascii_lowercase().as_str()))
+}
+
 fn provider_url(value: &str, provider: &str) -> Result<url::Url, String> {
     let mut u = url::Url::parse(value).map_err(|_| "Invalid provider URL")?;
     let hosts: &[&str] = match provider {
@@ -296,6 +333,9 @@ fn provider_url(value: &str, provider: &str) -> Result<url::Url, String> {
         })
     {
         return Err("Private SoundCloud track URLs are not supported".into());
+    }
+    if provider == "soundcloud" && !public_soundcloud_track_url(&u) {
+        return Err("Only public SoundCloud single-track URLs are supported".into());
     }
     u.set_fragment(None);
     let preserved = if provider == "lastfm" {
@@ -362,40 +402,7 @@ fn canonical_id(provider: &str, u: Option<&url::Url>, id: Option<&str>) -> Optio
             if provider == "bandcamp" {
                 url.path().starts_with("/track/")
             } else if provider == "soundcloud" {
-                let parts: Vec<_> = url
-                    .path_segments()
-                    .map(|p| p.filter(|s| !s.is_empty()).collect())
-                    .unwrap_or_default();
-                let reserved = [
-                    "sets",
-                    "you",
-                    "discover",
-                    "search",
-                    "stream",
-                    "upload",
-                    "stations",
-                    "groups",
-                    "tags",
-                    "popular",
-                    "charts",
-                    "pages",
-                    "users",
-                    "tracks",
-                    "playlists",
-                    "services",
-                    "stories",
-                ];
-                parts.len() == 2
-                    && parts.iter().all(|part| {
-                        !part.is_empty()
-                            && part.len() <= 100
-                            && part.bytes().all(|byte| {
-                                byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'-')
-                            })
-                    })
-                    && parts
-                        .iter()
-                        .all(|part| !reserved.contains(&part.to_ascii_lowercase().as_str()))
+                public_soundcloud_track_url(url)
             } else {
                 url.path().starts_with("/music/") && url.path().contains("/_/")
             }
@@ -2633,7 +2640,7 @@ mod tests {
             ),
             (
                 "soundcloud",
-                "https://soundcloud.com/discover",
+                "https://soundcloud.com/artist/public-track",
                 "https://soundcloud.com/artist/public-track",
             ),
         ] {
@@ -2665,7 +2672,7 @@ mod tests {
             "https://soundcloud.com/artist/sets",
             "https://soundcloud.com/artist/track%2Fprivate",
         ] {
-            assert!(provider_from_url(value).is_err());
+            assert!(provider_from_url(value).is_err(), "{value}");
         }
     }
     #[test]

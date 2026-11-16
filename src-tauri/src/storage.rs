@@ -150,6 +150,60 @@ pub struct Store {
     connection_wait_metrics: ConnectionWaitMetrics,
 }
 
+/// Read-only cache view used by request-scoped verifiers while a caller already
+/// holds the SQLite connection lock. Connection callers avoid recursively
+/// locking Store; expired cache entries remain unusable and are cleaned later.
+pub(crate) trait CachedProviderRead {
+    fn cached_provider_value(&self, namespace: &str, key: &str) -> Option<serde_json::Value>;
+    fn cached_library_track(&self, id: &str) -> Option<Track>;
+}
+
+impl CachedProviderRead for Store {
+    fn cached_provider_value(&self, namespace: &str, key: &str) -> Option<serde_json::Value> {
+        self.get_provider_cache(namespace, key).ok().flatten()
+    }
+    fn cached_library_track(&self, id: &str) -> Option<Track> {
+        self.get_library_track(id).ok().flatten()
+    }
+}
+
+impl CachedProviderRead for std::sync::Arc<Store> {
+    fn cached_provider_value(&self, namespace: &str, key: &str) -> Option<serde_json::Value> {
+        self.as_ref().cached_provider_value(namespace, key)
+    }
+    fn cached_library_track(&self, id: &str) -> Option<Track> {
+        self.as_ref().cached_library_track(id)
+    }
+}
+
+impl CachedProviderRead for Connection {
+    fn cached_provider_value(&self, namespace: &str, key: &str) -> Option<serde_json::Value> {
+        let (payload, expires_at): (String, String) = self
+            .query_row(
+                "SELECT payload,expires_at FROM provider_cache WHERE namespace=?1 AND key=?2",
+                params![namespace, key],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .ok()
+            .flatten()?;
+        if expires_at <= chrono::Utc::now().to_rfc3339() {
+            return None;
+        }
+        decode(payload).ok()
+    }
+    fn cached_library_track(&self, id: &str) -> Option<Track> {
+        let (raw, values): (String, RecordingHydration) = self.query_row(
+            "SELECT l.metadata,r.favorite,r.disposition,r.manual_metadata FROM catalog_listings l JOIN recordings r ON r.id=l.recording_id WHERE l.id=?1 AND l.in_library=1",
+            [id], |row| Ok((row.get(0)?, (row.get(1)?, row.get(2)?, row.get(3)?))),
+        ).optional().ok().flatten()?;
+        let track: Track = decode(raw).ok()?;
+        apply_hydration_metadata(track, values)
+            .ok()
+            .map(|(track, _)| track)
+    }
+}
+
 /// Minimal indexed identity needed by the deferred local audio facts worker.
 /// Unlike `LocalAsset`, this deliberately omits its hydrated catalog track.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7782,11 +7836,17 @@ type SelectedHydrationAsset = (AssetHydrationRow, Option<AnalysisHydrationRow>, 
 
 /// Recheck request-scoped file reuse after queue/settings changes; never a merge.
 pub(crate) fn local_asset_matches_request(
+    store: &Store,
     request: &Track,
     asset: &LocalAsset,
     settings: &Settings,
 ) -> bool {
-    local_matches::accepts(request, asset, settings)
+    let Ok(conn) = store.lock_connection() else {
+        return false;
+    };
+    let aliases =
+        crate::artist_credit_aliases::cached_local_playback_artist_aliases(&conn, request);
+    local_matches::accepts_with_aliases(request, asset, settings, &aliases)
 }
 
 fn hydrate(conn: &Connection, track: Track) -> Result<Track> {

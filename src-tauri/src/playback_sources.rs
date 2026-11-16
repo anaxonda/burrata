@@ -2219,7 +2219,7 @@ pub(crate) fn reconcile_stale_local_asset(
             || incoming.source_url.starts_with("local:");
         if !same_recording
             && !direct_local_choice
-            && !crate::storage::local_asset_matches_request(incoming, &asset, &settings)
+            && !crate::storage::local_asset_matches_request(store, incoming, &asset, &settings)
         {
             return Ok(without_stale_local_asset(incoming));
         }

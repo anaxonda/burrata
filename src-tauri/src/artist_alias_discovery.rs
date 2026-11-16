@@ -1265,12 +1265,12 @@ fn corroborated(profile: &Value, entity: &Value, id: &str) -> bool {
 }
 /// Retained raw evidence is revalidated at read time; caller must independently
 /// prove the recording's credit is attached to this exact MusicBrainz artist ID.
-pub(crate) fn verified_wikidata_alias_names(
-    store: &Store,
+pub(crate) fn verified_wikidata_alias_names<R: crate::storage::CachedProviderRead + ?Sized>(
+    store: &R,
     id: &str,
     profile: &Value,
 ) -> Vec<String> {
-    let Some(evidence) = store.get_provider_cache(EVIDENCE, id).ok().flatten() else {
+    let Some(evidence) = store.cached_provider_value(EVIDENCE, id) else {
         return vec![];
     };
     let entity = &evidence["entity"];

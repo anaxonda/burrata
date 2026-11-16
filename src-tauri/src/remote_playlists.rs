@@ -205,10 +205,12 @@ fn alias_hydration_cache_is_fresh(payload: &Value, now: i64) -> bool {
 
 /// Hydrated evidence is usable only during its 30-day freshness window.
 /// Retained cache rows stay on disk after expiry but cannot authorize reads.
-pub(crate) fn read_alias_hydrated_track(store: &Store, original: &Track) -> Option<Track> {
-    let payload = store
-        .get_provider_cache(ALIAS_HYDRATION_CACHE, &alias_hydration_key(original).ok()?)
-        .ok()??;
+pub(crate) fn read_alias_hydrated_track<R: crate::storage::CachedProviderRead + ?Sized>(
+    reader: &R,
+    original: &Track,
+) -> Option<Track> {
+    let payload = reader
+        .cached_provider_value(ALIAS_HYDRATION_CACHE, &alias_hydration_key(original).ok()?)?;
     if !alias_hydration_cache_is_fresh(&payload, chrono::Utc::now().timestamp()) {
         return None;
     }

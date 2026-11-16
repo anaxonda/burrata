@@ -9,11 +9,11 @@ const CANDIDATE_SQL: &str = r#"
 SELECT a.id,a.path,a.hash,a.payload FROM local_assets a
 JOIN recordings r ON r.id=a.recording_id
 WHERE json_valid(a.payload)
-  AND CAST(json_extract(a.payload,'$.durationSeconds') AS REAL) BETWEEN ?2 AND ?3
+  AND CAST(json_extract(a.payload,'$.durationSeconds') AS REAL) BETWEEN ?1 AND ?2
   AND artist_match_key(COALESCE(json_extract(r.manual_metadata,'$.artist'),
-      json_extract(a.payload,'$.track.artist')))=?1
+      json_extract(a.payload,'$.track.artist'))) IN (SELECT artist_key FROM request_local_match_artist_keys)
   AND local_recording_title_key(COALESCE(json_extract(r.manual_metadata,'$.title'),
-      json_extract(a.payload,'$.track.title')))=?5
+      json_extract(a.payload,'$.track.title')))=?3
   AND length(a.payload)<=262144
 ORDER BY a.rowid LIMIT ?4
 "#;
@@ -22,9 +22,10 @@ const LISTING_SQL: &str = r#"
 SELECT l.id,l.metadata,r.favorite,r.disposition,r.manual_metadata
 FROM catalog_listings l JOIN recordings r ON r.id=l.recording_id
 JOIN page_local_match_keys k ON k.listing_id=l.id
-WHERE k.artist=?1 AND k.duration BETWEEN ?2 AND ?3
-AND local_recording_title_key(COALESCE(json_extract(r.manual_metadata,'$.title'),
-    json_extract(l.metadata,'$.title')))=?5
+-- Candidate listing lookup intentionally keys only title/runtime here; each
+-- bounded candidate is rechecked by `find` using request-scoped verified
+-- artist aliases and the same exact relationship scorer as direct reuse.
+WHERE k.duration BETWEEN ?1 AND ?2 AND k.title=?3
 AND length(l.metadata)<=262144
 LIMIT ?4
 "#;
@@ -66,6 +67,30 @@ pub(super) fn install(conn: &Connection) -> Result<()> {
 fn runtime_window(duration: f64) -> (f64, f64) {
     let margin = (duration * 0.1).max(10.);
     (duration - margin, duration + margin)
+}
+
+fn artist_keys(request: &Track, aliases: &[Track]) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    std::iter::once(&request.artist)
+        .chain(aliases.iter().map(|alias| &alias.artist))
+        .map(|artist| normalize_artist_name(artist))
+        .filter(|key| !key.is_empty() && seen.insert(key.clone()))
+        .take(64)
+        .collect()
+}
+
+fn install_artist_keys(conn: &Connection, keys: &[String]) -> Result<()> {
+    conn.execute_batch("CREATE TEMP TABLE IF NOT EXISTS request_local_match_artist_keys(artist_key TEXT PRIMARY KEY); DELETE FROM request_local_match_artist_keys;")
+        .map_err(err)?;
+    let mut insert = conn
+        .prepare_cached(
+            "INSERT OR IGNORE INTO request_local_match_artist_keys(artist_key) VALUES(?1)",
+        )
+        .map_err(err)?;
+    for key in keys {
+        insert.execute([key]).map_err(err)?;
+    }
+    Ok(())
 }
 
 fn candidate(asset: &LocalAsset) -> Option<Candidate> {
@@ -112,6 +137,15 @@ fn candidate(asset: &LocalAsset) -> Option<Candidate> {
 }
 
 pub(super) fn accepts(request: &Track, asset: &LocalAsset, settings: &Settings) -> bool {
+    accepts_with_aliases(request, asset, settings, &[])
+}
+
+pub(super) fn accepts_with_aliases(
+    request: &Track,
+    asset: &LocalAsset,
+    settings: &Settings,
+    aliases: &[Track],
+) -> bool {
     if matches!(
         request.provider.as_str(),
         "local" | "radio" | "youtube" | "soundcloud" | "import"
@@ -133,15 +167,21 @@ pub(super) fn accepts(request: &Track, asset: &LocalAsset, settings: &Settings) 
     let Some(candidate) = candidate(asset) else {
         return false;
     };
-    let assessment = crate::recording_match::assess_with_options(
-        request,
-        &candidate,
-        settings.matching_level,
-        MatchStage::Resolved,
-        &settings.flexible_matching,
-    );
+    let assessment_accepted = std::iter::once(request)
+        .chain(aliases.iter())
+        .any(|variant| {
+            let assessment = crate::recording_match::assess_with_options(
+                variant,
+                &candidate,
+                settings.matching_level,
+                MatchStage::Resolved,
+                &settings.flexible_matching,
+            );
+            assessment.action == MatchAction::Accept
+                && assessment.relationship == MatchRelationship::Exact
+        });
     // A downloaded badge describes this recording, not an optional substitute.
-    assessment.action == MatchAction::Accept && assessment.relationship == MatchRelationship::Exact
+    assessment_accepted
 }
 
 fn effective_asset(conn: &Connection, row: &AssetHydrationRow) -> Result<Option<LocalAsset>> {
@@ -193,15 +233,16 @@ pub(super) fn find(
         return Ok(None);
     }
     let (min, max) = runtime_window(duration);
+    let aliases = crate::artist_credit_aliases::cached_local_playback_artist_aliases(conn, request);
+    install_artist_keys(conn, &artist_keys(request, &aliases))?;
     let mut stmt = conn.prepare_cached(CANDIDATE_SQL).map_err(err)?;
     let rows = stmt
         .query_map(
             params![
-                artist,
                 min,
                 max,
-                (CANDIDATE_LIMIT + 1) as i64,
-                title_key(&request.title)
+                title_key(&request.title),
+                (CANDIDATE_LIMIT + 1) as i64
             ],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
@@ -220,7 +261,7 @@ pub(super) fn find(
     let mut found = None;
     for row in rows {
         if let Some(asset) = effective_asset(conn, &row)? {
-            if accepts(request, &asset, settings) {
+            if accepts_with_aliases(request, &asset, settings, &aliases) {
                 if found.is_some() {
                     return Ok(None);
                 } // ambiguous files fail closed
@@ -252,15 +293,19 @@ pub(super) fn populate_available(conn: &Connection, settings: &Settings) -> Resu
     // for each asset, without persistent UDF indexes or stale background caches.
     conn.execute_batch(
         "CREATE TEMP TABLE IF NOT EXISTS page_local_match_keys(
-        listing_id TEXT PRIMARY KEY, artist TEXT, duration REAL);
+        listing_id TEXT PRIMARY KEY, artist TEXT, duration REAL, title TEXT);
         CREATE INDEX IF NOT EXISTS page_local_match_keys_artist_runtime
         ON page_local_match_keys(artist,duration);
+        CREATE INDEX IF NOT EXISTS page_local_match_keys_title_runtime
+        ON page_local_match_keys(title,duration);
         DELETE FROM page_local_match_keys;
-        INSERT INTO page_local_match_keys
+        INSERT INTO page_local_match_keys(listing_id,artist,duration,title)
         SELECT l.id,artist_match_key(COALESCE(json_extract(r.manual_metadata,'$.artist'),
             json_extract(l.metadata,'$.artist'))),
             CAST(COALESCE(json_extract(r.manual_metadata,'$.durationSeconds'),
-            json_extract(l.metadata,'$.durationSeconds')) AS REAL)
+            json_extract(l.metadata,'$.durationSeconds')) AS REAL),
+            local_recording_title_key(COALESCE(json_extract(r.manual_metadata,'$.title'),
+            json_extract(l.metadata,'$.title')))
         FROM catalog_listings l JOIN recordings r ON r.id=l.recording_id
         WHERE json_valid(l.metadata) AND json_valid(r.manual_metadata)
             AND length(l.metadata)<=262144;",
@@ -283,8 +328,7 @@ pub(super) fn populate_available(conn: &Connection, settings: &Settings) -> Resu
         let Some(duration) = asset.duration_seconds.filter(|d| d.is_finite() && *d > 0.) else {
             continue;
         };
-        let artist = normalize_artist_name(&asset.track.artist);
-        if artist.is_empty() {
+        if normalize_artist_name(&asset.track.artist).is_empty() {
             continue;
         }
         let (min, max) = runtime_window(duration);
@@ -293,11 +337,10 @@ pub(super) fn populate_available(conn: &Connection, settings: &Settings) -> Resu
             let mapped = stmt
                 .query_map(
                     params![
-                        artist,
                         min,
                         max,
-                        (LISTING_LIMIT + 1) as i64,
-                        title_key(&asset.track.title)
+                        title_key(&asset.track.title),
+                        (LISTING_LIMIT + 1) as i64
                     ],
                     |r| {
                         Ok((
