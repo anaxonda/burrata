@@ -122,13 +122,13 @@ fn verified_spotify_bulgarian_track() -> Track {
         provider: "spotify".into(),
         provider_id: "aaaaaaaaaaaaaaaaaaaaaa".into(),
         source_url: "https://open.spotify.com/track/aaaaaaaaaaaaaaaaaaaaaa".into(),
-        title: "Mir Stanke le (Harvest Song from Thrace)".into(),
+        title: "Mir Stanke Le".into(),
         artist: "Bulgarian State Television Female Choir".into(),
         duration_seconds: Some(190.0),
         isrc: Some("USNO18716511".into()),
         provenance: serde_json::json!({
             "catalog":{"verified":true,"provider":"spotify","providerId":"aaaaaaaaaaaaaaaaaaaaaa","artistCount":1,"artists":[{"provider":"spotify","id":"bbbbbbbbbbbbbbbbbbbbbb","name":"Bulgarian State Television Female Choir"}]},
-            "remoteCatalog":{"trackId":"aaaaaaaaaaaaaaaaaaaaaa","title":"Mir Stanke le (Harvest Song from Thrace)","artist":"Bulgarian State Television Female Choir","durationSeconds":190.0,"isrc":"USNO18716511","artistCount":1,"artistRefs":[{"provider":"spotify","id":"bbbbbbbbbbbbbbbbbbbbbb","name":"Bulgarian State Television Female Choir"}]}
+            "remoteCatalog":{"trackId":"aaaaaaaaaaaaaaaaaaaaaa","title":"Mir Stanke Le","artist":"Bulgarian State Television Female Choir","durationSeconds":190.0,"isrc":"USNO18716511","artistCount":1,"artistRefs":[{"provider":"spotify","id":"bbbbbbbbbbbbbbbbbbbbbb","name":"Bulgarian State Television Female Choir"}]}
         }),
         ..Default::default()
     }
@@ -170,6 +170,78 @@ fn install_verified_spotify_bulgarian_alias(store: &Store, request: &Track) {
     .unwrap();
 }
 
+fn verified_spotify_two_performer_track() -> Track {
+    Track {
+        id: "spotify:cccccccccccccccccccccc".into(),
+        provider: "spotify".into(),
+        provider_id: "cccccccccccccccccccccc".into(),
+        source_url: "https://open.spotify.com/track/cccccccccccccccccccccc".into(),
+        title: "Song of Two Choirs".into(),
+        artist: "Choir Alpha & Choir Beta".into(),
+        duration_seconds: Some(190.0),
+        isrc: Some("USNO18716512".into()),
+        provenance: serde_json::json!({
+            "catalog":{"verified":true,"provider":"spotify","providerId":"cccccccccccccccccccccc","artistCount":2,"artists":[{"provider":"spotify","id":"bbbbbbbbbbbbbbbbbbbbbb","name":"Choir Alpha"},{"provider":"spotify","id":"dddddddddddddddddddddd","name":"Choir Beta"}]},
+            "remoteCatalog":{"trackId":"cccccccccccccccccccccc","title":"Song of Two Choirs","artist":"Choir Alpha & Choir Beta","durationSeconds":190.0,"isrc":"USNO18716512","artistCount":2,"artistRefs":[{"provider":"spotify","id":"bbbbbbbbbbbbbbbbbbbbbb","name":"Choir Alpha","joinPhrase":" & "},{"provider":"spotify","id":"dddddddddddddddddddddd","name":"Choir Beta","joinPhrase":""}]}
+        }),
+        ..Default::default()
+    }
+}
+
+fn install_verified_two_performer_alias(store: &Store, request: &Track) {
+    let recording_id = "00000000-0000-4000-8000-000000000093";
+    let first_artist_id = "00000000-0000-4000-8000-000000000094";
+    let second_artist_id = "00000000-0000-4000-8000-000000000095";
+    let recording = serde_json::json!({
+        "id":recording_id,"title":request.title,"length":190000,"isrcs":["USNO18716512"],
+        "artist-credit":[
+            {"name":"Choir Alpha","joinphrase":" & ","artist":{"id":first_artist_id,"name":"The Alpha Choir"}},
+            {"name":"Choir Beta","joinphrase":"","artist":{"id":second_artist_id,"name":"The Beta Choir"}}
+        ]
+    });
+    for (artist_id, canonical, spotify_id, alias) in [
+        (
+            first_artist_id,
+            "The Alpha Choir",
+            "bbbbbbbbbbbbbbbbbbbbbb",
+            "Choir Alpha",
+        ),
+        (
+            second_artist_id,
+            "The Beta Choir",
+            "dddddddddddddddddddddd",
+            "Choir Beta",
+        ),
+    ] {
+        let profile = serde_json::json!({
+            "id":artist_id,"name":canonical,"aliases":[{"name":alias}],
+            "relations":[{"url":{"resource":format!("https://open.spotify.com/artist/{spotify_id}")}}]
+        });
+        store
+            .set_provider_cache(
+                "artists.spotify-recording-credit-crosswalk.musicbrainz-artist",
+                artist_id,
+                &profile,
+                3600,
+            )
+            .unwrap();
+    }
+    store
+        .set_provider_cache(
+            "artists.spotify-recording-credit-crosswalk.musicbrainz-recording",
+            recording_id,
+            &recording,
+            3600,
+        )
+        .unwrap();
+    crate::artist_credit_aliases::write_verified_spotify_artist_credit_recording(
+        store,
+        request,
+        recording_id,
+    )
+    .unwrap();
+}
+
 fn add_bulgarian_asset(
     dir: &tempfile::TempDir,
     store: &Store,
@@ -200,6 +272,41 @@ fn verified_spotify_musicbrainz_artist_alias_enables_bounded_local_reuse_and_ava
     install_verified_spotify_bulgarian_alias(&store, &request);
     add_bulgarian_asset(&dir, &store, "bulgarian-verified", 191.0, None);
 
+    let aliases = crate::artist_credit_aliases::cached_local_playback_artist_aliases(
+        &store.lock_connection().unwrap(),
+        &request,
+    );
+    assert!(
+        aliases.tracks().iter().any(|alias| {
+            alias.artist == "The Bulgarian State Radio and Television Female Vocal Choir"
+        }),
+        "verified crosswalk must produce the local credited spelling; got: {:?}",
+        aliases
+            .tracks()
+            .iter()
+            .map(|alias| &alias.artist)
+            .collect::<Vec<_>>()
+    );
+    let candidate_asset = asset(
+        "bulgarian-verified",
+        "Mir Stanke Le",
+        None,
+        "The Bulgarian State Radio and Television Female Vocal Choir",
+        Some(191.0),
+        Some("USNO18716511"),
+        &dir.path().join("bulgarian-verified.flac"),
+        false,
+    );
+    assert!(
+        crate::storage_local_matches::accepts_with_aliases(
+            &request,
+            &candidate_asset,
+            &Settings::default(),
+            &aliases,
+        ),
+        "verified spelling is available but exact scorer rejects it"
+    );
+
     let loaded = store.get_track(&request.id).unwrap().unwrap();
     assert_eq!(loaded.asset_id.as_deref(), Some("bulgarian-verified"));
     assert_eq!(
@@ -214,6 +321,30 @@ fn verified_spotify_musicbrainz_artist_alias_enables_bounded_local_reuse_and_ava
     assert!(page(&store, "library", None, Some("local"), None)
         .iter()
         .any(|track| track.id == request.id));
+}
+
+#[test]
+fn verified_multi_performer_alias_keeps_structured_credit_boundaries() {
+    let (dir, store) = db();
+    let request = verified_spotify_two_performer_track();
+    store.save_track(&request).unwrap();
+    install_verified_two_performer_alias(&store, &request);
+    let path = dir.path().join("two-performer.flac");
+    store
+        .save_asset(&asset(
+            "two-performer",
+            "Song of Two Choirs",
+            None,
+            "The Alpha Choir & The Beta Choir",
+            Some(191.0),
+            Some("USNO18716512"),
+            &path,
+            true,
+        ))
+        .unwrap();
+
+    let loaded = store.get_track(&request.id).unwrap().unwrap();
+    assert_eq!(loaded.asset_id.as_deref(), Some("two-performer"));
 }
 
 #[test]
@@ -240,6 +371,17 @@ fn local_artist_alias_requires_verified_crosswalk_and_exact_version_and_runtime(
             "{id} must not expose a local path"
         );
     }
+
+    let (dir, store) = db();
+    let mut request = verified_spotify_bulgarian_track();
+    request.title = "Mir Stanke Le (Harvest Song from Thrace)".into();
+    request.provenance["remoteCatalog"]["title"] = serde_json::json!(request.title);
+    store.save_track(&request).unwrap();
+    install_verified_spotify_bulgarian_alias(&store, &request);
+    add_bulgarian_asset(&dir, &store, "unknown-title-gloss", 191.0, None);
+    let loaded = store.get_track(&request.id).unwrap().unwrap();
+    assert!(loaded.asset_id.is_none());
+    assert!(loaded.local_path.is_none());
 }
 
 #[test]

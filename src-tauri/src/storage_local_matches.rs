@@ -137,14 +137,19 @@ fn candidate(asset: &LocalAsset) -> Option<Candidate> {
 }
 
 pub(super) fn accepts(request: &Track, asset: &LocalAsset, settings: &Settings) -> bool {
-    accepts_with_aliases(request, asset, settings, &[])
+    accepts_with_aliases(
+        request,
+        asset,
+        settings,
+        &crate::artist_credit_aliases::VerifiedPlaybackArtistAliases::default(),
+    )
 }
 
 pub(super) fn accepts_with_aliases(
     request: &Track,
     asset: &LocalAsset,
     settings: &Settings,
-    aliases: &[Track],
+    aliases: &crate::artist_credit_aliases::VerifiedPlaybackArtistAliases,
 ) -> bool {
     if matches!(
         request.provider.as_str(),
@@ -167,19 +172,31 @@ pub(super) fn accepts_with_aliases(
     let Some(candidate) = candidate(asset) else {
         return false;
     };
-    let assessment_accepted = std::iter::once(request)
-        .chain(aliases.iter())
-        .any(|variant| {
-            let assessment = crate::recording_match::assess_with_options(
-                variant,
+    let exact_accept = |assessment: crate::recording_match::MatchAssessment| {
+        assessment.action == MatchAction::Accept
+            && assessment.relationship == MatchRelationship::Exact
+    };
+    let assessment_accepted = exact_accept(crate::recording_match::assess_with_options(
+        request,
+        &candidate,
+        settings.matching_level,
+        MatchStage::Resolved,
+        &settings.flexible_matching,
+    )) || aliases.tracks().iter().any(|alias| {
+        let Some(credits) = aliases.matching_verified_credit_names(request, &alias.artist) else {
+            return false;
+        };
+        exact_accept(
+            crate::recording_match::assess_with_primary_credit_override_and_options(
+                alias,
                 &candidate,
                 settings.matching_level,
                 MatchStage::Resolved,
+                &credits,
                 &settings.flexible_matching,
-            );
-            assessment.action == MatchAction::Accept
-                && assessment.relationship == MatchRelationship::Exact
-        });
+            ),
+        )
+    });
     // A downloaded badge describes this recording, not an optional substitute.
     assessment_accepted
 }
@@ -234,7 +251,7 @@ pub(super) fn find(
     }
     let (min, max) = runtime_window(duration);
     let aliases = crate::artist_credit_aliases::cached_local_playback_artist_aliases(conn, request);
-    install_artist_keys(conn, &artist_keys(request, &aliases))?;
+    install_artist_keys(conn, &artist_keys(request, aliases.tracks()))?;
     let mut stmt = conn.prepare_cached(CANDIDATE_SQL).map_err(err)?;
     let rows = stmt
         .query_map(

@@ -1336,17 +1336,24 @@ pub(crate) fn verify_spotify_artist_credit_recording<
 pub(crate) fn cached_local_playback_artist_aliases(
     conn: &rusqlite::Connection,
     track: &Track,
-) -> Vec<Track> {
+) -> VerifiedPlaybackArtistAliases {
     if track.provenance["manualFields"]["artist"] == true
         || track.provenance["manualFields"]["artistCredits"] == true
     {
-        return Vec::new();
+        return VerifiedPlaybackArtistAliases::default();
     }
-    cached_verified_spotify_recording_artist_id_alias_tracks_with_context(
+    let mut credit_sets = Vec::new();
+    let tracks = cached_verified_spotify_recording_artist_id_alias_tracks_with_context(
         conn,
         track,
-        &mut Vec::new(),
-    )
+        &mut credit_sets,
+    );
+    VerifiedPlaybackArtistAliases {
+        tracks,
+        credit_sets,
+        source: Some(track.clone()),
+        ..Default::default()
+    }
 }
 
 pub(crate) fn invalidate_spotify_artist_credit_recording(

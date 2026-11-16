@@ -10017,3 +10017,86 @@ mod recording_match_pattern_tests;
 #[cfg(test)]
 #[path = "recording_match_parser_regressions.rs"]
 mod parser_regressions;
+
+#[cfg(test)]
+mod local_verified_credit_override_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn verified_local_credit_override_preserves_structured_identity_guards() {
+        let canonical = "The Bulgarian State Radio and Television Female Vocal Choir";
+        let requested = Track {
+            id: "spotify:aaaaaaaaaaaaaaaaaaaaaa".into(),
+            provider: "spotify".into(),
+            provider_id: "aaaaaaaaaaaaaaaaaaaaaa".into(),
+            source_url: "https://open.spotify.com/track/aaaaaaaaaaaaaaaaaaaaaa".into(),
+            title: "Mir Stanke Le".into(),
+            artist: "Bulgarian State Television Female Choir".into(),
+            duration_seconds: Some(190.0),
+            isrc: Some("USNO18716511".into()),
+            provenance: json!({"catalog":{"verified":true,"provider":"spotify","providerId":"aaaaaaaaaaaaaaaaaaaaaa","artistCount":1,"artists":[{"provider":"spotify","id":"bbbbbbbbbbbbbbbbbbbbbb","name":"Bulgarian State Television Female Choir"}]}}),
+            ..Track::default()
+        };
+        let mut variant = requested.clone();
+        variant.artist = canonical.into();
+        let candidate = Candidate {
+            id: "local:verified-file".into(),
+            provider: "local".into(),
+            url: "local:verified-file".into(),
+            title: "Mir Stanke Le".into(),
+            uploader: Some(canonical.into()),
+            duration_seconds: Some(191.0),
+            permission: "owned".into(),
+            source_metadata: Some(
+                json!({"track":"Mir Stanke Le","artist":canonical,"duration":191.0,"isrc":"USNO18716511","sourceMetadataOrigin":"registeredLocalAsset"}),
+            ),
+            ..Candidate::default()
+        };
+        let credits = vec![canonical.to_owned()];
+        let assessed = assess_with_primary_credit_override_and_options(
+            &variant,
+            &candidate,
+            MatchLevel::Balanced,
+            MatchStage::Resolved,
+            &credits,
+            &FlexibleMatchingOptions::default(),
+        );
+        assert_eq!(assessed.action, MatchAction::Accept, "{assessed:?}");
+        assert_eq!(
+            assessed.relationship,
+            MatchRelationship::Exact,
+            "{assessed:?}"
+        );
+        let mut unknown_title = variant.clone();
+        unknown_title.title = "Mir Stanke Le (Harvest Song from Thrace)".into();
+        let unresolved = assess_with_primary_credit_override_and_options(
+            &unknown_title,
+            &candidate,
+            MatchLevel::Balanced,
+            MatchStage::Resolved,
+            &credits,
+            &FlexibleMatchingOptions::default(),
+        );
+        assert_ne!(
+            unresolved.action,
+            MatchAction::Accept,
+            "artist aliases do not authorize unknown title glosses: {unresolved:?}"
+        );
+        let mut wrong_version = candidate;
+        wrong_version.title = "Mir Stanke Le (Remix)".into();
+        wrong_version.source_metadata.as_mut().unwrap()["track"] = json!(wrong_version.title);
+        assert_ne!(
+            assess_with_primary_credit_override_and_options(
+                &variant,
+                &wrong_version,
+                MatchLevel::Balanced,
+                MatchStage::Resolved,
+                &credits,
+                &FlexibleMatchingOptions::default(),
+            )
+            .action,
+            MatchAction::Accept
+        );
+    }
+}
