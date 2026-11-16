@@ -11790,15 +11790,23 @@ mod tests {
         assert_eq!(editions["inputSchema"]["additionalProperties"], false);
 
         let args = json!({
-            "artist":{"provider":"musicbrainz","id":"artist-id"},
+            "artist":{"provider":"musicbrainz","id":"00000000-0000-4000-8000-000000000001"},
             "release":{
-                "release":{"provider":"musicbrainz","id":"release-id"},
-                "title":"Example release"
+                "release":{"provider":"musicbrainz","id":"00000000-0000-4000-8000-000000000002"},
+                "title":"Example release",
+                "sourceUrl":"https://musicbrainz.org/release-group/00000000-0000-4000-8000-000000000002",
+                "credits":[]
             },
             "cursor":"opaque-page-token"
         });
-        assert_eq!(artist_arg(&args).unwrap().id, "artist-id");
-        assert_eq!(release_arg(&args).unwrap().release.id, "release-id");
+        assert_eq!(
+            artist_arg(&args).unwrap().id,
+            "00000000-0000-4000-8000-000000000001"
+        );
+        assert_eq!(
+            release_arg(&args).unwrap().release.id,
+            "00000000-0000-4000-8000-000000000002"
+        );
         assert_eq!(cursor_arg(&args).unwrap(), Some("opaque-page-token"));
         assert_eq!(
             cursor_arg(&json!({"cursor":42})).unwrap_err().code,
