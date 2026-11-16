@@ -872,7 +872,7 @@ pub fn parse_title(value: &str) -> ParsedRecordingTitle {
 /// classification, and unknown labels remain literal evidence.
 fn is_video_version(label: &str) -> bool {
     matches!(
-        crate::matching::normalize(label).as_str(),
+        crate::recording_identity::search_fold(label).as_str(),
         "video version" | "version video" | "version videoclip" | "videoclip version"
     )
 }

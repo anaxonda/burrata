@@ -52,7 +52,8 @@ pub(crate) fn request_fingerprint(track: &crate::models::Track) -> String {
                 "id":track.id,"provider":track.provider,"providerId":track.provider_id,
                 "sourceUrl":track.source_url,"title":track.title,"artist":track.artist,
                 "album":track.album,"version":track.version,"duration":track.duration_seconds,
-                "isrc":track.isrc,"provenance":track.provenance
+                "isrc":track.isrc,"manualFields":track.provenance.get("manualFields").filter(|v| v.is_object()),
+        "recordingId":track.provenance.get("recordingId"),"releaseId":track.provenance.get("releaseId")
             })
             .to_string()
             .as_bytes()
