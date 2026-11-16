@@ -2465,7 +2465,8 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
   }
   function artistPlaybackMatchKey(track: Track): string {
     return [track.provider, track.providerId ?? "", normalizeArtistLookup(track.artist), normalizeArtistLookup(track.title), normalizeArtistLookup(track.version ?? ""),
-      Number.isFinite(track.durationSeconds) ? String(track.durationSeconds) : ""].join("\u001f");
+      Number.isFinite(track.durationSeconds) ? String(track.durationSeconds) : "", track.isrc ?? "",
+      settings.matchingLevel ?? "balanced", JSON.stringify(settings.flexibleMatching ?? null)].join("\u001f");
   }
   function rememberNoLocalArtistMatch(key: string, revision: number) {
     if (revision !== artistPlaybackMatchRevision) return;
@@ -6897,6 +6898,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     const save = settingsSaveQueue.then(() => run(async()=>{
       const fresh = await call<Settings>("get_settings");
       await call("save_settings",{settings:{...fresh,...changes}});
+      if (keys.includes("matchingLevel") || keys.includes("flexibleMatching")) invalidateLegacyArtistAssets();
       if(keys.includes("musicDirectory")) persistedMusicDirectory=changes.musicDirectory as string;
       if(keys.includes("playlistDirectories")) void syncMirrors();
       if(keys.includes("playlistMirroringEnabled") && changes.playlistMirroringEnabled !== false) void syncMirrors();
