@@ -44,6 +44,18 @@ pub(crate) fn try_start(key: String) -> Option<VerificationLease> {
 /// all request identity fields and parser version, but never the selected mode.
 pub(crate) fn request_fingerprint(track: &crate::models::Track) -> String {
     use sha2::{Digest, Sha256};
+    let manual_fields = track
+        .provenance
+        .get("manualFields")
+        .and_then(|v| v.as_object())
+        .map(|fields| {
+            fields
+                .iter()
+                .filter(|(_, value)| **value == serde_json::Value::Bool(true))
+                .map(|(name, _)| name.clone())
+                .collect::<std::collections::BTreeSet<_>>()
+        })
+        .unwrap_or_default();
     format!(
         "{:x}",
         Sha256::digest(
@@ -52,8 +64,7 @@ pub(crate) fn request_fingerprint(track: &crate::models::Track) -> String {
                 "id":track.id,"provider":track.provider,"providerId":track.provider_id,
                 "sourceUrl":track.source_url,"title":track.title,"artist":track.artist,
                 "album":track.album,"version":track.version,"duration":track.duration_seconds,
-                "isrc":track.isrc,"manualFields":track.provenance.get("manualFields").filter(|v| v.is_object()),
-        "recordingId":track.provenance.get("recordingId"),"releaseId":track.provenance.get("releaseId")
+                "isrc":track.isrc,"manualFields":manual_fields
             })
             .to_string()
             .as_bytes()
