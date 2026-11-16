@@ -83,10 +83,10 @@ The same extension downloads work on all three systems:
 
 | Browser | Download | Installation |
 | --- | --- | --- |
-| Firefox | [firefox-extension-0.2.14.xpi](https://github.com/anaxonda/burrata/releases/download/v0.1.48/firefox-extension-0.2.14.xpi) | [Firefox steps](../extension/README.md#firefox) |
-| Chrome / Chromium / Edge | [chrome-extension-0.2.14.zip](https://github.com/anaxonda/burrata/releases/download/v0.1.48/chrome-extension-0.2.14.zip) | [Chrome/Edge steps](../extension/README.md#chrome-chromium-and-edge) |
+| Firefox | [firefox-extension-0.2.15.xpi](https://github.com/anaxonda/burrata/releases/download/v0.1.48/firefox-extension-0.2.15.xpi) | [Firefox steps](../extension/README.md#firefox) |
+| Chrome / Chromium / Edge | [chrome-extension-0.2.15.zip](https://github.com/anaxonda/burrata/releases/download/v0.1.48/chrome-extension-0.2.15.zip) | [Chrome/Edge steps](../extension/README.md#chrome-chromium-and-edge) |
 
-The extension has its own version. The latest public app release, **0.1.48**, packages extension **0.2.14**. Earlier pairings were app **0.1.25** with extension **0.2.4**; apps **0.1.8**, **0.1.7**, **0.1.6** and **0.1.5** with extension **0.2.3**; and app **0.1.3** with extension **0.2.2**.
+The extension has its own version. The latest public app release, **0.1.48**, packages extension **0.2.14**; the current source extension version is **0.2.15**. Earlier pairings were app **0.1.25** with extension **0.2.4**; apps **0.1.8**, **0.1.7**, **0.1.6** and **0.1.5** with extension **0.2.3**; and app **0.1.3** with extension **0.2.2**.
 Installing the extension alone is not enough: also use **Settings → Connections →
 Browser companion → Connect browser companion** in Burrata, then restart your
 browser. See the [complete companion guide](../extension/README.md#install).

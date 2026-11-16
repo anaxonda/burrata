@@ -10,7 +10,7 @@ test('both browser manifests grant optional access and parser injection on suppo
   ];
   for(const filename of ['manifest.json','manifest.chromium.json']){
     const manifest=JSON.parse(readFileSync(new URL(`../${filename}`,import.meta.url)));
-    assert.equal(manifest.version,'0.2.14');
+    assert.equal(manifest.version,'0.2.15');
     assert.ok(manifest.permissions.includes('contextMenus'));
     assert.deepEqual(manifest.optional_host_permissions,[...expected.slice(0,5),'https://francescograzioso.github.io/Meld/*','https://api.github.com/gists/*',...expected.slice(5)]);
     assert.deepEqual(manifest.web_accessible_resources[0].matches,expected);

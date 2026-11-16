@@ -4,11 +4,12 @@ import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 
 const source=readFileSync(new URL('../background.js',import.meta.url),'utf8');
-function worker(session={}, {enabled=false, verification=false, requests=[],pageUrl='https://www.beatport.com/genre/afro-house/89/top-100',albumCollection=false,handoffSession=null,youtubePage=null,accountIdentity=null,providerFailure=null,providerResponse={},targetCollectionId='',contextSelection=null,nativeReplies=[],deferDisconnect=false}={}) {
+function worker(session={}, {enabled=false, verification=false, requests=[],pollReplies=null,manualTimers=false,pageUrl='https://www.beatport.com/genre/afro-house/89/top-100',albumCollection=false,handoffSession=null,youtubePage=null,accountIdentity=null,providerFailure=null,providerResponse={},targetCollectionId='',contextSelection=null,nativeReplies=[],deferDisconnect=false}={}) {
   let listener, removed;
   let menuClick;
   let connectionCount=0,responseIndex=0;
-  const messages=[], created=[], updated=[], scripts=[],menus=[],local={enabled,targetCollectionId},ports=[];
+  const messages=[], created=[], updated=[], scripts=[],menus=[],local={enabled,targetCollectionId},ports=[],timers=[];
+  const queuedPollReplies=pollReplies?[...pollReplies]:null;
   const host=new URL(pageUrl).hostname;
   const snapshot={provider:host.includes('shazam')?'shazam':host.includes('last.fm')?'lastfm':host.includes('bandcamp')?'bandcamp':host.includes('soundcloud')?'soundcloud':host.includes('youtube')?'youtube':'beatport',kind:host.includes('youtube')?'playlist':'chart',sourceUrl:pageUrl,entries:[]};
   const api={
@@ -16,7 +17,7 @@ function worker(session={}, {enabled=false, verification=false, requests=[],page
     storage:{local:{get:async()=>local,set:async value=>Object.assign(local,value)},session:{get:async()=>session,set:async value=>Object.assign(session,value)}},
     runtime:{getURL:path=>`chrome-extension://test/${path}`,onInstalled:{addListener(){}},onMessage:{addListener(fn){listener=fn;}},connectNative(){connectionCount++;let disconnected,reply;const port={
       onMessage:{addListener(fn){reply=fn;}},onDisconnect:{addListener(fn){disconnected=fn;}},disconnect(){if(!deferDisconnect)disconnected?.();},
-      postMessage(message){messages.push(message);const custom=nativeReplies[responseIndex++];queueMicrotask(()=>reply(custom||{ok:true,requests:message.type==='poll'?requests:[],collections:[{id:'playlist-1',name:'Fixture'}],result:{collectionId:'playlist-1',collectionName:'Fixture',artist:'Artist',trackTitle:'Song'}}));},
+      postMessage(message){messages.push(message);const custom=message.type==='poll'&&queuedPollReplies?(queuedPollReplies.shift()||{ok:true,requests:[]}):nativeReplies[responseIndex++];queueMicrotask(()=>reply(custom||{ok:true,requests:message.type==='poll'?requests:[],collections:[{id:'playlist-1',name:'Fixture'}],result:{collectionId:'playlist-1',collectionName:'Fixture',artist:'Artist',trackTitle:'Song'}}));},
     };ports.push({fireDisconnect:()=>disconnected?.()});return port;}},
     scripting:{executeScript:async details=>{scripts.push(details);return details.world==='MAIN'?[{result:details.func?.name==='captureYouTubeAccountIdentity'?{account:accountIdentity||{accountId:handoffSession?.accountId||'UCaaaaaaaaaaaaaaaaaaaaaa',displayName:handoffSession?.displayName||'Fixture Channel'}}:details.func?.name==='captureYouTubeSessionHandoff'?(handoffSession?{session:handoffSession}:details.func()):providerFailure?{__burrataProviderError:providerFailure}:{accountId:'browser-account',displayName:'Test'}}]:[];}},
     tabs:{get:async id=>({id,status:'complete',url:pageUrl,windowId:1}),
@@ -27,9 +28,9 @@ function worker(session={}, {enabled=false, verification=false, requests=[],page
     contextMenus:{removeAll:async()=>{},create:menu=>menus.push(menu),onClicked:{addListener(fn){menuClick=fn;}}},
     alarms:{create(){},onAlarm:{addListener(){}}},
   };
-  const context=vm.createContext({chrome:api,URL,TextEncoder,Map,Promise,AbortController,crypto:{randomUUID:()=> 'test-id'},BurrataSpotifyAuth:{loadRegistry:async()=>({secret:'fixture',version:'fixture'}),totp:async()=> '123456'},location:youtubePage?.location||{origin:new URL(pageUrl).origin,hostname:new URL(pageUrl).hostname,pathname:new URL(pageUrl).pathname},document:youtubePage?.document||{cookie:'',querySelector:()=>null},fetch:async()=>({ok:true,status:200,text:async()=>JSON.stringify(providerResponse)}),setInterval(){},setTimeout(fn,ms){if(ms<30000)queueMicrotask(fn);return 1;},clearTimeout(){}});
+  const context=vm.createContext({chrome:api,URL,TextEncoder,Map,Promise,AbortController,crypto:{randomUUID:()=> 'test-id'},BurrataSpotifyAuth:{loadRegistry:async()=>({secret:'fixture',version:'fixture'}),totp:async()=> '123456'},location:youtubePage?.location||{origin:new URL(pageUrl).origin,hostname:new URL(pageUrl).hostname,pathname:new URL(pageUrl).pathname},document:youtubePage?.document||{cookie:'',querySelector:()=>null},fetch:async()=>({ok:true,status:200,text:async()=>JSON.stringify(providerResponse)}),setInterval(){},setTimeout(fn,ms){if(manualTimers||ms===50){const timer={fn,ms,cleared:false};timers.push(timer);return timer;}if(ms<30000)queueMicrotask(fn);return 1;},clearTimeout(timer){if(timer&&typeof timer==='object')timer.cleared=true;}});
   vm.runInContext(source,context);
-  return {messages,created,updated,scripts,menus,session,removed,local,get connectionCount(){return connectionCount;},clickMenu:(info,tab)=>menuClick(info,tab),fireDisconnect:index=>ports[index]?.fireDisconnect(),
+  return {messages,created,updated,scripts,menus,session,removed,local,timers,get connectionCount(){return connectionCount;},advanceTimer:async ms=>{const timer=timers.find(item=>!item.cleared&&item.ms===ms);assert.ok(timer,`expected pending ${ms}ms timer`);timer.cleared=true;return timer.fn();},clickMenu:(info,tab)=>menuClick(info,tab),fireDisconnect:index=>ports[index]?.fireDisconnect(),
     send:(message,sender={})=>new Promise(resolve=>listener(message,sender,resolve)),
     poll:()=>vm.runInContext('poll()',context),context,
   };
@@ -213,6 +214,37 @@ test('provider poll operation returns normalized browser-owned result with corre
  const result=w.messages.find(message=>message.type==='providerResult');
  assert.equal(result.requestId,'native-4');assert.equal(result.operationId,'op-4');
  assert.equal(result.ok,true);assert.deepEqual(result.result,{accountId:'browser-account',displayName:'Test'});
+});
+
+test('provider work triggers bounded follow-up polls while idle and disabled polling stay slow',async()=>{
+ const operation=(id)=>({id:`native-${id}`,kind:'providerOperation',operationId:id,provider:'spotify',operation:'status',args:{}});
+ const w=worker({}, {enabled:true,manualTimers:true,pageUrl:'https://open.spotify.com/',pollReplies:[
+  {ok:true,requests:[operation('dependent-1')]},
+  {ok:true,requests:[operation('dependent-2')]},
+  {ok:true,requests:[]},
+ ]});
+ await w.poll();
+ assert.deepEqual(w.messages.filter(message=>message.type==='providerResult').map(message=>message.operationId),['dependent-1']);
+ assert.equal(w.timers.filter(timer=>!timer.cleared&&timer.ms===50).length,1);
+ await w.advanceTimer(50);
+ assert.deepEqual(w.messages.filter(message=>message.type==='providerResult').map(message=>message.operationId),['dependent-1','dependent-2']);
+ assert.equal(w.timers.filter(timer=>!timer.cleared&&timer.ms===50).length,1);
+ await w.advanceTimer(50);
+ assert.equal(w.messages.filter(message=>message.type==='poll').length,3);
+ assert.equal(w.timers.filter(timer=>!timer.cleared&&timer.ms===50).length,0,'empty provider queue must return to the normal interval');
+
+ const idle=worker({}, {enabled:true,manualTimers:true,pollReplies:[{ok:true,requests:[]}]});
+ await idle.poll();
+ assert.equal(idle.timers.filter(timer=>!timer.cleared&&timer.ms===50).length,0);
+ const disabled=worker({}, {enabled:false,manualTimers:true,requests:[operation('disabled')]});
+ await disabled.poll();
+ assert.equal(disabled.messages.some(message=>message.type==='providerResult'),false);
+ assert.equal(disabled.timers.filter(timer=>!timer.cleared&&timer.ms===50).length,0);
+ const paused=worker({}, {enabled:true,manualTimers:true,pageUrl:'https://open.spotify.com/',pollReplies:[{ok:true,requests:[operation('pause-pending')]}]});
+ await paused.poll();
+ assert.equal(paused.timers.filter(timer=>!timer.cleared&&timer.ms===50).length,1);
+ await paused.send({type:'enable',enabled:false});
+ assert.equal(paused.timers.filter(timer=>!timer.cleared&&timer.ms===50).length,0,'disabling cancels a scheduled prompt poll');
 });
 
 test('YouTube session is handed off only from the explicit extension popup action',async()=>{

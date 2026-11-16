@@ -2,7 +2,7 @@ if(!globalThis.BurrataSpotifyAuth&&typeof importScripts==='function')importScrip
 if(!globalThis.BurrataSpotifyProvider&&typeof importScripts==='function')importScripts('provider-operations.js');
 const api=globalThis.browser||chrome;
 const sites=['https://www.beatport.com/*','https://www.traxsource.com/*','https://open.spotify.com/*','https://www.youtube.com/*','https://music.youtube.com/*','https://www.shazam.com/*','https://shazam.com/*','https://www.last.fm/*','https://last.fm/*','https://bandcamp.com/*','https://*.bandcamp.com/*','https://soundcloud.com/*','https://www.soundcloud.com/*'];
-let port=null,waiters=[],nativeBusy=Promise.resolve(),pollBusy=false;
+let port=null,waiters=[],nativeBusy=Promise.resolve(),pollBusy=false,promptPollTimer=null;
 let lastError='',requestTabs=new Map(),enabled=false;
 let targetCollectionId='',lastContextAction='';
 const providerOperations=new Map();
@@ -458,14 +458,23 @@ async function waitLoaded(tabId){
   throw new Error('Provider page took too long to load.');
 }
 function supported(url){try{const u=new URL(url),host=u.hostname.toLowerCase();return u.protocol==='https:'&&(['www.beatport.com','beatport.com','www.traxsource.com','traxsource.com','open.spotify.com','www.youtube.com','music.youtube.com','www.shazam.com','shazam.com','www.last.fm','last.fm','bandcamp.com','soundcloud.com','www.soundcloud.com'].includes(host)||host.endsWith('.bandcamp.com'));}catch{return false;}}
+function schedulePromptPoll(){
+  if(!enabled||promptPollTimer!==null)return;
+  promptPollTimer=setTimeout(()=>{
+    promptPollTimer=null;
+    if(enabled)return poll();
+  },50);
+}
 async function poll(){
   await Promise.all([ready,managedSessionReady]);
   if(pollBusy)return;pollBusy=true;
+  let providerOperationWorked=false;
   try{
     const reply=await native({type:enabled?'poll':'heartbeat'});
     if(!enabled)return;
     for(const request of reply.requests||[]){
       if(request.kind==='providerOperation'){
+        providerOperationWorked=true;
         try{await handleProviderRequest(request);}catch(error){lastError=error.message;badge('!');}
         continue;
       }
@@ -482,7 +491,7 @@ async function poll(){
         if(!/verification/i.test(e.message)) {if(tab)await forgetRequest(tab.id);await native({type:'status',requestId:request.id,state:'failed',message:e.message});}
       }
     }
-  }catch(e){lastError=e.message;badge('!');}finally{pollBusy=false;}
+  }catch(e){lastError=e.message;badge('!');}finally{pollBusy=false;if(providerOperationWorked&&enabled)schedulePromptPoll();}
 }
 api.runtime.onMessage.addListener((message,sender,respond)=>{
   const handle=async()=>{
@@ -496,7 +505,11 @@ api.runtime.onMessage.addListener((message,sender,respond)=>{
       try{await native({type:'heartbeat'});lastError='';}catch(error){lastError=error.message;}
       return {enabled,error:lastError,connected:!!port,lastContextAction,targetCollectionId};
     }
-    if(message.type==='enable'){enabled=message.enabled;await api.storage.local.set({enabled});if(enabled)await poll();else port?.disconnect();return {enabled};}
+    if(message.type==='enable'){
+      enabled=message.enabled;await api.storage.local.set({enabled});
+      if(enabled)await poll();else{if(promptPollTimer!==null){clearTimeout(promptPollTimer);promptPollTimer=null;}port?.disconnect();}
+      return {enabled};
+    }
     if(message.type==='listTargetCollections'){
       if(sender?.tab||sender?.url!==api.runtime.getURL('popup.html'))throw errorResult('UNSUPPORTED','Choose a playlist from the Burrata companion popup.');
       const response=await native({type:'listTargetCollections'});
