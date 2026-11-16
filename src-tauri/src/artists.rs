@@ -1976,11 +1976,27 @@ impl ArtistService {
                         });
                     }
                     Err(error) => {
-                        warnings.push(format!("MusicBrainz releases unavailable: {error}"));
+                        // A new lightweight index must not discard fresh edition
+                        // pages the user already loaded when the provider is down.
+                        let cached = if album_index && offset == 0 {
+                            self.cached_musicbrainz_editions(&mbid, artist)
+                        } else {
+                            Vec::new()
+                        };
+                        let has_cached = !cached.is_empty();
+                        items.extend(cached);
+                        warnings.push(if has_cached {
+                            format!("MusicBrainz album index unavailable: {error}. Showing previously loaded editions; retry to refresh.")
+                        } else { format!("MusicBrainz releases unavailable: {error}") });
                         source_coverage.push(ArtistSourceCoverage {
                             provider: "musicbrainz".into(),
-                            status: "unavailable".into(),
-                            detail: "Release request failed.".into(),
+                            status: if has_cached { "partial" } else { "unavailable" }.into(),
+                            detail: if has_cached {
+                                "Showing cached editions while the album index is unavailable."
+                            } else {
+                                "Release request failed."
+                            }
+                            .into(),
                             source_url: Some(format!("https://musicbrainz.org/artist/{mbid}")),
                         });
                     }
@@ -2270,6 +2286,39 @@ impl ArtistService {
             _ => return Err("Unsupported release provider".into()),
         };
         Ok(edition)
+    }
+
+    fn cached_musicbrainz_editions(&self, mbid: &str, artist: &ArtistRef) -> Vec<ArtistReleaseRef> {
+        let mut offset = 0u32;
+        let mut items = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        // Read only existing unexpired pages; never start an edition crawl or
+        // create another cache. One page is decoded at a time.
+        for _ in 0..20 {
+            let Some(data) = self
+                .store
+                .get_provider_cache(
+                    "artists.releases.musicbrainz.v2",
+                    &format!("{mbid}:{offset}"),
+                )
+                .ok()
+                .flatten()
+            else {
+                break;
+            };
+            let (page, more, raw_len, partial) =
+                parse_musicbrainz_release_page(&data, offset, artist);
+            items.extend(
+                page.into_iter()
+                    .take(100)
+                    .filter(|item| seen.insert(item.release.id.clone())),
+            );
+            if !more || partial || raw_len == 0 {
+                break;
+            }
+            offset = offset.saturating_add(raw_len);
+        }
+        items
     }
 
     async fn fetch_musicbrainz_album_index(

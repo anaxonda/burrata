@@ -326,3 +326,33 @@ async fn transient_transport_timeout_retries_once_without_discarding_the_index()
     );
     server.abort();
 }
+
+#[tokio::test]
+async fn unavailable_new_index_keeps_fresh_cached_editions_and_a_retry_cursor() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::open(&directory.path().join("cached-discography.sqlite")).unwrap());
+    store.set_provider_cache("artists.releases.musicbrainz.v2", &format!("{ARTIST_ID}:0"), &json!({
+        "release-count":1,"releases":[{"id":GROUP_ONE,"title":"Previously loaded edition","date":"2024"}]
+    }), LIST_TTL).unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    drop(listener); // Deterministic unavailable loopback endpoint; no provider request.
+    let mut service = ArtistService::new(store).unwrap();
+    service.endpoints.musicbrainz = format!("http://{address}/ws/2");
+    let page = service
+        .get_artist_discography(&artist(), None, &ArtistCredentials::default())
+        .await
+        .unwrap();
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.items[0].title, "Previously loaded edition");
+    assert!(page.items[0].source_url.contains("/release/"));
+    assert_eq!(page.next_cursor.as_deref(), Some("g1:0:x"));
+    assert!(page
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("previously loaded editions")));
+    assert!(page
+        .source_coverage
+        .iter()
+        .any(|coverage| coverage.provider == "musicbrainz" && coverage.status == "partial"));
+}

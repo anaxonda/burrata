@@ -70,7 +70,7 @@ describe("PlayingInfo internet-radio links", () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     const target = render(radioTrack); await settle();
-    const copy = target.querySelector<HTMLButtonElement>('button[aria-label="Copy audio source link"]')!;
+    const copy = target.querySelector<HTMLButtonElement>('button[aria-label="Copy station page link"]')!;
     expect(copy).toBeTruthy();
     copy.click(); await settle();
     expect(writeText).toHaveBeenCalledWith("https://station.example/about");
@@ -95,14 +95,14 @@ describe("PlayingInfo internet-radio links", () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     const target = render({ ...radioTrack, provenance: { ...(radioTrack.provenance as Record<string, unknown>), radioStationUrl: "https://station.example/page?token=secret" } }); await settle();
-    expect(target.querySelector('button[aria-label="Copy audio source link"]')).toBeNull();
+    expect(target.querySelector('button[aria-label="Copy station page link"]')).toBeNull();
     expect(writeText).not.toHaveBeenCalled();
   });
 
   it("reports clipboard failures", async () => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn().mockRejectedValue(new Error("blocked")) } });
     const target = render(radioTrack); await settle();
-    target.querySelector<HTMLButtonElement>('button[aria-label="Copy audio source link"]')!.click(); await settle();
+    target.querySelector<HTMLButtonElement>('button[aria-label="Copy station page link"]')!.click(); await settle();
     expect(target.querySelector('[role="status"]')?.textContent).toBe("Could not copy the source link.");
   });
 });

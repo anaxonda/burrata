@@ -78,7 +78,7 @@ it("sends only the allowlisted metadata on an explicit click and renders the ans
  expect(apiCall).toHaveBeenCalledTimes(1);
  const [command,args]=apiCall.mock.calls[0];
  expect(command).toBe("lookup_media_context");
- expect(args.request).toMatchObject({title:track.title,artist:track.artist,album:"Live at Somewhere",version:"Live",sourceKind:"youtube",targetKind:"song",date:"1998-04-03"});
+ expect(args.request).toMatchObject({title:track.title,artist:track.artist,album:"Live at Somewhere",version:"Live",sourceKind:"youtube",targetKind:"auto",date:"1998-04-03"});
  expect(args.request).not.toHaveProperty("sourceUrl");
  expect(args.request).not.toHaveProperty("description");
  expect(args.request.requestId).toMatch(/^[0-9a-f-]{36}$/i);

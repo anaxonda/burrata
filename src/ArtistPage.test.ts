@@ -675,7 +675,7 @@ describe("ArtistPage", () => {
     expect(getArtistReleases).toHaveBeenCalledWith(ref.artist, "second-cursor");
     expect(target.querySelector(".release-list")?.textContent).toContain("Recovered Album");
     expect(target.querySelector(".release-list")?.textContent).toContain("Next Album");
-    expect(target.querySelector(".notice")?.textContent).not.toContain("MusicBrainz unavailable");
+    expect(target.querySelector(".notice")?.textContent ?? "").not.toContain("MusicBrainz unavailable");
   });
 
   it("keeps distinct MusicBrainz release groups with the same title as separate albums", async () => {
