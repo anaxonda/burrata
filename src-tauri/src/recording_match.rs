@@ -1764,7 +1764,10 @@ pub(crate) fn semantic_version(title: &str, version: &str) -> String {
             return String::new();
         }
     }
-    let normalized = crate::matching::normalize_version_for_title(title, version);
+    // Interpret recognized edition/presentation delimiters before ordinary
+    // punctuation normalization loses those boundaries.
+    let canonical = crate::recording_identity::canonical_version_key(version);
+    let normalized = crate::matching::normalize_version_for_title(title, &canonical);
     let normalized = crate::recording_identity::canonical_version_key(&normalized);
     if matches!(
         normalized.as_str(),
@@ -9709,6 +9712,85 @@ mod stage_one_regressions {
                     MatchAction::Accept
                 }
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod video_edition_fallback_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn video_edition_with_lyric_presentation_obeys_length_policy_and_rejects_covers() {
+        let request = Track {
+            title: "Nunca (Versión Video)".into(),
+            artist: "Karamelo Santo".into(),
+            duration_seconds: Some(204.546),
+            ..Track::default()
+        };
+        let title = "Karamelo Santo - Nunca (versión videoclip - lyrics)";
+        let candidate = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:Q_JrK6dfIi8".into(),
+            url: "https://www.youtube.com/watch?v=Q_JrK6dfIi8".into(),
+            title: title.into(),
+            duration_seconds: Some(184.),
+            source_metadata: Some(
+                json!({"provider":"youtube","resolvedProviderId":"Q_JrK6dfIi8",
+                "sourceMetadataOrigin":"ytDlpFullInfo","track":title}),
+            ),
+            ..Candidate::default()
+        };
+        let policy = FlexibleMatchingOptions {
+            allow_other_releases: true,
+            allow_other_performances: true,
+            allow_other_mixes: true,
+            allow_other_artists: false,
+            allow_different_lengths: true,
+            max_shorter_by_seconds: 30,
+            max_longer_by_seconds: 30,
+            ..Default::default()
+        };
+        let result = assess_with_options(
+            &request,
+            &candidate,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            &policy,
+        );
+        assert_eq!(result.action, MatchAction::Accept, "{result:?}");
+        assert_eq!(result.dimensions.version, Comparison::Agree);
+        for level in [MatchLevel::Exact, MatchLevel::Balanced] {
+            assert_ne!(
+                assess_with_options(&request, &candidate, level, MatchStage::Resolved, &policy)
+                    .action,
+                MatchAction::Accept
+            );
+        }
+        let shorter_limit = FlexibleMatchingOptions {
+            max_shorter_by_seconds: 10,
+            ..policy.clone()
+        };
+        assert_ne!(
+            assess_with_options(
+                &request,
+                &candidate,
+                MatchLevel::Flexible,
+                MatchStage::Resolved,
+                &shorter_limit
+            )
+            .action,
+            MatchAction::Accept
+        );
+        let mut cover = candidate.clone();
+        cover.title = "Cachimba la Modorra - Nunca (Cover de Karamelo Santo)".into();
+        cover.source_metadata.as_mut().unwrap()["track"] = json!(cover.title);
+        cover.duration_seconds = Some(196.);
+        for stage in [MatchStage::Search, MatchStage::Resolved] {
+            let result =
+                assess_with_options(&request, &cover, MatchLevel::Flexible, stage, &policy);
+            assert_eq!(result.action, MatchAction::Reject, "{stage:?}: {result:?}");
         }
     }
 }

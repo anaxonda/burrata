@@ -870,7 +870,20 @@ pub fn parse_title(value: &str) -> ParsedRecordingTitle {
 
 /// Shared semantic label vocabulary. Delimiter handling is separate from
 /// classification, and unknown labels remain literal evidence.
+fn is_lyric_presentation(label: &str) -> bool {
+    ["lyrics", "lyric video", "official lyric video"]
+        .iter()
+        .any(|known| label.trim().eq_ignore_ascii_case(known))
+}
+
 fn is_video_version(label: &str) -> bool {
+    // A presentation tag may share the same parenthetical group as an
+    // explicitly named video edition. Preserve the edition; unknown modifiers
+    // (including live/remix qualifiers) must remain literal evidence.
+    let label = label
+        .split_once(" - ")
+        .filter(|(_, presentation)| is_lyric_presentation(presentation))
+        .map_or(label, |(version, _)| version);
     matches!(
         crate::recording_identity::search_fold(label).as_str(),
         "video version" | "version video" | "version videoclip" | "videoclip version"
@@ -903,9 +916,16 @@ fn explicit_recording_version(label: &str) -> bool {
             | "slowed + reverb"
             | "slowed and reverb"
     ) || is_video_version(label)
-        || ["live at ", "live on ", "live in ", "cover by "]
-            .iter()
-            .any(|prefix| lower.starts_with(prefix))
+        || [
+            "live at ",
+            "live on ",
+            "live in ",
+            "cover by ",
+            "cover de ",
+            "cover of ",
+        ]
+        .iter()
+        .any(|prefix| lower.starts_with(prefix))
         || is_release_version(&lower)
         || [" remix", " mix", " edit", " version", " cover", " dub"]
             .iter()
@@ -1029,10 +1049,28 @@ pub(crate) fn remaster_version_key(label: &str) -> Option<String> {
 }
 
 fn trailing_dash_version(value: &str) -> Option<(&str, &str)> {
-    let (separator_start, separator_len) = [" - ", " – ", " — "]
+    let last_separator = [" - ", " – ", " — "]
         .iter()
         .filter_map(|separator| value.rfind(separator).map(|start| (start, separator.len())))
         .max_by_key(|(start, _)| *start)?;
+    // A recognized video-edition suffix can itself contain a presentation
+    // separator ("Song - Video Version - lyrics"). Do not peel an arbitrary
+    // trailing presentation word or broaden ordinary dash-title parsing.
+    let video_separator = (value.len() <= 2048
+        && is_lyric_presentation(&value[last_separator.0 + last_separator.1..]))
+    .then(|| {
+        [" - ", " – ", " — "]
+            .iter()
+            .flat_map(|separator| {
+                value
+                    .match_indices(separator)
+                    .map(|(start, _)| (start, separator.len()))
+            })
+            .filter(|(start, len)| is_video_version(value[start + len..].trim()))
+            .max_by_key(|(start, _)| *start)
+    })
+    .flatten();
+    let (separator_start, separator_len) = video_separator.unwrap_or(last_separator);
     let base = value[..separator_start].trim_end();
     let label = value[separator_start + separator_len..].trim();
     if base.is_empty() {
@@ -1135,6 +1173,7 @@ mod tests {
             "Versión Video",
             "Version Video",
             "Versión Videoclip",
+            "versión videoclip - lyrics",
         ] {
             for title in [format!("Song ({label})"), format!("Song - {label}")] {
                 let parsed = parse_recording_text(&title);
@@ -1146,6 +1185,8 @@ mod tests {
         }
         assert!(!is_video_version("Official Video"));
         assert!(!is_video_version("Version Video Remix"));
+        assert!(!is_video_version("Version Video - Live"));
+        assert!(!is_video_version("Version Video - Unknown Edition"));
         assert_ne!(
             canonical_version_key("Radio Edit"),
             canonical_version_key("Versión Video")
