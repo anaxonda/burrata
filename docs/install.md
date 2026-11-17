@@ -83,10 +83,10 @@ The same extension downloads work on all three systems:
 
 | Browser | Download | Installation |
 | --- | --- | --- |
-| Firefox | [firefox-extension-0.2.16.xpi](https://github.com/anaxonda/burrata/releases/download/v0.1.50/firefox-extension-0.2.16.xpi) | [Firefox steps](../extension/README.md#firefox) |
-| Chrome / Chromium / Edge | [chrome-extension-0.2.16.zip](https://github.com/anaxonda/burrata/releases/download/v0.1.50/chrome-extension-0.2.16.zip) | [Chrome/Edge steps](../extension/README.md#chrome-chromium-and-edge) |
+| Firefox | [firefox-extension-0.2.16.xpi](https://github.com/anaxonda/burrata/releases/download/v0.1.51/firefox-extension-0.2.16.xpi) | [Firefox steps](../extension/README.md#firefox) |
+| Chrome / Chromium / Edge | [chrome-extension-0.2.16.zip](https://github.com/anaxonda/burrata/releases/download/v0.1.51/chrome-extension-0.2.16.zip) | [Chrome/Edge steps](../extension/README.md#chrome-chromium-and-edge) |
 
-The extension has its own version. Burrata **0.1.50** packages extension **0.2.16**. Earlier pairings were app **0.1.25** with extension **0.2.4**; apps **0.1.8**, **0.1.7**, **0.1.6** and **0.1.5** with extension **0.2.3**; and app **0.1.3** with extension **0.2.2**.
+The extension has its own version. Burrata **0.1.51** packages extension **0.2.16**. Earlier pairings were app **0.1.25** with extension **0.2.4**; apps **0.1.8**, **0.1.7**, **0.1.6** and **0.1.5** with extension **0.2.3**; and app **0.1.3** with extension **0.2.2**.
 Installing the extension alone is not enough: also use **Settings → Connections →
 Browser companion → Connect browser companion** in Burrata, then restart your
 browser. See the [complete companion guide](../extension/README.md#install).

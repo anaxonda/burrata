@@ -135,6 +135,7 @@ async fn seek_recovery_aac_is_exact_video_bounded_and_validated_before_use() {
         &manager,
         &track,
         &candidate,
+        false,
         cancel,
         &trace,
         deadline,
@@ -183,6 +184,7 @@ async fn seek_recovery_aac_rejects_wrong_video_or_duration_before_validation() {
             &manager,
             &track,
             &candidate,
+            false,
             cancel,
             &trace,
             PlaybackDeadline::after(Duration::from_secs(20)),
@@ -209,6 +211,7 @@ async fn seek_recovery_aac_keeps_provider_session_change_terminal() {
         &manager,
         &track,
         &candidate,
+        false,
         cancel,
         &trace,
         PlaybackDeadline::after(Duration::from_secs(20)),
@@ -612,4 +615,363 @@ async fn run_live_direct_foreground(track: Track) {
         ok,
         "finite PCM failed; safe original outcome retained above"
     );
+}
+
+fn parsed_artist_caption_fixture() -> (
+    tempfile::TempDir,
+    AcquisitionManager,
+    Track,
+    Candidate,
+    SourceTrace,
+) {
+    let (directory, manager, mut track, _, trace) = fixture();
+    track.id = "youtube:E5tcWnrhMCY".into();
+    track.provider_id = "E5tcWnrhMCY".into();
+    track.source_url = "https://www.youtube.com/watch?v=E5tcWnrhMCY".into();
+    track.title = "Introducing  -1997  -FULL ALBUM".into();
+    track.artist = "Rubén González".into();
+    track.duration_seconds = Some(3377.);
+    track.provenance = json!({"sourceKind":"audioSearch","artistSource":"inferred_from_title"});
+    let candidate = linked_candidate(&track).expect("exact source remains linked");
+    (directory, manager, track, candidate, trace)
+}
+
+#[tokio::test]
+async fn parsed_artist_caption_reaches_validation_for_the_exact_video() {
+    let (_directory, manager, track, candidate, trace) = parsed_artist_caption_fixture();
+    let (_stop, cancel) = watch::channel(false);
+    let mut resolved = response();
+    resolved.audio.resolved_provider_id = Some(track.provider_id.clone());
+    resolved.audio.duration_seconds = track.duration_seconds;
+    resolved.audio.resolved_title =
+        Some("Rubén González -   Introducing  -1997  -FULL ALBUM".into());
+    let validations = AtomicUsize::new(0);
+    let audio = try_direct_youtube_explicit_with(
+        &manager,
+        &track,
+        &candidate,
+        cancel,
+        &trace,
+        PlaybackDeadline::after(Duration::from_secs(20)),
+        move |id, _, _| async move {
+            assert_eq!(id, "E5tcWnrhMCY");
+            Ok(resolved)
+        },
+        |audio, _, _, _| {
+            validations.fetch_add(1, Ordering::SeqCst);
+            async { Ok(audio) }
+        },
+    )
+    .await
+    .unwrap()
+    .expect("parsed artist/title must keep the direct source");
+    assert_eq!(validations.load(Ordering::SeqCst), 1);
+    assert_eq!(audio.resolved_provider_id.as_deref(), Some("E5tcWnrhMCY"));
+    assert_eq!(
+        audio.resolved_title.as_deref(),
+        Some("Rubén González -   Introducing  -1997  -FULL ALBUM")
+    );
+    assert!(audio.provider_session_current());
+}
+
+#[tokio::test]
+async fn parsed_artist_caption_rejects_changed_recording_before_access_validation() {
+    for mismatch in ["title", "artist", "version", "video", "duration"] {
+        let (_directory, manager, track, candidate, trace) = parsed_artist_caption_fixture();
+        let (_stop, cancel) = watch::channel(false);
+        let mut resolved = response();
+        resolved.audio.resolved_provider_id = Some(track.provider_id.clone());
+        resolved.audio.duration_seconds = track.duration_seconds;
+        resolved.audio.resolved_title = Some(match mismatch {
+            "title" => "Rubén González - Different album".into(),
+            "artist" => "Different Artist - Introducing -1997 -FULL ALBUM".into(),
+            "version" => "Rubén González - Introducing -1997 -FULL ALBUM (Live)".into(),
+            _ => "Rubén González - Introducing -1997 -FULL ALBUM".into(),
+        });
+        if mismatch == "video" {
+            resolved.audio.resolved_provider_id = Some("abcdefghijk".into());
+        }
+        if mismatch == "duration" {
+            resolved.audio.duration_seconds = Some(3300.);
+        }
+        let validations = AtomicUsize::new(0);
+        let result = try_direct_youtube_explicit_with(
+            &manager,
+            &track,
+            &candidate,
+            cancel,
+            &trace,
+            PlaybackDeadline::after(Duration::from_secs(20)),
+            move |_, _, _| async move { Ok(resolved) },
+            |audio, _, _, _| {
+                validations.fetch_add(1, Ordering::SeqCst);
+                async { Ok(audio) }
+            },
+        )
+        .await
+        .unwrap();
+        assert!(result.is_none(), "{mismatch}");
+        assert_eq!(validations.load(Ordering::SeqCst), 0, "{mismatch}");
+    }
+}
+
+#[tokio::test]
+#[ignore = "explicit public-network opt-in; exact selected video, production resolver/access and bounded decoder PCM only"]
+async fn live_exact_parsed_artist_caption_decodes_head_and_tail() {
+    assert_eq!(
+        std::env::var("BURRATA_EXACT_YOUTUBE_CAPTION_LIVE").as_deref(),
+        Ok("1")
+    );
+    let (_directory, manager, track, _, _) = parsed_artist_caption_fixture();
+    let store = manager.alias_store();
+    let tools = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("resources/tools")
+        .join(crate::tools::target_triple());
+    let mut settings = store.settings().unwrap();
+    settings.ffmpeg_path = tools
+        .join(if cfg!(windows) {
+            "ffmpeg.exe"
+        } else {
+            "ffmpeg"
+        })
+        .to_string_lossy()
+        .into_owned();
+    store.save_settings(&settings).unwrap();
+    let (_stop, cancel) = watch::channel(false);
+    let started = std::time::Instant::now();
+    let deadline = PlaybackDeadline::after(Duration::from_secs(20));
+    let resolved = resolve_with_trace_context_excluding_until_attempt_limit(
+        &store,
+        &manager,
+        &track,
+        None,
+        cancel.clone(),
+        Some("native-exact-parsed-caption-live".into()),
+        None,
+        None,
+        &[],
+        deadline,
+        2,
+    )
+    .await
+    .unwrap_or_else(|error| {
+        panic!(
+            "exact source resolution failed: {:?}",
+            crate::playback_failure::classify(&error).category
+        )
+    });
+    assert_eq!(resolved.origin, ResolvedSourceOrigin::DirectYoutube);
+    assert_eq!(
+        resolved.candidate.as_ref().unwrap().id,
+        "youtube:E5tcWnrhMCY"
+    );
+    assert_eq!(resolved.duration, Some(3377.));
+    let resolve_ms = started.elapsed().as_secs_f64() * 1000.;
+    for position in [0., 3370.] {
+        let pcm = crate::native_output::direct_pcm_experiment::collect_until(
+            resolved.source.clone(),
+            position,
+            2.,
+            std::time::Instant::now() + Duration::from_secs(15),
+            cancel.clone(),
+        )
+        .await;
+        eprintln!(
+            "{}",
+            json!({"experiment":"exact-parsed-artist-caption", "videoId":"E5tcWnrhMCY",
+            "positionSeconds":position,"resolveMs":resolve_ms,"ok":pcm.ok,"decodedFrames":pcm.decoded_frames,
+            "firstPcmMs":pcm.first_pcm_ms,"physicalAudibilityMeasured":false})
+        );
+        assert!(
+            pcm.ok && pcm.decoded_frames >= 96_000,
+            "exact source must decode at head and near tail"
+        );
+    }
+    // Reproduce an explicit source click with a custom display label. The
+    // selected source ID, canonical URLs and fresh duration remain unchanged.
+    let mut relabeled = track.clone();
+    relabeled.title = "My selected album session".into();
+    let selected = linked_candidate(&relabeled).unwrap();
+    let pinned = resolve_with_trace_context_excluding_until_attempt_limit(
+        &store,
+        &manager,
+        &relabeled,
+        Some(selected),
+        cancel.clone(),
+        Some("native-exact-relabeled-caption-live".into()),
+        None,
+        None,
+        &[],
+        PlaybackDeadline::after(Duration::from_secs(20)),
+        2,
+    )
+    .await
+    .unwrap_or_else(|error| {
+        panic!(
+            "pinned exact source failed: {:?}",
+            crate::playback_failure::classify(&error).category
+        )
+    });
+    assert_eq!(pinned.origin, ResolvedSourceOrigin::DirectYoutube);
+    assert_eq!(pinned.candidate.as_ref().unwrap().id, "youtube:E5tcWnrhMCY");
+}
+
+#[test]
+fn explicit_caption_matching_keeps_song_album_and_live_set_annotations() {
+    for (artist, title, caption) in [
+        (
+            "Fruit Bats",
+            "Humbug Mountain Song",
+            "Fruit Bats - Humbug Mountain Song",
+        ),
+        (
+            "Rubén González",
+            "Introducing -1997 -FULL ALBUM",
+            "Rubén González - Introducing -1997 -FULL ALBUM",
+        ),
+        (
+            "DJ Fixture",
+            "Live at the Festival 2026 (Full Set)",
+            "DJ Fixture - Live at the Festival 2026 (Full Set)",
+        ),
+    ] {
+        let track = Track {
+            artist: artist.into(),
+            title: title.into(),
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            title: title.into(),
+            ..Candidate::default()
+        };
+        assert!(explicit_youtube_title_matches(&track, &candidate, caption));
+        assert!(explicit_youtube_title_matches(&track, &candidate, title));
+        assert!(!explicit_youtube_title_matches(
+            &track,
+            &candidate,
+            &format!("{caption} (Remix)")
+        ));
+        assert!(!explicit_youtube_title_matches(
+            &track,
+            &candidate,
+            &format!("Other artist - {title}")
+        ));
+        assert!(!explicit_youtube_title_matches(
+            &track,
+            &candidate,
+            &format!("{artist} - Other recording")
+        ));
+    }
+    let track = Track {
+        artist: "DJ Fixture".into(),
+        title: "Live at the Festival 2026 (Full Set)".into(),
+        ..Track::default()
+    };
+    let candidate = Candidate {
+        title: track.title.clone(),
+        ..Candidate::default()
+    };
+    assert!(!explicit_youtube_title_matches(
+        &track,
+        &candidate,
+        "DJ Fixture - Live at the Festival 2025 (Full Set)"
+    ));
+    assert!(!explicit_youtube_title_matches(
+        &track,
+        &candidate,
+        "DJ Fixture - Live at the Festival 2026"
+    ));
+}
+
+#[tokio::test]
+async fn pinned_exact_video_uses_provider_identity_after_caption_edits() {
+    for title in [
+        "Renamed song",
+        "Introducing (Full Album)",
+        "Arbitrary festival set",
+    ] {
+        let (_directory, manager, mut track, mut candidate, trace) =
+            parsed_artist_caption_fixture();
+        track.title = title.into();
+        candidate.title = title.into();
+        let (_stop, cancel) = watch::channel(false);
+        let mut resolved = response();
+        resolved.audio.resolved_provider_id = Some(track.provider_id.clone());
+        resolved.audio.duration_seconds = track.duration_seconds;
+        resolved.audio.resolved_title =
+            Some("Fresh provider caption, unchanged selected video".into());
+        let calls = AtomicUsize::new(0);
+        let result = try_direct_youtube_explicit_with_opportunity(
+            &manager,
+            &track,
+            &candidate,
+            true,
+            cancel,
+            &trace,
+            PlaybackDeadline::after(Duration::from_secs(20)),
+            direct_youtube_opportunity_deadline,
+            move |_, _, _| async move { Ok(resolved) },
+            |audio, _, _, _| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                async { Ok(audio) }
+            },
+        )
+        .await
+        .unwrap()
+        .expect("pinned exact video survives display caption edits");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(result.resolved_provider_id.as_deref(), Some("E5tcWnrhMCY"));
+    }
+}
+
+#[tokio::test]
+async fn pinned_caption_changes_do_not_relax_video_url_duration_or_presence_checks() {
+    for mismatch in [
+        "video",
+        "track_id",
+        "track_url",
+        "candidate_url",
+        "provider",
+        "duration",
+        "missing_title",
+        "version",
+    ] {
+        let (_directory, manager, mut track, mut candidate, trace) =
+            parsed_artist_caption_fixture();
+        let (_stop, cancel) = watch::channel(false);
+        let mut resolved = response();
+        resolved.audio.resolved_provider_id = Some(track.provider_id.clone());
+        resolved.audio.duration_seconds = track.duration_seconds;
+        resolved.audio.resolved_title = Some("Changed provider caption".into());
+        match mismatch {
+            "video" => resolved.audio.resolved_provider_id = Some("abcdefghijk".into()),
+            "track_id" => track.provider_id = "abcdefghijk".into(),
+            "track_url" => track.source_url = "https://www.youtube.com/watch?v=abcdefghijk".into(),
+            "candidate_url" => candidate.url = "https://www.youtube.com/watch?v=abcdefghijk".into(),
+            "provider" => track.provider = "spotify".into(),
+            "duration" => resolved.audio.duration_seconds = Some(3300.),
+            "missing_title" => resolved.audio.resolved_title = Some("  ".into()),
+            _ => track.version = Some("Live".into()),
+        }
+        let calls = AtomicUsize::new(0);
+        let result = try_direct_youtube_explicit_with_opportunity(
+            &manager,
+            &track,
+            &candidate,
+            true,
+            cancel,
+            &trace,
+            PlaybackDeadline::after(Duration::from_secs(20)),
+            direct_youtube_opportunity_deadline,
+            move |_, _, _| async move { Ok(resolved) },
+            |audio, _, _, _| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                async { Ok(audio) }
+            },
+        )
+        .await
+        .unwrap();
+        assert!(result.is_none(), "{mismatch}");
+        assert_eq!(calls.load(Ordering::SeqCst), 0, "{mismatch}");
+    }
 }

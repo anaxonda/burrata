@@ -1388,6 +1388,7 @@ pub(crate) async fn resolve_candidate_fresh_until(
                     acquisition,
                     track,
                     &candidate,
+                    pinned,
                     cancel.clone(),
                     &trace,
                     deadline,
@@ -3460,21 +3461,43 @@ fn direct_youtube_foreground_context(trace: &SourceTrace) -> bool {
         && (trace.webview_generation.is_some() || trace.native_operation_id.is_some())
 }
 
+/// Source search stores the parsed song title separately from its artist,
+/// while YouTube's fresh player response retains the full upload caption.
+/// Accept that exact caption shape only; never drop version text or use a
+/// substring/fuzzy match. The caller independently binds video ID and duration.
+fn explicit_youtube_title_matches(track: &Track, candidate: &Candidate, fresh: &str) -> bool {
+    let fresh = crate::matching::normalize(fresh);
+    if fresh.is_empty() {
+        return false;
+    }
+    if fresh == crate::matching::normalize(&candidate.title)
+        || fresh == crate::matching::normalize(&track.title)
+    {
+        return true;
+    }
+    let artist = crate::matching::normalize(&track.artist);
+    let title = crate::matching::normalize(&track.title);
+    !artist.is_empty() && !title.is_empty() && fresh == format!("{artist} {title}")
+}
+
 async fn try_direct_youtube_explicit(
     acquisition: &AcquisitionManager,
     track: &Track,
     candidate: &Candidate,
+    pinned: bool,
     cancel: watch::Receiver<bool>,
     trace: &SourceTrace,
     deadline: PlaybackDeadline,
 ) -> Result<Option<acquisition::PreviewAudio>, String> {
-    try_direct_youtube_explicit_with(
+    try_direct_youtube_explicit_with_opportunity(
         acquisition,
         track,
         candidate,
+        pinned,
         cancel,
         trace,
         deadline,
+        direct_youtube_opportunity_deadline,
         |id, budget, cancel| async move {
             crate::youtube_direct_experiment::resolve_explicit_aac(&id, budget, cancel).await
         },
@@ -3490,6 +3513,7 @@ async fn try_direct_youtube_explicit_recovery(
     acquisition: &AcquisitionManager,
     track: &Track,
     candidate: &Candidate,
+    pinned: bool,
     cancel: watch::Receiver<bool>,
     trace: &SourceTrace,
     deadline: PlaybackDeadline,
@@ -3498,6 +3522,7 @@ async fn try_direct_youtube_explicit_recovery(
         acquisition,
         track,
         candidate,
+        pinned,
         cancel,
         trace,
         deadline,
@@ -3543,6 +3568,7 @@ where
         acquisition,
         track,
         candidate,
+        false,
         cancel,
         trace,
         deadline,
@@ -3557,6 +3583,7 @@ async fn try_direct_youtube_explicit_with_opportunity<R, RF, V, VF, D>(
     acquisition: &AcquisitionManager,
     track: &Track,
     candidate: &Candidate,
+    pinned: bool,
     cancel: watch::Receiver<bool>,
     trace: &SourceTrace,
     deadline: PlaybackDeadline,
@@ -3627,10 +3654,12 @@ where
                 .zip(track.duration_seconds)
                 .is_none_or(|(fresh, expected)| (fresh - expected).abs() > 2.0)
             || audio.resolved_title.as_deref().is_none_or(|fresh| {
-                let title = crate::matching::normalize(fresh);
-                title.is_empty()
-                    || (title != crate::matching::normalize(&candidate.title)
-                        && title != crate::matching::normalize(&track.title))
+                // An explicitly selected upload is identified by its exact
+                // provider ID and canonical source URLs, not mutable upload
+                // captions. Unpinned requests retain title/version checks;
+                // mapped catalog-source proof is handled separately.
+                !(pinned && direct_youtube_explicit_id(track, candidate, 2).is_some())
+                    && !explicit_youtube_title_matches(track, candidate, fresh)
             })
         {
             return Err("Direct source identity rejected".to_owned());
@@ -5048,6 +5077,7 @@ async fn resolve_serial(
                     acquisition,
                     track,
                     &candidate,
+                    pinned,
                     cancel.clone(),
                     trace,
                     deadline,
@@ -8088,6 +8118,7 @@ async fn recover_inner(
             acquisition,
             track,
             &candidate,
+            pinned,
             cancel.clone(),
             &trace,
             deadline,

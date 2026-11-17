@@ -1,7 +1,8 @@
-# Burrata 0.1.50
+# Burrata 0.1.51
 
 Artist pages now put biography and top tracks first, radio listening history avoids redundant song entries, and public Bandcamp fan playlists can be imported directly.
 
+- Direct playback of an explicitly selected YouTube upload follows the verified video ID even if the upload caption differs from Burrata’s display title. For unpinned results, the title check also accepts an exact artist prefix. Stream access and duration checks still apply.
 - Search uses a compact Sources menu with checkboxes, Clear, Select all, and Apply. The closed button summarizes the selected services.
 - Artist overviews show formatted biographies above top tracks. Genres, aliases, profile links, and provider coverage are grouped under collapsed Artist details. Repeated genre/tag names share one attributed label.
 - Top tracks retain Last.fm's popularity order, with a clearer sort label. MusicBrainz supplies artist identity. Last.fm supplies the popularity ranking.
@@ -13,6 +14,6 @@ Artist pages now put biography and top tracks first, radio listening history avo
 
 ## Verification and limits
 
-Focused frontend and native regression tests pass, including a live signed-out import of all 267 tracks across six pages from the reported Bandcamp playlist. Artist layout checks pass at wide and narrow widths. The live “Morning — Beck” lookup resolved the artist from matching song credits, and the artist profile returned a Discogs biography. MusicBrainz intermittently returned HTTP 503 with global rate-limit headers. Provider availability can still affect profile lookups and playlist imports.
+The native resolver decoded audio from the reported Rubén González upload at the start and near the end. An explicit selection with a changed display title retained the same YouTube video ID. Focused frontend and native regression tests pass, including a live signed-out import of all 267 tracks across six pages from the reported Bandcamp playlist. Artist layout checks pass at wide and narrow widths. The live “Morning — Beck” lookup resolved the artist from matching song credits, and the artist profile returned a Discogs biography. MusicBrainz intermittently returned HTTP 503 with global rate-limit headers. Provider availability can still affect profile lookups and playlist imports.
 
 Desktop release builds and installer checks cover macOS arm64, Windows x64, and Linux x64. Windows physical audio output remains unverified under the same hosted-runner deferral used for the preceding release. Desktop downloads remain unsigned; see the [installation instructions](https://github.com/anaxonda/burrata/blob/main/docs/install.md).
