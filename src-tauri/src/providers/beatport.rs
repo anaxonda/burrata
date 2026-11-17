@@ -377,7 +377,10 @@ fn track_from(value: &Value, _index: usize) -> Option<Track> {
             .or_else(|| number(raw, "duration")),
         bpm: number(raw, "bpm"),
         key: named(raw, "key"),
-        release_date: text(raw, "publish_date").or_else(|| text(release, "publish_date")),
+        release_date: text(raw, "publish_date")
+            .or_else(|| text(release, "publish_date"))
+            .or_else(|| text(release, "release_date"))
+            .map(|date| date.split('T').next().unwrap_or(&date).to_owned()),
         artwork_url: artwork,
         isrc: text(raw, "isrc"),
         catalog_number: text(release, "catalog_number"),
@@ -547,6 +550,17 @@ mod tests {
             )
             .is_err());
         }
+    }
+
+    #[test]
+    fn current_track_release_date_is_normalized_for_catalog_annotation_comparison() {
+        let raw = serde_json::json!({"track_id":30573209,"track_name":"Dunya",
+            "artists":[{"id":96345,"name":"Mark Di Meo"},{"id":1260868,"name":"Rose Caviar"}],
+            "release":{"release_date":"2026-10-02T00:00:00"}});
+        assert_eq!(
+            track_from(&raw, 0).unwrap().release_date.as_deref(),
+            Some("2026-10-02")
+        );
     }
 
     #[test]

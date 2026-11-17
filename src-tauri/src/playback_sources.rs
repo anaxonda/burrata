@@ -1894,6 +1894,7 @@ async fn resolve_inner(
                 if let Some(refreshed) = fresh.as_ref().and_then(|fresh| refreshed_request_track(&effective_track, fresh)) {
                     if refreshed.title != effective_track.title || refreshed.artist != effective_track.artist
                         || refreshed.duration_seconds != effective_track.duration_seconds || refreshed.version != effective_track.version
+                        || refreshed.provenance["playbackCatalogAnnotations"] != effective_track.provenance["playbackCatalogAnnotations"]
                     {
                         trace.event("catalog_request_refresh", &effective_track.provider, json!({"accepted":true}));
                         let refresh_failed = match (
@@ -2076,6 +2077,27 @@ fn refreshed_request_track(original: &Track, fresh: &Track) -> Option<Track> {
     }
     if manual["version"] != true {
         result.version = fresh.version.clone();
+    }
+    if crate::recording_match::native_catalog_annotation_source(fresh) {
+        // Retain only the exact catalog observation needed to interpret title
+        // suffixes. Never persist it to the saved row or assert complete credits.
+        let observation = Track {
+            provider: fresh.provider.clone(),
+            provider_id: fresh.provider_id.clone(),
+            source_url: fresh.source_url.clone(),
+            genre: fresh.genre.clone(),
+            release_date: fresh.release_date.clone(),
+            provenance: json!({
+                "catalog":fresh.provenance["catalog"],
+                "catalogProvider":fresh.provenance["catalogProvider"],
+                "raw":{"id":fresh.provider_id}
+            }),
+            ..Track::default()
+        };
+        if !result.provenance.is_object() {
+            result.provenance = json!({});
+        }
+        result.provenance["playbackCatalogAnnotations"] = serde_json::to_value(observation).ok()?;
     }
     // Keep the original recording context, identifiers, locks and permissions.
     // Fresh catalog evidence is not a license to relax source matching.
@@ -16305,6 +16327,43 @@ mod native_only_recovery_tests {
         assert_eq!(result.provenance, original.provenance);
         assert_eq!(serde_json::to_value(&original).unwrap(), saved);
     }
+    #[test]
+    fn exact_refresh_retains_annotation_evidence_without_replacing_browser_provenance() {
+        let mut original = track();
+        original.provenance = json!({"browserImport":true,"manualFields":{"album":true}});
+        let mut fresh = original.clone();
+        fresh.source_url = "https://www.beatport.com/track/song/12".into();
+        fresh.genre = Some("Afro House".into());
+        fresh.release_date = Some("2026-10-02".into());
+        fresh.provenance =
+            json!({"catalog":"beatport","catalogProvider":"beatport","raw":{"track_id":12}});
+        let saved = original.clone();
+        let refreshed = refreshed_request_track(&original, &fresh).unwrap();
+        assert_eq!(original, saved);
+        assert_eq!(refreshed.provenance["browserImport"], true);
+        assert_eq!(
+            refreshed.provenance["manualFields"],
+            original.provenance["manualFields"]
+        );
+        assert_eq!(refreshed.genre, original.genre);
+        let evidence: Track =
+            serde_json::from_value(refreshed.provenance["playbackCatalogAnnotations"].clone())
+                .unwrap();
+        assert!(crate::recording_match::native_catalog_annotation_source(
+            &evidence
+        ));
+        assert_eq!(evidence.genre, fresh.genre);
+        assert_eq!(evidence.release_date, fresh.release_date);
+        assert!(
+            !crate::recording_identity::RecordingIdentity::from_track(&refreshed).credits_complete
+        );
+        fresh.source_url = "https://www.beatport.com/track/other/13".into();
+        assert!(refreshed_request_track(&original, &fresh)
+            .unwrap()
+            .provenance["playbackCatalogAnnotations"]
+            .is_null());
+    }
+
     #[test]
     fn exact_catalog_refresh_canonicalizes_delimited_remaster_years() {
         let original = spotify_refresh_track("same-recording", "I Will - Remastered 2009");

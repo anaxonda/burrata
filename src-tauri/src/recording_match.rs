@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) const EVALUATOR_VERSION: &str = "41";
+pub(crate) const EVALUATOR_VERSION: &str = "42";
 // Repeated whitespace is also a common uploader artist/title separator.
 const CAPTION_SEPARATORS: [&str; 5] = [" - ", " – ", " — ", " | ", "  "];
 
@@ -1018,6 +1018,49 @@ fn verified_request_catalog(track: &Track) -> bool {
         && track.provenance["manualFields"]["releaseDate"] != true
 }
 
+// Only the exact provider refresh may supply this request-local observation.
+// Browser capture fields and ordinary artist lists do not become verified
+// recording identifiers or closed-world performer credits through this path.
+pub(crate) fn native_catalog_annotation_source(track: &Track) -> bool {
+    let id = track.provider_id.as_str();
+    if id.is_empty() || id.len() > 20 || !id.bytes().all(|byte| byte.is_ascii_digit()) {
+        return false;
+    }
+    let Ok(url) = url::Url::parse(&track.source_url) else {
+        return false;
+    };
+    let host = match track.provider.as_str() {
+        "beatport" => "www.beatport.com",
+        _ => return false,
+    };
+    let parts = url
+        .path()
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    url.scheme() == "https"
+        && url.host_str() == Some(host)
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.port_or_known_default() == Some(443)
+        && url.query().is_none()
+        && url.fragment().is_none()
+        && parts.len() == 3
+        && parts[0] == "track"
+        && parts[2] == id
+        && track.provenance["catalog"] == "beatport"
+        && track.provenance["catalogProvider"] == "beatport"
+        && ["id", "track_id"]
+            .iter()
+            .any(|key| !track.provenance["raw"][key].is_null())
+        && ["id", "track_id"].iter().all(|key| {
+            let value = &track.provenance["raw"][key];
+            value.is_null()
+                || value.as_str() == Some(id)
+                || value.as_u64().is_some_and(|value| value.to_string() == id)
+        })
+}
+
 fn release_month(value: &str) -> Option<(u32, u32)> {
     let parts = value.split('-').collect::<Vec<_>>();
     if !matches!(parts.len(), 2 | 3) {
@@ -1087,9 +1130,28 @@ fn request_catalog_annotation_matches(
     parsed: &crate::recording_identity::ParsedRecordingText,
     annotation: &crate::recording_identity::TextAnnotation,
 ) -> bool {
-    if !verified_request_catalog(track) || annotation.kind != AnnotationKind::Unresolved {
+    if annotation.kind != AnnotationKind::Unresolved {
         return false;
     }
+    let scoped = &track.provenance["playbackCatalogAnnotations"];
+    let scoped_source: Option<Track> = serde_json::from_value(scoped.clone()).ok();
+    let metadata = if verified_request_catalog(track)
+        || native_catalog_annotation_source(track)
+            && track.provenance["manualFields"]["genre"] != true
+            && track.provenance["manualFields"]["releaseDate"] != true
+    {
+        track
+    } else if let Some(source) = scoped_source.as_ref().filter(|source| {
+        source.provider == track.provider
+            && source.provider_id == track.provider_id
+            && native_catalog_annotation_source(source)
+            && track.provenance["manualFields"]["genre"] != true
+            && track.provenance["manualFields"]["releaseDate"] != true
+    }) {
+        source
+    } else {
+        return false;
+    };
     let Some(span) = parsed
         .original
         .get(annotation.span.start..annotation.span.end)
@@ -1100,14 +1162,14 @@ fn request_catalog_annotation_matches(
     let is_square = span.starts_with('[') && span.ends_with(']');
     let is_parenthetical = span.starts_with('(') && span.ends_with(')');
     if is_square {
-        return track.genre.as_deref().is_some_and(|genre| {
+        return metadata.genre.as_deref().is_some_and(|genre| {
             !genre.trim().is_empty()
                 && crate::matching::normalize(genre)
                     == crate::matching::normalize(&annotation.value)
         });
     }
     is_parenthetical
-        && track
+        && metadata
             .release_date
             .as_deref()
             .and_then(release_month)
@@ -3702,7 +3764,8 @@ fn assess_prepared_inner(
         && facts.catalog_annotation_title_gloss
         && facts.complete_fresh_extractor_recording
         && facts.credits_complete
-        && facts.request_credits_complete
+        && facts.missing_performers.is_empty()
+        && facts.extra_performers.is_empty()
         && runtime == Comparison::Agree
         && artists == Comparison::Agree
         && guests != Comparison::Conflict
@@ -9812,6 +9875,100 @@ mod catalog_annotation_gloss_tests {
                     result.action,
                     MatchAction::Accept,
                     "{name} {level:?}: {result:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn exact_catalog_refresh_corroborates_real_caption_without_claiming_complete_request_credits() {
+        let mut request = request();
+        request.id = "beatport:30573209".into();
+        request.provider = "beatport".into();
+        request.provider_id = "30573209".into();
+        request.source_url = "https://www.beatport.com/track/dunya/30573209".into();
+        request.duration_seconds = Some(287.213);
+        let observation = Track {
+            provider: request.provider.clone(),
+            provider_id: request.provider_id.clone(),
+            source_url: request.source_url.clone(),
+            genre: request.genre.clone(),
+            release_date: Some("2026-10-02".into()),
+            provenance: json!({"catalog":"beatport","catalogProvider":"beatport","raw":{"id":30573209}}),
+            ..Track::default()
+        };
+        request.provenance = json!({"browserImport":true,"playbackCatalogAnnotations":observation});
+        let mut candidate = candidate();
+        let meta = candidate
+            .source_metadata
+            .as_mut()
+            .unwrap()
+            .as_object_mut()
+            .unwrap();
+        meta.remove("performerCreditsComplete");
+        meta.remove("artists");
+        meta.remove("artistCount");
+        assert!(!prepare(&request, &candidate).facts.request_credits_complete);
+        for level in [MatchLevel::Balanced, MatchLevel::Flexible] {
+            let result = assess(&request, &candidate, level, MatchStage::Resolved);
+            assert_eq!(result.action, MatchAction::Accept, "{level:?}: {result:?}");
+        }
+        // A native catalog row already contains the same evidence and should
+        // not need an otherwise redundant provider refresh.
+        let mut native = request.clone();
+        native.provenance = observation.provenance.clone();
+        for level in [MatchLevel::Balanced, MatchLevel::Flexible] {
+            assert_eq!(
+                assess(&native, &candidate, level, MatchStage::Resolved).action,
+                MatchAction::Accept
+            );
+        }
+        assert_ne!(
+            assess(
+                &request,
+                &candidate,
+                MatchLevel::Exact,
+                MatchStage::Resolved
+            )
+            .action,
+            MatchAction::Accept
+        );
+        for mutation in 0..8 {
+            let mut changed = request.clone();
+            let mut source = candidate.clone();
+            match mutation {
+                0 => {
+                    changed.provenance["playbackCatalogAnnotations"]["providerId"] =
+                        json!("different")
+                }
+                1 => {
+                    changed.provenance["playbackCatalogAnnotations"]["sourceUrl"] =
+                        json!("https://www.beatport.com/track/dunya/123")
+                }
+                2 => {
+                    changed.provenance["playbackCatalogAnnotations"]["genre"] = json!("Deep House")
+                }
+                3 => {
+                    changed.provenance["playbackCatalogAnnotations"]["releaseDate"] =
+                        json!("2026-11-02")
+                }
+                4 => {
+                    changed.provenance["playbackCatalogAnnotations"]["provenance"]["raw"]["id"] =
+                        json!(123)
+                }
+                5 => changed.provenance["manualFields"] = json!({"genre":true}),
+                6 => source.duration_seconds = Some(178.),
+                7 => {
+                    source.title = source.title.replace("Rose Caviar", "Other Artist");
+                    source.source_metadata.as_mut().unwrap()["track"] = json!(source.title);
+                }
+                _ => unreachable!(),
+            }
+            for level in [MatchLevel::Balanced, MatchLevel::Flexible] {
+                assert_ne!(
+                    assess(&changed, &source, level, MatchStage::Resolved).action,
+                    MatchAction::Accept,
+                    "mutation {mutation} {level:?}"
                 );
             }
         }
