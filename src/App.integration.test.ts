@@ -329,20 +329,36 @@ function searchButton(): HTMLButtonElement {
 function submitSearch() {
   document.querySelector(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 }
+function selectedSearchSource() {
+  return document.querySelector<HTMLButtonElement>("button.sources-toggle")?.dataset.sourceChoice;
+}
+async function openSearchSources() {
+  const trigger = document.querySelector<HTMLButtonElement>("button.sources-toggle")!;
+  if (trigger.getAttribute("aria-expanded") !== "true") trigger.click();
+  await settle();
+  return document.querySelector<HTMLElement>('[aria-label="Choose online sources"]')!;
+}
+function searchSourceAction(picker: HTMLElement, label: string) {
+  return [...picker.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim() === label)!;
+}
 async function selectSearchSources(sourceNames: string[]) {
-  const mode = sourceNames.some((name) => name.toLocaleLowerCase() === "library" || name.toLocaleLowerCase() === "my library") ? "library" : "online";
+  const mode = sourceNames.some(name => ["library", "my library"].includes(name.toLocaleLowerCase())) ? "library" : "online";
   const modeButton = document.querySelector<HTMLButtonElement>(`[aria-label="${mode === "library" ? "My library" : "Online"}"]`);
   if (modeButton?.getAttribute("aria-pressed") !== "true") modeButton?.click();
+  await settle();
   if (mode === "online") {
-    const picker = document.querySelector<HTMLSelectElement>('[aria-label="Search in"]')!;
-    const requested = sourceNames[0]?.toLocaleLowerCase();
-    const value = sourceNames.length !== 1 || !requested || requested === "all online sources" || requested === "all" ? "all" : ({
-      "spotify": "spotify", "musicbrainz": "musicbrainz", "discogs": "discogs", "youtube": "youtube", "soundcloud": "soundcloud", "soulseek": "soulseek",
-    } as Record<string, string>)[requested] ?? "all";
-    if (picker.value !== value) {
-      picker.value = value;
-      picker.dispatchEvent(new Event("change", { bubbles: true }));
+    const picker = await openSearchSources();
+    const all = !sourceNames.length || sourceNames.some(name => ["all", "all online sources"].includes(name.toLocaleLowerCase()));
+    searchSourceAction(picker, all ? "Select all" : "Clear").click();
+    await settle();
+    if (!all) for (const name of sourceNames) {
+      const id = name.toLocaleLowerCase();
+      const checkbox = picker.querySelector<HTMLInputElement>(`input[data-source-id="${id}"]`);
+      if (!checkbox) throw new Error(`Search source ${name} is not available`);
+      checkbox.click();
     }
+    await settle();
+    searchSourceAction(picker, "Apply").click();
   }
   await settle();
 }
@@ -1358,7 +1374,7 @@ describe("saved library navigation", () => {
     expect(document.querySelector(".album-detail h1")?.textContent).toBe("PROLIFIC");
     [...document.querySelectorAll<HTMLButtonElement>(".album-detail button")].find(button => button.textContent?.trim() === "Browse catalog")!.click(); await settle();
     expect(document.querySelector<HTMLInputElement>('[aria-label="Search music"]')?.value).toBe("PROLIFIC Nipsey Hussle, Bino Rideaux");
-    expect(document.querySelector<HTMLSelectElement>('[aria-label="Search in"]')?.value).toBe("spotify");
+    expect(selectedSearchSource()).toBe("spotify");
     expect(mocks.call).toHaveBeenCalledWith("search_source", expect.objectContaining({ query: "PROLIFIC Nipsey Hussle, Bino Rideaux", sourceIds: ["spotify"], kinds: expect.arrayContaining(["album"]) }));
     expect(document.querySelectorAll(".result-row")).toHaveLength(2);
     expect(document.querySelector(".spotify-artist")).toBeNull();
@@ -1389,7 +1405,7 @@ describe("saved library navigation", () => {
     document.querySelector<HTMLButtonElement>(".entity-card")!.click(); await settle();
     [...document.querySelectorAll<HTMLButtonElement>(".album-detail button")].find(button => button.textContent?.trim() === "Browse catalog")!.click(); await settle();
     expect(document.querySelector<HTMLInputElement>('[aria-label="Search music"]')?.value).toBe("PROLIFIC Nipsey Hussle, Bino Rideaux");
-    expect(document.querySelector<HTMLSelectElement>('[aria-label="Search in"]')?.value).toBe("musicbrainz");
+    expect(selectedSearchSource()).toBe("musicbrainz");
   });
 
   it("does not route to Spotify after leaving the saved family during source refresh", async () => {
@@ -3486,7 +3502,7 @@ describe("saved recording navigation", () => {
     finishSources!([{ id: "musicbrainz", name: "MusicBrainz", kinds: ["track", "artist", "album"], enabled: true }]);
     await settle();
     expect(document.querySelector<HTMLInputElement>('[aria-label="Search music"]')?.value).toBe("deferred navigation");
-    expect(document.querySelector<HTMLSelectElement>('[aria-label="Search in"]')?.value).toBe("musicbrainz");
+    expect(selectedSearchSource()).toBe("musicbrainz");
     document.querySelector<HTMLButtonElement>('[aria-label="Go forward"]')!.click();
     await settle();
     expect(document.querySelector(".settings")).not.toBeNull();
@@ -3501,12 +3517,14 @@ describe("saved recording navigation", () => {
     [...document.querySelectorAll<HTMLButtonElement>("nav button")].find((button) => button.textContent?.includes("Search"))!.click();
     await settle();
 
-    const picker = document.querySelector<HTMLSelectElement>('[aria-label="Search in"]')!;
-    const options = [...picker.options];
-    expect(options.map((option) => option.value)).toEqual(["all", "custom", "musicbrainz", "discogs", "youtube", "soundcloud", "soulseek"]);
-    expect(options.map((option) => option.textContent).join(" ")).not.toMatch(/Beatport|Traxsource|Spotify/i);
-    expect(options[0]?.textContent).toBe("All online sources");
-    expect(picker.value).toBe("all");
+    const picker = await openSearchSources();
+    const choices = [...picker.querySelectorAll<HTMLInputElement>("input[data-source-id]")];
+    expect(choices.map(input => input.dataset.sourceId)).toEqual(["musicbrainz", "discogs", "youtube", "soundcloud", "soulseek"]);
+    expect(picker.textContent).not.toMatch(/Beatport|Traxsource|Spotify/i);
+    expect(choices.every(input => input.checked)).toBe(true);
+    expect(selectedSearchSource()).toBe("all");
+    expect(document.querySelector("button.sources-toggle")?.textContent).toContain("All sources");
+    searchSourceAction(picker, "Cancel").click(); await settle();
     expect(document.querySelector('[aria-label="Online"]')?.getAttribute("aria-pressed")).toBe("true");
 
     const onlineQuery = document.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
@@ -3595,7 +3613,7 @@ describe("saved recording navigation", () => {
       document.querySelector<HTMLButtonElement>(`[aria-label="Search ${label} playlists"]`)!.click();
       await settle();
       expect(document.querySelector("main h1")?.textContent).toBe("Search");
-      expect(document.querySelector<HTMLSelectElement>('[aria-label="Search in"]')?.value).toBe(source);
+      expect(selectedSearchSource()).toBe(source);
       expect([...document.querySelectorAll<HTMLButtonElement>(".filters button")].find(button => button.textContent?.trim() === "Playlists")?.getAttribute("aria-pressed")).toBe("true");
     }
   });
@@ -3638,7 +3656,7 @@ describe("saved recording navigation", () => {
     await settle();
     const spotify = sourceGroup("spotify"); spotify.open = true;
     spotify.querySelector<HTMLButtonElement>('[aria-label="Search Spotify playlists"]')!.click(); await settle();
-    expect(document.querySelector<HTMLSelectElement>('[aria-label="Search in"]')?.value).toBe("spotify");
+    expect(selectedSearchSource()).toBe("spotify");
     const profilesKind = [...document.querySelectorAll<HTMLButtonElement>(".filters button")].find(button => button.textContent?.trim() === "Profiles")!;
     profilesKind.click(); await settle();
     const profileQuery = document.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
@@ -3707,7 +3725,7 @@ describe("saved recording navigation", () => {
     });
     const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); }; await settle();
     document.querySelector<HTMLButtonElement>('[aria-label="Search"]')!.click(); await settle();
-    const picker = document.querySelector<HTMLSelectElement>('[aria-label="Search in"]')!; picker.value = "spotify"; picker.dispatchEvent(new Event("change", { bubbles: true })); await settle();
+    await selectSearchSources(["spotify"]); await settle();
     document.querySelector<HTMLInputElement>('[aria-label="Search music"]')!.value = "Save Artist";
     document.querySelector<HTMLInputElement>('[aria-label="Search music"]')!.dispatchEvent(new Event("input", { bubbles: true }));
     [...document.querySelectorAll<HTMLButtonElement>(".filters button")].find(button => button.textContent === "Artists")!.click(); submitSearch(); await settle();
@@ -3765,7 +3783,7 @@ describe("saved recording navigation", () => {
     });
     const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); }; await settle();
     [...document.querySelectorAll<HTMLButtonElement>("nav button")].find(button => button.textContent?.includes("Search"))!.click(); await settle();
-    const picker = document.querySelector<HTMLSelectElement>('[aria-label="Search in"]')!; picker.value = "spotify"; picker.dispatchEvent(new Event("change", { bubbles: true })); await settle();
+    await selectSearchSources(["spotify"]); await settle();
     const query = document.querySelector<HTMLInputElement>('[aria-label="Search music"]')!; query.value = "First Artist"; query.dispatchEvent(new Event("input", { bubbles: true }));
     [...document.querySelectorAll<HTMLButtonElement>(".filters button")].find(button => button.textContent === "Artists")!.click(); submitSearch(); await settle();
     document.querySelector<HTMLButtonElement>(".open-result")!.click(); await settle();
@@ -3806,8 +3824,7 @@ describe("saved recording navigation", () => {
     unmountApp = () => { void unmount(instance); };
     await settle();
     [...document.querySelectorAll<HTMLButtonElement>("nav button")].find(button => button.textContent?.includes("Search"))!.click(); await settle();
-    const picker = document.querySelector<HTMLSelectElement>('[aria-label="Search in"]')!;
-    picker.value = "spotify"; picker.dispatchEvent(new Event("change", { bubbles: true }));
+    await selectSearchSources(["spotify"]);
     const query = document.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
     query.value = "Route Artist"; query.dispatchEvent(new Event("input", { bubbles: true }));
     [...document.querySelectorAll<HTMLButtonElement>(".filters button")].find(button => button.textContent === "Artists")!.click();
@@ -3885,8 +3902,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); };
     await settle();
     [...document.querySelectorAll<HTMLButtonElement>("nav button")].find(button => button.textContent?.includes("Search"))!.click(); await settle();
-    const picker = document.querySelector<HTMLSelectElement>('[aria-label="Search in"]')!;
-    picker.value = "spotify"; picker.dispatchEvent(new Event("change", { bubbles: true }));
+    await selectSearchSources(["spotify"]);
     const query = document.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
     query.value = track.title; query.dispatchEvent(new Event("input", { bubbles: true })); submitSearch(); await settle();
     const row = [...document.querySelectorAll<HTMLElement>(".result-row")].find(item => item.textContent?.includes(track.title))!;
@@ -3923,8 +3939,7 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); };
     await settle();
     [...document.querySelectorAll<HTMLButtonElement>("nav button")].find(button => button.textContent?.includes("Search"))!.click(); await settle();
-    const picker = document.querySelector<HTMLSelectElement>('[aria-label="Search in"]')!;
-    picker.value = "musicbrainz"; picker.dispatchEvent(new Event("change", { bubbles: true }));
+    await selectSearchSources(["musicbrainz"]);
     const query = document.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
     query.value = track.title; query.dispatchEvent(new Event("input", { bubbles: true })); submitSearch(); await settle();
     const row = [...document.querySelectorAll<HTMLElement>(".result-row")].find(item => item.textContent?.includes(track.title))!;
@@ -4209,7 +4224,7 @@ describe("saved recording navigation", () => {
     document.querySelector<HTMLButtonElement>(".compact-track .artist-link")!.click(); await settle();
     expect(document.querySelector('[aria-label="Choose Spotify artist"]')).toBeNull();
     expect(document.querySelector<HTMLInputElement>('[aria-label="Search music"]')?.value).toBe("Incomplete Artist");
-    expect((document.querySelector<HTMLSelectElement>('[aria-label="Search in"]') as HTMLSelectElement).value).toBe("spotify");
+    expect(selectedSearchSource()).toBe("spotify");
     expect([...document.querySelectorAll<HTMLButtonElement>('.filters button')].find(button => button.textContent === "Artists")?.getAttribute("aria-pressed")).toBe("true");
     expect(mocks.call).toHaveBeenCalledWith("search_source", expect.objectContaining({ query: "Incomplete Artist", sourceIds: ["spotify"], kinds: ["artist"] }));
     expect(mocks.call.mock.calls.some(([command]) => command === "search_artists")).toBe(false);
@@ -4220,7 +4235,7 @@ describe("saved recording navigation", () => {
     await searchDiscovery("Edited metadata credit", ["spotify"]);
     document.querySelector<HTMLButtonElement>(".compact-track .artist-link")!.click(); await settle();
     expect(document.querySelector<HTMLInputElement>('[aria-label="Search music"]')?.value).toBe("Edited Artist Name");
-    expect((document.querySelector<HTMLSelectElement>('[aria-label="Search in"]') as HTMLSelectElement).value).toBe("spotify");
+    expect(selectedSearchSource()).toBe("spotify");
     expect(mocks.call).toHaveBeenCalledWith("search_source", expect.objectContaining({ query: "Edited Artist Name", sourceIds: ["spotify"], kinds: ["artist"] }));
     expect(mocks.call.mock.calls.some(([command]) => command === "search_artists")).toBe(false);
     expect(mocks.call.mock.calls.filter(([command]) => command === "browse_remote_artist")).toHaveLength(1);
@@ -4230,7 +4245,7 @@ describe("saved recording navigation", () => {
     await searchDiscovery("Stale catalog identity", ["spotify"]);
     document.querySelector<HTMLButtonElement>(".compact-track .artist-link")!.click(); await settle();
     expect(document.querySelector<HTMLInputElement>('[aria-label="Search music"]')?.value).toBe("Repeated Artist");
-    expect((document.querySelector<HTMLSelectElement>('[aria-label="Search in"]') as HTMLSelectElement).value).toBe("spotify");
+    expect(selectedSearchSource()).toBe("spotify");
     expect(mocks.call).toHaveBeenCalledWith("search_source", expect.objectContaining({ query: "Repeated Artist", sourceIds: ["spotify"], kinds: ["artist"] }));
     expect(mocks.call.mock.calls.some(([command]) => command === "search_artists")).toBe(false);
     expect(mocks.call.mock.calls.filter(([command]) => command === "browse_remote_artist")).toHaveLength(1);
@@ -4263,7 +4278,7 @@ describe("saved recording navigation", () => {
     const browseCallsBeforeSwitch = mocks.call.mock.calls.filter(([command]) => command === "browse_remote_artist").length;
     document.querySelector<HTMLButtonElement>('[aria-label="Find Cross Provider Artist on MusicBrainz"]')!.click(); await settle();
     expect(document.querySelector<HTMLInputElement>('[aria-label="Search music"]')?.value).toBe("Cross Provider Artist");
-    expect((document.querySelector<HTMLSelectElement>('[aria-label="Search in"]') as HTMLSelectElement).value).toBe("musicbrainz");
+    expect(selectedSearchSource()).toBe("musicbrainz");
     expect([...document.querySelectorAll<HTMLButtonElement>(".filters button")].find(button => button.textContent === "Artists")?.getAttribute("aria-pressed")).toBe("true");
     expect(mocks.call).toHaveBeenCalledWith("search_source", expect.objectContaining({ query: "Cross Provider Artist", sourceIds: ["musicbrainz"], kinds: ["artist"] }));
     expect(mocks.call.mock.calls.filter(([command]) => command === "browse_remote_artist")).toHaveLength(browseCallsBeforeSwitch);
@@ -4296,7 +4311,7 @@ describe("saved recording navigation", () => {
     expect(document.querySelector(".artist-page")).not.toBeNull();
     document.querySelector<HTMLButtonElement>('[aria-label="Find Visible Artist on Spotify"]')!.click(); await settle();
     expect(document.querySelector<HTMLInputElement>('[aria-label="Search music"]')?.value).toBe("Visible Artist");
-    expect((document.querySelector<HTMLSelectElement>('[aria-label="Search in"]') as HTMLSelectElement).value).toBe("spotify");
+    expect(selectedSearchSource()).toBe("spotify");
     expect([...document.querySelectorAll<HTMLButtonElement>(".filters button")].find(button => button.textContent === "Artists")?.getAttribute("aria-pressed")).toBe("true");
     expect(mocks.call).toHaveBeenCalledWith("search_source", expect.objectContaining({ query: "Visible Artist", sourceIds: ["spotify"], kinds: ["artist"] }));
     expect(mocks.call.mock.calls.some(([command]) => command === "browse_remote_artist")).toBe(false);
@@ -4378,8 +4393,7 @@ describe("saved recording navigation", () => {
     await settle();
     [...document.querySelectorAll<HTMLButtonElement>("nav button")].find(button => button.textContent?.includes("Search"))!.click();
     await settle();
-    const picker = document.querySelector<HTMLSelectElement>('[aria-label="Search in"]')!;
-    picker.value = "spotify"; picker.dispatchEvent(new Event("change", { bubbles: true }));
+    await selectSearchSources(["spotify"]);
     const query = document.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
     query.value = "Fixture Spotify Artist"; query.dispatchEvent(new Event("input", { bubbles: true }));
     [...document.querySelectorAll<HTMLButtonElement>(".filters button")].find(button => button.textContent === "Artists")!.click();
@@ -4717,15 +4731,15 @@ describe("saved recording navigation", () => {
     sourceGroup("spotify").querySelector<HTMLButtonElement>('[aria-label="Search Spotify playlists"]')!.click();
     await settle(); await settle();
     expect(document.querySelector("main h1")?.textContent).toBe("Search");
-    expect(document.querySelector<HTMLSelectElement>('[aria-label="Search in"]')?.value).toBe("spotify");
+    expect(selectedSearchSource()).toBe("spotify");
     sourceGroup("youtube").querySelector<HTMLButtonElement>('[aria-label="Search YouTube playlists"]')!.click();
     await settle(); await settle();
     expect(document.querySelector("main h1")?.textContent).toBe("Search");
-    expect(document.querySelector<HTMLSelectElement>('[aria-label="Search in"]')?.value).toBe("youtube");
+    expect(selectedSearchSource()).toBe("youtube");
     expect([...document.querySelectorAll<HTMLButtonElement>(".filters button")].find(button => button.textContent?.trim() === "Playlists")?.getAttribute("aria-pressed")).toBe("true");
     await go("back-to-spotify", {kind:"history",historyDirection:"back"});
     expect(document.querySelector("main h1")?.textContent).toBe("Search");
-    expect(document.querySelector<HTMLSelectElement>('[aria-label="Search in"]')?.value).toBe("spotify");
+    expect(selectedSearchSource()).toBe("spotify");
     await go("back-to-downloads", {kind:"history",historyDirection:"back"});
     expect(document.querySelector('[aria-label="Sort download jobs"]')).not.toBeNull();
     expect(document.querySelector("main h1")?.textContent).not.toBe("Search");
@@ -5867,7 +5881,7 @@ describe("saved recording navigation", () => {
     soulseekAction.click();
     await settle(); await settle();
     expect(document.querySelector<HTMLInputElement>('[aria-label="Search music"]')?.value).toBe(`${albumTitle} Django Reinhardt`);
-    expect(document.querySelector<HTMLSelectElement>('[aria-label="Search in"]')?.value).toBe("soulseek");
+    expect(selectedSearchSource()).toBe("soulseek");
     expect(document.querySelector<HTMLButtonElement>('.filters button.active')?.textContent).toBe("Albums");
     expect(mocks.call.mock.calls.some(([command]) => ["enqueue_download", "save_settings", "add_remote_playlist", "create_remote_playlist"].includes(String(command)))).toBe(false);
     expect(mocks.call.mock.calls.filter(([command]) => command === "get_release_tracks")).toHaveLength(1);
@@ -9477,7 +9491,7 @@ describe("native playback frontend", () => {
     expect(document.querySelector(".artist-page")).not.toBeNull();
     const assertRestored=()=>{
       expect(document.querySelector<HTMLInputElement>('[aria-label="Search music"]')?.value).toBe("Navigation search");
-      expect(document.querySelector<HTMLSelectElement>('[aria-label="Search in"]')?.value).toBe("musicbrainz");
+      expect(selectedSearchSource()).toBe("musicbrainz");
       expect([...document.querySelectorAll<HTMLButtonElement>(".filters button")].find(button=>button.textContent?.trim()==="Tracks")?.getAttribute("aria-pressed")).toBe("true");
       expect(document.querySelector<HTMLSelectElement>('[aria-label="Sort loaded tracks"]')?.value).toBe("title");
       expect(document.querySelector('[aria-label="Toggle loaded track sort direction"]')?.textContent).toContain("Descending");
@@ -10008,7 +10022,7 @@ it("opens saved Soulseek searches from Downloads and reviews a saved query in So
   expect(JSON.parse(localStorage.getItem("burrata.soulseek.wishlist.v1")!).entries).toHaveLength(1);
   [...panel.querySelectorAll<HTMLButtonElement>("button")].find(button=>button.textContent==="Search now")!.click();await settle();
   expect(document.querySelector("dialog.wishlist[open]")).toBeNull();
-  expect(document.querySelector<HTMLSelectElement>('select[aria-label="Search in"]')?.value).toBe("soulseek");
+  expect(selectedSearchSource()).toBe("soulseek");
   expect(document.querySelector<HTMLInputElement>('input[aria-label="Search music"]')?.value).toBe("Synthetic wishlist track");
 });
 

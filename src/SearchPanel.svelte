@@ -481,20 +481,74 @@
   });
   function changeMode(mode: "online" | "library") {
     if (searchMode === mode) return;
+    closeSourcePicker();
     searchMode = mode;
     if (mode === "library" && !["all", "tracks"].includes(kind)) kind = "tracks";
     if (mode === "online" && !enabledOnlineSources.length) return;
     void restartSearch();
   }
-  function changeSource(sourceId: string) {
-    if (sourceChoice === sourceId) return;
-    if (sourceId === "custom" && sourceChoice !== "all" && sourceChoice !== "custom") {
-      customSourceIds = [sourceChoice];
-      sourceChoice = "custom";
-      return; // The active provider has not changed; opening the picker needs no request.
+  let sourcePickerOpen = $state(false);
+  let draftSources = $state<string[]>([]);
+  let sourceButton = $state<HTMLButtonElement>();
+  let sourcePicker = $state<HTMLDivElement>();
+  let pickerLeft = $state(8);
+  let pickerTop = $state(8);
+  let pickerMaxHeight = $state(300);
+  const selectedSourceNames = $derived(enabledOnlineSources
+    .filter(source => sourceChoice === "all" || source.id === sourceChoice || (sourceChoice === "custom" && customSourceIds.includes(source.id)))
+    .map(source => source.name));
+  const sourceSummary = $derived(sourceChoice === "all" ? "All sources"
+    : selectedSourceNames.length > 1 ? `${selectedSourceNames[0]} + ${selectedSourceNames.length - 1}`
+    : selectedSourceNames[0] ?? "Choose sources");
+  function portalSourcePicker(node: HTMLDivElement) {
+    const theme = sourceButton && getComputedStyle(sourceButton);
+    for (const property of ["--line", "--surface", "--base", "--text", "--muted", "--accent"]) {
+      const value = theme?.getPropertyValue(property);
+      if (value) node.style.setProperty(property, value);
     }
-    sourceChoice = sourceId;
-    void restartSearch();
+    document.body.appendChild(node);
+    const dismissOnScroll = (event: Event) => {
+      if (!(event.target instanceof Node && node.contains(event.target))) closeSourcePicker();
+    };
+    window.addEventListener("scroll", dismissOnScroll, true);
+    return {
+      destroy() {
+        window.removeEventListener("scroll", dismissOnScroll, true);
+        node.remove();
+      },
+    };
+  }
+  function closeSourcePicker(restoreFocus = false) {
+    sourcePickerOpen = false;
+    if (restoreFocus) sourceButton?.focus();
+  }
+  async function toggleSourcePicker() {
+    if (sourcePickerOpen) { closeSourcePicker(true); return; }
+    if (!sourceButton) return;
+    const anchor = sourceButton.getBoundingClientRect();
+    pickerLeft = Math.max(8, Math.min(anchor.left, window.innerWidth - 328));
+    const below = window.innerHeight - anchor.bottom - 16;
+    const above = anchor.top - 16;
+    const openBelow = below >= 270 || below >= above;
+    pickerMaxHeight = Math.max(40, openBelow ? below : above);
+    pickerTop = openBelow ? Math.max(8, anchor.bottom + 6) : 8;
+    draftSources = activeSourceIds();
+    sourcePickerOpen = true;
+    await tick();
+    if (!sourcePickerOpen || !sourcePicker) return;
+    if (!openBelow) pickerTop = Math.max(8, anchor.top - sourcePicker.getBoundingClientRect().height - 6);
+    sourcePicker.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true });
+  }
+  function applySources() {
+    const ids = enabledOnlineSources.map(source => source.id).filter(id => draftSources.includes(id));
+    if (!ids.length) return;
+    const choice = ids.length === enabledOnlineSources.length && ids.length > 1 ? "all" : ids.length === 1 ? ids[0]! : "custom";
+    const changed = sourceChoice !== choice || (choice === "custom" &&
+      (ids.length !== customSourceIds.length || ids.some(id => !customSourceIds.includes(id))));
+    sourceChoice = choice;
+    customSourceIds = choice === "custom" ? ids : [];
+    closeSourcePicker(true);
+    if (changed) void restartSearch();
   }
   async function restartSearch() {
     providerReads.cancelAll();
@@ -1110,6 +1164,10 @@
   }
 </script>
 
+<svelte:window
+  onpointerdown={(event) => { if (sourcePickerOpen && event.target instanceof Node && !sourcePicker?.contains(event.target) && !sourceButton?.contains(event.target)) closeSourcePicker(); }}
+  onkeydown={(event) => { if (sourcePickerOpen && event.key === "Escape") { event.preventDefault(); closeSourcePicker(true); } }}
+  onresize={() => closeSourcePicker()} />
 <section class="search-panel" aria-label="Discovery search" bind:this={searchElement}>
   {#if navigationNotice}<p role="status" class="navigation-notice">{navigationNotice}</p>{/if}
   <form class="search-form" onsubmit={(event) => { event.preventDefault(); void runSearch(); }}>
@@ -1132,25 +1190,33 @@
     {#if searchMode === "library"}
       <p class="library-helper">Saved tracks, imports and downloads</p>
     {:else}
-      <label class="search-in-label" for="discovery-source-select">Search in</label>
-      <div class="source-selection">
-      <select id="discovery-source-select" aria-label="Search in" value={sourceChoice} onchange={(event) => changeSource(event.currentTarget.value)}>
-        <option value="all">All online sources</option>
-        <option value="custom">{sourceChoice === "custom" ? enabledOnlineSources.filter(source => customSourceIds.includes(source.id)).map(source => source.name).join(" + ") || "Multiple sources…" : "Multiple sources…"}</option>
-        {#each enabledOnlineSources as source (source.id)}
-          <option value={source.id} disabled={!sourceSupports(source.id)}>{source.name}{sourceSupports(source.id) ? "" : " — not available for this result type"}</option>
-        {/each}
-      </select>
-      {#if sourceChoice !== "custom"}<button class="choose-sources" type="button" aria-label="Choose multiple search sources" onclick={() => changeSource("custom")}>{sourceChoice === "all" ? "Choose sources" : "+ Add source"}</button>{/if}
-      </div>
-      {#if sourceChoice === "custom"}
-        <fieldset class="custom-source-picker" aria-label="Choose online sources">
-          <legend>Choose online sources</legend>
+      <button type="button" class="sources-toggle" bind:this={sourceButton} data-source-choice={sourceChoice}
+        aria-expanded={sourcePickerOpen} aria-controls={sourcePickerOpen ? "discovery-source-picker" : undefined}
+        title={selectedSourceNames.join(", ")} onclick={toggleSourcePicker}>
+        Sources · {sourceSummary} <span aria-hidden="true">▾</span>
+      </button>
+      {#if sourcePickerOpen}
+        <div class="source-picker" id="discovery-source-picker" role="group" aria-label="Choose online sources"
+          bind:this={sourcePicker} use:portalSourcePicker style:left={`${pickerLeft}px`}
+          style:top={`${pickerTop}px`} style:max-height={`${pickerMaxHeight}px`}>
+          <div class="source-picker-actions">
+            <strong>Search sources</strong>
+            <button type="button" onclick={() => draftSources = []}>Clear</button>
+            <button type="button" onclick={() => draftSources = enabledOnlineSources.map(source => source.id)}>Select all</button>
+          </div>
           {#each enabledOnlineSources as source (source.id)}
-            <label><input type="checkbox" checked={customSourceIds.includes(source.id)} onchange={(event) => { customSourceIds = event.currentTarget.checked ? [...customSourceIds, source.id] : customSourceIds.filter(id => id !== source.id); void restartSearch(); }} />{source.name}</label>
+            <label class="source-picker-row">
+              <input type="checkbox" data-source-id={source.id} checked={draftSources.includes(source.id)}
+                onchange={(event) => { draftSources = event.currentTarget.checked ? [...draftSources, source.id] : draftSources.filter(id => id !== source.id); }} />
+              <span>{source.name}</span>
+              {#if !sourceSupports(source.id)}<small>Unavailable for this result type</small>{/if}
+            </label>
           {/each}
-          {#if !activeSourceIds().length}<p role="status">Choose at least one enabled source to search.</p>{/if}
-        </fieldset>
+          <div class="source-picker-actions">
+            <button type="button" onclick={() => closeSourcePicker(true)}>Cancel</button>
+            <button type="button" disabled={!draftSources.length} onclick={applySources}>Apply</button>
+          </div>
+        </div>
       {/if}
     {/if}
   </div>
@@ -1284,20 +1350,30 @@
 </section>
 
 <style>
-  .source-selection{display:flex;align-items:center;gap:6px;min-width:0}.source-selection select{flex:1;min-width:0}.choose-sources{flex:none;font-size:.78rem;white-space:nowrap;padding:4px 7px}
+  .sources-toggle{white-space:nowrap;font-size:.82rem;justify-self:start}
+  .source-picker{position:fixed;z-index:1000;width:min(320px,calc(100vw - 16px));box-sizing:border-box;overflow:auto;padding:10px;border:1px solid var(--line,#454a50);border-radius:9px;background:var(--surface,#202823);color:var(--text,#eee);box-shadow:0 8px 24px #0007}
+  .source-picker-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:4px}
+  .source-picker-actions strong{margin-right:auto;font-size:.84rem}
+  .source-picker-actions:last-child{justify-content:flex-end;margin-top:6px}
+  .source-picker-actions button{padding:4px 7px;font-size:.78rem;border:1px solid var(--line,#454a50);border-radius:6px;background:var(--base,#17191c);color:inherit}.source-picker-actions button:disabled{opacity:.5}
+  .source-picker-row{display:flex;align-items:center;gap:8px;margin:0;padding:7px 4px;font-size:.84rem}
+  .source-picker-row input{margin:0;flex:none}
+  .source-picker-row small{margin-left:auto;color:var(--muted,#a3a8ae);font-size:.7rem}
+
+
   .source-toggle{border:0;padding:.15rem .25rem;background:transparent;color:inherit;font:inherit;font-weight:650;text-align:left;cursor:pointer}.source-toggle:focus-visible{outline:2px solid var(--accent,#9dbfff);outline-offset:2px}
   .search-panel{--panel:var(--surface,#17191c);--border:var(--line,#454a50);display:flex;flex-direction:column;gap:.85rem;min-width:0;min-height:0;height:100%;overflow-y:auto;overflow-x:hidden;padding:1rem;color:var(--text,#eee);background:var(--panel,#17191c);border-radius:12px;container-name:search-pane;container-type:inline-size}
   .search-form,.source-group>header{display:flex;align-items:center;justify-content:space-between;gap:.75rem;min-width:0}.search-input-wrap{position:relative;flex:1;min-width:0}.search-form .search-input-wrap input{box-sizing:border-box;width:100%;min-width:0}.search-history-menu{position:absolute;z-index:60;top:calc(100% + 4px);left:0;right:0;max-height:300px;overflow:auto;margin:0;padding:4px;border:1px solid var(--border,#454a50);border-radius:8px;background:var(--surface,#202328);box-shadow:0 8px 24px #0008}.search-history-menu button{display:flex;width:100%;flex-direction:column;align-items:flex-start;gap:2px;padding:8px;text-align:left;border:0;background:transparent}.search-history-menu button:hover,.search-history-row[aria-selected="true"] .history-query{background:var(--raised,#2a2e34)}.search-history-menu small{color:var(--muted,#a3a8ae);font-size:.75rem}.search-history-heading,.search-history-row{display:flex;align-items:center;gap:4px}.search-history-heading{justify-content:space-between;padding:4px 6px 6px;color:var(--muted,#a3a8ae);font-size:.78rem}.search-history-heading .clear-search-history{padding:3px 6px;border:0;background:transparent;color:var(--accent,#9dbfff);font-size:.74rem}.search-history-row{border-radius:6px}.search-history-row .history-query{flex:1;min-width:0}.search-history-row .remove-search-history{flex:none;width:30px;height:30px;justify-content:center;align-items:center;padding:0;border:0;background:transparent;color:var(--muted,#a3a8ae);font-size:18px}.search-history-row .remove-search-history:hover{color:var(--text,#eee)}.source-group>header h3,.source-group>header span{min-width:0;overflow-wrap:anywhere}.source-group>header span,.subtitle,.search-empty,.result-details{color:var(--muted,#a3a8ae);font-size:.82rem}.track-controls{display:contents;border:0;margin:0;padding:0;min-width:0}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.continue-setting{display:flex;align-items:center;gap:.45rem;font-size:.8rem;color:var(--muted,#a3a8ae)}.continue-setting input{accent-color:var(--accent,#4c78c8)}.collection-controls{display:flex;align-items:end;gap:.5rem;flex-wrap:wrap}.collection-controls label{display:flex;flex-direction:column;gap:.2rem;font-size:.72rem;color:var(--muted,#a3a8ae)}.collection-controls select{max-width:100%;font-size:.78rem}.collection-status{display:flex;align-items:center;gap:.5rem;font-size:.8rem;color:var(--muted,#a3a8ae)}
-  .continue-setting{flex-direction:row;margin:0}.continue-setting input{width:auto;flex:none;margin:0;padding:0}.collection-controls label{margin:0}.search-in-label{margin:0}
+  .continue-setting{flex-direction:row;margin:0}.continue-setting input{width:auto;flex:none;margin:0;padding:0}.collection-controls label{margin:0}
   button,input,select{font:inherit}button{cursor:pointer}input,select{color:inherit;background:var(--surface,#202328);border:1px solid var(--border,#454a50);border-radius:7px;padding:.5rem .65rem}select:disabled{opacity:.55;cursor:default}.primary{background:var(--accent);border-color:var(--accent);color:var(--base)}.search-form input{flex:1;min-width:0;height:36px;padding:.35rem .6rem}.search-form button{min-height:36px;padding:.35rem .6rem}.filters{display:flex;gap:.4rem;flex-wrap:wrap}.filters button{font-size:.84rem}.filters button.active{border-color:var(--accent,#9dbfff);color:var(--accent,#9dbfff)}
-  .scope-controls{display:grid;grid-template-columns:auto auto minmax(0,1fr);align-items:center;gap:.55rem;min-width:0}.search-mode{display:flex;min-width:0;padding:3px;gap:2px;border:1px solid var(--border,#454a50);border-radius:9px;background:var(--surface,#202328)}.search-mode button{min-width:0;padding:.4rem .65rem;border:0;background:transparent;font-size:.82rem;white-space:nowrap}.search-mode button.active{background:var(--accent,#4c78c8);color:var(--base,#fff)}.search-in-label{font-size:.8rem;color:var(--muted,#a3a8ae);white-space:nowrap}.scope-controls select{box-sizing:border-box;width:100%;min-width:0;max-width:100%;height:34px;padding:0 .55rem;line-height:normal;overflow:visible;font-size:.82rem}.scope-controls select option{background:var(--panel,#17191c);color:var(--text,#eee)}.library-helper{grid-column:2/-1;min-width:0;margin:0;color:var(--muted,#a3a8ae);font-size:.76rem;line-height:1.35}.scope-hint{margin:0;color:var(--muted,#a3a8ae);font-size:.8rem;line-height:1.4}
+  .scope-controls{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:.55rem;min-width:0}.search-mode{display:flex;min-width:0;padding:3px;gap:2px;border:1px solid var(--border,#454a50);border-radius:9px;background:var(--surface,#202328)}.search-mode button{min-width:0;padding:.4rem .65rem;border:0;background:transparent;font-size:.82rem;white-space:nowrap}.search-mode button.active{background:var(--accent,#4c78c8);color:var(--base,#fff)}.library-helper{grid-column:2/-1;min-width:0;margin:0;color:var(--muted,#a3a8ae);font-size:.76rem;line-height:1.35}.scope-hint{margin:0;color:var(--muted,#a3a8ae);font-size:.8rem;line-height:1.4}
   .source-results{display:flex;flex-direction:column;gap:.65rem;min-width:0}.source-group{min-width:0;max-width:100%;border:1px solid var(--border,#383d43);border-radius:10px;padding:.55rem}.source-group>header{padding:0 .15rem .35rem}.source-group h3{margin:0;font-size:.93rem}.result-row{min-width:0;border-top:1px solid var(--border,#30343a);padding:.5rem .15rem}.result-main{min-width:0;overflow-wrap:anywhere}.result-title{display:flex;align-items:center;gap:.5rem;min-width:0}.result-title strong{font-size:.92rem;min-width:0;overflow-wrap:anywhere}.result-row-title{flex:1 1 auto}.spotify-identity-art{position:relative;display:grid;place-items:center;flex:0 0 32px;width:32px;height:32px;overflow:hidden;border-radius:50%;background:var(--surface,#202328);color:var(--muted,#a3a8ae)}.spotify-identity-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.kind-badge{display:inline-flex;flex:none;border-radius:999px;background:var(--surface,#202328);padding:.18rem .48rem;color:var(--muted,#a3a8ae);font-size:.69rem}.subtitle{margin:.2rem 0 0 .1rem;overflow-wrap:anywhere}.open-result{display:inline-flex;align-items:baseline;flex:1 1 auto;gap:.45rem;max-width:100%;min-width:0;border:0;padding:.2rem 0;background:none;text-align:left;color:inherit;font-weight:600;white-space:normal;overflow-wrap:anywhere}.open-result strong{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.open-result span{flex:none;color:var(--accent,#9dbfff);font-size:.76rem}.result-main>a{display:inline-block;margin-top:.35rem;color:var(--accent,#9dbfff);font-size:.78rem;overflow-wrap:anywhere}.details-toggle{margin-top:.4rem;padding:.3rem .45rem;font-size:.75rem}.result-details{margin:.35rem 0;overflow-wrap:anywhere}.chapter-details{margin-top:.4rem;max-width:100%}.chapter-badge{display:inline-flex;margin-top:.4rem;border-radius:999px;background:var(--surface,#202328);padding:.2rem .55rem;color:var(--muted,#a3a8ae);font-size:.72rem;white-space:normal;overflow-wrap:anywhere}.chapter-badge.available{color:var(--accent,#9dbfff);cursor:pointer}.chapter-check{margin:.25rem 0;padding:.2rem .4rem;font-size:.72rem;color:var(--muted,#a3a8ae)}.chapter-lookup-status{margin:.25rem;color:var(--muted,#a3a8ae);font-size:.72rem}.chapter-list{margin-top:.55rem;padding:.45rem;border-left:2px solid var(--accent,#9dbfff);min-width:0}.chapter-row{display:flex;align-items:center;gap:.3rem;margin-top:.35rem;min-width:0;flex-wrap:wrap}.chapter-row span{flex:1 1 10rem;min-width:0;font-size:.78rem;overflow-wrap:anywhere}.chapter-row button{font-size:.76rem;padding:.35rem .5rem}.notice{margin:.35rem 0;font-size:.8rem;color:var(--muted,#a3a8ae);overflow-wrap:anywhere}.error{color:#ff9b9b}.load-more{margin:.4rem}.search-empty{padding:.25rem;overflow-wrap:anywhere}.source-group a{color:var(--accent,#9dbfff)}
   .search-playlist-selection{display:flex;align-items:center;gap:.5rem;padding:.4rem .55rem;border:1px solid var(--border,#454a50);border-radius:8px;margin:.4rem 0}.search-playlist-selection span{margin-right:auto}.search-track-select{display:inline-flex;align-items:center;gap:.25rem;font-size:.75rem;color:var(--muted,#a3a8ae)}.add-playlist-result{margin:.4rem .45rem 0 0}
   .result-row:has(.compact-track){padding:.15rem}
   @media(max-width:640px){.search-panel{padding:.7rem}.search-form{flex-wrap:wrap}.search-form .search-input-wrap{flex:1 1 100%}.search-form input{flex-basis:100%}.scope-controls{grid-template-columns:auto minmax(0,1fr)}.search-mode{grid-column:1/-1;justify-self:start}.library-helper{grid-column:1/-1}.search-mode button{padding:.4rem .5rem}.chapter-row{flex-wrap:wrap}.chapter-row span{flex-basis:100%}}
   @media(max-width:640px){.result-row:has(.compact-track){padding:0 .15rem}}
-  @container search-pane (max-width:640px){.search-form{align-items:flex-start;flex-wrap:wrap}.search-form input{flex:1 1 100%}.scope-controls{grid-template-columns:minmax(0,1fr) minmax(0,2fr)}.search-mode{grid-column:1/-1;justify-self:start}.search-in-label{grid-column:1}.scope-controls select{grid-column:2}.library-helper{grid-column:1/-1}.source-group>header{align-items:flex-start;flex-wrap:wrap}.result-title{align-items:flex-start}.chapter-row span{flex-basis:100%}}
-  @media(min-width:641px){.search-panel{gap:.45rem;padding:.75rem}.scope-controls{display:flex;justify-content:flex-start;gap:.45rem;min-width:0;flex-wrap:wrap}.scope-controls select{width:260px;max-width:min(260px,45vw);flex:0 1 260px}.library-helper{margin:0}.filters{gap:.3rem}.filters button{padding:.32rem .55rem;font-size:.78rem}.track-toolbar{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;min-width:0}.track-toolbar .collection-controls{align-items:center;gap:.4rem}.track-toolbar .collection-controls label{display:flex;flex-direction:row;align-items:center;gap:.35rem;font-size:.76rem;white-space:nowrap}.track-toolbar .collection-controls select{box-sizing:border-box;height:34px;min-height:34px;padding:0 .55rem;font-size:.78rem;line-height:normal;overflow:visible}.track-toolbar .collection-controls button{min-height:32px;padding:.25rem .55rem;font-size:.76rem}.loaded-track-filters{flex:none;min-width:0}.loaded-track-filters[open]{flex:1 1 100%}.loaded-track-filters>summary{list-style:none;cursor:pointer;white-space:nowrap;border:1px solid var(--border,#454a50);border-radius:7px;padding:.35rem .55rem;font-size:.78rem;color:var(--muted,#a3a8ae)}.loaded-track-filters>summary::-webkit-details-marker{display:none}.loaded-track-filters>summary::after{content:" ▾"}.loaded-track-filters[open]>summary::after{content:" ▴"}.active-filter-indicator{color:var(--accent,#9dbfff)}.loaded-filter-fields{display:flex;align-items:end;gap:.6rem;flex-wrap:wrap;max-width:100%;margin-top:.45rem;padding:.65rem;border:1px solid var(--border,#454a50);border-radius:8px;background:var(--panel,#17191c)}.loaded-filter-fields>label:not(.continue-setting){display:flex;flex-direction:column;gap:.2rem;font-size:.72rem;color:var(--muted,#a3a8ae)}.loaded-filter-fields input:not([type="checkbox"]){box-sizing:border-box;width:132px;min-width:0;height:32px;padding:.25rem .45rem;font-size:.76rem}.loaded-filter-fields .continue-setting{max-width:250px;line-height:1.3}.track-toolbar .collect-more{flex:none;margin:0;min-height:32px;padding:.3rem .6rem;font-size:.78rem}.collection-status{flex-wrap:wrap}}
+  @container search-pane (max-width:640px){.search-form{align-items:flex-start;flex-wrap:wrap}.search-form input{flex:1 1 100%}.scope-controls{grid-template-columns:minmax(0,1fr) minmax(0,2fr)}.search-mode{grid-column:1/-1;justify-self:start}.library-helper{grid-column:1/-1}.source-group>header{align-items:flex-start;flex-wrap:wrap}.result-title{align-items:flex-start}.chapter-row span{flex-basis:100%}}
+  @media(min-width:641px){.search-panel{gap:.45rem;padding:.75rem}.scope-controls{display:flex;justify-content:flex-start;gap:.45rem;min-width:0;flex-wrap:wrap}.library-helper{margin:0}.filters{gap:.3rem}.filters button{padding:.32rem .55rem;font-size:.78rem}.track-toolbar{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;min-width:0}.track-toolbar .collection-controls{align-items:center;gap:.4rem}.track-toolbar .collection-controls label{display:flex;flex-direction:row;align-items:center;gap:.35rem;font-size:.76rem;white-space:nowrap}.track-toolbar .collection-controls select{box-sizing:border-box;height:34px;min-height:34px;padding:0 .55rem;font-size:.78rem;line-height:normal;overflow:visible}.track-toolbar .collection-controls button{min-height:32px;padding:.25rem .55rem;font-size:.76rem}.loaded-track-filters{flex:none;min-width:0}.loaded-track-filters[open]{flex:1 1 100%}.loaded-track-filters>summary{list-style:none;cursor:pointer;white-space:nowrap;border:1px solid var(--border,#454a50);border-radius:7px;padding:.35rem .55rem;font-size:.78rem;color:var(--muted,#a3a8ae)}.loaded-track-filters>summary::-webkit-details-marker{display:none}.loaded-track-filters>summary::after{content:" ▾"}.loaded-track-filters[open]>summary::after{content:" ▴"}.active-filter-indicator{color:var(--accent,#9dbfff)}.loaded-filter-fields{display:flex;align-items:end;gap:.6rem;flex-wrap:wrap;max-width:100%;margin-top:.45rem;padding:.65rem;border:1px solid var(--border,#454a50);border-radius:8px;background:var(--panel,#17191c)}.loaded-filter-fields>label:not(.continue-setting){display:flex;flex-direction:column;gap:.2rem;font-size:.72rem;color:var(--muted,#a3a8ae)}.loaded-filter-fields input:not([type="checkbox"]){box-sizing:border-box;width:132px;min-width:0;height:32px;padding:.25rem .45rem;font-size:.76rem}.loaded-filter-fields .continue-setting{max-width:250px;line-height:1.3}.track-toolbar .collect-more{flex:none;margin:0;min-height:32px;padding:.3rem .6rem;font-size:.78rem}.collection-status{flex-wrap:wrap}}
   @media(min-width:641px){.primary-controls-toolbar{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;min-width:0}.primary-controls-toolbar .scope-controls{flex:0 1 auto}.primary-controls-toolbar .filters{flex:1 1 auto;align-items:center}.track-toolbar .search-playlist-selection{flex:0 1 auto;min-width:0;max-width:100%;margin:0;padding:0;gap:.3rem;flex-wrap:wrap;border:0;font-size:.76rem}.track-toolbar .search-playlist-selection span{margin-right:.2rem}.track-toolbar .search-playlist-selection button{min-height:30px;padding:.25rem .45rem;font-size:.76rem}}
   .soulseek-unverified,.soulseek-folder-status{margin:.35rem 0;color:var(--muted,#a3a8ae);font-size:.78rem;line-height:1.4}
   .soulseek-browse,.soulseek-download-folder,.soulseek-queue-folder{margin:.2rem .35rem .35rem 0;border:1px solid var(--border,#454a50);border-radius:7px;background:var(--panel,#17191c);color:var(--text,#eee);padding:.35rem .6rem;cursor:pointer}

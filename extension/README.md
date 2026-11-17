@@ -22,7 +22,7 @@ For the implementation history, latest Beatport fix, and validation status, see 
 First [install Burrata for your system](../docs/install.md) and open it. Download
 an extension from the **same main release's Assets** on
 [Burrata releases](https://github.com/anaxonda/burrata/releases).
-The extension version is separate from the app version: app 0.1.49 ships extension 0.2.16.
+The extension version is separate from the app version: app 0.1.50 ships extension 0.2.16.
 
 ### Firefox
 

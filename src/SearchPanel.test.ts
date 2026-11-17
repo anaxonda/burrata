@@ -38,7 +38,110 @@ function render(props: Record<string, unknown> = {}) {
   return target;
 }
 
+function sourceToggle(target: ParentNode = document) {
+  return target.querySelector<HTMLButtonElement>("button.sources-toggle")!;
+}
+function sourceChoice(target: ParentNode = document) { return sourceToggle(target)?.dataset.sourceChoice; }
+async function openSources(target: ParentNode = document) {
+  if (sourceToggle(target).getAttribute("aria-expanded") !== "true") sourceToggle(target).click();
+  await settle();
+  return document.querySelector<HTMLElement>('[aria-label="Choose online sources"]')!;
+}
+function sourceAction(picker: HTMLElement, label: string) {
+  return [...picker.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.trim() === label)!;
+}
+async function chooseSources(target: ParentNode, ids: string[]) {
+  const picker = await openSources(target);
+  sourceAction(picker, "Clear").click(); await settle();
+  for (const id of ids) picker.querySelector<HTMLInputElement>(`input[data-source-id="${id}"]`)!.click();
+  await settle();
+  sourceAction(picker, "Apply").click(); await settle();
+}
+
 describe("SearchPanel", () => {
+  it("edits a source draft with Clear and Select all, then searches only after Apply", async () => {
+    const searchSource = vi.fn(async () => ({complete:true,results:[]}));
+    const target = render({query:"ambient",initialSources:["youtube"],availableSources:[
+      {id:"youtube",name:"YouTube",enabled:true,kinds:["track"]},
+      {id:"bandcamp",name:"Bandcamp",enabled:true,kinds:["track","album"]},
+      {id:"musicbrainz",name:"MusicBrainz",enabled:true,kinds:["track","artist","album"]},
+      {id:"spotify",name:"Spotify",enabled:false,kinds:["track"]},
+    ],searchSource});
+    await settle();
+    const calls = searchSource.mock.calls.length;
+    expect(calls).toBe(1);
+    expect(sourceToggle(target).textContent).toContain("Sources · YouTube");
+    const picker = await openSources(target);
+    expect(document.body.contains(picker)).toBe(true);
+    expect(target.contains(picker)).toBe(false);
+    expect([...picker.querySelectorAll("button")].map(button=>button.textContent?.trim())).toEqual(["Clear","Select all","Cancel","Apply"]);
+    expect(picker.querySelector('[data-source-id="spotify"]')).toBeNull();
+    sourceAction(picker,"Select all").click(); await settle();
+    expect([...picker.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].every(input=>input.checked)).toBe(true);
+    sourceAction(picker,"Clear").click(); await settle();
+    expect(sourceAction(picker,"Apply").disabled).toBe(true);
+    expect([...picker.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].some(input=>input.checked)).toBe(false);
+    picker.querySelector<HTMLInputElement>('[data-source-id="bandcamp"]')!.click(); await settle();
+    expect(sourceAction(picker,"Apply").disabled).toBe(false);
+    expect(searchSource).toHaveBeenCalledTimes(calls);
+    expect(sourceChoice(target)).toBe("youtube");
+    expect(JSON.parse(storage.get("burrata.discovery.search-scope.v2")!)).toMatchObject({sourceId:"youtube"});
+    sourceAction(picker,"Apply").click(); await settle();
+    expect(document.querySelector('[aria-label="Choose online sources"]')).toBeNull();
+    expect(sourceToggle(target).getAttribute("aria-expanded")).toBe("false");
+    expect(sourceToggle(target).textContent).toContain("Sources · Bandcamp");
+    expect(document.activeElement).toBe(sourceToggle(target));
+    expect(searchSource).toHaveBeenCalledTimes(calls+1);
+    expect(searchSource).toHaveBeenLastCalledWith(expect.objectContaining({sourceIds:["bandcamp"]}));
+    expect(JSON.parse(storage.get("burrata.discovery.search-scope.v2")!)).toMatchObject({sourceId:"bandcamp"});
+  });
+
+  it("discards unapplied source changes on Cancel, Escape, and outside pointer dismissal", async () => {
+    const searchSource = vi.fn(async () => ({complete:true,results:[]}));
+    const target = render({query:"ambient",initialSources:["youtube"],availableSources:[
+      {id:"youtube",name:"YouTube",enabled:true,kinds:["track"]},
+      {id:"bandcamp",name:"Bandcamp",enabled:true,kinds:["track"]},
+    ],searchSource});
+    await settle();
+    const calls=searchSource.mock.calls.length;
+    let picker=await openSources(target);
+    sourceAction(picker,"Select all").click(); await settle();
+    sourceAction(picker,"Cancel").click(); await settle();
+    expect(sourceChoice(target)).toBe("youtube");
+    picker=await openSources(target);
+    expect(picker.querySelector<HTMLInputElement>('[data-source-id="bandcamp"]')!.checked).toBe(false);
+    sourceAction(picker,"Clear").click(); await settle();
+    picker.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true,cancelable:true}));await settle();
+    expect(document.querySelector('[aria-label="Choose online sources"]')).toBeNull();
+    expect(document.activeElement).toBe(sourceToggle(target));
+    picker=await openSources(target);
+    sourceAction(picker,"Select all").click(); await settle();
+    document.body.dispatchEvent(new Event("pointerdown",{bubbles:true}));await settle();
+    expect(document.querySelector('[aria-label="Choose online sources"]')).toBeNull();
+    expect(sourceChoice(target)).toBe("youtube");
+    expect(searchSource).toHaveBeenCalledTimes(calls);
+    expect(JSON.parse(storage.get("burrata.discovery.search-scope.v2")!)).toMatchObject({sourceId:"youtube"});
+  });
+
+  it("applies Select all as the all-sources preference and leaves unchanged selections idle", async () => {
+    const searchSource = vi.fn(async () => ({complete:true,results:[]}));
+    const target=render({query:"ambient",initialSources:["youtube"],availableSources:[
+      {id:"youtube",name:"YouTube",enabled:true,kinds:["track"]},
+      {id:"bandcamp",name:"Bandcamp",enabled:true,kinds:["track"]},
+    ],searchSource});
+    await settle();
+    let picker=await openSources(target);
+    sourceAction(picker,"Select all").click();await settle();
+    sourceAction(picker,"Apply").click();await settle();
+    expect(sourceChoice(target)).toBe("all");
+    expect(sourceToggle(target).textContent).toContain("All sources");
+    expect(JSON.parse(storage.get("burrata.discovery.search-scope.v2")!)).toEqual({mode:"online",sourceId:"all"});
+    const calls=searchSource.mock.calls.length;
+    picker=await openSources(target);
+    sourceAction(picker,"Apply").click();await settle();
+    expect(searchSource).toHaveBeenCalledTimes(calls);
+  });
+
   it("adds Bandcamp alongside Spotify without losing the current source or querying unrelated providers", async () => {
     const searchSource=vi.fn(async(_request:{sourceIds:string[]})=>({complete:true,results:[]}));
     const target=render({initialSources:["spotify"],availableSources:[{id:"spotify",name:"Spotify",enabled:true,kinds:["track","artist","album"]},{id:"bandcamp",name:"Bandcamp",kinds:["track","artist","album"]},{id:"musicbrainz",name:"MusicBrainz",kinds:["track","artist","album"]}],searchSource});
@@ -47,13 +150,15 @@ describe("SearchPanel", () => {
     input.value="Bamba Wassoulou Groove";input.dispatchEvent(new Event("input",{bubbles:true}));
     target.querySelector("form")!.dispatchEvent(new Event("submit",{bubbles:true,cancelable:true}));await settle();
     const calls=searchSource.mock.calls.length;
-    target.querySelector<HTMLButtonElement>('[aria-label="Choose multiple search sources"]')!.click();await settle();
+    await openSources(target);
     expect(searchSource).toHaveBeenCalledTimes(calls);
-    const labels=[...target.querySelectorAll<HTMLLabelElement>('[aria-label="Choose online sources"] label')];
+    const labels=[...document.querySelectorAll<HTMLLabelElement>('[aria-label="Choose online sources"] label')];
     expect(labels.map(label=>label.textContent?.trim())).toContain("Spotify");
     expect(labels.find(label=>label.textContent?.trim()==="Spotify")!.querySelector<HTMLInputElement>("input")!.checked).toBe(true);
     const bandcamp=labels.find(label=>label.textContent?.trim()==="Bandcamp")!.querySelector<HTMLInputElement>("input")!;
     bandcamp.checked=true;bandcamp.dispatchEvent(new Event("change",{bubbles:true}));await settle();
+    expect(searchSource).toHaveBeenCalledTimes(calls);
+    sourceAction(document.querySelector<HTMLElement>('[aria-label="Choose online sources"]')!, "Apply").click();await settle();
     expect(searchSource.mock.calls.some(([request])=>request.sourceIds.includes("spotify"))).toBe(true);
     expect(searchSource.mock.calls.some(([request])=>request.sourceIds.includes("bandcamp"))).toBe(true);
     expect(searchSource.mock.calls.some(([request])=>request.sourceIds.includes("musicbrainz"))).toBe(false);
@@ -162,7 +267,7 @@ describe("SearchPanel", () => {
     expect(target.querySelector('[aria-label="Recent searches"]')?.textContent).toContain("Nipsey Hussle");
     target.querySelector<HTMLButtonElement>("#search-history-item-0")!.click(); await settle();
     expect(secondInput.value).toBe("Nipsey Hussle");
-    expect(target.querySelector<HTMLSelectElement>("[aria-label='Search in']")?.value).toBe("youtube");
+    expect(sourceChoice(target)).toBe("youtube");
     expect([...target.querySelectorAll<HTMLButtonElement>(".filters button")].find(button => button.textContent === "Artists")?.getAttribute("aria-pressed")).toBe("true");
     expect(searchSource).toHaveBeenCalledTimes(1);
     secondInput.value = ""; secondInput.dispatchEvent(new Event("input", { bubbles: true })); await settle();
@@ -185,8 +290,10 @@ describe("SearchPanel", () => {
       ], searchSource,
     });
     await settle();
-    expect(target.querySelector<HTMLSelectElement>("[aria-label='Search in']")?.value).toBe("custom");
-    expect(target.querySelector("[aria-label='Choose online sources']")?.textContent).not.toContain("Spotify");
+    expect(sourceChoice(target)).toBe("custom");
+    const picker = await openSources(target);
+    expect(picker.textContent).not.toContain("Spotify");
+    sourceAction(picker, "Cancel").click(); await settle();
     const input = target.querySelector<HTMLInputElement>("[aria-label='Search music']")!;
     input.value = "mix"; input.dispatchEvent(new Event("input", { bubbles: true }));
     target.querySelector<HTMLFormElement>(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
@@ -357,7 +464,7 @@ describe("SearchPanel", () => {
       { id: "spotify", name: "Spotify", enabled: true, kinds: ["track"] },
     ], searchSource: async () => ({ complete: false, nextCursor: "more", results: [{ id: track.id, kind: "track", sourceId: "spotify", title: track.title, track }] }) });
     await settle();
-    const source = target.querySelector<HTMLSelectElement>("[aria-label='Search in']")!;
+    const source = sourceToggle(target);
     const kindTabs = target.querySelector(".filters")!;
     expect(Boolean(source.compareDocumentPosition(kindTabs) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     const query = target.querySelector<HTMLInputElement>("[aria-label='Search music']")!;
@@ -1306,9 +1413,10 @@ describe("SearchPanel", () => {
     await settle();
     expect(target.querySelector<HTMLButtonElement>('[aria-label="Online"]')?.getAttribute("aria-pressed")).toBe("true");
     expect(target.querySelector<HTMLButtonElement>('[aria-label="My library"]')?.getAttribute("aria-pressed")).toBe("false");
-    const select = target.querySelector<HTMLSelectElement>('[aria-label="Search in"]')!;
-    expect(select.value).toBe("all");
-    expect([...select.options].map(option => option.value)).toEqual(["all", "custom", "musicbrainz", "discogs"]);
+    expect(sourceChoice(target)).toBe("all");
+    const picker = await openSources(target);
+    expect([...picker.querySelectorAll<HTMLInputElement>("input[data-source-id]")].map(input => input.dataset.sourceId)).toEqual(["musicbrainz", "discogs"]);
+    sourceAction(picker, "Cancel").click(); await settle();
     expect(storage.get("burrata.discovery.search-scope.v2")).toBe(JSON.stringify({ mode: "online", sourceId: "all" }));
   });
 
@@ -1322,7 +1430,7 @@ describe("SearchPanel", () => {
       { id: "musicbrainz", name: "MusicBrainz", kinds: ["track"] },
     ] });
     await settle();
-    expect(target.querySelector<HTMLSelectElement>('[aria-label="Search in"]')!.value).toBe("youtube");
+    expect(sourceChoice(target)).toBe("youtube");
     expect(storage.get("burrata.discovery.search-scope.v2")).toBe(importedScope);
   });
 
@@ -1336,9 +1444,10 @@ describe("SearchPanel", () => {
     ] });
     await settle();
     expect(target.querySelector<HTMLButtonElement>('[aria-label="Online"]')?.getAttribute("aria-pressed")).toBe("true");
-    expect(target.querySelector<HTMLSelectElement>('[aria-label="Search in"]')?.value).toBe("all");
-    expect([...target.querySelectorAll<HTMLOptionElement>('[aria-label="Search in"] option')].map(option => option.value))
-      .toEqual(["all", "custom", "musicbrainz", "discogs", "youtube"]);
+    expect(sourceChoice(target)).toBe("all");
+    const picker = await openSources(target);
+    expect([...picker.querySelectorAll<HTMLInputElement>("input[data-source-id]")].map(input => input.dataset.sourceId))
+      .toEqual(["musicbrainz", "discogs", "youtube"]);
   });
 
   it("keeps My library controls focused on local tracks", async () => {
@@ -1348,7 +1457,7 @@ describe("SearchPanel", () => {
       { id: "youtube", name: "YouTube", kinds: ["track", "video"] },
     ] });
     await settle();
-    expect(target.querySelector<HTMLSelectElement>('[aria-label="Search in"]')).toBeNull();
+    expect(sourceToggle(target)).toBeNull();
     expect(target.textContent).toContain("Saved tracks, imports and downloads");
     expect([...target.querySelectorAll<HTMLButtonElement>(".filters button")].map(button => button.textContent?.trim()))
       .toEqual(["All", "Tracks"]);
@@ -1405,12 +1514,12 @@ describe("SearchPanel", () => {
     expect(searchSource).toHaveBeenCalledWith(expect.objectContaining({ query: "artist title", sourceIds: ["musicbrainz"] }));
     expect(searchSource).toHaveBeenCalledWith(expect.objectContaining({ query: "artist title", sourceIds: ["discogs"] }));
     expect(searchSource).toHaveBeenCalledWith(expect.objectContaining({ query: "artist title", sourceIds: ["youtube"] }));
-    const select = target.querySelector<HTMLSelectElement>('[aria-label="Search in"]')!;
-    expect([...select.options].map(option => option.value)).toEqual(["all", "custom", "musicbrainz", "discogs", "youtube"]);
+    const picker = await openSources(target);
+    expect([...picker.querySelectorAll<HTMLInputElement>("input[data-source-id]")].map(input => input.dataset.sourceId)).toEqual(["musicbrainz", "discogs", "youtube"]);
     expect(target.textContent).not.toContain("Spotify (imported)");
     expect(target.textContent).not.toContain("Soulseek");
 
-    select.value = "youtube"; select.dispatchEvent(new Event("change", { bubbles: true }));
+    await chooseSources(target, ["youtube"]);
     await settle();
     expect(searchSource).toHaveBeenLastCalledWith(expect.objectContaining({ query: "artist title", sourceIds: ["youtube"] }));
     expect(storage.get("burrata.discovery.search-scope.v2")).toBe(JSON.stringify({ mode: "online", sourceId: "youtube" }));
@@ -1432,14 +1541,13 @@ describe("SearchPanel", () => {
     await settle();
     [...target.querySelectorAll<HTMLButtonElement>(".filters button")].find(button => button.textContent?.trim() === "Tracks")!.click();
     await settle();
-    const select = target.querySelector<HTMLSelectElement>('[aria-label="Search in"]')!;
-    select.value = "discogs"; select.dispatchEvent(new Event("change", { bubbles: true }));
+    await chooseSources(target, ["discogs"]);
     await settle();
     const selected = target.querySelector<HTMLButtonElement>('.filters button[aria-pressed="true"]');
     expect(selected?.textContent).toBe("Tracks");
     expect(selected?.disabled).toBe(true);
     expect(target.textContent).toContain("Discogs does not support tracks");
-    expect(select.value).toBe("discogs");
+    expect(sourceChoice(target)).toBe("discogs");
     [...target.querySelectorAll<HTMLButtonElement>(".filters button")].find(button => button.textContent?.trim() === "Albums")!.click();
     await settle();
     expect(target.querySelector("#unsupported-result-kinds")).toBeNull();
