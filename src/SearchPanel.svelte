@@ -1356,7 +1356,7 @@
   .source-picker-actions strong{margin-right:auto;font-size:.84rem}
   .source-picker-actions:last-child{justify-content:flex-end;margin-top:6px}
   .source-picker-actions button{padding:4px 7px;font-size:.78rem;border:1px solid var(--line,#454a50);border-radius:6px;background:var(--base,#17191c);color:inherit}.source-picker-actions button:disabled{opacity:.5}
-  .source-picker-row{display:flex;align-items:center;gap:8px;margin:0;padding:7px 4px;font-size:.84rem}
+  .source-picker-row{display:flex;flex-direction:row;align-items:center;gap:8px;margin:0;padding:7px 4px;font-size:.84rem}
   .source-picker-row input{margin:0;flex:none}
   .source-picker-row small{margin-left:auto;color:var(--muted,#a3a8ae);font-size:.7rem}
 
