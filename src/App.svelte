@@ -116,7 +116,7 @@ import { ObservedWaveformCache, prepareObservedWaveformBinding, type PreparedObs
   import WaveformSeek from "./WaveformSeek.svelte";
   import StreamMediaAnalysisSettings from "./StreamMediaAnalysisSettings.svelte";
   import NowPlayingView from "./NowPlayingView.svelte";
-  import { createTrackArtistInformationLoader } from "./lib/track-information";
+  import { artistFromRecordingInformation, artistRecordingSearchQuery, createTrackArtistInformationLoader } from "./lib/track-information";
   import { createRecordingInformationLoader, type RecordingReleaseInfo } from "./lib/recording-information";
   import DownloadSourceChooser from "./DownloadSourceChooser.svelte";
 
@@ -1092,9 +1092,14 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     searchArtists: name => searchArtists(name, 1),
     getArtistProfile: artist => call<ArtistProfile>("get_artist_profile", {artist}),
     lookupSpotifyArtist: artistId => call<ArtistRef | null>("cached_spotify_artist_ref", {artistId}),
-    lookupRecordingArtist: async track => {
-      const result = await recordingInformation.load(track);
-      return result.recording?.recordingArtist?.artist ?? null;
+    lookupRecordingArtist: async (track, name) => {
+      // This bounded lookup is cached by trackArtistInformation. A plain
+      // artist/title string searches MusicBrainz's default recording field.
+      const lookup = createRecordingInformationLoader({searchSource: request => call("search_source", {
+        ...request, query: artistRecordingSearchQuery(track, name), cursor: null,
+      })});
+      const result = await lookup.load(track);
+      return artistFromRecordingInformation(track, name, result);
     },
   });
   async function loadNowPlayingArtist(track: Track): Promise<ArtistProfile | null> {
@@ -7707,7 +7712,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
         <h3>{importTargetCollectionId ? "Import tracks into this playlist" : "Import from a URL"}</h3>
         <p class="browser-help">Public tracklists are imported directly when available. Otherwise Burrata sends the source to your connected companion browser; use the companion to import the latest version. Your browser handles sign-in or verification.</p>
         <div class="toolbar">
-          <input aria-label="Chart, playlist or album URL" bind:value={browserUrl} placeholder="Chart, Spotify playlist, Bandcamp album, Shazam or Last.fm URL" />
+          <input aria-label="Chart, playlist or album URL" bind:value={browserUrl} placeholder="Chart, Spotify playlist, Bandcamp album or playlist, Shazam or Last.fm URL" />
           <button disabled={!browserUrl.trim() || Boolean(browserRequest)} onclick={() => void requestBrowserImport()}>Import URL</button>
           <button onclick={() => void run(refreshBrowser)}>Refresh connection</button>
         </div>

@@ -93,11 +93,26 @@ pub fn spawn(
                 continue;
             }
 
-            let reported = result.ok().and_then(|response| response.now_playing);
+            let (reported, seconds_remaining) = result
+                .ok()
+                .map(|response| (response.now_playing, response.seconds_remaining))
+                .unwrap_or_default();
             let mut metadata =
-                radio::reconcile_played_radio_metadata(&station.id, generation, reported);
-            let station_tag_needs_validation =
-                validation.observe(metadata.as_ref(), Instant::now());
+                radio::reconcile_played_radio_metadata(&station.id, generation, reported.clone());
+            // A countdown belongs to the reported program, not to any newer
+            // audio match that has quarantined an incorrect station tag.
+            let matching_report =
+                reported
+                    .as_ref()
+                    .zip(metadata.as_ref())
+                    .is_some_and(|(reported, current)| {
+                        reported.artist == current.artist && reported.title == current.title
+                    });
+            let station_tag_needs_validation = validation.observe(
+                metadata.as_ref(),
+                matching_report.then_some(seconds_remaining).flatten(),
+                Instant::now(),
+            );
             let needs_pcm_identification = metadata
                 .as_ref()
                 .map_or(true, |item| item.artist.trim().is_empty())
@@ -286,19 +301,56 @@ struct StationMetadataValidation {
     pair: Option<(String, String)>,
     checked_at: Option<Instant>,
     attempted_once: bool,
+    seconds_remaining: Option<u64>,
+    countdown_advanced_at: Option<Instant>,
 }
 impl StationMetadataValidation {
-    fn observe(&mut self, metadata: Option<&RadioTrackMetadata>, now: Instant) -> bool {
+    fn observe(
+        &mut self,
+        metadata: Option<&RadioTrackMetadata>,
+        seconds_remaining: Option<u64>,
+        now: Instant,
+    ) -> bool {
         let pair = metadata.map(|track| {
             (
                 track.artist.trim().to_lowercase(),
                 track.title.trim().to_lowercase(),
             )
         });
-        if self.pair != pair {
+        let changed = self.pair != pair;
+        if changed {
             self.pair = pair;
             self.checked_at = Some(now);
-            return !self.attempted_once;
+            self.seconds_remaining = None;
+            self.countdown_advanced_at = None;
+        }
+        if self.pair.is_some() {
+            match seconds_remaining {
+                Some(remaining) => {
+                    // Radio Paradise supplies a live program countdown. A
+                    // decreasing countdown is fresh evidence for the same song;
+                    // validating it every 90 seconds can replace station names
+                    // with SongRec's alternate credits/version and create a
+                    // second history occurrence for the same audible song.
+                    if self
+                        .seconds_remaining
+                        .map_or(remaining > 0, |previous| remaining < previous)
+                    {
+                        self.countdown_advanced_at = Some(now);
+                    }
+                    self.seconds_remaining = Some(remaining);
+                }
+                None => {
+                    self.seconds_remaining = None;
+                    self.countdown_advanced_at = None;
+                }
+            }
+            if self
+                .countdown_advanced_at
+                .is_some_and(|at| now.saturating_duration_since(at) < Duration::from_secs(90))
+            {
+                return false;
+            }
         }
         !self.attempted_once
             || (self.pair.is_some()
@@ -439,17 +491,57 @@ mod tests {
         let now = Instant::now();
         let song = track("Cassius", "I <3 U So");
         let mut validation = StationMetadataValidation::default();
-        assert!(validation.observe(Some(&song), now));
-        assert!(validation.observe(Some(&song), now + Duration::from_secs(3)));
+        assert!(validation.observe(Some(&song), None, now));
+        assert!(validation.observe(Some(&song), None, now + Duration::from_secs(3)));
         validation.attempted(now);
-        assert!(!validation.observe(Some(&song), now + Duration::from_secs(89)));
-        assert!(validation.observe(Some(&song), now + Duration::from_secs(90)));
+        assert!(!validation.observe(Some(&song), None, now + Duration::from_secs(89)));
+        assert!(validation.observe(Some(&song), None, now + Duration::from_secs(90)));
         validation.attempted(now + Duration::from_secs(91));
-        assert!(!validation.observe(Some(&song), now + Duration::from_secs(120)));
+        assert!(!validation.observe(Some(&song), None, now + Duration::from_secs(120)));
         assert!(!validation.observe(
             Some(&track("Other", "Next")),
+            None,
             now + Duration::from_secs(180)
         ));
+    }
+
+    #[test]
+    fn advancing_program_countdown_avoids_duplicate_fingerprint_occurrences() {
+        let now = Instant::now();
+        let song = track("Robert Plant", "All The King's Horses");
+        let mut validation = StationMetadataValidation::default();
+        let mut transitions = MetadataTransitions::default();
+        assert_eq!(transitions.observe(Some(&song)), Some(1));
+        // A healthy station countdown stays fresh even on a long track. No
+        // fingerprint alternate spelling replaces its reusable song identity.
+        for poll in 0..12 {
+            let at = now + Duration::from_secs(poll * 30);
+            assert!(!validation.observe(Some(&song), Some(360 - poll * 30), at));
+            assert_eq!(transitions.observe(Some(&song)), None);
+        }
+        let other = track("Neil Young", "Helpless");
+        assert!(!validation.observe(Some(&other), Some(300), now + Duration::from_secs(360)));
+        assert_eq!(transitions.observe(Some(&other)), Some(2));
+        assert!(!validation.observe(Some(&song), Some(360), now + Duration::from_secs(660)));
+        assert_eq!(transitions.observe(Some(&song)), Some(3));
+    }
+
+    #[test]
+    fn stalled_or_missing_countdown_still_requests_bounded_audio_validation() {
+        let now = Instant::now();
+        let song = track("Artist", "Song");
+        let mut validation = StationMetadataValidation::default();
+        assert!(!validation.observe(Some(&song), Some(300), now));
+        assert!(!validation.observe(Some(&song), Some(300), now + Duration::from_secs(89)));
+        assert!(validation.observe(Some(&song), Some(300), now + Duration::from_secs(90)));
+        validation.attempted(now + Duration::from_secs(90));
+        assert!(!validation.observe(Some(&song), Some(300), now + Duration::from_secs(179)));
+        assert!(validation.observe(Some(&song), Some(300), now + Duration::from_secs(180)));
+        assert!(!validation.observe(Some(&song), Some(240), now + Duration::from_secs(181)));
+        assert!(validation.observe(Some(&song), None, now + Duration::from_secs(182)));
+        let mut fresh = StationMetadataValidation::default();
+        assert!(fresh.observe(Some(&song), None, now));
+        assert!(fresh.observe(Some(&song), Some(0), now));
     }
 
     #[test]

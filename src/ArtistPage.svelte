@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { biographySegments } from "./lib/artist-biography";
   import SaveArtistButton from "./SaveArtistButton.svelte";
   import { completeLibraryAlbumTrackCount } from "./lib/library";
   import { territoryLabel } from "./lib/territory-label";
@@ -73,6 +74,16 @@
   let profile = $state<ArtistProfile | null>(null);
   const providerLabels: Record<string, string> = { musicbrainz: "MusicBrainz", discogs: "Discogs", monochrome: "Monochrome", lastfm: "Last.fm" };
   const providerLabel = (value: string) => providerLabels[value] ?? value;
+  const sourceTags = $derived.by(() => {
+    const grouped = new Map<string, {name:string;provider:string;kinds:string[]}>();
+    for (const tag of profile?.sourceTags ?? []) {
+      const key = `${tag.provider}:${tag.name.normalize("NFKC").trim().toLowerCase()}`;
+      const existing = grouped.get(key);
+      if (existing) { if (!existing.kinds.includes(tag.kind)) existing.kinds.push(tag.kind); }
+      else grouped.set(key, {name:tag.name,provider:tag.provider,kinds:[tag.kind]});
+    }
+    return [...grouped.values()];
+  });
   const coverageLabel = (value: string) => value.replaceAll("_", " ");
   let releases = $state<ArtistReleasePage | null>(null);
   let tracks = $state<ArtistTrackPage | null>(null);
@@ -937,20 +948,15 @@
     {#if profile?.warnings.length}<div class="notice">{#each profile.warnings.filter(warning => section !== "releases" || !releases?.warnings.includes(warning)) as warning}<p>{warning}</p>{/each}</div>{/if}
     {#if section === "overview"}
       {#if profile}
-        <div class="overview-grid">
-          <article><h3>Genres and tags by source</h3>{#if (profile.sourceTags ?? []).length}<ul class="source-tags">{#each profile.sourceTags ?? [] as tag (tag.provider + tag.kind + tag.name)}<li><span>{tag.name}</span><small>{tag.kind} · {providerLabel(tag.provider)}</small></li>{/each}</ul>{:else}<p>No source tags available.</p>{/if}</article>
-          <article><h3>Aliases</h3><p>{profile.aliases.join(" · ") || "No aliases listed."}</p></article>
-          <article><h3>Provider coverage</h3><ul class="source-coverage">{#each profile.sourceCoverage ?? [] as coverage (coverage.provider)}<li><strong>{providerLabel(coverage.provider)}</strong><span>{coverageLabel(coverage.status)}</span><small>{coverage.detail}</small>{#if coverage.sourceUrl}<a href={coverage.sourceUrl} target="_blank" rel="noreferrer">Source ↗</a>{/if}</li>{/each}</ul></article>
-        </div>
-        {#if profile.biography}<h3>Biography {#if profile.biographySource}<small>· {profile.biographySource}</small>{/if}</h3><p class="bio">{profile.biography}</p>{/if}
-        {#if profile.links.length}<div class="links">{#each profile.links as link}<a href={link.url} target="_blank" rel="noreferrer">{link.label} ↗</a>{/each}</div>{/if}
-        <h3>Top tracks {#if profile.topTracks.length}<small>· Last.fm</small>{/if}</h3>
+        {#if profile.biography}<section class="artist-biography" aria-label="Artist biography"><h3>Biography {#if profile.biographySource}<small>· {profile.biographySource}</small>{/if}</h3><p class="bio">{#each biographySegments(profile.biography, profile.biographySource) as segment}{#if segment.url}<a href={segment.url} target="_blank" rel="noopener noreferrer">{segment.text}</a>{:else}{segment.text}{/if}{/each}</p></section>{/if}
+        <section class="top-tracks" aria-label="Artist top tracks">
+        <h2>Top tracks {#if profile.topTracks.length}<small title="Tracks returned by Last.fm in popularity order">· Last.fm</small>{/if}</h2>
         {#if profile.topTracks.length}
           {@const topAvailability = trackSortAvailabilityForSources(profile.topTracks, ["lastfm-top-tracks"])}
           <div class="catalog-controls" aria-label="Artist top tracks controls">
             <input aria-label="Filter artist top tracks" placeholder="Filter loaded top tracks" bind:value={topTrackQuery} />
             <label>Sort loaded tracks<select aria-label="Sort artist top tracks" bind:value={topTrackSort}>
-              <option value="sourceOrder">Source order</option>
+              <option value="sourceOrder">Last.fm popularity</option>
               <option value="title" disabled={!topAvailability.title}>{trackSortOptionLabelForSources(topAvailability, "title", "Title", ["lastfm-top-tracks"])}</option>
               <option value="artist" disabled={!topAvailability.artist}>{trackSortOptionLabelForSources(topAvailability, "artist", "Artist", ["lastfm-top-tracks"])}</option>
               <option value="album" disabled={!topAvailability.album}>{trackSortOptionLabelForSources(topAvailability, "album", "Album", ["lastfm-top-tracks"])}</option>
@@ -967,6 +973,15 @@
             <span>{visibleTopTracks.length} of {profile.topTracks.length} loaded tracks</span>
           </div>
           {#if visibleTopTracks.length}<TrackList presentation="playlist" tracks={visibleTopTracks} selectionContext={`artist-top:${selectedArtist?.artist.provider}:${selectedArtist?.artist.id}`} selectionKeys={visibleTopTrackOccurrences.map(row => String(row.sourceIndex))} selectionTracks={profile.topTracks} selectionTrackKeys={profile.topTracks.map((_, index) => String(index))} listLabel="Artist top tracks" onPlay={onPlayTrack} onDownload={onDownloadTrack} onFavorite={onFavoriteTrack} onNext={track => onQueueTracks?.([track], "next")} onQueue={track => onQueueTracks?.([track], "append")} onPlaylist={onAddTrackToPlaylist} {onAddSelectedToPlaylist} onQueueSelected={onQueueTracks ? items => onQueueTracks(items, "append") : undefined} onArtist={navigateTrackArtist} onAlbum={onTrackAlbum} onContext={onTrackContext} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} />{:else}<p class="muted">No loaded top tracks match these filters.</p>{/if}{:else}<p class="muted">Last.fm top tracks are unavailable for this artist or no API key is configured.</p>{/if}
+        </section>
+        <details class="artist-details"><summary>Artist details</summary>
+        <div class="overview-grid">
+          <article><h3>Genres and tags by source</h3>{#if sourceTags.length}<ul class="source-tags">{#each sourceTags as tag (tag.provider + tag.name)}<li><span>{tag.name}</span><small>{tag.kinds.join(", ")} · {providerLabel(tag.provider)}</small></li>{/each}</ul>{:else}<p>No source tags available.</p>{/if}</article>
+          <article><h3>Aliases</h3><p>{profile.aliases.join(" · ") || "No aliases listed."}</p></article>
+          <article><h3>Provider coverage</h3><ul class="source-coverage">{#each profile.sourceCoverage ?? [] as coverage (coverage.provider)}<li><strong>{providerLabel(coverage.provider)}</strong><span>{coverageLabel(coverage.status)}</span><small>{coverage.detail}</small>{#if coverage.sourceUrl}<a href={coverage.sourceUrl} target="_blank" rel="noreferrer">Source ↗</a>{/if}</li>{/each}</ul></article>
+        </div>
+        {#if profile.links.length}<div class="links">{#each profile.links as link}<a href={link.url} target="_blank" rel="noreferrer">{link.label} ↗</a>{/each}</div>{/if}
+        </details>
       {:else}<p class="muted">Loading artist profile…</p>{/if}
     {:else if section === "releases"}
       {#if releases?.sourceCoverage?.length}<details class="catalog-provider-details"><summary>Catalog sources · {releases.sourceCoverage.map(coverage => providerLabel(coverage.provider)).join(" · ")}</summary><ul class="source-coverage">{#each releases.sourceCoverage ?? [] as coverage (coverage.provider)}<li><strong>{providerLabel(coverage.provider)}</strong><span>{coverageLabel(coverage.status)}</span><small>{coverage.detail}</small></li>{/each}</ul></details>{/if}
@@ -1105,7 +1120,7 @@
   input:not([type=checkbox]){background:var(--input,#22262b);border:1px solid var(--border,#383d43);color:inherit;border-radius:7px;padding:.65rem}
   .back{background:transparent;color:var(--text);border:1px solid var(--line);align-self:start}
   .results,.release-list{display:flex;flex-direction:column;gap:.5rem;min-width:0}.artist-result,.release-list article{width:100%;min-width:0;text-align:left;background:var(--input,#22262b);color:inherit;border:1px solid var(--border,#383d43);padding:.8rem;border-radius:8px;overflow-wrap:anywhere}.artist-result span{min-width:0;overflow-wrap:anywhere}.artist-result span:first-child{display:flex;flex-direction:column;gap:.2rem}.artist-result .source{text-align:right}.artist-heading{justify-content:flex-start;min-width:0}.artist-heading>div{min-width:0;overflow-wrap:anywhere}.artist-portrait{width:84px;height:84px;object-fit:cover;border-radius:8px}.tabs{display:flex;gap:.35rem;overflow:auto;border-bottom:1px solid var(--border,#383d43);max-width:100%}.tabs button{white-space:nowrap;background:transparent;color:inherit;border-radius:6px 6px 0 0}.tabs button.active{background:var(--accent,#67c3a5);color:var(--base,#101412)}
-  .artist-provider-action{display:block;margin-top:.5rem}.notice{padding:.65rem .8rem;border-left:3px solid var(--accent,#67c3a5);background:var(--input,#22262b);border-radius:4px}.error{border-color:#ec7373}.overview-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:.75rem}.overview-grid article,.review{padding:.8rem;border:1px solid var(--border,#383d43);border-radius:8px}.bio{white-space:pre-wrap;max-height:12rem;overflow:auto}.links{display:flex;gap:.75rem;flex-wrap:wrap}.release-list article{align-items:flex-start}.release-list article>div{min-width:0}.review{display:flex;flex-direction:column;gap:.6rem}.field{display:flex;gap:.65rem;align-items:flex-start;padding:.5rem;border:1px solid var(--border,#383d43);border-radius:6px}.field>span{display:flex;flex-direction:column;gap:.2rem}.candidate{justify-content:space-between;padding:.5rem 0}
+  .artist-provider-action{display:block;margin-top:.5rem}.notice{padding:.65rem .8rem;border-left:3px solid var(--accent,#67c3a5);background:var(--input,#22262b);border-radius:4px}.error{border-color:#ec7373}.artist-details{margin:1.25rem 0}.artist-details>summary{cursor:pointer;color:var(--muted);font-size:13px}.artist-details[open]>summary{margin-bottom:.75rem}.artist-details .links{margin-top:.75rem}.top-tracks h2{font-size:20px;margin:0 0 .5rem}.top-tracks h2 small{font-size:12px;color:var(--muted);font-weight:400}.overview-grid{display:grid;align-items:start;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:.75rem}.overview-grid article,.review{padding:.8rem;border:1px solid var(--border,#383d43);border-radius:8px}.bio{white-space:pre-wrap;max-height:20rem;overflow:auto;line-height:1.6;overflow-wrap:anywhere}.bio a{color:var(--accent)}.artist-biography{margin-bottom:1.25rem}.links{display:flex;gap:.75rem;flex-wrap:wrap}.release-list article{align-items:flex-start}.release-list article>div{min-width:0}.review{display:flex;flex-direction:column;gap:.6rem}.field{display:flex;gap:.65rem;align-items:flex-start;padding:.5rem;border:1px solid var(--border,#383d43);border-radius:6px}.field>span{display:flex;flex-direction:column;gap:.2rem}.candidate{justify-content:space-between;padding:.5rem 0}
   .release-menu{position:relative}.release-menu summary{cursor:pointer;list-style:none;border:1px solid var(--border,#383d43);border-radius:6px;padding:.43rem .58rem;font-size:.8rem}.release-menu-content{position:absolute;z-index:5;right:0;top:100%;display:flex;flex-direction:column;gap:.25rem;min-width:10rem;padding:.4rem;background:var(--input,#22262b);border:1px solid var(--border,#383d43);border-radius:6px;box-shadow:0 4px 12px #0008}.release-menu-content button{text-align:left}.album-load-status{margin:0}
   .release-source{display:block;margin-bottom:.35rem}
   .catalog-provider-details{font-size:.82rem;color:var(--muted)}.catalog-provider-details summary{cursor:pointer}.edition-select{flex-direction:row;justify-content:flex-start;margin:0}.release-info{overflow-wrap:anywhere}

@@ -186,6 +186,12 @@
     catch { moveFailureSerial++;selectedRows=[];selectionAnchor=-1;moveError="Could not finish moving queue tracks."; }
     finally { movingRows=false; }
   }
+  function removeSelectionKey(event: KeyboardEvent) {
+    if (event.key !== "Delete" || !selectedRows.length || event.altKey || event.ctrlKey || event.metaKey || event.defaultPrevented) return;
+    const target = event.target;
+    if (!(target instanceof HTMLElement) || !panel?.contains(target) || target.closest('input,textarea,select,[contenteditable="true"],[role="dialog"]')) return;
+    event.preventDefault(); event.stopPropagation(); removeQueueRows(selectedRows);
+  }
   function moveSelectionKey(event: KeyboardEvent, index: number) {
     if(!["ArrowUp","ArrowDown"].includes(event.key)||event.altKey||event.ctrlKey||event.metaKey||event.shiftKey)return;
     if((event.target as HTMLElement).closest("select,input,details"))return;
@@ -280,11 +286,13 @@
   };
 </script>
 
+<svelte:window onkeydown={removeSelectionKey} />
+
 <aside bind:this={panel} aria-busy={movingRows} data-queue-move-failures={moveFailureSerial} class="playback-queue-panel" aria-label="Playback queue">
   <header class="queue-header">
     <div><p class="eyebrow">PLAYER</p><h2>Queue <span>{tracks.length}</span></h2></div>
     {#if onIdentifyCurrent}<button class="identify" aria-label={identifyingCurrentAudio ? "Cancel current audio capture" : "Identify currently playing audio"} disabled={identifyingCurrentAudio && !onCancelIdentifyCurrent} onclick={identifyingCurrentAudio ? onCancelIdentifyCurrent ?? onIdentifyCurrent : onIdentifyCurrent}>{identifyingCurrentAudio ? onCancelIdentifyCurrent ? `Cancel capture · ${Math.floor(radioIdentifyProgress)} / 8 s` : "Identifying…" : "Identify audio"}</button>{/if}
-    {#if tracks.length}<button class="clear-queue" title="Keeps the currently playing track" disabled={movingRows || !tracks.some((_,index)=>index!==currentIndex)} onclick={() => removeQueueRows(tracks.map((_, index) => index))}>Clear queue</button>{/if}
+    {#if tracks.length}<button class="clear-queue" title="Keeps the currently playing track" disabled={movingRows || !(selectedRows.length ? selectedRows : tracks.map((_, index) => index)).some(index=>index!==currentIndex)} onclick={() => removeQueueRows(selectedRows.length ? selectedRows : tracks.map((_, index) => index))}>{selectedRows.length ? "Clear selection" : "Clear queue"}</button>{/if}
     <button class="close" aria-label="Close playback queue" onclick={onClose}>✕</button>
   </header>
 

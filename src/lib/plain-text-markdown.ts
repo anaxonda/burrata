@@ -5,11 +5,14 @@
 export function plainTextMarkdown(value: unknown): string {
   if (typeof value !== "string") return "";
 
+  // Provider-internal citation handles are not public links. Sources are
+  // displayed separately using the response's validated URL annotations.
+  const content = value.replace(/[ \t]*\uE200cite\uE202[^\uE201]*\uE201/g, "");
   const urls: string[] = [];
   let placeholderPrefix = "\uE000burrata-url-";
-  while (value.includes(placeholderPrefix)) placeholderPrefix += "x";
+  while (content.includes(placeholderPrefix)) placeholderPrefix += "x";
   const keepUrl = (url: string) => `${placeholderPrefix}${urls.push(url) - 1}\uE001`;
-  let text = value.replace(/!?\[([^\]\n]*)\]\((https?:\/\/[^()\s]+)\)/gi, (_match, label: string, url: string) => `${label} (${keepUrl(url)})`);
+  let text = content.replace(/!?\[([^\]\n]*)\]\((https?:\/\/[^()\s]+)\)/gi, (_match, label: string, url: string) => `${label} (${keepUrl(url)})`);
   // URLs can contain balanced parentheses and Markdown-looking path/query
   // text. Consume through whitespace so no later formatting rule can edit it.
   text = text.replace(/https?:\/\/[^\s<>]+/gi, url => keepUrl(url));

@@ -859,3 +859,31 @@ describe("artist discography ordering", () => {
     expect(albumTitles).toEqual(["Newest Album", "Earlier 2018 Album", "Older Album"]);
   });
 });
+
+ it("places the formatted Discogs biography above genres, aliases, and coverage", async () => {
+   const ref=artist("beck", "Beck");
+   const target=render({initialArtistRef:ref.artist,getArtistProfile:async()=>({...profile(ref),biography:"American musician.\r\n\r\nSon of [a=David Campbell] and [a=Bibbe Hansen].",biographySource:"Discogs"})});
+   await settle();
+   const bio=target.querySelector<HTMLElement>('.artist-biography')!;
+   expect(bio.textContent).toContain("Son of David Campbell and Bibbe Hansen.");
+   expect(bio.textContent).not.toContain("[a=");
+   expect(bio.querySelector('a')?.href).toBe('https://www.discogs.com/search/?q=David+Campbell&type=artist');
+   expect(bio.nextElementSibling?.classList.contains('top-tracks')).toBe(true);
+   expect(target.querySelector<HTMLDetailsElement>('.artist-details')?.open).toBe(false);
+   expect(target.querySelector('.top-tracks')?.nextElementSibling?.classList.contains('artist-details')).toBe(true);
+   expect(bio.querySelector('.bio')?.textContent).toContain("musician.\n\nSon");
+ });
+
+ it("combines repeated genres and tags while retaining their provider attribution", async () => {
+   const ref=artist("beck", "Beck");
+   const target=render({initialArtistRef:ref.artist,getArtistProfile:async()=>({...profile(ref),sourceTags:[
+     {provider:"musicbrainz",name:"alternative rock",kind:"genre"},
+     {provider:"musicbrainz",name:"alternative rock",kind:"tag"},
+     {provider:"lastfm",name:"alternative rock",kind:"tag"},
+   ]})});
+   await settle();
+   const rows=[...target.querySelectorAll('.source-tags li')];
+   expect(rows).toHaveLength(2);
+   expect(rows[0]?.textContent).toContain('genre, tag · MusicBrainz');
+   expect(rows[1]?.textContent).toContain('tag · Last.fm');
+ });

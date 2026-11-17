@@ -7,6 +7,28 @@ vi.mock("./lib/api", () => ({ call: callMock, desktop: () => true }));
 // @ts-expect-error Svelte browser runtime.
 vi.mock("svelte", async () => await import("../node_modules/svelte/src/index-client.js"));
 import ArtistInformation from "./ArtistInformation.svelte";
+// @ts-expect-error Exercise parent prop updates with Svelte's reactive proxy.
+import { proxy } from "../node_modules/svelte/src/internal/client/proxy.js";
+
+it("retries song context for the same station and artist and ignores an outdated answer", async () => {
+  const target = document.createElement("div"); document.body.append(target);
+  let finishFirst!: (value: unknown) => void;
+  const loadArtist = vi.fn().mockImplementationOnce(() => new Promise(resolve => {finishFirst=resolve;}))
+    .mockResolvedValueOnce({artist:{name:"Beck"},biography:"Current song artist biography.",links:[]});
+  const props = proxy({track:{id:"radio:mellow",artist:"Beck",title:"Earlier song",isrc:null},loadArtist,onArtist:()=>{}});
+  const instance = mount(ArtistInformation,{target,props});
+  try {
+    await tick();
+    props.track={...props.track,title:"Morning"};
+    await tick(); await tick();
+    expect(loadArtist).toHaveBeenCalledTimes(2);
+    expect(target.textContent).toContain("Current song artist biography.");
+    finishFirst({artist:{name:"Other Beck"},biography:"Outdated biography.",links:[]});
+    await tick(); await tick();
+    expect(target.textContent).not.toContain("Outdated biography.");
+    expect(target.textContent).toContain("Current song artist biography.");
+  } finally { await unmount(instance); target.remove(); }
+});
 
 it("attributes a Wikipedia biography and opens its article and license", async () => {
   const target = document.createElement("div"); document.body.append(target);

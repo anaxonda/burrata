@@ -22,7 +22,7 @@ For the implementation history, latest Beatport fix, and validation status, see 
 First [install Burrata for your system](../docs/install.md) and open it. Download
 an extension from the **same main release's Assets** on
 [Burrata releases](https://github.com/anaxonda/burrata/releases).
-The extension version is separate from the app version: app 0.1.48 ships extension 0.2.15.
+The extension version is separate from the app version: app 0.1.49 ships extension 0.2.16.
 
 ### Firefox
 
@@ -117,6 +117,7 @@ access and consent.
   and an explicit total are present.
 - SoundCloud context-menu capture is limited to public single-track pages and rejects
   set/profile routes and private-token URLs.
+- Public Bandcamp fan playlists (`bandcamp.com/username/playlist/name`) expose song metadata without login. Paste the URL into Burrata for paginated direct import (up to 1,000 tracks); companion capture reads the initial embedded page and marks it partial when more pages remain. Private playlists are not supported.
 - Bandcamp album capture reads the album's explicit embedded tracklist. Collection pages
   are imported only when they render actual song rows; album cards are not converted into
   tracks. Bandcamp Discover imports up to 20 rendered album URLs and then reads each album’s explicit public tracklist; failed albums produce partial-import warnings.

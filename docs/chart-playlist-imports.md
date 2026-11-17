@@ -85,9 +85,11 @@ browser for manual companion capture. These actions preserve dated import versio
 | Source | Direct path | Browser path and limits |
 | --- | --- | --- |
 | Shazam | Top 200/Top 50 country or world chart CSV | Rendered chart rows; live world CSV parser and in-memory persistence passed for 200 tracks |
-| Bandcamp | Artist album URLs with structured tracklists | Rendered album tracklist; live Björk Debut parse/persistence passed. Discover/fan album cards are not tracklists |
+| Bandcamp | Artist album URLs with structured tracklists; public fan playlist URLs with bounded pagination | Album tracklists and public fan playlist metadata; companion playlist capture marks the initial page partial when more pages remain. Discover/fan album cards are not tracklists |
 | Last.fm | Public chart rows when readable; official chart/user top tracks API with configured key | Rendered chart/library rows. Live public request returned a client challenge; the configured API key successfully fetched and validated 1,000 tracks (capped, partial). Public visible slices remain partial |
 | Spotify | Browser companion | Albums/playlists; no direct anonymous scraper |
+
+Public Bandcamp fan playlists such as `https://bandcamp.com/funkentechno/playlist/ambient-reading` do not require a connected account. Direct import follows public tracklist pages for up to 1,000 rows with a 60-second pagination deadline, retaining song order, artwork, duration, and album links. The public page and pagination endpoint were checked without login on November 17, 2026: six pages returned 267 of 267 tracks. Companion capture of the initial page correctly reports 50 of 267 tracks as partial. Stream URLs and account data are excluded from imported metadata. Private playlists remain unsupported.
 
 Last.fm user imports preserve supported overall, weekly, monthly, quarterly,
 half-year and yearly periods. Custom date ranges fall back to browser capture.

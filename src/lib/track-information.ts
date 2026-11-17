@@ -1,5 +1,7 @@
 import type { ArtistProfile, ArtistProvider, ArtistRef, ArtistSearchPage } from "./artist-types";
 import type { Track } from "./types";
+import type { RecordingInformationResult } from "./recording-information";
+import { normalizeRecordingIsrc } from "./recording-information";
 
 export interface TrackArtistCredit {
   name: string;
@@ -44,6 +46,18 @@ function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+function artistLookupTrack(track: Track): Track | null {
+  if (!["radio", "radioparadise", "internet-radio"].includes(track.provider)) return track;
+  const metadata = record(record(track.provenance).radioMetadata);
+  if (typeof metadata.artist !== "string" || typeof metadata.title !== "string"
+    || !metadata.artist.trim() || !metadata.title.trim()
+    || normalizedName(metadata.artist) !== normalizedName(track.artist)
+    || normalizedName(metadata.title) !== normalizedName(track.title)) return null;
+  const identifiers = record(metadata.identifiers);
+  // A station's catalog refs, duration and stream URL do not identify its song.
+  return {...track, isrc: normalizeRecordingIsrc(identifiers.isrc), sourceUrl: "", provenance: {recognitionIdentifiers: identifiers}};
+}
+
 function isArtistRef(value: unknown): value is ArtistRef {
   const raw = record(value);
   if (raw.provider === "musicbrainz") return typeof raw.id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw.id);
@@ -54,6 +68,38 @@ function isArtistRef(value: unknown): value is ArtistRef {
 
 function normalizedName(value: string): string {
   return value.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase();
+}
+
+/** Quoted MusicBrainz fields keep artist words out of the default title field. */
+export function artistRecordingSearchQuery(track: Track, name: string): string {
+  const phrase = (value: string, limit: number) => `"${value.trim().slice(0, limit).replace(/[\\"]/g, "\\$&")}"`;
+  return `recording:${phrase(track.title, 128)} AND artist:${phrase(name, 100)}`;
+}
+
+/** Resolve an artist biography from song context without selecting a recording.
+ * Several recordings (edits, live versions, releases) may credit the same artist.
+ * Name-only homonyms remain unresolved unless matching song candidates agree.
+ */
+export function artistFromRecordingInformation(track: Track, name: string, result: RecordingInformationResult): ArtistRef | null {
+  const wantedName = normalizedName(name);
+  if (!wantedName) return null;
+  if (result.recording?.recordingArtist) {
+    const credit = result.recording.recordingArtist;
+    return normalizedName(credit.name) === wantedName && isArtistRef(credit.artist) ? credit.artist : null;
+  }
+  const wantedTitle = normalizedName(track.title);
+  if (!wantedTitle) return null;
+  const matches = result.candidates.map(candidate => candidate.recording).filter(recording =>
+    normalizedName(recording.title) === wantedTitle && normalizedName(recording.artist ?? "") === wantedName,
+  );
+  if (!matches.length) return null;
+  const artists = new Map<string, ArtistRef>();
+  for (const recording of matches) {
+    const credit = recording.recordingArtist;
+    if (!credit || normalizedName(credit.name) !== wantedName || !isArtistRef(credit.artist)) return null;
+    artists.set(`${credit.artist.provider}:${credit.artist.id}`, credit.artist);
+  }
+  return artists.size === 1 ? [...artists.values()][0]! : null;
 }
 
 function provenanceCredits(track: Track): TrackArtistCredit[] {
@@ -140,6 +186,9 @@ export function createTrackArtistInformationLoader(options: TrackArtistInformati
 
   return {
     async load(track) {
+      const lookupTrack = artistLookupTrack(track);
+      if (!lookupTrack) return null;
+      track = lookupTrack;
       const credits = provenanceCredits(track);
       const primary = primaryCredit(credits);
       if (!primary) return null;

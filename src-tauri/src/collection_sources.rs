@@ -21,13 +21,15 @@ pub async fn import_source(
     url: &str,
     connections: &ConnectionManager,
 ) -> Result<BrowserSnapshot, String> {
-    let parsed = Url::parse(url)
-        .map_err(|_| "Enter a valid public chart, user chart, or Bandcamp album URL")?;
+    let parsed = Url::parse(url).map_err(|_| {
+        "Enter a valid public chart, user chart, or Bandcamp album or public playlist URL"
+    })?;
     match parsed.host_str() {
         Some("shazam.com" | "www.shazam.com") => import_shazam(url).await,
         Some("last.fm" | "www.last.fm") => import_lastfm(url, connections).await,
+        Some("bandcamp.com") => import_bandcamp_playlist(url).await,
         Some(host) if host.ends_with(".bandcamp.com") && host.len() > ".bandcamp.com".len() => import_bandcamp(url).await,
-        _ => Err("Direct import supports public Shazam charts, Last.fm charts/user pages, and Bandcamp album pages. Open this source in the browser for other URLs.".into()),
+        _ => Err("Direct import supports public Shazam charts, Last.fm charts/user pages, and Bandcamp album/public playlist pages. Open this source in the browser for other URLs.".into()),
     }
 }
 
@@ -785,6 +787,261 @@ fn normalize_lastfm_track_url(s: &str) -> Option<String> {
     Some(url.to_string())
 }
 
+/// Public fan playlists expose the same tracklist data to signed-out visitors.
+/// Keep only catalog metadata; stream URLs and page/account state never enter a snapshot.
+fn validate_bandcamp_playlist_url(input: &str) -> Result<String, String> {
+    let mut url = check_source_url(input, "bandcamp.com")?;
+    let parts: Vec<_> = url.path().trim_matches('/').split('/').collect();
+    if parts.len() != 3
+        || parts[1] != "playlist"
+        || !valid_slug(parts[0])
+        || parts[2].len() > 2048
+        || parts[2].is_empty()
+        || !parts[2]
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+    {
+        return Err(
+            "Use a public Bandcamp fan playlist URL such as /username/playlist/name".into(),
+        );
+    }
+    url.set_query(None);
+    url.set_fragment(None);
+    Ok(url.to_string())
+}
+
+fn bandcamp_playlist_data(html: &str) -> Option<Value> {
+    let document = scraper::Html::parse_document(html);
+    let selector = scraper::Selector::parse("[data-blob]").ok()?;
+    document.select(&selector).find_map(|element| {
+        let data: Value = serde_json::from_str(element.value().attr("data-blob")?).ok()?;
+        let app = data.get("appData")?;
+        (app["tracklist"]["itemType"] == "playlist").then(|| app.clone())
+    })
+}
+
+fn bandcamp_playlist_track_url(raw: &str, kind: &str) -> Option<String> {
+    let mut url = Url::parse(raw).ok()?;
+    let host = url.host_str()?;
+    let parts: Vec<_> = url.path().trim_matches('/').split('/').collect();
+    if url.scheme() != "https"
+        || !host.ends_with(".bandcamp.com")
+        || !host.split('.').all(valid_slug)
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port().is_some_and(|port| port != 443)
+        || parts.len() != 2
+        || parts[0] != kind
+        || parts[1].is_empty()
+    {
+        return None;
+    }
+    url.set_query(None);
+    url.set_fragment(None);
+    Some(url.to_string())
+}
+
+fn bandcamp_playlist_entries(rows: &[Value], offset: usize) -> Vec<BrowserEntry> {
+    rows.iter()
+        .enumerate()
+        .filter_map(|(index, row)| {
+            let title = row["title"].as_str()?.trim();
+            let artist = row["artistName"].as_str()?.trim();
+            if title.is_empty() || artist.is_empty() {
+                return None;
+            }
+            let source = bandcamp_playlist_track_url(row["url"].as_str()?, "track")?;
+            let album_url = row["album"]["url"]
+                .as_str()
+                .and_then(|raw| bandcamp_playlist_track_url(raw, "album"));
+            let artwork = row["artId"]
+                .as_u64()
+                .filter(|id| *id > 0)
+                .map(|id| format!("https://f4.bcbits.com/img/a{id}_3.jpg"));
+            Some(BrowserEntry {
+                provider_id: row["id"]
+                    .as_u64()
+                    .filter(|id| *id > 0)
+                    .map(|id| id.to_string()),
+                source_url: Some(source),
+                artist: artist.into(),
+                title: title.into(),
+                position: (offset + index + 1) as u32,
+                rank: None,
+                version: None,
+                duration_seconds: row["duration"]
+                    .as_f64()
+                    .filter(|d| d.is_finite() && *d > 0.0),
+                album: row["album"]["title"]
+                    .as_str()
+                    .filter(|v| !v.trim().is_empty())
+                    .map(str::to_owned),
+                artwork_url: artwork,
+                artist_credits: None,
+                metadata: serde_json::json!({"albumUrl":album_url}),
+                bpm: None,
+                key: None,
+                label: None,
+                genre: None,
+                release_date: None,
+                isrc: None,
+                catalog_number: None,
+            })
+        })
+        .collect()
+}
+
+fn bandcamp_playlist_cursor(tracklist: &Value) -> Result<Option<Value>, String> {
+    match &tracklist["nextCursor"] {
+        Value::Null => Ok(None),
+        value @ Value::Number(_) if value.as_u64().is_some() => Ok(Some(value.clone())),
+        Value::String(value) if !value.is_empty() && value.len() <= 256 => {
+            Ok(Some(Value::String(value.clone())))
+        }
+        _ => Err("Bandcamp playlist returned an invalid page cursor".into()),
+    }
+}
+
+/// Check progress before accepting rows. A retried/repeated provider page must
+/// not manufacture extra playlist occurrences; legitimate repeats within a page
+/// or across pages with distinct cursors remain ordered occurrences.
+fn append_bandcamp_playlist_page(
+    page: &Value,
+    entries: &mut Vec<BrowserEntry>,
+    observed: &mut usize,
+    cursors: &mut std::collections::HashSet<String>,
+) -> Result<(usize, Option<Value>), String> {
+    let cursor = bandcamp_playlist_cursor(page)?;
+    if let Some(cursor) = &cursor {
+        if !cursors.insert(cursor.to_string()) {
+            return Err(
+                "Bandcamp repeated a playlist page cursor; duplicate page rows were skipped."
+                    .into(),
+            );
+        }
+    }
+    let rows = page["tracks"]
+        .as_array()
+        .ok_or("Bandcamp playlist has no readable tracks")?;
+    let count = rows.len().min(MAX_ENTRIES.saturating_sub(*observed));
+    entries.extend(bandcamp_playlist_entries(&rows[..count], *observed));
+    *observed += count;
+    Ok((count, cursor))
+}
+
+async fn bandcamp_playlist_page(client: &Client, id: u64, cursor: Value) -> Result<Value, String> {
+    let mut response = client
+        .post("https://bandcamp.com/api/player/2/player_data_web")
+        .json(&serde_json::json!({"item_type":"playlist","item_id":id,"next_cursor":cursor}))
+        .send()
+        .await
+        .map_err(|_| "Bandcamp playlist page could not be reached")?;
+    if !response.status().is_success() {
+        return Err("Bandcamp playlist page is restricted or temporarily unavailable".into());
+    }
+    if response
+        .content_length()
+        .is_some_and(|size| size > MAX_BYTES as u64)
+    {
+        return Err("Bandcamp playlist page exceeds the import size limit".into());
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| "Bandcamp playlist page could not be read")?
+    {
+        if bytes.len().saturating_add(chunk.len()) > MAX_BYTES {
+            return Err("Bandcamp playlist page exceeds the import size limit".into());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let value: Value = serde_json::from_slice(&bytes)
+        .map_err(|_| "Bandcamp playlist page returned invalid data")?;
+    Ok(value["tracklist"].clone())
+}
+
+async fn import_bandcamp_playlist(input: &str) -> Result<BrowserSnapshot, String> {
+    let source = validate_bandcamp_playlist_url(input)?;
+    let client = http_client()?;
+    let (_, html) = get_text(&client, Url::parse(&source).unwrap(), &["bandcamp.com"]).await?;
+    let app = bandcamp_playlist_data(&html)
+        .ok_or("Bandcamp did not expose a public playlist tracklist. Open the page in your browser to check access.")?;
+    if app["isPrivate"].as_bool() == Some(true) {
+        return Err(
+            "This Bandcamp playlist is private; direct import requires a public playlist".into(),
+        );
+    }
+    let id = app["playlistId"]
+        .as_u64()
+        .filter(|id| *id > 0)
+        .ok_or("Bandcamp playlist identity is missing")?;
+    let title = app["title"]
+        .as_str()
+        .filter(|title| !title.trim().is_empty())
+        .ok_or("Bandcamp playlist title is missing")?;
+    let mut page = app["tracklist"].clone();
+    let expected = page["tracksSummary"]["totalCount"]
+        .as_u64()
+        .and_then(|n| usize::try_from(n).ok());
+    let mut entries = Vec::new();
+    let mut observed: usize = 0;
+    let mut cursors = std::collections::HashSet::new();
+    let mut warnings = Vec::new();
+    let mut complete = false;
+    // One total pagination deadline and a 1,000-row cap bound large playlists.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    for _ in 0..20 {
+        if page["itemType"] != "playlist" || page["itemId"].as_u64() != Some(id) {
+            return Err("Bandcamp returned a different playlist identity".into());
+        }
+        let (count, cursor) =
+            match append_bandcamp_playlist_page(&page, &mut entries, &mut observed, &mut cursors) {
+                Ok(progress) => progress,
+                Err(error) => {
+                    warnings.push(error);
+                    break;
+                }
+            };
+        if cursor.is_none() {
+            complete = expected == Some(entries.len()) && entries.len() == observed;
+            break;
+        }
+        if count == 0 || observed >= MAX_ENTRIES {
+            break;
+        }
+        let cursor = cursor.unwrap();
+        match tokio::time::timeout_at(deadline, bandcamp_playlist_page(&client, id, cursor)).await {
+            Ok(Ok(next)) => page = next,
+            _ => {
+                warnings.push("A later Bandcamp playlist page could not be loaded; retry the import to capture the remaining tracks.".into());
+                break;
+            }
+        }
+    }
+    if !complete {
+        warnings.push(format!(
+            "Captured {} public playlist tracks{}; this import is partial.",
+            entries.len(),
+            expected.map(|n| format!(" of {n}")).unwrap_or_default()
+        ));
+    }
+    if entries.is_empty() && !(complete && expected == Some(0)) {
+        return Err("Bandcamp playlist has no public named tracks to import".into());
+    }
+    // Skipped invalid rows retain their positions while partial snapshots remain explicit.
+    Ok(snapshot(
+        "bandcamp",
+        "playlist",
+        title.into(),
+        source,
+        entries,
+        expected,
+        complete,
+        warnings,
+    ))
+}
+
 pub(crate) async fn import_bandcamp(input: &str) -> Result<BrowserSnapshot, String> {
     let source = validate_bandcamp_album_url(input)?;
     let url = Url::parse(&source).map_err(|_| "Invalid Bandcamp URL")?;
@@ -965,7 +1222,7 @@ fn validate_bandcamp_discover_url(input: &str) -> Result<String, String> {
 }
 
 fn validate_bandcamp_album_url(input: &str) -> Result<String, String> {
-    let mut url = Url::parse(input).map_err(|_| "Invalid Bandcamp album URL")?;
+    let mut url = Url::parse(input).map_err(|_| "Invalid Bandcamp album or public playlist URL")?;
     let host = url.host_str().ok_or("Invalid Bandcamp album host")?;
     if url.scheme() != "https"
         || !host.ends_with(".bandcamp.com")
@@ -1264,6 +1521,135 @@ fn snapshot(
 mod tests {
     use super::*;
     use std::{path::Path, sync::Arc};
+
+    #[test]
+    fn bandcamp_playlist_urls_require_public_fan_playlist_routes() {
+        assert_eq!(
+            validate_bandcamp_playlist_url(
+                "https://bandcamp.com/funkentechno/playlist/ambient-reading?from=share#tracks"
+            )
+            .unwrap(),
+            "https://bandcamp.com/funkentechno/playlist/ambient-reading"
+        );
+        for raw in [
+            "http://bandcamp.com/fan/playlist/name",
+            "https://user@bandcamp.com/fan/playlist/name",
+            "https://bandcamp.com:8443/fan/playlist/name",
+            "https://artist.bandcamp.com/fan/playlist/name",
+            "https://bandcamp.com/fan/collection/name",
+            "https://bandcamp.com/fan/playlist/name/more",
+            "https://bandcamp.com/fan/playlist/",
+        ] {
+            assert!(validate_bandcamp_playlist_url(raw).is_err(), "{raw}");
+        }
+    }
+
+    #[test]
+    fn bandcamp_playlist_metadata_preserves_order_and_repeats_without_stream_secrets() {
+        let row = serde_json::json!({"id":123,"title":"Snåcko","artistName":"Jeremiah Chiu & Marta Sofia Honer","url":"https://intlanthem.bandcamp.com/track/snacko?from=playlist","duration":287.0,"artId":456,"streamUrl":"https://secret.invalid/?token=private","album":{"title":"Recordings from the Åland Islands","url":"https://intlanthem.bandcamp.com/album/recordings?from=playlist"}});
+        let rows = vec![
+            row.clone(),
+            serde_json::json!({"title":"No public song URL","artistName":"Artist","url":"https://intlanthem.bandcamp.com/album/album"}),
+            row,
+        ];
+        let entries = bandcamp_playlist_entries(&rows, 50);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(
+            entries
+                .iter()
+                .map(|entry| entry.position)
+                .collect::<Vec<_>>(),
+            vec![51, 53]
+        );
+        assert_eq!(entries[0].title, "Snåcko");
+        assert_eq!(entries[0].duration_seconds, Some(287.0));
+        assert_eq!(
+            entries[0].metadata["albumUrl"],
+            "https://intlanthem.bandcamp.com/album/recordings"
+        );
+        assert_eq!(
+            entries[0].source_url.as_deref(),
+            Some("https://intlanthem.bandcamp.com/track/snacko")
+        );
+        let serialized = serde_json::to_string(&entries).unwrap();
+        assert!(!serialized.contains("streamUrl"));
+        assert!(!serialized.contains("secret.invalid"));
+        assert!(!serialized.contains("token"));
+        assert!(bandcamp_playlist_track_url(
+            "https://intlanthem.bandcamp.com.evil.test/track/song",
+            "track"
+        )
+        .is_none());
+        assert!(bandcamp_playlist_track_url(
+            "https://u:p@intlanthem.bandcamp.com/track/song",
+            "track"
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn bandcamp_playlist_repeated_page_cursor_never_appends_duplicate_occurrences() {
+        let row = serde_json::json!({"id":123,"title":"Song","artistName":"Artist","url":"https://artist.bandcamp.com/track/song"});
+        let page = serde_json::json!({"tracks":[row.clone(), row],"nextCursor":55});
+        let mut entries = Vec::new();
+        let mut observed = 0;
+        let mut cursors = std::collections::HashSet::new();
+        append_bandcamp_playlist_page(&page, &mut entries, &mut observed, &mut cursors).unwrap();
+        // Intentional repeated songs in the source remain two occurrences.
+        assert_eq!(entries.len(), 2);
+        assert!(
+            append_bandcamp_playlist_page(&page, &mut entries, &mut observed, &mut cursors)
+                .is_err()
+        );
+        assert_eq!(entries.len(), 2);
+        assert_eq!(observed, 2);
+        let mut next = page;
+        next["nextCursor"] = serde_json::json!(106);
+        append_bandcamp_playlist_page(&next, &mut entries, &mut observed, &mut cursors).unwrap();
+        assert_eq!(
+            entries
+                .iter()
+                .map(|entry| entry.position)
+                .collect::<Vec<_>>(),
+            vec![1, 2, 3, 4]
+        );
+    }
+
+    #[test]
+    fn bandcamp_playlist_blob_decodes_html_attributes_and_bounded_cursors() {
+        let html = r#"<div data-blob="{&quot;appData&quot;:{&quot;title&quot;:&quot;Reading &amp; listening&quot;,&quot;tracklist&quot;:{&quot;itemType&quot;:&quot;playlist&quot;,&quot;nextCursor&quot;:55}}}"></div>"#;
+        let app = bandcamp_playlist_data(html).unwrap();
+        assert_eq!(app["title"], "Reading & listening");
+        assert_eq!(
+            bandcamp_playlist_cursor(&app["tracklist"]).unwrap(),
+            Some(serde_json::json!(55))
+        );
+        assert!(bandcamp_playlist_cursor(&serde_json::json!({"nextCursor":-1})).is_err());
+        assert!(
+            bandcamp_playlist_cursor(&serde_json::json!({"nextCursor":{"token":"private"}}))
+                .is_err()
+        );
+        assert_eq!(
+            bandcamp_playlist_cursor(&serde_json::json!({"nextCursor":null})).unwrap(),
+            None
+        );
+        assert!(bandcamp_playlist_data("<h1>Log in</h1>").is_none());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires public Bandcamp network access"]
+    async fn live_bandcamp_playlist_import_paginates_public_tracklist() {
+        let snapshot =
+            import_bandcamp_playlist("https://bandcamp.com/funkentechno/playlist/ambient-reading")
+                .await
+                .unwrap();
+        assert_eq!(snapshot.kind, "playlist");
+        assert_eq!(snapshot.title, "ambient reading");
+        assert!(snapshot.entries.len() > 50);
+        assert!(snapshot.complete, "{:?}", snapshot.warnings);
+        assert_eq!(snapshot.expected_total, Some(snapshot.entries.len()));
+        crate::browser_bridge::validate_snapshot(&snapshot).unwrap();
+    }
 
     #[test]
     fn bandcamp_discover_urls_accept_only_discover_and_artist_album_routes() {

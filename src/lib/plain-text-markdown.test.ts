@@ -43,3 +43,8 @@ it("treats HTML-looking content as plain text and ignores non-string values", ()
     .toBe("<img src=x onerror=alert(1)> Visible text");
   expect(plainTextMarkdown({ answer: "not text" })).toBe("");
 });
+
+it("removes internal single and multi-source citation handles without losing prose or public links", () => {
+  expect(plainTextMarkdown("The album was released in 2022. citeturn1search1\n\nIsland ambience citeturn1search1turn1search0 shapes the song.\n[Label](https://label.example/album)"))
+    .toBe("The album was released in 2022.\n\nIsland ambience shapes the song.\nLabel (https://label.example/album)");
+});

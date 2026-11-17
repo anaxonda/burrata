@@ -522,3 +522,18 @@ it("displays the chapter playable duration instead of the full parent duration",
  const target=render({tracks:[chapter,{...track,durationSeconds:null},{...chapter,playbackRange:{...chapter.playbackRange,endTime:60}}]});await tick();
  const rows=target.querySelectorAll('.queue-list > article');expect(rows[0]!.querySelector('.track-duration')?.textContent).toBe('0:30');expect(rows[1]!.querySelector('.track-duration')).toBeNull();expect(rows[2]!.querySelector('.track-duration')).toBeNull();
 });
+
+ it.each(["button", "Delete"])("removes only selected queue occurrences using %s and preserves the current track", async method => {
+   const onRemoveMany = vi.fn();
+   const target = render({tracks:[track,track,track,track],currentIndex:1,onRemoveMany}); await tick();
+   const grips = target.querySelectorAll<HTMLButtonElement>(".queue-drag-select");
+   grips[1]!.click();
+   grips[3]!.dispatchEvent(new MouseEvent("click",{bubbles:true,ctrlKey:true})); await tick();
+   const clear = target.querySelector<HTMLButtonElement>(".clear-queue")!;
+   expect(clear.textContent).toBe("Clear selection");
+   if (method === "button") clear.click();
+   else grips[3]!.dispatchEvent(new KeyboardEvent("keydown",{key:"Delete",bubbles:true,cancelable:true}));
+   await tick();
+   expect(onRemoveMany).toHaveBeenCalledExactlyOnceWith([3]);
+   expect(clear.textContent).toBe("Clear queue");
+ });

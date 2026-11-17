@@ -12,7 +12,8 @@
   let profile = $state<ArtistProfile | null>(null);
   let loading = $state(false);
   let expanded = $state(false);
-  const identity = $derived(`${track.id}\n${track.artist}`);
+  const identity = $derived(JSON.stringify([track.id, track.artist, track.title, track.isrc ?? "",
+    (track.provenance as {radioMetadata?: {identifiers?: {isrc?: unknown}}} | null)?.radioMetadata?.identifiers?.isrc ?? ""]));
   const wikipediaSource = $derived(profile?.biographySource === "Wikipedia" ? profile.links.find(link => link.provider === "wikipedia" && link.label === "Wikipedia biography")?.url : undefined);
   const biography = $derived(biographySegments(profile?.biography ?? "", profile?.biographySource));
   $effect(() => {

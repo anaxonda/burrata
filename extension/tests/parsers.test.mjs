@@ -403,3 +403,30 @@ test('current Beatport chart fields preserve duration and exclude unranked relat
  assert.equal(result.entries[0].durationSeconds,416.5);
  assert.equal(result.entries[0].rank,7);
 });
+
+test('public Bandcamp fan playlists expose ordered song metadata without account or stream data',()=>{
+ const url='https://bandcamp.com/funkentechno/playlist/ambient-reading?from=share';
+ const row={id:123,title:'Snåcko',artistName:'Jeremiah Chiu & Marta Sofia Honer',url:'https://intlanthem.bandcamp.com/track/snacko?from=playlist',duration:287,artId:456,streamUrl:'https://secret.invalid/?token=private',album:{title:'Recordings from the Åland Islands',url:'https://intlanthem.bandcamp.com/album/recordings?from=playlist'}};
+ const appData={title:'ambient reading',isPrivate:false,tracklist:{itemType:'playlist',tracks:[row,row],tracksSummary:{totalCount:267},nextCursor:55}};
+ const page=doc('<h1>ambient reading</h1><div id="app"></div>',url);
+ page.querySelector('#app').setAttribute('data-blob',JSON.stringify({appData,pageContext:{identity:{secret:'private account'}}}));
+ const result=extract(page,url);
+ assert.equal(result.kind,'playlist');assert.equal(result.sourceUrl,'https://bandcamp.com/funkentechno/playlist/ambient-reading');
+ assert.equal(result.complete,false);assert.equal(result.expectedTotal,267);assert.equal(result.entries.length,2);
+ assert.deepEqual(result.entries.map(row=>row.position),[1,2]);assert.equal(result.entries[0].title,'Snåcko');assert.equal(result.entries[0].durationSeconds,287);
+ assert.equal(result.entries[0].sourceUrl,'https://intlanthem.bandcamp.com/track/snacko');
+ assert.equal(result.entries[0].metadata.albumUrl,'https://intlanthem.bandcamp.com/album/recordings');
+ assert.equal(result.entries[0].artworkUrl,'https://f4.bcbits.com/img/a456_3.jpg');
+ assert.doesNotMatch(JSON.stringify(result),/streamUrl|secret.invalid|private account|pageContext/);
+ appData.tracklist.nextCursor=null;appData.tracklist.tracksSummary.totalCount=2;
+ page.querySelector('#app').setAttribute('data-blob',JSON.stringify({appData}));assert.equal(extract(page,url).complete,true);
+ appData.isPrivate=true;page.querySelector('#app').setAttribute('data-blob',JSON.stringify({appData}));assert.throws(()=>extract(page,url),/private/);
+});
+
+test('Bandcamp fan playlists never promote album links or unrelated hosts into song identities',()=>{
+ const url='https://bandcamp.com/fan/playlist/reading',page=doc('<div id="app"></div>',url);
+ const tracks=[{id:1,title:'Valid',artistName:'Artist',url:'https://artist.bandcamp.com/track/valid'},{id:2,title:'Album',artistName:'Artist',url:'https://artist.bandcamp.com/album/record'},{id:3,title:'Fake',artistName:'Artist',url:'https://artist.bandcamp.com.evil.test/track/fake'}];
+ page.querySelector('#app').setAttribute('data-blob',JSON.stringify({appData:{title:'Reading',tracklist:{itemType:'playlist',tracks,tracksSummary:{totalCount:3},nextCursor:null}}}));
+ const result=extract(page,url);assert.equal(result.entries.length,1);assert.equal(result.complete,false);assert.equal(result.expectedTotal,3);
+ assert.throws(()=>extract(doc('<h1>Log in</h1>'),url),/public playlist tracklist/);
+});

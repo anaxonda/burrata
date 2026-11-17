@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ArtistProfile, ArtistRef, ArtistSearchPage } from "./artist-types";
 import type { Track } from "./types";
-import { createTrackArtistInformationLoader } from "./track-information";
+import { artistFromRecordingInformation, artistRecordingSearchQuery, createTrackArtistInformationLoader } from "./track-information";
+import type { RecordingCatalogInfo, RecordingInformationResult } from "./recording-information";
 
 const faithMb = { provider: "musicbrainz" as const, id: "ebcd0bad-75ef-4203-b7b3-7af38a9ef198" };
 const faithDiscogs = { provider: "discogs" as const, id: "51271" };
@@ -20,6 +21,40 @@ function profile(artist: ArtistRef): ArtistProfile {
 }
 
 describe("track artist information loader", () => {
+  it("quotes and bounds artist recording search fields without allowing query injection", () => {
+    expect(artistRecordingSearchQuery({...track(),title:'Song "title" \\ remix'},'Beck" OR artist:*')).toBe('recording:"Song \\"title\\" \\\\ remix" AND artist:"Beck\\" OR artist:*"');
+    expect(artistRecordingSearchQuery({...track(),title:'"'.repeat(500)},'\\'.repeat(500)).length).toBeLessThan(512);
+  });
+  it("uses matching song credits to disambiguate a radio artist biography without selecting a recording", async () => {
+    const beck = {provider: "musicbrainz" as const, id: "309c62ba-7a22-4277-9f67-4a162526d18a"};
+    const homonym = {provider: "musicbrainz" as const, id: "1cc5adcd-1422-4b5c-a3cd-3ecd4f43f506"};
+    const radio: Track = {...track(), id:"radio:mellow", provider:"radio", title:"Morning", artist:"Beck", album:"Morning Phase", provenance:{radioMetadata:{title:"Morning",artist:"Beck"}}};
+    const recording: RecordingCatalogInfo = {provider:"musicbrainz",id:"11111111-2222-4333-8444-555555555555",title:"Morning",artist:"Beck",version:null,firstReleaseDate:null,durationSeconds:null,isrcs:[],genres:[],sourceUrl:"https://musicbrainz.org/recording/11111111-2222-4333-8444-555555555555",releases:[],recordingArtist:{name:"Beck",artist:beck}};
+    const information: RecordingInformationResult = {resolution:"unresolved",recording:null,candidates:[{identity:"text_suggestion",recording},{identity:"text_suggestion",recording:{...recording,id:"22222222-2222-4333-8444-555555555555",version:"live"}}]};
+    const lookupRecordingArtist = vi.fn(async (item: Track, name: string) => artistFromRecordingInformation(item,name,information));
+    const loader = createTrackArtistInformationLoader({searchArtists:async()=>page([result(beck,"Beck"),result(homonym,"BECK")]),getArtistProfile:async artist=>profile(artist),lookupRecordingArtist});
+    expect((await loader.load(radio))?.primaryArtist.artist).toEqual(beck);
+    expect(lookupRecordingArtist).toHaveBeenCalledWith(expect.objectContaining({id:radio.id,title:"Morning",artist:"Beck",sourceUrl:""}),"Beck");
+    expect(information.recording).toBeNull();
+    expect(information.resolution).toBe("unresolved");
+    expect((await loader.load({...radio,title:"Different song"}))).toBeNull();
+    const conflicting = {...information,candidates:[...information.candidates,{identity:"text_suggestion" as const,recording:{...recording,recordingArtist:{name:"Beck",artist:homonym}}}]};
+    expect(artistFromRecordingInformation(radio,"Beck",conflicting)).toBeNull();
+    expect(artistFromRecordingInformation(radio,"Jeff Beck",information)).toBeNull();
+    expect(artistFromRecordingInformation(radio,"Beck",{...information,candidates:[{identity:"text_suggestion",recording:{...recording,recordingArtist:null}}]})).toBeNull();
+  });
+
+  it("uses the current radio song's recognition ISRC and excludes station catalog identity", async () => {
+    const lookupRecordingArtist = vi.fn(async () => faithMb);
+    const loader = createTrackArtistInformationLoader({searchArtists:async()=>page([]),getArtistProfile:async artist=>profile(artist),lookupRecordingArtist});
+    const station = {...track({artistCredits:[{name:"Station",artist:faithDiscogs}],radioMetadata:{title:"Song",artist:"Faith Evans",identifiers:{isrc:"us-bb4-05-81215"}}}),provider:"radio",isrc:"GBBAD0000000"};
+    expect((await loader.load(station))?.primaryArtist.artist).toEqual(faithMb);
+    expect(lookupRecordingArtist).toHaveBeenCalledWith(expect.objectContaining({isrc:"USBB40581215",sourceUrl:"",provenance:{recognitionIdentifiers:{isrc:"us-bb4-05-81215"}}}),"Faith Evans");
+    expect(await loader.load({...station,title:"Different song"})).toBeNull();
+    expect(await loader.load({...station,provenance:{}})).toBeNull();
+    expect(lookupRecordingArtist).toHaveBeenCalledTimes(1);
+  });
+
   it("uses a verified cached Spotify artist binding before name search", async () => {
     const lookupSpotifyArtist = vi.fn(async () => faithMb);
     const searchArtists = vi.fn(async () => page([]));

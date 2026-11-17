@@ -335,6 +335,35 @@ function bandcampCollection(doc,url){
   if(!entries.length)throw new Error('Bandcamp collections list albums, not song tracks. Open an album tracklist to import its songs.');
   return {schemaVersion:1,provider:'bandcamp',kind:'playlist',title:safeTitle(doc),sourceUrl:url,capturedAt:new Date().toISOString(),complete:false,expectedTotal:null,warnings:['Only rendered song rows were captured; album cards were not treated as tracks.'],entries};
 }
+function bandcampPlaylist(doc,url){
+  const page=new URL(url);
+  if(page.hostname!=='bandcamp.com'||page.username||page.password||page.port||!/^\/[^/]+\/playlist\/[^/]+\/?$/.test(page.pathname))throw new Error('Open a public Bandcamp fan playlist.');
+  page.search='';page.hash='';
+  let app=null;
+  for(const node of doc.querySelectorAll('[data-blob]')){
+    try{const value=JSON.parse(node.getAttribute('data-blob'));if(value?.appData?.tracklist?.itemType==='playlist'){app=value.appData;break;}}catch{}
+  }
+  if(!app||!Array.isArray(app.tracklist.tracks))throw new Error('Bandcamp did not expose a public playlist tracklist. Check access in this browser tab.');
+  if(app.isPrivate===true)throw new Error('This Bandcamp playlist is private; import requires a public playlist.');
+  const publicItemUrl=(raw,kind)=>{
+    if(typeof raw!=='string')return null;
+    try{const item=new URL(raw);if(item.protocol!=='https:'||!item.hostname.endsWith('.bandcamp.com')||item.username||item.password||item.port||!new RegExp(`^/${kind}/[^/]+/?$`).test(item.pathname))return null;item.search='';item.hash='';return item.href;}catch{return null;}
+  };
+  const rows=app.tracklist.tracks,entries=[];
+  rows.slice(0,1000).forEach((row,index)=>{
+    const title=typeof row?.title==='string'?row.title.trim():'',artist=typeof row?.artistName==='string'?row.artistName.trim():'';
+    const sourceUrl=publicItemUrl(row?.url,'track');
+    if(!title||!artist||!sourceUrl)return;
+    const id=Number.isSafeInteger(row.id)&&row.id>0?String(row.id):null;
+    const artworkUrl=Number.isSafeInteger(row.artId)&&row.artId>0?`https://f4.bcbits.com/img/a${row.artId}_3.jpg`:null;
+    entries.push(entry(id,sourceUrl,artist,title,index+1,{durationSeconds:num(row.duration),album:typeof row.album?.title==='string'?row.album.title:null,artworkUrl,metadata:{albumUrl:publicItemUrl(row.album?.url,'album')}}));
+  });
+  const count=app.tracklist.tracksSummary?.totalCount;
+  const expectedTotal=Number.isSafeInteger(count)&&count>=0?count:null;
+  const complete=app.tracklist.nextCursor==null&&expectedTotal===entries.length&&entries.length===rows.length;
+  if(!entries.length&&!complete)throw new Error('Bandcamp playlist has no public named tracks to import.');
+  return {schemaVersion:1,provider:'bandcamp',kind:'playlist',title:String(app.title||safeTitle(doc)),sourceUrl:page.href,capturedAt:new Date().toISOString(),complete,expectedTotal,warnings:complete?[]:['Only the initial public playlist page was captured. Paste the playlist URL into Burrata to import all pages.'],entries};
+}
 function bandcampDiscover(doc,url){
   const page=new URL(url);
   if(!/^\/discover\/[^/]+\/?$/i.test(page.pathname))throw new Error('Open a Bandcamp Discover tag page.');
@@ -447,11 +476,12 @@ export function extract(doc, url) {
   if(provider==='lastfm')return extractLastfm(doc,url);
   if(provider==='bandcamp'){
     const path=new URL(url).pathname;
+    if(/^\/[^/]+\/playlist\/[^/]+\/?$/i.test(path))return bandcampPlaylist(doc,url);
     if(/^\/track\/[^/]+\/?$/i.test(path))return bandcampTrack(doc,url);
     if(/^\/discover\/[^/]+\/?$/i.test(path))return bandcampDiscover(doc,url);
     if(/^\/album\/[^/]+\/?$/i.test(path))return bandcampAlbum(doc,url);
     if(/^\/(?:collection|collections)(?:\/[^/]+)?\/?$/i.test(path)||/^\/music\/?$/i.test(path))return bandcampCollection(doc,url);
-    throw new Error('Open a Bandcamp Discover tag page, album, or collection page with a rendered song tracklist.');
+    throw new Error('Open a public Bandcamp playlist, Discover tag page, album, or collection page with a rendered song tracklist.');
   }
   const sourceUrl=provider==='spotify' ? canonicalSpotifyUrl(url) : url;
   const spotifyKind=provider==='spotify' ? (new URL(sourceUrl).pathname.match(/^\/(playlist|album)\/[^/]+\/?$/)?.[1] || null) : null;

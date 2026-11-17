@@ -1,29 +1,17 @@
-# Burrata 0.1.43
+# Burrata 0.1.49
 
-This release improves recording metadata, playback discovery, album navigation, lyrics requests and internet-radio setup.
+Artist pages now put biography and top tracks first, radio listening history avoids redundant song entries, and public Bandcamp fan playlists can be imported directly.
 
-- Playback can verify slash-separated collaboration captions and accented artist spellings against the complete requested performer set in Balanced mode. Fresh extractor metadata must remain bound to the selected source ID; extra performers and conflicting versions retain their checks.
-- Automatic YouTube lookup researches the music catalogue before settling for uploader captions and gives an exact album locator extraction priority. Fresh verified-channel, distributor-generated metadata must agree on video ID, the full linked artist list, album, title and bounded runtime. Catalogue names without linked artist IDs remain retrieval hints. Compilation and single-release labels stay separate while the same verified source recording can be matched; exact requested-album locators retain priority. Bounded raw publisher-credit aggregates are retained separately from linked recording artists. Untyped additional credits are preserved in source metadata as unclassified names; no composer or band-member role is inferred.
-- Recorded-performance evidence in bounded descriptions is retained separately from livestream status. Balanced mode rejects a known concert performance for an unqualified album recording. Matching and search caches are invalidated for the new policy.
-- Playback searches retain up to 20 source metadata rows so correctly credited recordings below covers and live uploads remain available for verification. Extraction attempts and playback deadlines stay bounded, and older ten-row search caches are invalidated.
-- YouTube Music search and imports preserve individual artist credits, album browse IDs and album-track durations. Browser Companion 0.2.12 carries this metadata through authenticated search and playlist imports. Beatport, Traxsource, Monochrome and restored tracks preserve structured credits more consistently.
-- Find album resolves recording membership and opens a verified release or offers specific release choices. Complete ordered album tracklists can establish alternate-title relationships, including a bounded shorter provider label. MusicBrainz release artists remain separate from recording-line credits. Authenticated Spotify is preferred when album membership is verified; MusicBrainz and Discogs provide catalog destinations. Exact known release IDs are preserved, and an exact YouTube album endpoint remains available when catalog lookup cannot resolve it.
-- Cold album lookup uses complete validated artist editions to avoid duplicate group lookups and checks possible matching programmes first. Unknown counts and partial catalogues retain their fallback paths; the lookup deadline remains bounded.
-- Spotify search rows preserve validated album IDs through normalization and displayed tracks. Older unchanged Spotify snapshots may recover an album locator from an exact authenticated search result, preserving tags and playback binding.
-- Album lookup and cancellation use native-valid UUID request IDs. Navigation changes discard stale lookup results.
-- YouTube autoplay fills a missing displayed artist from the exact saved video, including library entries beyond the loaded page. The playbar and Now Playing use that display metadata while the autoplay source binding remains intact. Native lyrics requests also read the exact saved video metadata, so a missing raw autoplay artist no longer blocks lookup; selection, translation and export use the same scoped request. Manual blanks and excerpts retain their guards.
-- Lyrics requests can recover title and artist from supported explicit live-performance captions when the artist is missing. Unknown uploaders are not promoted into artist metadata.
-- Add station opens its own focused dialog with Search and Stream URL tabs, preserving the selected station or other page underneath.
-- Playback errors distinguish a DRM-protected source from other rejected recording matches.
+- Artist overviews show formatted biographies above top tracks. Genres, aliases, profile links, and provider coverage are grouped under collapsed Artist details. Repeated genre/tag names share one attributed label.
+- Top tracks retain Last.fm's popularity order, with a clearer sort label. MusicBrainz supplies artist identity; these are Last.fm popularity results rather than a MusicBrainz ranking or curated recommendations.
+- Radio artist biographies can use matching song credits to distinguish artists with the same name. Song changes refresh the lookup, and delayed results from an earlier song are discarded.
+- Radio Paradise's advancing program countdown keeps fresh station metadata from being replaced by redundant fingerprint checks that could create a second history entry under alternate artist or title wording. Stalled or missing metadata still permits audio recognition. Existing history is preserved.
+- Queue selections can be removed with Delete. Clear queue becomes Clear selection while rows are selected, retaining the currently playing occurrence.
+- Public Bandcamp fan playlists support paginated direct import without account login. Browser Companion 0.2.16 can capture the initial public page and clearly marks it partial when more pages exist. Direct imports are bounded to 1,000 tracks; unavailable later pages produce an explicit partial result.
+- Ask AI answers hide internal citation handles while retaining returned public source links.
 
-## Qualification
+## Verification and limits
 
-Final source `80038bb03ea3bc73aa920cb865732ddadccede96` passed the complete Linux, macOS and Windows release workflow, installer smoke checks and installed RPM check. Linux CI passed 2,792 native tests (67 ignored) and 1,644 frontend tests across 160 files. Focused local checks passed 231 matching/metadata cases, 342 frontend cases, contracts, formatting and Svelte validation with no errors or warnings.
+Focused frontend and native regression tests pass, including a live signed-out import of all 267 tracks across six pages from the reported Bandcamp playlist. Artist layout checks pass at wide and narrow widths. Live MusicBrainz verification was temporarily unavailable with HTTP 503; artist lookup behavior is covered by regression tests. Provider availability can still affect profile lookups and playlist imports.
 
-The exact installed 0.1.43 AppImage passed real Spotify search playback in Balanced mode for “La Nave del Olvido”, “Amiga” and “Turista”, selecting the verified official recordings. Cold and warm replay passed; La Nave retained its Spotify album ID. Amiga also started with all 30 loaded search results queued, and the previous continuation preference was restored. Library counts stayed unchanged.
-
-The actual Spotify Go to album menu opened the correct 14-track album directly. With an empty catalogue cache, the YouTube Find album action opened the verified 14-track MusicBrainz “100% lúcidos” release in 6.11 seconds. Packaged autoplay displayed the saved artist and rendered native lyrics while preserving the raw queue/source binding. Add station opened a separate dialog over the existing album page.
-
-Hosted-runner smoke tests do not establish fresh-customer-machine behavior. Physical macOS and Windows audio output remain unverified; the Windows output check was explicitly deferred for this workflow. Native decoder progress and verified catalogue evidence do not constitute acoustic fingerprinting or a physical listening test.
-
-Provider availability, DRM and incomplete recording identity can still prevent playback. These changes do not claim universal provider access or automatic repair of ambiguous legacy library entries.
+Desktop release builds and installer checks cover macOS arm64, Windows x64, and Linux x64. Windows physical audio output remains unverified under the same hosted-runner deferral used for the preceding release. Desktop downloads remain unsigned; see the [installation instructions](https://github.com/anaxonda/burrata/blob/main/docs/install.md).

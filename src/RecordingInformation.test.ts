@@ -134,7 +134,7 @@ it("automatically detects a DJ set from saved source metadata",async()=>{
 
 it("separates answer labeling from the answer and renders only valid returned sources",async()=>{
  apiCall.mockReset().mockImplementation(async(_command:string,args:{request:{requestId:string}})=>({
-  requestId:args.request.requestId,identity:"opaque",answer:"The event took place at Alexandra Palace.",model:"model",provider:"openaiCompatible",
+  requestId:args.request.requestId,identity:"opaque",answer:"The event took place at Alexandra Palace. citeturn1search1turn1search0",model:"model",provider:"openaiCompatible",
   sources:[
    {title:"Official event page",url:"https://venue.example/events/usb002"},
    {title:"Local address",url:"https://127.0.0.1/private"},
