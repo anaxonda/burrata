@@ -6424,7 +6424,13 @@ mod tests {
             assess_with_options(request, candidate, level, MatchStage::Resolved, &options).action
         };
         assert_ne!(
-            assess(&request, &candidate, MatchLevel::Flexible, MatchStage::Resolved).action,
+            assess(
+                &request,
+                &candidate,
+                MatchLevel::Flexible,
+                MatchStage::Resolved
+            )
+            .action,
             MatchAction::Accept
         );
         assert_eq!(
@@ -6434,19 +6440,32 @@ mod tests {
         for level in [MatchLevel::Exact, MatchLevel::Balanced] {
             assert_ne!(evaluate(&request, &candidate, level), MatchAction::Accept);
         }
-        for bad_title in ["Another Artist - Song", "Main Artist - Other", "Main Artist - Song (Cover)"] {
+        for bad_title in [
+            "Another Artist - Song",
+            "Main Artist - Other",
+            "Main Artist - Song (Cover)",
+        ] {
             let different = Candidate {
                 title: bad_title.into(),
                 ..candidate.clone()
             };
-            assert_ne!(evaluate(&request, &different, MatchLevel::Flexible), MatchAction::Accept);
+            assert_ne!(
+                evaluate(&request, &different, MatchLevel::Flexible),
+                MatchAction::Accept
+            );
         }
         candidate.source_metadata.as_mut().unwrap()["isPreview"] = json!(true);
-        assert_eq!(evaluate(&request, &candidate, MatchLevel::Flexible), MatchAction::Reject);
+        assert_eq!(
+            evaluate(&request, &candidate, MatchLevel::Flexible),
+            MatchAction::Reject
+        );
         candidate.source_metadata.as_mut().unwrap()["isPreview"] = json!(false);
         request.duration_seconds = Some(200.0);
         candidate.duration_seconds = Some(260.0);
-        assert_eq!(evaluate(&request, &candidate, MatchLevel::Flexible), MatchAction::Reject);
+        assert_eq!(
+            evaluate(&request, &candidate, MatchLevel::Flexible),
+            MatchAction::Reject
+        );
     }
 
     #[test]

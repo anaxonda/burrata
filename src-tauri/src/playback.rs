@@ -8166,7 +8166,8 @@ fn recurring_stall_requires_terminal_failure(
 }
 
 fn seek_entry_is_current(state: &State, expected_entry: Option<&str>) -> bool {
-    expected_entry.is_none_or(|entry| state.entries.get(state.index).map(String::as_str) == Some(entry))
+    expected_entry
+        .is_none_or(|entry| state.entries.get(state.index).map(String::as_str) == Some(entry))
 }
 
 fn record_seek_context(
@@ -11359,7 +11360,10 @@ mod tests {
 
     #[test]
     fn seek_ownership_follows_the_current_occurrence_through_generation_changes() {
-        let track = Track { id: "repeated-track".into(), ..Track::default() };
+        let track = Track {
+            id: "repeated-track".into(),
+            ..Track::default()
+        };
         let mut state = State {
             queue: vec![track.clone(), track],
             entries: vec!["first-occurrence".into(), "second-occurrence".into()],

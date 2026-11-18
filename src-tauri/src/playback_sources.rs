@@ -2196,7 +2196,9 @@ fn validated_catalog_duration_track(
                 || evidence["method"] != "discogs-apple-physical-release-barcode-v1"
                 || evidence["discogsReleaseId"] != original.provenance["releaseId"]
                 || evidence["discogsTrackPosition"] != original.provenance["trackPosition"]
-                || evidence["durationMillis"].as_u64().map(|ms| ms as f64 / 1000.)
+                || evidence["durationMillis"]
+                    .as_u64()
+                    .map(|ms| ms as f64 / 1000.)
                     != prepared.track.duration_seconds
                 || !verified_barcode_title(&evidence["appleTitle"])
                 || !verified_barcode_title(&evidence["appleArtist"])

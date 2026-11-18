@@ -251,7 +251,9 @@ fn discogs_barcode_candidate_context(
         return None;
     }
     let proof = &track.provenance["playbackCatalogDurationProof"];
-    if proof["provider"] != "discogsAppleCompleteAlbum" || proof["releaseDateClaim"] != "barcodeMatched" {
+    if proof["provider"] != "discogsAppleCompleteAlbum"
+        || proof["releaseDateClaim"] != "barcodeMatched"
+    {
         return None;
     }
     let evidence = &proof["evidence"];
@@ -303,9 +305,7 @@ fn discogs_barcode_candidate_context(
             }
             extra_composer = Some(composer_key);
         }
-        if expected.len() != performers.len()
-            || credited.iter().any(|name| name.is_empty())
-        {
+        if expected.len() != performers.len() || credited.iter().any(|name| name.is_empty()) {
             return None;
         }
     }
@@ -1372,7 +1372,8 @@ mod tests {
             &store,
             crate::recording_match::FlexibleMatchingOptions::default(),
             &trace,
-        ).accepted());
+        )
+        .accepted());
         let mut audio = acquisition::PreviewAudio {
             provider_session: None,
             url: "https://example.invalid/audio".into(),
@@ -1415,18 +1416,22 @@ mod tests {
                 None,
                 crate::recording_match::FlexibleMatchingOptions::default(),
                 Some(&trace),
-            ).is_some()
+            )
+            .is_some()
         };
         assert!(verifies(&mut candidate, &audio));
         assert_eq!(candidate.title, caption);
-        audio.source_metadata.as_mut().unwrap()["topicAlbum"] = json!("Piano Fantasy: Music For Two Pianos");
+        audio.source_metadata.as_mut().unwrap()["topicAlbum"] =
+            json!("Piano Fantasy: Music For Two Pianos");
         audio.source_metadata.as_mut().unwrap()["topicReleaseDate"] = json!("2003-01-01");
         assert!(!verifies(&mut candidate, &audio));
         audio.source_metadata.as_mut().unwrap()["topicAlbum"] = json!("55");
         audio.source_metadata.as_mut().unwrap()["topicReleaseDate"] = json!("2026-06-12");
-        audio.source_metadata.as_mut().unwrap()["artists"] = json!(["Katia Labèque", "Other Artist"]);
+        audio.source_metadata.as_mut().unwrap()["artists"] =
+            json!(["Katia Labèque", "Other Artist"]);
         assert!(!verifies(&mut candidate, &audio));
-        audio.source_metadata.as_mut().unwrap()["artists"] = json!(["Katia Labèque", "Marielle Labèque"]);
+        audio.source_metadata.as_mut().unwrap()["artists"] =
+            json!(["Katia Labèque", "Marielle Labèque"]);
         audio.resolved_title = Some(caption.replace("Samazeuilh", "Falla"));
         assert!(!verifies(&mut candidate, &audio));
 
@@ -1443,7 +1448,10 @@ mod tests {
         let another_proof = crate::remote_playlists::catalog_duration_proof::discogs_apple_duration_crosswalk::verify_physical_barcode_lookup(
             &another_track, &fixtures["discogs"], "028948489602", &fixtures["apple"],
         ).unwrap();
-        another_track.title = another_proof.evidence["appleTitle"].as_str().unwrap().to_owned();
+        another_track.title = another_proof.evidence["appleTitle"]
+            .as_str()
+            .unwrap()
+            .to_owned();
         another_track.duration_seconds = Some(another_proof.duration_seconds);
         another_track.provenance["playbackCatalogDurationProof"] = json!({
             "provider": "discogsAppleCompleteAlbum",
@@ -1464,15 +1472,26 @@ mod tests {
             ..candidate
         };
         let (projected, performers) = discogs_barcode_candidate_context(
-            &another_track, &another_candidate, MatchStage::Resolved, Some(&trace),
-        ).unwrap();
+            &another_track,
+            &another_candidate,
+            MatchStage::Resolved,
+            Some(&trace),
+        )
+        .unwrap();
         assert_eq!(projected.title, "Pari Intervallo");
         assert_eq!(performers, ["Katia Labèque", "Marielle Labèque"]);
-        assert_eq!(projected.source_metadata.unwrap()["artists"], json!(performers));
+        assert_eq!(
+            projected.source_metadata.unwrap()["artists"],
+            json!(performers)
+        );
         another_candidate.source_metadata.as_mut().unwrap()["topicComposer"] = Value::Null;
         assert!(discogs_barcode_candidate_context(
-            &another_track, &another_candidate, MatchStage::Resolved, Some(&trace),
-        ).is_none());
+            &another_track,
+            &another_candidate,
+            MatchStage::Resolved,
+            Some(&trace),
+        )
+        .is_none());
     }
 
     #[test]

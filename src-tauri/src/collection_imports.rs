@@ -50,8 +50,7 @@ pub fn preview(store: &Store, snapshot: BrowserSnapshot) -> Result<Value, String
         &json!({"snapshot":snapshot,"baseId":previous.as_ref().map(|c|&c.id)}),
         900,
     )?;
-    let mut preview =
-        json!({"previewId":id,"title":chart.title,"sourceUrl":chart.source_url,"capturedCount":snapshot.entries.len(),"uniqueRecordings":chart.tracks.len(),"expectedTotal":snapshot.expected_total,"complete":complete,"changes":delta,"failedSources":snapshot.failed_sources,"albumUrls":snapshot.album_urls,"warnings":crate::browser_bridge::snapshot_warnings(&snapshot,&chart),"sample":chart.tracks.iter().take(20).map(|t|json!({"title":t.title,"artist":t.artist,"version":t.version})).collect::<Vec<_>>()});
+    let mut preview = json!({"previewId":id,"title":chart.title,"sourceUrl":chart.source_url,"capturedCount":snapshot.entries.len(),"uniqueRecordings":chart.tracks.len(),"expectedTotal":snapshot.expected_total,"complete":complete,"changes":delta,"failedSources":snapshot.failed_sources,"albumUrls":snapshot.album_urls,"warnings":crate::browser_bridge::snapshot_warnings(&snapshot,&chart),"sample":chart.tracks.iter().take(20).map(|t|json!({"title":t.title,"artist":t.artist,"version":t.version})).collect::<Vec<_>>()});
     if snapshot.provider == "bandcamp" && snapshot.kind == "playlist" {
         preview["playlistTracks"] = Value::Array(
             snapshot

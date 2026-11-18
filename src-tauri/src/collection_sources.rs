@@ -1069,10 +1069,15 @@ fn bandcamp_album_tracks(snapshot: &BrowserSnapshot) -> Result<Vec<crate::models
         track.provenance["identity"] = Value::String("unverified source metadata".into());
     }
     let expected = snapshot.complete.then_some(snapshot.entries.len());
-    Ok(crate::artists::mark_library_album_snapshot(tracks, expected))
+    Ok(crate::artists::mark_library_album_snapshot(
+        tracks, expected,
+    ))
 }
 
-async fn read_bandcamp_album(input: &str, expected_id: Option<u64>) -> Result<BrowserSnapshot, String> {
+async fn read_bandcamp_album(
+    input: &str,
+    expected_id: Option<u64>,
+) -> Result<BrowserSnapshot, String> {
     let source = validate_bandcamp_album_url(input)?;
     let url = Url::parse(&source).map_err(|_| "Invalid Bandcamp URL")?;
     let host = url.host_str().ok_or("Invalid Bandcamp host")?;
@@ -2067,12 +2072,18 @@ mod tests {
         let tracks = bandcamp_album_tracks(&snapshot).unwrap();
         assert_eq!(tracks.len(), 3);
         assert_eq!(tracks[0].title, "First");
-        assert_eq!(tracks[0].source_url, "https://artist.bandcamp.com/track/first");
+        assert_eq!(
+            tracks[0].source_url,
+            "https://artist.bandcamp.com/track/first"
+        );
         assert_eq!(tracks[0].duration_seconds, Some(190.5));
         assert_eq!(tracks[1].title, "Second");
         assert_eq!(tracks[2].id, tracks[0].id);
         assert_eq!(tracks[2].provenance["albumPosition"], 3);
-        assert_eq!(tracks[2].provenance["libraryAlbumSnapshot"]["complete"], true);
+        assert_eq!(
+            tracks[2].provenance["libraryAlbumSnapshot"]["complete"],
+            true
+        );
     }
 
     #[test]
