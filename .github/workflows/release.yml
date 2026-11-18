@@ -333,6 +333,12 @@ jobs:
           BURRATA_NATIVE_YOUTUBE_SEARCH: '0'
           BURRATA_DIRECT_YOUTUBE: '0'
           BURRATA_BANDCAMP_PLAYBACK: '0'
+      - name: Verify continuous audio across repeated interrupted reads
+        if: runner.os != 'Windows'
+        timeout-minutes: 5
+        env:
+          BURRATA_TEST_FFMPEG: ${{ github.workspace }}/src-tauri/resources/tools/${{ matrix.target }}/ffmpeg
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib webview_audio_transport::progressive::tests::ffmpeg_decodes_complete_pcm_across_two_interruptions_and_a_denied_range -- --ignored --exact
       - name: Qualify linked public Bandcamp playback before packaging
         if: runner.os == 'Linux'
         timeout-minutes: 5

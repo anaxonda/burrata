@@ -495,6 +495,58 @@ describe("ArtistPage", () => {
     expect(onPlayTrack).not.toHaveBeenCalled();
   });
 
+  it("searches the catalog from an empty Tracks tab and keeps the title on later pages", async () => {
+    const ref = artist("artist-catalog", "Track Artist");
+    const recording = (id: string, title: string): Track => ({
+      id, title, artist: ref.name, provider: "musicbrainz", providerId: id, sourceUrl: "", favorite: false, provenance: {},
+    });
+    const getArtistTracks = vi.fn(async (_artist, cursor?: string, query?: string) => ({
+      artist: ref.artist,
+      source: "MusicBrainz recordings",
+      items: query ? [cursor ? recording("live", "Song Title (Live)") : recording("original", "Song Title")] : [],
+      nextCursor: query && !cursor ? "100" : null,
+      warnings: [],
+    }));
+    const target = render({ initialArtistRef: ref.artist, initialSection: "tracks",
+      getArtistProfile: async () => profile(ref), getArtistTracks });
+    await settle();
+    expect(target.textContent).toContain("0 of 0 loaded recordings");
+    const input = target.querySelector<HTMLInputElement>('[aria-label="Song title"]')!;
+    input.value = "Song Title";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    target.querySelector<HTMLFormElement>('[aria-label="Artist catalog search"]')!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await settle();
+    expect(getArtistTracks).toHaveBeenLastCalledWith(ref.artist, undefined, "Song Title");
+    expect(target.querySelector(".shared-track-list")?.textContent).toContain("Song Title");
+    [...target.querySelectorAll("button")].find(button => button.textContent === "Load more tracks")!.click();
+    await settle();
+    expect(getArtistTracks).toHaveBeenLastCalledWith(ref.artist, "100", "Song Title");
+    expect(target.querySelectorAll(".shared-track-list .track-title")).toHaveLength(2);
+    [...target.querySelectorAll("button")].find(button => button.textContent === "Clear catalog search")!.click();
+    await settle();
+    expect(getArtistTracks).toHaveBeenLastCalledWith(ref.artist, undefined, undefined);
+    expect(target.textContent).toContain("0 of 0 loaded recordings");
+  });
+
+  it("offers an explicit name search when a selected artist has no catalog link", async () => {
+    const base = artist("909", "The Pogues");
+    const ref: ArtistSearchResult = { ...base, artist: { provider: "discogs", id: "909" } };
+    const onSearchCatalogByName = vi.fn();
+    const target = render({ initialArtistRef: ref.artist, initialSection: "tracks",
+      getArtistProfile: async () => profile(ref), onSearchCatalogByName,
+      getArtistTracks: async () => ({ artist: ref.artist, items: [], source: "MusicBrainz recordings",
+        catalogSearchAvailable: false, warnings: ["This Discogs artist has no verified MusicBrainz link."] }),
+    });
+    await settle();
+    const input = target.querySelector<HTMLInputElement>('[aria-label="Song title"]')!;
+    input.value = "A Pair of Brown Eyes";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+    [...target.querySelectorAll("button")].find(button => button.textContent === "Find songs by artist name")!.click();
+    await settle();
+    expect(onSearchCatalogByName).toHaveBeenCalledWith("The Pogues", "A Pair of Brown Eyes");
+  });
+
   it("filters loaded tracks and plays in the displayed sorted context", async () => {
     const ref = artist("tracks", "Track Artist");
     const songs = [
@@ -515,7 +567,7 @@ describe("ArtistPage", () => {
     expect(rows[0].closest(".track-list-viewport")?.classList.contains("playlist")).toBe(true);
     rows[0].querySelector<HTMLButtonElement>(".position-slot .row-play")!.click(); await settle();
     expect(onPlayTrack).toHaveBeenLastCalledWith(songs[1], [songs[1], songs[2], songs[0]], 0);
-    const search = target.querySelector<HTMLInputElement>('[aria-label="Search loaded tracks"]')!;
+    const search = target.querySelector<HTMLInputElement>('[aria-label="Filter loaded tracks"]')!;
     search.value = "Blue Record"; search.dispatchEvent(new Event("input", { bubbles: true })); await settle();
     expect(target.querySelectorAll(".shared-track-list li")).toHaveLength(2);
     expect(target.querySelector(".shared-track-list")?.textContent).toContain("Zulu");
@@ -544,7 +596,7 @@ describe("ArtistPage", () => {
     const target = render({ initialArtistRef: ref.artist, getArtistProfile: async () => profile(ref), getArtistTracks: async () => ({ artist: ref.artist, items: songs, source: "MusicBrainz", warnings: [] }) });
     await settle(); target.querySelector<HTMLButtonElement>('.tabs button:nth-child(3)')!.click(); await settle();
     const sort = target.querySelector<HTMLSelectElement>('[aria-label="Sort tracks"]')!;
-    const query = target.querySelector<HTMLInputElement>('[aria-label="Search loaded tracks"]')!;
+    const query = target.querySelector<HTMLInputElement>('[aria-label="Filter loaded tracks"]')!;
     query.value = "Alpha"; query.dispatchEvent(new Event("input", { bubbles: true })); await settle();
     expect(target.querySelectorAll(".shared-track-list li")).toHaveLength(1);
     expect(sort.querySelector<HTMLOptionElement>('option[value="bpm"]')?.disabled).toBe(false);

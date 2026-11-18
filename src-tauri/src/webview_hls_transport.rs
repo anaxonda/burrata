@@ -1,6 +1,9 @@
 //! HLS children are discovered from bounded, trusted manifests, never HTTP input.
 use super::*;
 use std::collections::HashMap;
+#[path = "webview_hls_finite.rs"]
+mod finite;
+pub(super) use finite::buffered_segment;
 const MAX_MANIFEST: usize = 1024 * 1024;
 const MAX_RESOURCES: usize = 4096;
 const MAX_DEPTH: usize = 4;
@@ -9,6 +12,7 @@ const MAX_URL_BYTES: usize = 8 * 1024 * 1024;
 #[derive(Default, Clone)]
 pub(super) struct Graph {
     entries: HashMap<String, Entry>,
+    finite: finite::FiniteManifests,
 }
 #[derive(Clone)]
 struct Entry {
@@ -16,6 +20,7 @@ struct Entry {
     depth: usize,
     seen: std::time::Instant,
     persistent: bool,
+    parent: Option<Arc<url::Url>>,
 }
 impl Graph {
     pub(super) fn lookup(&mut self, id: &str) -> Option<(url::Url, usize)> {
@@ -75,6 +80,7 @@ impl Graph {
                 depth,
                 seen: now,
                 persistent: false,
+                parent: None,
             },
         );
         Ok(id)
@@ -220,11 +226,15 @@ fn rewrite_manifest_inner(
             || line.starts_with("#EXT-X-STREAM-INF:")
             || line.starts_with("#EXT-X-MEDIA:")
     });
+    let parent_ref = Arc::new(parent.clone());
     let mut rewrite = |raw: &str| -> Result<String, String> {
         let url = child_url(parent, raw, allow_http, root)?;
         let id = graph.register(url, depth + 1)?;
-        if persistent {
-            if let Some(entry) = graph.entries.get_mut(&id) {
+        if let Some(entry) = graph.entries.get_mut(&id) {
+            if entry.parent.is_none() {
+                entry.parent = Some(parent_ref.clone());
+            }
+            if persistent {
                 entry.persistent = true;
             }
         }
@@ -314,7 +324,12 @@ pub(super) async fn manifest_response(
             &prefix,
             &session.token,
         ) {
-            Ok(value) => value,
+            Ok(value) => {
+                if session.refresh.is_some() {
+                    finite::index_manifest(&mut graph, &text, target, &session.source);
+                }
+                value
+            }
             Err(message) => return error(&message),
         }
     };

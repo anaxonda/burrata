@@ -204,6 +204,53 @@ if(mode==='idle-ipc'){
       warmupBuckets,measuredBuckets};
     report.passed=idleIpcBucketsGate(before,warmupBuckets,measuredBuckets,actualElapsedMs);
     report.cases.push({passed:report.passed,idleIpc:report.idleIpc});
+  } else if(mode==='restored-youtube-resume'){
+    const expected=spec.restoredYoutubeResume;
+    const ownsOccurrence=s=>s.engine==='native' && s.trackId===expected.trackId
+      && s.entryId===expected.entryId && s.currentIndex===0
+      && s.queueRevision===expected.queueRevision
+      && s.queueEntryIds?.length===1 && s.queueEntryIds[0]===expected.entryId;
+    const before=await state();
+    if(!ownsOccurrence(before) || before.status!=='paused' || before.diagnostics?.operationId
+       || Math.abs(before.position-expected.position)>.1) throw Error('RESTORED_QUEUE_NOT_PAUSED');
+    report.restoredResume={before:safe(before),resumeStartedAtUnixMs:Date.now()};
+    const started=performance.now();
+    let receiptError;
+    const receipt=call('resume_playback',{},21000).catch(e=>{receiptError=e.safeCode??'RESUME_COMMAND_FAILED';});
+    let first=null,last=null;
+    while(performance.now()-started<(first?26000:20000)){
+      const sample=await state(3000);
+      report.samples.push({ms:performance.now()-started,...safe(sample,true)});
+      if(!ownsOccurrence(sample) || ['failed','error','ended'].includes(sample.status))break;
+      if(sample.status==='playing' && sample.candidate?.id==='youtube:'+expected.videoId
+         && Number.isFinite(sample.diagnostics?.firstAudioMs)){
+        if(!first){
+          first=sample;
+          report.restoredResume.audioStartedAtUnixMs=Date.now();
+          report.restoredResume.startupElapsedMs=performance.now()-started;
+        }
+        last=sample;
+        if(last.position-first.position>=5)break;
+      }
+      await sleep(80);
+    }
+    await receipt;
+    await call('pause_playback');
+    report.restoredResume.pausedAtUnixMs=Date.now();
+    const trace=await call('get_playback_diagnostics_report',{},5000);
+    const operationId=first?.diagnostics?.operationId;
+    const directSource=Boolean(operationId && trace.events?.some(event=>
+      event.nativeOperationId===operationId && event.phase==='direct_youtube_end'
+      && event.details?.ok===true && event.details?.sourcePageUrl==='https://www.youtube.com/watch?v='+expected.videoId));
+    report.restoredResume.directSource=directSource;
+    report.restoredResume.firstPlaying=first?safe(first):null;
+    report.restoredResume.lastPlaying=last?safe(last):null;
+    report.restoredResume.receiptError=receiptError;
+    report.passed=Boolean(!receiptError && directSource && first && last
+      && first.generation!==before.generation && first.generation===last.generation
+      && Math.abs(first.position-expected.position)<=.5 && last.position-first.position>=5
+      && report.restoredResume.startupElapsedMs<=20000);
+    report.cases.push({passed:report.passed,...report.restoredResume});
   } else if(mode==='startup'){
     const targetTrackId=spec.ids[0],started=performance.now();
     let observation=null,last=null,firstPlayingMarked=false;

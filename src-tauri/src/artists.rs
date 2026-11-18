@@ -141,6 +141,7 @@ pub struct ArtistTrackPage {
     pub next_cursor: Option<String>,
     pub source: String,
     pub warnings: Vec<String>,
+    pub catalog_search_available: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -2509,37 +2510,78 @@ impl ArtistService {
         cursor: Option<&str>,
         _credentials: &ArtistCredentials,
     ) -> Result<ArtistTrackPage, String> {
+        self.artist_recording_page(artist, cursor, None).await
+    }
+
+    pub async fn search_artist_tracks(
+        &self,
+        artist: &ArtistRef,
+        cursor: Option<&str>,
+        query: &str,
+    ) -> Result<ArtistTrackPage, String> {
+        let query = query.trim();
+        if query.is_empty() || query.chars().count() > 120 {
+            return Err("Track search must contain 1–120 characters".into());
+        }
+        self.artist_recording_page(artist, cursor, Some(query))
+            .await
+    }
+
+    async fn artist_recording_page(
+        &self,
+        artist: &ArtistRef,
+        cursor: Option<&str>,
+        title: Option<&str>,
+    ) -> Result<ArtistTrackPage, String> {
         validate_artist_ref(artist)?;
         let offset = parse_cursor(cursor)?;
-        let mbid = musicbrainz_id_for(artist, &self.store)?;
+        let mbid = musicbrainz_id_for(artist, &self.store)?.filter(|id| uuid_like(id));
         let Some(mbid) = mbid else {
+            let provider = if artist.provider == "discogs" {
+                "Discogs"
+            } else {
+                "Monochrome"
+            };
             return Ok(ArtistTrackPage {
-                artist: artist.clone(), items: Vec::new(), next_cursor: None,
+                artist: artist.clone(),
+                items: Vec::new(),
+                next_cursor: None,
                 source: "MusicBrainz recordings".into(),
-                warnings: vec!["No explicit MusicBrainz cross-link is available for this Discogs artist; no same-name match was assumed.".into()],
+                warnings: vec![format!(
+                    "This {provider} artist has no verified MusicBrainz link."
+                )],
+                catalog_search_available: false,
             });
         };
-        let query = vec![
-            ("artist", mbid.clone()),
+        let mut query = vec![
             ("limit", ARTIST_LIST_PAGE_SIZE.to_string()),
             ("offset", offset.to_string()),
-            ("inc", "artist-credits+isrcs+genres+tags".into()),
         ];
+        let (resource, cache_key) = if let Some(title) = title {
+            let lookup = format!("arid:{mbid} AND recording:\"{}\"", lucene_escape(title));
+            let cache_key = format!("{lookup}:{offset}");
+            query.push(("query", lookup));
+            ("artists.track-search.musicbrainz", cache_key)
+        } else {
+            query.extend([
+                ("artist", mbid.clone()),
+                ("inc", "artist-credits+isrcs+genres+tags".into()),
+            ]);
+            ("artists.tracks.musicbrainz", format!("{mbid}:{offset}"))
+        };
         let data = self
-            .musicbrainz_json(
-                "recording",
-                &query,
-                "artists.tracks.musicbrainz",
-                &format!("{mbid}:{offset}"),
-                LIST_TTL,
-            )
+            .musicbrainz_json("recording", &query, resource, &cache_key, LIST_TTL)
             .await?;
         let total = data["recording-count"]
             .as_u64()
             .or_else(|| data["count"].as_u64())
             .and_then(|count| u32::try_from(count).ok())
             .ok_or_else(|| "MusicBrainz recording count is missing or invalid".to_owned())?;
-        if let Some(provider_offset) = data.get("recording-offset") {
+        if let Some(provider_offset) = data.get(if title.is_some() {
+            "offset"
+        } else {
+            "recording-offset"
+        }) {
             let provider_offset = provider_offset
                 .as_u64()
                 .and_then(|value| u32::try_from(value).ok())
@@ -2561,6 +2603,18 @@ impl ArtistService {
         }
         let items = recordings
             .iter()
+            .filter(|recording| {
+                title.is_none()
+                    || recording["artist-credit"]
+                        .as_array()
+                        .is_some_and(|credits| {
+                            credits.iter().any(|credit| {
+                                credit["artist"]["id"]
+                                    .as_str()
+                                    .is_some_and(|id| id.eq_ignore_ascii_case(&mbid))
+                            })
+                        })
+            })
             .filter_map(|recording| parse_musicbrainz_recording(recording, artist))
             .collect::<Vec<_>>();
         let next_offset = offset
@@ -2576,6 +2630,7 @@ impl ArtistService {
             next_cursor: next,
             source: "MusicBrainz recordings".into(),
             warnings: vec![],
+            catalog_search_available: true,
         })
     }
 
@@ -6267,6 +6322,57 @@ mod tests {
         assert_eq!(last.items.len(), 1);
         assert_eq!(last.next_cursor, None);
         assert_eq!(*offsets.lock().unwrap(), vec![0, 100]);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn artist_catalog_title_search_forwards_the_escaped_query_and_filters_other_identities() {
+        use axum::{extract::Query, routing::get, Json, Router};
+        use std::collections::HashMap;
+
+        const ARTIST: &str = "00000000-0000-4000-8000-000000000001";
+        const OTHER_ARTIST: &str = "00000000-0000-4000-8000-000000000002";
+        let app = Router::new().route(
+            "/ws/2/recording",
+            get(|Query(query): Query<HashMap<String, String>>| async move {
+                assert_eq!(
+                    query["query"],
+                    format!(r#"arid:{ARTIST} AND recording:"Song \"Title\"""#)
+                );
+                assert_eq!(query["offset"], "100");
+                let recordings = [ARTIST, OTHER_ARTIST].map(|id| {
+                    json!({
+                        "id": id,
+                        "title": "Song Title",
+                        "artist-credit": [{"name":"Same Name", "artist":{"id":id,"name":"Same Name"}}]
+                    })
+                });
+                Json(json!({"count":102,"offset":100,"recordings":recordings}))
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let store =
+            Arc::new(Store::open(&temp.path().join("artist-catalog-search.sqlite")).unwrap());
+        let mut service = ArtistService::new(store).unwrap();
+        service.endpoints.musicbrainz = format!("http://{address}/ws/2");
+        let page = service
+            .search_artist_tracks(
+                &ArtistRef {
+                    provider: "musicbrainz".into(),
+                    id: ARTIST.into(),
+                },
+                Some("100"),
+                r#"Song "Title""#,
+            )
+            .await
+            .unwrap();
+        assert!(page.catalog_search_available);
+        assert_eq!(page.next_cursor, None);
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].provider_id, ARTIST);
         server.abort();
     }
 

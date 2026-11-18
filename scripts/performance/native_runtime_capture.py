@@ -541,6 +541,16 @@ def seed(profile, resources, mode, args):
             broken=profile/'fixture/broken-download.mp3';broken.write_bytes(b'not an audio stream: controlled fixture')
             incidents[0].update(localPath=str(broken),localAvailability='available',assetId=str(uuid.uuid4()))
     if mode in ['nipsey','full-nipsey','source-audition']:incidents=json.loads((ROOT/'scripts/performance/fixtures/nipsey-saved-tracks.json').read_text())
+    restored_youtube = None
+    if mode == 'restored-youtube-resume':
+        video = 'E5tcWnrhMCY'
+        track = track_record('youtube:' + video, 'youtube', video,
+                             'Introducing  -1997  -FULL ALBUM', 'Rubén González', 3377)
+        track.update(sourceUrl=f'https://www.youtube.com/watch?v={video}', version=None, album=None,
+                     provenance={'sourceKind': 'audioSearch', 'artistSource': 'inferred_from_title'})
+        incidents = [track]
+        restored_youtube = dict(trackId=track['id'], videoId=video,
+                                entryId=str(uuid.uuid4()), position=30, queueRevision=7)
     if mode=='source-audition':
         incidents=incidents[:1]
         controlled=profile/'fixture/audition-local.wav'
@@ -597,8 +607,18 @@ def seed(profile, resources, mode, args):
                 maxLongerBySeconds=matching_policy['maxLongerBySeconds'] if reported_options else 30))
         if mode=='decoder-recovery':settings['ffmpegPath']=str(wrapper)
         if mode=='source-audition':settings.update(preferredDownloadSource='youtube',downloadFallbackEnabled=False,downloadFallbackSources=[])
+        if restored_youtube:
+            settings.update(preferredStreamingSource='youtube',
+                            **streaming_fallback_policy_settings(False, []))
         for key, value in [('application',settings),('playbackEngine.v1','native'),('releaseSetupComplete.v1',True),('radioRecognitionEnabled.v1',False)]:
             db.execute('insert or replace into settings(key,value) values(?,?)',(key,json.dumps(value)))
+        if restored_youtube:
+            entry = restored_youtube
+            queue = dict(tracks=incidents, entryIds=[entry['entryId']], queueRevision=entry['queueRevision'])
+            session = dict(index=0, currentEntryId=entry['entryId'], queueRevision=entry['queueRevision'],
+                           position=entry['position'], volume=1, repeat='off', shuffle=False, finished=False)
+            for key, value in [('nativePlaybackQueue.v1', queue), ('nativePlaybackSession.v1', session)]:
+                db.execute('insert or replace into settings(key,value) values(?,?)', (key, json.dumps(value)))
         if mode.startswith('normalization-'):
             db.execute('insert or replace into settings(key,value) values(?,?)',('loudness.v1',json.dumps(dict(mode=mode.split('-')[1],targetLufs=-18,ceilingDbtp=-1,maximumBoostDb=6,albumTrackFallback=False,analyzeWhenIdle=False))))
     db.close()
@@ -622,6 +642,8 @@ def seed(profile, resources, mode, args):
     ids = [track['id'] for track in records]
     if mode == 'duplicates': ids = [ids[0],ids[0]]
     runtime_cases=dict(ids=ids,aacId=aac['trackId'],incidents=incidents)
+    if restored_youtube:
+        runtime_cases['restoredYoutubeResume'] = restored_youtube
     if mode=='startup':
         first=records[0]
         runtime_cases['startupUiAction']={'mode':'track','title':'Native runtime first',
@@ -922,7 +944,7 @@ def main():
     parser.add_argument('--appimage-sha256',help='Required raw AppImage SHA-256 when --appimage is used')
     parser.add_argument('--appimage-elf-sha256',help='Required packaged burrata ELF SHA-256 when --appimage is used')
     parser.add_argument('--evidence',type=Path,required=True)
-    parser.add_argument('--mode',choices=['startup','idle-ipc','natural','duplicates','seek','crossfade','crossfade-pause','aac','malformed-aac','incidents','broken-download','recovery-baseline','broken-playable','decoder-recovery','radio','performance','migration','mpris','full-incidents','waveform','normalization-off','normalization-track','normalization-album','live-analysis','nipsey','full-nipsey','source-audition','stereo-wav','stereo-aac','stereo-opus','stereo-seek-opus'],required=True)
+    parser.add_argument('--mode',choices=['startup','restored-youtube-resume','idle-ipc','natural','duplicates','seek','crossfade','crossfade-pause','aac','malformed-aac','incidents','broken-download','recovery-baseline','broken-playable','decoder-recovery','radio','performance','migration','mpris','full-incidents','waveform','normalization-off','normalization-track','normalization-album','live-analysis','nipsey','full-nipsey','source-audition','stereo-wav','stereo-aac','stereo-opus','stereo-seek-opus'],required=True)
     parser.add_argument('--build-profile',choices=['release','diagnostic'],default='release')
     parser.add_argument('--pending-quality-assets', type=int, choices=[0, 100], default=0,
                         help='Seed 0 or 100 valid-hash assets missing quality facts')
@@ -1272,6 +1294,23 @@ def main():
                 values={key:json.loads(value) for key,value in db.execute("SELECT key,value FROM settings WHERE key in ('playbackEngine.v1','nativePlaybackQueue.v1','nativePlaybackSession.v1')")}
             result['migrationPersistence']={'engine':values.get('playbackEngine.v1'),'entries':values.get('nativePlaybackQueue.v1',{}).get('entryIds'),'position':values.get('nativePlaybackSession.v1',{}).get('position')}
             result['pcm']['passed'] &= result['migrationPersistence']=={'engine':'native','entries':['legacy-first','legacy-second'],'position':5}
+        elif mode == 'restored-youtube-resume':
+            import numpy as np
+            resume = result['runtime'].get('restoredResume') or {}
+            clock = result['captureStartedAtUnixMs']
+            first = resume.get('audioStartedAtUnixMs', clock)
+            last = resume.get('pausedAtUnixMs', first)
+            frame_start = max(0, int((first - clock) * 48))
+            frame_end = max(frame_start, int((last - clock) * 48))
+            pcm = np.fromfile(capture, dtype='<f4')
+            block = pcm[frame_start * 2:frame_end * 2]
+            windows = block[:len(block) // 9600 * 9600].reshape(-1, 9600)
+            active = int(np.count_nonzero(np.sqrt(np.mean(windows ** 2, axis=1)) > .0005)) * .1
+            result['pcm'] = {
+                'scope': 'private output after the restored queue resumed',
+                'activeSeconds': active,
+                'passed': len(block) > 0 and bool(np.isfinite(block).all()) and active >= 4.5,
+            }
         elif mode.startswith('stereo-'):
             import numpy as np
             pcm=np.fromfile(capture,dtype='<f4');pcm=pcm[:len(pcm)//2*2].reshape(-1,2)

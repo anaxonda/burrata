@@ -120,6 +120,7 @@ export interface ArtistTrackPage {
   nextCursor?: string | null;
   source: string;
   warnings: string[];
+  catalogSearchAvailable?: boolean;
 }
 
 export interface ArtistCollaboration {
@@ -220,7 +221,8 @@ export interface ArtistPageProps {
   getArtistReleases: (artist: ArtistRef, cursor?: string | null) => Promise<ArtistReleasePage>;
   getReleaseEditions?: (releaseGroup: ArtistReleaseRef, artist: ArtistRef, cursor?: string | null) => Promise<ArtistReleasePage>;
   getReleaseTracks?: (release: ArtistReleaseRef, artist: ArtistRef) => Promise<Track[]>;
-  getArtistTracks: (artist: ArtistRef, cursor?: string | null) => Promise<ArtistTrackPage>;
+  getArtistTracks: (artist: ArtistRef, cursor?: string | null, query?: string) => Promise<ArtistTrackPage>;
+  onSearchCatalogByName?: (artistName: string, title: string) => void | Promise<void>;
   getArtistCollaborations: (artist: ArtistRef, cursor?: string | null) => Promise<ArtistCollaborationPage>;
   resolveRecordingMetadata: (track: Track, release?: ArtistReleaseRef | null, recording?: ArtistRef | null) => Promise<MetadataReview>;
   onApplyMetadata: (track: Track, review: MetadataReview, acceptedFieldKeys: MetadataFieldKey[]) => void | Promise<void>;
@@ -231,7 +233,7 @@ export interface ArtistPageProps {
   onFavoriteTrack?: (track: Track) => void | Promise<void>;
   onAddTrackToPlaylist?: (track: Track) => void | Promise<void>;
   onAddSelectedToPlaylist?: (tracks: Track[]) => void | Promise<void>;
-  onArtistNavigate?: (artist: ArtistRef) => void | Promise<void>;
+  onArtistNavigate?: (artist: ArtistRef, name?: string) => void | Promise<void>;
   playingTrack?: Track | null;
   bufferingTrack?: Track | null;
   playingTrackId?: string;

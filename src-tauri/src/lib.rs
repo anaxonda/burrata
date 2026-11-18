@@ -2252,7 +2252,14 @@ async fn get_artist_tracks(
     state: State<'_, AppState>,
     artist: artists::ArtistRef,
     cursor: Option<String>,
+    query: Option<String>,
 ) -> Result<artists::ArtistTrackPage> {
+    if let Some(query) = query {
+        return state
+            .artists
+            .search_artist_tracks(&artist, cursor.as_deref(), &query)
+            .await;
+    }
     state
         .artists
         .get_artist_tracks(

@@ -3480,6 +3480,9 @@ fn decode_with_session_and_diagnostics(
                         Settings, StreamDownload,
                     };
                     let mut builder = stream_reqwest::Client::builder();
+                    if is_buffered_audio_relay(&input) {
+                        builder = builder.no_proxy();
+                    }
                     #[cfg(test)]
                     {
                         builder = crate::acquisition::playback_test_transport::configure_native(
@@ -3960,11 +3963,19 @@ fn has_finite_opus_webm_hint(source: &AudioSource) -> bool {
     })
 }
 
+fn is_buffered_audio_relay(input: &str) -> bool {
+    url::Url::parse(input).is_ok_and(|url| {
+        url.scheme() == "http"
+            && matches!(url.host_str(), Some("127.0.0.1" | "[::1]"))
+            && url.path().starts_with("/webview-audio/")
+    })
+}
+
 fn is_finite_remote_opus_webm(source: &AudioSource) -> bool {
     has_finite_opus_webm_hint(source)
-        && url::Url::parse(&source.input)
-            .ok()
-            .is_some_and(|url| url.scheme() == "https" && url.host_str().is_some())
+        && (is_buffered_audio_relay(&source.input)
+            || url::Url::parse(&source.input)
+                .is_ok_and(|url| url.scheme() == "https" && url.host_str().is_some()))
 }
 
 /// Track explicit FFmpeg truncation diagnostics even when it exits with status
@@ -4300,13 +4311,13 @@ fn decode_ffmpeg_with_diagnostics(
         "-rw_timeout",
         crate::playback_policy::NETWORK_READ_TIMEOUT_US,
     ]);
-    // Offline TCP fixtures must stay on the bound loopback socket even when
-    // the host environment supplies an HTTP proxy. Production is unchanged.
-    if source
-        .cenc
-        .as_ref()
-        .and_then(|cenc| cenc.lease.as_ref())
-        .is_some()
+    // A loopback relay must not send its capability token through a proxy.
+    if is_buffered_audio_relay(&source.input)
+        || source
+            .cenc
+            .as_ref()
+            .and_then(|cenc| cenc.lease.as_ref())
+            .is_some()
     {
         command.args(["-http_proxy", ""]);
     }

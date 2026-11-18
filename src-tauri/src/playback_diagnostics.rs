@@ -856,6 +856,9 @@ fn number_key(key: &str) -> bool {
             | "rangeStart"
             | "rangeEnd"
             | "expiresInSeconds"
+            | "queuedFrameCount"
+            | "targetFrameCount"
+            | "frameBytes"
     )
 }
 
@@ -1073,6 +1076,9 @@ fn enum_values(key: &str) -> Option<&'static [&'static str]> {
         ]),
         "reason" => Some(&[
             "cdn_destination_changed",
+            "source_access",
+            "network",
+            "representation_changed",
             "insufficient_time",
             "recovery_budget_exhausted",
             "ordinary_resolution_succeeded",
@@ -1389,6 +1395,8 @@ pub(crate) fn phase_is_allowed(value: &str) -> bool {
             | "prepared_alternate_validation_start"
             | "verified_source_transport_recovery_start"
             | "verified_source_transport_recovery_end"
+            | "native_buffered_read_error"
+            | "native_buffered_refresh_end"
             | "recovery_start"
             | "recovery_end"
             | "next_preparation_start"

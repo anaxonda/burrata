@@ -7687,38 +7687,20 @@ fn remember_verified_source(
 }
 
 fn is_definitive_source_failure(error: &str) -> bool {
-    let normalized = error.to_ascii_lowercase();
-    if [
-        "cancel",
-        "timeout",
-        "timed out",
-        "429",
-        "500",
-        "502",
-        "503",
-        "504",
-        "rate limit",
-        "temporar",
-        "connection reset",
-        "network",
-    ]
-    .iter()
-    .any(|marker| normalized.contains(marker))
-    {
-        return false;
+    use crate::playback_failure::{classify, FailureCategory, FailureStage};
+
+    let failure = classify(error);
+    match failure.category {
+        FailureCategory::RecordingIdentityMismatch => failure.stage == FailureStage::Resolver,
+        FailureCategory::SourcePrivate | FailureCategory::SourceDeleted => true,
+        FailureCategory::SourceUnavailable => matches!(failure.http_status, Some(404 | 410)),
+        // Some extractors give this exact provider verdict without a status.
+        FailureCategory::Unknown => matches!(
+            error.trim().to_ascii_lowercase().as_str(),
+            "the video is unavailable" | "video is unavailable"
+        ),
+        _ => false,
     }
-    [
-        "identity changed",
-        "identity mismatch",
-        "http 404",
-        "http 410",
-        "not found",
-        "unavailable",
-        "removed",
-        "private video",
-    ]
-    .iter()
-    .any(|marker| normalized.contains(marker))
 }
 
 async fn try_verified_candidate(
@@ -15275,8 +15257,22 @@ mod tests {
         assert!(remembered_candidate(&track, &signed).is_none());
         assert!(is_definitive_source_failure("HTTP 404: video not found"));
         assert!(is_definitive_source_failure("The video is unavailable"));
+        assert!(is_definitive_source_failure(
+            "Verified source identity mismatch"
+        ));
+        assert!(is_definitive_source_failure("Video has been removed"));
         assert!(!is_definitive_source_failure("HTTP 429: rate limited"));
         assert!(!is_definitive_source_failure("temporarily unavailable"));
+        assert!(!is_definitive_source_failure("HTTP 403 unavailable"));
+        assert!(!is_definitive_source_failure(
+            "Audio source format is unavailable; refresh or choose another source"
+        ));
+        assert!(!is_definitive_source_failure(
+            "Audio extraction helper not found"
+        ));
+        assert!(!is_definitive_source_failure(
+            "Audio source recording identity could not be verified; choose another source"
+        ));
         assert!(!is_definitive_source_failure(
             "network connection timed out"
         ));
@@ -15772,6 +15768,10 @@ mod direct_youtube_integration_tests;
 #[cfg(test)]
 #[path = "playback_mapped_direct_live_tests.rs"]
 mod mapped_direct_live_tests;
+
+#[cfg(all(test, unix))]
+#[path = "playback_saved_startup_tests.rs"]
+mod saved_startup_tests;
 
 #[cfg(test)]
 mod catalog_alias_priority_tests {

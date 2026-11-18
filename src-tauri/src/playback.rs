@@ -24,7 +24,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use tokio::sync::{mpsc, watch};
 
 const SESSION_KEY: &str = "nativePlaybackSession.v1";
@@ -556,7 +556,10 @@ struct PersistedSessionKey {
     finished: bool,
 }
 
+type BufferedAudioLease = crate::webview_audio_transport::RegisteredNativeAudioLease;
+
 struct Preloaded {
+    buffered_audio: Option<BufferedAudioLease>,
     preparation_trace: Option<crate::playback_sources::SourceTrace>,
     generation: u64,
     index: usize,
@@ -717,6 +720,7 @@ struct State {
     offset: f64,
     end: Option<f64>,
     cancel: Option<watch::Sender<bool>>,
+    buffered_audio: Option<BufferedAudioLease>,
     station: Option<RadioStation>,
     steady_http_stream: bool,
     radio_now: Value,
@@ -814,6 +818,7 @@ impl Default for State {
             offset: 0.,
             end: None,
             cancel: None,
+            buffered_audio: None,
             station: None,
             steady_http_stream: false,
             radio_now: Value::Null,
@@ -3593,6 +3598,7 @@ impl PlaybackService {
         self.cancel_locked(&mut s);
     }
     fn cancel_locked(&self, s: &mut State) {
+        s.buffered_audio = None;
         if let Some(tx) = s.cancel.take() {
             let _ = tx.send(true);
         }
@@ -4065,29 +4071,37 @@ impl PlaybackService {
                     self.record_started();
                 } else {
                     let failed_resume = status == "failed";
-                    if failed_resume {
-                        if !local_storage_failed {
-                            self.invalidate_candidate_preview_audio(candidate.as_ref());
+                    if failed_resume && !local_storage_failed {
+                        self.invalidate_candidate_preview_audio(candidate.as_ref());
+                    }
+                    self.change(|s| {
+                        // A restored queue may have no foreground operation yet.
+                        if failed_resume || s.operation_id.is_none() {
+                            begin_operation(
+                                s,
+                                operation_id.as_deref(),
+                                "startup",
+                                operation_received_at,
+                                client_started_at_ms,
+                                click_to_ipc_ms,
+                                command_bytes,
+                            );
                         }
-                        self.change(|s| {
+                        if failed_resume {
                             reset_failed_resume_diagnostics(s);
-                        });
-                    } else if !continuing {
-                        self.change(|s| {
+                        } else if !continuing {
                             s.recovery = 0;
                             s.recovery_deadline = None;
                             s.recovered_audio_since = None;
-                        });
-                    }
-                    if continuing {
-                        self.change(|s| {
+                        }
+                        if continuing {
                             arm_paused_startup_resume(s, Instant::now());
                             arm_native_stall_resume(s, Instant::now(), false);
-                        });
-                    }
-                    if pending_seek.is_some() {
-                        self.change(|s| arm_resumed_seek_metrics(s, Instant::now()));
-                    }
+                        }
+                        if pending_seek.is_some() {
+                            arm_resumed_seek_metrics(s, Instant::now());
+                        }
+                    });
                     self.start(candidate, position, continuing);
                 }
             }
@@ -4801,6 +4815,22 @@ impl PlaybackService {
                             status,
                         )
                     };
+                    let buffered_audio = if station.is_none() {
+                        service
+                            .attach_buffered_audio(
+                                g,
+                                &track,
+                                candidate.as_ref(),
+                                &mut source,
+                                crate::playback_sources::PlaybackDeadline::at(
+                                    tokio::time::Instant::from_std(startup_deadline),
+                                ),
+                                rx.clone(),
+                            )
+                            .await
+                    } else {
+                        None
+                    };
                     let volume = {
                         let s = service.inner.state.lock().unwrap();
                         if s.pause_when_ready {
@@ -4847,6 +4877,7 @@ impl PlaybackService {
                                 position,
                             );
                         }
+                        s.buffered_audio = buffered_audio;
                         s.candidate = candidate;
                         s.quality = quality;
                         s.buffering_count += 1;
@@ -4948,6 +4979,80 @@ impl PlaybackService {
             drop(session);
         });
     }
+    async fn attach_buffered_audio(
+        &self,
+        generation: u64,
+        track: &Track,
+        candidate: Option<&Candidate>,
+        source: &mut crate::native_output::AudioSource,
+        deadline: crate::playback_sources::PlaybackDeadline,
+        cancel: watch::Receiver<bool>,
+    ) -> Option<BufferedAudioLease> {
+        // The pinned relay connects directly. Honor an explicitly configured
+        // proxy by retaining the decoder's existing transport.
+        let proxy_configured = ["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"]
+            .iter()
+            .any(|key| std::env::var_os(key).is_some_and(|value| !value.is_empty()));
+        if !self.native_enabled()
+            || track.provider == "radio"
+            || source.cenc.is_some()
+            || !source.input.starts_with("https://")
+            || proxy_configured
+        {
+            return None;
+        }
+        let candidate = candidate?.clone();
+        let state = self.inner.app.try_state::<crate::AppState>()?;
+        let transport = state.webview_audio_transport.clone();
+        let store = self.inner.store.clone();
+        let acquisition = self.inner.acquisition.clone();
+        let track = track.clone();
+        let refresh_track = track.clone();
+        let refresh: crate::webview_audio_transport::NativeSourceRefresh =
+            Arc::new(move |deadline, cancel| {
+                let store = store.clone();
+                let acquisition = acquisition.clone();
+                let track = refresh_track.clone();
+                let candidate = candidate.clone();
+                Box::pin(async move {
+                    let refreshed = crate::playback_sources::recover_with_trace_context_until(
+                        &store,
+                        &acquisition,
+                        &track,
+                        &candidate,
+                        false,
+                        cancel,
+                        Some(native_operation_id()),
+                        None,
+                        None,
+                        deadline,
+                        true,
+                    )
+                    .await?;
+                    if !refreshed.candidate.as_ref().is_some_and(|fresh| {
+                        fresh.provider == candidate.provider && fresh.id == candidate.id
+                    }) {
+                        return Err("The refreshed stream changed recording identity".into());
+                    }
+                    Ok(refreshed.source)
+                })
+            });
+        let deadline = crate::playback_sources::PlaybackDeadline::at(
+            deadline
+                .instant()
+                .min(tokio::time::Instant::now() + Duration::from_millis(750)),
+        );
+        let lease = transport
+            .register_native_buffered_input(
+                generation, &track.id, source, refresh, deadline, cancel,
+            )
+            .await
+            .ok()?;
+        source.input = lease.loopback_url().into();
+        source.headers.clear();
+        Some(lease)
+    }
+
     async fn resolve(
         &self,
         g: u64,
@@ -5229,6 +5334,7 @@ impl PlaybackService {
         if s.generation != g {
             return;
         }
+        s.buffered_audio = None;
         self.inner.audible.send_replace(false);
         if let Some(cancel) = s.cancel.take() {
             cancel.send_replace(true);
@@ -6032,6 +6138,21 @@ impl PlaybackService {
                     .await;
                 }
             }
+            let buffered_audio = match resolved.as_mut() {
+                Ok(resolved) if owner_current && resolved.station.is_none() => {
+                    service
+                        .attach_buffered_audio(
+                            owner.generation,
+                            &track,
+                            resolved.candidate.as_ref(),
+                            &mut resolved.source,
+                            crate::playback_sources::PlaybackDeadline::at(handoff),
+                            cancel.clone(),
+                        )
+                        .await
+                }
+                _ => None,
+            };
             let mut s = service.inner.state.lock().unwrap();
             let Some(resolved) = finish_preload_resolution(&mut s, &owner, resolved) else {
                 span.finish(if *cancel.borrow() {
@@ -6123,6 +6244,7 @@ impl PlaybackService {
                         eligible.then_some(settings.crossfade_seconds)
                     });
             s.preload = Some(Preloaded {
+                buffered_audio,
                 preparation_trace: Some(trace.clone()),
                 generation,
                 index: owner.index,
@@ -6197,6 +6319,7 @@ impl PlaybackService {
             let _ = cancel.send(true);
         }
         s.generation = generation;
+        s.buffered_audio = p.buffered_audio;
         s.last_buffering = None;
         s.index = p.index;
         s.position = 0.;
@@ -8053,6 +8176,7 @@ fn finish_clean_eof(state: &mut State, generation: u64, seek_without_audio: bool
     } else if state.station.is_none() && state.end.is_none() {
         state.duration = state.position;
     }
+    state.buffered_audio = None;
     state.failed_occurrence_ids.clear();
     true
 }
@@ -8458,6 +8582,9 @@ fn failed_track_next_index_exhausted(
     if state.generation != generation
         || !["resolving", "buffering", "playing"].contains(&state.status.as_str())
         || !should_skip_exhausted_failure(message)
+        // A transport failure cannot finish an occurrence that has started.
+        || state.first_audio_ms.is_some()
+        || state.recorded
         || state.station.is_some()
         || state.cancel.as_ref().is_some_and(|cancel| *cancel.borrow())
         || state.queue.is_empty()
@@ -9017,6 +9144,7 @@ mod tests {
         state.position = 10.0;
         state.duration = 4.0;
         state.preload = Some(Preloaded {
+            buffered_audio: None,
             preparation_trace: None,
             generation: 8,
             index: 1,
@@ -9110,6 +9238,7 @@ mod tests {
         );
 
         let preload = Preloaded {
+            buffered_audio: None,
             preparation_trace: None,
             generation: 8,
             index: 0,
@@ -9425,6 +9554,7 @@ mod tests {
 
         state.entries.push("next-entry".into());
         state.preload = Some(Preloaded {
+            buffered_audio: None,
             preparation_trace: None,
             generation: 9,
             index: 0,
@@ -10136,6 +10266,7 @@ mod tests {
     fn preload_active_device_loss_cancels_reader_and_releases_reconnect_preparation() {
         let (mut state, old, receiver) = preparation_fixture();
         state.preload = Some(Preloaded {
+            buffered_audio: None,
             preparation_trace: None,
             generation: 42,
             index: 1,
@@ -12682,6 +12813,37 @@ mod tests {
         assert_eq!(state.recent_track_failures[0]["operationId"], "album-job");
         assert_eq!(state.recent_track_failures[0]["entryId"], "occurrence-1");
     }
+    #[test]
+    fn exhausted_mid_track_recovery_keeps_the_audible_occurrence_selected() {
+        let mut state = State::default();
+        state.generation = 4;
+        state.status = "resolving".into();
+        state.queue = vec![Track::default(), Track::default()];
+        state.entries = vec!["playing".into(), "next".into()];
+        state.position = 104.5;
+        state.first_audio_ms = Some(300);
+        let denied = "Audio source access was denied (HTTP 403)";
+        assert_eq!(
+            failed_track_next_index_exhausted(&mut state, 4, denied),
+            Err(())
+        );
+        assert_eq!(state.index, 0);
+        assert_eq!(state.position, 104.5);
+        assert!(state.failed_occurrence_ids.is_empty());
+
+        state.recorded = true;
+        reset_failed_resume_diagnostics(&mut state);
+        assert_eq!(
+            failed_track_next_index_exhausted(&mut state, 4, denied),
+            Err(())
+        );
+        state.recorded = false;
+        assert_eq!(
+            failed_track_next_index_exhausted(&mut state, 4, denied),
+            Ok(Some(1))
+        );
+    }
+
     #[test]
     fn failed_track_skips_exhaust_each_occurrence_once_without_repeat_all_loops() {
         let duplicate = Track {

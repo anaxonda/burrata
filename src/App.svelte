@@ -34,7 +34,7 @@
       }
     } else if (entry.provider === "spotify" && entry.providerId) {
       await openSpotifyTrackArtist({ provider: "spotify", id: entry.providerId, name: entry.name });
-    } else if (entry.kind === "artist" && entry.providerId && ["musicbrainz", "discogs", "monochrome"].includes(entry.provider ?? "")) {
+    } else if (entry.kind === "artist" && entry.providerId && canBrowseArtistCredit(entry.provider)) {
       await discoverArtistRef({ provider: entry.provider as ArtistRef["provider"], id: entry.providerId });
     } else if (entry.kind === "album" && entry.providerId && ["musicbrainz", "discogs", "monochrome"].includes(entry.provider ?? "")) {
       const owner = navigationRequest;
@@ -4824,8 +4824,13 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     if (!track.artist.trim()) return;
     const provenance=track.provenance as {catalog?:{provider?:string;providerId?:string;artists?:Array<{provider:string;id:string;name?:string}>;artistCount?:number}} | undefined;
     const catalog = provenance?.catalog;
-    const credited=catalog?.artists?.filter(artist=>artist.name?.toLowerCase()===track.artist.trim().toLowerCase());
-    if(track.provider !== "spotify" && credited?.length===1 && ["musicbrainz","discogs","monochrome"].includes(credited[0].provider))return discoverArtistRef({provider:credited[0].provider as ArtistRef["provider"],id:credited[0].id});
+    const credited = catalog?.artists?.filter(artist =>
+      artist.id && canBrowseArtistCredit(artist.provider) && artist.name?.trim().toLowerCase() === track.artist.trim().toLowerCase()
+    );
+    if (track.provider !== "spotify" && credited?.length === 1) {
+      const credit = credited[0];
+      return discoverArtistRef({ provider: credit.provider as ArtistRef["provider"], id: credit.id });
+    }
     const spotifyCredits = catalog?.artists?.filter((artist): artist is SpotifyTrackArtistRef => artist.provider === "spotify" && /^[A-Za-z0-9]{22}$/.test(artist.id) && Boolean(artist.name?.trim())) ?? [];
     const completeSpotifyCreditSet = track.provider === "spotify" && catalog !== undefined && catalog.provider === "spotify" && catalog.providerId === track.providerId && catalog.artistCount === catalog.artists?.length && spotifyCredits.length === catalog.artistCount
       && spotifyCredits.map(artist => artist.name.trim()).join(", ").toLocaleLowerCase() === track.artist.trim().toLocaleLowerCase();
@@ -4842,6 +4847,14 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     activeArtistRef = null;
     await navigate("artist", false);
   }
+  function canBrowseArtistCredit(provider: string | null | undefined): boolean {
+    return (provider === "musicbrainz" || provider === "discogs")
+      && availableSources.find(source => source.id === provider)?.enabled !== false;
+  }
+  function discoverRelatedArtist(artist: ArtistRef, name?: string) {
+    if (canBrowseArtistCredit(artist.provider)) return discoverArtistRef(artist);
+    if (name) return browseArtistProvider(name, "musicbrainz");
+  }
   async function browseArtistProvider(name: string, target: "spotify" | "musicbrainz") {
     const artistName = name.trim();
     if (!artistName) return;
@@ -4856,6 +4869,22 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     automationSearch = null;
     catalogSearchSource = target;
     catalogSearchKind = "artists";
+    catalogSearchRequest++;
+    await navigate("search", false);
+  }
+  async function searchArtistCatalogByName(name: string, title: string) {
+    const source = availableSources.find(item => item.id === "musicbrainz");
+    if (source?.enabled === false) {
+      throw new Error(source.detail || "MusicBrainz recording search is unavailable.");
+    }
+    const phrase = (value: string) => value.replace(/["\\]/g, "\\$&");
+    rememberRoute();
+    searchNavigationSnapshotKey = null;
+    searchRelease = null;
+    automationSearch = null;
+    query = `artist:"${phrase(name)}" AND recording:"${phrase(title)}"`;
+    catalogSearchSource = "musicbrainz";
+    catalogSearchKind = "tracks";
     catalogSearchRequest++;
     await navigate("search", false);
   }
@@ -5178,8 +5207,8 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     const tracks = await call<Track[]>("get_release_tracks", { release, artist });
     return matchArtistPlaybackSources(tracks);
   }
-  async function getArtistTracks(artist: ArtistRef, cursor?: string | null) {
-    const page = await call<ArtistTrackPage>("get_artist_tracks", { artist, cursor });
+  async function getArtistTracks(artist: ArtistRef, cursor?: string | null, query?: string) {
+    const page = await call<ArtistTrackPage>("get_artist_tracks", query ? { artist, cursor, query } : { artist, cursor });
     return { ...page, items: await matchArtistPlaybackSources(page.items) };
   }
   async function getArtistCollaborations(artist: ArtistRef, cursor?: string | null) {
@@ -7516,7 +7545,8 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     onQueueTracks: queueArtistTracks,
     onTrackContext: (track: Track, event: MouseEvent) => { actionAnchor = { x: event.clientX, y: event.clientY }; actionTrack = track; void matchArtistPlaybackSources([track]).then(([matched]) => { if (actionTrack === track && matched) actionTrack = matched; }).catch(failure => { error = String(failure); }); },
     onDownloadTrack: (track: Track) => openDownloadChooser(track), onFavoriteTrack: (track: Track) => void favorite(track),
-    onAddTrackToPlaylist: addArtistTrack, onAddSelectedToPlaylist: addTracksToPlaylist, onArtistNavigate: discoverArtistRef,
+    onAddTrackToPlaylist: addArtistTrack, onAddSelectedToPlaylist: addTracksToPlaylist, onArtistNavigate: discoverRelatedArtist,
+    onSearchCatalogByName: searchArtistCatalogByName,
   });
 
   const searchPanelProps = $derived({

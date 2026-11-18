@@ -14,9 +14,11 @@ use std::{collections::HashSet, future::Future, sync::Arc, time::Duration};
 use tokio::sync::watch;
 
 const CACHE_NAMESPACE: &str = "playback.discogs-apple-duration.v3";
+const DISCOGS_RELEASE_CACHE: &str = "artists.release-tracks.discogs-release";
 const CACHE_TTL_SECONDS: u64 = 15 * 60;
 const MAX_APPLE_COLLECTIONS: usize = 3;
 const MAX_OPPORTUNITY: Duration = Duration::from_secs(6);
+const NO_CACHED_DISCOGS_RELEASE: &str = "No cached Discogs release for playback duration";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -63,10 +65,19 @@ fn positive_id(value: &Value) -> Option<u64> {
     value.as_u64().filter(|id| *id > 0)
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum DiscogsCredentialState {
     Disabled,
     Enabled(Option<String>),
+}
+
+async fn cached_discogs_release(store: Arc<Store>, release_id: String) -> Result<Value, String> {
+    tokio::task::spawn_blocking(move || {
+        store.get_provider_cache(DISCOGS_RELEASE_CACHE, &release_id)
+    })
+    .await
+    .map_err(|error| error.to_string())??
+    .ok_or_else(|| NO_CACHED_DISCOGS_RELEASE.into())
 }
 
 fn enabled_discogs_credential<F>(
@@ -648,12 +659,9 @@ pub(crate) async fn prepare(
         return Ok(None);
     };
     let credentials = credentials_result.map_err(|error| error.to_string())??;
-    let DiscogsCredentialState::Enabled(token) = credentials else {
-        return Ok(None);
-    };
     let artist_service = ArtistService::new(store.clone())?;
     let cancel_for_fetch = cancel.clone();
-    prepare_with_fetch(
+    let prepared = prepare_with_fetch(
         store.clone(),
         original,
         policy,
@@ -662,20 +670,29 @@ pub(crate) async fn prepare(
         current,
         |request| {
             let service = artist_service.clone();
-            let token = token.clone();
+            let credentials = credentials.clone();
+            let store = store.clone();
             let cancel = cancel_for_fetch.clone();
             async move {
                 match request {
-                    FetchRequest::DiscogsRelease { release_id } => {
-                        service
-                            .fresh_discogs_release_for_playback(
-                                &release_id,
-                                token.as_deref(),
-                                cancel,
-                                deadline,
-                            )
-                            .await
-                    }
+                    // A previously opened edition can supply its complete
+                    // public programme without reconnecting to Discogs. The
+                    // same Apple crosswalk must still validate every track.
+                    FetchRequest::DiscogsRelease { release_id } => match credentials {
+                        DiscogsCredentialState::Disabled => {
+                            cached_discogs_release(store, release_id).await
+                        }
+                        DiscogsCredentialState::Enabled(token) => {
+                            service
+                                .fresh_discogs_release_for_playback(
+                                    &release_id,
+                                    token.as_deref(),
+                                    cancel,
+                                    deadline,
+                                )
+                                .await
+                        }
+                    },
                     FetchRequest::AppleSearch { term } => {
                         let url = crate::compilation_excerpt::apple_endpoint(
                             "search",
@@ -706,7 +723,11 @@ pub(crate) async fn prepare(
             }
         },
     )
-    .await
+    .await;
+    match prepared {
+        Err(error) if error == NO_CACHED_DISCOGS_RELEASE => Ok(None),
+        other => other,
+    }
 }
 
 #[cfg(test)]
@@ -897,6 +918,83 @@ mod tests {
         assert_eq!(no_calls.load(Ordering::SeqCst), 0);
         assert_eq!(cached.track.duration_seconds, Some(197.9));
         stop.send_replace(true);
+    }
+
+    #[tokio::test]
+    async fn disabled_discogs_can_reuse_a_complete_cached_release_or_verified_crosswalk() {
+        let (_directory, store) = test_store();
+        let (track, release, apple) = fixture();
+        store.save_track(&track).unwrap();
+        let saved = store.get_track(&track.id).unwrap().unwrap();
+        let connections = Arc::new(ConnectionManager::new(store.clone()));
+        assert!(!connections.settings().unwrap().discogs_enabled);
+        let (_stop, cancel) = watch::channel(false);
+        let deadline = || tokio::time::Instant::now() + Duration::from_secs(2);
+        assert!(prepare(
+            &store,
+            &connections,
+            &saved,
+            strict_policy(),
+            cancel.clone(),
+            deadline(),
+        )
+        .await
+        .unwrap()
+        .is_none());
+
+        store
+            .set_provider_cache(
+                DISCOGS_RELEASE_CACHE,
+                saved.provenance["releaseId"].as_str().unwrap(),
+                &release,
+                60,
+            )
+            .unwrap();
+        let prepared = prepare_with_fetch(
+            store.clone(),
+            &saved,
+            strict_policy(),
+            cancel.clone(),
+            deadline(),
+            || async { Ok(true) },
+            |request| {
+                let store = store.clone();
+                let apple = apple.clone();
+                async move {
+                    match request {
+                        FetchRequest::DiscogsRelease { release_id } => {
+                            cached_discogs_release(store, release_id).await
+                        }
+                        _ => response_for(request, &Value::Null, &apple),
+                    }
+                }
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(prepared.track.duration_seconds, Some(197.9));
+        assert_eq!(
+            store
+                .get_track(&saved.id)
+                .unwrap()
+                .unwrap()
+                .duration_seconds,
+            None
+        );
+
+        let cached = prepare(
+            &store,
+            &connections,
+            &saved,
+            strict_policy(),
+            cancel,
+            deadline(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(cached.track.duration_seconds, Some(197.9));
     }
 
     #[tokio::test]

@@ -4289,6 +4289,44 @@ describe("saved recording navigation", () => {
     expect(mocks.call.mock.calls.filter(([command]) => command === "browse_remote_artist")).toHaveLength(browseCallsBeforeSwitch);
   });
 
+  it("looks up artist choices instead of opening a Monochrome credit from a track row", async () => {
+    const artistId = "123456789";
+    savedChartTracks = [{ ...savedTrack, provenance: { catalog: {
+      provider: "monochrome", providerId: "recording-1", artistCount: 1,
+      artists: [{ provider: "monochrome", id: artistId, name: "Visible Artist" }],
+    } } }];
+    const originalCall = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "search_artists") return { query: args?.query, page: 1, pageSize: 20, hasMore: false, results: [], warnings: [] };
+      return originalCall(command, args);
+    });
+    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); }; await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Find recordings by Visible Artist"]')!.click(); await settle();
+    expect(mocks.call).toHaveBeenCalledWith("search_artists", expect.objectContaining({ query: "Visible Artist" }));
+    expect(mocks.call).not.toHaveBeenCalledWith("get_artist_profile", { artist: { provider: "monochrome", id: artistId } });
+  });
+
+  it("browses a saved Monochrome artist through MusicBrainz lookup", async () => {
+    const originalCall = mocks.call.getMockImplementation()!;
+    const artist = { id: "artist:ref:monochrome:123456789", kind: "artist", name: "Bob Dylan",
+      artist: "", provider: "local", explicitlySaved: true, trackCount: 1, albumCount: 0 };
+    mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "list_library_entities") return { items: args?.kind === "artist" ? [artist] : [], total: args?.kind === "artist" ? 1 : 0 };
+      if (command === "list_search_sources") return [
+        { id: "musicbrainz", name: "MusicBrainz", kinds: ["artist", "track"], enabled: true },
+        { id: "monochrome", name: "Monochrome", kinds: ["artist", "track"], enabled: true },
+      ];
+      if (command === "search_source") return { sourceId: "musicbrainz", complete: true, results: [] };
+      return originalCall(command, args);
+    });
+    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); }; await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".library-view-tabs button")].find(button => button.textContent === "Artists")!.click(); await settle();
+    document.querySelector<HTMLButtonElement>(".entity-card")!.click(); await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".entity-header button")].find(button => button.textContent === "Browse catalog")!.click(); await settle();
+    expect(mocks.call).toHaveBeenCalledWith("search_source", expect.objectContaining({ query: "Bob Dylan", sourceIds: ["musicbrainz"], kinds: ["artist"] }));
+    expect(mocks.call).not.toHaveBeenCalledWith("get_artist_profile", { artist: { provider: "monochrome", id: "123456789" } });
+  });
+
   it("opens a Spotify artist result only after an explicit selection from a MusicBrainz artist page", async () => {
     const spotifyId = "bbbbbbbbbbbbbbbbbbbbbb";
     const mbArtistId = "11111111-2222-4333-8444-555555555555";

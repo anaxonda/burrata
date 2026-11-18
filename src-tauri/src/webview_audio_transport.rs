@@ -3,6 +3,8 @@
 //! trusted resolver code; DNS is checked and pinned once per registration.
 #[path = "webview_hls_transport.rs"]
 mod hls;
+#[path = "webview_progressive_transport.rs"]
+mod progressive;
 use crate::{acquisition, native_output::AudioSource, playback_sources::PlaybackDeadline};
 use axum::{
     body::Body,
@@ -174,6 +176,15 @@ impl Drop for RangeTrace {
     }
 }
 
+pub(crate) type NativeSourceRefresh = Arc<
+    dyn Fn(
+            PlaybackDeadline,
+            watch::Receiver<bool>,
+        ) -> futures_util::future::BoxFuture<'static, Result<AudioSource, String>>
+        + Send
+        + Sync,
+>;
+
 struct Session {
     id: String,
     token: String,
@@ -186,6 +197,8 @@ struct Session {
     slots: Arc<tokio::sync::Semaphore>,
     hls: Mutex<hls::Graph>,
     allow_radio_http: bool,
+    progressive: Option<progressive::Progressive>,
+    refresh: Option<NativeSourceRefresh>,
 }
 #[derive(Default)]
 struct Registry {
@@ -209,8 +222,8 @@ struct Registry {
 #[derive(Default)]
 pub(crate) struct WebviewAudioTransport {
     registry: Mutex<Registry>,
-    // Native CENC relay sessions have independent ownership from the single
-    // WebView playback session. A decoder/preload lease controls their lifetime.
+    // Native relay sessions have independent ownership from the WebView
+    // playback session. A decoder/preload lease controls their lifetime.
     native_sessions: Mutex<HashMap<String, Arc<Session>>>,
     base_url: Mutex<Option<String>>,
 }
@@ -233,7 +246,7 @@ impl Drop for NativeLeaseInner {
     }
 }
 
-/// Opaque capability for one pinned native CENC relay session.
+/// Opaque capability for one pinned native audio relay session.
 /// The URL is intentionally only available inside the crate and Debug never
 /// reveals its random authorization token.
 #[derive(Clone)]
@@ -603,6 +616,8 @@ impl WebviewAudioTransport {
                 slots: Arc::new(tokio::sync::Semaphore::new(4)),
                 hls: Mutex::new(hls::Graph::default()),
                 allow_radio_http: false,
+                progressive: None,
+                refresh: None,
             });
             self.commit_native_session(session)
         };
@@ -612,6 +627,69 @@ impl WebviewAudioTransport {
             result=setup=>result,
         }
     }
+    pub(crate) async fn register_native_buffered_input(
+        self: &Arc<Self>,
+        generation: u64,
+        track_id: &str,
+        source: &AudioSource,
+        refresh: NativeSourceRefresh,
+        deadline: PlaybackDeadline,
+        cancel: watch::Receiver<bool>,
+    ) -> Result<RegisteredNativeAudioLease, String> {
+        let hls = is_hls(source);
+        let progressive = if hls {
+            None
+        } else {
+            let hint = source
+                .decoder_hint
+                .as_ref()
+                .ok_or("Finite audio metadata missing")?;
+            let length = hint
+                .content_length
+                .filter(|length| *length > 0)
+                .ok_or("Finite audio length missing")?;
+            let duration = hint
+                .duration_seconds
+                .filter(|seconds| seconds.is_finite() && *seconds > 0.)
+                .ok_or("Finite audio duration missing")?;
+            Some(progressive::Progressive::new(
+                length,
+                duration,
+                hint.mime_type.clone(),
+                hint.codec.clone(),
+            ))
+        };
+        let setup = async {
+            let (url, client, headers) =
+                public_stream_endpoint(&source.input, &source.headers).await?;
+            let (stop, _) = watch::channel(false);
+            self.commit_native_session(Arc::new(Session {
+                id: if hls {
+                    format!("{}.m3u8", uuid::Uuid::new_v4())
+                } else {
+                    uuid::Uuid::new_v4().to_string()
+                },
+                token: uuid::Uuid::new_v4().to_string(),
+                generation,
+                _track_id: track_id.into(),
+                source: url,
+                headers,
+                client,
+                stop,
+                slots: Arc::new(tokio::sync::Semaphore::new(4)),
+                hls: Mutex::new(hls::Graph::default()),
+                allow_radio_http: false,
+                progressive,
+                refresh: Some(refresh),
+            }))
+        };
+        tokio::select! { biased;
+            _ = crate::playback_sources::wait_for_cancellation(cancel) => Err("Cancelled".into()),
+            _ = tokio::time::sleep_until(deadline.instant()) => Err("Audio transport exceeded startup deadline".into()),
+            result = setup => result,
+        }
+    }
+
     fn commit(
         &self,
         epoch: u64,
@@ -659,6 +737,8 @@ impl WebviewAudioTransport {
             slots: Arc::new(tokio::sync::Semaphore::new(4)),
             hls: Mutex::new(hls::Graph::default()),
             allow_radio_http: url.scheme() == "http",
+            progressive: None,
+            refresh: None,
         });
         let base = self
             .base_url
@@ -681,6 +761,38 @@ impl WebviewAudioTransport {
         Ok(result)
     }
 }
+async fn public_stream_endpoint(
+    input: &str,
+    source_headers: &[(String, String)],
+) -> Result<(url::Url, reqwest::Client, HeaderMap), String> {
+    let url = validated_url(input, false)?;
+    let mut headers = HeaderMap::new();
+    for (name, value) in source_headers {
+        if ["authorization", "proxy-authorization", "cookie"]
+            .iter()
+            .any(|blocked| name.eq_ignore_ascii_case(blocked))
+        {
+            return Err("Buffered audio relay cannot use credential headers".into());
+        }
+        if ["user-agent", "referer", "origin", "accept-language"]
+            .iter()
+            .any(|allowed| name.eq_ignore_ascii_case(allowed))
+        {
+            headers.insert(
+                header::HeaderName::from_bytes(name.as_bytes())
+                    .map_err(|_| "Invalid audio header")?,
+                HeaderValue::from_str(value).map_err(|_| "Invalid audio header")?,
+            );
+        }
+    }
+    headers.insert(
+        header::ACCEPT_ENCODING,
+        HeaderValue::from_static("identity"),
+    );
+    let client = hls::public_client(&url).await?;
+    Ok((url, client, headers))
+}
+
 fn validated_url(raw: &str, allow_radio_http: bool) -> Result<url::Url, String> {
     let url = url::Url::parse(raw).map_err(|_| "Invalid audio transport URL")?;
     if allow_radio_http && url.scheme() == "http" {
@@ -973,6 +1085,9 @@ async fn direct_audio(
         }
         return missing();
     }
+    if resource.is_none() && session.progressive.is_some() {
+        return progressive::serve(session, headers, method, permit);
+    }
     let (target, depth) = match resource.as_deref() {
         None => (session.source.clone(), 0),
         Some(resource) => match session
@@ -985,6 +1100,11 @@ async fn direct_audio(
             None => return missing(),
         },
     };
+    if let Some(response) =
+        hls::buffered_segment(&session, resource.as_deref(), &headers, &method).await
+    {
+        return response;
+    }
     let client = if target.origin() == session.source.origin() {
         session.client.clone()
     } else {
@@ -1006,9 +1126,11 @@ async fn direct_audio(
         }
     }
     // Fetch a manifest body even for HEAD so relative references are validated.
+    let known_manifest = target.path().to_ascii_lowercase().ends_with(".m3u8")
+        || (resource.is_none() && session.id.ends_with(".m3u8"));
     let mut request = client
         .request(
-            if method == Method::HEAD && !target.path().ends_with(".m3u8") {
+            if method == Method::HEAD && !known_manifest {
                 Method::HEAD
             } else {
                 Method::GET
@@ -1052,7 +1174,7 @@ async fn direct_audio(
     if let Some(trace) = range_trace.as_ref() {
         trace.headers(response.status(), response.headers());
     }
-    if hls::is_manifest(&target, response.headers()) {
+    if known_manifest || hls::is_manifest(&target, response.headers()) {
         if let Some(trace) = range_trace.as_mut() {
             trace.finish("manifest_response");
         }
@@ -1376,6 +1498,8 @@ mod tests {
             slots: Arc::new(tokio::sync::Semaphore::new(4)),
             hls: Mutex::new(hls::Graph::default()),
             allow_radio_http: false,
+            progressive: None,
+            refresh: None,
         });
         session
     }
