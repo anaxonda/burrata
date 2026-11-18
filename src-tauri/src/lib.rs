@@ -2074,6 +2074,7 @@ async fn list_library_entities(
     state: State<'_, AppState>,
     kind: String,
     artist_id: Option<String>,
+    artist_grouping: Option<storage::library::ArtistGrouping>,
     query: Option<String>,
     source: Option<String>,
     year: Option<String>,
@@ -2094,6 +2095,7 @@ async fn list_library_entities(
             descending.unwrap_or(false),
             limit,
             offset,
+            artist_grouping.unwrap_or_default(),
         )
     })
     .await

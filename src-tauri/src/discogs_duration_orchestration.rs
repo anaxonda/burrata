@@ -80,17 +80,15 @@ async fn cached_discogs_release(store: Arc<Store>, release_id: String) -> Result
     .ok_or_else(|| NO_CACHED_DISCOGS_RELEASE.into())
 }
 
-fn enabled_discogs_credential<F>(
-    enabled: bool,
-    credential: F,
-) -> Result<DiscogsCredentialState, String>
+fn enabled_discogs_credential<F>(enabled: bool, credential: F) -> DiscogsCredentialState
 where
     F: FnOnce() -> Result<Option<String>, String>,
 {
     if enabled {
-        credential().map(DiscogsCredentialState::Enabled)
+        // Public release lookup also works without a readable keyring.
+        DiscogsCredentialState::Enabled(credential().unwrap_or(None))
     } else {
-        Ok(DiscogsCredentialState::Disabled)
+        DiscogsCredentialState::Disabled
     }
 }
 
@@ -246,6 +244,38 @@ fn prepared_from_evidence(
     })
 }
 
+fn prepared_from_retained_duration(
+    original: &Track,
+    value: &Value,
+    fingerprint: &str,
+    policy_fingerprint: &str,
+    policy: CatalogDurationPolicy,
+) -> Option<PreparedCatalogDuration> {
+    let duration = value["durationSeconds"].as_f64()?;
+    let mut proof = value["proof"].clone();
+    if !(1.0..=86_400.0).contains(&duration)
+        || proof["version"] != 2
+        || proof["provider"] != "discogsAppleCompleteAlbum"
+        || proof["releaseDateClaim"] != "dateMatched"
+        || proof["requestFingerprint"].as_str() != Some(fingerprint)
+    {
+        return None;
+    }
+    // An exact edition remains valid under every matching policy. Rebind it to
+    // the current request so playback applies its ordinary validation.
+    proof["policyFingerprint"] = json!(policy_fingerprint);
+    proof["matchingLevel"] = json!(policy.matching_level);
+    proof["flexibleOptions"] = json!(policy.flexible_options);
+    let mut track = original.clone();
+    track.duration_seconds = Some(duration);
+    track.provenance["playbackCatalogDurationProof"] = proof;
+    Some(PreparedCatalogDuration {
+        track,
+        original_fingerprint: remote_playlists::alias_hydration_identity(original),
+        verified_artist_variants: Vec::new(),
+    })
+}
+
 fn cached_raw_evidence<'a>(
     value: &'a Value,
     fingerprint: &str,
@@ -369,14 +399,28 @@ where
     }
 
     let cache_store = store.clone();
+    let request_fingerprint = fingerprint.clone();
     let cache_fingerprint = policy_fingerprint.clone();
-    let cache_read = tokio::task::spawn_blocking(move || {
-        cache_store.get_provider_cache(CACHE_NAMESPACE, &cache_key(&cache_fingerprint))
+    let cache_read = tokio::task::spawn_blocking(move || -> Result<_, String> {
+        Ok((
+            cache_store.retained_catalog_duration(&request_fingerprint)?,
+            cache_store.get_provider_cache(CACHE_NAMESPACE, &cache_key(&cache_fingerprint))?,
+        ))
     });
     let Some(cache_result) = bounded(&cancel, deadline, cache_read).await? else {
         return Ok(None);
     };
-    if let Some(cached) = cache_result.map_err(|error| error.to_string())?? {
+    let (retained, cached) = cache_result.map_err(|error| error.to_string())??;
+    if let Some(prepared) = retained.as_ref().and_then(|value| {
+        prepared_from_retained_duration(original, value, &fingerprint, &policy_fingerprint, policy)
+    }) {
+        return if checkpoint(&cancel, deadline, &current).await? {
+            Ok(Some(prepared))
+        } else {
+            Ok(None)
+        };
+    }
+    if let Some(cached) = cached {
         if !checkpoint(&cancel, deadline, &current).await? {
             return Ok(None);
         }
@@ -539,6 +583,20 @@ where
     if !checkpoint(&cancel, deadline, &current).await? {
         return Ok(None);
     }
+    let proof = &prepared.track.provenance["playbackCatalogDurationProof"];
+    if proof["releaseDateClaim"] == "dateMatched" {
+        let compact = json!({"durationSeconds": prepared.track.duration_seconds, "proof": proof});
+        let retained_store = store.clone();
+        let retained_write = tokio::task::spawn_blocking(move || {
+            retained_store.retain_catalog_duration(&fingerprint, &compact)
+        });
+        let _ = bounded(&cancel, deadline, retained_write).await?;
+        return if checkpoint(&cancel, deadline, &current).await? {
+            Ok(Some(prepared))
+        } else {
+            Ok(None)
+        };
+    }
     // The Store caps provider-cache entries at 1 MiB. Larger but still bounded
     // raw evidence can be used for this request and simply will not be cached.
     let raw_size = serde_json::to_vec(&discogs)
@@ -648,17 +706,6 @@ pub(crate) async fn prepare(
             Ok(full_request_value(&track).as_ref() == Some(&snapshot))
         }
     };
-    let credentials_manager = connections.clone();
-    let credentials_future = tokio::task::spawn_blocking(move || {
-        let settings = credentials_manager.settings()?;
-        enabled_discogs_credential(settings.discogs_enabled, || {
-            credentials_manager.credential("discogs")
-        })
-    });
-    let Some(credentials_result) = bounded(&cancel, deadline, credentials_future).await? else {
-        return Ok(None);
-    };
-    let credentials = credentials_result.map_err(|error| error.to_string())??;
     let artist_service = ArtistService::new(store.clone())?;
     let cancel_for_fetch = cancel.clone();
     let prepared = prepare_with_fetch(
@@ -670,7 +717,7 @@ pub(crate) async fn prepare(
         current,
         |request| {
             let service = artist_service.clone();
-            let credentials = credentials.clone();
+            let connections = connections.clone();
             let store = store.clone();
             let cancel = cancel_for_fetch.clone();
             async move {
@@ -678,21 +725,32 @@ pub(crate) async fn prepare(
                     // A previously opened edition can supply its complete
                     // public programme without reconnecting to Discogs. The
                     // same Apple crosswalk must still validate every track.
-                    FetchRequest::DiscogsRelease { release_id } => match credentials {
-                        DiscogsCredentialState::Disabled => {
-                            cached_discogs_release(store, release_id).await
+                    FetchRequest::DiscogsRelease { release_id } => {
+                        let credentials = tokio::task::spawn_blocking(move || {
+                            let settings = connections.settings()?;
+                            Ok::<_, String>(enabled_discogs_credential(
+                                settings.discogs_enabled,
+                                || connections.credential("discogs"),
+                            ))
+                        })
+                        .await
+                        .map_err(|error| error.to_string())??;
+                        match credentials {
+                            DiscogsCredentialState::Disabled => {
+                                cached_discogs_release(store, release_id).await
+                            }
+                            DiscogsCredentialState::Enabled(token) => {
+                                service
+                                    .fresh_discogs_release_for_playback(
+                                        &release_id,
+                                        token.as_deref(),
+                                        cancel,
+                                        deadline,
+                                    )
+                                    .await
+                            }
                         }
-                        DiscogsCredentialState::Enabled(token) => {
-                            service
-                                .fresh_discogs_release_for_playback(
-                                    &release_id,
-                                    token.as_deref(),
-                                    cancel,
-                                    deadline,
-                                )
-                                .await
-                        }
-                    },
+                    }
                     FetchRequest::AppleSearch { term } => {
                         let url = crate::compilation_excerpt::apple_endpoint(
                             "search",
@@ -774,32 +832,30 @@ mod tests {
     }
 
     #[test]
-    fn anonymous_release_access_requires_enabled_source_and_preserves_credential_errors() {
+    fn public_release_access_requires_enabled_source_and_handles_a_locked_keyring() {
         let reads = Arc::new(AtomicUsize::new(0));
         let disabled_reads = reads.clone();
         assert_eq!(
             enabled_discogs_credential(false, move || {
                 disabled_reads.fetch_add(1, Ordering::SeqCst);
                 Err("must not inspect credential storage while disabled".into())
-            })
-            .unwrap(),
+            }),
             DiscogsCredentialState::Disabled
         );
         assert_eq!(reads.load(Ordering::SeqCst), 0);
 
         assert_eq!(
-            enabled_discogs_credential(true, || Ok(None)).unwrap(),
+            enabled_discogs_credential(true, || Ok(None)),
             DiscogsCredentialState::Enabled(None),
             "enabled public catalog reads can proceed without a token"
         );
         assert_eq!(
-            enabled_discogs_credential(true, || Ok(Some("test-token".into()))).unwrap(),
+            enabled_discogs_credential(true, || Ok(Some("test-token".into()))),
             DiscogsCredentialState::Enabled(Some("test-token".into()))
         );
         assert_eq!(
-            enabled_discogs_credential(true, || Err("keyring unavailable".into())).unwrap_err(),
-            "keyring unavailable",
-            "credential access errors never silently fall back to anonymous access"
+            enabled_discogs_credential(true, || Err("keyring unavailable".into())),
+            DiscogsCredentialState::Enabled(None)
         );
     }
 
@@ -862,8 +918,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn actual_crosswalk_prepares_duration_and_positive_cache_hit_reverifies() {
-        let (_directory, store) = test_store();
+    async fn exact_crosswalk_reuses_the_duration_after_reopening_the_library() {
+        let (directory, store) = test_store();
         let (track, release, apple) = fixture();
         let requests = Arc::new(AtomicUsize::new(0));
         let request_counter = requests.clone();
@@ -898,6 +954,8 @@ mod tests {
         let first_calls = requests.load(Ordering::SeqCst);
         assert_eq!(first_calls, 3);
 
+        drop(store);
+        let store = Arc::new(Store::open(&directory.path().join("catalog.db")).unwrap());
         let no_calls = Arc::new(AtomicUsize::new(0));
         let no_call_counter = no_calls.clone();
         let cached = prepare_with_fetch(
@@ -925,6 +983,9 @@ mod tests {
         let (_directory, store) = test_store();
         let (track, release, apple) = fixture();
         store.save_track(&track).unwrap();
+        store
+            .set_json_preference("connections", &json!({"discogsEnabled": false}))
+            .unwrap();
         let saved = store.get_track(&track.id).unwrap().unwrap();
         let connections = Arc::new(ConnectionManager::new(store.clone()));
         assert!(!connections.settings().unwrap().discogs_enabled);
@@ -998,7 +1059,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn artist_album_locator_recovers_strict_edition_and_cache_is_policy_bound() {
+    async fn artist_album_locator_recovers_exact_edition_for_other_matching_policies() {
         let (_directory, store) = test_store();
         let (track, release, old) = fixture();
         let current = current_apple_fixture();
@@ -1097,23 +1158,18 @@ mod tests {
         assert_eq!(no_calls.load(Ordering::SeqCst), 0);
         assert_eq!(cached.track.duration_seconds, Some(197.9));
 
-        for (level, allow_other_releases) in [
-            (crate::recording_match::MatchLevel::Exact, true),
-            (crate::recording_match::MatchLevel::Balanced, true),
+        for level in [
+            crate::recording_match::MatchLevel::Exact,
+            crate::recording_match::MatchLevel::Balanced,
+            crate::recording_match::MatchLevel::Flexible,
         ] {
             let policy = CatalogDurationPolicy {
                 matching_level: level,
                 flexible_options: crate::recording_match::FlexibleMatchingOptions {
-                    allow_other_releases,
+                    allow_other_releases: false,
                     ..Default::default()
                 },
             };
-            let policy_calls = Arc::new(AtomicUsize::new(0));
-            let policy_counter = policy_calls.clone();
-            let policy_release = release.clone();
-            let policy_current = current.clone();
-            let policy_old = old.clone();
-            let policy_locator = locator.clone();
             let result = prepare_with_fetch(
                 store.clone(),
                 &track,
@@ -1121,17 +1177,7 @@ mod tests {
                 cancel.clone(),
                 tokio::time::Instant::now() + Duration::from_secs(2),
                 || async { Ok(true) },
-                move |request| {
-                    policy_counter.fetch_add(1, Ordering::SeqCst);
-                    let result = response_for_artist_locator(
-                        request,
-                        &policy_release,
-                        &policy_current,
-                        &policy_old,
-                        &policy_locator,
-                    );
-                    async move { result }
-                },
+                |_request| async { Err("unexpected lookup for a retained exact edition".into()) },
             )
             .await
             .unwrap();
@@ -1141,36 +1187,25 @@ mod tests {
                 result.track.provenance["playbackCatalogDurationProof"]["releaseDateClaim"],
                 "dateMatched"
             );
-            assert_eq!(policy_calls.load(Ordering::SeqCst), 5);
+            assert_eq!(
+                result.track.provenance["playbackCatalogDurationProof"]["matchingLevel"],
+                json!(level)
+            );
         }
 
-        let no_cross_policy_calls = Arc::new(AtomicUsize::new(0));
-        let no_cross_policy_counter = no_cross_policy_calls.clone();
-        let deny_policy = CatalogDurationPolicy {
-            matching_level: crate::recording_match::MatchLevel::Flexible,
-            flexible_options: crate::recording_match::FlexibleMatchingOptions {
-                allow_other_releases: false,
-                ..Default::default()
-            },
-        };
-        let no_cross_policy = prepare_with_fetch(
+        let mut edited = track;
+        edited.title = "Different recording".into();
+        let edited = prepare_with_fetch(
             store,
-            &track,
-            deny_policy,
-            cancel.clone(),
+            &edited,
+            strict_policy(),
+            cancel,
             tokio::time::Instant::now() + Duration::from_secs(2),
             || async { Ok(true) },
-            move |_request| {
-                no_cross_policy_counter.fetch_add(1, Ordering::SeqCst);
-                async { Err("policy-specific cache miss expected".into()) }
-            },
+            |_request| async { Err("identity changed".into()) },
         )
         .await;
-        assert!(
-            no_cross_policy.is_err(),
-            "cache cannot cross policy snapshots"
-        );
-        assert_eq!(no_cross_policy_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(edited.err().as_deref(), Some("identity changed"));
         stop.send_replace(true);
     }
 

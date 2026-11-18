@@ -962,7 +962,7 @@
       <div><p class="eyebrow">{providerLabel(selectedArtist.artist.provider)} identity</p>
         <h2>{selectedArtist.name}</h2>
         <SaveArtistButton name={selectedArtist.name} provider={selectedArtist.artist.provider} providerId={selectedArtist.artist.id} sourceUrl={selectedArtist.sourceUrl} artworkUrl={profile?.imageUrl} />
-        {#if selectedArtist.disambiguation}<p>{selectedArtist.disambiguation}</p>{/if}
+        {#if selectedArtist.artist.provider !== "discogs" && selectedArtist.disambiguation}<p>{selectedArtist.disambiguation}</p>{/if}
         <a href={selectedArtist.sourceUrl} target="_blank" rel="noreferrer">Open source profile ↗</a>
         {#if onBrowseArtistProvider}<button class="secondary artist-provider-action" type="button" aria-label={`Find ${selectedArtist.name} on Spotify`} onclick={browseCurrentArtistOnSpotify}>Find on Spotify</button>{/if}
       </div>

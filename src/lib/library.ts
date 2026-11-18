@@ -21,8 +21,20 @@ export interface LibraryEntityPage { items: LibraryEntity[]; total: number }
 export interface LibraryAlbumTarget { entity: LibraryEntity; familyListingId: string | null }
 export interface LibraryEntityGroup { key: string; entries: LibraryEntity[] }
 export type LibraryEntityLayout = 'grid' | 'list';
+export type LibraryArtistGrouping = 'individual' | 'credited';
 export interface LibraryEntityLayouts { artistLayout: LibraryEntityLayout; albumLayout: LibraryEntityLayout }
 const libraryEntityLayoutsKey = 'burrata.library-browser-layouts.v1';
+const libraryArtistGroupingKey = 'burrata.library-artist-grouping.v1';
+function readLibraryArtistGrouping(): LibraryArtistGrouping {
+  try {
+    return localStorage.getItem(libraryArtistGroupingKey) === 'credited' ? 'credited' : 'individual';
+  } catch { return 'individual'; }
+}
+export function saveLibraryArtistGrouping(grouping: LibraryArtistGrouping): void {
+  try {
+    localStorage.setItem(libraryArtistGroupingKey, grouping);
+  } catch { /* Grouping preference is optional when browser storage is unavailable. */ }
+}
 export function readLibraryEntityLayouts(): LibraryEntityLayouts {
   const defaults: LibraryEntityLayouts = { artistLayout: 'grid', albumLayout: 'grid' };
   try {
@@ -73,12 +85,13 @@ export interface LibraryBrowserState {
   entityYear: string;
   entitySort: 'name' | 'artist' | 'year' | 'source' | 'tracks';
   entityDescending: boolean;
+  artistGrouping: LibraryArtistGrouping;
   artistLayout: LibraryEntityLayout;
   albumLayout: LibraryEntityLayout;
   scroll: number;
   loadedCount: number;
 }
-export const initialLibraryBrowserState = (): LibraryBrowserState => ({ tab: 'tracks', entity: null, familyListingId: null, section: 'albums', query: '', sort: 'sourceOrder', descending: false, availability: 'all', minDuration: '', maxDuration: '', entitySource: '', entityYear: '', entitySort: 'name', entityDescending: false, ...readLibraryEntityLayouts(), scroll: 0, loadedCount: 200 });
+export const initialLibraryBrowserState = (): LibraryBrowserState => ({ tab: 'tracks', entity: null, familyListingId: null, section: 'albums', query: '', sort: 'sourceOrder', descending: false, availability: 'all', minDuration: '', maxDuration: '', entitySource: '', entityYear: '', entitySort: 'name', entityDescending: false, artistGrouping: readLibraryArtistGrouping(), ...readLibraryEntityLayouts(), scroll: 0, loadedCount: 200 });
 export function releaseLibraryEntity(release: ArtistReleaseRef, artist = ''): LibraryEntity {
   return { id: '', kind: 'album', name: release.title, artist: release.credits.map(c => c.name).join(', ') || artist,
     provider: release.release.provider, providerId: release.release.id, sourceUrl: release.sourceUrl,

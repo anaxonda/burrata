@@ -72,3 +72,34 @@ it("shows a successfully loaded high-resolution candidate", async () => {
   await new Promise(resolve => setTimeout(resolve, 0)); await tick();
   expect(document.querySelector<HTMLImageElement>("img")?.src).toContain("front-1200");
 });
+
+it("keeps a sharper mid-size cover when the full-size candidate fails", async () => {
+  const thumbnail = "https://f4.bcbits.com/img/a2324687513_3.jpg";
+  const medium = "https://f4.bcbits.com/img/a2324687513_5.jpg";
+  const large = "https://f4.bcbits.com/img/a2324687513_10.jpg";
+  const probes: string[] = [];
+  class ProbeImage {
+    naturalWidth = 700;
+    naturalHeight = 700;
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    set src(url: string) {
+      probes.push(url);
+      queueMicrotask(() => url === large ? this.onerror?.() : this.onload?.());
+    }
+  }
+  vi.stubGlobal("Image", ProbeImage);
+  vi.stubGlobal("devicePixelRatio", 2);
+  const instance = mount(ArtworkImage, { target: document.body, props: {
+    urls: [thumbnail],
+    upgradeCandidates: [{ url: medium, width: 700, height: 700 }, { url: large, width: 1200, height: 1200 }],
+  } });
+  cleanup = () => { vi.unstubAllGlobals(); return unmount(instance); };
+  await tick();
+  const original = document.querySelector<HTMLImageElement>("img")!;
+  Object.defineProperty(original, "naturalWidth", { value: 100 });
+  Object.defineProperty(original, "naturalHeight", { value: 100 });
+  original.dispatchEvent(new Event("load"));
+  await vi.waitFor(() => expect(document.querySelector("img")?.src).toBe(medium));
+  expect(probes).toEqual([large, medium]);
+});

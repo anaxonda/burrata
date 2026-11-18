@@ -11,7 +11,7 @@
   interface ManagedDownloadSettings { slots: number; speedLimitKib: number | null; retryAttempts: number; retryDelayMs: number; retryMaxDelayMs: number; partialPolicy: "resume" | "overwrite" }
   interface ManagedDownloadState { managed: boolean; canEdit: boolean; settings: ManagedDownloadSettings | null; guidance: string }
   let { onChanged = (_status: Status) => {} }: { onChanged?: (status: Status) => void } = $props();
-  let config = $state<Config>({ slskd: { enabled: false, baseUrl: "http://localhost:5030", downloadsPath: "" }, discogsEnabled: false, lastfmEnabled: false, lyricsTranslation: { enabled: false, baseUrl: "https://api.openai.com/v1", model: "", targetLanguage: "en" } });
+  let config = $state<Config>({ slskd: { enabled: false, baseUrl: "http://localhost:5030", downloadsPath: "" }, discogsEnabled: true, lastfmEnabled: false, lyricsTranslation: { enabled: false, baseUrl: "https://api.openai.com/v1", model: "", targetLanguage: "en" } });
   let status = $state<Status | null>(null), slskdKey = $state(""), discogsToken = $state(""), lastfmKey = $state(""), acoustidKey = $state(""), lyricsTranslationKey = $state(""), sessionOnly = $state(false);
   let clear = $state<Record<string, boolean>>({}), busy = $state(false), message = $state("");
   let checks = $state<{ provider: string; available: boolean; message: string }[]>([]);
@@ -196,7 +196,7 @@
   </details>
   <details>
     <summary>Discogs · {credentialLabel(status?.discogsCredential)}</summary>
-    <p>Releases, versions, labels and credits. A personal token enables catalog search.</p>
+    <p>Burrata can look up known public releases with this setting on. A personal token enables Discogs catalog search.</p>
     <button disabled={busy} onclick={() => void importOneTagger()}>Import token from OneTagger</button>
     <label class="check"><input type="checkbox" bind:checked={config.discogsEnabled} /> Use Discogs metadata</label>
     <label>Personal token<input aria-label="Discogs token" type="password" autocomplete="off" bind:value={discogsToken} placeholder={status?.discogsCredential.present ? "Leave blank to keep saved token" : "Discogs personal access token"} /></label>

@@ -10092,8 +10092,10 @@ it.each(["next in queue", "playback bar"])("keeps fullscreen open when opening t
   expect(document.querySelector(".now-playing-view")).toBeNull();
 });
 
-it("keeps the selected public artwork source available for fullscreen upgrades after caching",async()=>{
-  const remote="https://yt3.googleusercontent.com/SyntheticAsset_123=w120-h120-l90-rj";
+it.each([
+  ["youtube", "https://yt3.googleusercontent.com/SyntheticAsset_123=w120-h120-l90-rj", "https://yt3.googleusercontent.com/SyntheticAsset_123=w600-h600-l90-rj"],
+  ["bandcamp", "https://f4.bcbits.com/img/a2324687513_3.jpg", "https://f4.bcbits.com/img/a2324687513_5.jpg"],
+])("keeps the selected public artwork source available for fullscreen upgrades after caching %s",async(provider,remote,upgrade)=>{
   const cached="asset://localhost/cached-qualification-art.jpg";
   const probes:string[]=[];
   class ImageProbe {
@@ -10102,7 +10104,7 @@ it("keeps the selected public artwork source available for fullscreen upgrades a
     set src(value:string){probes.push(value);queueMicrotask(()=>this.onload?.());}
   }
   vi.stubGlobal("Image",ImageProbe);
-  const track={...savedTrack,provider:"youtube",artworkUrl:remote};
+  const track={...savedTrack,provider,artworkUrl:remote};
   nativePlaybackSnapshot=makeNativeSnapshot({status:"paused",track,trackId:track.id,queue:[track],currentIndex:0});
   const original=mocks.call.getMockImplementation()!;
   mocks.call.mockImplementation(async(command:string,args?:Record<string,unknown>)=>command==="cache_artwork"?cached:original(command,args));
@@ -10110,9 +10112,11 @@ it("keeps the selected public artwork source available for fullscreen upgrades a
   document.querySelector<HTMLButtonElement>('[aria-label="Full-screen Now Playing"]')!.click();await settle();
   const image=document.querySelector<HTMLImageElement>(".now-playing-view .hero-art img")!;
   expect(image.src).toBe(cached);
-  Object.defineProperty(image,"naturalWidth",{configurable:true,value:120});image.dispatchEvent(new Event("load"));await settle();
-  expect(probes).toContain(remote.replace("w120-h120","w600-h600"));
-  expect(document.querySelector<HTMLImageElement>(".now-playing-view .hero-art img")?.src).toContain("=w600-h600-l90-rj");
+  Object.defineProperty(image,"naturalWidth",{configurable:true,value:120});
+  Object.defineProperty(image,"naturalHeight",{configurable:true,value:120});
+  image.dispatchEvent(new Event("load"));await settle();
+  expect(probes).toContain(upgrade);
+  expect(document.querySelector<HTMLImageElement>(".now-playing-view .hero-art img")?.src).toBe(upgrade);
 });
 
 async function openTestTrackAlbum(track: Track, source: string) {

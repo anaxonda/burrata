@@ -16,32 +16,69 @@
     return Math.min(1200, Math.max(600, Math.ceil(cssWidth * density)));
   }
 
-  function tryUpgrade(node: HTMLImageElement) {
-    if (upgradeAttempted || !upgradeCandidates.length || node.naturalWidth >= targetPixelWidth(node)) return;
+  const shortSide = (width: number, height: number) => Math.min(width, height);
+
+  function tryUpgrade(node: HTMLImageElement, originalSize: number) {
+    if (upgradeAttempted || !upgradeCandidates.length) return;
+    const target = targetPixelWidth(node);
+    if (originalSize >= target) return;
     upgradeAttempted = true;
     const token = upgradeGeneration;
-    const target = targetPixelWidth(node);
-    const candidates = [...new Map(upgradeCandidates
-      .filter(candidate => candidate.width >= target && candidate.height >= target && candidate.url !== node.currentSrc && candidate.url !== node.src)
+    const improvements = [...new Map(upgradeCandidates
+      .filter(candidate => shortSide(candidate.width, candidate.height) > originalSize
+        && candidate.url !== node.currentSrc && candidate.url !== node.src)
       .map(candidate => [candidate.url, candidate])).values()];
+    const sizeOf = (candidate: ArtworkUpgradeCandidate) => shortSide(candidate.width, candidate.height);
+    // Preserve the provider's image preference for candidates that can fill the
+    // view. If those fail, seek the largest improvement over the current image.
+    const candidates = [
+      ...improvements.filter(candidate => sizeOf(candidate) >= target),
+      ...improvements.filter(candidate => sizeOf(candidate) < target)
+        .sort((left, right) => sizeOf(right) - sizeOf(left)),
+    ];
+    let best: { url: string; size: number } | null = null;
     const loadNext = (candidateIndex: number) => {
-      if (token !== upgradeGeneration || candidateIndex >= candidates.length) return;
+      if (token !== upgradeGeneration) return;
+      if (candidateIndex >= candidates.length) {
+        if (best) upgradedSource = best.url;
+        return;
+      }
       const probe = new Image();
       const candidate = candidates[candidateIndex]!;
       probe.onload = () => {
         if (token !== upgradeGeneration) return;
-        if (probe.naturalWidth >= target) upgradedSource = candidate.url;
-        else loadNext(candidateIndex + 1);
+        const size = shortSide(probe.naturalWidth, probe.naturalHeight);
+        if (size >= target) {
+          upgradedSource = candidate.url;
+          return;
+        }
+        if (size > (best?.size ?? originalSize)) best = { url: candidate.url, size };
+        loadNext(candidateIndex + 1);
       };
       probe.onerror = () => loadNext(candidateIndex + 1);
       probe.src = candidate.url;
     };
     loadNext(0);
   }
+
+  function onImageLoad(event: Event) {
+    const node = event.currentTarget as HTMLImageElement;
+    tryUpgrade(node, shortSide(node.naturalWidth, node.naturalHeight));
+  }
+
+  function onImageError(event: Event) {
+    const node = event.currentTarget as HTMLImageElement;
+    if (upgradedSource) {
+      upgradedSource = null;
+      return;
+    }
+    index += 1;
+    if (index >= sources.length) tryUpgrade(node, 0);
+  }
 </script>
 
 <span class="image-frame" aria-hidden="true">
-  {#if source}<img src={source} alt="" loading="lazy" onload={(event) => tryUpgrade(event.currentTarget as HTMLImageElement)} onerror={() => { if (upgradedSource) upgradedSource = null; else index += 1; }} />
+  {#if source}<img src={source} alt="" loading="lazy" onload={onImageLoad} onerror={onImageError} />
   {:else}<span class="placeholder">♫</span>{/if}
 </span>
 

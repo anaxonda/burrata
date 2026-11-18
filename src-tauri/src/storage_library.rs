@@ -4,7 +4,16 @@ use super::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-const LIBRARY_PROJECTION_REVISION: i64 = 5;
+const LIBRARY_PROJECTION_REVISION: i64 = 6;
+const ARTIST_COMBINATION_PREFIX: &str = "artist:combination:";
+
+#[derive(Clone, Copy, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ArtistGrouping {
+    #[default]
+    Individual,
+    Credited,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -721,12 +730,111 @@ fn canonicalize(mut entry: LibraryEntity, refs: &HashMap<String, Vec<String>>) -
     entry
 }
 
+fn spotify_catalog_artist_credits(track: &Track) -> Option<&Vec<Value>> {
+    let catalog = &track.provenance["catalog"];
+    let artists = catalog["artists"].as_array()?;
+    (track.provider == "spotify"
+        && catalog["provider"] == "spotify"
+        && catalog["verified"] == true
+        && catalog["providerId"].as_str() == Some(track.provider_id.as_str())
+        && catalog["artistCount"].as_u64() == Some(artists.len() as u64)
+        && crate::recording_identity::declared_credit_names(track).is_some())
+    .then_some(artists)
+}
+
+fn legacy_spotify_artist_names<'a>(
+    track: &'a Track,
+    known_names: &std::collections::HashSet<String>,
+    known_collaborators: &std::collections::HashSet<String>,
+) -> Option<Vec<&'a str>> {
+    let catalog = &track.provenance["catalog"];
+    let remote = &track.provenance["remoteCatalog"];
+    if track.provider != "spotify"
+        || catalog["provider"] != "spotify"
+        || catalog["verified"] != true
+        || catalog["providerId"].as_str() != Some(track.provider_id.as_str())
+        || remote["artist"].as_str() != Some(track.artist.as_str())
+        || track.provenance.pointer("/manualFields/artist") == Some(&Value::Bool(true))
+        || known_names.contains(&normalized(&track.artist))
+    {
+        return None;
+    }
+    let names = track.artist.split(", ").map(str::trim).collect::<Vec<_>>();
+    if !(2..=32).contains(&names.len()) || names.iter().any(|name| name.is_empty()) {
+        return None;
+    }
+    // Older Spotify rows may only have the provider's comma-joined display
+    // text. Corroborate its boundaries with the provider's count, individual
+    // names, or a performer already seen in structured Spotify collaborations.
+    // A distinct solo name alone can also be part of a punctuation-bearing act.
+    let corroborated = match catalog["artistCount"]
+        .as_u64()
+        .or(remote["artistCount"].as_u64())
+    {
+        Some(count) => count == names.len() as u64,
+        None => {
+            names
+                .iter()
+                .all(|name| known_names.contains(&normalized(name)))
+                || (names.iter().all(|name| !name.contains(" & "))
+                    && names
+                        .iter()
+                        .any(|name| known_collaborators.contains(&normalized(name))))
+        }
+    };
+    corroborated.then_some(names)
+}
+
+fn artist_combination(track: &Track, entries: &[LibraryEntity]) -> Option<LibraryEntity> {
+    use sha2::Digest;
+    let declared = track.provenance["artistCredits"]
+        .as_array()
+        .filter(|credits| !credits.is_empty())
+        .map(|credits| {
+            credits
+                .iter()
+                .filter(|credit| {
+                    credit["role"]
+                        .as_str()
+                        .is_none_or(crate::recording_identity::is_performer_credit_role)
+                })
+                .filter_map(|credit| string_at(credit, &["/name", "/artist/name"]))
+                .map(normalized)
+                .collect::<std::collections::HashSet<_>>()
+        });
+    let mut ids = std::collections::BTreeSet::new();
+    let names = entries
+        .iter()
+        .filter(|entry| {
+            entry.kind == "artist"
+                && declared
+                    .as_ref()
+                    .is_none_or(|names| names.contains(&normalized(&entry.name)))
+                && ids.insert(entry.id.as_str())
+        })
+        .map(|entry| entry.name.as_str())
+        .collect::<Vec<_>>();
+    if names.len() < 2 {
+        return None;
+    }
+    let name = names.join(", ");
+    let mut combination = entity("artist", &name, track, None, None).validate().ok()?;
+    combination.artist = name;
+    let key = serde_json::to_vec(&ids).ok()?;
+    combination.id = format!("{ARTIST_COMBINATION_PREFIX}{:x}", sha2::Sha256::digest(key));
+    Some(combination)
+}
+
 pub(super) fn track_entities(track: &Track) -> Vec<LibraryEntity> {
     let p = &track.provenance;
     let mut result = Vec::new();
     let manual_artist = p.pointer("/manualFields/artist") == Some(&json!(true));
     if !manual_artist {
-        if let Some(credits) = p.get("artistCredits").and_then(Value::as_array) {
+        if let Some(credits) = p["artistCredits"]
+            .as_array()
+            .filter(|credits| !credits.is_empty())
+            .or_else(|| spotify_catalog_artist_credits(track))
+        {
             for credit in credits {
                 if (track.provider == "youtube" || p["captureProvider"] == "youtube")
                     && !crate::recording_identity::is_performer_credit_role(
@@ -867,7 +975,7 @@ pub(super) fn refresh(conn: &Connection) -> Result<()> {
             entry.explicitly_saved = active;
             saved.push(canonical(entry));
         }
-        let grouped = tracks
+        let mut grouped = tracks
             .into_iter()
             .map(|track| {
                 let entries = track_entities(&track)
@@ -879,6 +987,45 @@ pub(super) fn refresh(conn: &Connection) -> Result<()> {
             .collect::<Vec<_>>();
         let mut known_artists = HashMap::<String, LibraryEntity>::new();
         let mut named_refs = HashMap::<String, std::collections::BTreeSet<String>>::new();
+        let known_artist_names = saved
+            .iter()
+            .chain(grouped.iter().flat_map(|(_, entries)| entries.iter()))
+            .filter(|entry| {
+                entry.kind == "artist" && (entry.provider_id.is_some() || !entry.name.contains(','))
+            })
+            .map(|entry| normalized(&entry.name))
+            .collect::<std::collections::HashSet<_>>();
+        let known_collaborators = grouped
+            .iter()
+            .filter(|(track, _)| {
+                spotify_catalog_artist_credits(track).is_some_and(|credits| credits.len() > 1)
+            })
+            .flat_map(|(_, entries)| entries)
+            .filter(|entry| entry.kind == "artist" && entry.provider_id.is_some())
+            .map(|entry| normalized(&entry.name))
+            .collect::<std::collections::HashSet<_>>();
+        for (track, entries) in &mut grouped {
+            if entries
+                .iter()
+                .filter(|entry| entry.kind == "artist")
+                .count()
+                == 1
+                && entries.iter().any(|entry| {
+                    entry.kind == "artist"
+                        && entry.provider_id.is_none()
+                        && entry.name == track.artist
+                })
+            {
+                if let Some(names) =
+                    legacy_spotify_artist_names(track, &known_artist_names, &known_collaborators)
+                {
+                    entries.retain(|entry| entry.kind != "artist");
+                    entries.extend(names.into_iter().filter_map(|name| {
+                        entity("artist", name, track, None, None).validate().ok()
+                    }));
+                }
+            }
+        }
         for entry in saved
             .iter()
             .chain(grouped.iter().flat_map(|(_, entries)| entries.iter()))
@@ -929,19 +1076,24 @@ pub(super) fn refresh(conn: &Connection) -> Result<()> {
             )
             .map_err(err)?;
         }
-        for (track, entries) in grouped {
-            for mut entry in entries {
+        for (track, mut entries) in grouped {
+            for entry in &mut entries {
                 if entry.kind == "artist" && entry.provider_id.is_none() {
                     if let Some(ids) = named_refs
                         .get(&normalized(&entry.name))
                         .filter(|ids| ids.len() == 1)
                     {
                         if let Some(known) = known_artists.get(ids.first().unwrap()) {
-                            entry = known.clone();
+                            *entry = known.clone();
                             entry.explicitly_saved = false;
                         }
                     }
                 }
+            }
+            if let Some(combination) = artist_combination(&track, &entries) {
+                entries.push(combination);
+            }
+            for entry in entries {
                 conn.execute(
                     "INSERT OR IGNORE INTO library_entities VALUES(?1,?2,?3)",
                     params![entry.id, entry.kind, encode(&entry)?],
@@ -1239,7 +1391,16 @@ impl Store {
         offset: usize,
     ) -> Result<LibraryEntityPage> {
         self.list_library_entities_filtered(
-            kind, artist_id, query, None, None, "name", false, limit, offset,
+            kind,
+            artist_id,
+            query,
+            None,
+            None,
+            "name",
+            false,
+            limit,
+            offset,
+            ArtistGrouping::Individual,
         )
     }
 
@@ -1254,6 +1415,7 @@ impl Store {
         descending: bool,
         limit: usize,
         offset: usize,
+        artist_grouping: ArtistGrouping,
     ) -> Result<LibraryEntityPage> {
         if !matches!(kind, "artist" | "album") {
             return Err("Unknown library entity kind".into());
@@ -1266,7 +1428,30 @@ impl Store {
                 .get(id)
                 .map_or_else(|| id.to_owned(), |refs| refs[0].clone())
         });
-        let filter = "e.kind=?1 AND instr(unicode_lower(json_extract(e.payload,'$.name') || ' ' || json_extract(e.payload,'$.artist') || ' ' || COALESCE(json_extract(e.payload,'$.releaseDate'),'') || ' ' || COALESCE(json_extract(e.payload,'$.provider'),'')),?2)>0 AND (?3 IS NULL OR EXISTS(SELECT 1 FROM library_artist_albums membership WHERE membership.artist_id=?3 AND membership.album_id=e.id)) AND (?4 IS NULL OR (?4='__metadata__' AND json_extract(e.payload,'$.provider') IS NULL) OR unicode_lower(COALESCE(json_extract(e.payload,'$.provider'),''))=unicode_lower(?4)) AND (?5 IS NULL OR substr(COALESCE(json_extract(e.payload,'$.releaseDate'),''),1,4)=?5)";
+        let grouping_filter = match (kind, artist_grouping) {
+            ("artist", ArtistGrouping::Credited) => "AND e.id GLOB 'artist:combination:*'",
+            ("artist", ArtistGrouping::Individual) => "AND e.id NOT GLOB 'artist:combination:*'",
+            _ => "",
+        };
+        let catalog_source = "unicode_lower(json_extract(e.payload,'$.provider'))";
+        let (search_sources, source_filter, sort_source) = if kind == "artist"
+            && matches!(artist_grouping, ArtistGrouping::Credited)
+        {
+            let track_source = "unicode_lower(COALESCE(NULLIF(json_extract(l.metadata,'$.provenance.catalogProvider'),''),NULLIF(l.provider,'catalog')))";
+            let members = "FROM library_entity_tracks t JOIN catalog_listings l ON l.id=t.listing_id WHERE t.entity_id=e.id";
+            (
+                    format!("OR EXISTS(SELECT 1 {members} AND instr({track_source},?2)>0)"),
+                    format!("EXISTS(SELECT 1 {members} AND ((?4='__metadata__' AND {track_source} IS NULL) OR {track_source}=unicode_lower(?4)))"),
+                    format!("COALESCE((SELECT MIN({track_source}) {members}),'')"),
+                )
+        } else {
+            (
+                    String::new(),
+                    format!("(?4='__metadata__' AND {catalog_source} IS NULL) OR {catalog_source}=unicode_lower(?4)"),
+                    format!("COALESCE({catalog_source},'')"),
+                )
+        };
+        let filter = format!("e.kind=?1 {grouping_filter} AND (instr(unicode_lower(json_extract(e.payload,'$.name') || ' ' || json_extract(e.payload,'$.artist') || ' ' || COALESCE(json_extract(e.payload,'$.releaseDate'),'') || ' ' || COALESCE(json_extract(e.payload,'$.provider'),'')),?2)>0 {search_sources}) AND (?3 IS NULL OR EXISTS(SELECT 1 FROM library_artist_albums membership WHERE membership.artist_id=?3 AND membership.album_id=e.id)) AND (?4 IS NULL OR {source_filter}) AND (?5 IS NULL OR substr(COALESCE(json_extract(e.payload,'$.releaseDate'),''),1,4)=?5)");
         let query = normalized(query);
         let source = source.filter(|value| !value.trim().is_empty());
         let year = year
@@ -1274,7 +1459,7 @@ impl Store {
         let order = match sort {
             "artist" => "unicode_lower(json_extract(e.payload,'$.artist'))",
             "year" => "COALESCE(json_extract(e.payload,'$.releaseDate'),'')",
-            "source" => "unicode_lower(COALESCE(json_extract(e.payload,'$.provider'),''))",
+            "source" => &sort_source,
             "tracks" => "(SELECT COUNT(*) FROM library_entity_tracks t WHERE t.entity_id=e.id)",
             _ => "unicode_lower(json_extract(e.payload,'$.name'))",
         };
@@ -1861,6 +2046,130 @@ mod tests {
     }
 
     #[test]
+    fn artist_grouping_combines_saved_credit_membership_without_splitting_single_acts() {
+        let (_dir, store) = db();
+        let spotify = |id: &str, artist: &str, artists: Option<Value>| {
+            let mut row = track(id);
+            row.id = format!("spotify:{id}");
+            row.provider = "spotify".into();
+            row.artist = artist.into();
+            row.provenance = json!({
+                "catalog": {"provider": "spotify", "providerId": id, "verified": true},
+                "remoteCatalog": {"artist": artist},
+            });
+            if let Some(artists) = artists {
+                row.provenance["catalog"]["artistCount"] = json!(artists.as_array().unwrap().len());
+                row.provenance["catalog"]["artists"] = artists;
+            }
+            row
+        };
+        let joint = "Nipsey Hussle, Bino Rideaux";
+        let structured = spotify(
+            "structured",
+            joint,
+            Some(json!([
+                {"name": "Nipsey Hussle", "provider": "spotify", "id": "AAAAAAAAAAAAAAAAAAAAAA"},
+                {"name": "Bino Rideaux", "provider": "spotify", "id": "BBBBBBBBBBBBBBBBBBBBBB"}
+            ])),
+        );
+        let legacy = spotify("legacy", joint, None);
+        let older_joint = spotify("older", "Mustard, Nipsey Hussle", None);
+        assert_eq!(
+            legacy_spotify_artist_names(
+                &older_joint,
+                &std::collections::HashSet::from(["nipsey hussle".into()]),
+                &std::collections::HashSet::from(["nipsey hussle".into()]),
+            ),
+            Some(vec!["Mustard", "Nipsey Hussle"])
+        );
+        let solo = spotify("solo", "Nipsey Hussle", None);
+        let band = spotify(
+            "band",
+            "Earth, Wind & Fire",
+            Some(
+                json!([{"name": "Earth, Wind & Fire", "provider": "spotify", "id": "CCCCCCCCCCCCCCCCCCCCCC"}]),
+            ),
+        );
+        store
+            .save_library_tracks(&[structured.clone(), legacy.clone(), solo, band])
+            .unwrap();
+
+        let people = store
+            .list_library_entities("artist", None, "", 200, 0)
+            .unwrap();
+        assert_eq!(people.total, 3);
+        assert_eq!(
+            people
+                .items
+                .iter()
+                .map(|entry| (entry.name.as_str(), entry.track_count))
+                .collect::<Vec<_>>(),
+            vec![
+                ("Bino Rideaux", 2),
+                ("Earth, Wind & Fire", 1),
+                ("Nipsey Hussle", 3)
+            ]
+        );
+        let combinations = store
+            .list_library_entities_filtered(
+                "artist",
+                None,
+                "Nipsey",
+                Some("spotify"),
+                None,
+                "name",
+                false,
+                1,
+                0,
+                ArtistGrouping::Credited,
+            )
+            .unwrap();
+        assert_eq!(combinations.total, 1);
+        let combination = &combinations.items[0];
+        assert!(combination.id.starts_with(ARTIST_COMBINATION_PREFIX));
+        assert_eq!(combination.name, joint);
+        assert_eq!(combination.track_count, 2);
+        let tracks = store
+            .list_library_entity_tracks(
+                &combination.id,
+                "",
+                "sourceOrder",
+                false,
+                "all",
+                None,
+                None,
+                10,
+                0,
+            )
+            .unwrap();
+        assert_eq!(
+            tracks
+                .tracks
+                .into_iter()
+                .map(|track| track.id)
+                .collect::<std::collections::BTreeSet<_>>(),
+            std::collections::BTreeSet::from([structured.id, legacy.id])
+        );
+        let albums = store
+            .list_library_entities("album", Some(&combination.id), "", 200, 0)
+            .unwrap();
+        assert_eq!(albums.total, combination.album_count);
+        assert!(albums.total > 0);
+    }
+
+    #[test]
+    fn artist_combinations_exclude_non_performer_credits() {
+        let mut solo = track("solo-with-remix-credit");
+        solo.provenance["artistCredits"] = json!([
+            {"name": "Main Artist", "role": "Main"},
+            {"name": "Brian Eno", "role": "Remix"}
+        ]);
+        let entries = track_entities(&solo);
+        assert!(entries.iter().any(|entry| entry.name == "Brian Eno"));
+        assert!(artist_combination(&solo, &entries).is_none());
+    }
+
+    #[test]
     fn captured_catalog_credits_create_individual_artists_and_preserve_atomic_names() {
         for provider in ["beatport", "traxsource"] {
             let (_dir, store) = db();
@@ -2431,6 +2740,7 @@ mod tests {
                     false,
                     200,
                     0,
+                    ArtistGrouping::Individual,
                 )
                 .unwrap()
                 .total,
@@ -2716,6 +3026,7 @@ mod tests {
                     false,
                     200,
                     0,
+                    ArtistGrouping::Individual,
                 )
                 .unwrap()
                 .total,
@@ -2733,6 +3044,7 @@ mod tests {
                     true,
                     200,
                     0,
+                    ArtistGrouping::Individual,
                 )
                 .unwrap()
                 .items[0]

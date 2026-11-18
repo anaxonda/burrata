@@ -913,10 +913,12 @@ describe("artist discography ordering", () => {
 });
 
  it("places the formatted Discogs biography above genres, aliases, and coverage", async () => {
-   const ref=artist("beck", "Beck");
+   const ref: ArtistSearchResult = { artist: { provider: "discogs", id: "70857" }, name: "Beck", sourceUrl: "https://www.discogs.com/artist/70857", disambiguation: "American musician." };
    const target=render({initialArtistRef:ref.artist,getArtistProfile:async()=>({...profile(ref),biography:"American musician.\r\n\r\nSon of [a=David Campbell] and [a=Bibbe Hansen].",biographySource:"Discogs"})});
    await settle();
    const bio=target.querySelector<HTMLElement>('.artist-biography')!;
+   expect(target.querySelector('.artist-heading')?.textContent).not.toContain("American musician.");
+   expect(bio.textContent).toContain("American musician.");
    expect(bio.textContent).toContain("Son of David Campbell and Bibbe Hansen.");
    expect(bio.textContent).not.toContain("[a=");
    expect(bio.querySelector('a')?.href).toBe('https://www.discogs.com/search/?q=David+Campbell&type=artist');

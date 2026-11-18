@@ -295,7 +295,8 @@ pub fn source_registry(connections: &ConnectionManager) -> Result<Vec<SourceCapa
         cap(
             "discogs",
             &["artist", "album"],
-            c.discogs_enabled && connections.credential("discogs")?.is_some(),
+            c.discogs_enabled
+                && connections.credential("discogs").is_ok_and(|token| token.is_some()),
             Some("Enable Discogs in Connections"),
         ),
         cap("youtube", &["track", "video"], true, None),
@@ -2349,6 +2350,9 @@ mod tests {
     #[test]
     fn registry_contains_searchable_catalogs_and_library_only() {
         let store = Arc::new(Store::open(std::path::Path::new(":memory:")).unwrap());
+        store
+            .set_json_preference("connections_session_only", &json!(["discogs"]))
+            .unwrap();
         let connections = ConnectionManager::new(store);
         let registry = source_registry(&connections).unwrap();
         assert_eq!(

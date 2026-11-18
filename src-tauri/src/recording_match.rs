@@ -4156,12 +4156,10 @@ fn assess_prepared_inner(
         && guests != Comparison::Conflict
         && isrc != Comparison::Conflict
         && (version != Comparison::Conflict || alternative)
-        && ((!options.allow_different_lengths
-            && (runtime == Comparison::Agree
-                || flexible_runtime_close
-                || target_runtime.is_none()
-                    && candidate_runtime.is_some_and(|duration| duration > 30.0)))
-            || options.allow_different_lengths && configured_length_alternative);
+        && (flexible_runtime_eligible
+            || options.allow_different_lengths && configured_length_alternative
+            || target_runtime.is_none()
+                && candidate_runtime.is_some_and(|duration| duration > 30.0));
     let full_credits = credits_complete && !names.is_empty();
     let balanced_catalog_ok =
         policy.allow_catalog_runtime_exception && authoritative && full_credits;
@@ -8996,11 +8994,16 @@ mod tests {
         assert_eq!(missing_runtime.dimensions.runtime, Comparison::Unknown);
         assert_eq!(missing_runtime.dimensions.version, Comparison::Unknown);
         assert_eq!(
-            missing_runtime.action,
-            MatchAction::Inspect,
+            missing_runtime.action, unconstrained_unknown_runtime.action,
             "{missing_runtime:?}"
         );
-        assert_eq!(missing_runtime.relationship, MatchRelationship::Unresolved);
+        assert_eq!(
+            missing_runtime.relationship,
+            unconstrained_unknown_runtime.relationship
+        );
+        assert!(missing_runtime
+            .reasons
+            .contains(&MatchReason::DurationLimitUnavailable));
         assert!(!missing_runtime
             .reasons
             .contains(&MatchReason::RuntimeConflict));

@@ -2,6 +2,8 @@
 // @ts-expect-error Use the browser runtime in jsdom.
 import { mount, tick, unmount } from '../node_modules/svelte/src/index-client.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+// @ts-expect-error Match the browser runtime for reactive controlled props.
+import { fromStore, writable } from '../node_modules/svelte/src/store/index-client.js';
 // @ts-expect-error Use the browser runtime in jsdom.
 vi.mock('svelte', async () => await import('../node_modules/svelte/src/index-client.js'));
 import LibraryBrowser from './LibraryBrowser.svelte';
@@ -21,9 +23,10 @@ function clearRendered() { const dispose = destroy as (() => void) | undefined; 
 const artist: LibraryEntity = { id: 'artist:ref:spotify:one', kind: 'artist', name: 'Artist', artist: '', provider: 'spotify', providerId: 'one', explicitlySaved: true, trackCount: 1, albumCount: 1 };
 const albumVersion = (id: string, name: string, artistName: string, provider: string, releaseDate: string): LibraryEntity => ({ id, kind: 'album', name, artist: artistName, provider, providerId: `${provider}-id`, releaseDate, explicitlySaved: false, trackCount: 3, totalTracks: 12, albumCount: 0 });
 const saved: Track = { id: 'fixture:saved', provider: 'fixture', providerId: 'saved', title: 'Saved song', artist: 'Artist', sourceUrl: '', favorite: false, provenance: {} };
-function render(extra: Record<string, unknown> = {}) {
+function render(extra: Record<string, unknown> = {}, activeState?: { readonly current: LibraryBrowserState }) {
   const target = document.createElement('div'); document.body.append(target);
-  const props = { browserState: { ...initialLibraryBrowserState(), tab: 'artists' }, call: vi.fn(async (_command: string, _args?: Record<string, unknown>) => ({ items: [artist], total: 1 })), onNavigate: vi.fn(), onStateChange: vi.fn(), onBrowse: vi.fn(), onPlay: vi.fn(), onQueue: vi.fn(), onDownload: vi.fn(), onFavorite: vi.fn(), onPlaylist: vi.fn(), onArtist: vi.fn(), onAlbum: vi.fn(), onContext: vi.fn(), onAddSelectedToPlaylist: vi.fn(), ...extra };
+  const initialState: LibraryBrowserState = { ...initialLibraryBrowserState(), tab: 'artists' };
+  const props = { get browserState() { return activeState?.current ?? initialState; }, call: vi.fn(async (_command: string, _args?: Record<string, unknown>) => ({ items: [artist], total: 1 })), onNavigate: vi.fn(), onStateChange: vi.fn(), onBrowse: vi.fn(), onPlay: vi.fn(), onQueue: vi.fn(), onDownload: vi.fn(), onFavorite: vi.fn(), onPlaylist: vi.fn(), onArtist: vi.fn(), onAlbum: vi.fn(), onContext: vi.fn(), onAddSelectedToPlaylist: vi.fn(), ...extra };
   const instance = mount(LibraryBrowser, { target, props: props as never }); destroy = () => unmount(instance);
   return { target, props };
 }
@@ -127,9 +130,51 @@ describe('saved library views', () => {
 
   it('loads paginated saved artists and opens their library albums', async () => {
     const { target, props } = render(); await settle();
-    expect(props.call).toHaveBeenCalledWith('list_library_entities', expect.objectContaining({ kind: 'artist', artistId: null, offset: 0, limit: 200 }));
+    expect(props.call).toHaveBeenCalledWith('list_library_entities', expect.objectContaining({ kind: 'artist', artistId: null, artistGrouping: 'individual', offset: 0, limit: 200 }));
     target.querySelector<HTMLButtonElement>('.entity-card')!.click(); await settle();
     expect(props.onNavigate).toHaveBeenCalledWith(expect.objectContaining({ entity: artist, section: 'albums', tab: 'artists' }));
+  });
+
+  it('switches to credited combinations, remembers the grouping, and opens their saved album scope', async () => {
+    const combination: LibraryEntity = {
+      ...artist, id: 'artist:combination:nipsey-bino', name: 'Nipsey Hussle, Bino Rideaux',
+      provider: null, providerId: null, explicitlySaved: false, trackCount: 3, albumCount: 2,
+    };
+    const call = vi.fn(async (_command: string, args?: Record<string, unknown>) => {
+      if (args?.kind === 'album') return { items: [], total: 0 };
+      return { items: [args?.artistGrouping === 'credited' ? combination : artist], total: 1 };
+    });
+    const initialState: LibraryBrowserState = {
+      ...initialLibraryBrowserState(), tab: 'artists', artistLayout: 'list', query: 'Nipsey',
+      entitySource: 'discogs', entitySort: 'tracks', entityDescending: true, loadedCount: 400, scroll: 80,
+    };
+    const state = writable(initialState);
+    const onNavigate = vi.fn((next: LibraryBrowserState) => state.set(next));
+    const model = fromStore(state);
+    const { target } = render({ call, onNavigate, onStateChange: state.set }, model);
+    await settle();
+    const grouping = target.querySelector<HTMLSelectElement>('[aria-label="Artist grouping"]')!;
+    expect(grouping.value).toBe('individual');
+    grouping.value = 'credited';
+    grouping.dispatchEvent(new Event('change', { bubbles: true }));
+    await settle();
+
+    expect(call).toHaveBeenLastCalledWith('list_library_entities', expect.objectContaining({
+      kind: 'artist', artistGrouping: 'credited', query: 'Nipsey', source: 'discogs',
+      sort: 'tracks', descending: true, limit: 200, offset: 0,
+    }));
+    expect(model.current).toMatchObject({ artistLayout: 'list', loadedCount: 200, scroll: 0 });
+    expect(initialLibraryBrowserState().artistGrouping).toBe('credited');
+    expect(target.textContent).toContain('1 of 1 credited combinations');
+    target.querySelector<HTMLButtonElement>('.entity-card')!.click();
+    await settle();
+
+    expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ entity: combination, artistGrouping: 'credited' }));
+    const lastArgs = call.mock.lastCall?.[1];
+    expect(lastArgs).toMatchObject({ kind: 'album', artistId: combination.id });
+    expect(lastArgs).not.toHaveProperty('artistGrouping');
+    expect(target.querySelector('[aria-label="Artist grouping"]')).toBeNull();
+    expect(target.textContent).not.toContain('Browse catalog');
   });
 
   it('labels album and artist filters by the fields users can search', async () => {

@@ -2110,6 +2110,25 @@ impl Store {
         self.write_retained_provider_cache(PLAYBACK_LOCATOR_CACHE_NAMESPACE, key, payload)
     }
 
+    pub(crate) fn retained_catalog_duration(
+        &self,
+        fingerprint: &str,
+    ) -> Result<Option<serde_json::Value>> {
+        self.get_provider_cache("playback.verified-catalog-duration.v1", fingerprint)
+    }
+
+    pub(crate) fn retain_catalog_duration(
+        &self,
+        fingerprint: &str,
+        evidence: &serde_json::Value,
+    ) -> Result<()> {
+        self.write_retained_provider_cache(
+            "playback.verified-catalog-duration.v1",
+            fingerprint,
+            evidence,
+        )
+    }
+
     fn local_notice_file_stamp(path: &str) -> Option<(u64, u64, u32)> {
         let metadata = std::fs::symlink_metadata(path).ok()?;
         if !metadata.file_type().is_file() {

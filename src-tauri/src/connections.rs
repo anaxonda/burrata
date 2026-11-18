@@ -91,19 +91,26 @@ impl Default for LyricsTranslationSettings {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default, rename_all = "camelCase")]
 pub struct ConnectionSettings {
-    #[serde(default)]
     pub slskd: SlskdSettings,
-    #[serde(default)]
     pub discogs_enabled: bool,
-    #[serde(default)]
     pub lastfm_enabled: bool,
-    #[serde(default)]
     pub acoustid_enabled: bool,
-    #[serde(default)]
     pub lyrics_translation: LyricsTranslationSettings,
+}
+
+impl Default for ConnectionSettings {
+    fn default() -> Self {
+        Self {
+            slskd: SlskdSettings::default(),
+            discogs_enabled: true,
+            lastfm_enabled: false,
+            acoustid_enabled: false,
+            lyrics_translation: LyricsTranslationSettings::default(),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -597,6 +604,16 @@ fn credential_name(provider: &str) -> Result<&'static str, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn public_discogs_is_enabled_by_default_and_respects_explicit_opt_out() {
+        assert!(ConnectionSettings::default().discogs_enabled);
+        let legacy: ConnectionSettings = serde_json::from_str("{}").unwrap();
+        assert!(legacy.discogs_enabled);
+        let opted_out: ConnectionSettings =
+            serde_json::from_str(r#"{"discogsEnabled":false}"#).unwrap();
+        assert!(!opted_out.discogs_enabled);
+    }
 
     struct FailingKeyring;
     impl CredentialStore for FailingKeyring {

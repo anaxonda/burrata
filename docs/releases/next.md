@@ -1,9 +1,7 @@
-# Burrata 0.1.52
+# Burrata 0.1.53
 
-- Native playback builds a compressed audio buffer for supported finite streams. It can retry interrupted reads and refresh the same source while the decoder keeps consuming buffered audio.
-- A song that has already started stays selected if recovery runs out. Retry and restored-queue playback use the normal foreground resolver, including the direct route for an exact YouTube upload.
-- Transient failures preserve remembered sources. A stale mapping can be rediscovered within the startup deadline.
-- Artist Tracks can search for a song in the artist's catalog, even with an empty initial page. Ordinary artist browsing uses available catalog identities. Monochrome artist pages remain available through explicit source selection.
-- Artist and album links use their text height in track rows.
-
-Finite HLS recovery supports complete segments with verified continuity. Live streams and unsupported representations use their existing playback paths.
+- Flexible matching keeps a verified match when the saved catalog duration is missing. Length limits still apply when both durations are known.
+- Burrata saves verified exact-edition durations for later playback. Public Discogs metadata is enabled when there is no saved preference, and known releases can be looked up without a token.
+- Library Artists can show individual performers or combinations of credited performers. A combination opens the saved tracks and albums with that credit.
+- Discogs artist pages show the biography once, in the Overview.
+- Fullscreen playback looks for sharper covers on supported providers. Existing Bandcamp imports can use larger versions of the same cover, with the saved image available as a fallback.

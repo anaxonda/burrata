@@ -174,10 +174,10 @@ async fn live_bacc_saved_discogs_fixture_versus_fresh_source_lookup() {
     for &mode in modes {
         let workspace = tempfile::tempdir().unwrap();
         let store = Arc::new(Store::open(&workspace.path().join("live-startup.sqlite")).unwrap());
+        store
+            .set_json_preference("connections", &json!({"discogsEnabled": public_discogs}))
+            .unwrap();
         if public_discogs {
-            store
-                .set_json_preference("connections", &json!({"discogsEnabled": true}))
-                .unwrap();
             // The comparison must use anonymous public data only. This
             // private preference suppresses OS keyring reads for Discogs.
             store
