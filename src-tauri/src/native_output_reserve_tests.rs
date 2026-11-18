@@ -48,6 +48,7 @@ fn reserve_fixture_source(
             source_rate: Arc::new(std::sync::atomic::AtomicU32::new(44_100)),
             source_channels: Arc::new(std::sync::atomic::AtomicU32::new(2)),
             decode_failed: failed,
+            incomplete_end: Arc::new(AtomicBool::new(false)),
             source,
             end: None,
             activation_tx,

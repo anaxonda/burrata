@@ -4,8 +4,15 @@ use super::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-const LIBRARY_PROJECTION_REVISION: i64 = 6;
+const LIBRARY_PROJECTION_REVISION: i64 = 7;
 const ARTIST_COMBINATION_PREFIX: &str = "artist:combination:";
+const ALBUM_COVER_PREFIX: &str = "album:cover:";
+
+#[derive(Eq, Hash, PartialEq)]
+enum AlbumEvidence {
+    Page(String),
+    Cover(String),
+}
 
 #[derive(Clone, Copy, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -290,6 +297,216 @@ fn provider_album_id(track: &Track) -> Option<&str> {
             "/releaseId",
         ],
     )
+    .or_else(|| {
+        (track.provider == "youtube")
+            .then(|| string_at(&track.provenance, &["/albumBrowseId"]))
+            .flatten()
+            .filter(|id| {
+                id.starts_with("MPREb_")
+                    && id.len() <= 128
+                    && id
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+            })
+    })
+}
+
+fn album_provider(track: &Track) -> Option<&str> {
+    string_at(
+        &track.provenance,
+        &[
+            "/libraryAlbum/provider",
+            "/catalog/release/provider",
+            "/catalogProvider",
+        ],
+    )
+    .or_else(|| {
+        (!matches!(track.provider.as_str(), "" | "local" | "catalog"))
+            .then_some(track.provider.as_str())
+    })
+}
+
+fn spotify_album_artwork(artwork: &str) -> bool {
+    artwork
+        .strip_prefix("https://i.scdn.co/image/")
+        .is_some_and(|image| {
+            image.len() == 40
+                && image.starts_with("ab67616d")
+                && image.bytes().all(|byte| byte.is_ascii_hexdigit())
+        })
+}
+
+/// Group tracks by a source album page or matching artwork with corroborating
+/// edition evidence. Conflicting editions and providers stay separate.
+fn group_album_editions(grouped: &mut [(Track, Vec<LibraryEntity>)]) {
+    use sha2::Digest;
+    let mut editions: HashMap<(String, String, AlbumEvidence), Vec<usize>> = HashMap::new();
+    for (index, (track, entries)) in grouped.iter().enumerate() {
+        let Some(provider) = album_provider(track) else {
+            continue;
+        };
+        let Some(album) = entries.iter().find(|entry| entry.kind == "album") else {
+            continue;
+        };
+        let page = (provider == "bandcamp")
+            .then(|| {
+                string_at(
+                    &track.provenance,
+                    &["/importMetadata/albumUrl", "/sourceUrl"],
+                )
+                .and_then(|url| crate::collection_sources::validate_bandcamp_album_url(url).ok())
+            })
+            .flatten();
+        let Some(evidence) = page.map(AlbumEvidence::Page).or_else(|| {
+            usable_family_artwork(track).map(|url| AlbumEvidence::Cover(url.to_owned()))
+        }) else {
+            continue;
+        };
+        editions
+            .entry((provider.to_owned(), normalized(&album.name), evidence))
+            .or_default()
+            .push(index);
+    }
+    for ((provider, title, evidence), indices) in editions {
+        if indices.len() < 2 && matches!(evidence, AlbumEvidence::Cover(_)) {
+            continue;
+        }
+        let mut known_album = None::<&LibraryEntity>;
+        let mut release_date = None::<&str>;
+        let mut album_artist = None::<String>;
+        let mut catalog_number = None::<&str>;
+        let mut label = None::<String>;
+        let mut number_agreement = 0;
+        let mut has_legacy = false;
+        let compatible = indices.iter().all(|index| {
+            let (track, entries) = &grouped[*index];
+            let Some(album) = entries.iter().find(|entry| entry.kind == "album") else {
+                return false;
+            };
+            if album.provider_id.is_some() {
+                if known_album.is_some_and(|known| known.id != album.id) {
+                    return false;
+                }
+                known_album = Some(album);
+            } else {
+                has_legacy = true;
+            }
+            if let Some(date) = track
+                .release_date
+                .as_deref()
+                .filter(|date| !date.trim().is_empty())
+            {
+                if release_date.is_some_and(|known| known != date) {
+                    return false;
+                }
+                release_date = Some(date);
+            }
+            if let Some(artist) = explicit_album_artist(track) {
+                if album_artist
+                    .as_ref()
+                    .is_some_and(|known| normalized(known) != normalized(&artist))
+                {
+                    return false;
+                }
+                album_artist = Some(artist);
+            }
+            if let Some(number) = track
+                .catalog_number
+                .as_deref()
+                .map(str::trim)
+                .filter(|number| !number.is_empty())
+            {
+                if catalog_number.is_some_and(|known| !known.eq_ignore_ascii_case(number)) {
+                    return false;
+                }
+                catalog_number = Some(number);
+                number_agreement += 1;
+            }
+            if let Some(publisher) = track
+                .label
+                .as_deref()
+                .map(normalized)
+                .filter(|publisher| !publisher.is_empty())
+            {
+                if label.as_ref().is_some_and(|known| known != &publisher) {
+                    return false;
+                }
+                label = Some(publisher);
+            }
+            true
+        });
+        if !compatible || !has_legacy {
+            continue;
+        }
+        let common_artist = common_album_artist(indices.iter().map(|index| &grouped[*index].0));
+        let corroborated = match &evidence {
+            AlbumEvidence::Page(_) => true,
+            AlbumEvidence::Cover(image) => provider == "spotify" && spotify_album_artwork(image),
+        } || (known_album.is_some() && !common_artist.is_empty())
+            || album_artist.as_ref().is_some_and(|artist| {
+                !common_artist.is_empty() && normalized(artist) == normalized(&common_artist)
+            })
+            || (number_agreement == indices.len() && label.is_some());
+        // Channel artwork or an image reused across editions is insufficient
+        // without the corroborating release facts above.
+        if !corroborated {
+            continue;
+        }
+        let first = &grouped[indices[0]];
+        let Some(mut album) = known_album
+            .or_else(|| first.1.iter().find(|entry| entry.kind == "album"))
+            .cloned()
+        else {
+            continue;
+        };
+        if known_album.is_none() {
+            let (prefix, location) = match &evidence {
+                AlbumEvidence::Page(url) => ("album:page:", url),
+                AlbumEvidence::Cover(image) => (ALBUM_COVER_PREFIX, image),
+            };
+            let key = json!([title, location]).to_string();
+            album.id = format!("{prefix}{provider}:{:x}", sha2::Sha256::digest(key));
+            album.provider = Some(provider);
+        }
+        if let AlbumEvidence::Page(url) = evidence {
+            album.source_url = Some(url);
+        }
+        album.artist = album_artist.unwrap_or(common_artist);
+        album.release_date = release_date.map(str::to_owned);
+        // A cover-based group does not prove a complete ordered tracklist.
+        // An explicitly saved album still retains its authoritative total.
+        album.total_tracks = None;
+        for index in indices {
+            if let Some(entry) = grouped[index]
+                .1
+                .iter_mut()
+                .find(|entry| entry.kind == "album")
+            {
+                *entry = album.clone();
+            }
+        }
+    }
+}
+
+fn common_album_artist<'a>(mut tracks: impl Iterator<Item = &'a Track>) -> String {
+    let Some(first) = tracks.next() else {
+        return String::new();
+    };
+    let mut shared = inferred_album_artist(first);
+    for track in tracks {
+        let artist = normalized(&inferred_album_artist(track));
+        loop {
+            let expected = normalized(&shared);
+            if artist == expected || artist.starts_with(&format!("{expected}, ")) {
+                break;
+            }
+            let Some((prefix, _)) = shared.rsplit_once(", ") else {
+                return String::new();
+            };
+            shared.truncate(prefix.len());
+        }
+    }
+    shared
 }
 
 fn usable_family_artwork(track: &Track) -> Option<&str> {
@@ -742,6 +959,52 @@ fn spotify_catalog_artist_credits(track: &Track) -> Option<&Vec<Value>> {
     .then_some(artists)
 }
 
+fn musicbrainz_catalog_artist_credits(track: &Track) -> Option<Vec<(&str, &str)>> {
+    let catalog = &track.provenance["catalog"];
+    if track.provider != "musicbrainz"
+        || catalog["provider"] != "musicbrainz"
+        || catalog["verified"] != true
+        || catalog["recordingId"].as_str() != Some(track.provider_id.as_str())
+    {
+        return None;
+    }
+    let credited = catalog["artistCredit"].as_array()?;
+    let artists = catalog["artists"].as_array()?;
+    if credited.len() != artists.len() || !(1..=32).contains(&credited.len()) {
+        return None;
+    }
+    let rows = credited
+        .iter()
+        .zip(artists)
+        .map(|(credit, artist)| {
+            let name = credit.as_str()?.trim();
+            let id = artist["id"].as_str()?;
+            (!name.is_empty()
+                && name.len() <= 512
+                && artist["provider"] == "musicbrainz"
+                && uuid::Uuid::parse_str(id).is_ok())
+            .then_some((name, id))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    if artists
+        .iter()
+        .any(|artist| artist["joinPhrase"].is_string())
+    {
+        let declared = crate::recording_identity::declared_credit_names(track)?;
+        return rows
+            .iter()
+            .map(|(name, _)| *name)
+            .eq(declared.iter().map(String::as_str))
+            .then_some(rows);
+    }
+    let display = rows
+        .iter()
+        .map(|(name, _)| *name)
+        .collect::<Vec<_>>()
+        .join(", ");
+    (normalized(&display) == normalized(&track.artist)).then_some(rows)
+}
+
 fn legacy_spotify_artist_names<'a>(
     track: &'a Track,
     known_names: &std::collections::HashSet<String>,
@@ -749,11 +1012,22 @@ fn legacy_spotify_artist_names<'a>(
 ) -> Option<Vec<&'a str>> {
     let catalog = &track.provenance["catalog"];
     let remote = &track.provenance["remoteCatalog"];
+    let matching_catalog = catalog["provider"] == "spotify"
+        && catalog["verified"] == true
+        && catalog["providerId"].as_str() == Some(track.provider_id.as_str())
+        && remote["artist"].as_str() == Some(track.artist.as_str());
+    let matching_capture = track.provenance["browserImport"] == true
+        && track.provenance["captureProvider"] == "spotify"
+        && track.provenance["rawCaptures"]
+            .as_array()
+            .is_some_and(|rows| {
+                rows.iter().any(|row| {
+                    row["artist"].as_str() == Some(track.artist.as_str())
+                        && row["sourceUrl"].as_str() == Some(track.source_url.as_str())
+                })
+            });
     if track.provider != "spotify"
-        || catalog["provider"] != "spotify"
-        || catalog["verified"] != true
-        || catalog["providerId"].as_str() != Some(track.provider_id.as_str())
-        || remote["artist"].as_str() != Some(track.artist.as_str())
+        || !(matching_catalog || matching_capture)
         || track.provenance.pointer("/manualFields/artist") == Some(&Value::Bool(true))
         || known_names.contains(&normalized(&track.artist))
     {
@@ -776,7 +1050,8 @@ fn legacy_spotify_artist_names<'a>(
             names
                 .iter()
                 .all(|name| known_names.contains(&normalized(name)))
-                || (names.iter().all(|name| !name.contains(" & "))
+                || (matching_catalog
+                    && names.iter().all(|name| !name.contains(" & "))
                     && names
                         .iter()
                         .any(|name| known_collaborators.contains(&normalized(name))))
@@ -836,16 +1111,21 @@ pub(super) fn track_entities(track: &Track) -> Vec<LibraryEntity> {
             .or_else(|| spotify_catalog_artist_credits(track))
         {
             for credit in credits {
-                if (track.provider == "youtube" || p["captureProvider"] == "youtube")
-                    && !crate::recording_identity::is_performer_credit_role(
-                        credit["role"].as_str().unwrap_or_default(),
-                    )
-                {
-                    continue;
+                if track.provider == "youtube" || p["captureProvider"] == "youtube" {
+                    let performer = credit["role"].as_str().map_or(
+                        credit["provenance"] == "youtubeMusicStructuredCredits",
+                        crate::recording_identity::is_performer_credit_role,
+                    );
+                    if !performer {
+                        continue;
+                    }
                 }
                 let name = string_at(credit, &["/name", "/artist/name"]);
                 let provider = string_at(credit, &["/artist/provider", "/provider"])
-                    .or_else(|| (track.provider == "spotify").then_some("spotify"))
+                    .or_else(|| match track.provider.as_str() {
+                        provider @ ("spotify" | "youtube") => Some(provider),
+                        _ => None,
+                    })
                     .or_else(|| {
                         string_at(p, &["/captureProvider"])
                             .filter(|provider| matches!(*provider, "beatport" | "traxsource"))
@@ -856,6 +1136,12 @@ pub(super) fn track_entities(track: &Track) -> Vec<LibraryEntity> {
                     result.push(entity("artist", name, track, provider, id));
                 }
             }
+        } else if let Some(credits) = musicbrainz_catalog_artist_credits(track) {
+            result.extend(
+                credits
+                    .into_iter()
+                    .map(|(name, id)| entity("artist", name, track, Some("musicbrainz"), Some(id))),
+            );
         }
     }
     if result.is_empty() && !track.artist.trim().is_empty() && artist_fallback_is_trustworthy(track)
@@ -891,22 +1177,8 @@ pub(super) fn track_entities(track: &Track) -> Vec<LibraryEntity> {
         ));
     }
     if let Some(name) = track.album.as_deref().filter(|v| !v.trim().is_empty()) {
-        let provider = string_at(p, &["/libraryAlbum/provider", "/catalog/release/provider"])
-            .or_else(|| string_at(p, &["/catalogProvider"]))
-            .or_else(|| {
-                (track.provider != "local" && track.provider != "catalog")
-                    .then_some(track.provider.as_str())
-            });
-        let id = string_at(
-            p,
-            &[
-                "/libraryAlbum/id",
-                "/recordingContext/albumId",
-                "/albumId",
-                "/catalog/release/id",
-                "/releaseId",
-            ],
-        );
+        let provider = album_provider(track);
+        let id = provider_album_id(track);
         if track.provider == "local" {
             use sha2::Digest;
             let key = json!([
@@ -920,7 +1192,14 @@ pub(super) fn track_entities(track: &Track) -> Vec<LibraryEntity> {
             let local_id = format!("{:x}", sha2::Sha256::digest(key.to_string().as_bytes()));
             result.push(entity("album", name, track, Some("local"), Some(&local_id)));
         } else {
-            result.push(entity("album", name, track, provider, id));
+            let mut album = entity("album", name, track, provider, id);
+            if let Some(artist) = explicit_album_artist(track) {
+                album.artist = artist;
+            }
+            if track.provider == "youtube" && id.is_some_and(|id| id.starts_with("MPREb_")) {
+                album.source_url = id.map(|id| format!("https://music.youtube.com/browse/{id}"));
+            }
+            result.push(album);
         }
     }
     result
@@ -985,6 +1264,7 @@ pub(super) fn refresh(conn: &Connection) -> Result<()> {
                 (track, entries)
             })
             .collect::<Vec<_>>();
+        group_album_editions(&mut grouped);
         let mut known_artists = HashMap::<String, LibraryEntity>::new();
         let mut named_refs = HashMap::<String, std::collections::BTreeSet<String>>::new();
         let known_artist_names = saved
@@ -1231,8 +1511,7 @@ impl Store {
         let conn = self.lock_connection()?;
         refresh(&conn)?;
         let family_ids = album_family_listing_ids(&conn, listing_id)?;
-        let family_listing_id = (family_ids.len() > 1).then(|| listing_id.to_owned());
-        let family_artist = if family_listing_id.is_some() {
+        let family_artist = if family_ids.len() > 1 {
             conn.query_row(
                 "SELECT metadata FROM catalog_listings WHERE id=?1 AND id=recording_id AND in_library=1",
                 [listing_id],
@@ -1257,18 +1536,22 @@ impl Store {
         rows.map(|row| {
             let (payload, track_count) = row.map_err(err)?;
             let mut entity: LibraryEntity = decode(payload)?;
+            let family_listing_id = (family_ids.len() > track_count).then(|| listing_id.to_owned());
             entity.track_count = if family_listing_id.is_some() {
                 family_ids.len()
             } else {
                 track_count
             };
-            if let Some(artist) = family_artist.as_ref() {
+            if let Some(artist) = family_artist
+                .as_ref()
+                .filter(|_| family_listing_id.is_some())
+            {
                 entity.artist = artist.clone();
             }
             entity.saved_track_ids.clear();
             Ok(LibraryAlbumTarget {
                 entity,
-                family_listing_id: family_listing_id.clone(),
+                family_listing_id,
             })
         })
         .collect()
@@ -2031,6 +2314,260 @@ mod tests {
         assert_eq!(ids.len(), 2);
         assert!(ids.contains(&first.id));
         assert!(ids.contains(&second.id));
+    }
+
+    #[test]
+    fn spotify_cover_groups_saved_album_imports_with_varying_track_credits() {
+        let (_dir, store) = db();
+        let cover = "https://i.scdn.co/image/ab67616d00001e02111111111111111111111111";
+        let imported = |id: &str, artist: &str| {
+            let mut row = track(id);
+            row.id = format!("spotify:{id}");
+            row.provider = "spotify".into();
+            row.artist = artist.into();
+            row.album_artist = None;
+            row.album = Some("Africanism Vol. 5".into());
+            row.track_total = Some(2);
+            row.artwork_url = Some(cover.into());
+            row.provenance = json!({"sourceKind": "playlist", "captureProvider": "spotify"});
+            row
+        };
+        let first = imported("first", "Africanism, Bob Sinclar, Catia Werneck");
+        let second = imported("second", "Africanism, Moonlight Benjamin, Bob Sinclar");
+        store
+            .save_library_tracks(&[first.clone(), second.clone()])
+            .unwrap();
+        let load_albums = || {
+            store
+                .list_library_entities("album", None, "", 20, 0)
+                .unwrap()
+        };
+        let albums = load_albums();
+        assert_eq!(albums.total, 1);
+        let group = &albums.items[0];
+        assert!(group.id.starts_with("album:cover:spotify:"));
+        assert_eq!(group.artist, "Africanism");
+        assert_eq!(group.provider.as_deref(), Some("spotify"));
+        assert_eq!(group.track_count, 2);
+        assert_eq!(group.total_tracks, None);
+        let scope = store.list_library_albums_for_track(&first.id).unwrap();
+        assert_eq!(scope[0].entity.id, group.id);
+        assert_eq!(scope[0].family_listing_id, None);
+
+        let third = imported("third", "Africanism, Bob Sinclar, Jesús Fernández");
+        let mut other_edition = imported("other-edition", "Other Artist");
+        other_edition.artwork_url =
+            Some("https://i.scdn.co/image/ab67616d00001e02222222222222222222222222".into());
+        store
+            .save_library_tracks(&[third.clone(), other_edition])
+            .unwrap();
+        assert_eq!(load_albums().total, 2);
+        let members = store
+            .list_library_entity_tracks(
+                &group.id,
+                "",
+                "sourceOrder",
+                false,
+                "all",
+                None,
+                None,
+                20,
+                0,
+            )
+            .unwrap();
+        assert_eq!(members.total, 3);
+        assert_eq!(
+            members
+                .tracks
+                .iter()
+                .map(|row| (&row.id, &row.artist))
+                .collect::<Vec<_>>(),
+            vec![
+                (&first.id, &first.artist),
+                (&second.id, &second.artist),
+                (&third.id, &third.artist)
+            ]
+        );
+    }
+
+    #[test]
+    fn spotify_album_cover_defers_to_known_edition_ids() {
+        let (_dir, store) = db();
+        let imported = |id: &str, artist: &str, album_id: Option<&str>| {
+            let mut row = track(id);
+            row.id = format!("spotify:{id}");
+            row.provider = "spotify".into();
+            row.artist = artist.into();
+            row.album_artist = None;
+            row.album = Some("Ahora".into());
+            row.artwork_url =
+                Some("https://i.scdn.co/image/ab67616d00001e02333333333333333333333333".into());
+            row.provenance = json!({"remoteCatalog": {"albumId": album_id}});
+            row
+        };
+        let legacy = imported("legacy", "Reik, Maluma", None);
+        let first = imported("first", "Reik, Ozuna, Wisin", Some("first-album-id"));
+        store.save_library_tracks(&[legacy.clone(), first]).unwrap();
+        let load_albums = || {
+            store
+                .list_library_entities("album", None, "", 20, 0)
+                .unwrap()
+        };
+        let albums = load_albums();
+        assert_eq!(albums.total, 1);
+        assert_eq!(
+            albums.items[0].provider_id.as_deref(),
+            Some("first-album-id")
+        );
+        assert_eq!(albums.items[0].track_count, 2);
+
+        let conflicting = imported(
+            "other-edition",
+            "Reik, Ozuna, Wisin",
+            Some("other-album-id"),
+        );
+        store.save_library_tracks(&[conflicting]).unwrap();
+        let albums = load_albums();
+        assert_eq!(albums.total, 3);
+        assert!(albums.items.iter().all(|album| album.track_count == 1));
+        assert_eq!(
+            store.list_library_albums_for_track(&legacy.id).unwrap()[0]
+                .entity
+                .provider_id,
+            None
+        );
+    }
+
+    #[test]
+    fn edition_projection_uses_bandcamp_pages_and_bounded_cover_evidence() {
+        let (_dir, store) = db();
+        let mut bandcamp = track("bandcamp-one");
+        bandcamp.id = "bandcamp:bandcamp-one".into();
+        bandcamp.provider = "bandcamp".into();
+        bandcamp.artist = "First Performer".into();
+        bandcamp.album = Some("Shared Album".into());
+        bandcamp.album_artist = Some("Album Artist".into());
+        bandcamp.provenance["importMetadata"] =
+            json!({"albumUrl": "https://band.bandcamp.com/album/shared?from=share"});
+        let mut bandcamp_other = bandcamp.clone();
+        bandcamp_other.id = "bandcamp:bandcamp-two".into();
+        bandcamp_other.provider_id = "bandcamp-two".into();
+        bandcamp_other.artist = "Second Performer".into();
+        bandcamp_other.provenance["importMetadata"]["albumUrl"] =
+            json!("https://band.bandcamp.com/album/shared#tracks");
+        let mut same_name_other_edition = bandcamp_other.clone();
+        same_name_other_edition.id = "bandcamp:bandcamp-edition".into();
+        same_name_other_edition.provider_id = "bandcamp-edition".into();
+        same_name_other_edition.provenance["importMetadata"]["albumUrl"] =
+            json!("https://band.bandcamp.com/album/shared-2026");
+
+        let mut label_track = track("catalog-one");
+        label_track.id = "beatport:catalog-one".into();
+        label_track.provider = "beatport".into();
+        label_track.album = Some("Label Release".into());
+        label_track.artist = "Original Performer".into();
+        label_track.catalog_number = Some("LABEL312".into());
+        label_track.label = Some("Label".into());
+        label_track.artwork_url = Some("https://fixture.example/cover.jpg".into());
+        let mut label_other = label_track.clone();
+        label_other.id = "beatport:catalog-two".into();
+        label_other.provider_id = "catalog-two".into();
+        label_other.artist = "Another Performer".into();
+
+        let mut video = track("video-one");
+        video.id = "youtube:video-one".into();
+        video.provider = "youtube".into();
+        video.artist = "One Video Artist".into();
+        video.album = Some("Video Album".into());
+        video.album_artist = None;
+        video.artwork_url = Some("https://yt3.googleusercontent.com/channel-avatar".into());
+        let mut video_other = video.clone();
+        video_other.id = "youtube:video-two".into();
+        video_other.provider_id = "video-two".into();
+        video_other.artist = "Another Video Artist".into();
+        store
+            .save_library_tracks(&[
+                bandcamp.clone(),
+                bandcamp_other,
+                same_name_other_edition,
+                label_track.clone(),
+                label_other,
+                video,
+                video_other,
+            ])
+            .unwrap();
+
+        let page = store
+            .list_library_entities("album", None, "", 20, 0)
+            .unwrap();
+        assert_eq!(page.total, 5);
+        assert_eq!(
+            page.items
+                .iter()
+                .filter(|album| album.name == "Video Album")
+                .count(),
+            2
+        );
+        let album = &store.list_library_albums_for_track(&bandcamp.id).unwrap()[0].entity;
+        assert_eq!(album.artist, "Album Artist");
+        assert_eq!(album.track_count, 2);
+        assert_eq!(
+            album.source_url.as_deref(),
+            Some("https://band.bandcamp.com/album/shared")
+        );
+        let label_album = &store
+            .list_library_albums_for_track(&label_track.id)
+            .unwrap()[0]
+            .entity;
+        assert_eq!(label_album.track_count, 2);
+        assert_eq!(label_album.total_tracks, None);
+    }
+
+    #[test]
+    fn musicbrainz_recording_search_preserves_ordered_artist_boundaries() {
+        let mut row = track("recording");
+        row.provider = "musicbrainz".into();
+        row.artist = "Earth, Wind & Fire, Guest Alias".into();
+        row.provenance = json!({
+            "catalog": {
+                "provider": "musicbrainz",
+                "recordingId": "recording",
+                "verified": true,
+                "artistCredit": ["Earth, Wind & Fire", "Guest Alias"],
+                "artists": [
+                    {"name": "Earth, Wind & Fire", "provider": "musicbrainz", "id": "10000000-0000-0000-0000-000000000001"},
+                    {"name": "Guest Artist", "provider": "musicbrainz", "id": "10000000-0000-0000-0000-000000000002"}
+                ]
+            }
+        });
+        let entries = track_entities(&row);
+        let names = entries
+            .iter()
+            .filter(|entry| entry.kind == "artist")
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(names, vec!["Earth, Wind & Fire", "Guest Alias"]);
+        assert!(artist_combination(&row, &entries).is_some());
+
+        row.artist = "Earth, Wind & Fire with Guest Alias".into();
+        let credits = &mut row.provenance["catalog"]["artists"];
+        credits[0]["joinPhrase"] = json!(" with ");
+        credits[1]["joinPhrase"] = json!("");
+        credits[1]["name"] = json!("Guest Alias");
+        credits[1]["canonicalName"] = json!("Guest Artist");
+        let entries = track_entities(&row);
+        assert_eq!(
+            artist_combination(&row, &entries).unwrap().name,
+            "Earth, Wind & Fire, Guest Alias"
+        );
+        row.provenance["catalog"]["artists"][1]["role"] = json!("composer");
+        assert!(musicbrainz_catalog_artist_credits(&row).is_none());
+
+        row.artist = "Manual Performer".into();
+        row.provenance["manualFields"]["artist"] = json!(true);
+        let entries = track_entities(&row);
+        assert!(entries.iter().any(|entry| entry.name == "Manual Performer"));
+        assert!(artist_combination(&row, &entries).is_none());
     }
 
     #[test]

@@ -4,8 +4,8 @@
   let { name, anchor, playerHeight, onClose, onOpen, onDelete, onDownload, onQueue, onOpenSource, onRename, onExport, onMoveToFolder, onCopy, onRefresh, onMirrorSettings, kind="playlist" }: { name: string; anchor: { x: number; y: number }; playerHeight: number; onClose: () => void; onOpen?: () => void; onDelete?: () => void; onRename?:()=>void;kind?:"playlist"|"radio station"; onDownload?: () => void; onQueue?: () => void; onRefresh?: () => void; onExport?: () => void; onMoveToFolder?: () => void; onCopy?: () => void; onOpenSource?: () => void; onMirrorSettings?: () => void } = $props();
   function action(callback: () => void) { callback(); onClose(); }
 </script>
-<ActionMenu class="playlist-menu" label={`Actions for ${kind} ${name}`} title={name} closeLabel="Close playlist actions" {anchor} {playerHeight} {onClose}>
-  {#if onOpen}<button class="primary-action" onclick={() => action(onOpen!)}><MenuIcon name="play"/><span>Open {kind}</span></button>{/if}
+<ActionMenu class="playlist-menu" label={`Actions for ${kind} ${name}`} title={name} closeLabel={kind === "radio station" ? "Close station actions" : "Close playlist actions"} {anchor} {playerHeight} {onClose}>
+  {#if onOpen}<button class="primary-action" onclick={() => action(onOpen!)}><MenuIcon name={kind === "radio station" ? "info" : "play"}/><span>Open {kind}</span></button>{/if}
   {#if onQueue}<button onclick={() => action(onQueue!)}><MenuIcon name="queue"/><span>Add to queue</span></button>{/if}
   {#if onRename}<button onclick={()=>action(onRename!)}><MenuIcon name="edit"/><span>Rename</span></button>{/if}
   {#if onRefresh}<button onclick={() => action(onRefresh!)}><MenuIcon name="refresh"/><span>Refresh playlist</span></button>{/if}

@@ -47,7 +47,7 @@ export interface ArtistCredit {
 }
 
 export interface ArtistReleaseRef {
-  release: ArtistRef;
+  release: ArtistRef | { provider: "bandcamp"; id: string };
   title: string;
   year?: number | null;
   releaseDate?: string | null;

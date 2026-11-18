@@ -3790,7 +3790,7 @@ fn catalog_track_id(
     (stable_id, provider_id)
 }
 
-fn mb_credit_name(credits: &Value) -> String {
+pub(crate) fn mb_credit_name(credits: &Value) -> String {
     credits
         .as_array()
         .into_iter()
@@ -4588,7 +4588,7 @@ fn chapter_suggestion(chapter: &Chapter, recordings: &[Value]) -> (Option<Box<Tr
     }
 }
 
-fn parse_musicbrainz_credits(value: &Value, source_url: &str) -> Vec<ArtistCredit> {
+pub(crate) fn parse_musicbrainz_credits(value: &Value, source_url: &str) -> Vec<ArtistCredit> {
     value
         .as_array()
         .into_iter()

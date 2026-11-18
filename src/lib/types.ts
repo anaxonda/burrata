@@ -76,6 +76,7 @@ export interface CollectionImportPreview {
   previewId: string; title: string; sourceUrl: string; capturedCount: number; uniqueRecordings:number; expectedTotal:number|null; complete:boolean;
   changes: {added:number;removed:number;moved:number;retainedFromEarlierCapture:number;partial:boolean}; warnings:string[]; failedSources:string[];
   sample:{title:string;artist:string;version?:string|null}[];
+  playlistTracks?: {position:number;title:string;artist:string;version?:string|null}[];
 }
 export interface CandidatePreviewStatus {
   sessionId: string; sourceId: string; provider: string; paused: boolean; position: number; duration: number; canSeek: boolean; canVolume: boolean; error?: string | null; closed?: boolean;
@@ -298,16 +299,19 @@ export interface FlexibleMatching {
   allowOtherArtists: boolean;
   /** Legacy toggle retained for persisted settings; gates duration limits. */
   allowDifferentLengths: boolean;
+  /** Whether a missing duration can satisfy Flexible matching's length check. */
+  allowUnknownLength?: boolean;
   /** Maximum accepted candidate duration below the request, in seconds. */
   maxShorterBySeconds?: number;
   /** Maximum accepted candidate duration above the request, in seconds. */
   maxLongerBySeconds?: number;
 }
-export const DEFAULT_FLEXIBLE_MATCHING: FlexibleMatching = { version: 1, allowOtherReleases: true, allowOtherPerformances: false, allowOtherMixes: false, allowOtherArtists: false, allowDifferentLengths: false, maxShorterBySeconds: 30, maxLongerBySeconds: 30 };
+export const DEFAULT_FLEXIBLE_MATCHING: FlexibleMatching = { version: 1, allowOtherReleases: true, allowOtherPerformances: false, allowOtherMixes: false, allowOtherArtists: false, allowDifferentLengths: false, allowUnknownLength: false, maxShorterBySeconds: 30, maxLongerBySeconds: 30 };
 export interface PlaybackTransition { fromEntryId: string; toEntryId: string; progress: number }
 export interface Settings {
   musicDirectory: string;
   autoPreview: boolean;
+  playRadioOnClick?: boolean;
   playbackDiagnosticsEnabled?: boolean;
   liveBpmEnabled?: boolean;
   matchingLevel?: "exact" | "balanced" | "flexible";

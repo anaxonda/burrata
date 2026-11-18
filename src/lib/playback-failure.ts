@@ -43,12 +43,13 @@ export function classifyPlaybackFailure(reason: string): PlaybackFailure {
   if (message === "this source has no supported audio stream") return failure("unsupported_audio", "resolver", "recording", false, null);
   if (message.startsWith("invalid monochrome catalog")) return failure("parser", "resolver", "source", true);
   if (has("cancel", "superseded")) return failure("cancelled", "resolver", "operation", false);
+  if (httpStatus === 429 || has("rate limit", "too many requests")) return failure("rate_limited", "transport", "source", true);
+  if (message === "native http audio stream ended before the recording finished") return failure("source_unavailable", "transport", "source", true, null);
   if (message.includes("transport timeout failed")) return failure("timeout", "transport", "global", true);
   if (has("transport connect failed", "transport body failed", "transport request failed")) return failure("network", "transport", "global", true);
   if (has("timed out", "timeout", "deadline")) return failure("timeout", "resolver", "operation", true);
   if (has("storage", "disk full", "no space left", "read-only file system", "readonly database", "database is locked", "permission denied", "local audio is not registered", "local file", "os error 28", "disk quota exceeded", "os error 122", "helper_unpack_failed", "storage_unavailable")) return failure("storage", "storage", "global", true);
   if (has("output device", "audio output", "audio device", "audio sink", "cpal")) return failure("output", "output", "global", true);
-  if (httpStatus === 429 || has("rate limit", "too many requests")) return failure("rate_limited", "transport", "global", true);
   if ((httpStatus !== undefined && httpStatus >= 500) || has("network", "connection", "dns", "resolve host", "resolve hostname", "service unavailable", "server unavailable", "temporarily unavailable", "tls", "certificate")) return failure("network", "transport", "global", true);
   if (message.startsWith("audio source has no matching audio")) return failure("no_match", "extraction", "source", false);
   if (message.startsWith("audio source recording identity could not be verified")) return failure("recording_identity_mismatch", "extraction", "source", false);

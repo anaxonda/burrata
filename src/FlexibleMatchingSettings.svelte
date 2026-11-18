@@ -5,18 +5,20 @@
     value?: FlexibleMatching; noticePending?: boolean;
     onchange: (value: FlexibleMatching) => void; onNoticeDismiss?: () => void;
   } = $props();
-  type ToggleKey = "allowOtherReleases" | "allowOtherPerformances" | "allowOtherMixes" | "allowOtherArtists" | "allowDifferentLengths";
+  type ToggleKey = "allowOtherReleases" | "allowOtherPerformances" | "allowOtherMixes" | "allowOtherArtists" | "allowDifferentLengths" | "allowUnknownLength";
   type DurationKey = "maxShorterBySeconds" | "maxLongerBySeconds";
   const options: { key: ToggleKey; label: string; help: string }[] = [
     { key: "allowOtherReleases", label: "Different releases of the same recording", help: "For example, the same recording on a compilation or reissue." },
     { key: "allowOtherPerformances", label: "Other performances by the same artist", help: "For example, a live performance instead of the studio recording." },
     { key: "allowOtherMixes", label: "Other remixes or edits", help: "For example, a radio edit or another remix." },
     { key: "allowOtherArtists", label: "The same song performed by other artists", help: "For example, a cover by another artist." },
-    { key: "allowDifferentLengths", label: "Allow different durations for identified recordings", help: "These caps include Flexible matching's usual duration tolerance. If a saved track has no duration, enabling limits can prevent an automatic match. Recording identity checks still apply." },
+    { key: "allowDifferentLengths", label: "Allow different durations for identified recordings", help: "Set limits on the difference between two known durations. These limits include Flexible matching's usual duration tolerance." },
+    { key: "allowUnknownLength", label: "Allow matches without a known length", help: "Allow a match if the saved recording or source has no duration. Recording identity checks still apply." },
   ];
   const normalized = $derived({
     ...DEFAULT_FLEXIBLE_MATCHING,
     ...value,
+    allowUnknownLength: value.allowUnknownLength === true,
     maxShorterBySeconds: value.maxShorterBySeconds ?? DEFAULT_FLEXIBLE_MATCHING.maxShorterBySeconds!,
     maxLongerBySeconds: value.maxLongerBySeconds ?? DEFAULT_FLEXIBLE_MATCHING.maxLongerBySeconds!,
   });
@@ -40,7 +42,7 @@
         <legend>Total difference from requested duration</legend>
         <label>Shorter by up to<input aria-label="Maximum shorter duration difference (seconds)" type="number" min="0" max="3600" step="1" value={normalized.maxShorterBySeconds} onchange={event => updateDurationLimit("maxShorterBySeconds", event.currentTarget.value)} />seconds</label>
         <label>Longer by up to<input aria-label="Maximum longer duration difference (seconds)" type="number" min="0" max="3600" step="1" value={normalized.maxLongerBySeconds} onchange={event => updateDurationLimit("maxLongerBySeconds", event.currentTarget.value)} />seconds</label>
-        <p>0 seconds requires an exact known duration. Limits are measured against the requested track.</p>
+        <p>A 0-second limit requires equal known durations.</p>
       </fieldset>
     {/if}
   {/each}

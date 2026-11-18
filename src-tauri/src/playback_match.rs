@@ -241,6 +241,114 @@ fn role_context_candidate(
     Some((projected_candidate, performers))
 }
 
+fn discogs_barcode_candidate_context(
+    track: &Track,
+    candidate: &Candidate,
+    stage: MatchStage,
+    trace: Option<&super::SourceTrace>,
+) -> Option<(Candidate, Vec<String>)> {
+    if !trace?.catalog_duration_enriched || candidate.provider != "youtube" {
+        return None;
+    }
+    let proof = &track.provenance["playbackCatalogDurationProof"];
+    if proof["provider"] != "discogsAppleCompleteAlbum" || proof["releaseDateClaim"] != "barcodeMatched" {
+        return None;
+    }
+    let evidence = &proof["evidence"];
+    let (first, second) = evidence["appleArtist"].as_str()?.split_once(" & ")?;
+    if first.is_empty() || second.is_empty() || second.contains(" & ") {
+        return None;
+    }
+    let performers = vec![first.to_owned(), second.to_owned()];
+    let metadata = candidate.source_metadata.as_ref().unwrap_or(&Value::Null);
+    let mut extra_composer = None;
+    if stage == MatchStage::Resolved {
+        // The same caption can appear on a different release. Verify the
+        // edition and the complete observed performer set on fresh extraction.
+        if metadata["sourceMetadataOrigin"] != "ytDlpFullInfo"
+            || metadata["topicAlbum"].as_str() != track.album.as_deref()
+            || metadata["topicReleaseDate"] != evidence["appleAlbumDate"]
+            || metadata["identityMetadataUncertain"] == true
+            || !candidate
+                .duration_seconds
+                .zip(track.duration_seconds)
+                .is_some_and(|(observed, exact)| {
+                    observed.is_finite() && (observed - exact).abs() <= 1.5
+                })
+        {
+            return None;
+        }
+        let credits = metadata["artists"].as_array()?;
+        let normalized = |name: &str| crate::matching::normalize_single_artist_name(name);
+        let expected = performers
+            .iter()
+            .map(|name| normalized(name))
+            .collect::<std::collections::HashSet<_>>();
+        let credited = credits
+            .iter()
+            .map(|credit| credit.as_str().map(normalized))
+            .collect::<Option<std::collections::HashSet<_>>>()?;
+        if credited.len() != credits.len() || !expected.is_subset(&credited) {
+            return None;
+        }
+        if credited.len() != expected.len() {
+            let composer = evidence["discogsComposer"].as_str()?;
+            let composer_key = normalized(composer);
+            if credited.len() != expected.len() + 1
+                || !credited.contains(&composer_key)
+                || expected.contains(&composer_key)
+                || normalized(metadata["topicComposer"].as_str()?) != composer_key
+            {
+                return None;
+            }
+            extra_composer = Some(composer_key);
+        }
+        if expected.len() != performers.len()
+            || credited.iter().any(|name| name.is_empty())
+        {
+            return None;
+        }
+    }
+    let catalog_title = evidence["appleTitle"].as_str()?;
+    let matches = |title: &str| {
+        crate::remote_playlists::catalog_duration_proof::discogs_apple_duration_crosswalk::same_barcode_recording_caption(
+            catalog_title, title, evidence["discogsComposer"].as_str(),
+        )
+    };
+    if !matches(&candidate.title) {
+        return None;
+    }
+    let mut projected = candidate.clone();
+    projected.title = catalog_title.to_owned();
+    if let Some(metadata) = projected.source_metadata.as_mut() {
+        for field in ["track", "catalogTitle"] {
+            if let Some(title) = metadata[field].as_str() {
+                if !matches(title) {
+                    return None;
+                }
+                metadata[field] = json!(catalog_title);
+            }
+        }
+        if let Some(line) = metadata["descriptionCreditLine"].as_str() {
+            let mut projected_line = line.replacen(&candidate.title, catalog_title, 1);
+            if let Some(composer) = extra_composer.as_deref() {
+                projected_line = projected_line
+                    .split(" · ")
+                    .filter(|part| crate::matching::normalize_single_artist_name(part) != composer)
+                    .collect::<Vec<_>>()
+                    .join(" · ");
+            }
+            metadata["descriptionCreditLine"] = json!(projected_line);
+        }
+        if extra_composer.is_some() {
+            metadata["artists"] = json!(performers);
+            metadata["artist"] = json!(performers.join(", "));
+            metadata["artistCount"] = json!(performers.len());
+        }
+    }
+    Some((projected, performers))
+}
+
 fn assessment_with_trace_and_options(
     store: &Store,
     track: &Track,
@@ -253,7 +361,9 @@ fn assessment_with_trace_and_options(
     options: crate::recording_match::FlexibleMatchingOptions,
     trace: Option<&super::SourceTrace>,
 ) -> MatchAssessment {
-    if let Some((projected_candidate, performers)) = role_context_candidate(track, candidate, trace)
+    if let Some((projected_candidate, performers)) =
+        discogs_barcode_candidate_context(track, candidate, stage, trace)
+            .or_else(|| role_context_candidate(track, candidate, trace))
     {
         let mut context =
             crate::recording_match_context::AssessmentContext::with_flexible_options(options)
@@ -470,6 +580,7 @@ fn artist_alias_lookahead_gap(assessment: &MatchAssessment) -> bool {
                 crate::recording_match::MatchReason::SourceIdentityConflict
                     | crate::recording_match::MatchReason::ConflictingRequestIdentifiers
                     | crate::recording_match::MatchReason::TitleConflict
+                    | crate::recording_match::MatchReason::SoundtrackWorkConflict
                     | crate::recording_match::MatchReason::ArtistConflict
                     | crate::recording_match::MatchReason::GuestConflict
                     | crate::recording_match::MatchReason::VersionConflict
@@ -884,7 +995,8 @@ pub(super) fn verify_with_discogs_credit_variant_and_options_traced(
         return None;
     }
     let role_credit_assessment = if discogs_credit_variant.is_none() {
-        role_context_candidate(track, &resolved, trace)
+        discogs_barcode_candidate_context(track, &resolved, MatchStage::Resolved, trace)
+            .or_else(|| role_context_candidate(track, &resolved, trace))
     } else {
         None
     };
@@ -1209,6 +1321,160 @@ pub(super) fn cached_direct_allowed(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn verified_classical_caption_matches_only_with_the_fresh_album_and_performers() {
+        let fixtures: Value =
+            serde_json::from_str(include_str!("../tests/fixtures/labeque-55-duration.json"))
+                .unwrap();
+        let mut track = crate::artists::parse_discogs_release_tracks(
+            &fixtures["discogs"],
+            "38026143",
+            "https://www.discogs.com/release/38026143",
+            false,
+            None,
+        )
+        .into_iter()
+        .find(|track| track.provenance["trackPosition"] == "1-14")
+        .unwrap();
+        let proof = crate::remote_playlists::catalog_duration_proof::discogs_apple_duration_crosswalk::verify_physical_barcode_lookup(
+            &track, &fixtures["discogs"], "028948489602", &fixtures["apple"],
+        ).unwrap();
+        track.title = proof.evidence["appleTitle"].as_str().unwrap().to_owned();
+        track.duration_seconds = Some(proof.duration_seconds);
+        track.provenance["playbackCatalogDurationProof"] = json!({
+            "provider": "discogsAppleCompleteAlbum",
+            "releaseDateClaim": "barcodeMatched",
+            "evidence": proof.evidence,
+        });
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("library.db")).unwrap();
+        let mut trace = super::super::SourceTrace::new(None, None, None);
+        trace.catalog_duration_enriched = true;
+        let caption = "Falla: La vida breve - Transc. Samazeuilh / Act 2: Spanish Dance No. 1";
+        let mut candidate = Candidate {
+            id: "youtube:IsiiOBQHodQ".into(),
+            provider: "youtube".into(),
+            title: caption.into(),
+            url: "https://www.youtube.com/watch?v=IsiiOBQHodQ".into(),
+            uploader: Some("Katia Labèque - Topic".into()),
+            duration_seconds: Some(174.0),
+            permission: "unknown".into(),
+            ..Candidate::default()
+        };
+        assert!(evaluate_with_trace_and_options(
+            &track,
+            &[],
+            &[],
+            None,
+            &candidate,
+            MatchLevel::Balanced,
+            &store,
+            crate::recording_match::FlexibleMatchingOptions::default(),
+            &trace,
+        ).accepted());
+        let mut audio = acquisition::PreviewAudio {
+            provider_session: None,
+            url: "https://example.invalid/audio".into(),
+            mime_type: "audio/mp4".into(),
+            codec: None,
+            bitrate_kbps: None,
+            duration_seconds: Some(174.0),
+            selected_format_id: None,
+            selected_format_has_video: false,
+            source_metadata: Some(json!({
+                "provider": "youtube",
+                "sourceMetadataOrigin": "ytDlpFullInfo",
+                "channel": "Katia Labèque - Topic",
+                "channelId": "UC1234567890123456789012",
+                "track": caption,
+                "artists": ["Katia Labèque", "Marielle Labèque"],
+                "artistCount": 2,
+                "descriptionCreditLine": format!("{caption} · Katia Labèque · Marielle Labèque"),
+                "topicAlbum": "55",
+                "topicReleaseDate": "2026-06-12",
+                "duration": 174.0,
+            })),
+            resolved_title: Some(caption.into()),
+            resolved_provider_id: Some("IsiiOBQHodQ".into()),
+            chapters: None,
+            expected_content_length: None,
+            headers: vec![],
+        };
+        let verifies = |candidate: &mut Candidate, audio: &acquisition::PreviewAudio| {
+            verify_with_discogs_credit_variant_and_options_traced(
+                &track,
+                &[],
+                &[],
+                None,
+                candidate,
+                audio,
+                true,
+                MatchLevel::Balanced,
+                &store,
+                None,
+                crate::recording_match::FlexibleMatchingOptions::default(),
+                Some(&trace),
+            ).is_some()
+        };
+        assert!(verifies(&mut candidate, &audio));
+        assert_eq!(candidate.title, caption);
+        audio.source_metadata.as_mut().unwrap()["topicAlbum"] = json!("Piano Fantasy: Music For Two Pianos");
+        audio.source_metadata.as_mut().unwrap()["topicReleaseDate"] = json!("2003-01-01");
+        assert!(!verifies(&mut candidate, &audio));
+        audio.source_metadata.as_mut().unwrap()["topicAlbum"] = json!("55");
+        audio.source_metadata.as_mut().unwrap()["topicReleaseDate"] = json!("2026-06-12");
+        audio.source_metadata.as_mut().unwrap()["artists"] = json!(["Katia Labèque", "Other Artist"]);
+        assert!(!verifies(&mut candidate, &audio));
+        audio.source_metadata.as_mut().unwrap()["artists"] = json!(["Katia Labèque", "Marielle Labèque"]);
+        audio.resolved_title = Some(caption.replace("Samazeuilh", "Falla"));
+        assert!(!verifies(&mut candidate, &audio));
+
+        let mut another_track = crate::artists::parse_discogs_release_tracks(
+            &fixtures["discogs"],
+            "38026143",
+            "https://www.discogs.com/release/38026143",
+            false,
+            None,
+        )
+        .into_iter()
+        .find(|track| track.provenance["trackPosition"] == "3-3")
+        .unwrap();
+        let another_proof = crate::remote_playlists::catalog_duration_proof::discogs_apple_duration_crosswalk::verify_physical_barcode_lookup(
+            &another_track, &fixtures["discogs"], "028948489602", &fixtures["apple"],
+        ).unwrap();
+        another_track.title = another_proof.evidence["appleTitle"].as_str().unwrap().to_owned();
+        another_track.duration_seconds = Some(another_proof.duration_seconds);
+        another_track.provenance["playbackCatalogDurationProof"] = json!({
+            "provider": "discogsAppleCompleteAlbum",
+            "releaseDateClaim": "barcodeMatched",
+            "evidence": another_proof.evidence,
+        });
+        let mut another_candidate = Candidate {
+            title: "Pärt: Pari Intervallo".into(),
+            duration_seconds: Some(310.0),
+            source_metadata: Some(json!({
+                "sourceMetadataOrigin": "ytDlpFullInfo",
+                "topicAlbum": "55",
+                "topicReleaseDate": "2026-06-12",
+                "topicComposer": "Arvo Pärt",
+                "artists": ["Katia Labèque", "Marielle Labèque", "Arvo Pärt"],
+                "track": "Pärt: Pari Intervallo",
+            })),
+            ..candidate
+        };
+        let (projected, performers) = discogs_barcode_candidate_context(
+            &another_track, &another_candidate, MatchStage::Resolved, Some(&trace),
+        ).unwrap();
+        assert_eq!(projected.title, "Pari Intervallo");
+        assert_eq!(performers, ["Katia Labèque", "Marielle Labèque"]);
+        assert_eq!(projected.source_metadata.unwrap()["artists"], json!(performers));
+        another_candidate.source_metadata.as_mut().unwrap()["topicComposer"] = Value::Null;
+        assert!(discogs_barcode_candidate_context(
+            &another_track, &another_candidate, MatchStage::Resolved, Some(&trace),
+        ).is_none());
+    }
+
     #[test]
     fn flexible_fingerprint_includes_each_permission_and_version() {
         let track = Track {
@@ -1224,6 +1490,10 @@ mod tests {
             request_fingerprint_with_options(&track, MatchLevel::Flexible, base).unwrap();
         let variants = [
             crate::recording_match::FlexibleMatchingOptions { version: 2, ..base },
+            crate::recording_match::FlexibleMatchingOptions {
+                allow_unknown_length: !base.allow_unknown_length,
+                ..base
+            },
             crate::recording_match::FlexibleMatchingOptions {
                 allow_other_releases: !base.allow_other_releases,
                 ..base
@@ -1493,6 +1763,7 @@ mod tests {
             MatchReason::SourceIdentityConflict,
             MatchReason::ConflictingRequestIdentifiers,
             MatchReason::TitleConflict,
+            MatchReason::SoundtrackWorkConflict,
             MatchReason::ArtistConflict,
             MatchReason::GuestConflict,
             MatchReason::VersionConflict,

@@ -623,6 +623,7 @@ impl YouTubeSupportManager {
         drop(lock);
         let url = format!("http://127.0.0.1:{port}");
         let client = reqwest::Client::builder()
+            .no_proxy()
             .timeout(Duration::from_secs(2))
             .build()
             .map_err(|e| e.to_string())?;

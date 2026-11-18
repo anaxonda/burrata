@@ -67,6 +67,27 @@ describe("WaveformSeek", () => {
     expect(onSeek).toHaveBeenCalledWith(23.4);
   });
 
+  it.each(["waveform", "fallback"] as const)("cancels a pending %s seek when the same track is played at a different queue occurrence", async mode => {
+    vi.useFakeTimers();
+    const onSeek = vi.fn();
+    const waveform = mode === "waveform"
+      ? localWaveformSnapshot({ generation: 2, trackId: "repeated-song", durationSeconds: 90, bins: [{ min: -0.2, max: 0.3 }], complete: true })
+      : null;
+    const component = createClassComponent({ component: WaveformSeek, target: document.body, props: {
+      position: 4, duration: 90, disabled: false, onSeek, waveform, generation: 2, trackId: "repeated-song", seekIdentity: "first-entry",
+    } });
+    destroy = () => component.$destroy();
+    await settle();
+    const input = document.querySelector<HTMLInputElement>(mode === "waveform" ? ".waveform-range" : ".waveform-standard input")!;
+    input.value = "70";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    component.$set({ position: 5, seekIdentity: "second-entry" });
+    await settle();
+    vi.advanceTimersByTime(151);
+    expect(onSeek).not.toHaveBeenCalled();
+    expect(input.value).toBe("5");
+  });
+
   it("previews and seeks an unobserved part of the full timeline without seeking on hover", async () => {
     vi.useFakeTimers();
     const onSeek = vi.fn();

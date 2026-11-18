@@ -25,18 +25,25 @@ fn caption_splits(raw: &str, all_occurrences: bool) -> impl Iterator<Item = (&st
             .map(move |(index, _)| (&raw[..index], &raw[index + separator.len()..]))
     });
     let trimmed = raw.trim_end();
-    let quoted = [(" \"", '"'), (" “", '”'), (" ‘", '’'), (" '", '\'')]
-        .into_iter()
-        .filter_map(move |(marker, close)| {
-            let (artist, suffix) = trimmed.split_once(marker)?;
-            let title = suffix.strip_suffix(close)?;
-            let open = marker.chars().last()?;
-            (!artist.trim().is_empty()
-                && !title.trim().is_empty()
-                && !title.contains(open)
-                && !title.contains(close))
-            .then_some((artist, title))
-        });
+    let quoted = [
+        (" \"", '"'),
+        (" “", '”'),
+        (" ‘", '’'),
+        (" '", '\''),
+        ("「", '」'),
+        ("『", '』'),
+    ]
+    .into_iter()
+    .filter_map(move |(marker, close)| {
+        let (artist, suffix) = trimmed.split_once(marker)?;
+        let title = suffix.strip_suffix(close)?;
+        let open = marker.chars().last()?;
+        (!artist.trim().is_empty()
+            && !title.trim().is_empty()
+            && !title.contains(open)
+            && !title.contains(close))
+        .then_some((artist, title))
+    });
     legacy
         .chain(quoted)
         .take(if raw.len() > 2048 { 0 } else { usize::MAX })
@@ -52,6 +59,8 @@ pub struct FlexibleMatchingOptions {
     pub allow_other_mixes: bool,
     pub allow_other_artists: bool,
     pub allow_different_lengths: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub allow_unknown_length: bool,
     /// Maximum runtime difference when the candidate is shorter than requested.
     pub max_shorter_by_seconds: u16,
     /// Maximum runtime difference when the candidate is longer than requested.
@@ -67,6 +76,7 @@ impl Default for FlexibleMatchingOptions {
             allow_other_mixes: false,
             allow_other_artists: false,
             allow_different_lengths: false,
+            allow_unknown_length: false,
             max_shorter_by_seconds: 30,
             max_longer_by_seconds: 30,
         }
@@ -177,6 +187,7 @@ pub enum MatchReason {
     IsrcAgrees,
     IsrcConflict,
     WorkLinked,
+    SoundtrackWorkConflict,
     InsufficientEvidence,
     ExtractorNeedsInspection,
     PermissionRestricted,
@@ -1990,9 +2001,62 @@ fn caption_artist_names(
     Vec::new()
 }
 
-/// Interpret a collaboration caption only against the complete requested set.
-/// A slash is not a global artist delimiter (AC/DC is one act), and accent
-/// folding here supplies comparison evidence, never an alias or saved credit.
+fn collaboration_caption_credits(prefix: &str, expected: &[String]) -> Vec<String> {
+    static JOINS: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(
+            r"(?i)\s+(?:and|with|x|featuring|feat\.?|ft\.?)\s+|\s+w/\s*|\s*[,，/&+＋×]\s*",
+        )
+        .unwrap()
+    });
+    // Keep join punctuation inside known names. In particular, AC/DC and
+    // AC / DC have different credit boundaries even after accent folding.
+    let credit_key = |name: &str| {
+        let joins = JOINS
+            .find_iter(name)
+            .map(|join| match join.as_str().trim() {
+                "/" if join.as_str() != "/" => " / ".to_owned(),
+                marker => marker.to_ascii_lowercase(),
+            })
+            .collect::<Vec<_>>();
+        (crate::recording_identity::search_fold(name), joins)
+    };
+    let mut remaining = expected
+        .iter()
+        .map(|name| credit_key(name))
+        .collect::<std::collections::HashSet<_>>();
+    let mut tail = prefix.trim();
+    if remaining.len() != expected.len() || JOINS.find_iter(tail).take(65).count() > 64 {
+        return Vec::new();
+    }
+    let mut credits = Vec::with_capacity(expected.len());
+    for _ in expected {
+        let longest_match = JOINS
+            .find_iter(tail)
+            .map(|join| (join.start(), join.end()))
+            .filter(|(_, next)| *next < tail.len())
+            .chain(std::iter::once((tail.len(), tail.len())))
+            .filter_map(|(end, next)| {
+                let name = tail[..end].trim_end();
+                let key = credit_key(name);
+                (!key.0.is_empty() && remaining.contains(&key)).then_some((name, next, key))
+            })
+            .last();
+        let Some((name, next, key)) = longest_match else {
+            return Vec::new();
+        };
+        remaining.remove(&key);
+        credits.push(name.to_owned());
+        tail = tail[next..].trim_start();
+    }
+    if tail.is_empty() && search_folded_covers_requested_credits(expected, &credits) {
+        credits
+    } else {
+        Vec::new()
+    }
+}
+
+/// Interpret collaboration joins only between the complete requested credits.
+/// Accent folding supplies comparison evidence for the source caption.
 fn request_scoped_collaboration_caption(
     candidate: &Candidate,
     meta: &Value,
@@ -2014,18 +2078,13 @@ fn request_scoped_collaboration_caption(
         return Vec::new();
     }
     for (prefix, suffix) in caption_splits(&candidate.title, false) {
-        if title_key(&base_title(suffix)) != title_key(requested_title) {
+        if title_key(&base_title(suffix)) != title_key(requested_title)
+            || !guest_from_title(suffix).is_empty()
+        {
             continue;
         }
-        let credits = split_credits(
-            &prefix
-                .replace('/', ",")
-                .replace(" & ", ",")
-                .replace(" and ", ","),
-        );
-        if credits.len() == expected.len()
-            && search_folded_covers_requested_credits(expected, &credits)
-        {
+        let credits = collaboration_caption_credits(prefix, expected);
+        if !credits.is_empty() {
             return credits;
         }
     }
@@ -2839,6 +2898,37 @@ pub fn compare_prepared(input: &PreparedMatchInput) -> ComparedEvidence {
     }
 }
 
+fn conflicting_soundtrack_works(
+    request: &PreparedRecordingEvidence,
+    candidate: &PreparedRecordingEvidence,
+) -> bool {
+    let requested = request
+        .texts
+        .iter()
+        .filter(|text| text.origin.field == "title")
+        .flat_map(|text| text.parsed.soundtrack_work_keys())
+        .collect::<Vec<_>>();
+    if requested.is_empty() {
+        return false;
+    }
+    let mut actual = candidate
+        .texts
+        .iter()
+        .filter(|text| {
+            matches!(
+                text.origin.field.as_str(),
+                "title"
+                    | "sourceMetadata.track"
+                    | "sourceMetadata.catalogTitle"
+                    | "sourceMetadata.requestCorroboratedCaptionTitle"
+                    | "sourceMetadata.filenameObservations.normalizedTitle"
+            )
+        })
+        .flat_map(|text| text.parsed.soundtrack_work_keys())
+        .peekable();
+    actual.peek().is_some() && !actual.any(|work| requested.contains(&work))
+}
+
 fn build_comparison(
     track: &Track,
     candidate: &Candidate,
@@ -3120,7 +3210,7 @@ fn build_comparison(
         && !metadata_declares_artists
         && names.is_empty()
         && caption_orientation.is_none()
-        && caption_names.is_empty()
+        && caption_names.len() <= 1
     {
         request_scoped_collaboration_caption(
             candidate,
@@ -3132,7 +3222,9 @@ fn build_comparison(
         Vec::new()
     };
     let collaboration_caption_coverage = !collaboration_caption.is_empty();
-    caption_names.extend(collaboration_caption);
+    if collaboration_caption_coverage {
+        caption_names = collaboration_caption;
+    }
     // A fresh yt-dlp YouTube or SoundCloud caption can close credits only when its
     // structured artist prefix and feature annotation parse to exactly the
     // requested performer set. Public search display strings, stale catalog
@@ -3444,7 +3536,13 @@ fn build_comparison(
                     .filter_map(Value::as_str)
                     .any(|x| work_ids.contains(&x))
             }));
-    let work = if linked {
+    let proven_same_recording =
+        exact_recording_bound || (authoritative && isrc == Comparison::Agree);
+    let work = if !proven_same_recording
+        && conflicting_soundtrack_works(request_evidence, candidate_evidence)
+    {
+        Comparison::Conflict
+    } else if linked {
         Comparison::Agree
     } else {
         Comparison::Unknown
@@ -4101,6 +4199,9 @@ fn assess_prepared_inner(
     if isrc == Comparison::Conflict {
         reasons.push(MatchReason::IsrcConflict);
     }
+    if work == Comparison::Conflict {
+        reasons.push(MatchReason::SoundtrackWorkConflict);
+    }
     if facts.filename_observations_used {
         reasons.push(MatchReason::FilenameCaptionOnly);
     }
@@ -4128,6 +4229,7 @@ fn assess_prepared_inner(
         || preview_too_short
         || configured_length_conflict
         || title == Comparison::Conflict
+        || work == Comparison::Conflict
         || (artists == Comparison::Conflict && !alternative)
         || (guests == Comparison::Conflict && !alternative)
         || (runtime == Comparison::Conflict
@@ -4147,6 +4249,15 @@ fn assess_prepared_inner(
         && (requested_guests.is_empty()
             || guests == Comparison::Agree
             || policy.allow_missing_guest_evidence && guests == Comparison::Unknown);
+    let flexible_unknown_runtime = level == MatchLevel::Flexible
+        && options.allow_unknown_length
+        && runtime == Comparison::Unknown
+        && title == Comparison::Agree
+        && artists == Comparison::Agree
+        && credits_complete
+        && (requested_guests.is_empty() || guests == Comparison::Agree)
+        && version != Comparison::Conflict
+        && !facts.filename_observations_used;
     let flexible_evidence = policy.allow_missing_guest_evidence
         && title_identity_matches
         && artists == Comparison::Agree
@@ -4158,6 +4269,7 @@ fn assess_prepared_inner(
         && (version != Comparison::Conflict || alternative)
         && (flexible_runtime_eligible
             || options.allow_different_lengths && configured_length_alternative
+            || flexible_unknown_runtime
             || target_runtime.is_none()
                 && candidate_runtime.is_some_and(|duration| duration > 30.0));
     let full_credits = credits_complete && !names.is_empty();
@@ -6288,6 +6400,56 @@ mod tests {
     }
 
     #[test]
+    fn flexible_unknown_length_needs_complete_credits_and_preserves_known_length_limits() {
+        let mut request = track();
+        request.isrc = None;
+        request.duration_seconds = None;
+        let mut candidate = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:abcdefghijk".into(),
+            title: "Main Artist - Song".into(),
+            source_metadata: Some(json!({
+                "provider": "youtube",
+                "resolvedProviderId": "abcdefghijk",
+                "sourceMetadataOrigin": "ytDlpFullInfo",
+            })),
+            ..Candidate::default()
+        };
+        let options = FlexibleMatchingOptions {
+            allow_different_lengths: true,
+            allow_unknown_length: true,
+            ..Default::default()
+        };
+        let evaluate = |request: &Track, candidate: &Candidate, level| {
+            assess_with_options(request, candidate, level, MatchStage::Resolved, &options).action
+        };
+        assert_ne!(
+            assess(&request, &candidate, MatchLevel::Flexible, MatchStage::Resolved).action,
+            MatchAction::Accept
+        );
+        assert_eq!(
+            evaluate(&request, &candidate, MatchLevel::Flexible),
+            MatchAction::Accept
+        );
+        for level in [MatchLevel::Exact, MatchLevel::Balanced] {
+            assert_ne!(evaluate(&request, &candidate, level), MatchAction::Accept);
+        }
+        for bad_title in ["Another Artist - Song", "Main Artist - Other", "Main Artist - Song (Cover)"] {
+            let different = Candidate {
+                title: bad_title.into(),
+                ..candidate.clone()
+            };
+            assert_ne!(evaluate(&request, &different, MatchLevel::Flexible), MatchAction::Accept);
+        }
+        candidate.source_metadata.as_mut().unwrap()["isPreview"] = json!(true);
+        assert_eq!(evaluate(&request, &candidate, MatchLevel::Flexible), MatchAction::Reject);
+        candidate.source_metadata.as_mut().unwrap()["isPreview"] = json!(false);
+        request.duration_seconds = Some(200.0);
+        candidate.duration_seconds = Some(260.0);
+        assert_eq!(evaluate(&request, &candidate, MatchLevel::Flexible), MatchAction::Reject);
+    }
+
+    #[test]
     fn composite_provider_credit_is_expanded_only_to_requested_people() {
         let mut t = track();
         t.artist = "Nipsey Hussle, Bino Rideaux, Static Major".into();
@@ -6855,6 +7017,79 @@ mod tests {
         assert_eq!(
             request.artist,
             "Macha Y El Bloque Depresivo, Alvaro Henriquez"
+        );
+    }
+
+    #[test]
+    fn bound_collaboration_caption_preserves_compound_names_and_uses_known_joins() {
+        let track = Track {
+            artist: "AC/DC, Earth, Wind & Fire, Guest Artist".into(),
+            title: "A Recording".into(),
+            duration_seconds: Some(200.0),
+            provenance: json!({"artistCredits":[
+                {"name":"AC/DC"}, {"name":"Earth, Wind & Fire"}, {"name":"Guest Artist"}
+            ]}),
+            ..Track::default()
+        };
+        let candidate = |title: &str| Candidate {
+            id: "youtube:H35xiJcS8RY".into(),
+            provider: "youtube".into(),
+            title: title.into(),
+            duration_seconds: Some(200.0),
+            source_metadata: Some(json!({
+                "provider":"youtube", "resolvedProviderId":"H35xiJcS8RY",
+                "sourceMetadataOrigin":"ytDlpFullInfo", "duration":200.0, "track":title
+            })),
+            ..Candidate::default()
+        };
+        let evaluate = |title| {
+            assess(
+                &track,
+                &candidate(title),
+                MatchLevel::Balanced,
+                MatchStage::Resolved,
+            )
+        };
+        for title in [
+            "AC/DC x Earth, Wind & Fire with Guest Artist - A Recording",
+            "Earth, Wind & Fire + AC/DC × Guest Artist - A Recording",
+            "AC/DC / Earth, Wind & Fire and Guest Artist - A Recording",
+        ] {
+            let result = evaluate(title);
+            assert_eq!(result.action, MatchAction::Accept, "{title}: {result:?}");
+            assert_eq!(result.dimensions.artists, Comparison::Agree, "{title}");
+        }
+        let same_display = "AC/DC x Earth, Wind & Fire with Guest Artist";
+        let same_display_track = Track {
+            artist: same_display.into(),
+            ..track.clone()
+        };
+        let same_display_candidate = candidate(&format!("{same_display} - A Recording"));
+        assert_eq!(
+            assess(
+                &same_display_track,
+                &same_display_candidate,
+                MatchLevel::Balanced,
+                MatchStage::Resolved,
+            )
+            .action,
+            MatchAction::Accept
+        );
+        for title in [
+            "AC / DC x Earth, Wind & Fire with Guest Artist - A Recording",
+            "AC/DC x Earth, Wind & Fire with Wrong Guest - A Recording",
+            "AC/DC x Earth, Wind & Fire with Guest Artist + - A Recording",
+            "AC/DC x Earth, Wind & Fire with Guest Artist - A Recording (feat. Wrong Guest)",
+            "AC/DC x Earth, Wind & Fire with Guest Artist - A Recording - with Wrong Guest",
+        ] {
+            let result = evaluate(title);
+            assert_ne!(result.action, MatchAction::Accept, "{title}: {result:?}");
+        }
+        let mut unbound = candidate("AC/DC x Earth, Wind & Fire with Guest Artist - A Recording");
+        unbound.source_metadata.as_mut().unwrap()["resolvedProviderId"] = json!("wrong");
+        assert_ne!(
+            assess(&track, &unbound, MatchLevel::Balanced, MatchStage::Resolved).action,
+            MatchAction::Accept
         );
     }
 

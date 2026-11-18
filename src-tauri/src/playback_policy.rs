@@ -14,6 +14,16 @@ pub(crate) const OUTPUT_PROGRESS_TIMEOUT: Duration = Duration::from_secs(10);
 // Three seconds of stereo PCM at 44.1kHz, filled after immediate first audio.
 pub(crate) const PCM_BLOCK_CAPACITY: usize = 64;
 pub(crate) const MAX_RECOVERY_ATTEMPTS: u8 = 2;
+pub(crate) const INCOMPLETE_HTTP_AUDIO: &str =
+    "Native HTTP audio stream ended before the recording finished";
+
+pub(crate) fn chapter_ended_early(position: f64, end: f64) -> bool {
+    end.is_finite() && end - position > 0.25
+}
+
+pub(crate) fn recording_ended_early(position: f64, duration: f64) -> bool {
+    duration.is_finite() && duration - position > (duration * 0.05).clamp(3.0, 10.0)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RecoveryStep {

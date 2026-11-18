@@ -185,7 +185,7 @@ where
     }
 }
 
-fn safe_query_part(value: &str) -> Result<&str, &'static str> {
+pub(crate) fn safe_query_part(value: &str) -> Result<&str, &'static str> {
     let value = value.trim();
     if value.is_empty() || value.len() > MAX_QUERY_BYTES || value.chars().any(char::is_control) {
         return Err("Invalid YouTube WEB search query");

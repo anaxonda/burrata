@@ -1,46 +1,31 @@
 <script lang="ts">
   import { smoothPlaybackPosition } from "./lib/smooth-playback-position.svelte";
-  import { onDestroy } from "svelte";
-  import { formatSeekTime, seekPreviewTime } from "./lib/seek-preview";
+  import { seekInteraction } from "./lib/seek-interaction.svelte";
+  import { formatSeekTime } from "./lib/seek-preview";
   import { detectionMarkers } from "./lib/detection-markers";
   import type { DetectedTrackObservation } from "./lib/playing-track-detection";
-  let { position, duration, disabled, onSeek, detections = [], detectionSourceOffset = 0, playing = false, playbackIdentity = null }: {position:number;duration:number;disabled:boolean;onSeek:(value:number)=>void;detections?:DetectedTrackObservation[];detectionSourceOffset?:number;playing?:boolean;playbackIdentity?:unknown} = $props();
+  let { position, duration, disabled, onSeek, detections = [], detectionSourceOffset = 0, playing = false, playbackIdentity = null, seekIdentity }: {position:number;duration:number;disabled:boolean;onSeek:(value:number)=>void;detections?:DetectedTrackObservation[];detectionSourceOffset?:number;playing?:boolean;playbackIdentity?:unknown;seekIdentity?:unknown} = $props();
   const animated = smoothPlaybackPosition(() => ({ position, duration, playing, identity: playbackIdentity }));
-  let target = $state<number | null>(null);
-  let hoverPosition = $state<number | null>(null);
-  const previewPosition = $derived(target ?? hoverPosition);
+  const gesture = seekInteraction(() => seekIdentity ?? playbackIdentity, () => disabled, () => duration, value => onSeek(value));
+  const previewPosition = $derived(gesture.preview);
   const markers = $derived(detectionMarkers(detections, duration, detectionSourceOffset));
-  let dragging = false;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  function commit() {
-    clearTimeout(timer);
-    if (target !== null) onSeek(target);
-    target = null;
-    hoverPosition = null;
-  }
-  function previewSeek(event: PointerEvent) {
-    if (disabled) return;
-    const bounds = event.currentTarget instanceof HTMLElement ? event.currentTarget.getBoundingClientRect() : null;
-    hoverPosition = bounds ? seekPreviewTime(event.clientX, bounds.left, bounds.width, duration) : null;
-  }
-  onDestroy(() => clearTimeout(timer));
 </script>
 <div class="seek-control">
 {#each markers as marker, index (`${marker.startSeconds}:${marker.endSeconds}:${index}`)}
   <span class={`detection-marker detection-color-${marker.colorIndex}`} style={`left:${100 * marker.startSeconds / duration}%;width:${100 * (marker.endSeconds - marker.startSeconds) / duration}%`} title={`Approximate observed span for ${marker.title}`} aria-hidden="true"></span>
 {/each}
 <input class="seek" type="range" min="0" max={duration || 1} step="0.1"
-  value={target ?? animated.value} {disabled} aria-label="Playback position"
-  aria-valuetext={`${formatSeekTime(target ?? position)} of ${formatSeekTime(duration)}`}
+  value={gesture.target ?? animated.value} {disabled} aria-label="Playback position"
+  aria-valuetext={`${formatSeekTime(gesture.target ?? position)} of ${formatSeekTime(duration)}`}
   title="Click or drag to seek"
-  onpointermove={previewSeek}
-  onpointerleave={() => { if (!dragging) hoverPosition = null; }}
-  onpointerdown={(event) => { clearTimeout(timer); dragging = true; event.currentTarget.setPointerCapture(event.pointerId); }}
-  oninput={(event) => { target = Number(event.currentTarget.value); clearTimeout(timer); if (!dragging) timer = setTimeout(commit, 150); }}
-  onpointerup={() => { dragging = false; commit(); }}
-  onlostpointercapture={() => { if (dragging) { dragging = false; commit(); } }}
-  onpointercancel={() => { dragging = false; clearTimeout(timer); target = null; hoverPosition = null; }}
-  onblur={() => { dragging = false; commit(); }} />
+  onpointermove={gesture.pointerMove}
+  onpointerleave={gesture.pointerLeave}
+  onpointerdown={gesture.pointerDown}
+  oninput={gesture.input}
+  onpointerup={gesture.commit}
+  onlostpointercapture={gesture.lostPointerCapture}
+  onpointercancel={gesture.cancel}
+  onblur={gesture.commit} />
 {#if previewPosition !== null && !disabled && duration > 0}
   <span class="seek-hover-guide" style={`left:${100 * previewPosition / duration}%`} aria-hidden="true"></span>
   <span class="seek-hover-time" style={`left:clamp(32px, ${100 * previewPosition / duration}%, calc(100% - 32px))`} aria-hidden="true">{formatSeekTime(previewPosition)}</span>

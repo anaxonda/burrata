@@ -50,10 +50,24 @@ pub(crate) enum FetchRequest {
     AppleSearch { term: String },
     AppleArtistAlbums { artist_id: u64 },
     AppleAlbum { collection_id: u64 },
+    AppleBarcodeAlbum { barcode: String },
 }
 
 fn full_request_value(track: &Track) -> Option<Value> {
-    serde_json::to_value(track).ok()
+    let mut value = serde_json::to_value(track).ok()?;
+    // Storage adds a library timestamp and hydration defaults to raw album
+    // rows. None of those additions change the requested recording.
+    value.as_object_mut()?.remove("dateAdded");
+    if track.local_path.is_none() && track.asset_id.is_none() && track.local_availability.is_empty()
+    {
+        value["localAvailability"] = json!("none");
+    }
+    if let Some(provenance) = value["provenance"].as_object_mut() {
+        provenance
+            .entry("manualFields")
+            .or_insert_with(|| json!({}));
+    }
+    Some(value)
 }
 
 pub(crate) fn full_request_fingerprint(track: &Track) -> Option<String> {
@@ -148,6 +162,65 @@ fn apple_artist_album_locator_url(artist_id: u64) -> Result<url::Url, String> {
     )
 }
 
+fn apple_barcode_album_url(barcode: String) -> Result<url::Url, String> {
+    crate::compilation_excerpt::apple_endpoint(
+        "lookup",
+        &[
+            ("upc", barcode),
+            ("entity", "song".into()),
+            ("limit", "200".into()),
+            ("explicit", "Yes".into()),
+        ],
+    )
+}
+
+fn verified_barcode_artist_variants(proof: &Value) -> Vec<String> {
+    if proof["releaseDateClaim"] != "barcodeMatched" {
+        return Vec::new();
+    }
+    proof["evidence"]["appleArtist"]
+        .as_str()
+        .map(str::to_owned)
+        .into_iter()
+        .collect()
+}
+
+fn assemble_duration_proof(
+    original: &Track,
+    fingerprint: &str,
+    policy_fingerprint: &str,
+    policy: CatalogDurationPolicy,
+    proof: crosswalk::DiscogsAppleDurationProof,
+    discovery_method: &str,
+    source_fingerprint: String,
+) -> Option<PreparedCatalogDuration> {
+    let mut track = original.clone();
+    track.duration_seconds = Some(proof.duration_seconds);
+    if !track.provenance.is_object() {
+        return None;
+    }
+    let catalog_proof = json!({
+        "version": 2,
+        "provider": "discogsAppleCompleteAlbum",
+        "requestFingerprint": fingerprint,
+        "policyFingerprint": policy_fingerprint,
+        "matchingLevel": policy.matching_level,
+        "flexibleOptions": policy.flexible_options,
+        "discoveryMethod": discovery_method,
+        "releaseDateClaim": proof.evidence["releaseDateClaim"],
+        "sourceFingerprint": source_fingerprint,
+        "checkedAt": chrono::Utc::now().timestamp(),
+        "evidence": proof.evidence,
+    });
+    let verified_artist_variants = verified_barcode_artist_variants(&catalog_proof);
+    track.provenance["playbackCatalogDurationProof"] = catalog_proof;
+    Some(PreparedCatalogDuration {
+        track,
+        original_fingerprint: remote_playlists::alias_hydration_identity(original),
+        verified_artist_variants,
+    })
+}
+
 fn prepared_from_evidence(
     original: &Track,
     fingerprint: &str,
@@ -219,29 +292,20 @@ fn prepared_from_evidence(
     }))
     .ok()
     .map(|bytes| format!("{:x}", Sha256::digest(bytes)))?;
-    let mut track = original.clone();
-    track.duration_seconds = Some(proof.duration_seconds);
-    if !track.provenance.is_object() {
-        return None;
-    }
-    track.provenance["playbackCatalogDurationProof"] = json!({
-        "version": 2,
-        "provider": "discogsAppleCompleteAlbum",
-        "requestFingerprint": fingerprint,
-        "policyFingerprint": policy_fingerprint,
-        "matchingLevel": policy.matching_level,
-        "flexibleOptions": policy.flexible_options,
-        "discoveryMethod": if apple_artist_albums.is_some() { "artistAlbumLocator" } else { "songSearch" },
-        "releaseDateClaim": proof.evidence["releaseDateClaim"],
-        "sourceFingerprint": source_fingerprint,
-        "checkedAt": chrono::Utc::now().timestamp(),
-        "evidence": proof.evidence,
-    });
-    Some(PreparedCatalogDuration {
-        track,
-        original_fingerprint: remote_playlists::alias_hydration_identity(original),
-        verified_artist_variants: Vec::new(),
-    })
+    let discovery_method = if apple_artist_albums.is_some() {
+        "artistAlbumLocator"
+    } else {
+        "songSearch"
+    };
+    assemble_duration_proof(
+        original,
+        fingerprint,
+        policy_fingerprint,
+        policy,
+        proof,
+        discovery_method,
+        source_fingerprint,
+    )
 }
 
 fn prepared_from_retained_duration(
@@ -256,7 +320,10 @@ fn prepared_from_retained_duration(
     if !(1.0..=86_400.0).contains(&duration)
         || proof["version"] != 2
         || proof["provider"] != "discogsAppleCompleteAlbum"
-        || proof["releaseDateClaim"] != "dateMatched"
+        || !matches!(
+            proof["releaseDateClaim"].as_str(),
+            Some("dateMatched" | "barcodeMatched")
+        )
         || proof["requestFingerprint"].as_str() != Some(fingerprint)
     {
         return None;
@@ -268,11 +335,12 @@ fn prepared_from_retained_duration(
     proof["flexibleOptions"] = json!(policy.flexible_options);
     let mut track = original.clone();
     track.duration_seconds = Some(duration);
+    let verified_artist_variants = verified_barcode_artist_variants(&proof);
     track.provenance["playbackCatalogDurationProof"] = proof;
     Some(PreparedCatalogDuration {
         track,
         original_fingerprint: remote_playlists::alias_hydration_identity(original),
-        verified_artist_variants: Vec::new(),
+        verified_artist_variants,
     })
 }
 
@@ -368,6 +436,33 @@ where
         return Ok(None);
     }
     Ok(Some(response))
+}
+
+async fn retain_exact_duration<Current, Fut>(
+    store: Arc<Store>,
+    fingerprint: String,
+    prepared: PreparedCatalogDuration,
+    cancel: &watch::Receiver<bool>,
+    deadline: tokio::time::Instant,
+    current: &Current,
+) -> Result<Option<PreparedCatalogDuration>, String>
+where
+    Current: Fn() -> Fut,
+    Fut: Future<Output = Result<bool, String>>,
+{
+    if !checkpoint(cancel, deadline, current).await? {
+        return Ok(None);
+    }
+    let compact = json!({
+        "durationSeconds": prepared.track.duration_seconds,
+        "proof": prepared.track.provenance["playbackCatalogDurationProof"],
+    });
+    let retained_write =
+        tokio::task::spawn_blocking(move || store.retain_catalog_duration(&fingerprint, &compact));
+    let _ = bounded(cancel, deadline, retained_write).await?;
+    Ok(checkpoint(cancel, deadline, current)
+        .await?
+        .then_some(prepared))
 }
 
 async fn prepare_with_fetch<F, Fut, Current, CurrentFut>(
@@ -468,6 +563,45 @@ where
     else {
         return Ok(None);
     };
+    if let Some(barcode) = crosswalk::physical_release_barcode(original, &discogs) {
+        let Some(album) = fetch_step(
+            cancel.clone(),
+            deadline,
+            &current,
+            &mut fetch,
+            FetchRequest::AppleBarcodeAlbum {
+                barcode: barcode.clone(),
+            },
+        )
+        .await?
+        else {
+            return Ok(None);
+        };
+        let Some(proof) =
+            crosswalk::verify_physical_barcode_lookup(original, &discogs, &barcode, &album)
+        else {
+            return Ok(None);
+        };
+        let source = serde_json::to_vec(&json!({
+            "discogsRelease": discogs,
+            "appleBarcode": barcode,
+            "appleAlbum": album,
+        }))
+        .map_err(|error| error.to_string())?;
+        let Some(prepared) = assemble_duration_proof(
+            original,
+            &fingerprint,
+            &policy_fingerprint,
+            policy,
+            proof,
+            "physicalReleaseBarcode",
+            format!("{:x}", Sha256::digest(source)),
+        ) else {
+            return Ok(None);
+        };
+        return retain_exact_duration(store, fingerprint, prepared, &cancel, deadline, &current)
+            .await;
+    }
     let Some(search) = fetch_step(
         cancel.clone(),
         deadline,
@@ -580,22 +714,13 @@ where
         };
         (prepared, Some(locator))
     };
-    if !checkpoint(&cancel, deadline, &current).await? {
-        return Ok(None);
-    }
     let proof = &prepared.track.provenance["playbackCatalogDurationProof"];
     if proof["releaseDateClaim"] == "dateMatched" {
-        let compact = json!({"durationSeconds": prepared.track.duration_seconds, "proof": proof});
-        let retained_store = store.clone();
-        let retained_write = tokio::task::spawn_blocking(move || {
-            retained_store.retain_catalog_duration(&fingerprint, &compact)
-        });
-        let _ = bounded(&cancel, deadline, retained_write).await?;
-        return if checkpoint(&cancel, deadline, &current).await? {
-            Ok(Some(prepared))
-        } else {
-            Ok(None)
-        };
+        return retain_exact_duration(store, fingerprint, prepared, &cancel, deadline, &current)
+            .await;
+    }
+    if !checkpoint(&cancel, deadline, &current).await? {
+        return Ok(None);
     }
     // The Store caps provider-cache entries at 1 MiB. Larger but still bounded
     // raw evidence can be used for this request and simply will not be cached.
@@ -777,6 +902,10 @@ pub(crate) async fn prepare(
                         )?;
                         crate::compilation_excerpt::apple_json(url, cancel).await
                     }
+                    FetchRequest::AppleBarcodeAlbum { barcode } => {
+                        let url = apple_barcode_album_url(barcode)?;
+                        crate::compilation_excerpt::apple_json(url, cancel).await
+                    }
                 }
             }
         },
@@ -869,6 +998,133 @@ mod tests {
         assert_eq!(query.get("explicit").map(String::as_str), Some("Yes"));
     }
 
+    #[tokio::test]
+    async fn multi_disc_barcode_proves_and_retains_the_matching_digital_occurrence() {
+        let fixture: Value =
+            serde_json::from_str(include_str!("../tests/fixtures/labeque-55-duration.json"))
+                .unwrap();
+        let discogs = &fixture["discogs"];
+        let apple = &fixture["apple"];
+        let release_url = "https://www.discogs.com/release/38026143";
+        let mut tracks = crate::artists::parse_discogs_release_tracks(
+            discogs,
+            "38026143",
+            release_url,
+            false,
+            None,
+        )
+        .into_iter()
+        .filter(|track| {
+            matches!(
+                track.provenance["trackPosition"].as_str(),
+                Some("1-14" | "3-3")
+            )
+        });
+        let track = tracks.next().unwrap();
+        let another_track = tracks.next().unwrap();
+        let barcode = "028948489602";
+        let url = apple_barcode_album_url(barcode.to_owned()).unwrap();
+        let query = url.query_pairs().into_owned().collect::<HashMap<_, _>>();
+        assert_eq!(query.get("upc").map(String::as_str), Some(barcode));
+        assert_eq!(query.get("entity").map(String::as_str), Some("song"));
+        assert_eq!(track.duration_seconds, None);
+        let expected = crosswalk::verify_physical_barcode_lookup(&track, discogs, barcode, apple)
+            .expect("the exact physical release identifies the flattened Apple track");
+        assert_eq!(expected.evidence["appleTrackId"], 6762783134_u64);
+        assert_eq!(expected.duration_seconds, 173.960);
+        let another =
+            crosswalk::verify_physical_barcode_lookup(&another_track, discogs, barcode, apple)
+                .expect("position 3-3 also maps to the exact flattened release");
+        assert_eq!(another.evidence["appleTrackId"], 6762783164_u64);
+        assert_eq!(another.duration_seconds, 309.893);
+
+        let mut shifted = apple.clone();
+        shifted["results"][13]["trackNumber"] = 14.into();
+        shifted["results"][14]["trackNumber"] = 13.into();
+        assert!(
+            crosswalk::verify_physical_barcode_lookup(&track, discogs, barcode, &shifted).is_none()
+        );
+        assert!(
+            crosswalk::verify_physical_barcode_lookup(&track, discogs, "000000000000", apple)
+                .is_none()
+        );
+        let mut wrong_title = apple.clone();
+        wrong_title["results"][14]["trackName"] = json!("Spanish Dance No. 1 (live)");
+        assert!(
+            crosswalk::verify_physical_barcode_lookup(&track, discogs, barcode, &wrong_title)
+                .is_none()
+        );
+
+        let (_directory, store) = test_store();
+        let saved = store.cache_track(&track).unwrap();
+        assert_eq!(
+            full_request_fingerprint(&track),
+            full_request_fingerprint(&saved)
+        );
+        let saved = store.save_track(&track).unwrap();
+        assert!(saved.date_added.is_some());
+        assert_eq!(
+            full_request_fingerprint(&track),
+            full_request_fingerprint(&saved)
+        );
+        let mut edited = saved;
+        edited.provenance["manualFields"]["title"] = json!(true);
+        assert_ne!(
+            full_request_fingerprint(&track),
+            full_request_fingerprint(&edited)
+        );
+        let (_stop, cancel) = watch::channel(false);
+        let first = prepare_with_fetch(
+            store.clone(),
+            &track,
+            strict_policy(),
+            cancel.clone(),
+            tokio::time::Instant::now() + Duration::from_secs(2),
+            || async { Ok(true) },
+            |request| {
+                let response = match request {
+                    FetchRequest::DiscogsRelease { release_id } if release_id == "38026143" => {
+                        discogs.clone()
+                    }
+                    FetchRequest::AppleBarcodeAlbum { barcode: requested }
+                        if requested == barcode =>
+                    {
+                        apple.clone()
+                    }
+                    other => panic!("unexpected lookup {other:?}"),
+                };
+                async move { Ok(response) }
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(first.track.title, track.title);
+        assert_eq!(first.track.artist, track.artist);
+        assert_eq!(first.track.duration_seconds, Some(173.960));
+        assert_eq!(
+            first.verified_artist_variants,
+            vec!["Katia Labèque & Marielle Labèque".to_owned()]
+        );
+        let retained = prepare_with_fetch(
+            store,
+            &track,
+            strict_policy(),
+            cancel,
+            tokio::time::Instant::now() + Duration::from_secs(2),
+            || async { Ok(true) },
+            |_| std::future::ready(Err("no requests after retaining exact proof".into())),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(retained.track, first.track);
+        assert_eq!(
+            retained.verified_artist_variants,
+            first.verified_artist_variants
+        );
+    }
+
     fn test_store() -> (tempfile::TempDir, Arc<Store>) {
         let directory = tempfile::tempdir().unwrap();
         let store = Arc::new(Store::open(&directory.path().join("catalog.db")).unwrap());
@@ -889,6 +1145,7 @@ mod tests {
             FetchRequest::AppleSearch { .. } => Ok(search_result(apple)),
             FetchRequest::AppleArtistAlbums { .. } => Ok(artist_album_locator_fixture()),
             FetchRequest::AppleAlbum { .. } => Ok(apple.clone()),
+            FetchRequest::AppleBarcodeAlbum { .. } => Err("Unexpected barcode lookup".into()),
         }
     }
 
@@ -903,6 +1160,7 @@ mod tests {
             FetchRequest::DiscogsRelease { .. } => Ok(release.clone()),
             FetchRequest::AppleSearch { .. } => Ok(search_result(current)),
             FetchRequest::AppleArtistAlbums { .. } => Ok(locator.clone()),
+            FetchRequest::AppleBarcodeAlbum { .. } => Err("Unexpected barcode lookup".into()),
             FetchRequest::AppleAlbum { collection_id } => {
                 let current_id = positive_id(&current["results"][0]["collectionId"]).unwrap();
                 let old_id = positive_id(&old["results"][0]["collectionId"]).unwrap();
@@ -1254,6 +1512,9 @@ mod tests {
                         Ok(current.clone())
                     }
                     FetchRequest::AppleArtistAlbums { .. } => Ok(locator.clone()),
+                    FetchRequest::AppleBarcodeAlbum { .. } => {
+                        Err("Unexpected barcode lookup".into())
+                    }
                     FetchRequest::AppleAlbum { .. } => {
                         Err("global candidate cap should prevent this lookup".into())
                     }
@@ -1422,6 +1683,7 @@ mod tests {
                         second_apple.clone()
                     }
                     FetchRequest::AppleAlbum { .. } => apple.clone(),
+                    FetchRequest::AppleBarcodeAlbum { .. } => Value::Null,
                 };
                 async move { Ok(response) }
             },

@@ -1,5 +1,7 @@
 <script lang="ts">
   import HeartIcon from "./HeartIcon.svelte";
+  import { getContext } from "svelte";
+  import { FAVORITE_MEMBERSHIP, type FavoriteMembership } from "./lib/favorite-membership";
   import ActionMenu from "./ActionMenu.svelte";
   import SourceLink from "./SourceLink.svelte";
   import MenuIcon from "./MenuIcon.svelte";
@@ -12,6 +14,8 @@
     onDetails?: () => void; onSelect?: () => void; onArtist?: () => void; onOpenSource?: () => void; onRemove?: () => void; onRadio?: () => void; onMoreInfo?: () => void; onOpenMpv?: () => void; onGoToAlbum?: () => void; onGoToAlbumUnavailable?: boolean; radioBusy?: boolean; anchor?: { x: number; y: number } | null; playerHeight?: number;
   } = $props();
   let hasSource = $derived(Boolean(trackSource(track)) || Boolean(onOpenSource));
+  const favoriteMembership = getContext<FavoriteMembership | undefined>(FAVORITE_MEMBERSHIP);
+  const favorite = $derived(favoriteMembership?.(track) ?? track.favorite);
   function action(callback: () => void) { callback(); onClose(); }
 </script>
 <ActionMenu class="track-menu" label={`Actions for ${track.title}`} title={track.title} subtitle={track.artist || undefined} closeLabel="Close track actions" {anchor} {playerHeight} {onClose}>
@@ -19,7 +23,7 @@
   {#if onNext}<button onclick={() => action(onNext!)}><MenuIcon name="play"/><span>Play next</span></button>{/if}
   {#if onQueue}<button onclick={() => action(onQueue!)}><MenuIcon name="queue"/><span>Add to queue</span></button>{/if}
   {#if onPlaylist}<button class="primary-action" onclick={() => action(onPlaylist!)}><MenuIcon name="plus"/><span>Add to playlist…</span></button>{/if}
-  {#if onFavorite}<button onclick={() => action(onFavorite!)}><HeartIcon filled={track.favorite} /><span>{track.favorite ? "Remove from Liked Songs" : "Add to Liked Songs"}</span></button>{/if}
+  {#if onFavorite}<button onclick={() => action(onFavorite!)}><HeartIcon filled={favorite} /><span>{favorite ? "Remove from Liked Songs" : "Add to Liked Songs"}</span></button>{/if}
   {#if onRadio}<button class="menu-section" disabled={radioBusy} onclick={() => action(onRadio!)}><MenuIcon name="radio"/><span>{radioBusy ? "Finding radio…" : "Start song radio"}</span></button>{/if}
   {#if onArtist}<button class="menu-section" onclick={() => action(onArtist!)}><MenuIcon name="search"/><span>Open artist</span></button>{/if}
   {#if onGoToAlbum}<button class="menu-section" onclick={() => action(onGoToAlbum!)}><MenuIcon name="album"/><span>{albumActionLabel}</span></button>{/if}

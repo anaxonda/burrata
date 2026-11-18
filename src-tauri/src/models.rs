@@ -447,6 +447,8 @@ pub struct Settings {
     pub embed_lyrics_on_download: bool,
     pub auto_preview: bool,
     #[serde(default)]
+    pub play_radio_on_click: bool,
+    #[serde(default)]
     pub playback_diagnostics_enabled: bool,
     #[serde(default)]
     pub live_bpm_enabled: bool,
@@ -598,6 +600,7 @@ impl Default for Settings {
             download_layout: DownloadLayout::ArtistAlbum,
             embed_lyrics_on_download: false,
             auto_preview: false,
+            play_radio_on_click: false,
             playback_diagnostics_enabled: false,
             live_bpm_enabled: false,
             matching_level: default_matching_level(),
@@ -864,6 +867,23 @@ impl Default for ReplacementDisposition {
 #[cfg(test)]
 mod flexible_crossfade_settings_tests {
     use super::*;
+    #[test]
+    fn radio_station_click_opens_details_by_default_and_preserves_playback_opt_in() {
+        let mut raw = serde_json::to_value(Settings::default()).unwrap();
+        raw.as_object_mut().unwrap().remove("playRadioOnClick");
+        assert!(
+            !Settings::from_persisted_value(raw.clone())
+                .unwrap()
+                .play_radio_on_click
+        );
+        raw["playRadioOnClick"] = serde_json::json!(true);
+        assert!(
+            Settings::from_persisted_value(raw)
+                .unwrap()
+                .play_radio_on_click
+        );
+    }
+
     #[test]
     fn old_flexible_settings_migrate_to_clear_safe_defaults() {
         let mut raw = serde_json::to_value(Settings::default()).unwrap();

@@ -45,6 +45,7 @@ fn preload(generation: u64, active: Arc<AtomicU64>) -> PreloadFixture {
             source_rate: Arc::new(std::sync::atomic::AtomicU32::new(48_000)),
             source_channels: Arc::new(std::sync::atomic::AtomicU32::new(1)),
             decode_failed: Arc::new(AtomicBool::new(false)),
+            incomplete_end: Arc::new(AtomicBool::new(false)),
             source: AudioSource {
                 input: "same-recording-for-each-occurrence".into(),
                 ffmpeg: "unused".into(),

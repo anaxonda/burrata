@@ -237,6 +237,15 @@ impl ParsedRecordingText {
             .filter(|a| a.kind == AnnotationKind::SemanticVersion)
             .map(|a| a.value.as_str())
     }
+
+    pub(crate) fn soundtrack_work_keys(&self) -> impl Iterator<Item = String> + '_ {
+        self.annotations
+            .iter()
+            .filter(|annotation| annotation.kind == AnnotationKind::Soundtrack)
+            .filter_map(|annotation| soundtrack_work(&annotation.value))
+            .map(crate::matching::normalize_title_ignoring_intraword_apostrophes)
+            .filter(|key| !key.is_empty())
+    }
 }
 /// Parse every trailing annotation without discarding unknown text or its span.
 /// Peeling an unknown group exposes inner observations, but does not authorize
@@ -733,7 +742,7 @@ pub struct ParsedRecordingTitle {
     pub version: Option<String>,
     pub soundtrack: Option<String>,
 }
-fn soundtrack_work(label: &str) -> Option<String> {
+fn soundtrack_work(label: &str) -> Option<&str> {
     let trimmed = label.trim();
     if !trimmed
         .get(..5)
@@ -749,7 +758,7 @@ fn soundtrack_work(label: &str) -> Option<String> {
         {
             let inner = inner.trim();
             if !inner.is_empty() {
-                return Some(inner.to_owned());
+                return Some(inner);
             }
         }
     }
@@ -834,7 +843,7 @@ pub fn parse_title(value: &str) -> ParsedRecordingTitle {
             }
         } else if let Some(work) = soundtrack_work(label) {
             result.title = base.trim().to_owned();
-            result.soundtrack = Some(work);
+            result.soundtrack = Some(work.to_owned());
         } else if explicit_recording_version(label) {
             result.title = base.trim().to_owned();
             result.version = Some(label.to_owned());
@@ -890,6 +899,16 @@ fn is_video_version(label: &str) -> bool {
     )
 }
 
+fn localized_live_label(label: &str) -> bool {
+    matches!(label, "en vivo" | "ao vivo")
+}
+
+fn has_live_venue(label: &str) -> bool {
+    ["live at ", "live on ", "live in "]
+        .iter()
+        .any(|prefix| label.starts_with(prefix))
+}
+
 fn explicit_recording_version(label: &str) -> bool {
     let lower = label.trim().to_ascii_lowercase();
     matches!(
@@ -916,16 +935,11 @@ fn explicit_recording_version(label: &str) -> bool {
             | "slowed + reverb"
             | "slowed and reverb"
     ) || is_video_version(label)
-        || [
-            "live at ",
-            "live on ",
-            "live in ",
-            "cover by ",
-            "cover de ",
-            "cover of ",
-        ]
-        .iter()
-        .any(|prefix| lower.starts_with(prefix))
+        || localized_live_label(&lower)
+        || has_live_venue(&lower)
+        || ["cover by ", "cover de ", "cover of "]
+            .iter()
+            .any(|prefix| lower.starts_with(prefix))
         || is_release_version(&lower)
         || [" remix", " mix", " edit", " version", " cover", " dub"]
             .iter()
@@ -939,6 +953,9 @@ pub(crate) fn canonical_version_key(label: &str) -> String {
         return "video version".to_owned();
     }
     let normalized = crate::matching::normalize_version(label);
+    if localized_live_label(&normalized) {
+        return "live".to_owned();
+    }
     let normalized = remaster_version_key(&normalized).unwrap_or(normalized);
     match normalized.as_str() {
         "extended" => "extended mix".to_owned(),
@@ -974,10 +991,12 @@ pub(crate) fn version_categories(label: &str) -> VersionCategories {
         release: words
             .iter()
             .any(|word| matches!(*word, "remaster" | "remastered"))
-            || n.contains("restored edition"),
+            || n.contains("restored edition")
+            || remaster_version_key(&n).is_some(),
         performance: words
             .iter()
-            .any(|word| matches!(*word, "live" | "acoustic" | "demo")),
+            .any(|word| matches!(*word, "live" | "acoustic" | "demo"))
+            || localized_live_label(&n),
         mix: words.iter().any(|word| {
             matches!(
                 *word,
@@ -1036,6 +1055,8 @@ pub(crate) fn remaster_version_key(label: &str) -> Option<String> {
         words.as_slice(),
         ["remaster"]
             | ["remastered"]
+            | ["remasterizado"]
+            | ["remasterizada"]
             | ["digital", "remaster"]
             | ["digital", "remastered"]
             | ["digitally", "remastered"]
@@ -1101,6 +1122,7 @@ fn trailing_dash_version(value: &str) -> Option<(&str, &str)> {
             | "slowed reverb"
             | "slowed and reverb"
     ) || is_video_version(label)
+        || has_live_venue(&normalized)
         || normalized == "remix"
         || normalized.ends_with(" remix")
         || normalized.ends_with(" dub")
@@ -1948,6 +1970,166 @@ mod generalized_remaster_tests {
             "A - B - C",
         ] {
             assert_eq!(parse_recording_text(raw).base_title, raw);
+        }
+    }
+}
+
+#[cfg(test)]
+mod catalog_title_delimiter_tests {
+    use super::*;
+    use crate::{
+        models::Candidate,
+        recording_match::{assess, MatchAction, MatchLevel, MatchStage},
+    };
+    use serde_json::json;
+
+    fn title_pair(request_title: &str, catalog_title: &str) -> (Track, Candidate) {
+        let request = Track {
+            provider: "spotify".into(),
+            provider_id: "title-fixture".into(),
+            artist: "Artist".into(),
+            title: request_title.into(),
+            duration_seconds: Some(200.0),
+            ..Track::default()
+        };
+        let candidate = Candidate {
+            provider: "monochrome".into(),
+            id: "monochrome:123".into(),
+            title: catalog_title.into(),
+            duration_seconds: Some(200.0),
+            source_metadata: Some(json!({
+                "provider": "monochrome",
+                "trackId": "123",
+                "catalogTitle": catalog_title,
+                "artistNames": ["Artist"],
+                "performerCreditsComplete": true,
+                "duration": 200.0
+            })),
+            ..Candidate::default()
+        };
+        (request, candidate)
+    }
+
+    fn assess_title_pair(
+        request_title: &str,
+        catalog_title: &str,
+        stage: MatchStage,
+    ) -> MatchAction {
+        let (request, candidate) = title_pair(request_title, catalog_title);
+        assess(&request, &candidate, MatchLevel::Balanced, stage).action
+    }
+
+    #[test]
+    fn equivalent_live_and_remaster_labels_keep_their_meaning_across_catalogs() {
+        for (request, candidate) in [
+            ("帰り道（Live at Wembley）", "帰り道 (Live at Wembley)"),
+            ("帰り道［2009 Remaster］", "帰り道 (2009 Remaster)"),
+            (
+                "Hotel California - Live On MTV, 1994",
+                "Hotel California (Live On MTV, 1994)",
+            ),
+            ("Song – Live in Paris", "Song (Live in Paris)"),
+            ("Song — Live at Wembley", "Song (Live at Wembley)"),
+            ("De Música Ligera (En Vivo)", "De Música Ligera (Live)"),
+            ("Diga não (Ao Vivo) [Live]", "Diga não (Live)"),
+            (
+                "De Música Ligera (Remasterizado 2007)",
+                "De Música Ligera (2007 Remaster)",
+            ),
+            ("Song - 2011 Remasterizada", "Song (Remastered 2011)"),
+        ] {
+            assert!(
+                matches!(
+                    assess_title_pair(request, candidate, MatchStage::Search),
+                    MatchAction::Inspect | MatchAction::Accept
+                ),
+                "{request} vs {candidate}"
+            );
+            assert_eq!(
+                assess_title_pair(request, candidate, MatchStage::Resolved),
+                MatchAction::Accept,
+                "{request} vs {candidate}"
+            );
+        }
+    }
+
+    #[test]
+    fn live_context_mastering_year_and_unresolved_title_text_remain_distinct() {
+        for (request, candidate) in [
+            ("Song（Live at Wembley）", "Song (Live at Hyde Park)"),
+            ("Song - Live On MTV, 1994", "Song (Live On MTV, 1995)"),
+            ("Song (Ao Vivo)", "Song (Studio Version)"),
+            ("Song (Remasterizado 2007)", "Song (2008 Remaster)"),
+            ("Song［Part I］", "Song (Part II)"),
+            ("Song - Live", "Song"),
+            ("Song - Live it Up", "Song"),
+            ("Song (En Vivo desde Buenos Aires)", "Song (Live)"),
+        ] {
+            assert_eq!(
+                assess_title_pair(request, candidate, MatchStage::Resolved),
+                MatchAction::Reject,
+                "{request} vs {candidate}"
+            );
+        }
+        assert_eq!(
+            assess_title_pair("Song (Ao Vivo)", "Song", MatchStage::Resolved),
+            MatchAction::Enrich
+        );
+        let parsed = parse_recording_text("帰り道（  Live at Wembley  ）");
+        let annotation = &parsed.annotations[0];
+        assert_eq!(
+            &parsed.original[annotation.content_span.start..annotation.content_span.end],
+            "Live at Wembley"
+        );
+        for title in ["Song（Live)", "Song[Live］", "Song （Unfinished（Live）"] {
+            assert_eq!(
+                parse_recording_text(title).title_without_recognized_annotations(),
+                title
+            );
+        }
+    }
+
+    #[test]
+    fn competing_soundtrack_titles_need_recording_level_proof() {
+        use crate::recording_match::{Comparison, MatchReason};
+
+        for level in [
+            MatchLevel::Exact,
+            MatchLevel::Balanced,
+            MatchLevel::Flexible,
+        ] {
+            for stage in [MatchStage::Search, MatchStage::Resolved] {
+                let (mut request, mut candidate) = title_pair(
+                    "Song (From “Series One, Season 1”)",
+                    "Song (From 'Series One, Season 2')",
+                );
+                let conflict = assess(&request, &candidate, level, stage);
+                assert_eq!(conflict.action, MatchAction::Reject);
+                assert_eq!(conflict.dimensions.work, Comparison::Conflict);
+                assert!(conflict
+                    .reasons
+                    .contains(&MatchReason::SoundtrackWorkConflict));
+
+                request.isrc = Some("USAAA2400001".into());
+                candidate.source_metadata.as_mut().unwrap()["isrc"] = json!("USAAA2400001");
+                assert!(matches!(
+                    assess(&request, &candidate, level, stage).action,
+                    MatchAction::Inspect | MatchAction::Accept
+                ));
+            }
+        }
+        for candidate in [
+            "Song (From 'Series One, Season 1')",
+            "Song (Official Audio)",
+        ] {
+            assert_eq!(
+                assess_title_pair(
+                    "Song (From “Series One, Season 1”)",
+                    candidate,
+                    MatchStage::Resolved
+                ),
+                MatchAction::Accept
+            );
         }
     }
 }

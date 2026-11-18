@@ -5,6 +5,7 @@ import { describe, it, expect, vi } from "vitest";
 // @ts-expect-error Svelte internal runtime
 vi.mock("svelte", async () => await import("../node_modules/svelte/src/index-client.js"));
 import FlexibleMatchingSettings from "./FlexibleMatchingSettings.svelte";
+import { DEFAULT_FLEXIBLE_MATCHING } from "./lib/types";
 
 describe("FlexibleMatchingSettings", () => {
   it("defaults to same recording releases and preserves other choices on change", async () => {
@@ -12,12 +13,36 @@ describe("FlexibleMatchingSettings", () => {
     document.body.append(target);
     const component = mount(FlexibleMatchingSettings, {target, props:{onchange, onNoticeDismiss, noticePending:true}}); await tick();
     const boxes = [...target.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
-    expect(boxes.map(box => box.checked)).toEqual([true,false,false,false,false]);
+    expect(boxes.map(box => box.checked)).toEqual([true,false,false,false,false,false]);
     boxes[2].click();
-    expect(onchange).toHaveBeenCalledWith({version:1,allowOtherReleases:true,allowOtherPerformances:false,allowOtherMixes:true,allowOtherArtists:false,allowDifferentLengths:false,maxShorterBySeconds:30,maxLongerBySeconds:30});
+    expect(onchange).toHaveBeenCalledWith({...DEFAULT_FLEXIBLE_MATCHING,allowOtherMixes:true});
     [...target.querySelectorAll("button")].find(button => button.textContent === "Got it")!.click();
     expect(onNoticeDismiss).toHaveBeenCalledOnce();
     unmount(component); target.remove();
+  });
+
+  it("offers unknown lengths independently of the limits for known durations", async () => {
+    const target = document.createElement("div");
+    const onchange = vi.fn();
+    document.body.append(target);
+    const component = mount(FlexibleMatchingSettings, { target, props: {
+      onchange,
+      // Older saved settings do not have an unknown-length preference.
+      value: { ...DEFAULT_FLEXIBLE_MATCHING, allowUnknownLength: undefined, maxShorterBySeconds: 75 },
+    } });
+    await tick();
+
+    const option = [...target.querySelectorAll("label")].find(label =>
+      label.textContent === "Allow matches without a known length")?.querySelector("input");
+    expect(option?.checked).toBe(false);
+    option!.click();
+    expect(onchange).toHaveBeenCalledExactlyOnceWith({
+      ...DEFAULT_FLEXIBLE_MATCHING, allowUnknownLength: true, maxShorterBySeconds: 75,
+    });
+    expect(target.querySelector("fieldset")?.disabled).toBe(true);
+
+    unmount(component);
+    target.remove();
   });
 
   it("shows bounded separate duration limits and preserves them when toggled off", async () => {

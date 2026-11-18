@@ -36,6 +36,43 @@ function render(call: (command: string, args: Record<string, unknown>) => Promis
 }
 
 describe("SpotifyArtist pagination", () => {
+  it("queues every page of a release in album order without opening it or playing it", async () => {
+    const id = "queue-release-artist";
+    const release = album("queue-release-album", "Queue Record");
+    const song = track("same-recording", "Repeated Song");
+    const first = { ...song, provenance: { remoteEntryId: "first" } };
+    const second = { ...song, provenance: { remoteEntryId: "second" } };
+    const onPlay = vi.fn();
+    const onQueueSelected = vi.fn();
+    const call = vi.fn(async (command: string, args: Record<string, unknown>) => {
+      if (command === "browse_remote_artist") return { artist: { id, name: "Queue Artist", url: `https://open.spotify.com/artist/${id}`, genres: [] }, albums: [release] };
+      if (command === "browse_remote_artist_tracks") return { provider: "spotify", artistId: id, tracks: [] };
+      if (command === "browse_remote_album_tracks") return { album: release, tracks: args.cursor ? [second] : [first], total: 2, nextCursor: args.cursor ? null : "next" };
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const target = render(call, onPlay, id, { onQueueSelected });
+    await settle();
+    target.querySelector<HTMLButtonElement>('[aria-label="Queue album Queue Record"]')!.click();
+    await settle();
+    expect(onQueueSelected).toHaveBeenCalledExactlyOnceWith([first, second]);
+    expect(onPlay).not.toHaveBeenCalled();
+    expect(target.querySelector("h1")?.textContent).toBe("Queue Artist");
+  });
+
+  it("queues an already-loaded Spotify album without reloading or starting playback", async () => {
+    const release = album("queue-open-album", "Open Record");
+    const first = track("first", "First"), second = track("second", "Second");
+    const onPlay = vi.fn(), onQueueSelected = vi.fn();
+    const call = vi.fn(async (_command: string) => ({ album: release, tracks: [first, second], total: 2 }));
+    const target = render(call, onPlay, release.id, { initialAlbumId: release.id, onQueueSelected });
+    await settle();
+    target.querySelector<HTMLButtonElement>('[aria-label="Queue album Open Record"]')!.click();
+    await settle();
+    expect(onQueueSelected).toHaveBeenCalledExactlyOnceWith([first, second]);
+    expect(call.mock.calls.filter(([command]) => command === "browse_remote_album_tracks")).toHaveLength(1);
+    expect(onPlay).not.toHaveBeenCalled();
+  });
+
   it("fetches every album page before saving and keeps playlist and partial-save actions available", async () => {
     const release = album("whole-album", "Whole album");
     const first = track("first", "First"), second = track("second", "Second");

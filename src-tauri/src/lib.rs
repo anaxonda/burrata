@@ -1978,16 +1978,22 @@ async fn get_release_editions(
 async fn get_release_tracks(
     state: State<'_, AppState>,
     release: artists::ArtistReleaseRef,
-    artist: artists::ArtistRef,
+    artist: Option<artists::ArtistRef>,
 ) -> Result<Vec<Track>> {
-    let tracks = state
-        .artists
-        .get_release_tracks(
-            &release,
-            &artist,
-            &artist_credentials(state.connections.clone()).await?,
-        )
-        .await?;
+    let tracks = if release.release.provider == "bandcamp" {
+        collection_sources::get_bandcamp_release_tracks(&release.source_url, &release.release.id)
+            .await?
+    } else {
+        let artist = artist.ok_or("Artist identity is required for this release")?;
+        state
+            .artists
+            .get_release_tracks(
+                &release,
+                &artist,
+                &artist_credentials(state.connections.clone()).await?,
+            )
+            .await?
+    };
     tracks
         .iter()
         .map(|track| state.store.cache_track(track))
@@ -4136,7 +4142,7 @@ async fn get_track_details(state: State<'_, AppState>, track: Track) -> Result<T
         .and_then(|v| v.as_bool())
         == Some(true)
     {
-        return state.store.save_track(&track);
+        return state.store.cache_track(&track);
     }
     if let Some(mut cached) = state.store.get_track(&track.id)? {
         if cached

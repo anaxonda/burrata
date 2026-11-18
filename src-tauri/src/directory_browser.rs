@@ -909,7 +909,7 @@ impl DirectoryBrowser {
         root: &DirectoryRoot,
         relative: &str,
         before: &serde_json::Value,
-        mut asset: LocalAsset,
+        asset: LocalAsset,
         cancel: &watch::Receiver<bool>,
         hash_file: impl FnOnce(&Path) -> Result<String>,
     ) -> Result<()> {
@@ -938,11 +938,9 @@ impl DirectoryBrowser {
         if current {
             return Ok(());
         }
-        if !asset.track.provenance.is_object() {
-            asset.track.provenance = serde_json::json!({});
-        }
-        asset.track.provenance["directoryBrowserFingerprint"] = before.clone();
-        self.inner.store.save_asset(&asset)
+        self.inner
+            .store
+            .remember_directory_asset_fingerprint(&asset, before)
     }
     /// A saved asset without a directory fingerprint is legacy data. Verify its
     /// content hash before trusting the metadata, then persist the current stat
@@ -2352,6 +2350,37 @@ mod tests {
             })
             .unwrap();
         assert_eq!(manager.inner.store.list_asset_paths().unwrap().len(), 1);
+    }
+    #[test]
+    fn browsing_a_cached_asset_does_not_add_its_track_to_library() {
+        let (temp, manager, root) = fixture();
+        let (path, legacy) = legacy_download(&manager, &root, "cached.wav");
+        // Prepared playback assets can exist without a Library membership.
+        rusqlite::Connection::open(temp.path().join("library.sqlite"))
+            .unwrap()
+            .execute(
+                "UPDATE catalog_listings SET in_library=0 WHERE id=?1",
+                [&legacy.track.id],
+            )
+            .unwrap();
+
+        let page = manager.browse(&root.id, "", 0, 30).unwrap();
+        assert_eq!(page.files[0].asset_id.as_deref(), Some(legacy.id.as_str()));
+        let known = manager
+            .inner
+            .store
+            .get_asset_by_id(&legacy.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            known.track.provenance["directoryBrowserFingerprint"],
+            fingerprint(&path).unwrap()
+        );
+        assert!(!manager
+            .inner
+            .store
+            .recording_is_in_library(&legacy.track.id)
+            .unwrap());
     }
     #[tokio::test]
     async fn actual_scan_reuses_existing_invalid_audio_bytes_without_invoking_ffprobe() {

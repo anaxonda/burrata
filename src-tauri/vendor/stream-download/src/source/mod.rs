@@ -125,6 +125,7 @@ pub(crate) struct Source<S: SourceStream, W: StorageWriter> {
     prefetch_bytes: u64,
     batch_write_size: usize,
     retry_timeout: Duration,
+    fail_on_stream_error: bool,
     on_progress: Option<ProgressFn<S>>,
     on_reconnect: Option<ReconnectFn<S>>,
     prefetch_complete: bool,
@@ -161,6 +162,7 @@ where
             prefetch_bytes: settings.prefetch_bytes,
             batch_write_size: settings.batch_write_size,
             retry_timeout: settings.retry_timeout,
+            fail_on_stream_error: settings.fail_on_stream_error,
             on_progress: settings.on_progress,
             on_reconnect: settings.on_reconnect,
             prefetch_start_position: 0,
@@ -393,6 +395,11 @@ where
         let bytes = match bytes.transpose() {
             Ok(bytes) => bytes,
             Err(e) => {
+                if self.fail_on_stream_error {
+                    return Err(io::Error::other(format!(
+                        "error fetching stream body: {e:?}"
+                    )));
+                }
                 error!("Error fetching chunk from stream: {e:?}");
                 return Ok(DownloadAction::Continue);
             }

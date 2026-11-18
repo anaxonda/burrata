@@ -322,6 +322,7 @@
 .playlist-kind { display:block; font-size:12px; font-weight:600; margin-bottom:8px; }
 .app-shell > main > header.playlist-header h1, .remote-detail-header.playlist-header h2 { font-size:clamp(24px,3vw,42px); line-height:1.08; text-wrap:balance; }
 .playlist-summary { margin:10px 0 0; color:var(--muted); font-size:12px; }
+.toolbar.playlist-toolbar { padding-block-start:16px; }
 .app-shell > main > header.playlist-header .header-actions { flex:0 0 auto; margin-left:auto; }
 @container main-pane (max-width:600px) {
  .app-shell > main > header.playlist-header, .remote-detail-header.playlist-header { padding:14px 12px; gap:10px; }

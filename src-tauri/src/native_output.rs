@@ -14,6 +14,7 @@ mod output_progress;
 #[path = "native_storage_fault.rs"]
 pub(crate) mod storage_fault;
 
+use crate::playback_policy::{chapter_ended_early, recording_ended_early, INCOMPLETE_HTTP_AUDIO};
 use rodio::{DeviceSinkBuilder, Player, Source};
 use std::num::{NonZeroU16, NonZeroU32};
 use std::{
@@ -42,6 +43,12 @@ pub struct AudioSource {
     /// Ephemeral key for an explicitly resolved encrypted MP4. This is never
     /// serialized or included in diagnostics; normal sources leave it unset.
     pub cenc: Option<EncryptedMp4Audio>,
+}
+
+impl AudioSource {
+    fn is_http(&self) -> bool {
+        self.input.starts_with("http://") || self.input.starts_with("https://")
+    }
 }
 
 impl std::fmt::Debug for AudioSource {
@@ -811,6 +818,7 @@ struct DecoderSession {
     stream_stats: Arc<StreamRuntimeStats>,
     storage_faults: storage_fault::Faults,
     decoder: std::sync::Mutex<Option<NativeDecoder>>,
+    http_download: std::sync::Mutex<Option<stream_download::StreamHandle>>,
     cached_diagnostics: std::sync::Mutex<Option<DecoderDiagnostics>>,
     active_cancel: std::sync::Mutex<std::sync::Weak<AtomicBool>>,
     cancel_download: std::sync::Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
@@ -820,6 +828,14 @@ struct DecoderSession {
     retained_failure: std::sync::Mutex<Option<String>>,
 }
 impl DecoderSession {
+    fn http_download_failed(&self) -> bool {
+        self.http_download
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .is_some_and(stream_download::StreamHandle::is_failed)
+    }
+
     fn bind(&self, cancel: &Arc<AtomicBool>) {
         *self.active_cancel.lock().unwrap_or_else(|e| e.into_inner()) = Arc::downgrade(cancel);
     }
@@ -2243,6 +2259,8 @@ fn start_playback_with_reserve_policy_and_gain(
     let (activation_tx, activation_rx) = std_mpsc::channel();
     let buffering = Arc::new(AtomicBool::new(false));
     let decode_failed = Arc::new(AtomicBool::new(false));
+    let incomplete_end = Arc::new(AtomicBool::new(false));
+    let incomplete_end_for_decoder = incomplete_end.clone();
     let active_generation = Arc::new(AtomicU64::new(generation));
     let activation_gate = new_activation_gate();
     let base_position_bits = Arc::new(AtomicU64::new(base_position.to_bits()));
@@ -2300,6 +2318,10 @@ fn start_playback_with_reserve_policy_and_gain(
                 )
             }) {
                 if !decode_cancelled.load(Ordering::Relaxed) {
+                    if message == INCOMPLETE_HTTP_AUDIO {
+                        incomplete_end_for_decoder.store(true, Ordering::Release);
+                        return;
+                    }
                     if !failed.swap(true, Ordering::AcqRel) {
                         if overlap_for_decoder.load(Ordering::Acquire) {
                             if storage_faults.get().is_none() {
@@ -2362,6 +2384,7 @@ fn start_playback_with_reserve_policy_and_gain(
         source_rate,
         source_channels,
         decode_failed: decode_failed.clone(),
+        incomplete_end,
         buffering: buffering.clone(),
         normalization_gain_target: normalization_gain_target.clone(),
         normalization_ramp_ms: normalization_ramp_ms.clone(),
@@ -2472,6 +2495,8 @@ fn append_source(
     let worker_session = decoder_session.clone();
     let queue_source = source.clone();
     let failed = decode_failed.clone();
+    let incomplete_end = Arc::new(AtomicBool::new(false));
+    let incomplete_end_for_decoder = incomplete_end.clone();
     let (cc, src, dur, decoder_info, rate_writer, channels_writer) = (
         cancel.clone(),
         source,
@@ -2510,6 +2535,10 @@ fn append_source(
                 )
             }) {
                 if !decode_cancelled.load(Ordering::Relaxed) {
+                    if message == INCOMPLETE_HTTP_AUDIO {
+                        incomplete_end_for_decoder.store(true, Ordering::Release);
+                        return;
+                    }
                     if storage_faults.get().is_none() {
                         *failure_session
                             .retained_failure
@@ -2560,6 +2589,7 @@ fn append_source(
         source_rate: rate,
         source_channels: channels,
         decode_failed,
+        incomplete_end,
         source: queue_source,
         end,
         activation_tx,
@@ -2633,6 +2663,7 @@ struct QueuedSamples {
     source_rate: Arc<std::sync::atomic::AtomicU32>,
     source_channels: Arc<std::sync::atomic::AtomicU32>,
     decode_failed: Arc<AtomicBool>,
+    incomplete_end: Arc<AtomicBool>,
     source: AudioSource,
     end: Option<f64>,
     activation_tx: std_mpsc::Sender<Activation>,
@@ -2675,6 +2706,9 @@ impl Iterator for QueuedSamples {
                         return Some(self.buffering_silence());
                     }
                     ReserveFill::Failed => {
+                        if self.incomplete_end.load(Ordering::Acquire) {
+                            return Some(self.wait_for_incomplete_end_recovery());
+                        }
                         if self.decode_failed.load(Ordering::Acquire) && !self.activated {
                             self.activate();
                         }
@@ -2720,7 +2754,10 @@ impl Iterator for QueuedSamples {
             return Some(output);
         }
         if self.exhausted {
-            return None;
+            return self
+                .incomplete_end
+                .load(Ordering::Acquire)
+                .then(|| self.buffering_silence());
         }
         match self.rx.try_recv() {
             Ok(block) => {
@@ -2757,6 +2794,9 @@ impl Iterator for QueuedSamples {
                 Some(self.buffering_silence())
             }
             Err(std_mpsc::TryRecvError::Disconnected) => {
+                if self.incomplete_end.load(Ordering::Acquire) {
+                    return Some(self.wait_for_incomplete_end_recovery());
+                }
                 if !self.activated && self.decode_failed.load(Ordering::Acquire) {
                     // The mixer has reached this occurrence, but no PCM was produced.
                     // Activate ownership only; never publish Started/first-audio for this case.
@@ -2770,6 +2810,27 @@ impl Iterator for QueuedSamples {
     }
 }
 impl QueuedSamples {
+    // Drain the valid PCM first. Silence holds the current occurrence at its
+    // last audible position until the service replaces or stops this voice.
+    fn wait_for_incomplete_end_recovery(&mut self) -> f32 {
+        if !self.exhausted {
+            self.exhausted = true;
+            let generation = self.generation;
+            let seconds = self.initial_position
+                + self.voice_samples as f64
+                    / (f64::from(self.sample_rate) * f64::from(self.channels));
+            let _ = self.events.send(OutputEvent::Position {
+                generation,
+                seconds,
+            });
+            let _ = self.events.send(OutputEvent::Failed {
+                generation,
+                message: INCOMPLETE_HTTP_AUDIO.into(),
+            });
+        }
+        self.buffering_silence()
+    }
+
     // Only a disconnected producer with all real PCM consumed can establish EOF.
     // The successor hint scopes this diagnostic to queued handoff; final Ended
     // retains ownership of the final occurrence's completion observation.
@@ -2793,6 +2854,7 @@ impl QueuedSamples {
             || self.voice_samples == 0
             || self.cancelled.load(Ordering::Acquire)
             || self.decode_failed.load(Ordering::Acquire)
+            || self.incomplete_end.load(Ordering::Acquire)
             || !self
                 .decoder_session
                 .decode_thread_finished
@@ -3048,7 +3110,9 @@ impl NativeCrossfadeSource {
         }
         // Failed preloads are retained for the normal selection/recovery path;
         // never fade away a healthy outgoing voice into a known-bad decoder.
-        if next.source.decode_failed.load(Ordering::Acquire) {
+        if next.source.decode_failed.load(Ordering::Acquire)
+            || next.source.incomplete_end.load(Ordering::Acquire)
+        {
             return;
         }
         // Drain a bounded tail so the decoder can reach EOF before choosing the
@@ -3059,6 +3123,7 @@ impl NativeCrossfadeSource {
             .decode_thread_finished
             .load(Ordering::Acquire)
             || primary.decode_failed.load(Ordering::Acquire)
+            || primary.incomplete_end.load(Ordering::Acquire)
         {
             return;
         }
@@ -3083,6 +3148,7 @@ impl NativeCrossfadeSource {
         // A producer can fail or be canceled while its buffered blocks are
         // drained; recheck ownership immediately before claiming the voice.
         if next.source.decode_failed.load(Ordering::Acquire)
+            || next.source.incomplete_end.load(Ordering::Acquire)
             || next.source.cancelled.load(Ordering::Acquire)
         {
             return;
@@ -3457,7 +3523,7 @@ fn decode_with_session_and_diagnostics(
             Option<String>,
             Option<u64>,
             Arc<AtomicU64>,
-        ) = if input.starts_with("http://") || input.starts_with("https://") {
+        ) = if source.is_http() {
             let rt = network_runtime()?;
             let uri = reqwest::Url::parse(&input).map_err(|e| e.to_string())?;
             let headers = source.headers.clone();
@@ -3544,8 +3610,10 @@ fn decode_with_session_and_diagnostics(
                     let reader = StreamDownload::from_stream(
                         stream,
                         storage,
-                        Settings::default().prefetch_bytes(32 * 1024).on_progress(
-                            move |_stream, state, _| {
+                        Settings::default()
+                            .prefetch_bytes(32 * 1024)
+                            .fail_on_stream_error()
+                            .on_progress(move |_stream, state, _| {
                                 progress.fetch_max(state.current_chunk.end, Ordering::Relaxed);
                                 let end = state.current_chunk.end;
                                 let old = stream_stats
@@ -3556,8 +3624,7 @@ fn decode_with_session_and_diagnostics(
                                         .last_progress
                                         .store(stream_stats.ms() + 1, Ordering::Relaxed);
                                 }
-                            },
-                        ),
+                            }),
                     )
                     .await
                     .map_err(|e| e.to_string())?;
@@ -3566,6 +3633,10 @@ fn decode_with_session_and_diagnostics(
                 },
             )?;
             let (reader, byte_len, content_type, range_total, received) = reader;
+            *session
+                .http_download
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = Some(reader.handle());
             let download_cancel = reader.cancellation_token();
             let abort = download_cancel.clone();
             let finished = download_cancel.clone();
@@ -3603,6 +3674,9 @@ fn decode_with_session_and_diagnostics(
                 Err(error) => {
                     if session.storage_faults.get().is_some() {
                         return Err("Local playback storage failed".into());
+                    }
+                    if session.http_download_failed() {
+                        return Err(INCOMPLETE_HTTP_AUDIO.into());
                     }
                     prepare_ffmpeg_fallback_diagnostics(
                         diagnostics_out.as_ref(),
@@ -3761,6 +3835,9 @@ fn decode_with_session_and_diagnostics(
         if session.storage_faults.get().is_some() {
             return Err("Local playback storage failed".into());
         }
+        if session.http_download_failed() {
+            return Err(INCOMPLETE_HTTP_AUDIO.into());
+        }
         let seek_reason = seek_error
             .to_string()
             .split_whitespace()
@@ -3872,8 +3949,10 @@ fn decode_with_session_and_diagnostics(
     if session.storage_faults.get().is_some() {
         return Err("Local playback storage failed".into());
     }
-    if let Some(error) =
-        decoder_failure.and_then(|failure| failure.lock().unwrap_or_else(|e| e.into_inner()).take())
+    let download_failed = session.http_download_failed();
+    if let Some(error) = decoder_failure
+        .filter(|_| !download_failed)
+        .and_then(|failure| failure.lock().unwrap_or_else(|e| e.into_inner()).take())
     {
         *cached = None;
         drop(cached);
@@ -3927,10 +4006,20 @@ fn decode_with_session_and_diagnostics(
         }
         let _ = tx.send(block);
     }
-    duration_out.store(
-        (decoded_samples as f64 / (output_rate as f64 * output_channels as f64)).to_bits(),
-        Ordering::Release,
-    );
+    let decoded_end =
+        decoded_samples as f64 / (f64::from(output_rate) * f64::from(output_channels));
+    if source.is_http()
+        && match end {
+            Some(end) => chapter_ended_early(decoded_end, end),
+            None => {
+                download_failed
+                    || duration.is_some_and(|duration| recording_ended_early(decoded_end, duration))
+            }
+        }
+    {
+        return Err(INCOMPLETE_HTTP_AUDIO.into());
+    }
+    duration_out.store(decoded_end.to_bits(), Ordering::Release);
     let _ = (samples, source.ffmpeg);
     Ok(())
 }
@@ -4579,20 +4668,24 @@ fn decode_ffmpeg_with_diagnostics(
             .take()
             .and_then(|worker| worker.join().ok())
             .unwrap_or_default();
+        let decoded_end = position.max(0.0)
+            + decoded_sample_count as f64 / (f64::from(output_rate) * f64::from(output_channels));
+        if source.is_http()
+            && (end.is_some_and(|end| chapter_ended_early(decoded_end, end)) && status.success()
+                || incomplete_demux
+                    && (end.is_some()
+                        || is_finite_remote_opus_webm(&source)
+                        || source
+                            .decoder_hint
+                            .as_ref()
+                            .is_some_and(|hint| hint.content_length.is_some())))
+        {
+            return Err(INCOMPLETE_HTTP_AUDIO.into());
+        }
         if !status.success() {
             return Err(format!("ffmpeg exited with status {status}: {diagnostic}"));
         }
-        if is_finite_remote_opus_webm(&source) && incomplete_demux {
-            return Err(format!("ffmpeg reported incomplete media: {diagnostic}"));
-        }
-    }
-    if !cancelled.load(Ordering::Relaxed) {
-        duration_out.store(
-            (position.max(0.0)
-                + decoded_sample_count as f64 / (output_rate as f64 * output_channels as f64))
-                .to_bits(),
-            Ordering::Release,
-        );
+        duration_out.store(decoded_end.to_bits(), Ordering::Release);
     }
     Ok(())
 }
@@ -4724,6 +4817,7 @@ mod tests {
             source_rate: Arc::new(std::sync::atomic::AtomicU32::new(sample_rate)),
             source_channels: Arc::new(std::sync::atomic::AtomicU32::new(channels as u32)),
             decode_failed: Arc::new(AtomicBool::new(false)),
+            incomplete_end: Arc::new(AtomicBool::new(false)),
             source: AudioSource {
                 input: "generated-pcm-fixture".into(),
                 ffmpeg: "unused".into(),
@@ -4902,6 +4996,54 @@ mod tests {
         assert!(
             received.try_recv().is_err(),
             "repeated pulls cannot duplicate completion"
+        );
+    }
+
+    #[test]
+    fn incomplete_audio_drains_pcm_and_holds_the_preloaded_successor() {
+        let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
+        let mut outgoing = queued_gain_fixture(2, 2, 0.0);
+        outgoing.events = events.clone();
+        outgoing.initial_position = 12.0;
+        outgoing.pending = vec![0.2, 0.3, 0.2, 0.3].into();
+        outgoing.incomplete_end.store(true, Ordering::Release);
+        outgoing
+            .queued_successor_generation
+            .store(2, Ordering::Release);
+        outgoing
+            .decoder_session
+            .decode_thread_finished
+            .store(true, Ordering::Release);
+        let mut incoming = queued_gain_fixture(2, 2, 0.0);
+        incoming.generation = 2;
+        incoming.events = events;
+        incoming.pending = vec![0.4, 0.5].into();
+        let queued = Arc::new(std::sync::Mutex::new(Some(QueuedCrossfade {
+            source: incoming,
+            seconds: 0,
+        })));
+        let mut output = NativeCrossfadeSource::new(
+            outgoing,
+            queued.clone(),
+            Arc::new(AtomicBool::new(true)),
+            Arc::new(AtomicBool::new(false)),
+        );
+        assert_eq!(
+            output.by_ref().take(12).collect::<Vec<_>>(),
+            vec![0.2, 0.3, 0.2, 0.3, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        );
+        assert!(queued.lock().unwrap().is_some());
+        let observed: Vec<_> = std::iter::from_fn(|| received.try_recv().ok()).collect();
+        assert!(
+            matches!(
+                observed.as_slice(),
+                [
+                    OutputEvent::Started { generation: 1, .. },
+                    OutputEvent::Position { generation: 1, seconds },
+                    OutputEvent::Failed { generation: 1, message },
+                ] if *seconds == 13.0 && message == INCOMPLETE_HTTP_AUDIO
+            ),
+            "{observed:?}"
         );
     }
 
@@ -5228,6 +5370,7 @@ mod tests {
             source_rate: Arc::new(std::sync::atomic::AtomicU32::new(48_000)),
             source_channels: Arc::new(std::sync::atomic::AtomicU32::new(1)),
             decode_failed: decode_failed.clone(),
+            incomplete_end: Arc::new(AtomicBool::new(false)),
             source: AudioSource {
                 input: "fixture".into(),
                 ffmpeg: "unused".into(),
@@ -6486,6 +6629,7 @@ mod tests {
             source_rate: Arc::new(std::sync::atomic::AtomicU32::new(48_000)),
             source_channels: Arc::new(std::sync::atomic::AtomicU32::new(2)),
             decode_failed: Arc::new(AtomicBool::new(false)),
+            incomplete_end: Arc::new(AtomicBool::new(false)),
             source: AudioSource {
                 input: "fixture".into(),
                 ffmpeg: "unused".into(),
@@ -7267,10 +7411,7 @@ mod tests {
             let _pcm = rx.into_iter().flatten().count();
             if expect_error {
                 let error = result.expect_err("status-0 demux truncation must fail");
-                assert!(
-                    error.starts_with("ffmpeg reported incomplete media:"),
-                    "{error}"
-                );
+                assert_eq!(error, INCOMPLETE_HTTP_AUDIO);
             } else {
                 result.expect("clean status-0 EOF remains successful");
             }
@@ -8660,6 +8801,7 @@ mod tests {
             // Live qualification never broadens artist identity.
             allow_other_artists: false,
             allow_different_lengths: bool_option("BURRATA_LIVE_ALLOW_DIFFERENT_LENGTHS", true),
+            allow_unknown_length: false,
             max_shorter_by_seconds: 30,
             max_longer_by_seconds: 30,
         };
@@ -9338,6 +9480,26 @@ mod tests {
 
     #[test]
     fn http_stream_keeps_runtime_alive_while_audio_arrives() {
+        let (result, output_samples) = decode_paced_http_wav(false, None);
+        result.expect("decode streaming response");
+        assert!((output_samples as i64 - 44_100 * 2 * 5).abs() < 441);
+    }
+
+    #[test]
+    fn a_short_http_body_is_a_playback_failure_even_near_the_expected_duration() {
+        let (result, output_samples) = decode_paced_http_wav(true, None);
+        assert_eq!(result.unwrap_err(), INCOMPLETE_HTTP_AUDIO);
+        assert!(output_samples > 0 && output_samples < 44_100 * 2 * 5);
+    }
+
+    #[test]
+    fn a_complete_http_body_ending_before_a_chapter_boundary_requires_recovery() {
+        let (result, _) = decode_paced_http_wav(false, Some(8.0));
+        assert_eq!(result.unwrap_err(), INCOMPLETE_HTTP_AUDIO);
+        decode_paced_http_wav(false, Some(4.0)).0.unwrap();
+    }
+
+    fn decode_paced_http_wav(truncate_body: bool, end: Option<f64>) -> (Result<(), String>, usize) {
         use std::io::Read;
 
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind local server");
@@ -9362,7 +9524,12 @@ mod tests {
                 "HTTP/1.1 200 OK\r\nContent-Length: {wav_len}\r\nContent-Type: audio/wav\r\nConnection: close\r\n\r\n"
             )
             .unwrap();
-            for chunk in wav.chunks(8 * 1024) {
+            let body = if truncate_body {
+                &wav[..wav_len * 3 / 5]
+            } else {
+                &wav
+            };
+            for chunk in body.chunks(8 * 1024) {
                 if stream.write_all(chunk).is_err() {
                     break;
                 }
@@ -9382,7 +9549,7 @@ mod tests {
                     cenc: None,
                 },
                 0.0,
-                None,
+                end,
                 44_100,
                 2,
                 tx,
@@ -9394,9 +9561,9 @@ mod tests {
             )
         });
         let output_samples: usize = rx.into_iter().map(|block| block.len()).sum();
-        decode.join().unwrap().expect("decode streaming response");
+        let result = decode.join().unwrap();
         server.join().unwrap();
-        assert!((output_samples as i64 - 44_100 * 2 * 5).abs() < 441);
+        (result, output_samples)
     }
 }
 

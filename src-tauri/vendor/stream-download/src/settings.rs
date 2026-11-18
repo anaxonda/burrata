@@ -53,6 +53,7 @@ pub struct Settings<S> {
     pub(crate) batch_write_size: usize,
     pub(crate) retry_timeout: Duration,
     pub(crate) cancel_on_drop: bool,
+    pub(crate) fail_on_stream_error: bool,
     #[educe(Debug = false, PartialEq = false)]
     pub(crate) on_progress: Option<ProgressFn<S>>,
     #[educe(Debug = false, PartialEq = false)]
@@ -66,6 +67,7 @@ impl<S> Default for Settings<S> {
             batch_write_size: 4096,
             retry_timeout: Duration::from_secs(5),
             cancel_on_drop: true,
+            fail_on_stream_error: false,
             on_progress: None,
             on_reconnect: None,
         }
@@ -73,6 +75,13 @@ impl<S> Default for Settings<S> {
 }
 
 impl<S> Settings<S> {
+    /// Treat a stream's explicit body errors as download failures.
+    #[must_use]
+    pub fn fail_on_stream_error(mut self) -> Self {
+        self.fail_on_stream_error = true;
+        self
+    }
+
     /// How many bytes to download from the stream before allowing read requests.
     /// This is used to create a buffer between the read position and the stream position
     /// and prevent stuttering.

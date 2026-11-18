@@ -2,7 +2,7 @@
 //! selected source and render each bounded response as it arrives.
 use crate::{
     acquisition::{AcquisitionManager, SlskdSearchPoll},
-    artists::{ArtistCredentials, ArtistService},
+    artists::{mb_credit_name, parse_musicbrainz_credits, ArtistCredentials, ArtistService},
     connections::ConnectionManager,
     models::Track,
     storage::Store,
@@ -619,6 +619,93 @@ async fn search_musicbrainz_recordings(
     ))
 }
 
+fn musicbrainz_recording_result(recording: Value) -> DiscoveryResult {
+    let rid = recording["id"].as_str().unwrap_or_default();
+    let title = recording["title"].as_str().unwrap_or("Untitled recording");
+    let id = format!("musicbrainz:{rid}");
+    let source_url = format!("https://musicbrainz.org/recording/{rid}");
+    let provider_credits = &recording["artist-credit"];
+    let credits = parse_musicbrainz_credits(provider_credits, &source_url);
+    let credit_names = credits
+        .iter()
+        .map(|credit| credit.name.as_str())
+        .collect::<Vec<_>>();
+    let artist = if credits.iter().any(|credit| credit.join_phrase.is_some()) {
+        mb_credit_name(provider_credits)
+    } else {
+        credit_names.join(", ")
+    };
+    let canonical_names = provider_credits
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|credit| {
+            Some((
+                credit["artist"]["id"].as_str()?,
+                credit["artist"]["name"].as_str()?,
+            ))
+        })
+        .collect::<std::collections::HashMap<_, _>>();
+    let artist_refs = credits
+        .iter()
+        .filter_map(|credit| {
+            let artist = credit.artist.as_ref()?;
+            Some(json!({
+                "provider":artist.provider,"id":artist.id,"name":credit.name,
+                "role":credit.role,"joinPhrase":credit.join_phrase,
+                "canonicalName":canonical_names.get(artist.id.as_str()),
+            }))
+        })
+        .collect::<Vec<_>>();
+    let genre = recording["genres"]
+        .as_array()
+        .and_then(|values| values.first())
+        .and_then(|genre| genre["name"].as_str())
+        .map(str::to_owned);
+    let track = Track {
+        id: id.clone(),
+        provider: "musicbrainz".into(),
+        provider_id: rid.into(),
+        source_url: source_url.clone(),
+        artist: artist.clone(),
+        title: title.into(),
+        version: recording["disambiguation"]
+            .as_str()
+            .filter(|version| !version.trim().is_empty())
+            .map(str::to_owned),
+        isrc: recording["isrcs"]
+            .as_array()
+            .and_then(|values| values.first())
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        duration_seconds: recording["length"].as_u64().map(|ms| ms as f64 / 1000.0),
+        release_date: recording["first-release-date"].as_str().map(str::to_owned),
+        album: recording["releases"]
+            .as_array()
+            .and_then(|values| values.first())
+            .and_then(|release| release["title"].as_str())
+            .map(str::to_owned),
+        genre: genre.clone(),
+        normalized_genre: genre,
+        provenance: json!({"catalog":{
+            "provider":"musicbrainz","recordingId":rid,"artistCredit":credit_names,
+            "artists":artist_refs,"isrcs":recording["isrcs"],"verified":true,
+        }}),
+        ..Track::default()
+    };
+    DiscoveryResult {
+        id,
+        kind: "track".into(),
+        source_id: "musicbrainz".into(),
+        title: track.title.clone(),
+        subtitle: (!artist.is_empty()).then_some(artist),
+        url: Some(source_url),
+        artwork_url: None,
+        track: Some(track),
+        data: recording,
+    }
+}
+
 pub struct DiscoveryService {
     pub artists: Arc<ArtistService>,
     pub acquisition: Arc<AcquisitionManager>,
@@ -967,67 +1054,8 @@ impl DiscoveryService {
                     if more && out.next_cursor.is_none() {
                         out.next_cursor = Some((page + 1).to_string());
                     }
-                    for r in recordings {
-                        let rid = r["id"].as_str().unwrap_or_default();
-                        let title = r["title"].as_str().unwrap_or("Untitled recording");
-                        let credits = r["artist-credit"]
-                            .as_array()
-                            .into_iter()
-                            .flatten()
-                            .filter_map(|x| {
-                                x["name"]
-                                    .as_str()
-                                    .or(x["artist"]["name"].as_str())
-                                    .map(str::to_owned)
-                            })
-                            .collect::<Vec<_>>();
-                        let artist = credits.join(", ");
-                        let artist_ids=r["artist-credit"].as_array().into_iter().flatten().filter_map(|x|x["artist"]["id"].as_str().map(|id|json!({"provider":"musicbrainz","id":id,"name":x["artist"]["name"]}))).collect::<Vec<_>>();
-                        let genre = r["genres"]
-                            .as_array()
-                            .and_then(|v| v.first())
-                            .and_then(|v| v["name"].as_str())
-                            .map(str::to_owned);
-                        let recording_track = Track {
-                            id: format!("musicbrainz:{rid}"),
-                            provider: "musicbrainz".into(),
-                            provider_id: rid.into(),
-                            source_url: format!("https://musicbrainz.org/recording/{rid}"),
-                            artist: artist.clone(),
-                            title: title.into(),
-                            version: r["disambiguation"]
-                                .as_str()
-                                .filter(|v| !v.trim().is_empty())
-                                .map(str::to_owned),
-                            isrc: r["isrcs"]
-                                .as_array()
-                                .and_then(|v| v.first())
-                                .and_then(Value::as_str)
-                                .map(str::to_owned),
-                            duration_seconds: r["length"].as_u64().map(|ms| ms as f64 / 1000.0),
-                            release_date: r["first-release-date"].as_str().map(str::to_owned),
-                            album: r["releases"]
-                                .as_array()
-                                .and_then(|v| v.first())
-                                .and_then(|v| v["title"].as_str())
-                                .map(str::to_owned),
-                            genre: genre.clone(),
-                            normalized_genre: genre,
-                            provenance: json!({"catalog":{"provider":"musicbrainz","recordingId":rid,"artistCredit":credits,"artists":artist_ids,"isrcs":r["isrcs"],"verified":true}}),
-                            ..Track::default()
-                        };
-                        out.results.push(DiscoveryResult {
-                            id: format!("musicbrainz:{rid}"),
-                            kind: "track".into(),
-                            source_id: source_id.into(),
-                            title: title.into(),
-                            subtitle: (!artist.is_empty()).then_some(artist),
-                            url: Some(format!("https://musicbrainz.org/recording/{rid}")),
-                            artwork_url: None,
-                            track: Some(recording_track),
-                            data: r.clone(),
-                        });
-                    }
+                    out.results
+                        .extend(recordings.into_iter().map(musicbrainz_recording_result));
                 }
                 if kind_ok(&request, "album") {
                     let a = self
@@ -2495,6 +2523,32 @@ mod tests {
             json!([{"provider":"spotify","id":"aaaaaaaaaaaaaaaaaaaaaa","name":"Artist"}])
         );
     }
+    #[test]
+    fn musicbrainz_search_recording_preserves_provider_display_and_credited_alias() {
+        let result = musicbrainz_recording_result(json!({
+            "id":"10000000-0000-0000-0000-000000000003", "title":"Recording",
+            "artist-credit":[
+                {"name":"Earth, Wind & Fire","joinphrase":" with ","artist":{"id":"10000000-0000-0000-0000-000000000001","name":"Earth, Wind & Fire"}},
+                {"name":"Guest Alias","joinphrase":"","artist":{"id":"10000000-0000-0000-0000-000000000002","name":"Guest Artist"}}
+            ]
+        }));
+        let track = result.track.unwrap();
+        assert_eq!(track.artist, "Earth, Wind & Fire with Guest Alias");
+        assert_eq!(result.subtitle.as_deref(), Some(track.artist.as_str()));
+        assert_eq!(
+            crate::recording_identity::declared_credit_names(&track),
+            Some(vec!["Earth, Wind & Fire".into(), "Guest Alias".into()])
+        );
+        let identity = crate::recording_identity::RecordingIdentity::from_track(&track);
+        assert_eq!(identity.credits[1].name, "Guest Alias");
+        assert_eq!(identity.credits[1].role, "artist credit");
+        assert_eq!(
+            track.provenance["catalog"]["artists"][1]["canonicalName"],
+            "Guest Artist"
+        );
+        assert!(!identity.credits_complete);
+    }
+
     #[test]
     fn normalized_remote_catalog_artist_credits_reach_discovery_provenance() {
         let credit = json!({"provider":"spotify","id":"aaaaaaaaaaaaaaaaaaaaaa","name":"  Featured Artist  ","authorization":"not-forwarded"});

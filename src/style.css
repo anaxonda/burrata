@@ -1549,6 +1549,11 @@ tr.spacer td {
   margin: 10px 0;
   background: color-mix(in srgb, var(--raised) 60%, transparent);
 }
+.bandcamp-playlist-preview {
+  max-height: 14rem;
+  overflow-y: auto;
+  padding-inline-start: 2.5rem;
+}
 
 /* Compact navigation rail and a slide-over details panel for laptop widths. */
 @media (min-width: 768px) and (max-width: 1199px) {

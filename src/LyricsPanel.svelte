@@ -159,6 +159,7 @@
   let lyricScroll = $state<HTMLDivElement | null>(null);
   let lineNodes = $state<(HTMLDivElement | undefined)[]>([]);
   let requestedScope = "";
+  let requestedRecordingScope = "";
   let requestEpoch = 0;
   let syncEpoch = 0;
   let requestedSyncScope = "";
@@ -166,7 +167,8 @@
     const target=translationLanguage.trim().toLowerCase(), cached=translation;
     if (cached && cached.targetLanguage.trim().toLowerCase()!==target) {translationAbort?.abort(); translationEpoch++;translation=null;translating=false;translationMessage="Translation language changed. Retry translation.";}
   });
-  const scope = $derived([track.id, track.provider, track.providerId, track.sourceUrl, track.artist, track.assetId ?? "", track.localPath ?? "", track.title, track.version ?? "", track.album ?? "", track.durationSeconds ?? ""].join(String.fromCharCode(0)));
+  const recordingScope = $derived([track.id, track.provider, track.providerId, track.sourceUrl, track.artist, track.assetId ?? "", track.localPath ?? "", track.title, track.version ?? "", track.album ?? ""].join("\0"));
+  const scope = $derived(`${recordingScope}\0${track.durationSeconds ?? ""}`);
   const timingMismatch = $derived(lyrics?.status === "synced" && lyrics?.match?.durationDeltaSeconds != null && Number.isFinite(lyrics.match.durationDeltaSeconds) && Math.abs(lyrics.match.durationDeltaSeconds) > 2);
   const canSeekLyricLines = $derived.by(() => {
     const provenance=track.provenance && typeof track.provenance==="object" ? track.provenance as Record<string,unknown> : {};
@@ -226,12 +228,16 @@
   $effect(() => {
     const currentScope = scope;
     if (requestedScope === currentScope) return;
-    const reopenRadio=untrack(()=>open) && ["radio","radioparadise","internet-radio"].includes(track.provider);
+    const sameRecording = requestedRecordingScope === recordingScope;
+    const wasOpen = untrack(() => open);
+    const keepOpen = wasOpen && sameRecording;
+    const reload = keepOpen || wasOpen && ["radio", "radioparadise", "internet-radio"].includes(track.provider);
     requestedScope = currentScope;
+    requestedRecordingScope = recordingScope;
     requestEpoch++;
-    open = false;
+    open = keepOpen;
     lyricsSearchOpen=false;lyricsSearchQuery="";lyricsSearchIndex=0;lyricsSearchNodes=[];
-    fullscreen = false;
+    fullscreen = keepOpen && untrack(() => fullscreen);
     temporaryTimingOffset = 0;
     timingFromLine = false; timingNotice = "";
     loading = false;
@@ -245,7 +251,7 @@
     translation = null;
     translating = false;
     translationMessage = "";
-    if(reopenRadio)void tick().then(()=>{if(!destroyed && scope===currentScope)void showLyrics();});
+    if (reload) void tick().then(() => { if (!destroyed && scope === currentScope) void showLyrics(); });
   });
   $effect(() => {
     const currentSyncScope = syncScope;

@@ -395,13 +395,13 @@ describe("ArtistPage", () => {
     await settle();
     const menu = target.querySelector<HTMLDetailsElement>(".release-menu")!;
     const summary = menu.querySelector<HTMLElement>("summary")!;
-    const queue = menu.querySelector<HTMLButtonElement>('[aria-label="Queue album Menu Record"]')!;
+    const queue = menu.querySelector<HTMLButtonElement>('[aria-label="Play album Menu Record next"]')!;
     menu.open = true;
     queue.dispatchEvent(new Event("pointerdown", { bubbles: true }));
     expect(menu.open).toBe(true);
     queue.click();
     await settle();
-    expect(onQueueTracks).toHaveBeenCalledWith(songs, "append");
+    expect(onQueueTracks).toHaveBeenCalledWith(songs, "next");
     expect(menu.open).toBe(false);
     menu.open = true;
     queue.focus();
@@ -481,18 +481,23 @@ describe("ArtistPage", () => {
     expect(onPlayTrack).toHaveBeenLastCalledWith(repeated, songs, 2);
   });
 
-  it("queues the selected edition without starting playback", async () => {
-    const ref = artist("queueable", "Queueable Artist");
-    const album = release("album", "Queue Record", "https://musicbrainz.org/release/queue", "Album");
-    const songs = ["A", "B"].map((title, index) => ({ id: `queue-${index}`, provider: "musicbrainz", providerId: `queue-${index}`, sourceUrl: "", artist: "Queueable Artist", title, favorite: false, provenance: {} }));
+  it.each(["musicbrainz", "discogs"] as const)("queues a %s edition directly from its card", async (provider) => {
+    const ref = artist(`queueable-${provider}`, "Queueable Artist");
+    ref.artist.provider = provider;
+    const album = release("album", "Queue Record", `https://${provider}.org/release/queue`, "Album");
+    album.release.provider = provider;
+    const songs = ["A", "B"].map((title, index) => ({ id: `queue-${index}`, provider, providerId: `queue-${index}`, sourceUrl: "", artist: "Queueable Artist", title, favorite: false, provenance: {} }));
     const onPlayTrack = vi.fn(); const onQueueTracks = vi.fn();
     const target = render({ initialArtistRef: ref.artist, initialSection: "releases", onPlayTrack, onQueueTracks,
       getArtistProfile: async () => profile(ref, emptyReleasePage(ref.artist.id, [album])), getReleaseTracks: async () => songs,
     });
     await settle();
-    [...target.querySelectorAll<HTMLButtonElement>(".release-actions button")].find((button) => button.textContent === "Queue")!.click(); await settle();
+    expect(target.querySelector<HTMLDetailsElement>(".release-menu")?.open).toBe(false);
+    target.querySelector<HTMLButtonElement>('.release-actions > [aria-label="Queue album Queue Record"]')!.click();
+    await settle();
     expect(onQueueTracks).toHaveBeenCalledWith(songs, "append");
     expect(onPlayTrack).not.toHaveBeenCalled();
+    expect(target.querySelector(".expanded-tracks")).toBeNull();
   });
 
   it("searches the catalog from an empty Tracks tab and keeps the title on later pages", async () => {

@@ -168,13 +168,35 @@ describe("SearchPanel", () => {
   it.each(["Artists","Albums"])("shows Bandcamp %s filters and links their results to the source page", async label => {
     const kind=label==="Artists"?"artist":"album";
     const url=kind==="artist"?"https://fixture.bandcamp.com/":"https://fixture.bandcamp.com/album/record";
-    const searchSource=vi.fn(async()=>({complete:true,results:[{id:`bandcamp:${kind}:1`,sourceId:"bandcamp",kind,title:"Fixture",url}]}));
-    const target=render({initialSources:["bandcamp"],searchSource});await settle();
+    const album = { release: { provider: "bandcamp", id: "1" }, title: "Fixture", sourceUrl: url, credits: [], tracks: [] };
+    const searchSource=vi.fn(async()=>({complete:true,results:[{id:`bandcamp:${kind}:1`,sourceId:"bandcamp",kind,title:"Fixture",url,data:kind==="album"?album:undefined}]}));
+    const onAlbum = vi.fn();
+    const target=render({initialSources:["bandcamp"],searchSource,onAlbum});await settle();
     [...target.querySelectorAll<HTMLButtonElement>(".filters button")].find(button=>button.textContent===label)!.click();
     const input=target.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;input.value="Fixture";input.dispatchEvent(new Event("input",{bubbles:true}));
     target.querySelector("form")!.dispatchEvent(new Event("submit",{bubbles:true,cancelable:true}));await settle();
     expect(searchSource).toHaveBeenCalledWith(expect.objectContaining({sourceIds:["bandcamp"],kinds:[kind]}));
     expect(target.querySelector<HTMLAnchorElement>(`a[href="${url}"]`)?.textContent).toContain(`Open ${kind} page`);
+    if (kind === "album") {
+      target.querySelector<HTMLButtonElement>('[aria-label="Open album: Fixture"]')!.click();
+      expect(onAlbum).toHaveBeenCalledWith(album);
+    }
+  });
+
+  it("opens a pasted public Bandcamp playlist link without running a keyword search", async () => {
+    const onOpenBandcampPlaylist = vi.fn();
+    const searchSource = vi.fn(async () => ({ complete: true, results: [] }));
+    const target = render({ initialSources: ["bandcamp"], searchSource, onOpenBandcampPlaylist });
+    await settle();
+    const input = target.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
+    input.value = "https://bandcamp.com/listener/playlist/night-mix?from=share#tracks";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await tick();
+    expect(target.querySelector('button[type="submit"]')?.textContent).toBe("Open Bandcamp playlist");
+    target.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await settle();
+    expect(onOpenBandcampPlaylist).toHaveBeenCalledWith("https://bandcamp.com/listener/playlist/night-mix");
+    expect(searchSource).not.toHaveBeenCalled();
   });
 
   it("does not request artist suggestions while typing; results require explicit search", async () => {

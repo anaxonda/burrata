@@ -107,7 +107,7 @@
   });
   const visibleTracks = $derived(visibleOccurrences.map(row => row.track));
   const artists = $derived([...new Set(release.credits.map(credit => credit.name).filter(Boolean))]);
-  const cover = $derived(release.artworkUrl || tracks.find(track => track.artworkUrl)?.artworkUrl || null);
+  const cover = $derived(release.artworkUrl || release.artworkUrls?.[0] || tracks.find(track => track.artworkUrl)?.artworkUrl || null);
   const detailMetadata = $derived<AlbumDetailMetadata>({
     title: release.title,
     artist: artists.join(" · "),

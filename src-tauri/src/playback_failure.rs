@@ -189,6 +189,13 @@ pub fn classify(reason: &str) -> PlaybackFailure {
     if has_any(&message, &["cancel", "superseded"]) {
         return failure(Cancelled, Stage::Resolver, Operation, false, status);
     }
+    // A provider's quota applies to that source. Other providers can still be tried.
+    if status == Some(429) || has_any(&message, &["rate limit", "too many requests"]) {
+        return failure(RateLimited, Stage::Transport, Source, true, status);
+    }
+    if reason == crate::playback_policy::INCOMPLETE_HTTP_AUDIO {
+        return failure(SourceUnavailable, Stage::Transport, Source, true, None);
+    }
     if message == "audio decoder stopped unexpectedly"
         || message.starts_with("ffmpeg exited with status signal:")
     {
@@ -213,7 +220,6 @@ pub fn classify(reason: &str) -> PlaybackFailure {
         if let Some(status) = status {
             let category = match status {
                 401 | 403 => SourceAccess,
-                429 => RateLimited,
                 500..=599 => Network,
                 _ => SourceUnavailable,
             };
@@ -265,9 +271,6 @@ pub fn classify(reason: &str) -> PlaybackFailure {
         ],
     ) {
         return failure(Output, Stage::Output, Global, true, status);
-    }
-    if status == Some(429) || has_any(&message, &["rate limit", "too many requests"]) {
-        return failure(RateLimited, Stage::Transport, Global, true, status);
     }
     if status.is_some_and(|value| value >= 500)
         || has_any(

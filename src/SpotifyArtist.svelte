@@ -44,6 +44,7 @@
   } = $props();
   const providerReads = new ProviderReadCancellation((command, args) => call(command, args ?? {}));
   const topTracksReads = new ProviderReadCancellation((command, args) => call(command, args ?? {}));
+  const albumActionReads = new ProviderReadCancellation((command, args) => call(command, args ?? {}));
   let page = $state<ArtistPage | null>(null);
   let albums = $state<Album[]>([]);
   let albumPage = $state<AlbumPage | null>(null);
@@ -68,6 +69,8 @@
   let failedArtistArtwork = $state<string[]>([]);
   let librarySaveStatus = $state<{ albumId: string; kind: "saving" | "success" | "error"; text: string } | null>(null);
   let librarySaveGeneration = 0;
+  let albumQueueStatus = $state<{ albumId: string; loading: boolean; text: string } | null>(null);
+  let albumQueueGeneration = 0;
   let albumCursor = $state<string | null>(null);
   let trackCursor = $state<string | null>(null);
   let seenAlbumCursors = new Set<string>();
@@ -249,6 +252,12 @@
     finally { if (current === generation && (restoreToken === undefined || restoreToken === restoreGeneration)) busy = false; }
   }
   function invalidateLibrarySave() { librarySaveGeneration += 1; librarySaveStatus = null; }
+  function cancelAlbumActions() {
+    invalidateLibrarySave();
+    albumQueueGeneration++;
+    albumQueueStatus = null;
+    albumActionReads.cancelAll();
+  }
   async function saveLoadedAlbumTracks() {
     const currentAlbum = albumPage;
     if (!currentAlbum || !tracks.length || !onSaveToLibrary || librarySaveStatus?.kind === "saving") return;
@@ -272,31 +281,63 @@
     if (!currentAlbum || !onSaveCompleteAlbum || librarySaveStatus?.kind === "saving") return;
     const request = ++librarySaveGeneration;
     const albumId = currentAlbum.album.id;
+    const isCurrent = () => request === librarySaveGeneration && albumPage?.album.id === albumId;
     librarySaveStatus = { albumId, kind: "saving", text: "Loading complete album…" };
     try {
       // Fetch into a private snapshot so filters, browsing, and partial UI pages
       // cannot change the set committed by this save.
-      const collected: Track[] = [];
-      let cursor: string | null = null;
-      const seen = new Set<string>();
-      let expected: number | null = null;
-      do {
-        const result = await call("browse_remote_album_tracks", { albumId, cursor }) as AlbumPage;
-        if (request !== librarySaveGeneration || albumPage?.album.id !== albumId) return;
-        if (result.album.id !== albumId || result.complete === false || result.total == null || (expected != null && expected !== result.total)) throw new Error("The album tracklist is incomplete. Retry loading the album.");
-        expected = result.total;
-        collected.push(...result.tracks);
-        cursor = result.nextCursor ?? null;
-        if (collected.length > 10_000 || (cursor && (seen.has(cursor) || !result.tracks.length))) throw new Error("The album returned a repeated or invalid tracks page.");
-        if (cursor) seen.add(cursor);
-      } while (cursor);
-      if (!collected.length || expected !== collected.length) throw new Error("The complete album tracklist is required. Save loaded tracks instead or retry.");
+      const collected = await resolveCompleteAlbum(albumId, isCurrent);
+      if (!collected || !isCurrent()) return;
+      const expected = collected.length;
       const album = currentAlbum.album;
       const entry: LibraryEntity = { id: '', kind: 'album', name: album.title, artist: album.artists.join(', '), provider: 'spotify', providerId: album.id, sourceUrl: album.url, artworkUrl: album.artworkUrl, releaseDate: album.releaseDate, totalTracks: expected, explicitlySaved: false, trackCount: 0, albumCount: 0 };
       await onSaveCompleteAlbum(entry, collected, expected);
       if (request === librarySaveGeneration && albumPage?.album.id === albumId) librarySaveStatus = { albumId, kind: "success", text: "Album saved to Library." };
     } catch (cause) {
       if (request === librarySaveGeneration && albumPage?.album.id === albumId) librarySaveStatus = { albumId, kind: "error", text: cause instanceof Error ? cause.message : String(cause) };
+    }
+  }
+
+  async function resolveCompleteAlbum(albumId: string, isCurrent: () => boolean): Promise<Track[] | null> {
+    let collected: Track[] = [];
+    let cursor: string | null = null;
+    const seen = new Set<string>();
+    let expected: number | null = null;
+    do {
+      const result: AlbumPage = await albumActionReads.read<AlbumPage>("browse_remote_album_tracks", { albumId, cursor });
+      if (!isCurrent()) return null;
+      if (result.album.id !== albumId || result.complete === false || result.total == null || (expected !== null && expected !== result.total)) {
+        throw new Error("The album tracklist is incomplete. Retry loading the album.");
+      }
+      expected = result.total;
+      const before = collected.length;
+      collected = appendAlbumTracks(collected, result.tracks, cursor);
+      cursor = result.nextCursor ?? null;
+      if (collected.length > 10_000 || (cursor && (seen.has(cursor) || collected.length === before))) {
+        throw new Error("The album returned a repeated or invalid tracks page.");
+      }
+      if (cursor) seen.add(cursor);
+    } while (cursor);
+    if (!collected.length || expected !== collected.length) {
+      throw new Error("The complete album tracklist is unavailable. Retry loading the album.");
+    }
+    return collected;
+  }
+
+  async function queueAlbum(album: Album) {
+    if (!onQueueSelected || albumQueueStatus?.loading) return;
+    const request = ++albumQueueGeneration;
+    const owner = artistId;
+    const isCurrent = () => request === albumQueueGeneration && artistId === owner;
+    albumQueueStatus = { albumId: album.id, loading: true, text: `Loading tracks for ${album.title}…` };
+    try {
+      const alreadyLoaded = albumPage?.album.id === album.id && albumTracksComplete && tracks.length;
+      const collected = alreadyLoaded ? [...tracks] : await resolveCompleteAlbum(album.id, isCurrent);
+      if (!collected || !isCurrent()) return;
+      await onQueueSelected(collected);
+      if (isCurrent()) albumQueueStatus = null;
+    } catch (cause) {
+      if (isCurrent()) albumQueueStatus = { albumId: album.id, loading: false, text: `Could not queue ${album.title}. ${cause instanceof Error ? cause.message : String(cause)}` };
     }
   }
 
@@ -369,9 +410,8 @@
   onMount(() => () => onScroll(scrollElement?.scrollTop ?? scrollTop));
   onDestroy(() => {
     if (initializedArtistId && accountScope) saveArtistSnapshot(initializedArtistId);
-    generation++; restoreGeneration++; providerReads.cancelAll(); cancelTopTracks();
+    generation++; restoreGeneration++; providerReads.cancelAll(); cancelTopTracks(); cancelAlbumActions();
   });
-  onDestroy(() => { generation++; invalidateLibrarySave(); });
 
   function saveArtistSnapshot(id: string, key = id) {
     const snapshot: ArtistSnapshot = { page, albums, albumPage, albumId: albumPage?.album.id ?? null, tracks, albumCursor, trackCursor, seenAlbumCursors: [...seenAlbumCursors], seenTrackCursors: [...seenTrackCursors], topTracks, topTracksCursor, topTracksTotal, seenTopTrackCursors: [...seenTopTrackCursors], topTracksLoaded, topTrackSort, topTrackSortDirection, topTrackQuery, topTrackMinDuration, topTrackMaxDuration, loadedTopTrackCount: topTracks.length, sort, sortDirection, releaseSort, releaseSortDirection, minDuration, maxDuration, scroll: scrollElement?.scrollTop ?? scrollTop, loadedAlbumCount: albums.length, loadedTrackCount: tracks.length, needsRefetch: false };
@@ -386,7 +426,7 @@
   export async function restoreNavigationSnapshot(key: string) { await restoreArtist(artistId, key); }
 
   async function restoreArtist(id: string, snapshotKey: string | null = null) {
-    invalidateLibrarySave();
+    cancelAlbumActions();
     if (initializedArtistId) saveArtistSnapshot(initializedArtistId);
     initializedArtistId = id; initializedSnapshotKey = snapshotKey;
     const request = ++restoreGeneration;
@@ -458,8 +498,21 @@
 
 <section class="spotify-artist" aria-label={initialAlbumId ? "Spotify album" : "Spotify artist"} bind:this={scrollElement} onscroll={(event) => { scrollTop = (event.currentTarget as HTMLElement).scrollTop; onScroll(scrollTop); }}>
   {#if error}<p class="error" role="alert">{error}</p>{/if}
+  {#if albumQueueStatus}<p class={albumQueueStatus.loading ? "notice" : "notice error"} role={albumQueueStatus.loading ? "status" : "alert"}>{albumQueueStatus.text}</p>{/if}
   {#if albumPage}
-    <header class="hero">{#if albumPage.album.artworkUrl}<img src={albumPage.album.artworkUrl} alt="" />{/if}<div><p class="eyebrow">{albumPage.album.albumType ?? "Album"}</p><h1>{albumPage.album.title}</h1><p>{formatReleaseDate(albumPage.album.releaseDate)} · {albumPage.album.artists.join(", ")}</p></div></header>
+    <header class="hero">
+      {#if albumPage.album.artworkUrl}<img src={albumPage.album.artworkUrl} alt="" />{/if}
+      <div>
+        <p class="eyebrow">{albumPage.album.albumType ?? "Album"}</p>
+        <h1>{albumPage.album.title}</h1>
+        <p>{formatReleaseDate(albumPage.album.releaseDate)} · {albumPage.album.artists.join(", ")}</p>
+        {#if onQueueSelected}
+          <button type="button" aria-label={`Queue album ${albumPage.album.title}`} disabled={albumQueueStatus?.loading} onclick={() => { if (albumPage) void queueAlbum(albumPage.album); }}>
+            {albumQueueStatus?.loading && albumQueueStatus.albumId === albumPage.album.id ? "Loading tracks…" : "Queue album"}
+          </button>
+        {/if}
+      </div>
+    </header>
     <div class="track-heading"><h2>Tracks <span>{visibleTracks.length}</span></h2><div class="track-controls"><select aria-label="Sort tracks" bind:value={sort} onchange={cancelRestore}><option value="sourceOrder">Track number</option><option value="title" disabled={!sortAvailability.title}>{trackSortOptionLabelForSources(sortAvailability, "title", "Title", ["spotify"])}</option><option value="artist" disabled={!sortAvailability.artist}>{trackSortOptionLabelForSources(sortAvailability, "artist", "Artist", ["spotify"])}</option><option value="duration" disabled={!sortAvailability.duration}>{trackSortOptionLabelForSources(sortAvailability, "duration", "Duration", ["spotify"])}</option><option value="album" disabled={!sortAvailability.album}>{trackSortOptionLabelForSources(sortAvailability, "album", "Album", ["spotify"])}</option><option value="releaseDate" disabled={!sortAvailability.releaseDate}>{trackSortOptionLabelForSources(sortAvailability, "releaseDate", "Release date", ["spotify"])}</option><option value="dateAdded" disabled={!sortAvailability.dateAdded}>{trackSortOptionLabelForSources(sortAvailability, "dateAdded", "Date added", ["spotify"])}</option><option value="bpm" disabled={!sortAvailability.bpm}>{trackSortOptionLabelForSources(sortAvailability, "bpm", "BPM", ["spotify"])}</option><option value="key" disabled={!sortAvailability.key}>{trackSortOptionLabelForSources(sortAvailability, "key", "Key", ["spotify"])}</option><option value="plays" disabled={!sortAvailability.plays}>{trackSortOptionLabelForSources(sortAvailability, "plays", "Plays", ["spotify"])}</option><option value="views" disabled={!sortAvailability.views}>{trackSortOptionLabelForSources(sortAvailability, "views", "Views", ["spotify"])}</option></select><select aria-label="Sort direction" bind:value={sortDirection} onchange={cancelRestore}><option value="asc">Ascending</option><option value="desc">Descending</option></select><TrackDurationFilter bind:minDuration={minDuration} bind:maxDuration={maxDuration} minLabel="Minimum track duration" maxLabel="Maximum track duration" onchange={cancelRestore} /><TrackDownloadFilter bind:value={downloadAvailability} />{#if onAddAlbumToPlaylist && tracks.length}<button type="button" aria-label="Add album to playlist" onclick={() => void onAddAlbumToPlaylist?.([...tracks], albumPage!.album.title)}>Add to playlist</button>{/if}{#if onSaveCompleteAlbum}<button disabled={librarySaveStatus?.kind === "saving"} onclick={() => void saveCompleteAlbum()}>Save album</button>{/if}{#if onSaveToLibrary && tracks.length}<button class="save-album-to-library" type="button" aria-label={!onSaveCompleteAlbum && albumTracksComplete ? "Save album to library" : "Save loaded tracks to library"} disabled={librarySaveStatus?.kind === "saving"} onclick={() => void saveLoadedAlbumTracks()}>{librarySaveStatus?.kind === "saving" ? "Saving…" : !onSaveCompleteAlbum && albumTracksComplete ? "Save album" : "Save loaded tracks"}</button>{/if}</div></div>
     <p class="collection-scope">Sorting and duration filters apply to collected tracks ({tracks.length}{albumPage.total != null ? ` of ${albumPage.total}` : ""}).{#if trackCursor} Load more to include additional tracks.{/if}</p>
     {#if librarySaveStatus?.albumId === albumPage.album.id}<p class={librarySaveStatus.kind === "error" ? "error" : "notice"} role={librarySaveStatus.kind === "error" ? "alert" : "status"}>{librarySaveStatus.text}</p>{/if}
@@ -492,12 +545,30 @@
       <label>Direction<select aria-label="Release sort direction" bind:value={releaseSortDirection} onchange={cancelRestore}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label>
       <span>{albums.length} loaded releases</span>
     </div>
-    <div class="albums">{#each visibleAlbums as album (album.id)}<button class="album" onclick={() => { cancelRestore(); void openAlbum(album); }}>{#if album.artworkUrl}<img src={album.artworkUrl} alt="" />{:else}<span class="placeholder">♫</span>{/if}<strong title={album.title}>{album.title}</strong><span>{formatReleaseDate(album.releaseDate, album.albumType)}</span></button>{/each}</div>
+    <div class="albums">
+      {#each visibleAlbums as album (album.id)}
+        <article class="album-card">
+          <button class="album" onclick={() => { cancelRestore(); void openAlbum(album); }}>
+            {#if album.artworkUrl}<img src={album.artworkUrl} alt="" />{:else}<span class="placeholder">♫</span>{/if}
+            <strong title={album.title}>{album.title}</strong>
+            <span>{formatReleaseDate(album.releaseDate, album.albumType)}</span>
+          </button>
+          {#if onQueueSelected}
+            <button class="queue-album" type="button" aria-label={`Queue album ${album.title}`} disabled={albumQueueStatus?.loading} onclick={() => void queueAlbum(album)}>
+              {albumQueueStatus?.loading && albumQueueStatus.albumId === album.id ? "Loading tracks…" : "Queue album"}
+            </button>
+          {/if}
+        </article>
+      {/each}
+    </div>
     {#if albumCursor}<button disabled={busy} onclick={() => { cancelRestore(); void loadArtist(artistId, albumCursor!); }}>Load more releases</button>{/if}
   {:else if busy}<p role="status">Loading Spotify artist…</p>{/if}
 </section>
 
 <style>
+  .album-card{display:flex;flex-direction:column;gap:.3rem;min-width:0}
+  .album-card .album{flex:1}
+  .spotify-artist .queue-album{font-size:.8rem}
   .spotify-artist{height:100%;min-height:0;overflow:auto;padding:1rem;display:flex;flex-direction:column;gap:.8rem;color:var(--text,#eee);background:var(--base,#17191c);border-radius:12px}.spotify-artist button,.spotify-artist input,.spotify-artist select{font:inherit;color:inherit;background:var(--surface,#202328);border:1px solid var(--border,#454a50);border-radius:7px;padding:.5rem .7rem}.spotify-artist button{cursor:pointer}.spotify-artist button:disabled{opacity:.5}.hero{display:flex;align-items:center;justify-content:flex-start;gap:1rem;min-width:0;padding:.5rem 0 .75rem;border-bottom:1px solid var(--border,#383d43)}.hero>div{flex:1;min-width:0}.hero img,.hero .placeholder{flex:none;width:clamp(96px,12vw,124px);height:clamp(96px,12vw,124px);object-fit:cover;border-radius:9px}.placeholder{display:grid;place-items:center;background:#252b31;font-size:3rem;color:var(--accent,#67c3a5)}.hero h1{margin:.25rem 0}.hero p{color:var(--muted,#a3a8ae)}.hero a{color:var(--accent,#67c3a5)}.eyebrow{font-size:.75rem;text-transform:uppercase;letter-spacing:.1em}.browse-provider{display:block;margin-top:.45rem;font-size:.85rem}.notice{padding:.7rem;border-radius:7px;background:var(--surface,#202328);color:var(--muted,#a3a8ae)}h2 span{font-size:.8rem;color:var(--muted,#a3a8ae);font-weight:400}.release-controls{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}.release-controls label{display:flex;align-items:center;gap:.35rem}.release-controls span{color:var(--muted,#a3a8ae);font-size:.85rem}.albums{display:grid;grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:.8rem}.album{display:flex;flex-direction:column;align-items:flex-start;text-align:left;gap:.35rem;min-width:0;width:100%;overflow:hidden}.album img,.album .placeholder{width:100%;aspect-ratio:1;object-fit:cover}.album strong{display:block;width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.album span:last-child{font-size:.85rem;color:var(--muted,#a3a8ae)}.track-heading{display:flex;flex-wrap:wrap;justify-content:space-between;gap:.7rem;align-items:center}.track-controls{display:flex;gap:.4rem;flex-wrap:wrap}.track-controls select{color-scheme:dark}.track-controls input{width:5.5rem}.error{color:#ff9b9b}
   .spotify-artist .track-controls{align-items:center;gap:6px 8px;min-width:0}
 

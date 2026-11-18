@@ -805,6 +805,7 @@ fn validate_bandcamp_playlist_url(input: &str) -> Result<String, String> {
             "Use a public Bandcamp fan playlist URL such as /username/playlist/name".into(),
         );
     }
+    url.set_path(&format!("/{}/playlist/{}", parts[0], parts[2]));
     url.set_query(None);
     url.set_fragment(None);
     Ok(url.to_string())
@@ -1043,14 +1044,57 @@ async fn import_bandcamp_playlist(input: &str) -> Result<BrowserSnapshot, String
 }
 
 pub(crate) async fn import_bandcamp(input: &str) -> Result<BrowserSnapshot, String> {
+    read_bandcamp_album(input, None).await
+}
+
+pub(crate) async fn get_bandcamp_release_tracks(
+    input: &str,
+    id: &str,
+) -> Result<Vec<crate::models::Track>, String> {
+    let id = id
+        .parse::<u64>()
+        .ok()
+        .filter(|id| *id > 0)
+        .ok_or("Invalid Bandcamp album identity")?;
+    let snapshot = read_bandcamp_album(input, Some(id)).await?;
+    bandcamp_album_tracks(&snapshot)
+}
+
+fn bandcamp_album_tracks(snapshot: &BrowserSnapshot) -> Result<Vec<crate::models::Track>, String> {
+    let chart = crate::browser_bridge::validate_snapshot(snapshot)?;
+    let mut tracks = crate::browser_bridge::expand_playlist_occurrences(chart.tracks);
+    for track in &mut tracks {
+        track.provenance["browserImport"] = Value::Bool(false);
+        track.provenance["captureMethod"] = Value::String("direct".into());
+        track.provenance["identity"] = Value::String("unverified source metadata".into());
+    }
+    let expected = snapshot.complete.then_some(snapshot.entries.len());
+    Ok(crate::artists::mark_library_album_snapshot(tracks, expected))
+}
+
+async fn read_bandcamp_album(input: &str, expected_id: Option<u64>) -> Result<BrowserSnapshot, String> {
     let source = validate_bandcamp_album_url(input)?;
     let url = Url::parse(&source).map_err(|_| "Invalid Bandcamp URL")?;
     let host = url.host_str().ok_or("Invalid Bandcamp host")?;
     let client = http_client()?;
-    let (_, html) = get_text(&client, Url::parse(&source).unwrap(), &[host]).await?;
-    let data = extract_tralbum_data(&html).ok_or(
+    let (_, html) = get_text(&client, url.clone(), &[host]).await?;
+    parse_bandcamp_album(&url, &html, expected_id)
+}
+
+fn parse_bandcamp_album(
+    url: &Url,
+    html: &str,
+    expected_id: Option<u64>,
+) -> Result<BrowserSnapshot, String> {
+    let data = extract_tralbum_data(html).ok_or(
         "Bandcamp album page has no readable tracklist data; open it in the browser instead.",
     )?;
+    if expected_id.is_some_and(|id| {
+        data["current"]["type"].as_str() != Some("album")
+            || data["current"]["id"].as_u64() != Some(id)
+    }) {
+        return Err("Bandcamp album page no longer matches the search result".into());
+    }
     let tracks = data
         .get("trackinfo")
         .and_then(Value::as_array)
@@ -1072,7 +1116,7 @@ pub(crate) async fn import_bandcamp(input: &str) -> Result<BrowserSnapshot, Stri
         return Err("Bandcamp album is missing artist or album title".into());
     }
     let mut entries = Vec::new();
-    let details = crate::import_metadata::bandcamp_page(&data, &html, &url);
+    let details = crate::import_metadata::bandcamp_page(&data, html, url);
     for row in tracks.iter().take(MAX_ENTRIES) {
         let title = row
             .get("title")
@@ -1082,16 +1126,11 @@ pub(crate) async fn import_bandcamp(input: &str) -> Result<BrowserSnapshot, Stri
         if title.is_empty() {
             continue;
         }
-        let n = row
-            .get("track_num")
-            .and_then(Value::as_u64)
-            .map(|n| n as u32)
-            .unwrap_or((entries.len() + 1) as u32);
         let track_url = row
             .get("title_link")
             .and_then(Value::as_str)
-            .and_then(|p| Url::parse(&source).ok()?.join(p).ok())
-            .filter(|u| u.scheme() == "https" && u.host_str() == Some(host))
+            .and_then(|p| url.join(p).ok())
+            .filter(|u| u.scheme() == "https" && u.host_str() == url.host_str())
             .map(|u| u.to_string());
         entries.push(BrowserEntry {
             metadata: {
@@ -1138,7 +1177,7 @@ pub(crate) async fn import_bandcamp(input: &str) -> Result<BrowserSnapshot, Stri
         "bandcamp",
         "album",
         album.to_owned(),
-        source,
+        url.to_string(),
         entries,
         expected,
         complete,
@@ -1221,7 +1260,7 @@ fn validate_bandcamp_discover_url(input: &str) -> Result<String, String> {
     Ok(url.to_string())
 }
 
-fn validate_bandcamp_album_url(input: &str) -> Result<String, String> {
+pub(crate) fn validate_bandcamp_album_url(input: &str) -> Result<String, String> {
     let mut url = Url::parse(input).map_err(|_| "Invalid Bandcamp album or public playlist URL")?;
     let host = url.host_str().ok_or("Invalid Bandcamp album host")?;
     if url.scheme() != "https"
@@ -2015,6 +2054,25 @@ mod tests {
         assert_eq!(data["artist"], "Björk");
         assert_eq!(data["trackinfo"][0]["title"], "Human Behaviour");
         assert_eq!(data["current"]["title"], "Debut");
+    }
+
+    #[test]
+    fn bandcamp_search_album_only_opens_the_matched_release() {
+        let url = Url::parse("https://artist.bandcamp.com/album/record").unwrap();
+        let html = r#"<script>var TralbumData = {"artist":"Artist","current":{"id":42,"type":"album","title":"Record"},"trackinfo":[{"track_id":10,"track_num":1,"title":"First","duration":190.5,"title_link":"/track/first"},{"track_id":20,"track_num":2,"title":"Second","title_link":"/track/second"},{"track_id":10,"track_num":3,"title":"First","duration":190.5,"title_link":"/track/first"}]};</script>"#;
+        assert!(parse_bandcamp_album(&url, html, Some(11)).is_err());
+        let snapshot = parse_bandcamp_album(&url, html, Some(42)).unwrap();
+        assert!(snapshot.complete);
+        assert_eq!(snapshot.expected_total, Some(3));
+        let tracks = bandcamp_album_tracks(&snapshot).unwrap();
+        assert_eq!(tracks.len(), 3);
+        assert_eq!(tracks[0].title, "First");
+        assert_eq!(tracks[0].source_url, "https://artist.bandcamp.com/track/first");
+        assert_eq!(tracks[0].duration_seconds, Some(190.5));
+        assert_eq!(tracks[1].title, "Second");
+        assert_eq!(tracks[2].id, tracks[0].id);
+        assert_eq!(tracks[2].provenance["albumPosition"], 3);
+        assert_eq!(tracks[2].provenance["libraryAlbumSnapshot"]["complete"], true);
     }
 
     #[test]

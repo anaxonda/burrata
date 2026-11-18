@@ -184,6 +184,7 @@ let configuredPreferredDownloadSource = "youtube";
 let configuredPreferredStreamingSource = "youtube";
 let configuredPauseOnSourceOpen = false;
 let configuredSourceOpenAtPosition = false;
+let configuredPlayRadioOnClick = false;
 let identifyPlayingTrackResult: { trackId: string; title?: string | null; artist?: string | null; note?: string } = { trackId: savedTrack.id, title: "Saved Recording", artist: "Visible Artist" };
 let holdNativeIdentify = false;
 let finishNativeIdentify: ((value: typeof identifyPlayingTrackResult) => void) | undefined;
@@ -570,6 +571,7 @@ beforeEach(() => {
   configuredPreferredDownloadSource = "youtube";
   configuredPreferredStreamingSource = "youtube";
   configuredPauseOnSourceOpen = false;
+  configuredPlayRadioOnClick = false;
   configuredSourceOpenAtPosition = false;
   identifyPlayingTrackResult = { trackId: savedTrack.id, title: "Saved Recording", artist: "Visible Artist" };
   holdNativeIdentify = false;
@@ -794,7 +796,7 @@ beforeEach(() => {
       };
       case "get_settings":
         if (holdStartupCalls) return new Promise(() => {});
-        return { musicDirectory: configuredMusicDirectory, ...(configuredPlaylistMirroringEnabled === undefined ? {} : { playlistMirroringEnabled: configuredPlaylistMirroringEnabled }), preferredDownloadSource: configuredPreferredDownloadSource, preferredStreamingSource: configuredPreferredStreamingSource, overridePlaylistTrackUrls, streamingFallbackEnabled, streamingFallbackSources, streamingFallbackPolicyVersion: 1, bandcampFallbackEnabled: streamingFallbackSources.includes("bandcamp"), downloadFallbackEnabled, downloadFallbackSources, pauseOnSourceOpen: configuredPauseOnSourceOpen, sourceOpenAtPosition: configuredSourceOpenAtPosition, playbackDiagnosticsEnabled: false, autoPreview: false, previewDelayMs: 250, theme: "dark", ytDlpPath: "yt-dlp", ffmpegPath: "ffmpeg", ffprobePath: "ffprobe", jsRuntimePath: "deno" };
+        return { musicDirectory: configuredMusicDirectory, ...(configuredPlaylistMirroringEnabled === undefined ? {} : { playlistMirroringEnabled: configuredPlaylistMirroringEnabled }), preferredDownloadSource: configuredPreferredDownloadSource, preferredStreamingSource: configuredPreferredStreamingSource, overridePlaylistTrackUrls, streamingFallbackEnabled, streamingFallbackSources, streamingFallbackPolicyVersion: 1, bandcampFallbackEnabled: streamingFallbackSources.includes("bandcamp"), downloadFallbackEnabled, downloadFallbackSources, pauseOnSourceOpen: configuredPauseOnSourceOpen, sourceOpenAtPosition: configuredSourceOpenAtPosition, playRadioOnClick: configuredPlayRadioOnClick, playbackDiagnosticsEnabled: false, autoPreview: false, previewDelayMs: 250, theme: "dark", ytDlpPath: "yt-dlp", ffmpegPath: "ffmpeg", ffprobePath: "ffprobe", jsRuntimePath: "deno" };
       case "get_release_setup": return { setupComplete: true, musicDirectory: configuredMusicDirectory, radioRecognition: true, mcpCommand: [], browser: { browsers: [] }, toolPaths: [] };
       case "get_playlist_mirror_options": {
         const collectionId = String(args?.collectionId ?? "");
@@ -1131,6 +1133,7 @@ beforeEach(() => {
         configuredMusicDirectory = value.musicDirectory ?? configuredMusicDirectory;
         configuredPlaylistMirroringEnabled = value.playlistMirroringEnabled ?? configuredPlaylistMirroringEnabled;
         configuredPreferredDownloadSource = value.preferredDownloadSource ?? configuredPreferredDownloadSource;
+        configuredPlayRadioOnClick = value.playRadioOnClick ?? configuredPlayRadioOnClick;
         streamingFallbackEnabled = value.streamingFallbackEnabled ?? streamingFallbackEnabled;
         streamingFallbackSources = value.streamingFallbackSources ?? streamingFallbackSources;
         downloadFallbackEnabled = value.downloadFallbackEnabled ?? downloadFallbackEnabled;
@@ -2049,6 +2052,57 @@ describe("saved recording navigation", () => {
     expect(document.body.textContent).toContain("Direct Shazam Import");
   });
 
+  it("opens the ordered Bandcamp playlist tracklist from Search without importing", async () => {
+    const url = "https://bandcamp.com/funkentechno/playlist/ambient-reading";
+    const playlistTracks = Array.from({ length: 24 }, (_, index) => ({
+      position: index + 1, title: `Playlist song ${index + 1}`, artist: "Bandcamp Artist",
+    }));
+    const originalCall = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "preview_collection_import") return {
+        previewId: "bandcamp-preview", sourceUrl: url, title: "ambient reading", capturedCount: 24,
+        uniqueRecordings: 24, expectedTotal: 24, complete: true, warnings: [], failedSources: [],
+        changes: { added: 24, removed: 0, moved: 0, partial: false }, sample: [], playlistTracks,
+      };
+      return originalCall(command, args);
+    });
+    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); };
+    await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Search"]')!.click();
+    await settle();
+    const query = document.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
+    query.value = `${url}/?from=share#tracks`;
+    query.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+    expect(searchButton().textContent).toBe("Open Bandcamp playlist");
+    submitSearch();
+    await settle();
+    expect(mocks.call).toHaveBeenCalledWith("preview_collection_import", { url });
+    expect(document.querySelector('[aria-label="Import preview"] h4')?.textContent).toBe("ambient reading");
+    const rows = [...document.querySelectorAll<HTMLLIElement>('[aria-label="Bandcamp playlist tracks"] li')];
+    expect(rows.map(row => row.textContent?.trim())).toEqual(playlistTracks.map(track => `${track.artist} — ${track.title}`));
+    expect(mocks.call.mock.calls.some(([command]) => ["apply_collection_import", "request_browser_import", "search_source"].includes(command))).toBe(false);
+    document.querySelector<HTMLButtonElement>('[aria-label="Close import"]')!.click();
+    await settle();
+    expect(document.querySelector('[aria-label="Discovery search"]')).not.toBeNull();
+  });
+
+  it("keeps a failed Bandcamp playlist open request read-only", async () => {
+    directBrowserImportFailure = "This Bandcamp playlist is private";
+    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); };
+    await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Search"]')!.click();
+    await settle();
+    const query = document.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
+    query.value = "https://bandcamp.com/fan/playlist/private";
+    query.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+    submitSearch();
+    await settle();
+    expect(document.querySelector('dialog[aria-label="Import"]')?.textContent).toContain(directBrowserImportFailure);
+    expect(mocks.call.mock.calls.some(([command]) => ["apply_collection_import", "request_browser_import"].includes(command))).toBe(false);
+  });
+
   it("falls back to the connected companion when direct URL import fails", async () => {
     const url = "https://example.test/chart";
     directBrowserImportFailure = "Provider parser unavailable";
@@ -2855,6 +2909,69 @@ describe("saved recording navigation", () => {
     expect(mocks.call).toHaveBeenCalledWith("rename_radio_station", { stationId: "custom:night", name: "After Hours" });
     expect(radioStationState[0]?.name).toBe("After Hours");
     expect([...document.querySelectorAll(".radio-section .playlist-card")].some((button) => button.textContent?.includes("After Hours"))).toBe(true);
+  });
+
+  it("opens radio details silently and queues a live station from the sidebar menu", async () => {
+    radioStationState = [{ id: "night", name: "Night Drive", streamUrl: "https://radio.example/live", sourceUrl: "https://radio.example", provider: "custom", isCustom: true }];
+    nativePlaybackSnapshot = makeNativeSnapshot({ status: "playing", track: savedTrack, trackId: savedTrack.id, queue: [savedTrack], currentIndex: 0, paused: false });
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    mocks.call.mockClear();
+    const station = document.querySelector<HTMLButtonElement>(".radio-section .playlist-card")!;
+    station.click();
+    await vi.waitFor(() => expect(document.querySelector(".radio-page h1")?.textContent).toBe("Night Drive"));
+    expect(mocks.call).toHaveBeenCalledWith("get_station_details", { stationId: "night" });
+    expect(mocks.call.mock.calls.some(([command]) => command === "playback_command")).toBe(false);
+
+    station.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 320, clientY: 190 }));
+    await settle();
+    const menu = document.querySelector<HTMLDialogElement>('dialog.playlist-menu[aria-label="Actions for radio station Night Drive"]')!;
+    [...menu.querySelectorAll<HTMLButtonElement>("button")].find(button => menuActionText(button) === "Add to queue")!.click();
+    await settle();
+    expect(mocks.call).toHaveBeenCalledWith("playback_command", {
+      command: expect.objectContaining({
+        action: "queue", mode: "append",
+        tracks: [expect.objectContaining({
+          id: "radio:night", provider: "radio", providerId: "night",
+          provenance: { stationId: "night", radioStreamUrl: "https://radio.example/live", sourceKind: "radio" },
+        })],
+      }),
+    });
+    expect(nativePlaybackSnapshot?.queue.map(track => track.id)).toEqual([savedTrack.id, "radio:night"]);
+    expect(nativePlaybackSnapshot?.trackId).toBe(savedTrack.id);
+  });
+
+  it("saves the radio play-on-click opt-in and keeps Open radio station as a details action", async () => {
+    radioStationState = [{ id: "night", name: "Night Drive", streamUrl: "https://radio.example/live", sourceUrl: "https://radio.example", provider: "custom", isCustom: true }];
+    const instance = mount(App, { target: document.body });
+    unmountApp = () => { void unmount(instance); };
+    await settle();
+    eventHandlers.get("automation-ui-navigation")!({ event: "automation-ui-navigation", id: 1, payload: {
+      requestId: "radio-click-settings", target: { kind: "view", view: "settings", settingsCategory: "playback" },
+    } });
+    await settle();
+    const preference = document.querySelector<HTMLInputElement>('input[aria-label="Play radio stations on click"]')!;
+    expect(preference.checked).toBe(false);
+    preference.click();
+    await settle();
+    expect(configuredPlayRadioOnClick).toBe(true);
+    expect(mocks.call).toHaveBeenCalledWith("save_settings", { settings: expect.objectContaining({ playRadioOnClick: true }) });
+
+    mocks.call.mockClear();
+    const station = document.querySelector<HTMLButtonElement>(".radio-section .playlist-card")!;
+    station.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 320, clientY: 190 }));
+    await settle();
+    const menu = document.querySelector<HTMLDialogElement>('dialog.playlist-menu[aria-label="Actions for radio station Night Drive"]')!;
+    [...menu.querySelectorAll<HTMLButtonElement>("button")].find(button => menuActionText(button) === "Open radio station")!.click();
+    await vi.waitFor(() => expect(document.querySelector(".radio-page h1")?.textContent).toBe("Night Drive"));
+    expect(mocks.call.mock.calls.some(([command]) => command === "playback_command")).toBe(false);
+
+    station.click();
+    await settle();
+    expect(mocks.call).toHaveBeenCalledWith("playback_command", {
+      command: expect.objectContaining({ action: "play", tracks: [expect.objectContaining({ id: "radio:night", provider: "radio" })] }),
+    });
   });
 
   it("creates a playlist immediately from the sidebar create action and opens its rename field", async () => {
@@ -3882,6 +3999,40 @@ describe("saved recording navigation", () => {
     expect(document.querySelector(".search-panel")?.textContent).toContain(album.title);
   });
 
+  it("opens the matched Bandcamp album from Search without saving or playing", async () => {
+    const release: ArtistReleaseRef = {
+      release: { provider: "bandcamp", id: "2683810063" },
+      title: "Debut", sourceUrl: "https://bjork.bandcamp.com/album/debut",
+      primaryType: "Album", tracks: [], credits: [{ name: "Björk", role: "artist", sourceUrl: "https://bjork.bandcamp.com" }],
+    };
+    const track = { ...savedTrack, id: "bandcamp:human-behaviour", provider: "bandcamp", providerId: "human-behaviour",
+      artist: "Björk", title: "Human Behaviour", album: release.title, sourceUrl: "https://bjork.bandcamp.com/track/human-behaviour" };
+    const originalCall = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "list_search_sources") return [{ id: "bandcamp", name: "Bandcamp", kinds: ["track", "artist", "album"], enabled: true }];
+      if (command === "search_source") return {
+        sourceId: "bandcamp", complete: true, results: [{ id: `bandcamp:album:${release.release.id}`, kind: "album",
+          sourceId: "bandcamp", title: release.title, url: release.sourceUrl, data: release }],
+      };
+      if (command === "get_release_tracks") return [track];
+      return originalCall(command, args);
+    });
+    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); };
+    await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Search"]')!.click();
+    await settle();
+    await searchDiscovery(release.title, ["bandcamp"]);
+    document.querySelector<HTMLButtonElement>('[aria-label="Open album: Debut"]')!.click();
+    await settle();
+    expect(mocks.call).toHaveBeenCalledWith("get_release_tracks", { release, artist: undefined });
+    expect(document.querySelector(".release-view h1")?.textContent).toBe(release.title);
+    expect(document.querySelector('[aria-label="Release tracks"]')?.textContent).toContain(track.title);
+    expect(mocks.call.mock.calls.some(([command]) => ["search_artists", "preview_collection_import", "save_library_album", "save_library_tracks", "playback_command"].includes(command))).toBe(false);
+    document.querySelector<HTMLButtonElement>('[aria-label="Go back"]')!.click();
+    await settle();
+    expect(document.querySelector(".search-panel")?.textContent).toContain(release.title);
+  });
+
   it("opens the exact Spotify album identity from a track context menu and restores the prior route", async () => {
     const albumId = "aaaaaaaaaaaaaaaaaaaaaa", trackId = "bbbbbbbbbbbbbbbbbbbbbb";
     const album = { id: albumId, title: "Exact Album Edition", url: `https://open.spotify.com/album/${albumId}`, artists: ["Exact Artist"] };
@@ -4469,6 +4620,10 @@ describe("saved recording navigation", () => {
     await settle();
     expect(matchingCalls().map(([, args]) => (args as { sourceTracks: Track[] }).sourceTracks.length)).toEqual([200, 200, 101]);
 
+    vi.useFakeTimers();
+    const nativeCommands = () => mocks.call.mock.calls.flatMap(([command, args]) =>
+      command === "playback_command" ? [args?.command as { action: string }] : []);
+    const beforeStop = nativeCommands().length;
     eventHandlers.get("library-updated")?.({ event: "library-updated", id: 90, payload: remoteTracks[0] });
     delayedArtistTrackId = remoteTracks[2]!.id;
     document.querySelector<HTMLButtonElement>('.spotify-artist [aria-label="Play Spotify Song 002"]')!.click();
@@ -4482,18 +4637,40 @@ describe("saved recording navigation", () => {
       sourceCodec: "flac", finalCodec: "flac", processing: "complete", track: { ...remoteTracks[2]!, localAvailability: "available" },
     }]);
     await settle();
-    expect(mocks.call.mock.calls.some(([command, args]) => command === "resolve_playback_track" && (args as { track?: Track }).track?.id === remoteTracks[2]!.id)).toBe(false);
+    expect(nativeCommands().slice(beforeStop).map(command => command.action)).toEqual(["stop"]);
+
+    const beforeNext = nativeCommands().length;
+    delayedArtistTrackId = remoteTracks[4]!.id;
+    finishDelayedArtistMatcher = undefined;
+    document.querySelector<HTMLButtonElement>('.spotify-artist [aria-label="Play Spotify Song 004"]')!.click();
+    await settle();
+    expect(finishDelayedArtistMatcher).toBeDefined();
+    document.querySelector<HTMLButtonElement>('#burrata-playback-controls [aria-label="Next recording"]')!.click();
+    finishDelayedArtistMatcher!([null]);
+    await settle();
+    expect(nativeCommands().slice(beforeNext).map(command => command.action)).toEqual(["next"]);
 
     eventHandlers.get("library-updated")?.({ event: "library-updated", id: 92, payload: remoteTracks[3] });
+    const beforeTimeout = nativeCommands().length;
+    const expectedEntryId = nativePlaybackSnapshot?.queueEntryIds?.[3];
+    expect(expectedEntryId).toBeTruthy();
     delayedNoMatchTrackId = remoteTracks[3]!.id;
     document.querySelector<HTMLButtonElement>('.spotify-artist [aria-label="Play Spotify Song 003"]')!.click();
     await settle();
     expect(finishDelayedNoMatch).toBeDefined();
+    expect(nativeCommands()).toHaveLength(beforeTimeout);
+    expect(document.querySelector('[aria-label="Pause loading playback"]')).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(125);
+    await settle();
+    expect(nativeCommands().slice(beforeTimeout)).toEqual([expect.objectContaining({
+      action: "select", index: 3, expectedEntryId,
+    })]);
     const matcherCallsBeforeInvalidatedReply = matchingCalls().length;
     eventHandlers.get("library-updated")?.({ event: "library-updated", id: 93, payload: remoteTracks[3] });
     finishDelayedNoMatch!([null]);
     delayedNoMatchTrackId = null;
     await settle();
+    expect(nativeCommands()).toHaveLength(beforeTimeout + 1);
 
     document.querySelector<HTMLButtonElement>('.spotify-artist [aria-label="Play Spotify Song 003"]')!.click();
     await settle();
@@ -7042,6 +7219,7 @@ describe("saved recording navigation", () => {
 
   async function liveRecoveryFixture() {
     vi.useFakeTimers();
+    configuredPlayRadioOnClick = true;
     let clock = 1_000;
     vi.spyOn(performance, "now").mockImplementation(() => clock);
     radioStationState = [{ id:"main",name:"Main Mix",streamUrl:"https://radio.example/live",sourceUrl:"https://radio.example",provider:"radio_paradise",isCustom:false }];
@@ -9657,6 +9835,41 @@ describe("native playback frontend", () => {
     expect(document.querySelector(".player-status")?.textContent).toContain("Playing");
   });
 
+  it.each(["reply", "failure"])("ignores a late seek %s from a previous occurrence", async outcome => {
+    const original = mocks.call.getMockImplementation()!;
+    const first = makeNativeSnapshot({ revision: 12, generation: 9, status: "paused", track: savedTrack,
+      trackId: savedTrack.id, queue: [savedTrack, savedTrack], queueEntryIds: ["first-entry", "second-entry"],
+      entryId: "first-entry", currentIndex: 0, position: 3, duration: 120, canSeek: true });
+    let finishSeek!: () => void;
+    mocks.call.mockImplementation(async (command, args) => {
+      if (command === "playback_command" && (args?.command as {action?: string})?.action === "seek") {
+        return new Promise((resolve, reject) => {
+          finishSeek = () => outcome === "reply"
+            ? resolve({ ...first, revision: 13, position: 90, seekSerial: 1 })
+            : reject(new Error("Old seek failure"));
+        });
+      }
+      return original(command, args);
+    });
+    mountNative(first);
+    await settle();
+
+    const seek = document.querySelector<HTMLInputElement>('[aria-label="Playback position"]')!;
+    seek.value = "90";
+    seek.dispatchEvent(new Event("input", { bubbles: true }));
+    seek.dispatchEvent(new Event("pointerup", { bubbles: true }));
+    expect(mocks.call).toHaveBeenCalledWith("playback_command", { command: expect.objectContaining({
+      action: "seek", position: 90, expectedEntryId: "first-entry",
+    }) });
+
+    emitNative({ ...first, revision: 14, generation: 10, entryId: "second-entry", currentIndex: 1, position: 7 });
+    await settle();
+    finishSeek();
+    await settle();
+    expect(document.querySelector(".player-scrubber .time")?.textContent).toBe("0:07");
+    expect(document.body.textContent).not.toContain("Old seek failure");
+  });
+
   it("uses absolute chapter time for a native ranged track and hides nested chapter rows", async () => {
     const rangedTrack: Track = { ...savedTrack, id: "chapter-window", provider: "chapter", title: "Chapter Window", playbackRange: {
       parentTrackId: "full-set", chapterId: "middle", sourceUrl: "https://youtube.com/watch?v=abcdefghi12",
@@ -9719,6 +9932,84 @@ describe("native playback frontend", () => {
     emitNative(makeNativeSnapshot({revision:26,generation:6,status:"paused",trackId:savedTrack.id,track:staleFavorite,queue:[staleFavorite],currentIndex:0,paused:true}));
     await settle();
     expect(document.querySelector<HTMLButtonElement>('[aria-label="Add playing track to favorites"]')?.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("fills the row and player hearts immediately and serializes rapid changes", async () => {
+    const originalCall = mocks.call.getMockImplementation()!;
+    let finishFirstWrite!: () => void;
+    const firstWrite = new Promise<void>(resolve => { finishFirstWrite = resolve; });
+    mocks.call.mockImplementation(async (command, args) => {
+      if (command === "set_favorite" && args?.value === true) await firstWrite;
+      return originalCall(command, args);
+    });
+    mountNative(makeNativeSnapshot({ revision: 25, generation: 6, status: "paused", trackId: savedTrack.id, track: savedTrack, queue: [savedTrack], currentIndex: 0, paused: true }));
+    await settle();
+    const rowHeart = document.querySelector<HTMLButtonElement>(".shared-track-list .favorite")!;
+    const playerHeart = document.querySelector<HTMLButtonElement>(".player-heart")!;
+
+    rowHeart.click();
+    await tick();
+    expect(rowHeart.getAttribute("aria-pressed")).toBe("true");
+    expect(playerHeart.getAttribute("aria-pressed")).toBe("true");
+    expect(favoriteTrackIds.has(savedTrack.id)).toBe(false);
+
+    playerHeart.click();
+    await tick();
+    expect(rowHeart.getAttribute("aria-pressed")).toBe("false");
+    expect(playerHeart.getAttribute("aria-pressed")).toBe("false");
+    const writes = () => mocks.call.mock.calls.filter(([command]) => command === "set_favorite").map(([, args]) => args?.value);
+    expect(writes()).toEqual([true]);
+
+    finishFirstWrite();
+    await settle();
+    expect(writes()).toEqual([true, false]);
+    expect(favoriteTrackIds.has(savedTrack.id)).toBe(false);
+    expect(playerHeart.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("rolls back an optimistic heart when the favorite write fails", async () => {
+    const originalCall = mocks.call.getMockImplementation()!;
+    let failWrite!: (reason: Error) => void;
+    const write = new Promise<void>((_resolve, reject) => { failWrite = reject; });
+    mocks.call.mockImplementation(async (command, args) => command === "set_favorite" ? write : originalCall(command, args));
+    mountNative(makeNativeSnapshot({ revision: 25, generation: 6, status: "paused", trackId: savedTrack.id, track: savedTrack, queue: [savedTrack], currentIndex: 0, paused: true }));
+    await settle();
+    const playerHeart = document.querySelector<HTMLButtonElement>(".player-heart")!;
+    playerHeart.click();
+    await tick();
+    expect(playerHeart.getAttribute("aria-pressed")).toBe("true");
+
+    failWrite(new Error("Favorites write failed"));
+    await settle();
+    expect(playerHeart.getAttribute("aria-pressed")).toBe("false");
+    expect(document.body.textContent).toContain("Favorites write failed");
+    expect(favoriteTrackIds.has(savedTrack.id)).toBe(false);
+  });
+
+  it("ignores an older favorites read that finishes after a newer save", async () => {
+    const originalCall = mocks.call.getMockImplementation()!;
+    let finishOldRead!: (ids: string[]) => void;
+    let holdNextRead = false;
+    mocks.call.mockImplementation(async (command, args) => {
+      if (command === "list_favorite_track_ids" && holdNextRead) {
+        holdNextRead = false;
+        return new Promise<string[]>(resolve => { finishOldRead = resolve; });
+      }
+      return originalCall(command, args);
+    });
+    mountNative(makeNativeSnapshot({ revision: 25, generation: 6, status: "paused", trackId: savedTrack.id, track: savedTrack, queue: [savedTrack], currentIndex: 0, paused: true }));
+    await settle();
+    holdNextRead = true;
+    eventHandlers.get("automation-library-changed")!({ event: "automation-library-changed", id: 1, payload: null });
+    const playerHeart = document.querySelector<HTMLButtonElement>(".player-heart")!;
+    playerHeart.click();
+    await settle();
+    expect(playerHeart.getAttribute("aria-pressed")).toBe("true");
+
+    finishOldRead([]);
+    await settle();
+    expect(playerHeart.getAttribute("aria-pressed")).toBe("true");
+    expect(favoriteTrackIds.has(savedTrack.id)).toBe(true);
   });
 
   it("preserves an active native song while replacing its queue with song radio", async () => {

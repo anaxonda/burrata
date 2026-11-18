@@ -226,9 +226,17 @@ pub fn parse_results(raw: &Value, kinds: &[String]) -> Vec<SearchResult> {
                     title: title.into(),
                     subtitle: Some(artist.to_owned()),
                     url: url.to_string(),
-                    artwork_url,
                     track: None,
-                    data: json!({"provider":"bandcamp","providerId":id,"artist":artist}),
+                    data: json!({
+                        "release": {"provider": "bandcamp", "id": id.to_string()},
+                        "title": title,
+                        "sourceUrl": url.as_str(),
+                        "primaryType": "Album",
+                        "artworkUrls": artwork_url.as_deref().into_iter().collect::<Vec<_>>(),
+                        "tracks": [],
+                        "credits": [{"name": artist, "role": "artist", "sourceUrl": url.origin().ascii_serialization()}]
+                    }),
+                    artwork_url,
                 }
             }
             "track" => {
@@ -375,6 +383,12 @@ mod tests {
         assert_eq!(results[0].data["isLabel"], false);
         assert_eq!(results[1].id, "bandcamp:album:22");
         assert_eq!(results[1].subtitle.as_deref(), Some("Artist Page"));
+        let release: crate::artists::ArtistReleaseRef =
+            serde_json::from_value(results[1].data.clone()).unwrap();
+        assert_eq!(release.release.provider, "bandcamp");
+        assert_eq!(release.release.id, "22");
+        assert_eq!(release.source_url, results[1].url);
+        assert_eq!(release.credits[0].name, "Artist Page");
         assert!(
             results[1].track.is_none(),
             "album discovery must not fabricate a Track"

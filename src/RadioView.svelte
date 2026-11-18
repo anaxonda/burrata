@@ -28,10 +28,10 @@
     history: RadioTrackMetadata[]; historyAvailable: boolean; note: string;
   };
 
-  let { onPlayStation, onArtist, playingStationId = "", onNowPlaying, selectedStationId: requestedStationId = "", onStationsChanged, stationNames={}, savedStations,
+  let { onPlayStation, onArtist, playingStationId = "", playOnStationClick = false, onNowPlaying, selectedStationId: requestedStationId = "", onStationsChanged, stationNames={}, savedStations,
     onPlayTrack, onDownloadTrack, onFavoriteTrack, onQueueTracks, onAddTrackToPlaylist, onAddSelectedToPlaylist, onTrackContext, onInfoTrack, onTrackAlbum, onOpenHistory, onIdentifyPlayingStation, identifyingPlayingStation = false, currentStationMetadata, playingTrack, bufferingTrack, playingTrackId = "", bufferingTrackId = "", paused = false, favoriteTrackIds = [],
   }:
-    { onPlayStation: (station: RadioStation) => void; onArtist: (track: Track) => void; playingStationId?: string; onNowPlaying?: (station: RadioStation, track: RadioTrackMetadata | null) => void; selectedStationId?: string; onStationsChanged?: (stations: RadioStation[]) => void;stationNames?:Record<string,string>; savedStations?:RadioStation[];
+    { onPlayStation: (station: RadioStation) => void; onArtist: (track: Track) => void; playingStationId?: string; playOnStationClick?: boolean; onNowPlaying?: (station: RadioStation, track: RadioTrackMetadata | null) => void; selectedStationId?: string; onStationsChanged?: (stations: RadioStation[]) => void;stationNames?:Record<string,string>; savedStations?:RadioStation[];
       onPlayTrack?: (track: Track, tracks: Track[], index: number) => void | Promise<void>; onDownloadTrack?: (track: Track) => void | Promise<void>; onFavoriteTrack?: (track: Track) => void | Promise<void>;
       onQueueTracks?: (tracks: Track[], mode: "next" | "append") => void | Promise<void>; onAddTrackToPlaylist?: (track: Track) => void | Promise<void>; onTrackContext?: (track: Track, event: MouseEvent) => void;
       onAddSelectedToPlaylist?: (tracks: Track[]) => void | Promise<void>;
@@ -444,7 +444,7 @@
     error = "";
     if (refreshTimer) clearTimeout(refreshTimer);
     requestSerial++;
-    onPlayStation(station);
+    if (playOnStationClick && station.id !== playingStationId) onPlayStation(station);
   }
   async function identifyCurrentSong(stationId: string) {
     if (playingStationId !== stationId || recognizing || identifyingPlayingStation) return;
@@ -561,7 +561,7 @@
   {#if stations.length && !requestedStationId}<nav class="stations" aria-label="Radio stations">
     {#each stations as station (station.id)}
       <button class="station-card" class:active={selectedStationId === station.id} aria-pressed={selectedStationId === station.id} onclick={() => void chooseStation(station)}>
-        <span class="station-mark" aria-hidden="true">♫</span><span class="station-copy"><strong>{station.name}</strong><small>{[station.country, station.codec, (station.bitrateKbps ?? station.bitrate) ? `${station.bitrateKbps ?? station.bitrate} kbps` : ""].filter(Boolean).join(" · ") || (playingStationId === station.id ? "Playing" : "Live stream")}</small></span><span class="play-icon" aria-hidden="true">{playingStationId === station.id ? "♫" : "▶"}</span>
+        <span class="station-mark" aria-hidden="true">♫</span><span class="station-copy"><strong>{station.name}</strong><small>{[station.country, station.codec, (station.bitrateKbps ?? station.bitrate) ? `${station.bitrateKbps ?? station.bitrate} kbps` : ""].filter(Boolean).join(" · ") || (playingStationId === station.id ? "Playing" : "Live stream")}</small></span><span class="play-icon" aria-hidden="true">{playingStationId === station.id ? "♫" : playOnStationClick ? "▶" : "›"}</span>
       </button>
       {#if removable(station)}<button class="remove-station" aria-label={`Remove ${station.name}`} onclick={() => void removeStation(station)}>Remove</button>{/if}
     {/each}

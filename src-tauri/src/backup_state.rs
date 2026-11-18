@@ -438,6 +438,7 @@ const PORTABLE_APPLICATION_FIELDS: &[&str] = &[
     "playlistMirroringEnabled",
     "compactPlaybackBar",
     "autoPreview",
+    "playRadioOnClick",
     "liveBpmEnabled",
     "matchingLevel",
     "pauseOnSourceOpen",
@@ -5086,6 +5087,7 @@ fn safe_setting_value(key: &str, value: &Value) -> bool {
             value.as_str().is_some_and(portable_provider_id)
         }
         "autoPreview"
+        | "playRadioOnClick"
         | "liveBpmEnabled"
         | "pauseOnSourceOpen"
         | "sourceOpenAtPosition"

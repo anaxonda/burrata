@@ -458,6 +458,36 @@ describe("LyricsPanel", () => {
     expect(loadLyrics).toHaveBeenCalledTimes(2);expect(target.textContent).toContain("Next radio text");expect(target.textContent).not.toContain("First radio text");expect(target.querySelector(".lyrics-timing")).toBeNull();
   });
 
+  it("refreshes open lyrics when a duration-less saved song gets its playback duration", async () => {
+    const target = document.createElement("div");
+    document.body.append(target);
+    let finishInitial: (response: CurrentTrackLyrics) => void = () => {};
+    const initial = new Promise<CurrentTrackLyrics>(resolve => { finishInitial = resolve; });
+    const loadLyrics = vi.fn<() => Promise<CurrentTrackLyrics>>().mockReturnValueOnce(initial)
+      .mockResolvedValueOnce({ status: "unsynced", provider: "lrclib", plainLyrics: "Lyrics after playback starts" });
+    const savedSong = { ...track, id: "radio_song:saved", provider: "radio_song", durationSeconds: undefined };
+    const instance = mount(LyricsPanelScopeHarness, { target, props: { initialTrack: savedSong, loadLyrics } });
+    destroy = () => unmount(instance);
+    await settle();
+    target.querySelector<HTMLButtonElement>(".lyrics-open")!.click();
+    await settle();
+    expect(target.textContent).toContain("Looking up lyrics");
+
+    instance.replaceTrack({ ...savedSong, durationSeconds: 177 });
+    await settle();
+    expect(loadLyrics).toHaveBeenCalledTimes(2);
+    expect(target.textContent).toContain("Lyrics after playback starts");
+
+    finishInitial({ status: "notFound", provider: "lrclib" });
+    await settle();
+    expect(target.textContent).toContain("Lyrics after playback starts");
+
+    instance.replaceTrack({ ...savedSong, id: "radio_song:other", durationSeconds: 177 });
+    await settle();
+    expect(target.textContent).not.toContain("Lyrics after playback starts");
+    expect(loadLyrics).toHaveBeenCalledTimes(2);
+  });
+
   it("shows actionable provider failure for the reported collaboration track", async () => {
     const reportedTrack = { id: "reported-nunca", provider: "youtube", providerId: "reported", sourceUrl: "https://youtube.test/watch?v=reported", title: "Nunca vas a comprender", artist: "Rita Payés & Elisabeth Roma", album: "Como la piel", durationSeconds: 244.631, favorite: false, provenance: {} };
     const { target, call } = render({ status: "providerUnavailable", provider: "lrclib" }, 0, {}, reportedTrack);

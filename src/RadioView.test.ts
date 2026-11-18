@@ -202,7 +202,10 @@ describe("RadioView", () => {
     document.querySelectorAll<HTMLButtonElement>('[aria-label="Radio stations"] .station-card')[1]!.click();
     for (let i = 0; i < 8; i++) await Promise.resolve();
     await tick();
-    expect(onPlayStation).toHaveBeenCalledWith(stations[1]);
+    expect(onPlayStation).not.toHaveBeenCalled();
+    document.querySelector<HTMLButtonElement>(".station-actions .add-button")!.click();
+    expect(onPlayStation).toHaveBeenCalledOnce();
+    expect(onPlayStation).toHaveBeenCalledWith(expect.objectContaining(stations[1]));
     expect(mocks.call).toHaveBeenCalledWith("poll_radio_station", { stationId: "main", recognize: false });
     expect(onNowPlaying).toHaveBeenCalled();
     const metadataCallsBeforeUnmount = mocks.call.mock.calls.filter(([command]) => command === "poll_radio_station").length;

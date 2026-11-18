@@ -1,7 +1,7 @@
 //! Pure proof for enriching a Discogs catalog occurrence's missing duration
 //! from a complete Apple album listing. The proof aligns the ordered album
-//! programme and the exact target occurrence; it does not bind barcodes,
-//! recording identifiers, playback URLs, or performer completeness.
+//! programme or binds a flattened digital programme to the physical release's
+//! verified barcode and target occurrence.
 use crate::models::Track;
 use crate::recording_identity::{parse_recording_text, AnnotationKind, ParsedRecordingText};
 use chrono::Datelike;
@@ -113,8 +113,8 @@ fn consistent_discogs_resource_id(value: &Value, field: &str, id: &str, plural: 
             || raw.strip_prefix(&expected).is_some_and(|tail| {
                 tail.starts_with('-')
                     && tail[1..]
-                        .bytes()
-                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+                        .chars()
+                        .all(|character| character.is_alphanumeric() || character == '-')
             })
     }
 }
@@ -216,7 +216,7 @@ fn valid_optional_identifier_array(value: &Value) -> bool {
     })
 }
 
-fn source_occurrence(track: &Track) -> Option<(String, u64)> {
+fn source_release_identity(track: &Track) -> Option<&str> {
     if track.provider != "catalog"
         || track.provenance["catalogProvider"] != "discogs"
         || track.provenance["sourceKind"] != "catalog"
@@ -252,6 +252,20 @@ fn source_occurrence(track: &Track) -> Option<(String, u64)> {
     {
         return None;
     }
+    let source_url = format!("https://www.discogs.com/release/{release_id}");
+    if track.source_url != source_url
+        || track.provenance["sourceUrl"].as_str() != Some(source_url.as_str())
+        || track.provenance["requestedReleaseSourceUrl"]
+            .as_str()
+            .is_some_and(|url| url != source_url)
+    {
+        return None;
+    }
+    Some(release_id)
+}
+
+fn source_occurrence(track: &Track) -> Option<(String, u64)> {
+    let release_id = source_release_identity(track)?;
     let position = track.provenance["trackPosition"].as_str()?;
     let position = position.parse::<u64>().ok().filter(|n| *n > 0)?;
     if track.provenance["mediumPosition"].as_u64() != Some(1)
@@ -263,15 +277,6 @@ fn source_occurrence(track: &Track) -> Option<(String, u64)> {
             .provenance
             .get("trackId")
             .is_some_and(|id| !id.is_null())
-    {
-        return None;
-    }
-    let source_url = format!("https://www.discogs.com/release/{release_id}");
-    if track.source_url != source_url
-        || track.provenance["sourceUrl"].as_str() != Some(source_url.as_str())
-        || track.provenance["requestedReleaseSourceUrl"]
-            .as_str()
-            .is_some_and(|url| url != source_url)
     {
         return None;
     }
@@ -481,7 +486,13 @@ fn unique_credit_rows(rows: &[Value]) -> Option<Vec<(String, String)>> {
     Some(out)
 }
 
-fn request_credit_rows(track: &Track) -> Option<Vec<(String, String)>> {
+fn documented_non_performer_role(role: &str) -> bool {
+    let role = crate::recording_identity::normalize_credit_role(role);
+    role != "remixer"
+        && (role == "composed by" || crate::recording_identity::is_non_performer_credit_role(&role))
+}
+
+fn request_credit_rows(track: &Track, allow_non_performers: bool) -> Option<Vec<(String, String)>> {
     let rows = track.provenance["artistCredits"].as_array()?;
     if rows.is_empty() || rows.len() > 8 {
         return None;
@@ -490,9 +501,11 @@ fn request_credit_rows(track: &Track) -> Option<Vec<(String, String)>> {
     let mut seen_ids = HashSet::new();
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
-        if !row["role"]
-            .as_str()
-            .is_some_and(crate::recording_identity::is_primary_performer_role)
+        let role = row["role"].as_str()?;
+        if allow_non_performers && documented_non_performer_role(role) {
+            continue;
+        }
+        if !crate::recording_identity::is_primary_performer_role(role)
             || row["artist"]["provider"] != "discogs"
         {
             return None;
@@ -508,7 +521,7 @@ fn request_credit_rows(track: &Track) -> Option<Vec<(String, String)>> {
         }
         out.push((id, name_key));
     }
-    Some(out)
+    (!out.is_empty()).then_some(out)
 }
 
 fn discogs_artist_rows(rows: &[Value]) -> Option<Vec<(String, String)>> {
@@ -564,12 +577,12 @@ fn target_extraartists_are_understood(target: &Value) -> bool {
         {
             return false;
         }
-        crate::recording_identity::is_non_performer_credit_role(&role)
+        documented_non_performer_role(&role)
     })
 }
 
 fn verify_main_artist_crosswalk(track: &Track, release: &Value, apple_album: &Value) -> bool {
-    let Some(request) = request_credit_rows(track) else {
+    let Some(request) = request_credit_rows(track, false) else {
         return false;
     };
     let Some(release_artists) = release["artists"]
@@ -757,7 +770,7 @@ fn release_matches_request(track: &Track, release: &Value, release_id: &str) -> 
 }
 
 fn target_primary_credit_rows(track: &Track, target: &Value) -> bool {
-    let Some(request) = request_credit_rows(track) else {
+    let Some(request) = request_credit_rows(track, false) else {
         return false;
     };
     let Some(target_artists) = target["artists"]
@@ -806,6 +819,7 @@ fn complete_discogs_program(release: &Value) -> Option<Vec<&Value>> {
 fn complete_apple_program<'a>(
     apple: &'a Value,
     expected_count: usize,
+    allow_included_collection_count: bool,
 ) -> Option<(&'a Value, Vec<&'a Value>)> {
     let rows = apple["results"].as_array()?;
     if rows.len() < 2
@@ -818,10 +832,7 @@ fn complete_apple_program<'a>(
         .iter()
         .filter(|row| row["wrapperType"] == "collection")
         .collect::<Vec<_>>();
-    if albums.len() != 1
-        || albums[0]["collectionType"] != "Album"
-        || albums[0]["trackCount"].as_u64() != Some(expected_count as u64)
-    {
+    if albums.len() != 1 || albums[0]["collectionType"] != "Album" {
         return None;
     }
     let album_id = positive_id(&albums[0]["collectionId"])?;
@@ -830,6 +841,16 @@ fn complete_apple_program<'a>(
         .filter(|row| row["kind"] == "song")
         .collect::<Vec<_>>();
     if songs.len() != expected_count || songs.len() + 1 != rows.len() {
+        return None;
+    }
+    let expected_count_u64 = expected_count as u64;
+    if albums[0]["trackCount"].as_u64() != Some(expected_count_u64)
+        && !(allow_included_collection_count
+            && albums[0]["trackCount"].as_u64() == Some(expected_count_u64 + 1)
+            && songs
+                .iter()
+                .all(|row| row["trackCount"].as_u64() == Some(expected_count_u64)))
+    {
         return None;
     }
     if !valid_optional_identifier_array(albums[0])
@@ -866,6 +887,287 @@ fn complete_apple_program<'a>(
     Some((albums[0], ordered.into_iter().collect::<Option<Vec<_>>>()?))
 }
 
+// A barcode query can identify a multi-CD release whose digital edition is
+// flattened into one disc. Require a valid GTIN and contiguous source positions.
+pub(crate) fn physical_release_barcode(track: &Track, release: &Value) -> Option<String> {
+    let release_id = source_release_identity(track)?;
+    let position = track.provenance["trackPosition"].as_str()?;
+    let (disc, number) = discogs_cd_position(position)?;
+    if !release_matches_request(track, release, release_id)
+        || track
+            .disc_number
+            .is_some_and(|saved| u64::from(saved) != disc)
+        || track
+            .track_number
+            .is_some_and(|saved| u64::from(saved) != number)
+        || !track.provenance["trackId"].is_null()
+        || !track.provenance["occurrence"].is_null() && track.provenance["occurrence"] != 1
+    {
+        return None;
+    }
+    let disc_count = physical_disc_count(release)?;
+    if disc_count < 2 || disc > disc_count {
+        return None;
+    }
+    let (_, barcode) = source_catalog_numbers(release)?;
+    let barcode = barcode?;
+    let check_sum = barcode
+        .bytes()
+        .rev()
+        .enumerate()
+        .map(|(index, byte)| u32::from(byte - b'0') * if index % 2 == 1 { 3 } else { 1 })
+        .sum::<u32>();
+    (matches!(barcode.len(), 8 | 12 | 13 | 14) && check_sum % 10 == 0).then_some(barcode)
+}
+
+fn discogs_cd_position(value: &str) -> Option<(u64, u64)> {
+    let (disc, number) = value.split_once('-')?;
+    let positive = |raw: &str| {
+        raw.parse::<u64>()
+            .ok()
+            .filter(|number| (1..=100).contains(number))
+    };
+    Some((positive(disc)?, positive(number)?))
+}
+
+fn physical_disc_count(release: &Value) -> Option<u64> {
+    release["formats"]
+        .as_array()?
+        .iter()
+        .filter(|format| format["name"] == "CD")
+        .try_fold(0_u64, |count, format| {
+            count.checked_add(format["qty"].as_str()?.parse::<u64>().ok()?)
+        })
+}
+
+fn complete_physical_program(release: &Value) -> Option<Vec<&Value>> {
+    let rows = release["tracklist"].as_array()?;
+    if rows.len() > MAX_ALBUM_TRACKS + 20 {
+        return None;
+    }
+    let mut program = Vec::new();
+    let (mut disc, mut number) = (1, 0);
+    for row in rows {
+        if !row["sub_tracks"].is_null()
+            && row["sub_tracks"]
+                .as_array()
+                .is_none_or(|children| !children.is_empty())
+        {
+            return None;
+        }
+        if row["type_"] == "heading" && row["position"] == "" && row["duration"] == "" {
+            continue;
+        }
+        if row["type_"] != "track" || bounded_text(&row["title"], MAX_TITLE).is_none() {
+            return None;
+        }
+        let (actual_disc, actual_number) = discogs_cd_position(row["position"].as_str()?)?;
+        if actual_disc == disc + 1 && number > 0 {
+            disc = actual_disc;
+            number = 0;
+        }
+        number += 1;
+        if (disc, number) != (actual_disc, actual_number) {
+            return None;
+        }
+        program.push(row);
+    }
+    (disc == physical_disc_count(release)? && program.len() <= MAX_ALBUM_TRACKS).then_some(program)
+}
+
+fn credit_matches_alias(credited: &str, observed: &str) -> bool {
+    use crate::source_fallback::normalize_artist_credit;
+    if normalize_artist_credit(credited) == normalize_artist_credit(observed) {
+        return true;
+    }
+    // A provider's explicit group alias may share the second performer's
+    // surname. Expand it only when the other credit lists both full names.
+    let Some((first, second)) = credited.split_once(" & ") else {
+        return false;
+    };
+    let Some((_, surname)) = second.rsplit_once(' ') else {
+        return false;
+    };
+    !first.contains(' ')
+        && normalize_artist_credit(&format!("{first} {surname} & {second}"))
+            == normalize_artist_credit(observed)
+}
+
+fn title_without_transcription(raw: &str) -> (String, Option<String>) {
+    let normalize = |value: &str| {
+        let mut normal = crate::matching::normalize(value);
+        for (roman, digit) in [
+            ("i", "1"),
+            ("ii", "2"),
+            ("iii", "3"),
+            ("iv", "4"),
+            ("v", "5"),
+        ] {
+            normal = format!(" {normal} ")
+                .replace(&format!(" act {roman} "), &format!(" act {digit} "))
+                .trim()
+                .to_owned();
+        }
+        normal
+    };
+    if let Some((before, annotation)) = raw.split_once(" (Transcr. ") {
+        if let Some((transcriber, after)) = annotation.split_once(')') {
+            if !before.is_empty() && !transcriber.is_empty() && !transcriber.contains(['(', ')']) {
+                return (
+                    normalize(&format!("{before}{after}")),
+                    Some(crate::matching::normalize(transcriber)),
+                );
+            }
+        }
+    }
+    if let Some((before, annotation)) = raw.split_once(" - Transc. ") {
+        if let Some((transcriber, after)) = annotation.split_once(" / Act ") {
+            if !before.is_empty() && !transcriber.is_empty() && !transcriber.contains(['(', ')']) {
+                return (
+                    normalize(&format!("{before} Act {after}")),
+                    Some(crate::matching::normalize(transcriber)),
+                );
+            }
+        }
+    }
+    (normalize(raw), None)
+}
+
+fn explicit_composer(target: &Value) -> Option<&str> {
+    let mut composers = target["extraartists"].as_array()?.iter().filter(|row| {
+        row["role"].as_str().is_some_and(|role| {
+            matches!(
+                crate::recording_identity::normalize_credit_role(role).as_str(),
+                "composer" | "composed by"
+            )
+        })
+    });
+    let composer = bounded_text(&composers.next()?["name"], 256)?;
+    composers.next().is_none().then_some(composer)
+}
+
+/// Compare only titles bound to the exact physical release. A provider may
+/// render the same work with the documented composer's prefix and a different
+/// spelling of the transcription and act. The arranger must remain equal.
+pub(crate) fn same_barcode_recording_caption(
+    apple: &str,
+    observed: &str,
+    composer: Option<&str>,
+) -> bool {
+    if observed.len() > MAX_TITLE {
+        return false;
+    }
+    let caption = composer
+        .and_then(|composer| {
+            let (prefix, title) = observed.split_once(": ")?;
+            let surname = composer.split_whitespace().next_back()?;
+            let prefix = crate::matching::normalize(prefix);
+            (prefix == crate::matching::normalize(composer)
+                || prefix == crate::matching::normalize(surname))
+            .then_some(title)
+        })
+        .unwrap_or(observed);
+    title_without_transcription(apple) == title_without_transcription(caption)
+}
+
+/// The Apple response must be from a fresh lookup by the source release's UPC.
+/// An exact barcode anchors the edition, even if Apple omits it from the
+/// response. Retain the target title/credit guards to reject shifted positions.
+pub(crate) fn verify_physical_barcode_lookup(
+    track: &Track,
+    release: &Value,
+    barcode: &str,
+    apple_lookup: &Value,
+) -> Option<DiscogsAppleDurationProof> {
+    if physical_release_barcode(track, release)?.trim_start_matches('0')
+        != barcode.trim_start_matches('0')
+        || !no_unknown_request_identity(track)
+    {
+        return None;
+    }
+    let program = complete_physical_program(release)?;
+    let (album, songs) = complete_apple_program(apple_lookup, program.len(), true)?;
+    let year = release["year"].as_u64()?;
+    let apple_date = bounded_text(&album["releaseDate"], 64)?.get(..10)?;
+    let parsed_apple_date = chrono::NaiveDate::parse_from_str(apple_date, "%Y-%m-%d").ok()?;
+    if bounded_text(&release["released"], 32)?.ne(&year.to_string())
+        && !same_calendar_day(release, album)
+    {
+        return None;
+    }
+    if !apple_program_has_no_clean_edit(album, &songs)
+        || u64::try_from(parsed_apple_date.year()).ok()? != year
+        || plain_album_title(bounded_text(&album["collectionName"], MAX_ALBUM_NAME)?)?
+            != plain_album_title(track.album.as_deref()?)?
+        || valid_apple_upc(album)?
+            .is_some_and(|upc| upc.trim_start_matches('0') != barcode.trim_start_matches('0'))
+    {
+        return None;
+    }
+    let index = program
+        .iter()
+        .position(|row| row["position"] == track.provenance["trackPosition"])?;
+    let target = program[index];
+    let song = songs[index];
+    let source_title = bounded_text(&target["title"], MAX_TITLE)?;
+    let apple_title = bounded_text(&song["trackName"], MAX_TITLE)?;
+    let request_title = title_without_transcription(&track.title);
+    let catalog_title = title_without_transcription(apple_title);
+    if crate::matching::normalize(source_title) != crate::matching::normalize(&track.title)
+        || request_title.0 != catalog_title.0
+        || request_title.1.is_some() && request_title.1 != catalog_title.1
+        || !target_extraartists_are_understood(target)
+        || song["collectionName"] != album["collectionName"]
+    {
+        return None;
+    }
+    let release_artists = release["artists"].as_array()?;
+    let release_credits = unique_credit_rows(release_artists)?;
+    let target_credits = match target.get("artists") {
+        Some(value) => discogs_artist_rows(value.as_array()?)?,
+        None => release_credits.clone(),
+    };
+    let artist = bounded_text(&song["artistName"], 512)?;
+    let release_artist = bounded_text(&release["artists_sort"], 512)?;
+    let matches_credit = |actual: &str| {
+        credit_matches_alias(release_artist, actual)
+            || (release_artists.len() == 1
+                && bounded_text(&release_artists[0]["anv"], 512)
+                    .is_some_and(|alias| credit_matches_alias(alias, actual)))
+    };
+    if target_credits != request_credit_rows(track, true)?
+        || !matches_credit(artist)
+        || !matches_credit(bounded_text(&album["artistName"], 512)?)
+        || track.isrc.as_deref().is_some_and(|expected| {
+            !song["isrc"]
+                .as_str()
+                .is_some_and(|actual| crate::recording_identity::same_isrc(expected, actual))
+        })
+    {
+        return None;
+    }
+    let duration_ms = song["trackTimeMillis"].as_u64()?;
+    if !(1_000..=86_400_000).contains(&duration_ms) {
+        return None;
+    }
+    Some(DiscogsAppleDurationProof {
+        duration_seconds: duration_ms as f64 / 1000.,
+        evidence: json!({
+            "method": "discogs-apple-physical-release-barcode-v1",
+            "releaseDateClaim": "barcodeMatched",
+            "discogsReleaseId": source_release_identity(track)?,
+            "discogsTrackPosition": track.provenance["trackPosition"],
+            "appleCollectionId": positive_id(&album["collectionId"])?,
+            "appleTrackId": positive_id(&song["trackId"])?,
+            "appleAlbumDate": apple_date,
+            "appleTitle": apple_title,
+            "appleArtist": artist,
+            "discogsComposer": explicit_composer(target),
+            "durationMillis": duration_ms,
+        }),
+    })
+}
+
 /// Verify a complete ordered Discogs release against a fresh Apple album
 /// lookup, returning only the target Apple runtime. This function performs no
 /// network, cache, persistence, source selection, or track mutation.
@@ -882,7 +1184,8 @@ fn verify_with_release_date_policy(
         return None;
     }
     let discogs_rows = complete_discogs_program(raw_discogs_release)?;
-    let (apple_album, apple_rows) = complete_apple_program(apple_lookup, discogs_rows.len())?;
+    let (apple_album, apple_rows) =
+        complete_apple_program(apple_lookup, discogs_rows.len(), false)?;
     if !apple_program_has_no_clean_edit(apple_album, &apple_rows) {
         return None;
     }

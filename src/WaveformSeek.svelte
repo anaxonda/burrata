@@ -1,15 +1,16 @@
 <script lang="ts">
   import { smoothPlaybackPosition } from "./lib/smooth-playback-position.svelte";
-  import { onDestroy } from "svelte";
+  import { seekInteraction } from "./lib/seek-interaction.svelte";
   import SeekSlider from "./SeekSlider.svelte";
-  import { formatSeekTime as timeLabel, seekPreviewTime } from "./lib/seek-preview";
+  import { formatSeekTime as timeLabel } from "./lib/seek-preview";
   import { waveformStatus, type WaveformSnapshot } from "./lib/waveform-data";
   import { detectionMarkers } from "./lib/detection-markers";
   import type { DetectedTrackObservation } from "./lib/playing-track-detection";
 
-  let { position, duration, disabled, onSeek, waveform = null, generation, trackId, detections = [], detectionSourceOffset = 0, playing = false, playbackIdentity = null }: {
+  let { position, duration, disabled, onSeek, waveform = null, generation, trackId, detections = [], detectionSourceOffset = 0, playing = false, playbackIdentity = null, seekIdentity }: {
     playing?: boolean;
     playbackIdentity?: unknown;
+    seekIdentity?: unknown;
     position: number;
     duration: number;
     disabled: boolean;
@@ -22,10 +23,7 @@
   } = $props();
 
   const animated = smoothPlaybackPosition(() => ({ position, duration, playing, identity: playbackIdentity }));
-  let target = $state<number | null>(null);
-  let hoverPosition = $state<number | null>(null);
-  let dragging = false;
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  const gesture = seekInteraction(() => seekIdentity ?? playbackIdentity, () => disabled || !current, () => duration, value => onSeek(value));
   const waveformId = `waveform-status-${Math.random().toString(36).slice(2)}`;
 
   const hasTimeline = $derived(Number.isFinite(duration) && duration > 0);
@@ -41,6 +39,7 @@
     if (!hasTimeline || Math.abs(waveform.durationSeconds - duration) > 0.25 || !waveform.bins.some(isUsableBin)) return null;
     return waveform;
   });
+  $effect(() => { if (!current) gesture.cancel(); });
   // Scale quiet files for display only. Missing bins stay missing, and this
   // bounded multiplier never changes the audio or the stored waveform data.
   const displayScale = $derived.by(() => {
@@ -67,31 +66,13 @@
     return segments.join("");
   });
   const markers = $derived(detectionMarkers(detections, duration, detectionSourceOffset));
-  const previewPosition = $derived(target ?? hoverPosition);
-  function previewSeek(event: PointerEvent) {
-    if (disabled) return;
-    const bounds = event.currentTarget instanceof HTMLElement ? event.currentTarget.getBoundingClientRect() : null;
-    if (!bounds || bounds.width <= 0) return;
-    hoverPosition = seekPreviewTime(event.clientX, bounds.left, bounds.width, duration);
-  }
+  const previewPosition = $derived(gesture.preview);
   const status = $derived.by(() => {
     if (!hasTimeline) return "Playback timeline unavailable because the recording duration is unknown.";
     if (current) return waveformStatus(current);
     return "Waveform samples are unavailable for this playback position. Standard seek bar shown.";
   });
 
-  function commit() {
-    clearTimeout(timer);
-    if (target !== null) onSeek(Math.max(0, Math.min(duration || 1, target)));
-    target = null;
-    hoverPosition = null;
-  }
-  function scheduleCommit() {
-    clearTimeout(timer);
-    if (!dragging) timer = setTimeout(commit, 150);
-  }
-  function cancel() { clearTimeout(timer); target = null; hoverPosition = null; dragging = false; }
-  onDestroy(() => clearTimeout(timer));
 </script>
 
 {#if !hasTimeline}
@@ -103,7 +84,7 @@
   </div>
 {:else if !current}
   <div class="waveform-seek-frame waveform-standard">
-    <SeekSlider position={safePosition} duration={duration} {disabled} {onSeek} />
+    <SeekSlider position={safePosition} {duration} {disabled} {onSeek} {playbackIdentity} {seekIdentity} />
     <span class="waveform-status" id={waveformId} role="status">{status}</span>
   </div>
 {:else}
@@ -130,17 +111,17 @@
     </svg>
     <div class="waveform-elapsed-rail" style={`transform:scaleX(${safePosition / duration})`} aria-hidden="true"></div>
     <input class="waveform-range" type="range" min="0" max={duration} step="0.1"
-      value={target ?? safePosition} {disabled} aria-label="Playback position, waveform" aria-describedby={waveformId}
-      aria-valuetext={`${timeLabel(target ?? safePosition)} of ${timeLabel(duration)}`}
+      value={gesture.target ?? safePosition} {disabled} aria-label="Playback position, waveform" aria-describedby={waveformId}
+      aria-valuetext={`${timeLabel(gesture.target ?? safePosition)} of ${timeLabel(duration)}`}
       title={`Click or drag anywhere in this lane to seek. ${status}`}
-      onpointermove={previewSeek}
-      onpointerleave={() => { if (!dragging) hoverPosition = null; }}
-      onpointerdown={(event) => { clearTimeout(timer); dragging = true; event.currentTarget.setPointerCapture(event.pointerId); }}
-      oninput={(event) => { target = Number(event.currentTarget.value); scheduleCommit(); }}
-      onpointerup={() => { dragging = false; commit(); }}
-      onlostpointercapture={() => { if (dragging) { dragging = false; commit(); } }}
-      onpointercancel={cancel}
-      onblur={commit}
+      onpointermove={gesture.pointerMove}
+      onpointerleave={gesture.pointerLeave}
+      onpointerdown={gesture.pointerDown}
+      oninput={gesture.input}
+      onpointerup={gesture.commit}
+      onlostpointercapture={gesture.lostPointerCapture}
+      onpointercancel={gesture.cancel}
+      onblur={gesture.commit}
     />
     {#if previewPosition !== null && !disabled}
       <span class="waveform-hover-guide" style={`left:${100 * previewPosition / duration}%`} aria-hidden="true"></span>

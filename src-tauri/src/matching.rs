@@ -48,10 +48,12 @@ pub fn normalize_title_ignoring_intraword_apostrophes(value: &str) -> String {
 /// Returns the trimmed prefix and the full parenthetical contents without delimiters.
 pub fn split_balanced_trailing_parenthetical(value: &str) -> Option<(&str, &str)> {
     split_balanced_trailing_group(value, '(', ')')
+        .or_else(|| split_balanced_trailing_group(value, '（', '）'))
 }
 
 pub fn split_balanced_trailing_square_group(value: &str) -> Option<(&str, &str)> {
     split_balanced_trailing_group(value, '[', ']')
+        .or_else(|| split_balanced_trailing_group(value, '［', '］'))
 }
 
 fn split_balanced_trailing_group(value: &str, open: char, close: char) -> Option<(&str, &str)> {
@@ -87,7 +89,7 @@ fn split_balanced_trailing_group(value: &str, open: char, close: char) -> Option
     if prefix_depth != 0 {
         return None;
     }
-    let contents = value[opening + 1..value.len() - 1].trim();
+    let contents = value[opening + open.len_utf8()..value.len() - close.len_utf8()].trim();
     (!prefix.is_empty() && !contents.is_empty()).then_some((prefix, contents))
 }
 

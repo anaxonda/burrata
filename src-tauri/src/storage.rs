@@ -5437,6 +5437,35 @@ impl Store {
         promote_track(&tx, &asset.track.id)?;
         tx.commit().map_err(err)
     }
+    /// A filesystem freshness observation must not add the asset's recording
+    /// to the Library. Update only the still-matching asset and keep its tags.
+    pub(crate) fn remember_directory_asset_fingerprint(
+        &self,
+        asset: &LocalAsset,
+        fingerprint: &serde_json::Value,
+    ) -> Result<()> {
+        let conn = self.lock_connection()?;
+        let raw: String = conn
+            .query_row(
+                "SELECT payload FROM local_assets WHERE id=?1 AND path=?2 AND hash=?3",
+                params![asset.id, asset.path, asset.hash],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(err)?
+            .ok_or("Local audio changed during directory verification")?;
+        let mut current: LocalAsset = decode(raw)?;
+        if !current.track.provenance.is_object() {
+            current.track.provenance = serde_json::json!({});
+        }
+        current.track.provenance["directoryBrowserFingerprint"] = fingerprint.clone();
+        conn.execute(
+            "UPDATE local_assets SET payload=?1 WHERE id=?2",
+            params![encode(&current)?, asset.id],
+        )
+        .map_err(err)?;
+        Ok(())
+    }
     pub(crate) fn save_flexible_excerpt_asset(
         &self,
         asset: &LocalAsset,

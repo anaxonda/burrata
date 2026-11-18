@@ -50,9 +50,18 @@ pub fn preview(store: &Store, snapshot: BrowserSnapshot) -> Result<Value, String
         &json!({"snapshot":snapshot,"baseId":previous.as_ref().map(|c|&c.id)}),
         900,
     )?;
-    Ok(
-        json!({"previewId":id,"title":chart.title,"sourceUrl":chart.source_url,"capturedCount":snapshot.entries.len(),"uniqueRecordings":chart.tracks.len(),"expectedTotal":snapshot.expected_total,"complete":complete,"changes":delta,"failedSources":snapshot.failed_sources,"albumUrls":snapshot.album_urls,"warnings":crate::browser_bridge::snapshot_warnings(&snapshot,&chart),"sample":chart.tracks.iter().take(20).map(|t|json!({"title":t.title,"artist":t.artist,"version":t.version})).collect::<Vec<_>>()}),
-    )
+    let mut preview =
+        json!({"previewId":id,"title":chart.title,"sourceUrl":chart.source_url,"capturedCount":snapshot.entries.len(),"uniqueRecordings":chart.tracks.len(),"expectedTotal":snapshot.expected_total,"complete":complete,"changes":delta,"failedSources":snapshot.failed_sources,"albumUrls":snapshot.album_urls,"warnings":crate::browser_bridge::snapshot_warnings(&snapshot,&chart),"sample":chart.tracks.iter().take(20).map(|t|json!({"title":t.title,"artist":t.artist,"version":t.version})).collect::<Vec<_>>()});
+    if snapshot.provider == "bandcamp" && snapshot.kind == "playlist" {
+        preview["playlistTracks"] = Value::Array(
+            snapshot
+                .entries
+                .iter()
+                .map(|entry| json!({"position":entry.position,"artist":entry.artist,"title":entry.title,"version":entry.version}))
+                .collect(),
+        );
+    }
+    Ok(preview)
 }
 
 pub fn apply(store: &Store, preview_id: &str) -> Result<BrowserImportResult, String> {
@@ -283,6 +292,32 @@ mod tests {
 
     fn snapshot(title: &str) -> BrowserSnapshot {
         serde_json::from_value(json!({"schemaVersion":1,"provider":"spotify","kind":"playlist","title":"Test","sourceUrl":"https://open.spotify.com/playlist/0123456789ABCDEFGHIJKL","capturedAt":"2026-10-24T12:00:00Z","complete":true,"expectedTotal":1,"warnings":[],"entries":[{"providerId":"0123456789ABCDEFGHIJKL","sourceUrl":"https://open.spotify.com/track/0123456789ABCDEFGHIJKL","artist":"Artist","title":title,"position":1}]})).unwrap()
+    }
+
+    #[test]
+    fn bandcamp_playlist_preview_exposes_all_occurrences_without_importing() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("imports.sqlite")).unwrap();
+        let mut playlist = snapshot("Repeated song");
+        playlist.provider = "bandcamp".into();
+        playlist.source_url = "https://bandcamp.com/listener/playlist/mix".into();
+        playlist.entries[0].source_url = Some("https://artist.bandcamp.com/track/repeated".into());
+        playlist.entries = (1..=25)
+            .map(|position| {
+                let mut entry = playlist.entries[0].clone();
+                entry.position = position;
+                entry
+            })
+            .collect();
+        playlist.expected_total = Some(25);
+
+        let preview = preview(&store, playlist).unwrap();
+        assert_eq!(preview["capturedCount"], 25);
+        assert_eq!(preview["uniqueRecordings"], 1);
+        assert_eq!(preview["playlistTracks"].as_array().unwrap().len(), 25);
+        assert_eq!(preview["playlistTracks"][24]["position"], 25);
+        assert_eq!(preview["playlistTracks"][24]["title"], "Repeated song");
+        assert!(store.list_browser_imports().unwrap().is_empty());
     }
     #[test]
     fn reviewed_import_is_idempotent_and_rejects_a_stale_base() {

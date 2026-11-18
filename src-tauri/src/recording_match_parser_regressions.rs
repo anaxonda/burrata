@@ -585,6 +585,8 @@ fn quoted_artist_title_captions_preserve_mode_and_length_permissions() {
         "Artist “Song”",
         "Artist 'Song'",
         "Artist ‘Song’",
+        "Artist「Song」",
+        "Artist『Song』",
     ] {
         let candidate = Candidate {
             provider: "youtube".into(),
@@ -643,6 +645,9 @@ fn quoted_artist_title_captions_preserve_mode_and_length_permissions() {
             "Other Artist \"Song\"",
             "Artist \"Different Song\"",
             "Artist \"Song",
+            "Artist「Song",
+            "Artist『Song」",
+            "Other Artist「Song」",
             "Artist \"Song \"Remix\"\"",
         ] {
             let mut wrong = candidate.clone();

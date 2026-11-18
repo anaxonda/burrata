@@ -3768,6 +3768,19 @@ impl PlaybackService {
                 return Ok(self.snapshot_without_queue());
             }
         }
+        if action == "seek" {
+            let expected_entry = command
+                .get("expectedEntryId")
+                .map(|value| value.as_str().ok_or("Invalid expected queue entry ID"))
+                .transpose()?;
+            let entry_is_current = {
+                let state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+                seek_entry_is_current(&state, expected_entry)
+            };
+            if !entry_is_current {
+                return Ok(self.snapshot_without_queue());
+            }
+        }
         self.inner.state.lock().unwrap().handoff_id = None;
         let queued_operation_id = parse_operation_id(command.get("queuedOperationId"))?;
         let client_operation_id = parse_operation_id(command.get("operationId"))?;
@@ -5811,6 +5824,26 @@ impl PlaybackService {
                         Some("failed"),
                         Some("decoder"),
                     );
+                }
+                if message == crate::playback_policy::INCOMPLETE_HTTP_AUDIO {
+                    let paused_candidate = {
+                        let mut s = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+                        if s.generation == generation && s.status == "paused" {
+                            let candidate = s.candidate.clone();
+                            // A failure can arrive just after Pause. Keep the
+                            // occurrence paused and refresh its source on Resume.
+                            self.cancel_locked(&mut s);
+                            s.revision += 1;
+                            Some(candidate)
+                        } else {
+                            None
+                        }
+                    };
+                    if let Some(candidate) = paused_candidate {
+                        self.invalidate_candidate_preview_audio(candidate.as_ref());
+                        self.publish();
+                        return;
+                    }
                 }
                 self.recover_failure(generation, &message, RecoveryTrigger::OutputFailed);
             }
@@ -8132,6 +8165,10 @@ fn recurring_stall_requires_terminal_failure(
             .is_some_and(|settings| !recovery_can_replace_source(2, explicit, track, settings))
 }
 
+fn seek_entry_is_current(state: &State, expected_entry: Option<&str>) -> bool {
+    expected_entry.is_none_or(|entry| state.entries.get(state.index).map(String::as_str) == Some(entry))
+}
+
 fn record_seek_context(
     state: &mut State,
     id: Option<String>,
@@ -8558,9 +8595,19 @@ fn reset_failed_resume_diagnostics(state: &mut State) {
 }
 
 fn ended_prematurely(state: &State) -> bool {
-    state.station.is_some() || !state.output_ready
-    // Decoder errors have their own failure event. Clean decoded EOF is
-    // authoritative even when a container/catalog duration was too long.
+    state.station.is_some()
+        || !state.output_ready
+        // A finite HTTP decoder can return EOF for a truncated response. Use
+        // the decoder's duration and allow for padding and inaccurate timing.
+        || (state.steady_http_stream
+            && state.duration_verified
+            && match state.end {
+                Some(end) => crate::playback_policy::chapter_ended_early(
+                    state.offset + state.position,
+                    end,
+                ),
+                None => crate::playback_policy::recording_ended_early(state.position, state.duration),
+            })
 }
 
 fn failed_track_next_index(
@@ -11311,6 +11358,23 @@ mod tests {
     }
 
     #[test]
+    fn seek_ownership_follows_the_current_occurrence_through_generation_changes() {
+        let track = Track { id: "repeated-track".into(), ..Track::default() };
+        let mut state = State {
+            queue: vec![track.clone(), track],
+            entries: vec!["first-occurrence".into(), "second-occurrence".into()],
+            index: 1,
+            generation: 27,
+            ..State::default()
+        };
+        assert!(!seek_entry_is_current(&state, Some("first-occurrence")));
+        assert!(seek_entry_is_current(&state, Some("second-occurrence")));
+        state.generation += 1;
+        assert!(seek_entry_is_current(&state, Some("second-occurrence")));
+        assert!(seek_entry_is_current(&state, None));
+    }
+
+    #[test]
     fn stopped_and_finished_seek_stays_paused_and_resumes_chosen_position() {
         for status in ["idle", "ended"] {
             for output_ready in [false, true] {
@@ -13157,21 +13221,31 @@ mod tests {
     }
 
     #[test]
-    fn natural_end_uses_clean_decoded_eof_not_duration_estimates() {
+    fn finite_remote_eof_far_short_of_decoded_duration_requires_recovery() {
         let mut state = State::default();
         state.output_ready = true;
-        state.duration = 240.;
-        state.position = 180.;
+        state.steady_http_stream = true;
+        state.first_audio_ms = Some(0);
+        state.candidate = Some(Candidate {
+            provider: "monochrome".into(),
+            ..Default::default()
+        });
+        state.duration = 226.;
+        state.position = 39.339;
         assert!(
             !ended_prematurely(&state),
-            "an unknown stream duration must not trigger a redundant full-source retry"
+            "a catalog duration alone must not trigger a redundant full-source retry"
         );
         state.duration_verified = true;
-        assert!(
-            !ended_prematurely(&state),
-            "decoder EOF must override malformed duration metadata"
-        );
-        state.position = 239.;
+        assert!(ended_prematurely(&state));
+        assert!(can_retry_failed_stream(
+            &state,
+            "Audio stream ended before the recording finished"
+        ));
+        state.position = 224.;
+        assert!(!ended_prematurely(&state));
+        state.position = 39.339;
+        state.steady_http_stream = false;
         assert!(!ended_prematurely(&state));
     }
 

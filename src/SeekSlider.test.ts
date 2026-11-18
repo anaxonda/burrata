@@ -2,6 +2,7 @@
 // @ts-expect-error Use Svelte's browser runtime.
 import { mount, unmount, tick } from "../node_modules/svelte/src/index-client.js";
 import { afterEach, expect, it, vi } from "vitest";
+import { createClassComponent } from "svelte/legacy";
 import SeekSlider from "./SeekSlider.svelte";
 // @ts-expect-error Use Svelte browser runtime for lifecycle hooks.
 vi.mock("svelte", async () => await import("../node_modules/svelte/src/index-client.js"));
@@ -53,6 +54,40 @@ it("debounces keyboard scrubbing and cancels pending work on destruction", async
   await unmount(instance); instance=undefined as unknown as typeof instance;
   vi.advanceTimersByTime(200);
   expect(onSeek).toHaveBeenCalledTimes(1);
+});
+
+it.each(["keyboard", "pointer"])("discards a pending %s seek when the queue occurrence changes", async mode => {
+  vi.useFakeTimers();
+  const onSeek = vi.fn();
+  const slider = createClassComponent({ component: SeekSlider, target: document.body, props: {
+    position: 4, duration: 100, disabled: false, seekIdentity: "first-entry", onSeek,
+  } });
+  try {
+    await tick();
+    const input = document.querySelector("input")!;
+    input.setPointerCapture = vi.fn();
+    if (mode === "pointer") input.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    input.value = "90";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    vi.advanceTimersByTime(50);
+    slider.$set({ seekIdentity: "second-entry", position: 2 });
+    await tick();
+    expect(input.value).toBe("2");
+    if (mode === "pointer") {
+      input.value = "91";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("pointerup", { bubbles: true }));
+    }
+    vi.advanceTimersByTime(150);
+    expect(onSeek).not.toHaveBeenCalled();
+
+    input.value = "13";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    vi.advanceTimersByTime(150);
+    expect(onSeek).toHaveBeenCalledExactlyOnceWith(13);
+  } finally {
+    slider.$destroy();
+  }
 });
 
 it("animates between playback reports without issuing seeks", async () => {

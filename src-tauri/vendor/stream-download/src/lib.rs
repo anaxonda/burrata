@@ -31,9 +31,15 @@ pub mod storage;
 #[derive(Debug, Clone)]
 pub struct StreamHandle {
     finished: CancellationToken,
+    source: SourceHandle,
 }
 
 impl StreamHandle {
+    /// Whether the download stopped with an error.
+    pub fn is_failed(&self) -> bool {
+        self.source.is_failed()
+    }
+
     /// Wait for the stream download task to complete.
     ///
     /// This method can be useful when using a [`ProcessStream`][process::ProcessStream] if you want
@@ -374,6 +380,7 @@ impl<P: StorageProvider> StreamDownload<P> {
     pub fn handle(&self) -> StreamHandle {
         StreamHandle {
             finished: self.download_task_cancellation_token.clone(),
+            source: self.handle.clone(),
         }
     }
 

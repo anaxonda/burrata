@@ -345,6 +345,26 @@ impl SourceTrace {
     pub(crate) fn resolution_id(&self) -> uuid::Uuid {
         self.id
     }
+    pub(crate) fn verified_discogs_edition_query(&self, track: &Track) -> Option<String> {
+        let proof = &track.provenance["playbackCatalogDurationProof"];
+        if !self.catalog_duration_enriched
+            || proof["provider"] != "discogsAppleCompleteAlbum"
+            || proof["releaseDateClaim"] != "barcodeMatched"
+        {
+            return None;
+        }
+        let evidence = &proof["evidence"];
+        let artist = evidence["appleArtist"].as_str()?;
+        let title = evidence["appleTitle"].as_str()?;
+        let album = track.album.as_deref()?;
+        // The crosswalk already verified the release date and album against
+        // the physical edition. Search only needs its year to locate uploads.
+        let year = evidence["appleAlbumDate"].as_str()?.get(..4)?;
+        let query = format!("{artist} {title} {album} {year}");
+        crate::youtube_web_search::safe_query_part(&query).ok()?;
+        Some(query)
+    }
+
     fn fallback_grace(&self, settings: &Settings) -> Duration {
         self.preparation_handoff
             .map(|handoff| {
@@ -1835,11 +1855,21 @@ async fn resolve_inner(
                 }
                 if let Ok(Some(prepared)) = prepared {
                     let verified_artist_variants = prepared.verified_artist_variants.clone();
-                    if let Some(enriched) = validated_catalog_duration_track(
+                    if let Some(mut enriched) = validated_catalog_duration_track(
                         &effective_track,
                         prepared,
                         catalog_duration_policy,
                     ) {
+                        let proof = &enriched.provenance["playbackCatalogDurationProof"];
+                        if proof["provider"] == "discogsAppleCompleteAlbum"
+                            && proof["releaseDateClaim"] == "barcodeMatched"
+                        {
+                            // This title belongs to the same verified UPC and track
+                            // position. Use it only in this playback request.
+                            if let Some(title) = proof["evidence"]["appleTitle"].as_str() {
+                                enriched.title = title.to_owned();
+                            }
+                        }
                         effective_track = enriched;
                         effective_trace.catalog_duration_enriched = true;
                         effective_trace.catalog_artist_variants = verified_artist_variants;
@@ -2140,6 +2170,13 @@ fn validated_catalog_duration_track(
         let flexible_release_allowed = policy.matching_level
             == crate::recording_match::MatchLevel::Flexible
             && policy.flexible_options.allow_other_releases;
+        let verified_barcode_title = |value: &Value| {
+            value.as_str().is_some_and(|value| {
+                !value.trim().is_empty()
+                    && value.len() <= 512
+                    && !value.chars().any(char::is_control)
+            })
+        };
         if proof["requestFingerprint"].as_str() != Some(request_fingerprint.as_str())
             || proof["policyFingerprint"].as_str() != Some(policy_fingerprint.as_str())
             || proof["matchingLevel"] != serde_json::to_value(policy.matching_level).ok()?
@@ -2148,10 +2185,24 @@ fn validated_catalog_duration_track(
                 && !flexible_release_allowed)
             || !matches!(
                 proof["releaseDateClaim"].as_str(),
-                Some("dateMatched" | "sameYearOtherReleaseDate")
+                Some("dateMatched" | "sameYearOtherReleaseDate" | "barcodeMatched")
             )
         {
             return None;
+        }
+        if proof["releaseDateClaim"] == "barcodeMatched" {
+            let evidence = &proof["evidence"];
+            if proof["discoveryMethod"] != "physicalReleaseBarcode"
+                || evidence["method"] != "discogs-apple-physical-release-barcode-v1"
+                || evidence["discogsReleaseId"] != original.provenance["releaseId"]
+                || evidence["discogsTrackPosition"] != original.provenance["trackPosition"]
+                || evidence["durationMillis"].as_u64().map(|ms| ms as f64 / 1000.)
+                    != prepared.track.duration_seconds
+                || !verified_barcode_title(&evidence["appleTitle"])
+                || !verified_barcode_title(&evidence["appleArtist"])
+            {
+                return None;
+            }
         }
     }
     // Only the private catalog lookup can supply this overlay. Neither source
@@ -3271,8 +3322,18 @@ fn catalog_source_replaceable(track: &Track) -> bool {
 fn linked_candidate_for_resolution(
     track: &Track,
     failed: &[FailedPlaybackCandidate],
+    settings: &Settings,
+    pinned: bool,
 ) -> Option<Candidate> {
     let candidate = linked_candidate(track)?;
+    // Preserve explicitly chosen uploads. An automatic Monochrome link only
+    // gets priority when Monochrome is the preferred streaming provider.
+    if candidate.provider == "monochrome"
+        && !pinned
+        && settings.preferred_streaming_source != "monochrome"
+    {
+        return None;
+    }
     if catalog_source_replaceable(track) && candidate_failed(&candidate, failed) {
         return None;
     }
@@ -3290,7 +3351,7 @@ fn implicit_first_candidate(
     {
         return None;
     }
-    linked_candidate_for_resolution(track, failed)
+    linked_candidate_for_resolution(track, failed, settings, false)
 }
 
 // Poll both attempts immediately; preserve preferred-source priority until the grace expires.
@@ -4064,13 +4125,13 @@ async fn resolve_serial(
         });
     }
 
+    let pinned = source_resolution_is_pinned(track, selected.is_some(), &settings, true);
     let linked =
         if alias_pass.retry || (overrides_import_url(track, &settings) && selected.is_none()) {
             None
         } else {
-            linked_candidate_for_resolution(track, failed)
+            linked_candidate_for_resolution(track, failed, &settings, pinned)
         };
-    let pinned = source_resolution_is_pinned(track, selected.is_some(), &settings, true);
     let cache_started = Instant::now();
     let mut verified_artist_aliases = if pinned {
         crate::artist_credit_aliases::VerifiedPlaybackArtistAliases::default()
@@ -4653,6 +4714,21 @@ async fn resolve_serial(
         {
             trace.event("search_start", &provider, json!({}));
             let provider_search_started = Instant::now();
+            if provider == "youtube" {
+                if let Some(support) = crate::youtube_support::global() {
+                    let search_cancel = cancel.clone();
+                    // Start the local helper while search is in flight. Extraction
+                    // still waits for the usual readiness check before using it.
+                    tokio::spawn(async move {
+                        tokio::select! {
+                            biased;
+                            _ = wait_for_cancellation(search_cancel) => {}
+                            _ = tokio::time::sleep_until(deadline.instant()) => {}
+                            _ = support.ensure_provider() => {}
+                        }
+                    });
+                }
+            }
             let recover_failed_audio_candidate =
                 failed_unlocked_audio_search_candidate(track, &provider, failed);
             #[cfg(feature = "playback-early-candidate-experiment")]
@@ -8927,6 +9003,34 @@ mod tests {
     }
 
     #[test]
+    fn discogs_edition_search_uses_only_the_verified_album_query() {
+        let mut track = Track {
+            album: Some("Edition Two".into()),
+            provenance: json!({
+                "playbackCatalogDurationProof": {
+                    "provider": "discogsAppleCompleteAlbum",
+                    "releaseDateClaim": "barcodeMatched",
+                    "evidence": {
+                        "appleArtist": "A. Rivera & G. Mukherjee",
+                        "appleTitle": "Sonata, Act II (Arr. S. Dubois): Moderato",
+                        "appleAlbumDate": "2024-02-09"
+                    }
+                }
+            }),
+            ..Track::default()
+        };
+        let mut trace = SourceTrace::new(None, None, None);
+        assert!(trace.verified_discogs_edition_query(&track).is_none());
+        trace.catalog_duration_enriched = true;
+        assert_eq!(
+            trace.verified_discogs_edition_query(&track).as_deref(),
+            Some("A. Rivera & G. Mukherjee Sonata, Act II (Arr. S. Dubois): Moderato Edition Two 2024"),
+        );
+        track.provenance["playbackCatalogDurationProof"]["releaseDateClaim"] = json!("dateMatched");
+        assert!(trace.verified_discogs_edition_query(&track).is_none());
+    }
+
+    #[test]
     fn discogs_other_release_duration_overlay_is_bound_to_original_flexible_policy() {
         let original: Track = serde_json::from_str(include_str!(
             "../tests/fixtures/bacc-discogs-request-track.json"
@@ -9891,6 +9995,21 @@ mod tests {
             overall,
         ));
         assert!(implicit_link_error_is_terminal("Cancelled", overall));
+        for error in [
+            "Monochrome audio returned HTTP 429 Too Many Requests",
+            "ERROR: [youtube] HTTP Error 429",
+            "SoundCloud transport request failed: HTTP status 429",
+            "Audio source rate limit reached",
+        ] {
+            let fallback = prefer_primary_after_delay(
+                async { Err::<(), _>(error.to_owned()) },
+                || async { Ok(()) },
+                None,
+                |error| implicit_link_error_is_terminal(error, overall),
+            )
+            .await;
+            assert_eq!(fallback, Ok(()), "{error}");
+        }
 
         let fallback = prefer_primary_after_delay(
             async { Err::<(), _>(PLAYBACK_DEADLINE_MESSAGE.to_owned()) },
@@ -12908,15 +13027,17 @@ mod tests {
             locked.provenance[marker] = json!(true);
             assert!(source_resolution_is_pinned(&locked, false, &settings, true));
             assert!(!overrides_import_url(&locked, &settings));
-            let linked =
-                linked_candidate_for_resolution(&locked, &[]).expect("explicit link retained");
+            let linked = linked_candidate_for_resolution(&locked, &[], &settings, true)
+                .expect("explicit link retained");
             assert_eq!(linked.id, "youtube:abcdefghijk");
             assert!(linked_candidate_for_resolution(
                 &locked,
                 &[FailedPlaybackCandidate {
                     provider: linked.provider,
                     id: linked.id
-                }]
+                }],
+                &settings,
+                true,
             )
             .is_some());
         }
@@ -13112,8 +13233,8 @@ mod tests {
     }
 
     #[test]
-    fn monochrome_catalog_selection_can_fall_back_after_its_linked_source_fails() {
-        let settings = Settings::default();
+    fn saved_monochrome_link_respects_streaming_order_unless_explicitly_selected() {
+        let mut settings = Settings::default();
         let track = Track {
             id: "monochrome:12345678901234567".into(),
             provider: "monochrome".into(),
@@ -13125,19 +13246,23 @@ mod tests {
             ..Track::default()
         };
         assert!(!source_resolution_is_pinned(&track, false, &settings, true));
-        let candidate =
-            linked_candidate_for_resolution(&track, &[]).expect("catalog link candidate");
+        assert!(implicit_first_candidate(&track, false, &settings, &[]).is_none());
+        assert!(linked_candidate_for_resolution(&track, &[], &settings, false).is_none());
+        settings.streaming_fallback_sources = vec!["monochrome".into()];
+        assert!(implicit_first_candidate(&track, false, &settings, &[]).is_none());
+        let candidate = linked_candidate_for_resolution(&track, &[], &settings, true)
+            .expect("an explicit source choice is honored");
         assert_eq!(candidate.provider, "monochrome");
-        assert_eq!(
-            crate::source_fallback::provider_order("youtube", true, &["soundcloud".into()], false,),
-            vec!["soundcloud".to_owned()]
-        );
+        settings.preferred_streaming_source = "monochrome".into();
+        assert!(implicit_first_candidate(&track, false, &settings, &[]).is_some());
         assert!(linked_candidate_for_resolution(
             &track,
             &[FailedPlaybackCandidate {
                 provider: candidate.provider,
                 id: candidate.id,
-            }]
+            }],
+            &settings,
+            false,
         )
         .is_none());
 

@@ -127,9 +127,19 @@
     "failure": {
       "category": "rate_limited",
       "stage": "transport",
-      "scope": "global",
+      "scope": "source",
       "retryable": true,
       "httpStatus": 429
+    },
+    "skip": false
+  },
+  {
+    "reason": "Native HTTP audio stream ended before the recording finished",
+    "failure": {
+      "category": "source_unavailable",
+      "stage": "transport",
+      "scope": "source",
+      "retryable": true
     },
     "skip": false
   },

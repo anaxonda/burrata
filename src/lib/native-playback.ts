@@ -25,7 +25,7 @@ type NativeCommandPayload =
   | { action: "remove_many"; indices: number[]; expectedQueueRevision?: number }
   | { action: "reorder"; from: number; to: number; expectedQueueRevision?: number }
   | { action: "pause" | "resume" | "stop"; expectedHandoffId?: string }
-  | { action: "seek"; position: number }
+  | { action: "seek"; position: number; expectedEntryId?: string }
   | { action: "volume"; volume: number }
   | { action: "shuffle"; enabled: boolean }
   | { action: "repeat"; mode: "off" | "all" | "one" }

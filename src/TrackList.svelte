@@ -1,6 +1,7 @@
 <script lang="ts">
   import HeartIcon from "./HeartIcon.svelte";
   import { getContext, onMount } from "svelte";
+  import { FAVORITE_MEMBERSHIP, type FavoriteMembership } from "./lib/favorite-membership";
   import { readLibraryTrackMembership } from "./lib/library-track-membership";
   import { SOURCE_OPENER, type SourceOpener } from "./lib/source-opening";
   import { call } from "./lib/api";
@@ -284,6 +285,7 @@
     void movePlaylistOccurrence(track, fromPosition, destination);
   }
   const sourceOpener = getContext<SourceOpener | undefined>(SOURCE_OPENER);
+  const favoriteMembership = getContext<FavoriteMembership | undefined>(FAVORITE_MEMBERSHIP);
   let sourceOpenFailure = $state("");
   async function openTrackSource(track: Track) {
     const source = trackSource(track);
@@ -330,6 +332,7 @@
     {@const buffering = !failed && (bufferingTrack ? sameTrackIdentity(track, bufferingTrack) : track.id === bufferingTrackId)}
     {@const duration = playableDuration(track)}
     {@const occurrencePosition = playlistPosition(track)}
+    {@const favorite = favoriteMembership?.(track) ?? track.favorite}
     {#snippet playbackStatus()}
       {#if current || buffering && presentation !== "playlist"}<span class="playback-state table-playback-state" class:status-buffering={buffering} class:status-buffering-has-play={buffering && presentation !== "playlist" && Boolean(onPlay)} role="status" aria-label={`${failed ? "Unavailable" : buffering ? "Buffering" : paused ? "Paused" : "Playing"} ${track.title}`} title={`${failed ? "Unavailable" : buffering ? "Buffering" : paused ? "Paused" : "Playing"} · ${track.title}`} aria-live="polite">
         {#if failed}!{:else if buffering}{#if presentation !== "playlist" || !onPlay}<BufferingSpinner />{/if}{:else if paused}Ⅱ{:else}<svg class="playback-playing-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 11v3M8 8v6M12 5v9M16 9v5"/></svg>{/if}
@@ -360,7 +363,7 @@
       {#if duration !== null}<span class="duration">{Math.floor(duration / 60)}:{String(Math.floor(duration % 60)).padStart(2, "0")}</span>{/if}
       <div class="row-actions">
         {#if onPlay}<button class="icon-action play" class:buffering={buffering && presentation !== "playlist"} aria-busy={buffering && presentation !== "playlist"} aria-label={buffering && presentation !== "playlist" ? `Buffering ${track.title}` : `Play ${track.title}`} title={buffering && presentation !== "playlist" ? "Buffering audio" : "Play"} onclick={() => onPlay?.(track, tracks, index)}>▶</button>{/if}
-        {#if onFavorite}<button class="icon-action favorite" class:active={track.favorite} aria-label={`${track.favorite ? "Remove" : "Add"} ${track.title} ${track.favorite ? "from" : "to"} favorites`} aria-pressed={track.favorite} title={track.favorite ? "Remove from favorites" : "Add to favorites"} onclick={() => onFavorite?.(track)}><HeartIcon filled={track.favorite} /></button>{/if}
+        {#if onFavorite}<button class="icon-action favorite" class:active={favorite} aria-label={`${favorite ? "Remove" : "Add"} ${track.title} ${favorite ? "from" : "to"} favorites`} aria-pressed={favorite} title={favorite ? "Remove from favorites" : "Add to favorites"} onclick={() => onFavorite?.(track)}><HeartIcon filled={favorite} /></button>{/if}
         {#if onDownload}<button class="icon-action" aria-label={`Download ${track.title}`} title="Download" onclick={() => onDownload?.(track)}>↓</button>{/if}
         {#if onContext || onNext || onQueue || onPlaylist || onArtist || onInfo || onFavorite || onDownload || onSelect || onAddSelectedToPlaylist || trackSource(track)}
           <button class="more-trigger row-more" aria-label={`Actions for ${track.title}`} aria-haspopup="dialog" title="Track actions" onclick={(event) => openActions(track, index, event)}>⋯</button>

@@ -368,7 +368,8 @@ async fn finite_opus_webm_paired_route_counts_same_pcm_and_seek_is_bounded() {
     )
     .await;
     assert!(!short.ok);
-    assert_eq!(short.failure, Some("SHORT_PCM"));
+    // The decoder reports an early end before the requested window completes.
+    assert_eq!(short.failure, Some("DECODER_FAILED"));
     assert!((20_000..=30_000).contains(&short.decoded_frames));
 }
 

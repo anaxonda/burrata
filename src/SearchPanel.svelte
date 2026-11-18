@@ -38,7 +38,7 @@
   ];
   let {
     query: initialQuery = "", navigationSnapshotKey = null, initialSources, availableSources, sourceCapabilities = {}, searchSource, enrichSource, enrichTrack, searchPreset, startupReadStorage,
-    onRemoteResult = () => {}, onAddRemotePlaylist, onPlaylistTracks, onQueueTracks, onDownloadTracks, onArtist = () => {}, loadArtistProfile, onArtistTrack = () => {}, onAlbum = () => {}, onTrackAlbum, onQueryChange = () => {}, onPlay = () => {}, onDownload = () => {}, onFavorite, onNext, onQueue, onContext,
+    onRemoteResult = () => {}, onAddRemotePlaylist, onOpenBandcampPlaylist, onPlaylistTracks, onQueueTracks, onDownloadTracks, onArtist = () => {}, loadArtistProfile, onArtistTrack = () => {}, onAlbum = () => {}, onTrackAlbum, onQueryChange = () => {}, onPlay = () => {}, onDownload = () => {}, onFavorite, onNext, onQueue, onContext,
     onPlayChapter = () => {}, onQueueChapter = () => {}, onDownloadChapter = () => {}, onInfoChapter = () => {},
     playingTrack = null, bufferingTrack = null, playingTrackId = "", bufferingTrackId = "", paused = false,
     automationSearch = null, automationSearchCancelled = null, onAutomationSearchComplete = () => {},
@@ -52,6 +52,7 @@
     onArtist?: (artist: ArtistRef) => void; searchArtists?: (query: string) => Promise<unknown[]>; onArtistTrack?: (track: Track) => void; onAlbum?: (album: ArtistReleaseRef) => void; onTrackAlbum?: (track: Track, fromLibrary?: boolean) => void | Promise<void>;
     loadArtistProfile?: (artist: ArtistRef) => Promise<{ imageUrl?: string | null }>;
     onRemoteResult?: (row: SearchRow) => void;
+    onOpenBandcampPlaylist?: (url: string) => void;
     onAddRemotePlaylist?: (row: SearchRow, options: { signal: AbortSignal; onProgress: (message: string) => void }) => Promise<{ partial?: boolean; cancelled?: boolean } | void> | void;
     onPlaylistTracks?: (tracks: Track[]) => Promise<void> | void;
     onDownloadTracks?: (tracks: Track[]) => Promise<void> | void;
@@ -1016,6 +1017,22 @@
     const data = row.data as ArtistReleaseRef | null;
     return data && data.release && data.sourceUrl ? data : null;
   }
+  const bandcampPlaylistLink = $derived.by(() => {
+    if (searchMode !== "online" || !onOpenBandcampPlaylist) return null;
+    try {
+      const url = new URL(text.trim());
+      if (url.protocol !== "https:" || url.hostname !== "bandcamp.com" || url.port || url.username || url.password
+        || !/^\/[a-zA-Z0-9_.-]{1,100}\/playlist\/[a-zA-Z0-9_.-]{1,2048}\/?$/.test(url.pathname)) return null;
+      return url.origin + url.pathname.replace(/\/$/, "");
+    } catch {
+      return null;
+    }
+  });
+  function submitSearch(event: SubmitEvent) {
+    event.preventDefault();
+    if (bandcampPlaylistLink) onOpenBandcampPlaylist?.(bandcampPlaylistLink);
+    else void runSearch();
+  }
   function soulseekFolder(row: SearchRow): SoulseekFolder | null {
     if (row.sourceId !== "soulseek" || !row.data || typeof row.data !== "object") return null;
     const data = row.data as { soulseekGroup?: unknown };
@@ -1170,7 +1187,7 @@
   onresize={() => closeSourcePicker()} />
 <section class="search-panel" aria-label="Discovery search" bind:this={searchElement}>
   {#if navigationNotice}<p role="status" class="navigation-notice">{navigationNotice}</p>{/if}
-  <form class="search-form" onsubmit={(event) => { event.preventDefault(); void runSearch(); }}>
+  <form class="search-form" onsubmit={submitSearch}>
     <div class="search-input-wrap">
       <input aria-label="Search music" role="combobox" aria-autocomplete="none" aria-expanded={searchHistoryOpen && !text.trim()} aria-controls={searchHistoryOpen && !text.trim() ? "search-history-menu" : undefined} aria-activedescendant={searchHistoryOpen && !text.trim() && searchHistoryIndex >= 0 ? `search-history-item-${searchHistoryIndex}` : undefined} onfocus={() => { searchInputFocused = true; if (!text.trim() && searchHistory.length) searchHistoryOpen = true; }} onblur={closeSearchPopupsOnBlur} onkeydown={handleSearchHistoryKeys} bind:value={text} oninput={(event) => { text = event.currentTarget.value; searchHistoryIndex = -1; searchHistoryOpen = !text.trim() && searchInputFocused && searchHistory.length > 0; if (text.trim() !== submitted.trim()) { cancelSearchTrackSelection(); cancelAutomationSearch(); generation++; collectionRequest++; clearCollectionDeadline(); collectingSearch = false; collectionProgress = ""; providerReads.cancelAll(); collectionReads.cancelAll(); if (collectionSoulseekSource) { void cancelSoulseek(collectionSoulseekSource); collectionSoulseekSource = null; } statuses = Object.fromEntries(Object.entries(statuses).map(([id, status]) => [id, status === "Searching…" || status === "Loading more…" ? "Cancelled" : status])); } onQueryChange(text); }} placeholder="Track, artist, album, video or set" />
       {#if searchHistoryOpen && !text.trim() && searchHistory.length}<div id="search-history-menu" class="search-history-menu" role="listbox" aria-label="Recent searches">
@@ -1178,7 +1195,7 @@
         {#each searchHistory as entry, index (entry.query.toLocaleLowerCase())}<div class="search-history-row" role="option" aria-selected={searchHistoryIndex === index}><button id={`search-history-item-${index}`} class="history-query" type="button" tabindex="-1" onclick={() => restoreSearchHistory(entry)}>{entry.query}<small>{entry.mode === "library" ? "My library" : entry.sourceChoice === "custom" ? "Selected sources" : entry.sourceChoice === "all" ? "All online sources" : sources.find(source => source.id === entry.sourceChoice)?.name ?? "Online"} · {kinds.find(option => option.id === entry.kind)?.label ?? "All"}</small></button><button class="remove-search-history" type="button" aria-label={`Remove ${entry.query} from search history`} title="Remove recent search" onclick={() => removeHistoryEntry(entry)}>×</button></div>{/each}
       </div>{/if}
     </div>
-    <button class="primary" type="submit" disabled={!text.trim() || !activeSourceIds().length}>Search</button>
+    <button class="primary" type="submit" disabled={!bandcampPlaylistLink && (!text.trim() || !activeSourceIds().length)}>{bandcampPlaylistLink ? "Open Bandcamp playlist" : "Search"}</button>
     {#if Object.values(statuses).some(status => status === "Searching…" || status === "Loading more…" || status.endsWith("…"))}<button type="button" onclick={cancel}>Cancel</button>{/if}
   </form>
   <div class="primary-controls-toolbar">
@@ -1227,7 +1244,7 @@
     {/each}
   </div>
   </div>
-  {#if selectedSourceUnsupportedKinds.length}<p id="unsupported-result-kinds" class="scope-hint" role="note">{selectedSource?.name} does not support {selectedSourceUnsupportedKinds.map(item => item.label.toLowerCase()).join(", ")} result types.</p>{/if}
+  {#if selectedSourceUnsupportedKinds.length}<p id="unsupported-result-kinds" class="scope-hint" role="note">{selectedSource?.name} does not support {selectedSourceUnsupportedKinds.map(item => item.label.toLowerCase()).join(", ")} result types.{#if selectedSource?.id === "bandcamp" && onOpenBandcampPlaylist} Paste a public Bandcamp playlist link to preview it.{/if}</p>{/if}
   {#if trackControlsApplicable}<div class="track-toolbar">
     <fieldset class="track-controls">
       <legend class="sr-only">Loaded track controls</legend>

@@ -2,6 +2,7 @@
 //! or origin spoofing: unavailable sources fail normally and permit fallback.
 use crate::models::{AudioFormat, Candidate, Track};
 use futures_util::StreamExt;
+use reqwest::header;
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -10,6 +11,7 @@ const BASE: &str = "https://tracks.monochrome.st";
 const SEARCH_PATH: &str = "/search/tracks";
 const CATALOG_SEARCH_LIMIT: usize = 25;
 const SEARCH_CACHE_SCHEMA: &str = "monochrome-track-search-v2";
+const AUDIO_PROBE_BYTES: usize = 64;
 pub(crate) const CANDIDATE_SEARCH_LIMIT: usize = 12;
 pub(crate) const INTERACTIVE_SEARCH_LIMIT: usize = 30;
 static DEFAULT_HTTP_CLIENT: std::sync::OnceLock<Result<reqwest::Client, String>> =
@@ -455,6 +457,15 @@ impl Client {
         (dedupe_candidates(candidates), errors)
     }
     pub async fn inspect(&self, candidate: &Candidate) -> Result<Candidate, String> {
+        self.inspect_with_content_length(candidate)
+            .await
+            .map(|(inspected, _)| inspected)
+    }
+
+    pub(crate) async fn inspect_with_content_length(
+        &self,
+        candidate: &Candidate,
+    ) -> Result<(Candidate, Option<u64>), String> {
         self.check_cooldown()?;
         let parsed =
             url::Url::parse(&candidate.url).map_err(|_| "Invalid Monochrome stream URL")?;
@@ -472,7 +483,8 @@ impl Client {
         let response = self
             .http
             .get(parsed)
-            .header(reqwest::header::RANGE, "bytes=0-63")
+            .header(header::RANGE, format!("bytes=0-{}", AUDIO_PROBE_BYTES - 1))
+            .header(header::ACCEPT_ENCODING, "identity")
             .send()
             .await
             .map_err(|error| {
@@ -488,9 +500,11 @@ impl Client {
                 response.status()
             ));
         }
-        let mut prefix = Vec::new();
+        let length = probe_content_length(&response);
+        let mut prefix = Vec::with_capacity(AUDIO_PROBE_BYTES);
+        let mut received = 0;
         let mut stream = response.bytes_stream();
-        while prefix.len() < 64 {
+        while prefix.len() < AUDIO_PROBE_BYTES {
             let Some(chunk) = stream.next().await else {
                 break;
             };
@@ -500,7 +514,8 @@ impl Client {
                     transport_error_summary(&error)
                 )
             })?;
-            prefix.extend_from_slice(&chunk[..chunk.len().min(64 - prefix.len())]);
+            received += chunk.len();
+            prefix.extend_from_slice(&chunk[..chunk.len().min(AUDIO_PROBE_BYTES - prefix.len())]);
         }
         let format = audio_format(&prefix)?;
         let mut result = candidate.clone();
@@ -512,8 +527,41 @@ impl Client {
             "Verified audio container: {}",
             result.formats[0].extension.to_uppercase()
         ));
-        Ok(result)
+        Ok((
+            result,
+            length.and_then(|(total, span)| (received == span).then_some(total)),
+        ))
     }
+}
+
+fn probe_content_length(response: &reqwest::Response) -> Option<(u64, usize)> {
+    if response.status() != reqwest::StatusCode::PARTIAL_CONTENT {
+        return None;
+    }
+    let headers = response.headers();
+    let mut encodings = headers.get_all(header::CONTENT_ENCODING).iter();
+    if let Some(encoding) = encodings.next() {
+        if encodings.next().is_some() || !encoding.to_str().ok()?.eq_ignore_ascii_case("identity") {
+            return None;
+        }
+    }
+    let mut ranges = headers.get_all(header::CONTENT_RANGE).iter();
+    let (start, end, total) =
+        crate::acquisition::parse_content_range(ranges.next()?.to_str().ok()?)?;
+    if ranges.next().is_some()
+        || start != 0
+        || end != total.checked_sub(1)?.min(AUDIO_PROBE_BYTES as u64 - 1)
+    {
+        return None;
+    }
+    let span = end + 1;
+    let mut lengths = headers.get_all(header::CONTENT_LENGTH).iter();
+    if let Some(length) = lengths.next() {
+        if lengths.next().is_some() || length.to_str().ok()?.parse::<u64>().ok()? != span {
+            return None;
+        }
+    }
+    Some((total, span as usize))
 }
 
 fn valid_path(path: &str) -> bool {
@@ -1291,6 +1339,77 @@ mod tests {
         let inspected = client.inspect(&rows[0].1).await.unwrap();
         assert_eq!(inspected.formats[0].extension, "m4a");
         assert!(!inspected.formats[0].lossless);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn audio_probe_yields_length_only_for_a_complete_identity_range() {
+        use axum::{
+            body::{Body, Bytes},
+            extract::Path,
+            http::{HeaderMap, StatusCode},
+            routing::get,
+            Router,
+        };
+
+        const FIRST_ID: u64 = 155142501534011390;
+        let cases = [
+            (206, "bytes 0-63/2000", "identity", 64, true, Some(2000)),
+            (206, "bytes 0-31/32", "identity", 32, false, Some(32)),
+            (206, "bytes 1-64/2000", "identity", 64, true, None),
+            (206, "bytes 0-62/2000", "identity", 63, true, None),
+            (206, "bytes 0-63/2000", "identity", 32, false, None),
+            (206, "bytes 0-63/2000", "identity", 32, true, None),
+            (206, "bytes 0-63/2000", "identity", 65, false, None),
+            (206, "bytes 0-63/*", "identity", 64, true, None),
+            (206, "bytes 0-63/2000", "gzip", 64, true, None),
+            (200, "bytes 0-63/2000", "identity", 64, true, None),
+        ];
+        let app = Router::new().route(
+            "/track/{id}",
+            get(
+                move |Path(id): Path<String>, headers: HeaderMap| async move {
+                    assert_eq!(headers[header::RANGE], "bytes=0-63");
+                    assert_eq!(headers[header::ACCEPT_ENCODING], "identity");
+                    let index = id.parse::<u64>().unwrap() - FIRST_ID;
+                    let (status, range, encoding, byte_count, declare_length, _) =
+                        cases[index as usize];
+                    let mut body = b"\0\0\0\x1cftypisom".to_vec();
+                    body.resize(byte_count, 0);
+                    let body = if declare_length {
+                        Body::from(body)
+                    } else {
+                        Body::from_stream(futures_util::stream::once(async move {
+                            Ok::<_, std::convert::Infallible>(Bytes::from(body))
+                        }))
+                    };
+                    (
+                        StatusCode::from_u16(status).unwrap(),
+                        [
+                            (header::CONTENT_RANGE, range),
+                            (header::CONTENT_ENCODING, encoding),
+                        ],
+                        body,
+                    )
+                },
+            ),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = Client::at(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        for (index, (_, range, _, _, _, expected)) in cases.into_iter().enumerate() {
+            let id = FIRST_ID + index as u64;
+            let candidate = Candidate {
+                url: format!("{}/track/{id}", client.base),
+                ..Candidate::default()
+            };
+            let (inspected, length) = client
+                .inspect_with_content_length(&candidate)
+                .await
+                .unwrap();
+            assert_eq!(inspected.formats[0].extension, "m4a");
+            assert_eq!(length, expected, "range {range}, case {index}");
+        }
         server.abort();
     }
 
