@@ -1727,12 +1727,13 @@ describe("SearchPanel", () => {
 
   it("mounts inspected chapter actions only while expanded and keeps metadata cached when collapsed", async () => {
     const chapter = { id: "lazy-1", title: "Queued set section", startTime: 30, endTime: 90, confidence: "high" };
-    const track = { id: "lazy-video", provider: "youtube", providerId: "lazy-video", sourceUrl: "https://youtube.com/watch?v=lazy", artist: "DJ", title: "Long set", favorite: false, provenance: {} };
-    const candidate = { id: "candidate-lazy", provider: "youtube", url: track.sourceUrl, title: track.title, formats: [], permission: "unknown", confidence: "high", score: 1, reasons: [], official: false, chapters: [chapter] };
+    const track = { id: "youtube:6CVsBOjeDzk", provider: "youtube", providerId: "6CVsBOjeDzk", sourceUrl: "https://youtube.com/watch?v=6CVsBOjeDzk", artist: "DJ", title: "Long set", favorite: false, provenance: {} };
+    const candidate = { id: track.id, provider: "youtube", url: track.sourceUrl, title: track.title, formats: [], permission: "unknown", confidence: "high", score: 1, reasons: [], official: false, chapters: [chapter] };
     const searchSource = vi.fn(async ({ sourceIds }: { sourceIds: string[] }) => ({ sourceId: sourceIds[0], complete: true, results: [{ id: track.id, kind: "video", sourceId: "youtube", title: track.title, url: track.sourceUrl, track }] }));
     const enrichSource = vi.fn(async () => candidate);
     const onPlayChapter = vi.fn();
-    const target = render({ initialSources: ["youtube"], searchSource, enrichSource, onPlayChapter });
+    const onPlay = vi.fn();
+    const target = render({ initialSources: ["youtube"], searchSource, enrichSource, onPlayChapter, onPlay });
     await settle();
     const input = target.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
     input.value = "Long set"; input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -1761,6 +1762,15 @@ describe("SearchPanel", () => {
     expect(target.querySelectorAll(".chapter-row")).toHaveLength(0);
     expect(enrichSource).toHaveBeenCalledTimes(1);
     expect(target.querySelector(".chapter-badge.available")?.textContent).toContain("Chapters · 1");
+
+    target.querySelector<HTMLButtonElement>(".track-title")!.click();
+    expect(onPlay.mock.calls[0]?.[0]).toEqual({
+      ...track,
+      provenance: { searchPlaybackChapters: { videoId: track.providerId, chapters: [
+        { id: chapter.id, title: chapter.title, startTime: 30, endTime: 90 },
+      ] } },
+    });
+    expect(enrichSource).toHaveBeenCalledTimes(1);
   });
 
   it("does not advertise empty or unusable cached chapter lists", async () => {

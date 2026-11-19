@@ -1,7 +1,7 @@
 //! Authoritative native playback session shared by the UI, automation and media controls.
 use crate::{
     acquisition::AcquisitionManager,
-    models::{Candidate, Track},
+    models::{Candidate, Chapter, Track},
     native_output::{
         BufferingDiagnostics, DecoderDiagnostics, NativeOutput, OutputCommand, OutputEvent,
     },
@@ -506,6 +506,72 @@ fn exact_handoff_youtube_id<'a>(
         && crate::acquisition::youtube_video_id(&track.source_url).as_deref() == Some(id)
         && crate::acquisition::youtube_video_id(&candidate.url).as_deref() == Some(id))
     .then_some(id)
+}
+
+/// Search can send already-inspected chapter labels as display metadata.
+/// Apply them only after the resolver has selected the same whole video.
+fn attach_search_chapters(track: &Track, candidate: &mut Candidate, duration: Option<f64>) {
+    let hint = &track.provenance["searchPlaybackChapters"];
+    let Some(video_id) = hint["videoId"].as_str() else {
+        return;
+    };
+    if track.provider != "youtube"
+        || track.playback_range.is_some()
+        || track.provider_id != video_id
+        || candidate.provider != "youtube"
+        || candidate.id.strip_prefix("youtube:") != Some(video_id)
+        || crate::acquisition::youtube_video_id(&track.source_url).as_deref() != Some(video_id)
+        || crate::acquisition::youtube_video_id(&candidate.url).as_deref() != Some(video_id)
+        || candidate.chapters.as_ref().is_some_and(|chapters| {
+            chapters.iter().any(|chapter| {
+                !chapter.title.trim().is_empty()
+                    && !crate::models::is_placeholder_chapter_title(&chapter.title)
+            })
+        })
+    {
+        return;
+    }
+    let Some(rows) = hint["chapters"].as_array().filter(|rows| rows.len() <= 200) else {
+        return;
+    };
+    let duration = duration
+        .or(candidate.duration_seconds)
+        .filter(|value| value.is_finite() && *value > 0.);
+    let mut chapters = rows
+        .iter()
+        .filter_map(|row| {
+            let id = row["id"].as_str()?.trim();
+            let title = row["title"].as_str()?.trim();
+            let start = row["startTime"].as_f64()?;
+            let end = row["endTime"].as_f64()?;
+            if id.is_empty()
+                || id.len() > 128
+                || title.is_empty()
+                || title.len() > 512
+                || crate::models::is_placeholder_chapter_title(title)
+                || !start.is_finite()
+                || !end.is_finite()
+                || start < 0.
+                || end <= start
+                || duration.is_some_and(|duration| start >= duration || end > duration + 1.)
+            {
+                return None;
+            }
+            Some(Chapter {
+                id: id.to_owned(),
+                title: title.to_owned(),
+                start_seconds: start,
+                end_seconds: duration.map_or(end, |duration| end.min(duration)),
+                confidence: "source_metadata_unverified".into(),
+                suggested_track: None,
+                suggestion_confidence: None,
+            })
+        })
+        .collect::<Vec<_>>();
+    if !chapters.is_empty() {
+        chapters.sort_by(|left, right| left.start_seconds.total_cmp(&right.start_seconds));
+        candidate.chapters = Some(chapters);
+    }
 }
 
 fn handoff_stop_is_owned(expected: &str, current: Option<&str>) -> bool {
@@ -4764,12 +4830,15 @@ impl PlaybackService {
                 Ok(resolved) => {
                     let crate::playback_sources::ResolvedSource {
                         mut source,
-                        candidate,
+                        mut candidate,
                         quality,
                         station,
                         duration,
                         origin,
                     } = resolved;
+                    if let Some(candidate) = candidate.as_mut() {
+                        attach_search_chapters(&track, candidate, duration);
+                    }
                     let known_duration = duration
                         .or_else(|| {
                             track
@@ -6378,7 +6447,11 @@ impl PlaybackService {
             .map(|r| r.end_time - r.start_time);
         s.duration_verified = range_duration.is_some();
         s.duration = range_duration.or(p.duration).unwrap_or(0.);
-        s.candidate = p.candidate;
+        let mut candidate = p.candidate;
+        if let (Some(track), Some(candidate)) = (s.track(), candidate.as_mut()) {
+            attach_search_chapters(track, candidate, p.duration);
+        }
+        s.candidate = candidate;
         s.explicit_source = false;
         s.bypass_failed_local = false;
         s.recovery_deadline = None;
@@ -8804,6 +8877,50 @@ mod tests {
             30.25
         );
     }
+    #[test]
+    fn inspected_search_chapters_follow_the_resolved_video_position() {
+        let url = "https://www.youtube.com/watch?v=6CVsBOjeDzk";
+        let track = Track {
+            provider: "youtube".into(),
+            provider_id: "6CVsBOjeDzk".into(),
+            source_url: url.into(),
+            title: "Medley from ABBEY ROAD".into(),
+            provenance: json!({"searchPlaybackChapters": {
+                "videoId":"6CVsBOjeDzk",
+                "chapters":[
+                    {"id":"second","title":"Sun King","startTime":242,"endTime":389},
+                    {"id":"first","title":"You Never Give Me Your Money","startTime":0,"endTime":242,
+                     "suggestedTrack":{"title":"Unverified suggestion"}},
+                    {"id":"bad","title":"Invalid","startTime":0,"endTime":500}
+                ]
+            }}),
+            ..Track::default()
+        };
+        let mut candidate = Candidate {
+            provider: "youtube".into(),
+            id: "youtube:6CVsBOjeDzk".into(),
+            url: url.into(),
+            ..Candidate::default()
+        };
+        let mut different_video = candidate.clone();
+        different_video.url = "https://www.youtube.com/watch?v=hwi2ynHPB80".into();
+        attach_search_chapters(&track, &mut different_video, Some(389.));
+        assert!(different_video.chapters.is_none());
+        attach_search_chapters(&track, &mut candidate, Some(389.));
+        let chapters = candidate.chapters.as_ref().unwrap();
+        assert_eq!(chapters.len(), 2);
+        assert!(chapters[0].suggested_track.is_none());
+        let mut state = State {
+            queue: vec![track],
+            candidate: Some(candidate),
+            position: 174.,
+            ..State::default()
+        };
+        assert_eq!(state.chapter()["title"], "You Never Give Me Your Money");
+        state.position = 242.;
+        assert_eq!(state.chapter()["title"], "Sun King");
+    }
+
     #[test]
     fn placeholder_source_chapters_do_not_replace_catalog_track_metadata() {
         let mut state = State::default();

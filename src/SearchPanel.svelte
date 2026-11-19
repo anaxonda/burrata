@@ -4,7 +4,7 @@
   import { onDestroy, onMount, tick } from "svelte";
   import type { ArtistRef, ArtistReleaseRef } from "./lib/artist-types";
   import type { Candidate, Chapter, Track } from "./lib/types";
-  import { validChapterRange } from "./lib/chapters";
+  import { isPlaceholderChapterTitle, validChapterRange } from "./lib/chapters";
   import { call, desktop } from "./lib/api";
   import { filterTracks, parseDurationBound, sortTracks, type SortDirection, type TrackSortField } from "./lib/track-sort";
   import { trackSortAvailabilityForSources, trackSortOptionLabelForSources } from "./lib/track-sort-availability";
@@ -903,13 +903,27 @@
   const selectedSearchTracks = $derived(loadedSearchTrackRows
     .filter(row => selectedTrackRows.includes(row))
     .flatMap(row => row.track ? [row.track] : []));
+  function trackWithSearchChapters(track: Track, row: SearchRow): Track {
+    if (row.sourceId !== "youtube" || track.provider !== "youtube" || track.playbackRange) return track;
+    const candidate = chapterState(row);
+    if (typeof candidate !== "object" || candidate.provider !== "youtube"
+      || candidate.id !== `youtube:${track.providerId}` || !/^[\w-]{11}$/.test(track.providerId)) return track;
+    const chapters = usableChapters(candidate)
+      .filter(chapter => !isPlaceholderChapterTitle(chapter.title))
+      .slice(0, 200)
+      .map(({ id, title, startTime, endTime }) => ({ id, title, startTime, endTime }));
+    if (!chapters.length) return track;
+    const provenance = track.provenance && typeof track.provenance === "object" ? track.provenance : {};
+    return { ...track, provenance: { ...provenance, searchPlaybackChapters: { videoId: track.providerId, chapters } } };
+  }
   async function playSearchResult(track: Track, sourceId?: string, row?: SearchRow) {
-    if (!continueSearch) { onPlay?.(track); return; }
-    let queue = playableOccurrences.map(item => item.track);
+    const playing = row ? trackWithSearchChapters(track, row) : track;
+    if (!continueSearch) { onPlay?.(playing); return; }
     let index = sourceId && row ? playableOccurrences.findIndex(item => item.sourceId === sourceId && item.row === row) : -1;
-    if (index < 0) index = queue.indexOf(track);
-    if (index < 0) { queue = [track, ...queue]; index = 0; }
-    onPlay?.(track, queue.length ? queue : [track], index);
+    if (index < 0) index = playableOccurrences.findIndex(item => item.track === track);
+    let queue = playableOccurrences.map(item => trackWithSearchChapters(item.track, item.row));
+    if (index < 0) { queue = [playing, ...queue]; index = 0; }
+    onPlay?.(queue[index] ?? playing, queue, index);
   }
   async function collectMoreSearchResults() {
     const request = ++collectionRequest;
