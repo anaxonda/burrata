@@ -2000,12 +2000,11 @@ async fn get_release_tracks(
         collection_sources::get_bandcamp_release_tracks(&release.source_url, &release.release.id)
             .await?
     } else {
-        let artist = artist.ok_or("Artist identity is required for this release")?;
         state
             .artists
-            .get_release_tracks(
+            .get_release_tracks_with_artist_hint(
                 &release,
-                &artist,
+                artist.as_ref(),
                 &artist_credentials(state.connections.clone()).await?,
             )
             .await?

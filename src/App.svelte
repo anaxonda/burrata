@@ -882,11 +882,14 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     searchRelease=release;searchReleaseTracks=[];searchReleaseError="";searchReleaseBusy=true;
     try {
       let artist=release.credits.find(credit=>credit.artist)?.artist ?? artistHint;
-      if(!artist && release.release.provider !== "bandcamp") {
-        const found=await searchArtists(release.credits.map(c=>c.name).join(" "),1);
-        artist=found.results.find(a=>a.name.toLowerCase()===release.credits[0]?.name.toLowerCase())?.artist;
+      if(!artist && !["discogs", "bandcamp"].includes(release.release.provider)) {
+        const name = release.credits.find(credit => credit.name.trim())?.name.trim();
+        if (name && name.length <= 120) {
+          const found = await searchArtists(name, 1);
+          artist = found.results.find(result => result.name.toLowerCase() === name.toLowerCase())?.artist;
+        }
+        if (!artist) throw new Error("This release has no unambiguous artist identity. Open its source to inspect it.");
       }
-      if(!artist && release.release.provider !== "bandcamp")throw new Error("This release has no unambiguous artist identity. Open its source to inspect it.");
       const rows=await getReleaseTracks(release,artist ?? undefined);
       if(request===searchReleaseRequest&&view==="search"&&searchRelease?.sourceUrl===release.sourceUrl&&searchRelease.release.id===release.release.id)searchReleaseTracks=rows;
     }catch(failure){if(request===searchReleaseRequest)searchReleaseError=String(failure);}finally{if(request===searchReleaseRequest)searchReleaseBusy=false;}

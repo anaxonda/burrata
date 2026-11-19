@@ -4001,6 +4001,36 @@ describe("saved recording navigation", () => {
     expect(document.querySelector(".search-panel")?.textContent).toContain(album.title);
   });
 
+  it("opens a Discogs album search result with no artist credit", async () => {
+    const release: ArtistReleaseRef = {
+      release: { provider: "discogs", id: "123" },
+      title: "The Beatles - Abbey Road", sourceUrl: "https://www.discogs.com/release/123",
+      format: "Vinyl, LP, Album", tracks: [],
+      credits: [{ name: "", role: "artist credit", sourceUrl: "https://www.discogs.com/release/123" }],
+    };
+    const track = { ...savedTrack, artist: "The Beatles", title: "Come Together" };
+    const originalCall = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "list_search_sources") return [{ id: "discogs", name: "Discogs", kinds: ["album"], enabled: true }];
+      if (command === "search_source") return {
+        sourceId: "discogs", complete: true, results: [{ id: "discogs:123", kind: "album",
+          sourceId: "discogs", title: release.title, url: release.sourceUrl, data: release }],
+      };
+      if (command === "get_release_tracks") return [track];
+      return originalCall(command, args);
+    });
+    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); };
+    await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Search"]')!.click();
+    await settle();
+    await searchDiscovery("abbey road", ["discogs"]);
+    document.querySelector<HTMLButtonElement>('[aria-label="Open album: The Beatles - Abbey Road"]')!.click();
+    await settle();
+    expect(mocks.call).toHaveBeenCalledWith("get_release_tracks", { release, artist: undefined });
+    expect(mocks.call.mock.calls.some(([command]) => command === "search_artists")).toBe(false);
+    expect(document.querySelector('[aria-label="Release tracks"]')?.textContent).toContain("Come Together");
+  });
+
   it("opens the matched Bandcamp album from Search without saving or playing", async () => {
     const release: ArtistReleaseRef = {
       release: { provider: "bandcamp", id: "2683810063" },

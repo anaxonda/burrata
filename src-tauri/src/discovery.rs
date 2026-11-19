@@ -1133,12 +1133,24 @@ impl DiscoveryService {
                         .filter(|a| a.release.provider == "discogs")
                         .take(limit)
                     {
+                        let subtitle = [
+                            a.credits.first().map(|credit| credit.name.clone()),
+                            a.year.map(|year| year.to_string()),
+                            a.country.clone(),
+                            a.format.clone(),
+                            a.catalog_number.clone(),
+                        ]
+                        .into_iter()
+                        .flatten()
+                        .filter(|part| !part.trim().is_empty())
+                        .collect::<Vec<_>>()
+                        .join(" · ");
                         out.results.push(DiscoveryResult {
                             id: format!("discogs:{}", a.release.id),
                             kind: "album".into(),
                             source_id: source_id.into(),
                             title: a.title.clone(),
-                            subtitle: a.credits.first().map(|c| c.name.clone()),
+                            subtitle: (!subtitle.is_empty()).then_some(subtitle),
                             url: Some(a.source_url.clone()),
                             artwork_url: a.artwork_urls.first().cloned(),
                             track: None,

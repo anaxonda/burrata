@@ -2141,8 +2141,23 @@ impl ArtistService {
         artist: &ArtistRef,
         credentials: &ArtistCredentials,
     ) -> Result<Vec<Track>, String> {
-        validate_artist_ref(artist)?;
+        self.get_release_tracks_with_artist_hint(release, Some(artist), credentials)
+            .await
+    }
+
+    pub(crate) async fn get_release_tracks_with_artist_hint(
+        &self,
+        release: &ArtistReleaseRef,
+        artist: Option<&ArtistRef>,
+        credentials: &ArtistCredentials,
+    ) -> Result<Vec<Track>, String> {
+        if let Some(artist) = artist {
+            validate_artist_ref(artist)?;
+        } else if release.release.provider != "discogs" {
+            return Err("Artist identity is required for this release".into());
+        }
         if release.release.provider == "monochrome" {
+            let artist = artist.ok_or("Artist identity is required for this release")?;
             if artist.provider != "monochrome" || !valid_monochrome_id(&release.release.id) {
                 return Err("Invalid Monochrome release identity".into());
             }
@@ -2226,7 +2241,8 @@ impl ArtistService {
                 if data["id"].as_str() == Some(edition_id.as_str()) {
                     self.record_library_url_links("album", "musicbrainz", &edition_id, &data);
                 }
-                let selected_name = selected_artist_name_for_release(release, artist);
+                let selected_name =
+                    artist.and_then(|artist| selected_artist_name_for_release(release, artist));
                 mark_library_album_snapshot(
                     parse_musicbrainz_release_tracks(
                         &data,
@@ -2298,7 +2314,8 @@ impl ArtistService {
                         .await?;
                     (release.release.id.clone(), data)
                 };
-                let selected_name = selected_artist_name_for_release(release, artist);
+                let selected_name =
+                    artist.and_then(|artist| selected_artist_name_for_release(release, artist));
                 mark_library_album_snapshot(
                     parse_discogs_release_tracks(
                         &data,
@@ -4458,10 +4475,10 @@ fn parse_discogs_release(value: &Value) -> Option<ArtistReleaseRef> {
         .to_owned();
     let role = value["role"].as_str().unwrap_or("artist credit").to_owned();
     let credited_as = value["artist"].as_str().map(str::to_owned);
-    let format = value["format"]
-        .as_str()
-        .map(str::to_owned)
-        .or_else(|| string_array(&value["format"]).into_iter().next());
+    let format = value["format"].as_str().map(str::to_owned).or_else(|| {
+        let formats = string_array(&value["format"]);
+        (!formats.is_empty()).then(|| formats.into_iter().take(5).collect::<Vec<_>>().join(", "))
+    });
     let primary_type = format.as_deref().and_then(|format| {
         let words: Vec<_> = format.split(',').map(str::trim).collect();
         if words.iter().any(|word| word.eq_ignore_ascii_case("Album")) {
@@ -4485,10 +4502,17 @@ fn parse_discogs_release(value: &Value) -> Option<ArtistReleaseRef> {
             id: id.clone(),
         },
         title,
-        year: value["year"].as_u64().map(|n| n as u32),
+        year: value["year"]
+            .as_u64()
+            .and_then(|year| u32::try_from(year).ok())
+            .or_else(|| value["year"].as_str()?.parse().ok())
+            .filter(|year| *year > 0),
         release_date: None,
-        country: None,
-        label: value["label"].as_str().map(str::to_owned),
+        country: value["country"].as_str().map(str::to_owned),
+        label: value["label"]
+            .as_str()
+            .map(str::to_owned)
+            .or_else(|| string_array(&value["label"]).into_iter().next()),
         catalog_number: value["catno"].as_str().map(str::to_owned),
         format,
         primary_type,
@@ -5951,6 +5975,48 @@ mod tests {
         assert_ne!(master.source_url, release.source_url);
         assert_eq!(master.source_url, "https://www.discogs.com/master/123");
         assert_eq!(release.source_url, "https://www.discogs.com/release/123");
+    }
+
+    #[tokio::test]
+    async fn discogs_album_search_hit_loads_tracks_without_an_artist_hint() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&temp.path().join("discogs-album.sqlite")).unwrap());
+        store
+            .set_provider_cache(
+                "artists.release-tracks.discogs-release",
+                "123",
+                &json!({
+                    "id": 123, "title": "Abbey Road",
+                    "artists": [{"id": 82730, "name": "The Beatles"}],
+                    "tracklist": [{"type_": "track", "position": "A1",
+                        "title": "Come Together", "duration": "4:20"}]
+                }),
+                3600,
+            )
+            .unwrap();
+        let service = ArtistService::new(store).unwrap();
+        let release = parse_discogs_release(&json!({
+            "id": 123, "type": "release", "title": "The Beatles - Abbey Road",
+            "year": "1969", "country": "UK", "format": ["Vinyl", "LP", "Album"]
+        }))
+        .unwrap();
+        assert_eq!(release.year, Some(1969));
+        assert_eq!(release.country.as_deref(), Some("UK"));
+        assert_eq!(release.format.as_deref(), Some("Vinyl, LP, Album"));
+        let rows = service
+            .get_release_tracks_with_artist_hint(
+                &release,
+                None,
+                &ArtistCredentials {
+                    discogs_token: Some("fixture-token".into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].title, "Come Together");
+        assert_eq!(rows[0].artist, "The Beatles");
     }
 
     #[test]

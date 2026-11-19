@@ -967,6 +967,44 @@ fn catalog_retrieval_uses_the_verifiers_title_comparison() {
 }
 
 #[test]
+fn abbey_road_2019_mix_matches_label_upload_and_rejects_other_editions() {
+    let (mut request, mut candidate) =
+        pair("Golden Slumbers - 2019 Mix", "Golden Slumbers (2019 Mix)");
+    request.provider_id = "4FWAzXcVNVIRVA4UQxhvbd".into();
+    request.artist = "The Beatles".into();
+    request.album = Some("Abbey Road (Super Deluxe Edition)".into());
+    request.duration_seconds = Some(91.44);
+    candidate.id = "youtube:hwi2ynHPB80".into();
+    candidate.provider = "youtube".into();
+    candidate.duration_seconds = Some(92.0);
+    candidate.source_metadata = Some(json!({
+        "provider": "youtube", "resolvedProviderId": "hwi2ynHPB80",
+        "sourceMetadataOrigin": "ytDlpFullInfo",
+        "track": "Golden Slumbers (2019 Mix)", "artist": "The Beatles",
+        "artists": ["The Beatles"], "performerCreditsComplete": true, "duration": 92
+    }));
+    assert_same_recording(&request, &candidate);
+    for other in [
+        "Golden Slumbers (2009 Remaster)",
+        "Golden Slumbers / Carry That Weight (Takes 1-3)",
+    ] {
+        candidate.title = other.into();
+        candidate.source_metadata.as_mut().unwrap()["track"] = json!(other);
+        assert_eq!(
+            assess(
+                &request,
+                &candidate,
+                MatchLevel::Balanced,
+                MatchStage::Resolved
+            )
+            .action,
+            MatchAction::Reject,
+            "{other}"
+        );
+    }
+}
+
+#[test]
 fn meaningful_title_symbols_and_preview_word_survive_verification() {
     for (requested, observed) in [
         ("Sonata in F♯ minor", "Sonata in F minor"),
