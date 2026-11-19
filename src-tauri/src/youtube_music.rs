@@ -1243,7 +1243,7 @@ mod tests {
                 ]}}}
             ]
         });
-        let item = |row| parse_search_response(row, 1).remove(0);
+        let item = |row: &Value| parse_search_response(row, 1).remove(0);
         assert_eq!(item(&row).views, Some(1234));
         assert!(item(&row).view_count_text.is_none());
 
