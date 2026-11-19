@@ -2153,9 +2153,7 @@ impl RemotePlaylistService {
             .provider_operation(provider, "connect", json!({}))
             .await?;
         let account = self.optional_result_account(provider, &value)?;
-        let mut state = self.load_state()?;
-        state.forgotten_providers.remove(provider);
-        self.save_state(&state)?;
+        self.restore_connection(provider)?;
         if provider == "spotify" {
             if let Some(account) = account.as_ref() {
                 {
@@ -2198,6 +2196,15 @@ impl RemotePlaylistService {
             },
         })
     }
+    pub(crate) fn restore_connection(&self, provider: &str) -> Result<()> {
+        validate_provider(provider)?;
+        let mut state = self.load_state()?;
+        if state.forgotten_providers.remove(provider) {
+            self.save_state(&state)?;
+        }
+        Ok(())
+    }
+
     /// Forget cached identity for this provider. Provider logout remains an explicit browser action.
     pub fn disconnect(&self, provider: &str) -> Result<RemoteProviderStatus> {
         validate_provider(provider)?;
@@ -2234,7 +2241,7 @@ impl RemotePlaylistService {
             display_name: None,
             write_sync_enabled,
             checked_at: chrono::Utc::now().to_rfc3339(),
-            error: None,
+            error: Some("Connection was forgotten in Burrata".into()),
         })
     }
     pub fn list_bindings(
@@ -8293,6 +8300,21 @@ mod tests {
                 checked_at: chrono::Utc::now(),
             },
         );
+    }
+
+    #[tokio::test]
+    async fn restoring_a_verified_connection_clears_only_that_provider() {
+        let (_dir, _store, service, _transport) = duration_fixture_service("fixture-account");
+        service.disconnect("spotify").unwrap();
+        service.disconnect("youtube").unwrap();
+        assert!(!service.connection_status("spotify").await.unwrap().connected);
+
+        service.restore_connection("spotify").unwrap();
+
+        assert!(service.connection_status("spotify").await.unwrap().connected);
+        let forgotten = service.load_state().unwrap().forgotten_providers;
+        assert!(!forgotten.contains("spotify"));
+        assert!(forgotten.contains("youtube"));
     }
 
     struct BlockingYouTubeApplyTransport {

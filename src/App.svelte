@@ -52,7 +52,7 @@
   import type { BackupInspection, BackupMediaEstimate, BackupMediaRootPreview, BackupProgress, BackupSchedule, SettingsImportPreview, SettingsImportSelection } from "./BackupRestore.svelte";
   import type { ImportChoice } from "./ImportHub.svelte";
   import type { DirectoryBrowserLocation, DirectoryBrowserSnapshot } from "./DirectoryBrowser.svelte";
-  import type { SearchKind, SearchRow } from "./SearchPanel.svelte";
+  import type { SearchKind, SearchPlaybackChapters, SearchRow } from "./SearchPanel.svelte";
   import LazyView from "./LazyView.svelte";
   import {
     applyBackupFrontendPreferences,
@@ -3891,7 +3891,26 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     const label=status==="recognition_applied"?"Recognized tags applied": ["applied","completed"].includes(status)?"Tagged":status==="review"||status==="approved"?"Needs review":status==="no_match"?"No catalog match":status==="failed"?"Tagging failed":status==="retry"?"Retrying tag lookup":status==="disabled"?"Automatic tagging off":"Tagging…";
     return [[job.id,{label,assetId:asset.id,review}]];
   })));
-  const currentSourceChapters = $derived((playingCandidate?.chapters ?? []).filter(chapter=>!isPlaceholderChapterTitle(chapter.title)));
+  let inspectedSearchChapters = $state<{ owner: string | number; videoId: string; chapters: Chapter[] } | null>(null);
+  function rememberInspectedSearchChapters(hint: SearchPlaybackChapters) {
+    const snapshot = nativeSnapshot;
+    if (!snapshot || playingTrack?.provider !== "youtube" || playingTrack.providerId !== hint.videoId
+      || playingTrack.playbackRange) return;
+    inspectedSearchChapters = {
+      owner: snapshot.entryId ?? snapshot.generation,
+      videoId: hint.videoId,
+      chapters: hint.chapters.map(chapter => ({ ...chapter, confidence: "source_metadata_unverified" })),
+    };
+  }
+  const currentSourceChapters = $derived.by(() => {
+    const nativeChapters = (playingCandidate?.chapters ?? []).filter(chapter => !isPlaceholderChapterTitle(chapter.title));
+    if (nativeChapters.length || !inspectedSearchChapters || !nativeSnapshot) return nativeChapters;
+    const hint = inspectedSearchChapters;
+    return (nativeSnapshot.entryId ?? nativeSnapshot.generation) === hint.owner
+      && playingTrack?.provider === "youtube" && playingTrack.providerId === hint.videoId && !playingTrack.playbackRange
+      && playingCandidate?.provider === "youtube" && playingCandidate.id === `youtube:${hint.videoId}`
+      ? hint.chapters : nativeChapters;
+  });
   const nativeCanonicalChapter = $derived((nativeSnapshot?.chapter?.endSeconds !== undefined)
     ? chapterForRange(currentSourceChapters, {startTime:nativeSnapshot.chapter.startSeconds,endTime:nativeSnapshot.chapter.endSeconds})
     : null);
@@ -7721,6 +7740,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     onQueue: (track: Track) => queueArtistTracks([track], "append"),
     onContext: (track: Track, event?: MouseEvent) => { actionTrack = track; actionAnchor = event ? { x: event.clientX, y: event.clientY } : null; },
     onPlayChapter: playChapter, onQueueChapter: queueChapter,
+    onInspectedChapters: rememberInspectedSearchChapters,
     onDownloadChapter: (parent: Track, candidate: Candidate, chapter: Chapter) => void downloadChapter(parent, candidate, chapter),
     onInfoChapter: (parent: Track, candidate: Candidate, chapter: Chapter) => { const virtual = virtualChapterTrack(parent, candidate, chapter); if (virtual) searchMoreInfo(virtual, candidate, chapter.title); },
   });

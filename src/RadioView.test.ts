@@ -612,6 +612,38 @@ it.each([false, true])("updates an unhydrated radio favorite before lookup compl
   if (!clickedTwice) expect(onFavoriteTrack).toHaveBeenCalledWith(expect.objectContaining({ id: canonical.id, sourceUrl: "" }));
 });
 
+it("retries a radio favorite after a transient track lookup failure", async () => {
+  const metadata = {stationId: "main", artist: "Fixture Artist", title: "Heard Song", sourceUrl: "", metadataConfidence: "station"};
+  const providerId = "b".repeat(64);
+  const canonical = {id: `radio_song:${providerId}`, provider: "radio_song", providerId, title: metadata.title, artist: metadata.artist, sourceUrl: "", favorite: false, provenance: {sourceKind: "radioSong"}};
+  let rejectLookup!: (reason: Error) => void;
+  const lookup = new Promise<typeof canonical>((_, reject) => { rejectLookup = reject; });
+  let lookupAttempts = 0;
+  mocks.call.mockImplementation(async (command: string) => {
+    if (command === "get_radio_playlist_option") return {enabled: false, collectionId: null};
+    if (command === "list_radio_playlist_targets") return [];
+    if (command === "get_station_details") return {stationId: "main", history: [metadata], historyAvailable: true};
+    if (command === "search_playback_history") return {items: [], total: 0};
+    if (command === "get_radio_song_track") return ++lookupAttempts === 1 ? lookup : canonical;
+    throw new Error(`Unexpected command ${command}`);
+  });
+  const onFavoriteTrack = vi.fn();
+  const instance = mount(RadioView, {target: document.body, props: {savedStations: stations, selectedStationId: "main", onPlayStation: vi.fn(), onArtist: vi.fn(), onFavoriteTrack}});
+  cleanup = () => unmount(instance);
+  const heart = () => document.querySelector<HTMLButtonElement>(".history button.favorite")!;
+  await vi.waitFor(() => expect(heart()).not.toBeNull());
+  heart().click();
+  rejectLookup(new Error("Radio service temporarily unavailable"));
+  const error = "Could not look up this radio song to update Liked Songs.";
+  await vi.waitFor(() => expect(document.body.textContent).toContain(error));
+  expect(onFavoriteTrack).not.toHaveBeenCalled();
+
+  heart().click();
+  await vi.waitFor(() => expect(onFavoriteTrack).toHaveBeenCalledWith(expect.objectContaining({id: canonical.id})));
+  expect(lookupAttempts).toBe(2);
+  expect(document.body.textContent).not.toContain(error);
+});
+
 it("removes a saved station independently of the add dialog", async () => {
     mocks.call.mockImplementation(async (command: string, args?: Record<string,unknown>) => {
       if(command === "get_radio_stations") return stations;

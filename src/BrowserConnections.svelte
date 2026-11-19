@@ -3,6 +3,8 @@
   import SpotifyDurationRepair from "./SpotifyDurationRepair.svelte";
 
   type Provider = "spotify" | "youtube";
+  const companionDisconnected = "Browser companion is not connected";
+  const connectionForgotten = "Connection was forgotten in Burrata";
   type Account = { provider: Provider; connected: boolean; writeSyncEnabled?: boolean; accountId?: string | null; displayName?: string | null; checkedAt?: string | null; error?: string | null };
   type ManagedSession = { enabled: boolean; nativeLoginAvailable?: boolean; running: boolean; mode: string; transport: string; credentialStorage: string; spotifyAccountId?: string | null; youtubeAccountId?: string | null; youtubeLoginPage?: string | null; youtubeReconnectRequired?: boolean; pendingYoutubeAccountId?: string | null; pendingYoutubeDisplayName?: string | null; accountRevisions: Record<string, number>; connectionSeen: boolean; message: string };
   let { call, onBrowse, onChanged, onWriteSyncChange }: {
@@ -82,7 +84,14 @@
       setAccount(account);
       if (!account.connected) message[provider] = connectionMessage(provider, account.error || "");
     } catch (error) {
-      const detail = String(error);
+      const detail = error instanceof Error ? error.message : String(error);
+      if (detail === companionDisconnected) {
+        if (!managed) await refreshManaged();
+        if (managed?.nativeLoginAvailable) {
+          await managedAction("start_managed_provider_login", provider);
+          return;
+        }
+      }
       message[provider] = /sign.?in|required|unauthenticated/i.test(detail)
         ? connectionMessage(provider, detail)
         : `Could not connect: ${detail}`;
@@ -132,7 +141,7 @@
   const activeNativeProvider = $derived<Provider | null>(managed?.mode === "native-login:spotify" ? "spotify" : managed?.mode === "native-login:youtube" || (managed?.mode === "native-awaiting-youtube-confirmation" && managed.pendingYoutubeAccountId) ? "youtube" : null);
   function opensManagedLogin(provider: Provider) {
     return nativeSession || (managed?.nativeLoginAvailable === true
-      && accounts[provider]?.error === "Browser companion is not connected");
+      && accounts[provider]?.error === companionDisconnected);
   }
   async function connectAccount(provider: Provider) {
     if (opensManagedLogin(provider)) await managedAction("start_managed_provider_login", provider);
@@ -152,7 +161,7 @@
   <div class="remote-account-grid">
     {#each ["spotify", "youtube"] as provider (provider)}
       {@const account = accounts[provider as Provider]}
-      {@const pausedAccount = nativeAccessPaused && Boolean(account?.connected || (provider === "spotify" ? managed?.spotifyAccountId : managed?.youtubeAccountId))}
+      {@const pausedAccount = nativeAccessPaused && account?.error !== connectionForgotten && Boolean(account?.connected || (provider === "spotify" ? managed?.spotifyAccountId : managed?.youtubeAccountId))}
       <article class="remote-account-card" aria-label={`${providerName(provider as Provider)} account`}>
         <div class="remote-account-heading">
           <h3>{providerName(provider as Provider)}</h3>

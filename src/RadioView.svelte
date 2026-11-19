@@ -348,11 +348,11 @@
     let pending = radioTrackLoads.get(identity);
     if (!pending) {
       pending = call<Track>("get_radio_song_track", { stationId: item.stationId, metadata: item })
-        .catch(() => fallbackTrackForMetadata(item))
         .then((track) => {
           radioTracksByIdentity = { ...radioTracksByIdentity, [identity]: track };
           return track;
         })
+        .catch(() => fallbackTrackForMetadata(item))
         .finally(() => radioTrackLoads.delete(identity));
       radioTrackLoads.set(identity, pending);
     }
@@ -374,6 +374,7 @@
     if (tracks[index]) await onPlayTrack?.(tracks[index], tracks, index);
   }
   function downloadHistoryTrack(track: Track) { void hydrateHistoryTrack(track).then(canonical => onDownloadTrack?.(canonical)); }
+  const favoriteLookupError = "Could not look up this radio song to update Liked Songs.";
   function favoriteHistoryTrack(track: Track) {
     const identity = radioIdentityKey(track);
     const pending = pendingHistoryFavorites.get(identity);
@@ -381,6 +382,7 @@
       pendingHistoryFavorites = new Map(pendingHistoryFavorites).set(identity, !pending);
       return;
     }
+    if (error === favoriteLookupError) error = "";
     if (radioSongTrackIdentity(track.id)) {
       void onFavoriteTrack?.(track);
       return;
@@ -390,7 +392,7 @@
     pendingHistoryFavorites = new Map(pendingHistoryFavorites).set(identity, !isFavorite(track));
     void hydrateRadioSong(item).then(canonical => {
       if (!radioSongTrackIdentity(canonical.id)) {
-        error = "Could not look up this radio song to update Liked Songs.";
+        error = favoriteLookupError;
       } else if (pendingHistoryFavorites.get(identity) !== isFavorite(canonical)) {
         void onFavoriteTrack?.(canonical);
       }

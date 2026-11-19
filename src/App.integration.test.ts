@@ -9878,6 +9878,51 @@ describe("native playback frontend", () => {
     expect(document.querySelector(".player-track-artist")?.textContent).toContain(title.startsWith("<") ? "Rafael, Luch" : `Chapter: ${title}`);
   });
 
+  it("shows chapters inspected in Search during native playback of the same queue entry", async () => {
+    const track: Track = { ...savedTrack, id: "youtube:6CVsBOjeDzk", provider: "youtube", providerId: "6CVsBOjeDzk",
+      sourceUrl: "https://www.youtube.com/watch?v=6CVsBOjeDzk", title: "Medley from ABBEY ROAD", durationSeconds: 389, provenance: {} };
+    const candidate: Candidate = { ...youtubeCandidate(track), id: track.id, url: track.sourceUrl, durationSeconds: 389 };
+    const chapters = [
+      { id: "opening", title: "You Never Give Me Your Money", startTime: 0, endTime: 242, confidence: "source_metadata_unverified" },
+      { id: "sun-king", title: "Sun King", startTime: 242, endTime: 389, confidence: "source_metadata_unverified" },
+    ];
+    const original = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async (command, args) => {
+      if (command === "list_search_sources") return [{ id: "youtube", name: "YouTube", kinds: ["video"], enabled: true }];
+      if (command === "search_source") return { sourceId: "youtube", complete: true,
+        results: [{ id: track.id, kind: "video", sourceId: "youtube", title: track.title, url: track.sourceUrl, track }] };
+      if (command === "inspect_youtube_source") return { ...candidate, chapters };
+      return original(command, args);
+    });
+    const snapshot = makeNativeSnapshot({ revision: 4, generation: 9, status: "playing", trackId: track.id, track, candidate,
+      queue: [track, track], queueEntryIds: ["first-entry", "second-entry"], entryId: "first-entry", currentIndex: 0,
+      paused: false, position: 174, duration: 389 });
+    mountNative(snapshot);
+    await settle();
+    [...document.querySelectorAll<HTMLButtonElement>("nav button")].find(button => button.textContent?.includes("Search"))!.click();
+    await settle();
+    await searchDiscovery(track.title, ["youtube"]);
+    document.querySelector<HTMLButtonElement>(`[aria-label="Actions for ${track.title}"]`)!.click();
+    await settle();
+    [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.includes("Track information"))!.click();
+    await settle();
+    const artistLine = () => document.querySelector(".player-track-artist")?.textContent;
+    expect(artistLine()).not.toContain("Chapter:");
+    mocks.call.mockClear();
+    document.querySelector<HTMLButtonElement>(".chapter-check")!.click();
+    await settle();
+    expect(artistLine()).toContain("Chapter: You Never Give Me Your Money");
+    expect(mocks.call.mock.calls.some(([command]) => command === "playback_command")).toBe(false);
+
+    emitNative({ ...snapshot, revision: 5, position: 242 });
+    await settle();
+    expect(artistLine()).toContain("Chapter: Sun King");
+
+    emitNative({ ...snapshot, revision: 6, generation: 10, entryId: "second-entry", currentIndex: 1 });
+    await settle();
+    expect(artistLine()).not.toContain("Chapter:");
+  });
+
   it("preserves cached cover art through progress updates and accepts an upgraded native cache file", async () => {
     const track={...savedTrack,artworkUrl:"https://geo-static.traxsource.com/scripts/image.php/52x52/abcdef.jpg"};
     mountNative(makeNativeSnapshot({revision:4,generation:9,status:"playing",trackId:track.id,track,queue:[track],currentIndex:0,paused:false}));

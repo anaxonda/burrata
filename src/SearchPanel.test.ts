@@ -1733,7 +1733,11 @@ describe("SearchPanel", () => {
     const enrichSource = vi.fn(async () => candidate);
     const onPlayChapter = vi.fn();
     const onPlay = vi.fn();
-    const target = render({ initialSources: ["youtube"], searchSource, enrichSource, onPlayChapter, onPlay });
+    const onNext = vi.fn();
+    const onQueue = vi.fn();
+    const onInspectedChapters = vi.fn();
+    const target = render({ initialSources: ["youtube"], searchSource, enrichSource, onPlayChapter, onPlay,
+      onNext, onQueue, onInspectedChapters, playingTrack: track });
     await settle();
     const input = target.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
     input.value = "Long set"; input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -1748,6 +1752,11 @@ describe("SearchPanel", () => {
     const badge = target.querySelector<HTMLElement>(".chapter-badge.available")!;
     expect(enrichSource).toHaveBeenCalledTimes(1);
     expect(target.querySelectorAll(".chapter-row")).toHaveLength(0);
+    const hint = { videoId: track.providerId, chapters: [
+      { id: chapter.id, title: chapter.title, startTime: 30, endTime: 90 },
+    ] };
+    const playbackTrack = { ...track, provenance: { searchPlaybackChapters: hint } };
+    expect(onInspectedChapters).toHaveBeenCalledWith(hint);
 
     badge.click();
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -1764,12 +1773,14 @@ describe("SearchPanel", () => {
     expect(target.querySelector(".chapter-badge.available")?.textContent).toContain("Chapters · 1");
 
     target.querySelector<HTMLButtonElement>(".track-title")!.click();
-    expect(onPlay.mock.calls[0]?.[0]).toEqual({
-      ...track,
-      provenance: { searchPlaybackChapters: { videoId: track.providerId, chapters: [
-        { id: chapter.id, title: chapter.title, startTime: 30, endTime: 90 },
-      ] } },
-    });
+    expect(onPlay.mock.calls[0]?.[0]).toEqual(playbackTrack);
+    for (const [label, action] of [["Play next", onNext], ["Add to queue", onQueue]] as const) {
+      target.querySelector<HTMLButtonElement>('[aria-label="Actions for Long set"]')!.click();
+      await settle();
+      Array.from(target.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent?.trim() === label)!.click();
+      await settle();
+      expect(action).toHaveBeenCalledWith(playbackTrack);
+    }
     expect(enrichSource).toHaveBeenCalledTimes(1);
   });
 

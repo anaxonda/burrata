@@ -3869,7 +3869,18 @@ async fn confirm_managed_provider_account(
         .confirm_account(&provider)
         .await;
     observe_managed_playback_session(&state, state.managed_provider_session.status(), &providers);
-    result
+    let session = result?;
+    let confirmed = match provider.as_str() {
+        "spotify" => session.spotify_account_id.is_some(),
+        "youtube" => {
+            session.youtube_account_id.is_some() && session.pending_youtube_account_id.is_none()
+        }
+        _ => false,
+    };
+    if session.transport == "native-webview-http" && session.mode == "native-ready" && confirmed {
+        state.remote_playlists.restore_connection(&provider)?;
+    }
+    Ok(session)
 }
 
 #[tauri::command]

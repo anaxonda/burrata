@@ -145,6 +145,45 @@ describe("BrowserConnections", () => {
     expect(target.textContent).not.toContain("Check again");
   });
 
+  it.each([false, true])("reconnects a forgotten Spotify account through native sign-in (native already enabled: %s)", async nativeEnabled => {
+    let confirmed = false;
+    const session = {
+      enabled: nativeEnabled, nativeLoginAvailable: true, running: false,
+      mode: "stopped", transport: nativeEnabled ? "native-webview-http" : "companion",
+      credentialStorage: "not-confirmed", spotifyAccountId: nativeEnabled ? "saved-account" : null,
+      accountRevisions: {}, connectionSeen: false, message: "Ready to connect",
+    };
+    const call = vi.fn(async (command: string, args?: Record<string, unknown>) => {
+      switch (command) {
+        case "public_spotify_duration_repair_running": return false;
+        case "get_managed_provider_session_status": return session;
+        case "remote_playlist_connection_status":
+          return args?.provider === "spotify"
+            ? { provider: "spotify", connected: confirmed, error: confirmed ? null : "Connection was forgotten in Burrata" }
+            : { provider: "youtube", connected: false };
+        case "connect_remote_playlist_provider": throw new Error("Browser companion is not connected");
+        case "start_managed_provider_login":
+          return { ...session, enabled: true, transport: "native-webview-http", mode: "native-login:spotify" };
+        case "confirm_managed_provider_account":
+          confirmed = true;
+          return { ...session, enabled: true, transport: "native-webview-http", mode: "native-ready", spotifyAccountId: "saved-account" };
+        default: throw new Error(`Unexpected command ${command}`);
+      }
+    });
+    const {target, onBrowse} = render(call);
+    const spotify = target.querySelector<HTMLElement>('[aria-label="Spotify account"]')!;
+    const click = (label: string) => [...spotify.querySelectorAll("button")].find(button => button.textContent?.trim() === label)!.click();
+    await settle();
+    click("Connect Spotify");
+    await settle();
+    expect(call).toHaveBeenCalledWith("start_managed_provider_login", {provider: "spotify"});
+    expect(call.mock.calls.filter(([command]) => command === "connect_remote_playlist_provider")).toHaveLength(nativeEnabled ? 0 : 1);
+    click("I’ve signed in — continue");
+    await settle();
+    click("Search playlists");
+    expect(onBrowse).toHaveBeenCalledWith("spotify");
+  });
+
   it("clears only the selected browser account connection", async () => {
     const call = vi.fn(async (command: string, args?: Record<string, unknown>) => {
       const provider = args?.provider as string;

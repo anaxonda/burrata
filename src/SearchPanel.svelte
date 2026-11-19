@@ -23,6 +23,7 @@
   export type SearchRow = { id: string; kind: string; sourceId: string; title: string; subtitle?: string | null; url?: string | null; artworkUrl?: string | null; track?: Track | null; data?: unknown };
   export type SearchPage = { sourceId?: string; results?: SearchRow[]; nextCursor?: string | null; complete?: boolean; progress?: string | null; warnings?: string[] };
   export type Source = { id: string; name: string; kinds?: string[]; enabled?: boolean; detail?: string };
+  export type SearchPlaybackChapters = { videoId: string; chapters: Pick<Chapter, "id" | "title" | "startTime" | "endTime">[] };
 
   const DEFAULT_SOURCES: Source[] = [
     { id: "library", name: "My library" }, { id: "musicbrainz", name: "MusicBrainz" }, { id: "discogs", name: "Discogs" }, { id: "monochrome", name: "Monochrome", kinds: ["track", "artist", "album"] },
@@ -39,7 +40,7 @@
   let {
     query: initialQuery = "", navigationSnapshotKey = null, initialSources, availableSources, sourceCapabilities = {}, searchSource, enrichSource, enrichTrack, searchPreset, startupReadStorage,
     onRemoteResult = () => {}, onAddRemotePlaylist, onOpenBandcampPlaylist, onPlaylistTracks, onQueueTracks, onDownloadTracks, onArtist = () => {}, loadArtistProfile, onArtistTrack = () => {}, onAlbum = () => {}, onTrackAlbum, onQueryChange = () => {}, onPlay = () => {}, onDownload = () => {}, onFavorite, onNext, onQueue, onContext,
-    onPlayChapter = () => {}, onQueueChapter = () => {}, onDownloadChapter = () => {}, onInfoChapter = () => {},
+    onPlayChapter = () => {}, onQueueChapter = () => {}, onDownloadChapter = () => {}, onInfoChapter = () => {}, onInspectedChapters,
     playingTrack = null, bufferingTrack = null, playingTrackId = "", bufferingTrackId = "", paused = false,
     automationSearch = null, automationSearchCancelled = null, onAutomationSearchComplete = () => {},
   }: {
@@ -63,6 +64,7 @@
     onQueueChapter?: (parent: Track, candidate: Candidate, chapter: Chapter, mode: "next" | "append") => void;
     onDownloadChapter?: (parent: Track, candidate: Candidate, chapter: Chapter) => void;
     onInfoChapter?: (parent: Track, candidate: Candidate, chapter: Chapter) => void;
+    onInspectedChapters?: (hint: SearchPlaybackChapters) => void;
     playingTrack?: Track | null; bufferingTrack?: Track | null; playingTrackId?: string; bufferingTrackId?: string; paused?: boolean;
     automationSearch?: AutomationSearchRequest | null;
     automationSearchCancelled?: string | null;
@@ -605,7 +607,7 @@
       const key = identity(row);
       if (seenSearchRows.has(key)) continue;
       seenSearchRows.add(key);
-      if (autoQueueSearchResults) fresh.push(row.track);
+      if (autoQueueSearchResults) fresh.push(trackWithSearchChapters(row.track, row));
     }
     if (fresh.length) onQueueTracks(fresh, "append");
   }
@@ -900,21 +902,29 @@
     return [source.id, [...rows.filter(row => !row.track), ...tracksForSource]];
   })));
   const loadedSearchTrackRows = $derived(Object.values(displayedRowsBySource).flat().filter(row => row.track));
-  const selectedSearchTracks = $derived(loadedSearchTrackRows
-    .filter(row => selectedTrackRows.includes(row))
+  const selectedLoadedSearchRows = $derived(loadedSearchTrackRows.filter(row => selectedTrackRows.includes(row)));
+  const selectedSearchTracks = $derived(selectedLoadedSearchRows
     .flatMap(row => row.track ? [row.track] : []));
-  function trackWithSearchChapters(track: Track, row: SearchRow): Track {
-    if (row.sourceId !== "youtube" || track.provider !== "youtube" || track.playbackRange) return track;
-    const candidate = chapterState(row);
+  function searchPlaybackChapters(track: Track, row: SearchRow, candidate = chapterState(row)): SearchPlaybackChapters | undefined {
+    if (row.sourceId !== "youtube" || track.provider !== "youtube" || track.playbackRange) return;
     if (typeof candidate !== "object" || candidate.provider !== "youtube"
-      || candidate.id !== `youtube:${track.providerId}` || !/^[\w-]{11}$/.test(track.providerId)) return track;
+      || candidate.id !== `youtube:${track.providerId}` || !/^[\w-]{11}$/.test(track.providerId)) return;
     const chapters = usableChapters(candidate)
       .filter(chapter => !isPlaceholderChapterTitle(chapter.title))
       .slice(0, 200)
       .map(({ id, title, startTime, endTime }) => ({ id, title, startTime, endTime }));
-    if (!chapters.length) return track;
+    if (chapters.length) return { videoId: track.providerId, chapters };
+  }
+  function trackWithSearchChapters(track: Track, row: SearchRow): Track {
+    const hint = searchPlaybackChapters(track, row);
+    if (!hint) return track;
     const provenance = track.provenance && typeof track.provenance === "object" ? track.provenance : {};
-    return { ...track, provenance: { ...provenance, searchPlaybackChapters: { videoId: track.providerId, chapters } } };
+    return { ...track, provenance: { ...provenance, searchPlaybackChapters: hint } };
+  }
+  function publishInspectedChapters(row: SearchRow, track: Track, candidate?: Candidate) {
+    if (!onInspectedChapters || (playingTrack?.id ?? playingTrackId) !== track.id) return;
+    const hint = searchPlaybackChapters(track, row, candidate);
+    if (hint) onInspectedChapters(hint);
   }
   async function playSearchResult(track: Track, sourceId?: string, row?: SearchRow) {
     const playing = row ? trackWithSearchChapters(track, row) : track;
@@ -1156,7 +1166,13 @@
       if (task.request === generation && enriched) {
         const rows = rowsBySource[task.sourceId] ?? [];
         const key = identity(task.row);
-        rowsBySource = { ...rowsBySource, [task.sourceId]: rows.map(row => identity(row) === key && row.track ? { ...row, track: mergedEnrichment(row.track, enriched) } : row) };
+        const row = rows.find(item => identity(item) === key);
+        if (row?.track) {
+          const track = mergedEnrichment(row.track, enriched);
+          const enrichedRow = { ...row, track };
+          rowsBySource = { ...rowsBySource, [task.sourceId]: rows.map(item => item === row ? enrichedRow : item) };
+          publishInspectedChapters(enrichedRow, track);
+        }
       }
     } catch { /* enrichment is supplemental; search results stay usable */ }
     finally { enrichmentRunning--; void pumpEnrichment(); }
@@ -1191,6 +1207,7 @@
       if (request !== generation) return;
       const chapters = usableChapters(candidate);
       chaptersByRow = { ...chaptersByRow, [id]: Array.isArray(candidate.chapters) ? (chapters.length ? { ...candidate, chapters } : "none") : "unknown" };
+      if (row.track && chapters.length) publishInspectedChapters(row, row.track, candidate);
     } catch { if (request === generation) chaptersByRow = { ...chaptersByRow, [id]: "unavailable" }; }
   }
 </script>
@@ -1278,7 +1295,7 @@
     </fieldset>
       {#if trackControlsApplicable && (Object.values(cursors).some(Boolean) || Object.values(overflowRows).some(rows => rows.length > 0))}<button type="button" class="collect-more" onclick={() => void collectMoreSearchResults()} disabled={collectingSearch}>Collect more tracks</button>{/if}
     {#if onPlaylistTracks && loadedSearchTrackRows.length}<div class="search-playlist-selection" role="group" aria-label="Search track selection">
-      {#if searchSelectionMode}<span>{selectedSearchTracks.length ? `${selectedSearchTracks.length} tracks selected` : `${loadedSearchTrackRows.length} tracks loaded`}</span><button type="button" onclick={() => selectedTrackRows = loadedSearchTrackRows}>Select loaded</button>{#if selectedSearchTracks.length}<button type="button" onclick={() => selectedTrackRows = []}>Clear selection</button>{#if onQueueTracks}<button type="button" class="add-search-queue" onclick={() => onQueueTracks(selectedSearchTracks, "append")}>Add to queue</button>{/if}<button type="button" class="add-search-selected" onclick={() => void onPlaylistTracks?.(selectedSearchTracks)}>Add selected to playlist</button>{/if}<button type="button" class="cancel-search-selection" onclick={cancelSearchTrackSelection}>Cancel</button>
+      {#if searchSelectionMode}<span>{selectedSearchTracks.length ? `${selectedSearchTracks.length} tracks selected` : `${loadedSearchTrackRows.length} tracks loaded`}</span><button type="button" onclick={() => selectedTrackRows = loadedSearchTrackRows}>Select loaded</button>{#if selectedSearchTracks.length}<button type="button" onclick={() => selectedTrackRows = []}>Clear selection</button>{#if onQueueTracks}<button type="button" class="add-search-queue" onclick={() => onQueueTracks(selectedLoadedSearchRows.flatMap(row => row.track ? [trackWithSearchChapters(row.track, row)] : []), "append")}>Add to queue</button>{/if}<button type="button" class="add-search-selected" onclick={() => void onPlaylistTracks?.(selectedSearchTracks)}>Add selected to playlist</button>{/if}<button type="button" class="cancel-search-selection" onclick={cancelSearchTrackSelection}>Cancel</button>
       {:else}<span>{loadedSearchTrackRows.length} tracks loaded</span><button type="button" class="start-search-selection" aria-label="Select search tracks" onclick={() => searchSelectionMode = true}>Select</button>{/if}
     </div>{/if}
   </div>{/if}
@@ -1306,7 +1323,7 @@
                 {#if !track && row.subtitle}<p class="subtitle">{row.subtitle}</p>{/if}
                 {#if track}
                   {#if onPlaylistTracks && searchSelectionMode}<label class="search-track-select"><input type="checkbox" aria-label={`Select ${track.title} for playlist`} checked={selectedTrackRows.includes(row)} onchange={() => toggleSelectedSearchTrack(row)} />Select</label>{/if}
-                  <div class="compact-track"><TrackList tracks={[track]} presentation="playlist" position={() => rows.slice(0, _index + 1).filter(item => item.track).length} listLabel={`${source.name} track result`} onPlay={() => playSearchResult(track, source.id, row)} onDownload={onDownload} onFavorite={onFavorite} onNext={onNext} onQueue={onQueue} onArtist={onArtistTrack} onAlbum={onTrackAlbum ? (item) => onTrackAlbum(item, searchMode === "library" && source.id === "library") : undefined} onContext={onContext} onInfo={() => { expanded = { ...expanded, [identity(row)]: !expanded[identity(row)] }; }} meta={() => [source.name, track.localAvailability === "available" ? "In library" : null, track.releaseDate, track.durationSeconds ? `${Math.floor(track.durationSeconds / 60)}:${String(Math.floor(track.durationSeconds % 60)).padStart(2, "0")}` : null].filter(Boolean).join(" · ")} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} /></div>
+                  <div class="compact-track"><TrackList tracks={[track]} presentation="playlist" position={() => rows.slice(0, _index + 1).filter(item => item.track).length} listLabel={`${source.name} track result`} onPlay={() => playSearchResult(track, source.id, row)} onDownload={onDownload} onFavorite={onFavorite} onNext={onNext ? (item) => onNext(trackWithSearchChapters(item, row)) : undefined} onQueue={onQueue ? (item) => onQueue(trackWithSearchChapters(item, row)) : undefined} onArtist={onArtistTrack} onAlbum={onTrackAlbum ? (item) => onTrackAlbum(item, searchMode === "library" && source.id === "library") : undefined} onContext={onContext} onInfo={() => { expanded = { ...expanded, [identity(row)]: !expanded[identity(row)] }; }} meta={() => [source.name, track.localAvailability === "available" ? "In library" : null, track.releaseDate, track.durationSeconds ? `${Math.floor(track.durationSeconds / 60)}:${String(Math.floor(track.durationSeconds % 60)).padStart(2, "0")}` : null].filter(Boolean).join(" · ")} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} /></div>
                   {@const cachedChapterState = chapterState(row)}
                   {#if row.url && (row.kind === "video" || row.kind === "set" || source.id === "youtube" || source.id === "soundcloud") && cachedChapterState && typeof cachedChapterState === "object"}
                     <details class="chapter-details" open={Boolean(chapterExpanded[identity(row)])} ontoggle={(event) => { chapterExpanded = { ...chapterExpanded, [identity(row)]: event.currentTarget.open }; }}><summary class="chapter-badge available">Chapters · {cachedChapterState.chapters?.length ?? 0}</summary>
