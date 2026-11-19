@@ -4002,6 +4002,7 @@ describe("saved recording navigation", () => {
   });
 
   it("opens a Discogs album search result with no artist credit", async () => {
+    discogsConnectionEnabled = true;
     const release: ArtistReleaseRef = {
       release: { provider: "discogs", id: "123" },
       title: "The Beatles - Abbey Road", sourceUrl: "https://www.discogs.com/release/123",
