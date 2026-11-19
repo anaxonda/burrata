@@ -9904,12 +9904,11 @@ describe("native playback frontend", () => {
     await searchDiscovery(track.title, ["youtube"]);
     document.querySelector<HTMLButtonElement>(`[aria-label="Actions for ${track.title}"]`)!.click();
     await settle();
-    [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.includes("Track information"))!.click();
-    await settle();
     const artistLine = () => document.querySelector(".player-track-artist")?.textContent;
     expect(artistLine()).not.toContain("Chapter:");
     mocks.call.mockClear();
-    document.querySelector<HTMLButtonElement>(".chapter-check")!.click();
+    [...document.querySelectorAll<HTMLButtonElement>(".track-menu button")]
+      .find(button => button.textContent?.includes("Check for chapters"))!.click();
     await settle();
     expect(artistLine()).toContain("Chapter: You Never Give Me Your Money");
     expect(mocks.call.mock.calls.some(([command]) => command === "playback_command")).toBe(false);
@@ -9921,6 +9920,21 @@ describe("native playback frontend", () => {
     emitNative({ ...snapshot, revision: 6, generation: 10, entryId: "second-entry", currentIndex: 1 });
     await settle();
     expect(artistLine()).not.toContain("Chapter:");
+
+    document.querySelector<HTMLButtonElement>(`[aria-label="Actions for ${track.title}"]`)!.click();
+    await settle();
+    [...document.querySelectorAll<HTMLButtonElement>(".track-menu button")]
+      .find(button => button.textContent?.includes("Play next"))!.click();
+    await settle();
+    expect(mocks.call).toHaveBeenCalledWith("playback_command", { command: expect.objectContaining({
+      action: "queue", mode: "next", tracks: [expect.objectContaining({
+        id: track.id,
+        provenance: { searchPlaybackChapters: {
+          videoId: track.providerId,
+          chapters: chapters.map(({ id, title, startTime, endTime }) => ({ id, title, startTime, endTime })),
+        } },
+      })],
+    }) });
   });
 
   it("preserves cached cover art through progress updates and accepts an upgraded native cache file", async () => {

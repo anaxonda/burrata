@@ -24,6 +24,7 @@
   export type SearchPage = { sourceId?: string; results?: SearchRow[]; nextCursor?: string | null; complete?: boolean; progress?: string | null; warnings?: string[] };
   export type Source = { id: string; name: string; kinds?: string[]; enabled?: boolean; detail?: string };
   export type SearchPlaybackChapters = { videoId: string; chapters: Pick<Chapter, "id" | "title" | "startTime" | "endTime">[] };
+  export type SearchTrackActions = { trackForQueue: () => Track; checkChapters?: () => void };
 
   const DEFAULT_SOURCES: Source[] = [
     { id: "library", name: "My library" }, { id: "musicbrainz", name: "MusicBrainz" }, { id: "discogs", name: "Discogs" }, { id: "monochrome", name: "Monochrome", kinds: ["track", "artist", "album"] },
@@ -59,7 +60,7 @@
     onDownloadTracks?: (tracks: Track[]) => Promise<void> | void;
     onQueueTracks?: (tracks: Track[], mode: "append" | "next") => void;
     onQueryChange?: (query: string) => void;
-    onPlay?: (track: Track, displayedTracks?: Track[], index?: number) => void; onDownload?: (track: Track) => void; onFavorite?: (track: Track) => void; onNext?: (track: Track) => void; onQueue?: (track: Track) => void; onContext?: (track: Track, event: MouseEvent) => void;
+    onPlay?: (track: Track, displayedTracks?: Track[], index?: number) => void; onDownload?: (track: Track) => void; onFavorite?: (track: Track) => void; onNext?: (track: Track) => void; onQueue?: (track: Track) => void; onContext?: (track: Track, event: MouseEvent, actions?: SearchTrackActions) => void;
     onPlayChapter?: (parent: Track, candidate: Candidate, chapter: Chapter) => void;
     onQueueChapter?: (parent: Track, candidate: Candidate, chapter: Chapter, mode: "next" | "append") => void;
     onDownloadChapter?: (parent: Track, candidate: Candidate, chapter: Chapter) => void;
@@ -1197,6 +1198,17 @@
     const candidate = knownCandidate(row.track);
     return candidate ? candidate.chapters?.length ? candidate : "none" : undefined;
   }
+  function canLookUpChapters(row: SearchRow) {
+    return Boolean(row.url) && (row.kind === "video" || row.kind === "set" || row.sourceId === "youtube" || row.sourceId === "soundcloud");
+  }
+  function openResultActions(track: Track, row: SearchRow, event: MouseEvent) {
+    const state = chapterState(row);
+    const checkChapters = canLookUpChapters(row) && (!state || state === "unknown" || state === "unavailable") ? () => {
+      expanded = { ...expanded, [identity(row)]: true };
+      void inspectChapters(row);
+    } : undefined;
+    onContext?.(track, event, { trackForQueue: () => trackWithSearchChapters(track, row), checkChapters });
+  }
   async function inspectChapters(row: SearchRow) {
     const id = identity(row);
     if (chaptersByRow[id] === "loading" || !row.url || !enrichSource && !desktop()) return;
@@ -1317,15 +1329,15 @@
             {@const track = row.track}
             {@const lazyImage = row.sourceId === "musicbrainz" && row.kind === "artist" ? lazyArtistArtwork[rowArtist(row)?.id ?? ""] : null}
             {@const artwork = safeArtworkUrl(lazyImage) ?? safeArtworkUrl(row.artworkUrl)}
-            <article class="result-row" use:observeMusicBrainzArtwork={row} class:expanded={expanded[identity(row)]} oncontextmenu={track && onContext ? (event) => { event.preventDefault(); onContext?.(track, event); } : undefined}>
+            <article class="result-row" use:observeMusicBrainzArtwork={row} class:expanded={expanded[identity(row)]} oncontextmenu={track && onContext ? (event) => { event.preventDefault(); openResultActions(track, row, event); } : undefined}>
               <div class="result-main">
                 {#if !track}<div class="result-title">{#if artwork}<span class="search-result-art" class:portrait={["artist", "profile", "channel"].includes(row.kind)} aria-hidden="true"><span>♫</span><img src={artwork} alt="" loading="lazy" onerror={(event) => { (event.currentTarget as HTMLImageElement).hidden = true; }} /></span>{/if}<span class="kind-badge">{row.kind === "video" || row.kind === "set" ? "Video / set" : row.kind}</span>{#if nonTrackAction(row)}<button class="open-result" aria-label={`${nonTrackAction(row)}: ${row.title}`} title={row.title} onclick={() => openNonTrackResult(row)}><strong>{row.title}</strong><span>{nonTrackAction(row)} →</span></button>{:else}<strong class="result-row-title" title={row.title}>{row.title}</strong>{/if}</div>{/if}
                 {#if !track && row.subtitle}<p class="subtitle">{row.subtitle}</p>{/if}
                 {#if track}
                   {#if onPlaylistTracks && searchSelectionMode}<label class="search-track-select"><input type="checkbox" aria-label={`Select ${track.title} for playlist`} checked={selectedTrackRows.includes(row)} onchange={() => toggleSelectedSearchTrack(row)} />Select</label>{/if}
-                  <div class="compact-track"><TrackList tracks={[track]} presentation="playlist" position={() => rows.slice(0, _index + 1).filter(item => item.track).length} listLabel={`${source.name} track result`} onPlay={() => playSearchResult(track, source.id, row)} onDownload={onDownload} onFavorite={onFavorite} onNext={onNext ? (item) => onNext(trackWithSearchChapters(item, row)) : undefined} onQueue={onQueue ? (item) => onQueue(trackWithSearchChapters(item, row)) : undefined} onArtist={onArtistTrack} onAlbum={onTrackAlbum ? (item) => onTrackAlbum(item, searchMode === "library" && source.id === "library") : undefined} onContext={onContext} onInfo={() => { expanded = { ...expanded, [identity(row)]: !expanded[identity(row)] }; }} meta={() => [source.name, track.localAvailability === "available" ? "In library" : null, track.releaseDate, track.durationSeconds ? `${Math.floor(track.durationSeconds / 60)}:${String(Math.floor(track.durationSeconds % 60)).padStart(2, "0")}` : null].filter(Boolean).join(" · ")} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} /></div>
+                  <div class="compact-track"><TrackList tracks={[track]} presentation="playlist" position={() => rows.slice(0, _index + 1).filter(item => item.track).length} listLabel={`${source.name} track result`} onPlay={() => playSearchResult(track, source.id, row)} onDownload={onDownload} onFavorite={onFavorite} onNext={onNext ? (item) => onNext(trackWithSearchChapters(item, row)) : undefined} onQueue={onQueue ? (item) => onQueue(trackWithSearchChapters(item, row)) : undefined} onArtist={onArtistTrack} onAlbum={onTrackAlbum ? (item) => onTrackAlbum(item, searchMode === "library" && source.id === "library") : undefined} onContext={onContext ? (item, event) => openResultActions(item, row, event) : undefined} onInfo={() => { expanded = { ...expanded, [identity(row)]: !expanded[identity(row)] }; }} meta={() => [source.name, track.localAvailability === "available" ? "In library" : null, track.releaseDate, track.durationSeconds ? `${Math.floor(track.durationSeconds / 60)}:${String(Math.floor(track.durationSeconds % 60)).padStart(2, "0")}` : null].filter(Boolean).join(" · ")} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} /></div>
                   {@const cachedChapterState = chapterState(row)}
-                  {#if row.url && (row.kind === "video" || row.kind === "set" || source.id === "youtube" || source.id === "soundcloud") && cachedChapterState && typeof cachedChapterState === "object"}
+                  {#if canLookUpChapters(row) && cachedChapterState && typeof cachedChapterState === "object"}
                     <details class="chapter-details" open={Boolean(chapterExpanded[identity(row)])} ontoggle={(event) => { chapterExpanded = { ...chapterExpanded, [identity(row)]: event.currentTarget.open }; }}><summary class="chapter-badge available">Chapters · {cachedChapterState.chapters?.length ?? 0}</summary>
                     {#if chapterExpanded[identity(row)]}<div class="chapter-list">
                       {#each cachedChapterState.chapters ?? [] as chapter (chapter.id)}<div class="chapter-row"><span>{Math.floor(chapter.startTime / 60)}:{String(Math.floor(chapter.startTime % 60)).padStart(2, "0")} · {chapter.suggestedTrack ? `${chapter.suggestedTrack.artist} — ${chapter.suggestedTrack.title}` : chapter.title}</span><button onclick={() => onPlayChapter(track, cachedChapterState, chapter)}>Play</button><button onclick={() => onQueueChapter(track, cachedChapterState, chapter, "next")}>Next</button><button onclick={() => onQueueChapter(track, cachedChapterState, chapter, "append")}>Queue</button><button onclick={() => onDownloadChapter(track, cachedChapterState, chapter)}>Download</button><button onclick={() => onInfoChapter(track, cachedChapterState, chapter)}>More info</button></div>{/each}
@@ -1333,7 +1345,7 @@
                     </details>
                   {/if}
                   {#if expanded[identity(row)]}<p class="result-details">{detailLines(track).join(" · ")}</p>
-                    {#if row.url && (row.kind === "video" || row.kind === "set" || source.id === "youtube" || source.id === "soundcloud") && (cachedChapterState === "loading" || cachedChapterState === "unavailable" || cachedChapterState === "unknown" || !cachedChapterState)}
+                    {#if canLookUpChapters(row) && (cachedChapterState === "loading" || cachedChapterState === "unavailable" || cachedChapterState === "unknown" || !cachedChapterState)}
                       {#if cachedChapterState === "loading"}<span class="chapter-lookup-status" role="status">Checking chapters…</span>{:else}<button class="chapter-check" onclick={() => void inspectChapters(row)}>{cachedChapterState === "unavailable" ? "Retry chapter check" : "Check for chapters"}</button>{/if}
                     {/if}
                   {/if}
