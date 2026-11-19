@@ -8307,11 +8307,23 @@ mod tests {
         let (_dir, _store, service, _transport) = duration_fixture_service("fixture-account");
         service.disconnect("spotify").unwrap();
         service.disconnect("youtube").unwrap();
-        assert!(!service.connection_status("spotify").await.unwrap().connected);
+        assert!(
+            !service
+                .connection_status("spotify")
+                .await
+                .unwrap()
+                .connected
+        );
 
         service.restore_connection("spotify").unwrap();
 
-        assert!(service.connection_status("spotify").await.unwrap().connected);
+        assert!(
+            service
+                .connection_status("spotify")
+                .await
+                .unwrap()
+                .connected
+        );
         let forgotten = service.load_state().unwrap().forgotten_providers;
         assert!(!forgotten.contains("spotify"));
         assert!(forgotten.contains("youtube"));
