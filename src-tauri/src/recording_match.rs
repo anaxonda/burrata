@@ -3208,9 +3208,10 @@ fn build_comparison(
         && !artist_array_observation.uncertain
     {
         let observed_names = &artist_array_observation.names;
-        if observed_names
-            .iter()
-            .any(|name| norm_artist(name) == norm_artist(comparison_artist))
+        if explicit_performer_credit_completeness(candidate, meta)
+            && observed_names
+                .iter()
+                .any(|name| norm_artist(name) == norm_artist(comparison_artist))
         {
             request_primary_credits = vec![comparison_artist.clone()];
         } else {
