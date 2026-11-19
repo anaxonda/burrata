@@ -261,6 +261,12 @@ pub fn resync_favorite_flags_after_collection_change(
 /// Keeps the legacy liked flag and the editable Favorites playlist in sync.
 /// Collection insertion and deletion are repeat-safe, so retries cannot duplicate entries.
 pub fn set_favorite_membership(store: &Store, track: &Track, liked: bool) -> Result<(), String> {
+    // Playlist membership and the legacy flag use separate storage calls.
+    // Keep concurrent writes through this path from interleaving them.
+    static FAVORITE_WRITES: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _write = FAVORITE_WRITES
+        .lock()
+        .map_err(|_| "Favorites write lock is unavailable")?;
     let preferences = load(store)?;
     if liked {
         store

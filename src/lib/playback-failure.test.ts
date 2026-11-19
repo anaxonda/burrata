@@ -58,6 +58,8 @@ describe("bounded queue failure history", () => {
     const encoded=JSON.stringify(failure);
     for (const secret of ["private.invalid","url-secret","music.flac","token-secret","cookie-secret","api-secret","bearer-secret","sourceUrl"]) expect(encoded).not.toContain(secret);
     expect(failure?.operationId).toBeNull();
+    expect(safeTrackFailureText("Remix / Full Vocal Version /home/private/music.flac"))
+      .toBe("Remix / Full Vocal Version [source]");
     expect(safeTrackFailureText("x".repeat(400))).toHaveLength(250);
   });
   it("categorizes only exact resolver outcomes and never infers no-match from a title", () => {

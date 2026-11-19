@@ -949,7 +949,21 @@ impl State {
                 .as_str()
                 .is_none_or(str::is_empty)
             {
-                if let Some(art) = self.candidate.as_ref().and_then(|c| c.artwork_url.as_ref()) {
+                let art = self.candidate.as_ref().and_then(|candidate| {
+                    candidate
+                        .artwork_url
+                        .as_ref()
+                        .filter(|url| !url.trim().is_empty())
+                        .cloned()
+                        .or_else(|| {
+                            let video_id = (candidate.provider == "youtube")
+                                .then(|| crate::acquisition::youtube_video_id(&candidate.url))
+                                .flatten()?;
+                            (candidate.id.strip_prefix("youtube:") == Some(video_id.as_str()))
+                                .then(|| format!("https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"))
+                        })
+                });
+                if let Some(art) = art {
                     value["track"]["artworkUrl"] = json!(art);
                 }
             }
@@ -8535,7 +8549,7 @@ pub(crate) fn safe_failure_text(raw: &str, max_chars: usize) -> String {
             if ["http://", "https://", "ftp://", "file://"]
                 .iter()
                 .any(|scheme| lower.contains(scheme))
-                || path.starts_with('/')
+                || (path.starts_with('/') && part != "/")
                 || path.starts_with("\\\\")
                 || (path.as_bytes().get(1) == Some(&b':') && path.as_bytes().get(2) == Some(&b'\\'))
             {
@@ -12333,7 +12347,7 @@ mod tests {
                 id: "spotify:track-1".into(),
                 provider: "spotify".into(),
                 provider_id: "track-1".into(),
-                title: "Title https://private.example/signed?sig=abc".into(),
+                title: "Title / Version https://private.example/signed?sig=abc".into(),
                 artist: "Artist".into(),
                 ..Track::default()
             },
@@ -12344,7 +12358,7 @@ mod tests {
         );
         let encoded = failure.to_string();
         assert_eq!(failure["providerId"], "track-1");
-        assert_eq!(failure["title"], "Title [source]");
+        assert_eq!(failure["title"], "Title / Version [source]");
         assert!(!encoded.contains("private.example"));
         assert!(!encoded.contains("abc"));
         assert!(!encoded.contains("secret-value"));
@@ -13497,6 +13511,20 @@ mod tests {
         let next = state.snapshot(true, false);
         assert_eq!(next["track"]["artworkUrl"], "https://example.com/b.jpg");
         assert!(next["track"]["artworkFilePath"].is_null());
+
+        state.radio_now = Value::Null;
+        state.candidate = Some(Candidate {
+            id: "youtube:esG4gK-pieA".into(),
+            provider: "youtube".into(),
+            url: "https://www.youtube.com/watch?v=esG4gK-pieA".into(),
+            ..Default::default()
+        });
+        assert_eq!(
+            state.snapshot(true, false)["track"]["artworkUrl"],
+            "https://i.ytimg.com/vi/esG4gK-pieA/hqdefault.jpg"
+        );
+        state.candidate.as_mut().unwrap().url = "https://youtu.be/OilHAe6Os3o".into();
+        assert!(state.snapshot(true, false)["track"]["artworkUrl"].is_null());
     }
 
     #[test]

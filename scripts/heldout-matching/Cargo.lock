@@ -22,6 +22,7 @@ name = "burrata-heldout-matching"
 version = "0.0.0"
 dependencies = [
  "icu_normalizer",
+ "icu_properties",
  "libc",
  "regex",
  "serde",

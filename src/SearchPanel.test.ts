@@ -165,21 +165,28 @@ describe("SearchPanel", () => {
     expect(JSON.parse(storage.get("burrata.discovery.search-scope.v2")!)).toMatchObject({sourceId:"custom",sourceIds:["spotify","bandcamp"]});
   });
 
-  it.each(["Artists","Albums"])("shows Bandcamp %s filters and links their results to the source page", async label => {
+  it.each(["Artists","Albums"])("shows Bandcamp %s results with the supported actions", async label => {
     const kind=label==="Artists"?"artist":"album";
     const url=kind==="artist"?"https://fixture.bandcamp.com/":"https://fixture.bandcamp.com/album/record";
     const album = { release: { provider: "bandcamp", id: "1" }, title: "Fixture", sourceUrl: url, credits: [], tracks: [] };
-    const searchSource=vi.fn(async()=>({complete:true,results:[{id:`bandcamp:${kind}:1`,sourceId:"bandcamp",kind,title:"Fixture",url,data:kind==="album"?album:undefined}]}));
+    const artworkUrl = "https://f4.bcbits.com/img/0020118623_23.jpg";
+    const searchSource=vi.fn(async()=>({complete:true,results:[{id:`bandcamp:${kind}:1`,sourceId:"bandcamp",kind,title:"Fixture",url,artworkUrl,data:kind==="album"?album:undefined}]}));
     const onAlbum = vi.fn();
     const target=render({initialSources:["bandcamp"],searchSource,onAlbum});await settle();
     [...target.querySelectorAll<HTMLButtonElement>(".filters button")].find(button=>button.textContent===label)!.click();
     const input=target.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;input.value="Fixture";input.dispatchEvent(new Event("input",{bubbles:true}));
     target.querySelector("form")!.dispatchEvent(new Event("submit",{bubbles:true,cancelable:true}));await settle();
     expect(searchSource).toHaveBeenCalledWith(expect.objectContaining({sourceIds:["bandcamp"],kinds:[kind]}));
-    expect(target.querySelector<HTMLAnchorElement>(`a[href="${url}"]`)?.textContent).toContain(`Open ${kind} page`);
+    const sourceLink = target.querySelector<HTMLAnchorElement>(`a[href="${url}"]`);
+    expect(target.querySelector(".search-result-art img")?.getAttribute("src")).toBe(artworkUrl);
+    expect(Boolean(target.querySelector(".search-result-art.portrait"))).toBe(kind === "artist");
     if (kind === "album") {
+      expect(sourceLink?.textContent).toContain("Open album page");
       target.querySelector<HTMLButtonElement>('[aria-label="Open album: Fixture"]')!.click();
       expect(onAlbum).toHaveBeenCalledWith(album);
+    } else {
+      expect(sourceLink).toBeNull();
+      expect(target.querySelector(".open-result")).toBeNull();
     }
   });
 
@@ -1072,7 +1079,7 @@ describe("SearchPanel", () => {
     expect(artistButton.textContent?.match(new RegExp(longName, "g"))).toHaveLength(1);
     expect(artistButton.getAttribute("aria-label")).toContain(longName);
     expect(rows[0]!.textContent).toContain("Choir · Bulgaria");
-    expect(rows[0]!.querySelector(".spotify-identity-art img")?.getAttribute("src")).toBe("https://commons.wikimedia.org/fixture.jpg");
+    expect(rows[0]!.querySelector(".search-result-art img")?.getAttribute("src")).toBe("https://commons.wikimedia.org/fixture.jpg");
     artistButton.click();
     expect(onArtist).toHaveBeenCalledWith({ provider: "musicbrainz", id: "mb-artist" });
 

@@ -42,10 +42,27 @@
     return () => { if (destroyed || !marker.isConnected) { node.remove(); marker.remove(); } else { marker.replaceWith(node); expandButton?.focus(); } };
   });
   function lyricsKeys(event: KeyboardEvent) {
-    if (event.key === "Escape" && timingFromLine) {event.preventDefault();event.stopPropagation();timingFromLine=false;return;}
-    if (event.key === "Escape" && lyricsSearchOpen && lyricsSearchQuery.trim()) {event.preventDefault();event.stopPropagation();updateLyricsSearch("");lyricsSearchOpen=false;return;}
-    if (!fullscreen) return;
-    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); if (optionsMenu?.open) optionsMenu.open = false; else {lyricsSearchOpen=false;closeFullscreen();} }
+    if (event.key !== "Escape" || event.defaultPrevented) return;
+    if (timingFromLine) {
+      timingFromLine = false;
+    } else if (lyricsSearchOpen && lyricsSearchQuery.trim()) {
+      updateLyricsSearch("");
+      lyricsSearchOpen = false;
+    } else if (!fullscreen) {
+      return;
+    } else if (optionsMenu?.open) {
+      optionsMenu.open = false;
+      optionsMenu.querySelector("summary")?.focus();
+    } else {
+      lyricsSearchOpen = false;
+      closeFullscreen();
+    }
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  function fullscreenEscape(event: KeyboardEvent) {
+    if (!fullscreen || (event.target instanceof Element && event.target.closest("dialog[open]"))) return;
+    lyricsKeys(event);
   }
   function fullscreenFocusableElements(root:HTMLElement | null):HTMLElement[] {
     if(!root)return [];
@@ -412,7 +429,7 @@
   {/each}
 {/snippet}
 
-<svelte:window onkeydown={trapFullscreenTab} />
+<svelte:window onkeydowncapture={fullscreenEscape} onkeydown={trapFullscreenTab} />
 <!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_noninteractive_element_interactions -->
 <article class="lyrics-panel" class:fullscreen bind:this={panel} style:bottom={fullscreen ? `${Math.max(0,Number.isFinite(bottomInset)?bottomInset:0)}px` : undefined} tabindex={fullscreen ? -1 : undefined} role={fullscreen ? "dialog" : undefined} aria-modal={fullscreen ? "true" : undefined} aria-owns={fullscreen ? playbackControlsId : undefined} aria-label={fullscreen ? "Fullscreen lyrics" : "Lyrics"} onkeydown={lyricsKeys}>
   <div class="lyrics-heading"><h2 title={lyrics?.provider === "shazam" ? "Lyrics from Shazam identification" : undefined}>Lyrics</h2><div class="lyrics-actions">

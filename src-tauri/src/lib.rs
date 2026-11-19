@@ -1265,12 +1265,23 @@ fn set_favorites_playlist(
     playlist_preferences::set_favorites_playlist(&state.store, &collection_id)
 }
 #[tauri::command]
-fn set_favorite_membership(state: State<'_, AppState>, track: Track, liked: bool) -> Result<()> {
-    playlist_preferences::set_favorite_membership(&state.store, &track, liked)?;
-    if liked {
-        source_preparation::schedule(state.acquisition.clone(), vec![track]);
-    }
-    Ok(())
+async fn set_favorite_membership(
+    state: State<'_, AppState>,
+    track: Track,
+    liked: bool,
+) -> Result<()> {
+    let store = state.store.clone();
+    let acquisition = state.acquisition.clone();
+    tokio::task::spawn_blocking(move || {
+        let _library_write = store.try_library_write()?;
+        playlist_preferences::set_favorite_membership(&store, &track, liked)?;
+        if liked {
+            source_preparation::schedule(acquisition, vec![track]);
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 #[tauri::command]
 fn set_playlist_shortcut_binding(
@@ -1296,35 +1307,40 @@ fn set_playlist_mirror_options(
     playlist_mirror_options::set_playlist_mirror_options(&state.store, &collection_id, options)
 }
 #[tauri::command]
-fn get_radio_song_track(
+async fn get_radio_song_track(
     state: State<'_, AppState>,
     station_id: String,
     metadata: radio::RadioTrackMetadata,
 ) -> Result<Track> {
-    let station = radio::get_radio_stations_saved(&state.store)?
-        .into_iter()
-        .find(|s| s.id == station_id)
-        .ok_or("Radio station not found")?;
-    if metadata.station_id != station.id {
-        return Err("Station metadata does not match".into());
-    }
-    let mut track = playback_history::radio_song_track(&station, &metadata);
-    if let Some(saved) = state.store.get_track(&track.id)? {
-        track.favorite = saved.favorite;
-        track.local_path = saved.local_path;
-        track.local_availability = saved.local_availability;
-        track.asset_id = saved.asset_id;
-        track.duration_seconds = saved.duration_seconds;
-        if track.isrc.is_none() {
-            track.isrc = saved.isrc;
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || {
+        let station = radio::get_radio_stations_saved(&store)?
+            .into_iter()
+            .find(|s| s.id == station_id)
+            .ok_or("Radio station not found")?;
+        if metadata.station_id != station.id {
+            return Err("Station metadata does not match".into());
         }
-        track.bpm = saved.bpm;
-        track.key = saved.key;
-        if track.artwork_url.is_none() {
-            track.artwork_url = saved.artwork_url;
+        let mut track = playback_history::radio_song_track(&station, &metadata);
+        if let Some(saved) = store.get_track(&track.id)? {
+            track.favorite = saved.favorite;
+            track.local_path = saved.local_path;
+            track.local_availability = saved.local_availability;
+            track.asset_id = saved.asset_id;
+            track.duration_seconds = saved.duration_seconds;
+            if track.isrc.is_none() {
+                track.isrc = saved.isrc;
+            }
+            track.bpm = saved.bpm;
+            track.key = saved.key;
+            if track.artwork_url.is_none() {
+                track.artwork_url = saved.artwork_url;
+            }
         }
-    }
-    Ok(track)
+        Ok(track)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 #[tauri::command]
 fn get_radio_history_setting(state: State<'_, AppState>) -> Result<bool> {
@@ -3788,7 +3804,7 @@ fn get_managed_provider_session_status(
 }
 
 #[tauri::command]
-fn start_managed_provider_login(
+async fn start_managed_provider_login(
     state: State<'_, AppState>,
     provider: String,
 ) -> Result<managed_provider_session::ManagedProviderSessionStatus> {
@@ -5319,8 +5335,11 @@ mod playback_metadata_tests {
     }
 }
 #[tauri::command]
-fn list_favorite_track_ids(state: State<'_, AppState>) -> Result<Vec<String>> {
-    state.store.list_favorite_track_ids()
+async fn list_favorite_track_ids(state: State<'_, AppState>) -> Result<Vec<String>> {
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || store.list_favorite_track_ids())
+        .await
+        .map_err(|error| error.to_string())?
 }
 #[tauri::command]
 fn list_tracks(
@@ -6339,12 +6358,8 @@ async fn detect_playing_track_segment(
     playing_track_detections::read(&state.store, &key).map_err(Into::into)
 }
 #[tauri::command]
-fn set_favorite(state: State<'_, AppState>, track: Track, value: bool) -> Result<()> {
-    playlist_preferences::set_favorite_membership(&state.store, &track, value)?;
-    if value {
-        source_preparation::schedule(state.acquisition.clone(), vec![track]);
-    }
-    Ok(())
+async fn set_favorite(state: State<'_, AppState>, track: Track, value: bool) -> Result<()> {
+    set_favorite_membership(state, track, value).await
 }
 #[tauri::command]
 fn set_disposition(state: State<'_, AppState>, track: Track, value: Option<String>) -> Result<()> {
@@ -9978,6 +9993,7 @@ mod managed_playback_session_invalidation_tests {
     fn healthy() -> managed_provider_session::ManagedProviderSessionStatus {
         managed_provider_session::ManagedProviderSessionStatus {
             enabled: true,
+            native_login_available: true,
             running: true,
             mode: "native-ready".into(),
             spotify_account_id: Some("spotify-a".into()),

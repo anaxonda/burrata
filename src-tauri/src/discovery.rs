@@ -1115,7 +1115,7 @@ impl DiscoveryService {
                             title: a.name.clone(),
                             subtitle: a.disambiguation.clone(),
                             url: Some(a.source_url.clone()),
-                            artwork_url: None,
+                            artwork_url: a.image_url.clone(),
                             track: None,
                             data: serde_json::to_value(a).unwrap_or(Value::Null),
                         });

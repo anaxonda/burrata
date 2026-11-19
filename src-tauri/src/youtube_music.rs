@@ -215,18 +215,14 @@ pub fn parse_search_response(body: &Value, limit: usize) -> Vec<YouTubeMusicItem
             return;
         }
         if let Some(id) = video_id(v) {
-            let columns = v["flexColumns"].as_array().cloned().unwrap_or_default();
-            let title = text(&v["title"])
-                .or_else(|| {
-                    columns
-                        .first()
-                        .and_then(|c| flex_runs(c).first())
-                        .and_then(run_label)
-                })
-                .or_else(|| columns.first().and_then(|c| renderer_text(c)))
-                .unwrap_or_default();
+            let columns = v["flexColumns"].as_array().map_or(&[][..], Vec::as_slice);
+            let explicit_title = text(&v["title"]);
+            let column_title = columns.first().and_then(renderer_text);
+            let first_column_is_title = explicit_title.is_none() || explicit_title == column_title;
+            let title = explicit_title.or(column_title).unwrap_or_default();
             let semantic_runs = columns
                 .iter()
+                .skip(usize::from(first_column_is_title))
                 .flat_map(|c| flex_runs(c).iter())
                 .collect::<Vec<_>>();
             let mut artist_names = Vec::new();
@@ -271,15 +267,18 @@ pub fn parse_search_response(body: &Value, limit: usize) -> Vec<YouTubeMusicItem
                             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
                 })
                 .map(str::to_owned);
-            let duration = semantic_runs
-                .iter()
-                .filter_map(|r| run_label(r).and_then(|s| parse_duration(&s)))
-                .last()
+            let duration = v
+                .pointer("/fixedColumns/0/musicResponsiveListItemFixedColumnRenderer/text")
+                .and_then(text)
+                .as_deref()
+                .and_then(parse_duration)
                 .or_else(|| {
-                    v.pointer("/fixedColumns/0/musicResponsiveListItemFixedColumnRenderer/text")
-                        .and_then(text)
-                        .as_deref()
-                        .and_then(parse_duration)
+                    let mut clocks = semantic_runs
+                        .iter()
+                        .filter(|run| run["navigationEndpoint"].is_null())
+                        .filter_map(|run| run_label(run).and_then(|label| parse_duration(&label)));
+                    let first = clocks.next()?;
+                    clocks.all(|other| first == other).then_some(first)
                 });
             let artwork = v
                 .pointer("/thumbnail/musicThumbnailRenderer/thumbnail/thumbnails")
@@ -463,11 +462,27 @@ async fn wait_for_cancel(mut cancel: watch::Receiver<bool>) {
 }
 
 fn parse_duration(s: &str) -> Option<f64> {
-    if !s.contains(':') {
+    fn number(part: &str) -> Option<u32> {
+        if part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()) {
+            return None;
+        }
+        part.parse().ok()
+    }
+    let (leading, seconds) = s.rsplit_once(':')?;
+    let seconds = (seconds.len() == 2).then(|| number(seconds)).flatten()?;
+    if seconds >= 60 {
         return None;
     }
-    s.split(':')
-        .try_fold(0.0, |n, p| p.parse::<f64>().ok().map(|x| n * 60.0 + x))
+    let total = if let Some((hours, minutes)) = leading.split_once(':') {
+        let minutes = (minutes.len() == 2).then(|| number(minutes)).flatten()?;
+        if minutes >= 60 {
+            return None;
+        }
+        u64::from(number(hours)?) * 3600 + u64::from(minutes) * 60 + u64::from(seconds)
+    } else {
+        u64::from(number(leading)?) * 60 + u64::from(seconds)
+    };
+    (total > 0).then_some(total as f64)
 }
 
 /// Fetch exactly one YouTube Music search page. Continuation tokens are opaque;
@@ -1120,6 +1135,40 @@ mod tests {
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0].title, "Song Title");
         assert!(parsed[0].artist.is_none());
+    }
+
+    #[test]
+    fn playback_locator_reads_title_runs_and_prefers_the_duration_column() {
+        for title_runs in [
+            json!([{"text":"4:33"}]),
+            json!([{"text":"4:"},{"text":"33"}]),
+        ] {
+            let mut row = json!({
+                "videoId":"validvideo1",
+                "flexColumns":[
+                    {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":title_runs}}},
+                    {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[
+                        {"text":"5:01","navigationEndpoint":{"browseEndpoint":{"browseId":"album"}}},
+                        {"text":"9:99"}
+                    ]}}}
+                ],
+                "fixedColumns":[{"musicResponsiveListItemFixedColumnRenderer":{"text":{"simpleText":"4:54"}}}]
+            });
+            let items = parse_search_response(&row, 10);
+            assert_eq!(items[0].title, "4:33");
+            assert_eq!(items[0].duration_seconds, Some(294.0));
+
+            row["fixedColumns"] = Value::Null;
+            let items = parse_search_response(&row, 10);
+            assert_eq!(items[0].title, "4:33");
+            assert_eq!(items[0].duration_seconds, None);
+            row["flexColumns"][1]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"][1]
+                ["text"] = json!("1:02:03");
+            assert_eq!(
+                parse_search_response(&row, 10)[0].duration_seconds,
+                Some(3723.0)
+            );
+        }
     }
 }
 

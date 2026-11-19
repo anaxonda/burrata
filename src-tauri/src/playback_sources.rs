@@ -287,6 +287,7 @@ pub(crate) struct SourceTrace {
     recovery_attempts: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     catalog_duration_enriched: bool,
     catalog_artist_variants: Vec<String>,
+    verified_search_titles: Vec<String>,
     #[cfg(test)]
     test_sink: Option<Arc<dyn Fn(Value) + Send + Sync>>,
 }
@@ -334,6 +335,7 @@ impl SourceTrace {
             recovery_attempts: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             catalog_duration_enriched: false,
             catalog_artist_variants: Vec::new(),
+            verified_search_titles: Vec::new(),
             #[cfg(test)]
             test_sink: None,
         }
@@ -363,6 +365,41 @@ impl SourceTrace {
         let query = format!("{artist} {title} {album} {year}");
         crate::youtube_web_search::safe_query_part(&query).ok()?;
         Some(query)
+    }
+
+    pub(crate) fn verified_search_titles(&self) -> &[String] {
+        &self.verified_search_titles
+    }
+
+    fn with_occurrence_search_titles(
+        &self,
+        track: &Track,
+        occurrences: &[crate::artist_alias_discovery::VerifiedReleaseRuntimeVariant],
+    ) -> Self {
+        let mut trace = self.clone();
+        trace.verified_search_titles.clear();
+        if track.provenance["manualFields"]["title"] == true {
+            return trace;
+        }
+        let mut seen = std::collections::HashSet::new();
+        trace.verified_search_titles = occurrences
+            .iter()
+            .filter(|occurrence| {
+                crate::artist_alias_discovery::recording_title_variant_compatible(
+                    &track.title,
+                    &occurrence.recording_title,
+                )
+            })
+            .map(|occurrence| &occurrence.release_track_title)
+            .filter(|title| {
+                !crate::recording_match::same_retrieval_title(&track.title, title)
+                    && crate::youtube_web_search::safe_query_part(title).is_ok()
+                    && seen.insert(title.as_str())
+            })
+            .take(2)
+            .cloned()
+            .collect();
+        trace
     }
 
     fn fallback_grace(&self, settings: &Settings) -> Duration {
@@ -1700,6 +1737,31 @@ fn spawn_spotify_role_lookup<F, Fut>(
     trace.store_spotify_track_role_task(wait_deadline, task);
 }
 
+fn catalog_entry_requires_audio_identity(track: &Track) -> bool {
+    if track.provider != "catalog" {
+        return false;
+    }
+    if track.title.trim().is_empty() {
+        return true;
+    }
+    if !crate::recording_identity::placeholder_title(&track.title) {
+        return false;
+    }
+    if crate::recording_identity::RecordingIdentity::from_track(track)
+        .isrc
+        .is_some()
+    {
+        return false;
+    }
+    // "Unknown" is also a literal song title. A known artist or structured
+    // performer lets the normal verifier try that title. Legacy data-track
+    // markers still require an identified recording or a playable source.
+    crate::matching::normalize(&track.title) != "unknown"
+        || crate::search_plan::SearchPlan::for_track(track, &[])
+            .queries
+            .is_empty()
+}
+
 async fn resolve_inner(
     store: &Store,
     acquisition: &AcquisitionManager,
@@ -1712,9 +1774,6 @@ async fn resolve_inner(
     attempt_limit: usize,
     bypass_local: bool,
 ) -> Result<ResolvedSource, String> {
-    if track.provider == "catalog" && crate::recording_identity::placeholder_title(&track.title) {
-        return Err("This catalog entry does not identify a playable audio recording. Choose a named recording.".into());
-    }
     trace.event("settings_read_start", &track.provider, json!({}));
     let settings_started = Instant::now();
     let settings = store_settings_blocking(store)?;
@@ -1751,6 +1810,12 @@ async fn resolve_inner(
     };
     resolve_after_local_preflight(store, track, explicit_source || bypass_local, |prepared_track| {
         Box::pin(async move {
+            if !explicit_source
+                && prepared_track.local_path.is_none()
+                && catalog_entry_requires_audio_identity(&prepared_track)
+            {
+                return Err("This catalog entry does not identify a playable audio recording. Choose a named recording.".into());
+            }
             let mut prepared_track = prepared_track;
             if selected.is_none() && prepared_track.local_path.is_none()
                 && crate::bandcamp::playback_enabled()
@@ -1989,8 +2054,10 @@ fn refreshed_candidate_exclusions(
 }
 
 fn should_refresh_incomplete_catalog(track: &Track, selected: bool, settings: &Settings) -> bool {
-    matches!(track.provider.as_str(), "beatport" | "traxsource")
-        && supports_catalog_playback_refresh(track)
+    matches!(
+        track.provider.as_str(),
+        "beatport" | "traxsource" | "lastfm"
+    ) && supports_catalog_playback_refresh(track)
         && track.duration_seconds.is_none()
         && track.provenance["manualFields"]["durationSeconds"] != true
         && track.local_path.is_none()
@@ -2013,7 +2080,12 @@ where
         return Err("Cancelled".into());
     }
     // Leave most of the shared startup deadline for source search and decoding.
-    let opportunity = (deadline.remaining() / 2).min(Duration::from_secs(4));
+    let provider_budget = if track.provider == "lastfm" {
+        Duration::from_millis(1500)
+    } else {
+        Duration::from_secs(4)
+    };
+    let opportunity = (deadline.remaining() / 2).min(provider_budget);
     if opportunity < Duration::from_millis(250) {
         return Ok(track);
     }
@@ -2044,6 +2116,7 @@ fn supports_catalog_playback_refresh(track: &Track) -> bool {
     }
     match track.provider.as_str() {
         "spotify" => true,
+        "lastfm" => crate::artists::lastfm_top_track_metadata_available(track),
         "beatport" | "traxsource" => track.provider_id.bytes().all(|byte| byte.is_ascii_digit()),
         _ => false,
     }
@@ -4147,6 +4220,9 @@ async fn resolve_serial(
     };
     trace.event("alias_cache_lookup_end", &track.provider, json!({"durationMs":cache_started.elapsed().as_secs_f64()*1000.0,"aliases":verified_artist_aliases.tracks().len(),"verifiedCreditSets":verified_artist_aliases.has_verified_credit_sets()}));
     let alternate_search_artists = verified_artist_aliases.search_artist_candidates();
+    let trace_with_search_titles = trace
+        .with_occurrence_search_titles(track, verified_artist_aliases.release_runtime_variants());
+    let trace = &trace_with_search_titles;
     let mut candidates = Vec::new();
     let selected_candidate_present = selected.is_some();
     if let Some(candidate) = selected.or(linked) {
@@ -4862,6 +4938,7 @@ async fn resolve_serial(
             }
             let spare = !(provider == "youtube" && track.duration_seconds.is_none())
                 && alternate_search_artists.is_empty()
+                && trace.verified_search_titles().is_empty()
                 && track
                     .version
                     .as_deref()
@@ -8429,6 +8506,25 @@ fn linked_candidate_with_bandcamp(track: &Track, bandcamp_enabled: bool) -> Opti
 #[cfg(test)]
 mod tests {
     include!("explicit_preview_transport_tests.rs");
+
+    #[test]
+    fn catalog_placeholders_require_evidence_but_unknown_can_name_a_song() {
+        let mut track = Track {
+            provider: "catalog".into(),
+            artist: "Black Distortion".into(),
+            title: "Unknown".into(),
+            ..Track::default()
+        };
+        assert!(!catalog_entry_requires_audio_identity(&track));
+        track.artist = "Unknown artist".into();
+        assert!(catalog_entry_requires_audio_identity(&track));
+        track.artist = "Artist".into();
+        track.title = "Data Track".into();
+        assert!(catalog_entry_requires_audio_identity(&track));
+        track.isrc = Some("USABC2600001".into());
+        assert!(!catalog_entry_requires_audio_identity(&track));
+    }
+
     #[test]
     fn fresh_alias_lookup_is_bounded_to_one_plausible_candidate() {
         assert_eq!(

@@ -36,22 +36,58 @@
       return [{name: value.name.trim(), role: typeof value.role === "string" && value.role.trim() ? value.role : "Credited performer"}];
     });
   });
-  let closeButton: HTMLButtonElement;
+  let view: HTMLElement;
   let artworkMenu = $state<HTMLDetailsElement>();
   const playerInset = $derived(Math.max(0, Number.isFinite(bottom) ? bottom : 0));
+  const showSetArtwork = $derived(artworkMode !== "detected" || !detectedArtworkUrl);
   onMount(() => {
     const previous = document.activeElement;
-    closeButton.focus({preventScroll:true});
+    view.scrollTop = 0;
+    view.focus({ preventScroll: true });
     return () => { if (previous instanceof HTMLElement && previous.isConnected) previous.focus(); };
   });
 </script>
 <svelte:window onkeydown={(event) => { if (event.key === "Escape" && !queueOpen && !event.defaultPrevented) { event.preventDefault(); onClose(); } }} />
-<section class="now-playing-view" style:bottom={`${playerInset}px`} style:--player-inset={`${playerInset}px`} aria-label="Expanded Now Playing">
-  <header class:has-artwork-menu={Boolean(detectedArtworkUrl && onArtworkModeChange)}><div><small>{context === "Now playing" ? "NOW PLAYING" : "PLAYING FROM"}</small>{#if context !== "Now playing"}<strong>{context}</strong>{/if}</div>{#if detectedArtworkUrl && onArtworkModeChange}<details use:dismissDetails class="artwork-menu" bind:this={artworkMenu}><summary aria-label="Fullscreen artwork options" title="Artwork display">⋯</summary><div class="artwork-choice" role="group" aria-label="Artwork display"><strong class="artwork-choice-heading">Artwork display</strong><label><input type="radio" name="fullscreen-artwork" checked={artworkMode === "set"} onchange={() => { onArtworkModeChange?.("set"); if (artworkMenu) artworkMenu.open = false; }} /> Set artwork</label><label><input type="radio" name="fullscreen-artwork" checked={artworkMode === "detected"} onchange={() => { onArtworkModeChange?.("detected"); if (artworkMenu) artworkMenu.open = false; }} /> Detected track</label><label><input type="radio" name="fullscreen-artwork" checked={artworkMode === "both"} onchange={() => { onArtworkModeChange?.("both"); if (artworkMenu) artworkMenu.open = false; }} /> Side by side</label></div></details>{/if}<button bind:this={closeButton!} onclick={onClose} aria-label="Close full-screen Now Playing" title="Close (Escape)">⤢</button></header>
+<section bind:this={view} class="now-playing-view" style:bottom={`${playerInset}px`} style:--player-inset={`${playerInset}px`} aria-label="Expanded Now Playing" tabindex="-1">
+  <div class="artwork-stage">
+    {#if artworkMode !== "set" && detectedArtworkUrl}
+      <img class="artwork-ambient detected-ambient" src={detectedArtworkUrl} alt="" aria-hidden="true" loading="lazy" decoding="async" />
+    {/if}
+    <div class="hero-art" class:both-art={artworkMode === "both" && Boolean(detectedArtworkUrl)}>
+      {#if showSetArtwork}
+        <ArtworkImage urls={[artworkUrl, track.artworkUrl]} upgradeCandidates={fullscreenArtworkUpgradeCandidates(sourceArtworkUrl ? {...track, artworkUrl:sourceArtworkUrl} : track)} ambient />
+      {/if}
+      {#if (artworkMode === "detected" || artworkMode === "both") && detectedArtworkUrl}
+        <img class="detected-artwork" src={detectedArtworkUrl} alt="Detected track artwork" />
+      {/if}
+    </div>
+  </div>
   <div class="content">
-    <div class="hero">
-    <div class="hero-art" class:both-art={artworkMode === "both" && Boolean(detectedArtworkUrl)}>{#if artworkMode !== "detected" || !detectedArtworkUrl}<ArtworkImage urls={[artworkUrl, track.artworkUrl]} upgradeCandidates={fullscreenArtworkUpgradeCandidates(sourceArtworkUrl ? {...track, artworkUrl:sourceArtworkUrl} : track)} />{/if}{#if (artworkMode === "detected" || artworkMode === "both") && detectedArtworkUrl}<img class="detected-artwork" src={detectedArtworkUrl} alt="Detected track artwork" />{/if}</div>
-    <div class="recording"><h1>{title}</h1><button class="artist-link" onclick={onArtist}>{track.artist || "Artist unknown"}</button>{#if track.album}<button class="album-link" disabled={!onAlbum} onclick={onAlbum}>{track.album}</button>{/if}<button class="favorite" onclick={onFavorite} aria-label={track.favorite ? "Remove from favorites" : "Add to favorites"} aria-pressed={track.favorite}><HeartIcon filled={track.favorite} /></button></div>
+    {#if context !== "Now playing" || (detectedArtworkUrl && onArtworkModeChange)}
+      <header>
+        {#if context !== "Now playing"}<div><small>PLAYING FROM</small><strong>{context}</strong></div>{/if}
+        {#if detectedArtworkUrl && onArtworkModeChange}
+          <details use:dismissDetails class="artwork-menu" bind:this={artworkMenu}>
+            <summary aria-label="Fullscreen artwork options" title="Artwork display">⋯</summary>
+            <div class="artwork-choice" role="group" aria-label="Artwork display">
+              <strong class="artwork-choice-heading">Artwork display</strong>
+              <label><input type="radio" name="fullscreen-artwork" checked={artworkMode === "set"} onchange={() => { onArtworkModeChange?.("set"); if (artworkMenu) artworkMenu.open = false; }} /> Set artwork</label>
+              <label><input type="radio" name="fullscreen-artwork" checked={artworkMode === "detected"} onchange={() => { onArtworkModeChange?.("detected"); if (artworkMenu) artworkMenu.open = false; }} /> Detected track</label>
+              <label><input type="radio" name="fullscreen-artwork" checked={artworkMode === "both"} onchange={() => { onArtworkModeChange?.("both"); if (artworkMenu) artworkMenu.open = false; }} /> Side by side</label>
+            </div>
+          </details>
+        {/if}
+      </header>
+    {/if}
+    <div class="recording">
+      <h1>{title}</h1>
+      {#if track.artist.trim()}<button class="artist-link" onclick={onArtist}>{track.artist}</button>
+      {:else}<p class="artist-caption">Artist unknown</p>{/if}
+      {#if track.album}
+        {#if onAlbum}<button class="album-link" onclick={onAlbum}>{track.album}</button>
+        {:else}<p class="album-caption">{track.album}</p>{/if}
+      {/if}
+      <button class="favorite" onclick={onFavorite} aria-label={track.favorite ? "Remove from favorites" : "Add to favorites"} aria-pressed={track.favorite}><HeartIcon filled={track.favorite} /></button>
     </div>
     <div class="cards">
       <article class="artist-card"><ArtistInformation {track} {loadArtist} {onArtist} {onArtistRef} />{#if loadRecording}<RecordingInformation {track} {loadRecording} {contextLookupConfigured} {contextLookupRevision} {contextTargets} onRelease={onRecordingRelease} onArtist={onArtistRef} />{/if}</article>
@@ -62,9 +98,69 @@
   </div>
 </section>
 <style>
-  .now-playing-view{position:fixed;inset:0;z-index:55;display:flex;flex-direction:column;overflow:auto;scroll-padding-top:64px;overscroll-behavior:contain;background:linear-gradient(165deg,#175b51 0%,#102d29 50%,var(--bg,#101512) 90%);color:var(--text);padding:0 32px 24px;box-sizing:border-box}header{position:sticky;top:0;z-index:4;flex:0 0 auto;box-sizing:border-box;min-height:64px;width:calc(100% + 64px);margin:0 -32px;padding:10px 76px 10px 32px;display:flex;align-items:center;justify-content:space-between;gap:20px;background:linear-gradient(165deg,#175b51 0%,#102d29 100%);border-radius:0}header div{display:grid;gap:5px}header small{font-size:10px;letter-spacing:.14em}header button{position:absolute;top:10px;right:18px;z-index:1;display:grid;place-items:center;width:44px;height:44px;border-radius:50%;font-size:24px;background:#103c35e8;border:0;color:inherit;padding:0}.content{flex:1 0 auto;min-height:max-content;width:100%;min-width:0;max-width:1300px;margin:8px auto 0}.hero{width:100%;min-width:0;height:auto;min-height:0;display:grid;grid-template-rows:max-content max-content;align-content:start;justify-items:center}.hero-art{width:min(88vw,1000px,100%,calc(100vh - 340px));height:auto;max-width:100%;min-height:0;aspect-ratio:1;align-self:start;margin:0 auto;border-radius:16px;overflow:hidden;box-shadow:0 18px 60px #0003}.recording{width:100%;box-sizing:border-box;align-self:stretch;max-width:650px;margin:16px auto 0;position:relative;padding-right:55px}.recording h1{font-size:clamp(22px,3vw,36px);margin:0 0 10px;overflow-wrap:anywhere}.artist-link,.album-link{display:block;width:100%;min-width:0;box-sizing:border-box;border:0;background:transparent;color:inherit;text-align:left;padding:0;white-space:normal;overflow-wrap:anywhere;cursor:pointer}.artist-link{font-size:18px}.album-link{font-size:14px;color:var(--muted);margin-top:8px}.album-link:disabled{cursor:default}.favorite{position:absolute;right:0;top:8px;background:transparent;border:0;color:var(--accent);font-size:30px}.cards{align-items:start;display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:24px}.right-cards{display:grid;align-content:start;gap:18px}article{background:#202522eF;border-radius:18px;padding:28px;min-width:0}.lyrics-card{grid-column:1/-1}h2{font-size:24px;margin:0 0 22px}p{line-height:1.6;color:#b5beb8;overflow-wrap:anywhere}.credit-name{color:var(--text);margin:18px 0 2px}small{color:#b5beb8}.subtle{background:transparent;border:0;color:#c3cec7;padding:0;font-size:13px;cursor:pointer}.card-heading{display:flex;align-items:baseline;justify-content:space-between;gap:16px}.next-track{display:flex;align-items:center;gap:16px}.next-art{width:64px;height:64px;flex-shrink:0;border-radius:5px;overflow:hidden}.next-track strong{overflow-wrap:anywhere}.next-track p{margin:5px 0 0}button:hover:not(:disabled){text-decoration:underline}button:focus-visible{outline:2px solid var(--accent);outline-offset:5px}@media(max-width:700px){.now-playing-view{padding:0 18px 22px}header{width:calc(100% + 36px);margin-inline:-18px;padding-left:18px}.content{margin-top:8px}.cards{grid-template-columns:1fr}.lyrics-card{grid-column:auto}article{padding:22px}h2{font-size:21px}}@media(max-height:600px){.recording{margin-top:12px}.recording h1{font-size:18px;line-height:1.15;margin-bottom:6px}.artist-link{font-size:15px}.album-link{font-size:12px;margin-top:5px}.now-playing-view{padding-top:0;padding-bottom:10px}.content{margin-top:6px}}
-  .artwork-menu{position:absolute;top:10px;right:72px;z-index:2}.artwork-menu summary{display:grid;place-items:center;list-style:none;width:44px;height:44px;border-radius:50%;background:#103c35e8;color:inherit;font-size:18px;letter-spacing:1px;cursor:pointer}.artwork-menu summary::-webkit-details-marker{display:none}.artwork-menu summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}.artwork-choice{position:absolute;top:50px;right:0;display:grid;gap:8px;margin:0;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--surface,#202522);box-shadow:0 12px 32px #0006;width:210px;max-width:calc(100vw - 110px);box-sizing:border-box}.artwork-choice-heading{display:block;padding:0 0 4px;color:var(--muted);font-size:11px;font-weight:600}.artwork-choice label{display:flex;flex-direction:row;align-items:center;gap:8px;margin:0;min-height:32px;font-size:13px;color:var(--text);white-space:nowrap;cursor:pointer}.artwork-choice input{flex:0 0 auto;width:14px;height:14px;margin:0;padding:0;accent-color:var(--accent)}.hero-art.both-art{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%;height:auto;min-width:0;max-width:min(116vh,1200px,100%);aspect-ratio:auto;gap:12px;overflow:visible;box-shadow:none;border-radius:0}.hero-art.both-art > :global(*){width:min(100%,58vh);min-width:0;height:auto;aspect-ratio:1;justify-self:center;border-radius:12px;overflow:hidden;object-fit:cover}
+  .now-playing-view {
+    --cover-gutter: clamp(12px, 3vmin, 32px);
+    --stage-height: max(0px, calc(100dvh - var(--player-inset)));
+    --cover-height: max(0px, calc(var(--stage-height) - 2 * var(--cover-gutter)));
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: var(--base, #101512);
+    color: var(--text);
+    outline: none;
+  }
+  .artwork-stage {
+    --artwork-ambient-blur: 90px;
+    --artwork-ambient-opacity: .38;
+    box-sizing: border-box;
+    display: grid;
+    place-items: center;
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    height: var(--stage-height);
+    padding: var(--cover-gutter);
+  }
+  .artwork-stage :global(.artwork-ambient) {
+    mask-image: linear-gradient(#000 59%, transparent 79%);
+  }
+  .artwork-stage:has(.hero-art :global(.artwork-ambient)) > .detected-ambient {
+    display: none;
+  }
+  .hero-art {
+    width: min(100%, 1000px, var(--cover-height));
+    min-width: 0;
+    aspect-ratio: 1;
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 18px 60px #0003;
+  }
+  .content {
+    container-type: inline-size;
+    width: min(calc(100% - 64px), 1300px);
+    margin: 0 auto;
+    padding: 24px 0;
+  }
+  header {
+    position: relative;
+    z-index: 1;
+    min-height: 44px;
+    padding: 0;
+    gap: 16px;
+  }
+  header div { display: grid; gap: 5px; min-width: 0; overflow-wrap: anywhere; }
+  header small { font-size: 10px; letter-spacing: .14em; }
+  .recording{width:100%;box-sizing:border-box;align-self:stretch;max-width:650px;margin:16px auto 0;position:relative;padding-right:55px}.recording h1{font-size:clamp(22px,3vw,36px);margin:0 0 10px;overflow-wrap:anywhere}.artist-link,.album-link{display:block;max-width:100%;border:0;background:transparent;color:inherit;text-align:left;padding:0;white-space:normal;overflow-wrap:anywhere;cursor:pointer;text-decoration:underline;text-underline-offset:.2em}.artist-link,.artist-caption{font-size:18px}.artist-caption{margin:0}.album-link,.album-caption{font-size:14px;color:var(--muted);margin:8px 0 0}.favorite{position:absolute;right:0;top:8px;background:transparent;border:0;color:var(--accent);font-size:30px}.cards{align-items:start;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-top:24px}.right-cards{display:grid;grid-template-columns:minmax(0,1fr);align-content:start;gap:18px}article{background:#202522eF;border-radius:18px;padding:28px;min-width:0}.lyrics-card{grid-column:1/-1}h2{font-size:24px;margin:0 0 22px}p{line-height:1.6;color:#b5beb8;overflow-wrap:anywhere}.credit-name{color:var(--text);margin:18px 0 2px}small{color:#b5beb8}.subtle{background:transparent;border:0;color:#c3cec7;padding:0;font-size:13px;cursor:pointer}.card-heading{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:16px}.next-track{display:flex;align-items:center;gap:16px}.next-art{width:64px;height:64px;flex-shrink:0;border-radius:5px;overflow:hidden}.next-track strong{overflow-wrap:anywhere}.next-track p{margin:5px 0 0}button:hover:not(:disabled){text-decoration:underline}button:focus-visible{outline:2px solid var(--accent);outline-offset:5px}@media(max-width:700px){.content{width:calc(100% - 36px)}}@media(max-height:600px){.recording{margin-top:12px}.recording h1{font-size:18px;line-height:1.15;margin-bottom:6px}.artist-link,.artist-caption{font-size:15px}.album-link,.album-caption{font-size:12px;margin-top:5px}}
+  @container (max-width: 630px) {
+    .cards { grid-template-columns: minmax(0, 1fr); }
+    .lyrics-card { grid-column: auto; }
+    article { padding: 22px; }
+    h2 { font-size: 21px; }
+  }
+  .artwork-menu{position:relative;margin-left:auto;flex:none}.artwork-menu summary{display:grid;place-items:center;list-style:none;width:44px;height:44px;border-radius:50%;background:#103c35e8;color:inherit;font-size:18px;letter-spacing:1px;cursor:pointer}.artwork-menu summary::-webkit-details-marker{display:none}.artwork-menu summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}.artwork-choice{position:absolute;top:50px;right:0;display:grid;gap:8px;margin:0;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--surface,#202522);box-shadow:0 12px 32px #0006;width:210px;max-width:calc(100vw - 110px);box-sizing:border-box}.artwork-choice-heading{display:block;padding:0 0 4px;color:var(--muted);font-size:11px;font-weight:600}.artwork-choice label{display:flex;flex-direction:row;align-items:center;gap:8px;margin:0;min-height:32px;font-size:13px;color:var(--text);white-space:nowrap;cursor:pointer}.artwork-choice input{flex:0 0 auto;width:14px;height:14px;margin:0;padding:0;accent-color:var(--accent)}.hero-art.both-art{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:min(100%,1200px,calc(2 * var(--cover-height) + 12px));aspect-ratio:auto;gap:12px;overflow:visible;box-shadow:none;border-radius:0}.hero-art.both-art > :global(*){width:100%;min-width:0;height:auto;aspect-ratio:1;justify-self:center;border-radius:12px;overflow:hidden;object-fit:cover}
   .artist-card :global(.artist-name){max-width:100%;white-space:normal;overflow-wrap:anywhere}
   .detected-artwork{width:100%;height:100%;object-fit:cover}
-  .now-playing-view header.has-artwork-menu{padding-right:112px}
 </style>

@@ -11,9 +11,9 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) const EVALUATOR_VERSION: &str = "42";
+pub(crate) const EVALUATOR_VERSION: &str = "45";
 // Repeated whitespace is also a common uploader artist/title separator.
-const CAPTION_SEPARATORS: [&str; 5] = [" - ", " – ", " — ", " | ", "  "];
+const CAPTION_SEPARATORS: [&str; 8] = [" - ", " – ", " — ", " | ", "  ", "－", "｜", "："];
 
 /// Caption boundaries are presentation evidence, never a recording identifier.
 /// Quoted titles must be complete and balanced; dangling or nested quotes stay
@@ -495,22 +495,11 @@ pub(crate) fn verified_soulseek_folder_artist(candidate: &Candidate) -> Option<S
 fn strip_caption_presentation(mut raw: &str) -> &str {
     for _ in 0..4 {
         let bracketed = crate::matching::split_balanced_trailing_parenthetical(raw)
-            .or_else(|| raw.strip_suffix(']').and_then(|s| s.rsplit_once('[')));
+            .or_else(|| crate::matching::split_balanced_trailing_square_group(raw));
         let Some((base, label)) = bracketed else {
             break;
         };
-        if !matches!(
-            norm(label).as_str(),
-            "audio"
-                | "official audio"
-                | "audio oficial"
-                | "official video"
-                | "official music video"
-                | "official lyric video"
-                | "lyric video"
-                | "lyrics"
-                | "visualizer"
-        ) {
+        if !crate::recording_identity::is_presentation_label(label) {
             break;
         }
         raw = base.trim_end();
@@ -709,7 +698,12 @@ fn base_title(raw: &str) -> String {
             break;
         }
     }
-    let mut t = t.trim_end_matches([')', ']']).trim();
+    let without_closing_delimiters = t.trim_end_matches([')', ']']).trim();
+    let mut t = if without_closing_delimiters.is_empty() {
+        t.as_str()
+    } else {
+        without_closing_delimiters
+    };
     let low = t.to_ascii_lowercase();
     for marker in [
         " - with ",
@@ -735,7 +729,6 @@ fn base_title(raw: &str) -> String {
         " official music video",
         " official lyric video",
         " visualizer",
-        " preview",
     ] {
         if let Some(prefix) = normalized.strip_suffix(suffix) {
             normalized = prefix.trim().to_owned();
@@ -744,7 +737,12 @@ fn base_title(raw: &str) -> String {
     normalized
 }
 fn title_key(raw: &str) -> String {
-    base_title(raw).replace('\'', "")
+    base_title(raw)
+}
+
+pub(crate) fn same_retrieval_title(requested: &str, observed: &str) -> bool {
+    let requested = title_key(requested);
+    !requested.is_empty() && requested == title_key(observed)
 }
 fn features_match(expected: &[String], actual: &[String]) -> Comparison {
     if expected.is_empty() {
@@ -776,7 +774,7 @@ fn accent_folded_covers_requested_credits(expected: &[String], actual: &[String]
     let mut used_accent_variant = false;
     for requested in expected {
         let requested_key = norm_artist(requested);
-        let folded_key = crate::recording_identity::search_fold(requested);
+        let folded_key = crate::recording_identity::artist_search_fold(requested);
         if requested_key.is_empty() || folded_key.is_empty() {
             return false;
         }
@@ -787,7 +785,7 @@ fn accent_folded_covers_requested_credits(expected: &[String], actual: &[String]
             .iter()
             .enumerate()
             .filter(|(_, candidate)| {
-                crate::recording_identity::search_fold(candidate) == folded_key
+                crate::recording_identity::artist_search_fold(candidate) == folded_key
             })
             .collect::<Vec<_>>();
         if matches.len() != 1 || !matched_actual.insert(matches[0].0) {
@@ -810,7 +808,7 @@ fn search_folded_covers_requested_credits(expected: &[String], actual: &[String]
     let mut matched_actual = std::collections::HashSet::new();
     for requested in expected {
         let requested_key = norm_artist(requested);
-        let folded_key = crate::recording_identity::search_fold(requested);
+        let folded_key = crate::recording_identity::artist_search_fold(requested);
         if requested_key.is_empty() || folded_key.is_empty() {
             return false;
         }
@@ -821,7 +819,7 @@ fn search_folded_covers_requested_credits(expected: &[String], actual: &[String]
             .iter()
             .enumerate()
             .filter(|(_, candidate)| {
-                crate::recording_identity::search_fold(candidate) == folded_key
+                crate::recording_identity::artist_search_fold(candidate) == folded_key
             })
             .collect::<Vec<_>>();
         if matches.len() != 1 || !matched_actual.insert(matches[0].0) {
@@ -963,14 +961,37 @@ fn prepared_semantic_observations(
 /// intentionally does not infer that two different performance/mix labels
 /// identify one recording just because they occur together.
 fn conflicting_semantic_observations(values: &[String]) -> bool {
-    if values.len() <= 1 {
-        return false;
+    #[derive(PartialEq)]
+    enum EditionFacet {
+        Mastering,
+        Performance,
+        Arrangement,
+        Mix,
+        Edit,
     }
-    let mastering = values
-        .iter()
-        .filter(|value| crate::recording_identity::is_release_version(value))
-        .count();
-    !(values.len() == 2 && mastering == 1)
+    let facet = |value: &str| {
+        if crate::recording_identity::is_release_version(value) {
+            return Some(EditionFacet::Mastering);
+        }
+        match version_kind(value).as_str() {
+            "live" => Some(EditionFacet::Performance),
+            "acoustic" | "instrumental" | "a cappella" => Some(EditionFacet::Arrangement),
+            "remix" | "dub" => Some(EditionFacet::Mix),
+            "radio edit" | "extended mix" | "edit" => Some(EditionFacet::Edit),
+            _ => None,
+        }
+    };
+    values.iter().enumerate().any(|(index, left)| {
+        values[index + 1..]
+            .iter()
+            .any(|right| match (facet(left), facet(right)) {
+                (Some(a), Some(b)) => a == b,
+                (Some(EditionFacet::Mastering), None) | (None, Some(EditionFacet::Mastering)) => {
+                    false
+                }
+                _ => true,
+            })
+    })
 }
 
 fn prepared_unknown_annotation(
@@ -1297,6 +1318,30 @@ fn requested_credit_parts(artist: &str, guests: &[String]) -> Vec<String> {
         .into_iter()
         .chain(guests.iter().cloned())
         .collect()
+}
+
+fn split_corroborated_credits(credit: &str, names: &[String]) -> Option<Vec<String>> {
+    if names.len() < 2 {
+        return None;
+    }
+    let observed = names
+        .iter()
+        .map(|name| norm_artist(name))
+        .collect::<std::collections::HashSet<_>>();
+    if observed.contains(&norm_artist(credit)) {
+        return None;
+    }
+    static SEPARATORS: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(?i)[，、،×]|\s+(?:x|and|&)\s+").expect("credit separators")
+    });
+    let parts = SEPARATORS.split(credit).map(str::trim).collect::<Vec<_>>();
+    let mut seen = std::collections::HashSet::new();
+    (parts.len() > 1
+        && parts.iter().all(|part| {
+            let key = norm_artist(part);
+            !key.is_empty() && observed.contains(&key) && seen.insert(key)
+        }))
+    .then(|| parts.into_iter().map(str::to_owned).collect())
 }
 fn valid_artist_credit_set_alias(
     track: &Track,
@@ -2018,7 +2063,7 @@ fn collaboration_caption_credits(prefix: &str, expected: &[String]) -> Vec<Strin
                 marker => marker.to_ascii_lowercase(),
             })
             .collect::<Vec<_>>();
-        (crate::recording_identity::search_fold(name), joins)
+        (crate::recording_identity::artist_search_fold(name), joins)
     };
     let mut remaining = expected
         .iter()
@@ -2098,7 +2143,7 @@ struct RequestCorroboratedCaptionOrientation {
 }
 
 fn uploader_matches_request_artist(uploader: &str, requested_artist: &str) -> bool {
-    let requested = crate::recording_identity::search_fold(
+    let requested = crate::recording_identity::artist_search_fold(
         &crate::matching::normalize_single_artist_name(requested_artist),
     );
     if requested.is_empty() {
@@ -2108,13 +2153,13 @@ fn uploader_matches_request_artist(uploader: &str, requested_artist: &str) -> bo
     if uploader.is_empty() {
         return false;
     }
-    if crate::recording_identity::search_fold(&uploader) == requested {
+    if crate::recording_identity::artist_search_fold(&uploader) == requested {
         return true;
     }
     for suffix in [" official", " oficial", " topic"] {
         if let Some(base) = uploader.strip_suffix(suffix) {
             if !base.trim().is_empty()
-                && crate::recording_identity::search_fold(base.trim()) == requested
+                && crate::recording_identity::artist_search_fold(base.trim()) == requested
             {
                 return true;
             }
@@ -2164,7 +2209,7 @@ fn request_corroborated_caption_orientation(
         }
     }
     let requested_artist = track.artist.trim();
-    let requested_artist_key = crate::recording_identity::search_fold(requested_artist);
+    let requested_artist_key = crate::recording_identity::artist_search_fold(requested_artist);
     if requested_artist_key.is_empty()
         || matches!(
             requested_artist_key.as_str(),
@@ -2225,9 +2270,9 @@ fn request_corroborated_caption_orientation(
             continue;
         }
         let right_artist_matches =
-            crate::recording_identity::search_fold(right) == requested_artist_key;
-        let left_title_matches = crate::recording_identity::search_fold(&title_key(left))
-            == crate::recording_identity::search_fold(&requested_title_key);
+            crate::recording_identity::artist_search_fold(right) == requested_artist_key;
+        let left_title_matches = crate::recording_identity::title_search_fold(&title_key(left))
+            == crate::recording_identity::title_search_fold(&requested_title_key);
         if !right_artist_matches || !left_title_matches {
             continue;
         }
@@ -2235,9 +2280,9 @@ fn request_corroborated_caption_orientation(
         // the ordinary artist-first orientation. That protects short or
         // identical artist/title captions from ambiguous reinterpretation.
         let left_artist_matches =
-            crate::recording_identity::search_fold(left) == requested_artist_key;
-        let right_title_matches = crate::recording_identity::search_fold(&title_key(right))
-            == crate::recording_identity::search_fold(&requested_title_key);
+            crate::recording_identity::artist_search_fold(left) == requested_artist_key;
+        let right_title_matches = crate::recording_identity::title_search_fold(&title_key(right))
+            == crate::recording_identity::title_search_fold(&requested_title_key);
         if left_artist_matches && right_title_matches {
             continue;
         }
@@ -2259,9 +2304,9 @@ fn request_corroborated_caption_orientation(
     // mistaken left-side value. Ignore only that value or the corroborated
     // right-side artist; any third artist remains a contradiction.
     if field_artist_names(meta).iter().any(|name| {
-        crate::recording_identity::search_fold(name)
-            != crate::recording_identity::search_fold(&orientation.title)
-            && crate::recording_identity::search_fold(name) != requested_artist_key
+        crate::recording_identity::artist_search_fold(name)
+            != crate::recording_identity::artist_search_fold(&orientation.title)
+            && crate::recording_identity::artist_search_fold(name) != requested_artist_key
     }) {
         return None;
     }
@@ -2330,7 +2375,7 @@ struct ComparisonFacts {
     exact_recording_bound: bool,
     topic_full: bool,
     contextual_game_title: bool,
-    caption_orientation_requires_full_info: bool,
+    requires_fresh_credit_evidence: bool,
     linked: bool,
     explicit_alt: bool,
     full_album_content: bool,
@@ -3054,17 +3099,32 @@ fn build_comparison(
     } else {
         request_observations.join(" ")
     };
-    let actual_semantic = semantic_version(&candidate_title, &actual_version);
-    let same_remix = version_kind(&requested_semantic) == "remix"
-        && version_kind(&actual_semantic) == "remix"
-        && requested_semantic == actual_semantic;
-    let mut comparison_artist = track.artist.clone();
-    if same_remix {
-        let pieces = split_credits(&comparison_artist);
-        if pieces.len() > 1 && norm(&requested_semantic).contains(&norm(&pieces[1])) {
-            comparison_artist = pieces[0].clone();
+    let actual_semantic = if conflicting_candidate_versions || observations.is_empty() {
+        semantic_version(&candidate_title, &actual_version)
+    } else {
+        observations.join(" ")
+    };
+    let components = |values: Vec<String>, fallback: &str| {
+        if values.is_empty() && !fallback.is_empty() {
+            vec![fallback.to_owned()]
+        } else {
+            values
         }
-    }
+    };
+    let request_observations = components(request_observations, &requested_semantic);
+    let observations = components(observations, &actual_semantic);
+    let shared_remix_name = (!conflicting_request_versions
+        && !conflicting_candidate_versions
+        && request_observations == observations)
+        .then(|| {
+            request_observations.iter().find_map(|version| {
+                version
+                    .strip_suffix(" remix")
+                    .or_else(|| version.strip_suffix(" remix full vocal version"))
+            })
+        })
+        .flatten();
+    let comparison_artist = &track.artist;
     let unresolved_annotation = !recording_scoped_title_alias
         && prepared_unknown_annotation(
             candidate_evidence,
@@ -3094,8 +3154,8 @@ fn build_comparison(
         Comparison::Unknown
     } else if title_key(&request_title.title) == title_key(&candidate_title)
         || caption_orientation.is_some()
-            && crate::recording_identity::search_fold(&title_key(&request_title.title))
-                == crate::recording_identity::search_fold(&title_key(&candidate_title))
+            && crate::recording_identity::title_search_fold(&title_key(&request_title.title))
+                == crate::recording_identity::title_search_fold(&title_key(&candidate_title))
     {
         Comparison::Agree
     } else {
@@ -3138,19 +3198,55 @@ fn build_comparison(
     let mut request_primary_credits = primary_credit_override
         .filter(|credits| !credits.is_empty() && credits.len() <= 16)
         .map(ToOwned::to_owned)
-        .unwrap_or_else(|| structured_primary_credits(track, &comparison_artist));
-    let requested_performer_count = request_primary_credits
-        .iter()
-        .chain(requested_guests.iter())
-        .map(|credit| norm_artist(credit))
-        .filter(|credit| !credit.is_empty())
-        .collect::<std::collections::HashSet<_>>()
-        .len();
+        .unwrap_or_else(|| structured_primary_credits(track, comparison_artist));
+    // An artist join can also be part of an act's name. Require separate
+    // source credits before splitting an unstructured request display name.
+    if primary_credit_override.is_none()
+        && request_identity.credits.is_empty()
+        && !request_credit_source_uncertain
+        && track.provenance["manualFields"]["artist"] != true
+        && !artist_array_observation.uncertain
+    {
+        let observed_names = &artist_array_observation.names;
+        if observed_names
+            .iter()
+            .any(|name| norm_artist(name) == norm_artist(comparison_artist))
+        {
+            request_primary_credits = vec![comparison_artist.clone()];
+        } else {
+            request_primary_credits = request_primary_credits
+                .into_iter()
+                .flat_map(|credit| {
+                    split_corroborated_credits(&credit, observed_names)
+                        .unwrap_or_else(|| vec![credit])
+                })
+                .collect();
+        }
+    }
     // A named remixer may also appear as a catalog artist. When both sides
     // name the same remix, its version already identifies that credit; the
     // caption need only identify the remaining performers.
-    if same_remix && request_primary_credits.len() > 1 {
-        let remixer = requested_semantic.strip_suffix(" remix").unwrap_or("");
+    let omitted_remixer = shared_remix_name
+        .filter(|_| request_primary_credits.len() > 1)
+        .and_then(|name| {
+            // A provider can spell the same named edition as "DJ Name Vocal
+            // Remix". Prefer an exact credit for the entirety of the name
+            // before recognizing the explicit vocal qualifier.
+            std::iter::once(name)
+                .chain(name.strip_suffix(" vocal"))
+                .find(|remixer| {
+                    request_primary_credits
+                        .iter()
+                        .any(|name| norm_artist(name) == norm_artist(remixer))
+                })
+        })
+        .filter(|remixer| {
+            !artist_array_observation
+                .names
+                .iter()
+                .any(|name| norm_artist(name) == norm_artist(remixer))
+        });
+    if let Some(remixer) = omitted_remixer {
         let retained = request_primary_credits
             .iter()
             .filter(|credit| norm_artist(credit) != norm_artist(remixer))
@@ -3160,6 +3256,13 @@ fn build_comparison(
             request_primary_credits = retained;
         }
     }
+    let requested_performer_count = request_primary_credits
+        .iter()
+        .chain(requested_guests.iter())
+        .map(|credit| norm_artist(credit))
+        .filter(|credit| !credit.is_empty())
+        .collect::<std::collections::HashSet<_>>()
+        .len();
     let request_credit_parts = request_primary_credits
         .iter()
         .cloned()
@@ -3197,12 +3300,22 @@ fn build_comparison(
     let mut caption_names = if artist_array_observation.uncertain || caption_orientation.is_some() {
         Vec::new()
     } else {
-        caption_artist_names(
-            canonical_catalog.unwrap_or(caption_title),
-            &comparison_artist,
+        let caption = canonical_catalog.unwrap_or(caption_title);
+        let mut observed = caption_artist_names(
+            caption,
+            comparison_artist,
             &requested_guests,
             Some(&comparison_credit_parts),
-        )
+        );
+        if observed.is_empty() && omitted_remixer.is_some() {
+            observed = caption_artist_names(
+                caption,
+                &request_primary_credits.join(", "),
+                &requested_guests,
+                Some(&comparison_credit_parts),
+            );
+        }
+        observed
     };
     let collaboration_caption = if !lexical_credit_override
         && filename_observations.is_none()
@@ -3389,7 +3502,7 @@ fn build_comparison(
             Comparison::Agree
         } else {
             artist_match(
-                &comparison_artist,
+                comparison_artist,
                 &request_primary_credits,
                 &names,
                 artist_guests,
@@ -3415,7 +3528,7 @@ fn build_comparison(
         Comparison::Conflict
     } else if requested_semantic.is_empty() && actual_semantic.is_empty() {
         Comparison::Unknown
-    } else if requested_semantic == actual_semantic {
+    } else if request_observations == observations {
         Comparison::Agree
     } else if actual_semantic.is_empty() {
         Comparison::Unknown
@@ -3505,8 +3618,31 @@ fn build_comparison(
         && !request_credits_complete
         && requested_guests.is_empty()
         && accent_folded_covers_requested_credits(&request_credit_parts, &names);
+    // An exact album row independently binds the title, timing and linked
+    // artist. Use spelling equivalence for retrieval, then require the fresh
+    // extractor to corroborate the same linked credits before playback.
+    let verified_album_credits = meta["sourceMetadataOrigin"] == "ytDlpFullInfo"
+        && meta["artistCreditSource"] == "youtubeMusicCatalogVerifiedAlbum"
+        && meta["channelIsVerified"] == true
+        && candidate
+            .id
+            .strip_prefix("youtube:")
+            .is_some_and(|id| meta["resolvedProviderId"].as_str() == Some(id));
+    let album_accent_match = title == Comparison::Agree
+        && runtime == Comparison::Agree
+        && version != Comparison::Conflict
+        && isrc != Comparison::Conflict
+        && meta["identityMetadataUncertain"] != true
+        && !artist_array_observation.uncertain
+        && !request_credit_source_uncertain
+        && track.provenance["manualFields"]["artist"] != true
+        && requested_guests.is_empty()
+        && (meta["sourceMetadataOrigin"].is_null() || verified_album_credits)
+        && accent_folded_covers_requested_credits(&request_credit_parts, &names)
+        && crate::youtube_recording_metadata::preferred_album_locator(track, candidate);
     let accent_folded_performer_match = isrc_bound_accent_performer_match
         || verified_channel_accent_match
+        || album_accent_match
         || collaboration_caption_artist_match
             && accent_folded_covers_requested_credits(&comparison_credit_parts, &names);
     if accent_folded_performer_match {
@@ -3609,19 +3745,22 @@ fn build_comparison(
         .map(|s| norm_artist(s))
         .collect::<Vec<_>>();
     let mut actual = names.iter().map(|s| norm_artist(s)).collect::<Vec<_>>();
-    if request_corroborated_caption_artist_match || verified_channel_accent_match {
+    if request_corroborated_caption_artist_match
+        || verified_channel_accent_match
+        || album_accent_match
+    {
         // Preserve provider spelling in `names` and evidence, but compare the
         // single uploader-and-caption-verified accent variant as the request
         // credit. This closes missing/extra bookkeeping only for the same
         // request-scoped path that already passed title, runtime, version,
         // source-ID and uploader checks above.
         for requested in &expected {
-            let folded = crate::recording_identity::search_fold(requested);
+            let folded = crate::recording_identity::artist_search_fold(requested);
             let matches = actual
                 .iter()
                 .enumerate()
                 .filter(|(_, candidate)| {
-                    crate::recording_identity::search_fold(candidate) == folded
+                    crate::recording_identity::artist_search_fold(candidate) == folded
                 })
                 .map(|(index, _)| index)
                 .collect::<Vec<_>>();
@@ -3675,18 +3814,8 @@ fn build_comparison(
         requested_guests,
         requested_performer_count,
         names,
-        actual_version_components: if observations.is_empty() && !actual_semantic.is_empty() {
-            vec![actual_semantic]
-        } else {
-            observations
-        },
-        requested_version_components: if request_observations.is_empty()
-            && !requested_semantic.is_empty()
-        {
-            vec![requested_semantic.clone()]
-        } else {
-            request_observations
-        },
+        actual_version_components: observations,
+        requested_version_components: request_observations,
         actual_version,
         requested_semantic,
         requested_version: requested_version.to_owned(),
@@ -3702,8 +3831,9 @@ fn build_comparison(
         exact_recording_bound,
         topic_full,
         contextual_game_title,
-        caption_orientation_requires_full_info: caption_orientation.is_some()
-            && meta["sourceMetadataOrigin"].as_str() != Some("ytDlpFullInfo"),
+        requires_fresh_credit_evidence: (caption_orientation.is_some()
+            && meta["sourceMetadataOrigin"].as_str() != Some("ytDlpFullInfo"))
+            || (album_accent_match && !verified_album_credits),
         linked,
         explicit_alt,
         full_album_content,
@@ -4439,7 +4569,7 @@ fn assess_prepared_inner(
         }
     };
     if stage == MatchStage::Resolved
-        && facts.caption_orientation_requires_full_info
+        && facts.requires_fresh_credit_evidence
         && action != MatchAction::Reject
     {
         action = MatchAction::Enrich;
@@ -5855,6 +5985,149 @@ mod tests {
                 let result = assess(&request, &other, MatchLevel::Balanced, MatchStage::Search);
                 assert_ne!(result.action, MatchAction::Accept, "{suffix}: {result:?}");
             }
+        }
+    }
+
+    #[test]
+    fn dashed_remix_with_full_vocal_qualifier_matches_parenthesized_release() {
+        let mut request = Track {
+            artist: "Gregory Porter, Claptone".into(),
+            title: "Liquid Spirit - Claptone Remix / Full Vocal Version".into(),
+            duration_seconds: Some(164.0),
+            ..Track::default()
+        };
+        let title = "Liquid Spirit (Claptone Remix / Full Vocal Version)";
+        let source = Candidate {
+            provider: "youtube".into(),
+            title: title.into(),
+            duration_seconds: Some(165.0),
+            source_metadata: Some(json!({
+                "sourceMetadataOrigin":"ytDlpFullInfo",
+                "track":title,
+                "artists":["Gregory Porter"],
+                "artistCount":1
+            })),
+            ..Candidate::default()
+        };
+        for credits in [
+            Value::Null,
+            json!({"artistCredits": [
+                {"name":"Gregory Porter","role":"artist"},
+                {"name":"Claptone","role":"artist"}
+            ]}),
+        ] {
+            request.provenance = credits;
+            let result = assess(
+                &request,
+                &source,
+                MatchLevel::Flexible,
+                MatchStage::Resolved,
+            );
+            assert_eq!(result.dimensions.title, Comparison::Agree, "{result:?}");
+            assert_eq!(result.dimensions.version, Comparison::Agree, "{result:?}");
+            assert_eq!(result.action, MatchAction::Accept, "{result:?}");
+        }
+
+        let different_title = "Liquid Spirit (Claptone Remix)";
+        let mut different = source;
+        different.title = different_title.into();
+        different.source_metadata.as_mut().unwrap()["track"] = json!(different_title);
+        let result = assess(
+            &request,
+            &different,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+        );
+        assert_eq!(
+            result.dimensions.version,
+            Comparison::Conflict,
+            "{result:?}"
+        );
+        assert_eq!(result.action, MatchAction::Reject, "{result:?}");
+    }
+
+    #[test]
+    fn catalog_cut_labels_match_across_title_formats_without_merging_distinct_cuts() {
+        for (title, source_title, other_cut) in [
+            (
+                "Feels Like Summer - Acoustic",
+                "Feels Like Summer (Acoustic Version)",
+                "Feels Like Summer",
+            ),
+            (
+                "Truck Drivin' Man - Demo Version",
+                "Truck Drivin' Man (Demo)",
+                "Truck Drivin' Man (Live)",
+            ),
+            (
+                "Black Coffee - Single Version",
+                "Black Coffee (Single Version)",
+                "Black Coffee (Album Version)",
+            ),
+            (
+                "Ritmo De La Noche - Radio Version",
+                "Ritmo De La Noche (Radio Version)",
+                "Ritmo De La Noche (Extended Version)",
+            ),
+            (
+                "Tightrope (the solo version)",
+                "Tightrope (Solo Version)",
+                "Tightrope (Radio Version)",
+            ),
+            (
+                "Yo No Se Manana - Salsa Version",
+                "Yo No Se Manana (Salsa Version)",
+                "Yo No Se Manana (Bachata Version)",
+            ),
+            (
+                "Lithium - 1992/Live at Reading",
+                "Lithium (Live at Reading 1992)",
+                "Lithium (Live at Reading 1993)",
+            ),
+        ] {
+            let request = Track {
+                title: title.into(),
+                artist: "Test Artist".into(),
+                duration_seconds: Some(200.0),
+                ..Track::default()
+            };
+            let mut source = Candidate {
+                provider: "youtube".into(),
+                title: source_title.into(),
+                duration_seconds: Some(200.0),
+                source_metadata: Some(json!({"artists":["Test Artist"],"artistCount":1})),
+                ..Candidate::default()
+            };
+            let result = assess(
+                &request,
+                &source,
+                MatchLevel::Balanced,
+                MatchStage::Resolved,
+            );
+            assert_eq!(
+                result.dimensions.title,
+                Comparison::Agree,
+                "{title}: {result:?}"
+            );
+            assert_eq!(
+                result.dimensions.version,
+                Comparison::Agree,
+                "{title}: {result:?}"
+            );
+            assert_eq!(result.action, MatchAction::Accept, "{title}: {result:?}");
+
+            source.title = other_cut.into();
+            let result = assess(
+                &request,
+                &source,
+                MatchLevel::Balanced,
+                MatchStage::Resolved,
+            );
+            assert_ne!(
+                result.action,
+                MatchAction::Accept,
+                "{other_cut}: {result:?}"
+            );
         }
     }
 
@@ -9813,15 +10086,15 @@ mod stage_one_regressions {
         }
     }
     #[test]
-    fn empty_normalized_title_and_artist_are_uncertain_not_agreement() {
+    fn missing_title_and_artist_are_uncertain_not_agreement() {
         for artist_case in [false, true] {
             let mut t = request();
             let mut c = candidate();
             if artist_case {
-                t.artist = "!!!".into();
+                t.artist.clear();
                 c.source_metadata.as_mut().unwrap()["artists"] = json!(["???"]);
             } else {
-                t.title = "!!!".into();
+                t.title.clear();
                 c.title = "???".into();
                 c.source_metadata.as_mut().unwrap()["track"] = json!("???");
             }

@@ -121,12 +121,14 @@ describe("RadioView", () => {
 
   it("lists verified stations, shows now-playing metadata, and reports artist info without matching identity", async () => {
     vi.useFakeTimers();
+    const earlierId = "a".repeat(64), liveId = "b".repeat(64);
     mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
       if (command === "get_radio_stations") return stations;
       if (command === "get_station_details") return { stationId: args?.stationId };
       if (command === "get_radio_song_track") {
         const item = args?.metadata as RadioTrackMetadata;
-        return { id: "radio_song:canonical", provider: "radio_song", providerId: "canonical", sourceUrl: "", artist: item.artist, title: item.title, album: item.album, durationSeconds: item.title === "Earlier Song" ? 180 : undefined, favorite: false, provenance: { sourceKind: "radioSong", identity: "unverified station metadata", radioStationId: item.stationId } };
+        const providerId = item.title === "Earlier Song" ? earlierId : liveId;
+        return { id: `radio_song:${providerId}`, provider: "radio_song", providerId, sourceUrl: "", artist: item.artist, title: item.title, album: item.album, durationSeconds: item.title === "Earlier Song" ? 180 : undefined, favorite: false, provenance: { sourceKind: "radioSong", identity: "unverified station metadata", radioStationId: item.stationId } };
       }
       if (command === "identify_radio_station") return {
         stationId: args?.stationId, nowPlaying: { stationId: args?.stationId, artist: "Radio Artist", title: "Live Song", album: "Current Album", year: "2025", artworkUrl: "https://img.radioparadise.com/covers/l/current.jpg", sourceUrl: stations[0]!.sourceUrl, metadataConfidence: "station-reported; catalog identity unverified" },
@@ -179,24 +181,24 @@ describe("RadioView", () => {
     expect(document.querySelector('[aria-label="Add Earlier Song to favorites"]')).toBeTruthy();
     document.querySelector<HTMLButtonElement>('[aria-label="Add Earlier Song to favorites"]')!.click();
     for (let i = 0; i < 8; i++) await Promise.resolve();
-    expect(onFavoriteTrack).toHaveBeenCalledWith(expect.objectContaining({ id: "radio_song:canonical", sourceUrl: "" }));
+    expect(onFavoriteTrack).toHaveBeenCalledWith(expect.objectContaining({ id: `radio_song:${earlierId}`, sourceUrl: "" }));
     document.querySelector<HTMLButtonElement>(".identify-button")!.click();
     for (let i = 0; i < 8; i++) await Promise.resolve();
     expect(mocks.call).toHaveBeenCalledWith("identify_radio_station", { stationId: "main" });
     document.querySelector<HTMLButtonElement>('[aria-label="Play Earlier Song"]')!.click();
     for (let i = 0; i < 8; i++) await Promise.resolve();
-    expect(onPlayTrack).toHaveBeenCalledWith(expect.objectContaining({ id: "radio_song:canonical", title: "Earlier Song", artist: "Older Artist", sourceUrl: "" }), expect.any(Array), 0);
+    expect(onPlayTrack).toHaveBeenCalledWith(expect.objectContaining({ id: `radio_song:${earlierId}`, title: "Earlier Song", artist: "Older Artist", sourceUrl: "" }), expect.any(Array), 0);
     document.querySelector<HTMLButtonElement>('[aria-label="Actions for Earlier Song"]')!.click(); await tick();
     [...document.querySelectorAll<HTMLButtonElement>(".track-menu button")].find(button => button.textContent === "Track information")!.click();
     for (let i = 0; i < 8; i++) await Promise.resolve();
-    expect(onInfoTrack).toHaveBeenCalledWith(expect.objectContaining({ id: "radio_song:canonical", title: "Earlier Song", sourceUrl: "" }));
+    expect(onInfoTrack).toHaveBeenCalledWith(expect.objectContaining({ id: `radio_song:${earlierId}`, title: "Earlier Song", sourceUrl: "" }));
     expect(document.querySelector('[aria-label^="Recently heard"]')?.textContent).toContain("your listening history");
     expect(document.querySelector("h1")?.textContent).toBe("Main Mix");
     expect(document.querySelector('img[alt="Album artwork for Live Song"]')?.getAttribute("src")).toBe("https://img.radioparadise.com/covers/l/current.jpg");
     document.querySelector<HTMLButtonElement>(".artist-link")!.click();
     for (let i = 0; i < 8; i++) await Promise.resolve();
     expect(onArtist).toHaveBeenCalledWith(expect.objectContaining({
-      id: "radio_song:canonical", provider: "radio_song", artist: "Radio Artist", title: "Live Song",
+      id: `radio_song:${liveId}`, provider: "radio_song", artist: "Radio Artist", title: "Live Song",
       provenance: expect.objectContaining({ identity: "unverified station metadata", radioStationId: "main" }),
     }));
     document.querySelectorAll<HTMLButtonElement>('[aria-label="Radio stations"] .station-card')[1]!.click();
@@ -574,6 +576,40 @@ it("selects radio history for playlists and keeps canonical song downloads", asy
   expect(onDownloadTrack).toHaveBeenCalledWith(expect.objectContaining({id: "radio_song:heard", sourceUrl: ""}));
 
 
+});
+
+it.each([false, true])("updates an unhydrated radio favorite before lookup completes (clicked twice: %s)", async (clickedTwice) => {
+  const metadata = {stationId: "main", artist: "Fixture Artist", title: "Heard Song", sourceUrl: "", metadataConfidence: "station"};
+  const providerId = "a".repeat(64);
+  const canonical = {id: `radio_song:${providerId}`, provider: "radio_song", providerId, title: metadata.title, artist: metadata.artist, sourceUrl: "", favorite: false, provenance: {sourceKind: "radioSong"}};
+  let resolveLookup!: (track: typeof canonical) => void;
+  const lookup = new Promise<typeof canonical>(resolve => { resolveLookup = resolve; });
+  mocks.call.mockImplementation(async (command: string) => {
+    if (command === "get_radio_playlist_option") return {enabled: false, collectionId: null};
+    if (command === "list_radio_playlist_targets") return [];
+    if (command === "get_station_details") return {stationId: "main", history: [metadata], historyAvailable: true};
+    if (command === "search_playback_history") return {items: [], total: 0};
+    if (command === "get_radio_song_track") return lookup;
+    throw new Error(`Unexpected command ${command}`);
+  });
+  const onFavoriteTrack = vi.fn();
+  const instance = mount(RadioView, {target: document.body, props: {savedStations: stations, selectedStationId: "main", onPlayStation: vi.fn(), onArtist: vi.fn(), onFavoriteTrack}});
+  cleanup = () => unmount(instance);
+  const heart = () => document.querySelector<HTMLButtonElement>(".history button.favorite")!;
+  await vi.waitFor(() => expect(heart()).not.toBeNull());
+  heart().click();
+  await tick();
+  expect(heart().getAttribute("aria-pressed")).toBe("true");
+  expect(onFavoriteTrack).not.toHaveBeenCalled();
+  if (clickedTwice) {
+    heart().click();
+    await tick();
+    expect(heart().getAttribute("aria-pressed")).toBe("false");
+  }
+  resolveLookup(canonical);
+  for (let i = 0; i < 8; i++) await tick();
+  expect(onFavoriteTrack).toHaveBeenCalledTimes(clickedTwice ? 0 : 1);
+  if (!clickedTwice) expect(onFavoriteTrack).toHaveBeenCalledWith(expect.objectContaining({ id: canonical.id, sourceUrl: "" }));
 });
 
 it("removes a saved station independently of the add dialog", async () => {

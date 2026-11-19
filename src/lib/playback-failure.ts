@@ -109,6 +109,7 @@ export function safeTrackFailureText(raw: string, maximum = 250): string {
   let redactNext = 0;
   return raw.split(/\s+/).filter(Boolean).map(part => {
     if (redactNext > 0) { redactNext--; return "[redacted]"; }
+    if (part === "/") return part;
     const lower = part.toLowerCase();
     if (/(?:https?|ftp|file):\/\//i.test(part) || /^[('"]*(?:\/|[a-z]:\\|\\\\)/i.test(part)) return "[source]";
     if (/^(?:token|access[_-]?token|refresh[_-]?token|password|authorization|api[_-]?key|cookie|signature|sig)[=:]/i.test(part)) {

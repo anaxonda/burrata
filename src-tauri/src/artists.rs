@@ -1806,6 +1806,32 @@ impl ArtistService {
             .await
     }
 
+    pub(crate) async fn refresh_lastfm_top_track(
+        &self,
+        track: &Track,
+        api_key: &str,
+    ) -> Result<Option<Track>, String> {
+        if !lastfm_top_track_metadata_available(track) {
+            return Ok(None);
+        }
+        let mut url = Url::parse(&self.endpoints.lastfm).map_err(|error| error.to_string())?;
+        url.query_pairs_mut()
+            .append_pair("method", "track.getInfo")
+            .append_pair("artist", &track.artist)
+            .append_pair("track", &track.title)
+            .append_pair("autocorrect", "1")
+            .append_pair("api_key", api_key)
+            .append_pair("format", "json");
+        let cache_key = format!(
+            "{:x}",
+            Sha256::digest(format!("{}\0{}", track.artist, track.title))
+        );
+        let data = self
+            .get_json("artists.track_info.lastfm", &cache_key, url, LIST_TTL, None)
+            .await?;
+        Ok(lastfm_top_track_metadata(track, &data["track"]))
+    }
+
     /// Compact album index for browsing. Exact edition discovery remains lazy
     /// and the legacy all-editions API remains available for identity lookups.
     pub async fn get_artist_discography(
@@ -3658,7 +3684,15 @@ fn parse_discogs_artist(value: &Value) -> Option<ArtistSearchResult> {
             id: id.clone(),
         },
         name,
-        image_url: None,
+        image_url: ["thumb", "cover_image"].iter().find_map(|field| {
+            let url = Url::parse(value[*field].as_str()?).ok()?;
+            (url.scheme() == "https"
+                && url.host_str() == Some("i.discogs.com")
+                && url.port().is_none()
+                && url.username().is_empty()
+                && url.password().is_none())
+            .then(|| url.to_string())
+        }),
         sort_name: None,
         disambiguation: nonempty(value["profile"].as_str()).map(|s| s.chars().take(140).collect()),
         artist_type: None,
@@ -3911,26 +3945,31 @@ fn musicbrainz_album_track_count(data: &Value) -> Option<usize> {
 }
 
 fn discogs_album_track_count(data: &Value) -> Option<usize> {
-    let mut total = 0usize;
-    for row in data.get("tracklist")?.as_array()? {
-        if row["type_"].as_str() == Some("heading") {
-            continue;
+    let rows = data.get("tracklist")?.as_array()?;
+    let mut total = 0;
+    visit_discogs_track_rows(rows, &mut Vec::new(), &mut |row, _| {
+        if row["type_"].as_str() != Some("heading") {
+            total += 1;
         }
-        let count = if let Some(children) = row
-            .get("sub_tracks")
-            .and_then(Value::as_array)
-            .filter(|v| !v.is_empty())
-        {
-            children
-                .iter()
-                .filter(|row| row["type_"].as_str() != Some("heading"))
-                .count()
-        } else {
-            1
-        };
-        total = total.checked_add(count)?;
-    }
+    });
     Some(total)
+}
+
+fn visit_discogs_track_rows<'a>(
+    rows: &'a [Value],
+    parents: &mut Vec<&'a Value>,
+    visit: &mut impl FnMut(&'a Value, &[&'a Value]),
+) {
+    for row in rows {
+        let children = row["sub_tracks"].as_array().filter(|rows| !rows.is_empty());
+        if let Some(children) = children.filter(|_| row["type_"].as_str() != Some("heading")) {
+            parents.push(row);
+            visit_discogs_track_rows(children, parents, visit);
+            parents.pop();
+        } else {
+            visit(row, parents);
+        }
+    }
 }
 
 pub(crate) fn mark_library_album_snapshot(
@@ -4148,43 +4187,27 @@ pub(crate) fn parse_discogs_release_tracks(
     let mut medium = 1u32;
     let mut occurrences = std::collections::HashMap::<(u32, String), u32>::new();
     let mut tracks = Vec::new();
-    let mut playable_rows = Vec::<(Value, Option<String>)>::new();
-    for value in data["tracklist"].as_array().into_iter().flatten() {
-        if value["type_"].as_str() == Some("heading") {
-            playable_rows.push((value.clone(), None));
-            continue;
-        }
-        let children = value["sub_tracks"]
-            .as_array()
-            .filter(|children| !children.is_empty());
-        if let Some(children) = children {
-            let parent_title = value["title"].as_str().map(str::to_owned);
-            playable_rows.extend(
-                children
-                    .iter()
-                    .cloned()
-                    .map(|child| (child, parent_title.clone())),
-            );
-        } else {
-            playable_rows.push((value.clone(), None));
-        }
-    }
-    for (index, (value, parent_title)) in playable_rows.into_iter().enumerate() {
+    let Some(rows) = data["tracklist"].as_array() else {
+        return tracks;
+    };
+    let mut row_position = 0;
+    visit_discogs_track_rows(rows, &mut Vec::new(), &mut |value, parents| {
+        row_position += 1;
         if value["type_"].as_str() == Some("heading") {
             medium = medium.saturating_add(1);
-            continue;
+            return;
         }
         let Some(title) = value["title"]
             .as_str()
             .filter(|title| !title.trim().is_empty())
         else {
-            continue;
+            return;
         };
         let position = value["position"]
             .as_str()
             .filter(|position| !position.trim().is_empty())
             .map(str::to_owned)
-            .unwrap_or_else(|| (index + 1).to_string());
+            .unwrap_or_else(|| row_position.to_string());
         let key = (medium, position.clone());
         let occurrence = occurrences
             .entry(key)
@@ -4192,31 +4215,37 @@ pub(crate) fn parse_discogs_release_tracks(
             .or_insert(1);
         let track_credits = discogs_credit_values(&value["artists"], &release_url, "Artist");
         let track_artist = format_discogs_credits(&track_credits);
-        let use_release_artist = track_artist.trim().is_empty();
-        let artist = if !track_artist.trim().is_empty() {
-            track_artist
-        } else if !release_artist.trim().is_empty() && !is_various_artist(&release_artist) {
-            release_artist.clone()
-        } else if is_various_artist(&release_artist) {
-            release_artist.clone()
-        } else {
-            selected_artist_name.unwrap_or("Unknown artist").to_owned()
-        };
-        let mut credits = if track_credits.is_empty() || use_release_artist {
-            release_credits.clone()
-        } else {
-            track_credits.clone()
-        };
-        if use_release_artist {
-            // Keep release-level context alongside the track's own artist credit.
-            // Contributors in `extraartists` remain separately role-labelled below.
+        let (artist, mut credits) = if track_artist.trim().is_empty() {
+            let inherited = parents.iter().rev().find_map(|parent| {
+                let credits = discogs_credit_values(&parent["artists"], &release_url, "Artist");
+                let artist = format_discogs_credits(&credits);
+                (!artist.trim().is_empty() && !is_various_artist(&artist))
+                    .then_some((artist, credits))
+            });
+            let (artist, mut credits) = inherited.unwrap_or_else(|| {
+                let artist = if release_artist.trim().is_empty() {
+                    selected_artist_name.unwrap_or("Unknown artist").to_owned()
+                } else {
+                    release_artist.clone()
+                };
+                (artist, release_credits.clone())
+            });
             credits.extend(track_credits);
-        }
+            (artist, credits)
+        } else {
+            (track_artist, track_credits)
+        };
         credits.extend(discogs_credit_values(
             &value["extraartists"],
             &release_url,
             "Contributor",
         ));
+        let parent_title = parents.iter().rev().find_map(|parent| {
+            parent["title"]
+                .as_str()
+                .map(str::trim)
+                .filter(|title| !title.is_empty())
+        });
         let reference_id = value["id"]
             .as_u64()
             .map(|id| id.to_string())
@@ -4241,7 +4270,7 @@ pub(crate) fn parse_discogs_release_tracks(
                 "trackId":reference_id, "parentTitle":parent_title, "artistCredits":credits, "representativeEdition":representative}),
             ..Track::default()
         });
-    }
+    });
     tracks
 }
 
@@ -4640,6 +4669,38 @@ fn parse_lastfm_tracks(value: &Value, artist_name: &str, artist: &ArtistRef) -> 
             ..Track::default()
         })
     }).collect()
+}
+
+pub(crate) fn lastfm_top_track_metadata_available(track: &Track) -> bool {
+    track.provider == "lastfm"
+        && track.provenance["source"] == "Last.fm top tracks"
+        && track.provenance["provider"] == "lastfm"
+        && track.provenance["artistRef"]["id"]
+            .as_str()
+            .is_some_and(|id| track.provider_id == format!("{id}:{}", track.title.to_lowercase()))
+        && !track.artist.trim().is_empty()
+        && !track.title.trim().is_empty()
+        && track.provenance["manualFields"]["artist"] != true
+        && track.provenance["manualFields"]["title"] != true
+}
+
+fn lastfm_top_track_metadata(track: &Track, info: &Value) -> Option<Track> {
+    let artist = info["artist"]["name"].as_str()?;
+    if matching::normalize(artist) != matching::normalize(&track.artist) {
+        return None;
+    }
+    let title = info["name"]
+        .as_str()
+        .filter(|title| !title.trim().is_empty() && title.len() <= 512)
+        .filter(|title| !title.chars().any(char::is_control))?;
+    let duration = info["duration"]
+        .as_u64()
+        .or_else(|| info["duration"].as_str()?.parse::<u64>().ok())
+        .filter(|duration| (1000..=86_400_000).contains(duration))?;
+    let mut refreshed = track.clone();
+    refreshed.title = title.to_owned();
+    refreshed.duration_seconds = Some(duration as f64 / 1000.0);
+    Some(refreshed)
 }
 
 fn artist_relationship(
@@ -5625,7 +5686,10 @@ mod tests {
             "life-span":{"begin":"1994"}, "country":"SE"
         }))
         .unwrap();
-        let discogs = parse_discogs_artist(&json!({"id":123,"title":"Pulse"})).unwrap();
+        let discogs = parse_discogs_artist(&json!({
+            "id":123,"title":"Pulse","thumb":"https://i.discogs.com/artist-portrait.jpeg"
+        }))
+        .unwrap();
         assert_ne!(mb.artist, discogs.artist);
         assert_eq!(
             mb.disambiguation.as_deref(),
@@ -5633,6 +5697,15 @@ mod tests {
         );
         assert_eq!(mb.begin_date.as_deref(), Some("1994"));
         assert_eq!(discogs.artist.provider, "discogs");
+        assert_eq!(
+            discogs.image_url.as_deref(),
+            Some("https://i.discogs.com/artist-portrait.jpeg")
+        );
+        let placeholder = parse_discogs_artist(&json!({
+            "id":123,"title":"Pulse", "cover_image":"https://st.discogs.com/default-artist.gif"
+        }))
+        .unwrap();
+        assert!(placeholder.image_url.is_none());
     }
 
     #[test]
@@ -6171,6 +6244,46 @@ mod tests {
         assert_eq!(parsed_tracks[0].title, "Signal Bloom");
         assert_eq!(requests.load(Ordering::SeqCst), 2);
         server.await.unwrap();
+    }
+
+    #[test]
+    fn lastfm_top_track_info_supplies_provider_corrections_for_playback() {
+        let artist = ArtistRef {
+            provider: "discogs".into(),
+            id: "11041".into(),
+        };
+        let original = "This In Not A Song, It's An Outburst: Or, The Establishment Blues";
+        let canonical = "This Is Not a Song, It's an Outburst: Or, the Establishment Blues";
+        let top_tracks = json!({"toptracks": {"track": [{"name": original}]}});
+        let track = parse_lastfm_tracks(&top_tracks, "Rodriguez", &artist)
+            .pop()
+            .unwrap();
+        let info = json!({
+            "name": canonical,
+            "artist": {"name": "Rodriguez"},
+            "duration": "127000",
+            "album": {"title": "Searching for Sugar Man"},
+        });
+        assert!(lastfm_top_track_metadata_available(&track));
+        let refreshed = lastfm_top_track_metadata(&track, &info).unwrap();
+        assert_eq!(refreshed.id, track.id);
+        assert_eq!(refreshed.provider_id, track.provider_id);
+        assert_eq!(refreshed.source_url, track.source_url);
+        assert_eq!(refreshed.title, canonical);
+        assert_eq!(refreshed.duration_seconds, Some(127.0));
+        assert_eq!(refreshed.album, track.album);
+        assert_eq!(track.title, original);
+        assert_eq!(track.duration_seconds, None);
+
+        let mut incorrect = info.clone();
+        incorrect["artist"]["name"] = json!("Another artist");
+        assert!(lastfm_top_track_metadata(&track, &incorrect).is_none());
+        incorrect = info;
+        incorrect["duration"] = json!("0");
+        assert!(lastfm_top_track_metadata(&track, &incorrect).is_none());
+        let mut manually_edited = track;
+        manually_edited.provenance["manualFields"] = json!({"title": true});
+        assert!(!lastfm_top_track_metadata_available(&manually_edited));
     }
 
     #[tokio::test]
@@ -6717,6 +6830,49 @@ mod tests {
         assert_eq!(rows[0].artist, "Various");
         assert_eq!(rows[0].duration_seconds, Some(90.0));
         assert_eq!(rows[2].title, "End");
+        assert_tracks_round_trip(&rows);
+    }
+
+    #[test]
+    fn discogs_movements_inherit_the_nearest_primary_credit_and_preserve_child_overrides() {
+        let release = json!({
+            "title":"Collected Works","artists":[{"id":1,"name":"Various"}],
+            "tracklist":[
+                {"type_":"index","title":"First Suite","artists":[{"id":2,"name":"Quartet A"}],
+                    "sub_tracks":[
+                        {"title":"Allegro","position":"1"},
+                        {"title":"Movements","artists":[{"id":3,"name":"Composer","role":"Composer"}],
+                            "sub_tracks":[{"title":"Adagio","position":"2"}]}
+                    ]},
+                {"type_":"index","title":"Second Suite","artists":[{"id":4,"name":"Quartet B"}],
+                    "sub_tracks":[
+                        {"title":"Allegro","position":"3"},
+                        {"title":"Finale","position":"4","artists":[{"id":5,"name":"Quartet C"}]}
+                    ]}
+            ]
+        });
+        let rows = parse_discogs_release_tracks(
+            &release,
+            "123",
+            "https://www.discogs.com/release/123",
+            false,
+            None,
+        );
+        assert_eq!(discogs_album_track_count(&release), Some(4));
+        assert_eq!(
+            rows.iter()
+                .map(|row| (row.title.as_str(), row.artist.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                ("Allegro", "Quartet A"),
+                ("Adagio", "Quartet A"),
+                ("Allegro", "Quartet B"),
+                ("Finale", "Quartet C")
+            ]
+        );
+        assert_eq!(rows[0].provenance["parentTitle"], "First Suite");
+        assert_eq!(rows[1].provenance["parentTitle"], "Movements");
+        assert_eq!(rows[2].provenance["artistCredits"][0]["artist"]["id"], "4");
         assert_tracks_round_trip(&rows);
     }
 

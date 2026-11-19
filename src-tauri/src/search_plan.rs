@@ -14,6 +14,7 @@ pub(crate) enum SearchQueryReason {
     PrimaryPerformer,
     VerifiedArtistAlternative,
     VerifiedTitleAlternative,
+    ParentWorkContext,
     SoundtrackContextFallback,
     ReleaseContextFallback,
 }
@@ -45,11 +46,12 @@ fn push_query(
         return;
     }
     let text = format!("{artist} {title}");
-    let key = crate::matching::normalize(&text);
-    if key.is_empty()
-        || queries
-            .iter()
-            .any(|query| crate::matching::normalize(&query.text) == key)
+    // Keep identity-bearing symbols in either field even when the other field
+    // already contains words. A symbol-only artist must not become title-only.
+    let key = query_identity(artist, title);
+    if queries
+        .iter()
+        .any(|query| query_identity(&query.artist, &query.title) == key)
     {
         return;
     }
@@ -61,11 +63,19 @@ fn push_query(
     });
 }
 
-fn placeholder_artist(value: &str) -> bool {
-    matches!(
-        crate::matching::normalize(value).as_str(),
-        "" | "unknown" | "unknown artist" | "unknownartist" | "n a" | "na" | "not available"
+fn query_identity(artist: &str, title: &str) -> (String, String) {
+    (
+        crate::matching::normalize_single_artist_name(artist),
+        crate::matching::normalize_title_ignoring_intraword_apostrophes(title),
     )
+}
+
+fn placeholder_artist(value: &str) -> bool {
+    value.trim().is_empty()
+        || matches!(
+            crate::matching::normalize(value).as_str(),
+            "unknown" | "unknown artist" | "unknownartist" | "n a" | "na" | "not available"
+        )
 }
 
 fn primary_performer_credit(track: &Track) -> Option<String> {
@@ -105,7 +115,7 @@ impl SearchPlan {
         verified_artist_alternatives: &[String],
         allow_other_releases: bool,
     ) -> Self {
-        Self::plan(
+        Self::for_track_with_title_alternatives(
             track,
             verified_artist_alternatives,
             &[],
@@ -115,12 +125,13 @@ impl SearchPlan {
 
     /// As above, with caller-supplied title renderings backed by retained
     /// source evidence. Each alternative shares the same global query cap.
+    #[cfg(test)]
     pub(crate) fn for_track_with_alternatives(
         track: &Track,
         verified_artist_alternatives: &[String],
         verified_title_alternatives: &[String],
     ) -> Self {
-        Self::plan(
+        Self::for_track_with_title_alternatives(
             track,
             verified_artist_alternatives,
             verified_title_alternatives,
@@ -128,7 +139,7 @@ impl SearchPlan {
         )
     }
 
-    fn plan(
+    pub(crate) fn for_track_with_title_alternatives(
         track: &Track,
         verified_artist_alternatives: &[String],
         verified_title_alternatives: &[String],
@@ -176,8 +187,10 @@ impl SearchPlan {
                 .map(|title| search_title_with_alternative(track, title))
                 .find(|title| {
                     !title.is_empty()
-                        && crate::matching::normalize(title)
-                            != crate::matching::normalize(&rendered_title)
+                        && crate::matching::normalize_title_ignoring_intraword_apostrophes(title)
+                            != crate::matching::normalize_title_ignoring_intraword_apostrophes(
+                                &rendered_title,
+                            )
                 });
             if let (Some(title), Some(artist)) = (
                 title_alternative,
@@ -227,6 +240,20 @@ impl SearchPlan {
         }
 
         if queries.len() < MAX_SEARCH_QUERIES {
+            if let (Some(artist), Some(work)) = (
+                lead.as_deref().or(canonical_artist.as_deref()),
+                discogs_parent_work(track),
+            ) {
+                let title = format!("{work} {rendered_title}");
+                push_query(
+                    &mut queries,
+                    artist,
+                    &title,
+                    SearchQueryReason::ParentWorkContext,
+                );
+            }
+        }
+        if queries.len() < MAX_SEARCH_QUERIES {
             let fallback_title = search_title_without_soundtrack(track);
             let reason = if fallback_title != rendered_title {
                 SearchQueryReason::SoundtrackContextFallback
@@ -241,6 +268,21 @@ impl SearchPlan {
         }
         Self { queries }
     }
+}
+
+fn discogs_parent_work(track: &Track) -> Option<&str> {
+    if track.provenance["catalogProvider"] != "discogs"
+        || track.provenance["manualFields"]["title"] == true
+        || track.title.trim().is_empty()
+    {
+        return None;
+    }
+    let parent = track.provenance["parentTitle"].as_str()?.trim();
+    (!parent.is_empty()
+        && parent.len() <= 256
+        && !parent.chars().any(char::is_control)
+        && crate::matching::normalize(parent) != crate::matching::normalize(&track.title))
+    .then_some(parent)
 }
 
 fn search_title(track: &Track) -> String {
@@ -609,6 +651,38 @@ mod tests {
         );
 
         assert_eq!(track, original);
+    }
+
+    #[test]
+    fn search_keeps_a_symbolic_artist_literal() {
+        let track = Track {
+            artist: "!!!".into(),
+            title: "Pardon My Freedom".into(),
+            ..Track::default()
+        };
+        let plan = SearchPlan::for_track(&track, &[]);
+        assert_eq!(plan.queries.len(), 1);
+        assert_eq!(plan.queries[0].text, "!!! Pardon My Freedom");
+        let plan = SearchPlan::for_track(&track, &["Chk Chk Chk".into()]);
+        assert_eq!(plan.queries.len(), MAX_SEARCH_QUERIES);
+        assert_eq!(plan.queries[1].text, "Chk Chk Chk Pardon My Freedom");
+    }
+
+    #[test]
+    fn discogs_named_parent_work_has_a_bounded_query_without_rewriting_the_title() {
+        let mut track = Track {
+            artist: "Quartet A".into(),
+            title: "Allegro".into(),
+            provenance: json!({"catalogProvider":"discogs","parentTitle":"First Suite"}),
+            ..Track::default()
+        };
+        let plan = SearchPlan::for_track(&track, &[]);
+        assert_eq!(plan.queries.len(), MAX_SEARCH_QUERIES);
+        assert_eq!(plan.queries[0].text, "Quartet A Allegro");
+        assert_eq!(plan.queries[1].text, "Quartet A First Suite Allegro");
+        assert_eq!(track.title, "Allegro");
+        track.provenance["manualFields"] = json!({"title":true});
+        assert_eq!(SearchPlan::for_track(&track, &[]).queries.len(), 1);
     }
 
     #[test]

@@ -36,7 +36,7 @@ it("shows available biography and next queue occurrence without starting playbac
 });
 it("restores keyboard focus to the opener on close",async()=>{
  const opener=document.createElement("button");document.body.append(opener);opener.focus();
- setup();await tick(); expect(document.activeElement?.getAttribute("aria-label")).toBe("Close full-screen Now Playing");
+ setup();await tick(); expect(document.activeElement?.getAttribute("aria-label")).toBe("Expanded Now Playing");
  await cleanup?.();cleanup=undefined;expect(document.activeElement).toBe(opener);
 });
 it("offers set, detected, and side-by-side fullscreen art choices and falls back when detection art is missing",async()=>{
@@ -65,6 +65,22 @@ it("uses the dedicated detected artwork image in detected-only mode",async()=>{
  expect(image.src).toBe("https://example.test/detected.jpg");
  expect(image.getAttribute("style")).toBeNull();
  expect(frame.classList.contains("both-art")).toBe(false);
+ expect(document.querySelector(".detected-ambient")?.getAttribute("src")).toBe(image.getAttribute("src"));
+});
+
+it("uses the same source for cover art and background through image fallbacks",async()=>{
+ const original="https://example.test/display-cover.jpg";
+ const fallback="https://example.test/fallback-cover.jpg";
+ setup({artworkUrl:original,track:{...track,artworkUrl:fallback}});await tick();
+ const cover=()=>document.querySelector<HTMLImageElement>(".hero-art img:not(.artwork-ambient)")!;
+ const ambient=()=>document.querySelector(".artwork-stage .artwork-ambient");
+ expect(ambient()?.getAttribute("src")).toBe(original);
+ cover().dispatchEvent(new Event("error"));await tick();
+ expect(cover().getAttribute("src")).toBe(fallback);
+ expect(ambient()?.getAttribute("src")).toBe(fallback);
+ cover().dispatchEvent(new Event("error"));await tick();
+ expect(ambient()).toBeNull();
+ expect(document.querySelector(".hero-art .placeholder")).not.toBeNull();
 });
 it("forwards lyrics seeking and the player bottom inset",async()=>{
  const onSeek=vi.fn();
@@ -79,18 +95,22 @@ it("forwards lyrics seeking and the player bottom inset",async()=>{
  expect(document.querySelector<HTMLElement>('[aria-label="Fullscreen lyrics"]')?.style.bottom).toBe("123px");
 });
 
-it("keeps the full artwork and readable track details inside the inset-aware scroll panel",async()=>{
- setup({bottom:88});await tick();
+it("puts only artwork on the opening stage and keeps the recording details beneath it",async()=>{
+ setup({bottom:88,context:"Radio Paradise · Main Mix"});await tick();
  const panel=document.querySelector<HTMLElement>(".now-playing-view")!;
  expect(panel.style.bottom).toBe("88px");
  expect(panel.style.getPropertyValue("--player-inset")).toBe("88px");
- const hero=panel.querySelector<HTMLElement>(".hero")!;
- expect(hero.querySelector(".hero-art")).not.toBeNull();
- expect(hero.querySelector(".recording h1")?.textContent).toBe(track.title);
- expect(panel.querySelector(".favorite")).not.toBeNull();
- expect(hero.nextElementSibling?.classList.contains("cards")).toBe(true);
- expect(panel.querySelector(".cards .artist-card")).not.toBeNull();
- expect(panel.querySelector(".cards .right-cards")).not.toBeNull();
+ expect(panel.scrollTop).toBe(0);
+ const stage=panel.firstElementChild!;
+ expect(stage.classList.contains("artwork-stage")).toBe(true);
+ expect(stage.querySelector(".hero-art")).not.toBeNull();
+ expect(stage.querySelector("header, h1, .cards, button")).toBeNull();
+ const details=stage.nextElementSibling!;
+ expect(details.querySelector("header")?.textContent).toContain("Radio Paradise · Main Mix");
+ expect(details.querySelector(".recording h1")?.textContent).toBe(track.title);
+ expect(details.querySelector(".favorite")).not.toBeNull();
+ expect(details.querySelector(".cards .artist-card")).not.toBeNull();
+ expect(details.querySelector(".cards .right-cards")).not.toBeNull();
 });
 
 it("dismisses the artwork menu before Escape exits Now Playing",async()=>{

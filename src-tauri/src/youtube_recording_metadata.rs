@@ -239,6 +239,7 @@ pub(crate) fn catalog_identity(candidate: &Candidate, info: &Value) -> Option<Va
 /// Retain narrowly explicit performance statements from a bounded description line.
 pub(crate) fn live_performance_line(info: &Value) -> Option<String> {
     let description = info["description"].as_str()?;
+    let title = format!(" {} ", key(info["title"].as_str().unwrap_or_default()));
     description
         .lines()
         .take(40)
@@ -252,19 +253,31 @@ pub(crate) fn live_performance_line(info: &Value) -> Option<String> {
         })
         .find(|line| {
             let folded = key(line);
-            let explicit = [
-                "recorded live ",
-                "recorded live.",
-                "grabado en vivo ",
-                "grabada en vivo ",
-                "live at ",
-                "live from ",
-                "en vivo en ",
-                "en vivo desde ",
-            ]
-            .iter()
-            .any(|p| folded.starts_with(p));
-            let dated_venue = folded.chars().filter(char::is_ascii_digit).count() >= 6
+            let explicit = ["recorded live", "grabado en vivo", "grabada en vivo"]
+                .into_iter()
+                .any(|prefix| {
+                    folded == prefix
+                        || folded
+                            .strip_prefix(prefix)
+                            .is_some_and(|rest| rest.starts_with(' '))
+                });
+            if explicit {
+                return true;
+            }
+            // A venue mention alone may advertise a tour or livestream.
+            // The dated-performance shorthand must name a performer in this upload.
+            let padded = format!(" {folded} ");
+            line.split_whitespace()
+                .any(contains_numeric_performance_date)
+                && ![
+                    " tickets ",
+                    " on sale ",
+                    " next month ",
+                    " proximamente ",
+                    " entradas ",
+                ]
+                .into_iter()
+                .any(|phrase| padded.contains(phrase))
                 && [
                     " tocando en el teatro ",
                     " tocando en el estadio ",
@@ -272,11 +285,30 @@ pub(crate) fn live_performance_line(info: &Value) -> Option<String> {
                     " performing at the theatre ",
                     " performing at the theater ",
                 ]
-                .iter()
-                .any(|p| folded.contains(p));
-            explicit || dated_venue
+                .into_iter()
+                .any(|marker| {
+                    folded.split_once(marker).is_some_and(|(performer, _)| {
+                        !performer.is_empty() && title.contains(&format!(" {performer} "))
+                    })
+                })
         })
         .map(str::to_owned)
+}
+
+fn contains_numeric_performance_date(word: &str) -> bool {
+    let word = word.trim_matches(|c: char| !c.is_ascii_digit());
+    let mut parts = word.split('/');
+    let (Some(day), Some(month), Some(year), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return false;
+    };
+    year.len() == 4
+        && year.parse::<u16>().is_ok_and(|year| year >= 1900)
+        && day.parse::<u8>().is_ok_and(|day| (1..=31).contains(&day))
+        && month
+            .parse::<u8>()
+            .is_ok_and(|month| (1..=12).contains(&month))
 }
 
 #[cfg(test)]
@@ -306,6 +338,70 @@ mod tests {
             ..Default::default()
         }
     }
+
+    #[test]
+    fn album_artist_spelling_requires_the_fresh_linked_recording() {
+        use crate::recording_match::{assess, MatchAction, MatchLevel, MatchStage};
+
+        let artist_id = "UCVOsXpKahDO_PDwednC8R4g";
+        let video_id = "OilHAe6Os3o";
+        let track = Track {
+            artist: "Rodríguez".into(),
+            title: "Crucify Your Mind".into(),
+            album: Some("Cold Fact".into()),
+            duration_seconds: Some(152.346),
+            provenance: json!({
+                "catalog": {"artists": [{"name": "Rodríguez", "provider": "spotify"}]}
+            }),
+            ..Track::default()
+        };
+        let mut source = candidate(&json!({
+            "request": track,
+            "catalogItem": {
+                "id": video_id, "title": track.title, "album": track.album,
+                "artist": "Rodriguez", "durationSeconds": 153.0,
+                "albumBrowseId": "MPREb_yNM2GLu8a2C",
+                "artistCredits": [{"name": "Rodriguez", "providerId": artist_id}]
+            }
+        }));
+        let action = |request: &Track, candidate: &Candidate, stage| {
+            assess(request, candidate, MatchLevel::Balanced, stage).action
+        };
+        assert_eq!(
+            action(&track, &source, MatchStage::Search),
+            MatchAction::Inspect
+        );
+        assert_eq!(
+            action(&track, &source, MatchStage::Resolved),
+            MatchAction::Enrich
+        );
+        let mut other_edition = track.clone();
+        other_edition.album = Some("Different Album".into());
+        assert_eq!(
+            action(&other_edition, &source, MatchStage::Search),
+            MatchAction::Reject
+        );
+
+        let mut metadata = catalog_identity(&source, &json!({
+            "id": video_id, "title": track.title, "album": track.album,
+            "channel_id": artist_id, "channel": "SugarMan.org", "channel_is_verified": true,
+            "duration": 153.0, "artists": ["Rodriguez"],
+            "description": "Provided to YouTube by Universal Music Group\n\nAuto-generated by YouTube."
+        })).unwrap();
+        metadata["sourceMetadataOrigin"] = json!("ytDlpFullInfo");
+        metadata["resolvedProviderId"] = json!(video_id);
+        source.source_metadata = Some(metadata);
+        assert_eq!(
+            action(&track, &source, MatchStage::Resolved),
+            MatchAction::Accept
+        );
+        source.source_metadata.as_mut().unwrap()["resolvedProviderId"] = json!("differentId");
+        assert_eq!(
+            action(&track, &source, MatchStage::Resolved),
+            MatchAction::Reject
+        );
+    }
+
     #[test]
     fn observed_official_album_keeps_linked_artists_and_unclassified_credit() {
         let f = fixture();
@@ -479,10 +575,25 @@ mod tests {
             "Listen to our live radio station",
             "See us live at the theatre next month",
             "Studio sessions at the theatre",
+            "Live at Wembley next month — tickets on sale now!",
+            "En vivo en Madrid el próximo mes",
+            "Unrelated Artist performing at the theatre 25/05/2022.",
+            "Artist performing at the theatre 25/05/2026. Tickets on sale now!",
         ] {
             assert!(
-                live_performance_line(&json!({"description":line})).is_none(),
+                live_performance_line(&json!({"description":line,"title":"Artist - Signal"}))
+                    .is_none(),
                 "{line}"
+            );
+        }
+        for line in [
+            "Recorded live at Wembley.",
+            "Recorded live.",
+            "Grabado en vivo en Madrid",
+        ] {
+            assert_eq!(
+                live_performance_line(&json!({"description":line})).as_deref(),
+                Some(line)
             );
         }
     }

@@ -55,7 +55,7 @@ const TARGETS: ReadonlyArray<[PlaybackLayoutRole, string]> = [
   ["panel_close", ".player-panel-tabs button[aria-label='Close player panel']"],
   ["expanded_player", ".now-playing-view"],
   ["expanded_artwork", ".now-playing-view .hero-art"],
-  ["expanded_close", ".now-playing-view header button"],
+  ["expanded_close", "footer.player [aria-label='Full-screen Now Playing'][aria-pressed='true']"],
   ["expanded_cards", ".now-playing-view .cards"],
 ];
 

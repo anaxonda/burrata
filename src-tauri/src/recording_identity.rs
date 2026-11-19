@@ -176,7 +176,7 @@ fn valid_musicbrainz_id(value: &str) -> bool {
 }
 
 /// Parsing behavior is versioned alongside evaluator/cache semantics.
-pub(crate) const PARSER_VERSION: &str = "7";
+pub(crate) const PARSER_VERSION: &str = "9";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -274,18 +274,7 @@ pub fn parse_recording_text(value: &str) -> ParsedRecordingText {
             };
             let label_key = crate::matching::normalize(label);
             let parsed = parse_title(remaining);
-            let kind = if matches!(
-                label_key.as_str(),
-                "audio"
-                    | "official audio"
-                    | "audio oficial"
-                    | "official video"
-                    | "official music video"
-                    | "official lyric video"
-                    | "lyric video"
-                    | "lyrics"
-                    | "visualizer"
-            ) {
+            let kind = if is_presentation_label(label) {
                 AnnotationKind::Presentation
             } else if parsed.version.is_some()
                 || matches!(
@@ -339,8 +328,7 @@ pub fn parse_recording_text(value: &str) -> ParsedRecordingText {
     if value.len() > 2048 {
         return result;
     }
-    let key = crate::matching::normalize_title_ignoring_intraword_apostrophes(&result.base_title)
-        .replace('\'', "");
+    let key = crate::matching::normalize_title_ignoring_intraword_apostrophes(&result.base_title);
     result.normalized_title_key = (!key.is_empty()).then_some(key);
     result
 }
@@ -436,13 +424,23 @@ pub fn same_isrc(a: &str, b: &str) -> bool {
 
 /// Accent folding is a search/album comparison aid, never an identity proof.
 pub fn search_fold(value: &str) -> String {
+    crate::matching::normalize(&without_latin_accents(value))
+}
+
+pub(crate) fn title_search_fold(value: &str) -> String {
+    crate::matching::normalize_title_ignoring_intraword_apostrophes(&without_latin_accents(value))
+}
+
+pub(crate) fn artist_search_fold(value: &str) -> String {
+    crate::matching::normalize_single_artist_name(&without_latin_accents(value))
+}
+
+fn without_latin_accents(value: &str) -> String {
     let decomposed = icu_normalizer::DecomposingNormalizerBorrowed::new_nfd().normalize(value);
-    crate::matching::normalize(
-        &decomposed
-            .chars()
-            .filter(|c| !('\u{0300}'..='\u{036f}').contains(c))
-            .collect::<String>(),
-    )
+    decomposed
+        .chars()
+        .filter(|c| !('\u{0300}'..='\u{036f}').contains(c))
+        .collect()
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -820,27 +818,9 @@ pub fn parse_title(value: &str) -> ParsedRecordingTitle {
     let bracketed = crate::matching::split_balanced_trailing_parenthetical(value)
         .or_else(|| crate::matching::split_balanced_trailing_square_group(value));
     if let Some((base, label)) = bracketed {
-        let lower = label.to_ascii_lowercase();
-        let feature_prefix = ["featuring", "feat.", "feat", "ft.", "ft", "w/"]
-            .iter()
-            .filter_map(|prefix| lower.strip_prefix(prefix))
-            .find(|rest| {
-                rest.is_empty()
-                    || rest
-                        .chars()
-                        .next()
-                        .is_some_and(|c| c.is_whitespace() || matches!(c, ':' | '-' | '–' | '—'))
-            });
-        if let Some(credit) = feature_prefix {
-            let offset = label.len() - credit.len();
-            let credit = label[offset..]
-                .trim()
-                .trim_start_matches(|c: char| matches!(c, ':' | '-' | '–' | '—'))
-                .trim();
-            if !credit.is_empty() {
-                result.title = base.trim().to_owned();
-                result.featured_credit = Some(credit.to_owned());
-            }
+        if let Some(credit) = bracketed_feature_credit(label) {
+            result.title = base.trim().to_owned();
+            result.featured_credit = Some(credit.to_owned());
         } else if let Some(work) = soundtrack_work(label) {
             result.title = base.trim().to_owned();
             result.soundtrack = Some(work.to_owned());
@@ -850,8 +830,7 @@ pub fn parse_title(value: &str) -> ParsedRecordingTitle {
         }
     }
     // Some provider titles encode a mix with a spaced dash instead of
-    // parentheses. Interpret only a closed set of unambiguous music labels;
-    // ordinary hyphenated titles (and ambiguous "Live") remain untouched.
+    // parentheses. Require a spaced delimiter and explicit edition wording.
     if result.version.is_none() {
         if let Some((base, label)) = trailing_dash_version(value) {
             result.title = base.trim().to_owned();
@@ -877,6 +856,49 @@ pub fn parse_title(value: &str) -> ParsedRecordingTitle {
     result
 }
 
+fn bracketed_feature_credit(label: &str) -> Option<&str> {
+    let separator = |c: char| c.is_whitespace() || matches!(c, ':' | '：' | '-' | '–' | '—');
+    let normalizer = icu_normalizer::ComposingNormalizerBorrowed::new_nfkc();
+    label
+        .char_indices()
+        .filter(|(_, character)| separator(*character))
+        .take(5)
+        .find_map(|(end, _)| {
+            let marker = normalizer.normalize(label[..end].trim()).to_lowercase();
+            if !matches!(
+                marker.as_str(),
+                "featuring" | "feat." | "feat" | "ft." | "ft" | "w/" | "при участии"
+            ) {
+                return None;
+            }
+            let credit = label[end..].trim_start_matches(separator).trim_end();
+            (!credit.is_empty()).then_some(credit)
+        })
+}
+
+pub(crate) fn is_presentation_label(label: &str) -> bool {
+    matches!(
+        crate::matching::normalize(label).as_str(),
+        "audio"
+            | "official audio"
+            | "audio oficial"
+            | "official video"
+            | "official music video"
+            | "official lyric video"
+            | "lyric video"
+            | "lyrics"
+            | "visualizer"
+            | "video oficial"
+            | "vídeo oficial"
+            | "clip officiel"
+            | "vidéo officielle"
+            | "официальный клип"
+            | "공식 뮤직비디오"
+            | "官方mv"
+            | "官方 mv"
+    )
+}
+
 /// Shared semantic label vocabulary. Delimiter handling is separate from
 /// classification, and unknown labels remain literal evidence.
 fn is_lyric_presentation(label: &str) -> bool {
@@ -899,14 +921,55 @@ fn is_video_version(label: &str) -> bool {
     )
 }
 
-fn localized_live_label(label: &str) -> bool {
-    matches!(label, "en vivo" | "ao vivo")
+fn localized_version_key(label: &str) -> Option<String> {
+    let base = match label {
+        "en vivo"
+        | "ao vivo"
+        | "en directo"
+        | "en concert"
+        | "ライブ"
+        | "ライヴ"
+        | "ライブ版"
+        | "라이브"
+        | "라이브 버전"
+        | "现场版"
+        | "現場版"
+        | "концертная версия" => "live",
+        "versión acústica" | "version acustica" | "acústico" | "acustico" | "versão acústica"
+        | "versao acustica" | "version acoustique" => "acoustic",
+        _ => "",
+    };
+    if !base.is_empty() {
+        return Some(base.to_owned());
+    }
+    [
+        ("en vivo en ", "live in"),
+        ("en directo en ", "live in"),
+        ("ao vivo em ", "live in"),
+        ("ao vivo no ", "live at"),
+        ("ao vivo na ", "live at"),
+    ]
+    .into_iter()
+    .find_map(|(prefix, key)| {
+        let venue = label.strip_prefix(prefix)?;
+        (!venue.is_empty()).then(|| format!("{key} {venue}"))
+    })
 }
 
 fn has_live_venue(label: &str) -> bool {
     ["live at ", "live on ", "live in "]
         .iter()
         .any(|prefix| label.starts_with(prefix))
+}
+
+fn year_first_live_label(label: &str) -> Option<(&str, &str)> {
+    let (year, performance) = label.split_once('/')?;
+    let year = year.trim();
+    let performance = performance.trim();
+    (year.len() == 4
+        && year.bytes().all(|byte| byte.is_ascii_digit())
+        && has_live_venue(&crate::matching::normalize(performance)))
+    .then_some((year, performance))
 }
 
 fn explicit_recording_version(label: &str) -> bool {
@@ -919,6 +982,7 @@ fn explicit_recording_version(label: &str) -> bool {
             | "karaoke"
             | "demo"
             | "cover"
+            | "edit"
             | "radio edit"
             | "remix"
             | "extended"
@@ -935,8 +999,9 @@ fn explicit_recording_version(label: &str) -> bool {
             | "slowed + reverb"
             | "slowed and reverb"
     ) || is_video_version(label)
-        || localized_live_label(&lower)
+        || localized_version_key(&crate::matching::normalize(label)).is_some()
         || has_live_venue(&lower)
+        || year_first_live_label(label).is_some()
         || ["cover by ", "cover de ", "cover of "]
             .iter()
             .any(|prefix| lower.starts_with(prefix))
@@ -953,12 +1018,20 @@ pub(crate) fn canonical_version_key(label: &str) -> String {
         return "video version".to_owned();
     }
     let normalized = crate::matching::normalize_version(label);
-    if localized_live_label(&normalized) {
-        return "live".to_owned();
+    if let Some((year, performance)) = year_first_live_label(label) {
+        return format!("{} {year}", crate::matching::normalize(performance));
+    }
+    if let Some(key) = localized_version_key(&normalized) {
+        return key;
     }
     let normalized = remaster_version_key(&normalized).unwrap_or(normalized);
     match normalized.as_str() {
         "extended" => "extended mix".to_owned(),
+        "acoustic version" => "acoustic".to_owned(),
+        "demo version" => "demo".to_owned(),
+        "instrumental version" => "instrumental".to_owned(),
+        "live version" => "live".to_owned(),
+        "the solo version" => "solo version".to_owned(),
         "acapella" | "acappella" | "a capella" => "a cappella".to_owned(),
         _ => normalized,
     }
@@ -986,6 +1059,7 @@ impl VersionCategories {
 /// artist, title, duration, or source identity on their own.
 pub(crate) fn version_categories(label: &str) -> VersionCategories {
     let n = crate::matching::normalize(label);
+    let n = localized_version_key(&n).unwrap_or(n);
     let words = n.split_whitespace().collect::<Vec<_>>();
     VersionCategories {
         release: words
@@ -995,8 +1069,7 @@ pub(crate) fn version_categories(label: &str) -> VersionCategories {
             || remaster_version_key(&n).is_some(),
         performance: words
             .iter()
-            .any(|word| matches!(*word, "live" | "acoustic" | "demo"))
-            || localized_live_label(&n),
+            .any(|word| matches!(*word, "live" | "acoustic" | "demo")),
         mix: words.iter().any(|word| {
             matches!(
                 *word,
@@ -1038,7 +1111,7 @@ fn restored_edition_year(label: &str) -> bool {
 /// Canonical comparison key for a complete, delimited mastering label.
 /// Raw annotation text remains untouched; years and other version evidence are not erased.
 pub(crate) fn remaster_version_key(label: &str) -> Option<String> {
-    let lower = label.to_ascii_lowercase();
+    let lower = label.to_lowercase();
     let mut words: Vec<&str> = lower.split_whitespace().collect();
     if words.is_empty() || words.len() > 4 {
         return None;
@@ -1057,6 +1130,8 @@ pub(crate) fn remaster_version_key(label: &str) -> Option<String> {
             | ["remastered"]
             | ["remasterizado"]
             | ["remasterizada"]
+            | ["remasterisé"]
+            | ["remasterisée"]
             | ["digital", "remaster"]
             | ["digital", "remastered"]
             | ["digitally", "remastered"]
@@ -1070,59 +1145,83 @@ pub(crate) fn remaster_version_key(label: &str) -> Option<String> {
 }
 
 fn trailing_dash_version(value: &str) -> Option<(&str, &str)> {
-    let last_separator = [" - ", " – ", " — "]
-        .iter()
-        .filter_map(|separator| value.rfind(separator).map(|start| (start, separator.len())))
-        .max_by_key(|(start, _)| *start)?;
+    let separators = || {
+        value
+            .match_indices(['-', '–', '—', '−', '－'])
+            .filter_map(|(start, dash)| {
+                let end = start + dash.len();
+                (value[..start].ends_with(char::is_whitespace)
+                    && value[end..].starts_with(char::is_whitespace))
+                .then_some((start, end))
+            })
+    };
+    let last_separator = separators().last()?;
     // A recognized video-edition suffix can itself contain a presentation
     // separator ("Song - Video Version - lyrics"). Do not peel an arbitrary
     // trailing presentation word or broaden ordinary dash-title parsing.
     let video_separator = (value.len() <= 2048
-        && is_lyric_presentation(&value[last_separator.0 + last_separator.1..]))
+        && is_lyric_presentation(&value[last_separator.1..]))
     .then(|| {
-        [" - ", " – ", " — "]
-            .iter()
-            .flat_map(|separator| {
-                value
-                    .match_indices(separator)
-                    .map(|(start, _)| (start, separator.len()))
-            })
-            .filter(|(start, len)| is_video_version(value[start + len..].trim()))
-            .max_by_key(|(start, _)| *start)
+        separators()
+            .filter(|(_, end)| is_video_version(value[*end..].trim()))
+            .last()
     })
     .flatten();
-    let (separator_start, separator_len) = video_separator.unwrap_or(last_separator);
+    let (separator_start, separator_end) = video_separator.unwrap_or(last_separator);
     let base = value[..separator_start].trim_end();
-    let label = value[separator_start + separator_len..].trim();
+    let label = value[separator_end..].trim();
     if base.is_empty() {
         return None;
     }
     let normalized = crate::matching::normalize(label);
-    (matches!(
-        normalized.as_str(),
-        "extended mix"
-            | "extended version"
-            | "radio edit"
-            | "vocal edit"
-            | "original mix"
-            | "club mix"
-            | "instrumental"
-            | "album version"
-            | "main version"
-            | "acoustic version"
-            | "dub"
-            | "acapella"
-            | "acappella"
-            | "a capella"
-            | "a cappella"
-            | "mono"
-            | "stereo"
-            | "sped up"
-            | "slowed"
-            | "slowed reverb"
-            | "slowed and reverb"
-    ) || is_video_version(label)
+    let remix_with_vocal_version = label.split_once('/').is_some_and(|(mix, version)| {
+        crate::matching::normalize(mix).ends_with(" remix")
+            && crate::matching::normalize(version) == "full vocal version"
+    });
+    let explicit_label = label.len() <= 160
+        && !label.contains(['(', ')', '[', ']', '/', '（', '）', '【', '】'])
+        && !restored_edition_year(&normalized)
+        && explicit_recording_version(label);
+    (explicit_label
+        || matches!(
+            normalized.as_str(),
+            "extended mix"
+                | "extended version"
+                | "radio edit"
+                | "radio mix"
+                | "radio version"
+                | "vocal edit"
+                | "original mix"
+                | "club mix"
+                | "instrumental"
+                | "album version"
+                | "single version"
+                | "main version"
+                | "acoustic"
+                | "acoustic version"
+                | "demo version"
+                | "salsa version"
+                | "bachata version"
+                | "spanish version"
+                | "english version"
+                | "spanglish version"
+                | "dub"
+                | "acapella"
+                | "acappella"
+                | "a capella"
+                | "a cappella"
+                | "mono"
+                | "stereo"
+                | "sped up"
+                | "slowed"
+                | "slowed reverb"
+                | "slowed and reverb"
+        )
+        || remix_with_vocal_version
+        || is_video_version(label)
+        || localized_version_key(&normalized).is_some()
         || has_live_venue(&normalized)
+        || year_first_live_label(label).is_some()
         || normalized == "remix"
         || normalized.ends_with(" remix")
         || normalized.ends_with(" dub")
@@ -1444,6 +1543,16 @@ mod tests {
             (" — ", "Original Mix"),
             (" - ", "Club Mix"),
             (" - ", "Instrumental"),
+            (" - ", "Single Version"),
+            (" - ", "Acoustic"),
+            (" - ", "Demo Version"),
+            (" - ", "Radio Mix"),
+            (" - ", "Radio Version"),
+            (" - ", "Live"),
+            (" - ", "Martin Solveig Exotic Disco Mix"),
+            (" − ", "Radio Edit"),
+            ("\u{a0}–\u{a0}", "Radio Edit"),
+            (" - ", "1992/Live at Reading"),
         ] {
             let parsed = parse_title(&format!("Song{separator}{label}"));
             assert_eq!(parsed.title, "Song");
@@ -1468,8 +1577,10 @@ mod tests {
         for raw in [
             "Love - Hate",
             "A - B - C",
-            "Song - Live",
+            "Song - Live it Up",
             "Song - Extended Mix Part 2",
+            "Song - Claptone Remix / Another Song",
+            "Song - 1992/Another Song",
         ] {
             let parsed = parse_title(raw);
             assert_eq!(parsed.title, raw);
@@ -1501,8 +1612,10 @@ mod tests {
             ["Remastered 2010"]
         );
         assert_eq!(
-            parse_recording_text("I Will - Live").base_title,
-            "I Will - Live"
+            parse_recording_text("I Will - Live")
+                .semantic_versions()
+                .collect::<Vec<_>>(),
+            ["Live"]
         );
         assert_eq!(
             parse_recording_text("I Will - Remix")
@@ -1833,12 +1946,18 @@ mod parsed_evidence_tests {
     }
     #[test]
     fn parsing_is_bounded_and_does_not_invent_nonempty_keys() {
-        for text in ["", "   ", "!!!", "???"] {
+        for text in ["", "   "] {
             let parsed = parse_recording_text(text);
             assert!(parsed.normalized_title_key.is_none());
             assert!(text
                 .get(parsed.base_span.start..parsed.base_span.end)
                 .is_some());
+        }
+        for text in ["!!!", "???"] {
+            assert_eq!(
+                parse_recording_text(text).normalized_title_key.as_deref(),
+                Some(text)
+            );
         }
         let nested = format!("Song{}", " (Live)".repeat(20));
         let parsed = parse_recording_text(&nested);
@@ -2031,6 +2150,12 @@ mod catalog_title_delimiter_tests {
             ("Song – Live in Paris", "Song (Live in Paris)"),
             ("Song — Live at Wembley", "Song (Live at Wembley)"),
             ("De Música Ligera (En Vivo)", "De Música Ligera (Live)"),
+            ("Bongo Bong - Live", "Bongo Bong (Live Version)"),
+            (
+                "Madan - Martin Solveig Exotic Disco Mix",
+                "Madan (Martin Solveig Exotic Disco Mix)",
+            ),
+            ("Song (Instrumental Version)", "Song (Instrumental)"),
             ("Diga não (Ao Vivo) [Live]", "Diga não (Live)"),
             (
                 "De Música Ligera (Remasterizado 2007)",
@@ -2061,7 +2186,6 @@ mod catalog_title_delimiter_tests {
             ("Song (Ao Vivo)", "Song (Studio Version)"),
             ("Song (Remasterizado 2007)", "Song (2008 Remaster)"),
             ("Song［Part I］", "Song (Part II)"),
-            ("Song - Live", "Song"),
             ("Song - Live it Up", "Song"),
             ("Song (En Vivo desde Buenos Aires)", "Song (Live)"),
         ] {
@@ -2074,6 +2198,10 @@ mod catalog_title_delimiter_tests {
         assert_eq!(
             assess_title_pair("Song (Ao Vivo)", "Song", MatchStage::Resolved),
             MatchAction::Enrich
+        );
+        assert_ne!(
+            assess_title_pair("Song - Live", "Song", MatchStage::Resolved),
+            MatchAction::Accept
         );
         let parsed = parse_recording_text("帰り道（  Live at Wembley  ）");
         let annotation = &parsed.annotations[0];

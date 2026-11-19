@@ -19,6 +19,7 @@ pub struct AlbumChoice {
 pub enum AlbumMembershipEvidence {
     RecordingOccurrence,
     CompleteTimeline,
+    RadioTracklistMatch,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "camelCase")]
@@ -104,6 +105,42 @@ pub fn recording_member(request: &Track, tracks: &[Track]) -> bool {
         })
         .count();
     matches == 1
+}
+
+// Radio song metadata often has no duration. For album navigation, require
+// the station's album, artist and song to agree with the catalog tracklist.
+fn radio_album_member(request: &Track, release: &ArtistReleaseRef, tracks: &[Track]) -> bool {
+    let title = key(&request.title);
+    let artist = key(&request.artist);
+    let identity = crate::recording_identity::RecordingIdentity::from_track(request);
+    if request.provider != "radio_song"
+        || request.provenance["sourceKind"] != "radioSong"
+        || request.duration_seconds.is_some()
+        || title.is_empty()
+        || artist.is_empty()
+        || identity.identifier_conflict
+        || request
+            .album
+            .as_deref()
+            .is_none_or(|album| key(album) != key(&release.title))
+    {
+        return false;
+    }
+    tracks
+        .iter()
+        .filter(|member| {
+            key(&member.title) == title
+                && key(&member.artist) == artist
+                && member.version.as_deref().map(key) == request.version.as_deref().map(key)
+                && match (request.isrc.as_deref(), member.isrc.as_deref()) {
+                    (Some(a), Some(b)) => crate::recording_identity::normalize_isrc(a)
+                        .zip(crate::recording_identity::normalize_isrc(b))
+                        .is_some_and(|(a, b)| a == b),
+                    _ => true,
+                }
+        })
+        .count()
+        == 1
 }
 
 fn same_album_timeline(
@@ -301,6 +338,67 @@ mod tests {
             member.artist = artist.into();
             member.duration_seconds = duration;
             assert!(!recording_member(&request, &[member.clone()]));
+        }
+    }
+    #[test]
+    fn radio_song_can_open_its_album_without_a_duration() {
+        let release: ArtistReleaseRef = serde_json::from_value(serde_json::json!({
+            "release":{"provider":"musicbrainz","id":"group"},"title":"Favourite Worst Nightmare",
+            "sourceUrl":"https://musicbrainz.org/release-group/group","credits":[]
+        }))
+        .unwrap();
+        let member = Track {
+            title: "505".into(),
+            artist: "Arctic Monkeys".into(),
+            version: None,
+            duration_seconds: Some(253.0),
+            ..Track::default()
+        };
+        let request = Track {
+            provider: "radio_song".into(),
+            album: Some(release.title.clone()),
+            duration_seconds: None,
+            provenance: serde_json::json!({"sourceKind":"radioSong"}),
+            ..member.clone()
+        };
+        assert!(radio_album_member(
+            &request,
+            &release,
+            std::slice::from_ref(&member)
+        ));
+        assert!(!recording_member(&request, std::slice::from_ref(&member)));
+        assert!(!radio_album_member(
+            &request,
+            &release,
+            &[member.clone(), member.clone()]
+        ));
+        for unmatched in [
+            Track {
+                album: Some("Other album".into()),
+                ..request.clone()
+            },
+            Track {
+                artist: "Other artist".into(),
+                ..request.clone()
+            },
+            Track {
+                version: Some("Live".into()),
+                ..request.clone()
+            },
+            Track {
+                duration_seconds: Some(30.0),
+                ..request.clone()
+            },
+            Track {
+                provider: "import".into(),
+                ..request.clone()
+            },
+        ] {
+            assert!(!radio_album_member(
+                &unmatched,
+                &release,
+                std::slice::from_ref(&member)
+            ));
         }
     }
     #[test]
@@ -715,27 +813,35 @@ pub async fn resolve(state: &crate::AppState, track: &Track) -> Result<AlbumReso
         if release
             .track_count
             .is_some_and(|count| count as usize != tracks.len())
-            || !(recording_member(track, &tracks) || timeline_matches)
         {
             continue;
         }
+        let (evidence, reason) = if timeline_matches {
+            (
+                AlbumMembershipEvidence::CompleteTimeline,
+                "Complete ordered source and catalog album timelines agree",
+            )
+        } else if recording_member(track, &tracks) {
+            (
+                AlbumMembershipEvidence::RecordingOccurrence,
+                "Matching recording in the independently fetched release tracklist",
+            )
+        } else if radio_album_member(track, &release, &tracks) {
+            (
+                AlbumMembershipEvidence::RadioTracklistMatch,
+                "Station metadata matches a single song on this album",
+            )
+        } else {
+            continue;
+        };
         let Some(release) = fetched_edition(release, &tracks) else {
             continue;
         };
         choices.push(AlbumChoice {
             release,
             artist: artist_ref,
-            reason: if timeline_matches {
-                "Complete ordered source and catalog album timelines agree"
-            } else {
-                "Matching recording in the independently fetched release tracklist"
-            }
-            .into(),
-            evidence: if timeline_matches {
-                AlbumMembershipEvidence::CompleteTimeline
-            } else {
-                AlbumMembershipEvidence::RecordingOccurrence
-            },
+            reason: reason.into(),
+            evidence,
         });
     }
     choices.sort_by_key(|choice| {

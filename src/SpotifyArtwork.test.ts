@@ -86,6 +86,6 @@ describe("Spotify artwork visibility", () => {
     const input = target.querySelector<HTMLInputElement>("[aria-label='Search music']")!;
     input.value = "search"; input.dispatchEvent(new Event("input", { bubbles: true }));
     target.querySelector<HTMLFormElement>(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); await settle();
-    expect([...target.querySelectorAll<HTMLImageElement>(".spotify-identity-art img")].map(image => image.src)).toEqual([artistArt, profileArt]);
+    expect([...target.querySelectorAll<HTMLImageElement>(".search-result-art img")].map(image => image.src)).toEqual([artistArt, profileArt]);
   });
 });

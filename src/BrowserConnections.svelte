@@ -4,7 +4,7 @@
 
   type Provider = "spotify" | "youtube";
   type Account = { provider: Provider; connected: boolean; writeSyncEnabled?: boolean; accountId?: string | null; displayName?: string | null; checkedAt?: string | null; error?: string | null };
-  type ManagedSession = { enabled: boolean; running: boolean; mode: string; transport: string; credentialStorage: string; spotifyAccountId?: string | null; youtubeAccountId?: string | null; youtubeLoginPage?: string | null; youtubeReconnectRequired?: boolean; pendingYoutubeAccountId?: string | null; pendingYoutubeDisplayName?: string | null; accountRevisions: Record<string, number>; connectionSeen: boolean; message: string };
+  type ManagedSession = { enabled: boolean; nativeLoginAvailable?: boolean; running: boolean; mode: string; transport: string; credentialStorage: string; spotifyAccountId?: string | null; youtubeAccountId?: string | null; youtubeLoginPage?: string | null; youtubeReconnectRequired?: boolean; pendingYoutubeAccountId?: string | null; pendingYoutubeDisplayName?: string | null; accountRevisions: Record<string, number>; connectionSeen: boolean; message: string };
   let { call, onBrowse, onChanged, onWriteSyncChange }: {
     call: <T = unknown>(command: string, args?: Record<string, unknown>) => Promise<T>;
     onBrowse: (provider: Provider) => void;
@@ -130,8 +130,12 @@
   const nativeSession = $derived(managed?.enabled === true && managed.transport === "native-webview-http");
   const nativeAccessPaused = $derived(nativeSession && Boolean(managed?.spotifyAccountId || managed?.youtubeAccountId) && (managed?.mode === "stopped" || managed?.mode === "native-confirmed"));
   const activeNativeProvider = $derived<Provider | null>(managed?.mode === "native-login:spotify" ? "spotify" : managed?.mode === "native-login:youtube" || (managed?.mode === "native-awaiting-youtube-confirmation" && managed.pendingYoutubeAccountId) ? "youtube" : null);
+  function opensManagedLogin(provider: Provider) {
+    return nativeSession || (managed?.nativeLoginAvailable === true
+      && accounts[provider]?.error === "Browser companion is not connected");
+  }
   async function connectAccount(provider: Provider) {
-    if (nativeSession) await managedAction("start_managed_provider_login", provider);
+    if (opensManagedLogin(provider)) await managedAction("start_managed_provider_login", provider);
     else await connect(provider);
   }
 </script>
@@ -165,7 +169,7 @@
         {:else if nativeSession && activeNativeProvider && activeNativeProvider !== provider}
           <p class="remote-account-hint">Finish the {providerName(activeNativeProvider)} connection first.</p>
         {:else if !nativeSession || managed?.mode !== `native-login:${provider}`}
-          <p class="remote-account-hint">Sign in to {providerName(provider as Provider)} in your browser when prompted.</p>
+          <p class="remote-account-hint">{opensManagedLogin(provider as Provider) ? "Sign in through Burrata’s connection window." : `Sign in to ${providerName(provider as Provider)} in your browser when prompted.`}</p>
         {:else}
           {#if provider === "youtube" && managed?.youtubeLoginPage === "google-accounts"}
             <p class="remote-account-hint">After Google sign-in finishes, choose continue to return to YouTube Music. Wait for Music to load, then choose continue again to verify your channel.</p>
@@ -179,6 +183,7 @@
         <div class="remote-account-actions">
           {#if nativeSession && managed?.mode === `native-login:${provider}`}
             <button class="primary" disabled={managedBusy} onclick={() => void managedAction("confirm_managed_provider_account", provider as Provider)}>I’ve signed in — continue</button>
+            <button disabled={managedBusy} onclick={() => void managedAction("start_managed_provider_login", provider as Provider)}>Show {providerName(provider as Provider)} sign-in window</button>
           {:else if nativeSession && provider === "youtube" && managed?.pendingYoutubeAccountId}
             <button class="primary" disabled={managedBusy} onclick={() => void managedAction("confirm_managed_provider_account", "youtube")}>Use this account</button>
           {:else if nativeSession && provider === "youtube" && managed?.youtubeReconnectRequired}
@@ -197,6 +202,7 @@
       </article>
     {/each}
   </div>
+  {#if managedMessage}<p class="remote-account-message" role="status">{managedMessage}</p>{/if}
 </section>
 
 <details class="managed-provider">
@@ -205,15 +211,15 @@
   {#if managed}
     {#if managed.transport !== "native-webview-http"}
     <div class="remote-account-actions">
-      <button disabled={!managed.enabled || managedBusy} onclick={() => void managedAction("start_managed_provider_login", "spotify")}>Sign in to Spotify</button>
+      <button disabled={(!managed.enabled && !managed.nativeLoginAvailable) || managedBusy} onclick={() => void managedAction("start_managed_provider_login", "spotify")}>Sign in to Spotify</button>
       <button disabled={!managed.enabled || managedBusy || !managed.running} onclick={() => void managedAction("confirm_managed_provider_account", "spotify")}>{managed.transport === "native-webview-http" ? "Confirm and enable read access" : "Confirm Spotify account"}</button>
-        <button disabled={!managed.enabled || managedBusy} onclick={() => void managedAction("start_managed_provider_login", "youtube")}>Sign in to YouTube</button>
+        <button disabled={(!managed.enabled && !managed.nativeLoginAvailable) || managedBusy} onclick={() => void managedAction("start_managed_provider_login", "youtube")}>Sign in to YouTube</button>
         <button disabled={!managed.enabled || managedBusy || !managed.running} onclick={() => void managedAction("confirm_managed_provider_account", "youtube")}>Confirm YouTube account</button>
         <button disabled={!managed.enabled || managedBusy || !managed.spotifyAccountId} onclick={() => void managedAction("start_managed_provider_background")}>Start background session</button>
     </div>
     {/if}
     <details><summary>Diagnostics and advanced controls</summary>
-      <p class="managed-state" role="status">{managed.enabled ? managed.message : "Experimental connection options are unavailable in this build."}{#if managed.spotifyAccountId} · Spotify connected{/if}{#if managed.youtubeAccountId} · YouTube connected{/if}{#if managed.credentialStorage === "memory-only"} · Session credentials remain in memory until Burrata closes.{/if}</p>
+      <p class="managed-state" role="status">{managed.enabled ? managed.message : managed.nativeLoginAvailable ? "Choose Sign in to Spotify or Sign in to YouTube to enable managed access." : "Experimental connection options are unavailable in this build."}{#if managed.spotifyAccountId} · Spotify connected{/if}{#if managed.youtubeAccountId} · YouTube connected{/if}{#if managed.credentialStorage === "memory-only"} · Session credentials remain in memory until Burrata closes.{/if}</p>
       <button disabled={!managed.enabled || managedBusy || !managed.running} onclick={() => void managedAction("stop_managed_provider_session")}>{nativeSession ? "Pause provider access" : "Stop session"}</button>
       <button class="quiet" disabled={managedBusy} onclick={() => void refreshManaged()}>Refresh status</button>
     </details>
@@ -223,7 +229,6 @@
     </details>
     {#if handoffCode}<p class="handoff-code-copy" role="status">In the Burrata extension popup, confirm the active YouTube channel and enter this code: <code>{handoffCode}</code>. It expires at {new Date(handoffExpiresAt).toLocaleTimeString()} and works once for this app.</p>{/if}
   {/if}
-  {#if managedMessage}<p class="remote-account-message" role="status">{managedMessage}</p>{/if}
 </details>
 
 <SpotifyDurationRepair {call} />

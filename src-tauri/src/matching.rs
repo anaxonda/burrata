@@ -1,19 +1,50 @@
 //! Conservative recording matching. A known version mismatch is never a recommendation.
 use crate::models::{Candidate, Track};
+use icu_properties::{props::GeneralCategory, CodePointMapData};
 use std::{borrow::Cow, collections::HashSet};
 
 pub fn normalize(value: &str) -> String {
+    normalize_key(value, false)
+}
+
+fn normalize_key(value: &str, preserve_symbols: bool) -> String {
     // Width and compatibility variants must agree with local artist discovery.
     // Keep accents and script differences: this is not transliteration.
-    icu_normalizer::ComposingNormalizerBorrowed::new_nfkc()
+    let text = icu_normalizer::ComposingNormalizerBorrowed::new_nfkc()
         .normalize(value)
-        .to_lowercase()
-        .chars()
-        .map(|c| if c.is_alphanumeric() { c } else { ' ' })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
+        .to_lowercase();
+    let categories = CodePointMapData::<GeneralCategory>::new();
+    let mut key = String::with_capacity(text.len());
+    for c in text.chars() {
+        if preserve_symbols && matches!(c, '\u{fe0e}' | '\u{fe0f}') {
+            continue;
+        }
+        // Some scripts encode meaningful tones and consonants as combining
+        // marks that do not satisfy Rust's alphanumeric predicate.
+        if c.is_alphanumeric()
+            || preserve_symbols
+                && (matches!(c, '#' | '♯' | '♭' | '♮')
+                    || matches!(
+                        categories.get(c),
+                        GeneralCategory::MathSymbol
+                            | GeneralCategory::CurrencySymbol
+                            | GeneralCategory::OtherSymbol
+                    ))
+            || (!key.is_empty()
+                && !key.ends_with(' ')
+                && matches!(
+                    categories.get(c),
+                    GeneralCategory::NonspacingMark
+                        | GeneralCategory::SpacingMark
+                        | GeneralCategory::EnclosingMark
+                ))
+        {
+            key.push(c);
+        } else {
+            key.push(' ');
+        }
+    }
+    key.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Normalize punctuation variants of one artist name without changing generic
@@ -21,17 +52,31 @@ pub fn normalize(value: &str) -> String {
 /// `and`; commas remain ordinary punctuation and are never treated as credit
 /// separators here.
 pub fn normalize_single_artist_name(value: &str) -> String {
-    normalize(&value.replace('&', " and "))
+    let key = normalize_key(&value.replace('&', " and "), true);
+    literal_symbol_key(value, key)
+}
+
+fn literal_symbol_key(value: &str, key: String) -> String {
+    if key.is_empty() {
+        icu_normalizer::ComposingNormalizerBorrowed::new_nfkc()
+            .normalize(value.trim())
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    } else {
+        key
+    }
 }
 
 /// Normalize apostrophe variants inside words before ordinary title
 /// normalization. Call this for recording titles only; artist credits retain
 /// their normal punctuation semantics.
 pub fn normalize_title_ignoring_intraword_apostrophes(value: &str) -> String {
+    let value = icu_normalizer::ComposingNormalizerBorrowed::new_nfkc().normalize(value);
     let chars = value.chars().collect::<Vec<_>>();
     let mut normalized = String::with_capacity(value.len());
     for (index, character) in chars.iter().copied().enumerate() {
-        if matches!(character, '\'' | '\u{2018}' | '\u{2019}')
+        if matches!(character, '\'' | '\u{2018}' | '\u{2019}' | '\u{02bc}')
             && index > 0
             && index + 1 < chars.len()
             && chars[index - 1].is_alphanumeric()
@@ -41,7 +86,24 @@ pub fn normalize_title_ignoring_intraword_apostrophes(value: &str) -> String {
         }
         normalized.push(character);
     }
-    normalize(&normalized)
+    // Equate symbolic and written accidentals in an explicit musical key.
+    // Keep the symbols literal elsewhere, including symbol-only titles.
+    static ACCIDENTAL: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(?i)\b([a-g])\s*([#♯♭♮])[-\s]+(major|minor)\b").unwrap()
+    });
+    let normalized = if normalized.contains(['#', '♯', '♭', '♮']) {
+        ACCIDENTAL.replace_all(&normalized, |matched: &regex::Captures<'_>| {
+            let accidental = match &matched[2] {
+                "#" | "♯" => "sharp",
+                "♭" => "flat",
+                _ => "natural",
+            };
+            format!("{} {accidental} {}", &matched[1], &matched[3])
+        })
+    } else {
+        Cow::Borrowed(normalized.as_str())
+    };
+    literal_symbol_key(&value, normalize_key(&normalized, true))
 }
 
 /// Split one balanced parenthetical group at the end of a display string.
@@ -54,6 +116,7 @@ pub fn split_balanced_trailing_parenthetical(value: &str) -> Option<(&str, &str)
 pub fn split_balanced_trailing_square_group(value: &str) -> Option<(&str, &str)> {
     split_balanced_trailing_group(value, '[', ']')
         .or_else(|| split_balanced_trailing_group(value, '［', '］'))
+        .or_else(|| split_balanced_trailing_group(value, '【', '】'))
 }
 
 fn split_balanced_trailing_group(value: &str, open: char, close: char) -> Option<(&str, &str)> {
@@ -387,6 +450,24 @@ pub fn score_candidate(track: &Track, candidate: &mut Candidate) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn title_identity_preserves_accidentals_and_symbols() {
+        let key = normalize_title_ignoring_intraword_apostrophes;
+        assert_eq!(key("Sonata in F♯ minor"), key("Sonata in F-sharp minor"));
+        assert_eq!(key("Sonata in F♯ minor"), key("Sonata in F# minor"));
+        assert_ne!(key("Sonata in F♯ minor"), key("Sonata in F minor"));
+        assert_ne!(key("Concerto in B♭ major"), key("Concerto in B major"));
+        assert_ne!(key("Signal 🌙"), key("Signal ☀"));
+        assert!(!key("★").is_empty());
+        assert_eq!(key("Don＇t Go"), key("Don't Go"));
+        assert_eq!(key("Geneʼs Song"), key("Gene's Song"));
+        assert_eq!(normalize_single_artist_name("!!!"), "!!!");
+        assert_ne!(
+            normalize_single_artist_name("!!!"),
+            normalize_single_artist_name("???")
+        );
+    }
 
     #[test]
     fn unicode_compatibility_artist_names_agree_without_folding_accents_or_scripts() {

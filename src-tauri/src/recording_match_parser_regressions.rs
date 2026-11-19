@@ -44,6 +44,149 @@ fn assert_same_recording(request: &Track, candidate: &Candidate) {
         );
     }
 }
+
+#[test]
+fn resolved_matching_preserves_distinct_combining_marks() {
+    for (left, right) in [
+        ("ป่า", "ป้า"),
+        ("ປ່າ", "ປ້າ"),
+        ("राज", "राज़"),
+        ("கல", "கல்"),
+        ("కల", "కల్"),
+        ("കല", "കല്"),
+    ] {
+        let (request, candidate) = pair(left, right);
+        for level in [
+            MatchLevel::Exact,
+            MatchLevel::Balanced,
+            MatchLevel::Flexible,
+        ] {
+            assert_eq!(
+                assess(&request, &candidate, level, MatchStage::Resolved).action,
+                MatchAction::Reject,
+                "{left} vs {right}"
+            );
+        }
+        let (request, candidate) = pair(left, left);
+        assert_same_recording(&request, &candidate);
+    }
+    let (mut request, mut candidate) = pair("แสง", "แสง");
+    request.artist = "ป่า".into();
+    candidate.source_metadata.as_mut().unwrap()["artistNames"] = json!(["ป้า"]);
+    assert_eq!(
+        assess(
+            &request,
+            &candidate,
+            MatchLevel::Exact,
+            MatchStage::Resolved
+        )
+        .action,
+        MatchAction::Reject
+    );
+}
+
+#[test]
+fn localized_versions_preserve_performance_and_mastering_evidence() {
+    for (request, candidate) in [
+        ("Nada (versión acústica)", "Nada (Acoustic)"),
+        ("Ecos (En directo)", "Ecos (Live)"),
+        ("Song - Ao Vivo", "Song (Live)"),
+        (
+            "Song (Ao Vivo no Noites Cariocas)",
+            "Song (Live at Noites Cariocas)",
+        ),
+        ("Song (Remasterisé 2011)", "Song (Remastered 2011)"),
+        ("光【ライブ】", "光 (Live)"),
+        ("빛 (라이브 버전)", "빛 (Live)"),
+        ("光（现场版）", "光 (Live)"),
+    ] {
+        let (request, candidate) = pair(request, candidate);
+        assert_same_recording(&request, &candidate);
+    }
+    for (request, candidate) in [
+        ("Song (En Vivo en Madrid)", "Song (Live in Barcelona)"),
+        ("光【Live】", "光"),
+        ("Luz (con amor)", "Luz"),
+    ] {
+        let (request, candidate) = pair(request, candidate);
+        assert_ne!(
+            assess(
+                &request,
+                &candidate,
+                MatchLevel::Exact,
+                MatchStage::Resolved
+            )
+            .action,
+            MatchAction::Accept
+        );
+    }
+}
+
+#[test]
+fn localized_presentation_and_credits_keep_structured_artist_boundaries() {
+    for title in ["光【官方MV】", "光 (Vídeo Oficial)", "光 (Clip officiel)"] {
+        let (request, candidate) = pair("光", title);
+        assert_same_recording(&request, &candidate);
+    }
+    let (request, mut candidate) = pair("光（ｆｅａｔ． 山田）", "光 (feat. 山田)");
+    candidate.source_metadata.as_mut().unwrap()["artistNames"] = json!(["Artist", "山田"]);
+    assert_same_recording(&request, &candidate);
+
+    for separator in ['、', '，', '،'] {
+        let (mut request, mut candidate) = pair("光", "光");
+        let whole_name = format!("周杰倫{separator}蔡依林");
+        request.artist = whole_name.clone();
+        let metadata = candidate.source_metadata.as_mut().unwrap();
+        metadata["artistNames"] = json!(["周杰倫", "蔡依林"]);
+        assert_same_recording(&request, &candidate);
+
+        request.provenance = json!({"artistCredits":[{"name":whole_name}]});
+        assert_eq!(
+            assess(
+                &request,
+                &candidate,
+                MatchLevel::Exact,
+                MatchStage::Resolved
+            )
+            .action,
+            MatchAction::Reject
+        );
+        candidate.source_metadata.as_mut().unwrap()["artistNames"] = json!([whole_name]);
+        assert_same_recording(&request, &candidate);
+    }
+}
+
+#[test]
+fn fullwidth_caption_separator_still_requires_requested_artist_and_title() {
+    let (request, _) = pair("光", "光");
+    let mut candidate = Candidate {
+        provider: "youtube".into(),
+        id: "youtube:abcdefghijk".into(),
+        uploader: Some("Artist".into()),
+        duration_seconds: Some(200.0),
+        source_metadata: Some(json!({
+            "provider":"youtube", "resolvedProviderId":"abcdefghijk",
+            "sourceMetadataOrigin":"ytDlpFullInfo", "channel":"Artist", "duration":200.0
+        })),
+        ..Candidate::default()
+    };
+    for separator in ['－', '｜', '：'] {
+        candidate.title = format!("Artist{separator}光");
+        assert_same_recording(&request, &candidate);
+        candidate.title = format!("Other artist{separator}光");
+        assert_ne!(
+            assess(
+                &request,
+                &candidate,
+                MatchLevel::Exact,
+                MatchStage::Resolved
+            )
+            .action,
+            MatchAction::Accept
+        );
+    }
+}
+
 #[test]
 fn square_brackets_share_balanced_trimmed_delimiters() {
     for label in [
@@ -693,4 +836,173 @@ fn quoted_artist_title_captions_preserve_mode_and_length_permissions() {
             MatchAction::Accept
         );
     }
+}
+
+#[test]
+fn compatible_edition_labels_preserve_each_recording_dimension() {
+    for (requested, observed) in [
+        ("Signal (Live) (Acoustic)", "Signal (Acoustic) (Live)"),
+        (
+            "Signal (Live) (Instrumental)",
+            "Signal (Live) (Instrumental)",
+        ),
+        (
+            "Signal (Ava Remix) (Radio Edit)",
+            "Signal (Ava Remix) (Radio Edit)",
+        ),
+        (
+            "Signal (Live) (Acoustic) (2015 Remaster)",
+            "Signal (Live) (Acoustic) (2015 Remaster)",
+        ),
+    ] {
+        let (request, candidate) = pair(requested, observed);
+        assert_same_recording(&request, &candidate);
+    }
+    for (requested, observed) in [
+        (
+            "Signal (Live at the Ritz) (Acoustic)",
+            "Signal (Live at the Opera) (Acoustic)",
+        ),
+        (
+            "Signal (Live at the Ritz) (Acoustic)",
+            "Signal (Live at the Ritz)",
+        ),
+        (
+            "Signal (Ava Remix) (Radio Edit)",
+            "Signal (Eva Remix) (Radio Edit)",
+        ),
+        (
+            "Signal (Ava Remix) (Eva Remix)",
+            "Signal (Ava Remix) (Eva Remix)",
+        ),
+    ] {
+        let (request, candidate) = pair(requested, observed);
+        assert_ne!(
+            assess(
+                &request,
+                &candidate,
+                MatchLevel::Exact,
+                MatchStage::Resolved
+            )
+            .action,
+            MatchAction::Accept,
+            "{requested:?} vs {observed:?}",
+        );
+    }
+}
+
+#[test]
+fn remix_name_corroborates_only_the_named_remixer_credit() {
+    let (mut request, mut candidate) = pair("Signal (Ava Remix)", "Signal (Ava Remix)");
+    request.artist = "Lead, Ava".into();
+    candidate.source_metadata.as_mut().unwrap()["artistNames"] = json!(["Lead"]);
+    assert_same_recording(&request, &candidate);
+
+    for credits in ["Lead, Ava, Bea", "Lead, Bea, Ava", "Lead, Av"] {
+        request.artist = credits.into();
+        assert_ne!(
+            assess(
+                &request,
+                &candidate,
+                MatchLevel::Exact,
+                MatchStage::Resolved
+            )
+            .action,
+            MatchAction::Accept,
+            "{credits}",
+        );
+    }
+
+    request.artist = "Lead, Ava, Bea".into();
+    candidate.source_metadata.as_mut().unwrap()["artistNames"] = json!(["Lead", "Bea"]);
+    assert_same_recording(&request, &candidate);
+}
+
+#[test]
+fn collaboration_join_respects_structured_or_atomic_performer_names() {
+    for join in [" x ", " × ", " And "] {
+        let (mut request, mut candidate) = pair("Signal", "Signal");
+        request.artist = format!("Aya{join}Bea");
+        candidate.source_metadata.as_mut().unwrap()["artistNames"] = json!(["Aya", "Bea"]);
+        assert_same_recording(&request, &candidate);
+
+        candidate.source_metadata.as_mut().unwrap()["artistNames"] = json!(["Aya", "Bia"]);
+        assert_ne!(
+            assess(
+                &request,
+                &candidate,
+                MatchLevel::Exact,
+                MatchStage::Resolved
+            )
+            .action,
+            MatchAction::Accept
+        );
+
+        candidate.source_metadata.as_mut().unwrap()["artistNames"] = json!([request.artist]);
+        assert_same_recording(&request, &candidate);
+    }
+}
+
+#[test]
+fn catalog_retrieval_uses_the_verifiers_title_comparison() {
+    use crate::recording_match::same_retrieval_title;
+    for (requested, observed) in [
+        (
+            "Don't Think Twice, It's All Right",
+            "Dont Think Twice, Its All Right",
+        ),
+        ("光", "光【官方MV】"),
+        ("Lumière", "Lumière (Clip officiel)"),
+        ("Signal", "Signal Official Audio"),
+        ("Signal", "Signal (Official Audio)"),
+    ] {
+        assert!(
+            same_retrieval_title(requested, observed),
+            "{requested:?} vs {observed:?}"
+        );
+    }
+    assert!(!same_retrieval_title("Signal", "Different Song"));
+    assert!(!same_retrieval_title("", ""));
+    assert!(same_retrieval_title("Signal (Live)", "Signal (Acoustic)"));
+}
+
+#[test]
+fn meaningful_title_symbols_and_preview_word_survive_verification() {
+    for (requested, observed) in [
+        ("Sonata in F♯ minor", "Sonata in F minor"),
+        ("Concerto in B♭ major", "Concerto in B major"),
+        ("Signal 🌙", "Signal ☀"),
+        ("Signal", "Signal Preview"),
+    ] {
+        let (request, candidate) = pair(requested, observed);
+        for level in [
+            MatchLevel::Exact,
+            MatchLevel::Balanced,
+            MatchLevel::Flexible,
+        ] {
+            assert_eq!(
+                assess(&request, &candidate, level, MatchStage::Resolved).action,
+                MatchAction::Reject,
+                "{requested:?} vs {observed:?} {level:?}",
+            );
+        }
+    }
+    let (request, candidate) = pair("★", "★");
+    assert_same_recording(&request, &candidate);
+
+    let (mut request, mut candidate) = pair("Signal", "Signal");
+    request.artist = "!!!".into();
+    candidate.source_metadata.as_mut().unwrap()["artistNames"] = json!(["!!!"]);
+    assert_same_recording(&request, &candidate);
+    candidate.source_metadata.as_mut().unwrap()["artistNames"] = json!(["???"]);
+    assert_eq!(
+        assess(
+            &request,
+            &candidate,
+            MatchLevel::Balanced,
+            MatchStage::Resolved
+        )
+        .action,
+        MatchAction::Reject,
+    );
 }

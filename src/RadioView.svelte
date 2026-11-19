@@ -3,8 +3,10 @@
   let downloadAvailability = $state<"all"|"downloaded"|"not-downloaded">("all");
   import TrackDurationFilter from "./TrackDurationFilter.svelte";
   import { trackSortAvailability, trackSortOptionLabel } from "./lib/track-sort-availability";
-  import { onMount } from "svelte";
+  import { getContext, onMount, setContext } from "svelte";
   import { call } from "./lib/api";
+  import { FAVORITE_MEMBERSHIP, type FavoriteMembership } from "./lib/favorite-membership";
+  import { radioSongTrackIdentity } from "./lib/radio-song-identity";
   import type { Track } from "./lib/types";
   import TrackList from "./TrackList.svelte";
   import StationArtwork from "./StationArtwork.svelte";
@@ -43,6 +45,13 @@
       playingTrackId?: string; bufferingTrackId?: string; paused?: boolean;
       favoriteTrackIds?: string[];
     } = $props();
+  const favoriteMembership = getContext<FavoriteMembership | undefined>(FAVORITE_MEMBERSHIP);
+  let pendingHistoryFavorites = $state(new Map<string, boolean>());
+  function isFavorite(track: Track) {
+    return favoriteMembership?.(track) ?? favoriteTrackIds.includes(track.id);
+  }
+  setContext<FavoriteMembership>(FAVORITE_MEMBERSHIP, track =>
+    pendingHistoryFavorites.get(radioIdentityKey(track)) ?? isFavorite(track));
   type RadioPlaylistOption = { enabled: boolean; collectionId: string | null };
   let playlistOption = $state<RadioPlaylistOption>({enabled: false, collectionId: null});
   let playlistTargets = $state<{id: string; name: string}[]>([]);
@@ -313,7 +322,7 @@
   }
 
   function metadataKey(item: RadioTrackMetadata) { return `${item.artist}\u0000${item.title}\u0000${item.album ?? ""}`.toLocaleLowerCase(); }
-  function radioIdentityKey(item: RadioTrackMetadata) { return `${item.artist.trim().toLocaleLowerCase()}\n${item.title.trim().toLocaleLowerCase()}`; }
+  function radioIdentityKey(item: Pick<RadioTrackMetadata, "artist" | "title">) { return `${item.artist.trim().toLocaleLowerCase()}\n${item.title.trim().toLocaleLowerCase()}`; }
   function fallbackTrackForMetadata(item: RadioTrackMetadata): Track {
     const identity = radioIdentityKey(item);
     return {
@@ -352,7 +361,10 @@
   function trackForMetadata(item: RadioTrackMetadata): Track {
     return withOccurrence(radioTracksByIdentity[radioIdentityKey(item)] ?? fallbackTrackForMetadata(item), item);
   }
-  function metadataForTrack(track: Track) { return visibleHistory.find(item => radioIdentityKey(item) === radioIdentityKey({ stationId: "", artist: track.artist, title: track.title, sourceUrl: "", metadataConfidence: "" })); }
+  function metadataForTrack(track: Track) {
+    const identity = radioIdentityKey(track);
+    return visibleHistory.find(item => radioIdentityKey(item) === identity);
+  }
   async function hydrateHistoryTrack(track: Track) {
     const item = metadataForTrack(track);
     return item ? hydrateRadioSong(item) : track;
@@ -362,7 +374,32 @@
     if (tracks[index]) await onPlayTrack?.(tracks[index], tracks, index);
   }
   function downloadHistoryTrack(track: Track) { void hydrateHistoryTrack(track).then(canonical => onDownloadTrack?.(canonical)); }
-  function favoriteHistoryTrack(track: Track) { void hydrateHistoryTrack(track).then(canonical => onFavoriteTrack?.(canonical)); }
+  function favoriteHistoryTrack(track: Track) {
+    const identity = radioIdentityKey(track);
+    const pending = pendingHistoryFavorites.get(identity);
+    if (pending !== undefined) {
+      pendingHistoryFavorites = new Map(pendingHistoryFavorites).set(identity, !pending);
+      return;
+    }
+    if (radioSongTrackIdentity(track.id)) {
+      void onFavoriteTrack?.(track);
+      return;
+    }
+    const item = metadataForTrack(track);
+    if (!item) return;
+    pendingHistoryFavorites = new Map(pendingHistoryFavorites).set(identity, !isFavorite(track));
+    void hydrateRadioSong(item).then(canonical => {
+      if (!radioSongTrackIdentity(canonical.id)) {
+        error = "Could not look up this radio song to update Liked Songs.";
+      } else if (pendingHistoryFavorites.get(identity) !== isFavorite(canonical)) {
+        void onFavoriteTrack?.(canonical);
+      }
+    }).finally(() => {
+      const remaining = new Map(pendingHistoryFavorites);
+      remaining.delete(identity);
+      pendingHistoryFavorites = remaining;
+    });
+  }
   function playlistHistoryTrack(track: Track) { void hydrateHistoryTrack(track).then(canonical => onAddTrackToPlaylist?.(canonical)); }
   function queueHistoryTrack(track: Track, mode: "next" | "append") { void hydrateHistoryTrack(track).then(canonical => onQueueTracks?.([canonical], mode)); }
   function artistHistoryTrack(track: Track) { void hydrateHistoryTrack(track).then(canonical => onArtist(canonical)); }

@@ -2400,15 +2400,19 @@ async fn search_provider_candidates(
     canonical_only: bool,
     trace: Option<crate::playback_sources::SourceTrace>,
 ) -> (Vec<Candidate>, Vec<String>) {
+    let alternate_titles = trace
+        .as_ref()
+        .map_or(&[][..], |trace| trace.verified_search_titles());
     if provider == "monochrome" {
         let client = match crate::monochrome::Client::new() {
             Ok(client) => client,
             Err(error) => return (Vec::new(), vec![error]),
         };
         let alternatives = alternate_artist.clone().into_iter().collect::<Vec<_>>();
-        let query_texts = crate::search_plan::SearchPlan::for_track_with_release_policy(
+        let query_texts = crate::search_plan::SearchPlan::for_track_with_title_alternatives(
             track,
             &alternatives,
+            alternate_titles,
             flexible_other_release_search_enabled(settings),
         )
         .queries
@@ -2516,9 +2520,10 @@ async fn search_provider_candidates(
         "soundcloud" => format!("scsearch{result_limit}"),
         _ => return (Vec::new(), Vec::new()),
     };
-    let mut queries = playback_search_queries_with_release_policy(
+    let mut queries = playback_search_queries_with_title_alternatives(
         track,
         alternate_artist.as_deref(),
+        alternate_titles,
         flexible_other_release_search_enabled(settings),
     );
     if provider == "youtube" {
@@ -2987,6 +2992,7 @@ async fn search_audio_tracks_page_raw(
     })
 }
 
+#[cfg(test)]
 fn playback_search_queries(track: &Track, alternate_artist: Option<&str>) -> Vec<String> {
     playback_search_queries_with_release_policy(track, alternate_artist, false)
 }
@@ -2996,9 +3002,19 @@ fn flexible_other_release_search_enabled(settings: &Settings) -> bool {
         && settings.flexible_matching.allow_other_releases
 }
 
+#[cfg(test)]
 fn playback_music_catalog_queries(
     track: &Track,
     alternate_artist: Option<&str>,
+    settings: &Settings,
+) -> Vec<String> {
+    playback_music_catalog_queries_with_title_alternatives(track, alternate_artist, &[], settings)
+}
+
+fn playback_music_catalog_queries_with_title_alternatives(
+    track: &Track,
+    alternate_artist: Option<&str>,
+    alternate_titles: &[String],
     settings: &Settings,
 ) -> Vec<String> {
     let alternatives = alternate_artist
@@ -3006,9 +3022,10 @@ fn playback_music_catalog_queries(
         .into_iter()
         .collect::<Vec<_>>();
     let allow_other_releases = flexible_other_release_search_enabled(settings);
-    let plan = crate::search_plan::SearchPlan::for_track_with_release_policy(
+    let plan = crate::search_plan::SearchPlan::for_track_with_title_alternatives(
         track,
         &alternatives,
+        alternate_titles,
         allow_other_releases,
     );
     let mut seen = std::collections::HashSet::new();
@@ -3019,18 +3036,34 @@ fn playback_music_catalog_queries(
         .collect()
 }
 
+#[cfg(test)]
 fn playback_search_queries_with_release_policy(
     track: &Track,
     alternate_artist: Option<&str>,
+    allow_other_releases: bool,
+) -> Vec<String> {
+    playback_search_queries_with_title_alternatives(
+        track,
+        alternate_artist,
+        &[],
+        allow_other_releases,
+    )
+}
+
+fn playback_search_queries_with_title_alternatives(
+    track: &Track,
+    alternate_artist: Option<&str>,
+    alternate_titles: &[String],
     allow_other_releases: bool,
 ) -> Vec<String> {
     let alternatives = alternate_artist
         .map(str::to_owned)
         .into_iter()
         .collect::<Vec<_>>();
-    let plan = crate::search_plan::SearchPlan::for_track_with_release_policy(
+    let plan = crate::search_plan::SearchPlan::for_track_with_title_alternatives(
         track,
         &alternatives,
+        alternate_titles,
         allow_other_releases,
     );
     let mut queries = plan
@@ -4516,6 +4549,11 @@ fn completed_search_identity_fingerprint(track: &Track) -> Value {
             relevant.insert(field.to_owned(), value.clone());
         }
     }
+    if provenance["catalogProvider"] == "discogs" {
+        if let Some(parent_title) = provenance.get("parentTitle") {
+            relevant.insert("parentTitle".into(), parent_title.clone());
+        }
+    }
     if provenance["sourceKind"].as_str() == Some("audioSearch") {
         if let Some(candidate) = provenance.get("audioCandidate") {
             relevant.insert("audioCandidate".into(), candidate.clone());
@@ -4838,7 +4876,7 @@ fn playback_candidate_search_cache_key(
     alternate_artists: &[String],
 ) -> String {
     format!(
-        "{}:playback-source-search-retrieval-6:result-limit-{}:recording-match-{}:{:?}:{}:{}",
+        "{}:playback-source-search-retrieval-7:result-limit-{}:recording-match-{}:{:?}:{}:{}",
         search_cache_key(track, provider_ids, settings, 3),
         PLAYBACK_SOURCE_SEARCH_RESULT_LIMIT,
         crate::recording_match::EVALUATOR_VERSION,
@@ -6494,13 +6532,24 @@ fn safe_extractor_format_id(value: Option<&str>) -> Option<String> {
         .map(str::to_owned)
 }
 
+#[cfg(test)]
 fn playback_music_catalog_candidates(
     track: &Track,
     items: Vec<crate::youtube_music::YouTubeMusicItem>,
 ) -> Vec<Candidate> {
+    playback_music_catalog_candidates_with_title_alternatives(track, items, &[])
+}
+
+fn playback_music_catalog_candidates_with_title_alternatives(
+    track: &Track,
+    items: Vec<crate::youtube_music::YouTubeMusicItem>,
+    alternate_titles: &[String],
+) -> Vec<Candidate> {
     let mut music = std::collections::BTreeMap::new();
     for item in items {
-        if let Some(candidate) = playback_music_catalog_candidate(track, item) {
+        if let Some(candidate) =
+            playback_music_catalog_candidate_for_search(track, item, alternate_titles)
+        {
             music.entry(candidate.id.clone()).or_insert(candidate);
         }
     }
@@ -6508,9 +6557,18 @@ fn playback_music_catalog_candidates(
     music.into_values().collect()
 }
 
+#[cfg(test)]
 fn playback_music_catalog_candidate(
     track: &Track,
     item: crate::youtube_music::YouTubeMusicItem,
+) -> Option<Candidate> {
+    playback_music_catalog_candidate_for_search(track, item, &[])
+}
+
+fn playback_music_catalog_candidate_for_search(
+    track: &Track,
+    item: crate::youtube_music::YouTubeMusicItem,
+    alternate_titles: &[String],
 ) -> Option<Candidate> {
     if item.id.len() != 11
         || !item
@@ -6555,6 +6613,7 @@ fn playback_music_catalog_candidate(
         provider: "youtube".into(),
         title: item.title.clone(),
         url: format!("https://www.youtube.com/watch?v={}", item.id),
+        artwork_url: item.artwork_url,
         duration_seconds: item.duration_seconds,
         confidence: "review".into(),
         permission: "unknown".into(),
@@ -6567,9 +6626,9 @@ fn playback_music_catalog_candidate(
     };
     // Retrieval retains same-title locators without making a performer/version
     // acceptance decision. The shared evaluator applies current evidence later.
-    let wanted = crate::recording_identity::parse_title(&track.title).title;
-    let observed = crate::recording_identity::parse_title(&candidate.title).title;
-    (crate::matching::normalize(&wanted) == crate::matching::normalize(&observed))
+    std::iter::once(&track.title)
+        .chain(alternate_titles)
+        .any(|title| crate::recording_match::same_retrieval_title(title, &candidate.title))
         .then_some(candidate)
 }
 
@@ -7635,12 +7694,20 @@ impl AcquisitionManager {
             *slot = Some(service);
         }
     }
-    /// Fresh exact-ID lookup for one playback request; never saves a library row.
+    /// Refresh provider metadata for one playback request without saving a library row.
     pub(crate) async fn refresh_playback_catalog_track(
         &self,
         track: &Track,
     ) -> Result<Option<Track>, String> {
         match track.provider.as_str() {
+            "lastfm" => {
+                let Some(key) = self.inner.connections.credential("lastfm")? else {
+                    return Ok(None);
+                };
+                crate::artists::ArtistService::new(self.inner.store.clone())?
+                    .refresh_lastfm_top_track(track, &key)
+                    .await
+            }
             "beatport" | "traxsource" => {
                 let mut request = track.clone();
                 if request.provider_id.is_empty()
@@ -8737,9 +8804,16 @@ impl AcquisitionManager {
                     .verified_discogs_edition_query(&search_track)
             })
             .flatten();
-        let search_key = |key: String| match edition_query.as_deref() {
-            Some(query) => serde_json::json!([key, "verified-discogs-edition", query]).to_string(),
-            None => key,
+        let alternate_titles = trace
+            .as_ref()
+            .map(|trace| trace.verified_search_titles().to_vec())
+            .unwrap_or_default();
+        let search_key = |key: String| {
+            if edition_query.is_some() || !alternate_titles.is_empty() {
+                serde_json::json!([key, edition_query, alternate_titles]).to_string()
+            } else {
+                key
+            }
         };
         // The completed cache stores only full request-scoped results; warmup
         // rows live under a separate flat-only key and are merged below.
@@ -8813,9 +8887,10 @@ impl AcquisitionManager {
                             cancel.clone(),
                             deadline,
                             || async {
-                                let queries = playback_music_catalog_queries(
+                                let queries = playback_music_catalog_queries_with_title_alternatives(
                                     &search_track,
                                     alternate_artist.as_deref(),
+                                    &alternate_titles,
                                     settings,
                                 );
                                 collect_optional_playback_catalog_candidates(
@@ -8824,6 +8899,7 @@ impl AcquisitionManager {
                                     catalog_research_deadline,
                                     |query, query_cancel| {
                                         let query_track = search_track.clone();
+                                        let alternate_titles = &alternate_titles;
                                         async move {
                                             let items =
                                                 crate::youtube_music::search_playback_candidates(
@@ -8833,9 +8909,10 @@ impl AcquisitionManager {
                                                     deadline,
                                                 )
                                                 .await?;
-                                            Ok(playback_music_catalog_candidates(
+                                            Ok(playback_music_catalog_candidates_with_title_alternatives(
                                                 &query_track,
                                                 items,
+                                                alternate_titles,
                                             ))
                                         }
                                     },
@@ -13141,6 +13218,104 @@ mod tests {
     }
 
     #[test]
+    fn music_catalog_locator_uses_the_recording_title_comparison_without_certifying_versions() {
+        for (requested, observed) in [
+            (
+                "Don't Think Twice, It's All Right",
+                "Dont Think Twice, Its All Right",
+            ),
+            ("光", "光【官方MV】"),
+            ("Lumière", "Lumière (Clip officiel)"),
+            ("Song", "Song (Official Audio)"),
+            ("Song", "Song Official Audio"),
+            ("Song (Acoustic)", "Song (Live)"),
+        ] {
+            let request = Track {
+                title: requested.into(),
+                ..Track::default()
+            };
+            let item = crate::youtube_music::YouTubeMusicItem {
+                id: "abcdefghijk".into(),
+                title: observed.into(),
+                artist: Some("Artist".into()),
+                album: None,
+                duration_seconds: None,
+                url: "https://music.youtube.com/watch?v=abcdefghijk".into(),
+                artwork_url: None,
+                isrc: None,
+                artist_credits: vec![],
+                album_browse_id: None,
+            };
+            let candidate = playback_music_catalog_candidate(&request, item.clone()).unwrap();
+            assert_eq!(candidate.title, observed);
+            assert_eq!(candidate.confidence, "review");
+            let unrelated = crate::youtube_music::YouTubeMusicItem {
+                title: "Other song".into(),
+                ..item
+            };
+            assert!(playback_music_catalog_candidate(&request, unrelated).is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn music_catalog_retrieves_a_result_available_only_under_a_verified_title() {
+        let request = Track {
+            artist: "Artist".into(),
+            title: "Breï Yvane".into(),
+            ..Track::default()
+        };
+        let titles = ["Breï Yvane (Dancing Song)".into()];
+        let settings = Settings::default();
+        let queries = playback_music_catalog_queries_with_title_alternatives(
+            &request, None, &titles, &settings,
+        );
+        assert_eq!(
+            queries,
+            ["Artist Breï Yvane", "Artist Breï Yvane (Dancing Song)"]
+        );
+        assert_eq!(
+            playback_search_queries_with_title_alternatives(&request, None, &titles, false),
+            queries,
+        );
+        let (_cancel_tx, cancel) = watch::channel(false);
+        let result = collect_optional_playback_catalog_candidates(
+            queries,
+            cancel,
+            tokio::time::Instant::now() + Duration::from_secs(5),
+            |query, _| {
+                let request = &request;
+                let titles = &titles;
+                async move {
+                    if query != "Artist Breï Yvane (Dancing Song)" {
+                        return Ok(vec![]);
+                    }
+                    let raw = serde_json::json!({
+                        "videoId": "abcdefghijk",
+                        "title":{"simpleText":"Breï Yvane (Dancing Song)"},
+                        "flexColumns":[
+                            {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"Breï Yvane (Dancing Song)"}]}}},
+                            {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{
+                                    "text":"Artist",
+                                    "navigationEndpoint":{"browseEndpoint":{"browseEndpointContextSupportedConfigs":{
+                                        "browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_ARTIST"}
+                                    }}}
+                            }]}}}
+                        ]
+                    });
+                    let items = crate::youtube_music::parse_search_response(&raw, 1);
+                    assert!(playback_music_catalog_candidates(request, items.clone()).is_empty());
+                    Ok(playback_music_catalog_candidates_with_title_alternatives(
+                        request, items, titles,
+                    ))
+                }
+            },
+        ).await.unwrap();
+        assert_eq!(result.candidates.len(), 1);
+        assert_eq!(result.candidates[0].title, "Breï Yvane (Dancing Song)");
+        assert_eq!(result.candidates[0].confidence, "review");
+    }
+
+    #[test]
     fn public_music_feature_locator_retains_complete_explicit_performers_without_proving_playback()
     {
         let raw: Value = serde_json::from_str(include_str!(
@@ -15849,11 +16024,11 @@ mod tests {
             ..Default::default()
         };
         let key = playback_candidate_search_cache_key(&track, &providers, &settings, &[]);
-        assert!(key.contains("playback-source-search-retrieval-6:result-limit-20"));
+        assert!(key.contains("playback-source-search-retrieval-7:result-limit-20"));
         assert_ne!(
             key,
             key.replace(
-                "playback-source-search-retrieval-6",
+                "playback-source-search-retrieval-7",
                 "playback-source-search-retrieval-3"
             )
         );

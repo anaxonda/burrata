@@ -41,6 +41,7 @@ tempfile = "3"
 rusqlite = { version = "0.32", features = ["bundled", "collation", "functions", "backup"] }
 icu_collator = { version = "=2.3.0", default-features = false, features = ["compiled_data"] }
 icu_normalizer = { version = "=2.3.0", default-features = false, features = ["compiled_data"] }
+icu_properties = { version = "=2.3.0", default-features = false, features = ["compiled_data"] }
 icu_locale_core = { version = "=2.3.0", features = ["alloc"] }
 scraper = "0.22"
 async-trait = "0.1"

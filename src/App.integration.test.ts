@@ -3852,8 +3852,8 @@ describe("saved recording navigation", () => {
     minimum.value = "200"; minimum.dispatchEvent(new Event("input", { bubbles: true })); await settle();
     expect(document.querySelectorAll(".shared-track-list li")).toHaveLength(1);
     document.querySelector<HTMLButtonElement>('[aria-label="Add album to playlist"]')!.click(); await settle();
-    expect(document.querySelector<HTMLInputElement>('[aria-label="New playlist for album"]')?.value).toBe("Save Album");
-    expect(document.querySelector<HTMLSelectElement>('[aria-label="Choose playlist for track"]')?.value).toBe("");
+    expect(document.querySelector<HTMLInputElement>('[aria-label="Search playlist destinations"]')?.value).toBe("Save Album");
+    expect(document.querySelector('[aria-label="Choose playlist for track"]')).toBeNull();
     expect(mocks.call.mock.calls.some(([command]) => command === "save_library_tracks")).toBe(false);
     expect(mocks.call.mock.calls.some(([command]) => command === "append_playlist_entries")).toBe(false);
     [...document.querySelectorAll<HTMLButtonElement>(".playlist-picker-dialog button")].find(button=>button.textContent?.trim()==="Create & add")!.click(); await settle();
@@ -3861,13 +3861,15 @@ describe("saved recording navigation", () => {
     const append = mocks.call.mock.calls.find(([command])=>command === "append_playlist_entries");
     expect((append?.[1] as {tracks:Track[]}).tracks.map(track=>track.id)).toEqual([first.id,second.id]);
     document.querySelector<HTMLButtonElement>('[aria-label="Add album to playlist"]')!.click(); await settle();
+    const search = document.querySelector<HTMLInputElement>('[aria-label="Search playlist destinations"]')!;
+    search.value = "Saved"; search.dispatchEvent(new Event("input",{bubbles:true})); await settle();
     const existing = document.querySelector<HTMLSelectElement>('[aria-label="Choose playlist for track"]')!;
-    existing.value="collection-full";existing.dispatchEvent(new Event("change",{bubbles:true}));await settle();
+    expect(existing.value).toBe("collection-full");
     [...document.querySelectorAll<HTMLButtonElement>(".playlist-picker-dialog button")].find(button=>button.textContent?.trim()==="Add to playlist")!.click();await settle();
     const existingAppend=mocks.call.mock.calls.find(([command,args])=>command==="append_playlist_entries" && args?.collectionId==="collection-full");
     expect((existingAppend?.[1] as {tracks:Track[]}).tracks.map(track=>track.id)).toEqual([first.id,second.id]);
     document.querySelector<HTMLButtonElement>('[aria-label="Add album to playlist"]')!.click();await settle();
-    const customName=document.querySelector<HTMLInputElement>('[aria-label="New playlist for album"]')!;
+    const customName=document.querySelector<HTMLInputElement>('[aria-label="Search playlist destinations"]')!;
     customName.value="My album collection";customName.dispatchEvent(new Event("input",{bubbles:true}));await settle();
     [...document.querySelectorAll<HTMLButtonElement>(".playlist-picker-dialog button")].find(button=>button.textContent?.trim()==="Create & add")!.click();await settle();
     expect(mocks.call).toHaveBeenCalledWith("create_collection",{name:"My album collection"});
@@ -5777,22 +5779,28 @@ describe("saved recording navigation", () => {
     expect(document.activeElement).toBe(returnTarget);
     expect(mocks.call.mock.calls.filter(([command])=>command==="add_to_collection")).toHaveLength(before);
   });
-  it("cannot add to a hidden playlist destination from either the button or Enter", async () => {
+  it("selects an exact playlist search result immediately instead of retaining a hidden destination", async () => {
+    const original = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "list_collections") return [
+        ...collections, { id: "potential", name: "potential", trackCount: 3 },
+        { id: "potential-other", name: "potential ideas", trackCount: 1 },
+      ];
+      return original(command, args);
+    });
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
     await chooseTrackAction("Add to playlist…");
     const select=document.querySelector<HTMLSelectElement>('[aria-label="Choose playlist for track"]')!;
     select.value="collection-full";select.dispatchEvent(new Event("change",{bubbles:true}));await settle();
     const search=document.querySelector<HTMLInputElement>('[aria-label="Search playlist destinations"]')!;
-    search.value="no destination matches";search.dispatchEvent(new Event("input",{bubbles:true}));await settle();
-    const add=[...document.querySelectorAll<HTMLButtonElement>(".playlist-picker-dialog button")].find(button=>button.textContent==="Add to playlist")!;
-    expect(add.disabled).toBe(true);const before=mocks.call.mock.calls.filter(([command])=>command==="add_to_collection").length;
-    // Enter calls the handler directly even when the hidden ID remains bound.
-    select.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true}));await settle();
-    expect(mocks.call.mock.calls.filter(([command])=>command==="add_to_collection")).toHaveLength(before);
-    expect(document.querySelector(".playlist-picker-dialog")).not.toBeNull();
-    search.value="";search.dispatchEvent(new Event("input",{bubbles:true}));await settle();
-    select.value="collection-full";select.dispatchEvent(new Event("change",{bubbles:true}));await settle();
-    expect(add.disabled).toBe(false);
+    const readsBefore = mocks.call.mock.calls.filter(([command]) => command === "list_collections").length;
+    search.value=" Potential ";search.dispatchEvent(new Event("input",{bubbles:true}));await settle();
+    expect(select.value).toBe("potential");
+    expect([...select.options].some(option => option.textContent?.includes("Create"))).toBe(false);
+    expect(mocks.call.mock.calls.filter(([command]) => command === "list_collections")).toHaveLength(readsBefore);
+    expect(document.querySelectorAll(".playlist-picker-dialog button.primary")).toHaveLength(1);
+    document.querySelector<HTMLButtonElement>(".playlist-picker-dialog button.primary")!.click(); await settle();
+    expect(mocks.call).toHaveBeenCalledWith("append_playlist_entries", {collectionId: "potential", tracks: [savedTrack]});
   });
 
   it("keeps playlist creation available for empty search results and supports keyboard destination selection", async () => {
@@ -5802,15 +5810,13 @@ describe("saved recording navigation", () => {
     await chooseTrackAction("Add to playlist…");
     const search = document.querySelector<HTMLInputElement>('[aria-label="Search playlist destinations"]')!;
     expect(document.activeElement).toBe(search);
-    search.value = "no playlist matches this";
+    search.value = "Quiet Morning";
     search.dispatchEvent(new Event("input", { bubbles: true }));
     await settle();
-    expect(document.querySelector('[role="status"]')?.textContent).toContain("No matching playlists");
-    expect(document.querySelector('[aria-label="New playlist for track"]')).not.toBeNull();
-    const createName = document.querySelector<HTMLInputElement>('[aria-label="New playlist for track"]')!;
-    createName.value = "Quiet Morning";
-    createName.dispatchEvent(new Event("input", { bubbles: true }));
-    await settle();
+    expect(document.querySelector('dialog.playlist-picker-dialog [role="status"]')?.textContent).toContain("No matching playlist");
+    expect(document.querySelectorAll("dialog.playlist-picker-dialog input")).toHaveLength(1);
+    expect(document.querySelector('[aria-label="Choose playlist for track"]')).toBeNull();
+    expect(document.querySelector("dialog.playlist-picker-dialog footer .primary")?.textContent).toContain("Create & add");
     document.querySelector<HTMLButtonElement>("dialog.playlist-picker-dialog footer .primary")!.click();
     await settle();
     expect(mocks.call).toHaveBeenCalledWith("create_collection", { name: "Quiet Morning" });
@@ -5827,6 +5833,18 @@ describe("saved recording navigation", () => {
     await settle();
     expect(mocks.call).toHaveBeenCalledWith("append_playlist_entries", { collectionId: "collection-full", tracks: [expect.objectContaining({ id: savedTrack.id })] });
     expect(document.querySelector("dialog.playlist-picker-dialog")).toBeNull();
+
+    await chooseTrackAction("Add to playlist…");
+    const partialSearch = document.querySelector<HTMLInputElement>('[aria-label="Search playlist destinations"]')!;
+    partialSearch.value = "Saved";
+    partialSearch.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+    const choices = document.querySelector<HTMLSelectElement>('[aria-label="Choose playlist for track"]')!;
+    expect(choices.value).toBe("collection-full");
+    choices.value = [...choices.options].find(option => option.textContent?.includes("Create “Saved”"))!.value;
+    choices.dispatchEvent(new Event("change", { bubbles: true })); await settle();
+    document.querySelector<HTMLButtonElement>(".playlist-picker-dialog button.primary")!.click(); await settle();
+    expect(mocks.call).toHaveBeenCalledWith("create_collection", { name: "Saved" });
   });
 
   it("opens the universal track information panel and adds its selected track to a playlist", async () => {
@@ -7421,7 +7439,8 @@ describe("saved recording navigation", () => {
     const add = [...document.querySelectorAll<HTMLButtonElement>(".playlist-picker-dialog button")].find(button => button.textContent?.trim() === "Add to playlist")!;
     add.click(); await settle(); add.click(); await settle();
     expect(mocks.call.mock.calls.filter(([command]) => command === "append_playlist_entries")).toHaveLength(1);
-    expect(add.disabled).toBe(true);
+    expect(document.querySelector(".playlist-picker-dialog")).toBeNull();
+    expect(document.body.textContent).toContain("Adding to Empty Collection…");
     expect(document.querySelector(".busy")).toBeNull();
     const favoritesReads = mocks.call.mock.calls.filter(([command]) => command === "list_favorite_track_ids").length;
     holdRefresh = true;
@@ -7496,13 +7515,14 @@ describe("saved recording navigation", () => {
     const instance = mount(App, { target: document.body });
     unmountApp = () => { void unmount(instance); };
     await settle(); await chooseTrackAction("Add to playlist…");
-    const name = document.querySelector<HTMLInputElement>('[aria-label="New playlist for track"]')!;
+    const name = document.querySelector<HTMLInputElement>('[aria-label="Search playlist destinations"]')!;
     name.value = "Retry destination"; name.dispatchEvent(new Event("input", { bubbles: true })); await settle();
-    const create = [...document.querySelectorAll<HTMLButtonElement>(".playlist-picker-dialog button")].find(button => button.textContent?.includes("Create & add"))!;
-    create.click(); await settle();
+    document.querySelector<HTMLButtonElement>(".playlist-picker-dialog button.primary")!.click(); await settle();
     expect(document.querySelector(".playlist-picker-dialog")).not.toBeNull();
-    expect(document.querySelector('[role="alert"]')?.textContent).toContain("Write interrupted");
-    create.click(); await settle();
+    expect(document.querySelector('.playlist-picker-dialog [role="alert"]')?.textContent).toContain("Write interrupted");
+    const retry = document.querySelector<HTMLButtonElement>(".playlist-picker-dialog button.primary")!;
+    expect(retry.textContent).toContain("Add to playlist");
+    retry.click(); await settle();
     expect(mocks.call.mock.calls.filter(([command]) => command === "create_collection")).toHaveLength(1);
     expect(mocks.call.mock.calls.filter(([command]) => command === "append_playlist_entries")).toHaveLength(2);
     const appendCalls = mocks.call.mock.calls.filter(([command]) => command === "append_playlist_entries");
@@ -8011,6 +8031,29 @@ describe("native playback frontend", () => {
     expect(document.body.textContent).toContain("Synthetic current lyric");
     expect(document.body.textContent).not.toContain("No current full-track metadata");
     expect(track.durationSeconds).toBeNull();
+    expectNoPlaybackStart();
+  });
+
+  it("closes fullscreen lyrics from the playback controls and restores the previous screen", async () => {
+    const track = savedTrack;
+    mountNative(makeNativeSnapshot({ status: "playing", paused: false, track, trackId: track.id, queue: [track], currentIndex: 0 }));
+    await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Full-screen Now Playing"]')!.click();
+    await settle();
+    const nowPlaying = document.querySelector(".now-playing-view");
+    expect(nowPlaying).not.toBeNull();
+    const lyrics = document.querySelector<HTMLButtonElement>('[aria-label="Open fullscreen lyrics"]')!;
+    lyrics.click();
+    await settle();
+    const dialog = document.querySelector('[aria-label="Fullscreen lyrics"]');
+    expect(dialog).not.toBeNull();
+    const pause = document.querySelector<HTMLButtonElement>('footer.player [aria-label="Pause"]')!;
+    pause.focus();
+    pause.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    await settle();
+    expect(document.querySelector('[aria-label="Fullscreen lyrics"]')).toBeNull();
+    expect(document.querySelector(".now-playing-view")).toBe(nowPlaying);
+    expect(document.activeElement).toBe(lyrics);
     expectNoPlaybackStart();
   });
 
@@ -10064,7 +10107,87 @@ describe("native playback frontend", () => {
     expect(document.body.textContent).toContain("Older unrelated station song");
   });
 
+  it("opens the artist and album of the current radio song directly from fullscreen", async () => {
+    const station: Track = {
+      ...savedTrack, id: "station-radio", provider: "radio", providerId: "station-1",
+      title: "Station Feed", artist: "Radio Station", provenance: { sourceKind: "radio", stationId: "station-1" },
+    };
+    const artist = { provider: "musicbrainz" as const, id: "12345678-1234-4234-8234-123456789abc" };
+    const release: ArtistReleaseRef = {
+      release: { provider: "musicbrainz", id: "12345678-1234-4234-8234-123456789abd" },
+      title: "Favourite Worst Nightmare", tracks: [],
+      sourceUrl: "https://musicbrainz.org/release/12345678-1234-4234-8234-123456789abd",
+      credits: [{ name: "Arctic Monkeys", artist, role: "artist", sourceUrl: `https://musicbrainz.org/artist/${artist.id}` }],
+    };
+    const artistResult = { artist, name: "Arctic Monkeys", sourceUrl: `https://musicbrainz.org/artist/${artist.id}` };
+    const original = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async (command, args) => {
+      if (command === "search_artists") return { results: [artistResult], hasMore: false, warnings: [] };
+      if (command === "get_artist_profile") return { ...await original(command, args), artist: artistResult };
+      if (command === "resolve_track_album") return { status: "resolved", destination: { release, artist } };
+      return original(command, args);
+    });
+    mountNative(makeNativeSnapshot({
+      status: "playing", track: station, trackId: station.id, queue: [station], currentIndex: 0, paused: false,
+      radioNowPlaying: {
+        id: `radio_song:${nativeRadioSongHash}`, title: "505", artist: artistResult.name, stationName: "Radio Paradise · Main Mix",
+        metadata: { stationId: "station-1", title: "505", artist: artistResult.name, album: release.title, sourceUrl: "https://example.test/song", metadataConfidence: "station-reported" },
+      },
+    }));
+    await settle();
+    const toggle = document.querySelector<HTMLButtonElement>('[aria-label="Full-screen Now Playing"]')!;
+    toggle.click();
+    await settle();
+    const artistLink = document.querySelector<HTMLButtonElement>(".now-playing-view .recording .artist-link")!;
+    expect(artistLink.textContent).toBe("Arctic Monkeys");
+    artistLink.click();
+    await settle();
+    await vi.waitFor(() => expect(document.querySelector(".artist-heading h2")?.textContent).toBe("Arctic Monkeys"));
+    expect(document.querySelector(".now-playing-view")).toBeNull();
+    expect(document.querySelector(".artist-result")).toBeNull();
+
+    toggle.click();
+    await settle();
+    const albumLink = document.querySelector<HTMLButtonElement>(".now-playing-view .recording .album-link")!;
+    expect(albumLink.textContent).toBe("Favourite Worst Nightmare");
+    albumLink.click();
+    await settle();
+    await vi.waitFor(() => expect(document.querySelector(".release-view h1")?.textContent).toBe("Favourite Worst Nightmare"));
+    expect(mocks.call).toHaveBeenCalledWith("resolve_track_album", expect.objectContaining({
+      track: expect.objectContaining({ provider: "radio_song", title: "505", artist: artistResult.name, album: release.title }),
+    }));
+    expect(document.querySelector(".now-playing-view")).toBeNull();
+    expect(mocks.call.mock.calls.some(([command]) => command === "open_external_url")).toBe(false);
+    expectNoPlaybackStart();
+  });
+
+  it("keeps a fullscreen album lookup in Burrata when only a web source is available", async () => {
+    const track: Track = { ...savedTrack, provider: "youtube", album: "Source Album", provenance: { albumBrowseId: "MPREb_sourceAlbum" } };
+    const original = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async (command, args) => {
+      if (command === "resolve_track_album") return {
+        status: "unavailable", reason: "Catalogs unavailable", sourceAlbumUrl: "https://music.youtube.com/browse/MPREb_sourceAlbum",
+      };
+      return original(command, args);
+    });
+    mountNative(makeNativeSnapshot({ status: "playing", track, trackId: track.id, queue: [track], currentIndex: 0, paused: false }));
+    await settle();
+    document.querySelector<HTMLButtonElement>('[aria-label="Full-screen Now Playing"]')!.click();
+    await settle();
+    document.querySelector<HTMLButtonElement>(".now-playing-view .recording .album-link")!.click();
+    await vi.waitFor(() => expect(document.body.textContent).toContain("Catalogs unavailable"));
+    expect(mocks.call.mock.calls.some(([command]) => command === "open_external_url")).toBe(false);
+    expectNoPlaybackStart();
+  });
+
   it("favorites the canonical current native radio song and keeps it favorited through a stale snapshot", async () => {
+    const original = mocks.call.getMockImplementation()!;
+    let finishFavorite!: () => void;
+    const favoriteWrite = new Promise<void>(resolve => { finishFavorite = resolve; });
+    mocks.call.mockImplementation(async (command, args) => {
+      if (command === "set_favorite") await favoriteWrite;
+      return original(command, args);
+    });
     const stationTrack: Track = {
       ...savedTrack, id: "station-radio", provider: "radio", providerId: "station-1",
       title: "Station Feed", artist: "Radio Station", provenance: { sourceKind: "radio", stationId: "station-1" },
@@ -10093,6 +10216,10 @@ describe("native playback frontend", () => {
     const addFavorite = document.querySelector<HTMLButtonElement>('[aria-label="Add playing track to favorites"]')!;
     expect(addFavorite.disabled).toBe(false);
     addFavorite.click();
+    await tick();
+    expect(addFavorite.getAttribute("aria-pressed")).toBe("true");
+    expect(favoriteTrackIds.has(currentRadioTrack.id)).toBe(false);
+    finishFavorite();
     await settle();
     expect(mocks.call).toHaveBeenCalledWith("set_favorite", {
       track: expect.objectContaining({ id: currentRadioTrack.id, provider: "radio_song", providerId: nativeRadioSongHash, sourceUrl: "", isrc: "USABC1234567", provenance: expect.objectContaining({sourceKind: "radioSong", recognitionIdentifiers: {isrc: "US-ABC-12-34567"}}) }),
@@ -10381,6 +10508,49 @@ it.each(["next in queue", "playback bar"])("keeps fullscreen open when opening t
   expect(document.querySelector(".now-playing-view")).toBe(fullscreen);
   window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); await settle();
   expect(document.querySelector(".now-playing-view")).toBeNull();
+});
+
+it("shows newly resolved artwork in the open fullscreen player", async () => {
+  const track = {
+    ...savedTrack,
+    id: "lastfm:fixture:street boy",
+    provider: "lastfm",
+    title: "Street Boy",
+    artworkUrl: null,
+  };
+  const snapshot = makeNativeSnapshot({
+    status: "buffering",
+    track,
+    trackId: track.id,
+    queue: [track],
+    currentIndex: 0,
+  });
+  nativePlaybackSnapshot = snapshot;
+  const instance = mount(App, { target: document.body });
+  unmountApp = () => { void unmount(instance); };
+  await settle();
+  document.querySelector<HTMLButtonElement>('[aria-label="Full-screen Now Playing"]')!.click();
+  await settle();
+
+  const fullscreen = document.querySelector(".now-playing-view")!;
+  expect(fullscreen.querySelector(".hero-art img")).toBeNull();
+
+  const artworkUrl = "https://i.ytimg.com/vi/0123456789A/hqdefault.jpg";
+  const ready = makeNativeSnapshot({
+    ...snapshot,
+    revision: snapshot.revision + 1,
+    status: "playing",
+    track: { ...track, artworkUrl },
+  });
+  eventHandlers.get("native-playback-state")!({
+    event: "native-playback-state",
+    id: ready.revision,
+    payload: ready,
+  });
+  await settle();
+
+  expect(document.querySelector(".now-playing-view")).toBe(fullscreen);
+  expect(fullscreen.querySelector(".hero-art img")?.getAttribute("src")).toBe(artworkUrl);
 });
 
 it.each([

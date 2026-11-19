@@ -13,6 +13,8 @@ mod recording_filename;
 mod recording_identity;
 #[path = "../../../src-tauri/src/recording_match.rs"]
 mod recording_match;
+#[path = "../../../src-tauri/src/youtube_recording_metadata.rs"]
+mod youtube_recording_metadata;
 #[path = "../../../src-tauri/src/search_plan.rs"]
 mod search_plan;
 #[path = "../../../src-tauri/src/spotify_catalog_identity.rs"]

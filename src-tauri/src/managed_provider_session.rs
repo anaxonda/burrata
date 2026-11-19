@@ -136,6 +136,7 @@ struct ConfirmedAccount {
 #[serde(rename_all = "camelCase")]
 pub struct ManagedProviderSessionStatus {
     pub enabled: bool,
+    pub native_login_available: bool,
     pub running: bool,
     pub mode: String,
     pub spotify_account_id: Option<String>,
@@ -309,7 +310,8 @@ pub struct ManagedProviderSession {
     bridge: Arc<BrowserBridge>,
     data_dir: PathBuf,
     enabled: bool,
-    native_enabled: bool,
+    native_enabled: AtomicBool,
+    native_available: bool,
     native_requested: bool,
     active_jobs: AtomicUsize,
     native_jobs: Arc<Semaphore>,
@@ -332,6 +334,28 @@ pub struct ManagedProviderSession {
 }
 
 impl ManagedProviderSession {
+    fn native_transport_enabled(&self) -> bool {
+        self.native_enabled.load(Ordering::SeqCst)
+    }
+
+    fn native_login_available(&self) -> bool {
+        self.native_transport_enabled() || (self.native_available && !self.enabled)
+    }
+
+    fn show_login_window(window: &WebviewWindow) -> Result<(), String> {
+        window
+            .show()
+            .map_err(|_| "Could not show the isolated provider sign-in window")?;
+        if window.is_minimized().unwrap_or(false) {
+            window
+                .unminimize()
+                .map_err(|_| "Could not restore the provider sign-in window")?;
+        }
+        window
+            .set_focus()
+            .map_err(|_| "Could not focus the isolated provider sign-in window".into())
+    }
+
     fn start_native_login(&self, provider: &str) -> Result<ManagedProviderSessionStatus, String> {
         let (label, login_url, profile) = match provider {
             "spotify" => (
@@ -353,7 +377,18 @@ impl ManagedProviderSession {
         if !native_runtime_open(&self.native_shutdown) {
             return Err("Managed provider session is shutting down".into());
         }
-        self.persist_native_transport_opt_in()?;
+        let login_mode = format!("native-login:{provider}");
+        let existing_window = self.app.get_webview_window(label);
+        let already_signing_in = self
+            .state
+            .lock()
+            .map_err(|_| "Managed provider session is unavailable")?
+            .mode
+            == login_mode;
+        if let Some(window) = existing_window.as_ref().filter(|_| already_signing_in) {
+            Self::show_login_window(window)?;
+            return Ok(self.status());
+        }
         signal_native_stop(&self.native_generation, &self.native_cancellations);
         self.spotify_auth_cache.invalidate_now();
         if provider == "spotify" {
@@ -380,7 +415,9 @@ impl ManagedProviderSession {
         secure_create_dir(&data_directory)?;
         let login_url =
             url::Url::parse(login_url).map_err(|_| "Provider sign-in URL is invalid")?;
-        if self.app.get_webview_window(label).is_none() {
+        let window = if let Some(window) = existing_window {
+            window
+        } else {
             let builder =
                 WebviewWindowBuilder::new(&self.app, label, WebviewUrl::External(login_url))
                     .title(if provider == "spotify" {
@@ -399,13 +436,16 @@ impl ManagedProviderSession {
             builder
                 .data_directory(data_directory)
                 .build()
-                .map_err(|_| "Could not open the isolated provider sign-in window".to_owned())?;
-        }
+                .map_err(|_| "Could not open the isolated provider sign-in window".to_owned())?
+        };
+        Self::show_login_window(&window)?;
+        self.persist_native_transport_opt_in()?;
         let mut state = self
             .state
             .lock()
             .map_err(|_| "Managed provider session is unavailable")?;
-        state.mode = format!("native-login:{provider}");
+        state.mode = login_mode;
+        self.native_enabled.store(true, Ordering::SeqCst);
         drop(state);
         Ok(self.status())
     }
@@ -641,7 +681,7 @@ impl ManagedProviderSession {
     }
 
     pub fn create_youtube_handoff_pairing_code(&self) -> Result<YoutubeHandoffPairingCode, String> {
-        if !self.native_enabled {
+        if !self.native_transport_enabled() {
             return Err("Native YouTube handoff is unavailable in this build".into());
         }
         let _control = self
@@ -688,7 +728,7 @@ impl ManagedProviderSession {
         pairing_code: &str,
         value: Value,
     ) -> Result<ConfirmedProviderAccount, String> {
-        if !self.native_enabled {
+        if !self.native_transport_enabled() {
             return Err("Native YouTube session handoff is unavailable in this build".into());
         }
         let (port_text, nonce) = pairing_code
@@ -1074,10 +1114,12 @@ impl ManagedProviderSession {
         // ephemeral until its persistent-profile isolation is verified.
         // Windows WebView2 only guarantees incognito mode on newer runtimes, so this prototype
         // stays disabled there.
-        let native_enabled = native_session_enabled(
-            native_requested,
-            cfg!(any(target_os = "linux", target_os = "macos")),
-        );
+        let platform_supports_native = cfg!(any(target_os = "linux", target_os = "macos"));
+        let native_enabled = native_session_enabled(native_requested, platform_supports_native);
+        let native_available = platform_supports_native
+            && native_environment_override
+                .as_deref()
+                .is_none_or(|value| value == "1");
         let background_opt_in = persisted.background_opt_in;
         let has_confirmed_account = persisted_has_confirmed_provider(&persisted.accounts);
         let native_stopped = persisted.native_stopped;
@@ -1089,7 +1131,8 @@ impl ManagedProviderSession {
             bridge,
             data_dir,
             enabled,
-            native_enabled,
+            native_enabled: AtomicBool::new(native_enabled),
+            native_available,
             native_requested,
             active_jobs: AtomicUsize::new(0),
             native_jobs: Arc::new(Semaphore::new(2)),
@@ -1150,7 +1193,7 @@ impl ManagedProviderSession {
 
     pub fn status(&self) -> ManagedProviderSessionStatus {
         let mut state = self.state.lock().unwrap();
-        let browser_exited = if self.native_enabled {
+        let browser_exited = if self.native_transport_enabled() {
             false
         } else {
             let background_opt_in = state.background_opt_in;
@@ -1161,14 +1204,15 @@ impl ManagedProviderSession {
         if browser_exited {
             let _ = self.bridge.set_managed_session(None);
         }
-        let connection_seen = !self.native_enabled
+        let connection_seen = !self.native_transport_enabled()
             && self
                 .bridge
                 .managed_session_seen(&state.persisted.session_id);
         let accounts = &state.persisted.accounts;
         ManagedProviderSessionStatus {
-            enabled: self.native_enabled || self.enabled,
-            running: if self.native_enabled {
+            enabled: self.native_transport_enabled() || self.enabled,
+            native_login_available: self.native_login_available(),
+            running: if self.native_transport_enabled() {
                 native_session_ready(&state.mode)
                     || self.app.get_webview_window(NATIVE_LOGIN_LABEL).is_some()
                     || self
@@ -1205,11 +1249,13 @@ impl ManagedProviderSession {
                 .map(|(provider, account)| (provider.clone(), account.revision))
                 .collect(),
             connection_seen,
-            message: if self.native_enabled && state.persisted.youtube_reconnect_required {
+            message: if self.native_transport_enabled()
+                && state.persisted.youtube_reconnect_required
+            {
                 "YouTube needs to reconnect. Sign in again and confirm your channel; the saved session is kept until confirmation succeeds.".into()
-            } else if self.native_requested && !self.native_enabled {
+            } else if self.native_requested && !self.native_transport_enabled() {
                 "The native provider session is unavailable on this platform because its WebView cannot guarantee isolated sign-in storage.".into()
-            } else if self.native_enabled {
+            } else if self.native_transport_enabled() {
                 if !accounts.is_empty() && native_session_ready(&state.mode) {
                     "Native provider access is active. YouTube session handoff and bounded HTTP workers run only when needed.".into()
                 } else if !accounts.is_empty() && state.mode == "stopped" {
@@ -1240,7 +1286,7 @@ impl ManagedProviderSession {
             } else {
                 "A signed-in provider account was confirmed in the managed browser profile.".into()
             },
-            transport: if self.native_enabled {
+            transport: if self.native_transport_enabled() {
                 "native-webview-http".into()
             } else if self.native_requested {
                 "native-unsupported".into()
@@ -1261,7 +1307,7 @@ impl ManagedProviderSession {
         if !native_runtime_open(&self.native_shutdown) {
             return Err("Managed provider session is shutting down".into());
         }
-        if self.native_enabled {
+        if self.native_login_available() {
             return self.start_native_login(provider);
         }
         let _control = self
@@ -1305,7 +1351,7 @@ impl ManagedProviderSession {
         if !native_runtime_open(&self.native_shutdown) {
             return Err("Managed provider session is shutting down".into());
         }
-        if self.native_enabled {
+        if self.native_transport_enabled() {
             let _control = self
                 .native_control
                 .lock()
@@ -1381,7 +1427,7 @@ impl ManagedProviderSession {
     }
 
     pub fn stop(&self) -> Result<ManagedProviderSessionStatus, String> {
-        if self.native_enabled {
+        if self.native_transport_enabled() {
             let _control = self
                 .native_control
                 .lock()
@@ -1448,7 +1494,7 @@ impl ManagedProviderSession {
         &self,
         provider: &str,
     ) -> Result<ManagedProviderSessionStatus, String> {
-        if self.native_enabled {
+        if self.native_transport_enabled() {
             if !native_runtime_open(&self.native_shutdown) {
                 return Err("Managed provider session is shutting down".into());
             }
@@ -1578,7 +1624,7 @@ impl ManagedProviderSession {
         &self,
         expected_generation: u64,
     ) -> Result<ManagedProviderSessionStatus, String> {
-        if !self.native_enabled {
+        if !self.native_transport_enabled() {
             return Err("The isolated YouTube sign-in window is unavailable".into());
         }
         if !native_runtime_open(&self.native_shutdown) {
@@ -3486,7 +3532,7 @@ impl ManagedProviderSession {
         if !matches!(provider, "spotify" | "youtube") {
             return Err("Choose Spotify or YouTube".into());
         }
-        if !self.native_enabled {
+        if !self.native_transport_enabled() {
             return Err("The experimental managed provider session is disabled".into());
         }
         let expected = self
@@ -3674,7 +3720,7 @@ impl ManagedProviderSession {
         Ok(receipt)
     }
     pub fn preview_verification_playlist_intent(&self, provider: &str) -> Result<Value, String> {
-        if !self.native_enabled || !matches!(provider, "spotify" | "youtube") {
+        if !self.native_transport_enabled() || !matches!(provider, "spotify" | "youtube") {
             return Err("Native Spotify or YouTube access is required".into());
         }
         let state = self
@@ -3710,7 +3756,7 @@ impl ManagedProviderSession {
         if !matches!(provider, "spotify" | "youtube") {
             return Err("Choose Spotify or YouTube".into());
         }
-        if !self.native_enabled {
+        if !self.native_transport_enabled() {
             return Err("The experimental managed provider session is disabled".into());
         }
         let expected = self
@@ -3907,11 +3953,11 @@ impl ManagedProviderSession {
 #[async_trait::async_trait]
 impl ProviderTransport for ManagedProviderSession {
     fn native_write_sync_enabled(&self) -> bool {
-        self.native_enabled
+        self.native_transport_enabled()
     }
 
     fn provider_operations_supported(&self) -> bool {
-        if self.native_enabled {
+        if self.native_transport_enabled() {
             return self.state.lock().ok().is_some_and(|state| {
                 (state.persisted.accounts.contains_key("spotify")
                     || state.persisted.accounts.contains_key("youtube"))
@@ -3968,7 +4014,7 @@ impl ProviderTransport for ManagedProviderSession {
             return Err("Managed provider session is shutting down".into());
         }
         let operation_generation = self.native_generation.load(Ordering::SeqCst);
-        if self.native_enabled {
+        if self.native_transport_enabled() {
             if !matches!(provider, "spotify" | "youtube") {
                 return Err("This native provider is not available".into());
             }

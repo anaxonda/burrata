@@ -1437,10 +1437,7 @@ fn sanitize_playback_layout(report: Value) -> Result<Value, ToolError> {
     };
     let visible_geometry = |role: &str| {
         let value = geometry(role)?;
-        if !matches!(
-            role,
-            "expanded_artwork" | "expanded_close" | "expanded_cards"
-        ) {
+        if !matches!(role, "expanded_artwork" | "expanded_cards") {
             return Some(value);
         }
         let (px, py, pw, ph, pp, pv, _, _) = geometry("expanded_player")?;
@@ -1487,12 +1484,18 @@ fn sanitize_playback_layout(report: Value) -> Result<Value, ToolError> {
             }
         }
         if !geometry("expanded_close").is_some_and(|(cx, cy, cw, ch, present, visible, _, _)| {
+            let within = |left: f64, top: f64, w: f64, h: f64| {
+                cx >= left - 1.
+                    && cy >= top - 1.
+                    && cx + cw <= left + w + 1.
+                    && cy + ch <= top + h + 1.
+            };
             present
                 && visible
-                && cx >= x - 1.
-                && cy >= y - 1.
-                && cx + cw <= x + width + 1.
-                && cy + ch <= y + height + 1.
+                && (within(x, y, width, height)
+                    || geometry("footer").is_some_and(|(fx, fy, fw, fh, fp, fv, _, _)| {
+                        fp && fv && within(fx, fy, fw, fh)
+                    }))
         }) {
             findings.push(json!({"code":"expanded_player_close_unreachable","roles":["expanded_player","expanded_close"]}));
         }
@@ -1580,6 +1583,8 @@ fn sanitize_playback_layout(report: Value) -> Result<Value, ToolError> {
                 || (*b == "expanded_player" && a.starts_with("expanded_"))
                 || (*a == "now_playing" && *b == "quality")
                 || (*a == "quality" && *b == "now_playing")
+                || (*a == "right" && *b == "expanded_close")
+                || (*b == "right" && *a == "expanded_close")
                 || (*a == "queue_panel" && queue_panel_child(*b))
                 || (*b == "queue_panel" && queue_panel_child(*a))
                 || (*a == "queue_header" && queue_header_child(*b))
@@ -10900,7 +10905,7 @@ mod tests {
     }
     #[test]
     fn expanded_player_layout_detects_footer_overlap_and_an_unreachable_close() {
-        let elements = PLAYBACK_LAYOUT_ROLES.iter().map(|role| {
+        let mut elements = PLAYBACK_LAYOUT_ROLES.iter().map(|role| {
             let (x,y,width,height) = match *role {
                 "footer" => (0.,700.,1000.,100.),
                 "expanded_player" => (0.,0.,1000.,730.),
@@ -10910,7 +10915,7 @@ mod tests {
             json!({"role":role,"present":true,"visible":true,"x":x,"y":y,"width":width,"height":height,"clientWidth":width,"scrollWidth":width})
         }).collect::<Vec<_>>();
         let report = sanitize_playback_layout(
-            json!({"viewport":{"width":1000,"height":800},"footerHeight":100,"elements":elements}),
+            json!({"viewport":{"width":1000,"height":800},"footerHeight":100,"elements":&elements}),
         )
         .unwrap();
         let findings = report["findings"].as_array().unwrap();
@@ -10918,6 +10923,22 @@ mod tests {
             .iter()
             .any(|f| f["code"] == "expanded_player_footer_overlap"));
         assert!(findings
+            .iter()
+            .any(|f| f["code"] == "expanded_player_close_unreachable"));
+
+        for element in &mut elements {
+            if element["role"] == "expanded_close" {
+                element["x"] = json!(900);
+                element["y"] = json!(730);
+            }
+        }
+        let report = sanitize_playback_layout(
+            json!({"viewport":{"width":1000,"height":800},"footerHeight":100,"elements":elements}),
+        )
+        .unwrap();
+        assert!(!report["findings"]
+            .as_array()
+            .unwrap()
             .iter()
             .any(|f| f["code"] == "expanded_player_close_unreachable"));
     }
@@ -11183,6 +11204,7 @@ mod tests {
     #[test]
     fn app_status_exposes_only_sanitized_managed_provider_qualification() {
         let status = crate::managed_provider_session::ManagedProviderSessionStatus {
+            native_login_available: true,
             enabled: true,
             running: true,
             mode: "background".into(),

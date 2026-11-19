@@ -696,11 +696,11 @@
       }
     },
     {
-      "id": "empty-normalized-title-does-not-match",
+      "id": "distinct-punctuation-titles-conflict",
       "labels": {
         "evidenceBasis": "syntheticPolicyProbe",
         "candidateProof": "unboundCaption",
-        "uncertainty": "Distinct punctuation-only titles normalize to empty keys; duration and artist agreement cannot establish title identity.",
+        "uncertainty": "Distinct punctuation-only titles retain their literal keys and conflict.",
         "sourceReference": "Durable punctuation-only title reproducer in docs/performance-results/2026-10-21-stage5-matching-audit/results.txt.",
         "synthetic": true
       },
@@ -739,34 +739,34 @@
         "Search": {
           "Exact": {
             "relationship": "Unresolved",
-            "action": "Inspect",
+            "action": "Reject",
             "proofStrength": "metadataOnly"
           },
           "Balanced": {
             "relationship": "Unresolved",
-            "action": "Inspect",
+            "action": "Reject",
             "proofStrength": "metadataOnly"
           },
           "Flexible": {
             "relationship": "Unresolved",
-            "action": "Inspect",
+            "action": "Reject",
             "proofStrength": "metadataOnly"
           }
         },
         "Resolved": {
           "Exact": {
             "relationship": "Unresolved",
-            "action": "Enrich",
+            "action": "Reject",
             "proofStrength": "metadataOnly"
           },
           "Balanced": {
             "relationship": "Unresolved",
-            "action": "Enrich",
+            "action": "Reject",
             "proofStrength": "metadataOnly"
           },
           "Flexible": {
             "relationship": "Unresolved",
-            "action": "Enrich",
+            "action": "Reject",
             "proofStrength": "metadataOnly"
           }
         }

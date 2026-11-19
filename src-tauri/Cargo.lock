@@ -472,6 +472,7 @@ dependencies = [
  "icu_collator",
  "icu_locale_core",
  "icu_normalizer",
+ "icu_properties",
  "keyring",
  "libc",
  "lofty",

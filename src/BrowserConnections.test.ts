@@ -18,6 +18,49 @@ function render(call: (command: string, args?: Record<string, unknown>) => Promi
 }
 
 describe("BrowserConnections", () => {
+  it.each(["Spotify", "YouTube"])("opens and restores %s sign-in before native access is enabled", async label => {
+    const provider = label.toLowerCase();
+    const firstStatus = {
+      enabled: false, nativeLoginAvailable: true, running: false, mode: "stopped",
+      transport: "companion", credentialStorage: "not-confirmed", accountRevisions: {},
+      connectionSeen: false, message: "Ready to connect",
+    };
+    const loginStatus = {
+      ...firstStatus, enabled: true, running: true, mode: `native-login:${provider}`,
+      transport: "native-webview-http",
+    };
+    let loginAttempts = 0;
+    const call = vi.fn(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "public_spotify_duration_repair_running") return false;
+      if (command === "remote_playlist_connection_status")
+        return { provider: args?.provider, connected: false, error: "Browser companion is not connected" };
+      if (command === "get_managed_provider_session_status") return firstStatus;
+      if (command === "start_managed_provider_login") {
+        loginAttempts++;
+        if (loginAttempts === 1) throw new Error("Could not open the isolated provider sign-in window");
+        return loginStatus;
+      }
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const { target } = render(call);
+    const button = (label: string) => [...target.querySelectorAll("button")]
+      .find(item => item.textContent?.trim() === label)!;
+    await settle();
+    expect(button(`Sign in to ${label}`).disabled).toBe(false);
+    button(`Connect ${label}`).click();
+    await settle();
+    expect(call).toHaveBeenCalledWith("start_managed_provider_login", { provider });
+    expect(target.querySelector(".remote-account-panel > [role=status].remote-account-message")?.textContent)
+      .toContain("Could not open the isolated provider sign-in window");
+    button(`Sign in to ${label}`).click();
+    await settle();
+    expect(button("I’ve signed in — continue")).toBeTruthy();
+    button(`Show ${label} sign-in window`).click();
+    await settle();
+    expect(loginAttempts).toBe(3);
+    expect(call.mock.calls.some(([command]) => command === "connect_remote_playlist_provider")).toBe(false);
+  });
+
   it("keeps stopped native access paused despite cached connected cards and resumes only once on user action", async () => {
     let mode="stopped";
     const call=vi.fn(async(command:string,args?:Record<string,unknown>)=>{
