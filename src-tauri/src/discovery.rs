@@ -1321,7 +1321,7 @@ impl DiscoveryService {
                             .collect::<Vec<_>>();
                         let source_metadata = json!({"provider":"youtube","catalogVerified":false,"artist":r.artist,"song":r.title,"album":r.album,"albumBrowseId":r.album_browse_id,"artistCredits":artist_credits,"sourceGenres":[]});
                         let candidate = json!({"id":r.id,"provider":"youtube","url":r.url,"title":r.title,"uploader":r.artist,"durationSeconds":r.duration_seconds,"formats":[],"permission":"unknown","confidence":"review","score":0.0,"reasons":["YouTube Music result; source identity is unverified"],"official":false,"sourceMetadata":source_metadata});
-                        let track = Track {
+                        let mut track = Track {
                             id: format!("youtube:{}", r.id),
                             provider: "youtube".into(),
                             provider_id: r.id.clone(),
@@ -1335,6 +1335,11 @@ impl DiscoveryService {
                             provenance: json!({"source":{"provider":"youtube","id":r.id,"url":r.url,"catalogVerified":false},"sourceMetadata":source_metadata,"artistCredits":artist_credits,"albumBrowseId":r.album_browse_id,"audioCandidate":candidate}),
                             ..Track::default()
                         };
+                        if let Some(views) = r.views {
+                            track.provenance["remoteCatalog"]["views"] = json!(views);
+                        } else if let Some(label) = r.view_count_text.as_deref() {
+                            track.provenance["remoteCatalog"]["viewCountText"] = json!(label);
+                        }
                         out.results.push(DiscoveryResult {
                             id: format!("youtube:{}", r.id),
                             kind: "track".into(),
@@ -2937,6 +2942,8 @@ mod tests {
                     url: "https://music.youtube.com/watch?v=duplicate01".into(),
                     artwork_url: None,
                     isrc: None,
+                    views: None,
+                    view_count_text: None,
                 },
                 crate::youtube_music::YouTubeMusicItem {
                     artist_credits: Vec::new(),
@@ -2949,6 +2956,8 @@ mod tests {
                     url: "https://music.youtube.com/watch?v=unique00001".into(),
                     artwork_url: None,
                     isrc: None,
+                    views: None,
+                    view_count_text: None,
                 },
             ],
             &mut seen_ids,

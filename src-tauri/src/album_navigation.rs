@@ -454,6 +454,8 @@ mod tests {
                 url: String::new(),
                 artwork_url: None,
                 isrc: None,
+                views: None,
+                view_count_text: None,
                 artist_credits: Vec::new(),
                 album_browse_id: None,
             })

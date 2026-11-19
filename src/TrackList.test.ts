@@ -36,6 +36,24 @@ function render(props: Record<string, unknown> = {}) {
 }
 
 describe("TrackList", () => {
+  it("shows provider-reported Spotify plays and YouTube views without filling in missing counts", async () => {
+    const target = render({
+      tracks: [
+        { ...tracks[0], provider: "spotify", provenance: { remoteCatalog: { plays: 0 } } },
+        { ...tracks[1], provider: "youtube", provenance: { remoteCatalog: { views: 1_200 } } },
+        { ...tracks[1], id: "approximate", provider: "youtube", provenance: { remoteCatalog: { viewCountText: "2.4M views" } } },
+        { ...tracks[1], id: "missing", provider: "spotify", provenance: { remoteCatalog: { popularity: 95 } } },
+      ],
+    });
+    await tick();
+    const counts = [...target.querySelectorAll(".source-count")];
+    expect(counts.map(node => node.getAttribute("title"))).toEqual([
+      "0 Spotify plays",
+      `${(1_200).toLocaleString()} YouTube views`,
+      "2.4M views on YouTube",
+    ]);
+  });
+
   it("shows green saved marks only for confirmed library members and refreshes after a save", async () => {
     const membership = vi.spyOn(api, "call").mockResolvedValue([tracks[0]!.id]);
     const target = render({ showLibraryStatus: true });

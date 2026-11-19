@@ -5,7 +5,7 @@ const ts = require("typescript");
 
 const app = fs.readFileSync("src/App.svelte", "utf8").split('<script lang="ts">')[1].split("</script>")[0];
 const ast = ts.createSourceFile("app.ts", app, ts.ScriptTarget.Latest, true);
-const names = ["startPreview", "startPreviewInner", "sameNativePlaybackTrack", "sameNativePlaybackQueue", "nativeQueueSelectIdentity", "playQueueIndex", "playArtistTrack", "rememberQueueCandidate", "inspectQueueChapters", "sourceIsAuthoritative"];
+const names = ["startPreview", "startPreviewInner", "sameNativePlaybackTrack", "sameNativePlaybackQueue", "nativeQueueSelectIdentity", "playQueueIndex", "playArtistTrack", "rememberQueueCandidate", "inspectQueueChapters", "sourceIsAuthoritative", "cancelPendingArtistPlayback", "cancelNaturalQueueRadioContinuation", "artistPlaybackMatchKey"];
 const functions = ast.statements.filter(node => ts.isFunctionDeclaration(node) && names.includes(node.name?.text));
 assert.equal(functions.length, names.length, "all playback functions were extracted from App.svelte");
 const lock = fs.readFileSync("src/lib/source-lock.ts", "utf8").replace(/^import .*;$/gm, "").replace(/export /g, "");
@@ -22,7 +22,7 @@ function deferred() {
 function context() {
   const commands = [];
   const value = {
-    commands, console, clearTimeout, portablePlaybackSource: () => null, error: "",
+    commands, console, clearTimeout, setTimeout, AbortController, untrack: read => read(), portablePlaybackSource: () => null, error: "",
     clearPlaybackSkipNotice: () => {}, nativeSnapshot: null, playbackLoadSequence: 0,
     resolvingPlayback: false, playbackOperationTrace: () => ({}), playbackRunGeneration: 0,
     cancelRadioIdentification: () => {}, autoTimer: undefined, setAutomationPlaybackOwner: () => {},
@@ -30,7 +30,10 @@ function context() {
     queueCandidates: {}, audioSearchTrackIds: new Set(), settings: {}, candidateForQueue: () => null,
     importedAudioCandidate: track => track.provenance?.audioCandidate,
     nativeCommand: async command => commands.push(command), call: async () => {},
-    artistPlaybackMatchGeneration: 0, matchArtistPlaybackSources: async tracks => tracks, selected: null,
+    ARTIST_LOCAL_MATCH_WAIT_MS: 125, pendingArtistPlayback: null, artistPlaybackMatchRevision: 0,
+    preparedNoLocalArtistMatches: new Map(), queueRadio: { cancel() {} }, preparedRadioKey: "",
+    normalizeArtistLookup: value => value.toLowerCase().trim(),
+    matchArtistPlaybackSources: async tracks => tracks, selected: null,
   };
   vm.createContext(value);
   vm.runInContext(javascript, value);

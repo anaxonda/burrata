@@ -96,6 +96,8 @@ test('Spotify artist ListPlatform duration preserves fractional nanoseconds and 
  const artistId='A'.repeat(22),trackA='B'.repeat(22),trackB='C'.repeat(22),calls=[];
  const artistRow=(id,name,duration)=>({uid:`uid-${id}`,entity:{__typename:'EntityResponseWrapper',_uri:`spotify:track:${id}`,data:{__typename:'Entity',uri:`spotify:track:${id}`,entityTypeTrait:{__typename:'EntityTypeTrait',type:'ENTITY_TYPE_TRACK'},identityTrait:{__typename:'IdentityTrait',name,contributors:{items:[{name:'Fixture Artist',uri:`spotify:artist:${artistId}`}] }},consumptionExperienceTrait:{__typename:'ConsumptionExperienceTrait',duration},visualIdentityTrait:{__typename:'VisualIdentityTrait',squareCoverImage:{image:{data:{__typename:'ImageV2',sources:[{url:'https://i.scdn.co/image/fixture'}]}}}}}}});
  const rows=[artistRow(trackA,'Fractional', {seconds:131,nanoSeconds:706000000}),artistRow(trackB,'Whole second',{seconds:131})];
+ rows[0].entity.data.playcount='1,234';
+ rows[1].entity.data.popularity=91;
  const fetch=async(url,options={})=>{
   const target=String(url);if(target.includes('/api/token'))return {ok:true,status:200,text:async()=>JSON.stringify({accessToken:'fixture-token',isAnonymous:false})};
   const request=JSON.parse(options.body);calls.push(request);
@@ -109,6 +111,8 @@ test('Spotify artist ListPlatform duration preserves fractional nanoseconds and 
  const result=JSON.parse(JSON.stringify(await context.BurrataSpotifyProvider.run('spotify','getArtistTracks',{artistId},hashes)));
  assert.deepEqual(result.items.map(item=>item.durationSeconds),[131.706,131]);
  assert.deepEqual(result.items.map(item=>item.trackId),[trackA,trackB]);
+ assert.equal(result.items[0].plays,1234);
+ assert.equal(Object.hasOwn(result.items[1],'plays'),false);
  assert.equal(result.items[0].position,1);assert.equal(result.items[1].position,2);
  const request=calls.find(item=>item.operationName==='getListsContents');assert.deepEqual(request.variables,{uris:[`spotify:list:popular-release-segments-main-roles:artist_${artistId}`],offset:0,limit:30});
 });

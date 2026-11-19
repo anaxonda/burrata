@@ -13243,6 +13243,8 @@ mod tests {
                 url: "https://music.youtube.com/watch?v=abcdefghijk".into(),
                 artwork_url: None,
                 isrc: None,
+                views: None,
+                view_count_text: None,
                 artist_credits: vec![],
                 album_browse_id: None,
             };
@@ -13483,6 +13485,8 @@ mod tests {
             url: "https://music.youtube.com/watch?v=Hqp8vxkPrI8".into(),
             artwork_url: None,
             isrc: None,
+            views: None,
+            view_count_text: None,
         };
         let selected = playback_music_catalog_candidates(&track, vec![item(), item()]);
         assert_eq!(selected.len(), 1);
@@ -14819,11 +14823,16 @@ mod tests {
 
     #[test]
     fn source_statistics_preserve_zero_and_distinguish_soundcloud_plays() {
-        let youtube = candidate_from_json(
-            &serde_json::json!({"id":"fixture","view_count":0}),
-            "youtube",
-        );
-        assert_eq!(youtube.source_metadata.unwrap()["views"], 0);
+        let video = serde_json::json!({
+            "id":"abcdefghijk",
+            "title":"Fixture video",
+            "webpage_url":"https://www.youtube.com/watch?v=abcdefghijk",
+            "view_count":0
+        });
+        let youtube = candidate_from_json(&video, "youtube");
+        let row = raw_search_track(youtube, &video);
+        assert_eq!(row.provenance["remoteCatalog"]["views"], 0);
+        assert!(row.provenance["remoteCatalog"].get("plays").is_none());
         let soundcloud = candidate_from_json(
             &serde_json::json!({"id":"fixture","view_count":123}),
             "soundcloud",

@@ -13,6 +13,7 @@
   import { trackSource } from "./lib/source-link";
   import { sameTrackIdentity } from "./lib/track-identity";
   import { playableDuration } from "./lib/track-sort";
+  import { trackProviderCount } from "./lib/provider-counts";
   import { rowWindow } from "./lib/table";
   import { invertSelection } from "./lib/selection";
   import { playlistPosition } from "./lib/source-position";
@@ -331,6 +332,8 @@
     {@const failed = current && playbackFailed}
     {@const buffering = !failed && (bufferingTrack ? sameTrackIdentity(track, bufferingTrack) : track.id === bufferingTrackId)}
     {@const duration = playableDuration(track)}
+    {@const providerCount = trackProviderCount(track)}
+    {@const rowMeta = meta?.(track, index)}
     {@const occurrencePosition = playlistPosition(track)}
     {@const favorite = favoriteMembership?.(track) ?? track.favorite}
     {#snippet playbackStatus()}
@@ -351,10 +354,11 @@
           <strong>{track.title}{#if track.version}<small>{" "}({track.version})</small>{/if}</strong>
         </button>
         <div class="track-subtitle">
+          {#if providerCount}<span class="source-count" title={providerCount.full}>{providerCount.label}</span>{#if track.artist || track.album || rowMeta}{" · "}{/if}{/if}
           {#if track.artist}{#if onArtist}<button class="artist-link" aria-label={`Find recordings by ${track.artist}`} onclick={() => onArtist?.(track)}>{track.artist}</button>{:else}<span>{track.artist}</span>{/if}{/if}
           {#if track.album}<span class="album">{track.artist ? " · " : ""}{#if onAlbum}<button class="album-link" aria-label={`Open album ${track.album}`} onclick={() => onAlbum?.(track)}>{track.album}</button>{:else}{track.album}{/if}</span>{/if}
           {#if track.localAvailability === "available" || track.localAvailability === "missing"}<span class="local-asset-status" class:local-asset-missing={track.localAvailability === "missing"}>{track.localAvailability === "available" ? "Downloaded" : "Missing file"}</span>{/if}
-          {#if meta?.(track, index)}<span>{track.artist || track.album ? " · " : ""}{meta(track, index)}</span>{/if}
+          {#if rowMeta}<span>{track.artist || track.album ? " · " : ""}{rowMeta}</span>{/if}
         </div>
         {#if presentation !== "playlist" && timestamp?.(track, index)}<time class="track-time" title={timestamp(track, index)?.full}>{timestamp(track, index)?.label}</time>{/if}
       </div>

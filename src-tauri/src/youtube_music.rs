@@ -25,6 +25,10 @@ pub struct YouTubeMusicItem {
     pub url: String,
     pub artwork_url: Option<String>,
     pub isrc: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub views: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view_count_text: Option<String>,
     #[serde(default)]
     pub artist_credits: Vec<YouTubeMusicArtist>,
     #[serde(default)]
@@ -141,6 +145,40 @@ fn run_page_type(run: &Value) -> Option<&str> {
 }
 fn run_label(run: &Value) -> Option<String> {
     text(&run["text"])
+}
+
+fn view_count(value: &Value) -> Option<u64> {
+    const MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;
+    value
+        .as_u64()
+        .or_else(|| {
+            let digits = value.as_str()?;
+            digits
+                .bytes()
+                .all(|byte| byte.is_ascii_digit())
+                .then(|| digits.parse::<u64>().ok())
+                .flatten()
+        })
+        .filter(|count| *count <= MAX_SAFE_INTEGER)
+}
+
+fn view_label(label: String) -> Option<(Option<u64>, Option<String>)> {
+    if label.len() > 64 || label.chars().any(char::is_control) {
+        return None;
+    }
+    let label = label.split_whitespace().collect::<Vec<_>>().join(" ");
+    static VIEWS: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(
+            r"(?i)^(?:([0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)|([0-9]+(?:\.[0-9]+)?[KMBT])) views?$",
+        )
+        .expect("valid YouTube view label pattern")
+    });
+    let captures = VIEWS.captures(&label)?;
+    if let Some(exact) = captures.get(1) {
+        return view_count(&Value::String(exact.as_str().replace(',', "")))
+            .map(|count| (Some(count), None));
+    }
+    Some((None, Some(label)))
 }
 
 fn valid_video_id(id: &str) -> bool {
@@ -287,6 +325,21 @@ pub fn parse_search_response(body: &Value, limit: usize) -> Vec<YouTubeMusicItem
                 .and_then(|a| a.last())
                 .and_then(|i| i["url"].as_str())
                 .map(str::to_owned);
+            let (views, view_count_text) = if let Some(count) = view_count(&v["viewCount"]) {
+                (Some(count), None)
+            } else {
+                ["viewCountText", "shortViewCountText"]
+                    .iter()
+                    .filter_map(|key| text(&v[*key]))
+                    .chain(
+                        semantic_runs
+                            .iter()
+                            .filter(|run| run["navigationEndpoint"].is_null())
+                            .filter_map(|run| run_label(run)),
+                    )
+                    .find_map(view_label)
+                    .unwrap_or_default()
+            };
             if !title.trim().is_empty() {
                 out.push(YouTubeMusicItem {
                     url: format!("https://music.youtube.com/watch?v={id}"),
@@ -296,6 +349,8 @@ pub fn parse_search_response(body: &Value, limit: usize) -> Vec<YouTubeMusicItem
                     album: album.filter(|value| !value.trim().is_empty()),
                     duration_seconds: duration,
                     isrc: None,
+                    views,
+                    view_count_text,
                     artwork_url: artwork,
                     artist_credits,
                     album_browse_id,
@@ -592,6 +647,8 @@ pub async fn search_page(
                 album: nonempty_str(&e["album"]),
                 duration_seconds: e["duration"].as_f64(),
                 isrc: nonempty_str(&e["isrc"]),
+                views: view_count(&e["view_count"]),
+                view_count_text: None,
                 artwork_url: nonempty_str(&e["thumbnail"]),
                 artist_credits: Vec::new(),
                 album_browse_id: None,
@@ -1169,6 +1226,40 @@ mod tests {
                 Some(3723.0)
             );
         }
+    }
+
+    #[test]
+    fn music_search_keeps_exact_views_and_compact_labels_distinct() {
+        let mut row = json!({
+            "videoId":"validvideo1",
+            "title":{"simpleText":"12 Views"},
+            "viewCountText":{"runs":[{"text":"1,234 "},{"text":"views"}]},
+            "shortViewCountText":{"simpleText":"1.2K views"},
+            "flexColumns":[
+                {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[{"text":"12 Views"}]}}},
+                {"musicResponsiveListItemFlexColumnRenderer":{"text":{"runs":[
+                    {"text":"40 views","navigationEndpoint":{"browseEndpoint":{"browseId":"album"}}},
+                    {"text":"12 watching"}
+                ]}}}
+            ]
+        });
+        let item = |row| parse_search_response(row, 1).remove(0);
+        assert_eq!(item(&row).views, Some(1234));
+        assert!(item(&row).view_count_text.is_none());
+
+        row["viewCount"] = json!(0);
+        assert_eq!(item(&row).views, Some(0));
+        row["viewCount"] = json!(9_007_199_254_740_992u64);
+        row["viewCountText"] = Value::Null;
+        assert_eq!(item(&row).views, None);
+        assert_eq!(item(&row).view_count_text.as_deref(), Some("1.2K views"));
+
+        row["shortViewCountText"] = Value::Null;
+        assert_eq!(item(&row).views, None);
+        assert!(item(&row).view_count_text.is_none());
+        row["flexColumns"][1]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"][1]
+            ["text"] = json!("7,321 views");
+        assert_eq!(item(&row).views, Some(7321));
     }
 }
 
