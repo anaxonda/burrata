@@ -180,13 +180,26 @@ else:
             // under test. Keep the exact helper path/interpreter and warm it
             // before creating the measured request's absolute deadline.
             let helper_warmup_started = Instant::now();
-            let mut warmup = std::process::Command::new(&helper)
+            let mut warmup_command = std::process::Command::new(&helper);
+            warmup_command
                 .arg("--fixture-warmup")
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn()
-                .expect("fake extractor warmup must start");
+                .stderr(std::process::Stdio::null());
+            // Concurrent test subprocesses can briefly inherit the script's
+            // write descriptor during fork, until they exec their own helper.
+            let mut warmup = loop {
+                match warmup_command.spawn() {
+                    Ok(child) => break child,
+                    Err(error)
+                        if error.raw_os_error() == Some(libc::ETXTBSY)
+                            && helper_warmup_started.elapsed() < Duration::from_secs(1) =>
+                    {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(error) => panic!("fake extractor warmup must start: {error}"),
+                }
+            };
             loop {
                 if let Some(status) = warmup.try_wait().unwrap() {
                     assert!(status.success(), "fake extractor warmup failed");
