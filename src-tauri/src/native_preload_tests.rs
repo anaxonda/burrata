@@ -130,6 +130,7 @@ fn contended_gapless_handoff_emits_a_complete_stereo_silence_frame() {
     let slot = Arc::new(std::sync::Mutex::new(Some(QueuedCrossfade {
         source: incoming.queue,
         seconds: 2,
+        manual: None,
     })));
     let mut source = NativeCrossfadeSource::new(
         old.queue,
@@ -172,6 +173,7 @@ fn fade_waits_until_odd_buffering_silence_reaches_stereo_boundary() {
     let slot = Arc::new(std::sync::Mutex::new(Some(QueuedCrossfade {
         source: incoming.queue,
         seconds: 2,
+        manual: None,
     })));
     let available = Arc::new(AtomicBool::new(false));
     let mut source = NativeCrossfadeSource::new(
@@ -528,6 +530,7 @@ fn actual_queued_sources_overlap_once_after_incoming_pcm_is_buffered() {
     let queued = Arc::new(std::sync::Mutex::new(Some(QueuedCrossfade {
         source: incoming.queue,
         seconds: 3,
+        manual: None,
     })));
     let mut source = NativeCrossfadeSource::new(
         old.queue,
@@ -621,6 +624,7 @@ fn incomplete_preload_stays_gapless_without_starting_an_overlap() {
     let queued = Arc::new(std::sync::Mutex::new(Some(QueuedCrossfade {
         source: incoming.queue,
         seconds: 3,
+        manual: None,
     })));
     let mut source = NativeCrossfadeSource::new(
         old.queue,
@@ -694,6 +698,7 @@ fn interrupting_an_overlap_cancels_both_decoders() {
     let queued = Arc::new(std::sync::Mutex::new(Some(QueuedCrossfade {
         source: incoming.queue,
         seconds: 3,
+        manual: None,
     })));
     let progress = Arc::new(AtomicBool::new(false));
     let mut source = NativeCrossfadeSource::new(
@@ -739,6 +744,7 @@ fn outgoing_starvation_does_not_mark_incoming_voice_buffering() {
     let queued = Arc::new(std::sync::Mutex::new(Some(QueuedCrossfade {
         source: incoming.queue,
         seconds: 3,
+        manual: None,
     })));
     let mut source = NativeCrossfadeSource::new(
         old.queue,
@@ -789,6 +795,7 @@ fn failed_but_buffered_preload_never_fades_the_healthy_outgoing_voice() {
     let queued = Arc::new(std::sync::Mutex::new(Some(QueuedCrossfade {
         source: incoming.queue,
         seconds: 3,
+        manual: None,
     })));
     let mut source = NativeCrossfadeSource::new(
         old.queue,
@@ -839,6 +846,7 @@ fn crossfade_waits_for_decoded_tail_with_short_or_long_duration_metadata() {
         let queued = Arc::new(std::sync::Mutex::new(Some(QueuedCrossfade {
             source: incoming.queue,
             seconds: 3,
+            manual: None,
         })));
         let mut source = NativeCrossfadeSource::new(
             old.queue,

@@ -177,15 +177,19 @@ describe("SearchPanel", () => {
     const input=target.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;input.value="Fixture";input.dispatchEvent(new Event("input",{bubbles:true}));
     target.querySelector("form")!.dispatchEvent(new Event("submit",{bubbles:true,cancelable:true}));await settle();
     expect(searchSource).toHaveBeenCalledWith(expect.objectContaining({sourceIds:["bandcamp"],kinds:[kind]}));
-    const sourceLink = target.querySelector<HTMLAnchorElement>(`a[href="${url}"]`);
+    expect(target.querySelector(`a[href="${url}"]`)).toBeNull();
     expect(target.querySelector(".search-result-art img")?.getAttribute("src")).toBe(artworkUrl);
     expect(Boolean(target.querySelector(".search-result-art.portrait"))).toBe(kind === "artist");
     if (kind === "album") {
-      expect(sourceLink?.textContent).toContain("Open album page");
+      target.querySelector(".result-row")!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+      await settle();
+      const menu = target.querySelector<HTMLDialogElement>('[aria-label="Actions for Fixture"]')!;
+      expect(menu.querySelector(`a[href="${url}"]`)?.textContent).toContain("Open album source");
+      menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await settle();
       target.querySelector<HTMLButtonElement>('[aria-label="Open album: Fixture"]')!.click();
       expect(onAlbum).toHaveBeenCalledWith(album);
     } else {
-      expect(sourceLink).toBeNull();
       expect(target.querySelector(".open-result")).toBeNull();
     }
   });
@@ -1187,6 +1191,44 @@ describe("SearchPanel", () => {
     expect(target.querySelectorAll("article.result-row")).toHaveLength(2);
     expect(target.textContent).toContain("First");
     expect(target.textContent).toContain("Second");
+  });
+
+  it("queues loaded results in displayed order without fetching another page or starting playback", async () => {
+    const tracks = ["First", "Second", "Short"].map((title, index) => ({
+      id: `result-${index}`, provider: "library", providerId: `result-${index}`,
+      sourceUrl: "", artist: "Artist", title, durationSeconds: index === 2 ? 30 : 90,
+      favorite: false, provenance: {},
+    }));
+    const searchSource = vi.fn(async () => ({
+      complete: false, nextCursor: "next-page",
+      results: tracks.map(track => ({ id: track.id, kind: "track", sourceId: "library", title: track.title, track })),
+    }));
+    const onQueueTracks = vi.fn();
+    const onPlay = vi.fn();
+    const target = render({ searchSource, onQueueTracks, onPlay });
+    const queueButton = () => target.querySelector<HTMLButtonElement>(".queue-search-results");
+    await settle();
+    expect(queueButton()).toBeNull();
+
+    const input = target.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
+    input.value = "tracks";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    target.querySelector(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await settle();
+    const minimum = target.querySelector<HTMLInputElement>('[aria-label="Minimum loaded track duration"]')!;
+    minimum.value = "60";
+    minimum.dispatchEvent(new Event("input", { bubbles: true }));
+    target.querySelector<HTMLButtonElement>('[aria-label="Toggle loaded track sort direction"]')!.click();
+    await settle();
+
+    queueButton()!.click();
+    expect(onQueueTracks).toHaveBeenCalledExactlyOnceWith([tracks[1], tracks[0]], "append");
+    expect(searchSource).toHaveBeenCalledTimes(1);
+    expect(onPlay).not.toHaveBeenCalled();
+
+    target.querySelector<HTMLButtonElement>(".source-toggle")!.click();
+    await settle();
+    expect(queueButton()).toBeNull();
   });
 
   it("auto-queues only new search rows when enabled and never starts playback", async () => {

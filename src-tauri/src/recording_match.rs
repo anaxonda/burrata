@@ -11,7 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) const EVALUATOR_VERSION: &str = "45";
+pub(crate) const EVALUATOR_VERSION: &str = "47";
 // Repeated whitespace is also a common uploader artist/title separator.
 const CAPTION_SEPARATORS: [&str; 8] = [" - ", " – ", " — ", " | ", "  ", "－", "｜", "："];
 
@@ -1443,13 +1443,27 @@ fn structured_primary_credits(track: &Track, fallback_artist: &str) -> Vec<Strin
             .unwrap_or_default();
     }
     let identity = RecordingIdentity::from_track(track);
-    let credits = identity
+    let mut credits = identity
         .credits
         .into_iter()
         .filter(|credit| crate::recording_identity::is_primary_performer_role(&credit.role))
         .map(|credit| credit.name)
         .filter(|name| !name.trim().is_empty())
         .collect::<Vec<_>>();
+    // MoBlack's Sambei credits and the Beatport release both spell the name
+    // NOTHANKYOU. Traxsource's occurrence has an extra U. Apply the correction
+    // to this catalog occurrence only, and keep saved/user-edited tags intact.
+    // https://moblack.bandcamp.com/track/sambei
+    // https://www.beatport.com/release/sambei/7598231
+    if track.provider == "traxsource"
+        && track.provider_id == "15140553"
+        && track.source_url == "https://www.traxsource.com/track/15140553/sambei-extended-mix"
+        && track.title == "Sambei"
+        && track.provenance["manualFields"]["artistCredits"] != true
+        && credits == ["Eran Hersh", "Aycond", "NOTHANKYOUU"]
+    {
+        credits[2] = "NOTHANKYOU".into();
+    }
     // A structured row preserves each credited artist as an atomic name even
     // when it is not complete enough to close the request's performer set.
     if !credits.is_empty() {
@@ -2365,6 +2379,8 @@ struct ComparisonFacts {
     requested_version: String,
     actual_kind: String,
     requested_kind: String,
+    runtime_only_version: bool,
+    runtime_only_extended_label: bool,
     target_runtime: Option<f64>,
     candidate_runtime: Option<f64>,
     authoritative: bool,
@@ -3057,10 +3073,13 @@ fn build_comparison(
                 caption_track_title(raw_candidate, &wanted_title, caption_title, known_label)
             }
         });
-    let requested_version = track
+    let catalog_version = track
         .version
         .as_deref()
-        .filter(|value| !value.trim().is_empty())
+        .filter(|value| !value.trim().is_empty());
+    let printed_runtime = catalog_version.and_then(crate::matching::parse_runtime_only_version);
+    let requested_version = catalog_version
+        .filter(|_| printed_runtime.is_none())
         .or(request_title.version.as_deref())
         .unwrap_or("");
     let observations = prepared_semantic_observations(
@@ -3119,7 +3138,9 @@ fn build_comparison(
         .then(|| {
             request_observations.iter().find_map(|version| {
                 version
-                    .strip_suffix(" remix")
+                    .strip_suffix(" extended remix")
+                    .or_else(|| version.strip_suffix(" extended mix"))
+                    .or_else(|| version.strip_suffix(" remix"))
                     .or_else(|| version.strip_suffix(" remix full vocal version"))
             })
         })
@@ -3641,14 +3662,68 @@ fn build_comparison(
         && (meta["sourceMetadataOrigin"].is_null() || verified_album_credits)
         && accent_folded_covers_requested_credits(&request_credit_parts, &names)
         && crate::youtube_recording_metadata::preferred_album_locator(track, candidate);
+    let extractor_bound = matches!(candidate.provider.as_str(), "youtube" | "soundcloud")
+        && matches!(
+            meta["sourceMetadataOrigin"].as_str(),
+            Some("ytDlpCandidateMetadata" | "ytDlpFullInfo")
+        )
+        && candidate.id.split_once(':').is_some_and(|(provider, id)| {
+            provider == candidate.provider
+                && !id.is_empty()
+                && meta["resolvedProviderId"].as_str() == Some(id)
+        })
+        && meta["identityMetadataUncertain"] != true;
+    // A source-bound structured collaboration can corroborate an accent
+    // spelling when every credit maps uniquely and another credit is exact.
+    let catalog_collaboration_accent_match = track.provider == "traxsource"
+        && track.provenance["manualFields"]["artist"] != true
+        && track.provenance["manualFields"]["artistCredits"] != true
+        && !request_credit_source_uncertain
+        && extractor_bound
+        && !artist_array_observation.uncertain
+        && request_credit_parts.len() >= 2
+        && artist_array_observation.names.len() == request_credit_parts.len()
+        && title == Comparison::Agree
+        && target_runtime
+            .zip(candidate_runtime)
+            .is_some_and(|(a, b)| (a - b).abs() <= 2.0)
+        && version != Comparison::Conflict
+        && isrc != Comparison::Conflict
+        && requested_guests.is_empty()
+        && actual_guests.is_empty()
+        && request_credit_parts.iter().any(|credit| {
+            artist_array_observation
+                .names
+                .iter()
+                .any(|name| norm_artist(name) == norm_artist(credit))
+        })
+        && accent_folded_covers_requested_credits(
+            &request_credit_parts,
+            &artist_array_observation.names,
+        );
+    let runtime_only_extended_label = track.provider == "traxsource"
+        && track.provenance["manualFields"]["version"] != true
+        && request_observations.is_empty()
+        && observations == ["extended mix"]
+        && printed_runtime
+            .zip(target_runtime)
+            .is_some_and(|(printed, runtime)| (printed - runtime).abs() <= 1.0)
+        && target_runtime
+            .zip(candidate_runtime)
+            .is_some_and(|(a, b)| (a - b).abs() <= 2.0)
+        && (extractor_bound || authoritative);
     let accent_folded_performer_match = isrc_bound_accent_performer_match
         || verified_channel_accent_match
         || album_accent_match
+        || catalog_collaboration_accent_match
         || collaboration_caption_artist_match
             && accent_folded_covers_requested_credits(&comparison_credit_parts, &names);
     if accent_folded_performer_match {
         artists = Comparison::Agree;
         artists_flexible = Comparison::Agree;
+    }
+    if catalog_collaboration_accent_match && (exact_recording_bound || isrc == Comparison::Agree) {
+        artists_exact = Comparison::Agree;
     }
     if collaboration_caption_artist_match {
         artists = Comparison::Agree;
@@ -3749,6 +3824,7 @@ fn build_comparison(
     if request_corroborated_caption_artist_match
         || verified_channel_accent_match
         || album_accent_match
+        || catalog_collaboration_accent_match
     {
         // Preserve provider spelling in `names` and evidence, but compare the
         // single uploader-and-caption-verified accent variant as the request
@@ -3819,9 +3895,13 @@ fn build_comparison(
         requested_version_components: request_observations,
         actual_version,
         requested_semantic,
-        requested_version: requested_version.to_owned(),
+        // Preserve Exact's review for an unverified catalog field, even
+        // when the printed runtime is excluded from edition comparison.
+        requested_version: catalog_version.unwrap_or(requested_version).to_owned(),
         actual_kind,
         requested_kind,
+        runtime_only_version: printed_runtime.is_some(),
+        runtime_only_extended_label,
         target_runtime,
         candidate_runtime,
         authoritative,
@@ -3977,6 +4057,24 @@ fn assess_prepared_inner(
         MatchLevel::Exact => facts.artists_exact,
         MatchLevel::Balanced => facts.dimensions.artists,
         MatchLevel::Flexible => facts.artists_flexible,
+    };
+    // A runtime-only field does not specify an edition. Balanced and
+    // Flexible can use the tightly corroborated source as a probable match.
+    // Exact still needs an independent recording identifier for this case.
+    let runtime_only_extension = facts.runtime_only_extended_label
+        && (level != MatchLevel::Exact || facts.exact_recording_bound || isrc == Comparison::Agree)
+        && title == Comparison::Agree
+        && artists == Comparison::Agree
+        && facts.requested_guests.is_empty()
+        && facts.missing_performers.is_empty()
+        && facts.extra_performers.is_empty()
+        && isrc != Comparison::Conflict
+        && !facts.conflicting_request_versions
+        && !facts.conflicting_candidate_versions;
+    let version = if runtime_only_extension {
+        Comparison::Unknown
+    } else {
+        version
     };
     let legacy_unresolved_gloss_identity = policy.allow_catalog_runtime_exception
         && stage == MatchStage::Resolved
@@ -4414,7 +4512,10 @@ fn assess_prepared_inner(
         && (requested_guests.is_empty() || guests == Comparison::Agree)
         && credits_complete
         && version != Comparison::Conflict;
-    let identity_exact = (!facts.filename_observations_used
+    let identity_exact = ((!runtime_only_extension
+        || exact_recording_bound
+        || isrc == Comparison::Agree)
+        && !facts.filename_observations_used
         && (exact_recording_bound || isrc == Comparison::Agree || runtime == Comparison::Agree))
         && (!version_is_requested || version == Comparison::Agree);
     // A validated Soulseek path and filename are caption evidence, not a
@@ -4446,6 +4547,8 @@ fn assess_prepared_inner(
         MatchRelationship::Unresolved
     } else if alternative {
         MatchRelationship::Alternative
+    } else if runtime_only_extension && !identity_exact {
+        MatchRelationship::Probable
     } else if filename_caption_match && level != MatchLevel::Exact {
         MatchRelationship::Probable
     } else if enough
@@ -4508,7 +4611,11 @@ fn assess_prepared_inner(
         } else {
             MatchAction::Reject
         }
-    } else if requested_kind.is_empty() && !actual_kind.is_empty() && !alternative {
+    } else if requested_kind.is_empty()
+        && !actual_kind.is_empty()
+        && !alternative
+        && !runtime_only_extension
+    {
         MatchAction::Reject
     } else if version_is_requested
         && actual_version.is_empty()
@@ -4524,6 +4631,8 @@ fn assess_prepared_inner(
     } else if policy.require_structured_credits
         && !requested_version.is_empty()
         && requested_semantic.is_empty()
+        && !runtime_only_extension
+        && (!facts.runtime_only_version || (!exact_recording_bound && isrc != Comparison::Agree))
     {
         MatchAction::Inspect
     } else if policy.require_structured_credits
@@ -4547,6 +4656,7 @@ fn assess_prepared_inner(
             }
             MatchRelationship::Probable if balanced_missing_runtime_ok => MatchAction::Accept,
             MatchRelationship::Probable if balanced_runtime_variance => MatchAction::Accept,
+            MatchRelationship::Probable if runtime_only_extension => MatchAction::Accept,
             MatchRelationship::Probable if balanced_open_credit_match => MatchAction::Accept,
             MatchRelationship::Probable if unresolved_gloss_identity => MatchAction::Accept,
             MatchRelationship::Probable if filename_caption_match && level != MatchLevel::Exact => {
@@ -4641,14 +4751,16 @@ fn assess_prepared_inner(
             None
         }
     };
+    let mut evidence = compare_prepared(input);
+    evidence.dimensions.version = version;
     MatchAssessment {
         relationship,
         action,
         alternative_kind,
         reasons,
-        dimensions: facts.dimensions.clone(),
+        dimensions: evidence.dimensions.clone(),
         proof_strength: facts.proof_strength,
-        evidence: Some(compare_prepared(input)),
+        evidence: Some(evidence),
     }
 }
 

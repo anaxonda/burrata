@@ -20,11 +20,12 @@
   import { playlistDropIndex } from "./lib/playlist-reorder";
 
   let {
-    tracks, orderedRows, onPlay, onDownload, onFavorite, onNext, onQueue, onPlaylist, onArtist, onAlbum, onInfo, showLibraryStatus = false,
+    tracks, orderedRows, onPlay, onDownload, onFavorite, onNext, onQueue, onPlaylist, onArtist, onAlbum, onInfo, showLibraryStatus = false, showProviderCounts = false,
     onContext, onSelect, onRowSelect, onAddSelectedToPlaylist, onQueueSelected, onInvertSelection, selectionContext, selectionKeys, rowKeys, selectionTracks, selectionTrackKeys, selectedTrackIds = [], selectedTrackId, focusedRowKey, selectionLabel, trackTitle, selectionMode: controlledSelectionMode, position, meta, timestamp, playingTrack, bufferingTrack, playingTrackId = "", bufferingTrackId = "", paused = false, playbackFailed = false, listLabel = "Tracks", logicalRowCount, initialScroll, onScroll, virtualizationThreshold = 200, presentation = "default", reorderable = false, reorderCount, onReorder,
   }: {
     tracks: Track[];
     showLibraryStatus?: boolean;
+    showProviderCounts?: boolean;
     orderedRows?: Array<{ kind: "track"; key: string; trackIndex: number } | { kind: "status"; key: string; title: string; detail: string }>;
     onPlay?: (track: Track, tracks: Track[], index: number) => void | Promise<void>;
     onDownload?: (track: Track) => void | Promise<void>;
@@ -332,7 +333,7 @@
     {@const failed = current && playbackFailed}
     {@const buffering = !failed && (bufferingTrack ? sameTrackIdentity(track, bufferingTrack) : track.id === bufferingTrackId)}
     {@const duration = playableDuration(track)}
-    {@const providerCount = trackProviderCount(track)}
+    {@const providerCount = showProviderCounts ? trackProviderCount(track) : null}
     {@const rowMeta = meta?.(track, index)}
     {@const occurrencePosition = playlistPosition(track)}
     {@const favorite = favoriteMembership?.(track) ?? track.favorite}

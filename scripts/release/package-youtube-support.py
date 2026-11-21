@@ -31,7 +31,7 @@ plugin_asset = f"bgutil-plugin-{version}-{TARGET}.zip"
 archive = output / plugin_asset
 with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
     for path in sorted(plugin.rglob("*")):
-        if path.is_file():
+        if path.is_file() and path.name != "getpot_zz_burrata_gate.py":
             zf.write(path, pathlib.PurePosixPath("yt_dlp_plugins") / path.relative_to(plugin))
 data = archive.read_bytes()
 record = {

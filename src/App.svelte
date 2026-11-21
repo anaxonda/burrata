@@ -74,6 +74,7 @@
 
   import { measurePlaybackLayout } from "./lib/playback-layout";
   import PlaylistArtwork from "./PlaylistArtwork.svelte";
+  import WorkspaceTabs from "./WorkspaceTabs.svelte";
   import { safeArtworkUrls } from "./lib/artwork-url";
   import { inspectArtworkImages } from "./lib/artwork-diagnostics";
   import { ArtworkDisplayCache } from "./lib/artwork-display";
@@ -666,6 +667,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     playbackStartupTimeoutSeconds: 20,
     matchingLevel: "balanced",
     theme: "dark",
+    showProviderCounts: true,
     preferredDownloadSource: "youtube",
     downloadLayout: "artistAlbum",
     preferredStreamingSource: "youtube",
@@ -1036,6 +1038,26 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       }
     }
     if (target.kind === "search") {
+      let spotifyLookupError: string | null = null;
+      if (track.provider === "spotify") {
+        const readId = crypto.randomUUID();
+        activeAlbumRead = readId;
+        setNotice("Finding album…");
+        try {
+          const exact = await call<{ status: string; albumId?: string; title?: string }>("resolve_track_album", { track, requestId: readId, spotifyOnly: true });
+          if (!stillOnSourceRoute()) return;
+          if (exact?.status === "spotify" && exact.albumId && /^[A-Za-z0-9]{22}$/.test(exact.albumId)) {
+            setNotice("");
+            await openSpotifyAlbum(exact.albumId, exact.title || target.album);
+            return;
+          }
+        } catch (failure) {
+          if (!stillOnSourceRoute()) return;
+          spotifyLookupError = safePreviewError(failure);
+        } finally {
+          if (activeAlbumRead === readId) activeAlbumRead = null;
+        }
+      }
       const session = await call<{ running: boolean; spotifyAccountId?: string | null }>("get_managed_provider_session_status").catch(() => null);
       if (!stillOnSourceRoute()) return;
       if (session?.running && session.spotifyAccountId) {
@@ -1093,7 +1115,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
           await call("open_external_url", { url: resolved.sourceAlbumUrl });
           return;
         }
-        setNotice(resolved.reason || "No verified album was found for this track.");
+        setNotice(spotifyLookupError || resolved.reason || "No verified album was found for this track.");
         return;
       } catch (failure) {
         if (activeAlbumRead === readId && stillOnSourceRoute()) {
@@ -1539,9 +1561,9 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     return parent&&typeof parent==="object"&&!Array.isArray(parent)&&
       (parent as Track).id===track.playbackRange.parentTrackId ? parent as Track : track;
   }
-  const queueRadio = new QueueRadioController(async (seed, signal) => {
+  const queueRadio = new QueueRadioController(async (seed, signal, playedSource) => {
     const canonicalSeed=canonicalQueueRadioSeed(seed);
-    let candidate=seed.playbackRange?importedAudioCandidate(seed):linkedSearchCandidate(seed);
+    let candidate=playedSource ?? (seed.playbackRange?importedAudioCandidate(seed):linkedSearchCandidate(seed));
     if(candidate?.provider!=="youtube") {
       const found = await call<Candidate[]>("find_candidates",{track:canonicalSeed,providerIds:["youtube"]});
       if(signal.aborted)return [];
@@ -1582,12 +1604,13 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     const enabled=autoQueueRadio, seed=playingTrack, queue=queueTracks, index=queueIndex, repeat=repeatMode;
     const status=nativeEngineEnabled?nativePlaybackStatus:preview?(paused?"paused":"playing"):"idle";
     const generation=nativeEngineEnabled?nativePlaybackGeneration:0;
-    const key=`${generation}:${radioQueueKey}:${seed?queueRadioSeedKey(seed):""}`;
+    const playedSource=playingCandidate?.provider==="youtube"?playingCandidate:undefined;
+    const key=JSON.stringify([generation,radioQueueKey,seed?queueRadioSeedKey(seed):"",playedSource?.id,playedSource?.url]);
     if(!enabled||!seed||repeat!=="off"||index!==queue.length-1||["idle","failed"].includes(status)){
       untrack(()=>{preparedRadioKey="";queueRadio.cancel();});return;
     }
     if(status==="playing"&&key!==preparedRadioKey)untrack(()=>{
-      preparedRadioKey=key;queueRadio.prepare(seed,queue,historyItems.slice(0,200).map(item=>item.track));
+      preparedRadioKey=key;queueRadio.prepare(seed,queue,historyItems.slice(0,200).map(item=>item.track),playedSource);
     });
     if(status==="ended"&&nativeNaturalQueueEnd)untrack(()=>void continueQueueRadio(seed,true));
   });
@@ -1647,7 +1670,17 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
   let spotifyArtistSearchFallback = $state<SpotifyArtistSearchFallback | null>(null);
   let artistScroll = $state(0);
   let artistSection = $state<"overview" | "releases" | "tracks" | "collaborations" | "local">("overview");
-  type Route = { libraryBrowser?: LibraryBrowserState; searchReleaseSnapshotKey?:string|null; searchNavigationSnapshotKey?:string|null; nativeArtistSnapshotKey?:string|null; spotifyNavigationSnapshotKey?:string|null; directorySnapshot?: DirectoryBrowserSnapshot; directoryLocation?: {rootId:string;relativePath:string}|null; view: View; collectionId: string; provider: string; genreUrl: string; query: string; filter: string; localFilter: "all" | "local" | "not-local"; sort: string; descending: boolean; librarySource: string; searchCategory: string; searchMode: typeof searchMode; importId?: string; artistName: string; artistRef: ArtistRef | null; artistTrack: Track | null; artistSection: typeof artistSection; artistScroll: number; loadedTrackCount?:number; durationMinimum?:string; durationMaximum?:string; spotifyArtistId?:string; spotifyAlbumId?:string; spotifyArtistSearchFallback?: SpotifyArtistSearchFallback | null; remoteOwner?:string; remotePlaylistUrl?:string; chartId?: string; historyQuery?: string; historyProvider?: string; historyStationId?: string; historyFrom?: string; historyTo?: string; historyOrder?: string; historySortField?: TrackSortField; historySortDirection?: SortDirection; historyMinDuration?: string; historyMaxDuration?: string; historyDownloadAvailability?: "all" | "downloaded" | "not-downloaded"; historyLoadedCount?: number; historyScroll?: number; historyFocusedSessionId?: string | null; focusedPlaylistRowKey?: string | null; selected: Track | null; scroll: number };
+  type Route = { radioStationId?: string; settingsCategory?: SettingsCategory; libraryBrowser?: LibraryBrowserState; searchReleaseSnapshotKey?:string|null; searchNavigationSnapshotKey?:string|null; nativeArtistSnapshotKey?:string|null; spotifyNavigationSnapshotKey?:string|null; directorySnapshot?: DirectoryBrowserSnapshot; directoryLocation?: {rootId:string;relativePath:string}|null; view: View; collectionId: string; provider: string; genreUrl: string; query: string; filter: string; localFilter: "all" | "local" | "not-local"; sort: string; descending: boolean; librarySource: string; searchCategory: string; searchMode: typeof searchMode; importId?: string; artistName: string; artistRef: ArtistRef | null; artistTrack: Track | null; artistSection: typeof artistSection; artistScroll: number; loadedTrackCount?:number; durationMinimum?:string; durationMaximum?:string; spotifyArtistId?:string; spotifyAlbumId?:string; spotifyArtistSearchFallback?: SpotifyArtistSearchFallback | null; remoteOwner?:string; remotePlaylistUrl?:string; chartId?: string; historyQuery?: string; historyProvider?: string; historyStationId?: string; historyFrom?: string; historyTo?: string; historyOrder?: string; historySortField?: TrackSortField; historySortDirection?: SortDirection; historyMinDuration?: string; historyMaxDuration?: string; historyDownloadAvailability?: "all" | "downloaded" | "not-downloaded"; historyLoadedCount?: number; historyScroll?: number; historyFocusedSessionId?: string | null; focusedPlaylistRowKey?: string | null; selected: Track | null; scroll: number };
+  type WorkspaceTabState = {
+    route: Route;
+    back: Route[];
+    forward: Route[];
+    viewContexts: typeof contexts;
+  };
+  let workspaceTabs = $state([{ id: 0, label: "Library" }]);
+  let activeWorkspaceTab = $state(0);
+  let workspaceTabSequence = 0;
+  const inactiveWorkspaceTabs = new Map<number, WorkspaceTabState>();
   let backRoutes = $state<Route[]>([]), forwardRoutes = $state<Route[]>([]);
   let restoringRoute = $state(false);
   let routeRestorationEpoch = 0;
@@ -2293,8 +2326,8 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     navigationRequest = 0,
     searchRequest = 0,
     autoTimer: ReturnType<typeof setTimeout> | undefined;
-  let activeContext = "charts:";
-  const contexts = new Map<
+  let activeContext = "0:charts:";
+  let contexts = new Map<
     string,
     {
       tracks: Track[];
@@ -2939,23 +2972,116 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       ? "—"
       : `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
   function captureRoute(): Route {
-    return { libraryBrowser: { ...libraryBrowser }, searchReleaseSnapshotKey:view === "search" && searchRelease ? captureSearchRelease() : null, searchNavigationSnapshotKey:view === "search" && !searchRelease ? searchComponent?.captureNavigationSnapshot(`route-search:${++navigationSnapshotSequence}`) : null, nativeArtistSnapshotKey:view === "artist" && !spotifyArtistId && !spotifyAlbumId ? nativeArtistComponent?.captureNavigationSnapshot(`route-catalog:${++navigationSnapshotSequence}`) : null, spotifyNavigationSnapshotKey:view === "artist" && (spotifyArtistId || spotifyAlbumId) ? spotifyArtistComponent?.captureNavigationSnapshot(`route-artist:${++navigationSnapshotSequence}`) : null, directorySnapshot:view === "directory-browser" ? directoryBrowser?.getSnapshot() : undefined, directoryLocation:directoryLocation ? {...directoryLocation}:null, view, collectionId, provider, genreUrl, query, filter, localFilter, sort, descending, librarySource, searchCategory, searchMode, importId: view === "charts" ? activeBrowserImport?.id : undefined, artistName: activeArtistName, artistRef: activeArtistRef, artistTrack: activeArtistTrack, artistSection, artistScroll, loadedTrackCount:tracks.length,durationMinimum,durationMaximum,spotifyArtistId, spotifyAlbumId, spotifyArtistSearchFallback, remoteOwner, remotePlaylistUrl, chartId: view === "charts" ? chart?.id : undefined, historyQuery, historyProvider, historyStationId, historyFrom, historyTo, historyOrder, historySortField, historySortDirection, historyMinDuration, historyMaxDuration, historyDownloadAvailability, historyLoadedCount: view === "history" ? historyItems.length : undefined, historyScroll: view === "history" ? historyScroll : undefined, historyFocusedSessionId, focusedPlaylistRowKey, selected, scroll: table?.scrollTop ?? 0 };
+    return { radioStationId: view === "radio" ? selectedRadioStationId : undefined, settingsCategory: view === "settings" ? settingsCategory : undefined, libraryBrowser: { ...libraryBrowser }, searchReleaseSnapshotKey:view === "search" && searchRelease ? captureSearchRelease() : null, searchNavigationSnapshotKey:view === "search" && !searchRelease ? searchComponent?.captureNavigationSnapshot(`route-search:${++navigationSnapshotSequence}`) : null, nativeArtistSnapshotKey:view === "artist" && !spotifyArtistId && !spotifyAlbumId ? nativeArtistComponent?.captureNavigationSnapshot(`route-catalog:${++navigationSnapshotSequence}`) : null, spotifyNavigationSnapshotKey:view === "artist" && (spotifyArtistId || spotifyAlbumId) ? spotifyArtistComponent?.captureNavigationSnapshot(`route-artist:${++navigationSnapshotSequence}`) : null, directorySnapshot:view === "directory-browser" ? directoryBrowser?.getSnapshot() : undefined, directoryLocation:directoryLocation ? {...directoryLocation}:null, view, collectionId, provider, genreUrl, query, filter, localFilter, sort, descending, librarySource, searchCategory, searchMode, importId: view === "charts" ? activeBrowserImport?.id : undefined, artistName: activeArtistName, artistRef: activeArtistRef, artistTrack: activeArtistTrack, artistSection, artistScroll, loadedTrackCount:tracks.length,durationMinimum,durationMaximum,spotifyArtistId, spotifyAlbumId, spotifyArtistSearchFallback, remoteOwner, remotePlaylistUrl, chartId: view === "charts" ? chart?.id : undefined, historyQuery, historyProvider, historyStationId, historyFrom, historyTo, historyOrder, historySortField, historySortDirection, historyMinDuration, historyMaxDuration, historyDownloadAvailability, historyLoadedCount: view === "history" ? historyItems.length : undefined, historyScroll: view === "history" ? historyScroll : undefined, historyFocusedSessionId, focusedPlaylistRowKey, selected, scroll: table?.scrollTop ?? 0 };
   }
   function rememberRoute(overrides: Partial<Route> = {}) {
     routeRestorationEpoch++; restoringRoute = false;
     backRoutes = [...backRoutes.slice(-99), {...captureRoute(),...overrides}]; forwardRoutes = [];
   }
+  const pageHeading = $derived(
+    view === "directory-browser" ? "Folders"
+      : view === "source-browser" ? ({ spotify: "Spotify", youtube: "YouTube", lastfm: "Last.fm", shazam: "Shazam" }[provider] ?? "Bandcamp")
+      : view === "charts" ? (activeBrowserImport ? (sidebarLayout.names?.[activeBrowserImport.collectionId] ?? playlistTitle(activeBrowserImport.title, activeBrowserImport.provider)) : chart?.title ?? "Top 100")
+      : view === "collections" ? (sidebarLayout.names?.[collectionId] ?? collections.find(item => item.id === collectionId)?.name ?? "Playlists")
+      : view === "favorites" ? (sidebarLayout.names?.favorites ?? "Liked Songs")
+      : view === "history" ? (sidebarLayout.names?.history ?? "Listening history")
+      : view[0].toUpperCase() + view.slice(1)
+  );
+  const activeWorkspaceLabel = $derived(
+    view === "artist" ? activeArtistName || pageHeading
+      : view === "library" ? libraryBrowser.entity?.name || pageHeading
+      : view === "search" ? searchRelease?.title || query.trim() || pageHeading
+      : view === "radio" ? radioStations.find(station => station.id === selectedRadioStationId)?.name || pageHeading
+      : pageHeading
+  );
+  const displayedWorkspaceTabs = $derived(workspaceTabs.map(tab => tab.id === activeWorkspaceTab
+    ? { ...tab, label: activeWorkspaceLabel } : tab));
+
+  function saveActiveWorkspaceTab() {
+    saveViewContext();
+    inactiveWorkspaceTabs.set(activeWorkspaceTab, {
+      route: captureRoute(),
+      back: [...backRoutes],
+      forward: [...forwardRoutes],
+      viewContexts: contexts,
+    });
+    workspaceTabs = workspaceTabs.map(tab => tab.id === activeWorkspaceTab ? { ...tab, label: activeWorkspaceLabel } : tab);
+  }
+
+  async function switchWorkspaceTab(id: number) {
+    if (restoringRoute || id === activeWorkspaceTab) return;
+    const tab = inactiveWorkspaceTabs.get(id);
+    if (!tab) return;
+    saveActiveWorkspaceTab();
+    inactiveWorkspaceTabs.delete(id);
+    clearSearchPanelInstance();
+    clearNativeArtistInstance();
+    catalogSearchRequest = 0;
+    localPageRequest++;
+    activeWorkspaceTab = id;
+    backRoutes = tab.back;
+    forwardRoutes = tab.forward;
+    contexts = tab.viewContexts;
+    try {
+      await restoreRoute(tab.route, true);
+    } catch (failure) {
+      setNotice(safePreviewError(failure));
+    }
+  }
+
+  async function createWorkspaceTab() {
+    if (restoringRoute) return;
+    const id = ++workspaceTabSequence;
+    const route: Route = {
+      view: "search", query: "", filter: "", collectionId: "", provider: "traxsource", genreUrl: "",
+      localFilter: "all", sort: "rank", descending: false, librarySource: "all", searchCategory: "",
+      searchMode: "audio", artistName: "", artistRef: null, artistTrack: null, artistSection: "overview",
+      artistScroll: 0, selected: null, scroll: 0,
+    };
+    inactiveWorkspaceTabs.set(id, { route, back: [], forward: [], viewContexts: new Map() });
+    workspaceTabs = [...workspaceTabs, { id, label: "Search" }];
+    await switchWorkspaceTab(id);
+    if (activeWorkspaceTab === id && view === "search") {
+      await waitForSearchPanelInstance();
+      if (activeWorkspaceTab === id && view === "search") document.querySelector<HTMLInputElement>('main [aria-label="Search music"]')?.focus();
+    }
+  }
+
+  async function closeWorkspaceTab(id: number) {
+    if (restoringRoute || workspaceTabs.length <= 1) return;
+    const index = workspaceTabs.findIndex(tab => tab.id === id);
+    if (index === -1) return;
+    if (id === activeWorkspaceTab) {
+      const next = workspaceTabs[index + 1] ?? workspaceTabs[index - 1];
+      if (!next) return;
+      await switchWorkspaceTab(next.id);
+      if (activeWorkspaceTab === id) return;
+    }
+    inactiveWorkspaceTabs.delete(id);
+    workspaceTabs = workspaceTabs.filter(tab => tab.id !== id);
+  }
+
   async function travelRoute(direction: "back" | "forward"): Promise<boolean> {
     if (restoringRoute) return false;
     const stack = direction === "back" ? backRoutes : forwardRoutes;
     const route = stack[stack.length - 1]; if (!route) return false;
     const current = captureRoute();
-    const restorationEpoch = ++routeRestorationEpoch;
-    let expectedNavigationRequest = navigationRequest + 1;
     if (direction === "back") { backRoutes = backRoutes.slice(0, -1); forwardRoutes = [...forwardRoutes, current]; }
     else { forwardRoutes = forwardRoutes.slice(0, -1); backRoutes = [...backRoutes, current]; }
+    return restoreRoute(route);
+  }
+
+  async function restoreRoute(route: Route, fromWorkspaceTab = false): Promise<boolean> {
+    const restorationEpoch = ++routeRestorationEpoch;
+    let expectedNavigationRequest = navigationRequest + 1;
     restoringRoute = true;
     try {
+      if (fromWorkspaceTab) {
+        activeBrowserImport = null;
+        chart = null;
+      }
+      if (route.radioStationId !== undefined) selectedRadioStationId = route.radioStationId;
+      if (route.settingsCategory) settingsCategory = route.settingsCategory;
       spotifyNavigationSnapshotKey = route.spotifyNavigationSnapshotKey ?? null;
       searchNavigationSnapshotKey = route.searchNavigationSnapshotKey ?? null;
       searchReleaseRequest++;
@@ -2968,7 +3094,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       if (route.view === "directory-browser") directoryBrowserVisited = true;
       collectionId = route.collectionId; provider = route.provider; genreUrl = route.genreUrl; query = route.query;
       spotifyArtistId=route.spotifyArtistId??""; spotifyAlbumId=route.spotifyAlbumId??""; spotifyArtistSearchFallback=route.spotifyArtistSearchFallback??null; remoteOwner=route.remoteOwner??""; remotePlaylistUrl=route.remotePlaylistUrl??""; historyQuery=route.historyQuery??""; historyProvider=route.historyProvider??""; historyStationId=route.historyStationId??""; historyFrom=route.historyFrom??""; historyTo=route.historyTo??""; historyOrder=route.historyOrder??"newest"; historySortField=route.historySortField??"sourceOrder"; historySortDirection=route.historySortDirection??"desc"; historyMinDuration=route.historyMinDuration??""; historyMaxDuration=route.historyMaxDuration??""; historyDownloadAvailability=route.historyDownloadAvailability??"all"; historyScroll=route.historyScroll??0; historyFocusedSessionId=route.historyFocusedSessionId??null; focusedPlaylistRowKey=route.focusedPlaylistRowKey??null; const historyRestoreSignature = route.view === "history" ? JSON.stringify(historySearchOptions()) : null; activeArtistName = route.artistName; activeArtistRef = route.artistRef; activeArtistTrack = route.artistTrack; artistSection = route.artistSection; artistScroll = route.artistScroll; librarySource = route.librarySource; searchCategory = route.searchCategory; searchMode = route.searchMode; albumQuery = route.query;
-      await navigate(route.view, false);
+      await navigate(route.view, false, !fromWorkspaceTab);
       let restoredControlsMatch = () => true;
       const restoreIsCurrent = () => restoredControlsMatch() && restorationEpoch === routeRestorationEpoch && navigationRequest === expectedNavigationRequest && view === route.view && collectionId === route.collectionId && provider === route.provider;
       if (!restoreIsCurrent()) return false;
@@ -3941,6 +4067,9 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     return source ? `${preview.isExcerpt ? "Preview from" : "Streaming from"} ${source}` : "Streaming audio";
   });
   const activeRecordingMatch = $derived(((nativeSnapshot?.candidate?.sourceMetadata?.matching as Preview["matching"] | undefined) ?? nativeSnapshot?.quality?.matching));
+  const alternativePlayingArtist = $derived(activeRecordingMatch?.resolvedRecording.artist
+    || (activeRecordingMatch?.assessment.dimensions?.artists === "agree" ? playingTrack?.artist : null)
+    || "Alternative performer");
   const identifiedPlayingChapter = $derived(playingTrack && !playingTrack.playbackRange && playingCandidate && nativeCanonicalChapter ? identifiedChapterTrack(playingTrack,playingCandidate,nativeCanonicalChapter) : null);
   const playingTitle = $derived(identifiedPlayingChapter?.title ?? playingTrack?.title ?? preview?.title ?? "Nothing playing");
   const playbackActionTrack = $derived.by(()=>{const track=currentRadioSong ?? identifiedPlayingChapter ?? playingTrack;return track?{...track,favorite:isFavorite(track)}:null;});
@@ -3949,18 +4078,22 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     const match = activeRecordingMatch;
     if (!track || match?.assessment.relationship !== "alternative") return track;
     const source = (nativeSnapshot?.candidate);
-    return {...track, title: match.resolvedRecording.title, artist: match.resolvedRecording.artist ?? "Alternative performer",
+    const sameSongAndArtists = match.assessment.dimensions?.title === "agree" && match.assessment.dimensions.artists === "agree";
+    return {...track, title: match.resolvedRecording.title, artist: alternativePlayingArtist,
       provider: source?.provider ?? "unknown", providerId: source?.id ?? "", sourceUrl: source?.url ?? "",
       version: match.resolvedRecording.version, album: null, albumArtist: null, label: null, remixers: null,
       isrc:null,catalogNumber:null,releaseDate:null,recordingDate:null,genre:null,normalizedGenre:null,
       trackNumber:null,trackTotal:null,discNumber:null,discTotal:null,durationSeconds:source?.durationSeconds ?? null,
-      artworkUrl: source?.artworkUrl ?? null, provenance: {}};
+      artworkUrl: source?.artworkUrl || (sameSongAndArtists ? track.artworkUrl : null), provenance: {}};
   });
   function seekChapter(start: number) { void seekPlayer(playingTrack ? chapterRelativePosition(playingTrack,start) : start); }
 
   const contextKey = () =>
-    `${view}:${view === "collections" ? collectionId : ""}`;
-  async function navigate(next: View, recordRoute = true) {
+    `${activeWorkspaceTab}:${view}:${view === "collections" ? collectionId : ""}`;
+  function saveViewContext() {
+    contexts.set(activeContext, { tracks, selected, filter, sort, descending, scroll: table?.scrollTop ?? 0 });
+  }
+  async function navigate(next: View, recordRoute = true, cacheCurrent = true) {
     cancelAlbumLookup();
     if (recordRoute && (next !== view || !["library", "favorites", "history", "downloads", "settings"].includes(next))) rememberRoute();
     if (next !== "search") clearSearchPanelInstance();
@@ -3971,14 +4104,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     }
     if(next!=="search")searchReleaseRequest++;
     setNotice("");
-    contexts.set(activeContext, {
-      tracks,
-      selected,
-      filter,
-      sort,
-      descending,
-      scroll: table?.scrollTop ?? 0,
-    });
+    if (cacheCurrent) saveViewContext();
     if (next === "collections" && !collectionId && collections.length) {
       collectionId = [...collections].sort((a, b) => b.trackCount - a.trackCount)[0].id;
     }
@@ -4531,8 +4657,8 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       if (canSelectFromNativeQueue) {
         const occurrence = nativeQueueSelectIdentity(index, list);
         if (!occurrence) { error = "The playback queue identity is unavailable. Refresh the queue and try again."; return; }
-        await nativeCommand({action:"select",index,...occurrence,loudnessAlbumResource,...trace});
-      } else await nativeCommand({action:"play",tracks:list.length ? list : [t],index:index >= 0 ? index : 0,candidate,position:0,loudnessAlbumResource,...trace});
+        await nativeCommand({action:"select",index,...occurrence,loudnessAlbumResource,trackSelection: !automaticContinuation && !automationRequestId,...trace});
+      } else await nativeCommand({action:"play",tracks:list.length ? list : [t],index:index >= 0 ? index : 0,candidate,position:0,loudnessAlbumResource,trackSelection: !automaticContinuation && !automationRequestId,...trace});
       return;
 
   }
@@ -4856,6 +4982,10 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     if (target?.closest("dialog[open]")) return;
     if (e.key === "Escape" && showFullNowPlaying) { e.preventDefault(); if (showQueue) openPlayerPanel(null); else showFullNowPlaying = false; return; }
     if (showFullNowPlaying && e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) { e.preventDefault(); showFullNowPlaying = false; return; }
+    if (desktop() && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && !showFullNowPlaying) {
+      if (e.key.toLowerCase() === "t") { e.preventDefault(); void createWorkspaceTab(); return; }
+      if (e.key.toLowerCase() === "w" && workspaceTabs.length > 1) { e.preventDefault(); void closeWorkspaceTab(activeWorkspaceTab); return; }
+    }
     const slot=playlistShortcut(e); if(slot>=0){e.preventDefault();void invokePlaylistShortcut(slot).catch(failure=>error=String(failure));return;}
     if (e.key === "Escape" && view === "history" && target?.closest(".history-advanced-filters")) {
       e.preventDefault();
@@ -5191,7 +5321,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     clearPlaybackSkipNotice();
     const occurrence = nativeQueueSelectIdentity(index, queueTracks);
     if (!occurrence) { error = "The playback queue identity is unavailable. Refresh the queue and try again."; return; }
-    void nativeCommand({action:"select",index,...occurrence});
+    void nativeCommand({action:"select",index,...occurrence,trackSelection:true});
   }
   function closePlaylistPicker() {
     playlistAlbumName = null;
@@ -6955,7 +7085,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       scroll: table?.scrollTop ?? 0,
     });
     selectionRequest++; clearTimeout(autoTimer);
-    view = "charts"; activeContext = "charts:"; chart = loaded; tracks = loaded.tracks; selected = null;
+    view = "charts"; activeContext = contextKey(); chart = loaded; tracks = loaded.tracks; selected = null;
     checked = []; candidates = []; memberships = []; filter = ""; sort = "rank"; descending = false;
     contexts.set(activeContext, { tracks, selected: null, filter, sort, descending, scroll: 0 });
     if (result.kind === "chart" && ["beatport", "traxsource"].includes(result.provider.toLowerCase())) {
@@ -7693,7 +7823,9 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
   });
 
 
+  const showProviderCounts = $derived(settings.showProviderCounts !== false);
   const artistPageProps = $derived({
+    showProviderCounts,
     onTrackAlbum: (track: Track) => void openTrackAlbum(track), showSearchResultsButton: false,
     playingTrack, bufferingTrack: playbackLoading ? playingTrack : null, paused,
     activeTrack: activeArtistTrack, artistName: activeArtistName, initialArtistRef: activeArtistRef,
@@ -7715,6 +7847,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
   });
 
   const searchPanelProps = $derived({
+    showProviderCounts,
     startupReadStorage: backupStartupReadStorage,
     searchArtists: (value: string) => searchArtists(value, 1).then(page => page.results),
     loadArtistProfile: loadArtistProfileArtwork,
@@ -7825,8 +7958,15 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     onImport={() => void createNewPlaylist()} onSettings={() => void navigate("settings")} onDownloads={() => { openPlayerPanel("downloads"); void refreshJobs(); }}
     activeJobs={jobs.filter((job) => !["completed", "failed", "cancelled", "waiting_for_source", "interrupted"].includes(job.state)).length} />
   <main inert={showFullNowPlaying}>
+    {#if workspaceTabs.length > 1}
+      <WorkspaceTabs tabs={displayedWorkspaceTabs} activeId={activeWorkspaceTab} busy={restoringRoute}
+        onSelect={id => void switchWorkspaceTab(id)} onClose={id => void closeWorkspaceTab(id)} onNew={() => void createWorkspaceTab()} />
+    {/if}
+    {#key activeWorkspaceTab}
     <header class:playlist-header={playlistHeroVisible}>
-      <div class="navigation-controls"><button aria-label="Go back" disabled={restoringRoute || !backRoutes.length} onclick={() => void travelRoute("back")}>←</button><button aria-label="Go forward" disabled={restoringRoute || !forwardRoutes.length} onclick={() => void travelRoute("forward")}>→</button></div>
+      <div class="navigation-controls"><button aria-label="Go back" disabled={restoringRoute || !backRoutes.length} onclick={() => void travelRoute("back")}>←</button><button aria-label="Go forward" disabled={restoringRoute || !forwardRoutes.length} onclick={() => void travelRoute("forward")}>→</button>
+        {#if workspaceTabs.length === 1}<button type="button" class="open-workspace-tab" aria-label="New tab" title="New tab" disabled={restoringRoute} onclick={() => void createWorkspaceTab()}>＋</button>{/if}
+      </div>
       <div class:playlist-identity={playlistHeroVisible}>
         {#if playlistHeroVisible}<div class="playlist-hero-cover" aria-hidden="true">
           <PlaylistArtwork urls={playlistHeroArtwork} fallback={view === "favorites" ? "♥" : "♫"} />
@@ -7834,13 +7974,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
         <div class:playlist-title-copy={playlistHeroVisible}>
         {#if playlistHeroVisible}<span class="playlist-kind">Playlist</span>{/if}
         <div class="eyebrow">DISCOVER · AUDITION · COLLECT</div>
-        <h1>
-          {view === "directory-browser" ? "Folders" : view === "source-browser" ? (provider === "spotify" ? "Spotify" : provider === "youtube" ? "YouTube" : provider === "lastfm" ? "Last.fm" : provider === "shazam" ? "Shazam" : "Bandcamp") : view === "charts"
-            ? (activeBrowserImport ? (sidebarLayout.names?.[activeBrowserImport.collectionId]??playlistTitle(activeBrowserImport.title,activeBrowserImport.provider)) : chart?.title ?? "Top 100")
-            : view === "collections"
-              ? (sidebarLayout.names?.[collectionId]??namedCollections.find(item=>item.id===collectionId)?.name ?? "Playlists")
-              : view === "favorites" ? (sidebarLayout.names?.favorites??"Liked Songs") : view === "history" ? (sidebarLayout.names?.history??"Listening history") : view[0].toUpperCase() + view.slice(1)}
-        </h1>
+        <h1>{pageHeading}</h1>
         {#if currentPlaylistCreator?.ownerName || currentPlaylistCreator?.ownerId}
           <p class="playlist-creator">By {#if currentPlaylistCreator.ownerUrl}<button class="creator-profile-link" title="Browse Spotify creator playlists" onclick={() => void openCurrentPlaylistCreator()}>{currentPlaylistCreator.ownerName || currentPlaylistCreator.ownerId} ↗</button>{:else}{currentPlaylistCreator.ownerName || currentPlaylistCreator.ownerId}{/if}</p>
         {/if}
@@ -7967,7 +8101,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     {#if autotagReviewId && currentTagJob && currentTagAsset}<section class="autotag-page"><button onclick={()=>{autotagReviewId=null;autotagReviewAsset=null;}}>← Back</button><AutotagReview job={currentTagJob} asset={currentTagAsset} onReview={(assetId,providerId)=>call<AutotagJob>("review_autotag_candidate",{assetId,providerId})} onApply={async(assetId,fieldKeys)=>{await call("apply_autotag_review",{assetId,fieldKeys});autotagReviewAsset=await call<LocalAsset|null>("get_asset_by_id",{assetId});await loadAutotagState();}} onApplyRecognition={async(assetId,fieldKeys)=>{await call("apply_recognition_review",{assetId,fieldKeys});autotagReviewAsset=await call<LocalAsset|null>("get_asset_by_id",{assetId});await loadAutotagState();}} onRepairSource={desktop()?recoverDownloadSourceTags:undefined} onRetry={async(assetId)=>{await call("retry_autotag",{assetId});await loadAutotagState();}} /></section>
     {:else if view === "artist"}
       <section class="artist-page-host">
-        {#if spotifyArtistId || spotifyAlbumId}<SpotifyArtist onSaveCompleteAlbum={async (entry, items, expected) => { await saveCompleteLibraryAlbum(call, entry, items, expected); requestLocalPrefixRefresh(undefined, true); }} onSaveToLibrary={saveTracksToLibrary} onTrackAlbum={(track) => void openTrackAlbum(track)} bind:this={spotifyArtistComponent} navigationSnapshotKey={spotifyNavigationSnapshotKey} artistId={spotifyArtistId || spotifyAlbumId} initialAlbumId={spotifyAlbumId || null} searchArtistFallback={spotifyArtistSearchFallback} call={spotifyArtistCall} playingTrack={playingTrack} bufferingTrack={playbackLoading?playingTrack:null} {paused} onPlay={playArtistTrack} onPlaylist={addArtistTrack} onAddSelectedToPlaylist={addTracksToPlaylist} onQueueSelected={items=>queueArtistTracks(items,"append")} onAddAlbumToPlaylist={addAlbumToPlaylist} onBrowseArtistProvider={browseArtistProvider} onFavorite={(track)=>void favorite(track)} onDownload={(track)=>void openDownloadChooser(track)} onNext={(track)=>queueArtistTracks([track],"next")} onQueue={(track)=>queueArtistTracks([track],"append")} onArtist={(track)=>void discoverArtist(track)} onContext={(track,event)=>{actionTrack=track;actionAnchor={x:event.clientX,y:event.clientY};void matchArtistPlaybackSources([track]).then(([matched])=>{if(actionTrack===track&&matched)actionTrack=matched;}).catch(failure=>{error=String(failure);});}} onAlbumOpening={()=>rememberRoute()} initialScroll={artistScroll} onScroll={(value)=>artistScroll=value}/>{:else}
+        {#if spotifyArtistId || spotifyAlbumId}<SpotifyArtist showProviderCounts={!!spotifyArtistId && showProviderCounts} onSaveCompleteAlbum={async (entry, items, expected) => { await saveCompleteLibraryAlbum(call, entry, items, expected); requestLocalPrefixRefresh(undefined, true); }} onSaveToLibrary={saveTracksToLibrary} onTrackAlbum={(track) => void openTrackAlbum(track)} bind:this={spotifyArtistComponent} navigationSnapshotKey={spotifyNavigationSnapshotKey} artistId={spotifyArtistId || spotifyAlbumId} initialAlbumId={spotifyAlbumId || null} searchArtistFallback={spotifyArtistSearchFallback} call={spotifyArtistCall} playingTrack={playingTrack} bufferingTrack={playbackLoading?playingTrack:null} {paused} onPlay={playArtistTrack} onPlaylist={addArtistTrack} onAddSelectedToPlaylist={addTracksToPlaylist} onQueueSelected={items=>queueArtistTracks(items,"append")} onAddAlbumToPlaylist={addAlbumToPlaylist} onBrowseArtistProvider={browseArtistProvider} onFavorite={(track)=>void favorite(track)} onDownload={(track)=>void openDownloadChooser(track)} onNext={(track)=>queueArtistTracks([track],"next")} onQueue={(track)=>queueArtistTracks([track],"append")} onArtist={(track)=>void discoverArtist(track)} onContext={(track,event)=>{actionTrack=track;actionAnchor={x:event.clientX,y:event.clientY};void matchArtistPlaybackSources([track]).then(([matched])=>{if(actionTrack===track&&matched)actionTrack=matched;}).catch(failure=>{error=String(failure);});}} onAlbumOpening={()=>rememberRoute()} initialScroll={artistScroll} onScroll={(value)=>artistScroll=value}/>{:else}
         <LazyView loader={loadArtistPage} label="artist" componentProps={artistPageProps} onInstance={captureNativeArtistInstance} />{/if}
       </section>
     {:else if view === "settings"}
@@ -7977,13 +8111,32 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
         <section class="settings-basic-card" aria-labelledby="appearance-settings-title">
           <h2 id="appearance-settings-title">Appearance</h2>
           <label>Theme<select bind:value={settings.theme} onchange={()=>void saveSettingsFields(["theme"],"Appearance saved.")}><option value="dark">Dark</option><option value="light">Light</option><option value="system">System</option></select></label>
+          <label class="settings-option"><input type="checkbox" aria-label="Show Spotify plays and YouTube views" checked={showProviderCounts} onchange={(event) => { settings.showProviderCounts = event.currentTarget.checked; void saveSettingsFields(["showProviderCounts"], "Track count preference saved."); }} /><span><strong>Show Spotify plays and YouTube views</strong><small>Display available counts in artist views and search results.</small></span></label>
           <label class="settings-option"><input type="checkbox" aria-label="Compact playback bar" checked={settings.compactPlaybackBar === true} onchange={(event) => { settings.compactPlaybackBar = event.currentTarget.checked; void saveSettingsFields(["compactPlaybackBar"], "Playback bar preference saved."); }} /><span><strong>Compact playback bar</strong><small>Leave more room for your library.</small></span></label>
         </section>
         {:else if settingsCategory === "playback"}
         <section class="settings-basic-card" aria-labelledby="playback-settings-title">
           <h2 id="playback-settings-title">Playback</h2>
           <LoudnessSettings settings={loudnessSettings} onSettingsSaved={refreshNormalizationSettings} playbackStatus={(nativeSnapshot as (NativePlaybackSnapshot & {loudnessNormalization?: LoudnessPlaybackStatus}) | null)?.loudnessNormalization ?? null} analysisJob={loudnessAnalysisJob} pendingAnalysisCount={pendingLoudnessAssetIds.length} analysisMessage={loudnessAnalysisMessage} onCancelAnalysis={cancelLoudnessAnalysis} onRetryAnalysis={retryQueuedLoudnessAnalysis} />
-          <CrossfadeSettings enabled={settings.crossfadeEnabled === true} seconds={settings.crossfadeSeconds ?? 5} onchange={(enabled,seconds)=>{settings.crossfadeEnabled=enabled;settings.crossfadeSeconds=seconds;void saveSettingsFields(["crossfadeEnabled","crossfadeSeconds"],"Crossfade preference saved.");}} />
+          <CrossfadeSettings
+            enabled={settings.crossfadeEnabled === true}
+            softNext={settings.softNextEnabled === true}
+            softTrackSelection={settings.softTrackSelectionEnabled === true}
+            seconds={settings.crossfadeSeconds ?? 5}
+            onchange={(enabled, seconds) => {
+              settings.crossfadeEnabled = enabled;
+              settings.crossfadeSeconds = seconds;
+              void saveSettingsFields(["crossfadeEnabled", "crossfadeSeconds"], "Crossfade preference saved.");
+            }}
+            onsoftnextchange={(enabled) => {
+              settings.softNextEnabled = enabled;
+              void saveSettingsFields(["softNextEnabled"], "Soft Next preference saved.");
+            }}
+            onsofttrackselectionchange={(enabled) => {
+              settings.softTrackSelectionEnabled = enabled;
+              void saveSettingsFields(["softTrackSelectionEnabled"], "Track selection fade preference saved.");
+            }}
+          />
           <label class="settings-option"><input type="checkbox" bind:checked={settings.autoPreview} onchange={()=>void saveSettingsFields(["autoPreview"],"Playback preference saved.")} /><span><strong>Play songs selected with arrow keys</strong><small>Start the selected song after a short delay.</small></span></label>
           <label class="settings-option"><input type="checkbox" aria-label="Play radio stations on click" bind:checked={settings.playRadioOnClick} onchange={()=>void saveSettingsFields(["playRadioOnClick"],"Radio playback preference saved.")} /><span><strong>Play radio stations on click</strong><small>Start playback when opening a station.</small></span></label>
           <details class="settings-inline-details"><summary>Opening a song’s source</summary>
@@ -8142,9 +8295,9 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     {:else if view === "downloads"}
       <div class="toolbar">
         <span>{sortedDownloadJobs.length} jobs</span>
-        <details class="download-tools"><summary aria-label="More download options">•••</summary><button onclick={(event)=>{const menu=event.currentTarget.closest("details");if(menu)menu.open=false;showSavedSoulseekSearches=true;}}>Saved Soulseek searches…</button></details>
         <label>Sort downloads<select aria-label="Sort download jobs" bind:value={downloadSortField}><option value="sourceOrder">Original order</option><option value="title" disabled={!downloadSortAvailability.title}>{trackSortOptionLabel(downloadSortAvailability, "title", "Title")}</option><option value="artist" disabled={!downloadSortAvailability.artist}>{trackSortOptionLabel(downloadSortAvailability, "artist", "Artist")}</option><option value="album" disabled={!downloadSortAvailability.album}>{trackSortOptionLabel(downloadSortAvailability, "album", "Album")}</option><option value="duration" disabled={!downloadSortAvailability.duration}>{trackSortOptionLabel(downloadSortAvailability, "duration", "Duration")}</option><option value="releaseDate" disabled={!downloadSortAvailability.releaseDate}>{trackSortOptionLabel(downloadSortAvailability, "releaseDate", "Release date")}</option><option value="dateAdded" disabled={!downloadSortAvailability.dateAdded}>{trackSortOptionLabel(downloadSortAvailability, "dateAdded", "Date added")}</option><option value="bpm" disabled={!downloadSortAvailability.bpm}>{trackSortOptionLabel(downloadSortAvailability, "bpm", "BPM")}</option><option value="key" disabled={!downloadSortAvailability.key}>{trackSortOptionLabel(downloadSortAvailability, "key", "Key")}</option><option value="plays" disabled={!downloadSortAvailability.plays}>{trackSortOptionLabel(downloadSortAvailability, "plays", "Plays")}</option><option value="views" disabled={!downloadSortAvailability.views}>{trackSortOptionLabel(downloadSortAvailability, "views", "Views")}</option></select></label><label>Direction<select aria-label="Download sort direction" bind:value={downloadSortDirection}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label><TrackDurationFilter bind:minDuration={downloadMinDuration} bind:maxDuration={downloadMaxDuration} minLabel="Download minimum duration" maxLabel="Download maximum duration" />
         <button onclick={() => void refreshJobs()}>Refresh queue</button>
+        <details class="download-tools"><summary aria-label="More download options">⋯</summary><button onclick={(event)=>{const menu=event.currentTarget.closest("details");if(menu)menu.open=false;showSavedSoulseekSearches=true;}}>Saved Soulseek searches…</button></details>
       </div>
       <DownloadWatches onCount={(count)=>activeDownloadWatchCount=count} onReview={(track)=>openDownloadChooser(track,undefined,undefined,undefined,"slskd")} />
       <section class="queue">
@@ -8189,7 +8342,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
         </div>{/if}
       </section>
     {:else if view === "library" && (libraryBrowser.tab !== "tracks" || libraryBrowser.entity)}
-      <LazyView loader={loadLibraryBrowser} label="library" componentProps={{ browserState: libraryBrowser, call, onNavigate: navigateLibraryBrowser, onStateChange: (next: LibraryBrowserState) => libraryBrowser = next, onBrowse: (entry: LibraryEntity, familyProvider?: string | null) => void run(() => browseLibraryEntity(entry, familyProvider)), onPlay: playArtistTrack, onQueue: queueArtistTracks, onDownload: (track: Track) => void openDownloadChooser(track), onFavorite: (track: Track) => void favorite(track), onPlaylist: (track: Track) => void addArtistTrack(track), onArtist: (track: Track) => void discoverArtist(track), onAlbum: (track: Track) => void openTrackAlbum(track), onContext: (track: Track, event: MouseEvent) => { actionTrack = track; actionAnchor = { x: event.clientX, y: event.clientY }; }, onAddSelectedToPlaylist: (items: Track[]) => void addTracksToPlaylist(items), onDownloadAlbum: (items: Track[]) => queueSelected(items), onSearchAlbumSoulseek: (entry: LibraryEntity) => openSoulseekAlbumSearchByTitle(entry.name, entry.artist), soulseekSearchAvailable: soulseekAlbumSearchAvailable, onAddAlbumToPlaylist: addAlbumToPlaylist, onAnalyzeLoudness: (items: Track[], gaps: number) => prepareReleaseLoudnessAnalysis(items, gaps, true), playingTrack, bufferingTrack: playbackLoading ? playingTrack : null, bufferingTrackId: playbackLoading ? playingTrack?.id ?? "" : "", playbackFailed: nativePlaybackStatus === "failed", paused }} />
+      <LazyView loader={loadLibraryBrowser} label="library" componentProps={{ browserState: libraryBrowser, showProviderCounts, call, onNavigate: navigateLibraryBrowser, onStateChange: (next: LibraryBrowserState) => libraryBrowser = next, onBrowse: (entry: LibraryEntity, familyProvider?: string | null) => void run(() => browseLibraryEntity(entry, familyProvider)), onPlay: playArtistTrack, onQueue: queueArtistTracks, onDownload: (track: Track) => void openDownloadChooser(track), onFavorite: (track: Track) => void favorite(track), onPlaylist: (track: Track) => void addArtistTrack(track), onArtist: (track: Track) => void discoverArtist(track), onAlbum: (track: Track) => void openTrackAlbum(track), onContext: (track: Track, event: MouseEvent) => { actionTrack = track; actionAnchor = { x: event.clientX, y: event.clientY }; }, onAddSelectedToPlaylist: (items: Track[]) => void addTracksToPlaylist(items), onDownloadAlbum: (items: Track[]) => queueSelected(items), onSearchAlbumSoulseek: (entry: LibraryEntity) => openSoulseekAlbumSearchByTitle(entry.name, entry.artist), soulseekSearchAvailable: soulseekAlbumSearchAvailable, onAddAlbumToPlaylist: addAlbumToPlaylist, onAnalyzeLoudness: (items: Track[], gaps: number) => prepareReleaseLoudnessAnalysis(items, gaps, true), playingTrack, bufferingTrack: playbackLoading ? playingTrack : null, bufferingTrackId: playbackLoading ? playingTrack?.id ?? "" : "", playbackFailed: nativePlaybackStatus === "failed", paused }} />
     {:else}
       <div class="toolbar" class:playlist-toolbar={view === "collections"} class:chart-toolbar={view === "charts"} class:library-toolbar={view === "library"} class:empty-library-toolbar={view === "library" && !showCreatePlaylist}>
         {#if view === "charts" && !activeBrowserImport}<select
@@ -8230,7 +8383,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
           <span class="playlist-action-scope">All {savedCount} saved tracks · filters ignored</span>
           <button onclick={openPlaylistImport}>Import tracks</button>
           {#if renamingPlaylist}<input aria-label="Playlist name" bind:value={renamePlaylistName} onkeydown={(event)=>{if(event.key==="Enter")void renameCurrentPlaylist();if(event.key==="Escape")renamingPlaylist=false;}} /><button onclick={()=>void renameCurrentPlaylist()}>Save name</button>{/if}
-          {#if currentPlaylistCreator}<button disabled={Boolean(busy)} onclick={()=>void refreshLinkedPlaylist(collectionId)}>Refresh</button>{#if (currentPlaylistCreator.provider === "spotify" || currentPlaylistCreator.provider === "youtube") && currentPlaylistCreator.canEdit}<LazyView loader={loadPlaylistSync} label="playlist sync" componentProps={{call,bindingId:currentPlaylistCreator.bindingId,enabled:remotePlaylistWriteSyncEnabled[currentPlaylistCreator.provider as "spotify" | "youtube"],onApplied:()=>refreshLinkedPlaylist(collectionId)}} />{/if}{/if}<button class="playlist-context-trigger" aria-label="Playlist context menu" title="More playlist actions" onclick={openCurrentPlaylistMenu}>⋯</button>{/if}
+          {#if currentPlaylistCreator}<button disabled={Boolean(busy)} onclick={()=>void refreshLinkedPlaylist(collectionId)}>Refresh</button>{#if (currentPlaylistCreator.provider === "spotify" || currentPlaylistCreator.provider === "youtube") && currentPlaylistCreator.canEdit}<LazyView loader={loadPlaylistSync} label="playlist sync" componentProps={{call,bindingId:currentPlaylistCreator.bindingId,enabled:remotePlaylistWriteSyncEnabled[currentPlaylistCreator.provider as "spotify" | "youtube"],onApplied:()=>refreshLinkedPlaylist(collectionId)}} />{/if}{/if}<button class="playlist-context-trigger" aria-label="Playlist context menu" title="More playlist actions" aria-haspopup="dialog" onclick={openCurrentPlaylistMenu}>⋯</button>{/if}
       </div>
       {#if view === "charts"}<div class="chart-context" class:import-context={Boolean(activeBrowserImport)}>
           <span
@@ -8239,20 +8392,23 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
               >{/if}</span
           >
           <div class="chart-source-actions">
-            {#if activeBrowserImport}<button class="playlist-context-trigger" aria-label="Playlist context menu" title="Playlist actions" onclick={openCurrentPlaylistMenu}>⋯</button>{:else if chart}<button class="playlist-context-trigger" aria-label="Playlist context menu" title="Playlist actions" onclick={openCurrentPlaylistMenu}>⋯</button>{/if}
 
             {#if activeBrowserImport}<label>Import date<select aria-label="Imported playlist version" value={importDateFilter || activeBrowserImport.id} onchange={(event) => { if (event.currentTarget.value === "all") void run(showAllImportDates); else { const version = browserImports.find((item) => item.id === event.currentTarget.value); if (version) void run(() => openBrowserImport(version)); } }}><option value="all">All import dates</option>{#each browserImports.filter((item) => item.sourceUrl === activeBrowserImport?.sourceUrl) as version}<option value={version.id}>{new Date(version.fetchedAt).toLocaleString()} · {version.capturedCount} tracks{version.complete ? "" : " · partial"}</option>{/each}</select></label>{/if}
             {#if chart && !activeBrowserImport}<small class="chart-date"
                 >{new Date(chart.fetchedAt).toLocaleString()}</small
-              >{/if}{#if snapshots.length}<select class="desktop-chart-snapshot"
+              >{/if}{#if !activeBrowserImport && snapshots.length}<select class="desktop-chart-snapshot"
                 aria-label="Saved chart snapshots"
                 value={chart?.id ?? ""}
                 onchange={(e) => void loadSnapshot(e.currentTarget.value)}
               >
+                <option value="" disabled>Saved snapshots</option>
                 {#each snapshots as s}<option value={s.id}
                     >{new Date(s.fetchedAt).toLocaleString()}</option
                   >{/each}</select
               >{/if}
+            {#if activeBrowserImport || chart}
+              <button class="playlist-context-trigger" aria-label="Playlist context menu" title="More playlist actions" aria-haspopup="dialog" onclick={openCurrentPlaylistMenu}>⋯</button>
+            {/if}
           </div>
         </div>
         {#if !activeBrowserImport}<details class="mobile-chart-tools">
@@ -8666,6 +8822,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
 {/if}
 
   {#if showPortableHistory}<PortableHistory {call} includeYtdlpSearchDefault={includeYtdlpSearchDefault} onClose={()=>showPortableHistory=false} />{/if}
+    {/key}
   </main>
   {#if playlistTrack}<div class="download-backdrop">
     <dialog class="download-dialog playlist-picker-dialog" use:activateDownloadDialog={closePlaylistPicker} aria-labelledby="playlist-picker-title" tabindex="-1">
@@ -8842,7 +8999,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       </div>
       <div class="player-track-copy">
         <strong class="player-track-title">{activeRecordingMatch?.assessment.relationship === "alternative" ? activeRecordingMatch.resolvedRecording.title : playingTitle}</strong>
-        <small class="player-track-artist">{activeRecordingMatch?.assessment.relationship === "alternative" ? activeRecordingMatch.resolvedRecording.artist ?? "Alternative performer" : playingTrack?.playbackRange?.parentTitle ?? identifiedPlayingChapter?.artist ?? (activeChapter ? `Chapter: ${activeChapter.title}` : playingTrack?.artist) ?? (playingTrack ? "Artist unknown" : "Select a recording")}</small>
+        <small class="player-track-artist">{activeRecordingMatch?.assessment.relationship === "alternative" ? alternativePlayingArtist : playingTrack?.playbackRange?.parentTitle ?? identifiedPlayingChapter?.artist ?? (activeChapter ? `Chapter: ${activeChapter.title}` : playingTrack?.artist) ?? (playingTrack ? "Artist unknown" : "Select a recording")}</small>
         <AlternativeSourceNotice matching={activeRecordingMatch} requestedTitle={activeRecordingMatch?.requestedRecording?.title ?? playingTrack?.title} requestedArtist={activeRecordingMatch?.requestedRecording?.artist ?? playingTrack?.artist} />
         <small class="player-status" role={liveRadioPlayback ? undefined : "status"} title={previewStatus}>
           {#if liveRadioPlayback}

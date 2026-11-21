@@ -36,6 +36,24 @@ function deferred<T>() {
 const recoveredImage = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/3S8AAAAASUVORK5CYII=";
 
 describe("LibrarySidebar provider presets", () => {
+  it("collapses open groups and folders while leaving each group independently expandable", async () => {
+    const target = render({
+      sections: [{ id: "section", name: "Crate" }],
+      assignments: { assigned: "section" },
+      collections: [{ id: "assigned", name: "Filed playlist", trackCount: 3 }],
+    });
+    await settle();
+    expect(target.querySelectorAll(".library-scroll details[open]").length).toBeGreaterThan(1);
+    target.querySelector<HTMLButtonElement>('[aria-label="Collapse all sidebar items"]')!.click();
+    await settle();
+    expect(target.querySelectorAll(".library-scroll details[open]")).toHaveLength(0);
+    expect(target.querySelector('[aria-label="Expand folder tree"]')).not.toBeNull();
+    expect(target.querySelector<HTMLDivElement>("#sidebar-personal-playlists")?.hidden).toBe(true);
+    target.querySelector<HTMLElement>(".radio-section summary")!.click();
+    await settle();
+    expect(target.querySelector<HTMLDetailsElement>(".radio-section")?.open).toBe(true);
+    expect(target.querySelectorAll(".library-scroll details[open]")).toHaveLength(1);
+  });
   it("loads playlist artwork in one batch and preserves playlist navigation", async () => {
     const onPlaylist=vi.fn();
     const call=vi.fn(async(command:string)=> command==='get_playlist_artwork' ? { one:[1,2,3,4].map(i=>`https://example.test/${i}.jpg`),two:['https://example.test/single.jpg'] } : []);

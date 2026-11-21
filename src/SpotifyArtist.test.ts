@@ -36,6 +36,31 @@ function render(call: (command: string, args: Record<string, unknown>) => Promis
 }
 
 describe("SpotifyArtist pagination", () => {
+  it("shows reported track counts on release cards without loading their tracks", async () => {
+    const releases = [
+      { ...album("album", "Album"), releaseDate: "2025", totalTracks: 12 },
+      { ...album("single", "Single"), albumType: "Single", totalTracks: 1 },
+      { ...album("unknown", "Unknown"), releaseDate: "2024" },
+    ];
+    const call = vi.fn(async (command: string) => {
+      if (command === "browse_remote_artist") return { artist: { id: "artist-id", name: "Fixture Artist", genres: [] }, albums: releases };
+      if (command === "browse_remote_artist_tracks") return { tracks: [] };
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const target = render(call);
+    await settle();
+    const details = [...target.querySelectorAll(".album > span:last-child")].map(node => node.textContent?.trim());
+    expect(details).toEqual(["2025 · 12 tracks", "Single · 1 track", "2024"]);
+    expect(call.mock.calls.map(([command]) => command)).not.toContain("browse_remote_album_tracks");
+    const banner = target.querySelector(".artist-banner")!;
+    expect(banner.querySelector("h1")?.textContent).toBe("Fixture Artist");
+    expect(banner.querySelector(".placeholder")).not.toBeNull();
+    expect(banner.querySelector("a")).toBeNull();
+    banner.querySelector<HTMLButtonElement>('[aria-label="More actions for Fixture Artist"]')!.click();
+    await settle();
+    expect(banner.querySelector("dialog a")?.textContent).toContain("Open in Spotify");
+  });
+
   it("queues every page of a release in album order without opening it or playing it", async () => {
     const id = "queue-release-artist";
     const release = album("queue-release-album", "Queue Record");
@@ -52,11 +77,20 @@ describe("SpotifyArtist pagination", () => {
     });
     const target = render(call, onPlay, id, { onQueueSelected });
     await settle();
-    target.querySelector<HTMLButtonElement>('[aria-label="Queue album Queue Record"]')!.click();
+    const card = target.querySelector<HTMLButtonElement>(".album")!;
+    expect(target.querySelector('[aria-label="Actions for Queue Record"]')).toBeNull();
+    card.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await settle();
+    const menu = target.querySelector<HTMLDialogElement>('[aria-label="Actions for Queue Record"]')!;
+    expect(menu.querySelector("a")?.getAttribute("href")).toBe(release.url);
+    menu.querySelector<HTMLButtonElement>("button[type=button]")!.click();
     await settle();
     expect(onQueueSelected).toHaveBeenCalledExactlyOnceWith([first, second]);
     expect(onPlay).not.toHaveBeenCalled();
     expect(target.querySelector("h1")?.textContent).toBe("Queue Artist");
+    card.dispatchEvent(new KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true, cancelable: true }));
+    await settle();
+    expect(target.querySelector('[aria-label="Actions for Queue Record"]')).not.toBeNull();
   });
 
   it("queues an already-loaded Spotify album without reloading or starting playback", async () => {
@@ -220,7 +254,7 @@ describe("SpotifyArtist pagination", () => {
     const title = target.querySelector<HTMLButtonElement>(".album strong")!;
     expect(title.textContent).toBe(longTitle);
     expect(title.title).toBe(longTitle);
-    expect(target.querySelector(".album span:last-child")?.textContent).toBe("Aug 13, 2025");
+    expect(target.querySelector(".album > span:last-child")?.textContent).toBe("Aug 13, 2025");
     expect(target.querySelector(".hero .placeholder")).not.toBeNull();
   });
 

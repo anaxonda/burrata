@@ -24,6 +24,11 @@ pub enum AlbumMembershipEvidence {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "camelCase")]
 pub enum AlbumResolution {
+    Spotify {
+        #[serde(rename = "albumId")]
+        album_id: String,
+        title: String,
+    },
     Resolved {
         destination: AlbumChoice,
     },
@@ -655,6 +660,58 @@ mod tests {
         assert!(!complete_primary_discography(&unbound, &artist));
     }
 }
+fn exact_spotify_album_request(track: &Track) -> bool {
+    track.provider == "spotify"
+        && track.provider_id.len() == 22
+        && track
+            .provider_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric())
+        && track.id == format!("spotify:{}", track.provider_id)
+        && track.source_url == format!("https://open.spotify.com/track/{}", track.provider_id)
+        && track.playback_range.is_none()
+        && ![
+            "title",
+            "artist",
+            "album",
+            "albumArtist",
+            "version",
+            "durationSeconds",
+            "isrc",
+        ]
+        .iter()
+        .any(|field| track.provenance["manualFields"][field] == true)
+}
+
+pub async fn resolve_exact_spotify(
+    state: &crate::AppState,
+    track: &Track,
+) -> Result<AlbumResolution, String> {
+    if exact_spotify_album_request(track) {
+        let fresh = state
+            .remote_playlists
+            .get_remote_track("spotify", &track.provider_id)
+            .await?;
+        let context = &fresh.provenance["recordingContext"];
+        if let Some(album_id) = context["albumId"].as_str().filter(|id| {
+            id.len() == 22
+                && id.bytes().all(|byte| byte.is_ascii_alphanumeric())
+                && context["albumUri"] == format!("spotify:album:{id}")
+        }) {
+            return Ok(AlbumResolution::Spotify {
+                album_id: album_id.into(),
+                title: fresh
+                    .album
+                    .unwrap_or_else(|| track.album.clone().unwrap_or_default()),
+            });
+        }
+    }
+    Ok(AlbumResolution::Unavailable {
+        reason: "Spotify did not provide an album for this track".into(),
+        source_album_url: None,
+    })
+}
+
 pub async fn resolve(state: &crate::AppState, track: &Track) -> Result<AlbumResolution, String> {
     let membership_key = cache_key(track);
     if let Some(value) = state

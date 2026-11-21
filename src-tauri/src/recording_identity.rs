@@ -176,7 +176,7 @@ fn valid_musicbrainz_id(value: &str) -> bool {
 }
 
 /// Parsing behavior is versioned alongside evaluator/cache semantics.
-pub(crate) const PARSER_VERSION: &str = "9";
+pub(crate) const PARSER_VERSION: &str = "10";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -265,16 +265,18 @@ pub fn parse_recording_text(value: &str) -> ParsedRecordingText {
     if !result.parsing_incomplete {
         let mut remaining = value.trim_end();
         for _ in 0..16 {
-            let bracketed = crate::matching::split_balanced_trailing_parenthetical(remaining)
+            let tags = trailing_promotion_tags(remaining);
+            let annotation = tags
+                .or_else(|| crate::matching::split_balanced_trailing_parenthetical(remaining))
                 .or_else(|| crate::matching::split_balanced_trailing_square_group(remaining))
                 .or_else(|| trailing_dash_version(remaining))
                 .or_else(|| trailing_feature_credit(remaining));
-            let Some((base, label)) = bracketed else {
+            let Some((base, label)) = annotation else {
                 break;
             };
             let label_key = crate::matching::normalize(label);
             let parsed = parse_title(remaining);
-            let kind = if is_presentation_label(label) {
+            let kind = if tags.is_some() || is_presentation_label(label) {
                 AnnotationKind::Presentation
             } else if parsed.version.is_some()
                 || matches!(
@@ -320,7 +322,8 @@ pub fn parse_recording_text(value: &str) -> ParsedRecordingText {
                 crate::matching::split_balanced_trailing_parenthetical(remaining).is_some()
                     || crate::matching::split_balanced_trailing_square_group(remaining).is_some()
                     || trailing_dash_version(remaining).is_some()
-                    || trailing_feature_credit(remaining).is_some();
+                    || trailing_feature_credit(remaining).is_some()
+                    || trailing_promotion_tags(remaining).is_some();
         }
         result.annotations.reverse();
     }
@@ -331,6 +334,54 @@ pub fn parse_recording_text(value: &str) -> ParsedRecordingText {
     let key = crate::matching::normalize_title_ignoring_intraword_apostrophes(&result.base_title);
     result.normalized_title_key = (!key.is_empty()).then_some(key);
     result
+}
+
+fn trailing_promotion_tags(value: &str) -> Option<(&str, &str)> {
+    let (base, tags) = value.rsplit_once(" - ")?;
+    if !tags.starts_with('#') {
+        return None;
+    }
+    let mut tokens = tags.split_whitespace();
+    let is_promotion = |token: &str| {
+        token.strip_prefix('#').is_some_and(|tag| {
+            let folded = tag.to_ascii_lowercase();
+            !tag.is_empty()
+                && tag.len() <= 64
+                && tag.chars().all(|ch| ch.is_alphanumeric() || ch == '_')
+                && ![
+                    "mix",
+                    "edit",
+                    "version",
+                    "live",
+                    "cover",
+                    "acoustic",
+                    "instrumental",
+                    "capella",
+                    "cappella",
+                    "remaster",
+                    "sped",
+                    "slowed",
+                    "demo",
+                    "dub",
+                    "karaoke",
+                    "bootleg",
+                    "mashup",
+                    "rework",
+                    "remake",
+                    "nightcore",
+                    "feat",
+                ]
+                .iter()
+                .any(|word| folded.contains(word))
+        })
+    };
+    // A separate tag list after an explicit version is a common upload
+    // caption. Keep tags that could name a distinct recording or edition.
+    (tokens.next().is_some_and(is_promotion)
+        && tokens.next().is_some_and(is_promotion)
+        && tokens.all(is_promotion)
+        && parse_title(base).version.is_some())
+    .then_some((base, tags))
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

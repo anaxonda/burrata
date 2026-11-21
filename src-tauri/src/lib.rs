@@ -1836,14 +1836,18 @@ async fn resolve_track_album(
     state: State<'_, AppState>,
     track: Track,
     request_id: Option<String>,
+    spotify_only: Option<bool>,
 ) -> Result<album_navigation::AlbumResolution> {
     state
         .provider_reads
         .run(request_id, || async {
-            tokio::time::timeout(
-                std::time::Duration::from_secs(20),
-                album_navigation::resolve(&state, &track),
-            )
+            tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                if spotify_only == Some(true) {
+                    album_navigation::resolve_exact_spotify(&state, &track).await
+                } else {
+                    album_navigation::resolve(&state, &track).await
+                }
+            })
             .await
             .map_err(|_| "Album lookup timed out".to_owned())?
         })
@@ -7455,6 +7459,7 @@ async fn prepare_upcoming_playback_source(
         &state.store,
         &state.acquisition,
         &track,
+        None,
         cancel.clone(),
         operation_id,
         handoff,
@@ -8098,6 +8103,8 @@ fn save_settings(
     }
     state.store.save_settings(&settings)?;
     if previous.crossfade_enabled != settings.crossfade_enabled
+        || previous.soft_next_enabled != settings.soft_next_enabled
+        || previous.soft_track_selection_enabled != settings.soft_track_selection_enabled
         || previous.crossfade_seconds != settings.crossfade_seconds
         || previous.matching_level != settings.matching_level
         || previous.flexible_matching != settings.flexible_matching

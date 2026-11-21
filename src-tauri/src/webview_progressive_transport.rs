@@ -14,6 +14,7 @@ const REQUEST_BYTES: u64 = 4 * 1024 * 1024;
 const OVERLAP_BYTES: usize = 16 * 1024;
 const LOOKAHEAD_SECONDS: f64 = 30.;
 const READ_TIMEOUT: Duration = Duration::from_secs(4);
+const MAX_YOUTUBE_REDIRECTS: usize = 3;
 
 pub(super) struct Progressive {
     length: u64,
@@ -252,6 +253,7 @@ enum ReadFailure {
     SourceDenied,
     Transient,
     Invalid,
+    InvalidResponse(u16),
 }
 
 impl ReadFailure {
@@ -259,7 +261,9 @@ impl ReadFailure {
         match self {
             Self::SourceDenied => "Source denied access to compressed audio",
             Self::Transient => "Compressed audio read failed",
-            Self::Invalid => "Compressed audio range or representation changed",
+            Self::Invalid | Self::InvalidResponse(_) => {
+                "Compressed audio range or representation changed"
+            }
         }
     }
 
@@ -267,7 +271,14 @@ impl ReadFailure {
         match self {
             Self::SourceDenied => "source_access",
             Self::Transient => "network",
-            Self::Invalid => "representation_changed",
+            Self::Invalid | Self::InvalidResponse(_) => "representation_changed",
+        }
+    }
+
+    fn status(&self) -> Option<u16> {
+        match self {
+            Self::InvalidResponse(status) => Some(*status),
+            _ => None,
         }
     }
 }
@@ -318,31 +329,68 @@ async fn open_range(
     range: (u64, u64),
     length: u64,
     deadline: Option<PlaybackDeadline>,
+    redirect_client: impl AsyncFn(&url::Url, &url::Url) -> Result<reqwest::Client, ReadFailure>,
 ) -> Result<(reqwest::Response, u64), ReadFailure> {
     let (start, end) = range;
-    let request = endpoint
-        .client
-        .get(endpoint.url.clone())
-        .headers(endpoint.headers.clone())
-        .header(header::RANGE, format!("bytes={start}-{end}"))
-        .send();
-    let expiration = deadline
-        .map(|deadline| deadline.instant())
-        .unwrap_or_else(|| tokio::time::Instant::now() + READ_TIMEOUT)
-        .min(tokio::time::Instant::now() + READ_TIMEOUT);
-    let response = tokio::time::timeout_at(expiration, request)
-        .await
-        .map_err(|_| ReadFailure::Transient)?
-        .map_err(|_| ReadFailure::Transient)?;
-    match response.status().as_u16() {
-        206 => {}
-        401 | 403 | 410 => return Err(ReadFailure::SourceDenied),
-        408 | 429 | 500..=599 => return Err(ReadFailure::Transient),
-        _ => return Err(ReadFailure::Invalid),
+    let read_expiry = tokio::time::Instant::now() + READ_TIMEOUT;
+    let expiration = deadline.map_or(read_expiry, |deadline| deadline.instant().min(read_expiry));
+    let mut current = endpoint.url.clone();
+    let mut client = endpoint.client.clone();
+    let mut visited = Vec::new();
+    loop {
+        let request = client
+            .get(current.clone())
+            .headers(endpoint.headers.clone())
+            .header(header::RANGE, format!("bytes={start}-{end}"))
+            .send();
+        let response = tokio::time::timeout_at(expiration, request)
+            .await
+            .map_err(|_| ReadFailure::Transient)?
+            .map_err(|_| ReadFailure::Transient)?;
+        match response.status().as_u16() {
+            206 => {
+                let count = validate_range(response.headers(), start, end, length)
+                    .ok_or(ReadFailure::InvalidResponse(206))?;
+                return Ok((response, count));
+            }
+            status @ (301 | 302 | 303 | 307 | 308) => {
+                let destination = response
+                    .headers()
+                    .get(header::LOCATION)
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(|value| current.join(value).ok())
+                    .filter(|url| url != &current && !visited.contains(url))
+                    .filter(|_| visited.len() < MAX_YOUTUBE_REDIRECTS)
+                    .ok_or(ReadFailure::InvalidResponse(status))?;
+                drop(response);
+                client =
+                    tokio::time::timeout_at(expiration, redirect_client(&current, &destination))
+                        .await
+                        .map_err(|_| ReadFailure::Transient)?
+                        .map_err(|error| match error {
+                            ReadFailure::Invalid => ReadFailure::InvalidResponse(status),
+                            error => error,
+                        })?;
+                visited.push(current);
+                current = destination;
+            }
+            401 | 403 | 410 => return Err(ReadFailure::SourceDenied),
+            408 | 429 | 500..=599 => return Err(ReadFailure::Transient),
+            status => return Err(ReadFailure::InvalidResponse(status)),
+        }
     }
-    let count =
-        validate_range(response.headers(), start, end, length).ok_or(ReadFailure::Invalid)?;
-    Ok((response, count))
+}
+
+async fn youtube_redirect_client(
+    source: &url::Url,
+    destination: &url::Url,
+) -> Result<reqwest::Client, ReadFailure> {
+    if !acquisition::safe_youtube_media_redirect(source, destination) {
+        return Err(ReadFailure::Invalid);
+    }
+    hls::public_client(destination)
+        .await
+        .map_err(|_| ReadFailure::Transient)
 }
 
 async fn refresh_endpoint(
@@ -456,7 +504,7 @@ async fn transfer(
             retried = true;
             continue;
         }
-        if !matches!(error, ReadFailure::Invalid) && !refreshed {
+        if matches!(error, ReadFailure::Transient | ReadFailure::SourceDenied) && !refreshed {
             let started = tokio::time::Instant::now();
             let replacement = refresh(session, progressive, deadline).await;
             trace_buffered_io(
@@ -502,6 +550,7 @@ fn trace_buffered_io(
             "frameBytes": FRAME_BYTES,
             "ok": failure.is_none(),
             "reason": failure.map(ReadFailure::category),
+            "status": failure.and_then(ReadFailure::status),
         }
     }));
 }
@@ -516,8 +565,14 @@ async fn append_range(
     frames: &mut EncodedFrames,
     output: &mpsc::Sender<Frame>,
 ) -> Result<(), ReadFailure> {
-    let (response, mut remaining) =
-        open_range(endpoint, range, progressive.length, deadline).await?;
+    let (response, mut remaining) = open_range(
+        endpoint,
+        range,
+        progressive.length,
+        deadline,
+        youtube_redirect_client,
+    )
+    .await?;
     let etag = strong_etag(response.headers()).cloned();
     let require_overlap = {
         let identity = progressive
@@ -687,6 +742,61 @@ mod tests {
         assert_eq!(validate_range(&headers, 3, 19, 21), None);
         headers.insert(header::CONTENT_LENGTH, HeaderValue::from_static("3"));
         assert_eq!(validate_range(&headers, 3, 19, 20), None);
+    }
+
+    #[tokio::test]
+    async fn redirected_range_preserves_request_and_validates_response() {
+        let data = Arc::new(b"0123456789".to_vec());
+        let (upstream, server) = ranged_server(data, vec![(3, 6, Some(4))]).await;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let redirect =
+            url::Url::parse(&format!("http://{}/audio", listener.local_addr().unwrap())).unwrap();
+        let redirect_server = tokio::spawn(async move {
+            for _ in 0..2 {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0; 1024];
+                while !request.ends_with(b"\r\n\r\n") {
+                    let count = socket.read(&mut buffer).await.unwrap();
+                    assert!(count > 0);
+                    request.extend_from_slice(&buffer[..count]);
+                }
+                let request = String::from_utf8(request).unwrap().to_ascii_lowercase();
+                assert!(request.contains("\r\nrange: bytes=3-6\r\n"));
+                socket
+                    .write_all(
+                        format!(
+                            "HTTP/1.1 302 Found\r\nLocation: {}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                            upstream.url
+                        )
+                        .as_bytes(),
+                    )
+                    .await
+                    .unwrap();
+            }
+        });
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+        let endpoint = Endpoint {
+            url: redirect,
+            client: client.clone(),
+            headers: HeaderMap::new(),
+        };
+        assert!(matches!(
+            open_range(&endpoint, (3, 6), 10, None, youtube_redirect_client).await,
+            Err(ReadFailure::InvalidResponse(302))
+        ));
+        let result = open_range(&endpoint, (3, 6), 10, None, async |_, _| Ok(client.clone())).await;
+        let Ok((response, count)) = result else {
+            panic!("redirected range failed");
+        };
+        assert_eq!(count, 4);
+        assert_eq!(response.bytes().await.unwrap().as_ref(), b"3456");
+        redirect_server.await.unwrap();
+        server.await.unwrap();
     }
 
     #[tokio::test]

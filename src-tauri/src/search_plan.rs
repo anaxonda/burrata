@@ -17,6 +17,7 @@ pub(crate) enum SearchQueryReason {
     ParentWorkContext,
     SoundtrackContextFallback,
     ReleaseContextFallback,
+    CatalogLabelContext,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -254,6 +255,19 @@ impl SearchPlan {
             }
         }
         if queries.len() < MAX_SEARCH_QUERIES {
+            if let (Some(artist), Some(title)) = (
+                lead.as_deref().or(canonical_artist.as_deref()),
+                traxsource_label_query_title(track),
+            ) {
+                push_query(
+                    &mut queries,
+                    artist,
+                    &title,
+                    SearchQueryReason::CatalogLabelContext,
+                );
+            }
+        }
+        if queries.len() < MAX_SEARCH_QUERIES {
             let fallback_title = search_title_without_soundtrack(track);
             let reason = if fallback_title != rendered_title {
                 SearchQueryReason::SoundtrackContextFallback
@@ -268,6 +282,19 @@ impl SearchPlan {
         }
         Self { queries }
     }
+}
+
+fn traxsource_label_query_title(track: &Track) -> Option<String> {
+    let title = track.title.trim();
+    if track.provider != "traxsource"
+        || track.provenance["manualFields"]["label"] == true
+        || title.is_empty()
+        || title.split_whitespace().take(4).count() > 3
+    {
+        return None;
+    }
+    let label = track.label.as_deref()?.trim();
+    (!label.is_empty() && label.len() <= 96).then(|| format!("{title} {label}"))
 }
 
 fn discogs_parent_work(track: &Track) -> Option<&str> {
@@ -302,6 +329,9 @@ fn render_search_title(title: &str, version: Option<&str>) -> String {
         return title.to_owned();
     };
     let version = crate::matching::strip_trailing_display_runtime(version);
+    if version.is_empty() {
+        return title.to_owned();
+    }
     let key = |value: &str| {
         crate::recording_identity::canonical_version_key(
             &crate::matching::normalize_version_for_title(title, value),
@@ -489,6 +519,34 @@ mod tests {
             let query = &SearchPlan::for_track(&track, &[]).queries[0].text;
             assert!(query.ends_with(version), "{version}: {query}");
         }
+    }
+
+    #[test]
+    fn short_traxsource_title_search_uses_label_context_without_a_display_clock() {
+        let track = Track {
+            provider: "traxsource".into(),
+            title: "Otra Vez".into(),
+            artist: "Ka.2.zU".into(),
+            label: Some("RAIZ MUSIC".into()),
+            version: Some("(6:49)".into()),
+            duration_seconds: Some(409.0),
+            ..Track::default()
+        };
+        let plan = SearchPlan::for_track(&track, &[]);
+        assert_eq!(plan.queries.len(), MAX_SEARCH_QUERIES);
+        assert_eq!(plan.queries[0].text, "Ka.2.zU Otra Vez");
+        assert_eq!(plan.queries[1].text, "Ka.2.zU Otra Vez RAIZ MUSIC");
+        assert_eq!(
+            plan.queries[1].reason,
+            SearchQueryReason::CatalogLabelContext
+        );
+        assert_eq!(track.version.as_deref(), Some("(6:49)"));
+        let mut with_manual_label = track;
+        with_manual_label.provenance = serde_json::json!({"manualFields": {"label": true}});
+        assert_eq!(
+            SearchPlan::for_track(&with_manual_label, &[]).queries.len(),
+            1
+        );
     }
 
     #[test]

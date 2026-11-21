@@ -38,6 +38,7 @@ function render(props: Record<string, unknown> = {}) {
 describe("TrackList", () => {
   it("shows provider-reported Spotify plays and YouTube views without filling in missing counts", async () => {
     const target = render({
+      showProviderCounts: true,
       tracks: [
         { ...tracks[0], provider: "spotify", provenance: { remoteCatalog: { plays: 0 } } },
         { ...tracks[1], provider: "youtube", provenance: { remoteCatalog: { views: 1_200 } } },
@@ -52,6 +53,15 @@ describe("TrackList", () => {
       `${(1_200).toLocaleString()} YouTube views`,
       "2.4M views on YouTube",
     ]);
+  });
+
+  it("hides provider counts on lists that do not opt in", async () => {
+    const target = render({
+      presentation: "playlist",
+      tracks: [{ ...tracks[0], provider: "spotify", provenance: { remoteCatalog: { plays: 100 } } }],
+    });
+    await tick();
+    expect(target.querySelector(".source-count")).toBeNull();
   });
 
   it("shows green saved marks only for confirmed library members and refreshes after a save", async () => {

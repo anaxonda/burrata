@@ -15,6 +15,7 @@
     artworkById = {},
     showUnsorted = true,
     filterActive = false,
+    collapseByDefault = false,
     assignments,
     collections,
     activeCollectionId,
@@ -30,6 +31,7 @@
     sections: PlaylistSection[];
     showUnsorted?: boolean;
     filterActive?: boolean;
+    collapseByDefault?: boolean;
     assignments: PlaylistSectionAssignments;
     collections: PlaylistCollection[];
     activeCollectionId: string;
@@ -107,7 +109,7 @@
 
   {#each groups as group (group.sectionId ?? "__unassigned__")}
     {@const section = sections.find((item) => item.id === group.sectionId)}
-    <details class="playlist-section" class:drag-over={isDragTarget(group.sectionId)} open
+    <details class="playlist-section" class:drag-over={isDragTarget(group.sectionId)} open={!collapseByDefault}
       ondragover={(event) => allowDrop(event, group.sectionId)}
       ondragleave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) dragTarget = null; }}
       ondrop={(event) => drop(event, group.sectionId)}>

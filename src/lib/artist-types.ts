@@ -206,6 +206,7 @@ export interface ArtistLocalAssetsPage {
 }
 
 export interface ArtistPageProps {
+  showProviderCounts?: boolean;
   activeTrack: Track | null;
   artistName?: string | null;
   initialArtistRef?: ArtistRef | null;

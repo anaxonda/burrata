@@ -107,6 +107,8 @@ describe("ArtistPage", () => {
     await settle();
     const menu = target.querySelector<HTMLDetailsElement>(".release-menu")!;
     const summary = menu.querySelector<HTMLElement>("summary")!;
+    expect(summary.textContent).toBe("⋯");
+    expect(menu.parentElement?.lastElementChild).toBe(menu);
     summary.focus(); summary.click();
     expect(menu.open).toBe(true);
     const search = menu.querySelector<HTMLButtonElement>('[aria-label="Search album The Parisian Series on Soulseek"]')!;
@@ -342,7 +344,12 @@ describe("ArtistPage", () => {
     expect(onScroll).toHaveBeenCalledWith(46);
     expect(target.textContent).toContain("Dragon New Warm Mountain");
     expect(target.textContent).not.toContain("Little Things");
-    expect(target.querySelector<HTMLAnchorElement>('a[href="https://musicbrainz.org/release-group/album-1"]')?.textContent).toContain("Open edition source");
+    const card = target.querySelector(".release-card")!;
+    const menu = card.querySelector<HTMLDetailsElement>(".release-menu")!;
+    expect(menu.open).toBe(false);
+    card.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    expect(menu.open).toBe(true);
+    expect(menu.querySelector<HTMLAnchorElement>('a[href="https://musicbrainz.org/release-group/album-1"]')?.textContent).toContain("Open edition source");
     expect(target.querySelector<HTMLButtonElement>(".release-actions button")?.disabled).toBe(true);
   });
 

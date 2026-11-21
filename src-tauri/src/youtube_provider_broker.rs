@@ -236,10 +236,11 @@ pub(super) async fn playback(
     let root = manager
         .plugin_search_root()
         .ok_or("Trusted provider plugin root unavailable")?;
-    if !root
-        .join("burrata/yt_dlp_plugins/extractor/burrata_gate.py")
-        .is_file()
-    {
+    if !manager.plugin_dir.as_deref().is_some_and(|package| {
+        package
+            .join("yt_dlp_plugins/extractor/getpot_zz_burrata_gate.py")
+            .is_file()
+    }) {
         return ordinary(manager).await;
     }
     let usage = register(manager);

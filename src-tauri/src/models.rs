@@ -460,6 +460,10 @@ pub struct Settings {
     pub flexible_matching_notice_pending: bool,
     #[serde(default)]
     pub crossfade_enabled: bool,
+    #[serde(default)]
+    pub soft_next_enabled: bool,
+    #[serde(default)]
+    pub soft_track_selection_enabled: bool,
     #[serde(default = "default_crossfade_seconds")]
     pub crossfade_seconds: u8,
     /// Separate consent for staged weak-metadata audio verification.
@@ -473,6 +477,8 @@ pub struct Settings {
     #[serde(default = "default_playback_startup_timeout_seconds")]
     pub playback_startup_timeout_seconds: u32,
     pub theme: String,
+    #[serde(default = "default_true")]
+    pub show_provider_counts: bool,
     pub yt_dlp_path: String,
     pub ffmpeg_path: String,
     pub ffprobe_path: String,
@@ -607,6 +613,8 @@ impl Default for Settings {
             flexible_matching: Default::default(),
             flexible_matching_notice_pending: false,
             crossfade_enabled: false,
+            soft_next_enabled: false,
+            soft_track_selection_enabled: false,
             crossfade_seconds: default_crossfade_seconds(),
             download_audio_verification_enabled: false,
             pause_on_source_open: false,
@@ -614,6 +622,7 @@ impl Default for Settings {
             preview_delay_ms: 250,
             playback_startup_timeout_seconds: default_playback_startup_timeout_seconds(),
             theme: "dark".into(),
+            show_provider_counts: true,
             yt_dlp_path: "yt-dlp".into(),
             ffmpeg_path: "ffmpeg".into(),
             ffprobe_path: "ffprobe".into(),
@@ -888,12 +897,18 @@ mod flexible_crossfade_settings_tests {
     fn old_flexible_settings_migrate_to_clear_safe_defaults() {
         let mut raw = serde_json::to_value(Settings::default()).unwrap();
         raw.as_object_mut().unwrap().remove("flexibleMatching");
+        raw.as_object_mut().unwrap().remove("softNextEnabled");
+        raw.as_object_mut()
+            .unwrap()
+            .remove("softTrackSelectionEnabled");
         raw["matchingLevel"] = serde_json::json!("flexible");
         let migrated = Settings::from_persisted_value(raw).unwrap();
         assert!(migrated.flexible_matching_notice_pending);
         assert!(migrated.flexible_matching.allow_other_releases);
         assert!(!migrated.flexible_matching.allow_other_artists);
         assert!(!migrated.crossfade_enabled);
+        assert!(!migrated.soft_next_enabled);
+        assert!(!migrated.soft_track_selection_enabled);
         let again =
             Settings::from_persisted_value(serde_json::to_value(migrated).unwrap()).unwrap();
         assert_eq!(again.crossfade_seconds, 5);

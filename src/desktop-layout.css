@@ -115,7 +115,7 @@
 .trash-row>span { flex:1;min-width:0;overflow-wrap:anywhere; }.trash-row small { display:block;color:var(--muted); }
 
 .downloaded-badge{display:inline-grid;place-items:center;width:20px;height:20px;flex:none;margin-left:7px;border-radius:50%;background:var(--accent);color:var(--base);font-size:13px;font-weight:800}
-.playlist-context-trigger { min-width:36px; min-height:36px; padding:0 .5rem; font-size:22px; line-height:1; }
+.playlist-context-trigger { margin-inline-start:auto; min-width:36px; min-height:36px; padding:0 .5rem; font-size:22px; line-height:1; }
 
 /* Keep a useful browser column alongside the player pane at desktop half-widths. */
 @media(min-width:901px) and (max-width:1199px) {
@@ -236,7 +236,8 @@
 .playlist-header > div:nth-child(2) { flex:1; min-width:0; }
 .chart-context.import-context { justify-content:flex-start; }
 .chart-context.import-context > span:empty { display:none; }
-.chart-context.import-context .chart-source-actions { flex-wrap:wrap; }
+.chart-context .chart-source-actions { flex:1; justify-content:flex-end; }
+.chart-context.import-context .chart-source-actions { flex-wrap:wrap; justify-content:flex-start; }
 .chart-context.import-context label { display:flex; align-items:center; gap:8px; min-width:0; }
 @media (min-width: 901px) {
   .table-tools.compact-tools .local-filter { flex-shrink:0; }

@@ -30,6 +30,10 @@
   let focusedKey = $state("");
   let rootBusy = $state(false);
   let treeOpen = $state(true);
+  export function collapseAll() {
+    treeOpen = false;
+    expanded = new Set();
+  }
   let treeElement: HTMLElement | undefined = $state();
   let rootRequest = 0;
   let destroyed = false;

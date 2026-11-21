@@ -130,7 +130,7 @@ test('Spotify artist releases and rich album tracks use pinned Pathfinder querie
    if(request.operationName==='profileAttributes')return {ok:true,status:200,text:async()=>JSON.stringify({data:{me:{profile:{uri:'spotify:user:account-123',name:'Fixture account'}}}})};
    if(request.operationName==='queryArtistMinimal')return {ok:true,status:200,text:async()=>JSON.stringify({data:{artistUnion}})};
    if(request.operationName==='queryArtistDiscographyAll'){
-    const items=variables.offset===0?[{releases:{items:[release(albumId,'First release')]}},{releases:{items:[]}}]:[{releases:{items:[release(secondAlbumId,'Second release')]}}];
+    const items=variables.offset===0?[{releases:{items:[{...release(albumId,'First release'),tracks:{totalCount:51}}]}},{releases:{items:[]}}]:[{releases:{items:[release(secondAlbumId,'Second release')]}}];
     const {uri:omittedArtistUri,...discographyArtistUnion}=artistUnion;
     const responseArtistUnion=discographyIdentityMode==='mismatch'?{...discographyArtistUnion,uri:'spotify:artist:BBBBBBBBBBBBBBBBBBBBBB'}:discographyArtistUnion;
     return {ok:true,status:200,text:async()=>JSON.stringify({data:{artistUnion:{...responseArtistUnion,discography:{all:{totalCount:3,items}}}}})};
@@ -151,7 +151,7 @@ test('Spotify artist releases and rich album tracks use pinned Pathfinder querie
  const artist=JSON.parse(JSON.stringify(await context.BurrataSpotifyProvider.run('spotify','getArtist',{artistId},hashes)));
  assert.equal(artist.artist?.title,'Fixture Artist',JSON.stringify(artist));assert.equal(artist.artist.artworkUrl,'https://i.scdn.co/image/artist');assert.equal(artist.artist.data.followers,0);
  const pageOne=JSON.parse(JSON.stringify(await context.BurrataSpotifyProvider.run('spotify','getArtistAlbums',{artistId,limit:30},hashes)));
- assert.equal(pageOne.items.length,1);assert.equal(pageOne.items[0].title,'First release');assert.equal(pageOne.items[0].artworkUrl,`https://i.scdn.co/image/${albumId}`);assert.equal(pageOne.total,3);assert.equal(pageOne.nextCursor,'2');assert.equal(pageOne.unrecognizedCount,1);assert.equal(Object.hasOwn(pageOne,'complete'),false);
+ assert.equal(pageOne.items.length,1);assert.equal(pageOne.items[0].title,'First release');assert.equal(pageOne.items[0].data.totalTracks,51);assert.equal(pageOne.items[0].artworkUrl,`https://i.scdn.co/image/${albumId}`);assert.equal(pageOne.total,3);assert.equal(pageOne.nextCursor,'2');assert.equal(pageOne.unrecognizedCount,1);assert.equal(Object.hasOwn(pageOne,'complete'),false);
  const pageTwo=JSON.parse(JSON.stringify(await context.BurrataSpotifyProvider.run('spotify','getArtistAlbums',{artistId,limit:30,cursor:pageOne.nextCursor},hashes)));
  assert.equal(pageTwo.items[0].id,secondAlbumId);assert.equal(pageTwo.total,3);assert.equal(pageTwo.nextCursor,null);
  discographyIdentityMode='mismatch';const mismatchedDiscography=await context.BurrataSpotifyProvider.run('spotify','getArtistAlbums',{artistId,limit:30},hashes);assert.equal(mismatchedDiscography.__burrataProviderError.code,'PROVIDER_CHANGED');

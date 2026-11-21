@@ -8,8 +8,12 @@
   import { call, desktop } from "./lib/api";
   import { filterTracks, parseDurationBound, sortTracks, type SortDirection, type TrackSortField } from "./lib/track-sort";
   import { trackSortAvailabilityForSources, trackSortOptionLabelForSources } from "./lib/track-sort-availability";
-  import { safeArtworkUrl } from "./lib/artwork-url";
+  import { safeArtworkUrl, safeArtworkUrls } from "./lib/artwork-url";
+  import { musicBrainzCover } from "./lib/catalog-artwork";
+  import ArtworkImage from "./ArtworkImage.svelte";
   import TrackList from "./TrackList.svelte";
+  import ActionMenu from "./ActionMenu.svelte";
+  import MenuIcon from "./MenuIcon.svelte";
   import VirtualResults from "./VirtualResults.svelte";
   import { ProviderReadCancellation } from "./lib/provider-read-cancellation";
   import { providerNavigationSnapshots } from "./lib/provider-navigation-snapshots";
@@ -42,7 +46,7 @@
     query: initialQuery = "", navigationSnapshotKey = null, initialSources, availableSources, sourceCapabilities = {}, searchSource, enrichSource, enrichTrack, searchPreset, startupReadStorage,
     onRemoteResult = () => {}, onAddRemotePlaylist, onOpenBandcampPlaylist, onPlaylistTracks, onQueueTracks, onDownloadTracks, onArtist = () => {}, loadArtistProfile, onArtistTrack = () => {}, onAlbum = () => {}, onTrackAlbum, onQueryChange = () => {}, onPlay = () => {}, onDownload = () => {}, onFavorite, onNext, onQueue, onContext,
     onPlayChapter = () => {}, onQueueChapter = () => {}, onDownloadChapter = () => {}, onInfoChapter = () => {}, onInspectedChapters,
-    playingTrack = null, bufferingTrack = null, playingTrackId = "", bufferingTrackId = "", paused = false,
+    playingTrack = null, bufferingTrack = null, playingTrackId = "", bufferingTrackId = "", paused = false, showProviderCounts = true,
     automationSearch = null, automationSearchCancelled = null, onAutomationSearchComplete = () => {},
   }: {
     navigationSnapshotKey?: string | null;
@@ -66,7 +70,7 @@
     onDownloadChapter?: (parent: Track, candidate: Candidate, chapter: Chapter) => void;
     onInfoChapter?: (parent: Track, candidate: Candidate, chapter: Chapter) => void;
     onInspectedChapters?: (hint: SearchPlaybackChapters) => void;
-    playingTrack?: Track | null; bufferingTrack?: Track | null; playingTrackId?: string; bufferingTrackId?: string; paused?: boolean;
+    playingTrack?: Track | null; bufferingTrack?: Track | null; playingTrackId?: string; bufferingTrackId?: string; paused?: boolean; showProviderCounts?: boolean;
     automationSearch?: AutomationSearchRequest | null;
     automationSearchCancelled?: string | null;
     onAutomationSearchComplete?: (report: AutomationSearchReport) => void | Promise<void>;
@@ -75,6 +79,17 @@
   const providerReads = new ProviderReadCancellation(call);
 
   let navigationReady = $state(false);
+  let albumSourceMenu = $state<{ title: string; url: string; anchor: { x: number; y: number } } | null>(null);
+  function openAlbumSourceMenu(row: SearchRow, event: (MouseEvent | KeyboardEvent) & { currentTarget: HTMLElement }) {
+    if (!row.url || row.kind !== "album") return;
+    event.preventDefault();
+    const trigger = event.currentTarget;
+    const bounds = trigger.getBoundingClientRect();
+    const anchor = event instanceof MouseEvent && (event.clientX !== 0 || event.clientY !== 0)
+      ? { x: event.clientX, y: event.clientY }
+      : { x: bounds.left, y: bounds.bottom };
+    albumSourceMenu = { title: row.title, url: row.url, anchor };
+  }
   let navigationDestroyed = false;
   let navigationRestoreEpoch = 0;
   let navigationAccountScopes: Record<string,string|null> = {};
@@ -597,7 +612,12 @@
   function mergeRows(sourceId: string, incoming: SearchRow[], append: boolean) {
     const merged = append ? [...(rowsBySource[sourceId] ?? []), ...incoming] : incoming;
     const unique = new Map<string, SearchRow>();
-    for (const row of merged) unique.set(identity(row), row);
+    for (const row of merged) {
+      const artworkUrl = safeArtworkUrl(row.artworkUrl);
+      const item = row.track && !safeArtworkUrl(row.track.artworkUrl) && artworkUrl
+        ? { ...row, track: { ...row.track, artworkUrl } } : row;
+      unique.set(identity(row), item);
+    }
     rowsBySource = { ...rowsBySource, [sourceId]: [...unique.values()] };
   }
   function queueNewSearchRows(incoming: SearchRow[], request: number) {
@@ -1306,6 +1326,9 @@
       </div></details>
     </fieldset>
       {#if trackControlsApplicable && (Object.values(cursors).some(Boolean) || Object.values(overflowRows).some(rows => rows.length > 0))}<button type="button" class="collect-more" onclick={() => void collectMoreSearchResults()} disabled={collectingSearch}>Collect more tracks</button>{/if}
+    {#if onQueueTracks && playableOccurrences.length}
+      <button type="button" class="queue-search-results" title="Append loaded tracks in the displayed order" onclick={() => onQueueTracks(playableOccurrences.map(({ track, row }) => trackWithSearchChapters(track, row)), "append")}>Queue results</button>
+    {/if}
     {#if onPlaylistTracks && loadedSearchTrackRows.length}<div class="search-playlist-selection" role="group" aria-label="Search track selection">
       {#if searchSelectionMode}<span>{selectedSearchTracks.length ? `${selectedSearchTracks.length} tracks selected` : `${loadedSearchTrackRows.length} tracks loaded`}</span><button type="button" onclick={() => selectedTrackRows = loadedSearchTrackRows}>Select loaded</button>{#if selectedSearchTracks.length}<button type="button" onclick={() => selectedTrackRows = []}>Clear selection</button>{#if onQueueTracks}<button type="button" class="add-search-queue" onclick={() => onQueueTracks(selectedLoadedSearchRows.flatMap(row => row.track ? [trackWithSearchChapters(row.track, row)] : []), "append")}>Add to queue</button>{/if}<button type="button" class="add-search-selected" onclick={() => void onPlaylistTracks?.(selectedSearchTracks)}>Add selected to playlist</button>{/if}<button type="button" class="cancel-search-selection" onclick={cancelSearchTrackSelection}>Cancel</button>
       {:else}<span>{loadedSearchTrackRows.length} tracks loaded</span><button type="button" class="start-search-selection" aria-label="Select search tracks" onclick={() => searchSelectionMode = true}>Select</button>{/if}
@@ -1328,14 +1351,20 @@
           {#snippet children(row, _index)}
             {@const track = row.track}
             {@const lazyImage = row.sourceId === "musicbrainz" && row.kind === "artist" ? lazyArtistArtwork[rowArtist(row)?.id ?? ""] : null}
-            {@const artwork = safeArtworkUrl(lazyImage) ?? safeArtworkUrl(row.artworkUrl)}
-            <article class="result-row" use:observeMusicBrainzArtwork={row} class:expanded={expanded[identity(row)]} oncontextmenu={track && onContext ? (event) => { event.preventDefault(); openResultActions(track, row, event); } : undefined}>
+            {@const albumArtwork = row.kind === "album" && row.data && typeof row.data === "object"
+              ? (row.data as { artworkUrls?: unknown }).artworkUrls : null}
+            {@const artwork = safeArtworkUrls([lazyImage, row.artworkUrl,
+              ...(Array.isArray(albumArtwork) ? albumArtwork.slice(0, 6) : []),
+              row.kind === "album" ? musicBrainzCover(row.url) : null])}
+            <article class="result-row" use:observeMusicBrainzArtwork={row} class:expanded={expanded[identity(row)]} oncontextmenu={track && onContext ? (event) => { event.preventDefault(); openResultActions(track, row, event); } : (event) => openAlbumSourceMenu(row, event)}>
               <div class="result-main">
-                {#if !track}<div class="result-title">{#if artwork}<span class="search-result-art" class:portrait={["artist", "profile", "channel"].includes(row.kind)} aria-hidden="true"><span>♫</span><img src={artwork} alt="" loading="lazy" onerror={(event) => { (event.currentTarget as HTMLImageElement).hidden = true; }} /></span>{/if}<span class="kind-badge">{row.kind === "video" || row.kind === "set" ? "Video / set" : row.kind}</span>{#if nonTrackAction(row)}<button class="open-result" aria-label={`${nonTrackAction(row)}: ${row.title}`} title={row.title} onclick={() => openNonTrackResult(row)}><strong>{row.title}</strong><span>{nonTrackAction(row)} →</span></button>{:else}<strong class="result-row-title" title={row.title}>{row.title}</strong>{/if}</div>{/if}
+                {#if !track}<div class="result-title">{#if artwork.length}<span class="search-result-art" class:portrait={["artist", "profile", "channel"].includes(row.kind)} aria-hidden="true"><ArtworkImage urls={artwork} /></span>{/if}<span class="kind-badge">{row.kind === "video" || row.kind === "set" ? "Video / set" : row.kind}</span>{#if nonTrackAction(row)}<button class="open-result" aria-label={`${nonTrackAction(row)}: ${row.title}`} title={row.title} aria-keyshortcuts={row.kind === "album" && row.url ? "Shift+F10" : undefined} onkeydown={(event) => {
+                  if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) openAlbumSourceMenu(row, event);
+                }} onclick={() => openNonTrackResult(row)}><strong>{row.title}</strong><span>{nonTrackAction(row)} →</span></button>{:else}<strong class="result-row-title" title={row.title}>{row.title}</strong>{/if}</div>{/if}
                 {#if !track && row.subtitle}<p class="subtitle">{row.subtitle}</p>{/if}
                 {#if track}
                   {#if onPlaylistTracks && searchSelectionMode}<label class="search-track-select"><input type="checkbox" aria-label={`Select ${track.title} for playlist`} checked={selectedTrackRows.includes(row)} onchange={() => toggleSelectedSearchTrack(row)} />Select</label>{/if}
-                  <div class="compact-track"><TrackList tracks={[track]} presentation="playlist" position={() => rows.slice(0, _index + 1).filter(item => item.track).length} listLabel={`${source.name} track result`} onPlay={() => playSearchResult(track, source.id, row)} onDownload={onDownload} onFavorite={onFavorite} onNext={onNext ? (item) => onNext(trackWithSearchChapters(item, row)) : undefined} onQueue={onQueue ? (item) => onQueue(trackWithSearchChapters(item, row)) : undefined} onArtist={onArtistTrack} onAlbum={onTrackAlbum ? (item) => onTrackAlbum(item, searchMode === "library" && source.id === "library") : undefined} onContext={onContext ? (item, event) => openResultActions(item, row, event) : undefined} onInfo={() => { expanded = { ...expanded, [identity(row)]: !expanded[identity(row)] }; }} meta={() => [source.name, track.localAvailability === "available" ? "In library" : null, track.releaseDate, track.durationSeconds ? `${Math.floor(track.durationSeconds / 60)}:${String(Math.floor(track.durationSeconds % 60)).padStart(2, "0")}` : null].filter(Boolean).join(" · ")} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} /></div>
+                  <div class="compact-track"><TrackList {showProviderCounts} tracks={[track]} presentation="playlist" position={() => rows.slice(0, _index + 1).filter(item => item.track).length} listLabel={`${source.name} track result`} onPlay={() => playSearchResult(track, source.id, row)} onDownload={onDownload} onFavorite={onFavorite} onNext={onNext ? (item) => onNext(trackWithSearchChapters(item, row)) : undefined} onQueue={onQueue ? (item) => onQueue(trackWithSearchChapters(item, row)) : undefined} onArtist={onArtistTrack} onAlbum={onTrackAlbum ? (item) => onTrackAlbum(item, searchMode === "library" && source.id === "library") : undefined} onContext={onContext ? (item, event) => openResultActions(item, row, event) : undefined} onInfo={() => { expanded = { ...expanded, [identity(row)]: !expanded[identity(row)] }; }} meta={() => [source.name, track.localAvailability === "available" ? "In library" : null, track.releaseDate, track.durationSeconds ? `${Math.floor(track.durationSeconds / 60)}:${String(Math.floor(track.durationSeconds % 60)).padStart(2, "0")}` : null].filter(Boolean).join(" · ")} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} /></div>
                   {@const cachedChapterState = chapterState(row)}
                   {#if canLookUpChapters(row) && cachedChapterState && typeof cachedChapterState === "object"}
                     <details class="chapter-details" open={Boolean(chapterExpanded[identity(row)])} ontoggle={(event) => { chapterExpanded = { ...chapterExpanded, [identity(row)]: event.currentTarget.open }; }}><summary class="chapter-badge available">Chapters · {cachedChapterState.chapters?.length ?? 0}</summary>
@@ -1359,7 +1388,7 @@
                     <p class="soulseek-folder-status" role="status">{soulseekFolderComplete[folder.identity] ? `Folder listing complete · ${folderTracks.length} audio files` : `Partial folder listing · ${folderTracks.length} audio files; more may exist`}</p>
                     {#if onDownloadTracks && folderTracks.length}<button type="button" class="soulseek-download-folder" onclick={() => void onDownloadTracks?.(folderTracks)}>Download folder tracks</button>{/if}
                     {#if onQueueTracks && folderTracks.length}<button type="button" class="soulseek-queue-folder" onclick={() => onQueueTracks?.(folderTracks, "append")}>Add folder to queue</button>{/if}
-                    {#if folderTracks.length}<div class="soulseek-folder-track-list"><TrackList tracks={folderTracks} presentation="playlist" listLabel={`${folder.folderName} peer folder files`} onPlay={(track, tracks, index) => onPlay(track, tracks, index)} onDownload={onDownload} onFavorite={onFavorite} onNext={onNext} onQueue={onQueue} onArtist={onArtistTrack} onAlbum={onTrackAlbum} onContext={onContext} meta={() => "Soulseek peer file · unverified source metadata"} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} /></div>
+                    {#if folderTracks.length}<div class="soulseek-folder-track-list"><TrackList {showProviderCounts} tracks={folderTracks} presentation="playlist" listLabel={`${folder.folderName} peer folder files`} onPlay={(track, tracks, index) => onPlay(track, tracks, index)} onDownload={onDownload} onFavorite={onFavorite} onNext={onNext} onQueue={onQueue} onArtist={onArtistTrack} onAlbum={onTrackAlbum} onContext={onContext} meta={() => "Soulseek peer file · unverified source metadata"} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} /></div>
                     {:else if !soulseekFolderBusy[folder.identity]}<p class="search-empty">No audio files were returned for this peer folder.</p>{/if}
                   {/if}
                 {:else if row.sourceId === "soulseek" && row.kind === "artist"}
@@ -1377,17 +1406,13 @@
                         <p class="soulseek-folder-status" role="status">{soulseekFolderComplete[folder.identity] ? `Folder listing complete · ${folderTracks.length} audio files` : `Partial folder listing · ${folderTracks.length} audio files; more may exist`}</p>
                         {#if onDownloadTracks && folderTracks.length}<button type="button" class="soulseek-download-folder" onclick={() => void onDownloadTracks?.(folderTracks)}>Download folder tracks</button>{/if}
                         {#if onQueueTracks && folderTracks.length}<button type="button" class="soulseek-queue-folder" onclick={() => onQueueTracks?.(folderTracks, "append")}>Add folder to queue</button>{/if}
-                        {#if folderTracks.length}<div class="soulseek-folder-track-list"><TrackList tracks={folderTracks} presentation="playlist" listLabel={`${folder.folderName} peer folder files`} onPlay={(track, tracks, index) => onPlay(track, tracks, index)} onDownload={onDownload} onFavorite={onFavorite} onNext={onNext} onQueue={onQueue} onArtist={onArtistTrack} onAlbum={onTrackAlbum} onContext={onContext} meta={() => "Soulseek peer file · unverified source metadata"} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} /></div>
+                        {#if folderTracks.length}<div class="soulseek-folder-track-list"><TrackList {showProviderCounts} tracks={folderTracks} presentation="playlist" listLabel={`${folder.folderName} peer folder files`} onPlay={(track, tracks, index) => onPlay(track, tracks, index)} onDownload={onDownload} onFavorite={onFavorite} onNext={onNext} onQueue={onQueue} onArtist={onArtistTrack} onAlbum={onTrackAlbum} onContext={onContext} meta={() => "Soulseek peer file · unverified source metadata"} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} /></div>
                         {:else if !soulseekFolderBusy[folder.identity]}<p class="search-empty">No audio files were returned for this peer folder.</p>{/if}
                       {/if}
                     </section>{/each}
                   </div>{:else}<p class="soulseek-unverified">No observed folder locators are available for this artist group yet.</p>{/if}
-                {:else if ["playlist","profile","channel"].includes(row.kind) || (row.sourceId==="spotify" && ["album","artist"].includes(row.kind))}
+                {:else if ["playlist","profile","channel"].includes(row.kind) || row.kind === "album" || (["spotify", "bandcamp"].includes(row.sourceId) && row.kind === "artist")}
                   {#if ["spotify", "youtube"].includes(row.sourceId) && row.kind === "playlist" && onAddRemotePlaylist}<button class="add-playlist-result" type="button" disabled={playlistImportDone.includes(identity(row))} onclick={() => void addPlaylistResult(row)}>{playlistImportBusy.includes(identity(row)) ? "Adding…" : playlistImportDone.includes(identity(row)) ? "Added to library" : "Add to library"}</button>{#if playlistImportBusy.includes(identity(row))}<span class="notice" role="status">{playlistImportProgress[identity(row)] ?? "Adding playlist…"}</span><button type="button" onclick={() => cancelPlaylistImport(row)}>Cancel import</button>{/if}{#if playlistImportProgress[identity(row)] && !playlistImportBusy.includes(identity(row))}<p class="notice" role="status">{playlistImportProgress[identity(row)]}</p>{/if}{#if playlistImportErrors[identity(row)]}<p class="notice error" role="alert">{playlistImportErrors[identity(row)]}</p>{/if}{/if}
-                {:else if row.sourceId === "bandcamp" && (row.kind === "artist" || row.kind === "album")}
-                  {#if row.kind === "album" && row.url}<a href={row.url} target="_blank" rel="noreferrer">Open album page ↗</a>{/if}
-                {:else if row.kind === "album"}
-                  {#if row.url}<a href={row.url} target="_blank" rel="noreferrer">Open source ↗</a>{/if}
                 {:else}
                   <button class="details-toggle" aria-expanded={Boolean(expanded[identity(row)])} onclick={() => expanded = { ...expanded, [identity(row)]: !expanded[identity(row)] }}>{expanded[identity(row)] ? "Hide details" : "Details"}</button>
                   {#if expanded[identity(row)]}
@@ -1409,6 +1434,14 @@
   </div>
 </section>
 
+{#if albumSourceMenu}
+  <ActionMenu label={`Actions for ${albumSourceMenu.title}`} title={albumSourceMenu.title} anchor={albumSourceMenu.anchor} onClose={() => albumSourceMenu = null}>
+    <div class="source-row">
+      <a class="source-link" href={albumSourceMenu.url} target="_blank" rel="noreferrer" onclick={() => albumSourceMenu = null}><MenuIcon name="external" /><span>Open album source</span></a>
+    </div>
+  </ActionMenu>
+{/if}
+
 <style>
   .sources-toggle{white-space:nowrap;font-size:.82rem;justify-self:start}
   .source-picker{position:fixed;z-index:1000;width:min(320px,calc(100vw - 16px));box-sizing:border-box;overflow:auto;padding:10px;border:1px solid var(--line,#454a50);border-radius:9px;background:var(--surface,#202823);color:var(--text,#eee);box-shadow:0 8px 24px #0007}
@@ -1427,8 +1460,9 @@
   .continue-setting{flex-direction:row;margin:0}.continue-setting input{width:auto;flex:none;margin:0;padding:0}.collection-controls label{margin:0}
   button,input,select{font:inherit}button{cursor:pointer}input,select{color:inherit;background:var(--surface,#202328);border:1px solid var(--border,#454a50);border-radius:7px;padding:.5rem .65rem}select:disabled{opacity:.55;cursor:default}.primary{background:var(--accent);border-color:var(--accent);color:var(--base)}.search-form input{flex:1;min-width:0;height:36px;padding:.35rem .6rem}.search-form button{min-height:36px;padding:.35rem .6rem}.filters{display:flex;gap:.4rem;flex-wrap:wrap}.filters button{font-size:.84rem}.filters button.active{border-color:var(--accent,#9dbfff);color:var(--accent,#9dbfff)}
   .scope-controls{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:.55rem;min-width:0}.search-mode{display:flex;min-width:0;padding:3px;gap:2px;border:1px solid var(--border,#454a50);border-radius:9px;background:var(--surface,#202328)}.search-mode button{min-width:0;padding:.4rem .65rem;border:0;background:transparent;font-size:.82rem;white-space:nowrap}.search-mode button.active{background:var(--accent,#4c78c8);color:var(--base,#fff)}.library-helper{grid-column:2/-1;min-width:0;margin:0;color:var(--muted,#a3a8ae);font-size:.76rem;line-height:1.35}.scope-hint{margin:0;color:var(--muted,#a3a8ae);font-size:.8rem;line-height:1.4}
-  .source-results{display:flex;flex-direction:column;gap:.65rem;min-width:0}.source-group{min-width:0;max-width:100%;border:1px solid var(--border,#383d43);border-radius:10px;padding:.55rem}.source-group>header{padding:0 .15rem .35rem}.source-group h3{margin:0;font-size:.93rem}.result-row{min-width:0;border-top:1px solid var(--border,#30343a);padding:.5rem .15rem}.result-main{min-width:0;overflow-wrap:anywhere}.result-title{display:flex;align-items:center;gap:.5rem;min-width:0}.result-title strong{font-size:.92rem;min-width:0;overflow-wrap:anywhere}.result-row-title{flex:1 1 auto}.search-result-art{position:relative;display:grid;place-items:center;flex:0 0 32px;width:32px;height:32px;overflow:hidden;border-radius:4px;background:var(--surface,#202328);color:var(--muted,#a3a8ae)}.search-result-art.portrait{border-radius:50%}.search-result-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.kind-badge{display:inline-flex;flex:none;border-radius:999px;background:var(--surface,#202328);padding:.18rem .48rem;color:var(--muted,#a3a8ae);font-size:.69rem}.subtitle{margin:.2rem 0 0 .1rem;overflow-wrap:anywhere}.open-result{display:inline-flex;align-items:baseline;flex:1 1 auto;gap:.45rem;max-width:100%;min-width:0;border:0;padding:.2rem 0;background:none;text-align:left;color:inherit;font-weight:600;white-space:normal;overflow-wrap:anywhere}.open-result strong{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.open-result span{flex:none;color:var(--accent,#9dbfff);font-size:.76rem}.result-main>a{display:inline-block;margin-top:.35rem;color:var(--accent,#9dbfff);font-size:.78rem;overflow-wrap:anywhere}.details-toggle{margin-top:.4rem;padding:.3rem .45rem;font-size:.75rem}.result-details{margin:.35rem 0;overflow-wrap:anywhere}.chapter-details{margin-top:.4rem;max-width:100%}.chapter-badge{display:inline-flex;margin-top:.4rem;border-radius:999px;background:var(--surface,#202328);padding:.2rem .55rem;color:var(--muted,#a3a8ae);font-size:.72rem;white-space:normal;overflow-wrap:anywhere}.chapter-badge.available{color:var(--accent,#9dbfff);cursor:pointer}.chapter-check{margin:.25rem 0;padding:.2rem .4rem;font-size:.72rem;color:var(--muted,#a3a8ae)}.chapter-lookup-status{margin:.25rem;color:var(--muted,#a3a8ae);font-size:.72rem}.chapter-list{margin-top:.55rem;padding:.45rem;border-left:2px solid var(--accent,#9dbfff);min-width:0}.chapter-row{display:flex;align-items:center;gap:.3rem;margin-top:.35rem;min-width:0;flex-wrap:wrap}.chapter-row span{flex:1 1 10rem;min-width:0;font-size:.78rem;overflow-wrap:anywhere}.chapter-row button{font-size:.76rem;padding:.35rem .5rem}.notice{margin:.35rem 0;font-size:.8rem;color:var(--muted,#a3a8ae);overflow-wrap:anywhere}.error{color:#ff9b9b}.load-more{margin:.4rem}.search-empty{padding:.25rem;overflow-wrap:anywhere}.source-group a{color:var(--accent,#9dbfff)}
+  .source-results{display:flex;flex-direction:column;gap:.65rem;min-width:0}.source-group{min-width:0;max-width:100%;border:1px solid var(--border,#383d43);border-radius:10px;padding:.55rem}.source-group>header{padding:0 .15rem .35rem}.source-group h3{margin:0;font-size:.93rem}.result-row{min-width:0;border-top:1px solid var(--border,#30343a);padding:.5rem .15rem}.result-main{min-width:0;overflow-wrap:anywhere}.result-title{display:flex;align-items:center;gap:.5rem;min-width:0}.result-title strong{font-size:.92rem;min-width:0;overflow-wrap:anywhere}.result-row-title{flex:1 1 auto}.search-result-art{position:relative;display:grid;place-items:center;flex:0 0 32px;width:32px;height:32px;overflow:hidden;border-radius:4px;background:var(--surface,#202328);color:var(--muted,#a3a8ae)}.search-result-art.portrait{border-radius:50%}.kind-badge{display:inline-flex;flex:none;border-radius:999px;background:var(--surface,#202328);padding:.18rem .48rem;color:var(--muted,#a3a8ae);font-size:.69rem}.subtitle{margin:.2rem 0 0 .1rem;overflow-wrap:anywhere}.open-result{display:inline-flex;align-items:baseline;flex:1 1 auto;gap:.45rem;max-width:100%;min-width:0;border:0;padding:.2rem 0;background:none;text-align:left;color:inherit;font-weight:600;white-space:normal;overflow-wrap:anywhere}.open-result strong{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.open-result span{flex:none;color:var(--accent,#9dbfff);font-size:.76rem}.result-main>a{display:inline-block;margin-top:.35rem;color:var(--accent,#9dbfff);font-size:.78rem;overflow-wrap:anywhere}.details-toggle{margin-top:.4rem;padding:.3rem .45rem;font-size:.75rem}.result-details{margin:.35rem 0;overflow-wrap:anywhere}.chapter-details{margin-top:.4rem;max-width:100%}.chapter-badge{display:inline-flex;margin-top:.4rem;border-radius:999px;background:var(--surface,#202328);padding:.2rem .55rem;color:var(--muted,#a3a8ae);font-size:.72rem;white-space:normal;overflow-wrap:anywhere}.chapter-badge.available{color:var(--accent,#9dbfff);cursor:pointer}.chapter-check{margin:.25rem 0;padding:.2rem .4rem;font-size:.72rem;color:var(--muted,#a3a8ae)}.chapter-lookup-status{margin:.25rem;color:var(--muted,#a3a8ae);font-size:.72rem}.chapter-list{margin-top:.55rem;padding:.45rem;border-left:2px solid var(--accent,#9dbfff);min-width:0}.chapter-row{display:flex;align-items:center;gap:.3rem;margin-top:.35rem;min-width:0;flex-wrap:wrap}.chapter-row span{flex:1 1 10rem;min-width:0;font-size:.78rem;overflow-wrap:anywhere}.chapter-row button{font-size:.76rem;padding:.35rem .5rem}.notice{margin:.35rem 0;font-size:.8rem;color:var(--muted,#a3a8ae);overflow-wrap:anywhere}.error{color:#ff9b9b}.load-more{margin:.4rem}.search-empty{padding:.25rem;overflow-wrap:anywhere}.source-group a{color:var(--accent,#9dbfff)}
   .search-playlist-selection{display:flex;align-items:center;gap:.5rem;padding:.4rem .55rem;border:1px solid var(--border,#454a50);border-radius:8px;margin:.4rem 0}.search-playlist-selection span{margin-right:auto}.search-track-select{display:inline-flex;align-items:center;gap:.25rem;font-size:.75rem;color:var(--muted,#a3a8ae)}.add-playlist-result{margin:.4rem .45rem 0 0}
+  .queue-search-results{min-height:32px;padding:.3rem .6rem;font-size:.78rem}
   .result-row:has(.compact-track){padding:.15rem}
   @media(max-width:640px){.search-panel{padding:.7rem}.search-form{flex-wrap:wrap}.search-form .search-input-wrap{flex:1 1 100%}.search-form input{flex-basis:100%}.scope-controls{grid-template-columns:auto minmax(0,1fr)}.search-mode{grid-column:1/-1;justify-self:start}.library-helper{grid-column:1/-1}.search-mode button{padding:.4rem .5rem}.chapter-row{flex-wrap:wrap}.chapter-row span{flex-basis:100%}}
   @media(max-width:640px){.result-row:has(.compact-track){padding:0 .15rem}}

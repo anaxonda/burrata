@@ -1,6 +1,7 @@
 use crate::models::{Candidate, Track};
 use crate::recording_match::{
-    assess, assess_with_options, FlexibleMatchingOptions, MatchAction, MatchLevel, MatchStage,
+    assess, assess_with_options, FlexibleMatchingOptions, MatchAction, MatchLevel,
+    MatchRelationship, MatchStage,
 };
 use serde_json::json;
 
@@ -41,6 +42,347 @@ fn assert_same_recording(request: &Track, candidate: &Candidate) {
             resolved.action,
             MatchAction::Accept,
             "{level:?} {request:?} {candidate:?} {resolved:?}"
+        );
+    }
+}
+
+fn traxsource_mix(title: &str, version: &str, duration: f64, credits: &[&str]) -> Track {
+    Track {
+        provider: "traxsource".into(),
+        title: title.into(),
+        version: Some(version.into()),
+        artist: credits.join(", "),
+        duration_seconds: Some(duration),
+        provenance: json!({
+            "sourceKind": "chart",
+            "artistCredits": credits.iter().map(|name| json!({
+                "name": name, "role": "artist", "provenance": "traxsourceRenderedArtistLink"
+            })).collect::<Vec<_>>()
+        }),
+        ..Track::default()
+    }
+}
+
+fn youtube_mix(id: &str, title: &str, duration: f64, stage: MatchStage) -> Candidate {
+    let origin = if stage == MatchStage::Search {
+        "ytDlpCandidateMetadata"
+    } else {
+        "ytDlpFullInfo"
+    };
+    Candidate {
+        provider: "youtube".into(),
+        id: format!("youtube:{id}"),
+        url: format!("https://www.youtube.com/watch?v={id}"),
+        title: title.into(),
+        duration_seconds: Some(duration),
+        source_metadata: Some(json!({
+            "sourceMetadataOrigin": origin, "resolvedProviderId": id,
+            "track": title, "catalogTitle": title, "duration": duration
+        })),
+        ..Candidate::default()
+    }
+}
+
+#[test]
+fn traxsource_extended_mix_can_credit_the_remixer_in_the_version() {
+    let request = traxsource_mix(
+        "Samba Magic",
+        "Reboot Extended Mix (6:11)",
+        371.0,
+        &["Basement Jaxx", "Reboot"],
+    );
+    let assess_caption = |title, seconds, stage| {
+        assess(
+            &request,
+            &youtube_mix("bbccFSenC9c", title, seconds, stage),
+            MatchLevel::Flexible,
+            stage,
+        )
+    };
+    let caption = "Basement Jaxx - Samba Magic (Reboot Extended Mix)";
+    assert!(matches!(
+        assess_caption(caption, 371.0, MatchStage::Search).action,
+        MatchAction::Inspect | MatchAction::Accept
+    ));
+    assert_eq!(
+        assess_caption(caption, 371.0, MatchStage::Resolved).action,
+        MatchAction::Accept
+    );
+    for (wrong, seconds) in [
+        ("Other Artist - Samba Magic (Reboot Extended Mix)", 371.0),
+        (
+            "Basement Jaxx - Samba Magic (Other Remixer Extended Mix)",
+            371.0,
+        ),
+        ("Basement Jaxx - Samba Magic (Reboot Remix)", 193.0),
+    ] {
+        assert_ne!(
+            assess_caption(wrong, seconds, MatchStage::Resolved).action,
+            MatchAction::Accept
+        );
+    }
+}
+
+#[test]
+fn sambei_credit_correction_is_scoped_to_the_catalog_occurrence() {
+    let mut request = traxsource_mix(
+        "Sambei",
+        "Extended Mix (4:58)",
+        298.0,
+        &["Eran Hersh", "Aycond", "NOTHANKYOUU"],
+    );
+    request.provider_id = "15140553".into();
+    request.source_url = "https://www.traxsource.com/track/15140553/sambei-extended-mix".into();
+    let caption = "Eran Hersh, Aycond, NOTHANKYOU - Sambei (Extended Mix)";
+    let candidate = |stage| youtube_mix("lUGIZE0oX2U", caption, 298.0, stage);
+    let assess_source =
+        |request: &Track, stage| assess(request, &candidate(stage), MatchLevel::Flexible, stage);
+    assert!(matches!(
+        assess_source(&request, MatchStage::Search).action,
+        MatchAction::Inspect | MatchAction::Accept
+    ));
+    assert_eq!(
+        assess_source(&request, MatchStage::Resolved).action,
+        MatchAction::Accept
+    );
+    let mut edited = request.clone();
+    edited.provenance["manualFields"] = json!({"artistCredits": true});
+    assert_ne!(
+        assess_source(&edited, MatchStage::Resolved).action,
+        MatchAction::Accept
+    );
+    request.provider_id = "another-release".into();
+    assert_ne!(
+        assess_source(&request, MatchStage::Resolved).action,
+        MatchAction::Accept
+    );
+}
+
+#[test]
+fn promotional_caption_tags_do_not_hide_the_extended_mix() {
+    let request = traxsource_mix(
+        "Badabum Cha Cha",
+        "Extended Mix (5:02)",
+        302.0,
+        &["Ilkay Sencan", "ARVIII"],
+    );
+    let assess_caption = |title, seconds, stage| {
+        assess(
+            &request,
+            &youtube_mix("qZ8isyaBxvg", title, seconds, stage),
+            MatchLevel::Flexible,
+            stage,
+        )
+    };
+    let caption =
+        "Ilkay Sencan, ARVIII - Badabum Cha Cha (Extended Mix) - #afrohouse #thesacredtribe";
+    assert!(matches!(
+        assess_caption(caption, 302.0, MatchStage::Search).action,
+        MatchAction::Inspect | MatchAction::Accept
+    ));
+    assert_eq!(
+        assess_caption(caption, 302.0, MatchStage::Resolved).action,
+        MatchAction::Accept
+    );
+    for (wrong, seconds) in [
+        (
+            "Ilkay Sencan, ARVIII - Badabum Cha Cha (Radio Edit) - #afrohouse #thesacredtribe",
+            302.0,
+        ),
+        (
+            "Ilkay Sencan, ARVIII - Badabum Cha Cha (Extended Mix) - #afrohouse #radioedit",
+            302.0,
+        ),
+        (caption, 185.0),
+    ] {
+        assert_eq!(
+            assess_caption(wrong, seconds, MatchStage::Resolved).action,
+            MatchAction::Reject
+        );
+    }
+}
+
+#[test]
+fn traxsource_runtime_only_label_accepts_a_matching_generic_extension_as_probable() {
+    let request = traxsource_mix("Foreva", "(5:28)", 328.0, &["DJ Chus", "SIIRO (ES)"]);
+    let title = "DJ Chus, SIIRO (ES) - Foreva (Extended Mix) [STEREO PRODUCTIONS]";
+    let mut request = request;
+    request.label = Some("Stereo Productions".into());
+    let candidate = |title, duration, stage| youtube_mix("aTxIS5PivZE", title, duration, stage);
+    let search = assess(
+        &request,
+        &candidate(title, 328.0, MatchStage::Search),
+        MatchLevel::Flexible,
+        MatchStage::Search,
+    );
+    assert_eq!(search.action, MatchAction::Inspect, "{search:?}");
+    let resolved = assess(
+        &request,
+        &candidate(title, 328.0, MatchStage::Resolved),
+        MatchLevel::Flexible,
+        MatchStage::Resolved,
+    );
+    assert_eq!(
+        (resolved.action, resolved.relationship),
+        (MatchAction::Accept, MatchRelationship::Probable),
+        "{resolved:?}"
+    );
+    let full = candidate(title, 328.0, MatchStage::Resolved);
+    let balanced = assess(&request, &full, MatchLevel::Balanced, MatchStage::Resolved);
+    assert_eq!(
+        (balanced.action, balanced.relationship),
+        (MatchAction::Accept, MatchRelationship::Probable)
+    );
+    assert_ne!(
+        assess(&request, &full, MatchLevel::Exact, MatchStage::Resolved).action,
+        MatchAction::Accept
+    );
+    let mut identified = request.clone();
+    identified.isrc = Some("USAAA2600001".into());
+    let mut bound = full;
+    bound.source_metadata.as_mut().unwrap()["isrc"] = json!(identified.isrc);
+    let exact = assess(&identified, &bound, MatchLevel::Exact, MatchStage::Resolved);
+    assert_eq!(
+        (exact.action, exact.relationship),
+        (MatchAction::Accept, MatchRelationship::Exact),
+        "{exact:?}"
+    );
+    let close = candidate(title, 326.5, MatchStage::Resolved);
+    let mut options = FlexibleMatchingOptions {
+        allow_different_lengths: true,
+        max_shorter_by_seconds: 2,
+        ..Default::default()
+    };
+    let assess_close = |options: &FlexibleMatchingOptions| {
+        assess_with_options(
+            &request,
+            &close,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+            options,
+        )
+    };
+    assert_eq!(assess_close(&options).action, MatchAction::Accept);
+    options.max_shorter_by_seconds = 1;
+    assert_eq!(assess_close(&options).action, MatchAction::Reject);
+    for (caption, duration) in [
+        ("DJ Chus, Someone Else - Foreva (Extended Mix)", 328.0),
+        ("DJ Chus, SIIRO (ES) - Foreva (Other Remixer Remix)", 328.0),
+        (title, 200.0),
+    ] {
+        let rejected = assess(
+            &request,
+            &candidate(caption, duration, MatchStage::Resolved),
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+        );
+        assert_eq!(rejected.action, MatchAction::Reject, "{rejected:?}");
+    }
+}
+
+#[test]
+fn traxsource_runtime_only_tracks_accept_matching_structured_extended_mix_credits() {
+    for (title, version, seconds, id, credits) in [
+        (
+            "Cleo's Groove",
+            "(6:10)",
+            370.0,
+            "-lxYKvuh1kM",
+            &["Craig Leo"][..],
+        ),
+        (
+            "Bem-te-vi",
+            "(6:44)",
+            404.0,
+            "2200000000",
+            &["BAKKA (BR)", "Nezello", "Jéssica Gaspar"][..],
+        ),
+    ] {
+        let request = traxsource_mix(title, version, seconds, credits);
+        let caption = format!("{title} (Extended Mix)");
+        let mut candidate = youtube_mix(id, &caption, seconds, MatchStage::Resolved);
+        if title == "Bem-te-vi" {
+            candidate.provider = "soundcloud".into();
+            candidate.id = format!("soundcloud:{id}");
+            candidate.url = "https://soundcloud.com/dawnpatrolart/bem-te-vi".into();
+            candidate.source_metadata.as_mut().unwrap()["artists"] = json!([credits.join(", ")]);
+        } else {
+            candidate.source_metadata.as_mut().unwrap()["artists"] = json!(credits);
+        }
+        let resolved = assess(
+            &request,
+            &candidate,
+            MatchLevel::Flexible,
+            MatchStage::Resolved,
+        );
+        assert_eq!(
+            (resolved.action, resolved.relationship),
+            (MatchAction::Accept, MatchRelationship::Probable),
+            "{title}: {resolved:?}"
+        );
+    }
+}
+
+#[test]
+fn traxsource_accent_variant_requires_the_same_structured_collaboration() {
+    let request = traxsource_mix(
+        "Celia Con Cuero",
+        "(7:54)",
+        474.0,
+        &["Max Sanchez", "LemonSouldj"],
+    );
+    let candidate = |names: &[&str], seconds, stage| {
+        let mut candidate = youtube_mix("GwSmOvmW2i4", "Celia Con Cuero", seconds, stage);
+        candidate.source_metadata.as_mut().unwrap()["artists"] = json!(names);
+        candidate
+    };
+    let credits = ["Max Sánchez", "LemonSoulDJ"];
+    let search = assess(
+        &request,
+        &candidate(&credits, 474.0, MatchStage::Search),
+        MatchLevel::Flexible,
+        MatchStage::Search,
+    );
+    assert_eq!(search.action, MatchAction::Inspect, "{search:?}");
+    let resolved = assess(
+        &request,
+        &candidate(&credits, 474.0, MatchStage::Resolved),
+        MatchLevel::Flexible,
+        MatchStage::Resolved,
+    );
+    assert_eq!(resolved.action, MatchAction::Accept, "{resolved:?}");
+    let full = candidate(&credits, 474.0, MatchStage::Resolved);
+    let balanced = assess(&request, &full, MatchLevel::Balanced, MatchStage::Resolved);
+    assert_eq!(balanced.action, MatchAction::Accept, "{balanced:?}");
+    assert_ne!(
+        assess(&request, &full, MatchLevel::Exact, MatchStage::Resolved).action,
+        MatchAction::Accept
+    );
+    let mut identified = request.clone();
+    identified.isrc = Some("USAAA2600002".into());
+    let mut bound = full;
+    bound.source_metadata.as_mut().unwrap()["isrc"] = json!(identified.isrc);
+    let exact = assess(&identified, &bound, MatchLevel::Exact, MatchStage::Resolved);
+    assert_eq!(
+        (exact.action, exact.relationship),
+        (MatchAction::Accept, MatchRelationship::Exact),
+        "{exact:?}"
+    );
+    for (names, duration) in [
+        (&["Max Sánchez"][..], 474.0),
+        (&["Max Sánchez", "Other Artist"][..], 474.0),
+        (&["Max Sánchez", "LemonSoulDJ", "Other Artist"][..], 474.0),
+        (&credits[..], 440.0),
+    ] {
+        assert_ne!(
+            assess(
+                &request,
+                &candidate(names, duration, MatchStage::Resolved),
+                MatchLevel::Flexible,
+                MatchStage::Resolved
+            )
+            .action,
+            MatchAction::Accept
         );
     }
 }

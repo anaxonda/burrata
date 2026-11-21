@@ -25,4 +25,45 @@ describe("CrossfadeSettings", () => {
     expect(select.value).toBe("7"); select.value = "12"; select.dispatchEvent(new Event("change", {bubbles:true}));
     expect(onchange).toHaveBeenCalledWith(true,12); unmount(component); target.remove();
   });
+  it("offers Soft Next independently of natural crossfade", async () => {
+    const target = document.createElement("div");
+    document.body.append(target);
+    const onsoftnextchange = vi.fn();
+    const component = mount(CrossfadeSettings, {
+      target,
+      props: { softNext: true, onchange: vi.fn(), onsoftnextchange },
+    });
+    await tick();
+    const [natural, softNext] = target.querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
+    expect(natural.checked).toBe(false);
+    expect(softNext.checked).toBe(true);
+    expect(target.querySelector("select")?.value).toBe("5");
+    softNext.click();
+    expect(onsoftnextchange).toHaveBeenCalledWith(false);
+    unmount(component);
+    target.remove();
+  });
+
+  it("offers track selection fade independently of Soft Next", async () => {
+    const target = document.createElement("div");
+    document.body.append(target);
+    const onsofttrackselectionchange = vi.fn();
+    const component = mount(CrossfadeSettings, {
+      target,
+      props: {
+        softTrackSelection: true,
+        onchange: vi.fn(),
+        onsoftnextchange: vi.fn(),
+        onsofttrackselectionchange,
+      },
+    });
+    await tick();
+    const [natural, softNext, trackSelection] = target.querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
+    expect([natural.checked, softNext.checked, trackSelection.checked]).toEqual([false, false, true]);
+    expect(target.querySelector("select")?.value).toBe("5");
+    trackSelection.click();
+    expect(onsofttrackselectionchange).toHaveBeenCalledWith(false);
+    unmount(component);
+    target.remove();
+  });
 });

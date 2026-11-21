@@ -1560,14 +1560,7 @@ impl ArtistService {
                             biography_source = biography.as_ref().map(|_| "Last.fm".to_owned());
                         }
                         if image_url.is_none() {
-                            image_url = data["image"].as_array().and_then(|items| {
-                                items.iter().rev().find_map(|item| {
-                                    item["#text"]
-                                        .as_str()
-                                        .filter(|s| !s.is_empty())
-                                        .map(str::to_owned)
-                                })
-                            });
+                            image_url = lastfm_image(&data["image"]);
                         }
                         let lastfm_tags = named_items(&data["tags"]["tag"]);
                         source_tags.extend(lastfm_tags.iter().cloned().map(|name| ArtistTag {
@@ -4291,7 +4284,7 @@ pub(crate) fn parse_discogs_release_tracks(
     tracks
 }
 
-fn musicbrainz_artwork_urls(value: &Value, entity: &str, id: &str) -> Vec<String> {
+pub(crate) fn musicbrainz_artwork_urls(value: &Value, entity: &str, id: &str) -> Vec<String> {
     let mut urls = Vec::new();
     if !valid_crosswalk_mbid(id) {
         return urls;
@@ -4678,6 +4671,17 @@ pub(crate) fn parse_musicbrainz_credits(value: &Value, source_url: &str) -> Vec<
         .collect()
 }
 
+fn lastfm_image(images: &Value) -> Option<String> {
+    images.as_array()?.iter().rev().find_map(|image| {
+        let url = image["#text"].as_str()?;
+        // Last.fm returns this stock star when an image is unavailable.
+        if url.contains("2a96cbd8b46e442fc41c2b86b821562f") {
+            return None;
+        }
+        secure_url(url)
+    })
+}
+
 fn parse_lastfm_tracks(value: &Value, artist_name: &str, artist: &ArtistRef) -> Vec<Track> {
     value["toptracks"]["track"].as_array().into_iter().flatten().filter_map(|item| {
         let title = item["name"].as_str().filter(|title| !title.trim().is_empty())?.to_owned();
@@ -4689,6 +4693,7 @@ fn parse_lastfm_tracks(value: &Value, artist_name: &str, artist: &ArtistRef) -> 
             source_url: url.clone(),
             artist: artist_name.to_owned(),
             title,
+            artwork_url: lastfm_image(&item["album"]["image"]),
             provenance: json!({"source":"Last.fm top tracks", "provider":"lastfm", "artistRef":artist, "sourceUrl":url}),
             ..Track::default()
         })
@@ -4724,6 +4729,9 @@ fn lastfm_top_track_metadata(track: &Track, info: &Value) -> Option<Track> {
     let mut refreshed = track.clone();
     refreshed.title = title.to_owned();
     refreshed.duration_seconds = Some(duration as f64 / 1000.0);
+    if refreshed.artwork_url.is_none() && track.provenance["manualFields"]["artworkUrl"] != true {
+        refreshed.artwork_url = lastfm_image(&info["album"]["image"]);
+    }
     Some(refreshed)
 }
 
@@ -6328,7 +6336,10 @@ mod tests {
             "name": canonical,
             "artist": {"name": "Rodriguez"},
             "duration": "127000",
-            "album": {"title": "Searching for Sugar Man"},
+            "album": {"title": "Searching for Sugar Man", "image": [
+                {"#text": "https://lastfm.freetls.fastly.net/i/u/300x300/fixture-cover.png"},
+                {"#text": "https://lastfm.freetls.fastly.net/i/u/300x300/2a96cbd8b46e442fc41c2b86b821562f.png"}
+            ]},
         });
         assert!(lastfm_top_track_metadata_available(&track));
         let refreshed = lastfm_top_track_metadata(&track, &info).unwrap();
@@ -6338,6 +6349,10 @@ mod tests {
         assert_eq!(refreshed.title, canonical);
         assert_eq!(refreshed.duration_seconds, Some(127.0));
         assert_eq!(refreshed.album, track.album);
+        assert_eq!(
+            refreshed.artwork_url.as_deref(),
+            Some("https://lastfm.freetls.fastly.net/i/u/300x300/fixture-cover.png")
+        );
         assert_eq!(track.title, original);
         assert_eq!(track.duration_seconds, None);
 

@@ -114,8 +114,8 @@ pub(crate) enum TransitionEvent {
     IncomingFailed,
 }
 
-/// Mixes two already-decoded voices. The caller must only construct this after
-/// queue ownership, both verified durations, and source eligibility are known.
+/// Mixes two already-decoded voices. The caller verifies queue ownership,
+/// source eligibility, and that the overlap is buffered.
 /// Progress is advanced by calls to `next_frame`, so pausing the output naturally
 /// freezes both voices and their envelope.
 pub(crate) struct TransitionMixer<A: Voice, B: Voice> {
