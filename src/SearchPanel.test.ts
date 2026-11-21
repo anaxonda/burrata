@@ -1858,15 +1858,13 @@ describe("SearchPanel", () => {
     expect(badge.textContent).toContain("Chapters · 1");
     expect(target.querySelectorAll(".chapter-row")).toHaveLength(0);
     badge.click();
-    await new Promise(resolve => setTimeout(resolve, 0));
-    await settle();
-    expect(target.querySelectorAll(".chapter-row")).toHaveLength(1);
+    expect(badge.closest("details")?.open).toBe(true);
+    await vi.waitFor(() => expect(target.querySelectorAll(".chapter-row")).toHaveLength(1));
     target.querySelector<HTMLButtonElement>(".chapter-row button")!.click();
     expect(onPlayChapter).toHaveBeenCalledWith(track, track.provenance.audioCandidate, chapter);
     badge.click();
-    await new Promise(resolve => setTimeout(resolve, 0));
-    await settle();
-    expect(target.querySelectorAll(".chapter-row")).toHaveLength(0);
+    expect(badge.closest("details")?.open).toBe(false);
+    await vi.waitFor(() => expect(target.querySelectorAll(".chapter-row")).toHaveLength(0));
     expect(target.querySelector(".chapter-badge.available")?.textContent).toContain("Chapters · 1");
   });
 
@@ -1904,16 +1902,14 @@ describe("SearchPanel", () => {
     expect(onInspectedChapters).toHaveBeenCalledWith(hint);
 
     badge.click();
-    await new Promise(resolve => setTimeout(resolve, 0));
-    await settle();
-    expect(target.querySelectorAll(".chapter-row")).toHaveLength(1);
+    expect(badge.closest("details")?.open).toBe(true);
+    await vi.waitFor(() => expect(target.querySelectorAll(".chapter-row")).toHaveLength(1));
     target.querySelector<HTMLButtonElement>(".chapter-row button")!.click();
     expect(onPlayChapter).toHaveBeenCalledWith(track, candidate, chapter);
 
     badge.click();
-    await new Promise(resolve => setTimeout(resolve, 0));
-    await settle();
-    expect(target.querySelectorAll(".chapter-row")).toHaveLength(0);
+    expect(badge.closest("details")?.open).toBe(false);
+    await vi.waitFor(() => expect(target.querySelectorAll(".chapter-row")).toHaveLength(0));
     expect(enrichSource).toHaveBeenCalledTimes(1);
     expect(target.querySelector(".chapter-badge.available")?.textContent).toContain("Chapters · 1");
 
