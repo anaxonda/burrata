@@ -9,6 +9,8 @@
   import AccountPlaylistSidebar from "./AccountPlaylistSidebar.svelte";
   import PlaylistSections from "./PlaylistSections.svelte";
   import FolderTree from "./FolderTree.svelte";
+  import ActionMenu from "./ActionMenu.svelte";
+  import type { MenuAnchorRect } from "./lib/menu-geometry";
   import {PLAYLIST_SECTION_DRAG_TYPE,type PlaylistSection} from "./lib/playlist-sections";
   const downloadsId="00000000-0000-4000-8000-000000000001";
 
@@ -301,6 +303,52 @@
     const query = playlistFilter.trim().toLocaleLowerCase();
     return !query || values.some(value => value?.toLocaleLowerCase().includes(query));
   }
+  let sidebarContent = $state<HTMLDivElement>();
+  let folderTree = $state<ReturnType<typeof FolderTree>>();
+  let playlistSections = $state<ReturnType<typeof PlaylistSections>>();
+  type SidebarMenuScope = "sidebar" | "playlists" | "folders" | "radio";
+  let sidebarMenu = $state<{
+    scope: SidebarMenuScope;
+    point?: { x: number; y: number };
+    rect?: MenuAnchorRect;
+  } | null>(null);
+  const sidebarMenuLabels = {
+    sidebar: "Sidebar actions", playlists: "Playlist actions", folders: "Folder actions", radio: "Radio actions",
+  };
+  let collapseDefaults = $state(false);
+  let personalPlaylistsOpen = $state(true);
+
+  function openSidebarMenu(event: MouseEvent | KeyboardEvent) {
+    if (event.defaultPrevented || !(event.target instanceof HTMLElement)) return;
+    const target = event.target;
+    if (target.closest("input, textarea, select, a[href]")) return;
+    const heading = target.closest<HTMLElement>("[data-sidebar-actions]");
+    const fromKeyboard = event instanceof KeyboardEvent;
+    if (fromKeyboard && (!heading || (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")))) return;
+
+    const scope = (heading?.dataset.sidebarActions ?? "sidebar") as SidebarMenuScope;
+    if (scope === "folders" && !call) return;
+    event.preventDefault();
+    const trigger = target.closest<HTMLElement>("button, summary");
+    trigger?.focus({ preventScroll: true });
+    sidebarMenu = fromKeyboard
+      ? { scope, rect: (trigger ?? heading)?.getBoundingClientRect() }
+      : { scope, point: { x: event.clientX, y: event.clientY } };
+  }
+
+  function runSidebarAction(action: () => void | Promise<void>, closeNavigation = false) {
+    sidebarMenu = null;
+    if (closeNavigation) closeDrawer();
+    void action();
+  }
+
+  function collapseSidebar() {
+    collapseDefaults = true;
+    personalPlaylistsOpen = false;
+    folderTree?.collapseAll();
+    sidebarContent?.querySelectorAll<HTMLDetailsElement>("details[open]").forEach(group => group.open = false);
+  }
+
   function hasSection(id:string){return sections.some(section=>section.id===assignments[id]);}
   function isTopPlaylist(id:string){return id===downloadsId || id==="history" || id==="favorites" || Boolean(favoritesPlaylistId && id===favoritesPlaylistId);}
   function dragPlaylist(event:DragEvent,id:string){if(event.dataTransfer){event.dataTransfer.setData(PLAYLIST_SECTION_DRAG_TYPE,id);event.dataTransfer.effectAllowed="move";}}
@@ -337,16 +385,23 @@
   </nav>
 
   {#if drawerOpen}<button class="sidebar-scrim" aria-label="Close library menu" onclick={closeDrawer}></button>{/if}
-  <div id="library-sidebar-content" class="library-scroll" aria-label="Playlists and sources">
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions (Keyboard menu shortcuts delegate from the focused section heading.) -->
+  <div id="library-sidebar-content" class="library-scroll" role="group" aria-label="Playlists and sources"
+    bind:this={sidebarContent} oncontextmenu={openSidebarMenu} onkeydown={openSidebarMenu}>
     <div class="drawer-heading"><strong>Library navigation</strong><button aria-label="Close library menu" onclick={closeDrawer}>×</button></div>
-    <details class="sidebar-filter-dropdown">
-      <summary aria-label="Filter playlists and sources"><span aria-hidden="true">⌕</span><span>Filter sidebar</span>{#if playlistFilter.trim()}<small>Active</small>{/if}<span class="disclosure" aria-hidden="true">⌄</span></summary>
-      <label class="playlist-filter-label">Filter by name or owner<input class="playlist-filter" type="search" bind:value={playlistFilter} placeholder="Name or owner" aria-label="Filter playlists by name or owner" /></label>
-    </details>
-    <FolderTree filter={playlistFilter} {call} {selectedFolder} {rootsRevision} {onSelectFolder} {onRootsChanged} onOpenFolders={() => { onDirectoryBrowser(); closeDrawer(); }}/>
+    <div class="sidebar-tools">
+      <details class="sidebar-filter-dropdown">
+        <summary aria-label="Filter playlists and sources"><span aria-hidden="true">⌕</span><span>Filter sidebar</span>{#if playlistFilter.trim()}<small>Active</small>{/if}<span class="disclosure" aria-hidden="true">⌄</span></summary>
+        <label class="playlist-filter-label">Filter by name or owner<input class="playlist-filter" type="search" bind:value={playlistFilter} placeholder="Name or owner" aria-label="Filter playlists by name or owner" /></label>
+      </details>
+      <button class="collapse-sidebar" type="button" aria-label="Collapse all sidebar items" title="Collapse all sidebar items" onclick={collapseSidebar}>
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 3 3 3 3-3M4 8h8m-7 5 3-3 3 3" /></svg>
+      </button>
+    </div>
+    <FolderTree bind:this={folderTree} filter={playlistFilter} {call} {selectedFolder} {rootsRevision} {onSelectFolder} {onRootsChanged} onOpenFolders={() => { onDirectoryBrowser(); closeDrawer(); }}/>
     {#if !playlistFilter.trim() || radioStations.some(station => matchesPlaylist(station.name, station.country, "Radio"))}
-    <details class="source-group radio-section" open>
-      <summary class="source-heading"><span class="source-mark" aria-hidden="true">◉</span><span class="source-name">Radio</span><small>{radioStations.filter(station => matchesPlaylist(station.name, station.country, "Radio")).length}</small><span class="disclosure" aria-hidden="true">⌄</span></summary>
+    <details class="source-group radio-section" open={!collapseDefaults}>
+      <summary class="source-heading" data-sidebar-actions="radio"><span class="source-mark" aria-hidden="true">◉</span><span class="source-name">Radio</span><small>{radioStations.filter(station => matchesPlaylist(station.name, station.country, "Radio")).length}</small><span class="disclosure" aria-hidden="true">⌄</span></summary>
       <div class="source-playlists">
         {#each radioStations.filter(station => matchesPlaylist(station.name, station.country, "Radio")) as station (station.id)}
           <button class="playlist-card" class:active={(view==="radio" && activeRadioStationId===station.id) || playingRadioStationId===station.id} class:playing={playingRadioStationId===station.id} aria-current={playingRadioStationId===station.id ? "true" : undefined} onclick={()=>{onRadioStation(station);closeDrawer();}} oncontextmenu={(event)=>{if(onRadioContext){event.preventDefault();onRadioContext(station,event);closeDrawer();}}} title={station.name}>
@@ -358,11 +413,12 @@
     </details>
     {/if}
     <section class="playlist-section">
-      <div class="sidebar-section-title playlist-heading">
-        <span>Playlists</span>
+      <div class="sidebar-section-title playlist-heading" data-sidebar-actions="playlists">
+        <button class="personal-playlists-toggle" type="button" aria-expanded={personalPlaylistsOpen} aria-controls="sidebar-personal-playlists"
+          onclick={() => personalPlaylistsOpen = !personalPlaylistsOpen}>Playlists <span aria-hidden="true">{personalPlaylistsOpen ? "⌃" : "⌄"}</span></button>
         <button class="icon-button" aria-label="Create playlist" title="Create playlist" onclick={() => { onImport(); closeDrawer(); }}>＋</button>
       </div>
-      <div class="playlist-list built-in-playlists">
+      <div id="sidebar-personal-playlists" class="playlist-list built-in-playlists" hidden={!personalPlaylistsOpen}>
         {#if matchesPlaylist(playlistNames.history, "History", "Recently played")}<button class="playlist-card" onclick={() => { onPlaylist("history"); closeDrawer(); }} oncontextmenu={(event)=>{event.preventDefault();onPlaylistContext?.("history",event);}}>
           <span class="playlist-glyph history" aria-hidden="true">◷</span>
           <span class="playlist-copy"><strong>{playlistNames.history??"History"}</strong><small>Recently played</small></span>
@@ -379,10 +435,10 @@
           </button>
         {/each}
       </div>
-      <PlaylistSections showUnsorted={false} filterActive={Boolean(playlistFilter.trim())} {sections} {assignments} artworkById={playlistArtwork} collections={collections.filter(item=>!isTopPlaylist(item.id) && matchesPlaylist(item.name, item.ownerName, item.ownerId))} {activeCollectionId} onPlaylist={(id)=>{onPlaylist(id);closeDrawer();}} onPlaylistContext={(id,event)=>onPlaylistContext?.(id,event)} {onCreateSection} {onRenameSection} {onDeleteSection} {onMovePlaylist} {onCreatePlaylist}/>
+      <PlaylistSections bind:this={playlistSections} showUnsorted={false} collapseByDefault={collapseDefaults} filterActive={Boolean(playlistFilter.trim())} {sections} {assignments} artworkById={playlistArtwork} collections={collections.filter(item=>!isTopPlaylist(item.id) && matchesPlaylist(item.name, item.ownerName, item.ownerId))} {activeCollectionId} onPlaylist={(id)=>{onPlaylist(id);closeDrawer();}} onPlaylistContext={(id,event)=>onPlaylistContext?.(id,event)} {onCreateSection} {onRenameSection} {onDeleteSection} {onMovePlaylist} {onCreatePlaylist}/>
       <div class="source-groups" aria-label="Imported playlists by source">
         {#each sourceGroups as source (source.id)}
-          <details class="source-group" open={source.count > 0}>
+          <details class="source-group" open={!collapseDefaults && source.count > 0}>
             <summary class={`source-heading ${source.id}`}>
               <span class={`source-mark ${source.id}`} aria-hidden="true"><ProviderLogo provider={source.id}/></span>
               <span class="source-name">{source.label}</span>
@@ -412,6 +468,23 @@
       </div>
     </section>
   </div>
+  {#if sidebarMenu}
+    <ActionMenu label={sidebarMenuLabels[sidebarMenu.scope]} role="menu" anchor={sidebarMenu.point ?? null} anchorRect={sidebarMenu.rect ?? null} onClose={() => sidebarMenu = null}>
+      {#if sidebarMenu.scope === "sidebar" || sidebarMenu.scope === "playlists"}
+        <button type="button" role="menuitem" onclick={() => runSidebarAction(onImport, true)}>New playlist</button>
+        <button type="button" role="menuitem" onclick={() => runSidebarAction(() => playlistSections?.beginCreateSection())}>New playlist section…</button>
+      {/if}
+      {#if (sidebarMenu.scope === "sidebar" || sidebarMenu.scope === "folders") && call}
+        <button type="button" role="menuitem" onclick={() => runSidebarAction(() => folderTree?.addFolder(), true)}>Add or create folder…</button>
+      {/if}
+      {#if sidebarMenu.scope === "sidebar" || sidebarMenu.scope === "radio"}
+        <button type="button" role="menuitem" onclick={() => runSidebarAction(onAddRadio, true)}>Add radio station…</button>
+      {/if}
+      {#if sidebarMenu.scope === "sidebar"}
+        <button type="button" role="menuitem" onclick={() => runSidebarAction(collapseSidebar)}>Collapse all sidebar items</button>
+      {/if}
+    </ActionMenu>
+  {/if}
   <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions (Focusable window splitter provides keyboard resizing.) -->
   <div tabindex="0" class="sidebar-resize" role="separator" aria-label="Resize library sidebar" aria-orientation="vertical" aria-valuemin={minWidth} aria-valuemax={maxWidth} aria-valuenow={width} onpointerdown={startResize} onkeydown={(event) => { if (event.key === "ArrowLeft") { event.preventDefault(); setWidth(width - 10); } else if (event.key === "ArrowRight") { event.preventDefault(); setWidth(width + 10); } }}></div>
 </aside>
@@ -475,7 +548,9 @@
   .library-primary button.active { background: var(--raised); color: var(--accent); }
   .primary-icon { width: 20px; text-align: center; font-size: 20px; line-height: 1; }
   .library-scroll { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
-  .sidebar-filter-dropdown { margin: 0 0 12px; }
+  .sidebar-tools { display:flex; align-items:flex-start; gap:5px; margin:0 0 12px; }
+  .sidebar-filter-dropdown { flex:1; min-width:0; }
+  .collapse-sidebar { display:grid; place-items:center; flex:none; width:34px; min-height:34px; padding:0; color:var(--muted); }
   .sidebar-filter-dropdown > summary { display:flex; align-items:center; gap:8px; min-height:34px; padding:4px 8px; border:1px solid var(--line); border-radius:7px; color:var(--muted); cursor:pointer; list-style:none; font-size:11px; }
   .sidebar-filter-dropdown > summary::-webkit-details-marker { display:none; }
   .sidebar-filter-dropdown > summary:hover,.sidebar-filter-dropdown[open] > summary { background:var(--raised); color:var(--text); }
@@ -504,6 +579,8 @@
   .icon-button { width: 26px; height: 26px; padding: 0; border: 0; background: transparent; color: var(--muted); font-size: 19px; line-height: 1; }
   .icon-button:hover { color: var(--accent); background: var(--raised); }
   .playlist-list { display: grid; gap: 3px; margin-top: 9px; }
+  .playlist-list[hidden] { display:none; }
+  .personal-playlists-toggle { display:flex; flex:1; align-items:center; gap:6px; border:0; background:none; padding:0; color:inherit; font:inherit; letter-spacing:inherit; text-transform:inherit; }
   .source-groups { display: grid; gap: 2px; margin-top: 14px; }
   .source-group { min-width: 0; }
   .source-heading { display: flex; align-items: center; gap: 9px; min-height: 36px; padding: 4px 8px; border-radius: 7px; color: var(--muted); cursor: pointer; list-style: none; }

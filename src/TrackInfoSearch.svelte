@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { modalDialog } from "./lib/modal-dialog";
   import type { Candidate, Track } from "./lib/types";
 
   let { track, candidate = null, chapterTitle = "", onClose, onCatalogSearch, onWebSearch, onOpenSource }:
@@ -10,16 +11,19 @@
   let previousSeed = "";
   $effect(() => { if (initialQuery !== previousSeed) { previousSeed = initialQuery; query = initialQuery; } });
   function focus(node: HTMLDialogElement) {
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    queueMicrotask(() => node.querySelector<HTMLInputElement>("input")?.focus());
-    return { destroy() { if (previouslyFocused?.isConnected) previouslyFocused.focus(); } };
+    const modal = modalDialog(node, onClose);
+    node.querySelector<HTMLInputElement>("input")?.focus();
+    return modal;
   }
   function submitCatalog() { const value = query.trim(); if (value) onCatalogSearch(value); }
   function submitWeb() { const value = query.trim(); if (value) onWebSearch(value); }
 </script>
 
-<div class="backdrop" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-  <dialog open use:focus class="info-search" aria-labelledby="info-search-title" onkeydown={(event) => { if (event.key === "Escape") onClose(); }}>
+<dialog use:focus class="info-search" aria-labelledby="info-search-title" onclick={event => {
+    if (event.target !== event.currentTarget) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) onClose();
+  }}>
     <header><div><p class="eyebrow">MORE INFORMATION</p><h2 id="info-search-title">Search music information</h2></div><button aria-label="Close information search" onclick={onClose}>×</button></header>
     <p class="context">{chapter ? `Chapter: ${chapterTitle || track.title} · from ${track.playbackRange?.parentTitle || track.title}` : `${track.artist || "Unknown artist"} · ${track.title}`}</p>
     {#if candidate?.provider}<p class="source-label">Audio source: {candidate.provider}{candidate.uploader ? ` · ${candidate.uploader}` : ""}</p>{/if}
@@ -30,8 +34,7 @@
     {#if sourceUrl && /^https?:\/\//i.test(sourceUrl)}<button class="source" onclick={() => onOpenSource(sourceUrl)}>Open audio source ↗</button>{/if}
     <p class="note">Search results are for reference. They do not change this track’s tags or catalog identity.</p>
   </dialog>
-</div>
 
 <style>
-  .backdrop{position:fixed;inset:0;z-index:90;display:grid;place-items:center;padding:16px;background:#0008}.info-search{position:relative;inset:auto;margin:0;width:min(480px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:auto;padding:20px;border:1px solid var(--line);border-radius:14px;background:var(--surface);color:var(--text);box-shadow:0 18px 58px #0009}.info-search::backdrop{display:none}header{display:flex;align-items:start;justify-content:space-between;gap:12px}h2{margin:3px 0 0;font-size:18px}.eyebrow{margin:0;color:var(--muted);font-size:10px;letter-spacing:.12em}.context{margin:18px 0 3px;font-weight:600}.source-label,.note{color:var(--muted);font-size:12px}label{display:block;margin:16px 0 6px;font-size:12px}input{box-sizing:border-box;width:100%;padding:10px;border:1px solid var(--line);border-radius:7px;background:var(--base);color:var(--text)}.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.source{margin-top:10px}.note{margin:16px 0 0;line-height:1.45}button{padding:8px 11px;border:1px solid var(--line);border-radius:7px;background:var(--raised);color:var(--text)}button:disabled{opacity:.5}.primary{background:var(--accent);color:var(--base)}header button{font-size:20px;line-height:1}
+  .info-search{width:min(480px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:auto;padding:20px;border:1px solid var(--line);border-radius:14px;background:var(--surface);color:var(--text);box-shadow:0 18px 58px #0009}.info-search::backdrop{background:#0009}header{display:flex;align-items:start;justify-content:space-between;gap:12px}h2{margin:3px 0 0;font-size:18px}.eyebrow{margin:0;color:var(--muted);font-size:10px;letter-spacing:.12em}.context{margin:18px 0 3px;font-weight:600}.source-label,.note{color:var(--muted);font-size:12px}label{display:block;margin:16px 0 6px;font-size:12px}input{box-sizing:border-box;width:100%;padding:10px;border:1px solid var(--line);border-radius:7px;background:var(--base);color:var(--text)}.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.source{margin-top:10px}.note{margin:16px 0 0;line-height:1.45}header button{font-size:20px;line-height:1}
 </style>

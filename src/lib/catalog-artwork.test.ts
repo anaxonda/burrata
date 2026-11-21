@@ -9,3 +9,8 @@ it("derives covers only from exact MusicBrainz release identities", () => {
 it("preserves edition artwork ahead of the exact release-group fallback", () => {
   expect(trackArtworkSources({artworkUrl:"https://example.test/edition.jpg",provenance:{catalogProvider:"musicbrainz",releaseGroupId:id}} as Track)).toEqual(["https://example.test/edition.jpg",`https://coverartarchive.org/release-group/${id}/front-250`,null]);
 });
+it("falls back to the recording search result's release group", () => {
+  const artworkUrl = "https://coverartarchive.org/release/00000000-0000-4000-8000-000000000002/front-250";
+  expect(trackArtworkSources({ provider: "musicbrainz", artworkUrl, provenance: { releaseGroupId: id } } as Track))
+    .toEqual([artworkUrl, `https://coverartarchive.org/release-group/${id}/front-250`, null]);
+});

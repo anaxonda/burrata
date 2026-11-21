@@ -194,8 +194,7 @@
   </details>
 
   <details class="custom-paths">
-    <summary>Tool locations</summary>
-    <p>Bundled tools are recommended. System tools stay under your package manager’s control. Use a custom path for a specific executable.</p>
+    <summary>Advanced tool locations</summary>
     <div class="custom-path-grid">
       {#each pathFields as field}
         <label>{field.label}
@@ -239,8 +238,7 @@
   .ejs-note strong { font-size:12px; }
   .custom-paths { border:1px solid var(--line); border-radius:8px; padding:12px 14px; background:var(--surface); }
   .custom-paths summary { cursor:pointer; font-size:12px; font-weight:650; }
-  .custom-paths > p { margin:9px 0 12px; }
-  .custom-path-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px; margin-bottom:12px; }
+  .custom-path-grid { margin-top:12px; display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px; margin-bottom:12px; }
   .custom-path-grid input { min-width:0; width:100%; }
   .setup-actions { display:flex; justify-content:flex-end; gap:8px; }
   @media (max-width: 900px) { .tool-list { grid-template-columns:1fr; } }

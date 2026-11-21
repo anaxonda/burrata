@@ -24,6 +24,11 @@ pub enum AlbumMembershipEvidence {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "camelCase")]
 pub enum AlbumResolution {
+    Spotify {
+        #[serde(rename = "albumId")]
+        album_id: String,
+        title: String,
+    },
     Resolved {
         destination: AlbumChoice,
     },
@@ -262,6 +267,18 @@ fn complete_catalog_timeline(tracks: &[Track]) -> bool {
         })
 }
 
+// Discogs search summaries often expose only a display label of the form
+// "artist - album". Use it to limit requests for full edition metadata.
+fn uncredited_discogs_hit(release: &ArtistReleaseRef, album: &str, artist: &str) -> bool {
+    release.release.provider == "discogs"
+        && !release.credits.iter().any(|credit| credit.artist.is_some())
+        && (key(&release.title) == key(album)
+            || release.title.match_indices(" - ").any(|(i, separator)| {
+                key(&release.title[..i]) == key(artist)
+                    && key(&release.title[i + separator.len()..]) == key(album)
+            }))
+}
+
 fn needs_tracklist(
     release: &ArtistReleaseRef,
     source_count: Option<usize>,
@@ -409,6 +426,31 @@ mod tests {
         member.isrc = Some("also invalid".into());
         assert!(!recording_member(&request, &[member]));
     }
+    #[test]
+    fn uncredited_discogs_search_result_keeps_exact_title_and_artist_candidates() {
+        let release: ArtistReleaseRef = serde_json::from_value(serde_json::json!({
+            "release":{"provider":"discogs","id":"29389585"},
+            "title":"Antoine \"Tato\" Garcia - Rumbason",
+            "sourceUrl":"https://www.discogs.com/release/29389585","credits":[]
+        }))
+        .unwrap();
+        assert!(uncredited_discogs_hit(
+            &release,
+            "Rumbason",
+            "Antoine Tato Garcia"
+        ));
+        assert!(!uncredited_discogs_hit(
+            &release,
+            "Rumbason",
+            "Different artist"
+        ));
+        assert!(!uncredited_discogs_hit(
+            &release,
+            "Other album",
+            "Antoine Tato Garcia"
+        ));
+    }
+
     #[test]
     fn group_navigation_binds_the_fetched_edition_and_rejects_mixed_editions() {
         let release: ArtistReleaseRef = serde_json::from_value(serde_json::json!({
@@ -655,6 +697,58 @@ mod tests {
         assert!(!complete_primary_discography(&unbound, &artist));
     }
 }
+fn exact_spotify_album_request(track: &Track) -> bool {
+    track.provider == "spotify"
+        && track.provider_id.len() == 22
+        && track
+            .provider_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric())
+        && track.id == format!("spotify:{}", track.provider_id)
+        && track.source_url == format!("https://open.spotify.com/track/{}", track.provider_id)
+        && track.playback_range.is_none()
+        && ![
+            "title",
+            "artist",
+            "album",
+            "albumArtist",
+            "version",
+            "durationSeconds",
+            "isrc",
+        ]
+        .iter()
+        .any(|field| track.provenance["manualFields"][field] == true)
+}
+
+pub async fn resolve_exact_spotify(
+    state: &crate::AppState,
+    track: &Track,
+) -> Result<AlbumResolution, String> {
+    if exact_spotify_album_request(track) {
+        let fresh = state
+            .remote_playlists
+            .get_remote_track("spotify", &track.provider_id)
+            .await?;
+        let context = &fresh.provenance["recordingContext"];
+        if let Some(album_id) = context["albumId"].as_str().filter(|id| {
+            id.len() == 22
+                && id.bytes().all(|byte| byte.is_ascii_alphanumeric())
+                && context["albumUri"] == format!("spotify:album:{id}")
+        }) {
+            return Ok(AlbumResolution::Spotify {
+                album_id: album_id.into(),
+                title: fresh
+                    .album
+                    .unwrap_or_else(|| track.album.clone().unwrap_or_default()),
+            });
+        }
+    }
+    Ok(AlbumResolution::Unavailable {
+        reason: "Spotify did not provide an album for this track".into(),
+        source_album_url: None,
+    })
+}
+
 pub async fn resolve(state: &crate::AppState, track: &Track) -> Result<AlbumResolution, String> {
     let membership_key = cache_key(track);
     if let Some(value) = state
@@ -725,7 +819,9 @@ pub async fn resolve(state: &crate::AppState, track: &Track) -> Result<AlbumReso
                 .any(|credit| key(&credit.name) == key(&artist))
     });
     if exact_album_found {
-        candidates.retain(|release| key(&release.title) == key(album));
+        candidates.retain(|release| {
+            key(&release.title) == key(album) || uncredited_discogs_hit(release, album, &artist)
+        });
     }
     // The source may use an alternate album title. Discover releases through
     // an exact catalog artist, then present verified recording occurrences as
@@ -768,7 +864,7 @@ pub async fn resolve(state: &crate::AppState, track: &Track) -> Result<AlbumReso
     }
     candidates.sort_by_key(|release| {
         (
-            key(&release.title) != key(album),
+            key(&release.title) != key(album) && !uncredited_discogs_hit(release, album, &artist),
             release.release.provider.clone(),
             release.release.id.clone(),
         )
@@ -777,7 +873,7 @@ pub async fn resolve(state: &crate::AppState, track: &Track) -> Result<AlbumReso
     let source_count = source_timeline.as_ref().map(Vec::len);
     candidates.sort_by_key(|release| programme_count_conflicts(release, source_count));
     let candidates_truncated = candidates.len() > 20;
-    for release in candidates.into_iter().take(20) {
+    for mut release in candidates.into_iter().take(20) {
         if !needs_tracklist(
             &release,
             source_count,
@@ -787,6 +883,22 @@ pub async fn resolve(state: &crate::AppState, track: &Track) -> Result<AlbumReso
         ) {
             continue;
         }
+        let detailed_tracks = if uncredited_discogs_hit(&release, album, &artist) {
+            let Ok((edition, tracks)) = state
+                .artists
+                .discogs_navigation_edition(release, &credentials)
+                .await
+            else {
+                continue;
+            };
+            if key(&edition.title) != key(album) || !complete_catalog_timeline(&tracks) {
+                continue;
+            }
+            release = edition;
+            Some(tracks)
+        } else {
+            None
+        };
         let Some(credit) = release.credits.iter().find(|credit| {
             match catalog_artist
                 .as_ref()
@@ -801,12 +913,17 @@ pub async fn resolve(state: &crate::AppState, track: &Track) -> Result<AlbumReso
         let Some(artist_ref) = credit.artist.clone() else {
             continue;
         };
-        let Ok(tracks) = state
-            .artists
-            .get_release_tracks(&release, &artist_ref, &credentials)
-            .await
-        else {
-            continue;
+        let tracks = if let Some(tracks) = detailed_tracks {
+            tracks
+        } else {
+            let Ok(tracks) = state
+                .artists
+                .get_release_tracks(&release, &artist_ref, &credentials)
+                .await
+            else {
+                continue;
+            };
+            tracks
         };
         let timeline_matches = complete_catalog_timeline(&tracks)
             && source_timeline

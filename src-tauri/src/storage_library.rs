@@ -4,7 +4,7 @@ use super::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-const LIBRARY_PROJECTION_REVISION: i64 = 7;
+const LIBRARY_PROJECTION_REVISION: i64 = 8;
 const ARTIST_COMBINATION_PREFIX: &str = "artist:combination:";
 const ALBUM_COVER_PREFIX: &str = "album:cover:";
 
@@ -200,7 +200,11 @@ fn entity(
         provider: provider.map(str::to_owned),
         provider_id: id.map(str::to_owned),
         source_url: None,
-        artwork_url: track.artwork_url.clone(),
+        artwork_url: if kind == "album" {
+            track.artwork_url.clone()
+        } else {
+            None
+        },
         release_date: if kind == "album" {
             track.release_date.clone()
         } else {

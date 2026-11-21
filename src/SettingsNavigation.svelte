@@ -9,18 +9,31 @@
     { id: "connections", label: "Connections" },
     { id: "advanced", label: "Troubleshooting" },
   ];
+  const current = $derived(active === "integrations" ? "connections" : active);
 </script>
 
-<nav class="settings-nav" aria-label="Settings categories">
+<nav class="settings-nav section-switcher" aria-label="Settings categories">
+  <label class="category-picker">Settings category
+    <select value={current} onchange={event => onchange(event.currentTarget.value as Category)}>
+      {#each categories as category}<option value={category.id}>{category.label}</option>{/each}
+    </select>
+  </label>
   {#each categories as category}
-    <button type="button" class:active={(active === "integrations" ? "connections" : active) === category.id} aria-current={(active === "integrations" ? "connections" : active) === category.id ? "page" : undefined}
+    <button type="button" aria-current={current === category.id ? "page" : undefined}
       onclick={() => onchange(category.id)}>{category.label}</button>
   {/each}
 </nav>
 
 <style>
-  .settings-nav { display:flex; flex-wrap:wrap; gap:6px; border-bottom:1px solid var(--line); padding-bottom:12px; margin-bottom:18px; }
-  button { border:1px solid transparent; border-radius:8px; background:transparent; color:var(--muted); padding:8px 12px; font:inherit; cursor:pointer; }
-  button:hover { color:var(--text); background:var(--surface-2); }
-  button.active { color:var(--text); border-color:var(--line); background:var(--surface-2); }
+  .settings-nav {
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 12px;
+    margin-bottom: 18px;
+  }
+  .category-picker { display: none; }
+  @container settings-pane (max-width: 36rem) {
+    .settings-nav > button { display: none; }
+    .category-picker { display: grid; gap: 6px; margin: 0; width: 100%; font-size: 12px; }
+    .category-picker select { min-height: 40px; }
+  }
 </style>

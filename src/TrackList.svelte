@@ -20,11 +20,12 @@
   import { playlistDropIndex } from "./lib/playlist-reorder";
 
   let {
-    tracks, orderedRows, onPlay, onDownload, onFavorite, onNext, onQueue, onPlaylist, onArtist, onAlbum, onInfo, showLibraryStatus = false,
+    tracks, orderedRows, onPlay, onDownload, onFavorite, onNext, onQueue, onPlaylist, onArtist, onAlbum, onInfo, showLibraryStatus = false, showProviderCounts = false,
     onContext, onSelect, onRowSelect, onAddSelectedToPlaylist, onQueueSelected, onInvertSelection, selectionContext, selectionKeys, rowKeys, selectionTracks, selectionTrackKeys, selectedTrackIds = [], selectedTrackId, focusedRowKey, selectionLabel, trackTitle, selectionMode: controlledSelectionMode, position, meta, timestamp, playingTrack, bufferingTrack, playingTrackId = "", bufferingTrackId = "", paused = false, playbackFailed = false, listLabel = "Tracks", logicalRowCount, initialScroll, onScroll, virtualizationThreshold = 200, presentation = "default", reorderable = false, reorderCount, onReorder,
   }: {
     tracks: Track[];
     showLibraryStatus?: boolean;
+    showProviderCounts?: boolean;
     orderedRows?: Array<{ kind: "track"; key: string; trackIndex: number } | { kind: "status"; key: string; title: string; detail: string }>;
     onPlay?: (track: Track, tracks: Track[], index: number) => void | Promise<void>;
     onDownload?: (track: Track) => void | Promise<void>;
@@ -332,7 +333,7 @@
     {@const failed = current && playbackFailed}
     {@const buffering = !failed && (bufferingTrack ? sameTrackIdentity(track, bufferingTrack) : track.id === bufferingTrackId)}
     {@const duration = playableDuration(track)}
-    {@const providerCount = trackProviderCount(track)}
+    {@const providerCount = showProviderCounts ? trackProviderCount(track) : null}
     {@const rowMeta = meta?.(track, index)}
     {@const occurrencePosition = playlistPosition(track)}
     {@const favorite = favoriteMembership?.(track) ?? track.favorite}
@@ -395,6 +396,7 @@
 <style>
   li.failed .playback-state { color:var(--danger,#f99b82); }
   /* Inline text actions should use their text height inside a track row. */
+  .track-copy .track-title, .track-copy .track-subtitle { max-width:100%; }
   .track-title, .artist-link, .album-link { min-height: 0; }
   .track-list-viewport{min-width:0}.track-list-viewport.virtualized{max-height:70vh;overflow:auto;overflow-anchor:none;overscroll-behavior:contain;scrollbar-gutter:stable}.track-list-viewport.virtualized .shared-track-list li:not(.virtual-spacer){box-sizing:border-box;height:var(--track-row-height,88px);max-height:var(--track-row-height,88px);overflow:hidden}.track-list-viewport.virtualized .track-subtitle{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;white-space:normal;overflow:hidden;text-overflow:ellipsis}.track-list-viewport.virtualized .track-time{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.track-list-viewport .virtual-spacer{display:block;padding:0!important;border:0!important;pointer-events:none}
   .shared-track-list{list-style:none;margin:0;padding:0;min-width:0;container-type:inline-size}.shared-track-list li{display:flex;align-items:center;gap:12px;min-width:0;padding:8px 4px;border-bottom:1px solid var(--line);transition:background 120ms ease}.shared-track-list li:hover{background:color-mix(in srgb,var(--raised) 72%,transparent)}.shared-track-list li.current{background:color-mix(in srgb,var(--accent) 12%,transparent)}.shared-track-list li.focused-history-occurrence{outline:2px solid var(--accent);outline-offset:-2px;background:color-mix(in srgb,var(--accent) 16%,var(--surface))}.track-position{flex:0 0 24px;text-align:right;color:var(--muted);font-size:12px}.playback-state{display:grid;place-items:center;flex:0 0 22px;color:var(--accent);font-size:15px;font-weight:700}.playback-state.status-buffering-has-play{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.artwork{flex:0 0 42px;width:42px;height:42px;object-fit:cover;border-radius:5px;background:var(--raised)}.placeholder{display:grid;place-items:center;color:var(--muted)}.track-copy{display:flex;flex:1;flex-direction:column;gap:3px;min-width:0}.track-title{display:block;max-width:100%;min-width:0;padding:0;border:0;background:transparent;color:var(--text);text-align:left}.track-title strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:600}.track-title small{color:var(--muted);font-weight:400}.track-subtitle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:11px}.artist-link,.album-link{padding:0;border:0;background:transparent;color:inherit;text-decoration:underline;text-underline-offset:2px;font:inherit;cursor:pointer}.track-time{color:var(--muted);font-size:10px}.duration{flex:0 0 38px;text-align:right;color:var(--muted);font-size:11px}.row-actions{display:flex;flex:0 0 auto;align-items:center;gap:4px}.icon-action,.more-trigger{display:grid;place-items:center;width:36px;height:36px;padding:0;border:1px solid var(--line);border-radius:50%;background:transparent;color:var(--muted);font-size:18px;cursor:pointer;touch-action:manipulation}.icon-action:hover,.more-trigger:hover{color:var(--accent);border-color:var(--accent)}.icon-action.play{color:var(--accent)}.icon-action.favorite.active{color:#f1768d}.icon-action.play.buffering{position:relative;color:transparent}.icon-action.play.buffering::before{content:"";position:absolute;width:17px;height:17px;box-sizing:border-box;border:2px solid color-mix(in srgb,var(--accent) 38%,transparent);border-top-color:var(--accent);border-right-color:var(--accent);border-radius:50%;animation:track-row-buffering 850ms linear infinite;pointer-events:none}.row-play.buffering{display:grid;place-items:center;box-sizing:border-box;opacity:1}
@@ -406,7 +408,7 @@
   @media(min-width:641px){
     .playlist .shared-track-list li:not(.virtual-spacer){position:relative;box-sizing:border-box;height:60px;max-height:60px;gap:12px;padding:7px 10px;overflow:hidden}
     .playlist .artwork{flex-basis:36px;width:36px;height:36px;border-radius:4px}
-    .playlist .track-copy{gap:0}.playlist .track-title strong{font-size:12px;line-height:1.5}.playlist .track-subtitle{margin-top:3px;font-size:10px;line-height:1.5;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .playlist .track-copy{gap:0}.playlist .track-title strong{font-size:12px;line-height:1.5}.playlist .track-subtitle{margin-top:3px;font-size:12px;line-height:1.4;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .playlist .track-position{font-size:11px}.playlist .position-slot{flex-basis:24px}.playlist li:hover .position-play,.playlist .position-play:focus-visible{display:block}.playlist li:hover .position-slot .track-position{visibility:hidden}
     .playlist li.current .position-slot .track-position{visibility:hidden}.playlist .playback-state{position:absolute;left:0;width:24px;background:transparent;font-size:12px;pointer-events:none}.playlist li:hover .playback-state{opacity:0}.playlist .row-actions{gap:4px}.playlist .row-actions>.play{display:none}.playlist .icon-action,.playlist .more-trigger{width:28px;height:28px;border:0;border-radius:4px;font-size:17px}
     .playlist .playlist-time{flex:0 1 190px;min-width:0;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:10px}.playlist .duration{font-size:11px}

@@ -645,9 +645,7 @@
   h2,h3,p{margin:0}h2{font-size:1.25rem}h3{font-size:1rem}
   header p,.backup-card>p{margin-top:5px;color:var(--muted);font-size:.88rem;line-height:1.5}
   .backup-card{display:grid;gap:10px;padding:16px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
-  button{justify-self:start;border:1px solid var(--line);border-radius:7px;padding:8px 12px;background:var(--surface-2);color:var(--text);font:inherit;cursor:pointer}
-  button.primary{background:var(--accent);border-color:var(--accent);color:var(--base,#101412);font-weight:650}
-  button:disabled{opacity:.55;cursor:default}
+  button{justify-self:start}
   .option{display:flex;align-items:flex-start;gap:9px;color:var(--text);font-size:.88rem;line-height:1.4}
   .option input{margin-top:3px;accent-color:var(--accent)}.option span{display:grid;gap:2px}.option small{color:var(--muted);font-size:.8rem}.unavailable{opacity:.65}
   .preview{display:grid;gap:12px;margin-top:5px;padding-top:13px;border-top:1px solid var(--line)}

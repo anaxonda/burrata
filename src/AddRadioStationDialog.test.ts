@@ -76,7 +76,7 @@ describe("AddRadioStationDialog", () => {
     cleanup = () => { void unmount(instance); };
     for (let i = 0; i < 8; i++) await Promise.resolve();
     await tick();
-    document.querySelector<HTMLButtonElement>('[role="tab"]:nth-child(2)')!.click();
+    document.querySelector<HTMLButtonElement>('[aria-label="Add station method"] button:nth-child(2)')!.click();
     await tick();
     const name = document.querySelector<HTMLInputElement>('[aria-label="Station name"]')!;
     const url = document.querySelector<HTMLInputElement>('[aria-label="Stream URL"]')!;

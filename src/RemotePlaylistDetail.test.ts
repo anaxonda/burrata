@@ -10,13 +10,23 @@ import RemotePlaylistDetail from "./RemotePlaylistDetail.svelte";
 import { providerNavigationSnapshots } from "./lib/provider-navigation-snapshots";
 import type { Track } from "./lib/types";
 
+const originalShowModal = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "showModal");
 let destroy: (() => void) | undefined;
 beforeEach(() => {
   providerNavigationSnapshots.clear();
+  vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable:true, value(this: HTMLDialogElement) { this.setAttribute("open", ""); } });
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 1; });
 });
-afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); unmountCurrent(); document.body.innerHTML = ""; });
+afterEach(() => {
+  if (originalShowModal) Object.defineProperty(HTMLDialogElement.prototype, "showModal", originalShowModal);
+  else Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal");
+  vi.useRealTimers(); vi.unstubAllGlobals(); unmountCurrent(); document.body.innerHTML = ""; });
 async function settle() { for (let i = 0; i < 10; i++) await Promise.resolve(); await tick(); }
+async function openPlaylistActions(target: HTMLElement) {
+  target.querySelector<HTMLButtonElement>('[aria-label="More playlist actions"]')!.click();
+  await settle();
+}
 function deferred<T = unknown>() {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
@@ -58,7 +68,7 @@ describe("RemotePlaylistDetail", () => {
     expect(header.querySelector(".playlist-summary")?.textContent).toContain("1 track");
     expect(header.querySelector(".playlist-ambient")?.getAttribute("src")).toBe("https://images.example/playlist-cover.jpg");
     expect([...header.querySelectorAll<HTMLButtonElement>(".remote-detail-actions button")].map(button => button.textContent?.trim())).toEqual([
-      "Play all tracks", "Queue all tracks", "Play all tracks next", "Add to library",
+      "Play all tracks", "Add to library", "⋯",
     ]);
   });
 
@@ -134,7 +144,7 @@ describe("RemotePlaylistDetail", () => {
     expect(target.textContent).not.toContain("Couldn't load this playlist's tracks");
     expect(target.querySelector(".remote-detail-retry")?.textContent).toBe("Retry loading playlist");
     expect([...target.querySelectorAll<HTMLButtonElement>(".remote-detail-actions button")].map(button => button.textContent?.trim())).toEqual([
-      "Play loaded tracks", "Queue loaded tracks", "Play loaded tracks next", "Add to library",
+      "Play loaded tracks", "Add to library", "⋯",
     ]);
   });
 
@@ -204,8 +214,14 @@ describe("RemotePlaylistDetail", () => {
     expect(onPlay).toHaveBeenCalledWith(rows[1], rows, 1);
     [...target.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Play all tracks")!.click();
     expect(onPlay).toHaveBeenLastCalledWith(rows[0], rows, 0);
+    await openPlaylistActions(target);
     [...target.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Queue all tracks")!.click();
     expect(onQueueTracks).toHaveBeenCalledWith(rows, "append");
+    await settle();
+    expect(target.querySelector('dialog[aria-label="Playlist actions"]')).toBeNull();
+    await openPlaylistActions(target);
+    [...target.querySelectorAll<HTMLButtonElement>("dialog button")].find(button => button.textContent === "Play all tracks next")!.click();
+    expect(onQueueTracks).toHaveBeenCalledWith(rows, "next");
     expect(target.textContent?.toLowerCase()).toContain("unavailable");
   });
 
@@ -345,20 +361,20 @@ describe("RemotePlaylistDetail", () => {
     expect(target.textContent).toContain("1 of 2 tracks loaded");
     expect([...target.querySelectorAll<HTMLButtonElement>("button")].some(button => button.textContent?.trim() === "Retry loading playlist")).toBe(false);
     expect(target.querySelector(".remote-detail-more")?.textContent?.trim()).toBe("Load more tracks");
-    expect([...target.querySelectorAll<HTMLButtonElement>(".remote-detail-actions button")].map(button=>button.textContent?.trim())).toEqual(["Play loaded tracks", "Queue loaded tracks", "Play loaded tracks next", "Add to library"]);
+    expect([...target.querySelectorAll<HTMLButtonElement>(".remote-detail-actions button")].map(button=>button.textContent?.trim())).toEqual(["Play loaded tracks", "Add to library", "⋯"]);
     expect(call).not.toHaveBeenCalledWith("import_remote_playlists", expect.anything());
     target.querySelector<HTMLButtonElement>(".remote-detail-more")!.click(); await settle();
     expect(call).toHaveBeenCalledWith("browse_remote_playlist", expect.objectContaining({ provider: "spotify", playlistId: "https://open.spotify.com/playlist/remote-id", cursor: "page-2", requestId: expect.any(String) }));
     expect(target.querySelectorAll(".shared-track-list li")).toHaveLength(2);
     expect(target.textContent).toContain("2 tracks");
-    expect([...target.querySelectorAll<HTMLButtonElement>(".remote-detail-actions button")].slice(0,3).map(button=>button.textContent?.trim())).toEqual(["Play all tracks", "Queue all tracks", "Play all tracks next"]);
+    expect([...target.querySelectorAll<HTMLButtonElement>(".remote-detail-actions button")].slice(0,3).map(button=>button.textContent?.trim())).toEqual(["Play all tracks", "Add to library", "⋯"]);
     const filter = target.querySelector<HTMLInputElement>('[aria-label="Filter playlist tracks"]')!;
     filter.value = "Red"; filter.dispatchEvent(new Event("input", { bubbles: true })); await settle();
     expect(target.querySelectorAll(".shared-track-list li")).toHaveLength(1);
     expect(target.textContent).toContain("Red song");
     expect(target.textContent).not.toContain("Blue song");
     expect(target.textContent).toContain("1 matching · 2 loaded of 2 tracks");
-    expect([...target.querySelectorAll<HTMLButtonElement>(".remote-detail-actions button")].slice(0,3).map(button=>button.textContent?.trim())).toEqual(["Play matching tracks", "Queue matching tracks", "Play matching tracks next"]);
+    expect([...target.querySelectorAll<HTMLButtonElement>(".remote-detail-actions button")].slice(0,3).map(button=>button.textContent?.trim())).toEqual(["Play matching tracks", "Add to library", "⋯"]);
     [...target.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Add to library")!.click(); await settle();
     expect(call).toHaveBeenCalledWith("import_remote_playlists", { provider: "spotify", playlistIds: ["https://open.spotify.com/playlist/remote-id"] });
     expect(onImported).toHaveBeenCalledTimes(1);
@@ -441,7 +457,8 @@ describe("RemotePlaylistDetail", () => {
     expect(target.textContent).toContain("240 tracks");
     expect(target.textContent).not.toContain("Snapshot incomplete");
     expect(target.querySelector(".remote-detail-retry")).toBeNull();
-    [...target.querySelectorAll<HTMLButtonElement>(".remote-detail-actions button")].find(button => button.textContent?.startsWith("Queue "))!.click();
+    await openPlaylistActions(target);
+    [...target.querySelectorAll<HTMLButtonElement>("dialog button")].find(button => button.textContent?.startsWith("Queue "))!.click();
     expect(onQueueTracks).toHaveBeenCalledWith([...firstPage, ...finalPage], "append");
   });
 
@@ -461,6 +478,7 @@ describe("RemotePlaylistDetail", () => {
     const target = render(call, { onQueueTracks }); await settle();
     target.querySelector<HTMLButtonElement>(".remote-detail-more")!.click(); await settle();
     expect(target.querySelectorAll(".shared-track-list li")).toHaveLength(4);
+    await openPlaylistActions(target);
     [...target.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Queue all tracks")!.click();
     expect(onQueueTracks).toHaveBeenCalledWith([firstOccurrence, middle, secondOccurrence, last], "append");
   });
@@ -499,7 +517,7 @@ describe("RemotePlaylistDetail", () => {
     expect(target.textContent).toContain("2 of 240 tracks loaded");
     expect(target.textContent).toContain("Snapshot incomplete");
     expect(target.querySelector(".remote-detail-retry")).not.toBeNull();
-    expect(target.querySelector(".remote-detail-actions .primary")?.textContent).toContain("Add to library");
+    expect(target.querySelector(".remote-detail-actions .primary")?.textContent).toBe("Play loaded tracks");
     expect(target.textContent).toContain("Continuation track");
 
     unmountCurrent();
@@ -553,7 +571,7 @@ describe("RemotePlaylistDetail", () => {
     expect(target.textContent).toContain("Snapshot incomplete");
     expect(target.querySelector(".remote-detail-more")).toBeNull();
     expect([...target.querySelectorAll<HTMLButtonElement>(".remote-detail-actions button")].slice(0, 3).map(button => button.textContent?.trim())).toEqual([
-      "Play loaded tracks", "Queue loaded tracks", "Play loaded tracks next",
+      "Play loaded tracks", "Add to library", "⋯",
     ]);
   });
 
@@ -709,7 +727,7 @@ describe("RemotePlaylistDetail", () => {
     const target = render(call); await settle();
     expect(target.textContent).toContain("1 track loaded");
     expect([...target.querySelectorAll<HTMLButtonElement>(".remote-detail-actions button")].slice(0, 3).map(button => button.textContent?.trim())).toEqual([
-      "Play loaded tracks", "Queue loaded tracks", "Play loaded tracks next",
+      "Play loaded tracks", "Add to library", "⋯",
     ]);
   });
 

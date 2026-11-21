@@ -601,7 +601,7 @@
   {#if profileOnly}
     {@const channelUrl = provider === "youtube" ? safeYoutubeChannelUrl(profileUrl) : null}
     <header class="remote-profile-heading"><div><span>{provider === "youtube" ? "YouTube channel" : "Public playlists by"}</span><strong title={profileUrl}>{provider === "youtube" ? channelPage?.title || profileUrl : profileUrl}</strong></div>{#if channelUrl}<a class="remote-open-channel" href={channelUrl} target="_blank" rel="noreferrer">Open channel in YouTube ↗</a>{/if}<button disabled={loading || channelLoading || selectingAll || importing} onclick={() => channelTab === "videos" && provider === "youtube" ? void browseYoutubeChannelVideos(true) : void browse()}>{channelTab === "videos" && provider === "youtube" ? "Refresh videos" : "Refresh"}</button></header>
-  {:else}<nav class="remote-provider-tabs" aria-label="Playlist provider">
+  {:else}<nav class="remote-provider-tabs section-switcher" aria-label="Playlist provider">
     <button class:active={provider === "spotify"} aria-pressed={provider === "spotify"} disabled={selectingAll || importing} onclick={() => { invalidateBrowseContext(); provider = "spotify"; playlistUrls = []; directUrl = ""; sourceMode = "mine"; void browse(); }}>Spotify</button>
     <button class:active={provider === "youtube"} aria-pressed={provider === "youtube"} disabled={selectingAll || importing} onclick={() => { invalidateBrowseContext(); provider = "youtube"; playlistUrls = []; directUrl = ""; sourceMode = "mine"; void browse(); }}>YouTube</button>
     <button class="remote-close" aria-label="Close remote playlist picker" onclick={onClose}>×</button>
@@ -613,7 +613,7 @@
 
   <div class="remote-picker-grid">
     {#if provider === "youtube" && initialOwner.trim()}
-      <nav class="remote-channel-tabs" role="group" aria-label="YouTube channel content">
+      <nav class="remote-channel-tabs section-switcher" role="group" aria-label="YouTube channel content">
         <button type="button" aria-pressed={channelTab === "videos"} class:active={channelTab === "videos"} onclick={() => changeChannelTab("videos")}>Videos</button>
         <button type="button" aria-pressed={channelTab === "playlists"} class:active={channelTab === "playlists"} onclick={() => changeChannelTab("playlists")}>Playlists</button>
       </nav>
@@ -635,7 +635,7 @@
       </section>
     {:else}
     <section class="remote-picker-main" aria-label="Browse remote playlists">
-      {#if !profileOnly}<div class="remote-source-tabs" aria-label="Playlist source">
+      {#if !profileOnly}<div class="remote-source-tabs section-switcher" aria-label="Playlist source">
         <button class:active={sourceMode === "mine"} aria-pressed={sourceMode === "mine"} disabled={selectingAll || importing} onclick={() => changeSourceMode("mine")}>Mine</button>
         <button class:active={sourceMode === "profile"} aria-pressed={sourceMode === "profile"} disabled={selectingAll || importing} onclick={() => changeSourceMode("profile")}>Public profile / channel</button>
         <button class:active={sourceMode === "search"} aria-pressed={sourceMode === "search"} disabled={selectingAll || importing} onclick={() => changeSourceMode("search")}>Search</button>
@@ -728,12 +728,8 @@
   .remote-profile-heading button { flex:none; margin-left:auto; padding:4px 8px; font-size:11px; }
   .remote-profile-scope { margin:0; }
   .remote-channel-tabs { display:flex; gap:4px; padding:0 8px; border-bottom:1px solid var(--line); }
-  .remote-channel-tabs button { min-height:34px; padding:5px 12px; border:0; border-bottom:2px solid transparent; border-radius:0; background:transparent; color:var(--muted); font-size:12px; }
-  .remote-channel-tabs button.active { border-bottom-color:var(--accent); color:var(--text); }
   .remote-channel-videos { display:grid; gap:7px; min-width:0; padding:0 8px 8px; }
   .remote-provider-tabs,.remote-source-tabs { display:flex; flex-wrap:wrap; gap:4px; padding:0; border:0; border-radius:0; }
-  .remote-provider-tabs button,.remote-source-tabs button { min-width:0; padding:5px 8px; background:transparent; color:var(--muted); font-size:11px; }
-  .remote-provider-tabs button.active,.remote-source-tabs button.active { background:var(--raised); color:var(--text); }
   .remote-selection-actions { display:flex; flex-wrap:wrap; gap:6px; }
   .remote-selection-actions button { padding:5px 8px; font-size:10px; }
   .remote-picker-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:6px; align-items:start; }

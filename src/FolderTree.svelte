@@ -1,4 +1,5 @@
 <script lang="ts">
+  import MenuIcon from "./MenuIcon.svelte";
   import { onDestroy, tick } from "svelte";
   import type { DirectoryBrowserRoot, DirectoryChild } from "./lib/directory-browser";
 
@@ -30,6 +31,10 @@
   let focusedKey = $state("");
   let rootBusy = $state(false);
   let treeOpen = $state(true);
+  export function collapseAll() {
+    treeOpen = false;
+    expanded = new Set();
+  }
   let treeElement: HTMLElement | undefined = $state();
   let rootRequest = 0;
   let destroyed = false;
@@ -143,7 +148,7 @@
     for (const [key, request] of childRequests) childRequests.set(key, request + 1);
   });
 
-  async function addFolder() {
+  export async function addFolder() {
     if (!call || rootBusy) return;
     rootBusy = true;
     try {
@@ -186,7 +191,7 @@
 
 {#if !filter.trim() || visibleNodes.length}
 <section class="folder-tree" aria-labelledby="folder-tree-title">
-  <div class="folder-tree-heading">
+  <div class="folder-tree-heading" data-sidebar-actions="folders">
     <button class="folder-tree-title" id="folder-tree-title" type="button" aria-label="Folders" onclick={onOpenFolders}>Folders</button>
     <div class="folder-tree-heading-actions">
       <button type="button" class="folder-tree-collapse" aria-label={treeOpen ? "Collapse folder tree" : "Expand folder tree"} aria-expanded={treeOpen} title={treeOpen ? "Collapse folder tree" : "Expand folder tree"} onclick={() => treeOpen = !treeOpen}>{treeOpen ? "⌃" : "⌄"}</button>
@@ -213,7 +218,7 @@
             }}
             onkeydown={(event) => void handleKeydown(event, node, index)}>
             <span class="folder-tree-chevron" aria-hidden="true">{isLoading ? "…" : isExpanded ? "⌄" : "›"}</span>
-            <span class="folder-tree-icon" aria-hidden="true">{node.root ? "▣" : "▧"}</span>
+            <span class="folder-tree-icon" aria-hidden="true"><MenuIcon name={isExpanded ? "folder-open" : "folder"} /></span>
             <span class="folder-tree-name" title={node.name}>{node.name}</span>
           </button>
           {#if node.root}<button class="folder-tree-remove" type="button" disabled={rootBusy} aria-label={`Unregister folder ${node.name}`} title={`Unregister ${node.name}; files are not deleted`} onclick={() => void removeFolder(node)}>×</button>{/if}
@@ -240,7 +245,9 @@
   .folder-tree-node [role=treeitem]:hover, .folder-tree-node [role=treeitem]:focus-visible { background: var(--surface-hover, #ffffff12); outline: none; }
   .folder-tree-node [role=treeitem].selected { background: var(--accent-soft, #ffffff16); color: var(--accent, #f1f1f1); }
   .folder-tree-chevron { width: 12px; flex: 0 0 12px; text-align: center; color: var(--muted, #9a9da9); cursor: pointer; }
-  .folder-tree-icon { flex: 0 0 13px; color: var(--muted, #9a9da9); }
+  .folder-tree-icon :global(svg) { width:16px; height:16px; }
+  .selected .folder-tree-icon { color:var(--accent); }
+  .folder-tree-icon { display:grid; place-items:center; flex: 0 0 16px; color: var(--muted, #9a9da9); }
   .folder-tree-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .folder-tree-remove { position: absolute; right: 3px; width: 23px; height: 23px; border: 0; border-radius: 5px; background: transparent; color: var(--muted, #9a9da9); cursor: pointer; }
   .folder-tree-remove:hover, .folder-tree-remove:focus-visible { background: var(--surface-hover, #ffffff12); color: var(--text, #fff); }

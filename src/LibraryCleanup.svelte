@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { modalDialog } from "./lib/modal-dialog";
   import { untrack } from "svelte";
   export type UnsortedLibraryEntry = {
     id: string;
@@ -119,8 +120,7 @@
 </script>
 
 {#if open}
-  <div class="cleanup-backdrop">
-    <dialog open class="library-cleanup" aria-modal="true" aria-labelledby="library-cleanup-title">
+  <dialog use:modalDialog={onClose} class="library-cleanup" aria-modal="true" aria-labelledby="library-cleanup-title">
       <header>
         <div><h2 id="library-cleanup-title">Review unsorted library entries</h2><p>These entries may include old search results. The label does not establish that an item is unwanted.</p></div>
         <button type="button" aria-label="Close cleanup review" onclick={onClose}>Close</button>
@@ -155,31 +155,28 @@
             <p>This removes library membership only. Cache entries and audio files will remain.</p>
             <ul>{#each selectedEntries as entry (entry.id)}<li>{entry.artist} — {entry.title}</li>{/each}</ul>
             <button type="button" disabled={applying} onclick={() => (confirmOpen = false)}>Cancel</button>
-            <button type="button" class="remove-confirm" disabled={applying} onclick={() => void confirmRemoval()}>{applying ? "Removing…" : "Remove selected from library"}</button>
+            <button type="button" class="remove-confirm danger" disabled={applying} onclick={() => void confirmRemoval()}>{applying ? "Removing…" : "Remove selected from library"}</button>
           </section>
         {:else}
           <button type="button" class="review-removal" onclick={() => (confirmOpen = true)}>Review removal of {selectedEntries.length} selected</button>
         {/if}
       {/if}
       {#if skipped.length}<section class="cleanup-skipped" role="status"><h3>Entries kept</h3><ul>{#each skipped as item (item.id)}<li>{page.entries.find(entry => entry.id === item.id)?.title ?? item.id}: {item.reason}</li>{/each}</ul></section>{/if}
-    </dialog>
-  </div>
+  </dialog>
 {/if}
 
 <style>
-  .cleanup-backdrop{position:fixed;inset:0;z-index:1200;display:grid;place-items:center;padding:1rem;background:#0009}
-  .library-cleanup{box-sizing:border-box;width:min(720px,100%);max-height:min(88vh,900px);overflow:auto;padding:1rem;border:1px solid var(--line,#454a50);border-radius:12px;background:var(--surface,#17191c);color:var(--text,#eee);box-shadow:0 12px 42px #0008}
+  .library-cleanup::backdrop{background:#0009}
+  .library-cleanup{box-sizing:border-box;width:min(720px,calc(100vw - 32px));max-height:min(88vh,900px);overflow:auto;padding:1rem;border:1px solid var(--line,#454a50);border-radius:12px;background:var(--surface,#17191c);color:var(--text,#eee);box-shadow:0 12px 42px #0008}
   .library-cleanup header{display:flex;justify-content:space-between;gap:1rem;align-items:start}
   .library-cleanup h2{margin:.1rem 0 .35rem;font-size:1.2rem}.library-cleanup header p,.cleanup-scope{margin:.25rem 0;color:var(--muted,#a3a8ae);font-size:.88rem;line-height:1.45}
   .cleanup-scope{padding:.55rem;border-left:3px solid var(--accent,#9dbfff);background:#ffffff08}
   .cleanup-count{font-size:.82rem;color:var(--muted,#a3a8ae)}
   .cleanup-entries,.cleanup-confirm ul,.cleanup-skipped ul{list-style:none;margin:.5rem 0;padding:0}
   .cleanup-entries li{padding:.6rem 0;border-bottom:1px solid var(--line,#454a50)}
-  .cleanup-entries label{display:flex;align-items:start;gap:.65rem;cursor:pointer}.cleanup-entries input{margin-top:.25rem}
+  .cleanup-entries label{display:flex;flex-direction:row;align-items:start;gap:.65rem;cursor:pointer;margin:0}.cleanup-entries input{margin-top:.25rem}
   .cleanup-track{display:grid;gap:.15rem}.cleanup-track>span{color:var(--muted,#a3a8ae);font-size:.86rem}.cleanup-track small{color:var(--muted,#a3a8ae);font-size:.72rem}
   .cleanup-pages{display:flex;gap:.45rem;flex-wrap:wrap;margin:.75rem 0}
-  .library-cleanup button{border:1px solid var(--line,#454a50);border-radius:7px;padding:.4rem .65rem;color:inherit;background:#ffffff0a;cursor:pointer}
-  .library-cleanup button:disabled{opacity:.55;cursor:not-allowed}.review-removal,.remove-confirm{background:var(--accent,#9dbfff)!important;color:#111!important}
   .cleanup-confirm,.cleanup-skipped{margin:.75rem 0;padding:.7rem;border:1px solid var(--line,#454a50);border-radius:8px;background:#ffffff08}
   .cleanup-confirm h3,.cleanup-skipped h3{margin:.1rem 0 .4rem;font-size:1rem}.cleanup-confirm li,.cleanup-skipped li{padding:.15rem 0;font-size:.85rem}
   .cleanup-result{color:var(--success,#75d49a)}.cleanup-error{color:var(--danger,#ff8c8c)}.cleanup-empty{color:var(--muted,#a3a8ae)}

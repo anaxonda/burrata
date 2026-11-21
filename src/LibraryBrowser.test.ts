@@ -355,8 +355,9 @@ describe('saved library views', () => {
     expect(target.textContent).toContain('Play saved tracks');
     expect(target.textContent).toContain('Queue saved tracks');
     expect(target.textContent).toContain('No saved tracks match this filter');
-    target.querySelector<HTMLElement>('[aria-label="More album actions for Borrowed Light"]')!.click();
-    expect(target.textContent).toContain('Album loudness analysis is available after every catalog track is saved');
+    expect(target.querySelector('[aria-label="More album actions for Borrowed Light"]')).toBeNull();
+    target.querySelector<HTMLElement>('[aria-label="About saved album tracks"]')!.click();
+    expect(target.querySelector('.info-popover[open]')?.textContent).toContain('Album loudness analysis requires the complete album');
     expect([...target.querySelectorAll<HTMLButtonElement>('button')].some(button => button.textContent?.includes('Analyze album loudness'))).toBe(false);
 
     target.querySelector<HTMLElement>('[aria-label="Download album options for Borrowed Light"]')!.click();

@@ -177,15 +177,19 @@ describe("SearchPanel", () => {
     const input=target.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;input.value="Fixture";input.dispatchEvent(new Event("input",{bubbles:true}));
     target.querySelector("form")!.dispatchEvent(new Event("submit",{bubbles:true,cancelable:true}));await settle();
     expect(searchSource).toHaveBeenCalledWith(expect.objectContaining({sourceIds:["bandcamp"],kinds:[kind]}));
-    const sourceLink = target.querySelector<HTMLAnchorElement>(`a[href="${url}"]`);
+    expect(target.querySelector(`a[href="${url}"]`)).toBeNull();
     expect(target.querySelector(".search-result-art img")?.getAttribute("src")).toBe(artworkUrl);
     expect(Boolean(target.querySelector(".search-result-art.portrait"))).toBe(kind === "artist");
     if (kind === "album") {
-      expect(sourceLink?.textContent).toContain("Open album page");
+      target.querySelector(".result-row")!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+      await settle();
+      const menu = target.querySelector<HTMLDialogElement>('[aria-label="Actions for Fixture"]')!;
+      expect(menu.querySelector(`a[href="${url}"]`)?.textContent).toContain("Open album source");
+      menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await settle();
       target.querySelector<HTMLButtonElement>('[aria-label="Open album: Fixture"]')!.click();
       expect(onAlbum).toHaveBeenCalledWith(album);
     } else {
-      expect(sourceLink).toBeNull();
       expect(target.querySelector(".open-result")).toBeNull();
     }
   });
@@ -226,6 +230,7 @@ describe("SearchPanel", () => {
   it("labels a Soulseek peer folder as unverified and uses the browsed exact tracks for batch actions", async () => {
     const track = { id: "slsk-file-a", provider: "youtube", providerId: "candidate-a", sourceUrl: "https://youtube.test/watch?v=candidate-a", title: "Folder Song", artist: "Folder Artist", favorite: false, provenance: { audioCandidate: { id: "youtube:candidate-a", provider: "youtube", url: "https://youtube.test/watch?v=candidate-a" } } };
     const onDownloadTracks = vi.fn();
+    const onQueueTracks = vi.fn();
     apiCall.mockResolvedValue({ username: "peer-a", directory: "Folder", tracks: [track], candidates: [], complete: true });
     const target = render({
       initialSources: ["soulseek"],
@@ -234,7 +239,7 @@ describe("SearchPanel", () => {
         id: "soulseek:folder:abc", kind: "album", sourceId: "soulseek", title: "Folder",
         data: { soulseekGroup: { kind: "peerFolder", identity: "folder-abc", peer: "peer-a", directory: "Folder", folderName: "Folder", inferredArtist: "Folder Artist", observedFileCount: 1, completeness: "unknown" } },
       }] }),
-      onDownloadTracks,
+      onDownloadTracks, onQueueTracks,
     });
     const input = target.querySelector<HTMLInputElement>("[aria-label='Search music']")!;
     input.value = "Folder Artist"; input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -244,8 +249,14 @@ describe("SearchPanel", () => {
     expect(target.textContent).toContain("do not establish the complete folder listing");
     target.querySelector<HTMLButtonElement>(".soulseek-browse")!.click(); await settle();
     expect(apiCall).toHaveBeenCalledWith("browse_soulseek_directory", expect.objectContaining({ username: "peer-a", directory: "Folder", requestId: expect.any(String) }));
-    expect(target.textContent).toContain("Folder listing complete · 1 audio files");
+    expect(target.textContent).toContain("Folder listing complete · 1 audio file");
     expect(target.textContent).toContain("Folder Song");
+    expect(target.querySelector(".soulseek-download-folder")?.textContent?.trim()).toBe("Download 1 track");
+    const queueFolder = target.querySelector<HTMLButtonElement>(".soulseek-queue-folder")!;
+    expect(queueFolder.textContent).toBe("Add to playback queue");
+    queueFolder.click();
+    expect(onQueueTracks).toHaveBeenCalledWith([track], "append");
+    expect(onDownloadTracks).not.toHaveBeenCalled();
     target.querySelector<HTMLButtonElement>(".soulseek-download-folder")!.click(); await settle();
     expect(onDownloadTracks).toHaveBeenCalledWith([track]);
   });
@@ -392,6 +403,29 @@ describe("SearchPanel", () => {
     expect(searchSource).toHaveBeenCalledWith(expect.objectContaining({ query: "Example Track", sourceIds: ["bandcamp"], kinds: ["track"] }));
     expect(target.querySelector('[aria-label="Bandcamp results"]')).not.toBeNull();
     expect(target.querySelector('[aria-label="Bandcamp track result"]')).not.toBeNull();
+  });
+
+  it.each([true, false])("respects the provider count preference (%s) in track results", async (showProviderCounts) => {
+    const track = {
+      id: "count-track", provider: "youtube", providerId: "count-video",
+      title: "A video", artist: "An artist", favorite: false,
+      provenance: { remoteCatalog: { views: 42 } },
+    };
+    const target = render({
+      showProviderCounts, initialSources: ["youtube"],
+      availableSources: [{ id: "youtube", name: "YouTube", enabled: true, kinds: ["track"] }],
+      searchSource: async () => ({
+        sourceId: "youtube", complete: true,
+        results: [{ id: "count-result", kind: "track", sourceId: "youtube", title: track.title, track }],
+      }),
+    });
+    const query = target.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
+    query.value = "A video";
+    query.dispatchEvent(new Event("input", { bubbles: true }));
+    target.querySelector<HTMLFormElement>(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await settle();
+    expect(target.querySelector(".compact-track .track-title")?.textContent).toContain(track.title);
+    expect(target.querySelector(".compact-track .source-count")?.textContent ?? null).toBe(showProviderCounts ? "42 views" : null);
   });
 
   it("plays only the exact inspected search occurrence and rejects stale row handles", async () => {
@@ -1189,6 +1223,44 @@ describe("SearchPanel", () => {
     expect(target.textContent).toContain("Second");
   });
 
+  it("queues loaded results in displayed order without fetching another page or starting playback", async () => {
+    const tracks = ["First", "Second", "Short"].map((title, index) => ({
+      id: `result-${index}`, provider: "library", providerId: `result-${index}`,
+      sourceUrl: "", artist: "Artist", title, durationSeconds: index === 2 ? 30 : 90,
+      favorite: false, provenance: {},
+    }));
+    const searchSource = vi.fn(async () => ({
+      complete: false, nextCursor: "next-page",
+      results: tracks.map(track => ({ id: track.id, kind: "track", sourceId: "library", title: track.title, track })),
+    }));
+    const onQueueTracks = vi.fn();
+    const onPlay = vi.fn();
+    const target = render({ searchSource, onQueueTracks, onPlay });
+    const queueButton = () => target.querySelector<HTMLButtonElement>(".queue-search-results");
+    await settle();
+    expect(queueButton()).toBeNull();
+
+    const input = target.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
+    input.value = "tracks";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    target.querySelector(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await settle();
+    const minimum = target.querySelector<HTMLInputElement>('[aria-label="Minimum loaded track duration"]')!;
+    minimum.value = "60";
+    minimum.dispatchEvent(new Event("input", { bubbles: true }));
+    target.querySelector<HTMLButtonElement>('[aria-label="Toggle loaded track sort direction"]')!.click();
+    await settle();
+
+    queueButton()!.click();
+    expect(onQueueTracks).toHaveBeenCalledExactlyOnceWith([tracks[1], tracks[0]], "append");
+    expect(searchSource).toHaveBeenCalledTimes(1);
+    expect(onPlay).not.toHaveBeenCalled();
+
+    target.querySelector<HTMLButtonElement>(".source-toggle")!.click();
+    await settle();
+    expect(queueButton()).toBeNull();
+  });
+
   it("auto-queues only new search rows when enabled and never starts playback", async () => {
     const track = (id: string) => ({ id, provider: "library", providerId: id, sourceUrl: `local:${id}`, artist: "Artist", title: `Song ${id}`, favorite: false, provenance: {} });
     const first = { id: "row-a", kind: "track", sourceId: "library", title: "Song a", track: track("a") };
@@ -1644,13 +1716,18 @@ describe("SearchPanel", () => {
     target.querySelector(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     await settle();
     expect(searchSource).toHaveBeenCalledTimes(1);
-    expect(target.textContent).toContain("searching");
+    const status = target.querySelector('[aria-label="Soulseek results"] [role="status"]');
+    expect(status?.textContent?.trim()).toBe("Searching Soulseek…");
+    expect(status?.querySelector(".source-search-spinner")).not.toBeNull();
+    expect(target.querySelector(".load-more")).toBeNull();
 
     await new Promise((resolve) => setTimeout(resolve, 950));
     await settle();
     expect(apiCall).toHaveBeenCalledWith("poll_search_source", { searchId: "slsk-search-1", sourceId: "soulseek" });
     expect(target.textContent).toContain("Peer Track 1");
     expect(target.textContent).not.toContain("Peer Track 50");
+    expect(status?.textContent?.trim()).toBe("More results available");
+    expect(status?.querySelector(".source-search-spinner")).toBeNull();
     expect(target.querySelectorAll(".virtual-result-item").length).toBeLessThan(40);
     expect(target.querySelector<HTMLButtonElement>(".load-more")).not.toBeNull();
 
@@ -1661,6 +1738,74 @@ describe("SearchPanel", () => {
       query: "peer track", sourceIds: ["soulseek"], cursor: "slsk-search-1@50", limit: 30,
     }));
     expect(target.querySelectorAll(".virtual-result-item").length).toBeLessThan(40);
+  });
+
+  it("keeps a new Soulseek search active when an old poll completes late", async () => {
+    vi.useFakeTimers();
+    const oldPoll = deferred<unknown>();
+    const searchSource = vi.fn(async ({ query }: { query: string }) => ({
+      sourceId: "soulseek", complete: false, nextCursor: `session-${query}`, results: [],
+    }));
+    apiCall.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "cancel_slskd_search") return null;
+      if (command === "poll_search_source") {
+        return args?.searchId === "session-old"
+          ? oldPoll.promise
+          : { sourceId: "soulseek", complete: true, nextCursor: null, results: [] };
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+    const target = render({ initialSources: ["soulseek"], searchSource });
+    await settle();
+    const input = target.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
+    const submit = (value: string) => {
+      input.value = value;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      target.querySelector(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    };
+    submit("old");
+    await settle();
+    await vi.advanceTimersByTimeAsync(900);
+    await settle();
+    submit("new");
+    await settle();
+    oldPoll.resolve({ sourceId: "soulseek", complete: false, nextCursor: "session-old", results: [] });
+    await settle();
+    expect(apiCall).toHaveBeenCalledWith("cancel_slskd_search", { searchId: "session-old" });
+    expect(apiCall).not.toHaveBeenCalledWith("cancel_slskd_search", { searchId: "session-new" });
+    expect(target.querySelector(".source-search-spinner")).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(900);
+    await settle();
+    expect(target.textContent).toContain("No results from Soulseek");
+  });
+
+  it("announces an empty Soulseek search only after polling finishes", async () => {
+    vi.useFakeTimers();
+    const searchSource = vi.fn(async () => ({
+      sourceId: "soulseek", complete: false, nextCursor: "peer-search", progress: "searching", results: [],
+    }));
+    apiCall.mockResolvedValueOnce({
+      sourceId: "soulseek", complete: false, nextCursor: "peer-search", progress: "InProgress · 0 results", results: [],
+    }).mockResolvedValueOnce({
+      sourceId: "soulseek", complete: true, nextCursor: null, progress: "Completed · 0 results", results: [],
+    });
+    const target = render({ initialSources: ["soulseek"], searchSource });
+    await settle();
+    const input = target.querySelector<HTMLInputElement>('[aria-label="Search music"]')!;
+    input.value = "No peer album"; input.dispatchEvent(new Event("input", { bubbles: true }));
+    target.querySelector(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await settle();
+    await vi.advanceTimersByTimeAsync(900);
+    await settle();
+    expect(target.querySelector('[aria-label="Soulseek results"] [role="status"]')?.textContent?.trim()).toBe("Searching Soulseek…");
+    expect(target.textContent).not.toContain("InProgress");
+    expect(target.textContent).not.toContain("No results from Soulseek");
+    expect(target.querySelector(".load-more")).toBeNull();
+
+    await vi.advanceTimersByTimeAsync(900);
+    await settle();
+    expect(target.querySelector(".source-search-spinner")).toBeNull();
+    expect(target.textContent).toContain("No results from Soulseek");
   });
 
   it("drops an expired Soulseek cursor and lets Retry start a fresh search while keeping loaded rows", async () => {

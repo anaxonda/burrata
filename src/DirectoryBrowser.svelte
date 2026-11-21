@@ -82,6 +82,11 @@
       : { kind: "status" as const, key: file.path, title: file.name, detail: "Metadata unavailable · Scan this folder to index" });
   });
 
+  function directoryFileDetail(track: Track, index: number) {
+    const name = indexedOccurrences[index]?.file.name ?? "";
+    const stem = name.replace(/\.[^.]+$/, "").replace(/^unknown\s+-\s+/i, "");
+    return [track.title, `${track.artist} - ${track.title}`].some(label => label.toLowerCase() === stem.toLowerCase()) ? "" : name;
+  }
   function durationValue(raw: string): number | undefined { return raw.trim() ? parseDurationBound(raw) ?? undefined : undefined; }
   function cancelSnapshotRestore() {
     snapshotRestoreRevision++;
@@ -436,24 +441,26 @@
     <div class="directory-view-tools" aria-label="Directory track view options">
       <TrackDownloadFilter bind:value={downloadAvailability} />
       <input aria-label="Filter directory tracks" placeholder="Filter tracks by title, artist, album, or filename" bind:value={query} oninput={filterChanged} />
-      <label>Sort by<select aria-label="Sort directory tracks" bind:value={sortField} onchange={refreshResults}>
-        <option value="filename">Filename</option><option value="sourceOrder">Original order</option>
-        <option value="title" disabled={!isSortFieldAvailable("title")}>{sortFieldLabel("title","Title")}</option><option value="artist" disabled={!isSortFieldAvailable("artist")}>{sortFieldLabel("artist","Artist")}</option><option value="album" disabled={!isSortFieldAvailable("album")}>{sortFieldLabel("album","Album")}</option>
-        <option value="duration" disabled={!isSortFieldAvailable("duration")}>{sortFieldLabel("duration","Duration")}</option><option value="releaseDate" disabled={!isSortFieldAvailable("releaseDate")}>{sortFieldLabel("releaseDate","Release date")}</option><option value="dateAdded" disabled={!isSortFieldAvailable("dateAdded")}>{sortFieldLabel("dateAdded","Date added")}</option>
-        <option value="bpm" disabled={!isSortFieldAvailable("bpm")}>{sortFieldLabel("bpm","BPM")}</option><option value="key" disabled={!isSortFieldAvailable("key")}>{sortFieldLabel("key","Key")}</option><option value="plays" disabled={!isSortFieldAvailable("plays")}>{sortFieldLabel("plays","Plays")}</option><option value="views" disabled={!isSortFieldAvailable("views")}>{sortFieldLabel("views","Views")}</option>
-      </select></label>
-      <button type="button" aria-label="Toggle directory sort direction" onclick={() => { sortDirection = sortDirection === "asc" ? "desc" : "asc"; refreshResults(); }}>{sortDirection === "asc" ? "Ascending ↑" : "Descending ↓"}</button>
       <details class="directory-duration-filters"><summary>Duration</summary><div>
         <label>Minimum<input aria-label="Minimum directory track duration" placeholder="seconds or mm:ss" bind:value={durationMinimum} oninput={filterChanged} /></label>
         <label>Maximum<input aria-label="Maximum directory track duration" placeholder="seconds or mm:ss" bind:value={durationMaximum} oninput={filterChanged} /></label>
       </div></details>
+      <div class="directory-sort-controls" role="group" aria-label="Directory sorting">
+        <label>Sort by<select aria-label="Sort directory tracks" bind:value={sortField} onchange={refreshResults}>
+          <option value="filename">Filename</option><option value="sourceOrder">Original order</option>
+          <option value="title" disabled={!isSortFieldAvailable("title")}>{sortFieldLabel("title","Title")}</option><option value="artist" disabled={!isSortFieldAvailable("artist")}>{sortFieldLabel("artist","Artist")}</option><option value="album" disabled={!isSortFieldAvailable("album")}>{sortFieldLabel("album","Album")}</option>
+          <option value="duration" disabled={!isSortFieldAvailable("duration")}>{sortFieldLabel("duration","Duration")}</option><option value="releaseDate" disabled={!isSortFieldAvailable("releaseDate")}>{sortFieldLabel("releaseDate","Release date")}</option><option value="dateAdded" disabled={!isSortFieldAvailable("dateAdded")}>{sortFieldLabel("dateAdded","Date added")}</option>
+          <option value="bpm" disabled={!isSortFieldAvailable("bpm")}>{sortFieldLabel("bpm","BPM")}</option><option value="key" disabled={!isSortFieldAvailable("key")}>{sortFieldLabel("key","Key")}</option><option value="plays" disabled={!isSortFieldAvailable("plays")}>{sortFieldLabel("plays","Plays")}</option><option value="views" disabled={!isSortFieldAvailable("views")}>{sortFieldLabel("views","Views")}</option>
+        </select></label>
+        <button type="button" aria-label="Toggle directory sort direction" onclick={() => { sortDirection = sortDirection === "asc" ? "desc" : "asc"; refreshResults(); }}>{sortDirection === "asc" ? "Ascending ↑" : "Descending ↓"}</button>
+      </div>
       {#if page}<span class="directory-file-count" aria-live="polite">{page.files.length}{page.total > page.files.length ? ` of ${page.total}` : ""}{page.total === 1 ? " file" : " files"}</span>{/if}
     </div>
     {#if availabilityState === "pending"}<p class="directory-sort-availability" role="status">Checking sort fields across this folder…</p>{:else if availabilityError}<p class="directory-sort-availability" role="status">{availabilityError}</p>{/if}
     {#if durationProblem}<p class="directory-error" role="alert">{durationProblem}</p>{/if}
     {#if loadingPage}<p class="directory-loading" role="status">Loading folder…</p>
     {:else if page}
-      {#if orderedRows.length}<div class="directory-list-scroll" class:virtualized={orderedRows.length > 40} style:flex="1 1 0" style:min-height="0" style:overflow-y={orderedRows.length > 40 ? "hidden" : "auto"}><TrackList presentation="playlist" virtualizationThreshold={40} tracks={indexedOccurrences.map(row => row.track)} {orderedRows} selectionContext={`directory:${selectedRootId}:${selectedRelativePath}`} selectionKeys={indexedOccurrences.map(row => occurrenceKey(row.file))} selectionTracks={indexedOccurrences.map(row => row.track)} selectionTrackKeys={indexedOccurrences.map(row => occurrenceKey(row.file))} listLabel="Audio files" onPlay={playOccurrence} {onDownload} {onFavorite} {onQueue} {onNext} {onPlaylist} {onArtist} onAlbum={onTrackAlbum} {onInfo} {onContext} onAddSelectedToPlaylist={indexedOccurrences.length ? onAddSelectedToPlaylist : undefined} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} meta={(_track, index) => indexedOccurrences[index]?.file.name ?? ""} /></div>{/if}
+      {#if orderedRows.length}<div class="directory-list-scroll" class:virtualized={orderedRows.length > 40} style:flex="1 1 0" style:min-height="0" style:overflow-y={orderedRows.length > 40 ? "hidden" : "auto"}><TrackList presentation="playlist" virtualizationThreshold={40} tracks={indexedOccurrences.map(row => row.track)} {orderedRows} selectionContext={`directory:${selectedRootId}:${selectedRelativePath}`} selectionKeys={indexedOccurrences.map(row => occurrenceKey(row.file))} selectionTracks={indexedOccurrences.map(row => row.track)} selectionTrackKeys={indexedOccurrences.map(row => occurrenceKey(row.file))} listLabel="Audio files" onPlay={playOccurrence} {onDownload} {onFavorite} {onQueue} {onNext} {onPlaylist} {onArtist} onAlbum={onTrackAlbum} {onInfo} {onContext} onAddSelectedToPlaylist={indexedOccurrences.length ? onAddSelectedToPlaylist : undefined} {playingTrack} {bufferingTrack} {playingTrackId} {bufferingTrackId} {paused} trackTitle={(track, index) => indexedOccurrences[index]?.file.name ?? track.title} meta={directoryFileDetail} /></div>{/if}
       {#if !displayedFiles.length}<p class="directory-empty">No audio files match these filters.</p>{/if}
       {#if page.files.length < page.total}<div class="directory-load-more"><button type="button" disabled={loadingMore} onclick={() => void browseDirectory(page!.relativePath, true)}>{loadingMore ? "Loading…" : `Load more files (${page.total - page.files.length} remaining)`}</button></div>{/if}
     {:else if !error}<p class="directory-empty">Choose a folder to browse.</p>{/if}
@@ -462,7 +469,7 @@
 
 <style>
   :global(.app-shell > main > div[aria-hidden="false"]:has(> .directory-browser)) { flex:1 1 0; min-height:0; display:flex; overflow:hidden; }
-  .directory-browser { min-width:0; min-height:0; flex:1 1 auto; display:flex; flex-direction:column; gap:6px; padding:8px 10px; }
+  .directory-browser { container:folder-pane / inline-size; min-width:0; min-height:0; flex:1 1 auto; display:flex; flex-direction:column; gap:6px; padding:8px 10px; }
   .directory-list-scroll { display:flex; flex-direction:column; min-width:0; overscroll-behavior:contain; }
   .directory-list-scroll :global(.track-list-viewport) { flex:1 1 0; min-height:0; max-height:none; overflow:visible; }
   .directory-list-scroll.virtualized :global(.track-list-viewport.virtualized) { overflow:auto; }
@@ -474,10 +481,11 @@
   .directory-breadcrumbs [aria-current] { font-weight:650; }
   .directory-view-tools { display:flex; align-items:center; gap:6px; flex-wrap:wrap; min-width:0; }
   .directory-view-tools > input { flex:1 1 220px; min-width:160px; max-width:340px; width:auto; }
-  .directory-view-tools > input,.directory-view-tools select,.directory-view-tools > button,.directory-duration-filters > summary,.directory-duration-filters input { box-sizing:border-box; height:34px; min-height:34px; padding:6px 8px; font-size:12px; }
-  .directory-view-tools > label { display:flex; flex-direction:row; align-items:center; gap:5px; margin:0; color:var(--muted); font-size:.8rem; white-space:nowrap; }
-  .directory-view-tools > label select { min-width:132px; padding:0 8px; line-height:normal; overflow:visible; }
-  .directory-view-tools > button { white-space:nowrap; }
+  .directory-view-tools > input,.directory-view-tools select,.directory-sort-controls > button,.directory-duration-filters > summary,.directory-duration-filters input { box-sizing:border-box; height:34px; min-height:34px; padding:6px 8px; font-size:12px; }
+  .directory-sort-controls > label { display:flex; flex-direction:row; align-items:center; gap:5px; margin:0; color:var(--muted); font-size:.8rem; white-space:nowrap; }
+  .directory-sort-controls > label select { min-width:132px; padding:0 8px; line-height:normal; overflow:visible; }
+  .directory-sort-controls > button { white-space:nowrap; }
+  .directory-sort-controls { display:flex; align-items:center; gap:6px; flex-wrap:wrap; max-width:100%; }
   .directory-file-count { flex:none; margin-left:auto; color:var(--muted); font-size:.8rem; white-space:nowrap; }
   .directory-duration-filters { position:relative; flex:none; color:var(--muted); font-size:.8rem; }
   .directory-duration-filters > summary { display:flex; align-items:center; cursor:pointer; padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--surface); color:var(--text); list-style:none; white-space:nowrap; }
@@ -492,6 +500,13 @@
   .directory-empty,.directory-empty-state,.directory-loading,.directory-error,.directory-scan-note { margin:4px 0; color:var(--muted); }
   .directory-empty-state { display:flex; align-items:center; justify-content:center; gap:12px; padding:28px 12px; }
   .directory-error { color:var(--danger); }.directory-scan-note { color:var(--muted); }
-  .directory-scan-status { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:8px 10px; background:var(--surface-raised); border-radius:6px; font-size:.85rem; }
+  .directory-scan-status { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:8px 10px; background:var(--raised); border-radius:6px; font-size:.85rem; }
+  @container folder-pane (max-width:600px) {
+    .directory-duration-filters[open] { flex-basis:100%; }
+    .directory-duration-filters[open] > summary { width:max-content; }
+    .directory-duration-filters[open] > div { position:static; width:100%; max-width:100%; margin-top:4px; }
+    .directory-duration-filters > div label { flex:1 1 96px; min-width:0; }
+    .directory-duration-filters input { width:100%; min-width:0; }
+  }
   @media(max-width:600px) { .directory-browser { padding:8px; }.directory-toolbar { align-items:center; }.directory-view-tools > input { flex:1 1 100%; min-width:0; max-width:none; }.directory-file-count { margin-left:auto; } }
 </style>

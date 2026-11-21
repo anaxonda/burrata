@@ -1,6 +1,7 @@
 <script lang="ts">
+  import ActionMenu from "./ActionMenu.svelte";
+  import MenuIcon from "./MenuIcon.svelte";
   import TrackDownloadFilter from "./TrackDownloadFilter.svelte";
-  let downloadAvailability = $state<"all"|"downloaded"|"not-downloaded">("all");
   import { trackSortAvailabilityForSources, trackSortOptionLabelForSources } from "./lib/track-sort-availability";
   import { onDestroy, tick, untrack } from "svelte";
   import TrackList from "./TrackList.svelte";
@@ -12,6 +13,10 @@
   import type { Track } from "./lib/types";
   import { normalizeSpotifyUserProfileUrl } from "./lib/spotify-profile-url";
   import { providerAccountScope, providerNavigationSnapshots } from "./lib/provider-navigation-snapshots";
+
+  let queueAnchor = $state<DOMRect | null>(null);
+
+  let downloadAvailability = $state<"all"|"downloaded"|"not-downloaded">("all");
 
   type Provider = "spotify" | "youtube";
   type Page = {
@@ -316,6 +321,7 @@
     return `${unavailable ? `Unavailable from ${provider === "spotify" ? "Spotify" : "YouTube"} · ` : ""}Playlist position ${rowPosition}`;
   }
   function queueAll(mode: "append" | "next") {
+    queueAnchor = null;
     if (!visibleTracks.length) return;
     if (onQueueTracks) void onQueueTracks(visibleTracks, mode);
     else {
@@ -339,21 +345,29 @@
     </div>
     <div class="remote-detail-actions header-actions">
       {#if tracks.length}
-        <button onclick={playAll} disabled={!visibleTracks.length}>Play {actionScope}</button>
-        <button onclick={() => queueAll("append")} disabled={!visibleTracks.length}>Queue {actionScope}</button>
-        <button onclick={() => queueAll("next")} disabled={!visibleTracks.length}>Play {actionScope} next</button>
+        <button class="primary" onclick={playAll} disabled={!visibleTracks.length}>Play {actionScope}</button>
       {/if}
-      <button class="primary" onclick={() => void addToLibrary()} disabled={adding}>Add to library</button>
+      <button onclick={() => void addToLibrary()} disabled={adding}>Add to library</button>
+      {#if tracks.length}
+        <button class="playlist-more" aria-label="More playlist actions" aria-haspopup="dialog" title="More playlist actions" onclick={event => { event.currentTarget.focus(); queueAnchor = event.currentTarget.getBoundingClientRect(); }}>⋯</button>
+      {/if}
     </div>
     {#if playlistBackdrop}<img class="playlist-ambient" src={playlistBackdrop} alt="" aria-hidden="true" />{/if}
   </header>
+  {#if queueAnchor}
+    <ActionMenu label="Playlist actions" anchorRect={queueAnchor} onClose={() => queueAnchor = null}>
+      <button disabled={!visibleTracks.length} onclick={() => queueAll("next")}><MenuIcon name="play" /><span>Play {actionScope} next</span></button>
+      <button disabled={!visibleTracks.length} onclick={() => queueAll("append")}><MenuIcon name="queue" /><span>Queue {actionScope}</span></button>
+    </ActionMenu>
+  {/if}
   <div class="remote-detail-tools">
     <input aria-label="Filter playlist tracks" bind:value={filter} oninput={cancelRestore} placeholder="Filter tracks by title, artist, or album" />
+    <TrackDurationFilter bind:minDuration={minDuration} bind:maxDuration={maxDuration} minLabel="Minimum track duration" maxLabel="Maximum track duration" onchange={cancelRestore} /><TrackDownloadFilter bind:value={downloadAvailability} />
     <label>Sort
       <select aria-label="Sort playlist tracks" bind:value={sort} onchange={cancelRestore}><option value="sourceOrder">Playlist order</option><option value="title" disabled={!sortAvailability.title}>{trackSortOptionLabelForSources(sortAvailability, "title", "Title", [provider])}</option><option value="artist" disabled={!sortAvailability.artist}>{trackSortOptionLabelForSources(sortAvailability, "artist", "Artist", [provider])}</option><option value="album" disabled={!sortAvailability.album}>{trackSortOptionLabelForSources(sortAvailability, "album", "Album", [provider])}</option><option value="duration" disabled={!sortAvailability.duration}>{trackSortOptionLabelForSources(sortAvailability, "duration", "Duration", [provider])}</option><option value="releaseDate" disabled={!sortAvailability.releaseDate}>{trackSortOptionLabelForSources(sortAvailability, "releaseDate", "Release date", [provider])}</option><option value="dateAdded" disabled={!sortAvailability.dateAdded}>{trackSortOptionLabelForSources(sortAvailability, "dateAdded", "Date added", [provider])}</option><option value="bpm" disabled={!sortAvailability.bpm}>{trackSortOptionLabelForSources(sortAvailability, "bpm", "BPM", [provider])}</option><option value="key" disabled={!sortAvailability.key}>{trackSortOptionLabelForSources(sortAvailability, "key", "Key", [provider])}</option><option value="plays" disabled={!sortAvailability.plays}>{trackSortOptionLabelForSources(sortAvailability, "plays", "Plays", [provider])}</option><option value="views" disabled={!sortAvailability.views}>{trackSortOptionLabelForSources(sortAvailability, "views", "Views", [provider])}</option></select>
     </label>
     <label>Direction<select aria-label="Sort direction" bind:value={sortDirection} onchange={cancelRestore}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label>
-    <TrackDurationFilter bind:minDuration={minDuration} bind:maxDuration={maxDuration} minLabel="Minimum track duration" maxLabel="Maximum track duration" onchange={cancelRestore} /><TrackDownloadFilter bind:value={downloadAvailability} />
+
   </div>
   {#if loading}<p class="remote-detail-status" role="status">Loading playlist…</p>{/if}
   {#if error}<p class="remote-detail-error" role="alert">{error}</p>{/if}
@@ -373,6 +387,7 @@
   .remote-detail-owner { flex:0 1 auto; }
   .remote-detail-actions,.remote-detail-tools { display:flex; flex:none; flex-wrap:wrap; align-items:center; align-content:flex-start; gap:6px; min-width:0; min-height:0; height:auto; }
   .remote-detail-actions button,.remote-detail-more,.remote-detail-progress button { min-height:32px; height:auto; padding:6px 9px; font-size:11px; white-space:nowrap; }
+  .remote-detail-actions .playlist-more { width:34px; padding:0; font-size:20px; }
   .remote-detail-tools { box-sizing:border-box; padding:4px 12px; }
   .remote-detail-tools > input { flex:1 1 240px; width:auto; min-width:160px; }
   .remote-detail-tools label { flex:0 0 auto; display:flex; flex-direction:row; align-items:center; gap:5px; margin:0; color:var(--muted); font-size:10px; white-space:nowrap; }

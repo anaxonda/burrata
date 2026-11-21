@@ -32,6 +32,17 @@ function render(props: Record<string, unknown> = {}) {
 }
 
 describe("AlbumDetailView", () => {
+  it("opens the album source from the header context menu", async () => {
+    const sourceUrl = "https://musicbrainz.org/release/example";
+    const target = render({ metadata: { title: "Example Album", artist: "Example Artist", sourceUrl } });
+    await settle();
+    const menu = target.querySelector<HTMLDetailsElement>(".more-menu")!;
+    expect(menu.open).toBe(false);
+    target.querySelector(".album-hero")!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    expect(menu.open).toBe(true);
+    expect(menu.querySelector("a")?.getAttribute("href")).toBe(sourceUrl);
+  });
+
   it("resolves full canonical scope for album-wide play, queue, and download despite a one-row page", async () => {
     const resolveAlbumTracks = vi.fn(async () => [trackB, trackA]);
     const onPlayAlbum = vi.fn(); const onQueueAlbum = vi.fn(); const onDownloadAlbum = vi.fn();

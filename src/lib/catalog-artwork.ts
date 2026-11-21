@@ -14,7 +14,8 @@ export function musicBrainzCover(sourceUrl: unknown): string | null {
 
 export function trackArtworkSources(track: Track): (string | null | undefined)[] {
   const provenance = track.provenance as Record<string, unknown> | null | undefined;
-  const group = provenance?.catalogProvider === "musicbrainz" && typeof provenance.releaseGroupId === "string" && mbid.test(provenance.releaseGroupId)
+  const group = (track.provider === "musicbrainz" || provenance?.catalogProvider === "musicbrainz")
+    && typeof provenance?.releaseGroupId === "string" && mbid.test(provenance.releaseGroupId)
     ? `https://coverartarchive.org/release-group/${provenance.releaseGroupId}/front-250` : null;
   return [track.artworkUrl, group, musicBrainzCover(provenance?.requestedReleaseSourceUrl)];
 }

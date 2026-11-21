@@ -1560,14 +1560,7 @@ impl ArtistService {
                             biography_source = biography.as_ref().map(|_| "Last.fm".to_owned());
                         }
                         if image_url.is_none() {
-                            image_url = data["image"].as_array().and_then(|items| {
-                                items.iter().rev().find_map(|item| {
-                                    item["#text"]
-                                        .as_str()
-                                        .filter(|s| !s.is_empty())
-                                        .map(str::to_owned)
-                                })
-                            });
+                            image_url = lastfm_image(&data["image"]);
                         }
                         let lastfm_tags = named_items(&data["tags"]["tag"]);
                         source_tags.extend(lastfm_tags.iter().cloned().map(|name| ArtistTag {
@@ -2135,6 +2128,57 @@ impl ArtistService {
     /// Resolve a release identity into its ordered catalog tracklist for playback and queueing.
     /// No audio is fetched here; tracks carry `sourceKind=catalog` so playback may search
     /// public audio sources while acquisition still requires an explicit user action.
+    async fn discogs_release_tracklist_data(
+        &self,
+        release_id: &str,
+        token: &str,
+    ) -> Result<Value, String> {
+        self.discogs_json(
+            &format!("releases/{release_id}"),
+            &[],
+            "artists.release-tracks.discogs-release",
+            release_id,
+            LIST_TTL,
+            token,
+        )
+        .await
+    }
+
+    pub(crate) async fn discogs_navigation_edition(
+        &self,
+        mut release: ArtistReleaseRef,
+        credentials: &ArtistCredentials,
+    ) -> Result<(ArtistReleaseRef, Vec<Track>), String> {
+        let id = &release.release.id;
+        let expected_id = id.parse::<u64>().ok().filter(|id| *id > 0);
+        if release.release.provider != "discogs"
+            || expected_id.is_none()
+            || trusted_discogs_release_entity(&release.source_url, id).as_deref() != Some("release")
+        {
+            return Err("Invalid Discogs release identity".into());
+        }
+        let token = credentials
+            .discogs_token
+            .as_deref()
+            .filter(|token| !token.trim().is_empty())
+            .ok_or("Connect a Discogs token to view this release tracklist")?;
+        let data = self.discogs_release_tracklist_data(id, token).await?;
+        if data["id"].as_u64() != expected_id {
+            return Err("Discogs returned a different release".into());
+        }
+        release.title = data["title"]
+            .as_str()
+            .filter(|title| !title.trim().is_empty())
+            .ok_or("Discogs did not provide a release title")?
+            .to_owned();
+        release.credits = discogs_credit_values(&data["artists"], &release.source_url, "Artist");
+        let tracks = mark_library_album_snapshot(
+            parse_discogs_release_tracks(&data, id, &release.source_url, false, None),
+            discogs_album_track_count(&data),
+        );
+        Ok((release, tracks))
+    }
+
     pub async fn get_release_tracks(
         &self,
         release: &ArtistReleaseRef,
@@ -2291,26 +2335,12 @@ impl ArtistService {
                         })
                         .ok_or("Discogs master has no valid main release edition")?;
                     let data = self
-                        .discogs_json(
-                            &format!("releases/{main_release}"),
-                            &[],
-                            "artists.release-tracks.discogs-release",
-                            &main_release,
-                            LIST_TTL,
-                            token,
-                        )
+                        .discogs_release_tracklist_data(&main_release, token)
                         .await?;
                     (main_release, data)
                 } else {
                     let data = self
-                        .discogs_json(
-                            &format!("releases/{}", release.release.id),
-                            &[],
-                            "artists.release-tracks.discogs-release",
-                            &release.release.id,
-                            LIST_TTL,
-                            token,
-                        )
+                        .discogs_release_tracklist_data(&release.release.id, token)
                         .await?;
                     (release.release.id.clone(), data)
                 };
@@ -4291,7 +4321,7 @@ pub(crate) fn parse_discogs_release_tracks(
     tracks
 }
 
-fn musicbrainz_artwork_urls(value: &Value, entity: &str, id: &str) -> Vec<String> {
+pub(crate) fn musicbrainz_artwork_urls(value: &Value, entity: &str, id: &str) -> Vec<String> {
     let mut urls = Vec::new();
     if !valid_crosswalk_mbid(id) {
         return urls;
@@ -4678,6 +4708,17 @@ pub(crate) fn parse_musicbrainz_credits(value: &Value, source_url: &str) -> Vec<
         .collect()
 }
 
+fn lastfm_image(images: &Value) -> Option<String> {
+    images.as_array()?.iter().rev().find_map(|image| {
+        let url = image["#text"].as_str()?;
+        // Last.fm returns this stock star when an image is unavailable.
+        if url.contains("2a96cbd8b46e442fc41c2b86b821562f") {
+            return None;
+        }
+        secure_url(url)
+    })
+}
+
 fn parse_lastfm_tracks(value: &Value, artist_name: &str, artist: &ArtistRef) -> Vec<Track> {
     value["toptracks"]["track"].as_array().into_iter().flatten().filter_map(|item| {
         let title = item["name"].as_str().filter(|title| !title.trim().is_empty())?.to_owned();
@@ -4689,6 +4730,7 @@ fn parse_lastfm_tracks(value: &Value, artist_name: &str, artist: &ArtistRef) -> 
             source_url: url.clone(),
             artist: artist_name.to_owned(),
             title,
+            artwork_url: lastfm_image(&item["album"]["image"]),
             provenance: json!({"source":"Last.fm top tracks", "provider":"lastfm", "artistRef":artist, "sourceUrl":url}),
             ..Track::default()
         })
@@ -4724,6 +4766,9 @@ fn lastfm_top_track_metadata(track: &Track, info: &Value) -> Option<Track> {
     let mut refreshed = track.clone();
     refreshed.title = title.to_owned();
     refreshed.duration_seconds = Some(duration as f64 / 1000.0);
+    if refreshed.artwork_url.is_none() && track.provenance["manualFields"]["artworkUrl"] != true {
+        refreshed.artwork_url = lastfm_image(&info["album"]["image"]);
+    }
     Some(refreshed)
 }
 
@@ -6019,6 +6064,58 @@ mod tests {
         assert_eq!(rows[0].artist, "The Beatles");
     }
 
+    #[tokio::test]
+    async fn discogs_navigation_checks_full_edition_before_accepting_recording() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Arc::new(Store::open(&temp.path().join("navigation.sqlite")).unwrap());
+        let request = Track {
+            title: "La Rumba de Tato".into(),
+            artist: "Antoine Tato Garcia".into(),
+            album: Some("Rumbason".into()),
+            duration_seconds: Some(215.57),
+            ..Track::default()
+        };
+        let credentials = ArtistCredentials {
+            discogs_token: Some("fixture-token".into()),
+            ..Default::default()
+        };
+        let service = ArtistService::new(store.clone()).unwrap();
+        for (id, duration, matches) in [(29389585, "3:36", true), (25433401, "", false)] {
+            store
+                .set_provider_cache(
+                    "artists.release-tracks.discogs-release",
+                    &id.to_string(),
+                    &json!({
+                        "id": id, "title": "Rumbason",
+                        "artists": [{"id": 1312634, "name": "Antoine \"Tato\" Garcia"}],
+                        "tracklist": [{"type_": "track", "position": "1",
+                            "title": "La Rumba de Tato", "duration": duration}]
+                    }),
+                    3600,
+                )
+                .unwrap();
+            let hit = parse_discogs_release(&json!({
+                "id": id, "type": "release", "title": "Antoine \"Tato\" Garcia - Rumbason"
+            }))
+            .unwrap();
+            assert!(hit.credits[0].artist.is_none());
+            let (edition, tracks) = service
+                .discogs_navigation_edition(hit, &credentials)
+                .await
+                .unwrap();
+            assert_eq!(edition.title, "Rumbason");
+            assert_eq!(edition.credits[0].artist.as_ref().unwrap().id, "1312634");
+            assert_eq!(
+                tracks[0].provenance["libraryAlbumSnapshot"]["complete"],
+                true
+            );
+            assert_eq!(
+                crate::album_navigation::recording_member(&request, &tracks),
+                matches
+            );
+        }
+    }
+
     #[test]
     fn release_cursor_keeps_musicbrainz_offset_and_discogs_page_independent() {
         assert_eq!(parse_release_cursor(None).unwrap(), (Some(0), Some(1)));
@@ -6328,7 +6425,10 @@ mod tests {
             "name": canonical,
             "artist": {"name": "Rodriguez"},
             "duration": "127000",
-            "album": {"title": "Searching for Sugar Man"},
+            "album": {"title": "Searching for Sugar Man", "image": [
+                {"#text": "https://lastfm.freetls.fastly.net/i/u/300x300/fixture-cover.png"},
+                {"#text": "https://lastfm.freetls.fastly.net/i/u/300x300/2a96cbd8b46e442fc41c2b86b821562f.png"}
+            ]},
         });
         assert!(lastfm_top_track_metadata_available(&track));
         let refreshed = lastfm_top_track_metadata(&track, &info).unwrap();
@@ -6338,6 +6438,10 @@ mod tests {
         assert_eq!(refreshed.title, canonical);
         assert_eq!(refreshed.duration_seconds, Some(127.0));
         assert_eq!(refreshed.album, track.album);
+        assert_eq!(
+            refreshed.artwork_url.as_deref(),
+            Some("https://lastfm.freetls.fastly.net/i/u/300x300/fixture-cover.png")
+        );
         assert_eq!(track.title, original);
         assert_eq!(track.duration_seconds, None);
 

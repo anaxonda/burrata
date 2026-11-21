@@ -35,9 +35,10 @@ describe("Spotify artwork visibility", () => {
     ]);
   });
 
-  it("shows a Spotify artist image and advances to a release cover if it fails", async () => {
+  it("falls back to artwork for the same Spotify artist, then to a placeholder", async () => {
     const id = "spotify-artist-art";
     const artistArt = "https://i.scdn.co/image/artist-art";
+    const searchArt = "https://i.scdn.co/image/artist-search-art";
     const releaseArt = "https://i.scdn.co/image/release-art";
     const album = { id: "release-id", title: "Release", url: "https://open.spotify.com/album/release-id", artworkUrl: releaseArt, artists: ["Fixture Artist"] };
     const call = vi.fn(async (command: string) => {
@@ -45,12 +46,21 @@ describe("Spotify artwork visibility", () => {
       if (command === "browse_remote_artist_tracks") return { provider: "spotify", artistId: id, tracks: [], total: 0 };
       throw new Error(`Unexpected command ${command}`);
     });
-    const target = mountComponent(SpotifyArtist, { artistId: id, call });
+    const target = mountComponent(SpotifyArtist, {
+      artistId: id,
+      call,
+      searchArtistFallback: { id, title: "Fixture Artist", url: null, artworkUrl: searchArt },
+    });
     await settle();
     const image = target.querySelector<HTMLImageElement>(".hero img")!;
     expect(image.src).toBe(artistArt);
     image.dispatchEvent(new Event("error")); await settle();
-    expect(target.querySelector<HTMLImageElement>(".hero img")?.src).toBe(releaseArt);
+    const searchImage = target.querySelector<HTMLImageElement>(".hero img")!;
+    expect(searchImage.src).toBe(searchArt);
+    searchImage.dispatchEvent(new Event("error")); await settle();
+    expect(target.querySelector(".hero img")).toBeNull();
+    expect(target.querySelector(".hero .placeholder")).not.toBeNull();
+    expect(target.querySelector<HTMLImageElement>(".album img")?.src).toBe(releaseArt);
   });
 
   it("renders artwork on Spotify profile search choices", async () => {

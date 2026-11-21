@@ -534,7 +534,10 @@ pub fn validate_snapshot(s: &BrowserSnapshot) -> Result<Chart, String> {
     for e in entries {
         crate::import_metadata::validate(&e.metadata)?;
         if !positions.insert(e.position) {
-            return Err("Capture contains duplicate occurrence positions".into());
+            return Err(format!(
+                "Two captured rows reported position {}. Nothing was saved. Reload the source page and try again.",
+                e.position
+            ));
         }
         if e.position == 0
             || e.rank == Some(0)

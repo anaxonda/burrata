@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import PlaylistArtwork from "./PlaylistArtwork.svelte";
   import {
     groupPlaylistsBySection,
@@ -15,6 +16,7 @@
     artworkById = {},
     showUnsorted = true,
     filterActive = false,
+    collapseByDefault = false,
     assignments,
     collections,
     activeCollectionId,
@@ -30,6 +32,7 @@
     sections: PlaylistSection[];
     showUnsorted?: boolean;
     filterActive?: boolean;
+    collapseByDefault?: boolean;
     assignments: PlaylistSectionAssignments;
     collections: PlaylistCollection[];
     activeCollectionId: string;
@@ -47,6 +50,14 @@
   let renamingSectionId = $state<string | null>(null);
   let renameValue = $state("");
   let dragTarget = $state<string | null>(null);
+
+  let newSectionInput: HTMLInputElement | undefined = $state();
+  export async function beginCreateSection() {
+    creatingSection = true;
+    sectionName = "";
+    await tick();
+    newSectionInput?.focus();
+  }
 
   const groups = $derived(groupPlaylistsBySection(sections, assignments, collections).filter(group=>showUnsorted || group.sectionId!==null));
   function targetKey(sectionId: string | null) { return sectionId ?? ""; }
@@ -96,18 +107,18 @@
 
 <section class="playlist-sections" aria-label="Playlist sections">
   <header class="section-toolbar">
-    <button class="add-section" aria-label="Create playlist section" title="Create playlist section" onclick={() => { creatingSection = !creatingSection; sectionName = ""; }}>＋ Section</button>
+    <button class="add-section" aria-label="Create playlist section" title="Create playlist section" onclick={() => { if (creatingSection) creatingSection = false; else void beginCreateSection(); }}>＋ Section</button>
   </header>
   {#if creatingSection}
     <form class="section-form" onsubmit={createSection}>
-      <label>Section name<input aria-label="New section name" bind:value={sectionName} maxlength="60" /></label>
+      <label>Section name<input aria-label="New section name" bind:this={newSectionInput} bind:value={sectionName} maxlength="60" /></label>
       <div><button type="submit" disabled={!sectionName.trim()}>Create section</button><button type="button" onclick={() => { creatingSection = false; sectionName = ""; }}>Cancel</button></div>
     </form>
   {/if}
 
   {#each groups as group (group.sectionId ?? "__unassigned__")}
     {@const section = sections.find((item) => item.id === group.sectionId)}
-    <details class="playlist-section" class:drag-over={isDragTarget(group.sectionId)} open
+    <details class="playlist-section" class:drag-over={isDragTarget(group.sectionId)} open={!collapseByDefault}
       ondragover={(event) => allowDrop(event, group.sectionId)}
       ondragleave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) dragTarget = null; }}
       ondrop={(event) => drop(event, group.sectionId)}>

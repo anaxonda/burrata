@@ -27,7 +27,8 @@ use tokio::{
 mod provider_broker;
 pub(crate) use provider_broker::ProviderInvocation;
 
-const REPO_API: &str = "https://api.github.com/repos/yt-dlp/yt-dlp-nightly-builds/releases/latest";
+const STABLE_REPO: &str = "yt-dlp/yt-dlp";
+const NIGHTLY_REPO: &str = "yt-dlp/yt-dlp-nightly-builds";
 const RECOMMENDED_REPO_API: &str =
     "https://api.github.com/repos/anaxonda/burrata/releases?per_page=10";
 const IDLE_TIMEOUT: Duration = Duration::from_secs(120);
@@ -256,82 +257,62 @@ impl YouTubeSupportManager {
     }
 
     pub async fn check_advanced_update(&self) -> Result<UpdateCheck, String> {
-        let client = github_client()?;
-        let release: Value = client
-            .get(REPO_API)
-            .send()
-            .await
-            .map_err(|e| format!("Could not check yt-dlp nightly: {e}"))?
-            .error_for_status()
-            .map_err(|e| format!("GitHub rejected the yt-dlp nightly check: {e}"))?
-            .json()
-            .await
-            .map_err(|e| format!("GitHub returned invalid release metadata: {e}"))?;
-        let release_version = release["tag_name"]
-            .as_str()
-            .ok_or("GitHub nightly release has no tag_name")?
-            .to_owned();
-        validate_version(&release_version)?;
+        let release = fetch_official_release(&github_client()?, NIGHTLY_REPO).await?;
+        let release_version = official_release_version(&release)?.to_owned();
         validate_nightly_assets(&release)?;
         let published = release["published_at"].as_str().map(str::to_owned);
         let current = version(&self.active_executable()).await.ok();
-        Ok(UpdateCheck { channel: "official-nightly".into(), available: current.as_deref() != Some(&release_version), version: Some(release_version), published_at: published,
-            message: "Official yt-dlp nightly release metadata is available. Download verifies both upstream SHA2 checksum manifests before staging.".into() })
+        Ok(UpdateCheck {
+            channel: "official-nightly".into(),
+            available: current.as_deref() != Some(&release_version),
+            version: Some(release_version),
+            published_at: published,
+            message: "Official yt-dlp nightly release metadata is available.".into(),
+        })
     }
 
-    /// Downloads an official nightly, checks it against upstream SHA256 and
-    /// SHA512 manifests, probes it, then atomically switches the app-data
-    /// pointer. Existing installs and bundled/system files are untouched.
+    pub async fn update_stable(&self) -> Result<SupportStatus, String> {
+        self.update_official(STABLE_REPO).await
+    }
+
     pub async fn update_advanced(&self) -> Result<SupportStatus, String> {
+        self.update_official(NIGHTLY_REPO).await
+    }
+
+    /// Both official channels verify the platform binary against the upstream
+    /// manifests before using the existing compatibility probe and activation.
+    async fn update_official(&self, repo: &str) -> Result<SupportStatus, String> {
         let _update_guard = self.update_lock.lock().await;
         let client = github_client()?;
-        let release: Value = client
-            .get(REPO_API)
-            .send()
-            .await
-            .map_err(|e| format!("Could not fetch yt-dlp nightly metadata: {e}"))?
-            .error_for_status()
-            .map_err(|e| format!("GitHub rejected the nightly request: {e}"))?
-            .json()
-            .await
-            .map_err(|e| format!("Invalid GitHub release metadata: {e}"))?;
-        let version = release["tag_name"]
-            .as_str()
-            .ok_or("Release is missing tag_name")?
-            .to_owned();
-        validate_version(&version)?;
+        let release = fetch_official_release(&client, repo).await?;
+        let release_version = official_release_version(&release)?;
+        if repo == STABLE_REPO {
+            let newest = numeric_yt_dlp_version(release_version)
+                .ok_or("The stable yt-dlp release has an unexpected version")?;
+            if version(&self.active_executable())
+                .await
+                .ok()
+                .and_then(|value| numeric_yt_dlp_version(&value))
+                .is_some_and(|current| current >= newest)
+            {
+                return Ok(self.status().await);
+            }
+        }
         let assets = parse_assets(&release)?;
         let binary_name = platform_asset_name()?;
-        let binary_asset = assets
-            .iter()
-            .find(|a| a.name == binary_name)
-            .ok_or_else(|| {
-                format!("Official nightly has no {binary_name} asset for this platform")
-            })?;
-        let sums256 = assets
-            .iter()
-            .find(|a| a.name == "SHA2-256SUMS")
-            .ok_or("Nightly has no official SHA2-256SUMS manifest")?;
-        let sums512 = assets
-            .iter()
-            .find(|a| a.name == "SHA2-512SUMS")
-            .ok_or("Nightly has no official SHA2-512SUMS manifest")?;
-        let bytes = client
-            .get(&binary_asset.url)
-            .send()
-            .await
-            .map_err(|e| format!("Nightly binary download failed: {e}"))?
-            .error_for_status()
-            .map_err(|e| format!("Nightly binary download failed: {e}"))?
-            .bytes()
-            .await
-            .map_err(|e| format!("Could not read nightly binary: {e}"))?;
-        let manifest256 = fetch_bytes(&client, &sums256.url).await?;
-        let manifest512 = fetch_bytes(&client, &sums512.url).await?;
-        verify_manifest_sha256(&binary_name, &bytes, &manifest256)?;
-        verify_manifest_sha512(&binary_name, &bytes, &manifest512)?;
-
-        self.stage_activate(&version, &bytes).await
+        let [binary, sums256, sums512] = [
+            official_release_asset(&assets, repo, release_version, binary_name)?,
+            official_release_asset(&assets, repo, release_version, "SHA2-256SUMS")?,
+            official_release_asset(&assets, repo, release_version, "SHA2-512SUMS")?,
+        ];
+        let (bytes, manifest256, manifest512) = tokio::try_join!(
+            fetch_bytes(&client, binary),
+            fetch_bytes(&client, sums256),
+            fetch_bytes(&client, sums512),
+        )?;
+        verify_manifest_sha256(binary_name, &bytes, &manifest256)?;
+        verify_manifest_sha512(binary_name, &bytes, &manifest512)?;
+        self.stage_activate(release_version, &bytes).await
     }
 
     pub async fn update_recommended(&self) -> Result<SupportStatus, String> {
@@ -1433,6 +1414,55 @@ async fn fetch_bytes(client: &Client, url: &str) -> Result<Vec<u8>, String> {
     }
     Ok(output)
 }
+async fn fetch_official_release(client: &Client, repo: &str) -> Result<Value, String> {
+    let release: Value = client
+        .get(format!(
+            "https://api.github.com/repos/{repo}/releases/latest"
+        ))
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .map_err(|error| format!("Could not check the official yt-dlp release: {error}"))?
+        .json()
+        .await
+        .map_err(|error| format!("Invalid yt-dlp release metadata: {error}"))?;
+    if release["draft"] != false || (repo == STABLE_REPO && release["prerelease"] != false) {
+        return Err("The official yt-dlp channel returned an unpublished release".into());
+    }
+    Ok(release)
+}
+
+fn official_release_version(release: &Value) -> Result<&str, String> {
+    let version = release["tag_name"]
+        .as_str()
+        .ok_or("yt-dlp release has no version")?;
+    validate_version(version)?;
+    Ok(version)
+}
+
+fn numeric_yt_dlp_version(version: &str) -> Option<Vec<u32>> {
+    let fields = version
+        .split('.')
+        .map(str::parse)
+        .collect::<Result<Vec<u32>, _>>()
+        .ok()?;
+    (3..=4).contains(&fields.len()).then_some(fields)
+}
+
+fn official_release_asset<'a>(
+    assets: &'a [ReleaseAsset],
+    repo: &str,
+    version: &str,
+    name: &str,
+) -> Result<&'a str, String> {
+    let expected = format!("https://github.com/{repo}/releases/download/{version}/{name}");
+    assets
+        .iter()
+        .find(|asset| asset.name == name && asset.url == expected)
+        .map(|asset| asset.url.as_str())
+        .ok_or_else(|| format!("Official yt-dlp release has no verified location for {name}"))
+}
+
 fn parse_assets(release: &Value) -> Result<Vec<ReleaseAsset>, String> {
     release["assets"]
         .as_array()
@@ -1486,7 +1516,7 @@ fn platform_asset_name() -> Result<&'static str, String> {
     } else if cfg!(target_os = "linux") && cfg!(target_arch = "aarch64") {
         Ok("yt-dlp_linux_aarch64")
     } else {
-        Err("Official nightly updates are unavailable for this operating system/architecture; the bundled baseline remains active".into())
+        Err("Official yt-dlp updates are unavailable for this operating system/architecture; the bundled baseline remains active".into())
     }
 }
 fn executable_filename() -> &'static str {
@@ -1794,6 +1824,75 @@ mod tests {
             .map(|entry| entry.path().join("yt_dlp_plugins/extractor/bgutil.py"))
             .any(|path| path.is_file());
         assert!(discovered);
+    }
+
+    #[tokio::test]
+    #[ignore = "uses the official GitHub release and public YouTube audio"]
+    async fn live_stable_update_uses_packaged_tools_and_isolated_app_data() {
+        let resources = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources");
+        let tools = resources.join("tools").join(target_triple());
+        let bgutil = resources.join("youtube-support/bgutil");
+        let data = tempfile::tempdir().unwrap();
+        let manager = YouTubeSupportManager::new(
+            data.path(),
+            tools.join(executable_filename()),
+            Some(tools.join(if cfg!(windows) { "node.exe" } else { "node" })),
+            Some(bgutil.join("server/build/main.js")),
+            Some(bgutil.join("plugin")),
+        );
+        let original = manager.status().await;
+        let result = manager.update_stable().await;
+        manager.shutdown().await.unwrap();
+        match result {
+            Ok(updated) => {
+                assert_eq!(
+                    updated.active_source, "managed",
+                    "no newer stable build to test"
+                );
+                assert_ne!(updated.active_version, original.active_version);
+                let repeated = manager.update_stable().await.unwrap();
+                assert_eq!(repeated.active_version, updated.active_version);
+                let restored = manager.rollback().await.unwrap();
+                assert_eq!(restored.active_version, original.active_version);
+                assert_eq!(restored.active_source, "bundled");
+            }
+            Err(error) => {
+                assert_eq!(
+                    manager.status().await.active_version,
+                    original.active_version
+                );
+                panic!("Stable yt-dlp update could not be qualified: {error}");
+            }
+        }
+    }
+
+    #[test]
+    fn stable_release_does_not_replace_a_newer_nightly() {
+        let stable = numeric_yt_dlp_version("2026.10.26").unwrap();
+        assert!(numeric_yt_dlp_version("2026.10.10.233141").unwrap() < stable);
+        assert!(numeric_yt_dlp_version("2026.11.20.232656").unwrap() > stable);
+        assert_eq!(numeric_yt_dlp_version("2026.10.26"), Some(stable));
+        assert!(numeric_yt_dlp_version("unknown").is_none());
+    }
+
+    #[test]
+    fn official_release_assets_require_exact_channel_version_and_filename() {
+        let asset = ReleaseAsset {
+            name: "SHA2-256SUMS".into(),
+            url: "https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/SHA2-256SUMS"
+                .into(),
+        };
+        let assets = [asset];
+        assert!(official_release_asset(&assets, STABLE_REPO, "2026.10.26", "SHA2-256SUMS").is_ok());
+        assert!(
+            official_release_asset(&assets, NIGHTLY_REPO, "2026.10.26", "SHA2-256SUMS").is_err()
+        );
+        assert!(
+            official_release_asset(&assets, STABLE_REPO, "2026.10.25", "SHA2-256SUMS").is_err()
+        );
+        assert!(
+            official_release_asset(&assets, STABLE_REPO, "2026.10.26", "SHA2-512SUMS").is_err()
+        );
     }
 
     #[test]

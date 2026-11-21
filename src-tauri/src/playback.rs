@@ -36,6 +36,7 @@ const RECOVERY_HEALTHY_RESET: Duration = Duration::from_secs(60);
 const MAX_RECURRING_SOURCE_SWAPS: u8 = 2;
 const MAX_PENDING_NATIVE_SOURCES: usize = 4;
 const PENDING_NATIVE_SOURCE_TTL: Duration = Duration::from_secs(30);
+const MANUAL_FADE_WAIT: Duration = Duration::from_secs(6);
 
 fn preparation_window_seconds(override_value: Option<&str>) -> f64 {
     match override_value {
@@ -651,9 +652,85 @@ struct PreloadPreparationOwner {
     cancel: watch::Sender<bool>,
 }
 
+struct PendingManualFade {
+    index: usize,
+    entry: String,
+    seconds: u8,
+    claimed: Arc<AtomicBool>,
+    replacement: Option<PlaybackSelection>,
+}
+
+impl PendingManualFade {
+    fn start_fade(&self, output: &NativeOutput, generation: u64, preload: &Preloaded) {
+        if preload.index == self.index
+            && preload.entry == self.entry
+            && preload.crossfade_seconds.is_some()
+        {
+            let _ = output.send(OutputCommand::FadeToPreload {
+                generation,
+                next_generation: preload.generation,
+                seconds: self.seconds,
+                claimed: self.claimed.clone(),
+            });
+        }
+    }
+
+    fn activate(self, state: &mut State) -> Option<Candidate> {
+        self.claimed.store(true, Ordering::Release);
+        if let Some(replacement) = self.replacement {
+            replacement.activate(state, self.index, Some(self.entry), false)
+        } else {
+            state.index = self.index;
+            state.recovery = 0;
+            clear_current_source_failure(state);
+            None
+        }
+    }
+}
+
+struct PlaybackSelection {
+    tracks: Vec<Track>,
+    candidate: Option<Candidate>,
+    album_context: Option<crate::loudness::LoudnessResourceIdentity>,
+}
+
+impl PlaybackSelection {
+    fn activate(
+        self,
+        state: &mut State,
+        index: usize,
+        entry: Option<String>,
+        candidate_only: bool,
+    ) -> Option<Candidate> {
+        replace_play_queue(state, self.tracks, index);
+        if let Some(entry) = entry {
+            state.entries[state.index] = entry;
+        }
+        state.preview_source_entry = candidate_only.then(|| state.entries[state.index].clone());
+        state.loudness_queue_contexts.clear();
+        let count = state.queue.len();
+        bind_loudness_context_to_queue_range(state, 0, count, self.album_context.as_ref());
+        clear_playback_failures(state);
+        state.recovery = 0;
+        state.failed_occurrence_ids.clear();
+        self.candidate
+    }
+}
+
+fn preload_entry(state: &State, index: usize) -> Option<&String> {
+    if let Some(request) = state
+        .manual_fade
+        .as_ref()
+        .filter(|request| request.index == index && request.replacement.is_some())
+    {
+        return Some(&request.entry);
+    }
+    state.entries.get(index)
+}
+
 fn preload_preparation_is_current(state: &State, owner: &PreloadPreparationOwner) -> bool {
     state.generation == owner.generation
-        && state.entries.get(owner.index) == Some(&owner.entry)
+        && preload_entry(state, owner.index) == Some(&owner.entry)
         && state.status == "playing"
         && !*owner.cancel.borrow()
         && state
@@ -686,6 +763,9 @@ fn cancel_preload_state(state: &mut State) {
         cancel.send_replace(true);
     }
     state.preload = None;
+    if let Some(request) = state.manual_fade.take() {
+        request.claimed.store(true, Ordering::Release);
+    }
 }
 
 fn invalidate_preload_for_settings_change(state: &mut State) -> Option<(u64, Option<u64>, bool)> {
@@ -843,6 +923,7 @@ struct State {
     output_ready: bool,
     preload: Option<Preloaded>,
     preload_cancel: Option<watch::Sender<bool>>,
+    manual_fade: Option<PendingManualFade>,
     native_decoder_diagnostic: Option<NativeDecoderDiagnosticContext>,
 }
 impl Default for State {
@@ -941,6 +1022,7 @@ impl Default for State {
             output_ready: false,
             preload: None,
             preload_cancel: None,
+            manual_fade: None,
             native_decoder_diagnostic: None,
         }
     }
@@ -1424,10 +1506,7 @@ fn apply_local_storage_failure(
     if let Some(cancel) = state.cancel.take() {
         let _ = cancel.send(true);
     }
-    if let Some(cancel) = state.preload_cancel.take() {
-        let _ = cancel.send(true);
-    }
-    state.preload = None;
+    cancel_preload_state(state);
     state.generation_counter += 1;
     state.generation = state.generation_counter;
     state.output_ready = false;
@@ -1456,7 +1535,8 @@ fn apply_normalization_selection(
         return true;
     }
     let preload_matches = state.preload.as_ref().is_some_and(|preload| {
-        preload.generation == generation && state.entries.get(preload.index) == Some(&preload.entry)
+        preload.generation == generation
+            && preload_entry(state, preload.index) == Some(&preload.entry)
     });
     if preload_matches {
         state.preload.as_mut().unwrap().loudness_status = status;
@@ -1893,7 +1973,8 @@ fn gapless_completion_diagnostic(
         || position < 0.0
         || state.crossfade_transition.is_some()
         || !state.preload.as_ref().is_some_and(|next| {
-            next.generation == to_generation && state.entries.get(next.index) == Some(&next.entry)
+            next.generation == to_generation
+                && preload_entry(state, next.index) == Some(&next.entry)
         })
     {
         return None;
@@ -2312,7 +2393,16 @@ impl PlaybackService {
                     preload.generation,
                     preload.index,
                     preload.entry.clone(),
-                    state.queue.get(preload.index)?.clone(),
+                    state
+                        .manual_fade
+                        .as_ref()
+                        .filter(|request| request.entry == preload.entry)
+                        .and_then(|request| request.replacement.as_ref())
+                        .map_or_else(
+                            || state.queue.get(preload.index),
+                            |selection| selection.tracks.get(preload.index),
+                        )?
+                        .clone(),
                     preload.candidate.is_some(),
                     crate::loudness::AudioRange {
                         start_seconds: preload.offset,
@@ -2440,7 +2530,7 @@ impl PlaybackService {
                 Some((_, queued_index, queued_entry, _, _, _, _, _, _)),
             ) = (queued_plan.as_ref(), queued_preload.as_ref())
             {
-                let occurrence_matches = state.entries.get(*queued_index) == Some(queued_entry);
+                let occurrence_matches = preload_entry(&state, *queued_index) == Some(queued_entry);
                 if occurrence_matches {
                     if let Some(preload) = state.preload.as_mut().filter(|preload| {
                         preload.generation == *queued_generation
@@ -3690,10 +3780,7 @@ impl PlaybackService {
         s.pending_seek_generation = None;
         s.steady_http_stream = false;
         s.seek_watchdog_epoch = s.seek_watchdog_epoch.wrapping_add(1);
-        if let Some(cancel) = s.preload_cancel.take() {
-            let _ = cancel.send(true);
-        }
-        s.preload = None;
+        cancel_preload_state(s);
         self.inner.audible.send_replace(false);
         let _ = self.inner.output.send(OutputCommand::Stop);
     }
@@ -3790,11 +3877,8 @@ impl PlaybackService {
         let operation_received_at = Instant::now();
         let operation_received_wall_ms = system_time_ms();
         let _command = self.inner.commands.lock().await;
-        let budget = self
-            .inner
-            .store
-            .playback_settings()?
-            .playback_startup_timeout();
+        let playback_settings = self.inner.store.playback_settings()?;
+        let budget = playback_settings.playback_startup_timeout();
         self.inner.state.lock().unwrap().startup_budget = budget;
         if let Some(expected) = expected_epoch {
             let current = self.inner.state.lock().unwrap().queued_intent_epoch;
@@ -3870,6 +3954,10 @@ impl PlaybackService {
             .then(|| command.to_string().len());
         let click_to_ipc_ms = client_started_at_ms
             .and_then(|started| operation_received_wall_ms.checked_sub(started));
+        let selection_fade = playback_settings.soft_track_selection_enabled
+            && command["trackSelection"].as_bool() == Some(true)
+            && queued_operation_id.is_none()
+            && commit.is_none();
         if matches!(
             action,
             "queue"
@@ -3919,7 +4007,37 @@ impl PlaybackService {
                     return Err("Source audition requires a selected audio candidate".into());
                 }
                 let position = playback_position_value(command.get("position"), 0.)?;
+                let mut selection = Some(PlaybackSelection {
+                    tracks,
+                    candidate,
+                    album_context,
+                });
+                if selection_fade
+                    && !candidate_only
+                    && position == 0.0
+                    && self.request_soft_transition(
+                        index,
+                        playback_settings.crossfade_seconds,
+                        &mut selection,
+                    )
+                {
+                    self.change(|s| {
+                        begin_operation(
+                            s,
+                            operation_id.as_deref(),
+                            "transition",
+                            operation_received_at,
+                            client_started_at_ms,
+                            click_to_ipc_ms,
+                            command_bytes,
+                        );
+                        s.queued_operation_id = None;
+                        finish_external_queued_owner(s, "play");
+                    });
+                    return Ok(self.snapshot_without_queue());
+                }
                 self.cancel();
+                let mut candidate = None;
                 self.change(|s| {
                     begin_operation(
                         s,
@@ -3932,15 +4050,11 @@ impl PlaybackService {
                     );
                     s.queued_intent_epoch = s.queued_intent_epoch.wrapping_add(1);
                     s.queued_operation_id = queued_operation_id.clone();
-                    replace_play_queue(s, tracks, index);
-                    s.preview_source_entry = candidate_only.then(|| s.entries[s.index].clone());
-                    s.loudness_queue_contexts.clear();
-                    let queue_count = s.queue.len();
-                    bind_loudness_context_to_queue_range(s, 0, queue_count, album_context.as_ref());
-                    clear_playback_failures(s);
+                    candidate = selection
+                        .take()
+                        .unwrap()
+                        .activate(s, index, None, candidate_only);
                     s.position = position;
-                    s.recovery = 0;
-                    s.failed_occurrence_ids.clear();
                 });
                 self.start(candidate, position, false);
             }
@@ -4060,7 +4174,6 @@ impl PlaybackService {
                             if let Some(resource) = album_context.as_ref() {
                                 bind_loudness_context_to_matching_queue(s, resource)?;
                             }
-                            self.cancel_locked(s);
                             begin_operation(
                                 s,
                                 operation_id.as_deref(),
@@ -4070,17 +4183,27 @@ impl PlaybackService {
                                 click_to_ipc_ms,
                                 command_bytes,
                             );
-                            s.index = index;
-                            s.recovery = 0;
                             s.failed_occurrence_ids.clear();
-                            clear_current_source_failure(s);
                             Ok(())
                         },
                     )?;
                     s.revision += 1;
                 }
-                self.publish();
-                self.start(None, 0., false);
+                let soft = selection_fade
+                    && self.request_soft_transition(
+                        index,
+                        playback_settings.crossfade_seconds,
+                        &mut None,
+                    );
+                if !soft {
+                    self.change(|s| {
+                        self.cancel_locked(s);
+                        s.index = index;
+                        s.recovery = 0;
+                        clear_current_source_failure(s);
+                    });
+                    self.start(None, 0., false);
+                }
             }
             "pause" => {
                 let crossfade_owned = {
@@ -4389,7 +4512,13 @@ impl PlaybackService {
                         command_bytes,
                     )
                 });
-                self.advance(if action == "next" { 1 } else { -1 }, false);
+                if action == "previous" {
+                    self.advance(-1, false);
+                } else if !playback_settings.soft_next_enabled
+                    || !self.request_soft_next(playback_settings.crossfade_seconds)
+                {
+                    self.advance(1, false);
+                }
             }
             "remove" => {
                 let at = command["index"].as_u64().ok_or("Queue position missing")? as usize;
@@ -5435,10 +5564,7 @@ impl PlaybackService {
         if let Some(cancel) = s.cancel.take() {
             cancel.send_replace(true);
         }
-        if let Some(cancel) = s.preload_cancel.take() {
-            cancel.send_replace(true);
-        }
-        s.preload = None;
+        cancel_preload_state(&mut s);
         s.recovered_audio_since = None;
         s.healthy_output_since = None;
         s.replace_source_on_recovery = false;
@@ -5499,7 +5625,8 @@ impl PlaybackService {
                 let valid = s.generation == from_generation
                     && matches!(s.status.as_str(), "playing" | "paused")
                     && s.preload.as_ref().is_some_and(|p| {
-                        p.generation == to_generation && s.entries.get(p.index) == Some(&p.entry)
+                        p.generation == to_generation
+                            && preload_entry(&s, p.index) == Some(&p.entry)
                     });
                 if !valid {
                     return;
@@ -6002,8 +6129,123 @@ impl PlaybackService {
             }
         });
     }
+    fn request_soft_next(&self, seconds: u8) -> bool {
+        let index = {
+            let state = self.inner.state.lock().unwrap();
+            queue_next(state.queue.len(), state.index, &state.repeat, 1, false)
+        };
+        index.is_some_and(|index| self.request_soft_transition(index, seconds, &mut None))
+    }
+
+    fn request_soft_transition(
+        &self,
+        index: usize,
+        seconds: u8,
+        replacement: &mut Option<PlaybackSelection>,
+    ) -> bool {
+        let replace_preload = {
+            let state = self.inner.state.lock().unwrap();
+            let incoming = replacement.as_ref().map_or_else(
+                || state.queue.get(index),
+                |selection| selection.tracks.get(index),
+            );
+            let can_fade =
+                |track: &Track| track.provider != "radio" && track.playback_range.is_none();
+            if state.status != "playing"
+                || state.station.is_some()
+                || state.crossfade_transition.is_some()
+                || state.end.is_some()
+                || state.offset != 0.0
+                || state.quality["sourceKind"] == "approximateAlbumExcerpt"
+                || (replacement.is_none() && index == state.index)
+                || !state.track().is_some_and(can_fade)
+                || !incoming.is_some_and(can_fade)
+            {
+                return false;
+            }
+            if replacement.is_none()
+                && state
+                    .manual_fade
+                    .as_ref()
+                    .is_some_and(|pending| pending.replacement.is_none() && pending.index == index)
+            {
+                return true;
+            }
+            let natural = queue_next(state.queue.len(), state.index, &state.repeat, 1, true);
+            replacement.is_some() || state.manual_fade.is_some() || natural != Some(index)
+        };
+        if replace_preload {
+            self.clear_preload();
+        }
+        let claimed = Arc::new(AtomicBool::new(false));
+        {
+            let mut state = self.inner.state.lock().unwrap();
+            let entry = if replacement.is_some() {
+                uuid::Uuid::new_v4().to_string()
+            } else {
+                state.entries[index].clone()
+            };
+            if state
+                .preload
+                .as_ref()
+                .is_some_and(|preload| preload.crossfade_seconds.is_none())
+            {
+                return false;
+            }
+            let request = PendingManualFade {
+                index,
+                entry,
+                seconds,
+                claimed: claimed.clone(),
+                replacement: replacement.take(),
+            };
+            if let Some(preload) = state.preload.as_ref() {
+                request.start_fade(&self.inner.output, state.generation, preload);
+            }
+            state.manual_fade = Some(request);
+        }
+        self.prepare_next();
+
+        let service = self.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(MANUAL_FADE_WAIT).await;
+            let _command = service.inner.commands.lock().await;
+            let fallback = {
+                let mut state = service.inner.state.lock().unwrap();
+                if !state
+                    .manual_fade
+                    .as_ref()
+                    .is_some_and(|request| Arc::ptr_eq(&request.claimed, &claimed))
+                    || claimed.swap(true, Ordering::AcqRel)
+                {
+                    return;
+                }
+                state
+                    .manual_fade
+                    .take()
+                    .filter(|_| matches!(state.status.as_str(), "playing" | "buffering"))
+            };
+            if let Some(request) = fallback {
+                service.start_manual_target(request);
+            }
+        });
+        true
+    }
+
+    fn start_manual_target(&self, request: PendingManualFade) {
+        let candidate = {
+            let mut state = self.inner.state.lock().unwrap();
+            self.cancel_locked(&mut state);
+            let candidate = request.activate(&mut state);
+            state.revision += 1;
+            candidate
+        };
+        self.publish();
+        self.start(candidate, 0., false);
+    }
+
     fn prepare_next(&self) {
-        let (owner, track, cancel) = {
+        let (owner, track, candidate, cancel) = {
             let mut s = self.inner.state.lock().unwrap();
             if s.status != "playing"
                 || s.station.is_some()
@@ -6012,10 +6254,22 @@ impl PlaybackService {
             {
                 return;
             }
-            let Some(index) = queue_next(s.queue.len(), s.index, &s.repeat, 1, true) else {
+            let next = s
+                .manual_fade
+                .as_ref()
+                .map(|request| request.index)
+                .or_else(|| queue_next(s.queue.len(), s.index, &s.repeat, 1, true));
+            let Some(index) = next else {
                 return;
             };
-            let track = s.queue[index].clone();
+            let replacement = s
+                .manual_fade
+                .as_ref()
+                .and_then(|request| request.replacement.as_ref());
+            let (track, candidate) = replacement.map_or_else(
+                || (s.queue[index].clone(), None),
+                |selection| (selection.tracks[index].clone(), selection.candidate.clone()),
+            );
             if track.provider == "radio" {
                 return;
             }
@@ -6024,10 +6278,12 @@ impl PlaybackService {
             let owner = PreloadPreparationOwner {
                 generation: s.generation,
                 index,
-                entry: s.entries[index].clone(),
+                entry: preload_entry(&s, index)
+                    .expect("prepared queue occurrence has an entry")
+                    .clone(),
                 cancel: tx,
             };
-            (owner, track, rx)
+            (owner, track, candidate, rx)
         };
         let track = self.track_with_registered_chapter_asset(&track);
         let service = self.clone();
@@ -6102,7 +6358,7 @@ impl PlaybackService {
             // Use the full idle lead time to warm stable provider results.
             // This remains explicitly search/identity-only; the 45s deadline
             // does not authorize returning an old signed URL at handoff.
-            if track.local_path.is_none() {
+            if track.local_path.is_none() && candidate.is_none() {
                 let background_service = service.clone();
                 let background_track = track.clone();
                 let background_owner_cancel = cancel.clone();
@@ -6171,7 +6427,9 @@ impl PlaybackService {
                         });
                         return;
                     }
-                    state.duration <= 0. || state.duration - state.position <= window_seconds
+                    state.manual_fade.is_some()
+                        || state.duration <= 0.
+                        || state.duration - state.position <= window_seconds
                 };
                 if prepare_now {
                     break;
@@ -6210,6 +6468,7 @@ impl PlaybackService {
                 &service.inner.store,
                 &service.inner.acquisition,
                 &track,
+                candidate,
                 cancel.clone(),
                 operation_id,
                 handoff,
@@ -6280,7 +6539,15 @@ impl PlaybackService {
                 });
                 return;
             };
-            let queue_album_context = s.loudness_queue_contexts.get(&owner.entry).cloned();
+            let queue_album_context = s
+                .manual_fade
+                .as_ref()
+                .filter(|request| request.entry == owner.entry)
+                .and_then(|request| request.replacement.as_ref())
+                .map_or_else(
+                    || s.loudness_queue_contexts.get(&owner.entry).cloned(),
+                    |selection| selection.album_context.clone(),
+                );
             let (loudness_plan, loudness_status) = if service.native_enabled() {
                 let plan = service.resolved_native_loudness_plan(
                     &loudness_settings,
@@ -6338,12 +6605,7 @@ impl PlaybackService {
                     .playback_settings()
                     .ok()
                     .and_then(|settings| {
-                        let eligible = settings.crossfade_enabled
-                            && s.repeat != "one"
-                            && owner.index != s.index
-                            && s.duration_verified
-                            && s.duration.is_finite()
-                            && s.duration > 0.0
+                        let eligible = s.entries.get(s.index) != Some(&owner.entry)
                             && s.station.is_none()
                             && s.offset == 0.0
                             && s.end.is_none()
@@ -6357,7 +6619,21 @@ impl PlaybackService {
                             && resolved.station.is_none()
                             && offset == 0.0
                             && end.is_none();
-                        eligible.then_some(settings.crossfade_seconds)
+                        if !eligible {
+                            return None;
+                        }
+                        let natural = settings.crossfade_enabled
+                            && s.repeat != "one"
+                            && s.duration_verified
+                            && s.duration.is_finite()
+                            && s.duration > 0.0;
+                        if natural {
+                            Some(settings.crossfade_seconds)
+                        } else {
+                            // Reserve a mixer lane without starting a natural fade.
+                            (settings.soft_next_enabled || settings.soft_track_selection_enabled)
+                                .then_some(0)
+                        }
                     });
             s.preload = Some(Preloaded {
                 buffered_audio,
@@ -6388,7 +6664,11 @@ impl PlaybackService {
                     plan: loudness_plan,
                     crossfade_seconds,
                 });
-            if queued.is_err() {
+            if queued.is_ok() {
+                if let (Some(request), Some(preload)) = (&s.manual_fade, &s.preload) {
+                    request.start_fade(&service.inner.output, s.generation, preload);
+                }
+            } else {
                 service
                     .inner
                     .observed_analysis
@@ -6414,14 +6694,20 @@ impl PlaybackService {
     }
     fn adopt_preload(&self, generation: u64) -> bool {
         let mut s = self.inner.state.lock().unwrap();
-        if !s
-            .preload
-            .as_ref()
-            .is_some_and(|p| p.generation == generation && s.entries.get(p.index) == Some(&p.entry))
-        {
+        if !s.preload.as_ref().is_some_and(|p| {
+            p.generation == generation && preload_entry(&s, p.index) == Some(&p.entry)
+        }) {
             return false;
         }
         let p = s.preload.take().unwrap();
+        let manual = s
+            .manual_fade
+            .take()
+            .filter(|request| request.entry == p.entry);
+        let is_manual = manual.is_some();
+        let explicit_source = manual
+            .and_then(|request| request.activate(&mut s))
+            .is_some();
         adopt_preloaded_opus_capability(&mut s, &p);
         if let Some(trace) = p.preparation_trace.as_ref() {
             trace.event(
@@ -6452,7 +6738,7 @@ impl PlaybackService {
             attach_search_chapters(track, candidate, p.duration);
         }
         s.candidate = candidate;
-        s.explicit_source = false;
+        s.explicit_source = explicit_source;
         s.bypass_failed_local = false;
         s.recovery_deadline = None;
         s.recovered_audio_since = None;
@@ -6463,7 +6749,9 @@ impl PlaybackService {
         s.session = uuid::Uuid::new_v4().to_string();
         s.recorded = false;
         reset_failed_resume_diagnostics(&mut s);
-        begin_operation(&mut s, None, "transition", Instant::now(), None, None, None);
+        if !is_manual {
+            begin_operation(&mut s, None, "transition", Instant::now(), None, None, None);
+        }
         s.output_ready = true;
         s.revision += 1;
         drop(s);
@@ -6567,6 +6855,13 @@ impl PlaybackService {
         self.persist_blocking();
     }
     fn advance(&self, direction: i32, ended: bool) {
+        if ended {
+            let request = self.inner.state.lock().unwrap().manual_fade.take();
+            if let Some(request) = request {
+                self.start_manual_target(request);
+                return;
+            }
+        }
         let (next, natural_queue_end) = {
             let s = self.inner.state.lock().unwrap();
             (
@@ -8808,6 +9103,49 @@ fn shuffle_upcoming(state: &mut State) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn soft_next_track_selection_stages_a_new_queue_until_the_target_starts() {
+        let track = |id: &str| Track {
+            id: id.into(),
+            ..Track::default()
+        };
+        let (cancel, _) = watch::channel(false);
+        let claimed = Arc::new(AtomicBool::new(false));
+        let mut state = State {
+            status: "playing".into(),
+            queue: vec![track("outgoing")],
+            entries: vec!["outgoing-entry".into()],
+            preload_cancel: Some(cancel.clone()),
+            manual_fade: Some(PendingManualFade {
+                index: 1,
+                entry: "selected-entry".into(),
+                seconds: 5,
+                claimed: claimed.clone(),
+                replacement: Some(PlaybackSelection {
+                    tracks: vec![track("first"), track("selected"), track("following")],
+                    candidate: None,
+                    album_context: None,
+                }),
+            }),
+            ..State::default()
+        };
+        let owner = PreloadPreparationOwner {
+            generation: state.generation,
+            index: 1,
+            entry: "selected-entry".into(),
+            cancel,
+        };
+        assert_eq!(state.track().unwrap().id, "outgoing");
+        assert!(preload_preparation_is_current(&state, &owner));
+
+        let selection = state.manual_fade.take().unwrap();
+        selection.activate(&mut state);
+        assert_eq!(state.track().unwrap().id, "selected");
+        assert_eq!(state.entries[state.index], "selected-entry");
+        assert_eq!(state.queue[state.index + 1].id, "following");
+        assert!(claimed.load(Ordering::Acquire));
+    }
+
     #[test]
     fn local_decoder_termination_can_restart_but_keeps_recovery_limits_and_device_failures() {
         let mut state = State::default();

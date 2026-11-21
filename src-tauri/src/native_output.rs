@@ -468,6 +468,12 @@ pub enum OutputCommand {
         plan: crate::loudness_manager::NativeNormalizationGainPlan,
         crossfade_seconds: Option<u8>,
     },
+    FadeToPreload {
+        generation: u64,
+        next_generation: u64,
+        seconds: u8,
+        claimed: Arc<AtomicBool>,
+    },
     ClearPreload {
         generation: u64,
     },
@@ -1517,6 +1523,27 @@ fn run_worker(
                             }),
                         ));
                         current.preload_normalization = preload_normalization;
+                    }
+                }
+            }
+            Ok(OutputCommand::FadeToPreload {
+                generation,
+                next_generation,
+                seconds,
+                claimed,
+            }) => {
+                if let Some(current) = player.as_ref().filter(|current| {
+                    current.active_generation.load(Ordering::Acquire) == generation
+                }) {
+                    let mut queued = current
+                        .crossfade_queued
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
+                    if let Some(next) = queued
+                        .as_mut()
+                        .filter(|next| next.source.generation == next_generation)
+                    {
+                        next.manual = Some(ManualCrossfade { seconds, claimed });
                     }
                 }
             }
@@ -2625,6 +2652,7 @@ fn install_queued_reader(
         *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(QueuedCrossfade {
             source: queued_source,
             seconds,
+            manual: None,
         });
         available.store(true, Ordering::Release);
     } else {
@@ -3059,6 +3087,12 @@ struct NativeCrossfadeSource {
 struct QueuedCrossfade {
     source: QueuedSamples,
     seconds: u8,
+    manual: Option<ManualCrossfade>,
+}
+
+struct ManualCrossfade {
+    seconds: u8,
+    claimed: Arc<AtomicBool>,
 }
 
 impl NativeCrossfadeSource {
@@ -3115,13 +3149,22 @@ impl NativeCrossfadeSource {
         {
             return;
         }
-        // Drain a bounded tail so the decoder can reach EOF before choosing the
-        // overlap boundary. Metadata alone must never discard outgoing PCM.
-        primary.buffered_frames();
-        if !primary
+        let manual = next
+            .manual
+            .as_ref()
+            .filter(|fade| !fade.claimed.load(Ordering::Acquire));
+        let seconds = manual.map_or(next.seconds, |fade| fade.seconds);
+        if seconds == 0 {
+            return;
+        }
+        // Natural fades wait for verified EOF. A skip can start earlier once
+        // the overlap has been decoded for both voices.
+        let outgoing_buffered = primary.buffered_frames();
+        let outgoing_finished = primary
             .decoder_session
             .decode_thread_finished
-            .load(Ordering::Acquire)
+            .load(Ordering::Acquire);
+        if (manual.is_none() && !outgoing_finished)
             || primary.decode_failed.load(Ordering::Acquire)
             || primary.incomplete_end.load(Ordering::Acquire)
         {
@@ -3129,20 +3172,33 @@ impl NativeCrossfadeSource {
         }
         let outgoing_duration = f64::from_bits(primary.duration_bits.load(Ordering::Acquire));
         let incoming_duration = f64::from_bits(next.source.duration_bits.load(Ordering::Acquire));
-        let Some(frames) = native_crossfade::fade_frames(
-            next.seconds,
-            outgoing_duration,
-            incoming_duration,
-            self.rate,
-        ) else {
+        let frames =
+            native_crossfade::fade_frames(seconds, outgoing_duration, incoming_duration, self.rate)
+                .or_else(|| manual.map(|_| u64::from(seconds) * u64::from(self.rate)));
+        let Some(mut frames) = frames else {
             return;
         };
-        let played_frames = primary.voice_samples / u64::from(self.channels.max(1));
-        let total_frames =
-            ((outgoing_duration - primary.initial_position).max(0.0) * f64::from(self.rate)) as u64;
-        if played_frames < total_frames.saturating_sub(frames)
-            || next.source.buffered_frames() < frames as usize
-        {
+        if manual.is_some() {
+            if outgoing_finished {
+                frames = frames.min(outgoing_buffered as u64);
+            }
+            if outgoing_buffered < frames as usize
+                || next.source.buffered_frames() < frames as usize
+            {
+                return;
+            }
+        } else {
+            let played_frames = primary.voice_samples / u64::from(self.channels.max(1));
+            let total_frames = ((outgoing_duration - primary.initial_position).max(0.0)
+                * f64::from(self.rate)) as u64;
+            if played_frames < total_frames.saturating_sub(frames)
+                || next.source.buffered_frames() < frames as usize
+            {
+                return;
+            }
+            frames = frames.min(total_frames.saturating_sub(played_frames));
+        }
+        if frames < 2 {
             return;
         }
         // A producer can fail or be canceled while its buffered blocks are
@@ -3153,9 +3209,7 @@ impl NativeCrossfadeSource {
         {
             return;
         }
-        let remaining = total_frames.saturating_sub(played_frames);
-        let frames = frames.min(remaining);
-        if frames < 2 {
+        if manual.is_some_and(|fade| fade.claimed.swap(true, Ordering::AcqRel)) {
             return;
         }
         let next = queued.take().expect("queued source was checked");
@@ -4948,6 +5002,58 @@ mod tests {
     }
 
     #[test]
+    fn soft_next_fades_before_outgoing_eof_only_if_request_is_live() {
+        for expired in [false, true] {
+            let (mut outgoing, mut events, _activations) =
+                queued_gain_fixture_with_observers(4, 1, 0.0);
+            outgoing.pending = vec![1.0; 20].into();
+            let outgoing_cancel = outgoing.cancelled.clone();
+            let mut incoming = queued_gain_fixture(4, 1, 0.0);
+            incoming.generation = 2;
+            incoming.events = outgoing.events.clone();
+            incoming.pending = vec![0.0; 8].into();
+            let claimed = Arc::new(AtomicBool::new(expired));
+            let queued = Arc::new(std::sync::Mutex::new(Some(QueuedCrossfade {
+                source: incoming,
+                seconds: 0,
+                manual: None,
+            })));
+            let mut output = NativeCrossfadeSource::new(
+                outgoing,
+                queued.clone(),
+                Arc::new(AtomicBool::new(true)),
+                Arc::new(AtomicBool::new(false)),
+            );
+            assert_eq!(output.next(), Some(1.0));
+            queued.lock().unwrap().as_mut().unwrap().manual = Some(ManualCrossfade {
+                seconds: 1,
+                claimed: claimed.clone(),
+            });
+            let mixed: Vec<_> = output.by_ref().take(4).collect();
+            let expected = if expired {
+                [1.0; 4]
+            } else {
+                [1.0, 2.0 / 3.0, 1.0 / 3.0, 0.0]
+            };
+            for (actual, expected) in mixed.iter().zip(expected) {
+                assert!((actual - expected).abs() < 1e-6, "{mixed:?}");
+            }
+            assert_eq!(outgoing_cancel.load(Ordering::Acquire), !expired);
+            assert!(claimed.load(Ordering::Acquire));
+            let transition_events = std::iter::from_fn(|| events.try_recv().ok()).filter(|event| {
+                matches!(
+                    event,
+                    OutputEvent::CrossfadeStarted {
+                        from_generation: 1,
+                        to_generation: 2
+                    }
+                )
+            });
+            assert_eq!(transition_events.count(), usize::from(!expired));
+        }
+    }
+
+    #[test]
     fn gapless_completion_reports_consumed_pcm_before_incoming_started_once() {
         let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
         let mut outgoing = queued_gain_fixture(2, 2, 0.0);
@@ -4974,6 +5080,7 @@ mod tests {
         let queued = Arc::new(std::sync::Mutex::new(Some(QueuedCrossfade {
             source: incoming,
             seconds: 0,
+            manual: None,
         })));
         let mut source = NativeCrossfadeSource::new(
             outgoing,
@@ -5021,6 +5128,7 @@ mod tests {
         let queued = Arc::new(std::sync::Mutex::new(Some(QueuedCrossfade {
             source: incoming,
             seconds: 0,
+            manual: None,
         })));
         let mut output = NativeCrossfadeSource::new(
             outgoing,

@@ -1,7 +1,10 @@
 """Offline contract tests for the maintained shim against the packaged plugin."""
 import importlib.util
 from pathlib import Path
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 from types import SimpleNamespace
 
@@ -14,6 +17,27 @@ from yt_dlp.extractor.youtube.pot.provider import PoTokenProviderRejectedRequest
 
 
 class GateTests(unittest.TestCase):
+    def test_packaged_loader_registers_upstream_provider_only_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = root / 'plugins' / 'plugin' / 'yt_dlp_plugins'
+            source = ROOT / 'src-tauri/resources/youtube-support/bgutil/plugin/yt_dlp_plugins'
+            shutil.copytree(source, package, ignore=shutil.ignore_patterns('__pycache__'))
+            shutil.copyfile(Path(__file__).with_name('burrata_gate.py'),
+                            package / 'extractor' / 'getpot_zz_burrata_gate.py')
+            fixture = root / 'fixture.mp3'
+            fixture.write_bytes(b'fixture')
+            result = subprocess.run(
+                [sys.executable, '-m', 'yt_dlp', '--ignore-config', '--no-plugin-dirs',
+                 '--plugin-dirs', str(root / 'plugins'), '--verbose', '--enable-file-urls',
+                 '--dump-single-json', '--skip-download', '--', fixture.as_uri()],
+                capture_output=True, text=True, timeout=15,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(str(package), result.stderr)
+            self.assertNotIn('Error while importing module', result.stderr)
+            self.assertNotIn('already registered', result.stderr)
+
     def provider(self, url='http://127.0.0.1:34567/exact-lease'):
         ie = SimpleNamespace(_configuration_arg=lambda **kwargs: [url])
         logger = SimpleNamespace(warning=lambda *args, **kwargs: None)

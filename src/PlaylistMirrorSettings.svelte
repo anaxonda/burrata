@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { modalDialog } from "./lib/modal-dialog";
   import { untrack } from "svelte";
   import type { Collection, PlaylistMirrorOptions, PlaylistMirrorOptionsView } from "./lib/types";
 
@@ -92,7 +93,7 @@
   }
 </script>
 
-<dialog open class="playlist-mirror-dialog" aria-label="Local M3U copy settings" aria-modal="true">
+<dialog use:modalDialog={onClose} class="playlist-mirror-dialog" aria-label="Local M3U copy settings" aria-modal="true">
   <header>
     <h2>Local M3U copy</h2>
     <button type="button" aria-label="Close local M3U settings" onclick={onClose}>×</button>
@@ -129,20 +130,21 @@
   {#if error}<p role="alert">{error}</p>{/if}
   <footer>
     <button type="button" class="secondary" onclick={onClose}>Close</button>
-    <button type="button" disabled={!loaded || !draft || loading || saving} onclick={() => void save()}>{saving ? "Saving…" : "Save playlist copy"}</button>
+    <button type="button" class="primary" disabled={!loaded || !draft || loading || saving} onclick={() => void save()}>{saving ? "Saving…" : "Save playlist copy"}</button>
   </footer>
 </dialog>
 
 <style>
-  .playlist-mirror-dialog { position: fixed; inset: 50% auto auto 50%; transform: translate(-50%, -50%); z-index: 120; width: min(480px, calc(100vw - 32px)); max-height: min(80vh, 680px); overflow: auto; border: 1px solid var(--line); border-radius: 14px; padding: 20px; color: var(--text); background: var(--panel); box-shadow: 0 20px 70px #0008; }
+  .playlist-mirror-dialog { margin:auto; width: min(480px, calc(100vw - 32px)); max-height: min(80vh, 680px); overflow: auto; border: 1px solid var(--line); border-radius: 14px; padding: 20px; color: var(--text); background: var(--panel); box-shadow: 0 20px 70px #0008; }
+  .playlist-mirror-dialog::backdrop { background:#0009; }
   header, footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   header h2 { margin: 0; font-size: 18px; }
   dialog > label:not(.settings-option) { display: grid; gap: 7px; margin: 16px 0; }
   select { min-height: 38px; }
-  .settings-option { display: flex; gap: 10px; align-items: flex-start; padding: 12px 0; }
+  .settings-option { display: flex; flex-direction:row; gap: 10px; align-items: flex-start; padding: 12px 0; }
   .settings-option span { display: grid; gap: 4px; }
   .settings-option small, .playlist-mirror-metadata-note { color: var(--muted); }
   .playlist-mirror-metadata-note { padding: 10px; border-radius: 8px; background: var(--raised); }
   footer { justify-content: flex-end; margin-top: 18px; }
-  button, select { color: inherit; background: var(--raised); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  select { color: inherit; background: var(--raised); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
 </style>

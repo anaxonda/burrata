@@ -63,6 +63,8 @@ The development command starts Vite and the desktop app together. Development
 checkouts may need runtime tools configured through [tool setup](docs/tool-setup.md).
 Test and packaging commands are in the [release workflow](.github/workflows/release.yml).
 
+Contributors working on the interface should follow the [UI style guide](docs/ui-style.md).
+
 ## License
 
 Burrata is licensed under [GPL-3.0-or-later](LICENSE). Bundled tools and other

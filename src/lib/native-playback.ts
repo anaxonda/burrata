@@ -16,10 +16,10 @@ export function playbackOperationTrace(): PlaybackOperationTrace {
 }
 export type NativeCommand = NativeCommandPayload & Partial<PlaybackOperationTrace>;
 type NativeCommandPayload =
-  | { action: "play"; tracks: Track[]; index: number; candidate?: Candidate; candidateOnly?: boolean; position?: number; loudnessAlbumResource?: LoudnessResourceIdentity | null }
+  | { action: "play"; tracks: Track[]; index: number; candidate?: Candidate; candidateOnly?: boolean; position?: number; loudnessAlbumResource?: LoudnessResourceIdentity | null; trackSelection?: boolean }
   | { action: "queue"; tracks: Track[]; mode: "append" | "replace" | "next"; preserveCurrent?: boolean; loudnessAlbumResource?: LoudnessResourceIdentity | null }
   | { action: "next" | "previous" }
-  | { action: "select"; index: number; expectedQueueRevision?: number; expectedEntryId?: string; loudnessAlbumResource?: LoudnessResourceIdentity | null }
+  | { action: "select"; index: number; expectedQueueRevision?: number; expectedEntryId?: string; loudnessAlbumResource?: LoudnessResourceIdentity | null; trackSelection?: boolean }
   | { action: "remove"; index: number }
   | { action: "sort_upcoming"; field: TrackSortField; direction: SortDirection }
   | { action: "remove_many"; indices: number[]; expectedQueueRevision?: number }

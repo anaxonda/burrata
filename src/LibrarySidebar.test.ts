@@ -1,14 +1,25 @@
 // @vitest-environment jsdom
 // @ts-expect-error Exercise Svelte's browser runtime in jsdom.
 import { mount, tick, unmount } from "../node_modules/svelte/src/index-client.js";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // @ts-expect-error Svelte's internal browser runtime has no public declarations.
 vi.mock("svelte", async () => await import("../node_modules/svelte/src/index-client.js"));
 import LibrarySidebar from "./LibrarySidebar.svelte";
 import LibrarySidebarRadioArtworkHarness from "./LibrarySidebarRadioArtworkHarness.svelte";
 
 let destroy: (() => void) | undefined;
-afterEach(() => { destroy?.(); destroy = undefined; document.body.innerHTML = ""; vi.restoreAllMocks(); });
+const originalShowModal = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, "showModal");
+beforeEach(() => {
+  vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
+    configurable: true, value(this: HTMLDialogElement) { this.open = true; },
+  });
+});
+afterEach(() => {
+  destroy?.(); destroy = undefined; document.body.innerHTML = ""; vi.restoreAllMocks(); vi.unstubAllGlobals();
+  if (originalShowModal) Object.defineProperty(HTMLDialogElement.prototype, "showModal", originalShowModal);
+  else Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal");
+});
 async function settle() { for (let i = 0; i < 6; i++) await Promise.resolve(); await tick(); }
 function render(props: Record<string, unknown> = {}) {
   const target = document.createElement("div"); document.body.append(target);
@@ -36,6 +47,108 @@ function deferred<T>() {
 const recoveredImage = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/3S8AAAAASUVORK5CYII=";
 
 describe("LibrarySidebar provider presets", () => {
+  it("collapses open groups and folders while leaving each group independently expandable", async () => {
+    const target = render({
+      sections: [{ id: "section", name: "Crate" }],
+      assignments: { assigned: "section" },
+      collections: [{ id: "assigned", name: "Filed playlist", trackCount: 3 }],
+    });
+    await settle();
+    expect(target.querySelectorAll(".library-scroll details[open]").length).toBeGreaterThan(1);
+    target.querySelector<HTMLButtonElement>('[aria-label="Collapse all sidebar items"]')!.click();
+    await settle();
+    expect(target.querySelectorAll(".library-scroll details[open]")).toHaveLength(0);
+    expect(target.querySelector('[aria-label="Expand folder tree"]')).not.toBeNull();
+    expect(target.querySelector<HTMLDivElement>("#sidebar-personal-playlists")?.hidden).toBe(true);
+    target.querySelector<HTMLElement>(".radio-section summary")!.click();
+    await settle();
+    expect(target.querySelector<HTMLDetailsElement>(".radio-section")?.open).toBe(true);
+    expect(target.querySelectorAll(".library-scroll details[open]")).toHaveLength(1);
+  });
+  it("opens the section actions with Shift+F10 and keeps focus on the heading after Escape", async () => {
+    const onImport = vi.fn();
+    const onCreateSection = vi.fn();
+    const target = render({ onImport, onCreateSection });
+    await settle();
+    const heading = target.querySelector<HTMLButtonElement>(".personal-playlists-toggle")!;
+    const dispatchShortcut = () => heading.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "F10", shiftKey: true, bubbles: true, cancelable: true,
+    }));
+    heading.focus();
+    dispatchShortcut();
+    await settle();
+    const menu = () => target.querySelector<HTMLDialogElement>('dialog[aria-label="Playlist actions"]');
+    expect(menu()?.open).toBe(true);
+    expect(document.activeElement?.textContent).toBe("New playlist");
+    document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    await settle();
+    expect(menu()).toBeNull();
+    expect(document.activeElement).toBe(heading);
+
+    dispatchShortcut();
+    await settle();
+    [...menu()!.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].find(button => button.textContent === "New playlist section…")!.click();
+    await settle();
+    const name = target.querySelector<HTMLInputElement>('[aria-label="New section name"]')!;
+    expect(document.activeElement).toBe(name);
+    name.value = "Weekend sets";
+    name.dispatchEvent(new Event("input", { bubbles: true }));
+    name.form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    expect(onCreateSection).toHaveBeenCalledWith("Weekend sets");
+    expect(onImport).not.toHaveBeenCalled();
+  });
+
+  it("offers creation actions on the sidebar without replacing a playlist’s own menu", async () => {
+    const onImport = vi.fn();
+    const onPlaylistContext = vi.fn();
+    const onSelectFolder = vi.fn();
+    const onAddRadio = vi.fn();
+    const root = { id: "dj", name: "DJ", path: "/music/DJ" };
+    const call = vi.fn(async (command: string) => {
+      if (command === "choose_directory_browser_root") return { path: root.path };
+      if (command === "add_directory_browser_root") return root;
+      return [];
+    });
+    const target = render({
+      call, onImport, onPlaylistContext, onSelectFolder, onAddRadio,
+      collections: [{ id: "playlist", name: "Existing playlist", trackCount: 0 }],
+    });
+    await settle();
+    const rightClick = (selector: string) => target.querySelector(selector)!.dispatchEvent(new MouseEvent("contextmenu", {
+      bubbles: true, cancelable: true, clientX: 70, clientY: 120,
+    }));
+    const choose = (text: string) => [...target.querySelectorAll<HTMLButtonElement>("dialog [role=menuitem]")]
+      .find(button => button.textContent === text)!.click();
+
+    vi.stubGlobal("innerWidth", 340);
+    rightClick(".library-scroll");
+    await settle();
+    const position = target.querySelector<HTMLDialogElement>('dialog[aria-label="Sidebar actions"]')!.style;
+    expect(parseFloat(position.left)).toBeGreaterThanOrEqual(8);
+    expect(parseFloat(position.left)).toBeLessThanOrEqual(12);
+    choose("New playlist");
+    expect(onImport).toHaveBeenCalledOnce();
+    await settle();
+
+    rightClick(".folder-tree-title");
+    await settle();
+    choose("Add or create folder…");
+    await settle();
+    expect(call).toHaveBeenCalledWith("add_directory_browser_root", { path: root.path });
+    expect(onSelectFolder).toHaveBeenCalledWith({ rootId: root.id, relativePath: "" });
+
+    rightClick(".radio-section summary");
+    await settle();
+    choose("Add radio station…");
+    expect(onAddRadio).toHaveBeenCalledOnce();
+    await settle();
+
+    rightClick(".collection-card");
+    await settle();
+    expect(onPlaylistContext).toHaveBeenCalledWith("playlist", expect.any(MouseEvent));
+    expect(target.querySelector("dialog")).toBeNull();
+  });
+
   it("loads playlist artwork in one batch and preserves playlist navigation", async () => {
     const onPlaylist=vi.fn();
     const call=vi.fn(async(command:string)=> command==='get_playlist_artwork' ? { one:[1,2,3,4].map(i=>`https://example.test/${i}.jpg`),two:['https://example.test/single.jpg'] } : []);

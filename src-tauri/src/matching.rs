@@ -174,6 +174,11 @@ fn parse_display_runtime(value: &str) -> Option<f64> {
     (total > 0 && total <= 86_400).then_some(total as f64)
 }
 
+/// A bare parenthesized clock is catalog timing, with no mix label.
+pub(crate) fn parse_runtime_only_version(value: &str) -> Option<f64> {
+    parse_display_runtime(value.trim().strip_prefix('(')?.strip_suffix(')')?)
+}
+
 fn strict_display_version(value: &str) -> bool {
     let normalized = value
         .split_whitespace()
@@ -201,6 +206,9 @@ pub fn parse_strict_version_runtime(value: &str) -> Option<(String, f64)> {
 /// append the track length to a version label (`Oscar P Dub (6:07)`); the
 /// runtime belongs in duration metadata, not in provider search terms.
 pub fn strip_trailing_display_runtime(value: &str) -> &str {
+    if parse_runtime_only_version(value).is_some() {
+        return "";
+    }
     let Some((prefix, runtime)) = split_balanced_trailing_parenthetical(value) else {
         return value;
     };

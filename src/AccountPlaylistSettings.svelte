@@ -18,11 +18,11 @@
     <h3 id="account-playlist-settings-title">Playlists in the sidebar</h3>
     <p>Show playlists from connected accounts in the sidebar. Search remains available separately.</p>
   </header>
-  <label>
+  <label class="settings-option">
     <input type="checkbox" checked={Boolean(value.spotify)} onchange={event => update("spotify", event.currentTarget.checked)} />
     <span>Show Spotify playlists</span>
   </label>
-  <label>
+  <label class="settings-option">
     <input type="checkbox" checked={Boolean(value.youtube)} onchange={event => update("youtube", event.currentTarget.checked)} />
     <span>Show YouTube playlists</span>
   </label>
@@ -33,6 +33,5 @@
   header { display:grid; gap:4px; }
   h3 { margin:0; font-size:14px; }
   p { margin:0; color:var(--muted); font-size:12px; }
-  label { display:flex; align-items:center; gap:8px; }
-  input { width:16px; height:16px; }
+  .account-playlist-settings .settings-option { margin:0; padding:6px 0; color:var(--text); font-size:13px; }
 </style>

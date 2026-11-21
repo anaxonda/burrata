@@ -662,6 +662,13 @@ fn musicbrainz_recording_result(recording: Value) -> DiscoveryResult {
         .and_then(|values| values.first())
         .and_then(|genre| genre["name"].as_str())
         .map(str::to_owned);
+    let release = recording["releases"]
+        .as_array()
+        .and_then(|values| values.first());
+    let artwork = release
+        .and_then(|release| Some((release, release["id"].as_str()?)))
+        .map(|(release, id)| crate::artists::musicbrainz_artwork_urls(release, "release", id))
+        .unwrap_or_default();
     let track = Track {
         id: id.clone(),
         provider: "musicbrainz".into(),
@@ -680,14 +687,14 @@ fn musicbrainz_recording_result(recording: Value) -> DiscoveryResult {
             .map(str::to_owned),
         duration_seconds: recording["length"].as_u64().map(|ms| ms as f64 / 1000.0),
         release_date: recording["first-release-date"].as_str().map(str::to_owned),
-        album: recording["releases"]
-            .as_array()
-            .and_then(|values| values.first())
+        album: release
             .and_then(|release| release["title"].as_str())
             .map(str::to_owned),
+        artwork_url: artwork.first().cloned(),
         genre: genre.clone(),
         normalized_genre: genre,
-        provenance: json!({"catalog":{
+        provenance: json!({"releaseGroupId":release.and_then(|release| release["release-group"]["id"].as_str()),
+            "artworkAlternates":artwork,"catalog":{
             "provider":"musicbrainz","recordingId":rid,"artistCredit":credit_names,
             "artists":artist_refs,"isrcs":recording["isrcs"],"verified":true,
         }}),
@@ -700,7 +707,7 @@ fn musicbrainz_recording_result(recording: Value) -> DiscoveryResult {
         title: track.title.clone(),
         subtitle: (!artist.is_empty()).then_some(artist),
         url: Some(source_url),
-        artwork_url: None,
+        artwork_url: track.artwork_url.clone(),
         track: Some(track),
         data: recording,
     }
@@ -1647,6 +1654,15 @@ fn decode_slskd_discovery_cursor(value: &str) -> Option<SlskdDiscoveryCursor> {
     Some(cursor)
 }
 
+pub(crate) fn soulseek_cancellation_id(cursor: &str) -> Result<String, String> {
+    if cursor.starts_with("ssdk1:") {
+        return decode_slskd_discovery_cursor(cursor)
+            .map(|decoded| decoded.search_id)
+            .ok_or_else(|| "Invalid Soulseek discovery cursor".into());
+    }
+    Ok(cursor.split('@').next().unwrap_or_default().to_owned())
+}
+
 #[derive(Default)]
 struct SoulseekFolderGroup {
     peer: String,
@@ -2567,6 +2583,26 @@ mod tests {
     }
 
     #[test]
+    fn musicbrainz_search_recording_uses_the_displayed_release_cover() {
+        let result = musicbrainz_recording_result(json!({
+            "id":"10000000-0000-4000-8000-000000000001",
+            "title":"Track",
+            "releases":[
+                {"id":"10000000-0000-4000-8000-000000000002","title":"First release",
+                 "release-group":{"id":"10000000-0000-4000-8000-000000000003"}},
+                {"id":"10000000-0000-4000-8000-000000000004","title":"Another release"}
+            ]
+        }));
+        let track = result.track.unwrap();
+        assert_eq!(track.album.as_deref(), Some("First release"));
+        assert_eq!(result.artwork_url, track.artwork_url);
+        assert_eq!(track.provenance["artworkAlternates"], json!([
+            "https://coverartarchive.org/release/10000000-0000-4000-8000-000000000002/front-250",
+            "https://coverartarchive.org/release-group/10000000-0000-4000-8000-000000000003/front-250"
+        ]));
+    }
+
+    #[test]
     fn normalized_remote_catalog_artist_credits_reach_discovery_provenance() {
         let credit = json!({"provider":"spotify","id":"aaaaaaaaaaaaaaaaaaaaaa","name":"  Featured Artist  ","authorization":"not-forwarded"});
         let mut raw = json!({"id":"0123456789012345678901","title":"Catalog recording","url":"https://open.spotify.com/track/0123456789012345678901","data":{
@@ -3205,6 +3241,15 @@ mod tests {
         assert_eq!(decoded.kinds, kinds);
         assert_eq!(decoded.search_id, "search-1");
         assert!(decode_slskd_discovery_cursor("legacy-search").is_none());
+        assert_eq!(
+            soulseek_cancellation_id(&encoded).unwrap(),
+            decoded.search_id
+        );
+        assert_eq!(
+            soulseek_cancellation_id("legacy-search@30").unwrap(),
+            "legacy-search"
+        );
+        assert!(soulseek_cancellation_id("ssdk1:malformed").is_err());
         assert_eq!(
             "legacy-search@50"
                 .split_once('@')

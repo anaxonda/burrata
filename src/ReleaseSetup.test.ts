@@ -102,48 +102,55 @@ describe("ReleaseSetup", () => {
     expect(changed).toHaveBeenCalledOnce();
   });
 
-  it("shows an honest unchecked status and keeps provider details collapsed", async () => {
-    callMock.mockImplementation(async (command: string) => command === "get_release_setup" ? setup({ setupComplete: true }) : youtube);
+  it("offers one primary stable update and groups optional tools under Advanced", async () => {
+    callMock.mockImplementation(async (command: string) => command === "get_release_setup"
+      ? setup({ setupComplete: true })
+      : { ...youtube, provider: { ...youtube.provider, available: false } });
     const target = render({ category: "advanced" }); await settle();
-    expect(target.textContent).toContain("Audio access has not been checked yet");
-    const details = [...target.querySelectorAll("details")].find(item => item.querySelector("summary")?.textContent === "More troubleshooting options")!;
-    expect(details.open).toBe(false);
-    expect(details.textContent).toContain("Anonymous provider is available.");
-    expect(button(target, "Check YouTube audio access")).toBeTruthy();
+    const advanced = [...target.querySelectorAll("details")].find(item => item.querySelector("summary")?.textContent === "Advanced options")!;
+    expect(advanced.open).toBe(false);
+    expect(target.textContent).not.toContain("needs attention");
+    expect(button(target, "Update yt-dlp").closest("details")).toBeNull();
+    expect(advanced.contains(button(target, "Install nightly build"))).toBe(true);
+    expect(advanced.contains(button(target, "Check YouTube audio access"))).toBe(true);
+    expect(callMock.mock.calls.some(([command]) => command === "youtube_support_diagnose" || command === "youtube_support_update")).toBe(false);
   });
 
-  it("diagnoses before offering repair and requires a separate explicit update click", async () => {
+  it.each([youtube.activeVersion, "2026.10.26"])("updates the stable yt-dlp channel in one click (%s)", async (activeVersion) => {
     callMock.mockImplementation(async (command: string) => {
       if (command === "get_release_setup") return setup({ setupComplete: true });
       if (command === "youtube_support_status") return youtube;
-      if (command === "youtube_support_diagnose") return { ok: false, category: "http403", ytDlpVersion: "2026.01", providerAvailable: true, audioAccessible: false, message: "Public audio could not be reached." };
-      if (command === "youtube_support_check") return { channel: "recommended", version: null, publishedAt: null, available: false, message: "No recommended update is available." };
-      if (command === "youtube_support_update") throw new Error("Must not update automatically");
+      if (command === "youtube_support_update") return { ...youtube, activeVersion, activeSource: "managed" };
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const target = render({ category: "advanced" }); await settle();
+    button(target, "Update yt-dlp").click(); await settle();
+    expect(callMock).toHaveBeenCalledWith("youtube_support_update", { channel: "stable" });
+    expect(target.textContent).toContain(activeVersion === youtube.activeVersion ? "yt-dlp is up to date." : `Updated yt-dlp to ${activeVersion}.`);
+  });
+
+  it("keeps system or custom yt-dlp under its owner's control", async () => {
+    callMock.mockImplementation(async (command: string) => command === "get_release_setup"
+      ? { ...setup({ setupComplete: true }), usesManagedYtDlp: false }
+      : youtube);
+    const target = render({ category: "advanced" }); await settle();
+    expect(target.textContent).toContain("Update your configured yt-dlp outside Burrata.");
+    expect(button(target, "Update yt-dlp")).toBeUndefined();
+    expect(button(target, "Install nightly build")).toBeUndefined();
+  });
+
+  it("keeps audio diagnosis independent of updates", async () => {
+    callMock.mockImplementation(async (command: string) => {
+      if (command === "get_release_setup") return setup({ setupComplete: true });
+      if (command === "youtube_support_status") return youtube;
+      if (command === "youtube_support_diagnose") return { ok: false, category: "http403", message: "Public audio could not be reached." };
       throw new Error(`Unexpected command ${command}`);
     });
     const target = render(); await settle();
     button(target, "Check YouTube audio access").click(); await settle();
     expect(callMock).toHaveBeenCalledWith("youtube_support_diagnose", {});
-    expect(callMock).toHaveBeenCalledWith("youtube_support_check", { channel: "recommended" });
-    expect(target.textContent).toContain("Try the check again. If it still fails, look for a recommended update below.");
+    expect(target.textContent).toContain("Try the check again. If it still fails, update yt-dlp.");
     expect(target.textContent).toContain("Public audio could not be reached.");
-    expect(target.textContent).toContain("No recommended update is available.");
-    expect(callMock).not.toHaveBeenCalledWith("youtube_support_update", expect.anything());
-    expect(callMock.mock.calls.filter(([command]) => command === "youtube_support_status")).toHaveLength(2);
-  });
-
-  it.each([false, true])("explains nightly availability and offers installation only for an update (%s)", async (available) => {
-    callMock.mockImplementation(async (command: string) => {
-      if (command === "get_release_setup") return setup({ setupComplete: true });
-      if (command === "youtube_support_status") return youtube;
-      if (command === "youtube_support_check") return { channel: "official-nightly", version: "2026.10.10.233141", available, message: "Checksums verified before staging." };
-      throw new Error(`Unexpected command ${command}`);
-    });
-    const target = render(); await settle();
-    button(target, "Check nightly").click(); await settle();
-    expect(target.textContent).toContain("Latest nightly: 2026.10.10.233141");
-    expect(target.textContent).toContain(available ? "Update available" : "Already installed");
-    expect(!!button(target, "Install nightly")).toBe(available);
-    expect(callMock).not.toHaveBeenCalledWith("youtube_support_update", expect.anything());
+    expect(callMock.mock.calls.some(([command]) => ["youtube_support_update", "youtube_support_check"].includes(command))).toBe(false);
   });
 });

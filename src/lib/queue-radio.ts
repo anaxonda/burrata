@@ -1,7 +1,7 @@
-import type { Track } from "./types";
+import type { Candidate, Track } from "./types";
 import { trackIdentity } from "./track-identity";
 
-export type QueueRadioFetch = (seed: Track, signal: AbortSignal) => Promise<readonly Track[]>;
+export type QueueRadioFetch = (seed: Track, signal: AbortSignal, playedSource?: Candidate) => Promise<readonly Track[]>;
 export type QueueRadioRepeat = "off" | "all" | "one";
 
 interface PendingRequest {
@@ -28,7 +28,7 @@ export class QueueRadioController {
   get generation(): number { return this.currentGeneration; }
   get isPending(): boolean { return this.pending !== null; }
 
-  prepare(seed: Track, queue: readonly Track[], recent: readonly Track[]): void {
+  prepare(seed: Track, queue: readonly Track[], recent: readonly Track[], playedSource?: Candidate): void {
     this.cancel();
     if (!isFinalSeed(seed, queue) || !seed.id.trim()) return;
 
@@ -43,7 +43,7 @@ export class QueueRadioController {
       excludedKeys: [...new Set([...queue, ...recent].flatMap(trackKeys))],
     };
     request.promise = Promise.resolve()
-      .then(() => this.fetchRecommendations(seed, abort.signal))
+      .then(() => this.fetchRecommendations(seed, abort.signal, playedSource))
       .then((tracks) => {
         if (this.pending === request && !abort.signal.aborted) {
           request.recommendations = tracks;

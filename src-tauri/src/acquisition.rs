@@ -4496,7 +4496,7 @@ fn search_cache_key(
     result_limit: usize,
 ) -> String {
     serde_json::json!([
-        "completed-recording-search-v6",
+        "completed-recording-search-v7",
         crate::recording_match::EVALUATOR_VERSION,
         settings.matching_level,
         settings.flexible_matching,
@@ -6079,7 +6079,7 @@ fn stream_diagnostic_context(stream: &url::Url, audio: &PreviewAudio) -> Value {
     })
 }
 
-fn safe_youtube_media_redirect(source: &url::Url, destination: &url::Url) -> bool {
+pub(crate) fn safe_youtube_media_redirect(source: &url::Url, destination: &url::Url) -> bool {
     [source, destination].iter().all(|url| {
         preview_redirect_host_class(Some(url)) == "googlevideo"
             && url.port_or_known_default() == Some(443)

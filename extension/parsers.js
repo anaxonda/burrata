@@ -599,7 +599,8 @@ export function extract(doc, url) {
   } else {
     // A live Spotify row wraps its presentation tracklist-row in an ARIA row.
     // Parse the inner row once, retaining wrapper indexes as a fallback.
-    const spotifyRows=new Set([...doc.querySelectorAll('[data-testid="tracklist-row"], [role="row"][aria-rowindex]')].map(row=>row.querySelector('[data-testid="tracklist-row"]') || row));
+    const main=doc.querySelector('main,[role="main"]') || doc;
+    const spotifyRows=new Set([...main.querySelectorAll('[data-testid="tracklist-row"], [role="row"][aria-rowindex]')].map(row=>row.querySelector('[data-testid="tracklist-row"]') || row));
     for(const row of spotifyRows) {
       const a=row.querySelector('a[href*="/track/"]');const sourceUrl=link(a?.getAttribute('href'),url);const id=sourceUrl?.match(/\/track\/([a-zA-Z0-9]+)/)?.[1];
       const artist=[...row.querySelectorAll('a[href*="/artist/"]')].map(a=>a.textContent.trim()).filter(Boolean).join(', ') || spotifyAlbumArtist;
@@ -624,7 +625,7 @@ export function extract(doc, url) {
   if(spotifyAlbumArtist)title=`${spotifyAlbumArtist} — ${title}`;
   const albumArtwork=provider==='spotify'&&spotifyKind==='album' ? link(doc.querySelector('main img[src], [role="main"] img[src]')?.getAttribute('src'),url) : null;
   // A chart title Top 100 describes its extent; playlists need explicit track-count text.
-  const metadataText=[...(doc.querySelector('main')||doc.body).querySelectorAll('p,span')].map(e=>e.textContent).join(' ');
+  const metadataText=[...(doc.querySelector('main,[role="main"]')||doc.body).querySelectorAll('p,span')].map(e=>e.textContent).join(' ');
   const count=provider==='spotify' ? metadataText.match(/\b([\d,]+)\s+(?:songs?|tracks?)\b/i) : title.match(/\btop[\s-]+(\d+)\b/i) || doc.title.match(/\btop[\s-]+(\d+)\b/i) || new URL(url).pathname.match(/\/top-(\d+)\/?$/i);
   const expectedTotal=count?num(count[1].replaceAll(',','')):null;
   if(provider==='traxsource')entries=entries.map(e=>({...e,position:e.rank||e.position}));

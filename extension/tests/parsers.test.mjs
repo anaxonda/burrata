@@ -66,6 +66,13 @@ test('Spotify recognizes singular playlist totals',()=>{
  const s=extract(page,'https://open.spotify.com/playlist/PL');
  assert.equal(s.expectedTotal,1);assert.equal(mergeSnapshots([s]).complete,true);
 });
+test('Spotify playlist capture ignores sidebar tracks that reuse playlist positions',()=>{
+ const row=(id,title)=>`<div data-testid="tracklist-row" aria-rowindex="1"><a href="/track/${id}">${title}</a><a href="/artist/ARTIST">Artist</a></div>`;
+ const page=doc(`<aside><p>20 songs</p>${row('SIDEBAR','Sidebar song')}</aside><div role="main"><h1>One song</h1><p>1 song</p>${row('PLAYLIST','Playlist song')}</div>`);
+ const result=mergeSnapshots([extract(page,'https://open.spotify.com/playlist/PL')]);
+ assert.deepEqual(result.entries.map(({providerId,position})=>({providerId,position})),[{providerId:'PLAYLIST',position:1}]);
+ assert.equal(result.complete,true);
+});
 test('Spotify album captures preserve ordered tracks and apply album title and artwork',()=>{
  const page=doc('<main><h1>Night Drive</h1><p>2 songs, 7 min</p><img src="https://i.scdn.co/image/cover"><div data-testid="tracklist-row" aria-rowindex="1"><a href="/track/ONE">First</a><a href="/artist/A">Artist</a></div><div data-testid="tracklist-row" aria-rowindex="2"><a href="/track/TWO">Second</a><a href="/artist/B">Another artist</a></div></main>');
  const s=mergeSnapshots([extract(page,'https://open.spotify.com/album/ALBUM')]);

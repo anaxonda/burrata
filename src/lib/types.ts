@@ -82,7 +82,7 @@ export interface CandidatePreviewStatus {
   sessionId: string; sourceId: string; provider: string; paused: boolean; position: number; duration: number; canSeek: boolean; canVolume: boolean; error?: string | null; closed?: boolean;
 }
 export interface Preview {
-  matching?: {evaluatorVersion:string;level:"exact"|"balanced"|"flexible";assessment:{relationship:"exact"|"probable"|"alternative"|"unresolved"};resolvedRecording:{title:string;artist?:string|null;version?:string|null;sourceId:string};requestedRecording?:{title?:string|null;artist?:string|null}};
+  matching?: {evaluatorVersion:string;level:"exact"|"balanced"|"flexible";assessment:{relationship:"exact"|"probable"|"alternative"|"unresolved";dimensions?:{title?:"agree"|"unknown"|"conflict";artists?:"agree"|"unknown"|"conflict"}};resolvedRecording:{title:string;artist?:string|null;version?:string|null;sourceId:string};requestedRecording?:{title?:string|null;artist?:string|null}};
   approximateExcerpt?: Pick<ApproximateExcerptProvenance, "label" | "source"> | null;
   sourceTransport?: string;
   sourceHeaderPolicy?: {headerCount:number;authorization:boolean;cookie:boolean;referer:boolean;origin:boolean;userAgent:boolean;other:boolean};
@@ -318,6 +318,8 @@ export interface Settings {
   flexibleMatching?: FlexibleMatching;
   flexibleMatchingNoticePending?: boolean;
   crossfadeEnabled?: boolean;
+  softNextEnabled?: boolean;
+  softTrackSelectionEnabled?: boolean;
   crossfadeSeconds?: number;
   downloadAudioVerificationEnabled?: boolean;
   embedLyricsOnDownload?: boolean;
@@ -327,6 +329,7 @@ export interface Settings {
   previewDelayMs: number;
   playbackStartupTimeoutSeconds?: 20 | 30 | 45;
   theme: string;
+  showProviderCounts?: boolean;
   ytDlpPath: string;
   ffmpegPath: string;
   ffprobePath: string;

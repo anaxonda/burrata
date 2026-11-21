@@ -7,7 +7,7 @@ const source=readFileSync(new URL('../popup.js',import.meta.url),'utf8');
 const markup=readFileSync(new URL('../popup.html',import.meta.url),'utf8');
 
 function popup(){
-  const ids=['preview-import','apply-import','status','enable','import','show-settings','show-import','import-view','settings-view','import-heading','settings-heading','youtube-pairing-code','youtube-consent','youtube-check-account','youtube-account','youtube-account-consent-label','youtube-account-consent','youtube-handoff','diagnostic','context-playlist-select','refresh-target-playlists','context-playlist-status'];
+  const ids=['status','enable','import','show-settings','show-import','import-view','settings-view','import-heading','settings-heading','youtube-pairing-code','youtube-consent','youtube-check-account','youtube-account','youtube-account-consent-label','youtube-account-consent','youtube-handoff','diagnostic','context-playlist-select','refresh-target-playlists','context-playlist-status'];
   const elements=Object.fromEntries(ids.map(id=>[id,{id,disabled:false,checked:false,hidden:false,value:'',textContent:'',onclick:null,oninput:null,onchange:null,focus(){this.focused=true;}}]));
   elements['context-playlist-select'].options=[];elements['context-playlist-select'].appendChild=function(option){this.options.push(option);};elements['context-playlist-select'].replaceChildren=function(){this.options=[];};
   elements['settings-view'].hidden=true;
@@ -21,6 +21,8 @@ function popup(){
 test('popup opens on page import and keeps connection controls in a separate settings view',()=>{
   const {elements:e}=popup();
   assert.equal(e['import-view'].hidden,false);
+  assert.match(markup, /Import current page/);
+  assert.doesNotMatch(markup, /Preview changes|Apply reviewed import/);
   assert.equal(e['settings-view'].hidden,true);
   const detailsStart=markup.indexOf('<summary>More options and supported pages</summary>');
   const detailsEnd=markup.indexOf('</details>',detailsStart);

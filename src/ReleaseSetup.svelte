@@ -11,13 +11,13 @@
     mcpCommand: string[];
     browser: InstallStatus;
     toolPaths: { name: string; path: string; origin: string }[];
+    usesManagedYtDlp?: boolean;
   };
   type YoutubeStatus = {
     bundledVersion: string | null; managedVersion: string | null; activeVersion: string | null;
     activeSource: string; updateAvailable: boolean | null; recommendedUpdate: string;
     advancedUpdate: string; provider: { version: string; available: boolean; helperRunning: boolean; message: string };
   };
-  type UpdateCheck = { channel: string; version: string | null; publishedAt: string | null; available: boolean; message: string };
   type Diagnosis = { ok: boolean; category: string; ytDlpVersion: string | null; providerAvailable: boolean; audioAccessible: boolean; message: string };
   let { onSettingsChanged = () => {}, onComplete = () => {}, onboarding = false, category = "all" }: {
     category?: string;
@@ -27,7 +27,6 @@
   let setup = $state<Setup | null>(null), youtube = $state<YoutubeStatus | null>(null);
   let loading = $state(true), busy = $state(false), error = $state(""), message = $state("");
   let radioRecognition = $state(false), musicDirectory = $state("");
-  let checks = $state<Record<string, UpdateCheck | null>>({ recommended: null, nightly: null });
   let diagnosis = $state<Diagnosis | null>(null), diagnosisUrl = $state("");
   let browserBusy = $state<Record<string, boolean>>({});
 
@@ -85,18 +84,16 @@
     } catch (cause) { error = `Could not update browser companion: ${String(cause)}`; }
     finally { browserBusy.all = false; }
   }
-  async function checkUpdate(channel: "recommended" | "nightly") {
-    busy = true; error = ""; checks[channel] = null;
-    try { checks[channel] = await call<UpdateCheck>("youtube_support_check", { channel: channel === "nightly" ? "nightly" : "recommended" }); }
-    catch (cause) { error = `Could not check ${channel === "nightly" ? "nightly" : "recommended"} updates: ${String(cause)}`; }
-    finally { busy = false; }
-  }
-  async function updateYoutube(channel: "recommended" | "nightly") {
-    busy = true; error = "";
+  async function updateYoutube(channel: "stable" | "nightly") {
+    if (busy || setup?.usesManagedYtDlp === false) return;
+    const previousVersion = youtube?.activeVersion;
+    busy = true; error = ""; message = "";
     try {
       youtube = await call<YoutubeStatus>("youtube_support_update", { channel });
-      checks[channel] = null; message = "YouTube support update installed.";
-    } catch (cause) { error = `Could not update YouTube support: ${String(cause)}`; }
+      message = channel === "stable" && youtube.activeVersion === previousVersion
+        ? "yt-dlp is up to date."
+        : youtube.activeVersion ? `Updated yt-dlp to ${youtube.activeVersion}.` : "yt-dlp update installed.";
+    } catch (cause) { error = `Could not update yt-dlp: ${String(cause)}`; }
     finally { busy = false; }
   }
   async function rollbackYoutube() {
@@ -110,8 +107,6 @@
     try {
       diagnosis = await call<Diagnosis>("youtube_support_diagnose", { ...(diagnosisUrl.trim() ? { url: diagnosisUrl.trim() } : {}) });
       youtube = await call<YoutubeStatus>("youtube_support_status");
-      // A repair is offered only after diagnosis and remains an explicit user action.
-      if (!diagnosis.ok) await checkUpdate("recommended");
     } catch (cause) { error = `Could not diagnose YouTube support: ${String(cause)}`; }
     finally { busy = false; }
   }
@@ -125,8 +120,8 @@
       case "invalidUrl": case "unsupported": return "Check the YouTube link in troubleshooting options and try again.";
       case "videoUnavailable": return "Try another public YouTube video.";
       case "loginRequired": return "Try a public video that does not require signing in.";
-      case "http403": case "expiredStream": return "Try the check again. If it still fails, look for a recommended update below.";
-      case "missingRuntime": case "missingEjs": case "tokenProvider": return "Check the included tools below and look for a recommended update.";
+      case "http403": case "expiredStream": return "Try the check again. If it still fails, update yt-dlp.";
+      case "missingRuntime": case "missingEjs": case "tokenProvider": return "Check the included tools or try updating yt-dlp.";
       default: return "Try the check again or review the troubleshooting options.";
     }
   }
@@ -178,31 +173,29 @@
     {#if category === "all" || category === "advanced"}<section class="tool-section" aria-label="YouTube support">
       {#if category === "all"}<h3 id="youtube-title">YouTube support</h3>{/if}
       {#if youtube}
-        <p>{diagnosis ? (diagnosis.ok ? "YouTube audio access check passed." : "YouTube audio access could not be confirmed.") : youtube.provider.available ? "YouTube support is included. Audio access has not been checked yet." : "YouTube support needs attention. Check audio access to find out more."}</p>
-        <p>Check whether Burrata can reach public YouTube audio. No account or cookies are used.</p>
-        <button disabled={busy} onclick={() => void diagnose()}>{busy ? "Checking…" : "Check YouTube audio access"}</button>
-        {#if diagnosis}
-          <span role="status" class="sr-only">{diagnosis.ok ? "YouTube audio access check passed." : "YouTube audio access could not be confirmed."}</span>
-          {#if !diagnosis.ok}<p>{diagnosisNextStep(diagnosis.category)}</p>{/if}
-          {#if !diagnosis.ok && checks.recommended}
-            <p role="status">{checks.recommended.message}</p>
-            {#if checks.recommended.available}<button class="primary" disabled={busy} onclick={() => void updateYoutube("recommended")}>Install recommended update</button>{/if}
-          {/if}
+        {#if setup?.usesManagedYtDlp === false}
+          <p>Update your configured yt-dlp outside Burrata.</p>
+        {:else}
+          <p class="tool-version">yt-dlp {youtube.activeVersion ?? "version unavailable"} · {youtube.activeSource}</p>
+          <button class="primary" disabled={busy} onclick={() => void updateYoutube("stable")}>{busy ? "Working…" : "Update yt-dlp"}</button>
         {/if}
-        <details class="youtube-details"><summary>More troubleshooting options</summary>
-          <p class="tool-version">Active yt-dlp: {youtube.activeVersion ?? "version unavailable"} · {youtube.activeSource}</p>
-          <p>{youtube.provider.message}</p>
-          <label>Optional YouTube URL<input aria-label="YouTube URL for diagnosis" bind:value={diagnosisUrl} placeholder="https://www.youtube.com/watch?v=…" /></label>
-          {#if diagnosis}<p>{diagnosis.message}</p><small>Result: {diagnosis.category} · yt-dlp {diagnosis.ytDlpVersion ?? "unknown"} · provider {diagnosis.providerAvailable ? "available" : "unavailable"} · audio {diagnosis.audioAccessible ? "accessible" : "not accessible"}</small>{/if}
-          <div class="update-actions">
-            <button disabled={busy} onclick={() => void checkUpdate("recommended")}>Check recommended update</button>
-            {#if checks.recommended && (!diagnosis || diagnosis.ok)}<p role="status">{checks.recommended.message}</p>{#if checks.recommended.available}<button class="primary" disabled={busy} onclick={() => void updateYoutube("recommended")}>Install recommended update</button>{/if}{/if}
-            <details><summary>Official yt-dlp nightly</summary><p>Nightly builds can change unexpectedly. Check only if you choose to try the advanced update channel.</p>
-              <button disabled={busy} onclick={() => void checkUpdate("nightly")}>Check nightly</button>
-              {#if checks.nightly}<p role="status">{#if checks.nightly.version}Latest nightly: {checks.nightly.version} · {checks.nightly.available ? "Update available" : "Already installed"}{:else}{checks.nightly.message}{/if}</p>{#if checks.nightly.available}<p>{checks.nightly.message}</p><button disabled={busy} onclick={() => void updateYoutube("nightly")}>Install nightly</button>{/if}{/if}
-            </details>
-            {#if youtube.managedVersion}<button class="quiet" disabled={busy} onclick={() => void rollbackYoutube()}>Roll back managed update</button>{/if}
-          </div>
+        <details class="youtube-details"><summary>Advanced options</summary>
+          {#if setup?.usesManagedYtDlp !== false}
+            <div class="update-actions">
+              <button disabled={busy} onclick={() => void updateYoutube("nightly")}>Install nightly build</button>
+              <small>Nightly builds can be less stable.</small>
+              {#if youtube.managedVersion}<button disabled={busy} onclick={() => void rollbackYoutube()}>Roll back update</button>{/if}
+            </div>
+          {/if}
+          <details><summary>Test YouTube audio access</summary>
+            <p>Test a public video without signing in.</p>
+            <label>Optional YouTube URL<input aria-label="YouTube URL for diagnosis" bind:value={diagnosisUrl} placeholder="https://www.youtube.com/watch?v=…" /></label>
+            <button disabled={busy} onclick={() => void diagnose()}>{busy ? "Checking…" : "Check YouTube audio access"}</button>
+            {#if diagnosis}
+              <p role="status">{diagnosis.message}</p>
+              {#if !diagnosis.ok}<p>{diagnosisNextStep(diagnosis.category)}</p>{/if}
+            {/if}
+          </details>
         </details>
       {:else}<p role="status">YouTube support status is unavailable.</p>{/if}
     </section>{/if}
@@ -219,7 +212,7 @@
   h3{margin:0 0 8px;font-size:15px}.directory-row,.browser-row{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0}
   .directory-row{margin:12px 0}.directory-row span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
   .browser-list{display:grid;gap:8px}.browser-row{padding:8px 10px;border-radius:7px;background:var(--raised)}.browser-row>div{display:grid;gap:3px}.browser-row small,.paths small,.muted{color:var(--muted)}
-  label{display:grid;gap:6px;margin:12px 0}.check{display:flex;flex-flow:row nowrap;align-items:flex-start;gap:8px;min-width:0}.check input[type="checkbox"]{appearance:auto;flex:0 0 16px;width:16px;height:16px;min-width:16px;margin:2px 0 0;padding:0;border-radius:3px}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}.tool-version{font-size:13px}
+  label{display:grid;gap:6px;margin:12px 0}.check{display:flex;flex-flow:row nowrap;align-items:flex-start;gap:8px;min-width:0}.check input[type="checkbox"]{appearance:auto;flex:0 0 16px;width:16px;height:16px;min-width:16px;margin:2px 0 0;padding:0;border-radius:3px}.tool-version{font-size:13px}
   details{margin:12px 0;padding:10px;border:1px solid var(--line);border-radius:8px}summary{cursor:pointer;font-weight:600}code{overflow-wrap:anywhere}.command{display:block;padding:9px;background:var(--raised);border-radius:6px}
   .paths{padding-left:20px}.paths li{display:grid;gap:3px;margin:10px 0}.paths code{color:var(--muted);font-size:11px}.update-actions{display:grid;justify-items:start;gap:8px;margin-top:12px}
   .quiet{background:transparent}.primary{font-weight:600}.release-setup button{max-width:100%}
