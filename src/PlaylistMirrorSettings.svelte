@@ -93,13 +93,13 @@
   }
 </script>
 
-<dialog use:modalDialog={onClose} class="playlist-mirror-dialog" aria-label="Local M3U copy settings" aria-modal="true">
+<dialog use:modalDialog={onClose} class="playlist-mirror-dialog" aria-label="Local playlist copy settings" aria-modal="true">
   <header>
-    <h2>Local M3U copy</h2>
-    <button type="button" aria-label="Close local M3U settings" onclick={onClose}>×</button>
+    <h2>Local playlist copies</h2>
+    <button type="button" aria-label="Close local playlist copy settings" onclick={onClose}>×</button>
   </header>
   <label>Playlist
-    <select aria-label="Playlist for local M3U copy" bind:value={selectedCollectionId} disabled={loading || saving}>
+    <select aria-label="Playlist for local copy" bind:value={selectedCollectionId} disabled={loading || saving}>
       {#each choices as collection (collection.id)}
         <option value={collection.id}>{collection.name}</option>
       {/each}
@@ -125,7 +125,13 @@
     {#if draft.includeMediaLinks !== null || draft.includeYtdlpSearch !== null}
       <button type="button" class="secondary" disabled={saving} onclick={useDefaults}>Use current defaults</button>
     {/if}
-    {#if !loaded.globallyEnabled}<p role="status">Global playlist mirroring is off. These choices are saved and will apply when it is enabled.</p>{/if}
+    {#if !loaded.globallyEnabled}<p>M3U8 copies are turned off in Library settings.</p>{/if}
+    {#if selectedCollectionId !== "history"}
+      <label class="settings-option">
+        <input type="checkbox" aria-label="Include in DJ XML" bind:checked={draft.includeDjXml} disabled={saving} />
+        <span><strong>Include in DJ XML</strong><small>Add this playlist’s available local audio to Burrata iTunes Library.xml.</small></span>
+      </label>
+    {/if}
   {/if}
   {#if error}<p role="alert">{error}</p>{/if}
   <footer>

@@ -6898,6 +6898,27 @@ describe("saved recording navigation", () => {
     expect((saved[1] as { settings: Settings }).settings.playlistMirroringEnabled).toBe(false);
     expect(configuredPlaylistMirroringEnabled).toBe(false);
 
+    [...document.querySelectorAll<HTMLButtonElement>("button")]
+      .find((item) => item.textContent?.trim() === "Choose playlists to sync…")!.click();
+    await settle();
+    const dialog = document.querySelector<HTMLDialogElement>('dialog[aria-label="Local playlist copy settings"]')!;
+    const select = dialog.querySelector<HTMLSelectElement>('[aria-label="Playlist for local copy"]')!;
+    select.value = "collection-full";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+    const djXml = dialog.querySelector<HTMLInputElement>('[aria-label="Include in DJ XML"]')!;
+    expect(djXml.checked).toBe(false);
+    djXml.click();
+    [...dialog.querySelectorAll<HTMLButtonElement>("button")]
+      .find((item) => item.textContent?.trim() === "Save playlist copy")!.click();
+    await settle();
+    expect(mocks.call).toHaveBeenCalledWith("set_playlist_mirror_options", {
+      collectionId: "collection-full",
+      options: expect.objectContaining({ included: true, includeDjXml: true }),
+    });
+    expect(mocks.call).toHaveBeenCalledWith("sync_playlists");
+    dialog.querySelector<HTMLButtonElement>('[aria-label="Close local playlist copy settings"]')!.click();
+
     document.querySelector<HTMLButtonElement>('[aria-label="Library"]')!.click();
     await settle();
     document.querySelector<HTMLElement>('.library-tools summary[aria-label="Library options"]')!.click();
@@ -6921,9 +6942,9 @@ describe("saved recording navigation", () => {
     [...document.querySelectorAll<HTMLButtonElement>("button")]
       .find((item) => item.textContent?.trim() === "Choose playlists to sync…")!.click();
     await settle();
-    const dialog = document.querySelector<HTMLDialogElement>('dialog[aria-label="Local M3U copy settings"]')!;
+    const dialog = document.querySelector<HTMLDialogElement>('dialog[aria-label="Local playlist copy settings"]')!;
     expect(dialog).not.toBeNull();
-    const playlist = dialog.querySelector<HTMLSelectElement>('[aria-label="Playlist for local M3U copy"]')!;
+    const playlist = dialog.querySelector<HTMLSelectElement>('[aria-label="Playlist for local copy"]')!;
     playlist.value = "collection-full";
     playlist.dispatchEvent(new Event("change", { bubbles: true }));
     await settle();
@@ -6947,7 +6968,7 @@ describe("saved recording navigation", () => {
     await settle();
     const saved = mocks.call.mock.calls.filter(([command]) => command === "set_playlist_mirror_options").slice(-1)[0]!;
     expect(saved[1]).toMatchObject({ collectionId: "collection-full", options: { included: true, includeMediaLinks: null, includeYtdlpSearch: null } });
-    dialog.querySelector<HTMLButtonElement>('[aria-label="Close local M3U settings"]')!.click();
+    dialog.querySelector<HTMLButtonElement>('[aria-label="Close local playlist copy settings"]')!.click();
     document.querySelector<HTMLButtonElement>(".library-sidebar button[aria-label='Library']")!.click();
     await settle();
     expect(document.querySelector("main h1")?.textContent).toBe("Library");
@@ -6956,10 +6977,10 @@ describe("saved recording navigation", () => {
     renderedPlaylist.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 340, clientY: 200 }));
     await settle();
     const menu = document.querySelector<HTMLDialogElement>('dialog.playlist-menu[aria-label="Actions for playlist Saved Collection"]')!;
-    expect([...menu.querySelectorAll<HTMLButtonElement>("button")].some((button) => menuActionText(button) === "Local M3U copy…")).toBe(true);
-    [...menu.querySelectorAll<HTMLButtonElement>("button")].find((button) => menuActionText(button) === "Local M3U copy…")!.click();
+    expect([...menu.querySelectorAll<HTMLButtonElement>("button")].some((button) => menuActionText(button) === "Local playlist copies…")).toBe(true);
+    [...menu.querySelectorAll<HTMLButtonElement>("button")].find((button) => menuActionText(button) === "Local playlist copies…")!.click();
     await settle();
-    expect(document.querySelector<HTMLDialogElement>('dialog[aria-label="Local M3U copy settings"]')).not.toBeNull();
+    expect(document.querySelector<HTMLDialogElement>('dialog[aria-label="Local playlist copy settings"]')).not.toBeNull();
   });
 
   it("saves playback preferences without saving an unfinished music-folder edit", async () => {

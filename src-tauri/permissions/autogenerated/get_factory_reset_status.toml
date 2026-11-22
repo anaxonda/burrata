@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-factory-reset-status"
+description = "Enables the get_factory_reset_status command without any pre-configured scope."
+commands.allow = ["get_factory_reset_status"]
+
+[[permission]]
+identifier = "deny-get-factory-reset-status"
+description = "Denies the get_factory_reset_status command without any pre-configured scope."
+commands.deny = ["get_factory_reset_status"]

@@ -24,7 +24,7 @@ function context() {
   const value = {
     commands, console, clearTimeout, setTimeout, AbortController, untrack: read => read(), portablePlaybackSource: () => null, error: "",
     clearPlaybackSkipNotice: () => {}, nativeSnapshot: null, playbackLoadSequence: 0,
-    resolvingPlayback: false, playbackOperationTrace: () => ({}), playbackRunGeneration: 0,
+    resolvingPlayback: false, preparingPlayback: false, playbackOperationTrace: () => ({}), playbackRunGeneration: 0,
     cancelRadioIdentification: () => {}, autoTimer: undefined, setAutomationPlaybackOwner: () => {},
     systemPausedTrack: false, queueTracks: [], view: "search", historyItems: [], sorted: [],
     queueCandidates: {}, audioSearchTrackIds: new Set(), settings: {}, candidateForQueue: () => null,
@@ -104,7 +104,7 @@ const track = id => ({
     app.queueTracks = rows;
     app.nativeSnapshot = { queue: rows, queueRevision: 23, queueEntryIds: ["occurrence-a", "occurrence-b"] };
     app.playQueueIndex(1);
-    assert.equal(JSON.stringify(app.commands[0]), JSON.stringify({ action: "select", index: 1, expectedQueueRevision: 23, expectedEntryId: "occurrence-b" }));
+    assert.equal(JSON.stringify(app.commands[0]), JSON.stringify({ action: "select", index: 1, expectedQueueRevision: 23, expectedEntryId: "occurrence-b", trackSelection: true }));
     app.commands.length = 0;
     app.nativeSnapshot.queueEntryIds = ["duplicate-entry", "duplicate-entry"];
     app.playQueueIndex(1);
@@ -135,7 +135,7 @@ const track = id => ({
     const row = track("reuse");
     app.nativeSnapshot = { queue: [row], queueRevision: 25, queueEntryIds: ["entry-25"] };
     await app.startPreview(row, false, false, [row], 0);
-    assert.equal(JSON.stringify(app.commands[0]), JSON.stringify({ action: "select", index: 0, expectedQueueRevision: 25, expectedEntryId: "entry-25", loudnessAlbumResource: null }));
+    assert.equal(JSON.stringify(app.commands[0]), JSON.stringify({ action: "select", index: 0, expectedQueueRevision: 25, expectedEntryId: "entry-25", loudnessAlbumResource: null, trackSelection: true }));
   }
 
   console.log("UI playback race and queue occurrence regression checks passed (8 cases).");

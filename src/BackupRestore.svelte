@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
+  import { modalDialog } from "./lib/modal-dialog";
+  import type { Settings } from "./lib/types";
   export type BackupComponentSummary = {
     id: string;
     bytes: number;
@@ -143,6 +145,9 @@
     cancelJob,
     loadActiveBackupJob,
     subscribeBackupProgress,
+    resetSettings,
+    onSettingsReset,
+    factoryReset,
     allowReplace = false,
     initialPreview = null,
   }: {
@@ -165,6 +170,9 @@
     loadActiveBackupJob?: () => Promise<BackupProgress | null>;
     /** Subscribe to backend backup progress without taking ownership of the job lifecycle. */
     subscribeBackupProgress?: (handler: (progress: BackupProgress) => void) => Promise<() => void>;
+    resetSettings?: () => Promise<Settings>;
+    onSettingsReset?: (settings: Settings) => void;
+    factoryReset?: (confirmation: string) => Promise<void>;
     /** Keep false until the backend has safe writer quiescence and journaled replacement recovery. */
     allowReplace?: boolean;
     /** A backup already inspected from a trusted native file drop. */
@@ -199,6 +207,74 @@
   let settingsBusy = $state(false);
   let summaryBusy = $state(false);
   let summaryRequest = 0;
+  let resetDialog = $state<"settings" | "factory" | null>(null);
+  let resetBusy = $state(false);
+  let resetError = $state("");
+  let factoryConfirmation = $state("");
+  let resetBackupBusy = $state(false);
+  let resetBackupStatus = $state("");
+  let resetBackupIncludesMedia = $state(false);
+  const resetAvailable = $derived(!busy && !inspecting && !settingsBusy && !scheduleBusy && !estimating);
+  const factoryResetAvailable = $derived(resetAvailable && automaticJob?.state !== "queued" && automaticJob?.state !== "running");
+
+  function openReset(kind: "settings" | "factory") {
+    if (kind === "factory" ? !factoryResetAvailable : !resetAvailable) return;
+    resetError = "";
+    factoryConfirmation = "";
+    resetBackupStatus = "";
+    resetBackupIncludesMedia = false;
+    resetDialog = kind;
+  }
+
+  function closeReset() {
+    if (!resetBusy && !resetBackupBusy) resetDialog = null;
+  }
+
+  async function saveBeforeFactoryReset() {
+    if (resetDialog !== "factory" || !factoryResetAvailable || resetBusy || resetBackupBusy) return;
+    resetError = "";
+    resetBackupBusy = true;
+    resetBackupStatus = "Preparing backup…";
+    try {
+      const result = await createBackup({ includeMedia: resetBackupIncludesMedia }, state => {
+        resetBackupStatus = state.message || state.phase || "Creating backup…";
+      });
+      resetBackupStatus = result && result.jobId ? "Backup completed and verified." : "Backup canceled.";
+    } catch (failure) {
+      resetBackupStatus = "";
+      resetError = `Backup did not finish: ${String(failure)}`;
+    } finally {
+      resetBackupBusy = false;
+    }
+  }
+
+  async function confirmReset() {
+    if (!resetAvailable || resetBusy || resetBackupBusy) return;
+    if (resetDialog === "settings" && resetSettings) {
+      resetError = "";
+      resetBusy = true;
+      try {
+        const saved = await resetSettings();
+        onSettingsReset?.(saved);
+        notice = "Application settings reset to defaults.";
+        error = "";
+        resetDialog = null;
+      } catch (failure) {
+        resetError = `Could not reset settings: ${String(failure)}`;
+      } finally {
+        resetBusy = false;
+      }
+    } else if (resetDialog === "factory" && factoryReset && factoryResetAvailable && factoryConfirmation === "RESET") {
+      resetError = "";
+      resetBusy = true;
+      try {
+        await factoryReset(factoryConfirmation);
+      } catch (failure) {
+        resetError = `Could not reset Burrata: ${String(failure)}`;
+        resetBusy = false;
+      }
+    }
+  }
 
   function formatBytes(bytes: number): string {
     if (!Number.isFinite(bytes) || bytes < 0) return "size unavailable";
@@ -411,8 +487,13 @@
     progress = { state: "queued", phase: "Preparing backup" };
     try {
       const result = await createBackup({ includeMedia }, report);
-      if (result && result.jobId) jobId = result.jobId;
-      if (progress?.state !== "canceled") notice = "Backup completed and verified.";
+      if (result && result.jobId) {
+        jobId = result.jobId;
+        notice = "Backup completed and verified.";
+      } else {
+        progress = null;
+        notice = "Backup canceled.";
+      }
     } catch (failure) {
       error = `Backup did not finish: ${String(failure)}`;
     } finally {
@@ -636,6 +717,40 @@
 
   {#if automaticJob}<div class="progress automatic-progress" aria-label="Automatic backup progress" role="status" aria-live="polite"><span>{automaticJob.message || automaticJob.phase || (automaticJob.state === "complete" ? "Automatic backup complete." : automaticJob.state === "failed" ? "Automatic backup failed." : automaticJob.state === "canceled" ? "Automatic backup canceled." : "Automatic backup running…")}</span>{#if automaticJob.total != null}<progress max={Math.max(1, automaticJob.total)} value={Math.min(automaticJob.completed ?? 0, automaticJob.total)}></progress>{/if}{#if automaticJob.state === "running" || automaticJob.state === "queued"}{#if cancelJob && automaticJob.jobId}<button type="button" disabled={automaticCancelRequested} onclick={() => void cancelAutomaticBackup()}>{automaticCancelRequested ? "Cancellation requested…" : "Cancel automatic backup"}</button>{/if}{/if}</div>{/if}
   {#if busy && progress}<div class="progress" role="status" aria-live="polite"><span>{progress.message || progress.phase || (progress.state === "running" ? "Working…" : "Preparing…")}</span>{#if progress.total != null}<progress max={Math.max(1, progress.total)} value={Math.min(progress.completed ?? 0, progress.total)}></progress>{/if}{#if cancelJob && jobId}<button type="button" onclick={() => void cancel()}>Cancel operation</button>{/if}</div>{/if}
+  {#if resetSettings || factoryReset}
+    <section class="backup-card" aria-labelledby="reset-title">
+      <h3 id="reset-title">Reset Burrata</h3>
+      <div class="actions settings-actions">
+        {#if resetSettings}<button type="button" disabled={!resetAvailable} onclick={() => openReset("settings")}>Reset settings…</button>{/if}
+        {#if factoryReset}<button type="button" class="reset-destructive" disabled={!factoryResetAvailable} onclick={() => openReset("factory")}>Factory reset…</button>{/if}
+      </div>
+    </section>
+  {/if}
+
+  {#if resetDialog}
+    <dialog class="reset-dialog" aria-labelledby="reset-dialog-title" use:modalDialog={closeReset}>
+      {#if resetDialog === "settings"}
+        <h3 id="reset-dialog-title">Reset application settings?</h3>
+        <p>Restore the defaults for appearance, playback, and download preferences. Your library, downloads, folder locations, and accounts are kept.</p>
+      {:else}
+        <h3 id="reset-dialog-title">Factory reset Burrata?</h3>
+        <p>Erase this Burrata profile’s library records, playlists, listening history, queue, and settings. Files outside Burrata’s app data stay where they are.</p>
+        <p>Make a backup first if you want to restore this profile later.</p>
+        <label class="option"><input type="checkbox" bind:checked={resetBackupIncludesMedia} disabled={resetBusy || resetBackupBusy} /><span>Include verified audio files in backup</span></label>
+        <div><button type="button" disabled={!factoryResetAvailable || resetBusy || resetBackupBusy} onclick={() => void saveBeforeFactoryReset()}>Back up first…</button></div>
+        {#if resetBackupStatus}<p role="status">{resetBackupStatus}</p>{/if}
+        <label class="reset-confirmation">Type RESET to confirm
+          <input type="text" bind:value={factoryConfirmation} disabled={resetBusy || resetBackupBusy} autocomplete="off" spellcheck="false" />
+        </label>
+      {/if}
+      {#if resetError}<p class="error" role="alert">{resetError}</p>{/if}
+      {#if resetDialog === "factory" && resetBusy}<p role="status">Restarting Burrata to apply the reset…</p>{/if}
+      <div class="actions">
+        <button type="button" disabled={resetBusy || resetBackupBusy} onclick={closeReset}>Cancel</button>
+        <button type="button" class:reset-destructive={resetDialog === "factory"} disabled={!resetAvailable || resetBusy || resetBackupBusy || resetDialog === "factory" && (!factoryResetAvailable || factoryConfirmation !== "RESET")} onclick={() => void confirmReset()}>{resetDialog === "factory" ? "Erase profile and restart" : "Reset settings"}</button>
+      </div>
+    </dialog>
+  {/if}
   {#if error}<p class="error" role="alert">{error}</p>{/if}
   {#if notice}<p class="notice" role="status">{notice}</p>{/if}
 </section>
@@ -658,6 +773,12 @@
   .acknowledge{padding:10px;border-left:3px solid var(--warning,#d39c45);background:color-mix(in srgb,var(--warning,#d39c45) 9%,transparent)}
   .warnings{margin:0;padding-left:20px;color:var(--warning,#d39c45);font-size:.83rem;line-height:1.5}
   .actions{display:flex;justify-content:flex-end;gap:8px;padding-top:6px;border-top:1px solid var(--line)}
+  .reset-dialog{width:min(480px,calc(100% - 32px));max-height:calc(100dvh - 32px);overflow:auto;padding:20px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--text)}
+  .reset-dialog[open]{display:grid;gap:12px}
+  .reset-dialog::backdrop{background:#0009}
+  .reset-dialog h3,.reset-dialog p{margin:0;line-height:1.45}
+  .reset-confirmation{display:grid;gap:5px}
+  .reset-destructive{color:var(--danger,#e48585)}
   .progress{display:grid;gap:7px;padding:12px;border-radius:8px;background:var(--surface-2);font-size:.85rem}.progress progress{width:100%;height:7px;accent-color:var(--accent)}
   .error,.notice{margin:0;padding:10px 12px;border-radius:7px;font-size:.86rem;line-height:1.45}.error{color:var(--danger,#e48585);background:color-mix(in srgb,var(--danger,#e48585) 10%,transparent)}.notice{color:var(--success,#74c69d);background:color-mix(in srgb,var(--success,#74c69d) 10%,transparent)}
   @media(max-width:520px){.mode-choice{grid-template-columns:1fr}.mode-choice legend{grid-column:auto}.actions{flex-wrap:wrap}.actions button{flex:1}}

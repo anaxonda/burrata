@@ -110,8 +110,10 @@ describe("ReleaseSetup", () => {
     const advanced = [...target.querySelectorAll("details")].find(item => item.querySelector("summary")?.textContent === "Advanced options")!;
     expect(advanced.open).toBe(false);
     expect(target.textContent).not.toContain("needs attention");
+    expect(target.textContent).toContain(`yt-dlp ${youtube.activeVersion} · Included with Burrata`);
+    expect(target.textContent).toContain("Installs a newer stable release when available.");
     expect(button(target, "Update yt-dlp").closest("details")).toBeNull();
-    expect(advanced.contains(button(target, "Install nightly build"))).toBe(true);
+    expect(advanced.contains(button(target, "Install latest nightly build"))).toBe(true);
     expect(advanced.contains(button(target, "Check YouTube audio access"))).toBe(true);
     expect(callMock.mock.calls.some(([command]) => command === "youtube_support_diagnose" || command === "youtube_support_update")).toBe(false);
   });
@@ -120,13 +122,55 @@ describe("ReleaseSetup", () => {
     callMock.mockImplementation(async (command: string) => {
       if (command === "get_release_setup") return setup({ setupComplete: true });
       if (command === "youtube_support_status") return youtube;
-      if (command === "youtube_support_update") return { ...youtube, activeVersion, activeSource: "managed" };
+      if (command === "youtube_support_update") return activeVersion === youtube.activeVersion ? youtube : { ...youtube, activeVersion, activeSource: "managed" };
       throw new Error(`Unexpected command ${command}`);
     });
     const target = render({ category: "advanced" }); await settle();
     button(target, "Update yt-dlp").click(); await settle();
     expect(callMock).toHaveBeenCalledWith("youtube_support_update", { channel: "stable" });
-    expect(target.textContent).toContain(activeVersion === youtube.activeVersion ? "yt-dlp is up to date." : `Updated yt-dlp to ${activeVersion}.`);
+    expect(target.textContent).toContain(activeVersion === youtube.activeVersion
+      ? "Your yt-dlp is already as recent as the latest stable release."
+      : `Installed yt-dlp ${activeVersion} (stable release).`);
+  });
+
+  it("opts into the latest nightly and can restore the previously active version", async () => {
+    const activeVersion = "2026.11.20.232656";
+    let finishUpdate!: (value: unknown) => void;
+    callMock.mockImplementation(async (command: string) => {
+      if (command === "get_release_setup") return setup({ setupComplete: true });
+      if (command === "youtube_support_status" || command === "youtube_support_rollback") return youtube;
+      if (command === "youtube_support_update") return new Promise(resolve => { finishUpdate = resolve; });
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const target = render({ category: "advanced" }); await settle();
+    const nightly = button(target, "Install latest nightly build");
+    nightly.closest("details")!.open = true;
+    nightly.click(); await settle();
+    expect(callMock).toHaveBeenCalledWith("youtube_support_update", { channel: "nightly" });
+    expect(button(target, "Update yt-dlp").disabled).toBe(true);
+    expect(target.textContent).toContain("Installing the latest yt-dlp nightly…");
+    finishUpdate({ ...youtube, activeVersion, managedVersion: activeVersion, activeSource: "managed" });
+    await settle();
+    expect(target.textContent).toContain(`yt-dlp ${activeVersion} · Installed update`);
+    expect(target.textContent).toContain(`Installed yt-dlp ${activeVersion} (nightly build).`);
+    button(target, "Restore previous version").click(); await settle();
+    expect(callMock).toHaveBeenCalledWith("youtube_support_rollback");
+    expect(target.textContent).toContain(`Restored yt-dlp ${youtube.activeVersion}.`);
+    expect(target.textContent).toContain("Included with Burrata");
+  });
+
+  it("shows an update failure while keeping the active version visible", async () => {
+    callMock.mockImplementation(async (command: string) => {
+      if (command === "get_release_setup") return setup({ setupComplete: true });
+      if (command === "youtube_support_status") return youtube;
+      if (command === "youtube_support_update") throw new Error("Compatibility probe failed");
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const target = render({ category: "advanced" }); await settle();
+    button(target, "Update yt-dlp").click(); await settle();
+    expect(target.querySelector('[role="alert"]')?.textContent).toContain("Compatibility probe failed");
+    expect(target.textContent).toContain(`yt-dlp ${youtube.activeVersion} · Included with Burrata`);
+    expect(button(target, "Update yt-dlp").disabled).toBe(false);
   });
 
   it("keeps system or custom yt-dlp under its owner's control", async () => {
@@ -136,7 +180,7 @@ describe("ReleaseSetup", () => {
     const target = render({ category: "advanced" }); await settle();
     expect(target.textContent).toContain("Update your configured yt-dlp outside Burrata.");
     expect(button(target, "Update yt-dlp")).toBeUndefined();
-    expect(button(target, "Install nightly build")).toBeUndefined();
+    expect(button(target, "Install latest nightly build")).toBeUndefined();
   });
 
   it("keeps audio diagnosis independent of updates", async () => {

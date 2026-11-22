@@ -118,6 +118,8 @@ pub struct PlaybackArchive {
     pub snapshot_id: String,
     pub queue: Vec<Value>,
     pub entry_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unshuffled_entry_ids: Option<Vec<String>>,
     /// Album programme identity bound to specific queue occurrences. Values
     /// are revalidated as typed LoudnessResourceIdentity records on restore.
     #[serde(default)]
@@ -437,10 +439,15 @@ const PORTABLE_APPLICATION_FIELDS: &[&str] = &[
     "downloadLayout",
     "playlistMirroringEnabled",
     "compactPlaybackBar",
+    "showProviderCounts",
     "autoPreview",
     "playRadioOnClick",
     "liveBpmEnabled",
     "matchingLevel",
+    "crossfadeEnabled",
+    "crossfadeSeconds",
+    "softNextEnabled",
+    "softTrackSelectionEnabled",
     "pauseOnSourceOpen",
     "sourceOpenAtPosition",
     "previewDelayMs",
@@ -462,6 +469,19 @@ const PORTABLE_APPLICATION_FIELDS: &[&str] = &[
     "soulseekLosslessUpgrades",
     "embedLyricsOnDownload",
 ];
+
+pub(crate) fn reset_application_preferences(current: Settings) -> Settings {
+    Settings {
+        music_directory: current.music_directory,
+        playlist_directories: current.playlist_directories,
+        dj_xml_target_music_root: current.dj_xml_target_music_root,
+        yt_dlp_path: current.yt_dlp_path,
+        ffmpeg_path: current.ffmpeg_path,
+        ffprobe_path: current.ffprobe_path,
+        js_runtime_path: current.js_runtime_path,
+        ..Settings::default()
+    }
+}
 
 const FRONTEND_PREFERENCE_KEYS: &[&str] = &[
     "burrata.discovery.search-scope.v2",
@@ -1962,6 +1982,21 @@ fn build_settings_archive(
             }
         }
     }
+    if preferences
+        .get("playlistMirrorOptions.v1")
+        .and_then(|policy| policy["playlists"].as_object())
+        .is_some_and(|playlists| {
+            playlists
+                .values()
+                .any(|options| options["includeDjXml"] == true)
+        })
+    {
+        let empty_sync_state = sanitize_playlist_sync(serde_json::json!({}))
+            .ok_or("Could not prepare default playlist sync state")?;
+        preferences
+            .entry("playlistSync.v1".into())
+            .or_insert(empty_sync_state);
+    }
     if let Some(frontend) = frontend_preferences.as_ref().and_then(Value::as_object) {
         for (key, value) in frontend {
             if let Some(clean) = sanitize_frontend_preference(key, value.clone()) {
@@ -2112,6 +2147,11 @@ fn build_playback_archive(
         .get("shuffle")
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let unshuffled_entry_ids = queue
+        .get("unshuffledEntryIds")
+        .or_else(|| session.get("unshuffledEntryIds"))
+        .and_then(|value| serde_json::from_value::<Vec<String>>(value.clone()).ok())
+        .filter(|order| shuffle && is_occurrence_permutation(order, &entry_ids));
     let queue_revision = queue
         .get("queueRevision")
         .and_then(Value::as_u64)
@@ -2130,6 +2170,7 @@ fn build_playback_archive(
         snapshot_id: snapshot_id.to_string(),
         queue: tracks,
         entry_ids,
+        unshuffled_entry_ids,
         queue_loudness_contexts,
         current_index: index,
         current_entry_id,
@@ -3661,7 +3702,8 @@ fn merge_playback_component(
         queue["queueLoudnessContexts"] =
             serde_json::to_value(&queue_loudness_contexts).map_err(err)?;
     }
-    let session = serde_json::json!({"tracks":tracks,"entryIds":archive.entry_ids,"index":if archive.current_index<0{0}else{archive.current_index},"currentEntryId":archive.current_entry_id,"queueRevision":archive.queue_revision,"position":archive.position_seconds,"volume":archive.volume,"repeat":archive.repeat,"shuffle":archive.shuffle,"finished":false,"queueLoudnessContexts":queue_loudness_contexts});
+    let mut session = serde_json::json!({"tracks":tracks,"entryIds":archive.entry_ids,"index":if archive.current_index<0{0}else{archive.current_index},"currentEntryId":archive.current_entry_id,"queueRevision":archive.queue_revision,"position":archive.position_seconds,"volume":archive.volume,"repeat":archive.repeat,"shuffle":archive.shuffle,"finished":false,"queueLoudnessContexts":queue_loudness_contexts});
+    write_restored_shuffle_order(&archive, &mut queue, &mut session);
     tx.execute(
         "INSERT OR IGNORE INTO settings(key,value) VALUES('nativePlaybackQueue.v1',?1)",
         [serde_json::to_string(&queue).map_err(err)?],
@@ -3764,7 +3806,7 @@ fn preserve_current_playback_component(tx: &rusqlite::Transaction<'_>, path: &Pa
         queue["queueLoudnessContexts"] =
             serde_json::to_value(&queue_loudness_contexts).map_err(err)?;
     }
-    let session = serde_json::json!({
+    let mut session = serde_json::json!({
         "tracks": tracks,
         "entryIds": archive.entry_ids,
         "index": if archive.current_index < 0 { 0 } else { archive.current_index },
@@ -3777,6 +3819,7 @@ fn preserve_current_playback_component(tx: &rusqlite::Transaction<'_>, path: &Pa
         "finished": false,
         "queueLoudnessContexts": queue_loudness_contexts
     });
+    write_restored_shuffle_order(&archive, &mut queue, &mut session);
     for (key, value) in [
         ("nativePlaybackQueue.v1", queue),
         ("nativePlaybackSession.v1", session),
@@ -5073,6 +5116,7 @@ fn safe_setting_value(key: &str, value: &Value) -> bool {
         "matchingLevel" => matches!(value.as_str(), Some("exact" | "balanced" | "flexible")),
         "theme" => matches!(value.as_str(), Some("dark" | "light" | "system")),
         "previewDelayMs" => value.as_u64().is_some_and(|n| n <= 5000),
+        "crossfadeSeconds" => value.as_u64().is_some_and(|n| (1..=12).contains(&n)),
         "playbackStartupTimeoutSeconds" => matches!(value.as_u64(), Some(20 | 30 | 45)),
         "streamingFallbackDelayMs" => value.as_u64().is_some_and(|n| n <= 15000),
         "streamingFallbackPolicyVersion" => value.as_u64() == Some(1),
@@ -5089,6 +5133,10 @@ fn safe_setting_value(key: &str, value: &Value) -> bool {
         "autoPreview"
         | "playRadioOnClick"
         | "liveBpmEnabled"
+        | "showProviderCounts"
+        | "crossfadeEnabled"
+        | "softNextEnabled"
+        | "softTrackSelectionEnabled"
         | "pauseOnSourceOpen"
         | "sourceOpenAtPosition"
         | "overridePlaylistTrackUrls"
@@ -5187,14 +5235,17 @@ fn sanitize_playlist_mirror_options(value: Value) -> Option<Value> {
         let Some(include_ytdlp_search) = optional_override("includeYtdlpSearch") else {
             continue;
         };
-        clean.insert(
-            id.clone(),
-            serde_json::json!({
-                "included": included,
-                "includeMediaLinks": include_media_links,
-                "includeYtdlpSearch": include_ytdlp_search,
-            }),
-        );
+        let mut clean_options = serde_json::json!({
+            "included": included,
+            "includeMediaLinks": include_media_links,
+            "includeYtdlpSearch": include_ytdlp_search,
+        });
+        if let Some(include_dj_xml) = options.get("includeDjXml").and_then(Value::as_bool) {
+            if id != "history" {
+                clean_options["includeDjXml"] = Value::Bool(include_dj_xml);
+            }
+        }
+        clean.insert(id.clone(), clean_options);
     }
     Some(serde_json::json!({"schemaVersion":1,"playlists":clean}))
 }
@@ -6019,6 +6070,23 @@ fn validate_playback(p: &PlaybackArchive) -> Result<()> {
     Ok(())
 }
 
+fn is_occurrence_permutation(order: &[String], entry_ids: &[String]) -> bool {
+    order.len() == entry_ids.len()
+        && order.iter().collect::<HashSet<_>>() == entry_ids.iter().collect::<HashSet<_>>()
+}
+
+fn write_restored_shuffle_order(archive: &PlaybackArchive, queue: &mut Value, session: &mut Value) {
+    if let Some(order) = archive
+        .unshuffled_entry_ids
+        .as_ref()
+        .filter(|order| archive.shuffle && is_occurrence_permutation(order, &archive.entry_ids))
+    {
+        // The complete session is also read directly by older startup paths.
+        queue["unshuffledEntryIds"] = serde_json::json!(order);
+        session["unshuffledEntryIds"] = queue["unshuffledEntryIds"].clone();
+    }
+}
+
 /// Keep only album contexts whose opaque binding targets an occurrence in the
 /// captured queue and whose typed resource identity verifies its own key.
 fn sanitize_queue_loudness_contexts(
@@ -6828,6 +6896,7 @@ mod tests {
                 })
                 .collect(),
             entry_ids: entry_ids.clone(),
+            unshuffled_entry_ids: None,
             queue_loudness_contexts: BTreeMap::new(),
             current_index,
             current_entry_id: (current_index >= 0)
@@ -6839,6 +6908,42 @@ mod tests {
             volume,
             saved_at: Some("2026-10-27T12:00:00Z".into()),
             restore_paused: true,
+        }
+    }
+
+    #[test]
+    fn backup_shuffle_order_requires_a_permutation_of_occurrences() {
+        let source = tempfile::tempdir().unwrap();
+        insert_fixture(source.path());
+        let library = source.path().join("burrata.sqlite");
+        let entry_ids = ["first", "second", "third"];
+        for (order, expected) in [
+            (serde_json::json!(["first", "third", "second"]), true),
+            (serde_json::json!(["first", "second", "second"]), false),
+            (serde_json::json!(["first", "second", "foreign"]), false),
+            (serde_json::json!(["first", "second"]), false),
+            (Value::Null, false),
+        ] {
+            let archive = build_playback_archive(
+                &library,
+                Uuid::new_v4(),
+                Some(serde_json::json!({
+                    "queue": {
+                        "tracks": [Value::Null, Value::Null, Value::Null],
+                        "entryIds": entry_ids,
+                        "unshuffledEntryIds": order,
+                    },
+                    "session": {"shuffle": true},
+                })),
+            )
+            .unwrap();
+            let encoded = serde_json::to_value(&archive).unwrap();
+            assert_eq!(encoded.get("unshuffledEntryIds").is_some(), expected);
+            if expected {
+                assert_eq!(encoded["unshuffledEntryIds"], order);
+            }
+            let decoded: PlaybackArchive = serde_json::from_value(encoded).unwrap();
+            assert_eq!(decoded.unshuffled_entry_ids, archive.unshuffled_entry_ids);
         }
     }
 
@@ -6900,6 +7005,7 @@ mod tests {
         let valid = serde_json::to_value(&resource).unwrap();
         let first = archive.entry_ids[0].clone();
         let second = archive.entry_ids[1].clone();
+        archive.unshuffled_entry_ids = Some(vec![second.clone(), first.clone()]);
         archive
             .queue_loudness_contexts
             .insert(first.clone(), valid.clone());
@@ -6956,6 +7062,11 @@ mod tests {
                 "retain the existing self-contained session format"
             );
             assert_eq!(session["tracks"], queue["tracks"]);
+            assert_eq!(
+                queue["unshuffledEntryIds"],
+                serde_json::json!([second, first])
+            );
+            assert_eq!(session["unshuffledEntryIds"], queue["unshuffledEntryIds"]);
             assert_eq!(
                 session["queueLoudnessContexts"],
                 queue["queueLoudnessContexts"]
@@ -7786,6 +7897,62 @@ mod tests {
     }
 
     #[test]
+    fn reset_application_settings_preserves_device_paths() {
+        let current = Settings {
+            music_directory: "/music".into(),
+            playlist_directories: vec!["/playlists".into()],
+            dj_xml_target_music_root: "file:///dj/music/".into(),
+            yt_dlp_path: "/tools/yt-dlp".into(),
+            ffmpeg_path: "/tools/ffmpeg".into(),
+            ffprobe_path: "/tools/ffprobe".into(),
+            js_runtime_path: "/tools/node".into(),
+            theme: "light".into(),
+            crossfade_enabled: true,
+            soft_next_enabled: true,
+            show_provider_counts: false,
+            playback_diagnostics_enabled: true,
+            ..Settings::default()
+        };
+        let reset = reset_application_preferences(current.clone());
+        let mut expected = serde_json::to_value(Settings::default()).unwrap();
+        let original = serde_json::to_value(current).unwrap();
+        for key in [
+            "musicDirectory",
+            "playlistDirectories",
+            "djXmlTargetMusicRoot",
+            "ytDlpPath",
+            "ffmpegPath",
+            "ffprobePath",
+            "jsRuntimePath",
+        ] {
+            expected[key] = original[key].clone();
+        }
+        assert_eq!(serde_json::to_value(reset).unwrap(), expected);
+    }
+
+    #[test]
+    fn new_application_preferences_are_portable_and_validated() {
+        let current = Settings {
+            show_provider_counts: false,
+            crossfade_enabled: true,
+            crossfade_seconds: 9,
+            soft_next_enabled: true,
+            soft_track_selection_enabled: true,
+            ..Settings::default()
+        };
+        let original = serde_json::to_value(&current).unwrap();
+        let portable = portable_application_fields(&original);
+        let restored = application_from_archive(&serde_json::json!(portable)).unwrap();
+        assert!(!restored.show_provider_counts);
+        assert!(restored.crossfade_enabled);
+        assert_eq!(restored.crossfade_seconds, 9);
+        assert!(restored.soft_next_enabled);
+        assert!(restored.soft_track_selection_enabled);
+        assert!(!safe_setting_value("crossfadeSeconds", &Value::from(13)));
+        assert!(!safe_setting_value("softNextEnabled", &Value::from("true")));
+    }
+
+    #[test]
     fn playlist_mirroring_setting_round_trips_and_legacy_default_is_merge_safe() {
         let source = tempfile::tempdir().unwrap();
         insert_fixture(source.path());
@@ -7925,7 +8092,7 @@ mod tests {
         let policy = serde_json::json!({
             "schemaVersion":1,
             "playlists":{
-                "playlist-1":{"included":false,"includeMediaLinks":false,"includeYtdlpSearch":null},
+                "playlist-1":{"included":false,"includeDjXml":true,"includeMediaLinks":false,"includeYtdlpSearch":null},
                 "favorites":{"included":true,"includeMediaLinks":null,"includeYtdlpSearch":false},
                 "history":{"included":false,"includeMediaLinks":true,"includeYtdlpSearch":null},
                 "missing-playlist":{"included":true,"includeMediaLinks":null,"includeYtdlpSearch":null}
@@ -7945,6 +8112,11 @@ mod tests {
         assert_eq!(
             archive.preferences.get("playlistMirrorOptions.v1"),
             Some(&policy)
+        );
+        assert_eq!(archive.preferences["playlistSync.v1"]["writesPaused"], true);
+        assert_eq!(
+            archive.preferences["playlistSync.v1"]["sources"],
+            serde_json::json!({})
         );
         let projection = project_settings_archive(
             &prepared.settings_json,

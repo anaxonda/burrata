@@ -12,7 +12,7 @@
   {#if onOpenSource}<button class="menu-section" title={kind === "radio station" ? "Open the station website" : onRefresh ? "Open the original playlist in your browser" : "Opens the original source. Refresh it, then use the browser extension to capture an updated import."} onclick={() => action(onOpenSource!)}><MenuIcon name="external"/><span>{kind === "radio station" ? "Open station website" : onRefresh ? "Open source" : "Open source to refresh"}</span></button>{/if}
   {#if onDownload}<button onclick={() => action(onDownload!)}><MenuIcon name="download"/><span>Download playlist</span></button>{/if}
   {#if onCopy}<button onclick={() => action(onCopy!)}><MenuIcon name="copy"/><span>Make editable copy</span></button>{/if}
-  {#if onMirrorSettings}<button onclick={() => action(onMirrorSettings!)}><MenuIcon name="folder"/><span>Local M3U copy…</span></button>{/if}
+  {#if onMirrorSettings}<button onclick={() => action(onMirrorSettings!)}><MenuIcon name="folder"/><span>Local playlist copies…</span></button>{/if}
   {#if onExport}<button onclick={() => action(onExport!)}><MenuIcon name="export"/><span>Export playlist</span></button>{/if}
   {#if onMoveToFolder}<button onclick={() => action(onMoveToFolder!)}><MenuIcon name="folder"/><span>Move to folder…</span></button>{/if}
   {#if onDelete}<button class="menu-section destructive" onclick={() => action(onDelete!)}><MenuIcon name="remove"/><span>{kind === "radio station" ? "Remove station" : "Delete playlist"}</span></button>{/if}

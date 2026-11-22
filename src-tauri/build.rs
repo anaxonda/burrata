@@ -1,6 +1,10 @@
 mod keyfinder_build;
 const COMMANDS: &[&str] = &[
     "list_track_files",
+    "reset_application_settings",
+    "factory_reset",
+    "get_factory_reset_status",
+    "ack_factory_reset",
     "set_preferred_track_file",
     "remote_playlist_connection_status",
     "set_remote_playlist_write_sync_enabled",

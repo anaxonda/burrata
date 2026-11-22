@@ -282,13 +282,14 @@ export interface Collection {
 }
 export interface PlaylistMirrorOptions {
   included: boolean;
+  includeDjXml?: boolean;
   includeMediaLinks: boolean | null;
   includeYtdlpSearch: boolean | null;
 }
 export interface PlaylistMirrorOptionsView {
   collectionId: string;
   options: PlaylistMirrorOptions;
-  effective: { included: boolean; includeMediaLinks: boolean; includeYtdlpSearch: boolean };
+  effective: { included: boolean; includeDjXml?: boolean; includeMediaLinks: boolean; includeYtdlpSearch: boolean };
   defaults: { includeMediaLinks: boolean; includeYtdlpSearch: boolean };
   globallyEnabled: boolean;
 }
@@ -350,6 +351,7 @@ export interface Settings {
   soulseekLosslessUpgrades?: boolean;
   playlistDirectories?: string[];
   playlistMirroringEnabled?: boolean;
+  djXmlTargetMusicRoot?: string;
   compactPlaybackBar?: boolean;
 }
 export interface Dependency {

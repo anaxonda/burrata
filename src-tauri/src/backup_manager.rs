@@ -1783,6 +1783,22 @@ impl BackupManager {
         Ok(())
     }
 
+    pub(crate) fn stage_factory_reset(&self, protected_paths: &[PathBuf]) -> Result<(), String> {
+        const RESET: &str = "factory-reset";
+        self.reserve_job(RESET)?;
+        let result = pending_restore_exists(&self.data_dir).and_then(|pending| {
+            if pending {
+                Err("A backup restore is already pending. Restart Burrata to complete the restore first.".into())
+            } else {
+                crate::factory_reset::stage(&self.data_dir, protected_paths)
+            }
+        });
+        if result.is_err() {
+            self.release_job(RESET);
+        }
+        result
+    }
+
     fn trim_finished_jobs(&self) {
         let Ok(mut jobs) = self.jobs.lock() else {
             return;
@@ -1910,6 +1926,16 @@ impl BackupManager {
             &serde_json::to_value(schedule).map_err(|e| e.to_string())?,
         )?;
         Ok(())
+    }
+}
+
+pub(crate) fn pending_restore_exists(data_dir: &Path) -> Result<bool, String> {
+    match fs::symlink_metadata(data_dir.join(PENDING_RESTORE_FILE)) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(format!(
+            "Could not check for a pending backup restore: {error}"
+        )),
     }
 }
 
@@ -3634,6 +3660,7 @@ fn preserve_current_machine_state(current: &Store, staged: &Store) -> Result<(),
     staged_settings.ffprobe_path = current_settings.ffprobe_path;
     staged_settings.js_runtime_path = current_settings.js_runtime_path;
     staged_settings.playlist_directories = current_settings.playlist_directories;
+    staged_settings.dj_xml_target_music_root = current_settings.dj_xml_target_music_root;
     staged_settings.download_audio_verification_enabled =
         current_settings.download_audio_verification_enabled;
     staged_settings.playback_diagnostics_enabled = current_settings.playback_diagnostics_enabled;

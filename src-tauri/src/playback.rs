@@ -9021,7 +9021,7 @@ pub(crate) fn track_failure_category(reason: &str) -> &'static str {
     ) {
         "source_identity_mismatch"
     } else if message == "this source has no supported audio stream"
-        || reason == crate::playback_sources::SOULSEEK_DOWNLOAD_REQUIRED
+        || reason == crate::playback_failure::SOULSEEK_DOWNLOAD_REQUIRED
     {
         "unsupported_audio_stream"
     } else {

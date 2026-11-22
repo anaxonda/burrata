@@ -16,6 +16,8 @@ use std::{
 };
 use tokio::sync::watch;
 
+use crate::playback_failure::SOULSEEK_DOWNLOAD_REQUIRED;
+
 #[path = "playback_match.rs"]
 mod policy_matching;
 #[path = "spotify_role_context.rs"]
@@ -24,8 +26,6 @@ pub(crate) mod spotify_role_context;
 pub(crate) mod spotify_role_diagnostics;
 
 pub(crate) const SOURCE_NO_RESULTS: &str = "No audio results were returned by the available providers. Open the catalog source or choose another source.";
-pub(crate) const SOULSEEK_DOWNLOAD_REQUIRED: &str =
-    "Download this Soulseek file before playing it.";
 pub(crate) const SOURCE_IDENTITY_REJECTED: &str = "Audio results were found, but none could be verified as the requested recording and version. Open the catalog source or choose another source.";
 pub(crate) const SOURCE_MISSING_DURATION: &str = "Audio results were found, but the saved recording has no duration and no source provided enough verified identity evidence. Open the catalog source or choose another source.";
 const SOURCE_COMPETING_VERSIONS: &str = "Several distinct versions match this recording, and the catalog does not identify which one was requested. Open the catalog source to specify the version or choose a source manually.";

@@ -518,6 +518,9 @@ pub struct Settings {
     /// Automatically reconcile local M3U playlist, Favorites, and history mirrors.
     #[serde(default = "default_true")]
     pub playlist_mirroring_enabled: bool,
+    /// Destination music root as a file URL when the files are on another machine.
+    #[serde(default)]
+    pub dj_xml_target_music_root: String,
     /// Show the compact playback bar in the main application shell.
     #[serde(default)]
     pub compact_playback_bar: bool,
@@ -643,6 +646,7 @@ impl Default for Settings {
             soulseek_lossless_upgrades: false,
             playlist_directories: Vec::new(),
             playlist_mirroring_enabled: true,
+            dj_xml_target_music_root: String::new(),
             compact_playback_bar: false,
         }
     }

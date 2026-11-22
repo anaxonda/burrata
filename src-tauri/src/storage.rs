@@ -1487,6 +1487,7 @@ impl Store {
     pub fn save_settings(&self, settings: &Settings) -> Result<()> {
         settings.validate_playback_startup_timeout()?;
         settings.validate_playback_preferences()?;
+        crate::playlist_sync::validate_dj_xml_target_root(&settings.dj_xml_target_music_root)?;
         let mut settings = settings.clone();
         normalize_streaming_fallback_policy(&mut settings)?;
         let encoded = encode(&settings)?;

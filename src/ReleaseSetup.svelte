@@ -16,9 +16,9 @@
     usesManagedYtDlp?: boolean;
   };
   type YoutubeStatus = {
-    bundledVersion: string | null; managedVersion: string | null; activeVersion: string | null;
-    activeSource: string; updateAvailable: boolean | null; recommendedUpdate: string;
-    advancedUpdate: string; provider: { version: string; available: boolean; helperRunning: boolean; message: string };
+    managedVersion: string | null;
+    activeVersion: string | null;
+    activeSource: "bundled" | "managed";
   };
   type Diagnosis = { ok: boolean; category: string; ytDlpVersion: string | null; providerAvailable: boolean; audioAccessible: boolean; message: string };
   let { onSettingsChanged = () => {}, onComplete = () => {}, onboarding = false, category = "all", browserStatus = null }: {
@@ -90,19 +90,29 @@
   async function updateYoutube(channel: "stable" | "nightly") {
     if (busy || setup?.usesManagedYtDlp === false) return;
     const previousVersion = youtube?.activeVersion;
-    busy = true; error = ""; message = "";
+    busy = true; error = "";
+    message = channel === "stable" ? "Checking for a stable yt-dlp update…" : "Installing the latest yt-dlp nightly…";
     try {
       youtube = await call<YoutubeStatus>("youtube_support_update", { channel });
-      message = channel === "stable" && youtube.activeVersion === previousVersion
-        ? "yt-dlp is up to date."
-        : youtube.activeVersion ? `Updated yt-dlp to ${youtube.activeVersion}.` : "yt-dlp update installed.";
-    } catch (cause) { error = `Could not update yt-dlp: ${String(cause)}`; }
+      if (channel === "stable" && youtube.activeVersion && youtube.activeVersion === previousVersion) {
+        message = "Your yt-dlp is already as recent as the latest stable release.";
+      } else {
+        const build = channel === "stable" ? "stable release" : "nightly build";
+        message = youtube.activeVersion ? `Installed yt-dlp ${youtube.activeVersion} (${build}).` : `Installed the yt-dlp ${build}.`;
+      }
+    } catch (cause) {
+      message = "";
+      error = `Could not update yt-dlp: ${String(cause)}`;
+    }
     finally { busy = false; }
   }
   async function rollbackYoutube() {
-    busy = true; error = "";
-    try { youtube = await call<YoutubeStatus>("youtube_support_rollback"); message = "YouTube support was rolled back."; }
-    catch (cause) { error = `Could not roll back YouTube support: ${String(cause)}`; }
+    if (busy || setup?.usesManagedYtDlp === false) return;
+    busy = true; error = ""; message = "";
+    try {
+      youtube = await call<YoutubeStatus>("youtube_support_rollback");
+      message = youtube.activeVersion ? `Restored yt-dlp ${youtube.activeVersion}.` : "Restored the previous yt-dlp version.";
+    } catch (cause) { error = `Could not restore the previous yt-dlp version: ${String(cause)}`; }
     finally { busy = false; }
   }
   async function diagnose() {
@@ -180,15 +190,18 @@
         {#if setup?.usesManagedYtDlp === false}
           <p>Update your configured yt-dlp outside Burrata.</p>
         {:else}
-          <p class="tool-version">yt-dlp {youtube.activeVersion ?? "version unavailable"} · {youtube.activeSource}</p>
-          <button class="primary" disabled={busy} onclick={() => void updateYoutube("stable")}>{busy ? "Working…" : "Update yt-dlp"}</button>
+          <p class="tool-version">
+            yt-dlp {youtube.activeVersion ?? "version unavailable"} · {youtube.activeSource === "bundled" ? "Included with Burrata" : "Installed update"}
+          </p>
+          <button class="primary" disabled={busy} aria-describedby="yt-dlp-stable-description" onclick={() => void updateYoutube("stable")}>Update yt-dlp</button>
+          <p class="update-description" id="yt-dlp-stable-description">Installs a newer stable release when available.</p>
         {/if}
         <details class="youtube-details"><summary>Advanced options</summary>
           {#if setup?.usesManagedYtDlp !== false}
             <div class="update-actions">
-              <button disabled={busy} onclick={() => void updateYoutube("nightly")}>Install nightly build</button>
-              <small>Nightly builds can be less stable.</small>
-              {#if youtube.managedVersion}<button disabled={busy} onclick={() => void rollbackYoutube()}>Roll back update</button>{/if}
+              <button disabled={busy} onclick={() => void updateYoutube("nightly")}>Install latest nightly build</button>
+              <small>Nightly builds get fixes sooner and may be less reliable.</small>
+              {#if youtube.managedVersion}<button disabled={busy} onclick={() => void rollbackYoutube()}>Restore previous version</button>{/if}
             </div>
           {/if}
           <details><summary>Test YouTube audio access</summary>

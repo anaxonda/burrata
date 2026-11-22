@@ -1,6 +1,9 @@
 //! Shared, safe playback failure policy. Classify before redacting extractor output.
 use serde::{Deserialize, Serialize};
 
+pub(crate) const SOULSEEK_DOWNLOAD_REQUIRED: &str =
+    "Download this Soulseek file before playing it.";
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FailureCategory {
@@ -181,7 +184,7 @@ pub fn classify(reason: &str) -> PlaybackFailure {
         );
     }
     if message == "this source has no supported audio stream"
-        || reason == crate::playback_sources::SOULSEEK_DOWNLOAD_REQUIRED
+        || reason == SOULSEEK_DOWNLOAD_REQUIRED
     {
         return failure(UnsupportedAudio, Stage::Resolver, Recording, false, None);
     }

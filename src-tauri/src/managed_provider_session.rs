@@ -4336,28 +4336,55 @@ fn spotify_credential_fingerprint(key: &[u8; 32], credential: &[u8]) -> [u8; 32]
     outer.finalize().into()
 }
 
-fn load_or_create_session(data_dir: &Path) -> PersistedSession {
-    let path = data_dir.join("managed-provider-session/session.json");
-    if let Ok(bytes) = fs::read(&path) {
-        if let Ok(session) = serde_json::from_slice::<PersistedSession>(&bytes) {
-            if (16..=128).contains(&session.session_id.len())
-                && session
-                    .session_id
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-            {
-                return session;
-            }
-        }
+pub(crate) fn reset_profile_credentials(old_profile: &Path) -> Option<String> {
+    let root = old_profile.join("managed-provider-session");
+    let session = root.join("session.json");
+    let metadata = match fs::symlink_metadata(&session) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(_) => return Some("Old managed provider credentials could not be identified. The new profile requires reconnecting.".into()),
+    };
+    if !metadata.is_file() || metadata.len() > 64 * 1024 {
+        return Some("Old managed provider credentials could not be identified. The new profile requires reconnecting.".into());
     }
-    PersistedSession {
+    let Some(session) = read_persisted_session(old_profile) else {
+        return Some("Old managed provider credentials could not be identified. The new profile requires reconnecting.".into());
+    };
+    let failed = ["spotify", "youtube"]
+        .into_iter()
+        .filter(|provider| {
+            let name = format!("{provider}:{}", session.session_id);
+            !matches!(
+                keyring::Entry::new(NATIVE_KEYRING_SERVICE, &name)
+                    .and_then(|entry| entry.delete_credential()),
+                Ok(()) | Err(keyring::Error::NoEntry)
+            )
+        })
+        .count();
+    (failed > 0).then(|| "The system keyring could not remove an old managed provider credential. The new profile cannot use it. Unlock the keyring and remove Burrata's provider-session entries if needed.".into())
+}
+
+fn read_persisted_session(data_dir: &Path) -> Option<PersistedSession> {
+    let path = data_dir.join("managed-provider-session/session.json");
+    let bytes = fs::read(path).ok()?;
+    let session = serde_json::from_slice::<PersistedSession>(&bytes).ok()?;
+    ((16..=128).contains(&session.session_id.len())
+        && session
+            .session_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-'))
+    .then_some(session)
+}
+
+fn load_or_create_session(data_dir: &Path) -> PersistedSession {
+    read_persisted_session(data_dir).unwrap_or_else(|| PersistedSession {
         session_id: uuid::Uuid::new_v4().simple().to_string(),
         accounts: BTreeMap::new(),
         background_opt_in: false,
         native_transport_opt_in: false,
         native_stopped: false,
         youtube_reconnect_required: false,
-    }
+    })
 }
 
 fn persist_session(data_dir: &Path, session: &PersistedSession) -> Result<(), String> {

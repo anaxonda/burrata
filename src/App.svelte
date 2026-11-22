@@ -1,4 +1,5 @@
 <script lang="ts">
+  let { startupWarning = "" }: { startupWarning?: string } = $props();
   import { modalDialog } from "./lib/modal-dialog";
   import { browserCompanionStatus } from "./lib/browser-companion-status";
   import HeartIcon from "./HeartIcon.svelte";
@@ -3432,11 +3433,11 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     await navigate("library", false);
   }
   async function syncMirrors() {
-    if (!desktop() || settings.playlistMirroringEnabled === false) return;
+    if (!desktop()) return;
     try {
       const result = await call<{ synchronized: number; repairedTrackMetadata?: number; warnings: string[]; mirrorsDirectory?: string; pausedMirrors?: string[]; sources?: {collectionId?: string | null}[] }>("sync_playlists");
-      if (untrack(() => settings.playlistMirroringEnabled === false)) return;
       mirrorStatus = result.warnings?.join(" · ") ?? "";
+      if (untrack(() => settings.playlistMirroringEnabled === false)) return;
       pausedMirrors = result.pausedMirrors ?? []; localPlaylistIds = result.sources?.map((source) => source.collectionId).filter((id): id is string => Boolean(id)) ?? [];
       collections = await call<Collection[]>("list_collections");
       if ((result.repairedTrackMetadata ?? 0) > 0) requestLocalPrefixRefresh(undefined, true);
@@ -6840,8 +6841,8 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     return call<NonNullable<BackupInspection["summary"]>>("preview_backup_restore", { previewId, options });
   }
   async function createBackupForUi(options: { includeMedia: boolean }, report: (progress: BackupProgress) => void) {
-    const started = await call<{ jobId: string }>("create_backup", { options: { includeMedia: options.includeMedia } });
-    return waitForBackupJob(started.jobId, report);
+    const { jobId } = await call<{ jobId: string | null }>("create_backup", { options: { includeMedia: options.includeMedia } });
+    if (jobId) return waitForBackupJob(jobId, report);
   }
   async function restoreBackupForUi(previewId: string, options: { mode: "merge" | "replace"; componentIds: string[]; pathMappings: { rootKey: string; destinationToken: string }[] }, report: (progress: BackupProgress) => void) {
     return startRestoreAndWaitForCompletion(
@@ -7401,6 +7402,15 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
   }
 
   let settingsSaveQueue: Promise<unknown> = Promise.resolve();
+  async function resetApplicationSettings() {
+    await settingsSaveQueue;
+    return call<Settings>("reset_application_settings");
+  }
+  function applyApplicationSettingsReset(reset: Settings) {
+    settings = reset;
+    persistedMusicDirectory = reset.musicDirectory;
+    invalidateLegacyArtistAssets();
+  }
   async function saveSettingsFields(keys: (keyof Settings)[], message: string) {
     const changes = Object.fromEntries(keys.map(key=>[key,settings[key]]));
     // Capture each edit now, but read persisted settings only after earlier saves.
@@ -7412,6 +7422,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       if(keys.includes("musicDirectory")) persistedMusicDirectory=changes.musicDirectory as string;
       if(keys.includes("playlistDirectories")) void syncMirrors();
       if(keys.includes("playlistMirroringEnabled") && changes.playlistMirroringEnabled !== false) void syncMirrors();
+      if (keys.includes("djXmlTargetMusicRoot") || keys.includes("musicDirectory")) void syncMirrors();
       setNotice(message);
     }));
     settingsSaveQueue = save.catch(() => {});
@@ -7893,9 +7904,10 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       register<Track>("library-updated", (updated) => { window.dispatchEvent(new Event("library-changed")); detailAssetRevision++; void handleLibraryUpdated(updated); });
       register<string>("asset-facts-updated",()=>{invalidateLegacyArtistAssets();detailAssetRevision++;void refreshCurrentAssetFiles();});
       register<{ok: boolean; status?: {warnings: string[]; pausedMirrors: string[]; sources: {collectionId?: string | null}[]}; error?: string; watcherWarnings?: string[]}>("playlist-sync", (event) => {
-        if (settings.playlistMirroringEnabled === false) return;
-        if (event.status) { mirrorStatus = [...event.status.warnings, ...(event.watcherWarnings ?? [])].join(" · "); pausedMirrors = event.status.pausedMirrors; localPlaylistIds = event.status.sources.map((source) => source.collectionId).filter((id): id is string => Boolean(id)); }
+        if (event.status) mirrorStatus = [...event.status.warnings, ...(event.watcherWarnings ?? [])].join(" · ");
         else if (event.error) mirrorStatus = event.error;
+        if (settings.playlistMirroringEnabled === false) return;
+        if (event.status) { pausedMirrors = event.status.pausedMirrors; localPlaylistIds = event.status.sources.map((source) => source.collectionId).filter((id): id is string => Boolean(id)); }
         void call<Collection[]>("list_collections").then((result) => { collections = result; }).catch(() => {});
         if (view === "collections" || view === "library" || view === "favorites") requestLocalPrefixRefresh(undefined, true);
       });
@@ -8026,6 +8038,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
           backupHydrationReady = true;
           retryBackupStartup = null;
           cleanup = initializeAppLifecycle();
+          if (startupWarning) setNotice(startupWarning);
         },
       ).then(ready => {
         if (!ready && !canceled && currentAttempt === attempt) backupHydrationReady = false;
@@ -8396,7 +8409,21 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
         <PlaylistSettings preferences={playlistPreferences} collections={visibleCollections.filter(item=>!latestImports.some(imported=>imported.collectionId===item.id))} {call} includeYtdlpSearchDefault={includeYtdlpSearchDefault} onYtdlpSearchDefaultChange={(enabled)=>includeYtdlpSearchDefault=enabled} onchange={(value)=>{playlistPreferences=value;void refreshFavorites();}} oncollections={()=>refreshCollections()}/>
         <section class="settings-basic-card" aria-label="Local playlist copies"><h2>Local playlist copies</h2>
         <label class="settings-option"><input type="checkbox" aria-label="Keep local M3U playlist copies" disabled={Boolean(busy)} checked={settings.playlistMirroringEnabled !== false} onchange={(event) => { settings.playlistMirroringEnabled = event.currentTarget.checked; void saveSettingsFields(["playlistMirroringEnabled"], "Playlist mirroring preference saved."); }} /><span><strong>Keep local M3U playlist copies</strong><small>Automatically read and update playlists, Liked Songs, and listening history as M3U8 files in your Music/Playlists folder. Off leaves existing files in place. Manual playlist import and export remain available.</small></span></label>
-        {#if settings.playlistMirroringEnabled !== false}<button onclick={() => playlistMirrorSettingsTarget = { collectionId: null }}>Choose playlists to sync…</button>{/if}
+        <button onclick={() => playlistMirrorSettingsTarget = { collectionId: null }}>Choose playlists to sync…</button>
+        <details>
+          <summary>DJ XML options</summary>
+          <p>Selected playlists share one iTunes library XML file in Music/Playlists.</p>
+          <label>Music folder on the DJ computer (optional)
+            <input value={settings.djXmlTargetMusicRoot ?? ""} placeholder="file:///D:/Music"
+              disabled={Boolean(busy)}
+              onchange={(event) => {
+                settings.djXmlTargetMusicRoot = event.currentTarget.value.trim();
+                void saveSettingsFields(["djXmlTargetMusicRoot"], "DJ music folder saved.");
+              }} />
+            <small>Enter a file URL if you keep music at a different path on the DJ computer.</small>
+          </label>
+        </details>
+        {#if mirrorStatus.includes("DJ XML")}<p role="status">{mirrorStatus}</p>{/if}
         </section>
         <HistoryMirrorSettings {call} desktop={desktop()} />
         <RestoredPlaylistSyncSettings {call} desktop={desktop()} />
@@ -8408,7 +8435,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
           {#if settings.musicDirectory !== persistedMusicDirectory}<button onclick={()=>void saveSettingsFields(["musicDirectory"],"Music folder saved.")}>Save music folder</button>{/if}
         </section>
         <LocalPlaylistFiles mode="settings" {settings} onChange={(value) => (settings = value)} onSave={() => void saveSettingsFields(["playlistDirectories"],"Playlist folders saved.")} />
-        {#if desktop()}<LazyView loader={loadBackupRestore} label="backup settings" componentProps={{ inspectBackup: inspectBackupForUi, createBackup: createBackupForUi, restoreBackup: restoreBackupForUi, chooseMediaRoot: chooseBackupMediaRoot, estimateBackup: estimateBackupForUi, cancelJob: cancelBackupJob, loadActiveBackupJob, subscribeBackupProgress, loadSchedule: loadBackupSchedule, saveSchedule: saveBackupSchedule, chooseScheduleDestination: chooseBackupScheduleDestination, exportSettings: exportBackupSettings, inspectSettings: inspectBackupSettings, applySettings: applyBackupSettings, previewRestore: previewBackupRestore, allowReplace: true }} />{/if}
+        {#if desktop()}<LazyView loader={loadBackupRestore} label="backup settings" componentProps={{ inspectBackup: inspectBackupForUi, createBackup: createBackupForUi, restoreBackup: restoreBackupForUi, chooseMediaRoot: chooseBackupMediaRoot, estimateBackup: estimateBackupForUi, cancelJob: cancelBackupJob, loadActiveBackupJob, subscribeBackupProgress, loadSchedule: loadBackupSchedule, saveSchedule: saveBackupSchedule, chooseScheduleDestination: chooseBackupScheduleDestination, exportSettings: exportBackupSettings, inspectSettings: inspectBackupSettings, applySettings: applyBackupSettings, previewRestore: previewBackupRestore, allowReplace: true, resetSettings: resetApplicationSettings, onSettingsReset: applyApplicationSettingsReset, factoryReset: (confirmation: string) => call<void>("factory_reset", { confirmation }) }} />{/if}
         {/if}
         {#if settingsCategory === "playback"}<label class="settings-option"><input type="checkbox" bind:checked={includeRadioHistory} onchange={()=>void run(()=>call("set_radio_history_setting",{enabled:includeRadioHistory}))}/><span><strong>Include radio songs in playback history</strong><small>Save identified songs you hear with their station and listening time.</small></span></label>{/if}
         {#if settingsCategory === "playback"}
@@ -8961,7 +8988,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       </div>
     {/if}
   {#if portablePlaylistTarget}<PortablePlaylist collection={portablePlaylistTarget} {call} initialMode={portablePlaylistInitialMode} includeYtdlpSearchDefault={includeYtdlpSearchDefault} onClose={()=>portablePlaylistTarget=null} />{/if}
-  {#if playlistMirrorSettingsTarget}<PlaylistMirrorSettings collections={playlistMirrorCollections()} initialCollectionId={playlistMirrorSettingsTarget.collectionId} {call} onClose={()=>playlistMirrorSettingsTarget=null} onSaved={()=>{if(settings.playlistMirroringEnabled!==false)void syncMirrors();}} />{/if}
+  {#if playlistMirrorSettingsTarget}<PlaylistMirrorSettings collections={playlistMirrorCollections()} initialCollectionId={playlistMirrorSettingsTarget.collectionId} {call} onClose={()=>playlistMirrorSettingsTarget=null} onSaved={()=>{void syncMirrors();}} />{/if}
 {#if selectedAnalysisOpen}
     <dialog class="download-dialog analysis-review" use:activateDownloadDialog={closeSelectedAnalysis} aria-labelledby="selected-analysis-title" aria-modal="true" tabindex="-1" onclick={(event) => {
       if (event.target !== event.currentTarget) return;

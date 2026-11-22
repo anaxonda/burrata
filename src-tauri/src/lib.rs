@@ -45,6 +45,7 @@ mod discogs_release_lexical_aliases;
 pub mod discovery;
 mod download_verification;
 pub mod external_player;
+mod factory_reset;
 mod import_drop;
 mod import_metadata;
 pub mod imports;
@@ -687,6 +688,51 @@ fn restore_backup(
         .backup_manager
         .start_restore(app, preview_id, options)?;
     Ok(serde_json::json!({"jobId":job_id}))
+}
+
+#[tauri::command]
+async fn factory_reset(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    confirmation: String,
+) -> Result<()> {
+    factory_reset::validate_confirmation(&confirmation)?;
+    let store = state.store.clone();
+    let backups = state.backup_manager.clone();
+    let freeze = state.factory_reset_freeze.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut freeze = freeze.lock().map_err(|_| "Factory reset is unavailable")?;
+        if freeze.is_some() {
+            return Err("A factory reset is already pending.".into());
+        }
+        let permit = store
+            .try_restore_permit()
+            .map_err(|_| "Wait for library tasks to finish before resetting Burrata.")?;
+        let settings = store.settings()?;
+        let protected_paths: Vec<PathBuf> = std::iter::once(settings.music_directory)
+            .chain(settings.playlist_directories)
+            .filter(|path| !path.is_empty())
+            .map(PathBuf::from)
+            .chain(backups.get_schedule()?.destination)
+            .collect();
+        backups.stage_factory_reset(&protected_paths)?;
+        *freeze = Some(permit);
+        Ok::<_, String>(())
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    app.request_restart();
+    Ok(())
+}
+
+#[tauri::command]
+fn get_factory_reset_status(state: State<'_, AppState>) -> Result<factory_reset::Status> {
+    factory_reset::status(&state.profile_dir)
+}
+
+#[tauri::command]
+fn ack_factory_reset(state: State<'_, AppState>, reset_id: uuid::Uuid) -> Result<()> {
+    factory_reset::acknowledge(&state.profile_dir, reset_id)
 }
 
 #[tauri::command]
@@ -3104,6 +3150,8 @@ pub(crate) struct AppState {
     autotag: Arc<autotag::AutoTagger>,
     store: Arc<Store>,
     _profile_lock: backup_manager::ProfileLock,
+    profile_dir: PathBuf,
+    factory_reset_freeze: Arc<std::sync::Mutex<Option<storage::RestorePermit>>>,
     backup_manager: Arc<backup_manager::BackupManager>,
     import_drops: Arc<import_drop::ImportDropRegistry>,
     directory_browser: directory_browser::DirectoryBrowser,
@@ -8145,10 +8193,27 @@ fn save_settings(
             .allow_directory(path, true)
             .map_err(|e| e.to_string())?;
     }
+    persist_application_settings(&state, &previous, &settings)
+}
+
+#[tauri::command]
+fn reset_application_settings(state: State<'_, AppState>) -> Result<Settings> {
+    let _permit = state.store.try_library_write()?;
+    let previous = state.store.settings()?;
+    let settings = backup_state::reset_application_preferences(previous.clone());
+    persist_application_settings(&state, &previous, &settings)?;
+    state.store.settings()
+}
+
+fn persist_application_settings(
+    state: &AppState,
+    previous: &Settings,
+    settings: &Settings,
+) -> Result<()> {
     if !settings.background_source_preparation {
         source_preparation::yield_to_playback();
     }
-    state.store.save_settings(&settings)?;
+    state.store.save_settings(settings)?;
     if previous.crossfade_enabled != settings.crossfade_enabled
         || previous.soft_next_enabled != settings.soft_next_enabled
         || previous.soft_track_selection_enabled != settings.soft_track_selection_enabled
@@ -9359,18 +9424,24 @@ pub fn run() {
             let resources=release_resource_root(app.handle()).map_err(std::io::Error::other)?;
             tools::initialize(resources.clone());
 
-            let dir = std::env::var_os("BURRATA_APP_DATA").map(PathBuf::from).unwrap_or(app.path().app_data_dir()?);
+            let override_data_dir = std::env::var_os("BURRATA_APP_DATA");
+            let default_profile = override_data_dir.is_none();
+            let dir = override_data_dir.map(PathBuf::from).unwrap_or(app.path().app_data_dir()?);
             std::fs::create_dir_all(&dir)?;
+            let dir = std::fs::canonicalize(&dir)?;
             // Tauri restart starts its replacement process before this process
             // exits. Keep the profile locked until process teardown so a
             // restored database pair is never swapped under open writers.
             let profile_lock = backup_manager::acquire_profile_lock(&dir)
                 .map_err(std::io::Error::other)?;
+            let reset_at_startup = factory_reset::prepare_startup(
+                &dir, backup_manager::pending_restore_exists(&dir).map_err(std::io::Error::other)?,
+            ).map_err(std::io::Error::other)?;
             // A browser extension updates independently of the desktop app.
             // Keep already registered standard hosts on this app's protocol;
             // isolated/custom profiles must not replace the normal profile's host.
             startup_mark("browser_host.refresh.begin");
-            let browser_host_refresh = if std::env::var_os("BURRATA_APP_DATA").is_none() {
+            let browser_host_refresh = if default_profile {
                 let resources = resources.clone();
                 match std::thread::Builder::new().name("burrata-browser-host-refresh".into())
                     .spawn(move || install_integration::refresh_registered_host(&resources))
@@ -9407,6 +9478,14 @@ pub fn run() {
             startup_mark("store.open.begin");
             let store =
                 Arc::new(Store::open(&dir.join("burrata.sqlite")).map_err(std::io::Error::other)?);
+            if let factory_reset::Startup::ApplyCredentials { quarantine } = reset_at_startup {
+                let mut warnings = connections::reset_profile_credentials(&store, default_profile)
+                    .map_err(std::io::Error::other)?;
+                if default_profile {
+                    warnings.extend(managed_provider_session::reset_profile_credentials(&quarantine));
+                }
+                factory_reset::finish(&dir, warnings).map_err(std::io::Error::other)?;
+            }
             startup_mark("store.open.end");
             // The staged database carries the authoritative restore marker.
             // Repair older committed restores before any automatic workers
@@ -9584,7 +9663,7 @@ pub fn run() {
             startup_mark("browser_bridge.begin");
             let browser = browser_bridge::BrowserBridge::start(app.handle().clone(), store.clone(), dir.clone(), token, router).map_err(std::io::Error::other)?;
             startup_mark("browser_bridge.end");
-            let managed_provider_session = managed_provider_session::ManagedProviderSession::new(app.handle().clone(), browser.clone(), dir);
+            let managed_provider_session = managed_provider_session::ManagedProviderSession::new(app.handle().clone(), browser.clone(), dir.clone());
             let playback_resolution = Arc::new(std::sync::Mutex::new(PlaybackResolutionGate::default()));
             let startup_readiness = Arc::new(std::sync::atomic::AtomicBool::new(false));
             {
@@ -9691,7 +9770,7 @@ pub fn run() {
             let sort_availability_backfill = Arc::new(SortAvailabilityBackfill::new(store.clone(), playback.clone(), playback_resolution.clone(), app.handle().clone()));
             let playback_provider_session_status = std::sync::Mutex::new(managed_provider_session.status());
             source_preparation::schedule_saved(acquisition.clone());
-            app.manage(AppState { discovery, autotag, store, _profile_lock: profile_lock, backup_manager, import_drops, directory_browser, automation, playback, _system_media: system_media, #[cfg(target_os = "linux")] _mpris: mpris, local_audio, webview_audio_transport, webview_audio_transcoder, acquisition, diagnostics: startup_diagnostics, browser, managed_provider_session, playback_provider_session_status, remote_playlists, preview_warmup_cancel:std::sync::Mutex::new(None), playback_resolution, startup_readiness, webview_identification: webview_identification::WebViewIdentification::default(), connections, artists, analysis, analysis_selection_jobs: analysis_selection::AnalysisSelectionJobs::new(), stream_analysis_selection_jobs: analysis_stream_selection::SelectedStreamAnalysisJobs::new(), loudness_analysis_jobs: Arc::default(), waveform_analysis_jobs: Arc::default(), history, playlist_watcher: std::sync::Mutex::new(playlist_watcher), provider_reads: Arc::new(provider_read_requests::ProviderReadRequests::default()), sort_availability_backfill, backup_frontend_preference_session_id });
+            app.manage(AppState { discovery, autotag, store, _profile_lock: profile_lock, profile_dir: dir, factory_reset_freeze: Arc::default(), backup_manager, import_drops, directory_browser, automation, playback, _system_media: system_media, #[cfg(target_os = "linux")] _mpris: mpris, local_audio, webview_audio_transport, webview_audio_transcoder, acquisition, diagnostics: startup_diagnostics, browser, managed_provider_session, playback_provider_session_status, remote_playlists, preview_warmup_cancel:std::sync::Mutex::new(None), playback_resolution, startup_readiness, webview_identification: webview_identification::WebViewIdentification::default(), connections, artists, analysis, analysis_selection_jobs: analysis_selection::AnalysisSelectionJobs::new(), stream_analysis_selection_jobs: analysis_stream_selection::SelectedStreamAnalysisJobs::new(), loudness_analysis_jobs: Arc::default(), waveform_analysis_jobs: Arc::default(), history, playlist_watcher: std::sync::Mutex::new(playlist_watcher), provider_reads: Arc::new(provider_read_requests::ProviderReadRequests::default()), sort_availability_backfill, backup_frontend_preference_session_id });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -9791,7 +9870,7 @@ pub fn run() {
             export_playback_diagnostics,
 
             get_diagnostics,
-            save_settings,
+            save_settings, reset_application_settings, factory_reset, get_factory_reset_status, ack_factory_reset,
             check_dependencies,
             list_assets,
             get_asset_by_id,

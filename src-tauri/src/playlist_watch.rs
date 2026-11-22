@@ -65,7 +65,7 @@ impl PlaylistWatcher {
 
         let settings = store.settings()?;
         let initial_roots = effective_watch_roots(&settings);
-        let mirroring_enabled = settings.playlist_mirroring_enabled;
+        let mirroring_enabled = playlist_sync::automatic_mirrors_enabled(&store, &settings)?;
         let mirror_directories = mirror_directories_for_settings(&settings);
         let mut watched = HashSet::new();
         let mut warnings = Vec::new();
@@ -265,7 +265,16 @@ fn refresh_roots(
         watched.remove(&root);
     }
     watch_roots(watcher, &roots, watched, warnings);
-    Some(settings.playlist_mirroring_enabled)
+    match playlist_sync::automatic_mirrors_enabled(store, &settings) {
+        Ok(enabled) => Some(enabled),
+        Err(error) => {
+            push_warning(
+                warnings,
+                format!("Could not refresh playlist copy selection: {error}"),
+            );
+            None
+        }
+    }
 }
 
 fn watch_roots(
