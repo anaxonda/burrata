@@ -24,7 +24,8 @@ function context() {
   const value = {
     commands, console, clearTimeout, setTimeout, AbortController, untrack: read => read(), portablePlaybackSource: () => null, error: "",
     clearPlaybackSkipNotice: () => {}, nativeSnapshot: null, playbackLoadSequence: 0,
-    resolvingPlayback: false, preparingPlayback: false, playbackOperationTrace: () => ({}), playbackRunGeneration: 0,
+    resolvingPlayback: false, pendingPlaybackTrack: null, lastRequestedPlaybackTrack: null,
+    playbackOperationTrace: () => ({}), playbackRunGeneration: 0,
     cancelRadioIdentification: () => {}, autoTimer: undefined, setAutomationPlaybackOwner: () => {},
     systemPausedTrack: false, queueTracks: [], view: "search", historyItems: [], sorted: [],
     queueCandidates: {}, audioSearchTrackIds: new Set(), settings: {}, candidateForQueue: () => null,
@@ -56,6 +57,22 @@ const track = id => ({
     assert.deepEqual(app.commands.map(command => command.tracks[0].id), ["A", "B"]);
     assert.equal(app.commands[0].loudnessAlbumResource, resourceA);
     assert.equal(app.commands[1].loudnessAlbumResource, resourceB);
+  }
+
+  {
+    const app = context();
+    const first = deferred(), second = deferred();
+    app.nativeCommand = command => command.tracks[0].id === "A" ? first.promise : second.promise;
+    const playA = app.startPreview(track("A"), false, false, [track("A")], 0);
+    assert.equal(app.pendingPlaybackTrack.id, "A");
+    const playB = app.startPreview(track("B"), false, false, [track("B")], 0);
+    first.resolve();
+    await playA;
+    assert.equal(app.pendingPlaybackTrack.id, "B");
+    second.resolve();
+    await playB;
+    assert.equal(app.pendingPlaybackTrack, null);
+    assert.equal(app.lastRequestedPlaybackTrack.id, "B");
   }
 
   {
