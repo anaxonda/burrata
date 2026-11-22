@@ -3,7 +3,7 @@
   import { getContext } from "svelte";
   import { SOURCE_OPENER, type SourceOpener } from "./lib/source-opening";
   import { liveBpmLabel } from "./lib/live-bpm";
-  import { trackDisplayVersion } from "./lib/track-display";
+  import { classicalTrackDisplay, trackDisplayVersion } from "./lib/track-display";
   import { metadataCount } from "./lib/provider-counts";
   import { call } from "./lib/api";
   import PlaybackQuality from "./PlaybackQuality.svelte";
@@ -240,6 +240,7 @@ import { trackSource } from "./lib/source-link";
   let imageFailed = $state(false);
   let imageUrl = $state("");
   const originalCoverUrl = $derived(track.artworkUrl || candidate?.artworkUrl || "");
+  const classical = $derived(classicalTrackDisplay(track));
   const displayVersion = $derived(trackDisplayVersion(track));
   const coverUrl = $derived(artworkDisplayUrl || originalCoverUrl);
   function safeHttpUrl(value: unknown): string {
@@ -382,7 +383,8 @@ import { trackSource } from "./lib/source-link";
       {/if}
       <div class="hero-copy">
       {#if candidate?.provider || track.provider}<p class="eyebrow">{candidate?.provider ?? track.provider} audio</p>{/if}
-        <h2>{activeChapter || track.title}</h2>
+        <h2 title={track.title}>{activeChapter || classical?.movement || track.title}</h2>
+        {#if !activeChapter && classical?.movement && classical.workTitle}<p class="track-version">{classical.workTitle}</p>{/if}
         {#if !activeChapter && displayVersion}<p class="track-version">{displayVersion}</p>{/if}
       {#if track.artist}<button class="artist-link" onclick={onArtist}>{track.artist}</button>{:else}<p class="unknown-artist">Artist unknown</p>{/if}
         {#if track.album}{#if onAlbum}<button class="album album-link" onclick={onAlbum}>{track.album}</button>{:else}<p class="album">{track.album}</p>{/if}{/if}
@@ -471,6 +473,12 @@ import { trackSource } from "./lib/source-link";
     </section>{/if}
 
     <dl>
+      {#if classical}
+        {#each classical.credits as credit (`${credit.artist.id}:${credit.role}`)}
+          <div><dt>{credit.role}</dt><dd>{#if onArtistRef}<button class="artist-link" onclick={() => onArtistRef(credit.artist)}>{credit.name}</button>{:else}{credit.name}{/if}</dd></div>
+        {/each}
+        {#if classical.movement}<div><dt>Original title</dt><dd>{track.title}</dd></div>{/if}
+      {/if}
       {#if views !== null}<div><dt>Views</dt><dd>{formatCount(views)}</dd></div>{/if}
       {#if plays !== null}<div><dt>Source plays</dt><dd>{formatCount(plays)}</dd></div>{/if}
       {#if catalogProvider && catalogProvider !== "catalog"}

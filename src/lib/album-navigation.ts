@@ -1,6 +1,8 @@
 import type { Track } from "./types";
 import type { ArtistRef, ArtistReleaseRef } from "./artist-types";
 
+export const ALBUM_LOOKUP_PENDING = Symbol("album lookup pending");
+
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }

@@ -1928,7 +1928,7 @@ fn get_cached_track_album(
     state: State<'_, AppState>,
     track: Track,
 ) -> Result<Option<album_navigation::AlbumResolution>> {
-    album_navigation::cached_resolution(&state.store, &track)
+    album_navigation::cached_lookup(&state.store, &track)
 }
 
 #[tauri::command]

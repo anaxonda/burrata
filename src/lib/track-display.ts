@@ -1,4 +1,60 @@
 import type { Track } from "./types";
+import type { ArtistRef } from "./artist-types";
+
+export const OPEN_CREDIT_ARTIST = Symbol("open credited artist");
+
+function object(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? value as Record<string, unknown> : {};
+}
+
+const roleLabels: Record<string, string> = {
+  composer: "Composer", orchestra: "Orchestra", conductor: "Conductor",
+  instrument: "Instrumentalist", vocal: "Vocalist", performer: "Performer",
+};
+
+export function classicalTrackDisplay(track: Track) {
+  const provenance = object(track.provenance);
+  if (track.provider !== "musicbrainz" &&
+      !(track.provider === "catalog" && provenance.catalogProvider === "musicbrainz")) return null;
+  const work = object(provenance.classicalWork);
+  if (work.classical !== true) return null;
+  const text = (value: unknown) => typeof value === "string" ? value.trim().slice(0, 512) : "";
+  const workTitle = text(work.title);
+  const manual = object(provenance.manualFields);
+  const movement = manual.title === true ? "" : text(work.movement);
+  const credits: { name: string; artist: ArtistRef; role: string }[] = [];
+  function addCredit(raw: unknown, role: string) {
+    const credit = object(raw);
+    const id = text(credit.id), name = text(credit.name);
+    if (!name || !role || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id) ||
+        credits.some(existing => existing.artist.id === id && existing.role === role)) return;
+    credits.push({ name, artist: { provider: "musicbrainz", id }, role });
+  }
+  if (Array.isArray(work.composers)) {
+    for (const composer of work.composers.slice(0, 16)) addCredit(composer, "Composer");
+  }
+  const relations = Array.isArray(provenance.recordingRelations) ? provenance.recordingRelations.slice(0, 64) : [];
+  for (const role of ["orchestra", "instrument", "vocal", "performer", "conductor"]) {
+    for (const row of relations) {
+      const relation = object(row);
+      if (relation.type === role || (role === "orchestra" && relation.type === "performing orchestra")) {
+        addCredit(relation.artist, roleLabels[role]);
+      }
+    }
+  }
+  const catalog = object(provenance.catalog);
+  const rawCredits = Array.isArray(provenance.artistCredits) ? provenance.artistCredits : catalog.artists;
+  if (Array.isArray(rawCredits)) {
+    for (const row of rawCredits.slice(0, 32)) {
+      const credit = object(row);
+      const artist = object(credit.artist ?? row);
+      if (artist.provider === "musicbrainz" && !credits.some(existing => existing.artist.id === artist.id)) {
+        addCredit({ id: artist.id, name: credit.name }, "Artist");
+      }
+    }
+  }
+  return movement || credits.length ? { workTitle, movement, credits } : null;
+}
 
 function titleKey(value: string): string {
   return value.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{M}\p{N}]+/gu, " ").trim();

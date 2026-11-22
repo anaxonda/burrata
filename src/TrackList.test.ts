@@ -7,6 +7,7 @@ vi.mock("svelte", async () => await import("../node_modules/svelte/src/index-cli
 import TrackList from "./TrackList.svelte";
 import * as api from "./lib/api";
 import { SOURCE_OPENER } from "./lib/source-opening";
+import { OPEN_CREDIT_ARTIST } from "./lib/track-display";
 // @ts-expect-error Reuse the reactive prop proxy for context-replacement coverage.
 import { proxy } from "../node_modules/svelte/src/internal/client/proxy.js";
 import trackListSource from "./TrackList.svelte?raw";
@@ -36,6 +37,29 @@ function render(props: Record<string, unknown> = {}) {
 }
 
 describe("TrackList", () => {
+  it("preserves a classical title tooltip and links each verified credited artist", async () => {
+    const composer = { id: "00000000-0000-4000-8000-000000000001", name: "Ludwig van Beethoven" };
+    const conductor = { id: "00000000-0000-4000-8000-000000000002", name: "Carlos Kleiber" };
+    const title = "Symphony No. 5, Op. 67: I. Allegro con brio";
+    const track = { ...tracks[0], provider: "catalog", title, provenance: {
+      catalogProvider: "musicbrainz",
+      classicalWork: { classical: true, title: "Symphony No. 5, Op. 67", movement: "I. Allegro con brio", composers: [composer] },
+      recordingRelations: [{ type: "conductor", artist: conductor }],
+    } };
+    const openArtist = vi.fn();
+    const target = document.createElement("div");
+    document.body.append(target);
+    const instance = mount(TrackList, { target, props: { tracks: [track] }, context: new Map([[OPEN_CREDIT_ARTIST, openArtist]]) });
+    cleanup = () => unmount(instance);
+    await tick();
+    expect(target.querySelector(".track-title")?.getAttribute("title")).toBe(title);
+    expect(target.querySelector(".track-title")?.textContent?.trim()).toBe("I. Allegro con brio");
+    expect(target.querySelector('[title="Composer"]')?.textContent).toBe(composer.name);
+    expect(target.querySelector('[title="Conductor"]')?.textContent).toBe(conductor.name);
+    target.querySelector<HTMLButtonElement>('button[title="Conductor"]')!.click();
+    expect(openArtist).toHaveBeenCalledWith({ provider: "musicbrainz", id: conductor.id });
+  });
+
   it("shows provider-reported Spotify plays and YouTube views without filling in missing counts", async () => {
     const target = render({
       showProviderCounts: true,

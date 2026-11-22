@@ -2392,7 +2392,7 @@ impl ArtistService {
                         &format!("release/{edition_id}"),
                         &[(
                             "inc",
-                            "artist-credits+labels+recordings+media+isrcs+release-groups+url-rels"
+                            "artist-credits+labels+recordings+media+isrcs+release-groups+url-rels+recording-level-rels+work-level-rels+artist-rels+work-rels"
                                 .into(),
                         )],
                         "artists.release-tracks.musicbrainz",
@@ -4252,8 +4252,56 @@ pub(crate) fn parse_musicbrainz_release_tracks(
             let recording_credits =
                 parse_musicbrainz_credits(&recording["artist-credit"], &release_url);
             let track_credits = parse_musicbrainz_credits(&track["artist-credit"], &release_url);
+            let work = musicbrainz_work_context(recording, title);
+            let relations = musicbrainz_recording_relations(recording);
+            let composers = work["composers"].as_array();
+            let composer_only_track_credit = work["classical"] == true
+                && recording_credits.is_empty()
+                && !track_credits.is_empty()
+                && composers.is_some_and(|composers| {
+                    track_credits.iter().all(|credit| {
+                        composers.iter().any(|composer| {
+                            credit
+                                .artist
+                                .as_ref()
+                                .is_some_and(|artist| composer["id"] == artist.id)
+                        })
+                    })
+                });
             let credits = if !recording_credits.is_empty() {
                 recording_credits.clone()
+            } else if composer_only_track_credit {
+                relations
+                    .iter()
+                    .filter_map(|relation| {
+                        if !matches!(
+                            relation["type"].as_str(),
+                            Some("performer" | "vocal" | "instrument" | "orchestra")
+                        ) {
+                            return None;
+                        }
+                        let artist = &relation["artist"];
+                        Some(ArtistCredit {
+                            name: artist["name"].as_str()?.to_owned(),
+                            artist: Some(ArtistRef {
+                                provider: "musicbrainz".into(),
+                                id: artist["id"].as_str()?.to_owned(),
+                            }),
+                            role: "performer".into(),
+                            credited_as: None,
+                            join_phrase: None,
+                            source_url: release_url.clone(),
+                        })
+                    })
+                    .fold(Vec::<ArtistCredit>::new(), |mut credits, credit| {
+                        if !credits
+                            .iter()
+                            .any(|existing| existing.artist == credit.artist)
+                        {
+                            credits.push(credit);
+                        }
+                        credits
+                    })
             } else if !track_credits.is_empty() {
                 track_credits.clone()
             } else {
@@ -4268,7 +4316,13 @@ pub(crate) fn parse_musicbrainz_release_tracks(
             };
             let track_artist_name = mb_credit_name(track_artist_credits);
             let album_artist_is_various = is_various_artist(&release_artist);
-            let artist_name = if !track_artist_name.trim().is_empty() {
+            let artist_name = if composer_only_track_credit {
+                credits
+                    .iter()
+                    .map(|credit| credit.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            } else if !track_artist_name.trim().is_empty() {
                 track_artist_name
             } else if !release_artist.trim().is_empty() && !album_artist_is_various {
                 release_artist.clone()
@@ -4314,12 +4368,14 @@ pub(crate) fn parse_musicbrainz_release_tracks(
                 source_disc_number,
                 track["position"].as_u64(),
                 medium["position"].as_u64(),
+                relations,
+                work,
             ));
         }
     }
     ordered.sort_by_key(|row| (row.0, row.1, row.2));
     let mut occurrences = std::collections::HashMap::<(u32, String), u32>::new();
-    ordered.into_iter().map(|(medium, _, _, title, position, credits, artist, reference_id, source_track_guid, duration_ms, isrc, track_number, disc_number, source_track_position, source_medium_position)| {
+    ordered.into_iter().map(|(medium, _, _, title, position, credits, artist, reference_id, source_track_guid, duration_ms, isrc, track_number, disc_number, source_track_position, source_medium_position, relations, work)| {
         let key = (medium, position.clone());
         let occurrence = occurrences.entry(key).and_modify(|value| *value += 1).or_insert(1);
         let (id, provider_id) = catalog_track_id("musicbrainz", edition_id, reference_id.as_deref(), &medium.to_string(), &position, *occurrence);
@@ -4337,7 +4393,8 @@ pub(crate) fn parse_musicbrainz_release_tracks(
                 "artworkAlternates":musicbrainz_artwork_urls(data, "release", edition_id),
                 "mediumPosition":medium, "trackPosition":position, "occurrence":occurrence,
                 "trackPositionOrdinal":source_track_position, "sourceMediumPosition":source_medium_position,
-                "recordingId":reference_id, "trackGuid":source_track_guid, "artistCredits":credits, "representativeEdition":representative}),
+                "recordingId":reference_id, "trackGuid":source_track_guid, "artistCredits":credits,
+                "recordingRelations":relations, "classicalWork":work, "representativeEdition":representative}),
             ..Track::default()
         }
     }).collect()
@@ -4704,6 +4761,125 @@ fn parse_discogs_release(value: &Value) -> Option<ArtistReleaseRef> {
     })
 }
 
+fn musicbrainz_relation_rows(value: &Value) -> impl Iterator<Item = &Value> {
+    value["relations"].as_array().into_iter().flatten().take(64)
+}
+
+fn musicbrainz_relation_artist(relation: &Value) -> Option<Value> {
+    let artist = &relation["artist"];
+    let id = artist["id"].as_str().filter(|id| valid_mbid(id))?;
+    let name = artist["name"].as_str()?.trim();
+    if name.is_empty() || name.len() > 512 || name.chars().any(char::is_control) {
+        return None;
+    }
+    Some(json!({"id": id, "name": name}))
+}
+
+fn musicbrainz_recording_relations(recording: &Value) -> Vec<Value> {
+    musicbrainz_relation_rows(recording)
+        .filter_map(|relation| {
+            let role = match relation["type"].as_str()? {
+                "performing orchestra" => "orchestra",
+                other => other,
+            };
+            if role == "performance" {
+                let id = relation["work"]["id"]
+                    .as_str()
+                    .filter(|id| valid_mbid(id))?;
+                return Some(json!({"type": role, "work": {"id": id}}));
+            }
+            if !matches!(
+                role,
+                "composer" | "conductor" | "orchestra" | "instrument" | "vocal" | "performer"
+            ) {
+                return None;
+            }
+            let artist = musicbrainz_relation_artist(relation)?;
+            Some(json!({"type": role, "artist": artist}))
+        })
+        .collect()
+}
+
+fn musicbrainz_work_context(recording: &Value, recording_title: &str) -> Value {
+    let mut works = musicbrainz_relation_rows(recording)
+        .filter(|relation| relation["type"] == "performance")
+        .map(|relation| &relation["work"]);
+    let Some(work) = works.next().filter(|_| works.next().is_none()) else {
+        return Value::Null;
+    };
+    let Some(work_id) = work["id"].as_str().filter(|id| valid_mbid(id)) else {
+        return Value::Null;
+    };
+    let bounded_title = |candidate: &Value| {
+        candidate["title"]
+            .as_str()
+            .map(str::trim)
+            .filter(|title| {
+                !title.is_empty() && title.len() <= 512 && !title.chars().any(char::is_control)
+            })
+            .map(str::to_owned)
+    };
+    let mut parents = musicbrainz_relation_rows(work)
+        .filter(|relation| relation["type"] == "parts" && relation["direction"] == "backward")
+        .map(|relation| &relation["work"])
+        .filter(|parent| parent["id"].as_str().is_some_and(valid_mbid));
+    let parent = parents.next().filter(|_| parents.next().is_none());
+    let composers = musicbrainz_relation_rows(work)
+        .chain(parent.into_iter().flat_map(musicbrainz_relation_rows))
+        .filter(|relation| relation["type"] == "composer")
+        .filter_map(musicbrainz_relation_artist)
+        .fold(Vec::<Value>::new(), |mut credits, credit| {
+            if credits.len() < 16
+                && !credits
+                    .iter()
+                    .any(|existing| existing["id"] == credit["id"])
+            {
+                credits.push(credit);
+            }
+            credits
+        });
+    let work_title = parent
+        .and_then(bounded_title)
+        .or_else(|| bounded_title(work));
+    let movement = parent.and_then(bounded_title).and_then(|parent_title| {
+        let fold = crate::recording_identity::search_fold;
+        let parent_key = fold(&parent_title);
+        recording_title.match_indices(':').find_map(|(end, _)| {
+            let prefix = &recording_title[..end];
+            let suffix = recording_title[end + 1..].trim();
+            let title_matches = fold(prefix) == parent_key
+                || prefix
+                    .split_once(':')
+                    .is_some_and(|(_, prefix)| fold(prefix) == parent_key);
+            (title_matches && !suffix.is_empty()).then(|| suffix.to_owned())
+        })
+    });
+    let classical = [work, parent.unwrap_or(work)].iter().any(|work| {
+        matches!(
+            work["type"].as_str(),
+            Some(
+                "Aria"
+                    | "Cantata"
+                    | "Concerto"
+                    | "Mass"
+                    | "Opera"
+                    | "Oratorio"
+                    | "Partita"
+                    | "Sonata"
+                    | "Suite"
+                    | "Symphony"
+                    | "Movement"
+            )
+        )
+    }) || musicbrainz_relation_rows(recording).any(|relation| {
+        matches!(
+            relation["type"].as_str(),
+            Some("performing orchestra" | "orchestra" | "conductor")
+        )
+    });
+    json!({"id": work_id, "title": work_title, "movement": movement, "composers": composers, "classical": classical})
+}
+
 fn parse_musicbrainz_recording(value: &Value, _artist: &ArtistRef) -> Option<Track> {
     let id = value["id"].as_str()?.to_owned();
     let title = value["title"]
@@ -4741,6 +4917,7 @@ fn parse_musicbrainz_recording(value: &Value, _artist: &ArtistRef) -> Option<Tra
     } else {
         tags
     };
+    let work = musicbrainz_work_context(value, &title);
     Some(Track {
         id: format!("musicbrainz:{id}"),
         provider: "musicbrainz".into(),
@@ -4760,6 +4937,7 @@ fn parse_musicbrainz_recording(value: &Value, _artist: &ArtistRef) -> Option<Tra
             "artistCredits": credits,
             "recordingId": id,
             "recordingRelations": value["relations"],
+            "classicalWork": work,
             "recordingIsrcs": value["isrcs"],
             "recordingFirstReleaseDate": release_date,
             "dateMeaning": "Recording first release date; not the date this result was uploaded or searched",
@@ -7112,6 +7290,65 @@ mod tests {
             crate::recording_identity::trusted_musicbrainz_ordinals(&cached_legacy),
             (None, Some(2))
         );
+    }
+
+    #[test]
+    fn classical_musicbrainz_album_keeps_work_and_uses_recording_performers() {
+        let composer =
+            json!({"name":"Ludwig van Beethoven", "id":"00000000-0000-4000-8000-000000000001"});
+        let orchestra =
+            json!({"name":"Vienna Philharmonic", "id":"00000000-0000-4000-8000-000000000002"});
+        let conductor =
+            json!({"name":"Carlos Kleiber", "id":"00000000-0000-4000-8000-000000000003"});
+        let title = "Beethoven: Symphony No. 5, Op. 67: I. Allegro con brio";
+        let mut data = json!({"title":"Symphonies Nos. 5 & 7", "media":[{"position":1,"tracks":[{
+            "position":1, "number":"1", "title":title, "artist-credit":[{"artist":composer}],
+            "recording":{"id":"00000000-0000-4000-8000-000000000004","length":441946,"relations":[
+                {"type":"performance","work":{"id":"00000000-0000-4000-8000-000000000005","title":"I. Allegro con brio",
+                    "relations":[{"type":"parts","direction":"backward","work":{
+                        "id":"00000000-0000-4000-8000-000000000006","title":"Symphony No. 5, Op. 67","type":"Symphony",
+                        "relations":[{"type":"composer","artist":composer}]
+                    }}]
+                }},
+                {"type":"performing orchestra","artist":orchestra},
+                {"type":"conductor","artist":conductor}
+            ]}
+        }]}]});
+        let parse = |data: &Value| {
+            parse_musicbrainz_release_tracks(
+                data,
+                "00000000-0000-4000-8000-000000000007",
+                "https://musicbrainz.org/release/00000000-0000-4000-8000-000000000007",
+                false,
+                None,
+            )
+        };
+        let rows = parse(&data);
+        assert_eq!(rows[0].title, title);
+        assert_eq!(rows[0].artist, "Vienna Philharmonic");
+        assert_eq!(
+            rows[0].provenance["classicalWork"]["movement"],
+            "I. Allegro con brio"
+        );
+        assert_eq!(
+            rows[0].provenance["classicalWork"]["composers"][0]["name"],
+            "Ludwig van Beethoven"
+        );
+        assert_eq!(
+            rows[0].provenance["recordingRelations"][2]["type"],
+            "conductor"
+        );
+        let identity = crate::recording_identity::RecordingIdentity::from_track(&rows[0]);
+        assert_eq!(identity.work_ids, ["00000000-0000-4000-8000-000000000005"]);
+        assert!(identity
+            .credits
+            .iter()
+            .all(|credit| credit.name != "Ludwig van Beethoven"));
+        data["media"][0]["tracks"][0]["recording"]["relations"]
+            .as_array_mut()
+            .unwrap()
+            .truncate(1);
+        assert_eq!(parse(&data)[0].artist, "");
     }
 
     #[test]

@@ -227,6 +227,37 @@ async fn resolve_credited_radio_edition(
     select_verified_albums(choices, group_count == 1)
 }
 
+async fn resolve_single_credited_edition(
+    artists: &crate::artists::ArtistService,
+    credentials: &crate::artists::ArtistCredentials,
+    track: &Track,
+    album: &str,
+    artist: &str,
+) -> Option<AlbumResolution> {
+    let editions = artists
+        .find_musicbrainz_credited_editions(album, artist)
+        .await?;
+    let [(release, artist, group)] = editions.as_slice() else {
+        return None;
+    };
+    let tracks = artists
+        .get_release_tracks(release, artist, credentials)
+        .await
+        .ok()?;
+    if !verified_edition_tracks(release, group, &tracks) || !recording_member(track, &tracks) {
+        return None;
+    }
+    let release = fetched_edition(release.clone(), &tracks)?;
+    (key(&release.title) == key(album)).then(|| AlbumResolution::Resolved {
+        destination: AlbumChoice {
+            release,
+            artist: artist.clone(),
+            reason: "Matching recording in the independently fetched release tracklist".into(),
+            evidence: AlbumMembershipEvidence::RecordingOccurrence,
+        },
+    })
+}
+
 fn select_verified_albums(
     mut choices: Vec<AlbumChoice>,
     complete: bool,
@@ -514,6 +545,11 @@ fn same_album_timeline(
 }
 
 fn preferred_choice(choices: &[AlbumChoice], album: &str, incomplete: bool) -> Option<usize> {
+    if let [only] = choices {
+        if !album.is_empty() && key(&only.release.title) == key(album) {
+            return Some(0);
+        }
+    }
     if incomplete {
         return None;
     }
@@ -528,7 +564,7 @@ fn preferred_choice(choices: &[AlbumChoice], album: &str, incomplete: bool) -> O
     if timelines.len() == 1 {
         return Some(timelines[0]);
     }
-    (choices.len() == 1 && key(&choices[0].release.title) == key(album)).then_some(0)
+    None
 }
 
 fn complete_primary_discography(page: &ArtistReleasePage, artist: &ArtistRef) -> bool {
@@ -648,6 +684,51 @@ fn fetched_edition(mut release: ArtistReleaseRef, tracks: &[Track]) -> Option<Ar
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn one_verified_album_with_the_requested_title_opens_without_a_chooser() {
+        let artist = ArtistRef {
+            provider: "musicbrainz".into(),
+            id: "febbc27e-3880-4c0a-9293-42d0b04c75ab".into(),
+        };
+        let release = serde_json::from_value(serde_json::json!({
+            "release":{"provider":"musicbrainz","id":"a5a85b2d-83b8-4279-b35b-491b91e1370a"},
+            "title":"Astro","sourceUrl":"https://musicbrainz.org/release/a5a85b2d-83b8-4279-b35b-491b91e1370a",
+            "credits":[],"tracks":[]
+        })).unwrap();
+        let choice = AlbumChoice {
+            release,
+            artist,
+            reason: "Verified recording".into(),
+            evidence: AlbumMembershipEvidence::RecordingOccurrence,
+        };
+        assert_eq!(
+            preferred_choice(std::slice::from_ref(&choice), "Astro", true),
+            Some(0)
+        );
+        assert_eq!(
+            preferred_choice(std::slice::from_ref(&choice), "Another release", true),
+            None
+        );
+        let track = Track {
+            album: Some("Astro".into()),
+            ..track()
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::storage::Store::open(&dir.path().join("library.db")).unwrap();
+        cache_resolution(
+            &store,
+            &cache_key(&track),
+            AlbumResolution::Ambiguous {
+                choices: vec![choice],
+            },
+        )
+        .unwrap();
+        assert!(matches!(
+            cached_lookup(&store, &track).unwrap(),
+            Some(AlbumResolution::Resolved { .. })
+        ));
+    }
+
     fn track() -> Track {
         Track {
             title: "La Nave del Olvido".into(),
@@ -1247,11 +1328,38 @@ pub(crate) fn cached_resolution(
     store: &crate::storage::Store,
     track: &Track,
 ) -> Result<Option<AlbumResolution>, String> {
-    let value = store.get_provider_cache(MEMBERSHIP_CACHE, &cache_key(track))?;
+    let membership_key = cache_key(track);
+    let value = store.get_provider_cache(MEMBERSHIP_CACHE, &membership_key)?;
     Ok(value.and_then(|value| match serde_json::from_value(value) {
         Ok(result @ AlbumResolution::Resolved { .. }) => Some(result),
         _ => None,
     }))
+}
+
+pub(crate) fn cached_lookup(
+    store: &crate::storage::Store,
+    track: &Track,
+) -> Result<Option<AlbumResolution>, String> {
+    let resolved = cached_resolution(store, track)?;
+    if resolved.is_some() {
+        return Ok(resolved);
+    }
+    let value = store.get_provider_cache(MEMBERSHIP_CHOICES_CACHE, &cache_key(track))?;
+    let Some(AlbumResolution::Ambiguous { mut choices }) =
+        value.and_then(|value| serde_json::from_value(value).ok())
+    else {
+        return Ok(None);
+    };
+    Ok(Some(
+        if let Some(index) = preferred_choice(&choices, track.album.as_deref().unwrap_or(""), true)
+        {
+            AlbumResolution::Resolved {
+                destination: choices.remove(index),
+            }
+        } else {
+            AlbumResolution::Ambiguous { choices }
+        },
+    ))
 }
 
 pub(crate) fn remember_choice(
@@ -1276,7 +1384,7 @@ pub(crate) fn remember_choice(
 
 pub async fn resolve(state: &crate::AppState, track: &Track) -> Result<AlbumResolution, String> {
     let membership_key = cache_key(track);
-    if let Some(result) = cached_resolution(&state.store, track)? {
+    if let Some(result) = cached_lookup(&state.store, track)? {
         return Ok(result);
     }
     let source_album_url = track.provenance["albumBrowseId"]
@@ -1317,25 +1425,42 @@ pub async fn resolve(state: &crate::AppState, track: &Track) -> Result<AlbumReso
         });
     }
     let artist = album_artist(track);
-    let source_timeline = if track.provider == "youtube" {
-        if let Some(browse_id) = track.provenance["albumBrowseId"].as_str() {
-            crate::youtube_music::album_tracks(browse_id)
+    // An exact title-and-credit lookup can identify the requested edition
+    // without inspecting the broad search's unrelated releases.
+    if (track.isrc.is_some()
+        || track
+            .duration_seconds
+            .is_some_and(|duration| duration > 0.0))
+        && track.provenance["albumBrowseId"].is_null()
+    {
+        if let Some(result) =
+            resolve_single_credited_edition(&state.artists, &credentials, track, album, &artist)
                 .await
-                .ok()
-                .filter(|items| {
-                    items
-                        .iter()
-                        .filter(|item| item.id == track.provider_id)
-                        .count()
-                        == 1
-                })
-        } else {
-            None
+        {
+            return cache_resolution(&state.store, &membership_key, result);
         }
-    } else {
-        None
+    }
+    let source_timeline = async {
+        if track.provider != "youtube" {
+            return None;
+        }
+        let browse_id = track.provenance["albumBrowseId"].as_str()?;
+        crate::youtube_music::album_tracks(browse_id)
+            .await
+            .ok()
+            .filter(|items| {
+                items
+                    .iter()
+                    .filter(|item| item.id == track.provider_id)
+                    .count()
+                    == 1
+            })
     };
-    let page = match state.artists.search_albums(album, 1, &credentials).await {
+    let (source_timeline, album_search) = tokio::join!(
+        source_timeline,
+        state.artists.search_albums(album, 1, &credentials)
+    );
+    let page = match album_search {
         Ok(page) => page,
         Err(_) => {
             if let Some(result) = recording_fallback {

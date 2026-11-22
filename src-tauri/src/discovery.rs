@@ -594,7 +594,10 @@ async fn search_musicbrainz_recordings(
     });
     let lucene = isrc
         .map(|s| format!("isrc:{}", s.trim()))
-        .unwrap_or_else(|| query.split_whitespace().collect::<Vec<_>>().join(" "));
+        .unwrap_or_else(|| {
+            classical_musicbrainz_query(query)
+                .unwrap_or_else(|| query.split_whitespace().collect::<Vec<_>>().join(" "))
+        });
     let limit = limit.clamp(1, 50);
     url.query_pairs_mut()
         .append_pair("query", &lucene)
@@ -632,6 +635,42 @@ async fn search_musicbrainz_recordings(
         body["recordings"].as_array().cloned().unwrap_or_default(),
         more,
     ))
+}
+
+fn classical_musicbrainz_query(query: &str) -> Option<String> {
+    if query.contains([':', '"', '*', '?', '[', ']']) {
+        return None;
+    }
+    let normalized = crate::matching::normalize(query);
+    let words = normalized.split_whitespace().take(32).collect::<Vec<_>>();
+    let (start, end) = words.iter().enumerate().find_map(|(index, title)| {
+        if !matches!(
+            *title,
+            "symphony" | "concerto" | "sonata" | "suite" | "quartet" | "partita"
+        ) {
+            return None;
+        }
+        let number = index
+            + if matches!(words.get(index + 1), Some(&"no" | &"number")) {
+                2
+            } else {
+                1
+            };
+        let number_word = words.get(number)?;
+        (number_word.len() <= 3 && number_word.bytes().all(|b| b.is_ascii_digit()))
+            .then_some((index, number))
+    })?;
+    let mut query = format!("+recording:({} AND {})", words[start], words[end]);
+    for word in words[..start].iter().chain(&words[end + 1..]).take(18) {
+        if word.len() >= 2 && word.chars().all(char::is_alphanumeric) {
+            // Composer/performer words can occur in either indexed field.
+            // Require the numbered work itself so a rare name cannot fill the page.
+            query.push_str(&format!(
+                " (artistname:\"{word}\"^4 OR recording:\"{word}\")"
+            ));
+        }
+    }
+    Some(query)
 }
 
 fn musicbrainz_recording_result(recording: Value) -> DiscoveryResult {
@@ -2760,6 +2799,25 @@ mod tests {
             json!([{"provider":"spotify","id":"aaaaaaaaaaaaaaaaaaaaaa","name":"Artist"}])
         );
     }
+    #[test]
+    fn classical_musicbrainz_query_requires_the_numbered_work_and_boosts_artist_credits() {
+        let query = super::classical_musicbrainz_query(
+            "Beethoven Symphony No. 5 Op. 67 Carlos Kleiber Vienna Philharmonic",
+        )
+        .unwrap();
+        assert!(query.starts_with("+recording:(symphony AND 5)"));
+        assert!(query.contains("artistname:\"kleiber\"^4"));
+        assert!(query.contains("artistname:\"philharmonic\"^4"));
+        assert_eq!(
+            super::classical_musicbrainz_query("Kleiber field recordings"),
+            None
+        );
+        assert_eq!(
+            super::classical_musicbrainz_query("artist:Carlos Kleiber Symphony 5"),
+            None
+        );
+    }
+
     #[test]
     fn musicbrainz_search_recording_preserves_provider_display_and_credited_alias() {
         let result = musicbrainz_recording_result(json!({

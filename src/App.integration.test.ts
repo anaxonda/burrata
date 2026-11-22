@@ -1478,6 +1478,56 @@ describe("saved library navigation", () => {
     expect(mocks.call.mock.calls.filter(([command, args]) => command === "search_source" && (args as { query?: string }).query === "nipsey" && (args as { sourceIds?: string[] }).sourceIds?.includes("library")).length).toBe(1);
   });
 
+  it("shows album lookup immediately at the clicked link and opens a verified release directly", async () => {
+    const track: Track = { ...savedTrack, id: "astro-track", provider: "youtube", title: "Pegasu", artist: "Donato Dozzy", album: "Astro", provenance: {} };
+    const artist = { provider: "musicbrainz", id: "66666666-6666-4666-8666-666666666666" } as const;
+    const release = { release: { provider: "musicbrainz", id: "77777777-7777-4777-8777-777777777777" }, title: "Astro", sourceUrl: "https://musicbrainz.org/release/77777777-7777-4777-8777-777777777777", credits: [], tracks: [] };
+    let finish!: (value: unknown) => void;
+    const lookup = new Promise(resolve => { finish = resolve; });
+    const originalCall = mocks.call.getMockImplementation()!;
+    mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "search_source" && (args?.sourceIds as string[] | undefined)?.includes("library")) return { sourceId: "library", complete: true, results: [{ id: track.id, kind: "track", sourceId: "library", title: track.title, track }] };
+      if (command === "get_cached_track_album") return lookup;
+      if (command === "get_release_tracks") return [track];
+      return originalCall(command, args);
+    });
+    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); }; await settle();
+    document.querySelector<HTMLButtonElement>('nav [aria-label="Search"]')!.click();
+    await settle();
+    await searchDiscovery("Pegasu", ["My library"]);
+    const link = document.querySelector<HTMLButtonElement>('[aria-label="Open album Astro"]')!;
+    link.click();
+    await settle();
+    expect(link.getAttribute("aria-busy")).toBe("true");
+    expect(link.textContent).toContain("Finding album");
+    finish({status:"resolved", destination:{release, artist}});
+    await vi.waitFor(() => expect(document.querySelector(".release-view h1")?.textContent).toBe("Astro"));
+    expect(document.querySelector('dialog[aria-label="Choose album"]')).toBeNull();
+    expect(mocks.call.mock.calls.some(([command]) => command === "resolve_track_album")).toBe(false);
+  });
+
+  it("shows loading on the clicked search track before native playback responds", async () => {
+    const track: Track = { ...savedTrack, id: "pending-symphony", title: "Symphony No. 5: I. Allegro con brio" };
+    const originalCall = mocks.call.getMockImplementation()!;
+    let finish!: () => void;
+    const hold = new Promise<void>(resolve => { finish = resolve; });
+    mocks.call.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "search_source" && (args?.sourceIds as string[] | undefined)?.includes("library")) return { sourceId: "library", complete: true, results: [{ id: track.id, kind: "track", sourceId: "library", title: track.title, track }] };
+      if (command === "playback_command" && (args?.command as { action?: string })?.action === "play") await hold;
+      return originalCall(command, args);
+    });
+    const instance = mount(App, { target: document.body }); unmountApp = () => { void unmount(instance); }; await settle();
+    document.querySelector<HTMLButtonElement>('nav [aria-label="Search"]')!.click();
+    await settle();
+    await searchDiscovery(track.title, ["My library"]);
+    document.querySelector<HTMLButtonElement>(".result-row .track-title")!.click();
+    await settle();
+    expect(document.querySelector(".result-row .shared-track-list li.buffering")).not.toBeNull();
+    expect(document.querySelector(".play-button")?.getAttribute("aria-busy")).toBe("true");
+    finish();
+    await vi.waitFor(() => expect(document.querySelector(".play-button")?.getAttribute("aria-busy")).toBe("false"));
+  });
+
   it("ignores a failed public album lookup after the user navigates away", async () => {
     const track: Track = { ...savedTrack, id: "nipsey-prolific-race", provider: "youtube", providerId: "video-prolific", title: "Super Real", artist: "Nipsey Hussle", album: "Prolific", provenance: { sourceKind: "audioSearch" } };
     let rejectLookup!: (reason: Error) => void;

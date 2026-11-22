@@ -1,10 +1,12 @@
 <script lang="ts">
+  import { ALBUM_LOOKUP_PENDING } from "./lib/album-navigation";
   import HeartIcon from "./HeartIcon.svelte";
   import { getContext, onMount } from "svelte";
   import { FAVORITE_MEMBERSHIP, type FavoriteMembership } from "./lib/favorite-membership";
   import { readLibraryTrackMembership } from "./lib/library-track-membership";
   import { SOURCE_OPENER, type SourceOpener } from "./lib/source-opening";
   import { call } from "./lib/api";
+  import type { ArtistRef } from "./lib/artist-types";
   import type { Track } from "./lib/types";
   import TrackMenu from "./TrackMenu.svelte";
   import BufferingSpinner from "./BufferingSpinner.svelte";
@@ -13,7 +15,7 @@
   import { trackSource } from "./lib/source-link";
   import { sameTrackIdentity } from "./lib/track-identity";
   import { playableDuration } from "./lib/track-sort";
-  import { trackDisplayVersion } from "./lib/track-display";
+  import { classicalTrackDisplay, OPEN_CREDIT_ARTIST, trackDisplayVersion } from "./lib/track-display";
   import { trackProviderCount } from "./lib/provider-counts";
   import { rowWindow } from "./lib/table";
   import { invertSelection } from "./lib/selection";
@@ -296,6 +298,8 @@
     const destination = fromPosition - 1 + (event.key === "ArrowUp" ? -1 : 1);
     void movePlaylistOccurrence(track, fromPosition, destination);
   }
+  const openCreditArtist = getContext<((artist: ArtistRef) => void) | undefined>(OPEN_CREDIT_ARTIST);
+  const albumLookupPending = getContext<((id: string) => boolean) | undefined>(ALBUM_LOOKUP_PENDING);
   const sourceOpener = getContext<SourceOpener | undefined>(SOURCE_OPENER);
   const favoriteMembership = getContext<FavoriteMembership | undefined>(FAVORITE_MEMBERSHIP);
   let sourceOpenFailure = $state("");
@@ -340,10 +344,11 @@
     {@const track = tracks[index]}
     {#if track}
     {@const current = playingTrack ? sameTrackIdentity(track, playingTrack) : track.id === playingTrackId}
-    {@const failed = current && playbackFailed}
-    {@const buffering = !failed && (bufferingTrack ? sameTrackIdentity(track, bufferingTrack) : track.id === bufferingTrackId)}
+    {@const buffering = bufferingTrack ? sameTrackIdentity(track, bufferingTrack) : track.id === bufferingTrackId}
+    {@const failed = current && playbackFailed && !buffering}
     {@const duration = playableDuration(track)}
     {@const displayVersion = trackDisplayVersion(track)}
+    {@const classical = classicalTrackDisplay(track)}
     {@const providerCount = showProviderCounts ? trackProviderCount(track) : null}
     {@const rowMeta = meta?.(track, index)}
     {@const occurrencePosition = playlistPosition(track)}
@@ -363,12 +368,18 @@
       {#if presentation !== "playlist"}{@render playbackStatus()}{/if}
       <div class="track-copy">
         <button class="track-title" aria-label={`Play ${track.title}`} title={trackTitle?.(track, index) ?? track.title} onclick={(event) => { if (event.shiftKey || event.ctrlKey || event.metaKey) onRowSelect?.(track, event, index); else onPlay?.(track, tracks, index); }}>
-          <strong>{track.title}{#if displayVersion}<small>{" "}({displayVersion})</small>{/if}</strong>
+          <strong>{classical?.movement || track.title}{#if displayVersion}<small>{" "}({displayVersion})</small>{/if}</strong>
         </button>
         <div class="track-subtitle">
           {#if providerCount}<span class="source-count" title={providerCount.full}>{providerCount.label}</span>{#if track.artist || track.album || rowMeta}{" · "}{/if}{/if}
-          {#if track.artist}{#if onArtist}<button class="artist-link" aria-label={`Find recordings by ${track.artist}`} onclick={() => onArtist?.(track)}>{track.artist}</button>{:else}<span>{track.artist}</span>{/if}{/if}
-          {#if track.album}<span class="album">{track.artist ? " · " : ""}{#if onAlbum}<button class="album-link" aria-label={`Open album ${track.album}`} onclick={() => onAlbum?.(track)}>{track.album}</button>{:else}{track.album}{/if}</span>{/if}
+          {#if classical?.movement && classical.workTitle}<span>{classical.workTitle} · </span>{/if}
+          {#if classical?.credits.length}
+            {#each classical.credits as credit, creditIndex (`${credit.artist.id}:${credit.role}`)}
+              {#if creditIndex > 0}<span aria-hidden="true"> · </span>{/if}
+              {#if openCreditArtist}<button class="artist-link" aria-label={`${credit.name}, ${credit.role.toLowerCase()}`} title={credit.role} onclick={() => openCreditArtist(credit.artist)}>{credit.name}</button>{:else}<span title={credit.role}>{credit.name}</span>{/if}
+            {/each}
+          {:else if track.artist}{#if onArtist}<button class="artist-link" aria-label={`Find recordings by ${track.artist}`} onclick={() => onArtist?.(track)}>{track.artist}</button>{:else}<span>{track.artist}</span>{/if}{/if}
+          {#if track.album}<span class="album">{track.artist || classical?.credits.length ? " · " : ""}{#if onAlbum}<button class="album-link" aria-label={`Open album ${track.album}`} aria-busy={albumLookupPending?.(track.id) ?? false} onclick={(event) => { if (albumLookupPending?.(track.id)) return; event.currentTarget.focus({ preventScroll: true }); onAlbum?.(track); }}>{#if albumLookupPending?.(track.id)}Finding album…{:else}{track.album}{/if}</button>{:else}{track.album}{/if}</span>{/if}
           {#if track.localAvailability === "available" || track.localAvailability === "missing"}<span class="local-asset-status" class:local-asset-missing={track.localAvailability === "missing"}>{track.localAvailability === "available" ? "Downloaded" : "Missing file"}</span>{/if}
           {#if rowMeta}<span>{track.artist || track.album ? " · " : ""}{rowMeta}</span>{/if}
         </div>

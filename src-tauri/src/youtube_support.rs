@@ -2596,6 +2596,11 @@ first_launch = not launch_log.exists()
 with launch_log.open('a') as output:
     print(address[1], file=output)
 
+# The real helper exits with code 1 after a failed bind. Exercise that
+# contract directly instead of relying on a probe to end the first child.
+if first_launch:
+    sys.exit(1)
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path != '/ping':
@@ -2603,18 +2608,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         self.send_response(200)
         self.end_headers()
-        # On the first launch, model an unrelated HTTP listener that took the
-        # port before the helper could bind. The actual helper exits with 1.
-        version = 'unrelated' if first_launch else '2.0.2'
-        self.wfile.write(json.dumps({'version': version}).encode())
+        self.wfile.write(json.dumps({'version': '2.0.2'}).encode())
 
 with http.server.HTTPServer(address, Handler) as server:
-    if first_launch:
-        server.handle_request()
-    else:
-        # The actual ready helper continues serving after its first probe.
-        server.serve_forever()
-sys.exit(1)
+    server.serve_forever()
 "#,
         );
         let ready = manager.ensure_provider().await.unwrap();

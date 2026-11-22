@@ -1099,6 +1099,14 @@ impl State {
         value["transition"] = self.crossfade_transition.as_ref().filter(|transition| self.generation == transition.to_generation).map_or(Value::Null, |transition| json!({
             "fromEntryId":transition.from_entry,"toEntryId":transition.to_entry,"progress":transition.progress
         }));
+        value["pendingSelectionTrackId"] = json!(self.manual_fade.as_ref().and_then(|request| {
+            request
+                .replacement
+                .as_ref()
+                .map_or(&self.queue, |selection| &selection.tracks)
+                .get(request.index)
+                .map(|track| &track.id)
+        }));
         value["handoffId"] = self
             .handoff_id
             .as_ref()
@@ -6262,7 +6270,12 @@ impl PlaybackService {
             .playback_settings()
             .map(|settings| settings.playback_startup_timeout())
             .unwrap_or(crate::playback_sources::PLAYBACK_RESOLUTION_DEADLINE);
-        let deadline = tokio::time::Instant::now() + startup_budget;
+        let started = tokio::time::Instant::now();
+        let deadline = started + startup_budget;
+        // Soft selection can keep the current track audible briefly. Leave
+        // foreground resolution most of the original click-to-audio budget
+        // when the new source is not ready for the fade.
+        let soft_deadline = started + (startup_budget / 2).min(Duration::from_secs(4));
         let claimed = Arc::new(AtomicBool::new(false));
         {
             let mut state = self.inner.state.lock().unwrap();
@@ -6295,7 +6308,7 @@ impl PlaybackService {
 
         let service = self.clone();
         tauri::async_runtime::spawn(async move {
-            tokio::time::sleep_until(deadline).await;
+            tokio::time::sleep_until(soft_deadline).await;
             service.fallback_manual_fade(&claimed).await;
         });
         true
@@ -9352,10 +9365,15 @@ mod tests {
         };
         assert_eq!(state.track().unwrap().id, "outgoing");
         assert!(preload_preparation_is_current(&state, &owner));
+        assert_eq!(
+            state.snapshot(true, false)["pendingSelectionTrackId"],
+            "selected"
+        );
 
         let selection = state.manual_fade.take().unwrap();
         selection.activate(&mut state);
         assert_eq!(state.track().unwrap().id, "selected");
+        assert!(state.snapshot(true, false)["pendingSelectionTrackId"].is_null());
         assert_eq!(state.entries[state.index], "selected-entry");
         assert_eq!(
             state.unshuffled_entries.as_ref().unwrap()[1],

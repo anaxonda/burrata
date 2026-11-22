@@ -132,6 +132,7 @@ export interface NativePlaybackSnapshot {
   trackId: string | null;
   entryId?: string | null;
   transition?: PlaybackTransition | null;
+  pendingSelectionTrackId?: string | null;
   track: (Track & { artworkFilePath?: string }) | null;
   candidate: Candidate | null;
   queue: Track[];
