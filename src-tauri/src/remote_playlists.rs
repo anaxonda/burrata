@@ -2406,7 +2406,7 @@ impl RemotePlaylistService {
             return Err("Provider returned a playlist URL for a different ID".into());
         }
         let owner_id = bounded_optional_text(&metadata_value, "ownerId", 256);
-        let owner_name = bounded_optional_text(&metadata_value, "ownerName", 512);
+        let owner_name = playlist_owner_name(&metadata_value, provider);
         let owner_url = normalize_owner_url(
             provider,
             owner_id.as_deref(),
@@ -5441,7 +5441,7 @@ impl RemotePlaylistService {
         let title = required_text(&meta, "title", 256)?.to_owned();
         let url = validate_remote_url(required_text(&meta, "url", 2048)?, provider)?;
         let owner_id = bounded_optional_text(&meta, "ownerId", 256);
-        let owner_name = bounded_optional_text(&meta, "ownerName", 512);
+        let owner_name = playlist_owner_name(&meta, provider);
         let owner_url = normalize_owner_url(
             provider,
             owner_id.as_deref(),
@@ -6644,6 +6644,21 @@ fn bounded_optional_text(value: &Value, key: &str, max: usize) -> Option<String>
         .filter(|text| !text.is_empty() && text.len() <= max)
         .map(str::to_owned)
 }
+fn playlist_owner_name(value: &Value, provider: &str) -> Option<String> {
+    bounded_optional_text(value, "ownerName", 512).filter(|name| {
+        if provider != "youtube" {
+            return true;
+        }
+        // Older YouTube adapters could send the playlist description as the
+        // owner name. Reject links here too while those companions are in use.
+        let lower = name.to_ascii_lowercase();
+        !lower.contains("</a>")
+            && !lower.contains("&lt;/a&gt;")
+            && !lower.contains("a href=")
+            && !lower.contains("a href =")
+    })
+}
+
 fn normalize_visibility(value: Option<&str>) -> Option<String> {
     match value?.trim().to_ascii_lowercase().as_str() {
         "public" => Some("public".into()),
@@ -6757,7 +6772,7 @@ fn parse_playlist_item(row: &Value, provider: &str) -> Result<RemotePlaylistItem
     }
     let url = validate_remote_url(required_text(row, "url", 2048)?, provider)?;
     let owner_id = bounded_optional_text(row, "ownerId", 256);
-    let owner_name = bounded_optional_text(row, "ownerName", 512);
+    let owner_name = playlist_owner_name(row, provider);
     let owner_url = normalize_owner_url(
         provider,
         owner_id.as_deref(),
@@ -7556,6 +7571,18 @@ mod tests {
         })
         .collect();
         json!({"version":1,"continuation":false,"counts":counts,"appendTargets":{"absent":0,"playlistList":1,"requestedPlaylist":0,"other":0,"malformed":0},"recognizedSections":1,"recognizedCursor":true,"ambiguous":false,"truncated":false,"membership":{"allResponse":{"ordinaryRows":1,"recommendedRows":2,"unavailableRows":0,"rowsWithOccurrenceId":1},"recognizedSections":{"ordinaryRows":1,"recommendedRows":0,"unavailableRows":0,"rowsWithOccurrenceId":1}},"cursorLocations":{"namedListDirect":1,"namedListItemSection":0,"sectionListDirect":1,"sectionListOtherItemSection":0,"other":0},"retainedRuleCandidatePresent":true,"retainedRuleEqualsSelected":false})
+    }
+
+    #[test]
+    fn older_youtube_adapters_cannot_display_a_description_as_the_owner() {
+        let description =
+            json!({"ownerName":"Follow <a href=\"https://example.invalid\">Instagram</a>"});
+        assert_eq!(playlist_owner_name(&description, "youtube"), None);
+        let plain_owner = json!({"ownerName":"Café & Noël"});
+        assert_eq!(
+            playlist_owner_name(&plain_owner, "youtube").as_deref(),
+            Some("Café & Noël")
+        );
     }
 
     #[test]

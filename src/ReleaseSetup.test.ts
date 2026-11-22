@@ -3,8 +3,8 @@
 import { mount, tick, unmount } from "../node_modules/svelte/src/index-client.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { callMock } = vi.hoisted(() => ({ callMock: vi.fn() }));
-vi.mock("./lib/api", () => ({ call: callMock, desktop: () => true }));
+const { callMock, listenMock } = vi.hoisted(() => ({ callMock: vi.fn(), listenMock: vi.fn(async (_event: string, _callback: (event: { payload: unknown }) => void) => () => {}) }));
+vi.mock("./lib/api", () => ({ call: callMock, desktop: () => true, listen: listenMock }));
 // @ts-expect-error Match the browser runtime used by the direct import above.
 vi.mock("svelte", async () => await import("../node_modules/svelte/src/index-client.js"));
 import ReleaseSetup from "./ReleaseSetup.svelte";
@@ -16,7 +16,7 @@ const setup = (overrides: Record<string, unknown> = {}) => ({
 });
 const youtube = { bundledVersion: "2026.01", managedVersion: null, activeVersion: "2026.01", activeSource: "bundled", updateAvailable: null, recommendedUpdate: "Not checked", advancedUpdate: "Official nightly", provider: { version: "2.0.2", available: true, helperRunning: false, message: "Anonymous provider is available." } };
 let destroy: (() => void) | undefined;
-afterEach(() => { destroy?.(); destroy = undefined; document.body.innerHTML = ""; callMock.mockReset(); });
+afterEach(() => { destroy?.(); destroy = undefined; document.body.innerHTML = ""; callMock.mockReset(); listenMock.mockClear(); });
 async function settle() { for (let i = 0; i < 8; i++) await Promise.resolve(); await tick(); }
 function render(props: Record<string, unknown> = {}) {
   const target = document.createElement("div"); document.body.append(target);
@@ -127,7 +127,7 @@ describe("ReleaseSetup", () => {
     });
     const target = render({ category: "advanced" }); await settle();
     button(target, "Update yt-dlp").click(); await settle();
-    expect(callMock).toHaveBeenCalledWith("youtube_support_update", { channel: "stable" });
+    expect(callMock).toHaveBeenCalledWith("youtube_support_update", { channel: "stable", operationId: expect.any(String) });
     expect(target.textContent).toContain(activeVersion === youtube.activeVersion
       ? "Your yt-dlp is already as recent as the latest stable release."
       : `Installed yt-dlp ${activeVersion} (stable release).`);
@@ -146,7 +146,7 @@ describe("ReleaseSetup", () => {
     const nightly = button(target, "Install latest nightly build");
     nightly.closest("details")!.open = true;
     nightly.click(); await settle();
-    expect(callMock).toHaveBeenCalledWith("youtube_support_update", { channel: "nightly" });
+    expect(callMock).toHaveBeenCalledWith("youtube_support_update", { channel: "nightly", operationId: expect.any(String) });
     expect(button(target, "Update yt-dlp").disabled).toBe(true);
     expect(target.textContent).toContain("Installing the latest yt-dlp nightly…");
     finishUpdate({ ...youtube, activeVersion, managedVersion: activeVersion, activeSource: "managed" });
@@ -173,6 +173,50 @@ describe("ReleaseSetup", () => {
     expect(button(target, "Update yt-dlp").disabled).toBe(false);
   });
 
+  it("shows available stable releases and scoped byte progress through verification", async () => {
+    const activeVersion = "2026.10.26";
+    const stop = vi.fn();
+    let operationId = "";
+    let finishUpdate!: (value: unknown) => void;
+    let onProgress!: (event: { payload: unknown }) => void;
+    listenMock.mockImplementationOnce(async (_event, callback) => {
+      onProgress = callback;
+      return stop;
+    });
+    callMock.mockImplementation(async (command: string, args?: { operationId: string }) => {
+      if (command === "get_release_setup") return setup({ setupComplete: true });
+      if (command === "youtube_support_status") return youtube;
+      if (command === "youtube_support_check") return { version: activeVersion, available: !operationId };
+      if (command === "youtube_support_update") {
+        operationId = args!.operationId;
+        return new Promise(resolve => { finishUpdate = resolve; });
+      }
+      throw new Error(`Unexpected command ${command}`);
+    });
+    const target = render({ category: "advanced" }); await settle();
+    expect(target.textContent).toContain(`yt-dlp ${activeVersion} is available (stable release).`);
+    button(target, "Update yt-dlp").click(); await settle();
+    const event = (op: string, progress: unknown) => onProgress({ payload: { operationId: op, progress } });
+    event("old deferred operation", { stage: "downloading", receivedBytes: 50, totalBytes: 100 });
+    await settle();
+    expect(target.querySelector("progress")).toBeNull();
+    event(operationId, { stage: "downloading", receivedBytes: 50, totalBytes: 100 });
+    await settle();
+    expect(target.querySelector("progress")?.value).toBe(50);
+    expect(target.textContent).toContain("50%");
+    event(operationId, { stage: "downloading", receivedBytes: 1_048_576, totalBytes: null });
+    await settle();
+    expect(target.querySelector("progress")?.hasAttribute("value")).toBe(false);
+    expect(target.textContent).toContain("1.0 MiB downloaded");
+    event(operationId, { stage: "verifying" });
+    await settle();
+    expect(target.textContent).toContain("Verifying the download");
+    finishUpdate({ ...youtube, activeVersion, activeSource: "managed" });
+    await settle();
+    expect(stop).toHaveBeenCalledOnce();
+    expect(target.textContent).toContain(`Latest stable release is ${activeVersion}.`);
+  });
+
   it("keeps system or custom yt-dlp under its owner's control", async () => {
     callMock.mockImplementation(async (command: string) => command === "get_release_setup"
       ? { ...setup({ setupComplete: true }), usesManagedYtDlp: false }
@@ -195,6 +239,6 @@ describe("ReleaseSetup", () => {
     expect(callMock).toHaveBeenCalledWith("youtube_support_diagnose", {});
     expect(target.textContent).toContain("Try the check again. If it still fails, update yt-dlp.");
     expect(target.textContent).toContain("Public audio could not be reached.");
-    expect(callMock.mock.calls.some(([command]) => ["youtube_support_update", "youtube_support_check"].includes(command))).toBe(false);
+    expect(callMock.mock.calls.some(([command]) => command === "youtube_support_update")).toBe(false);
   });
 });

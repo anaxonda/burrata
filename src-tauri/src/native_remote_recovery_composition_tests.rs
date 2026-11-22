@@ -306,7 +306,9 @@ else:
         failed: &[FailedPlaybackCandidate],
         deadline: PlaybackDeadline,
     ) -> Result<playback_sources::ResolvedSource, String> {
-        crate::acquisition::with_playback_test_public_addresses(
+        // Keep the resolver's large debug future off the test thread stack,
+        // as the foreground playback entry point does.
+        crate::acquisition::with_playback_test_public_addresses(Box::pin(
             playback_sources::resolve_with_trace_context_excluding_until(
                 &self.store,
                 &self.acquisition,
@@ -319,7 +321,7 @@ else:
                 failed,
                 deadline,
             ),
-        )
+        ))
         .await
     }
     async fn resolve_selected(
@@ -328,7 +330,7 @@ else:
         cancel: watch::Receiver<bool>,
         deadline: PlaybackDeadline,
     ) -> Result<playback_sources::ResolvedSource, String> {
-        crate::acquisition::with_playback_test_public_addresses(
+        crate::acquisition::with_playback_test_public_addresses(Box::pin(
             playback_sources::resolve_with_trace_context_excluding_until(
                 &self.store,
                 &self.acquisition,
@@ -341,7 +343,7 @@ else:
                 &[],
                 deadline,
             ),
-        )
+        ))
         .await
     }
     async fn fresh(
@@ -352,7 +354,7 @@ else:
     ) -> Result<playback_sources::ResolvedSource, String> {
         self.acquisition
             .invalidate_preview_audio(&candidate, &self.store.settings().unwrap());
-        crate::acquisition::with_playback_test_public_addresses(
+        crate::acquisition::with_playback_test_public_addresses(Box::pin(
             playback_sources::resolve_candidate_fresh_until(
                 &self.store,
                 &self.acquisition,
@@ -364,7 +366,7 @@ else:
                 deadline,
                 false,
             ),
-        )
+        ))
         .await
     }
 }

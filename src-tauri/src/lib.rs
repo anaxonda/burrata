@@ -305,14 +305,17 @@ async fn youtube_support_status() -> Result<youtube_support::SupportStatus> {
 async fn youtube_support_check(channel: Option<String>) -> Result<youtube_support::UpdateCheck> {
     match channel.as_deref().unwrap_or("recommended") {
         "recommended" => Ok(youtube_manager()?.check_recommended_update().await),
+        "stable" => youtube_manager()?.check_stable_update().await,
         "nightly" => youtube_manager()?.check_advanced_update().await,
-        _ => Err("Choose recommended or nightly".into()),
+        _ => Err("Choose stable, recommended or nightly".into()),
     }
 }
 #[tauri::command]
 async fn youtube_support_update(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     channel: Option<String>,
+    operation_id: Option<uuid::Uuid>,
 ) -> Result<youtube_support::SupportStatus> {
     if state
         .store
@@ -322,13 +325,26 @@ async fn youtube_support_update(
     {
         return Err("Finish or cancel active downloads before changing YouTube support".into());
     }
+    let progress = |progress: youtube_support::UpdateProgress| {
+        if let Some(operation_id) = operation_id {
+            let _ = app.emit(
+                "youtube-support-update-progress",
+                serde_json::json!({
+                    "operationId": operation_id,
+                    "progress": progress
+                }),
+            );
+        }
+    };
     match channel.as_deref().unwrap_or("recommended") {
         "recommended" => youtube_manager()?.update_recommended().await,
-        "stable" if !acquisition::uses_managed_ytdlp(&state.store.settings()?.yt_dlp_path) => {
+        "stable" | "nightly"
+            if !acquisition::uses_managed_ytdlp(&state.store.settings()?.yt_dlp_path) =>
+        {
             Err("Burrata uses an externally managed yt-dlp executable".into())
         }
-        "stable" => youtube_manager()?.update_stable().await,
-        "nightly" => youtube_manager()?.update_advanced().await,
+        "stable" => youtube_manager()?.update_stable(progress).await,
+        "nightly" => youtube_manager()?.update_advanced(progress).await,
         _ => Err("Choose stable, recommended or nightly".into()),
     }
 }

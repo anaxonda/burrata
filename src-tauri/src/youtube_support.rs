@@ -70,6 +70,21 @@ pub struct UpdateCheck {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(
+    tag = "stage",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum UpdateProgress {
+    Checking,
+    Downloading {
+        received_bytes: u64,
+        total_bytes: Option<u64>,
+    },
+    Verifying,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum DiagnosisCategory {
@@ -261,47 +276,65 @@ impl YouTubeSupportManager {
         }
     }
 
+    pub async fn check_stable_update(&self) -> Result<UpdateCheck, String> {
+        self.check_official_update(STABLE_REPO, "stable").await
+    }
+
     pub async fn check_advanced_update(&self) -> Result<UpdateCheck, String> {
-        let release = fetch_official_release(&github_client()?, NIGHTLY_REPO).await?;
-        let release_version = official_release_version(&release)?.to_owned();
-        validate_nightly_assets(&release)?;
-        let published = release["published_at"].as_str().map(str::to_owned);
+        self.check_official_update(NIGHTLY_REPO, "official-nightly")
+            .await
+    }
+
+    async fn check_official_update(
+        &self,
+        repo: &str,
+        channel: &str,
+    ) -> Result<UpdateCheck, String> {
+        let release = fetch_official_release(&github_client()?, repo).await?;
+        let release_version = official_release_version(&release)?;
+        let assets = parse_assets(&release)?;
+        for name in [platform_asset_name()?, "SHA2-256SUMS", "SHA2-512SUMS"] {
+            official_release_asset(&assets, repo, release_version, name)?;
+        }
         let current = version(&self.active_executable()).await.ok();
         Ok(UpdateCheck {
-            channel: "official-nightly".into(),
-            available: current.as_deref() != Some(&release_version),
-            version: Some(release_version),
-            published_at: published,
-            message: "Official yt-dlp nightly release metadata is available.".into(),
+            channel: channel.into(),
+            available: official_update_available(repo, current.as_deref(), release_version)?,
+            version: Some(release_version.into()),
+            published_at: release["published_at"].as_str().map(str::to_owned),
+            message: "Official yt-dlp release metadata is available.".into(),
         })
     }
 
-    pub async fn update_stable(&self) -> Result<SupportStatus, String> {
-        self.update_official(STABLE_REPO).await
+    pub async fn update_stable(
+        &self,
+        progress: impl Fn(UpdateProgress) + Sync,
+    ) -> Result<SupportStatus, String> {
+        self.update_official(STABLE_REPO, progress).await
     }
 
-    pub async fn update_advanced(&self) -> Result<SupportStatus, String> {
-        self.update_official(NIGHTLY_REPO).await
+    pub async fn update_advanced(
+        &self,
+        progress: impl Fn(UpdateProgress) + Sync,
+    ) -> Result<SupportStatus, String> {
+        self.update_official(NIGHTLY_REPO, progress).await
     }
 
     /// Both official channels verify the platform binary against the upstream
     /// manifests before using the existing compatibility probe and activation.
-    async fn update_official(&self, repo: &str) -> Result<SupportStatus, String> {
+    async fn update_official(
+        &self,
+        repo: &str,
+        progress: impl Fn(UpdateProgress) + Sync,
+    ) -> Result<SupportStatus, String> {
         let _update_guard = self.update_lock.lock().await;
+        progress(UpdateProgress::Checking);
         let client = github_client()?;
         let release = fetch_official_release(&client, repo).await?;
         let release_version = official_release_version(&release)?;
-        if repo == STABLE_REPO {
-            let newest = numeric_yt_dlp_version(release_version)
-                .ok_or("The stable yt-dlp release has an unexpected version")?;
-            if version(&self.active_executable())
-                .await
-                .ok()
-                .and_then(|value| numeric_yt_dlp_version(&value))
-                .is_some_and(|current| current >= newest)
-            {
-                return Ok(self.status().await);
-            }
+        let current = version(&self.active_executable()).await.ok();
+        if !official_update_available(repo, current.as_deref(), release_version)? {
+            return Ok(self.status().await);
         }
         let assets = parse_assets(&release)?;
         let binary_name = platform_asset_name()?;
@@ -311,10 +344,16 @@ impl YouTubeSupportManager {
             official_release_asset(&assets, repo, release_version, "SHA2-512SUMS")?,
         ];
         let (bytes, manifest256, manifest512) = tokio::try_join!(
-            fetch_bytes(&client, binary),
+            fetch_bytes_with_progress(&client, binary, |received_bytes, total_bytes| {
+                progress(UpdateProgress::Downloading {
+                    received_bytes,
+                    total_bytes,
+                });
+            }),
             fetch_bytes(&client, sums256),
             fetch_bytes(&client, sums512),
         )?;
+        progress(UpdateProgress::Verifying);
         verify_manifest_sha256(binary_name, &bytes, &manifest256)?;
         verify_manifest_sha512(binary_name, &bytes, &manifest512)?;
         self.stage_activate(release_version, &bytes).await
@@ -1429,29 +1468,42 @@ fn github_client() -> Result<Client, String> {
         .map_err(|e| e.to_string())
 }
 async fn fetch_bytes(client: &Client, url: &str) -> Result<Vec<u8>, String> {
+    fetch_bytes_with_progress(client, url, |_, _| {}).await
+}
+
+async fn fetch_bytes_with_progress(
+    client: &Client,
+    url: &str,
+    progress: impl Fn(u64, Option<u64>),
+) -> Result<Vec<u8>, String> {
     let response = client
         .get(url)
         .send()
         .await
-        .map_err(|e| format!("Could not fetch upstream checksum manifest: {e}"))?;
+        .map_err(|e| format!("Could not request upstream release asset: {e}"))?;
     let response = response
         .error_for_status()
         .map_err(|e| format!("Could not fetch upstream release asset: {e}"))?;
-    if response
-        .content_length()
-        .is_some_and(|n| n > MAX_UPSTREAM_ASSET_BYTES as u64)
-    {
+    let total = response.content_length().filter(|size| *size > 0);
+    if total.is_some_and(|n| n > MAX_UPSTREAM_ASSET_BYTES as u64) {
         return Err("Upstream YouTube support asset exceeds the 120 MiB size limit".into());
     }
     let mut stream = response.bytes_stream();
     let mut output = Vec::new();
+    progress(0, total);
+    let mut last_report = std::time::Instant::now();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| format!("Could not read upstream release asset: {e}"))?;
         if output.len().saturating_add(chunk.len()) > MAX_UPSTREAM_ASSET_BYTES {
             return Err("Upstream YouTube support asset exceeds the 120 MiB size limit".into());
         }
         output.extend_from_slice(&chunk);
+        if last_report.elapsed() >= Duration::from_millis(100) {
+            progress(output.len() as u64, total);
+            last_report = std::time::Instant::now();
+        }
     }
+    progress(output.len() as u64, total);
     Ok(output)
 }
 async fn fetch_official_release(client: &Client, repo: &str) -> Result<Value, String> {
@@ -1487,6 +1539,22 @@ fn numeric_yt_dlp_version(version: &str) -> Option<Vec<u32>> {
         .collect::<Result<Vec<u32>, _>>()
         .ok()?;
     (3..=4).contains(&fields.len()).then_some(fields)
+}
+
+fn official_update_available(
+    repo: &str,
+    current: Option<&str>,
+    newest: &str,
+) -> Result<bool, String> {
+    if repo == STABLE_REPO {
+        let newest = numeric_yt_dlp_version(newest)
+            .ok_or("The stable yt-dlp release has an unexpected version")?;
+        Ok(current
+            .and_then(numeric_yt_dlp_version)
+            .is_none_or(|installed| installed < newest))
+    } else {
+        Ok(current != Some(newest))
+    }
 }
 
 fn official_release_asset<'a>(
@@ -1533,6 +1601,7 @@ fn select_recommended_release(releases: &Value) -> Option<&Value> {
             })
     })
 }
+#[cfg(test)]
 fn validate_nightly_assets(release: &Value) -> Result<(), String> {
     let assets = parse_assets(release)?;
     let binary = platform_asset_name()?;
@@ -1804,6 +1873,48 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn update_download_reports_bytes_with_and_without_a_known_length() {
+        use std::sync::Mutex;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        for total in [Some(4), None] {
+            let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+                .await
+                .unwrap();
+            let url = format!("http://{}/asset", listener.local_addr().unwrap());
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = [0; 1024];
+                assert!(socket.read(&mut request).await.unwrap() > 0);
+                let header = if total.is_some() {
+                    "HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\n"
+                } else {
+                    "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n"
+                };
+                socket.write_all(header.as_bytes()).await.unwrap();
+                socket.write_all(b"test").await.unwrap();
+                socket.shutdown().await.unwrap();
+            });
+            let client = Client::builder()
+                .no_proxy()
+                .timeout(Duration::from_secs(3))
+                .build()
+                .unwrap();
+            let reports = Mutex::new(Vec::new());
+            let result = fetch_bytes_with_progress(&client, &url, |bytes, size| {
+                reports.lock().unwrap().push((bytes, size));
+            })
+            .await
+            .unwrap();
+            server.await.unwrap();
+            assert_eq!(result, b"test");
+            let reports = reports.into_inner().unwrap();
+            assert_eq!(reports.first(), Some(&(0, total)));
+            assert_eq!(reports.last(), Some(&(4, total)));
+        }
+    }
+
     #[test]
     fn verifies_upstream_checksum_manifest_entries() {
         let bytes = b"managed yt-dlp";
@@ -1881,7 +1992,7 @@ mod tests {
             Some(bgutil.join("plugin")),
         );
         let original = manager.status().await;
-        let result = manager.update_stable().await;
+        let result = manager.update_stable(|_| {}).await;
         manager.shutdown().await.unwrap();
         match result {
             Ok(updated) => {
@@ -1890,7 +2001,7 @@ mod tests {
                     "no newer stable build to test"
                 );
                 assert_ne!(updated.active_version, original.active_version);
-                let repeated = manager.update_stable().await.unwrap();
+                let repeated = manager.update_stable(|_| {}).await.unwrap();
                 assert_eq!(repeated.active_version, updated.active_version);
                 let restored = manager.rollback().await.unwrap();
                 assert_eq!(restored.active_version, original.active_version);
@@ -2498,8 +2609,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(json.dumps({'version': version}).encode())
 
 with http.server.HTTPServer(address, Handler) as server:
-    server.handle_request()
-sys.exit(1 if first_launch else 0)
+    if first_launch:
+        server.handle_request()
+    else:
+        # The actual ready helper continues serving after its first probe.
+        server.serve_forever()
+sys.exit(1)
 "#,
         );
         let ready = manager.ensure_provider().await.unwrap();

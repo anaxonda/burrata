@@ -2620,20 +2620,63 @@ fn merge_lyric_tag(path: &Path, text: &str) -> Result<(), String> {
     ) {
         return Err("This audio format does not support embedded lyrics".into());
     }
-    if tagged.tag(tag_type).is_none() {
-        tagged.insert_tag(Tag::new(tag_type));
+    if tagged.file_type() == FileType::Mpeg {
+        use lofty::{
+            config::ParseOptions,
+            id3::v2::{Frame, FrameId, Id3v2Version, UnsynchronizedTextFrame},
+            mpeg::MpegFile,
+            tag::TagExt,
+            TextEncoding,
+        };
+        // Update only the native v2 frame. Rewriting the generic tag set can
+        // change existing comment frames or touch the independent ID3v1 tag.
+        let mut file = File::open(path).map_err(|error| error.to_string())?;
+        let mpeg = MpegFile::read_from(&mut file, ParseOptions::new())
+            .map_err(|error| error.to_string())?;
+        drop(file);
+        let mut id3 = mpeg.id3v2().cloned().unwrap_or_default();
+        drop(id3.remove(&FrameId::new("USLT").map_err(|error| error.to_string())?));
+        id3.insert(Frame::UnsynchronizedText(UnsynchronizedTextFrame::new(
+            TextEncoding::UTF8,
+            *b"und",
+            String::new(),
+            text.to_owned(),
+        )));
+        let options =
+            WriteOptions::default().use_id3v23(id3.original_version() == Id3v2Version::V3);
+        id3.save_to_path(path, options)
+            .map_err(|error| error.to_string())?;
+    } else {
+        if tagged.tag(tag_type).is_none() {
+            tagged.insert_tag(Tag::new(tag_type));
+        }
+        let tag = tagged.tag_mut(tag_type).ok_or("Audio tag unavailable")?;
+        tag.insert_text(ItemKey::Lyrics, text.to_owned());
+        tagged
+            .save_to_path(path, WriteOptions::default())
+            .map_err(|error| error.to_string())?;
     }
-    let tag = tagged.tag_mut(tag_type).ok_or("Audio tag unavailable")?;
-    tag.insert_text(ItemKey::Lyrics, text.to_owned());
-    tagged
-        .save_to_path(path, WriteOptions::default())
-        .map_err(|e| e.to_string())?;
     let checked = Probe::open(path)
         .map_err(|e| e.to_string())?
         .guess_file_type()
         .map_err(|e| e.to_string())?
         .read()
         .map_err(|e| e.to_string())?;
+    for tag in tagged.tags() {
+        if !checked.tags().iter().any(|stored| {
+            stored.tag_type() == tag.tag_type()
+                && tag
+                    .items()
+                    .filter(|item| item.key() != &ItemKey::Lyrics)
+                    .all(|item| stored.items().any(|saved| saved == item))
+                && tag
+                    .pictures()
+                    .iter()
+                    .all(|picture| stored.pictures().contains(picture))
+        }) {
+            return Err("Embedding lyrics would change existing audio metadata".into());
+        }
+    }
     if !checked
         .tags()
         .iter()

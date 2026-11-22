@@ -97,7 +97,7 @@
   let navigationRestoreEpoch = 0;
   let navigationAccountScopes: Record<string,string|null> = {};
   let navigationNotice = $state("");
-  let searchElement: HTMLElement | null = null;
+  let searchElement: HTMLDivElement | null = null;
   let text = $state("");
   let searchHistory = $state<SearchHistoryEntry[]>([]);
   let searchHistoryOpen = $state(false);
@@ -1322,9 +1322,7 @@
   onpointerdown={(event) => { if (sourcePickerOpen && event.target instanceof Node && !sourcePicker?.contains(event.target) && !sourceButton?.contains(event.target)) closeSourcePicker(); }}
   onkeydown={(event) => { if (sourcePickerOpen && event.key === "Escape") { event.preventDefault(); closeSourcePicker(true); } }}
   onresize={() => closeSourcePicker()} />
-<section class="search-panel" aria-label="Discovery search" bind:this={searchElement}>
-  {#if navigationNotice}<p role="status" class="navigation-notice">{navigationNotice}</p>{/if}
-  <div class="search-toolbar sticky-toolbar">
+<section class="search-panel" aria-label="Discovery search">
   <form class="search-form" onsubmit={submitSearch}>
     <div class="search-input-wrap">
       <input aria-label="Search music" role="combobox" aria-autocomplete="none" aria-expanded={searchHistoryOpen && !text.trim()} aria-controls={searchHistoryOpen && !text.trim() ? "search-history-menu" : undefined} aria-activedescendant={searchHistoryOpen && !text.trim() && searchHistoryIndex >= 0 ? `search-history-item-${searchHistoryIndex}` : undefined} onfocus={() => { searchInputFocused = true; if (!text.trim() && searchHistory.length) searchHistoryOpen = true; }} onblur={closeSearchPopupsOnBlur} onkeydown={handleSearchHistoryKeys} bind:value={text} oninput={(event) => { text = event.currentTarget.value; searchHistoryIndex = -1; searchHistoryOpen = !text.trim() && searchInputFocused && searchHistory.length > 0; if (text.trim() !== submitted.trim()) { cancelSearchTrackSelection(); cancelAutomationSearch(); generation++; collectionRequest++; clearCollectionDeadline(); collectingSearch = false; collectionProgress = ""; providerReads.cancelAll(); collectionReads.cancelAll(); void cancelSoulseek(); collectionSoulseekSource = null; statuses = Object.fromEntries(Object.entries(statuses).map(([id, status]) => [id, status === "Searching…" || status === "Loading more…" ? "Cancelled" : status])); } onQueryChange(text); }} placeholder="Track, artist, album, video or set" />
@@ -1336,6 +1334,9 @@
     <button class="primary" type="submit" disabled={!spotifyLink && !bandcampPlaylistLink && (!text.trim() || !activeSourceIds().length)}>{spotifyLink ? `Open Spotify ${spotifyLink.kind}` : bandcampPlaylistLink ? "Open Bandcamp playlist" : "Search"}</button>
     {#if Object.values(statuses).some(status => status === "Searching…" || status === "Loading more…" || status.endsWith("…"))}<button type="button" onclick={cancel}>Cancel</button>{/if}
   </form>
+  <div class="search-content" bind:this={searchElement}>
+  {#if navigationNotice}<p role="status" class="navigation-notice">{navigationNotice}</p>{/if}
+  <div class="search-toolbar">
   <div class="primary-controls-toolbar">
   <div class="scope-controls">
     <div class="search-mode section-switcher" role="group" aria-label="Search scope">
@@ -1431,7 +1432,7 @@
         {#if errors[source.id]}<p class="notice error">{errors[source.id]} <button onclick={() => void runSearch(source.id)}>Retry</button></p>{/if}
         {#each warnings[source.id] ?? [] as warning}<p class="notice">{warning}</p>{/each}
         {#if rows.length}
-          <VirtualResults items={rows} itemKey={identity} estimateHeight={(row) => row.track ? 56 : 76} scrollKey={`${searchMode}:${sourceChoice}:${kind}:${submitted}:${collectedSort}:${collectedDirection}:${minimumDuration}:${maximumDuration}:${downloadAvailability}`} regionKey={source.id}>
+          <VirtualResults items={rows} itemKey={identity} estimateHeight={(row) => row.track ? 56 : 76} scrollKey={`${searchMode}:${sourceChoice}:${kind}:${submitted}:${collectedSort}:${collectedDirection}:${minimumDuration}:${maximumDuration}:${downloadAvailability}`} regionKey={source.id} scrollRootSelector=".search-content">
           {#snippet children(row, _index)}
             {@const track = row.track}
             {@const lazyImage = row.sourceId === "musicbrainz" && row.kind === "artist" ? lazyArtistArtwork[rowArtist(row)?.id ?? ""] : null}
@@ -1498,6 +1499,7 @@
       </section>
     {/each}
   </div>
+  </div>
 </section>
 
 {#if albumSourceMenu}
@@ -1509,7 +1511,9 @@
 {/if}
 
 <style>
-  .search-toolbar { display:grid; gap:.45rem; }
+  .search-toolbar { display:grid; flex:none; gap:.45rem; }
+  .search-content { display:flex; flex:1; flex-direction:column; gap:inherit; min-height:0; overflow-y:auto; overflow-x:hidden; }
+  .search-panel > .search-form { flex:none; z-index:4; }
   .sources-toggle{white-space:nowrap;font-size:.82rem;justify-self:start}
   .source-picker{position:fixed;z-index:1000;width:min(320px,calc(100vw - 16px));box-sizing:border-box;overflow:auto;padding:10px;border:1px solid var(--line,#454a50);border-radius:9px;background:var(--surface,#202823);color:var(--text,#eee);box-shadow:0 8px 24px #0007}
   .source-picker-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:4px}
@@ -1526,7 +1530,7 @@
   @keyframes source-search-spin{to{transform:rotate(1turn)}}
   @media(prefers-reduced-motion:reduce){.source-search-spinner{animation:none}}
   .source-toggle{border:0;padding:.15rem .25rem;background:transparent;color:inherit;font:inherit;font-weight:650;text-align:left;cursor:pointer}.source-toggle:focus-visible{outline:2px solid var(--accent,#9dbfff);outline-offset:2px}
-  .search-panel{--panel:var(--surface,#17191c);--border:var(--line,#454a50);display:flex;flex-direction:column;gap:.85rem;min-width:0;min-height:0;height:100%;overflow-y:auto;overflow-x:hidden;padding:1rem;color:var(--text,#eee);background:var(--panel,#17191c);border-radius:12px;container-name:search-pane;container-type:inline-size}
+  .search-panel{--panel:var(--surface,#17191c);--border:var(--line,#454a50);display:flex;flex-direction:column;gap:.85rem;min-width:0;min-height:0;height:100%;overflow:hidden;padding:1rem;color:var(--text,#eee);background:var(--panel,#17191c);border-radius:12px;container-name:search-pane;container-type:inline-size}
   .search-form,.source-group>header{display:flex;align-items:center;justify-content:space-between;gap:.75rem;min-width:0}.search-input-wrap{position:relative;flex:1;min-width:0}.search-form .search-input-wrap input{box-sizing:border-box;width:100%;min-width:0}.search-history-menu{position:absolute;z-index:60;top:calc(100% + 4px);left:0;right:0;max-height:300px;overflow:auto;margin:0;padding:4px;border:1px solid var(--border,#454a50);border-radius:8px;background:var(--surface,#202328);box-shadow:0 8px 24px #0008}.search-history-menu button{display:flex;width:100%;flex-direction:column;align-items:flex-start;gap:2px;padding:8px;text-align:left;border:0;background:transparent}.search-history-menu button:hover,.search-history-row[aria-selected="true"] .history-query{background:var(--raised,#2a2e34)}.search-history-menu small{color:var(--muted,#a3a8ae);font-size:.75rem}.search-history-heading,.search-history-row{display:flex;align-items:center;gap:4px}.search-history-heading{justify-content:space-between;padding:4px 6px 6px;color:var(--muted,#a3a8ae);font-size:.78rem}.search-history-heading .clear-search-history{padding:3px 6px;border:0;background:transparent;color:var(--accent,#9dbfff);font-size:.74rem}.search-history-row{border-radius:6px}.search-history-row .history-query{flex:1;min-width:0}.search-history-row .remove-search-history{flex:none;width:30px;height:30px;justify-content:center;align-items:center;padding:0;border:0;background:transparent;color:var(--muted,#a3a8ae);font-size:18px}.search-history-row .remove-search-history:hover{color:var(--text,#eee)}.source-group>header h3,.source-group>header span{min-width:0;overflow-wrap:anywhere}.source-group>header span,.subtitle,.search-empty,.result-details{color:var(--muted,#a3a8ae);font-size:.82rem}.track-controls{display:contents;border:0;margin:0;padding:0;min-width:0}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.continue-setting{display:flex;align-items:center;gap:.45rem;font-size:.8rem;color:var(--muted,#a3a8ae)}.continue-setting input{accent-color:var(--accent,#4c78c8)}.collection-controls{display:flex;align-items:end;gap:.5rem;flex-wrap:wrap}.collection-controls label{display:flex;flex-direction:column;gap:.2rem;font-size:.72rem;color:var(--muted,#a3a8ae)}.collection-controls select{max-width:100%;font-size:.78rem}.collection-status{display:flex;align-items:center;gap:.5rem;font-size:.8rem;color:var(--muted,#a3a8ae)}
   .continue-setting{flex-direction:row;margin:0}.continue-setting input{width:auto;flex:none;margin:0;padding:0}.collection-controls label{margin:0}
   input,select{font:inherit}input,select{color:inherit;background:var(--surface,#202328);border:1px solid var(--border,#454a50);border-radius:7px;padding:.5rem .65rem}select:disabled{opacity:.55;cursor:default}.search-form input{flex:1;min-width:0;height:36px;padding:.35rem .6rem}.search-form button{min-height:36px;padding:.35rem .6rem}.filters{display:flex;gap:.4rem;flex-wrap:wrap}.filters button{font-size:.84rem}

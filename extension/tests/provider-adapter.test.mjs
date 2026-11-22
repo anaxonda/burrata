@@ -397,15 +397,24 @@ test('modern YouTube playlist browse decodes lockup video rows, page header, and
  const continuation={continuationItemViewModel:{trigger:'CONTINUATION_TRIGGER_ON_ITEM_SHOWN',continuationCommand:{innertubeCommand:{continuationCommand:{token:'next-playlist-page',request:'CONTINUATION_REQUEST_TYPE_NEXT'}}}}};
  const body={
   pageHeaderRenderer:{pageTitle:'Legacy playlist title',content:{pageHeaderViewModel:{title:{dynamicTextViewModel:{text:{content:'Modern playlist title'}}},heroImage:{contentPreviewImageViewModel:{thumbnail:{sources:[{url:'https://i.ytimg.com/playlist-art.jpg'}]}}}}}},
-  playlistMetadataRenderer:{title:'Metadata playlist title'},
   contents:{sectionListRenderer:{contents:[{musicPlaylistShelfRenderer:{contents:[row,unavailable,continuation]}}]}},
-  playlistMetadataRenderer:{title:'Metadata playlist title',videoCount:'2'},
+  playlistMetadataRenderer:{title:'Metadata playlist title',videoCount:'2',description:'Follow <a href="https://example.invalid/artist">Instagram</a>'},
  };
  const chrome={storage:{local:{get:async()=>({}),set:async()=>{}},session:{get:async()=>({}),set:async()=>{}}},runtime:{onMessage:{addListener(){},lastError:null}},action:{setBadgeText(){},setBadgeBackgroundColor(){}},tabs:{onRemoved:{addListener(){}}},alarms:{create(){},onAlarm:{addListener(){}}}};
  const context=vm.createContext({chrome,fetch:async(_url,options)=>{request.push(JSON.parse(options.body));return {ok:true,status:200,text:async()=>JSON.stringify(body)};},URL,URLSearchParams,Response,TextEncoder,AbortController,location:{hostname:'music.youtube.com',origin:'https://music.youtube.com'},document:{cookie:'',querySelector:()=>null},ytcfg:{data_:{INNERTUBE_API_KEY:'public-api-key',INNERTUBE_CLIENT_NAME:'WEB_REMIX',INNERTUBE_CLIENT_VERSION:'1.20261001.00.00'}},setInterval(){},setTimeout,clearTimeout});
  vm.runInContext(source,context);
  const result=JSON.parse(JSON.stringify(await context.runProviderPageOperation('youtube','getPlaylist',{playlistId:'PLmodernPlaylist123'},{})));
  assert.equal(result.playlist.title,'Modern playlist title');
+ assert.equal(result.playlist.ownerName,null);
+ const {fetchImpl}=youtubeChannelFetch({browseResponse:body});
+ const managed=makeYoutubeSessionContext(fetchImpl);
+ const readManaged=()=>managed.BurrataYouTubeSessionProvider.run('getPlaylist',{playlistId:'PLmodernPlaylist123'},youtubeSessionFixture,{fetchImpl});
+ assert.equal((await readManaged()).playlist.ownerName,null);
+ body.sidebar={playlistSidebarRenderer:{items:[{playlistSidebarSecondaryInfoRenderer:{videoOwner:{videoOwnerRenderer:{title:{runs:[{text:'Real Artist'}]}}}}}]}};
+ const withOwner=await context.runProviderPageOperation('youtube','getPlaylist',{playlistId:'PLmodernPlaylist123'},{});
+ assert.equal(withOwner.playlist.ownerName,'Real Artist');
+ assert.equal((await readManaged()).playlist.ownerName,'Real Artist');
+ delete body.sidebar;
  assert.equal(result.playlist.artworkUrl,'https://i.ytimg.com/playlist-art.jpg');
  assert.equal(result.entries.length,2);
  assert.deepEqual(result.entries[0],{entryId:null,trackId:'videoModern123',title:'Bamboleo',artist:'',channelName:'Gipsy Kings',album:'',durationSeconds:206,url:'https://www.youtube.com/watch?v=videoModern123',artworkUrl:'https://i.ytimg.com/track.jpg',available:true});
