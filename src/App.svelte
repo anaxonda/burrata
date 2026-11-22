@@ -2248,7 +2248,9 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     } catch (failure) { error = String(failure); }
   }
   let scrollTop = $state(0),
-    viewportHeight = $state(600);
+    viewportHeight = $state(600),
+    playlistIntroHeight = $state(0),
+    playlistFiltersHeight = $state(0);
   const rowHeight = 60,
     overscan = 8;
 
@@ -2935,9 +2937,16 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     }
     return sortTracks(list, (sort === "durationSeconds" ? "duration" : sort) as TrackSortField, descending ? "desc" : "asc");
   });
+  const playlistHeroVisible = $derived(view === "collections" || view === "favorites" || (view === "charts" && Boolean(activeBrowserImport || chart)));
   const virtualized = $derived(sorted.length > 1000);
   const windowRows = $derived(
-    rowWindow(sorted.length, scrollTop, viewportHeight, rowHeight, overscan),
+    rowWindow(
+      sorted.length,
+      Math.max(0, scrollTop - (playlistHeroVisible ? playlistIntroHeight : 0)),
+      Math.max(rowHeight, viewportHeight - (playlistHeroVisible ? playlistFiltersHeight : 0)),
+      rowHeight,
+      overscan,
+    ),
   );
   const startRow = $derived(windowRows.start);
   const endRow = $derived(windowRows.end);
@@ -2969,7 +2978,6 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
   const currentCollection = $derived(
     collections.find((c) => c.id === collectionId),
   );
-  const playlistHeroVisible = $derived(view === "collections" || view === "favorites" || (view === "charts" && Boolean(activeBrowserImport || chart)));
   const playlistHeroArtwork = $derived(playlistHeroVisible
     ? safeArtworkUrls([...new Set(tracks.slice(0, 16).map(track => track.artworkUrl))], 4)
     : []);
@@ -4778,15 +4786,24 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
   }
   function scrollToTrack(id: string) {
     if (!table) return;
+    const pinnedHeight = playlistHeroVisible ? playlistFiltersHeight : 0;
     if (!virtualized) {
-      table.querySelector(".shared-track-list li.selected")?.scrollIntoView({ block: "nearest" });
+      const row = table.querySelector<HTMLElement>(".shared-track-list li.selected");
+      if (!row) return;
+      const top = table.getBoundingClientRect().top + pinnedHeight;
+      if (row.getBoundingClientRect().top < top) {
+        table.scrollTop += row.getBoundingClientRect().top - top;
+      } else {
+        row.scrollIntoView({ block: "nearest" });
+      }
       return;
     }
-    const index = sorted.findIndex((t) => t.id === id),
-      top = index * rowHeight;
+    const index = sorted.findIndex((track) => track.id === id);
+    if (index < 0) return;
+    const top = index * rowHeight + (playlistHeroVisible ? playlistIntroHeight : 0);
     if (top < table.scrollTop) table.scrollTop = top;
-    else if (top + rowHeight > table.scrollTop + table.clientHeight - 38)
-      table.scrollTop = top + rowHeight - table.clientHeight + 38;
+    else if (top + rowHeight > table.scrollTop + table.clientHeight - pinnedHeight)
+      table.scrollTop = top + rowHeight - table.clientHeight + pinnedHeight;
     scrollTop = table.scrollTop;
   }
   async function refreshCollections() { collections = await call<Collection[]>("list_collections"); }
@@ -8194,24 +8211,12 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
         onSelect={id => void switchWorkspaceTab(id)} onClose={id => void closeWorkspaceTab(id)} onNew={() => void createWorkspaceTab()} />
     {/if}
     {#key activeWorkspaceTab}
-    <header class:playlist-header={playlistHeroVisible}>
+    <header class:compact-playlist-heading={playlistHeroVisible}>
       <div class="navigation-controls"><button aria-label="Go back" disabled={restoringRoute || !backRoutes.length} onclick={() => void travelRoute("back")}>←</button><button aria-label="Go forward" disabled={restoringRoute || !forwardRoutes.length} onclick={() => void travelRoute("forward")}>→</button>
         {#if workspaceTabs.length === 1}<button type="button" class="open-workspace-tab" aria-label="New tab" title="New tab" disabled={restoringRoute} onclick={() => void createWorkspaceTab()}>＋</button>{/if}
       </div>
-      <div class:playlist-identity={playlistHeroVisible}>
-        {#if playlistHeroVisible}<div class="playlist-hero-cover" aria-hidden="true">
-          <PlaylistArtwork urls={playlistHeroArtwork} fallback={view === "favorites" ? "♥" : "♫"} />
-        </div>{/if}
-        <div class:playlist-title-copy={playlistHeroVisible}>
-        {#if playlistHeroVisible}<span class="playlist-kind">Playlist</span>{/if}
-        <div class="eyebrow">DISCOVER · AUDITION · COLLECT</div>
-        <h1>{pageHeading}</h1>
-        {#if currentPlaylistCreator?.ownerName || currentPlaylistCreator?.ownerId}
-          <p class="playlist-creator">By {#if currentPlaylistCreator.ownerUrl}<button class="creator-profile-link" title="Browse Spotify creator playlists" onclick={() => void openCurrentPlaylistCreator()}>{currentPlaylistCreator.ownerName || currentPlaylistCreator.ownerId} ↗</button>{:else}{currentPlaylistCreator.ownerName || currentPlaylistCreator.ownerId}{/if}</p>
-        {/if}
-        {#if playlistHeroVisible}<p class="playlist-summary">{playlistHeroCount.toLocaleString()} tracks</p>{/if}
-        </div>
-      </div>
+      {#if playlistHeroVisible}<h1 class="playlist-heading-label">{pageHeading}</h1>
+      {:else}<div><div class="eyebrow">DISCOVER · AUDITION · COLLECT</div><h1>{pageHeading}</h1></div>
       <div class="header-actions">
         {#if busy}<span class="busy">Working…</span>{/if}{#if view !== "directory-browser" && view !== "artist" && view !== "settings" && !searchRelease}<button
           onclick={() => void createNewPlaylist()}>＋ New playlist</button
@@ -8237,7 +8242,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
           </div></details>
         {/if}
       </div>
-      {#if playlistHeroVisible && playlistHeroArtwork[0]}<img class="playlist-ambient" src={playlistHeroArtwork[0]} alt="" aria-hidden="true" />{/if}
+      {/if}
     </header>
     {#if backupHydrationReady}<SoulseekWishlist startupStorage={backupStartupPersistence} visible={showSavedSoulseekSearches} onClose={()=>showSavedSoulseekSearches=false} onReview={async(value)=>{showSavedSoulseekSearches=false;await navigate("search");query=value;catalogSearchSource="soulseek";catalogSearchKind="tracks";catalogSearchRequest++;}} />{/if}
     {#if !desktop()}<div class="banner">
@@ -8577,7 +8582,9 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
     {:else if view === "library" && (libraryBrowser.tab !== "tracks" || libraryBrowser.entity)}
       <LazyView loader={loadLibraryBrowser} label="library" componentProps={{ browserState: libraryBrowser, showProviderCounts, call, onNavigate: navigateLibraryBrowser, onStateChange: (next: LibraryBrowserState) => libraryBrowser = next, onBrowse: (entry: LibraryEntity, familyProvider?: string | null) => void run(() => browseLibraryEntity(entry, familyProvider)), onPlay: playArtistTrack, onQueue: queueArtistTracks, onDownload: (track: Track) => void openDownloadChooser(track), onFavorite: (track: Track) => void favorite(track), onPlaylist: (track: Track) => void addArtistTrack(track), onArtist: (track: Track) => void discoverArtist(track), onAlbum: (track: Track) => void openTrackAlbum(track), onContext: (track: Track, event: MouseEvent) => { actionTrack = track; actionAnchor = { x: event.clientX, y: event.clientY }; }, onAddSelectedToPlaylist: (items: Track[]) => void addTracksToPlaylist(items), onDownloadAlbum: (items: Track[]) => queueSelected(items), onSearchAlbumSoulseek: (entry: LibraryEntity) => openSoulseekAlbumSearchByTitle(entry.name, entry.artist), soulseekSearchAvailable: soulseekAlbumSearchAvailable, onAddAlbumToPlaylist: addAlbumToPlaylist, onAnalyzeLoudness: (items: Track[], gaps: number) => prepareReleaseLoudnessAnalysis(items, gaps, true), playingTrack, bufferingTrack: playbackLoading ? playingTrack : null, bufferingTrackId: playbackLoading ? playingTrack?.id ?? "" : "", playbackFailed: nativePlaybackStatus === "failed", paused }} />
     {:else}
+      {#snippet mainTrackActions()}
       <div class="toolbar" class:playlist-toolbar={view === "collections"} class:chart-toolbar={view === "charts"} class:library-toolbar={view === "library"} class:empty-library-toolbar={view === "library" && !showCreatePlaylist}>
+        {#if playlistHeroVisible}<button onclick={() => void createNewPlaylist()}>＋ New playlist</button>{/if}
         {#if view === "charts" && !activeBrowserImport}<select
             aria-label="Chart provider"
             bind:value={provider}
@@ -8618,6 +8625,9 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
           {#if renamingPlaylist}<input aria-label="Playlist name" bind:value={renamePlaylistName} onkeydown={(event)=>{if(event.key==="Enter")void renameCurrentPlaylist();if(event.key==="Escape")renamingPlaylist=false;}} /><button onclick={()=>void renameCurrentPlaylist()}>Save name</button>{/if}
           {#if currentPlaylistCreator}<button disabled={Boolean(busy)} onclick={()=>void refreshLinkedPlaylist(collectionId)}>Refresh</button>{#if (currentPlaylistCreator.provider === "spotify" || currentPlaylistCreator.provider === "youtube") && currentPlaylistCreator.canEdit}<LazyView loader={loadPlaylistSync} label="playlist sync" componentProps={{call,bindingId:currentPlaylistCreator.bindingId,enabled:remotePlaylistWriteSyncEnabled[currentPlaylistCreator.provider as "spotify" | "youtube"],onApplied:()=>refreshLinkedPlaylist(collectionId)}} />{/if}{/if}<button class="playlist-context-trigger" aria-label="Playlist context menu" title="More playlist actions" aria-haspopup="dialog" onclick={openCurrentPlaylistMenu}>⋯</button>{/if}
       </div>
+      {/snippet}
+      {#if !playlistHeroVisible}{@render mainTrackActions()}{/if}
+      {#snippet mainChartActions()}
       {#if view === "charts"}<div class="chart-context" class:import-context={Boolean(activeBrowserImport)}>
           <span
             >{playlistHeroVisible ? "" : chart?.title ?? "Genre charts"}{#if chart?.stale}<span class="tag"
@@ -8667,6 +8677,8 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
             >Open chart</button
           >
         </div>{/if}{/if}
+      {/snippet}
+      {#if !playlistHeroVisible}{@render mainChartActions()}{/if}
       {#if view === "library"}
         {#if mirrorStatus || pausedMirrors.length}<section class="library-overview" aria-label="Playlist file status">
           {#if mirrorStatus}<p class="sync-warning" role="status">{mirrorStatus}</p>{/if}
@@ -8676,7 +8688,9 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
       {/if}
       <div class="workspace" class:track-info-open={showTrackDetails} class:other-panel={showPlayingInfo || showQueue || showDownloads}>
         <section class="track-area">
-          <div class="table-tools" class:compact-tools={["library", "favorites", "collections"].includes(view)}>
+          {#snippet mainTrackFilters()}
+          <div class="table-tools" class:compact-tools={playlistHeroVisible || view === "library"}
+            class:playlist-pinned-tools={playlistHeroVisible} bind:offsetHeight={playlistFiltersHeight}>
             {#if view === "collections"}
               {#if localPlaylistSelectionMode}
                 <button disabled={!selectedLocalOccurrenceTracks.length} onclick={() => void addTracksToPlaylist(selectedLocalOccurrenceTracks)}>Add {selectedLocalOccurrenceTracks.length || "selected"} to playlist</button>
@@ -8694,6 +8708,14 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
               placeholder="Filter this view…"
               aria-label="Filter tracks"
             />
+            <select class="track-sort" aria-label="Sort tracks" bind:value={sort} onchange={() => (descending = false)}>
+              <option value="rank">Original order</option><option value="title" disabled={!mainSortAvailability.title}>{trackSortOptionLabel(mainSortAvailability, "title", "Title")}</option><option value="artist" disabled={!mainSortAvailability.artist}>{trackSortOptionLabel(mainSortAvailability, "artist", "Artist")}</option><option value="album" disabled={!mainSortAvailability.album}>{trackSortOptionLabel(mainSortAvailability, "album", "Album")}</option><option value="dateAdded" disabled={!mainSortAvailability.dateAdded}>{trackSortOptionLabel(mainSortAvailability, "dateAdded", "Date added")}</option><option value="plays" disabled={!mainSortAvailability.plays}>{trackSortOptionLabel(mainSortAvailability, "plays", "Plays")}</option><option value="views" disabled={!mainSortAvailability.views}>{trackSortOptionLabel(mainSortAvailability, "views", "Views")}</option><option value="bpm" disabled={!mainSortAvailability.bpm}>{trackSortOptionLabel(mainSortAvailability, "bpm", "BPM")}</option><option value="key" disabled={!mainSortAvailability.key}>{trackSortOptionLabel(mainSortAvailability, "key", "Key")}</option><option value="durationSeconds" disabled={!mainSortAvailability.duration}>{trackSortOptionLabel(mainSortAvailability, "duration", "Duration")}</option><option value="releaseDate" disabled={!mainSortAvailability.releaseDate}>{trackSortOptionLabel(mainSortAvailability, "releaseDate", "Release date")}</option>
+            </select>
+            {#if playlistHeroVisible || view === "library"}
+              <button class="sort-direction" aria-label="Toggle sort direction" title={descending ? "Descending" : "Ascending"} onclick={()=>descending=!descending}><span aria-hidden="true">{descending ? "↓" : "↑"}</span><span>{descending?"Desc":"Asc"}</span></button>
+              <details class="duration-filter-tools">
+                <summary aria-label={activeDurationFilterCount ? `Duration filters, ${activeDurationFilterCount} active` : "Duration filters"}>Filters{#if activeDurationFilterCount}<span class="active-filter-count" aria-hidden="true">{activeDurationFilterCount}</span>{/if}</summary>
+                <div class="duration-filter-fields">
             <label class="local-filter">Availability
               <select aria-label="Filter local recordings" bind:value={localFilter}>
                 <option value="all">All recordings</option>
@@ -8701,14 +8723,7 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
                 <option value="not-local">Not on this device</option>
               </select>
             </label>
-            <select class="track-sort" aria-label="Sort tracks" bind:value={sort} onchange={() => (descending = false)}>
-              <option value="rank">Original order</option><option value="title" disabled={!mainSortAvailability.title}>{trackSortOptionLabel(mainSortAvailability, "title", "Title")}</option><option value="artist" disabled={!mainSortAvailability.artist}>{trackSortOptionLabel(mainSortAvailability, "artist", "Artist")}</option><option value="album" disabled={!mainSortAvailability.album}>{trackSortOptionLabel(mainSortAvailability, "album", "Album")}</option><option value="dateAdded" disabled={!mainSortAvailability.dateAdded}>{trackSortOptionLabel(mainSortAvailability, "dateAdded", "Date added")}</option><option value="plays" disabled={!mainSortAvailability.plays}>{trackSortOptionLabel(mainSortAvailability, "plays", "Plays")}</option><option value="views" disabled={!mainSortAvailability.views}>{trackSortOptionLabel(mainSortAvailability, "views", "Views")}</option><option value="bpm" disabled={!mainSortAvailability.bpm}>{trackSortOptionLabel(mainSortAvailability, "bpm", "BPM")}</option><option value="key" disabled={!mainSortAvailability.key}>{trackSortOptionLabel(mainSortAvailability, "key", "Key")}</option><option value="durationSeconds" disabled={!mainSortAvailability.duration}>{trackSortOptionLabel(mainSortAvailability, "duration", "Duration")}</option><option value="releaseDate" disabled={!mainSortAvailability.releaseDate}>{trackSortOptionLabel(mainSortAvailability, "releaseDate", "Release date")}</option>
-            </select>
-            {#if ["library", "favorites", "collections"].includes(view)}
-              <button class="sort-direction" aria-label="Toggle sort direction" title={descending ? "Descending" : "Ascending"} onclick={()=>descending=!descending}><span aria-hidden="true">{descending ? "↓" : "↑"}</span><span>{descending?"Desc":"Asc"}</span></button>
-              <details class="duration-filter-tools">
-                <summary aria-label={activeDurationFilterCount ? `Duration filters, ${activeDurationFilterCount} active` : "Duration filters"}>Filters{#if activeDurationFilterCount}<span class="active-filter-count" aria-hidden="true">{activeDurationFilterCount}</span>{/if}</summary>
-                <div class="duration-filter-fields">
+
                   <label>Minimum duration<input aria-label="Minimum duration" placeholder="seconds or mm:ss" bind:value={durationMinimum}/></label>
                   <label>Maximum duration<input aria-label="Maximum duration" placeholder="seconds or mm:ss" bind:value={durationMaximum}/></label>
                   {#if activeDurationFilterCount}<button type="button" class="clear-duration-filters" onclick={() => { durationMinimum = ""; durationMaximum = ""; }}>Clear duration filters</button>{/if}
@@ -8716,6 +8731,13 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
               </details>
               <span class="track-count" title={`${sorted.length}${localPageTotal>tracks.length?` of ${localPageTotal}`:""} tracks`} aria-label={`${sorted.length}${localPageTotal>tracks.length?` of ${localPageTotal}`:""} tracks`}>{sorted.length}{localPageTotal>tracks.length?`/${localPageTotal}`:""}<span class="sr-only"> tracks</span></span>
             {:else}
+            <label class="local-filter">Availability
+              <select aria-label="Filter local recordings" bind:value={localFilter}>
+                <option value="all">All recordings</option>
+                <option value="local">On this device</option>
+                <option value="not-local">Not on this device</option>
+              </select>
+            </label>
               <TrackDurationFilter bind:minDuration={durationMinimum} bind:maxDuration={durationMaximum} minLabel="Minimum duration" maxLabel="Maximum duration" />
               <button aria-label="Toggle sort direction" onclick={()=>descending=!descending}>{descending?"Descending":"Ascending"}</button>
               <span>{sorted.length}{localPageTotal>tracks.length?` of ${localPageTotal}`:""} tracks</span>
@@ -8755,12 +8777,37 @@ import { type LoudnessAnalysisJobStatus, type LoudnessPlaybackStatus, type Loudn
               >↑ ↓ select · Space play · S shortlist · R reject</small
             >
           </div>
+          {/snippet}
+          {#if !playlistHeroVisible}{@render mainTrackFilters()}{/if}
           <div
             class="track-scroll desktop-track-list"
             bind:this={table}
             bind:clientHeight={viewportHeight}
             onscroll={(e) => (scrollTop = e.currentTarget.scrollTop)}
           >
+            {#if playlistHeroVisible}
+              <div class="playlist-scroll-intro" bind:offsetHeight={playlistIntroHeight}>
+                <header class="playlist-header playlist-scroll-header">
+      <div class="playlist-identity">
+        {#if playlistHeroVisible}<div class="playlist-hero-cover" aria-hidden="true">
+          <PlaylistArtwork urls={playlistHeroArtwork} fallback={view === "favorites" ? "♥" : "♫"} />
+        </div>{/if}
+        <div class="playlist-title-copy">
+        {#if playlistHeroVisible}<span class="playlist-kind">Playlist</span>{/if}
+        <p class="playlist-hero-name" aria-hidden="true">{pageHeading}</p>
+        {#if currentPlaylistCreator?.ownerName || currentPlaylistCreator?.ownerId}
+          <p class="playlist-creator">By {#if currentPlaylistCreator.ownerUrl}<button class="creator-profile-link" title="Browse Spotify creator playlists" onclick={() => void openCurrentPlaylistCreator()}>{currentPlaylistCreator.ownerName || currentPlaylistCreator.ownerId} ↗</button>{:else}{currentPlaylistCreator.ownerName || currentPlaylistCreator.ownerId}{/if}</p>
+        {/if}
+        {#if playlistHeroVisible}<p class="playlist-summary">{playlistHeroCount.toLocaleString()} tracks</p>{/if}
+        </div>
+      </div>
+      {#if playlistHeroVisible && playlistHeroArtwork[0]}<img class="playlist-ambient" src={playlistHeroArtwork[0]} alt="" aria-hidden="true" />{/if}
+                </header>
+                {@render mainTrackActions()}
+                {@render mainChartActions()}
+              </div>
+              {@render mainTrackFilters()}
+            {/if}
             {#if virtualized && startRow > 0}<div class="track-list-virtual-spacer" aria-hidden="true" style={`height:${startRow * rowHeight}px`}></div>{/if}
             <TrackList playbackFailed={nativePlaybackStatus === "failed"} reorderable={view === "collections" && sort === "rank" && !descending && !filter.trim() && localFilter === "all" && !durationMinimum && !durationMaximum && !playlistReordering && !localPageLoading} reorderCount={view === "collections" ? playlistMoveLimit : undefined} onReorder={movePlaylistEntry} onInvertSelection={() => {if(view === "collections") selectedLocalOccurrences = invertSelection(localOccurrenceRows.map(row=>row.key),selectedLocalOccurrences); else {checked=invertSelection(sorted.map(track=>track.id),checked);mergeConfirmed=false;}}} onAlbum={(track) => void openTrackAlbum(track)} tracks={virtualized ? visibleTracks : sorted} logicalRowCount={sorted.length} rowKeys={(virtualized ? visibleTracks : sorted).map((track,index) => `${track.id}:${(virtualized ? startRow : 0) + index}`)} focusedRowKey={view === "collections" ? focusedPlaylistRowKey : null} listLabel="Recordings" presentation="playlist" playingTrack={playingTrack} bufferingTrack={playbackLoading ? playingTrack : null} {paused} selectionMode={view === "collections" ? localPlaylistSelectionMode : batchSelectionMode} selectedTrackId={selected?.id} selectedTrackIds={view === "collections" ? selectedLocalOccurrences : checked} selectionKeys={view === "collections" ? localOccurrenceRows.slice(virtualized ? startRow : 0, virtualized ? endRow : sorted.length).map(row => row.key) : undefined} selectionLabel={(track, index) => view === "collections" ? `Select occurrence ${(virtualized ? startRow : 0) + index + 1}: ${track.title} for playlist` : `Select ${track.title}`} trackTitle={(track) => [track.title, bpmAnnotation(track), analysisAnnotation(track, "key")].filter(Boolean).join("\n")} position={(_, index) => (virtualized ? startRow : 0) + index + 1} meta={(track) => [track.bpm != null ? `${analysisAnnotation(track, "bpm") ? "≈" : ""}${String(track.bpm)} BPM` : "", track.key ? `${analysisAnnotation(track, "key") ? "≈" : ""}${track.key}` : "", !track.album && track.label ? track.label : "", track.disposition === "shortlist" ? "Shortlisted" : "", rowDownloadFeedback[track.id] ?? ""].filter(Boolean).join(" · ")} onPlay={(track, _window, index) => select(track, "click", (virtualized ? startRow : 0) + index)} onRowSelect={(track, event) => selectTrackRow(track, event)} onFavorite={favorite} onDownload={(track) => void openDownloadChooser(track, undefined, undefined, currentSavedPlaylistContext())} onArtist={(track) => void discoverArtist(track)} onContext={(track, event) => { actionTrack = track; const rect = event.type === "contextmenu" ? null : (event.currentTarget as HTMLElement).getBoundingClientRect(); actionAnchor = rect ? { x: rect.right, y: rect.bottom } : { x: event.clientX, y: event.clientY }; }} onSelect={(track, event, index) => { const checkedNow = (event.currentTarget as HTMLInputElement).checked; if (view === "collections") toggleLocalOccurrence((virtualized ? startRow : 0) + index, checkedNow); else { checked = checkedNow ? [...new Set([...checked, track.id])] : checked.filter(id => id !== track.id); mergeConfirmed = false; } }} virtualizationThreshold={100000} />
             {#if virtualized && endRow < sorted.length}<div class="track-list-virtual-spacer" aria-hidden="true" style={`height:${(sorted.length - endRow) * rowHeight}px`}></div>{/if}

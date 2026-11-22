@@ -41,7 +41,7 @@ describe('saved library views', () => {
     const { target } = render({ call });
     await vi.waitFor(() => expect(target.querySelector<HTMLImageElement>('.entity-card img')?.src).toBe(portrait));
     expect(call).toHaveBeenCalledWith('get_artist_artwork', { artist: { provider: 'spotify', id } });
-    expect(target.querySelector('.sticky-toolbar [aria-label="Filter saved artists"]')).not.toBeNull();
+    expect(target.querySelector('[aria-label="Filter saved artists"]')).not.toBeNull();
   });
 
   it('keeps a non-own-scrolling album in the outer scroll flow so Load more remains below it', async () => {

@@ -2352,7 +2352,7 @@ describe("saved recording navigation", () => {
     await settle();
     [...document.querySelectorAll<HTMLButtonElement>(".chart-toolbar button")].find((button) => button.textContent?.includes("Browse Top 100"))!.click();
     await settle();
-    expect(document.querySelector("header.playlist-header h1")?.textContent).toContain(chart.title);
+    expect(document.querySelector("header.playlist-header .playlist-hero-name")?.textContent).toContain(chart.title);
     expect(document.querySelector("header.playlist-header .playlist-hero-cover")).not.toBeNull();
     document.querySelector<HTMLButtonElement>('[aria-label="Playlist context menu"]')!.click(); await settle();
     const openSource = [...document.querySelectorAll<HTMLButtonElement>(".playlist-menu button")].find(button => menuActionText(button).includes("Open source to refresh"))!;
@@ -3235,7 +3235,7 @@ describe("saved recording navigation", () => {
     mockCollectionRows=[{...collectionTrack,provider,artworkUrl:"https://example.test/cover.jpg"}];
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
     collectionCard().click();await settle();
-    expect(document.querySelector("header.playlist-header h1")?.textContent).toContain("Saved Collection");
+    expect(document.querySelector("header.playlist-header .playlist-hero-name")?.textContent).toContain("Saved Collection");
     expect(document.querySelector("header.playlist-header .playlist-hero-cover img")).not.toBeNull();
     expect(document.querySelector("header.playlist-header .playlist-ambient")).not.toBeNull();
   });
@@ -3244,7 +3244,7 @@ describe("saved recording navigation", () => {
     playlistPreferences={...playlistPreferences,favoritesPlaylistId:""};
     const instance=mount(App,{target:document.body});unmountApp=()=>{void unmount(instance);};await settle();
     [...document.querySelectorAll<HTMLButtonElement>(".playlist-card")].find(button=>button.textContent?.includes("Liked Songs"))!.click();await settle();
-    expect(document.querySelector("header.playlist-header h1")?.textContent).toContain("Liked Songs");
+    expect(document.querySelector("header.playlist-header .playlist-hero-name")?.textContent).toContain("Liked Songs");
     expect(document.querySelector("header.playlist-header .playlist-hero-cover")).not.toBeNull();
   });
 
@@ -3278,7 +3278,8 @@ describe("saved recording navigation", () => {
     await settle();
 
     const header = document.querySelector<HTMLElement>("header.playlist-header")!;
-    expect(header.children[1]?.querySelector("h1")?.textContent).toContain("Saved Collection");
+    expect(header.querySelector(".playlist-hero-name")?.textContent).toContain("Saved Collection");
+    expect(header.closest(".track-scroll")).not.toBeNull();
     expect(header.querySelector(".playlist-ambient")).not.toBeNull();
     expect(header.lastElementChild?.classList.contains("playlist-ambient")).toBe(true);
 
@@ -4213,7 +4214,7 @@ describe("saved recording navigation", () => {
     expect(document.querySelector(".spotify-artist h1")?.textContent).toBe("Route Artist");
     expect(document.querySelector("main > header h1")?.textContent).toBe("Artist");
     document.querySelector<HTMLButtonElement>('[aria-label="Go back"]')!.click(); await settle();
-    expect(document.querySelector(".search-panel")).not.toBeNull();
+    expect(document.querySelector(".search-content")).not.toBeNull();
     document.querySelector<HTMLButtonElement>('[aria-label="Go forward"]')!.click(); await settle();
     expect(document.querySelector(".spotify-artist h1")?.textContent).toBe("Route Artist");
     document.querySelector<HTMLButtonElement>('[aria-label="Go forward"]')!.click(); await settle();
@@ -4254,7 +4255,7 @@ describe("saved recording navigation", () => {
     expect(document.querySelector(".spotify-artist h1")?.textContent).toBe(album.title);
     expect(mocks.call.mock.calls.some(([command]) => ["import_remote_playlists", "resolve_playback_track", "playback_command"].includes(command))).toBe(false);
     document.querySelector<HTMLButtonElement>('[aria-label="Go back"]')!.click(); await settle();
-    expect(document.querySelector(".search-panel")?.textContent).toContain(album.title);
+    expect(document.querySelector(".search-content")?.textContent).toContain(album.title);
   });
 
   it("opens a Discogs album search result with no artist credit", async () => {
@@ -4319,7 +4320,7 @@ describe("saved recording navigation", () => {
     expect(mocks.call.mock.calls.some(([command]) => ["search_artists", "preview_collection_import", "save_library_album", "save_library_tracks", "playback_command"].includes(command))).toBe(false);
     document.querySelector<HTMLButtonElement>('[aria-label="Go back"]')!.click();
     await settle();
-    expect(document.querySelector(".search-panel")?.textContent).toContain(release.title);
+    expect(document.querySelector(".search-content")?.textContent).toContain(release.title);
   });
 
   it.each(["track", "album", "artist", "playlist"] as const)("opens a pasted Spotify %s by its exact ID", async kind => {
@@ -4405,7 +4406,7 @@ describe("saved recording navigation", () => {
     expect(document.querySelector(".spotify-artist h1")?.textContent).toBe(album.title);
     expect(document.body.textContent).toContain(track.title);
     document.querySelector<HTMLButtonElement>('[aria-label="Go back"]')!.click(); await settle();
-    expect(document.querySelector(".search-panel")).not.toBeNull();
+    expect(document.querySelector(".search-content")).not.toBeNull();
   });
 
   it("opens the exact MusicBrainz release version from a track context menu", async () => {
@@ -10217,7 +10218,7 @@ describe("native playback frontend", () => {
     expect(finishLateRelease).toBeDefined();
     expect(document.querySelector(".release-view h1")?.textContent).toBe("Mixed History Album");
     document.querySelector<HTMLButtonElement>('[aria-label="Go back"]')!.click();await settle();await settle();
-    expect(document.querySelector(".search-panel")).not.toBeNull();
+    expect(document.querySelector(".search-content")).not.toBeNull();
     finishLateRelease([lateTrack]);await settle();await settle();
     expect(document.querySelector(".release-view")).toBeNull();
     expect(document.querySelector(".source-results")?.textContent).not.toContain(lateTrack.title);
@@ -10266,7 +10267,7 @@ describe("native playback frontend", () => {
     providerNavigationSnapshots.clear();
     document.querySelector<HTMLButtonElement>('[aria-label="Go back"]')!.click();await settle();await settle();
     expect(document.querySelector(".release-view")).toBeNull();
-    expect(document.querySelector(".search-panel")?.textContent).toContain("Previous search snapshot expired. Search again to reload it.");
+    expect(document.querySelector(".search-content")?.textContent).toContain("Previous search snapshot expired. Search again to reload it.");
     const before=mocks.call.mock.calls.filter(([command])=>command==="search_source").length;
     await searchDiscovery("Fresh after expiry",["musicbrainz"]);
     expect(mocks.call.mock.calls.filter(([command])=>command==="search_source").length).toBeGreaterThan(before);
@@ -10290,7 +10291,7 @@ describe("native playback frontend", () => {
     [...document.querySelectorAll<HTMLButtonElement>(".filters button")].find(button=>button.textContent?.trim()==="Albums")!.click();await settle();
     await searchDiscovery("Album route search",["musicbrainz"]);
     document.querySelector<HTMLButtonElement>(".source-results .load-more")!.click();await settle();
-    document.querySelector<HTMLElement>(".search-panel")!.scrollTop=420;
+    document.querySelector<HTMLElement>(".search-content")!.scrollTop=420;
     const searchReads=()=>mocks.call.mock.calls.filter(([command,args])=>command==="search_source"&&args?.query==="Album route search").length;
     const releaseReads=()=>mocks.call.mock.calls.filter(([command])=>command==="get_release_tracks").length;
     const before=searchReads();
@@ -10298,7 +10299,7 @@ describe("native playback frontend", () => {
     expect(document.querySelector(".release-view h1")?.textContent).toBe("History Album");
     document.querySelector<HTMLButtonElement>('[aria-label="Go back"]')!.click();await settle();await settle();
     expect(document.querySelector<HTMLInputElement>('[aria-label="Search music"]')?.value).toBe("Album route search");
-    expect(document.querySelector(".source-results")?.textContent).toContain("Other Album");expect(document.querySelector<HTMLElement>(".search-panel")?.scrollTop).toBe(420);expect(searchReads()).toBe(before);
+    expect(document.querySelector(".source-results")?.textContent).toContain("Other Album");expect(document.querySelector<HTMLElement>(".search-content")?.scrollTop).toBe(420);expect(searchReads()).toBe(before);
     document.querySelector<HTMLButtonElement>('[aria-label="Go forward"]')!.click();await settle();
     const filter=document.querySelector<HTMLInputElement>('.release-view [aria-label="Filter tracks"]')!;filter.value="retained";filter.dispatchEvent(new Event("input",{bubbles:true}));
     const sort=document.querySelector<HTMLSelectElement>('.release-view [aria-label="Sort tracks"]')!;sort.value="title";sort.dispatchEvent(new Event("change",{bubbles:true}));
@@ -10331,7 +10332,7 @@ describe("native playback frontend", () => {
     document.querySelector<HTMLButtonElement>('[aria-label="Toggle loaded track sort direction"]')!.click();
     for(const [label,value] of [["Minimum loaded track duration","200"],["Maximum loaded track duration","300"]]){const input=document.querySelector<HTMLInputElement>(`[aria-label="${label}"]`)!;input.value=value;input.dispatchEvent(new Event("input",{bubbles:true}));}
     await settle();
-    const panel=document.querySelector<HTMLElement>(".search-panel")!;panel.scrollTop=480;panel.dispatchEvent(new Event("scroll"));
+    const panel=document.querySelector<HTMLElement>(".search-content")!;panel.scrollTop=480;panel.dispatchEvent(new Event("scroll"));
     const searchCount=()=>mocks.call.mock.calls.filter(([command,args])=>command==="search_source"&&args?.query==="Navigation search").length;
     expect(searchCount()).toBe(2);
     document.querySelector<HTMLButtonElement>(".compact-track .artist-link")!.click();await settle();
@@ -10345,7 +10346,7 @@ describe("native playback frontend", () => {
       expect(document.querySelector<HTMLInputElement>('[aria-label="Minimum loaded track duration"]')?.value).toBe("200");
       expect(document.querySelector<HTMLInputElement>('[aria-label="Maximum loaded track duration"]')?.value).toBe("300");
       expect(document.querySelector(".source-results")?.textContent).toContain(first.title);expect(document.querySelector(".source-results")?.textContent).toContain(second.title);
-      expect(document.querySelector<HTMLElement>(".search-panel")?.scrollTop).toBe(480);expect(searchCount()).toBe(2);
+      expect(document.querySelector<HTMLElement>(".search-content")?.scrollTop).toBe(480);expect(searchCount()).toBe(2);
     };
     document.querySelector<HTMLButtonElement>('[aria-label="Go back"]')!.click();await settle();await settle();assertRestored();
     document.querySelector<HTMLButtonElement>('[aria-label="Go forward"]')!.click();await settle();expect(document.querySelector(".artist-page")).not.toBeNull();

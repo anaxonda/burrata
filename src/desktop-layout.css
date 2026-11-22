@@ -232,8 +232,6 @@
   .app-shell > main > header:not(.playlist-header) h1 { min-width:0; white-space:nowrap; overflow-wrap:normal; overflow:hidden; text-overflow:ellipsis; line-height:1.15; }
   .app-shell > main > header:not(.playlist-header) .header-actions { flex:1 1 100%; min-width:0; flex-wrap:wrap; justify-content:flex-start; }
 }
-.app-shell > main > header.playlist-header { flex-wrap:wrap; }
-.app-shell > main > header.playlist-header .header-actions { flex:1 1 100%; min-width:0; flex-wrap:wrap; gap:8px; }
 .playlist-header .playlist-action-scope { color:var(--muted); font-size:12px; }
 .playlist-header > div:nth-child(2) { flex:1; min-width:0; }
 .chart-context.import-context { justify-content:flex-start; }
@@ -313,7 +311,7 @@
 }
 
 /* Playlist identity and artwork share a compact, responsive hero. */
-.app-shell > main > header.playlist-header, .remote-detail-header.playlist-header { position:relative; overflow:hidden; isolation:isolate; padding:20px 22px; align-items:flex-start; background:linear-gradient(145deg,color-mix(in srgb,var(--accent) 13%,var(--surface)),var(--base)); }
+.playlist-scroll-header, .remote-detail-header.playlist-header { position:relative; overflow:hidden; isolation:isolate; padding:20px 22px; align-items:flex-start; background:linear-gradient(145deg,color-mix(in srgb,var(--accent) 13%,var(--surface)),var(--base)); }
 .playlist-header > :not(.playlist-ambient) { position:relative; z-index:1; }
 .playlist-header .playlist-ambient, img.artwork-ambient { position:absolute; inset:-35%; width:170%; height:170%; object-fit:cover; filter:blur(var(--artwork-ambient-blur,50px)); opacity:var(--artwork-ambient-opacity,.2); pointer-events:none; z-index:-1; }
 .playlist-header .playlist-identity { display:flex; align-items:flex-end; gap:20px; flex:1 1 300px; min-width:0; }
@@ -323,15 +321,13 @@
 .playlist-hero-cover .fallback { font-size:44px; opacity:.5; }
 .playlist-title-copy { min-width:0; }
 .playlist-kind { display:block; font-size:12px; font-weight:600; margin-bottom:8px; }
-.app-shell > main > header.playlist-header h1, .remote-detail-header.playlist-header h2 { font-size:clamp(24px,3vw,42px); line-height:1.08; text-wrap:balance; }
+.playlist-scroll-header .playlist-hero-name, .remote-detail-header.playlist-header h2 { font-size:clamp(24px,3vw,42px); line-height:1.08; text-wrap:balance; }
 .playlist-summary { margin:10px 0 0; color:var(--muted); font-size:12px; }
 .toolbar.playlist-toolbar { padding-block-start:16px; }
-.app-shell > main > header.playlist-header .header-actions { flex:0 0 auto; margin-left:auto; }
 @container main-pane (max-width:600px) {
- .app-shell > main > header.playlist-header, .remote-detail-header.playlist-header { padding:14px 12px; gap:10px; }
+ .playlist-scroll-header, .remote-detail-header.playlist-header { padding:14px 12px; gap:10px; }
  .playlist-header .playlist-identity { gap:12px; flex-basis:calc(100% - 90px); }
  .playlist-hero-cover { flex-basis:84px; width:84px; }
- .app-shell > main > header.playlist-header .header-actions { flex-basis:100%; }
 }
 
 @container main-pane (max-width: 600px) {
@@ -339,3 +335,65 @@
     justify-content: flex-end;
   }
 }
+
+
+.app-shell > main > header.compact-playlist-heading {
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 4px 12px;
+}
+.app-shell > main > header .playlist-heading-label {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 20px;
+  font-weight: 650;
+}
+.playlist-hero-name { margin: 0; font-weight: 650; letter-spacing: -0.7px; }
+.playlist-scroll-intro .toolbar { padding-block: 8px; }
+.playlist-scroll-header .playlist-identity { flex-basis: 100%; }
+.table-tools.compact-tools.playlist-pinned-tools {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  background: var(--surface);
+  min-height: 40px;
+  padding-block: 3px;
+}
+.table-tools.compact-tools > .duration-filter-tools .local-filter {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+}
+.table-tools.compact-tools > .duration-filter-tools .local-filter select { width: 100%; }
+.table-tools.compact-tools.playlist-pinned-tools:not(:has(> [aria-live], > [role="status"], > input[aria-label="New playlist for selection"])) { flex-wrap: nowrap; }
+@media (max-width: 650px) {
+  .table-tools.compact-tools.playlist-pinned-tools > input[aria-label="Filter tracks"] {
+    flex: 1 1 80px;
+    min-width: 56px;
+  }
+  .table-tools.compact-tools.playlist-pinned-tools .track-sort { flex: 0 1 88px; min-width: 68px; }
+  .table-tools.compact-tools.playlist-pinned-tools > .sort-direction { min-width: 32px; }
+  .table-tools.compact-tools.playlist-pinned-tools > .sort-direction > span:last-child,
+  .table-tools.compact-tools.playlist-pinned-tools > .track-count { display: none; }
+}
+
+/* Reserve one line for the controls that follow a scrolling album or playlist. */
+section .sticky-toolbar.compact-track-filter-bar {
+  display: flex;
+  flex: none;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding-block: 3px;
+}
+section .sticky-toolbar.compact-track-filter-bar > input { flex: 1 1 0; width: auto; min-width: 68px; }
+section .sticky-toolbar.compact-track-filter-bar > select { flex: 0 1 128px; min-width: 68px; max-width: 160px; }

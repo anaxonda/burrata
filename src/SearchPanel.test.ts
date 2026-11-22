@@ -1033,7 +1033,7 @@ describe("SearchPanel", () => {
     input.value = "virtual"; input.dispatchEvent(new Event("input", { bubbles: true }));
     target.querySelector(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     await settle();
-    const panel = target.querySelector<HTMLElement>(".search-panel")!;
+    const panel = target.querySelector<HTMLElement>(".search-content")!;
     const virtualResults = target.querySelector<HTMLElement>(".virtual-results")!;
     Object.defineProperty(panel, "clientHeight", { configurable: true, value: 600 });
     let simulatedScrollTop = panel.scrollTop;
@@ -1088,7 +1088,7 @@ describe("SearchPanel", () => {
       input.value = "resize"; input.dispatchEvent(new Event("input", { bubbles: true }));
       target.querySelector(".search-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
       await settle();
-      const panel = target.querySelector<HTMLElement>(".search-panel")!;
+      const panel = target.querySelector<HTMLElement>(".search-content")!;
       const before = target.querySelectorAll(".virtual-result-item").length;
       Object.defineProperty(panel, "clientHeight", { configurable: true, value: 100 });
       const observer = observers.find(entry => entry.targets.has(panel));

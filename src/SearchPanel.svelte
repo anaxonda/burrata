@@ -1513,7 +1513,9 @@
 <style>
   .search-toolbar { display:grid; flex:none; gap:.45rem; }
   .search-content { display:flex; flex:1; flex-direction:column; gap:inherit; min-height:0; overflow-y:auto; overflow-x:hidden; }
-  .search-panel > .search-form { flex:none; z-index:4; }
+  .search-panel > .search-form { flex:none; flex-wrap:nowrap; align-items:center; z-index:4; }
+  .search-panel > .search-form .search-input-wrap { flex:1 1 0; min-width:0; }
+  .search-panel > .search-form > button { flex:none; white-space:nowrap; }
   .sources-toggle{white-space:nowrap;font-size:.82rem;justify-self:start}
   .source-picker{position:fixed;z-index:1000;width:min(320px,calc(100vw - 16px));box-sizing:border-box;overflow:auto;padding:10px;border:1px solid var(--line,#454a50);border-radius:9px;background:var(--surface,#202823);color:var(--text,#eee);box-shadow:0 8px 24px #0007}
   .source-picker-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:4px}
