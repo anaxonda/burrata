@@ -519,7 +519,7 @@
   function cancelRestore() { restoreGeneration += 1; generation += 1; providerReads.cancelAll(); busy = false; }
 </script>
 
-<section class="spotify-artist" aria-label={initialAlbumId || albumPage ? "Spotify album" : "Spotify artist"} bind:this={scrollElement} onscroll={(event) => { scrollTop = (event.currentTarget as HTMLElement).scrollTop; onScroll(scrollTop); }}>
+<section class="spotify-artist" class:album-view={Boolean(albumPage)} aria-label={initialAlbumId || albumPage ? "Spotify album" : "Spotify artist"} bind:this={scrollElement} onscroll={(event) => { scrollTop = (event.currentTarget as HTMLElement).scrollTop; onScroll(scrollTop); }}>
   {#if error}<p class="error" role="alert">{error}</p>{/if}
   {#if albumQueueStatus}<p class={albumQueueStatus.loading ? "notice" : "notice error"} role={albumQueueStatus.loading ? "status" : "alert"}>{albumQueueStatus.text}</p>{/if}
   {#if albumPage}
@@ -643,8 +643,11 @@
   }
   @media (min-width:901px) and (max-height:650px) {
     .spotify-artist { padding:8px 16px; gap:6px; }
+    .spotify-artist.album-view { --album-top-inset: 8px; }
     .top-tracks .track-controls { margin:4px 0; }
   }
+  .spotify-artist.album-view { padding-block-start: 0; }
+  .spotify-artist.album-view > :global(:first-child) { margin-block-start: var(--album-top-inset, 1rem); }
   .spotify-artist .browse-provider{box-sizing:border-box;min-height:34px;height:auto;padding:.3rem .6rem;font-size:.8rem;line-height:1.2}
   .spotify-artist .browse-provider{display:inline-flex;vertical-align:middle;margin:0}
   .spotify-artist .track-controls select,.spotify-artist .release-controls select{appearance:none;-webkit-appearance:none;box-sizing:border-box;display:block;height:34px;min-height:34px;max-height:34px;padding:0 30px 0 9px;font-size:12px;line-height:18px;text-align:left;background-image:linear-gradient(45deg,transparent 50%,var(--muted,#a3a8ae) 50%),linear-gradient(135deg,var(--muted,#a3a8ae) 50%,transparent 50%);background-position:calc(100% - 14px) 50%,calc(100% - 10px) 50%;background-size:4px 4px;background-repeat:no-repeat}
